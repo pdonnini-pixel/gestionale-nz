@@ -1,0 +1,361 @@
+-- =====================================================================
+-- NZ_ONLY 228 — Ricostruzione degli incassi giornalieri di MAGGIO 2026
+-- ---------------------------------------------------------------------
+-- Quarto mese ricostruito, dopo agosto (223), luglio (225) e giugno (227).
+-- 217 giornate (7 punti vendita x 31 giorni) dagli specchietti dei negozi.
+-- I corrispettivi coincidono con il registro gia' in daily_revenue su
+-- tutte e 217 le giornate, al centesimo.
+--
+-- FONTI (Drive, cartella negozio/MAGGIO):
+--   BARBERINO     SPECCHIETTI INCASSI MAGGIO 2026 BARBERINO
+--   VALDICHIANA   SPECCHIETTI INCASSI MAGGIO 2026 VALDICHIANA
+--   PALMANOVA     SPECCHIETTO INCASSI MAGGIO 2026 PALMANOVA
+--   BRUGNATO      SPECCHIETTO INCASSI MAGGIO 2026 BRUGNATO
+--   FRANCIACORTA  SPECCHIETTO INCASSI MAGGIO 2026 FRANCIACORTA
+--   TORINO        SPECCHIETTO INCASSI MAGGIO 2026 TORINO
+--   VALMONTONE    SPECCHIETTO INCASSI MAGGIO 2026 VALMONTONE
+--
+-- DECISIONI DOCUMENTATE:
+--  1. Come a giugno, nessun foglio di maggio ha la colonna CONTANTI: il
+--     contante e' ricavato per differenza (corrispettivi + fatture meno
+--     gli altri canali). Tutti i totali per canale coincidono con la riga
+--     TOTALE di ogni foglio.
+--  2. Brugnato 26/05: i soli canali elettronici (357,90) superano i
+--     corrispettivi del giorno (301,90). Il contante risulterebbe -56,00,
+--     quindi e' stato messo a zero e la giornata resta con 56,00 di
+--     differenza dichiarata, non nascosta.
+--  3. I versamenti di fine maggio NON sono registrati qui: il denaro esce
+--     dalla cassa a giugno ed e' gia' sulle chiusure del 01-03/06 create
+--     dalla migration 227 (Barberino 1.580, Valdichiana 1.901,25,
+--     Palmanova 1.610, Franciacorta 1.835, Brugnato 550, Valmontone 3.275,
+--     Torino 1.090). Registrarli anche a maggio li avrebbe contati due volte.
+--  4. Franciacorta 14/05: il versamento di 2.645,00 e' in banca il 13/05
+--     (ATM 01030-2121, causale "FRANCIACORTA MAGGIO 06-11"), cioe' il
+--     giorno PRIMA della giornata su cui il negozio lo dichiara. Il
+--     riscontro automatico non lo trova mai, perche' cerca solo in avanti:
+--     agganciato a mano, come il 2.300,00 di Torino del 17/06.
+--  5. Franciacorta Amex su BCC del 01/05 (42,00) e del 03/05 (238,00):
+--     l'accredito del 04/05 vale 312,90 e copre anche giornate di fine
+--     aprile non ancora ricostruite. Le due righe restano 'mancante'
+--     finche' aprile non entra: allora bastera' rilanciare il riscontro.
+--
+-- ESITO: 28 versamenti dichiarati, 28 trovati in banca, nessuna differenza;
+--        212 chiusure su 217 verificate; una sola giornata non quadrata
+--        (Brugnato 26/05, punto 2). Tre accrediti POS restano 'differenza'
+--        per sola commissione sopra la tolleranza dell'1,5% su importi
+--        piccoli (Barberino 14/05 -1,71%, Barberino 19/05 -1,63%,
+--        Palmanova 11/05 -1,68%): sono accrediti veri, non ammanchi.
+--
+-- NO DATA LOSS: solo INSERT. La proiezione in daily_revenue riscrive righe
+-- esistenti con gli stessi identici gross_revenue (verificato prima).
+-- Applicata su NZ il 15/09/2026. Solo NZ.
+-- =====================================================================
+
+BEGIN;
+
+CREATE TEMP TABLE _stg_incassi_maggio_2026 (
+  outlet text, giorno date, incasso numeric, contanti numeric, mps numeric, mpsx numeric,
+  bcc numeric, bccx numeric, pbl numeric, fatture numeric, bonifico numeric,
+  spese numeric, spese_note text, versamento numeric, vers_note text, nota text) ON COMMIT DROP;
+
+INSERT INTO _stg_incassi_maggio_2026 VALUES
+('BARBERINO','2026-05-01',4741.41,492.6,3374.31,105.5,769.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-02',3066.4,535.7,2530.7,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-03',3208.65,685.15,2412.1,42.0,69.4,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-04',1207.81,0.0,1207.81,0.0,0.0,0.0,0.0,0.0,0.0,11.98,'FAMILY CENTER SF_381',0.0,NULL,NULL),
+('BARBERINO','2026-05-05',197.0,20.9,176.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1700.0,'01-04/05/2026',NULL),
+('BARBERINO','2026-05-06',129.12,0.0,129.12,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-07',759.45,251.6,507.85,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-08',555.4,140.3,415.1,0.0,0.0,0.0,0.0,0.0,0.0,16.54,'FAMILY CENTER SF_396',0.0,NULL,NULL),
+('BARBERINO','2026-05-09',2897.6,344.3,2553.3,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-10',2262.85,309.1,1519.0,0.0,434.75,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-11',115.2,20.3,94.9,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-12',108.85,50.0,58.85,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1070.0,'05-11/05/2026',NULL),
+('BARBERINO','2026-05-13',475.95,169.8,306.15,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-14',911.1,74.9,836.2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-15',253.4,57.1,196.3,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-16',4659.3,1080.3,3177.2,366.9,34.9,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-17',3790.11,1108.7,2681.41,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-18',843.0,465.3,377.7,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-19',263.39,0.0,263.39,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,3005.0,'12-18/05/2026',NULL),
+('BARBERINO','2026-05-20',576.45,29.9,546.55,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-21',578.44,24.9,553.54,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-22',1328.42,362.4,966.02,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-23',1946.83,146.55,1800.28,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-24',2194.79,795.05,1399.74,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-25',212.05,75.0,137.05,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-26',372.29,0.0,372.29,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1435.0,'19-25/05/2026',NULL),
+('BARBERINO','2026-05-27',925.07,0.0,925.07,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-28',1001.5,75.8,888.9,36.8,0.0,0.0,0.0,0.0,0.0,25.64,'FAMILY CENTER SF_469',0.0,NULL,NULL),
+('BARBERINO','2026-05-29',1153.54,176.9,849.52,127.12,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-30',3271.66,773.2,2498.46,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BARBERINO','2026-05-31',2839.24,577.9,892.29,0.0,1369.05,0.0,0.0,0.0,0.0,0.0,NULL,0.0,'contante 26-31/05 versato 1.580,00 il 01/06: registrato sulla chiusura del 01/06',NULL),
+('VALDICHIANA','2026-05-01',5415.82,963.4,5533.11,0.0,0.0,0.0,0.0,1080.69,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-02',6069.06,703.1,5336.06,29.9,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-03',4896.44,879.9,4016.54,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-04',1052.42,69.8,982.62,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-05',2008.78,293.8,1714.98,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,2616.2,'01-04/05/2026',NULL),
+('VALDICHIANA','2026-05-06',1351.3,165.25,1186.05,0.0,0.0,0.0,0.0,0.0,0.0,14.5,'SPESE CARTOLERIA',0.0,NULL,NULL),
+('VALDICHIANA','2026-05-07',1730.46,425.65,1304.81,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-08',2504.48,350.7,2153.78,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-09',4674.55,605.55,4069.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-10',5798.21,1471.9,4253.41,72.9,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-11',852.22,406.5,445.72,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-12',1121.25,303.4,817.85,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,3704.85,'05-11/05/2026',NULL),
+('VALDICHIANA','2026-05-13',726.88,62.9,663.98,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-14',1253.1,159.8,1093.3,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-15',1658.11,230.2,1427.91,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-16',5513.25,1031.5,0.0,0.0,4481.75,0.0,0.0,0.0,0.0,13.4,'W3W STORE SF_298',0.0,NULL,NULL),
+('VALDICHIANA','2026-05-17',4711.73,690.75,1624.51,0.0,2642.67,34.8,0.0,281.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-18',808.4,279.05,529.35,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-19',2080.99,754.1,1326.89,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,2744.2,'12-18/05/2026',NULL),
+('VALDICHIANA','2026-05-20',942.69,133.1,809.59,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-21',854.05,50.8,803.25,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-22',1671.28,30.35,1640.93,0.0,0.0,0.0,0.0,0.0,0.0,20.8,'DX SRL SF_360',0.0,NULL,NULL),
+('VALDICHIANA','2026-05-23',3884.56,354.4,3248.6,281.56,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-24',5153.03,994.35,4042.85,115.83,0.0,0.0,0.0,0.0,0.0,75.2,'RIMBORSO GALLO APR 26',0.0,NULL,NULL),
+('VALDICHIANA','2026-05-25',1700.81,298.8,1402.01,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-26',989.05,411.95,577.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,2519.9,'19-25/05/2026',NULL),
+('VALDICHIANA','2026-05-27',1194.55,172.1,1022.45,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-28',1959.92,278.9,1681.02,0.0,0.0,0.0,0.0,0.0,0.0,157.45,'SPESE SARTORIALI 40,00+DX SRL SF_380',0.0,NULL,NULL),
+('VALDICHIANA','2026-05-29',1187.42,204.8,982.62,0.0,0.0,0.0,0.0,0.0,0.0,85.3,'DX SRL SF_384',0.0,NULL,NULL),
+('VALDICHIANA','2026-05-30',3743.2,285.2,3458.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALDICHIANA','2026-05-31',5054.31,791.05,4159.42,103.84,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,'contante 26-31/05 versato 1.901,25 il 01/06: registrato sulla chiusura del 01/06',NULL),
+('PALMANOVA','2026-05-01',2019.07,230.5,1788.57,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-02',3465.16,590.65,2874.51,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-03',2622.52,803.2,1819.32,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-04',815.37,231.9,583.47,0.0,0.0,0.0,0.0,0,0.0,110.08,'SF_276 RISPARMIO CASA',0.0,NULL,NULL),
+('PALMANOVA','2026-05-05',593.49,88.9,0.0,0.0,504.59,0.0,0.0,0,0.0,0.0,NULL,1745.0,'01-04/05/2026',NULL),
+('PALMANOVA','2026-05-06',252.44,19.9,232.54,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-07',851.0,283.2,567.8,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-08',1316.37,362.35,914.52,39.5,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-09',1279.45,318.1,927.75,33.6,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-10',2461.78,285.9,2175.88,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-11',218.5,72.9,145.6,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-12',445.92,119.7,326.22,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,1430.0,'05-11/05/2026',NULL),
+('PALMANOVA','2026-05-13',776.06,69.7,706.36,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-14',596.54,127.5,469.04,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-15',1772.96,241.3,1531.66,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-16',2835.69,455.2,2051.89,0.0,328.6,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-17',1957.47,670.55,1286.92,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-18',921.25,0.0,921.25,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-19',1158.95,165.9,993.05,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,1685.0,'12-18/05/2026',NULL),
+('PALMANOVA','2026-05-20',1075.55,167.55,908.0,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-21',1192.84,128.9,1063.94,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-22',576.71,29.9,546.81,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-23',2054.07,513.75,1540.32,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-24',2249.86,68.9,2180.96,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-25',343.45,64.9,278.55,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-26',622.32,179.5,442.82,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,1140.0,'19-25/05/2026',NULL),
+('PALMANOVA','2026-05-27',691.78,117.9,573.88,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-28',1427.52,397.1,502.72,527.7,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-29',628.54,97.0,531.54,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-30',1926.19,236.2,1456.31,0.0,233.68,0.0,0.0,0,0.0,0.0,NULL,0.0,NULL,NULL),
+('PALMANOVA','2026-05-31',2397.21,581.45,1815.76,0.0,0.0,0.0,0.0,0,0.0,0.0,NULL,0.0,'contante 26-31/05 versato 1.610,00 il 02/06: registrato sulla chiusura del 02/06',NULL),
+('BRUGNATO','2026-05-01',2182.74,459.3,1723.44,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-02',2274.3,955.7,59.4,0.0,1259.2,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-03',3104.6,152.7,103.95,0.0,2770.05,77.9,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-04',1560.85,158.05,1402.8,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-05',561.6,0.0,561.6,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1725.0,'01-04/05/2026',NULL),
+('BRUGNATO','2026-05-06',147.0,71.0,76.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-07',487.34,98.8,388.54,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-08',836.8,147.5,689.3,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-09',2172.7,396.1,249.5,0.0,1527.1,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-10',2531.2,442.5,310.5,0.0,1778.2,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-11',244.13,59.98,184.15,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1160.0,'05-10/05/2026',NULL),
+('BRUGNATO','2026-05-12',176.3,0.0,176.3,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-13',777.31,72.5,704.81,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-14',681.9,80.7,601.2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-15',1299.15,255.4,1043.75,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-16',1965.9,293.95,59.8,0.0,1612.15,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-17',2342.0,543.5,199.45,0.0,1599.05,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-18',573.8,143.6,430.2,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1305.0,'11-17/05/2026',NULL),
+('BRUGNATO','2026-05-19',452.8,34.3,418.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-20',713.71,136.65,577.06,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-21',518.0,0.0,709.0,34.3,0.0,0.0,0.0,225.3,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-22',1375.39,262.4,1112.99,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-23',1698.6,418.6,486.62,0.0,704.9,88.48,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-24',1228.44,543.35,556.92,0.0,128.17,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-25',780.0,101.1,507.1,171.8,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-26',301.9,0.0,215.4,142.5,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1640.0,'18-25/05/2026',NULL),
+('BRUGNATO','2026-05-27',1136.04,188.4,947.64,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-28',461.75,98.85,362.9,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-29',1928.99,201.85,1727.14,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-30',1315.94,43.2,110.1,0.0,1162.64,0.0,0.0,0.0,0.0,19.5,NULL,0.0,NULL,NULL),
+('BRUGNATO','2026-05-31',2576.58,95.4,257.84,0.0,2223.34,0.0,0.0,0.0,0.0,0.0,NULL,0.0,'contante 26-31/05 versato 550,00 il 03/06: registrato sulla chiusura del 03/06',NULL),
+('FRANCIACORTA','2026-05-01',5820.89,582.0,4978.19,0.0,218.7,42.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-02',5087.61,480.75,4507.86,0.0,99.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-03',4205.96,745.5,3142.66,0.0,79.8,238.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-04',321.6,64.2,257.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-05',612.7,175.1,437.6,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-06',759.7,157.45,327.25,0.0,173.3,0.0,0.0,0.0,101.7,0.0,NULL,2045.0,'01-5/05/2026',NULL),
+('FRANCIACORTA','2026-05-07',626.1,394.8,464.6,0.0,72.5,0.0,0.0,305.8,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-08',2385.32,392.1,1640.82,0.0,0.0,352.4,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-09',5380.15,867.7,3938.15,0.0,483.2,91.1,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-10',3409.71,482.4,2927.31,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-11',916.2,352.15,564.05,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-12',601.6,49.0,318.7,0.0,233.9,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-13',820.52,166.4,654.12,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-14',1434.32,347.8,975.02,0.0,111.5,0.0,0.0,0.0,0.0,0.0,NULL,2645.0,'06-11/05/2026',NULL),
+('FRANCIACORTA','2026-05-15',1299.42,373.65,714.55,0.0,128.9,82.32,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-16',3651.6,840.9,1907.1,0.0,755.3,148.3,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-17',4376.73,1217.3,3000.03,0.0,34.9,124.5,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-18',582.2,133.3,398.68,0.0,50.22,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-19',1537.51,0.0,901.61,0.0,0.0,635.9,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-20',1531.41,547.4,984.01,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,2995.0,'12-17/05/2026',NULL),
+('FRANCIACORTA','2026-05-21',1147.85,65.8,587.25,0.0,0.0,494.8,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-22',1501.27,285.2,757.42,0.0,458.65,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-23',3004.93,815.85,2023.6,0.0,165.48,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-24',2983.88,461.2,2522.68,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-25',457.25,363.2,163.05,0.0,0.0,0.0,0.0,69.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-26',997.91,219.65,678.56,0.0,99.7,0.0,0.0,0.0,0.0,0.0,NULL,2310.0,'18-24/05/2026',NULL),
+('FRANCIACORTA','2026-05-27',324.07,0.0,324.07,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-28',1056.01,153.2,837.81,0.0,65.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-29',1860.87,109.85,1690.02,0.0,33.0,28.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-30',3077.58,589.7,2443.38,0.0,44.5,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('FRANCIACORTA','2026-05-31',3443.66,399.3,2610.54,0.0,433.82,0.0,0.0,0.0,0.0,0.0,NULL,0.0,'contante 25-31/05 versato 1.835,00 il 03/06: registrato sulla chiusura del 03/06',NULL),
+('TORINO','2026-05-01',5953.98,886.8,5057.28,9.9,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-02',4446.47,324.0,4122.47,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-03',4315.06,1059.9,3149.46,105.7,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-04',564.44,0.0,564.44,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-05',534.25,0.0,0.0,0.0,534.25,0.0,0.0,0.0,0.0,0.0,NULL,2270.0,'01-04/05/2026',NULL),
+('TORINO','2026-05-06',652.7,233.0,49.9,0.0,369.8,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-07',610.35,55.3,296.25,0.0,258.8,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-08',801.5,150.75,549.75,101.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-09',2870.05,19.9,2732.15,118.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-10',3862.65,666.85,3195.8,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-11',1109.95,244.4,865.55,0.0,0.0,0.0,0.0,0.0,0.0,24.9,'TEDI SF_2120000160',0.0,NULL,NULL),
+('TORINO','2026-05-12',645.6,71.9,879.36,0.0,0.0,0.0,0.0,305.66,0.0,0.0,NULL,1350.0,'05-11/05/2026',NULL),
+('TORINO','2026-05-13',1353.0,190.7,1162.3,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-14',1131.35,327.5,680.45,123.4,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-15',760.3,421.3,339.0,0.0,0.0,0.0,0.0,0.0,0.0,11.2,'DAL BALDO SF_35',0.0,NULL,NULL),
+('TORINO','2026-05-16',3863.17,299.8,3563.37,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-17',3444.1,169.7,3274.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-18',453.67,59.9,393.77,0.0,0.0,0.0,0.0,0.0,0.0,89.55,'ABN SF_377+LIN JIANYING SF_343',0.0,NULL,NULL),
+('TORINO','2026-05-19',901.55,0.0,871.65,29.9,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1440.0,'12-18/05/2026',NULL),
+('TORINO','2026-05-20',789.81,99.0,690.81,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-21',559.05,134.95,386.1,38.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-22',2431.95,791.05,1587.4,53.5,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-23',2964.22,83.45,2880.77,0.0,0.0,0.0,0.0,0.0,0.0,40.0,'TEDI SF_2120000170+DAL BALDO SF_39',0.0,NULL,NULL),
+('TORINO','2026-05-24',3398.06,382.4,3015.66,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-25',176.75,74.3,102.45,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-26',743.92,105.4,448.28,190.24,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1520.0,'19-25/05/2026',NULL),
+('TORINO','2026-05-27',667.41,0.0,667.41,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-28',735.22,34.5,440.92,259.8,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-29',1976.57,206.6,1769.97,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-30',5216.83,138.75,2558.92,0.0,2454.16,65.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('TORINO','2026-05-31',6388.32,592.9,1507.61,0.0,4287.81,0.0,0.0,0.0,0.0,0.0,NULL,0.0,'contante 26-31/05 versato 1.090,00 il 17/06: registrato sulla chiusura del 17/06',NULL),
+('VALMONTONE','2026-05-01',6035.72,1179.55,117.3,0.0,4635.22,103.65,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-02',6490.58,958.4,5510.28,21.9,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-03',4043.45,762.1,3316.35,59.9,0.0,0.0,0.0,94.9,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-04',1522.56,0.0,1522.56,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,2900.0,'01-03/05/2026',NULL),
+('VALMONTONE','2026-05-05',1563.68,87.1,1371.28,105.3,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-06',953.0,192.5,760.5,0.0,0.0,0.0,0.0,0.0,0.0,65.44,'RICAGEST SF_2540127090+IL CENTRO UFFICIO SF_374',0.0,NULL,NULL),
+('VALMONTONE','2026-05-07',1198.46,170.7,1027.76,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-08',883.4,0.0,883.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-09',4979.68,846.6,0.0,0.0,4054.08,79.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-10',2220.91,310.3,1910.61,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-11',928.3,218.5,709.8,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,1540.0,'01-10/05/2026',NULL),
+('VALMONTONE','2026-05-12',480.03,29.9,450.13,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-13',498.07,96.4,401.67,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-14',1809.59,541.45,1268.14,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-15',390.15,38.0,352.15,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-16',4348.5,748.2,0.0,0.0,2974.8,476.0,149.5,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-17',4131.27,491.5,3639.77,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-18',1515.88,29.9,1485.98,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,2165.0,'11-17/05/2026',NULL),
+('VALMONTONE','2026-05-19',382.92,87.3,295.62,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-20',878.15,93.9,527.3,256.95,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-21',2186.91,929.95,1202.01,54.95,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-22',1855.45,78.2,1777.25,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-23',4571.23,735.35,120.4,0.0,3345.93,369.55,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-24',4342.19,567.1,3775.09,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-25',778.73,0.0,778.73,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,2525.0,'18-24/05/2026',NULL),
+('VALMONTONE','2026-05-26',1167.85,230.0,937.85,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-27',377.13,9.95,367.18,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-28',817.83,324.6,348.49,0.0,0.0,0.0,144.74,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-29',4687.66,526.5,3764.3,396.86,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-30',6989.04,869.75,6119.29,0.0,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,NULL,NULL),
+('VALMONTONE','2026-05-31',6604.04,1317.5,5178.66,107.88,0.0,0.0,0.0,0.0,0.0,0.0,NULL,0.0,'contante 25-31/05 versato 3.275,00 il 03/06: registrato sulla chiusura del 03/06',NULL);
+
+INSERT INTO public.outlet_daily_closings
+  (company_id, outlet_id, closing_date, status, total_receipts, cash_expenses, cash_expenses_note,
+   cash_deposit, cash_deposit_note, closed_by_name, notes)
+SELECT o.company_id, o.id, s.giorno, 'bozza', s.incasso, s.spese, s.spese_note,
+       s.versamento, s.vers_note, 'ricostruzione da specchietto',
+       COALESCE(s.nota || ' | ', '') || 'ricostruzione maggio 2026 dallo specchietto incassi del punto vendita (Drive)'
+FROM _stg_incassi_maggio_2026 s
+JOIN public.outlets o ON o.name = s.outlet
+WHERE NOT EXISTS (SELECT 1 FROM public.outlet_daily_closings c WHERE c.outlet_id = o.id AND c.closing_date = s.giorno);
+
+WITH dati AS (
+  SELECT c.id AS closing_id, c.company_id, c.outlet_id, x.label, x.amount
+  FROM _stg_incassi_maggio_2026 s
+  JOIN public.outlets o ON o.name = s.outlet
+  JOIN public.outlet_daily_closings c ON c.outlet_id = o.id AND c.closing_date = s.giorno
+  CROSS JOIN LATERAL (VALUES ('Contanti', s.contanti), ('POS MPS', s.mps), ('POS MPS Amex', s.mpsx),
+                             ('POS BCC', s.bcc), ('POS BCC Amex', s.bccx), ('Pay by link', s.pbl),
+                             ('Fatture', s.fatture), ('Bonifico', s.bonifico)) AS x(label, amount)
+)
+INSERT INTO public.outlet_daily_closing_lines (closing_id, company_id, outlet_id, channel_id, amount)
+SELECT d.closing_id, d.company_id, d.outlet_id, ch.id, d.amount
+FROM dati d
+JOIN public.outlet_payment_channels ch ON ch.outlet_id = d.outlet_id AND ch.label = d.label AND ch.is_active
+WHERE NOT EXISTS (SELECT 1 FROM public.outlet_daily_closing_lines l WHERE l.closing_id = d.closing_id AND l.channel_id = ch.id);
+
+INSERT INTO public.outlet_daily_closing_expenses (closing_id, company_id, outlet_id, amount, description, kind, sort_order)
+SELECT c.id, c.company_id, c.outlet_id, s.spese,
+       COALESCE(NULLIF(btrim(s.spese_note), ''), 'spesa di cassa da specchietto'), 'spesa', 1
+FROM _stg_incassi_maggio_2026 s
+JOIN public.outlets o ON o.name = s.outlet
+JOIN public.outlet_daily_closings c ON c.outlet_id = o.id AND c.closing_date = s.giorno
+WHERE s.spese > 0 AND NOT EXISTS (SELECT 1 FROM public.outlet_daily_closing_expenses e WHERE e.closing_id = c.id);
+
+UPDATE public.outlet_daily_closings SET updated_at = now() WHERE closing_date BETWEEN '2026-05-01' AND '2026-05-31';
+UPDATE public.outlet_daily_closings SET status = 'confermata', confirmed_at = now()
+ WHERE closing_date BETWEEN '2026-05-01' AND '2026-05-31' AND status = 'bozza';
+
+COMMIT;
+
+-- Riscontro automatico con la banca (POS per terminale + DATA RIF., Amex a
+-- finestra, versamenti per importo esatto entro sei giorni)
+SELECT public.match_cash_closings_with_bank((SELECT id FROM public.companies LIMIT 1), 145, 0.01);
+
+-- Franciacorta 14/05: versamento in banca il giorno prima della giornata
+-- dichiarata dal negozio, quindi invisibile al riscontro (cerca in avanti)
+WITH c AS (
+  SELECT cl.id, cl.company_id FROM public.outlet_daily_closings cl
+  JOIN public.outlets o ON o.id = cl.outlet_id
+  WHERE o.name = 'FRANCIACORTA' AND cl.closing_date = '2026-05-14'
+), b AS (
+  SELECT bt.id FROM public.bank_transactions bt
+  WHERE bt.transaction_date = '2026-05-13' AND bt.amount = 2645.00
+    AND (COALESCE(bt.description,'') || ' ' || COALESCE(bt.note,'')) ILIKE '%FRANCIACORTA MAGGIO 06-11%'
+)
+INSERT INTO public.closing_bank_matches (company_id, closing_id, bank_transaction_id, amount, match_type, reference_date, note)
+SELECT c.company_id, c.id, b.id, 2645.00, 'versamento', '2026-05-13',
+       'versamento del 13/05 (ATM Franciacorta, causale "MAGGIO 06-11") dichiarato dal negozio sulla chiusura del 14/05: abbinato a mano perche'' il motore cerca solo in avanti'
+FROM c CROSS JOIN b
+WHERE NOT EXISTS (SELECT 1 FROM public.closing_bank_matches m WHERE m.closing_id = c.id AND m.bank_transaction_id = b.id);
+
+UPDATE public.outlet_daily_closings cl
+   SET deposit_bank_status = 'accreditato', updated_at = now()
+  FROM public.outlets o
+ WHERE o.id = cl.outlet_id AND o.name = 'FRANCIACORTA' AND cl.closing_date = '2026-05-14';
+
+UPDATE public.bank_transactions bt
+   SET note = COALESCE(bt.note,'') || ' | versamento della chiusura cassa del 14/05/2026 (FRANCIACORTA)'
+ WHERE bt.transaction_date = '2026-05-13' AND bt.amount = 2645.00
+   AND (COALESCE(bt.description,'') || ' ' || COALESCE(bt.note,'')) ILIKE '%FRANCIACORTA MAGGIO 06-11%';
+
+SELECT public.match_cash_closings_with_bank((SELECT id FROM public.companies LIMIT 1), 145, 0.01);
+
+-- Proiezione nel registro corrispettivi: i lordi sono identici a quelli
+-- gia' presenti, cambia solo il dettaglio contanti/carte/altro
+SELECT count(*) FROM (
+  SELECT public.project_cash_closing_to_daily_revenue(c.id)
+  FROM public.outlet_daily_closings c WHERE c.closing_date BETWEEN '2026-05-01' AND '2026-05-31') t;
+
+-- VERIFICA
+-- SELECT count(*) chiusure, sum(total_receipts) incassi, sum(cash_deposit) versamenti
+--   FROM public.outlet_daily_closings WHERE closing_date BETWEEN '2026-05-01' AND '2026-05-31';
+--   atteso: 217 | 418533.52 | 56330.15

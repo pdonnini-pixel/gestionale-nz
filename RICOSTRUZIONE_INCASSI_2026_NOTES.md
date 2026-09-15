@@ -7,7 +7,7 @@
 > Luglio serviva a chiudere il conto del contante: i versamenti dei primi giorni di agosto
 > portavano in banca il contante di fine luglio.
 
-Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
+Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [maggio](#maggio-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
 
 ---
 
@@ -301,3 +301,46 @@ foglio, quindi la differenza e' un calcolo, non una stima.
 > `closing_date` a `+6 giorni`. Quando il negozio versa tutto in un giorno e poi lo attribuisce
 > a giornate diverse (Torino 17/06), il movimento e' anteriore alla chiusura e non viene mai
 > trovato. Una finestra simmetrica di un paio di giorni all'indietro lo risolverebbe.
+
+---
+
+## maggio 2026
+
+Migration `NZ_ONLY_20260915_228`. 217 giornate, e ancora una volta i corrispettivi coincidono
+con il registro gia' presente su tutti e 217 i giorni, al centesimo.
+
+| | |
+|---|---:|
+| Corrispettivi | 418.533,52 € |
+| Fatture | 2.362,35 € |
+| Contanti | 69.001,53 € |
+| Spese di cassa | 781,48 € |
+| Versamenti | 56.330,15 € |
+| Chiusure verificate dalla banca | 212 su 217 |
+
+**28 versamenti dichiarati, 28 trovati in banca, nessuna differenza.** Come a giugno nessun
+foglio di maggio ha la colonna CONTANTI, quindi il contante e' ricavato per differenza; i
+totali per canale coincidono con la riga TOTALE di ogni foglio, perciò è un calcolo e non una
+stima.
+
+### Cosa e' emerso
+
+- **Franciacorta 14/05**: il versamento di 2.645,00 e' in banca il **13/05**, cioe' il giorno
+  prima della giornata su cui il negozio lo dichiara (causale «FRANCIACORTA MAGGIO 06-11»).
+  Stesso caso del 2.300,00 di Torino del 17/06: il motore cerca solo in avanti e non lo trova
+  mai. Agganciato a mano. Due mesi su quattro hanno questo caso, quindi la finestra simmetrica
+  all'indietro non e' un'eccezione, e' la regola che manca.
+- **I versamenti di fine maggio non stanno a maggio.** Sono gia' registrati sulle chiusure del
+  01-03/06 create dalla 227, perche' il denaro esce dalla cassa a giugno: Barberino 1.580,
+  Valdichiana 1.901,25, Palmanova 1.610, Franciacorta 1.835, Brugnato 550, Valmontone 3.275,
+  Torino 1.090. Registrarli due volte avrebbe gonfiato i versamenti di 11.841,25 €.
+- **Brugnato 26/05** e' l'unica giornata che non quadra: i soli canali elettronici valgono
+  357,90 contro 301,90 di corrispettivi. Il contante risulterebbe negativo di 56,00, quindi
+  e' a zero e la differenza resta dichiarata.
+- **Franciacorta, Amex su BCC del 01/05 (42,00) e del 03/05 (238,00)**: restano «mancante»
+  perche' l'accredito del 04/05 vale 312,90 e copre anche giornate di fine aprile, che ancora
+  non esistono. Si chiuderanno da sole rilanciando il riscontro dopo aprile. E' il caso inverso
+  del 605,00 di luglio: li' il mese mancante falsava un abbinamento, qui ne impedisce uno.
+- Tre righe POS restano «differenza» per sola commissione oltre l'1,5 % su importi piccoli
+  (Barberino 14/05 −1,71 %, Barberino 19/05 −1,63 %, Palmanova 11/05 −1,68 %): sono accrediti
+  veri, non ammanchi.
