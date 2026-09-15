@@ -41,6 +41,7 @@ const SOURCE_TO_GUIDES = {
   'src/pages/PrimaNota.tsx': ['banche'],
   'src/lib/primaNotaExport.ts': ['banche'],
   'src/lib/primaNotaPagamenti.ts': ['banche'],
+  'src/lib/primaNotaIncassi.ts': ['banche'],
   'src/components/OpenBankingAcube.tsx': ['banche'],
   'src/components/AICategorization.tsx': ['banche', 'ai-categorie'],
   'src/components/PaymentAnomaliesPanel.tsx': ['banche'],
