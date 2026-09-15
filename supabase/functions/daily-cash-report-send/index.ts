@@ -118,8 +118,15 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
     admin.from("outlets").select("id, name, outlet_type, is_active, cost_center_key").eq("company_id", companyId).order("name"),
     admin.from("outlet_payment_channels").select("id, outlet_id, label, kind, counts_in_total").eq("company_id", companyId).eq("is_active", true),
   ]);
+  // Punti vendita che partecipano alle chiusure (migration 205): attivi, non sede/magazzino,
+  // con un operatore cassa o una chiusura recente. Stessa regola di daily_report_is_complete():
+  // un negozio appena creato in anagrafica non compare tra i mancanti e non blocca il report.
+  const { data: partRaw, error: partErr } = await admin.rpc("daily_report_outlets", { p_company_id: companyId });
+  if (partErr) console.error(`[daily-cash-report-send] daily_report_outlets:`, partErr.message);
+  const participating = new Set(((partRaw ?? []) as Array<{ outlet_id: string }>).map((x) => x.outlet_id));
   const outlets: Outlet[] = (outletsRaw ?? [])
     .filter((o) => (o.is_active ?? true) && !NON_SELLING.includes(String(o.outlet_type ?? "outlet").toLowerCase()))
+    .filter((o) => partErr || participating.size === 0 || participating.has(o.id))
     .map((o) => ({ id: o.id, name: o.name, cost_center_key: (o.cost_center_key as string | null) ?? null }));
   const channels = (channelsRaw ?? []) as Channel[];
   const outletIds = outlets.map((o) => o.id);
