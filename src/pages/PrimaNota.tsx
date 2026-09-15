@@ -35,9 +35,19 @@
 // Le buste paga vengono da employee_cost_slips (mese prima e mese del
 // pagamento), i flussi dai movimenti classificati «stipendi». Logica in
 // src/lib/primaNotaStipendi.ts (testata).
+//
+// Quinta vista «Carte» (richiesta di Patrizio, 15/09): un foglio per carta,
+// come per le banche. Gli estratti carta (CartaBCC/Numia, Carta Montepaschi,
+// prepagata Tasca) si importano qui dal PDF o dall'Excel del portale (o si
+// leggono dal file già archiviato in Banche → Archivio): le righe finiscono
+// in card_transactions, legate al loro bank_statements (doc_kind carta).
+// Per ogni estratto: righe, totale letto e dichiarato, addebito ritrovato in
+// banca (carte di credito) o ricariche ritrovate (prepagata), fatture dello
+// Scadenzario pagate con quella riga. Logica in src/lib/cartaEstratto.ts
+// (testata sui documenti veri).
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale, Users } from 'lucide-react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale, Users, CreditCard, Upload } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
@@ -63,6 +73,13 @@ import {
   abbinaStipendi, buildStipendioRow, nomeDipendente, competenzaLabel, competenzeCandidate, STIPENDI_COLUMN_WIDTHS,
   type PnSlip, type PnFlusso,
 } from '../lib/primaNotaStipendi'
+import {
+  parseCardStatementLines, parseTascaAoa, matchStatementDebit, matchRicariche, matchPayables, buildCartaRow, totaliCarta, sourceLabelOf,
+  ISSUER_LABELS, CARTE_COLUMN_WIDTHS, type CardStatementParsed, type CardLine, type PayableLite, type BankMovLite, type AoaCell,
+} from '../lib/cartaEstratto'
+import { archiviaFile } from '../lib/archivioFile'
+import { useToast } from '../components/Toast'
+import { Modal } from '../components/ui/Modal'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
 import TableScroll from '../components/ui/TableScroll'
@@ -104,7 +121,14 @@ const sheetName = (name: string, used: Set<string>): string => {
   return n
 }
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
-type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti'
+type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti' | 'carte'
+type CardStmt = { id: string; filename: string; file_type: string; source_label: string | null; card_last4: string | null; statement_total: number | null; settled_bank_transaction_id: string | null; period_year: number | null; period_month: number | null; transaction_count: number | null; file_path: string | null }
+type CardTx = CardLine & { id: string; statement_id: string; row_no: number; payable_id: string | null }
+type CardImportItem = { file: File | null; fileName: string; parsed: CardStatementParsed; existing: CardStmt | null; existingLines: number; label: string }
+const r2 = (n: number): number => Math.round(n * 100) / 100
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+/** Movimenti bancari che possono saldare o ricaricare una carta (addebito estratto, SDD carta, ricarica prepagata). */
+const RE_BANCA_CARTA = /CARTA DEL CREDITO COOPERATIVO|RICARICA CARTA|ADD\.?\s*DIRETTO CARTA|ADDEBITO DIRETTO CARTA|BANCA MONTE DEI PASCHI|CARTA DI CREDITO|ESTRATTO CONTO CARTA/i
 
 const MONTHS = [
   { v: 1, l: 'Gennaio' }, { v: 2, l: 'Febbraio' }, { v: 3, l: 'Marzo' }, { v: 4, l: 'Aprile' },
@@ -187,6 +211,15 @@ export default function PrimaNota() {
   const [closings, setClosings] = useState<PnClosingLite[]>([])
   // Dipendenti: buste paga dei mesi candidati (mese prima e mese del pagamento)
   const [slips, setSlips] = useState<PnSlip[]>([])
+  // Carte: estratti del periodo (bank_statements doc_kind carta), righe importate, fatture pagate con carta, movimenti banca che le saldano
+  const [cardStmts, setCardStmts] = useState<CardStmt[]>([])
+  const [cardTx, setCardTx] = useState<CardTx[]>([])
+  const [cardPayables, setCardPayables] = useState<PayableLite[]>([])
+  const [cardBankMovs, setCardBankMovs] = useState<BankMovLite[]>([])
+  const [cardImport, setCardImport] = useState<{ items: CardImportItem[]; busy: boolean } | null>(null)
+  const [cardParsing, setCardParsing] = useState(false)
+  const cardFileRef = useRef<HTMLInputElement>(null)
+  const { toast } = useToast()
   const [outletFilter, setOutletFilter] = useState<string | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(false)
@@ -496,9 +529,69 @@ export default function PrimaNota() {
     }
   }, [companyId, year, month])
 
+  type PayRow = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number | string; invoice_number: string | null; suppliers: { ragione_sociale: string | null; name: string | null } | null }
+  const payLite = (rows: PayRow[]): PayableLite[] => rows.map(p => ({ id: p.id, payment_date: p.payment_date, invoice_date: p.invoice_date, gross_amount: Number(p.gross_amount), invoice_number: p.invoice_number, supplier_name: p.suppliers?.ragione_sociale ?? p.suppliers?.name ?? null }))
+  const PAY_SELECT = 'id, payment_date, invoice_date, gross_amount, invoice_number, suppliers(ragione_sociale, name)'
+  const loadCardPayables = useCallback(async (from: string, to: string): Promise<PayableLite[]> => {
+    if (!companyId) return []
+    const { data } = await supabase.from('payables').select(PAY_SELECT).eq('company_id', companyId)
+      .in('payment_method', ['carta_credito', 'carta_debito']).gte('payment_date', addDays(from, -45)).lte('payment_date', addDays(to, 45)).limit(2000)
+    return payLite((data ?? []) as unknown as PayRow[])
+  }, [companyId])
+  const loadCardBankMovs = useCallback(async (from: string, to: string): Promise<BankMovLite[]> => {
+    if (!companyId) return []
+    const { data } = await supabase.from('bank_transactions').select('id, transaction_date, amount, description').eq('company_id', companyId)
+      .lt('amount', 0).gte('transaction_date', from).lte('transaction_date', addDays(to, 75)).limit(10000)
+    return ((data ?? []) as BankMovLite[]).filter(m => RE_BANCA_CARTA.test(m.description ?? '')).map(m => ({ ...m, amount: Number(m.amount) }))
+  }, [companyId])
+
+  // Carte: gli estratti del periodo con le righe importate, il file archiviato
+  // (per leggerlo da qui), le fatture pagate con carta intorno al periodo e i
+  // movimenti banca che possono saldare gli estratti (fino a 75 giorni dopo).
+  const loadCarte = useCallback(async () => {
+    if (!companyId) return
+    try {
+      let q = supabase.from('bank_statements')
+        .select('id, filename, file_type, source_label, card_last4, statement_total, settled_bank_transaction_id, period_year, period_month, transaction_count, file_url')
+        .eq('company_id', companyId).eq('doc_kind', 'carta').eq('period_year', year)
+      if (month) q = q.eq('period_month', month)
+      const { data: st, error: e1 } = await q.order('source_label').order('period_month').limit(500)
+      if (e1) throw e1
+      type StRow = Omit<CardStmt, 'file_path'> & { file_url: string | null }
+      const stmts = (st ?? []) as unknown as StRow[]
+      const ids = stmts.map(x => x.id)
+      const names = stmts.map(x => x.filename)
+      const [txRes, impRes, pays, movs] = await Promise.all([
+        ids.length > 0 ? supabase.from('card_transactions').select('id, statement_id, row_no, card_last4, purchase_date, posting_date, description, amount, fee, currency, original_amount, payable_id').in('statement_id', ids).order('purchase_date').order('row_no').limit(10000) : Promise.resolve({ data: [], error: null }),
+        names.length > 0 ? supabase.from('bank_imports').select('file_name, file_path').eq('company_id', companyId).in('file_name', names).limit(500) : Promise.resolve({ data: [], error: null }),
+        loadCardPayables(dateStart, dateEnd),
+        loadCardBankMovs(dateStart, dateEnd),
+      ])
+      if (txRes.error) throw txRes.error
+      const pathByName = new Map<string, string>()
+      for (const i of (impRes.data ?? []) as Array<{ file_name: string | null; file_path: string | null }>) if (i.file_name && i.file_path) pathByName.set(i.file_name, i.file_path)
+      setCardStmts(stmts.map(x => ({ ...x, statement_total: x.statement_total == null ? null : Number(x.statement_total), file_path: x.file_url ?? pathByName.get(x.filename) ?? null })))
+      const tx = ((txRes.data ?? []) as unknown as CardTx[]).map(t => ({ ...t, amount: Number(t.amount), fee: Number(t.fee), original_amount: t.original_amount == null ? null : Number(t.original_amount) }))
+      setCardTx(tx)
+      // Fatture agganciate all'import ma fuori dalla finestra: si caricano per id
+      const missing = [...new Set(tx.map(t => t.payable_id).filter((x): x is string => !!x && !pays.some(p => p.id === x)))]
+      let extra: PayableLite[] = []
+      if (missing.length > 0) {
+        const res = await Promise.all(chunk(missing).map(idsChunk => supabase.from('payables').select(PAY_SELECT).in('id', idsChunk)))
+        extra = payLite(res.flatMap(r => (r.data ?? []) as unknown as PayRow[]))
+      }
+      setCardPayables([...pays, ...extra])
+      setCardBankMovs(movs)
+    } catch (e) {
+      console.error('[PrimaNota] carte:', e)
+      setCardStmts([]); setCardTx([])
+    }
+  }, [companyId, year, month, dateStart, dateEnd, loadCardPayables, loadCardBankMovs])
+
   useEffect(() => { loadBankAccounts() }, [loadBankAccounts])
   useEffect(() => { loadQuadraturaData() }, [loadQuadraturaData])
   useEffect(() => { loadSlips() }, [loadSlips])
+  useEffect(() => { loadCarte() }, [loadCarte])
   useEffect(() => { loadMovements() }, [loadMovements])
   useEffect(() => { loadPagamenti() }, [loadPagamenti])
   useEffect(() => { loadIncassiLookups(movements.filter(m => m.amount > 0).map(m => m.id)) }, [movements, loadIncassiLookups])
@@ -572,6 +665,166 @@ export default function PrimaNota() {
   const bankNameOf = useCallback((id: string | null) => (id ? bankAccounts.find(b => b.id === id)?.bank_name ?? '—' : ''), [bankAccounts])
   const stipendiRows = useMemo(() => stipendi.rows.map(r => buildStipendioRow(r, bankNameOf, fmtDate)), [stipendi, bankNameOf])
   const movementById = useMemo(() => new Map(movements.map(m => [m.id, m])), [movements])
+
+  // Carte: per ogni estratto le righe, i totali, l'addebito in banca (carta di
+  // credito) o le ricariche ritrovate (prepagata) e le fatture pagate.
+  // Le carte di credito dello stesso emittente e mese (BCC *3145 e *5388) sono
+  // addebitate in banca con un movimento solo, piu' le commissioni: l'addebito
+  // si cerca sulla somma del gruppo e vale per tutti gli estratti del gruppo.
+  const carte = useMemo(() => {
+    const base = cardStmts.map(st => {
+      const lines = cardTx.filter(t => t.statement_id === st.id)
+      const tot = totaliCarta(lines)
+      const computed = r2(lines.reduce((a, l) => a + l.amount + l.fee, 0))
+      const isPrepagata = /prepagat/i.test(st.source_label ?? '') || lines.some(l => l.amount > 0 && /RICARICA/i.test(l.description))
+      const period = st.period_year && st.period_month ? { year: st.period_year, month: st.period_month } : null
+      const groupKey = `${(st.source_label ?? st.filename).replace(/\s*\*\d{4}$/, '')}|${period ? `${period.year}-${period.month}` : st.id}`
+      const ricariche = isPrepagata ? matchRicariche(lines, cardBankMovs) : new Map<number, BankMovLite>()
+      const nRicariche = lines.filter(l => l.amount > 0 && /RICARICA/i.test(l.description)).length
+      return { stmt: st, lines, tot, computed, isPrepagata, period, groupKey, ricariche, nRicariche, label: st.source_label ?? st.filename }
+    })
+    const groups = new Map<string, typeof base>()
+    for (const c of base) if (!c.isPrepagata && c.lines.length > 0) groups.set(c.groupKey, [...(groups.get(c.groupKey) ?? []), c])
+    const debitByGroup = new Map<string, { movement: BankMovLite | null; differenza: number; n: number }>()
+    for (const [k, g] of groups) {
+      const stored = g.map(c => c.stmt.settled_bank_transaction_id).find(Boolean)
+      const mov = stored ? cardBankMovs.find(m => m.id === stored) ?? null : null
+      const total = r2(g.reduce((a, c) => a + (c.stmt.statement_total ?? c.computed), 0))
+      const d = mov ? { movement: mov, differenza: r2(total - mov.amount) } : matchStatementDebit({ total_declared: total, total_computed: total, period: g[0].period, debit_date: null }, cardBankMovs)
+      debitByGroup.set(k, { ...d, n: g.length })
+    }
+    return base.map(c => ({ ...c, debit: debitByGroup.get(c.groupKey) ?? { movement: null, differenza: 0, n: 1 } }))
+  }, [cardStmts, cardTx, cardBankMovs])
+  const cartePay = useMemo(() => {
+    const byId = new Map(cardPayables.map(p => [p.id, p]))
+    const stored = new Set(cardTx.map(t => t.payable_id).filter(Boolean) as string[])
+    return carte.map(c => {
+      const m = matchPayables(c.lines, cardPayables.filter(p => !stored.has(p.id)))
+      c.lines.forEach((l, i) => { if (l.payable_id && byId.has(l.payable_id)) m.set(i, byId.get(l.payable_id)!) })
+      return m
+    })
+  }, [carte, cardPayables, cardTx])
+  const riscontroOf = useCallback((ci: number, li: number): string => {
+    const c = carte[ci]; const l = c.lines[li]
+    if (c.isPrepagata) { const r = c.ricariche.get(li); return l.amount > 0 && /RICARICA/i.test(l.description) ? (r ? `addebito in banca il ${fmtDate(r.transaction_date)}` : 'ricarica non trovata in banca') : '' }
+    return c.debit.movement ? `estratto addebitato il ${fmtDate(c.debit.movement.transaction_date)}` : 'addebito estratto non trovato'
+  }, [carte])
+  const carteRows = useMemo(() => carte.flatMap((c, ci) => c.lines.map((l, li) => buildCartaRow(c.label, l, cartePay[ci].get(li), riscontroOf(ci, li), fmtDate))), [carte, cartePay, riscontroOf])
+  const carteTot = useMemo(() => ({
+    n: carte.length, spese: r2(carte.reduce((a, c) => a + c.tot.spese, 0)), accrediti: r2(carte.reduce((a, c) => a + c.tot.accrediti, 0)),
+    righe: cardTx.length, senzaRighe: carte.filter(c => c.lines.length === 0).length,
+    addebitiTrovati: carte.filter(c => !c.isPrepagata && c.lines.length > 0 && c.debit.movement).length, addebitiAttesi: carte.filter(c => !c.isPrepagata && c.lines.length > 0).length,
+    fattureAgganciate: cartePay.reduce((a, m) => a + m.size, 0), speseN: cardTx.filter(t => t.amount < 0).length,
+  }), [carte, cartePay, cardTx])
+
+  // Import: legge il file (PDF via pdf.js, Excel via SheetJS) e propone l'anteprima
+  const parseCardFile = useCallback(async (file: File): Promise<CardStatementParsed> => {
+    const ext = (file.name.split('.').pop() ?? '').toLowerCase()
+    if (ext === 'pdf') {
+      const { extractPdfLines } = await import('../lib/pdfText')
+      return parseCardStatementLines(await extractPdfLines(file))
+    }
+    const XLSX = await import('xlsx')
+    const wb = XLSX.read(new Uint8Array(await file.arrayBuffer()), { type: 'array', cellDates: true })
+    let best: CardStatementParsed | null = null
+    for (const name of wb.SheetNames) {
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, raw: true, defval: null }) as AoaCell[][]
+      const parsed = parseTascaAoa(aoa)
+      if (!best || parsed.lines.length > best.lines.length) best = parsed
+    }
+    return best ?? parseTascaAoa([])
+  }, [])
+  const findExistingStatement = useCallback(async (label: string, last4: string | null, period: { year: number; month: number } | null): Promise<{ stmt: CardStmt | null; lines: number }> => {
+    if (!companyId || !period) return { stmt: null, lines: 0 }
+    const { data } = await supabase.from('bank_statements').select('id, filename, file_type, source_label, card_last4, statement_total, settled_bank_transaction_id, period_year, period_month, transaction_count, file_url')
+      .eq('company_id', companyId).eq('doc_kind', 'carta').eq('period_year', period.year).eq('period_month', period.month).limit(50)
+    const prefix = label.replace(/\s*\*\d{4}$/, '')
+    const hit = ((data ?? []) as unknown as Array<Omit<CardStmt, 'file_path'> & { file_url: string | null }>).find(x =>
+      (last4 && (x.card_last4 === last4 || (x.source_label ?? '').includes(last4))) || (!last4 && (x.source_label ?? '').startsWith(prefix)))
+    if (!hit) return { stmt: null, lines: 0 }
+    const { count } = await supabase.from('card_transactions').select('id', { count: 'exact', head: true }).eq('statement_id', hit.id)
+    return { stmt: { ...hit, statement_total: hit.statement_total == null ? null : Number(hit.statement_total), file_path: hit.file_url }, lines: count ?? 0 }
+  }, [companyId])
+  const onCardFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setCardParsing(true)
+    try {
+      const items: CardImportItem[] = []
+      for (const file of Array.from(files)) {
+        const parsed = await parseCardFile(file)
+        const last4 = parsed.cards[0]?.card_last4 ?? null
+        const label = sourceLabelOf(parsed.issuer, last4)
+        const ex = await findExistingStatement(label, last4, parsed.period)
+        items.push({ file, fileName: file.name, parsed, existing: ex.stmt, existingLines: ex.lines, label: ex.stmt?.source_label ?? label })
+      }
+      setCardImport({ items, busy: false })
+    } catch (e) {
+      toast({ type: 'error', message: `Lettura del file fallita: ${e instanceof Error ? e.message : String(e)}` })
+    } finally {
+      setCardParsing(false)
+      if (cardFileRef.current) cardFileRef.current.value = ''
+    }
+  }
+  const readCardFromArchive = async (st: CardStmt) => {
+    if (!st.file_path) return
+    setCardParsing(true)
+    try {
+      const { data, error: dErr } = await supabase.storage.from('bank-statements').download(st.file_path)
+      if (dErr || !data) throw dErr ?? new Error('file non trovato nel bucket')
+      const file = new File([data], st.filename.split('/').pop() ?? st.filename, { type: data.type })
+      const parsed = await parseCardFile(file)
+      setCardImport({ items: [{ file: null, fileName: st.filename, parsed, existing: st, existingLines: cardTx.filter(t => t.statement_id === st.id).length, label: st.source_label ?? sourceLabelOf(parsed.issuer, parsed.cards[0]?.card_last4 ?? null) }], busy: false })
+    } catch (e) {
+      toast({ type: 'error', message: `Lettura dall'archivio fallita: ${e instanceof Error ? e.message : String(e)}` })
+    } finally { setCardParsing(false) }
+  }
+  const saveCardImport = async () => {
+    if (!cardImport || !companyId) return
+    setCardImport(c => (c ? { ...c, busy: true } : c))
+    let ok = 0
+    const errs: string[] = []
+    for (const it of cardImport.items) {
+      if (it.parsed.lines.length === 0 || it.existingLines > 0) continue
+      try {
+        const period = it.parsed.period
+        const last4 = it.parsed.cards[0]?.card_last4 ?? it.existing?.card_last4 ?? null
+        const total = it.parsed.total_declared ?? it.parsed.total_computed
+        let stmtId = it.existing?.id ?? null
+        if (!stmtId) {
+          if (!it.file) throw new Error('file mancante')
+          const arch = await archiviaFile({ file: it.file, companyId, userId: null, modulo: 'Banche', funzione: `Estratto carta · ${it.label}`, bucket: 'bank-statements', year: period?.year ?? null, month: period?.month ?? null, referenceTable: 'bank_statements' })
+          if (arch.errore) throw new Error(arch.errore)
+          const ext = (it.file.name.split('.').pop() ?? '').toLowerCase()
+          const { data: ins, error: iErr } = await supabase.from('bank_statements').insert({
+            company_id: companyId, bank_account_id: null, filename: it.file.name, file_type: ext === 'pdf' ? 'pdf' : ext === 'csv' ? 'csv' : 'xlsx', status: 'completed',
+            doc_kind: 'carta', source_label: it.label, period_year: period?.year ?? null, period_month: period?.month ?? null,
+            card_last4: last4, statement_total: total, transaction_count: it.parsed.lines.length, import_document_id: arch.id, file_url: arch.path,
+          }).select('id').single()
+          if (iErr) throw iErr
+          stmtId = ins.id
+        } else {
+          const { error: uErr } = await supabase.from('bank_statements').update({ card_last4: last4, statement_total: total, transaction_count: it.parsed.lines.length }).eq('id', stmtId)
+          if (uErr) throw uErr
+        }
+        const pStart = period ? `${period.year}-${pad2(period.month)}-01` : dateStart
+        const pEnd = period ? lastDayOfMonthYMD(period.year, period.month) : dateEnd
+        const pm = matchPayables(it.parsed.lines, await loadCardPayables(pStart, pEnd))
+        const rows = it.parsed.lines.map((l, i) => ({
+          company_id: companyId, statement_id: stmtId!, row_no: i + 1, card_last4: l.card_last4 ?? last4, purchase_date: l.purchase_date, posting_date: l.posting_date,
+          description: l.description, amount: l.amount, fee: l.fee, currency: l.currency, original_amount: l.original_amount, payable_id: pm.get(i)?.id ?? null,
+        }))
+        for (const part of chunk(rows, 500)) { const { error: tErr } = await supabase.from('card_transactions').insert(part); if (tErr) throw tErr }
+        // L'addebito in banca si cerca a video sulla somma degli estratti dello stesso emittente e mese (vedi carte)
+        ok++
+      } catch (e) {
+        errs.push(`${it.fileName}: ${e instanceof Error ? e.message : String(e)}`)
+      }
+    }
+    setCardImport(null)
+    if (errs.length > 0) toast({ type: 'error', message: `${ok} estratti importati, ${errs.length} falliti: ${errs.join('; ')}`, duration: 12000 })
+    else toast({ type: 'success', message: `${ok} estratti carta importati` })
+    loadCarte()
+  }
   const toggleOutlet = (id: string) => setOutletFilter(cur => (cur === id ? null : id))
   // Cambiando periodo, conto o vista il filtro a clic si azzera
   useEffect(() => { setKindFilter(null); setFonteFilter(null); setOutletFilter(null) }, [year, month, bankAccountId, view])
@@ -616,7 +869,7 @@ export default function PrimaNota() {
   const rows = useMemo(() => movements.map(m => ({ ...buildRow(m, fmtDate, contropartitaOf(m)), 'Saldo progressivo': saldoById.get(m.id) ?? '' })), [movements, saldoById, contropartitaOf])
 
   const exportCsv = () => {
-    const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : stipendiRows
+    const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : view === 'dipendenti' ? stipendiRows : carteRows
     if (src.length === 0) return
     const headers = Object.keys(src[0])
     const csvRows = [
@@ -631,7 +884,7 @@ export default function PrimaNota() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${view === 'banca' ? 'prima_nota' : view === 'pagamenti' ? 'pagamenti_fornitori' : view === 'incassi' ? 'incassi_outlet' : 'dipendenti_emolumenti'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
+    a.download = `${view === 'banca' ? 'prima_nota' : view === 'pagamenti' ? 'pagamenti_fornitori' : view === 'incassi' ? 'incassi_outlet' : view === 'dipendenti' ? 'dipendenti_emolumenti' : 'carte'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -695,6 +948,34 @@ export default function PrimaNota() {
       ], { origin: -1 })
     }
     XLSX.utils.book_append_sheet(wb, wsDip, 'Dipendenti ed emolumenti')
+    // Un foglio per carta, come per i conti: intestazione, righe, totale letto e dichiarato, addebito in banca, differenza
+    carte.forEach((c, ci) => {
+      if (c.lines.length === 0) return
+      const pm = cartePay[ci]
+      const aoaC: Array<Array<string | number>> = [
+        ['Estratto carta', c.label],
+        ['Carta', c.stmt.card_last4 ? `**** ${c.stmt.card_last4}` : ''],
+        ['Periodo', c.stmt.period_year && c.stmt.period_month ? `${MONTHS.find(m => m.v === c.stmt.period_month)?.l} ${c.stmt.period_year}` : periodoLabel],
+        ['File', c.stmt.filename],
+        [],
+        ['Data acquisto', 'Data registrazione', 'Descrizione', 'Importo', 'Commissioni', 'Valuta', 'Fornitore', 'Fattura', 'Pagata il', 'Riscontro banca'],
+        ...c.lines.map((l, li) => {
+          const r = buildCartaRow(c.label, l, pm.get(li), riscontroOf(ci, li), fmtDate)
+          return [r['Data acquisto'], r['Data registrazione'], r.Descrizione, r.Importo, r.Commissioni, r.Valuta, r.Fornitore, r.Fattura, r['Pagata il'], r['Riscontro banca']] as Array<string | number>
+        }),
+        ['Totale operazioni (righe lette)', `${c.lines.length} operazioni: spese ${fmt(c.tot.spese)}, accrediti ${fmt(c.tot.accrediti)}, commissioni ${fmt(c.tot.commissioni)}`, '', c.computed],
+        ['Totale dichiarato dal documento', '', '', c.stmt.statement_total ?? 'n.d.'],
+        ...(c.isPrepagata
+          ? [['Ricariche ritrovate in banca', `${c.ricariche.size} su ${c.nRicariche}`, '', '']]
+          : [
+            ['Addebito in banca', c.debit.movement ? `${fmtDate(c.debit.movement.transaction_date)}: ${c.debit.movement.description ?? ''}` : 'non trovato', '', c.debit.movement?.amount ?? ''],
+            ['Differenza (commissioni della banca)', c.debit.movement ? (Math.abs(c.debit.differenza) < 0.005 ? 'quadra' : `quadra: l'addebito copre ${c.debit.n} estratti piu' ${fmt(c.debit.differenza)} di commissioni`) : 'addebito non trovato', '', c.debit.movement ? c.debit.differenza : ''],
+          ]),
+      ]
+      const wsC = XLSX.utils.aoa_to_sheet(aoaC)
+      wsC['!cols'] = [30, 16, 50, 12, 11, 7, 30, 18, 12, 30].map(wch => ({ wch }))
+      XLSX.utils.book_append_sheet(wb, wsC, sheetName(c.label, used))
+    })
     // Sheet riepilogo: totali del periodo + righe e importi per tipo di movimento
     const summaryData: Array<Array<string | number>> = [
       ['Periodo', `${periodoLabel} (per ${dateBasis === 'contabile' ? 'data contabile' : 'data operazione'})`],
@@ -722,6 +1003,12 @@ export default function PrimaNota() {
       ['Buste paga abbinate a una disposizione', stipendi.n_buste_abbinate, stipendi.totale_netti_abbinati],
       ['Buste paga del mese prima senza pagamento nel periodo', stipendi.n_buste_non_abbinate, ''],
       ['Disposizioni senza buste che le spieghino', stipendi.flussi_non_abbinati.length, Math.round(stipendi.flussi_non_abbinati.reduce((s, x) => s + (x.info.importo_bonifici ?? -x.flusso.amount), 0) * 100) / 100],
+      [],
+      ['Carte', 'Operazioni', 'Spese', 'Accrediti', 'Commissioni', 'Totale dichiarato', 'Addebito in banca', 'Fatture agganciate'],
+      ...carte.map((c, ci) => [c.label, c.lines.length, c.tot.spese, c.tot.accrediti, c.tot.commissioni, c.stmt.statement_total ?? 'n.d.',
+        c.isPrepagata ? `ricariche ${c.ricariche.size}/${c.nRicariche}` : c.lines.length === 0 ? 'righe non importate' : c.debit.movement ? `${fmtDate(c.debit.movement.transaction_date)} ${fmt(c.debit.movement.amount)}${c.debit.n > 1 ? ` per ${c.debit.n} estratti` : ''}${Math.abs(c.debit.differenza) < 0.005 ? '' : ` (commissioni ${fmt(c.debit.differenza)})`}` : 'non trovato',
+        cartePay[ci].size]),
+      ['Totale carte', carteTot.righe, carteTot.spese, carteTot.accrediti, '', '', `${carteTot.addebitiTrovati} su ${carteTot.addebitiAttesi}`, carteTot.fattureAgganciate],
       [],
       ['Quadratura con l\'estratto conto', `Saldo al ${quadPeriodo.giornoPrima}`, 'di cui letto dalla banca il', 'Entrate', 'Uscite', `Saldo al ${quadPeriodo.ultimoGiorno} calcolato`, `Saldo al ${quadPeriodo.ultimoGiorno} (banca)`, 'di cui letto dalla banca il', 'Differenza', 'Esito'],
       ...quadratura.map(q => [
@@ -814,7 +1101,7 @@ export default function PrimaNota() {
           {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
         </button>
         <div className="flex-1" />
-        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : stipendiRows).length === 0}
+        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : view === 'dipendenti' ? stipendiRows : carteRows).length === 0}
           className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg text-sm font-medium">
           <Download size={14} /> CSV
         </button>
@@ -841,6 +1128,10 @@ export default function PrimaNota() {
         <button role="tab" aria-selected={view === 'dipendenti'} onClick={() => setView('dipendenti')}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'dipendenti' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
           <Users size={14} /> Dipendenti <span className="text-xs opacity-70">{stipendi.rows.length}</span>
+        </button>
+        <button role="tab" aria-selected={view === 'carte'} onClick={() => setView('carte')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'carte' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+          <CreditCard size={14} /> Carte <span className="text-xs opacity-70">{carte.length}</span>
         </button>
       </div>
 
@@ -1269,6 +1560,119 @@ export default function PrimaNota() {
           </table>
         </TableScroll>
       </div>
+      </>)}
+
+      {view === 'carte' && (<>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        <KpiBox label="Estratti carta nel periodo" value={carteTot.n.toString()} color="slate" hint={carteTot.senzaRighe > 0 ? `${carteTot.senzaRighe} archiviati senza righe: leggili dal file` : carteTot.n > 0 ? 'tutti con le righe importate' : 'importa il PDF o l\'Excel dell\'estratto'} />
+        <KpiBox label="Spese con carta" value={`€ ${fmt(carteTot.spese)}`} color="red" hint={`${carteTot.speseN} operazioni`} />
+        <KpiBox label="Ricariche e storni" value={`€ ${fmt(carteTot.accrediti)}`} color="emerald" />
+        <KpiBox label="Addebiti trovati in banca" value={`${carteTot.addebitiTrovati} / ${carteTot.addebitiAttesi}`} color={carteTot.addebitiAttesi > 0 && carteTot.addebitiTrovati < carteTot.addebitiAttesi ? 'orange' : 'slate'} hint="carte di credito: l'addebito unico dell'estratto sul conto" />
+        <KpiBox label="Fatture agganciate" value={`${carteTot.fattureAgganciate} / ${carteTot.speseN}`} color="slate" hint="spese che pagano una fattura dello Scadenzario (carta)" />
+      </div>
+      <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex flex-wrap items-center gap-3 text-sm">
+        <input ref={cardFileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" multiple className="hidden" onChange={e => onCardFiles(e.target.files)} />
+        <button type="button" onClick={() => cardFileRef.current?.click()} disabled={cardParsing}
+          className="inline-flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
+          {cardParsing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Importa estratto carta
+        </button>
+        <span className="text-slate-600">PDF di CartaBCC (Numia) e Carta Montepaschi, Excel o PDF della prepagata Tasca. La carta, il mese e le righe si leggono dal documento; il file finisce in Archivio.</span>
+      </div>
+
+      {carte.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">Nessun estratto carta per il periodo selezionato</div>
+      ) : carte.map((c, ci) => {
+        const pm = cartePay[ci]
+        return (
+          <div key={c.stmt.id} className="bg-white rounded-xl border border-slate-200 mb-4 overflow-hidden">
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span className="font-semibold text-slate-800 inline-flex items-center gap-1.5"><CreditCard size={14} /> {c.label}</span>
+              <span className="text-xs text-slate-500">{c.stmt.period_year && c.stmt.period_month ? `${MONTHS.find(m => m.v === c.stmt.period_month)?.l} ${c.stmt.period_year}` : ''} · <Tooltip content={c.stmt.filename}><span className="cursor-help">{c.stmt.filename.split('/').pop()}</span></Tooltip></span>
+              <span className="text-xs text-slate-600">{c.lines.length} operazioni · spese <strong className="tabular-nums text-red-700">{fmt(c.tot.spese)}</strong>{c.tot.accrediti > 0 && <> · accrediti <strong className="tabular-nums text-emerald-700">{fmt(c.tot.accrediti)}</strong></>}{c.tot.commissioni !== 0 && <> · commissioni <strong className="tabular-nums">{fmt(c.tot.commissioni)}</strong></>}</span>
+              {c.stmt.statement_total != null && <span className="text-xs text-slate-600">dichiarato <strong className="tabular-nums">{fmt(c.stmt.statement_total)}</strong>{Math.abs(c.stmt.statement_total - c.computed) > 0.005 && <span className="text-red-700"> (letto {fmt(c.computed)})</span>}</span>}
+              {c.lines.length > 0 && (c.isPrepagata
+                ? <span className={`text-xs px-2 py-0.5 rounded ${c.ricariche.size === c.nRicariche ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-100 text-orange-800'}`}>ricariche in banca {c.ricariche.size}/{c.nRicariche}</span>
+                : c.debit.movement
+                  ? <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">addebito in banca {fmtDate(c.debit.movement.transaction_date)} {fmt(c.debit.movement.amount)}{c.debit.n > 1 && ` (${c.debit.n} estratti)`}{Math.abs(c.debit.differenza) >= 0.005 && ` · commissioni ${fmt(c.debit.differenza)}`}</span>
+                  : <span className="text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-800">addebito non ancora in banca</span>)}
+              <span className="flex-1" />
+              {c.lines.length === 0 && (c.stmt.file_path
+                ? <button type="button" onClick={() => readCardFromArchive(c.stmt)} disabled={cardParsing} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 disabled:opacity-50"><Upload size={12} /> Leggi le righe dal file archiviato</button>
+                : <span className="text-xs text-orange-800">file archiviato non trovato: importa di nuovo il documento</span>)}
+            </div>
+            {c.lines.length > 0 && (
+              <TableScroll>
+                <table className="w-full text-sm">
+                  <thead className="bg-white text-xs uppercase text-slate-600">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Data acquisto</th>
+                      <th className="px-3 py-2 text-left">Registr.</th>
+                      <th className="px-3 py-2 text-left">Descrizione</th>
+                      <th className="px-3 py-2 text-right">Importo</th>
+                      <th className="px-3 py-2 text-right">Comm.</th>
+                      <th className="px-3 py-2 text-left">Fattura pagata</th>
+                      <th className="px-3 py-2 text-left">Riscontro banca</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {c.lines.map((l, li) => {
+                      const p = pm.get(li)
+                      const risc = riscontroOf(ci, li)
+                      return (
+                        <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                          <td className="px-3 py-1.5 whitespace-nowrap text-slate-700">{fmtDate(l.purchase_date)}</td>
+                          <td className="px-3 py-1.5 whitespace-nowrap text-xs text-slate-500">{l.posting_date ? fmtDate(l.posting_date) : '—'}</td>
+                          <td className="px-3 py-1.5 text-slate-700 text-xs max-w-md"><div className="truncate" title={l.description}>{l.description}</div>{l.currency !== 'EUR' && l.original_amount != null && <span className="text-slate-400">{fmt(l.original_amount)} {l.currency}</span>}</td>
+                          <td className={`px-3 py-1.5 text-right tabular-nums whitespace-nowrap font-medium ${l.amount < 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmt(l.amount)}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-xs text-slate-500">{l.fee ? fmt(l.fee) : ''}</td>
+                          <td className="px-3 py-1.5 text-xs">{p ? <span className="text-slate-700">{p.supplier_name ?? '—'}<span className="block text-slate-400">fatt. {p.invoice_number ?? '?'}{p.payment_date ? ` · pagata il ${fmtDate(p.payment_date)}` : ''}</span></span> : l.amount < 0 ? <span className="text-slate-400">nessuna fattura con carta per questo importo</span> : ''}</td>
+                          <td className="px-3 py-1.5 text-xs">{risc && <span className={`inline-block px-1.5 py-0.5 rounded ${/non /.test(risc) ? 'bg-orange-100 text-orange-800' : 'bg-emerald-50 text-emerald-700'}`}>{risc}</span>}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </TableScroll>
+            )}
+          </div>
+        )
+      })}
+
+      <Modal open={cardImport !== null} onClose={() => { if (!cardImport?.busy) setCardImport(null) }} title="Importa estratti carta" maxWidthClass="max-w-3xl" closeOnBackdrop={false}>
+        {cardImport && (
+          <div className="space-y-3 text-sm">
+            {cardImport.items.map((it, i) => (
+              <div key={i} className="border border-slate-200 rounded-lg p-3">
+                <div className="font-medium text-slate-800">{it.fileName}</div>
+                <div className="text-xs text-slate-600 mt-1">
+                  {ISSUER_LABELS[it.parsed.issuer]}{it.parsed.cards.length > 0 && <> · carta {it.parsed.cards.map(cc => `**** ${cc.card_last4 ?? '?'}${cc.holder ? ` (${cc.holder})` : ''}`).join(', ')}</>}
+                  {it.parsed.period && <> · {MONTHS.find(m => m.v === it.parsed.period!.month)?.l} {it.parsed.period.year}</>}
+                </div>
+                <div className="text-xs text-slate-600">
+                  {it.parsed.lines.length} operazioni · totale letto <strong className="tabular-nums">{fmt(it.parsed.total_computed)}</strong>
+                  {it.parsed.total_declared != null && <> · dichiarato dal documento <strong className="tabular-nums">{fmt(it.parsed.total_declared)}</strong></>}
+                  {it.parsed.debit_date && <> · addebito annunciato il {fmtDate(it.parsed.debit_date)}</>}
+                </div>
+                {it.parsed.warnings.map((w, k) => <div key={k} className="text-xs text-orange-800 mt-1">⚠ {w}</div>)}
+                <div className="text-xs mt-1">
+                  {it.parsed.lines.length === 0 ? <span className="text-red-700">niente da importare</span>
+                    : it.existingLines > 0 ? <span className="text-orange-800">già importato in «{it.label}» con {it.existingLines} righe: questo file viene saltato (le righe esistenti non si toccano)</span>
+                    : it.existing ? <span className="text-emerald-700">aggiorna «{it.label}» già in Archivio senza righe: le {it.parsed.lines.length} operazioni vengono salvate</span>
+                    : <span className="text-emerald-700">nuovo estratto «{it.label}»: il file va in Archivio e le {it.parsed.lines.length} operazioni vengono salvate</span>}
+                </div>
+              </div>
+            ))}
+            <div className="text-xs text-slate-500">Ogni spesa viene agganciata alla fattura dello Scadenzario pagata con carta con lo stesso importo (entro 10 giorni); per le carte di credito si cerca in banca l'addebito con lo stesso totale.</div>
+            <div className="flex justify-end gap-2 pt-1">
+              <button type="button" onClick={() => setCardImport(null)} disabled={cardImport.busy} className="px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-50">Annulla</button>
+              <button type="button" onClick={saveCardImport} disabled={cardImport.busy || !cardImport.items.some(it => it.parsed.lines.length > 0 && it.existingLines === 0)}
+                className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
+                {cardImport.busy && <Loader2 size={14} className="animate-spin" />} Importa {cardImport.items.filter(it => it.parsed.lines.length > 0 && it.existingLines === 0).length} estratti
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
       </>)}
 
       {view === 'dipendenti' && (<>
