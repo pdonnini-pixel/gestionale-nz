@@ -137,6 +137,20 @@ Restano a Patrizio **solo** due categorie, che io non posso mai gestire:
 Per queste due categorie residue vale ancora la regola vecchia: dare SEMPRE passaggi **numerati, click-by-click**, i **3 project_id** dei tenant (NZ / Made / Zago) con il promemoria che vanno fatti tutti e 3 identici, e — se utile — una **query/verifica finale** da incollare. Patrizio non apre GitHub e non legge i file da solo.
 Se invece un connettore manca/non risponde, ricadono qui anche migration ed Edge Function (fallback manuale, vedi sopra).
 
+### Mail: sempre salvate in bozza su Gmail
+
+Quando Patrizio chiede di **preparare una mail**, la mail va **salvata come bozza sul suo Gmail**
+(connettore Gmail, `create_draft`), non soltanto scritta in chat. L'invio resta sempre a lui.
+
+- Il testo si scrive **in chat E in bozza**: in chat per leggerlo subito, in bozza per poterlo mandare.
+- Usare **testo semplice** (`body`). L'`htmlBody` passa dal connettore come testo letterale e il
+  destinatario si ritrova i tag a video: se serve formattazione, verificare la bozza con `get_draft`
+  prima di dire che è pronta.
+- Destinataria abituale dell'amministrazione: **Sabrina, `newzago@vicolo.com`**
+  (scrive anche da `amministrazione@miamor-shop.it`).
+
+---
+
 ### Divieti assoluti
 5. **MAI valori hardcoded specifici di un tenant** (company_id, P.IVA, UUID, project_id): usare SEMPRE il tenant attivo. Questo errore ha già causato danni in passato.
 6. **MAI operazioni distruttive sui dati di produzione.**

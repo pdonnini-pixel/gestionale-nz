@@ -700,7 +700,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/banche",
     "icon": "Landmark",
     "title": "Banche",
-    "description": "La pagina Banche è il punto in cui vedi tutta la liquidità dell'azienda: saldi dei conti, movimenti in entrata e uscita, abbinamento dei pagamenti alle fatture fornitori e i finanziamenti in corso. Accanto al saldo reale di ogni conto viene mostrato anche il saldo previsionale, cioè il saldo al netto delle distinte di pagamento (fornitori e F24) ancora da pagare su quel conto. I dati bancari arrivano automaticamente dalle banche collegate, non servono più caricamenti manuali di file.",
+    "description": "La pagina Banche è il punto in cui vedi tutta la liquidità dell'azienda: saldi dei conti, movimenti in entrata e uscita, abbinamento dei pagamenti alle fatture fornitori, quanto costano le commissioni di incasso con le carte e i finanziamenti in corso. Accanto al saldo reale di ogni conto viene mostrato anche il saldo previsionale, cioè il saldo al netto delle distinte di pagamento (fornitori e F24) ancora da pagare su quel conto. I dati bancari arrivano automaticamente dalle banche collegate, non servono più caricamenti manuali di file.",
     "sections": [
       {
         "heading": "Panoramica",
@@ -764,6 +764,17 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Passa alla vista \"Pagamenti fornitori\" per vedere una riga per ogni fattura pagata nel periodo, contanti e carta compresi; il badge Fonte dice da dove risulta pagata.",
           "Passa alla vista \"Incassi per outlet\" per vedere POS, Amex e versamenti attribuiti a ogni punto vendita; se il contatore \"Da attribuire\" è maggiore di zero, cliccalo e censisci il codice terminale o la parola chiave mancante in Incassi giornalieri → Canali.",
           "Clicca \"CSV\" o \"Excel\" per scaricare il file da inviare alla commercialista."
+        ]
+      },
+      {
+        "heading": "Commissioni",
+        "body": "Questa scheda dice quanto costa incassare con le carte, punto vendita per punto vendita e mese per mese. Il costo arriva in due forme diverse, e la scheda le distingue con un'etichetta. «Al lordo»: la banca accredita l'incasso per intero e il gestore (Amex, e Nexi per il punto vendita che ha quel contratto) addebita le commissioni a parte, di solito a inizio mese successivo, con un addebito SDD che si vede nei movimenti. «Al netto»: l'accredito arriva gi\u00e0 decurtato della commissione, che quindi non passa mai dal conto corrente e senza l'estratto conto del gestore non \u00e8 conoscibile. In alto tre numeri: le commissioni dell'anno scelto, la quota trattenuta alla fonte (quella che in banca non si vede) e quanti contratti sono censiti, divisi per regime. La tabella ha una riga per punto vendita e una colonna per mese, con il totale, l'aliquota effettiva calcolata sul transato quando \u00e8 noto, e l'etichetta del regime. Un riquadro azzurro avvisa quando una riga non viene da un estratto conto ma \u00e8 stata ricavata dall'addebito in banca: caricando il documento il valore viene sostituito da quello vero. Il pulsante «Carica estratti» accetta i PDF degli estratti Amex e Nexi, anche pi\u00f9 di uno alla volta: il file viene archiviato (lo ritrovi in Archivio documenti) e i numeri finiscono in tabella. Gli estratti che sono solo scansioni, senza testo dentro, non si possono leggere: la scheda lo dice e serve chiedere al gestore il documento originale.",
+        "steps": [
+          "Scegli l'anno in alto a destra.",
+          "Guarda la colonna Accredito: i punti vendita «al netto» sono quelli il cui costo non compare in banca e si conosce solo da qui.",
+          "Clicca «Carica estratti» e seleziona i PDF ricevuti da Amex o da Nexi (puoi sceglierne pi\u00f9 di uno insieme).",
+          "Leggi l'esito riga per riga: dice quale mese \u00e8 stato aggiornato e quanti punti vendita. Se compare «Codici non censiti», quel codice non \u00e8 ancora collegato a un punto vendita e va aggiunto prima di ricaricare il documento.",
+          "Se vedi il riquadro azzurro sulle righe ricavate dalla banca, procurati l'estratto conto di quei mesi e caricalo: il dato diventa quello del documento."
         ]
       },
       {

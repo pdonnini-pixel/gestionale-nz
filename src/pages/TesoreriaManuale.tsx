@@ -18,8 +18,8 @@ import {
 import { useSearchParams } from 'react-router-dom'
 
 // Tab principale TesoreriaManuale — persistito in URL come ?tab=
-type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione' | 'prima_nota' | 'finanziamenti'
-const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione', 'prima_nota', 'finanziamenti']
+type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione' | 'prima_nota' | 'commissioni' | 'finanziamenti'
+const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione', 'prima_nota', 'commissioni', 'finanziamenti']
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
@@ -31,6 +31,7 @@ import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from 
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
+import CommissioniIncasso from './CommissioniIncasso'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
 import CellTooltip from '../components/Tooltip'
@@ -50,6 +51,7 @@ const TABS = [
   { key: 'movimenti', label: 'Movimenti', icon: ArrowUpRight },
   { key: 'riconciliazione', label: 'Riconciliazione', icon: Link2 },
   { key: 'prima_nota', label: 'Prima Nota', icon: BookOpen },
+  { key: 'commissioni', label: 'Commissioni', icon: Percent },
   { key: 'finanziamenti', label: 'Finanziamenti', icon: Banknote },
 ] as const
 
@@ -4389,6 +4391,9 @@ export default function TesoreriaManuale() {
       )}
       {activeTab === 'prima_nota' && (
         <PrimaNota />
+      )}
+      {activeTab === 'commissioni' && (
+        <CommissioniIncasso />
       )}
       {activeTab === 'finanziamenti' && (
         <FinanziamentiTab accounts={accounts} companyId={companyId} uploadedByName={[profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.email || null} />
