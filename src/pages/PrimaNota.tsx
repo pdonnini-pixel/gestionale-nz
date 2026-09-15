@@ -472,6 +472,18 @@ export default function PrimaNota() {
     [movements, incassiLk],
   )
   const incassiRows = useMemo(() => incassi.map(({ m, a }) => buildIncassoRow(m, a, incassiLk, fmtDate)), [incassi, incassiLk])
+  // Contropartita per la Prima Nota: per POS, Amex e versamenti è l'outlet di
+  // riferimento (con il canale), non il testo della banca; per il resto quella
+  // del movimento (fornitore, F24, beneficiario in causale).
+  const contropartitaOf = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const { m, a } of incassi) {
+      if (!a.outlet_id) continue
+      const label = outletLabel(a.outlet_id, incassiLk)
+      if (label) byId.set(m.id, a.channel?.label ? `${label}, ${a.channel.label}` : label)
+    }
+    return (m: Movement): string => byId.get(m.id) ?? counterpartOf(m)
+  }, [incassi, incassiLk])
   const byOutlet = useMemo(() => summarizeByOutlet(incassi, incassiLk), [incassi, incassiLk])
   const incassiTot = useMemo(() => {
     const sum = (k: IncassoKind | null) => Math.round(incassi.filter(x => k === null || x.a.kind === k).reduce((s, x) => s + x.m.amount, 0) * 100) / 100
@@ -523,7 +535,7 @@ export default function PrimaNota() {
     [r.piu.length ? `+ ${r.piu.length} mov. arrivati dopo lo scarico (${fmt(sumRows(r.piu))})` : '', r.meno.length ? `− ${r.meno.length} mov. già nello scarico ma datati dopo (${fmt(sumRows(r.meno))})` : ''].filter(Boolean).join('; ')
 
   // Righe formato Prima Nota standardizzato (una per movimento, fatture in causale)
-  const rows = useMemo(() => movements.map(m => ({ ...buildRow(m, fmtDate), 'Saldo progressivo': saldoById.get(m.id) ?? '' })), [movements, saldoById])
+  const rows = useMemo(() => movements.map(m => ({ ...buildRow(m, fmtDate, contropartitaOf(m)), 'Saldo progressivo': saldoById.get(m.id) ?? '' })), [movements, saldoById, contropartitaOf])
 
   const exportCsv = () => {
     const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : incassiRows
@@ -567,7 +579,7 @@ export default function PrimaNota() {
         ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo'],
         [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''],
         ...ms.map(m => {
-          const r = buildRow(m, fmtDate)
+          const r = buildRow(m, fmtDate, contropartitaOf(m))
           return [r['Data operazione'], r['Data contabile'], r['Tipo movimento'], r.Contropartita, r['P.IVA Contropartita'], r['N. fatture'], r.Causale, r.Categoria,
             m.amount > 0 ? Math.round(m.amount * 100) / 100 : '', m.amount < 0 ? Math.round(-m.amount * 100) / 100 : '', saldoById.get(m.id) ?? ''] as Array<string | number>
         }),
@@ -1184,7 +1196,7 @@ export default function PrimaNota() {
               € {fmt(Math.abs(m.amount))}
               {!kindFilter && saldoById.get(m.id) != null && <span className="ml-2 text-xs font-normal text-slate-400">saldo {fmt(saldoById.get(m.id) as number)}</span>}
             </div>
-            <div className="text-sm font-medium text-slate-800 mt-0.5 break-words">{counterpartOf(m) || '—'}</div>
+            <div className="text-sm font-medium text-slate-800 mt-0.5 break-words">{contropartitaOf(m) || '—'}</div>
             {causaleOf(m) && (
               <div className="text-xs text-slate-600 mt-0.5 break-words">{causaleOf(m)}</div>
             )}
@@ -1286,8 +1298,8 @@ export default function PrimaNota() {
                   </td>
                   <td className="px-3 py-2 text-right text-slate-600 tabular-nums whitespace-nowrap text-xs">{saldo != null ? fmt(saldo) : '—'}</td>
                   <td className="px-3 py-2 text-slate-700 max-w-[200px]">
-                    <Tooltip content={counterpartOf(m)}>
-                      <div className="truncate cursor-help">{counterpartOf(m) || '—'}</div>
+                    <Tooltip content={contropartitaOf(m)}>
+                      <div className="truncate cursor-help">{contropartitaOf(m) || '—'}</div>
                     </Tooltip>
                   </td>
                   <td className="px-3 py-2 text-slate-500 text-xs font-mono">{pivaOf(m) || '—'}</td>

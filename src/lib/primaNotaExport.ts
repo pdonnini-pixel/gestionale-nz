@@ -202,9 +202,16 @@ export type PnRow = {
 
 export type PnBankAccount = { bank_name: string; account_name: string | null; iban: string | null } | null | undefined
 
+/**
+ * Riga di export. `contropartita`, se passata, sostituisce quella letta dal
+ * movimento: per POS e versamenti la pagina passa l'outlet di riferimento
+ * (attribuito dal codice terminale o dalla parola chiave), che allo studio
+ * dice più del testo della banca.
+ */
 export function buildRow(
   m: PnMovement & { transaction_date: string; posting_date?: string | null; currency: string | null; bank_accounts?: PnBankAccount },
   fmtDate: (d: string) => string,
+  contropartita?: string,
 ): PnRow {
   const n = invoiceCountOf(m)
   const tot = invoicesTotalOf(m)
@@ -217,7 +224,7 @@ export function buildRow(
     'Tipo movimento': KIND_LABELS[classifyMovement(m)],
     Importo: Math.abs(m.amount),
     Valuta: m.currency ?? 'EUR',
-    Contropartita: counterpartOf(m),
+    Contropartita: contropartita || counterpartOf(m),
     'P.IVA Contropartita': pivaOf(m),
     'N. fatture': n > 0 ? n : '',
     'Totale fatture': tot ?? '',

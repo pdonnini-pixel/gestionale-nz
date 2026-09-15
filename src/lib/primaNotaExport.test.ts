@@ -130,6 +130,11 @@ describe('buildRow e riepilogo', () => {
     expect(row.Tipo).toBe('Uscita')
     expect(row.Importo).toBe(466.95)
   })
+  it('riga export: la contropartita passata dalla pagina (outlet per POS e versamenti) vince su quella della banca', () => {
+    const base = { ...mv({ amount: 760, description: 'VERS. GDO DATA PR: 03-08-26 DATA DT: 01-08-26 VICOLO NEW ZAGO SRL CC PALMANOVA PALMANOVA', counterpart_name: 'VICOLO NEW ZAGO SRL' }), transaction_date: '2026-08-03', currency: null }
+    expect(buildRow(base, (d) => d, 'PLM · Palmanova, Contanti').Contropartita).toBe('PLM · Palmanova, Contanti')
+    expect(buildRow(base, (d) => d, '').Contropartita).toBe(buildRow(base, (d) => d).Contropartita)
+  })
   it('riepilogo per tipo: entrate e uscite separate, ordine fisso', () => {
     const s = summarizeByKind([
       mv({ amount: 100, description: 'Incassi PagoBancomat 30.08.26 - 618108700003 VICOLO' }),
