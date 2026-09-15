@@ -3053,7 +3053,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Come faccio a sapere se la mia segnalazione è stata risolta?",
-        "a": "Controlla lo stato nella lista o nel dettaglio del ticket: se è \"Risolto\" il problema dovrebbe essere sistemato. Troverai anche un commento (spesso con l'icona del robot se è stato l'AutoFix) che spiega cosa è stato fatto."
+        "a": "Non serve controllare: quando una segnalazione che hai aperto passa a \"Risolto\" ricevi un avviso nella campanella in alto (categoria Segnalazione, con il collegamento alla segnalazione) e una mail all'indirizzo del tuo profilo, con il titolo e la spiegazione di cosa è stato fatto (il commento dell'AutoFix o le note di risoluzione). Il badge accanto a \"Segnalazioni\" nel menu conta solo le tue segnalazioni ancora aperte o in corso, quindi si spegne quando vengono risolte. Nel dettaglio del ticket trovi comunque lo stato e il commento (spesso con l'icona del robot se è stato l'AutoFix) che spiega cosa è stato fatto."
       },
       {
         "q": "Posso modificare o cancellare una segnalazione dopo averla inviata?",
