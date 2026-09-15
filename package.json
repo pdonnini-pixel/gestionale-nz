@@ -14,6 +14,7 @@
   "dependencies": {
     "@netlify/functions": "^5.2.0",
     "@supabase/supabase-js": "^2.101.1",
+    "exceljs": "^4.4.0",
     "fast-xml-parser": "^5.7.1",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.8.4",

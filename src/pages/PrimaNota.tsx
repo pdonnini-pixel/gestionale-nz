@@ -53,9 +53,10 @@ import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
 import {
   buildRow, classifyMovement, counterpartOf, causaleOf, pivaOf, invoiceCountOf, invoicesTotalOf,
-  summarizeByKind, KIND_LABELS, isRiba, tipoMovimentoOf,
+  summarizeByKind, KIND_LABELS, isRiba, ribaCountOf, tipoMovimentoOf,
   type PnPayable, type PnFiscalDeadline, type PnMovement, type MovementKind,
 } from '../lib/primaNotaExport'
+import type { StyledRow } from '../lib/xlsxStyled'
 import {
   buildPagamentoRow, fonteOf, includePagamento, sortPagamenti, summarizePagamenti, importoPagato, metodoLabel, rataOf,
   FONTE_LABELS, type PnPagamento, type PnLookups, type PagamentoFonte,
@@ -119,23 +120,6 @@ const sheetName = (name: string, used: Set<string>): string => {
   while (used.has(n)) { n = `${base.slice(0, 25)} ${i}`; i += 1 }
   used.add(n)
   return n
-}
-/** Formato euro sulle celle numeriche delle colonne il cui titolo (in qualsiasi riga) è fra quelli indicati. */
-const EURO_FMT = '#,##0.00 "€"'
-type XlsxCell = { t?: string; v?: unknown; z?: string }
-type XlsxSheet = Record<string, XlsxCell | string | undefined> & { '!ref'?: string }
-function formatEuro(ws: XlsxSheet, headers: string[], utils: { decode_range: (r: string) => { s: { r: number; c: number }; e: { r: number; c: number } }; encode_cell: (c: { r: number; c: number }) => string }): void {
-  if (!ws['!ref']) return
-  const range = utils.decode_range(ws['!ref'])
-  const cols = new Set<number>()
-  for (let r = range.s.r; r <= range.e.r; r++) for (let c = range.s.c; c <= range.e.c; c++) {
-    const cell = ws[utils.encode_cell({ r, c })] as XlsxCell | undefined
-    if (cell && cell.t === 's' && typeof cell.v === 'string' && headers.includes(cell.v)) cols.add(c)
-  }
-  for (const c of cols) for (let r = range.s.r; r <= range.e.r; r++) {
-    const cell = ws[utils.encode_cell({ r, c })] as XlsxCell | undefined
-    if (cell && cell.t === 'n') cell.z = EURO_FMT
-  }
 }
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
 type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti' | 'carte'
@@ -908,28 +892,37 @@ export default function PrimaNota() {
 
   const exportXlsx = async () => {
     if (rows.length === 0) return
-    // xlsx caricata on-demand: ~140KB gzip che non devono pesare sull'apertura pagina
-    const XLSX = await import('xlsx')
-    const wb = XLSX.utils.book_new()
+    // ExcelJS caricata on-demand (solo all'export): serve per la grafica del file
+    // (neretti, colori, riga bloccata, filtri), che la SheetJS community non scrive.
+    const [{ Workbook }, { addStyledSheet, downloadWorkbook, tableRows }, { buildGuidaRows, GUIDA_WIDTHS }] = await Promise.all([
+      import('exceljs'), import('../lib/xlsxStyled'), import('../lib/primaNotaGuida'),
+    ])
+    const wb = new Workbook()
     const periodoLabel = month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`
+    const dataUsata = dateBasis === 'contabile' ? 'data contabile (banca)' : 'data operazione'
+    // Il foglio Guida è il primo del file: si costruisce alla fine (deve sapere
+    // i nomi degli altri fogli) e si inserisce in testa.
+    const used = new Set<string>(['Guida', 'Incassi per outlet', 'Dipendenti ed emolumenti'])
+    const nomiConti: string[] = []
+    const nomiCarte: string[] = []
     // Un foglio per conto, come un estratto conto: saldo iniziale, movimenti con
     // saldo progressivo, saldo finale calcolato e della banca, differenza.
-    const used = new Set<string>(['Incassi per outlet', 'Dipendenti ed emolumenti'])
     for (const q of quadratura) {
       const acc = bankAccounts.find(b => b.id === q.bank_account_id)
       const ms = movements.filter(m => m.bank_account_id === q.bank_account_id)
       if (ms.length === 0 && q.saldo_iniziale == null) continue
-      const aoa: Array<Array<string | number>> = [
-        ['Estratto conto', acc?.bank_name ?? '—'],
-        ['IBAN', acc?.iban ?? ''],
-        ['Periodo', `${periodoLabel} (dal ${fmtDate(dateStart)} al ${fmtDate(dateEnd)}, per ${dateBasis === 'contabile' ? 'data contabile' : 'data operazione'})`],
-        [],
-        ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo', 'Di cui fattura'],
-        [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''],
-        ...ms.flatMap(m => {
+      const srows: StyledRow[] = [
+        { kind: 'title', cells: [`Estratto conto ${acc?.bank_name ?? '—'}`] },
+        { kind: 'meta', cells: ['IBAN', acc?.iban ?? ''] },
+        { kind: 'meta', cells: ['Periodo', `${periodoLabel} (dal ${fmtDate(dateStart)} al ${fmtDate(dateEnd)}, per ${dataUsata})`] },
+        { kind: 'blank', cells: [] },
+        { kind: 'header', cells: ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo', 'Di cui fattura'] },
+        { kind: 'open', cells: [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''] },
+        ...ms.flatMap((m): StyledRow[] => {
           const r = buildRow(m, fmtDate, contropartitaOf(m))
-          const rows: Array<Array<string | number>> = [[r['Data operazione'], r['Data contabile'], r['Tipo movimento'], r.Contropartita, r['P.IVA Contropartita'], r['N. fatture'], r.Causale, r.Categoria,
-            m.amount > 0 ? Math.round(m.amount * 100) / 100 : '', m.amount < 0 ? Math.round(-m.amount * 100) / 100 : '', saldoById.get(m.id) ?? '', '']]
+          const riba = ribaCountOf(m) > 0
+          const out: StyledRow[] = [{ kind: riba ? 'data_riba' : 'data', cells: [r['Data operazione'], r['Data contabile'], r['Tipo movimento'], r.Contropartita, r['P.IVA Contropartita'], r['N. fatture'], r.Causale, r.Categoria,
+            m.amount > 0 ? Math.round(m.amount * 100) / 100 : '', m.amount < 0 ? Math.round(-m.amount * 100) / 100 : '', saldoById.get(m.id) ?? '', ''] }]
           // Movimento che salda piu' fatture (RiBa, distinta CBI): sotto, una riga per
           // fattura con il suo importo nella colonna «Di cui fattura», cosi' lo studio
           // verifica ogni fattura e ogni importo; la somma delle righe e' l'uscita, e
@@ -940,77 +933,88 @@ export default function PrimaNota() {
               const imp = Math.round(Number(p.amount_paid ?? p.gross_amount ?? 0) * 100) / 100
               somma += imp
               const rata = p.installment_total && p.installment_total > 1 ? ` · rata ${p.installment_number ?? '?'}/${p.installment_total}` : ''
-              rows.push(['', '', isRiba(p) ? '↳ di cui fattura RiBa' : '↳ di cui fattura', p.supplier_name ?? '', p.supplier_vat ?? '', '', `Fatt. ${p.invoice_number ?? '?'}${p.invoice_date ? ` del ${fmtDate(p.invoice_date)}` : ''}${rata}${isRiba(p) ? ' · RiBa' : ''}`, '', '', '', '', imp])
+              out.push({ kind: isRiba(p) ? 'sub_riba' : 'sub', cells: ['', '', isRiba(p) ? '↳ di cui fattura RiBa' : '↳ di cui fattura', p.supplier_name ?? '', p.supplier_vat ?? '', '', `Fatt. ${p.invoice_number ?? '?'}${p.invoice_date ? ` del ${fmtDate(p.invoice_date)}` : ''}${rata}${isRiba(p) ? ' · RiBa' : ''}`, '', '', '', '', imp] })
             }
             const resto = Math.round((Math.abs(m.amount) - somma) * 100) / 100
-            if (Math.abs(resto) >= 0.005) rows.push(['', '', '↳ resto', resto > 0 ? 'commissioni o acconto non in fattura' : 'nota di credito o sconto', '', '', '', '', '', '', '', resto])
-            rows.push(['', '', '↳ totale fatture', `${m.payables.length} fatture`, '', '', '', '', '', '', '', Math.round(Math.abs(m.amount) * 100) / 100])
+            if (Math.abs(resto) >= 0.005) out.push({ kind: 'sub', cells: ['', '', '↳ resto', resto > 0 ? 'commissioni o acconto non in fattura' : 'nota di credito o sconto', '', '', '', '', '', '', '', resto] })
+            out.push({ kind: 'subtotal', cells: ['', '', '↳ totale fatture', `${m.payables.length} fatture`, '', '', '', '', '', '', '', Math.round(Math.abs(m.amount) * 100) / 100] })
           }
-          return rows
+          return out
         }),
-        [`Saldo finale al ${quadPeriodo.ultimoGiorno} (calcolato)`, `${ms.length} movimenti`, '', '', '', '', '', '', q.entrate, q.uscite, q.saldo_finale_calcolato ?? ''],
-        [`Saldo finale al ${quadPeriodo.ultimoGiorno} (banca)`, q.saldo_scarico_finale != null ? `banca al ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${rettificaLabel(q.rettifica_finale) ? ' ' + rettificaLabel(q.rettifica_finale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_finale ?? ''],
-        ['Differenza', q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili', '', '', '', '', '', '', '', '', q.differenza ?? ''],
+        { kind: 'close', cells: [`Saldo finale al ${quadPeriodo.ultimoGiorno} (calcolato)`, `${ms.length} movimenti`, '', '', '', '', '', '', q.entrate, q.uscite, q.saldo_finale_calcolato ?? ''] },
+        { kind: 'close', cells: [`Saldo finale al ${quadPeriodo.ultimoGiorno} (banca)`, q.saldo_scarico_finale != null ? `banca al ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${rettificaLabel(q.rettifica_finale) ? ' ' + rettificaLabel(q.rettifica_finale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_finale ?? ''] },
+        { kind: q.stato === 'quadra' ? 'ok' : q.stato === 'non_quadra' ? 'ko' : 'warn', cells: ['Differenza', q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili', '', '', '', '', '', '', '', '', q.differenza ?? ''] },
       ]
-      const wsAcc = XLSX.utils.aoa_to_sheet(aoa)
-      wsAcc['!cols'] = [30, 14, 22, 35, 16, 8, 60, 18, 14, 14, 14, 14].map(wch => ({ wch }))
-      formatEuro(wsAcc as XlsxSheet, ['Entrate', 'Uscite', 'Saldo', 'Di cui fattura'], XLSX.utils)
-      XLSX.utils.book_append_sheet(wb, wsAcc, sheetName(acc?.bank_name ?? 'Conto', used))
+      const name = sheetName(acc?.bank_name ?? 'Conto', used)
+      nomiConti.push(name)
+      addStyledSheet(wb, { name, rows: srows, widths: [30, 14, 26, 35, 16, 8, 60, 18, 14, 14, 14, 14], moneyHeaders: ['Entrate', 'Uscite', 'Saldo', 'Di cui fattura'], tabColor: '1F3864' })
     }
     // Su richiesta di Patrizio (15/09) i fogli «Tutti i movimenti», «Pagamenti
     // fornitori» e «Riepilogo» non ci sono più: allo studio bastano gli estratti
     // per conto e per carta, gli incassi per outlet e i dipendenti. Le altre
     // viste restano a video e nel CSV. Gli importi sono in formato euro.
     // Foglio Incassi per outlet: una riga per entrata, con outlet, canale e come è stato attribuito
-    const wsInc = XLSX.utils.json_to_sheet(incassiRows.length > 0 ? incassiRows : [{ Nota: 'Nessun incasso nel periodo' }])
-    wsInc['!cols'] = INCASSI_COLUMN_WIDTHS.map(wch => ({ wch }))
-    formatEuro(wsInc as XlsxSheet, ['Importo'], XLSX.utils)
-    XLSX.utils.book_append_sheet(wb, wsInc, 'Incassi per outlet')
+    addStyledSheet(wb, {
+      name: 'Incassi per outlet', tabColor: '548235',
+      rows: [
+        { kind: 'title', cells: ['Incassi per outlet'] },
+        { kind: 'meta', cells: ['Periodo', periodoLabel] },
+        { kind: 'blank', cells: [] },
+        ...(incassiRows.length > 0 ? tableRows(incassiRows, r => (r.Outlet ? 'data' : 'warn')) : [{ kind: 'text' as const, cells: ['Nessun incasso nel periodo'] }]),
+      ],
+      widths: INCASSI_COLUMN_WIDTHS, moneyHeaders: ['Importo'],
+    })
     // Foglio Dipendenti ed emolumenti: una riga per busta paga con il netto e la disposizione che l'ha pagata; in coda i flussi senza buste
-    const wsDip = XLSX.utils.json_to_sheet(stipendiRows.length > 0 ? stipendiRows : [{ Nota: 'Nessuna busta paga né disposizione per emolumenti nel periodo' }])
-    wsDip['!cols'] = STIPENDI_COLUMN_WIDTHS.map(wch => ({ wch }))
+    const dipRows: StyledRow[] = [
+      { kind: 'title', cells: ['Dipendenti ed emolumenti'] },
+      { kind: 'meta', cells: ['Periodo', periodoLabel] },
+      { kind: 'meta', cells: ['Come si usa', 'Prendi «Addebito in banca», cercalo nel foglio del conto indicato in «Conto Banca» (colonna Uscite): quel movimento è la distinta di tutti i dipendenti con lo stesso ID flusso.'] },
+      { kind: 'blank', cells: [] },
+      ...(stipendiRows.length > 0 ? tableRows(stipendiRows, r => (r['Pagato il'] ? 'data' : 'warn')) : [{ kind: 'text' as const, cells: ['Nessuna busta paga né disposizione per emolumenti nel periodo'] }]),
+    ]
     if (stipendi.flussi_non_abbinati.length > 0) {
-      XLSX.utils.sheet_add_aoa(wsDip, [
-        [],
-        ['Disposizioni senza buste paga che le spieghino', 'Pagato il', 'Conto Banca', 'ID flusso', 'Bonifici nel flusso (banca)', 'Importo flusso', 'Commissioni flusso', 'Addebito in banca', 'Causale'],
-        ...stipendi.flussi_non_abbinati.map(x => [
+      dipRows.push(
+        { kind: 'blank', cells: [] },
+        { kind: 'section', cells: ['Disposizioni senza buste paga che le spieghino'] },
+        { kind: 'header', cells: ['', 'Pagato il', 'Conto Banca', 'ID flusso', 'Bonifici nel flusso (banca)', 'Importo flusso', 'Commissioni flusso', 'Addebito in banca', 'Causale'] },
+        ...stipendi.flussi_non_abbinati.map((x): StyledRow => ({ kind: 'warn', cells: [
           '', fmtDate(x.flusso.transaction_date), bankNameOf(x.flusso.bank_account_id), x.info.id_flusso ?? '', x.info.n_pagamenti ?? '',
           x.info.importo_bonifici ?? Math.round(-x.flusso.amount * 100) / 100, x.info.commissioni ?? '', addebitoBanca(x.flusso, x.info), x.flusso.description ?? '',
-        ]),
-      ], { origin: -1 })
+        ] })),
+      )
     }
-    formatEuro(wsDip as XlsxSheet, ['Netto', 'Importo flusso', 'Commissioni flusso', 'Addebito in banca'], XLSX.utils)
-    XLSX.utils.book_append_sheet(wb, wsDip, 'Dipendenti ed emolumenti')
+    addStyledSheet(wb, { name: 'Dipendenti ed emolumenti', rows: dipRows, widths: STIPENDI_COLUMN_WIDTHS, moneyHeaders: ['Netto', 'Importo flusso', 'Commissioni flusso', 'Addebito in banca'], tabColor: '7030A0' })
     // Un foglio per carta, come per i conti: intestazione, righe, totale letto e dichiarato, addebito in banca, differenza
     carte.forEach((c, ci) => {
       if (c.lines.length === 0) return
       const pm = cartePay[ci]
-      const aoaC: Array<Array<string | number>> = [
-        ['Estratto carta', c.label],
-        ['Carta', c.stmt.card_last4 ? `**** ${c.stmt.card_last4}` : ''],
-        ['Periodo', c.stmt.period_year && c.stmt.period_month ? `${MONTHS.find(m => m.v === c.stmt.period_month)?.l} ${c.stmt.period_year}` : periodoLabel],
-        ['File', c.stmt.filename],
-        [],
-        ['Data acquisto', 'Data registrazione', 'Descrizione', 'Importo', 'Commissioni', 'Valuta', 'Fornitore', 'Fattura', 'Pagata il', 'Riscontro banca'],
-        ...c.lines.map((l, li) => {
+      const crows: StyledRow[] = [
+        { kind: 'title', cells: [`Estratto carta ${c.label}`] },
+        { kind: 'meta', cells: ['Carta', c.stmt.card_last4 ? `**** ${c.stmt.card_last4}` : ''] },
+        { kind: 'meta', cells: ['Periodo', c.stmt.period_year && c.stmt.period_month ? `${MONTHS.find(m => m.v === c.stmt.period_month)?.l} ${c.stmt.period_year}` : periodoLabel] },
+        { kind: 'meta', cells: ['File', c.stmt.filename] },
+        { kind: 'blank', cells: [] },
+        { kind: 'header', cells: ['Data acquisto', 'Data registrazione', 'Descrizione', 'Importo', 'Commissioni', 'Valuta', 'Fornitore', 'Fattura', 'Pagata il', 'Riscontro banca'] },
+        ...c.lines.map((l, li): StyledRow => {
           const r = buildCartaRow(c.label, l, pm.get(li), riscontroOf(ci, li), fmtDate)
-          return [r['Data acquisto'], r['Data registrazione'], r.Descrizione, r.Importo, r.Commissioni, r.Valuta, r.Fornitore, r.Fattura, r['Pagata il'], r['Riscontro banca']] as Array<string | number>
+          return { kind: 'data', cells: [r['Data acquisto'], r['Data registrazione'], r.Descrizione, r.Importo, r.Commissioni, r.Valuta, r.Fornitore, r.Fattura, r['Pagata il'], r['Riscontro banca']] }
         }),
-        ['Totale operazioni (righe lette)', `${c.lines.length} operazioni: spese ${fmt(c.tot.spese)}, accrediti ${fmt(c.tot.accrediti)}, commissioni ${fmt(c.tot.commissioni)}`, '', c.computed],
-        ['Totale dichiarato dal documento', '', '', c.stmt.statement_total ?? 'n.d.'],
+        { kind: 'close', cells: ['Totale operazioni (righe lette)', `${c.lines.length} operazioni: spese ${fmt(c.tot.spese)}, accrediti ${fmt(c.tot.accrediti)}, commissioni ${fmt(c.tot.commissioni)}`, '', c.computed] },
+        { kind: 'close', cells: ['Totale dichiarato dal documento', '', '', c.stmt.statement_total ?? 'n.d.'] },
         ...(c.isPrepagata
-          ? [['Ricariche ritrovate in banca', `${c.ricariche.size} su ${c.nRicariche}`, '', '']]
+          ? [{ kind: (c.ricariche.size === c.nRicariche ? 'ok' : 'warn') as StyledRow['kind'], cells: ['Ricariche ritrovate in banca', `${c.ricariche.size} su ${c.nRicariche}`, '', ''] }]
           : [
-            ['Addebito in banca', c.debit.movement ? `${fmtDate(c.debit.movement.transaction_date)}: ${c.debit.movement.description ?? ''}` : 'non trovato', '', c.debit.movement?.amount ?? ''],
-            ['Differenza (commissioni della banca)', c.debit.movement ? (Math.abs(c.debit.differenza) < 0.005 ? 'quadra' : `quadra: l'addebito copre ${c.debit.n} estratti piu' ${fmt(c.debit.differenza)} di commissioni`) : 'addebito non trovato', '', c.debit.movement ? c.debit.differenza : ''],
+            { kind: (c.debit.movement ? 'close' : 'warn') as StyledRow['kind'], cells: ['Addebito in banca', c.debit.movement ? `${fmtDate(c.debit.movement.transaction_date)}: ${c.debit.movement.description ?? ''}` : 'non trovato', '', c.debit.movement?.amount ?? ''] },
+            { kind: (c.debit.movement ? 'ok' : 'warn') as StyledRow['kind'], cells: ['Differenza (commissioni della banca)', c.debit.movement ? (Math.abs(c.debit.differenza) < 0.005 ? 'quadra' : `quadra: l'addebito copre ${c.debit.n} estratti piu' ${fmt(c.debit.differenza)} di commissioni`) : 'addebito non trovato', '', c.debit.movement ? c.debit.differenza : ''] },
           ]),
       ]
-      const wsC = XLSX.utils.aoa_to_sheet(aoaC)
-      wsC['!cols'] = [30, 16, 50, 12, 11, 7, 30, 18, 12, 30].map(wch => ({ wch }))
-      formatEuro(wsC as XlsxSheet, ['Importo', 'Commissioni'], XLSX.utils)
-      XLSX.utils.book_append_sheet(wb, wsC, sheetName(c.label, used))
+      const name = sheetName(c.label, used)
+      nomiCarte.push(name)
+      addStyledSheet(wb, { name, rows: crows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 12, 30], moneyHeaders: ['Importo', 'Commissioni'], tabColor: 'C55A11' })
     })
-    XLSX.writeFile(wb, `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.xlsx`)
+    // Foglio Guida in testa: cosa c'è in ogni foglio e come si cerca
+    addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, flussiSenzaBuste: stipendi.flussi_non_abbinati.length }), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
+    await downloadWorkbook(wb, `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.xlsx`)
   }
 
   const KindBadge = ({ m }: { m: Movement }) => {
