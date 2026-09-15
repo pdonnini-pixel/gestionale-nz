@@ -53,12 +53,12 @@ import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
 import {
   buildRow, classifyMovement, counterpartOf, causaleOf, pivaOf, invoiceCountOf, invoicesTotalOf,
-  summarizeByKind, KIND_LABELS, PN_COLUMN_WIDTHS,
+  summarizeByKind, KIND_LABELS,
   type PnPayable, type PnFiscalDeadline, type PnMovement, type MovementKind,
 } from '../lib/primaNotaExport'
 import {
   buildPagamentoRow, fonteOf, includePagamento, sortPagamenti, summarizePagamenti, importoPagato, metodoLabel, rataOf,
-  FONTE_LABELS, PAGAMENTI_COLUMN_WIDTHS, type PnPagamento, type PnLookups, type PagamentoFonte,
+  FONTE_LABELS, type PnPagamento, type PnLookups, type PagamentoFonte,
 } from '../lib/primaNotaPagamenti'
 import {
   attribuisciIncasso, buildIncassoRow, summarizeByOutlet, outletLabel,
@@ -119,6 +119,23 @@ const sheetName = (name: string, used: Set<string>): string => {
   while (used.has(n)) { n = `${base.slice(0, 25)} ${i}`; i += 1 }
   used.add(n)
   return n
+}
+/** Formato euro sulle celle numeriche delle colonne il cui titolo (in qualsiasi riga) è fra quelli indicati. */
+const EURO_FMT = '#,##0.00 "€"'
+type XlsxCell = { t?: string; v?: unknown; z?: string }
+type XlsxSheet = Record<string, XlsxCell | string | undefined> & { '!ref'?: string }
+function formatEuro(ws: XlsxSheet, headers: string[], utils: { decode_range: (r: string) => { s: { r: number; c: number }; e: { r: number; c: number } }; encode_cell: (c: { r: number; c: number }) => string }): void {
+  if (!ws['!ref']) return
+  const range = utils.decode_range(ws['!ref'])
+  const cols = new Set<number>()
+  for (let r = range.s.r; r <= range.e.r; r++) for (let c = range.s.c; c <= range.e.c; c++) {
+    const cell = ws[utils.encode_cell({ r, c })] as XlsxCell | undefined
+    if (cell && cell.t === 's' && typeof cell.v === 'string' && headers.includes(cell.v)) cols.add(c)
+  }
+  for (const c of cols) for (let r = range.s.r; r <= range.e.r; r++) {
+    const cell = ws[utils.encode_cell({ r, c })] as XlsxCell | undefined
+    if (cell && cell.t === 'n') cell.z = EURO_FMT
+  }
 }
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
 type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti' | 'carte'
@@ -897,7 +914,7 @@ export default function PrimaNota() {
     const periodoLabel = month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`
     // Un foglio per conto, come un estratto conto: saldo iniziale, movimenti con
     // saldo progressivo, saldo finale calcolato e della banca, differenza.
-    const used = new Set<string>(['Tutti i movimenti', 'Pagamenti fornitori', 'Incassi per outlet', 'Dipendenti ed emolumenti', 'Riepilogo'])
+    const used = new Set<string>(['Incassi per outlet', 'Dipendenti ed emolumenti'])
     for (const q of quadratura) {
       const acc = bankAccounts.find(b => b.id === q.bank_account_id)
       const ms = movements.filter(m => m.bank_account_id === q.bank_account_id)
@@ -937,19 +954,17 @@ export default function PrimaNota() {
       ]
       const wsAcc = XLSX.utils.aoa_to_sheet(aoa)
       wsAcc['!cols'] = [30, 14, 22, 35, 16, 8, 60, 18, 14, 14, 14, 14].map(wch => ({ wch }))
+      formatEuro(wsAcc as XlsxSheet, ['Entrate', 'Uscite', 'Saldo', 'Di cui fattura'], XLSX.utils)
       XLSX.utils.book_append_sheet(wb, wsAcc, sheetName(acc?.bank_name ?? 'Conto', used))
     }
-    // Tutti i movimenti in un foglio piatto (per filtri e pivot), con IBAN in chiaro e saldo progressivo
-    const ws = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ Nota: 'Nessun movimento nel periodo' }])
-    ws['!cols'] = [...PN_COLUMN_WIDTHS, 14].map(wch => ({ wch }))
-    XLSX.utils.book_append_sheet(wb, ws, 'Tutti i movimenti')
-    // Foglio Pagamenti fornitori: una riga per fattura pagata nel periodo
-    const wsPag = XLSX.utils.json_to_sheet(pagRows.length > 0 ? pagRows : [{ Nota: 'Nessuna fattura pagata nel periodo' }])
-    wsPag['!cols'] = PAGAMENTI_COLUMN_WIDTHS.map(wch => ({ wch }))
-    XLSX.utils.book_append_sheet(wb, wsPag, 'Pagamenti fornitori')
+    // Su richiesta di Patrizio (15/09) i fogli «Tutti i movimenti», «Pagamenti
+    // fornitori» e «Riepilogo» non ci sono più: allo studio bastano gli estratti
+    // per conto e per carta, gli incassi per outlet e i dipendenti. Le altre
+    // viste restano a video e nel CSV. Gli importi sono in formato euro.
     // Foglio Incassi per outlet: una riga per entrata, con outlet, canale e come è stato attribuito
     const wsInc = XLSX.utils.json_to_sheet(incassiRows.length > 0 ? incassiRows : [{ Nota: 'Nessun incasso nel periodo' }])
     wsInc['!cols'] = INCASSI_COLUMN_WIDTHS.map(wch => ({ wch }))
+    formatEuro(wsInc as XlsxSheet, ['Importo'], XLSX.utils)
     XLSX.utils.book_append_sheet(wb, wsInc, 'Incassi per outlet')
     // Foglio Dipendenti ed emolumenti: una riga per busta paga con il netto e la disposizione che l'ha pagata; in coda i flussi senza buste
     const wsDip = XLSX.utils.json_to_sheet(stipendiRows.length > 0 ? stipendiRows : [{ Nota: 'Nessuna busta paga né disposizione per emolumenti nel periodo' }])
@@ -964,6 +979,7 @@ export default function PrimaNota() {
         ]),
       ], { origin: -1 })
     }
+    formatEuro(wsDip as XlsxSheet, ['Netto', 'Importo flusso', 'Commissioni flusso'], XLSX.utils)
     XLSX.utils.book_append_sheet(wb, wsDip, 'Dipendenti ed emolumenti')
     // Un foglio per carta, come per i conti: intestazione, righe, totale letto e dichiarato, addebito in banca, differenza
     carte.forEach((c, ci) => {
@@ -991,71 +1007,9 @@ export default function PrimaNota() {
       ]
       const wsC = XLSX.utils.aoa_to_sheet(aoaC)
       wsC['!cols'] = [30, 16, 50, 12, 11, 7, 30, 18, 12, 30].map(wch => ({ wch }))
+      formatEuro(wsC as XlsxSheet, ['Importo', 'Commissioni'], XLSX.utils)
       XLSX.utils.book_append_sheet(wb, wsC, sheetName(c.label, used))
     })
-    // Sheet riepilogo: totali del periodo + righe e importi per tipo di movimento
-    const summaryData: Array<Array<string | number>> = [
-      ['Periodo', `${periodoLabel} (per ${dateBasis === 'contabile' ? 'data contabile' : 'data operazione'})`],
-      ['Conto', bankAccountId === 'all' ? 'Tutti i conti' : bankAccounts.find(b => b.id === bankAccountId)?.bank_name ?? '—'],
-      ['Movimenti', totals.count],
-      ['Totale Dare (entrate)', totals.dare],
-      ['Totale Avere (uscite)', totals.avere],
-      ['Saldo netto', totals.netto],
-      ['Generato il', new Date().toLocaleString('it-IT')],
-      [],
-      ['Tipo movimento', 'Movimenti', 'Entrate', 'Uscite'],
-      ...byKind.map(k => [k.label, k.n, k.entrate, k.uscite]),
-      [],
-      ['Pagamenti fornitori (per fonte)', 'Fatture', 'Importo pagato'],
-      ...pagByFonte.map(f => [f.label, f.n, f.importo]),
-      ['Totale fatture pagate', pagamentiVisibili.length, Math.round(pagTotale * 100) / 100],
-      [],
-      ['Incassi per outlet', 'Movimenti', 'POS', 'Amex', 'Versamenti contanti', 'Altri incassi', 'Totale'],
-      ...byOutlet.map(o => [o.label, o.n, o.pos, o.amex, o.versamenti, o.altro, o.totale]),
-      ['Totale incassi', incassi.length, incassiTot.pos, incassiTot.amex, incassiTot.versamenti, incassiTot.altro, incassiTot.totale],
-      [],
-      ['Dipendenti ed emolumenti', 'N.', 'Importo'],
-      ['Disposizioni per emolumenti nel periodo', stipendi.n_flussi, stipendi.totale_bonifici],
-      ['Commissioni sulle disposizioni', '', stipendi.totale_commissioni],
-      ['Buste paga abbinate a una disposizione', stipendi.n_buste_abbinate, stipendi.totale_netti_abbinati],
-      ['Buste paga del mese prima senza pagamento nel periodo', stipendi.n_buste_non_abbinate, ''],
-      ['Disposizioni senza buste che le spieghino', stipendi.flussi_non_abbinati.length, Math.round(stipendi.flussi_non_abbinati.reduce((s, x) => s + (x.info.importo_bonifici ?? -x.flusso.amount), 0) * 100) / 100],
-      [],
-      ['Carte', 'Operazioni', 'Spese', 'Accrediti', 'Commissioni', 'Totale dichiarato', 'Addebito in banca', 'Fatture agganciate'],
-      ...carte.map((c, ci) => [c.label, c.lines.length, c.tot.spese, c.tot.accrediti, c.tot.commissioni, c.stmt.statement_total ?? 'n.d.',
-        c.isPrepagata ? `ricariche ${c.ricariche.size}/${c.nRicariche}` : c.lines.length === 0 ? 'righe non importate' : c.debit.movement ? `${fmtDate(c.debit.movement.transaction_date)} ${fmt(c.debit.movement.amount)}${c.debit.n > 1 ? ` per ${c.debit.n} estratti` : ''}${Math.abs(c.debit.differenza) < 0.005 ? '' : ` (commissioni ${fmt(c.debit.differenza)})`}` : 'non trovato',
-        cartePay[ci].size]),
-      ['Totale carte', carteTot.righe, carteTot.spese, carteTot.accrediti, '', '', `${carteTot.addebitiTrovati} su ${carteTot.addebitiAttesi}`, carteTot.fattureAgganciate],
-      [],
-      ['Quadratura con l\'estratto conto', `Saldo al ${quadPeriodo.giornoPrima}`, 'di cui letto dalla banca il', 'Entrate', 'Uscite', `Saldo al ${quadPeriodo.ultimoGiorno} calcolato`, `Saldo al ${quadPeriodo.ultimoGiorno} (banca)`, 'di cui letto dalla banca il', 'Differenza', 'Esito'],
-      ...quadratura.map(q => [
-        accountName(q.bank_account_id), q.saldo_iniziale ?? '',
-        q.saldo_scarico_iniziale != null ? `${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)} ${rettificaLabel(q.rettifica_iniziale)}`.trim() : 'n.d.',
-        q.entrate, q.uscite, q.saldo_finale_calcolato ?? '', q.saldo_finale ?? '',
-        q.saldo_scarico_finale != null ? `${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)} ${rettificaLabel(q.rettifica_finale)}`.trim() : 'n.d.',
-        q.differenza ?? '',
-        q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili',
-      ]),
-      [],
-      ['Contante', 'Importo', 'N.'],
-      ['Versamenti di contante in banca', quadContante.versamenti_banca, quadContante.n_versamenti_banca],
-      ['Prelievi di contante dalla banca', quadContante.prelievi_banca, quadContante.n_prelievi_banca],
-      ...(quadContante.cassa ? [
-        ['Chiusure di cassa nel periodo', quadContante.cassa.n_chiusure, quadContante.cassa.outlets],
-        ['Fondo cassa e da versare a inizio periodo', quadContante.cassa.fondo_iniziale ?? 'non noto', ''],
-        ['Contanti incassati nei negozi', quadContante.cassa.contanti_incassati, ''],
-        ['Spese di cassa', quadContante.cassa.spese, ''],
-        ['Rimborsi in contanti', quadContante.cassa.rimborsi, ''],
-        ['Versamenti dichiarati nelle chiusure', quadContante.cassa.versamenti_dichiarati, quadContante.cassa.n_versamenti_dichiarati],
-        ['di cui ritrovati in banca', quadContante.cassa.versamenti_trovati_in_banca, quadContante.cassa.n_versamenti_trovati],
-        ['Fondo cassa e da versare a fine periodo (contato)', quadContante.cassa.fondo_finale ?? 'non noto', ''],
-        ['Fondo cassa e da versare a fine periodo (calcolato)', quadContante.cassa.fondo_finale_calcolato ?? 'non noto', ''],
-        ['Differenza cassa', quadContante.cassa.differenza ?? '', ''],
-      ] : [['Chiusure di cassa nel periodo', 'nessuna: il contante si legge solo dal lato banca', '']]),
-    ]
-    const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
-    wsSummary['!cols'] = [{ wch: 34 }, { wch: 25 }, { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 22 }]
-    XLSX.utils.book_append_sheet(wb, wsSummary, 'Riepilogo')
     XLSX.writeFile(wb, `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.xlsx`)
   }
 
@@ -1164,7 +1118,7 @@ export default function PrimaNota() {
           active={kindFilter === 'da_chiarire'} onClick={totals.daChiarire > 0 ? () => toggleKind('da_chiarire') : undefined} />
       </div>
 
-      {/* Riepilogo per tipo di movimento: stesso contenuto del foglio Riepilogo dell'Excel */}
+      {/* Riepilogo per tipo di movimento (solo a video) */}
       {byKind.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
           {byKind.map(k => (
@@ -1319,7 +1273,7 @@ export default function PrimaNota() {
           hint={incassiTot.daAttribuire > 0 ? 'Clicca per vedere le entrate senza outlet: POS con terminale non censito o versamenti senza parola chiave si sistemano in Incassi giornalieri → Canali' : 'Ogni entrata ha il suo outlet'}
           active={outletFilter === SENZA_OUTLET} onClick={incassiTot.daAttribuire > 0 ? () => toggleOutlet(SENZA_OUTLET) : undefined} />
       </div>
-      {/* Riepilogo per outlet: stesso contenuto della sezione Incassi del foglio Riepilogo */}
+      {/* Riepilogo per outlet (solo a video) */}
       {byOutlet.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 mb-4 overflow-hidden">
           <TableScroll>
