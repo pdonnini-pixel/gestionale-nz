@@ -1,0 +1,785 @@
+id,closing_date,label,amount,bank_amount,bank_status,bank_matched_at
+53830284-7d8c-4d12-816e-9cb4c00639b1,2026-09-01,Bonifico,0,,in_attesa,
+6beda9db-cc71-4c9c-adf1-5a199cd0a35a,2026-09-01,Bonifico,0,,in_attesa,
+f716e72b-2b22-4781-be6e-42500b47b41c,2026-09-01,Bonifico,0,,in_attesa,
+5f8d6800-1816-49f3-b762-5d6cddc8d599,2026-09-01,Bonifico,0,,in_attesa,
+d8158260-7d2c-4664-be91-2d800c36236e,2026-09-01,Bonifico,0,,in_attesa,
+a2e1ed1a-36ab-477b-9f44-86b41085ad56,2026-09-01,Bonifico,0,,in_attesa,
+f48a524d-800b-4037-a9db-b529483a078d,2026-09-01,Bonifico,0,,in_attesa,
+74069cb8-cf77-4489-9329-973efbe4c2c8,2026-09-01,Contanti,95.1,,in_attesa,
+62cccef8-9f31-45eb-9695-1e1292f43997,2026-09-01,Contanti,445.4,,in_attesa,
+2318e869-b3a3-43df-b0f3-9ec5a2fa3606,2026-09-01,Contanti,98.3,,in_attesa,
+e1bed812-c069-4e9c-bc6f-eed9c13580ec,2026-09-01,Contanti,202.65,,in_attesa,
+06e33a64-b679-4f58-9053-5b034625654d,2026-09-01,Contanti,494.5,,in_attesa,
+256b89a9-84c7-41ee-9fd8-92c85770692f,2026-09-01,Contanti,88.55,,in_attesa,
+d24073e6-1afe-4667-bc7a-c910dd282951,2026-09-01,Contanti,309.35,,in_attesa,
+d959d64c-e033-491a-8734-c9a29a3718f7,2026-09-01,Fatture,0,,in_attesa,
+f9231b3a-1c29-4fbc-9754-221d2f711f7a,2026-09-01,Fatture,0,,in_attesa,
+ce629259-8143-4b5a-82a0-ca1f5a1a643d,2026-09-01,Fatture,0,,in_attesa,
+3de26c7e-865b-48a4-bccf-58dc2701f96e,2026-09-01,Fatture,0,,in_attesa,
+f09d705d-2d71-4264-b7ec-8c80518563e7,2026-09-01,Fatture,0,,in_attesa,
+01d5b4c0-b16a-490d-9de2-20011522bc0d,2026-09-01,Fatture,0,,in_attesa,
+8158454a-f269-4c02-9ddb-5d6dc17ae38a,2026-09-01,Fatture,0,,in_attesa,
+ec3cce80-0416-4d84-a0ce-aa90d0c155ea,2026-09-01,Pay by link,0,,in_attesa,
+7aefa676-ea32-4af4-8fc7-cf48523b1c34,2026-09-01,Pay by link,0,,in_attesa,
+9e94e419-f59c-4fdd-8c87-819f20cc42bb,2026-09-01,Pay by link,0,,in_attesa,
+2061aff7-1a12-4e0c-aa68-0e4a02419601,2026-09-01,Pay by link,0,,in_attesa,
+f8f0eaf1-d596-49a7-9d7c-7ff0a5589188,2026-09-01,Pay by link,0,,in_attesa,
+d63d9515-2d75-41a2-bfb3-167e3539ab78,2026-09-01,Pay by link,0,,in_attesa,
+65ccf2fb-aba7-444c-aa7c-332b793f9c62,2026-09-01,Pay by link,0,,in_attesa,
+a127f664-4fe8-4187-8ac5-8b3831d0ed5e,2026-09-01,POS BCC,0,,in_attesa,
+81fa8af4-92b0-4938-ad54-e8599d34f0c1,2026-09-01,POS BCC,0,,in_attesa,
+50381619-d60a-4c52-afb8-83b312aad5ce,2026-09-01,POS BCC,0,,in_attesa,
+eee982c0-82be-4e18-8673-bd6fd069b755,2026-09-01,POS BCC,0,,in_attesa,
+9575020c-5a1a-4324-9da4-7b8a942acab3,2026-09-01,POS BCC,0,,in_attesa,
+44dbef8c-60fb-48f8-928c-a991c69b1240,2026-09-01,POS BCC,0,,in_attesa,
+ee881180-d284-48b3-9a95-6fefa8ae54bb,2026-09-01,POS BCC,0,,in_attesa,
+83762c49-d16d-47a2-909c-da944265a035,2026-09-01,POS BCC Amex,0,,in_attesa,
+20ad94c9-d871-4f8b-a14c-74d54f1192df,2026-09-01,POS BCC Amex,0,,in_attesa,
+2989f0f1-f62e-4f42-b270-4995ae352c6a,2026-09-01,POS BCC Amex,0,,in_attesa,
+97077de3-49af-4db4-9843-47c606207942,2026-09-01,POS BCC Amex,58,58,accreditato,2026-09-07T14:12:45.984948+00:00
+6130977d-2521-422c-b148-90b3b33c9f33,2026-09-01,POS BCC Amex,0,,in_attesa,
+faa6c915-a4ff-49b9-8d08-2fab123c8b42,2026-09-01,POS BCC Amex,0,,in_attesa,
+f35db17f-21cb-400c-a816-4aff5201d7a4,2026-09-01,POS BCC Amex,0,,in_attesa,
+3aa7464d-bcd1-46b6-a724-be8f81aa07f5,2026-09-01,POS MPS,430.8,426.66,accreditato,2026-09-07T14:12:45.984948+00:00
+f582b78a-3efe-4f1b-95ae-921241f14fd6,2026-09-01,POS MPS,1312.03,1302.96,accreditato,2026-09-07T14:12:45.984948+00:00
+52c097e0-b41c-46f8-9e2e-891f808e4ee0,2026-09-01,POS MPS,824.05,992.51,differenza,2026-09-07T14:12:45.984948+00:00
+87d0ccd0-a56f-4905-8735-d419006c3ae9,2026-09-01,POS MPS,344.4,340.99,accreditato,2026-09-07T14:12:45.984948+00:00
+c4658cdc-bc75-4a58-8737-f3fdb88cb621,2026-09-01,POS MPS,1058.75,1051.26,accreditato,2026-09-07T14:12:45.984948+00:00
+bd713e17-e1e7-4879-b03a-206395b7b933,2026-09-01,POS MPS,924.53,924.53,accreditato,2026-09-07T14:12:45.984948+00:00
+d2f23f7f-502e-408b-93fb-2033ff9d442a,2026-09-01,POS MPS,590.25,585.67,accreditato,2026-09-07T14:12:45.984948+00:00
+b5dae9d8-ede4-4ce4-a061-e045aa5fb36e,2026-09-01,POS MPS Amex,0,,in_attesa,
+c77bfc88-11e7-4258-9825-6dea00a744a6,2026-09-01,POS MPS Amex,0,,in_attesa,
+7834348d-ebf5-4463-96f7-220d37f28c33,2026-09-01,POS MPS Amex,177.55,992.51,accreditato,2026-09-07T14:12:45.984948+00:00
+d181d125-1b78-4831-9b2f-4f215a20aeab,2026-09-01,POS MPS Amex,0,,in_attesa,
+d7d505fe-5c2a-4955-acf9-792162a325c6,2026-09-01,POS MPS Amex,0,,in_attesa,
+5ab3ac73-feee-4c3b-a705-98a955772c47,2026-09-01,POS MPS Amex,0,,in_attesa,
+fc5f813c-cf0f-403a-8fca-8e25ca63eab3,2026-09-01,POS MPS Amex,0,,in_attesa,
+61b53c92-c755-4cd2-996e-3594685fb597,2026-09-02,Bonifico,0,,in_attesa,
+06d35107-5369-439c-82b1-63f766085d59,2026-09-02,Bonifico,0,,in_attesa,
+0169a61b-2e6a-478f-a5de-507a381a1b71,2026-09-02,Bonifico,0,,in_attesa,
+d9613aa1-56c8-4f26-9eeb-b00a8bfbb572,2026-09-02,Bonifico,0,,in_attesa,
+edc8eb34-d104-4bb8-9ade-777b352d8152,2026-09-02,Bonifico,0,,in_attesa,
+870c37b4-344c-436d-abcf-8572425bcb4f,2026-09-02,Bonifico,0,,in_attesa,
+83aa5cd8-34e3-47eb-a69d-a29247d5483a,2026-09-02,Bonifico,0,,in_attesa,
+992a6c32-2dc0-4c5d-a1e8-d7d28652d102,2026-09-02,Contanti,26.9,,in_attesa,
+a3b041c4-4f75-42c2-b5a0-03d9d61b58d0,2026-09-02,Contanti,59.9,,in_attesa,
+2665fa25-5fbb-4047-9f1c-d3826ba86140,2026-09-02,Contanti,209.75,,in_attesa,
+e3f93071-0f9c-4711-bde6-708e2503c52c,2026-09-02,Contanti,180.7,,in_attesa,
+3725a8e6-d814-449a-ad75-743d9c8d0661,2026-09-02,Contanti,215.8,,in_attesa,
+93b14fd2-c1a2-4835-b226-181c97c36a24,2026-09-02,Contanti,197.3,,in_attesa,
+05dca5bc-2b37-4889-9647-83e059f945c5,2026-09-02,Contanti,901.4,,in_attesa,
+53913649-d69e-4034-b58d-54991849e0c7,2026-09-02,Fatture,0,,in_attesa,
+2f001191-527c-4fa9-af22-904d9d2c561a,2026-09-02,Fatture,0,,in_attesa,
+8cb629fc-dda2-4746-bea4-27f711df5114,2026-09-02,Fatture,0,,in_attesa,
+cab45acf-3adf-48ee-bd01-f63b13cc46fe,2026-09-02,Fatture,0,,in_attesa,
+9c8b73d7-c94d-4b11-9868-e55487c7aeea,2026-09-02,Fatture,0,,in_attesa,
+a6199a33-2cf3-4dcd-b061-19fc596c5344,2026-09-02,Fatture,0,,in_attesa,
+32417e21-89ce-4e5e-b6d6-9643f33827d1,2026-09-02,Fatture,0,,in_attesa,
+2bf3e4fc-ce1c-47f7-9eb8-b80c961be36f,2026-09-02,Pay by link,0,,in_attesa,
+0d3a3b25-3392-40fa-b76d-dc11b23fe9e5,2026-09-02,Pay by link,0,,in_attesa,
+c0e29013-dc1b-4757-8cf4-2bab9d86443c,2026-09-02,Pay by link,0,,in_attesa,
+c33c8d25-c2bf-4cfb-8fc3-01bebede81a5,2026-09-02,Pay by link,0,,in_attesa,
+abd2de6a-d5bd-43db-951a-8018c6851743,2026-09-02,Pay by link,0,,in_attesa,
+8c432122-ae59-424f-ba3f-ca816520b53d,2026-09-02,Pay by link,0,,in_attesa,
+b6e6141e-bec5-418f-a432-f9110b8341d8,2026-09-02,Pay by link,0,,in_attesa,
+b9dc5dee-ecf3-4bde-b14e-10d8d41d8789,2026-09-02,POS BCC,0,,in_attesa,
+6ae59f74-716d-4186-a81d-49760136aae6,2026-09-02,POS BCC,0,,in_attesa,
+250f460f-637f-45f5-ab66-30dc2526eefd,2026-09-02,POS BCC,0,,in_attesa,
+72ee716f-fd21-42f6-b628-f0fff0bc99f1,2026-09-02,POS BCC,0,,in_attesa,
+a918ac37-1db2-45ad-985d-71f8ee19fd23,2026-09-02,POS BCC,0,,in_attesa,
+d685d206-e7c4-41b5-8a02-3a378ceb1a16,2026-09-02,POS BCC,0,,in_attesa,
+69a87af8-70b4-427b-bb39-225481614ef3,2026-09-02,POS BCC,0,,in_attesa,
+15bc133e-2961-4077-a5aa-13de4376e72b,2026-09-02,POS BCC Amex,0,,in_attesa,
+03065b19-3cca-41dc-8bd4-9044e7c8eec4,2026-09-02,POS BCC Amex,0,,in_attesa,
+801c102d-a53a-466c-a705-d97201cbde2d,2026-09-02,POS BCC Amex,0,,in_attesa,
+c938d748-d240-4caa-ad49-a54a2e08326a,2026-09-02,POS BCC Amex,0,,in_attesa,
+c91ebaa5-1e4a-4d85-b4a3-af5f96c1488e,2026-09-02,POS BCC Amex,0,,in_attesa,
+e06bfb31-92be-47ea-a339-2dadabf33d74,2026-09-02,POS BCC Amex,0,,in_attesa,
+3b88f0e8-4a59-4e77-b409-1f1135314cd2,2026-09-02,POS BCC Amex,0,,in_attesa,
+b7879556-6d36-456c-8c58-6132b749e1fb,2026-09-02,POS MPS,994.13,994.13,accreditato,2026-09-07T14:12:45.984948+00:00
+8fd429ca-7f2e-4d26-a49f-47986fb92e71,2026-09-02,POS MPS,495.52,490.69,accreditato,2026-09-07T14:12:45.984948+00:00
+f744dd03-aa82-4671-b3ae-1f67f165a7be,2026-09-02,POS MPS,437.09,434.09,accreditato,2026-09-07T14:12:45.984948+00:00
+84ad0843-a4f3-4761-a2a3-ba645d91137d,2026-09-02,POS MPS,716.41,711.76,accreditato,2026-09-07T14:12:45.984948+00:00
+efcc0ff2-9c32-476d-a550-045eaae9d124,2026-09-02,POS MPS,1005.18,1012.26,accreditato,2026-09-07T14:12:45.984948+00:00
+680d7e18-2591-47a8-b12c-afd9e8946d0e,2026-09-02,POS MPS,949.1,942.39,accreditato,2026-09-07T14:12:45.984948+00:00
+30f0c1f8-d531-4df9-bf82-1f754d4fed4f,2026-09-02,POS MPS,961.55,954.45,accreditato,2026-09-07T14:12:45.984948+00:00
+bc8a6de1-e0df-479c-bb93-8422529604bd,2026-09-02,POS MPS Amex,0,,in_attesa,
+84fd1e3d-f8f2-4c37-9324-891376a839a9,2026-09-02,POS MPS Amex,0,,in_attesa,
+22591840-8fd2-40c4-a1d2-491c2d397794,2026-09-02,POS MPS Amex,0,,in_attesa,
+3e606c45-83b6-4d8c-ad7c-011aeb4ce232,2026-09-02,POS MPS Amex,0,,in_attesa,
+15836300-d8db-4e14-be74-8dae7dc3f56d,2026-09-02,POS MPS Amex,0,,in_attesa,
+3831dc51-f1aa-448a-b9a0-78d219257e18,2026-09-02,POS MPS Amex,0,,in_attesa,
+37c239d1-b393-4093-b4e7-202f6300377f,2026-09-02,POS MPS Amex,18,1012.26,accreditato,2026-09-07T14:12:45.984948+00:00
+5f6d7095-ca61-468f-a3fd-fdc735b1a827,2026-09-03,Bonifico,0,,in_attesa,
+94936660-351f-461d-ba27-639ee51ec4a2,2026-09-03,Bonifico,0,,in_attesa,
+434ea151-652d-4749-9a96-9743794c6629,2026-09-03,Bonifico,0,,in_attesa,
+46b70301-1d47-43e6-926a-4857f937f2ec,2026-09-03,Bonifico,0,,in_attesa,
+5dde915a-ff0f-4c40-a948-113ec1332637,2026-09-03,Bonifico,0,,in_attesa,
+feaf4706-637a-4bc4-9437-7077651a3592,2026-09-03,Bonifico,0,,in_attesa,
+ee547445-91a6-4d18-b544-02c8c13fc982,2026-09-03,Bonifico,0,,in_attesa,
+dc5b63d6-4cd2-42ec-b947-344324ddeba1,2026-09-03,Contanti,315.8,,in_attesa,
+caf7f31d-af7f-45ae-874e-f13bc69a1b57,2026-09-03,Contanti,162.2,,in_attesa,
+0bb526cf-cda5-4201-9f57-103be9ab22d5,2026-09-03,Contanti,113.1,,in_attesa,
+8cdfda26-11a8-4af4-ae5b-9f823308a26d,2026-09-03,Contanti,289.8,,in_attesa,
+b5452311-bba9-408f-aac9-91b0f0f331a3,2026-09-03,Contanti,59.6,,in_attesa,
+eab44bcd-91c9-4167-b2cf-57c0408c5874,2026-09-03,Contanti,339.05,,in_attesa,
+1a16052d-ba40-41d2-bf27-fa6d29fcb150,2026-09-03,Contanti,151,,in_attesa,
+b74363f6-18bb-473f-b626-3acb65333397,2026-09-03,Fatture,0,,in_attesa,
+3399db4b-d309-4a83-b949-c19db35bb41e,2026-09-03,Fatture,0,,in_attesa,
+d2e8b556-db38-4806-9594-cc6e74e6b436,2026-09-03,Fatture,0,,in_attesa,
+aa17b493-22c6-4df2-902d-487b127617e5,2026-09-03,Fatture,0,,in_attesa,
+816348d8-1903-4644-9cd6-b495fc1fbdbd,2026-09-03,Fatture,0,,in_attesa,
+0b8ba865-809e-4964-ba9d-c0cd08a037c1,2026-09-03,Fatture,0,,in_attesa,
+3616eba0-4c54-4324-8d93-5abbf3302b6f,2026-09-03,Fatture,0,,in_attesa,
+7e64d8d9-8fa9-469c-a332-0dcf037cfc32,2026-09-03,Pay by link,0,,in_attesa,
+27541503-2f1e-460c-85b5-c42d83df2e49,2026-09-03,Pay by link,0,,in_attesa,
+554f5414-159b-4e83-a116-d366da4a0712,2026-09-03,Pay by link,0,,in_attesa,
+4b99ac64-d51d-4959-bdcc-73a57abd1dd8,2026-09-03,Pay by link,0,,in_attesa,
+b8e13f9f-a8c5-49da-b4f7-5c3b5425eed3,2026-09-03,Pay by link,0,,in_attesa,
+e23ab9ab-6936-4482-b5e0-a3df5fde5bba,2026-09-03,Pay by link,0,,in_attesa,
+d5e798f8-e5ed-4573-a293-a14fb9647e7d,2026-09-03,Pay by link,0,,in_attesa,
+30c3dbe5-e9c8-42ae-9271-1672da52c95f,2026-09-03,POS BCC,0,,in_attesa,
+e8e4ab33-052e-47f5-a9ed-738fd68e2ff4,2026-09-03,POS BCC,0,,in_attesa,
+22420e13-c26a-4a86-91c4-92ae6670298d,2026-09-03,POS BCC,0,,in_attesa,
+d18e10b4-2af7-4473-84fa-67816d0fd8da,2026-09-03,POS BCC,0,,in_attesa,
+8f83fa22-ec30-42ef-91e5-d8f7336b666d,2026-09-03,POS BCC,0,,in_attesa,
+c0db1058-914f-4327-afce-cabf57e316a5,2026-09-03,POS BCC,0,,in_attesa,
+1195b05e-b082-4118-985f-bf833fa2bdc3,2026-09-03,POS BCC,0,,in_attesa,
+86141bd6-9057-470a-a0c5-964d9181add4,2026-09-03,POS BCC Amex,0,,in_attesa,
+94b11dfa-9dce-434d-96b8-1e052c7f7593,2026-09-03,POS BCC Amex,0,,in_attesa,
+93b1718c-d342-413a-b828-53f0b74f8cb2,2026-09-03,POS BCC Amex,0,,in_attesa,
+af8f3eb1-9171-496d-860d-9081d0454819,2026-09-03,POS BCC Amex,0,,in_attesa,
+96d55640-7bfa-422f-a52b-2538f966c6bd,2026-09-03,POS BCC Amex,0,,in_attesa,
+d672e0e4-0cd2-40ed-b751-4db2e917093f,2026-09-03,POS BCC Amex,0,,in_attesa,
+4fa6b051-1f0f-445e-bf35-5ef3eb3ac101,2026-09-03,POS BCC Amex,0,,in_attesa,
+6b111f58-3d47-4d5e-a22f-89acc919f09b,2026-09-03,POS MPS,1137.31,1137.31,accreditato,2026-09-07T14:12:45.984948+00:00
+612873f1-4709-46c6-9b35-431ce75cb7b8,2026-09-03,POS MPS,776.05,879.91,differenza,2026-09-07T14:12:45.984948+00:00
+33e4885e-a3ea-4052-89c6-5e838a7c9113,2026-09-03,POS MPS,1009.4,1063.03,differenza,2026-09-07T14:12:45.984948+00:00
+310b4153-b79c-4fbc-9387-669feefe708f,2026-09-03,POS MPS,1557.76,1542.49,accreditato,2026-09-07T14:12:45.984948+00:00
+0fa26236-4ab6-46bc-9cfd-db501a7b0ae8,2026-09-03,POS MPS,939.06,932.47,accreditato,2026-09-07T14:12:45.984948+00:00
+8d078c6b-2975-4347-8e14-554d4798fe4f,2026-09-03,POS MPS,930.95,941.97,accreditato,2026-09-07T14:12:45.984948+00:00
+3f8f9281-1272-4697-82d8-5c073d5cc4c6,2026-09-03,POS MPS,1042.55,1035.54,accreditato,2026-09-07T14:12:45.984948+00:00
+83180893-0408-4e2e-bb75-5c60e8282701,2026-09-03,POS MPS Amex,18.87,941.97,accreditato,2026-09-07T14:12:45.984948+00:00
+1590e2e1-8e60-43ca-b3c9-4c3cb4ae6763,2026-09-03,POS MPS Amex,0,,in_attesa,
+bdbc439b-87e0-4422-875d-f9cee25b7b38,2026-09-03,POS MPS Amex,109.5,879.91,accreditato,2026-09-07T14:12:45.984948+00:00
+ef3f52d3-4293-452f-81bb-a2c29ad345b5,2026-09-03,POS MPS Amex,0,,in_attesa,
+dc67f783-4995-4943-bf6c-ae44159889ed,2026-09-03,POS MPS Amex,0,,in_attesa,
+cba7e707-001e-4eb0-9178-c6544b3bc383,2026-09-03,POS MPS Amex,60.79,1063.03,accreditato,2026-09-07T14:12:45.984948+00:00
+7ff629ca-9998-4818-98c6-add6ee572163,2026-09-03,POS MPS Amex,0,,in_attesa,
+86cd8c9b-2f03-46e3-b42d-2875fc70b627,2026-09-04,Bonifico,0,,in_attesa,
+b523ec25-bdf1-4f8c-b58b-73bdf7d866d9,2026-09-04,Bonifico,0,,in_attesa,
+9a66ef5f-5c9e-477e-b1e5-dc794e618a5a,2026-09-04,Bonifico,0,,in_attesa,
+aa2d8424-fb8d-47fe-b7a0-bd6cf268ac5f,2026-09-04,Bonifico,0,,in_attesa,
+d63e99ac-78da-4f23-909d-d5de6f7c1011,2026-09-04,Bonifico,0,,in_attesa,
+93a0d1b3-5be5-48e0-9cd1-af44621385f0,2026-09-04,Bonifico,0,,in_attesa,
+dcdc5d64-d195-4a6f-9c88-a20e8bce5b49,2026-09-04,Bonifico,0,,in_attesa,
+4c59cf15-8379-4a65-9d69-c053514a7f92,2026-09-04,Contanti,44.9,,in_attesa,
+62c1ee2f-ea8d-4ae5-8503-60f40af16e0e,2026-09-04,Contanti,186.9,,in_attesa,
+409a1663-7805-426c-b4c6-a2efb75e8401,2026-09-04,Contanti,337.7,,in_attesa,
+05f3285b-715f-41fe-922c-a5c0053666be,2026-09-04,Contanti,266,,in_attesa,
+2d1b30a7-b945-4f33-90b9-d1b7acbe7303,2026-09-04,Contanti,377.2,,in_attesa,
+21c5d37f-2a7b-4344-8970-119cf701f60f,2026-09-04,Contanti,194.95,,in_attesa,
+c5b3cd0e-547a-4f5d-8d4e-ae54cea3ae55,2026-09-04,Contanti,324.9,,in_attesa,
+53534ab9-d92f-4d0c-82b2-6aeea1cedac2,2026-09-04,Fatture,0,,in_attesa,
+49910b92-8afe-4cc2-9a3c-a135d3b3eda0,2026-09-04,Fatture,0,,in_attesa,
+f811c631-5aef-4a56-835f-f0aa4efb11df,2026-09-04,Fatture,0,,in_attesa,
+022b6d23-e62e-4327-850c-77b9c8d8f3e3,2026-09-04,Fatture,0,,in_attesa,
+fc157319-070d-4640-b461-59a9e9ebd057,2026-09-04,Fatture,0,,in_attesa,
+b4074fa3-ecd1-4134-9c08-771415a8c805,2026-09-04,Fatture,0,,in_attesa,
+5222bcbe-818e-4160-8a48-06d52e15f117,2026-09-04,Fatture,0,,in_attesa,
+7c6657ff-559f-493b-8e82-516b759a019c,2026-09-04,Pay by link,0,,in_attesa,
+f7be42de-2dcf-47ac-a3a3-4a25ee4d2974,2026-09-04,Pay by link,0,,in_attesa,
+62d5fc38-09dc-4a0c-b655-261886726f3e,2026-09-04,Pay by link,0,,in_attesa,
+85fa9c5e-c533-43cb-9711-ef19c7ae1f47,2026-09-04,Pay by link,0,,in_attesa,
+df60d1e9-b47a-4ebe-a5b4-130c183e1cdc,2026-09-04,Pay by link,0,,in_attesa,
+b68d6a24-8750-4304-87b0-2f4b3d51cd89,2026-09-04,Pay by link,0,,in_attesa,
+807725bd-0277-4bf9-a5be-7ad575b3663b,2026-09-04,Pay by link,0,,in_attesa,
+f7090fb0-5018-40eb-9126-2a7eb8c0085a,2026-09-04,POS BCC,0,,in_attesa,
+8e117b5a-341f-45d1-a150-062804a53a58,2026-09-04,POS BCC,0,,in_attesa,
+655692ca-4522-44af-b01b-55a1ba49415b,2026-09-04,POS BCC,0,,in_attesa,
+8c845fb1-4858-4bf9-8279-14488d97cbb4,2026-09-04,POS BCC,0,,in_attesa,
+be881f92-4c72-4ebe-99c2-d9c2166e8376,2026-09-04,POS BCC,0,,in_attesa,
+e7d9a333-f8fd-4323-b840-1d096ffd0031,2026-09-04,POS BCC,0,,in_attesa,
+ab7b67b2-f86b-452e-b141-81065fe9c4c7,2026-09-04,POS BCC,0,,in_attesa,
+3f056177-a2b6-4ed4-8bd9-0286cdb240f1,2026-09-04,POS BCC Amex,0,,in_attesa,
+16e3e29f-fd19-44cc-8e63-bc3480172a9d,2026-09-04,POS BCC Amex,0,,in_attesa,
+4c3754ce-4658-4b38-82e6-9d9d384c96b2,2026-09-04,POS BCC Amex,0,,in_attesa,
+97e8b33f-b000-4f3c-b44b-cecd94f35f62,2026-09-04,POS BCC Amex,0,,in_attesa,
+475e7d0f-d486-4276-b705-a1bb6d6b9c62,2026-09-04,POS BCC Amex,0,,in_attesa,
+9db7fb7b-1e6b-47fd-98d9-a3f905431566,2026-09-04,POS BCC Amex,0,,in_attesa,
+3473aede-3b7a-4077-b12b-9be9bc0ce64d,2026-09-04,POS BCC Amex,0,,in_attesa,
+ad98fef7-d245-4655-bf54-32222c2e9e35,2026-09-04,POS MPS,716.58,96.23,differenza,2026-09-07T14:12:45.984948+00:00
+540d9c1f-6d4b-42f3-81ec-66612370ee91,2026-09-04,POS MPS,985.55,975.96,accreditato,2026-09-07T14:12:45.984948+00:00
+5abc75d5-7f8e-4f4c-b949-e87538e93368,2026-09-04,POS MPS,701.1,415.18,differenza,2026-09-07T14:12:45.984948+00:00
+7607b9b7-40dc-47a1-9264-ad0868a4a870,2026-09-04,POS MPS,676.8,676.8,accreditato,2026-09-07T14:12:45.984948+00:00
+b0182e2d-3dcb-4bea-9790-7d09a6a2ee8b,2026-09-04,POS MPS,418.01,413.15,accreditato,2026-09-07T14:12:45.984948+00:00
+99b24846-6375-4d79-bfae-6e36b4f35186,2026-09-04,POS MPS,744.05,738.19,accreditato,2026-09-07T14:12:45.984948+00:00
+eb80ce48-8bb3-433e-a8cf-bbff9e8f84fe,2026-09-04,POS MPS,657.6,101.4,differenza,2026-09-07T14:12:45.984948+00:00
+0fa8fdc8-eac4-428f-8c5d-4c24cbca3e53,2026-09-04,POS MPS Amex,0,,in_attesa,
+3bf0a238-f628-48e6-8038-c402c2f25b3c,2026-09-04,POS MPS Amex,0,615.19,differenza,2026-09-07T18:18:02.988712+00:00
+44ed6775-08a8-40ff-a498-041b7709c424,2026-09-04,POS MPS Amex,0,,in_attesa,
+11d5ac82-06ab-4a3b-8893-f0ed6ad9dd13,2026-09-04,POS MPS Amex,0,281.13,differenza,2026-09-07T18:18:02.988712+00:00
+9f5676bc-4ee5-4baf-aa69-d6d0a1803157,2026-09-04,POS MPS Amex,0,,in_attesa,
+f1d94631-8acc-4829-9120-596bf1d46afe,2026-09-04,POS MPS Amex,0,,in_attesa,
+6684be1c-3ea5-424b-a5b8-45aca73f0188,2026-09-04,POS MPS Amex,0,550.69,differenza,2026-09-07T18:18:02.988712+00:00
+9d29023d-d19b-443a-9fdd-5e7f0d766c62,2026-09-05,Bonifico,0,,in_attesa,
+6789b891-298f-42af-aa73-1ac2f2c8eb26,2026-09-05,Bonifico,0,,in_attesa,
+8ea88ae7-0937-4bd6-8a77-5b931a5af1c9,2026-09-05,Bonifico,0,,in_attesa,
+31a73fec-92aa-49a3-8ca0-4e56340a1690,2026-09-05,Bonifico,0,,in_attesa,
+03eff8cf-cbbb-46fb-8f30-e8acd08c9eae,2026-09-05,Bonifico,0,,in_attesa,
+e13d0d89-bb20-4e2b-b338-bb09a0fa1ab8,2026-09-05,Bonifico,0,,in_attesa,
+6d13ef3e-0d02-4f90-ac99-85491dce79e8,2026-09-05,Bonifico,0,,in_attesa,
+d365b620-90a3-4e34-adfe-cebbf3405899,2026-09-05,Contanti,351.05,,in_attesa,
+8032a2a0-1b6a-4b17-b8fe-390dad270b33,2026-09-05,Contanti,342.8,,in_attesa,
+38f6979e-460b-4fee-a6ba-f6b2d3268dab,2026-09-05,Contanti,174.6,,in_attesa,
+8abf7d6a-21a8-4a1a-9a39-329a9798cafe,2026-09-05,Contanti,64.95,,in_attesa,
+aa678886-3284-4fc4-8c84-6c1f8f531fe1,2026-09-05,Contanti,518.6,,in_attesa,
+8cf642c7-582c-4ab6-b8cf-193e8253d9eb,2026-09-05,Contanti,474.7,,in_attesa,
+30d883cd-16db-4171-9890-fe0b12a678e7,2026-09-05,Contanti,202.5,,in_attesa,
+1f5a13f2-c796-440d-ba17-ace10cf3cb1e,2026-09-05,Fatture,0,,in_attesa,
+dd9a5d88-b35b-4096-abe2-bdbf7ad4daa2,2026-09-05,Fatture,0,,in_attesa,
+df100081-42a1-48b2-89cf-894a41df6982,2026-09-05,Fatture,0,,in_attesa,
+99d1585d-8a58-44e4-a116-8a3124338577,2026-09-05,Fatture,0,,in_attesa,
+d91e8da7-7284-418e-931a-36129c491c6a,2026-09-05,Fatture,0,,in_attesa,
+49a3d1aa-4136-44fa-8407-7987e2ab55e7,2026-09-05,Fatture,0,,in_attesa,
+b22f8766-f073-4d22-b7f5-b8ecd66edf45,2026-09-05,Fatture,0,,in_attesa,
+28ae7a40-e743-495c-93c0-6a3c02c06888,2026-09-05,Pay by link,0,,in_attesa,
+938707c1-de8c-4b16-a082-277171192873,2026-09-05,Pay by link,0,,in_attesa,
+2e76bab5-f682-4d26-8c29-cdfae183767f,2026-09-05,Pay by link,0,,in_attesa,
+482ea021-4f4b-4a8b-afe6-61d39d2a40b6,2026-09-05,Pay by link,0,,in_attesa,
+d81e1734-e035-4202-a63b-57ed10e1716c,2026-09-05,Pay by link,0,,in_attesa,
+a7f66972-804c-4cb7-9f77-d2eceb4b6c9e,2026-09-05,Pay by link,0,,in_attesa,
+98253e69-8736-4a14-9456-51f479bfa3a2,2026-09-05,Pay by link,0,,in_attesa,
+4c16b3f2-9a9d-47ab-84e6-a09d34c99023,2026-09-05,POS BCC,0,,in_attesa,
+fdf9c70e-da4d-4f04-baeb-bf8d6d7836fc,2026-09-05,POS BCC,0,,in_attesa,
+5ad096bf-ed6c-47fd-ac1f-248c63907dd8,2026-09-05,POS BCC,618.75,618.75,accreditato,2026-09-07T18:18:02.988712+00:00
+07bd6b8f-6904-477a-a5a0-c35dcfcbb41d,2026-09-05,POS BCC,0,,in_attesa,
+5b29fccc-8173-4ad9-8534-1f5921d863b9,2026-09-05,POS BCC,141.87,141.87,accreditato,2026-09-07T18:18:02.988712+00:00
+b15907d9-e49d-4f62-a884-74589143ad66,2026-09-05,POS BCC,382.43,382.43,accreditato,2026-09-07T18:18:02.988712+00:00
+e0bc7e55-c1dd-4274-ba4f-4bd245409c64,2026-09-05,POS BCC,259.4,259.4,accreditato,2026-09-07T18:18:02.988712+00:00
+6dc85055-696b-4008-b6c7-77b26973fe62,2026-09-05,POS BCC Amex,0,,in_attesa,
+dc51cf73-2b29-4e7b-a2c4-13e0ad6d81b2,2026-09-05,POS BCC Amex,0,,in_attesa,
+321e437e-ea3f-4155-918d-ee0fdf618f49,2026-09-05,POS BCC Amex,0,,in_attesa,
+aee99dce-4941-4dd0-bb31-2a0ba2dcc9d8,2026-09-05,POS BCC Amex,0,,in_attesa,
+dad2c862-e85a-4a4e-b230-287b921cc714,2026-09-05,POS BCC Amex,0,,in_attesa,
+f5e98a33-ccc2-4866-b64a-98a62465d721,2026-09-05,POS BCC Amex,0,,in_attesa,
+53b1b0a5-1fdf-4676-b77c-dd4f498ab749,2026-09-05,POS BCC Amex,72,72,accreditato,2026-09-07T18:18:02.988712+00:00
+890a7b9f-bb61-4778-bfff-465d51c2ae6e,2026-09-05,POS MPS,1738.16,1777.54,differenza,2026-09-07T14:12:45.984948+00:00
+bd25f810-727a-4df7-8629-55dc8f387eb9,2026-09-05,POS MPS,974.1,967.3,accreditato,2026-09-07T14:12:45.984948+00:00
+5cc1ab55-87aa-4a03-b29f-d168873df492,2026-09-05,POS MPS,1074.95,1065.64,accreditato,2026-09-07T14:12:45.984948+00:00
+139e6aba-2ca3-49dc-859d-e0880d4aed98,2026-09-05,POS MPS,1539.91,1528.9,accreditato,2026-09-07T14:12:45.984948+00:00
+63ade1be-8cb3-46ea-b4a2-569891a916c3,2026-09-05,POS MPS,1494.66,1646.94,differenza,2026-09-07T14:12:45.984948+00:00
+00cdeba7-dfcb-4027-a541-734a5d3180f6,2026-09-05,POS MPS,585.31,581.44,accreditato,2026-09-07T18:18:02.988712+00:00
+5fcb5f45-b398-4daa-97ea-3abdd6ad1933,2026-09-05,POS MPS,3545.18,3545.18,accreditato,2026-09-07T14:12:45.984948+00:00
+830d4014-c6f2-4bde-9a46-11a16d3ac57e,2026-09-05,POS MPS Amex,0,,in_attesa,
+3b3efd78-c117-480b-b548-6afe17acac3f,2026-09-05,POS MPS Amex,52.7,1777.54,accreditato,2026-09-07T14:12:45.984948+00:00
+09ab51c9-ea82-4820-9f43-0620eb783a4b,2026-09-05,POS MPS Amex,0,,in_attesa,
+2a48a8bd-794a-46ea-a4fe-993e6748ec3f,2026-09-05,POS MPS Amex,164,1646.94,accreditato,2026-09-07T14:12:45.984948+00:00
+4731daa4-ab76-4be5-af51-47956c7ddd1c,2026-09-05,POS MPS Amex,0,,in_attesa,
+068dc66c-305a-4b83-a5c0-ef1d65ad4e42,2026-09-05,POS MPS Amex,0,,in_attesa,
+0c2fee95-9da2-41ac-adbc-24c322137673,2026-09-05,POS MPS Amex,0,,in_attesa,
+329cca9c-ecb6-4039-967e-3166924c4dd9,2026-09-06,Bonifico,0,,in_attesa,
+ef749d9a-c573-4cfc-bcc8-b04407bf72e8,2026-09-06,Bonifico,0,,in_attesa,
+a7553ae6-ab37-4776-b7a8-bc4b44bf794e,2026-09-06,Bonifico,0,,in_attesa,
+10fb0f96-fd41-4d53-818f-7e5ec6f52094,2026-09-06,Bonifico,0,,in_attesa,
+27eecc51-2963-4c34-9138-f75988968a12,2026-09-06,Bonifico,0,,in_attesa,
+86c480e7-c72a-49e2-933f-045eb5629f76,2026-09-06,Bonifico,0,,in_attesa,
+9caed1b1-9e3d-4bf6-a25c-97137342deb1,2026-09-06,Bonifico,0,,in_attesa,
+f096d67e-e60a-446d-b3a0-5a2697f73da6,2026-09-06,Contanti,649.75,,in_attesa,
+59e4a7a7-2d8f-47b5-8113-a93dfbdc23b3,2026-09-06,Contanti,344.7,,in_attesa,
+cb5b6115-ef23-4c5c-90fc-5af9e28e829c,2026-09-06,Contanti,417.95,,in_attesa,
+923eba09-7ce0-44d0-b5ca-4cfd857ac676,2026-09-06,Contanti,329.7,,in_attesa,
+b9d61326-3a4d-4b12-8048-aefd4fc97a48,2026-09-06,Contanti,621.75,,in_attesa,
+b113a26a-bfda-483e-81bd-205eef9bf8d5,2026-09-06,Contanti,415.4,,in_attesa,
+135059ae-4842-4ddd-b762-07327930bf1d,2026-09-06,Contanti,499,,in_attesa,
+e398f0d6-f9b4-4a23-b7b0-a27d29e882f1,2026-09-06,Fatture,0,,in_attesa,
+d82ff341-f956-4dfb-a1a4-4951eccdfd1d,2026-09-06,Fatture,0,,in_attesa,
+572f457c-0431-448b-b0f4-253d2643bed7,2026-09-06,Fatture,0,,in_attesa,
+b6b4a7c9-4e2a-4e41-b767-40cfbb3120f3,2026-09-06,Fatture,0,,in_attesa,
+8a1be250-3048-4c68-81bf-4a27923f7173,2026-09-06,Fatture,0,,in_attesa,
+1cd2f085-bea1-4c53-bab8-f0fcd2472640,2026-09-06,Fatture,0,,in_attesa,
+adaaab0d-79c5-43b9-894f-88f203023b6e,2026-09-06,Fatture,0,,in_attesa,
+3ddfa816-e4aa-4876-a4c6-7bade2946566,2026-09-06,Pay by link,0,,in_attesa,
+ced75402-3fac-4ecb-86e9-831c2fd5abd8,2026-09-06,Pay by link,0,,in_attesa,
+b59f3f62-2021-49c2-80e5-9212eb86a147,2026-09-06,Pay by link,0,,in_attesa,
+27c3f4ca-f865-4a2b-b924-0637b6cd5afa,2026-09-06,Pay by link,0,,in_attesa,
+48bb9d3f-024e-437f-bebd-145e3dacadcf,2026-09-06,Pay by link,0,,in_attesa,
+cf18dcbb-3cfd-4130-88f5-d0e636e0c215,2026-09-06,Pay by link,0,,in_attesa,
+7c9d7450-74d2-4e09-bf1b-2b8c7b39ab09,2026-09-06,Pay by link,0,,in_attesa,
+7c048e84-1257-4aa9-81e9-4d20bc775e17,2026-09-06,POS BCC,998.65,998.65,accreditato,2026-09-07T18:18:02.988712+00:00
+c7d584ee-f5f8-4d7c-9c64-1e46cea77d67,2026-09-06,POS BCC,25.5,25.5,accreditato,2026-09-07T18:18:02.988712+00:00
+8ae75c80-bbe5-40ce-bc76-18a74510a296,2026-09-06,POS BCC,4197.9,4197.9,accreditato,2026-09-07T18:18:02.988712+00:00
+652f4ac5-3e83-48a9-80bf-d300a52f78a4,2026-09-06,POS BCC,2704.05,2704.05,accreditato,2026-09-07T18:18:02.988712+00:00
+e3a07b1e-7105-4b6e-8b1f-adb7f911f8c5,2026-09-06,POS BCC,0,,in_attesa,
+a6ba312c-a388-4e8a-995f-aa23c366dc19,2026-09-06,POS BCC,0,,in_attesa,
+95de2f5a-d2ad-474e-a8e2-1342ae550024,2026-09-06,POS BCC,31.5,31.5,accreditato,2026-09-07T18:18:02.988712+00:00
+5e950672-f055-440a-9021-ed0b36521f87,2026-09-06,POS BCC Amex,153.9,153.9,accreditato,2026-09-07T18:18:02.988712+00:00
+de3d5bfc-f0fd-4f3a-b5ef-1282caf8fd67,2026-09-06,POS BCC Amex,312.5,312.5,accreditato,2026-09-07T18:18:02.988712+00:00
+efa4a15d-d315-470d-9744-0891e7f48433,2026-09-06,POS BCC Amex,0,,in_attesa,
+1f87592c-2948-466f-999e-19afc4fdac8a,2026-09-06,POS BCC Amex,0,,in_attesa,
+a7e9902e-7589-4676-bfbb-058d8c8aee6a,2026-09-06,POS BCC Amex,0,,in_attesa,
+8f32e014-f744-465b-aa9d-7b6056a18854,2026-09-06,POS BCC Amex,0,,in_attesa,
+1c146066-ab61-444f-a6cd-defa8f6c9ca8,2026-09-06,POS BCC Amex,0,,in_attesa,
+b8f02587-f389-4af3-890f-5b9b3be9d7cc,2026-09-06,POS MPS,69.5,69.09,accreditato,2026-09-07T14:12:45.984948+00:00
+f091c027-4436-485f-809b-19d025b366e3,2026-09-06,POS MPS,1210.5,1201.23,accreditato,2026-09-07T14:12:45.984948+00:00
+7c032b29-645a-4f06-bf17-9af7cf14fc37,2026-09-06,POS MPS,39,39,accreditato,2026-09-07T14:12:45.984948+00:00
+f8c3b88b-6633-4a4a-92a5-786a8d2f8bc8,2026-09-06,POS MPS,1641.3,1626.98,accreditato,2026-09-07T14:12:45.984948+00:00
+b1cf0582-fe6f-4667-ad94-46a57eda5817,2026-09-06,POS MPS,221.31,219.51,accreditato,2026-09-07T14:12:45.984948+00:00
+a746ac74-274e-42be-9a74-a80ce9e58121,2026-09-06,POS MPS,2134.1,2118.86,accreditato,2026-09-07T14:12:45.984948+00:00
+338498ac-cafb-42c0-bf2f-fdb647864596,2026-09-06,POS MPS,2191.36,2304.21,differenza,2026-09-07T14:12:45.984948+00:00
+213f8439-3306-4b86-a400-36e1757eefd6,2026-09-06,POS MPS Amex,0,,in_attesa,
+a24ce5a6-89d7-40d5-8323-670156272409,2026-09-06,POS MPS Amex,0,,in_attesa,
+300215fe-4a64-4ea1-8921-ab93eccfe8f2,2026-09-06,POS MPS Amex,0,,in_attesa,
+e859d3d8-3c89-4b4f-8a76-498085821d57,2026-09-06,POS MPS Amex,0,,in_attesa,
+4402ba2f-4e38-45a6-8ab8-6f66dc888a8c,2026-09-06,POS MPS Amex,129.7,2304.21,accreditato,2026-09-07T14:12:45.984948+00:00
+8f7f2f4d-26cb-4440-8a83-0a897f07d2da,2026-09-06,POS MPS Amex,0,,in_attesa,
+8787234a-a711-435f-a668-34c9c75759d9,2026-09-06,POS MPS Amex,0,,in_attesa,
+225a3b30-c979-4e67-a039-e2430c1e0de1,2026-09-07,Bonifico,0,,in_attesa,
+705c400b-a116-43c0-affc-da670bc982d2,2026-09-07,Bonifico,0,,in_attesa,
+31992c78-6465-4c9d-8496-be5825cce74c,2026-09-07,Bonifico,0,,in_attesa,
+e56e1d77-84e6-4f43-8536-21cfae6178e5,2026-09-07,Bonifico,0,,in_attesa,
+bd608ed3-7136-4329-aef7-38e70785dd4e,2026-09-07,Bonifico,0,,in_attesa,
+52b5796f-5ff1-4ffc-991d-966725b5d21b,2026-09-07,Bonifico,0,,in_attesa,
+f142ec4d-eb74-4613-9f09-f728403dc507,2026-09-07,Bonifico,0,,in_attesa,
+dd8f3fe0-bed7-4d23-bfcc-30f4f0783755,2026-09-07,Contanti,234,,in_attesa,
+5a351ace-ae2d-4917-b4cd-7143423a6fa1,2026-09-07,Contanti,148.1,,in_attesa,
+c4bb962a-fb13-4eb4-8886-097785b48aa0,2026-09-07,Contanti,176.1,,in_attesa,
+89a7f69e-b5ac-4f52-aff4-39d80e8045b0,2026-09-07,Contanti,132.15,,in_attesa,
+e09fc400-7fbc-4cec-9ca9-20082991cfb5,2026-09-07,Contanti,16.5,,in_attesa,
+d9d200a3-5bde-43b6-8417-ebe2facdfd64,2026-09-07,Contanti,209.95,,in_attesa,
+06080511-e1fa-407f-ae38-acfdc1e80d24,2026-09-07,Contanti,185.7,,in_attesa,
+a6dce6d4-c3a8-4939-943b-0ea880fba596,2026-09-07,Fatture,0,,in_attesa,
+cb342e99-116c-4d0d-bb4f-f29c02738c40,2026-09-07,Fatture,0,,in_attesa,
+6809e61e-097e-41d0-b49f-e55e12ac7318,2026-09-07,Fatture,0,,in_attesa,
+d2e454b5-39e9-40b9-90a8-ab289f065646,2026-09-07,Fatture,0,,in_attesa,
+a997843d-ad3f-46a7-9eae-247294ee81e6,2026-09-07,Fatture,0,,in_attesa,
+eecb52a4-e348-43f1-9471-8085e0220a35,2026-09-07,Fatture,0,,in_attesa,
+5fbd8749-078f-4394-aef2-4a1dae7f7863,2026-09-07,Fatture,0,,in_attesa,
+343edf94-7537-4231-9662-5496a9730b24,2026-09-07,Pay by link,0,,in_attesa,
+331f1d92-1a52-4639-aea8-c70fac07cf0f,2026-09-07,Pay by link,0,,in_attesa,
+e527316b-0f6b-4355-88e1-196595ad8c2f,2026-09-07,Pay by link,0,,in_attesa,
+319fcdee-1ae8-47ff-9404-25e5b26977fe,2026-09-07,Pay by link,0,,in_attesa,
+07aca058-15d8-447d-9ae6-c6ba2a916d65,2026-09-07,Pay by link,0,,in_attesa,
+ff4fc8c5-3ef7-410f-9e2a-6923d4d6080f,2026-09-07,Pay by link,0,,in_attesa,
+a816587f-1c05-456d-89c9-2b3f06d077ef,2026-09-07,Pay by link,0,,in_attesa,
+564bdc53-665d-4646-b886-6b78e7e11d78,2026-09-07,POS BCC,0,,in_attesa,
+4e7ceaa2-79b8-4907-9328-4e9fa0f8eec1,2026-09-07,POS BCC,923.2,923.2,accreditato,2026-09-09T06:05:00.048743+00:00
+3e40b7d4-dc08-4e77-bf62-dd02a377c9cf,2026-09-07,POS BCC,0,,in_attesa,
+0b9e7480-e91c-4b4a-9f2b-8dbb099dd8af,2026-09-07,POS BCC,0,,in_attesa,
+9a8c2f55-b4a4-4626-beda-fdbfcb4f0d03,2026-09-07,POS BCC,0,,in_attesa,
+66660381-77bd-4a11-846c-a1749462868f,2026-09-07,POS BCC,0,,in_attesa,
+298ee40b-c9b5-476d-b21b-7573ac5230cf,2026-09-07,POS BCC,0,,in_attesa,
+89a32dab-b3f5-4ced-ae47-f23496d947d6,2026-09-07,POS BCC Amex,0,,in_attesa,
+c47d612d-15dd-4cde-831a-bf7cf9476d65,2026-09-07,POS BCC Amex,0,,in_attesa,
+71ae21d0-e19a-413e-b2c5-0aee79059124,2026-09-07,POS BCC Amex,0,,in_attesa,
+9fadca7a-496d-4074-9577-baf769c0ca01,2026-09-07,POS BCC Amex,0,,in_attesa,
+fac2cc57-ba33-4092-95f3-b9f411b50fe4,2026-09-07,POS BCC Amex,0,,in_attesa,
+bbae9328-1394-45bb-bf37-bd4b6c8c72b6,2026-09-07,POS BCC Amex,0,,in_attesa,
+15b1977a-b8a9-4c11-bc53-2a1855c99d41,2026-09-07,POS BCC Amex,0,,in_attesa,
+b46ddd2d-81bd-4907-9ec5-c9bab68751e3,2026-09-07,POS MPS,885.18,876.27,accreditato,2026-09-09T06:05:00.048743+00:00
+94b05829-fb63-4cd5-98ca-7e10b0bca283,2026-09-07,POS MPS,613.65,609.57,accreditato,2026-09-09T06:05:00.048743+00:00
+63b3af32-7d91-4e8a-8d43-1dad4056fa44,2026-09-07,POS MPS,580.1,576.12,accreditato,2026-09-09T06:05:00.048743+00:00
+b76c4efb-1bf4-4917-8a19-f9be69cb516e,2026-09-07,POS MPS,115.1,114.26,accreditato,2026-09-09T06:05:00.048743+00:00
+6251c3b5-073a-4796-bad6-2f60172f39f9,2026-09-07,POS MPS,553.85,547.71,accreditato,2026-09-09T06:05:00.048743+00:00
+25b9d151-74da-4793-8ef2-3e4cc2ad4e7c,2026-09-07,POS MPS,0,,in_attesa,
+bf3b4e83-d42f-4f73-8380-d4e500e6797b,2026-09-07,POS MPS,431.89,428.83,accreditato,2026-09-09T06:05:00.048743+00:00
+aff2eacb-4d8a-40ec-8a08-e8a4239666c4,2026-09-07,POS MPS Amex,0,,in_attesa,
+b75d3872-1df4-453c-950e-d9bcd79c98a0,2026-09-07,POS MPS Amex,0,,in_attesa,
+843b8f9f-a16d-42fb-b9d9-02f5b517954b,2026-09-07,POS MPS Amex,0,609.57,differenza,2026-09-09T06:05:00.048743+00:00
+fe0d1891-081f-46e6-b00f-24c8ee694fba,2026-09-07,POS MPS Amex,0,,in_attesa,
+afc8d2a9-9960-46c4-a97a-fc985fc1942a,2026-09-07,POS MPS Amex,0,114.26,differenza,2026-09-09T06:05:00.048743+00:00
+96edcd1e-f9d7-4678-a2b7-b7b576e8ec9f,2026-09-07,POS MPS Amex,0,876.27,differenza,2026-09-09T06:05:00.048743+00:00
+8b5dc346-3081-4786-9c17-de4151e03db0,2026-09-07,POS MPS Amex,0,428.83,differenza,2026-09-09T06:05:00.048743+00:00
+27c9f684-1582-4c58-a438-e86faeb2e7b5,2026-09-08,Bonifico,0,,in_attesa,
+12281431-f8e9-4874-9698-9a7d6a801f1b,2026-09-08,Bonifico,0,,in_attesa,
+03b379de-406f-42cc-8075-b3697ca6054b,2026-09-08,Bonifico,0,,in_attesa,
+8d691ec1-e2e2-4110-bbdd-8a6d4e84ee45,2026-09-08,Bonifico,0,,in_attesa,
+ab4bd1c5-eb15-4917-a018-d5a7fbefb8d0,2026-09-08,Bonifico,0,,in_attesa,
+884642f7-a7d7-4f9b-a4c1-ac1604c47d2e,2026-09-08,Bonifico,0,,in_attesa,
+9339356a-ca53-41e3-8af6-8b7ca9bd010a,2026-09-08,Bonifico,0,,in_attesa,
+53108e17-eb63-46a6-85a2-bea21a54197b,2026-09-08,Contanti,8.1,,in_attesa,
+5f67491c-49ea-422f-ab13-8bb838361d16,2026-09-08,Contanti,57.9,,in_attesa,
+1a6dccf9-b1b4-4a55-bfb6-6b03119a8912,2026-09-08,Contanti,252.3,,in_attesa,
+96a10a64-01fa-4a22-be71-82e57b18ec15,2026-09-08,Contanti,0,,in_attesa,
+bdf5e165-e4b3-4065-ae41-93a8ab0eadd4,2026-09-08,Contanti,176.6,,in_attesa,
+b037d081-8dd0-4b37-94f0-c8b8d6b21f88,2026-09-08,Contanti,23.55,,in_attesa,
+bfb3eb51-25c0-4c0b-b3d4-85e9a64c7ad7,2026-09-08,Contanti,396.05,,in_attesa,
+19a09fc1-5703-4565-85df-be1ba7c15446,2026-09-08,Fatture,0,,in_attesa,
+74fc9b8d-da56-4ff0-bf1e-dccb8e21a804,2026-09-08,Fatture,0,,in_attesa,
+21d446f2-1b70-410d-9655-8adeaa7d0ca6,2026-09-08,Fatture,0,,in_attesa,
+337f702b-f6bc-4b4b-9b6c-6ca58107465c,2026-09-08,Fatture,0,,in_attesa,
+fb14ebcd-4f81-4f77-85bc-235ce72c193f,2026-09-08,Fatture,0,,in_attesa,
+889c9a00-416e-4870-bda5-cda21802d884,2026-09-08,Fatture,0,,in_attesa,
+767bb90c-d79e-469d-932e-dae26d6cd921,2026-09-08,Fatture,0,,in_attesa,
+88022a16-f12c-4567-b383-8c15901d758a,2026-09-08,Pay by link,0,,in_attesa,
+4831bcab-a892-4a92-89d3-f2dc30a5fd1d,2026-09-08,Pay by link,0,,in_attesa,
+5a210539-c602-4a00-b169-fe2aabb3984a,2026-09-08,Pay by link,0,,in_attesa,
+0cfa6d25-8d4a-429a-9ed8-2b89f9339746,2026-09-08,Pay by link,0,,in_attesa,
+86ad7802-d124-4e22-9028-8ca0346815de,2026-09-08,Pay by link,0,,in_attesa,
+96c62d59-bfe2-4dec-ab3b-9d56d147a872,2026-09-08,Pay by link,0,,in_attesa,
+d5790ef5-8026-4a7b-ad1d-523d23da51ce,2026-09-08,Pay by link,0,,in_attesa,
+be296702-900d-4d15-8631-11f4effa11e7,2026-09-08,POS BCC,0,,in_attesa,
+d8503d7a-bb30-4c33-8097-ef121075a521,2026-09-08,POS BCC,0,,in_attesa,
+7cae92ec-556c-4155-abde-0f4ffcce2f22,2026-09-08,POS BCC,872.86,872.86,accreditato,2026-09-10T06:05:00.090606+00:00
+166e565a-c58e-4bd9-9780-0b4fb0f38fb0,2026-09-08,POS BCC,0,,in_attesa,
+56d7b21e-796a-4849-adfb-edbe0809970c,2026-09-08,POS BCC,0,,in_attesa,
+a5496207-2be1-499b-bff0-ffe4c71174b1,2026-09-08,POS BCC,0,,in_attesa,
+e6e7b7c1-3506-4152-8282-a62bb7172325,2026-09-08,POS BCC,0,,in_attesa,
+4144a91b-fd0a-40a8-bac0-95d28d288248,2026-09-08,POS BCC Amex,0,,in_attesa,
+6600b5a4-20f6-4634-b7da-da65e0ca5083,2026-09-08,POS BCC Amex,0,,in_attesa,
+e179986c-bdd5-4145-8763-d3eaa47cfc28,2026-09-08,POS BCC Amex,0,,in_attesa,
+7c5264aa-c9ff-401e-ba91-e9f9c6dda060,2026-09-08,POS BCC Amex,0,,in_attesa,
+d2725877-b307-4add-9f10-a6bb22dc9b89,2026-09-08,POS BCC Amex,0,,in_attesa,
+9611d38a-a9c5-4afd-8373-319ac62e8c03,2026-09-08,POS BCC Amex,0,,in_attesa,
+526b11f0-f195-49a8-b8e0-e2c2fa6d7b45,2026-09-08,POS BCC Amex,0,,in_attesa,
+a3622573-0630-42d7-831d-85fc80c847c8,2026-09-08,POS MPS,758.5,753.16,accreditato,2026-09-10T06:05:00.090606+00:00
+401a197e-dea3-40e4-a570-8dd67b626dc2,2026-09-08,POS MPS,0,,in_attesa,
+efec2369-a761-44ec-890b-59592fef748f,2026-09-08,POS MPS,921.68,915.62,accreditato,2026-09-10T06:05:00.090606+00:00
+57a7e78b-3046-4cf8-b3eb-2681ca945f26,2026-09-08,POS MPS,486.27,477.46,differenza,2026-09-10T06:05:00.090606+00:00
+a4ef56d8-e6be-455a-80c3-0c9aa31ed151,2026-09-08,POS MPS,378.7,375.88,accreditato,2026-09-10T06:05:00.090606+00:00
+e6bf68c8-9437-4a5c-8f24-dc32812f8821,2026-09-08,POS MPS,176.9,175.65,accreditato,2026-09-10T06:05:00.090606+00:00
+fcb4634b-5974-4655-8473-c639859f5f1e,2026-09-08,POS MPS,783.1,777,accreditato,2026-09-10T06:05:00.090606+00:00
+bfd518a6-3679-405c-9915-90038e932a63,2026-09-08,POS MPS Amex,0,915.62,differenza,2026-09-10T06:05:00.090606+00:00
+a880e032-ce37-4aa9-8e65-16fc89be380c,2026-09-08,POS MPS Amex,0,,in_attesa,
+b5b87c49-2db8-45c9-81c5-88281889acab,2026-09-08,POS MPS Amex,0,,in_attesa,
+b8e1a89c-605b-4de9-9662-683a28b72760,2026-09-08,POS MPS Amex,0,777,differenza,2026-09-10T06:05:00.090606+00:00
+1756352c-a95b-48c3-a7d8-6e0a8839190b,2026-09-08,POS MPS Amex,0,175.65,differenza,2026-09-10T06:05:00.090606+00:00
+4509cb59-38ab-481e-979d-5cf70bb1d535,2026-09-08,POS MPS Amex,0,375.88,differenza,2026-09-10T06:05:00.090606+00:00
+f3acfbd6-f081-454e-ae5a-1e349356e874,2026-09-08,POS MPS Amex,0,,in_attesa,
+df1804e2-b155-40d2-8900-7f9d6da03801,2026-09-09,Bonifico,0,,in_attesa,
+e7b8e26c-6d6b-45e5-8d0e-50d52db49c0a,2026-09-09,Bonifico,0,,in_attesa,
+d83f8e6b-7e6b-4a58-a3dc-e15f0aa9e3fb,2026-09-09,Bonifico,0,,in_attesa,
+6b881650-40ad-4860-a2bb-812fff5016be,2026-09-09,Bonifico,0,,in_attesa,
+d24facba-bda4-4276-8802-1b998906ff84,2026-09-09,Bonifico,0,,in_attesa,
+4203eb22-ce72-4ca2-bb19-b8b191cffd80,2026-09-09,Bonifico,0,,in_attesa,
+ec6d8c21-1ab1-4d29-96cc-3f1bf4f762e4,2026-09-09,Bonifico,0,,in_attesa,
+8390d04e-c466-4738-a72a-ec1385ec6d3e,2026-09-09,Contanti,278.05,,in_attesa,
+65ccf7f3-42ae-45d0-ac79-6522814b218f,2026-09-09,Contanti,76.1,,in_attesa,
+0995e269-286b-4ea0-b9fd-b35491d7f178,2026-09-09,Contanti,205.65,,in_attesa,
+8e42ed0d-0510-48b8-b8f1-045e14390af1,2026-09-09,Contanti,112.6,,in_attesa,
+957c2915-92b9-49b9-9967-4421e1ee30c0,2026-09-09,Contanti,0,,in_attesa,
+407ae1fb-6767-44d7-ae63-de37326290cd,2026-09-09,Contanti,439.35,,in_attesa,
+b9bd802b-9085-4090-8890-fcd2d4adcb99,2026-09-09,Contanti,69,,in_attesa,
+d68e90e9-ead4-4787-9c1c-55e98c684848,2026-09-09,Fatture,0,,in_attesa,
+604cc10b-8ceb-4c5a-adc8-20f2e10654ac,2026-09-09,Fatture,0,,in_attesa,
+30012d1c-7ae9-4524-b0a7-884f12ff83c0,2026-09-09,Fatture,0,,in_attesa,
+7e555825-4705-4643-a6c8-8e369046e60d,2026-09-09,Fatture,0,,in_attesa,
+3d47be15-e075-42a8-a227-4cd383adc826,2026-09-09,Fatture,0,,in_attesa,
+be46a101-97eb-467b-b711-647fb2f57b25,2026-09-09,Fatture,0,,in_attesa,
+726824f9-f816-43f7-bdd8-7e6cf0e74831,2026-09-09,Fatture,0,,in_attesa,
+2e4643db-913e-42c0-8410-3a497f7f0a68,2026-09-09,Pay by link,0,,in_attesa,
+aa7478fa-61cf-4b2f-9e61-edde37e8ce0e,2026-09-09,Pay by link,0,,in_attesa,
+5afc9a77-98fb-4264-813c-20622f57890f,2026-09-09,Pay by link,0,,in_attesa,
+34e35a1b-d9eb-4390-b5cb-23af4e032921,2026-09-09,Pay by link,0,,in_attesa,
+48c8d265-7ca1-4c16-870b-04ccea632789,2026-09-09,Pay by link,0,,in_attesa,
+92f54b3b-830b-4fd7-9266-de855d4289af,2026-09-09,Pay by link,0,,in_attesa,
+93a99597-d58e-474c-9f1a-edde1ab7632a,2026-09-09,Pay by link,0,,in_attesa,
+04dd9caf-f358-4d25-8287-bf06b99da999,2026-09-09,POS BCC,0,,in_attesa,
+e8cbb8d7-fd87-4c16-b745-6f30204ab1db,2026-09-09,POS BCC,0,,in_attesa,
+24085aab-0416-4b5f-ac39-a51b779ca280,2026-09-09,POS BCC,0,,in_attesa,
+c117b845-c4fa-4862-a6f0-ae56ac7729ca,2026-09-09,POS BCC,0,,in_attesa,
+8a3edf50-a7a3-4072-90b0-4d2350e4b91e,2026-09-09,POS BCC,76,76,accreditato,2026-09-11T06:05:00.096954+00:00
+ef50e9dd-1e55-40fa-b2a5-acc59844a060,2026-09-09,POS BCC,0,,in_attesa,
+8de1db29-3cb9-4383-ab56-2a2e8c4d8247,2026-09-09,POS BCC,0,,in_attesa,
+844654dd-e048-4c46-8577-df616f8f2d0d,2026-09-09,POS BCC Amex,0,,in_attesa,
+6697db3f-2138-44ab-a821-8bd58d7c11f7,2026-09-09,POS BCC Amex,0,,in_attesa,
+3517491b-89c0-433e-9b22-6c7855fabc5b,2026-09-09,POS BCC Amex,0,,in_attesa,
+2c0d67fc-1ee7-4048-9e28-bd435fdcaf8e,2026-09-09,POS BCC Amex,0,,in_attesa,
+7e4e5951-f253-4892-9da4-ad093c0a05b3,2026-09-09,POS BCC Amex,0,,in_attesa,
+9a692457-1439-49aa-9cd2-7503372c9ba1,2026-09-09,POS BCC Amex,0,,in_attesa,
+937bab4a-935b-4de1-8660-66062b382a88,2026-09-09,POS BCC Amex,0,,in_attesa,
+36c30e75-3b11-4641-92a7-f9352d3f0804,2026-09-09,POS MPS,775.55,768.48,accreditato,2026-09-11T06:05:00.096954+00:00
+6395fe45-4b89-4da1-b4c6-8db6895d4b13,2026-09-09,POS MPS,410.19,407.28,accreditato,2026-09-11T06:05:00.096954+00:00
+8bdc3c59-fc5d-4108-84ec-70c0ac3b926c,2026-09-09,POS MPS,831.04,857.1,accreditato,2026-09-11T06:05:00.096954+00:00
+5480e4bd-5da8-4ab0-8a49-4d6e99157e12,2026-09-09,POS MPS,1316,1316,accreditato,2026-09-11T06:05:00.096954+00:00
+87f89ef5-8b95-43c7-bf79-967c4a1fa10d,2026-09-09,POS MPS,657.7,652.83,accreditato,2026-09-11T06:05:00.096954+00:00
+b176892e-0164-41c8-90d5-781d3d250e65,2026-09-09,POS MPS,415.17,411.68,accreditato,2026-09-11T06:05:00.096954+00:00
+d3e017cf-8017-4729-a344-4171b318b455,2026-09-09,POS MPS,1027.6,1015.83,accreditato,2026-09-11T06:05:00.096954+00:00
+138af94c-4945-4753-9fcb-46d1c3e51885,2026-09-09,POS MPS Amex,0,411.68,differenza,2026-09-11T06:05:00.096954+00:00
+7e931d2c-85fc-4d84-a296-3665abed2cb6,2026-09-09,POS MPS Amex,0,,in_attesa,
+d5c33297-fff1-4df0-9ec3-c1ab0d913255,2026-09-09,POS MPS Amex,0,,in_attesa,
+8dec250a-3bd8-4811-90e9-6f3e7f3b5dbd,2026-09-09,POS MPS Amex,0,,in_attesa,
+49f2359d-bd4d-4bcf-b868-47c0e96b63f8,2026-09-09,POS MPS Amex,33.05,857.1,differenza,2026-09-11T06:05:00.096954+00:00
+08df591c-24fc-4307-9f71-341fdff24274,2026-09-09,POS MPS Amex,0,652.83,differenza,2026-09-11T06:05:00.096954+00:00
+9d566c9b-b6f3-43fb-a40d-b5ce48c92205,2026-09-09,POS MPS Amex,0,,in_attesa,
+129fc9fe-733b-4288-93bd-2046058bf534,2026-09-10,Bonifico,0,,in_attesa,
+c8ef1a50-c6de-4559-99b2-d0aa1f850699,2026-09-10,Bonifico,0,,in_attesa,
+65d83463-cd2b-4ed1-a817-47fb4c3f387c,2026-09-10,Bonifico,0,,in_attesa,
+9970952e-a095-4fee-a912-e72ad5675416,2026-09-10,Bonifico,0,,in_attesa,
+a9315941-55bb-44ef-8f41-ca5561763711,2026-09-10,Bonifico,0,,in_attesa,
+7750cf84-7d04-4e32-9018-c7bfdacd96f1,2026-09-10,Bonifico,0,,in_attesa,
+f389a9b4-dc57-44f2-afe0-6d60f72c4aef,2026-09-10,Bonifico,0,,in_attesa,
+e16ac5cd-2d40-47a9-b6cb-37ecd727a2fc,2026-09-10,Contanti,132.85,,in_attesa,
+7ec35535-71a4-4740-978b-ca2a492456a5,2026-09-10,Contanti,38,,in_attesa,
+f12d1963-f61c-43de-82dc-5171521abeae,2026-09-10,Contanti,57.7,,in_attesa,
+c506af36-c37e-426f-a927-979cd7c5eddf,2026-09-10,Contanti,333.8,,in_attesa,
+5b865d94-9a55-4871-a4b9-60930bfb88ff,2026-09-10,Contanti,208.55,,in_attesa,
+5ed4fe60-19cf-4e5b-bd52-d2861272b1e6,2026-09-10,Contanti,168.5,,in_attesa,
+1726f90b-1247-45e0-9d8d-70bb01a07f9d,2026-09-10,Contanti,426.2,,in_attesa,
+209949df-c2dd-408b-a7fd-dfc9e7b2c311,2026-09-10,Fatture,0,,in_attesa,
+85128f27-4757-4aef-be25-4c0b64697d5c,2026-09-10,Fatture,0,,in_attesa,
+3a37436a-fe6a-46aa-bea0-14761b2d7984,2026-09-10,Fatture,0,,in_attesa,
+d7c29332-b970-460d-abea-151904a7e718,2026-09-10,Fatture,0,,in_attesa,
+a4151539-67a0-43d1-bc17-0d881ac61151,2026-09-10,Fatture,0,,in_attesa,
+11479e15-48f7-4ae7-aaa7-bba3e80ef6f5,2026-09-10,Fatture,0,,in_attesa,
+76cb3fe8-28bf-4b6c-bae7-0f2145aac923,2026-09-10,Fatture,0,,in_attesa,
+d9718473-1c7b-4b44-89d6-e0de03295627,2026-09-10,Pay by link,0,,in_attesa,
+1009b374-81be-4c48-b78c-34d23ded1145,2026-09-10,Pay by link,0,,in_attesa,
+e9d41e2e-c669-4736-b31e-636d052fc44f,2026-09-10,Pay by link,0,,in_attesa,
+ad5d7062-9014-4965-9a01-409d5a844ee4,2026-09-10,Pay by link,0,,in_attesa,
+b75bbb56-a396-4b90-871c-5b2a87c17e83,2026-09-10,Pay by link,0,,in_attesa,
+7737d06d-9aec-4a65-afd8-470e19766e10,2026-09-10,Pay by link,0,,in_attesa,
+eb44157b-636d-4993-bd31-099bd911a26b,2026-09-10,Pay by link,0,,in_attesa,
+2714d022-0410-42e7-a317-9a356d6be63b,2026-09-10,POS BCC,0,,in_attesa,
+34b10102-f262-43a2-a0ea-2d1697bfd246,2026-09-10,POS BCC,0,,in_attesa,
+cd9f4875-dbcb-405d-b60a-a77614e5617c,2026-09-10,POS BCC,0,,in_attesa,
+3b5ae78d-493e-404d-bba7-198bdcfb3e2a,2026-09-10,POS BCC,0,,in_attesa,
+372d37ce-0358-4b12-af68-ae4f6efa4a07,2026-09-10,POS BCC,0,,in_attesa,
+c6197a0c-ea20-4b8e-a3c6-d8ff9c9ac808,2026-09-10,POS BCC,0,,in_attesa,
+28decb2e-abcb-4e7f-ae62-e905d9837c6c,2026-09-10,POS BCC,0,,in_attesa,
+ece8c234-edf7-4a26-8829-f66d837903e8,2026-09-10,POS BCC Amex,0,,in_attesa,
+4d115f0a-bb54-4239-b9e6-0a7be8f71e5b,2026-09-10,POS BCC Amex,0,,in_attesa,
+200d3d25-d7e1-485b-a3a3-7cd30446e16a,2026-09-10,POS BCC Amex,0,,in_attesa,
+bf0d2a85-4a08-487a-8df7-cbda4279a32a,2026-09-10,POS BCC Amex,0,,in_attesa,
+dfa6b504-59bf-4dac-bf70-01be505f95b2,2026-09-10,POS BCC Amex,0,,in_attesa,
+56dea275-ee5e-4215-8a73-d00f1426a7d1,2026-09-10,POS BCC Amex,0,,in_attesa,
+46901c9c-fdc2-4c7f-b483-cef80a88ed24,2026-09-10,POS BCC Amex,0,,in_attesa,
+00879bed-0f7f-440d-9700-306d8340bc3c,2026-09-10,POS MPS,88.9,734.05,differenza,2026-09-12T06:05:00.081444+00:00
+47478625-feff-46b9-8e45-c7dc5177e17e,2026-09-10,POS MPS,653.2,647,accreditato,2026-09-12T06:05:00.081444+00:00
+f984973e-9571-4aca-8777-8885e61f45e2,2026-09-10,POS MPS,380.1,377.39,accreditato,2026-09-12T06:05:00.081444+00:00
+6a3f2f85-46e5-43ba-a14a-f47dadb4b849,2026-09-10,POS MPS,440.19,437.23,accreditato,2026-09-12T06:05:00.081444+00:00
+2de8671c-61c6-4abd-a182-8a926dfd61f2,2026-09-10,POS MPS,777.18,762.89,differenza,2026-09-12T06:05:00.081444+00:00
+951df32d-3d78-4395-b915-0080817626f2,2026-09-10,POS MPS,2168.6,2168.6,accreditato,2026-09-12T06:05:00.081444+00:00
+3f3024fa-5106-4df7-9bc2-c8146c46b154,2026-09-10,POS MPS,1341.15,1330.98,accreditato,2026-09-12T06:05:00.081444+00:00
+ed8e2054-bed9-4357-8829-89713b1f2703,2026-09-10,POS MPS Amex,0,,in_attesa,
+bdf6cb31-52ac-4d66-b356-d7eab5638c70,2026-09-10,POS MPS Amex,650.54,734.05,accreditato,2026-09-12T06:05:00.081444+00:00
+c49cb99d-fb5c-434e-aaf8-d036db7e6b39,2026-09-10,POS MPS Amex,0,,in_attesa,
+df13079b-6c03-4fb7-96b8-ca6b1fc31189,2026-09-10,POS MPS Amex,0,,in_attesa,
+09d5183b-d368-42e8-afbc-391533a0ef12,2026-09-10,POS MPS Amex,0,437.23,differenza,2026-09-12T06:05:00.081444+00:00
+977822be-6a58-4e65-8174-6e66539d0c2a,2026-09-10,POS MPS Amex,0,377.39,differenza,2026-09-12T06:05:00.081444+00:00
+fdcf0d1c-45d3-43ae-9005-b5138cc9f710,2026-09-10,POS MPS Amex,0,,in_attesa,
+032d2eb7-95c8-4f22-a8fa-e8341b12ca31,2026-09-11,Bonifico,0,,in_attesa,
+041230a9-984b-48b6-9d2c-96a04269c1fc,2026-09-11,Bonifico,0,,in_attesa,
+5155f1bd-7d77-4e80-a797-30b20b542e9c,2026-09-11,Bonifico,45.9,,in_attesa,
+b90f5335-05e2-49a4-a395-ff80de22d63a,2026-09-11,Bonifico,0,,in_attesa,
+3d83adc7-2b50-4bcb-adc6-a558b873c9a3,2026-09-11,Bonifico,0,,in_attesa,
+ca7babd6-fbfb-42e2-aaed-8f65f04ed255,2026-09-11,Bonifico,0,,in_attesa,
+36f34c3a-4684-411a-b709-44fe223bc61b,2026-09-11,Bonifico,0,,in_attesa,
+2d25d802-8975-4283-8021-df266f01610e,2026-09-11,Contanti,52.65,,in_attesa,
+023c9017-ba02-4ef3-9de3-4a56461b842e,2026-09-11,Contanti,448.3,,in_attesa,
+6cac8205-e977-4c6d-9b43-9cc81a7a43e8,2026-09-11,Contanti,255.4,,in_attesa,
+0ab41afe-0dc6-4726-b638-6812991d4816,2026-09-11,Contanti,218.5,,in_attesa,
+27ac6384-4a2f-4d0e-ab84-5eca5495340d,2026-09-11,Contanti,495.3,,in_attesa,
+4a419412-c5ca-44b7-b271-52f0296c22e3,2026-09-11,Contanti,344.75,,in_attesa,
+0d33e479-77ba-49d6-aa7c-ac01ec8175e2,2026-09-11,Contanti,309,,in_attesa,
+5d5fdb70-2cf9-4646-a1e0-fb03f63b40d2,2026-09-11,Fatture,0,,in_attesa,
+f8cceeed-8624-4a39-88d5-34b3e7b06984,2026-09-11,Fatture,0,,in_attesa,
+d9b20053-1505-419b-afa3-71847aa04712,2026-09-11,Fatture,0,,in_attesa,
+331c7c9e-8018-41a6-8e72-8b6cc63d938a,2026-09-11,Fatture,0,,in_attesa,
+2c97c7bc-87de-4bae-b991-31b0f87183a3,2026-09-11,Fatture,0,,in_attesa,
+5d09abe8-d491-4014-86e7-f70524200255,2026-09-11,Fatture,0,,in_attesa,
+c87f102e-c35e-48b9-a7d4-33a6c7f2d655,2026-09-11,Fatture,0,,in_attesa,
+07ef99bf-d800-41bd-8629-de98173b5c38,2026-09-11,Pay by link,0,,in_attesa,
+32548201-ede3-409c-8343-ad41daf9d6e7,2026-09-11,Pay by link,0,,in_attesa,
+cbb4327e-3d5b-4600-b40a-7ea005f6c728,2026-09-11,Pay by link,0,,in_attesa,
+5afbf926-4484-4434-8511-87e64a006248,2026-09-11,Pay by link,0,,in_attesa,
+caa7a89b-e52b-4052-9b63-51e099a6a9c2,2026-09-11,Pay by link,0,,in_attesa,
+fa300fed-70d0-4272-ac80-0df7202054ce,2026-09-11,Pay by link,0,,in_attesa,
+d8f602c6-ed34-41ec-865d-4563e43c5c65,2026-09-11,Pay by link,0,,in_attesa,
+2895bf71-ad58-4a53-88e7-a81a5c7ede7c,2026-09-11,POS BCC,0,,in_attesa,
+e9e957c4-0b31-4a6d-b8dc-d9887f95da0d,2026-09-11,POS BCC,0,,in_attesa,
+e17be146-683a-4410-b381-d108b1795799,2026-09-11,POS BCC,878.02,878.02,accreditato,2026-09-15T06:05:00.069006+00:00
+fc47252b-d66d-4f0e-8fd4-04714129501f,2026-09-11,POS BCC,0,,in_attesa,
+52258a50-3b81-477a-9a47-090ef98a6202,2026-09-11,POS BCC,0,,in_attesa,
+2a0ef675-86c9-43f0-bf81-8cfac375b1dc,2026-09-11,POS BCC,0,,in_attesa,
+e211367a-79d3-4599-bfc8-18afc037611a,2026-09-11,POS BCC,0,,in_attesa,
+697f40db-ec9a-4f0d-9f96-6577efa1858c,2026-09-11,POS BCC Amex,0,,in_attesa,
+625c907f-ebc6-4b06-9af6-deb7cb3429e8,2026-09-11,POS BCC Amex,0,,in_attesa,
+2a908333-189c-4ad4-a619-0ee0ed076a48,2026-09-11,POS BCC Amex,0,,in_attesa,
+4ce6ebd4-b690-44ab-b9af-17635aa807cd,2026-09-11,POS BCC Amex,0,,in_attesa,
+2f6a87aa-56d9-4691-b4fc-2dda80df3021,2026-09-11,POS BCC Amex,0,,in_attesa,
+87739257-7433-4810-a91c-c3cde5a261a2,2026-09-11,POS BCC Amex,0,,in_attesa,
+437aa6ef-f390-4b8d-8a16-bd0f8a6e1361,2026-09-11,POS BCC Amex,0,,in_attesa,
+d928f458-2eca-4143-9065-734b17c24973,2026-09-11,POS MPS,740.2,888.78,accreditato,2026-09-15T06:05:00.069006+00:00
+3c708469-af23-4b0c-a77e-e08d86a54bd3,2026-09-11,POS MPS,1479.64,1468.24,accreditato,2026-09-15T06:05:00.069006+00:00
+ea78f6ad-87ec-45b9-a68a-99950a40c536,2026-09-11,POS MPS,1380.26,1371.25,accreditato,2026-09-15T06:05:00.069006+00:00
+39304a2b-44bf-48a3-9c60-e4cdb9139b18,2026-09-11,POS MPS,1045.5,1133.5,differenza,2026-09-15T06:05:00.069006+00:00
+2a5dd59e-e1a1-4eac-a739-4eff203430c6,2026-09-11,POS MPS,1084.23,1076.44,accreditato,2026-09-15T06:05:00.069006+00:00
+8d64c12b-2ac2-44e4-b312-4b4d637c604d,2026-09-11,POS MPS,0,,in_attesa,
+5495ab28-a443-4d19-b0a1-0343317a7466,2026-09-11,POS MPS,1166.55,1157.78,accreditato,2026-09-15T06:05:00.069006+00:00
+7a2d457f-c6e3-476c-a3ef-1c67d5c5928a,2026-09-11,POS MPS Amex,0,,in_attesa,
+0eca9d5a-7a90-42ea-b307-1f3b8df20c32,2026-09-11,POS MPS Amex,0,1076.44,differenza,2026-09-15T06:05:00.069006+00:00
+37c36bbf-dfe2-4b12-9350-6c381d830681,2026-09-11,POS MPS Amex,0,1468.24,differenza,2026-09-15T06:05:00.069006+00:00
+b6c06325-27e6-4169-9eb5-5737583efb00,2026-09-11,POS MPS Amex,153.9,888.78,differenza,2026-09-15T06:05:00.069006+00:00
+65698be2-f68e-4499-8810-6084afff3442,2026-09-11,POS MPS Amex,88,1133.5,accreditato,2026-09-15T06:05:00.069006+00:00
+48146981-bef4-4452-8d4e-1fb5b4b3a403,2026-09-11,POS MPS Amex,0,1371.25,differenza,2026-09-15T06:05:00.069006+00:00
+7421e474-56d6-497b-bbc0-2bbc2e8bd986,2026-09-11,POS MPS Amex,0,,in_attesa,
+2c7fc515-10a4-4702-bdc5-6cedcb147268,2026-09-12,Bonifico,0,,in_attesa,
+722a8a8f-5354-4532-9ae8-e43289fc9cd9,2026-09-12,Bonifico,0,,in_attesa,
+fc9e9dde-5cb1-416e-949b-b83d92ea1638,2026-09-12,Bonifico,0,,in_attesa,
+49f39888-bf8d-4179-85b0-3d1b33fedcbb,2026-09-12,Bonifico,0,,in_attesa,
+0f580bcd-867e-4f02-a2f0-31c27f99bf0c,2026-09-12,Bonifico,0,,in_attesa,
+58245797-ebfc-4d8e-89da-3974fe78f09a,2026-09-12,Bonifico,0,,in_attesa,
+d43f0ad3-ef90-4f6f-8bda-becc548a0647,2026-09-12,Bonifico,0,,in_attesa,
+8c889dbd-284d-4d58-a71a-89f16156dd94,2026-09-12,Contanti,634.3,,in_attesa,
+e6eed289-a3d7-425e-9623-04d430c6fc4c,2026-09-12,Contanti,1225.85,,in_attesa,
+4343ddbf-46d0-4b16-b101-8930afa649df,2026-09-12,Contanti,370.6,,in_attesa,
+ddd168f9-20b3-430f-b1d5-eef0e3beb5ac,2026-09-12,Contanti,211.15,,in_attesa,
+9ed28dbb-5c29-4f5b-977d-9382f4459dc1,2026-09-12,Contanti,1377.55,,in_attesa,
+d67d0104-81da-4f4f-902d-cf4366f5b605,2026-09-12,Contanti,478.75,,in_attesa,
+52effb6f-6353-4570-9202-160dcc46293e,2026-09-12,Contanti,129.4,,in_attesa,
+d40ddfb3-8170-433c-82e7-18e99e63b43d,2026-09-12,Fatture,0,,in_attesa,
+c8960f3e-1707-4816-9284-2b3435e1eab7,2026-09-12,Fatture,0,,in_attesa,
+9a923fa1-5aa1-4142-95de-7cf0d6ff9ea0,2026-09-12,Fatture,0,,in_attesa,
+7704c8f5-4ae5-424c-81d6-fb40ddf6a652,2026-09-12,Fatture,0,,in_attesa,
+2aadc165-af0b-4e1e-bc8f-9d7468197d47,2026-09-12,Fatture,0,,in_attesa,
+72310745-4aa0-4d88-b4fc-71a9587ffa25,2026-09-12,Fatture,0,,in_attesa,
+038f0133-193a-42dd-870b-cb3816065f28,2026-09-12,Fatture,0,,in_attesa,
+ebc9c206-a2b2-4067-b987-e6a1643314c5,2026-09-12,Pay by link,0,,in_attesa,
+55c98597-8913-4189-afe5-3a2fd48aa251,2026-09-12,Pay by link,0,,in_attesa,
+80b59c7f-4802-4223-bc77-c4a04dc72081,2026-09-12,Pay by link,0,,in_attesa,
+26481cc1-3bea-4806-ad95-13baa380107f,2026-09-12,Pay by link,0,,in_attesa,
+a535e005-46af-4ee8-a7ab-9b1d537784ab,2026-09-12,Pay by link,0,,in_attesa,
+784a026b-5876-4fec-a086-40679340a845,2026-09-12,Pay by link,0,,in_attesa,
+c7e602d9-98d9-4f0a-9b77-f96c76d01528,2026-09-12,Pay by link,0,,in_attesa,
+ecef13ce-6ef2-45b5-bd16-45ae9c694290,2026-09-12,POS BCC,0,,in_attesa,
+6221bac4-a3e1-4485-b826-b68fb48d7bba,2026-09-12,POS BCC,0,,in_attesa,
+ea0e7838-64b7-4611-b177-195b8c70eb46,2026-09-12,POS BCC,0,,in_attesa,
+a5c28484-d91b-4abd-8713-8769851d38c2,2026-09-12,POS BCC,2246.97,2246.97,accreditato,2026-09-15T06:05:00.069006+00:00
+85fa5390-98ef-406a-9061-58a4302494f5,2026-09-12,POS BCC,0,,in_attesa,
+6746f657-e7e7-4ce9-9837-04b8bace77c6,2026-09-12,POS BCC,443.2,443.2,accreditato,2026-09-15T06:05:00.069006+00:00
+386210f0-288c-418b-b964-a7891d4b56dd,2026-09-12,POS BCC,0,,in_attesa,
+9c1f0d5b-9260-4609-857e-8fb098c28923,2026-09-12,POS BCC Amex,0,,in_attesa,
+ba932ec4-4359-4b27-bafe-a059c4f4e82b,2026-09-12,POS BCC Amex,0,,in_attesa,
+2d40349e-c778-4ea9-8764-f9b734ea462b,2026-09-12,POS BCC Amex,0,,in_attesa,
+38d2cd5d-9ac6-418e-966f-3445acb5c3a4,2026-09-12,POS BCC Amex,0,,in_attesa,
+793eb9fd-e07b-4380-84b4-932733ce5397,2026-09-12,POS BCC Amex,0,,in_attesa,
+625a7c0b-2008-4deb-8f50-ed3561934059,2026-09-12,POS BCC Amex,0,,in_attesa,
+9c4de718-28b9-430d-88b7-7daf83f4023f,2026-09-12,POS BCC Amex,0,,in_attesa,
+c1526331-0177-4224-a135-8d0960c3aaba,2026-09-12,POS MPS,2593.39,2566.39,accreditato,2026-09-15T06:05:00.069006+00:00
+4f603332-c26d-4d7b-b766-efcebc40c4e7,2026-09-12,POS MPS,2708.81,2689.56,accreditato,2026-09-15T06:05:00.069006+00:00
+cf513a01-2467-4af1-b713-9ac49446f3f0,2026-09-12,POS MPS,1043.9,2829.92,accreditato,2026-09-15T06:05:00.069006+00:00
+b796e289-5634-4e99-be9b-54f5c0f92007,2026-09-12,POS MPS,2245.75,2230.01,accreditato,2026-09-15T06:05:00.069006+00:00
+f8ff7388-4356-4958-9d12-c3bc312bffff,2026-09-12,POS MPS,3261.65,3261.65,accreditato,2026-09-15T06:05:00.069006+00:00
+7a833df8-3794-4953-84a4-8c0b44a6f89f,2026-09-12,POS MPS,282.91,280.85,accreditato,2026-09-15T06:05:00.069006+00:00
+108c033b-58b5-4949-b311-700f174d7941,2026-09-12,POS MPS,3816.55,3788.28,accreditato,2026-09-15T06:05:00.069006+00:00
+e506abd9-b3e3-455b-9f2d-a2065dd00f92,2026-09-12,POS MPS Amex,0,,in_attesa,
+a4f1e317-d586-4148-8cc5-c25422cdf8bc,2026-09-12,POS MPS Amex,0,3261.65,differenza,2026-09-15T06:05:00.069006+00:00
+4bc46d08-bdba-45db-ba3e-18413f5ae254,2026-09-12,POS MPS Amex,0,,in_attesa,
+ac18f408-85fb-4852-9216-d6803b4b02cf,2026-09-12,POS MPS Amex,0,2566.39,differenza,2026-09-15T06:05:00.069006+00:00
+ac429a76-b185-461c-ab98-74c2f755910d,2026-09-12,POS MPS Amex,1805.71,2829.92,differenza,2026-09-15T06:05:00.069006+00:00
+1ebb1e79-f485-4f54-9d87-56afd5bd07f8,2026-09-12,POS MPS Amex,0,2230.01,differenza,2026-09-15T06:05:00.069006+00:00
+1bc91038-b65a-4231-b0cc-8b9e2ad78792,2026-09-12,POS MPS Amex,0,2689.56,differenza,2026-09-15T06:05:00.069006+00:00
+ebdc7a1f-0b15-4d47-aae5-7c49727faf29,2026-09-13,Bonifico,0,,in_attesa,
+c5c27e23-9e78-4b1c-8072-70144c7b33a4,2026-09-13,Bonifico,0,,in_attesa,
+0b974e1b-d48c-4671-b462-2c3be9b0b05a,2026-09-13,Bonifico,0,,in_attesa,
+547f4571-702a-462c-8422-2fabdfa1df76,2026-09-13,Bonifico,0,,in_attesa,
+08364d30-8b45-4e35-b711-fe6e16dfe8d9,2026-09-13,Bonifico,0,,in_attesa,
+613e5c4a-fc6b-472a-9394-19a41efcda91,2026-09-13,Bonifico,0,,in_attesa,
+936d1831-0f2d-4c7c-9d38-21d37117c292,2026-09-13,Bonifico,0,,in_attesa,
+101d5398-990e-484e-9259-650cfa2ba934,2026-09-13,Contanti,407.3,,in_attesa,
+6a80fe80-0a2b-40f5-8ee8-bcaaf6f74808,2026-09-13,Contanti,645.9,,in_attesa,
+c8070b5f-3ba5-419f-a64d-a8730003733c,2026-09-13,Contanti,907.65,,in_attesa,
+6180f8d1-a947-4d3c-8194-a74372e6f549,2026-09-13,Contanti,650.7,,in_attesa,
+276200a6-fb23-43f1-85d4-08508628142e,2026-09-13,Contanti,470.2,,in_attesa,
+272761ef-6eb0-4ed2-9974-1215cf81a26c,2026-09-13,Contanti,567.9,,in_attesa,
+b8ae8129-b625-422f-91c5-836ee938f220,2026-09-13,Contanti,192,,in_attesa,
+be32b6e6-f168-493a-a68c-23d5fbe53740,2026-09-13,Fatture,0,,in_attesa,
+a6239b39-0c65-4189-b51b-dcb7bd925295,2026-09-13,Fatture,0,,in_attesa,
+99cda762-d777-42f3-8027-443f08883b74,2026-09-13,Fatture,0,,in_attesa,
+0dd0077a-ea61-4922-950f-a706517ccc6c,2026-09-13,Fatture,0,,in_attesa,
+51163aa3-2406-44b9-87d3-d5a7f136949a,2026-09-13,Fatture,0,,in_attesa,
+d98acf0e-c1f7-4a0c-8f40-171f0b2b5061,2026-09-13,Fatture,0,,in_attesa,
+aeef0f56-ed87-40d3-a5a4-67199dad578b,2026-09-13,Fatture,0,,in_attesa,
+ea79da37-9810-4b30-8732-187421b6436c,2026-09-13,Pay by link,0,,in_attesa,
+f2d8db11-28bc-4826-a5c2-4be42c42c494,2026-09-13,Pay by link,0,,in_attesa,
+b3f1a260-3687-4a44-b9df-a3f3440f7fb2,2026-09-13,Pay by link,0,,in_attesa,
+6da9567f-5c39-4de1-9f7a-21059b9deae1,2026-09-13,Pay by link,0,,in_attesa,
+3985844a-65c7-4b25-ac41-8e5bc3b6e0b1,2026-09-13,Pay by link,0,,in_attesa,
+7cf6f70c-adb2-48b6-9d23-a726e9c0f7df,2026-09-13,Pay by link,0,,in_attesa,
+de5f4318-d008-4a7d-a84a-8b80834cd59c,2026-09-13,Pay by link,0,,in_attesa,
+04a851bf-e60b-4650-a197-8f5b9f7f89bc,2026-09-13,POS BCC,0,,in_attesa,
+f0ed041c-0adb-4d4f-9e13-01ac1a0fac54,2026-09-13,POS BCC,0,,in_attesa,
+0ff409e3-ec3b-4a1a-bf4e-9cf14e83da6a,2026-09-13,POS BCC,0,,in_attesa,
+084aade9-d854-4c69-80a6-49d9bfd15ee5,2026-09-13,POS BCC,0,,in_attesa,
+34734487-05a5-4a94-9a54-6f76d68bcb83,2026-09-13,POS BCC,0,,in_attesa,
+474c0243-ead9-45d5-8470-d258183f992a,2026-09-13,POS BCC,292.8,292.8,accreditato,2026-09-15T06:05:00.069006+00:00
+73139161-88b3-48b1-8eb0-d600a0406541,2026-09-13,POS BCC,1593.32,1593.32,accreditato,2026-09-15T06:05:00.069006+00:00
+d9e402b6-1e07-4407-b3c3-24a81937aa3e,2026-09-13,POS BCC Amex,0,,in_attesa,
+c59cdab1-70cb-46a7-ae0e-4a9974979e53,2026-09-13,POS BCC Amex,0,,in_attesa,
+b8b04975-10a3-47c2-9fec-c602aca14bb1,2026-09-13,POS BCC Amex,0,,in_attesa,
+0de3d446-ca43-4be3-a380-a6d88d57b492,2026-09-13,POS BCC Amex,0,,in_attesa,
+3796f198-a1bd-4e14-9384-c4cdd3a00517,2026-09-13,POS BCC Amex,0,,in_attesa,
+70bb55f4-f8f0-4ac7-8ab9-f58b58ef8122,2026-09-13,POS BCC Amex,0,,in_attesa,
+1745cef2-e979-4d03-89f4-92d58e87bc93,2026-09-13,POS BCC Amex,25,25,accreditato,2026-09-15T06:05:00.069006+00:00
+5043fcb7-8f67-446f-ac5d-f628d8ce4670,2026-09-13,POS MPS,5375.08,5333.39,accreditato,2026-09-15T06:05:00.069006+00:00
+5421387f-0012-4b78-ad9c-509a190bf1c0,2026-09-13,POS MPS,2365.59,2447.24,differenza,2026-09-15T06:05:00.069006+00:00
+3dfc465e-22a9-4112-90e6-b1d537241872,2026-09-13,POS MPS,3230.66,3208.06,accreditato,2026-09-15T06:05:00.069006+00:00
+8a7061df-4c69-4804-ade3-22bc038caa12,2026-09-13,POS MPS,1576.3,2504.34,accreditato,2026-09-15T06:05:00.069006+00:00
+674c754f-d4c9-4b00-9728-5f6a3e856481,2026-09-13,POS MPS,3699.74,3699.74,accreditato,2026-09-15T06:05:00.069006+00:00
+4339678b-9e51-4983-b043-5e63032e7a21,2026-09-13,POS MPS,234.51,232.8,accreditato,2026-09-15T06:05:00.069006+00:00
+f2868467-93dd-4734-9623-daf4c81e47ce,2026-09-13,POS MPS,935.16,1158.55,accreditato,2026-09-15T06:05:00.069006+00:00
+837799c5-5bfd-4027-ad5d-a652c972eccc,2026-09-13,POS MPS Amex,98.9,2447.24,accreditato,2026-09-15T06:05:00.069006+00:00
+dea5d395-3a15-45ed-b1d4-8737fe62cbb5,2026-09-13,POS MPS Amex,0,,in_attesa,
+fdf710c6-c60d-477a-be71-304361bda91c,2026-09-13,POS MPS Amex,0,,in_attesa,
+79b0a88c-cdbd-44c2-9cf6-ae8ffef66229,2026-09-13,POS MPS Amex,947.11,2504.34,differenza,2026-09-15T06:05:00.069006+00:00
+e45e9d05-12f6-4205-a480-f9e51a9298c1,2026-09-13,POS MPS Amex,0,,in_attesa,
+eb46acbd-d925-4e19-ad32-7ff8f88673c9,2026-09-13,POS MPS Amex,0,,in_attesa,
+6fa53f3e-c39d-4799-b429-c3c53ded65e9,2026-09-13,POS MPS Amex,230.7,1158.55,differenza,2026-09-15T06:05:00.069006+00:00
+798d11c0-808e-4775-b3f7-dceee528b602,2026-09-14,Bonifico,0,,in_attesa,
+1ce8760c-98ff-4a9c-8046-6640242b6bc0,2026-09-14,Bonifico,0,,in_attesa,
+76e24167-bab2-4dfa-a8d0-297e0c52f342,2026-09-14,Bonifico,0,,in_attesa,
+3009dbdb-816c-4f2f-aac1-9de732728007,2026-09-14,Bonifico,0,,in_attesa,
+84b48f3f-b7d2-4887-9a64-d60b22222c9e,2026-09-14,Bonifico,0,,in_attesa,
+cad9a44a-d034-4cb6-b0de-57084775b5d2,2026-09-14,Bonifico,0,,in_attesa,
+a26a6fd7-5237-49b1-ad70-78fe06ae78dd,2026-09-14,Bonifico,0,,in_attesa,
+1122c986-9f78-45e2-86d9-d30e1bdf7186,2026-09-14,Contanti,81,,in_attesa,
+e23a698d-2c66-4e78-8b20-3a1c56576357,2026-09-14,Contanti,211.5,,in_attesa,
+4e538573-9e20-4fe7-a2f2-bdff7293a9bd,2026-09-14,Contanti,350.2,,in_attesa,
+2ed79074-5a78-43f8-8e86-31afe63f9c06,2026-09-14,Contanti,84.8,,in_attesa,
+5ed9fd10-9aa2-4dde-82dd-986172bd80f5,2026-09-14,Contanti,173.6,,in_attesa,
+0dc2ecb6-7d16-47d8-8c99-962ef82b679b,2026-09-14,Contanti,487.65,,in_attesa,
+db775afe-24a1-4d4a-9792-e66c2ddd79bd,2026-09-14,Contanti,184.9,,in_attesa,
+0b6d9262-e279-4720-a497-7846d1cd3d8e,2026-09-14,Fatture,0,,in_attesa,
+9b02858c-3cab-468d-a4e3-fb592ed2fdfe,2026-09-14,Fatture,0,,in_attesa,
+1b0d10c7-7e5c-4eb7-87a7-1fc6aab7f275,2026-09-14,Fatture,0,,in_attesa,
+7e3a6ccd-70dd-4f28-a2e4-b2e1d01564c6,2026-09-14,Fatture,0,,in_attesa,
+66f4daf8-64a7-4e4f-a312-80ce0a8bc078,2026-09-14,Fatture,0,,in_attesa,
+594fe9bb-46bb-48bb-802c-8e23c846a816,2026-09-14,Fatture,0,,in_attesa,
+bc47b76e-9865-4d94-a347-0fbbfe59302f,2026-09-14,Fatture,0,,in_attesa,
+9c058df7-c44b-4f16-bbfa-c3660baaa48a,2026-09-14,Pay by link,0,,in_attesa,
+b244ad42-6261-4a87-95f3-2ecb32f83513,2026-09-14,Pay by link,0,,in_attesa,
+f0d8f115-fe5a-4ea0-a89c-05478871da8f,2026-09-14,Pay by link,0,,in_attesa,
+cff6a49c-0c12-4a9f-931a-ef80ca55a89f,2026-09-14,Pay by link,0,,in_attesa,
+a63b01df-c340-4fc6-87d0-5bcedd2ba5d2,2026-09-14,Pay by link,0,,in_attesa,
+e642428f-50ea-4c82-803c-077457f1dd4c,2026-09-14,Pay by link,0,,in_attesa,
+be0be400-22f3-4176-b917-fa37088d5e98,2026-09-14,Pay by link,0,,in_attesa,
+3b63d841-80ec-4488-9530-f4992ce236dc,2026-09-14,POS BCC,0,,in_attesa,
+24c41227-d4a3-40bc-8d3f-3325fa24fd3f,2026-09-14,POS BCC,0,,in_attesa,
+e94817f8-43d4-4bcf-8098-61827b1988d3,2026-09-14,POS BCC,0,,in_attesa,
+3caca3fb-8caa-4624-8788-a2fcf2e3dd0d,2026-09-14,POS BCC,0,,in_attesa,
+085bf835-6494-45fa-b938-c188d07155e2,2026-09-14,POS BCC,0,,in_attesa,
+5d08faa2-e458-4ce4-9e73-bf56192f16c2,2026-09-14,POS BCC,0,,in_attesa,
+c515827c-6abc-40de-bbf6-8fa29f4a3830,2026-09-14,POS BCC,0,,in_attesa,
+d883693b-f337-48bb-9a18-104c82614ffd,2026-09-14,POS BCC Amex,0,,in_attesa,
+26779e67-9b50-4e39-808b-580b0d6c9a5f,2026-09-14,POS BCC Amex,0,,in_attesa,
+bb90fba6-d252-4bcc-b9f9-94a7677316a6,2026-09-14,POS BCC Amex,0,,in_attesa,
+6c5e7433-aadc-4fe9-ae76-e695dd12d186,2026-09-14,POS BCC Amex,0,,in_attesa,
+127ce3b6-1041-48d1-ac30-26647bb56254,2026-09-14,POS BCC Amex,0,,in_attesa,
+21edbf95-a177-4b3f-9a65-5d49b2392589,2026-09-14,POS BCC Amex,0,,in_attesa,
+7508dc6c-bd28-4fdb-bbbe-dca43674efe4,2026-09-14,POS BCC Amex,0,,in_attesa,
+7fb3cca0-8871-4e82-a320-93e408f508c5,2026-09-14,POS MPS,1000.26,1287.54,differenza,2026-09-15T14:23:05.547989+00:00
+1676a455-ac48-49a7-abbb-951e66a70912,2026-09-14,POS MPS,601.62,594.82,accreditato,2026-09-15T14:23:05.547989+00:00
+7b237ca9-d7eb-4969-895b-00b478e6bc53,2026-09-14,POS MPS,832.27,824.58,accreditato,2026-09-15T14:23:05.547989+00:00
+7ae66ed8-ebdf-4d87-a910-2dc8e824a4d2,2026-09-14,POS MPS,235.96,234.2,accreditato,2026-09-15T14:23:05.547989+00:00
+0f488d03-91ba-40a0-b3ab-f7d5983f9185,2026-09-14,POS MPS,475.87,472.5,accreditato,2026-09-15T14:23:05.547989+00:00
+50ce04a7-8136-4edf-965a-a70b4eb0d1a7,2026-09-14,POS MPS,943.69,936.88,accreditato,2026-09-15T14:23:05.547989+00:00
+8dfdc593-4fd8-498a-8af9-c2b48de4b11d,2026-09-14,POS MPS,921.98,1189.55,differenza,2026-09-15T14:23:05.547989+00:00
+e46fec7d-ba5d-4bce-9a40-7f9ad1b39c60,2026-09-14,POS MPS Amex,273.9,1189.55,accreditato,2026-09-15T14:23:05.547989+00:00
+692c8dfe-2361-4296-9716-3b4f60f74244,2026-09-14,POS MPS Amex,0,,in_attesa,
+f1d13c36-a761-4bc3-b39f-f4407f5473f9,2026-09-14,POS MPS Amex,287.28,1287.54,accreditato,2026-09-15T14:23:05.547989+00:00
+9a5bb703-c567-47c8-9d94-b72a0f192b2e,2026-09-14,POS MPS Amex,0,,in_attesa,
+546e9069-7f7a-483f-a747-9b25116fd42a,2026-09-14,POS MPS Amex,0,824.58,differenza,2026-09-15T14:23:05.547989+00:00
+612fd63c-5282-47da-acda-4a8ac0f325eb,2026-09-14,POS MPS Amex,0,,in_attesa,
+82c20809-c5da-406b-bdab-a8c26a0fda45,2026-09-14,POS MPS Amex,0,,in_attesa,

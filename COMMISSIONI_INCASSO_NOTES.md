@@ -199,16 +199,38 @@ del terminale.
 Altre 3 righe Amex risultano in attesa: sono le giornate **BRG 10/09, FRC 12/09, FRC 13/09**,
 dove l'accredito esatto non si trova. Si chiariscono con l'estratto Amex di settembre.
 
-### cosa resta aperto
-I **199 match già scritti** a settembre restano quelli sbagliati: 145 sulla riga «POS MPS» e
-**54 finiti sulla riga «POS MPS Amex» per 31.326,03 euro**. La correzione vale da sola solo
-per i giorni nuovi. Per rigenerarli serve cancellare quei match e azzerare
-`bank_amount`/`bank_status` sulle righe di chiusura: è una scrittura sui dati vivi, quindi
-richiede la **conferma binaria di Patrizio** (regola NO DATA LOSS).
+### il ricalcolo di settembre (NZ_ONLY 226)
+Autorizzato da Patrizio il 15/09. I 235 match POS/Amex di settembre nati dalla regola
+vecchia sono stati cancellati e riscritti dalla funzione nuova. Backup prima di toccare
+qualsiasi cosa: quattro tabelle `_bkp_riscontro_sett_*_20260915` nel DB e tre CSV in
+`docs/backup/20260915_*`.
 
-Da segnalare anche: i canali «Pay by link» sono stati modificati il 15/09 alle 14:55 da un
-utente, messi `kind='pos'` con i codici terminale dei POS MPS. Non li ho toccati, ma con la
-nuova logica quei canali competono con il POS sullo stesso terminale.
+Esito, misurato dopo il ricalcolo:
+
+| riga | prima | dopo |
+|---|---|---|
+| POS MPS Amex | dichiarato 5.300,20, accreditato 48.736,28 | accreditato 1.896,84, scarto -3.403,36 |
+| POS MPS (Valdichiana, lordo) | 19.808,70 dichiarati, 20.183,98 accreditati | 19.808,70 = 19.808,70, scarto 0,00, tolleranza zero |
+| POS MPS (gli altri sei, netto) | 85.232,72 / 88.003,53 | 85.232,72 / 87.928,98 |
+| POS BCC e BCC Amex | invariati | invariati, scarto 0,00 |
+
+Delle 18 giornate con Amex dichiarato, **15 tornano al centesimo**. Le tre che restano
+sono quelle note: BRG 10/09 (650,54), FRC 12/09 (1.805,71), FRC 13/09 (947,11), in totale
+3.403,36. Sono anche la ragione dello scarto positivo che resta sulla riga POS MPS: finche'
+quell'accredito Amex non si riconosce, resta nel mucchio del terminale. Si chiude con
+l'estratto Amex di settembre.
+
+Nessun movimento perso: 235 match riscritti per gli stessi 126.942,34 euro, zero accrediti
+POS o Amex di settembre rimasti senza abbinamento. Le chiusure verificate passano da 96 a
+93: le tre che non tornano sono tornate «confermata», che e' la verita'.
+
+### cosa resta aperto
+I canali «Pay by link» sono stati modificati il 15/09 alle 14:55 da un utente, messi
+`kind='pos'` con i codici terminale dei POS MPS. Non li ho toccati. Dichiarano zero su tutte
+le 98 righe di settembre, quindi oggi non spostano numeri, ma competono con il POS sullo
+stesso terminale: se un giorno portassero un importo, il riscontro potrebbe attribuirlo
+alla riga sbagliata.
+
 
 ---
 
