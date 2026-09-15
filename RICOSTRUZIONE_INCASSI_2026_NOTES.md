@@ -7,7 +7,7 @@
 > Luglio serviva a chiudere il conto del contante: i versamenti dei primi giorni di agosto
 > portavano in banca il contante di fine luglio.
 
-Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [maggio](#maggio-2026) · [aprile](#aprile-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
+Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [maggio](#maggio-2026) · [aprile](#aprile-2026) · [marzo](#marzo-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
 
 ---
 
@@ -401,3 +401,47 @@ ai negozi.
 - **Palmanova 30/04** merita un'occhiata: 1.391,92 dichiarati sul POS contro 1.302,29
   accreditati, −6,4 %. Le altre due righe in differenza (Barberino 14/04 −1,80 %, Valmontone
   11/04 −1,65 %) sono commissione su importi piccoli; questa no.
+
+---
+
+## marzo 2026
+
+Migration `NZ_ONLY_20260915_230`. 191 chiusure, non 7x31: Torino apre il **26 marzo** (6 giornate),
+Brugnato non ha il 19/03 e Barberino non ha il 31/03 nel registro corrispettivi. Sulle 190
+giornate che il registro conosce i corrispettivi coincidono al centesimo.
+
+| | |
+|---|---:|
+| Corrispettivi | 215.851,71 € |
+| Fatture | 488,65 € |
+| Contanti | 40.178,08 € |
+| Spese di cassa | 1.061,55 € |
+| Versamenti | 37.094,40 € |
+| Chiusure verificate dalla banca | 185 su 191 |
+
+**25 versamenti dichiarati, 25 trovati in banca, nessuna differenza, nessun aggancio a mano.**
+Il mese piu' pulito di tutti: il motore ha fatto tutto da solo. Le 6 chiusure che restano hanno
+una riga POS in «differenza» per sola commissione fra l'1,6 % e l'1,7 % su importi piccoli.
+
+### Cosa e' emerso
+
+- **Barberino 31/03** non ha corrispettivi ma ha un versamento di 845,00. La chiusura si crea
+  lo stesso, marcata come giornata chiusa, cosi' il denaro che esce dalla cassa ha dove stare;
+  resta pero' fuori dalla proiezione, perche' nel registro quel giorno non esiste. Era il
+  versamento che ad aprile avevo lasciato indietro: la cassa continua lo data 31/03, ed e' li'
+  che si e' agganciato.
+- **Lo specchietto di Brugnato ha le intestazioni sfalsate di una colonna**: quella etichettata
+  VERSAMENTI contiene i contanti, quella etichettata CONTANTI i versamenti. Verificato sui
+  totali di riga e sulla riga TOTALE del foglio. Se avessi letto le intestazioni invece dei
+  numeri avrei registrato 4.387,08 € di versamenti inesistenti.
+- **Nei giorni con una spesa, il foglio di Brugnato scrive i contanti gia' al netto della
+  spesa.** Succede il 02, il 14 e il 18 marzo, e le tre giornate restano dichiarate come non
+  quadrate. Il 07/03 invece il divario e' 85,00 contro 5,00 di spesa, e non si spiega.
+- Altre giornate non quadrate: Barberino 27/03 (−46,55, stesso motivo di Brugnato),
+  Franciacorta 12/03 (+57,12, annullato uno scontrino del 07/02), Valmontone 18/03 (−86,55,
+  un incasso del 21/02 fiscalizzato solo il 18/03), Palmanova 14/03 (−0,02) e 21/03 (−0,10).
+- **Cinque versamenti di fine marzo escono dalla cassa ad aprile** e stanno gia' sulle chiusure
+  di aprile: Valdichiana 1.724,80 e Palmanova 1.690,00 il 01/04, Valmontone 55,00 il 01/04,
+  Torino 80,00 il 02/04, Franciacorta 85,00 il 08/04. Qui restano a zero, con la nota che dice
+  dove sono andati. Quando ad aprile li avevo chiamati «assenti dagli specchietti» era vero
+  solo a meta': assenti dallo specchietto di aprile, non da quello di marzo.
