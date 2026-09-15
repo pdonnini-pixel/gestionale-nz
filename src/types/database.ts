@@ -11819,6 +11819,7 @@ export type Database = {
           description: string | null
           due_date: string | null
           gross_amount: number | null
+          withholding_amount: number
           id: string
           import_batch_id: string | null
           invoice_date: string | null
@@ -11843,7 +11844,6 @@ export type Database = {
           tipo_documento: string | null
           updated_at: string | null
           vat_amount: number | null
-          withholding_amount: number
           xml_content: string | null
           xml_file_path: string | null
         }
@@ -11858,6 +11858,7 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           gross_amount?: number | null
+          withholding_amount?: number
           id?: string
           import_batch_id?: string | null
           invoice_date?: string | null
@@ -11882,7 +11883,6 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
-          withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
         }
@@ -11897,6 +11897,7 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           gross_amount?: number | null
+          withholding_amount?: number
           id?: string
           import_batch_id?: string | null
           invoice_date?: string | null
@@ -11921,7 +11922,6 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
-          withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
         }
@@ -15372,6 +15372,7 @@ export type Database = {
           due_date: string
           electronic_invoice_id: string | null
           gross_amount: number
+          withholding_amount: number
           iban: string | null
           id: string
           import_batch_id: string | null
@@ -15413,7 +15414,6 @@ export type Database = {
           verified: boolean | null
           verified_at: string | null
           verified_by: string | null
-          withholding_amount: number
         }
         Insert: {
           acube_uuid?: string | null
@@ -15428,6 +15428,7 @@ export type Database = {
           due_date: string
           electronic_invoice_id?: string | null
           gross_amount: number
+          withholding_amount?: number
           iban?: string | null
           id?: string
           import_batch_id?: string | null
@@ -15469,7 +15470,6 @@ export type Database = {
           verified?: boolean | null
           verified_at?: string | null
           verified_by?: string | null
-          withholding_amount?: number
         }
         Update: {
           acube_uuid?: string | null
@@ -15484,6 +15484,7 @@ export type Database = {
           due_date?: string
           electronic_invoice_id?: string | null
           gross_amount?: number
+          withholding_amount?: number
           iban?: string | null
           id?: string
           import_batch_id?: string | null
@@ -15525,7 +15526,6 @@ export type Database = {
           verified?: boolean | null
           verified_at?: string | null
           verified_by?: string | null
-          withholding_amount?: number
         }
         Relationships: [
           {
