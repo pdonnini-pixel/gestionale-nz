@@ -275,24 +275,37 @@ export default function Layout() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // Badge «Segnalazioni»: numero di segnalazioni ANCORA APERTE dell'autore
+  // (stato 'aperto' o 'in_corso'). Prima contava gli «aggiornamenti non
+  // visti» e restava acceso anche su ticket già risolti o chiusi: un badge
+  // sempre acceso su cose chiuse insegna a ignorarlo. La risoluzione ora
+  // avvisa l'autore con la campanella e una mail (migration 225).
+  const authorId = profile?.id ?? null
   useEffect(() => {
-    async function fetchUnseen() {
+    if (!authorId) { setTicketUnseen(0); return }
+    const uid = authorId
+    async function fetchOpenTickets() {
       try {
         const { supabase } = await import('../lib/supabase')
-        const { data, error } = await supabase.rpc('get_unseen_ticket_updates_count' as never)
-        if (!error && typeof data === 'number') setTicketUnseen(data)
+        const { count, error } = await supabase
+          .from('tickets')
+          .select('id', { count: 'exact', head: true })
+          .eq('autore_id', uid)
+          .in('stato', ['aperto', 'in_corso'])
+        if (error) { console.warn('[ticket-aperti]', error.message); return }
+        setTicketUnseen(count || 0)
       } catch (e) {
-        console.warn('[ticket-unseen]', e)
+        console.warn('[ticket-aperti]', e)
       }
     }
-    void fetchUnseen()
+    void fetchOpenTickets()
     // Ricalcola dopo che l'autore ha aperto un ticket (mark_ticket_seen)
-    function onSeen() { void fetchUnseen() }
+    function onSeen() { void fetchOpenTickets() }
     window.addEventListener('ticket-seen', onSeen)
-    // Refresh periodico ogni 60s (per nuovi commenti AI mentre l'app è aperta)
-    const t = setInterval(fetchUnseen, 60_000)
+    // Refresh periodico ogni 60s (ticket aperti o risolti mentre l'app è aperta)
+    const t = setInterval(fetchOpenTickets, 60_000)
     return () => { window.removeEventListener('ticket-seen', onSeen); clearInterval(t) }
-  }, [])
+  }, [authorId])
 
   useEffect(() => {
     async function fetchAnomalie() {
