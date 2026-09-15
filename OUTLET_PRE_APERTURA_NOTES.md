@@ -76,8 +76,10 @@ già vede tutti gli outlet.
 cadenza mensile di gestione e promozione (il contratto rinvia alle Condizioni
 Generali); data di stipula stimata 28/10/2026; codice conto ricavi provvisorio.
 
-**Decisioni che restano a Patrizio**: conto bancario del mandato SEPA
-(`suppliers.payment_bank_account_id`), fornitori dei beni entro i 90.000 €,
+**Deciso il 14/09/2026**: banca di addebito SEPA per Westi = conto MPS
+(migration `NZ_ONLY_20260914_221`, applicata su NZ).
+
+**Decisioni che restano a Patrizio**: fornitori dei beni entro i 90.000 €,
 polizze (assicuratore, premi), banca della fideiussione, target di fatturato
 anno 1/2/regime, `payroll_filiali` se il consulente paghe userà un nome diverso.
 
