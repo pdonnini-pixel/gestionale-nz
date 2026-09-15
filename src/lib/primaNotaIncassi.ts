@@ -193,40 +193,36 @@ export function outletLabel(outletId: string | null, lk: IncassiLookups): string
 /** Causale ripulita dal prefisso tecnico A-Cube ("Causale: … Descrizione: "). */
 export const causalePulita = (descr: string | null | undefined): string => D(descr).replace(/^Causale:.*?Descrizione:\s*/i, '').trim()
 
+// Colonne del foglio, nell'ordine chiesto da Patrizio (15/09): niente IBAN,
+// attribuzione e categoria (stanno in pagina, non servono allo studio).
 export type IncassoRow = {
-  Data: string
+  'Data operazione': string
   'Data riferimento': string
   'Conto Banca': string
-  IBAN: string
   Outlet: string
   Canale: string
   Tipo: string
   Terminale: string
   Importo: number
-  Attribuzione: string
   Causale: string
-  Categoria: string
 }
 
 export function buildIncassoRow(m: PnIncassoMovement, a: IncassoAttribuzione, lk: IncassiLookups, fmtDate: (d: string | null) => string): IncassoRow {
   const acc = m.bank_account_id ? lk.bankAccounts.get(m.bank_account_id) : undefined
   return {
-    Data: fmtDate(m.transaction_date),
+    'Data operazione': fmtDate(m.transaction_date),
     'Data riferimento': a.ref_date ? fmtDate(a.ref_date) : '',
     'Conto Banca': acc?.bank_name ?? '',
-    IBAN: acc?.iban ?? '',
     Outlet: outletLabel(a.outlet_id, lk),
     Canale: a.channel?.label ?? '',
     Tipo: INCASSO_KIND_LABELS[a.kind],
     Terminale: a.terminal_code ?? '',
     Importo: Math.round(Number(m.amount) * 100) / 100,
-    Attribuzione: ATTRIBUZIONE_LABELS[a.attribuzione],
     Causale: causalePulita(m.description),
-    Categoria: m.category ?? '',
   }
 }
 
-export const INCASSI_COLUMN_WIDTHS = [12, 14, 30, 30, 28, 16, 20, 10, 12, 24, 70, 18]
+export const INCASSI_COLUMN_WIDTHS = [14, 14, 30, 28, 16, 20, 10, 12, 70]
 
 export type OutletSummary = {
   outlet_id: string | null

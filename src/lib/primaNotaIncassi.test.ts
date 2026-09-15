@@ -170,12 +170,15 @@ describe('riga export e riepilogo', () => {
   it('buildIncassoRow', () => {
     const m = mov(MPS, 1234.567, { bank_account_id: 'mps', category: 'incassi_pos' })
     const r = buildIncassoRow(m, attribuisciIncasso(m, LK), LK, fmt)
-    expect(r).toMatchObject({
-      Data: '05/08/2026', 'Data riferimento': '01/08/2026', 'Conto Banca': 'MPS', IBAN: 'IT00MPS',
+    expect(r).toEqual({
+      'Data operazione': '05/08/2026', 'Data riferimento': '01/08/2026', 'Conto Banca': 'MPS',
       Outlet: 'VDC · Valdichiana', Canale: 'POS MPS', Tipo: 'POS', Terminale: '00002', Importo: 1234.57,
-      Attribuzione: 'Codice terminale', Categoria: 'incassi_pos',
+      Causale: MPS,
     })
-    expect(r.Causale).toBe(MPS)
+    // Niente IBAN, attribuzione né categoria nel foglio: stanno in pagina
+    expect(Object.keys(r)).not.toContain('IBAN')
+    expect(Object.keys(r)).not.toContain('Attribuzione')
+    expect(Object.keys(r)).not.toContain('Categoria')
   })
   it('summarizeByOutlet: colonne per natura, «Da attribuire» in fondo', () => {
     const ms = [mov(MPS, 100), mov(AMEX, 50, { bank_account_id: 'bcc' }), mov(VERS_GDO, 760), mov(BONIFICO_IN, 58), mov('VERSAMENTO DA ATM 01030-9999', 10)]

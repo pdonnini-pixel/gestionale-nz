@@ -37,7 +37,7 @@ import {
 } from '../lib/primaNotaPagamenti'
 import {
   attribuisciIncasso, buildIncassoRow, summarizeByOutlet, outletLabel,
-  INCASSI_COLUMN_WIDTHS, SENZA_OUTLET,
+  ATTRIBUZIONE_LABELS, INCASSI_COLUMN_WIDTHS, SENZA_OUTLET,
   type IncassiLookups, type IncassoKind, type Attribuzione,
 } from '../lib/primaNotaIncassi'
 import { useCompany } from '../hooks/useCompany'
@@ -810,7 +810,7 @@ export default function PrimaNota() {
             <div key={m.id} className="bg-white rounded-xl border border-slate-200 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs text-slate-500">
-                  {r.Data}{r['Data riferimento'] && <span className="text-slate-400"> · vendite del {r['Data riferimento']}</span>}
+                  {r['Data operazione']}{r['Data riferimento'] && <span className="text-slate-400"> · vendite del {r['Data riferimento']}</span>}
                   <span className="mx-1 text-slate-300">·</span>{r['Conto Banca'] || '—'}
                 </div>
                 <span className={`shrink-0 inline-block px-2 py-0.5 rounded text-xs font-medium ${INCASSO_BADGE[a.kind]}`}>{r.Tipo}</span>
@@ -821,7 +821,7 @@ export default function PrimaNota() {
               </div>
               <div className="text-xs text-slate-600 mt-0.5 break-words">{r.Causale}</div>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
-                <span className={`inline-block px-1.5 py-0.5 rounded ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{r.Attribuzione}</span>
+                <span className={`inline-block px-1.5 py-0.5 rounded ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{ATTRIBUZIONE_LABELS[a.attribuzione]}</span>
                 {r.Terminale && <span className="font-mono text-slate-500">term. {r.Terminale}</span>}
               </div>
             </div>
@@ -858,17 +858,17 @@ export default function PrimaNota() {
                 return (
                   <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50/50">
                     <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
-                      {r.Data}{r['Data riferimento'] && <span className="block text-xs text-slate-400">vendite del {r['Data riferimento']}</span>}
+                      {r['Data operazione']}{r['Data riferimento'] && <span className="block text-xs text-slate-400">vendite del {r['Data riferimento']}</span>}
                     </td>
                     <td className="px-3 py-2 text-slate-600 text-xs max-w-[160px]">
-                      <Tooltip content={r.IBAN ? `${r['Conto Banca']} · ${r.IBAN}` : ''}><div className="truncate cursor-help">{r['Conto Banca'] || '—'}</div></Tooltip>
+                      <Tooltip content={m.bank_accounts?.iban ? `${r['Conto Banca']} · ${m.bank_accounts.iban}` : ''}><div className="truncate cursor-help">{r['Conto Banca'] || '—'}</div></Tooltip>
                     </td>
                     <td className={`px-3 py-2 ${a.outlet_id ? 'text-slate-800' : 'text-orange-800'}`}>
                       {r.Outlet || 'Da attribuire'}{r.Canale && <span className="block text-xs text-slate-400">{r.Canale}{r.Terminale ? ` · ${r.Terminale}` : ''}</span>}
                     </td>
                     <td className="px-3 py-2 text-center"><span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${INCASSO_BADGE[a.kind]}`}>{r.Tipo}</span></td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap text-emerald-700">+ € {fmt(r.Importo)}</td>
-                    <td className="px-3 py-2"><span className={`inline-block px-2 py-0.5 rounded text-xs whitespace-nowrap ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{r.Attribuzione}</span></td>
+                    <td className="px-3 py-2"><span className={`inline-block px-2 py-0.5 rounded text-xs whitespace-nowrap ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{ATTRIBUZIONE_LABELS[a.attribuzione]}</span></td>
                     <td className="px-3 py-2 text-slate-600 text-xs max-w-md">
                       <Tooltip content={r.Causale}><div className="truncate cursor-help">{r.Causale || '—'}</div></Tooltip>
                     </td>
