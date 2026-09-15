@@ -1,8 +1,17 @@
-# Ricostruzione degli incassi giornalieri — agosto 2026 (NZ)
+# Ricostruzione degli incassi giornalieri — luglio e agosto 2026 (NZ)
 
-> Sessione del 15/09/2026. Migration `NZ_ONLY_20260915_223_ricostruzione_incassi_agosto_2026.sql`.
-> Stesso impianto usato per settembre, ma senza le foto delle chiusure: agosto e' stato
-> ricostruito dagli **specchietti incassi dei negozi** e riscontrato con l'**estratto conto**.
+> Sessione del 15/09/2026. Migration `NZ_ONLY_20260915_223` (agosto) e
+> `NZ_ONLY_20260915_225` (luglio).
+> Stesso impianto usato per settembre, ma senza le foto delle chiusure: i due mesi sono stati
+> ricostruiti dagli **specchietti incassi dei negozi** e riscontrati con l'**estratto conto**.
+> Luglio serviva a chiudere il conto del contante: i versamenti dei primi giorni di agosto
+> portavano in banca il contante di fine luglio.
+
+Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude)
+
+---
+
+## agosto 2026
 
 ## Perche'
 
@@ -128,3 +137,98 @@ La conferma proietta le 217 giornate in `daily_revenue` (lordo, contanti, carte,
 netto IVA al 22 %), quindi si accendono da sole Outlet, Dashboard, Cashflow, Margini e la
 tab Corrispettivi di Fatturazione. Gli accrediti POS e i versamenti di agosto risultano ora
 riconciliati in `bank_transactions` con la nota della chiusura di riferimento.
+
+---
+
+## luglio 2026
+
+Luglio aveva un riscontro che agosto non aveva: `daily_revenue` conteneva gia' i corrispettivi
+del mese, importati dal **registro corrispettivi** il 09/09/2026. Gli specchietti dei negozi
+coincidono con quel registro su **tutti e 217 i giorni, al centesimo**. E' la conferma piu'
+forte che il metodo regge: due fonti indipendenti, stesso numero.
+
+| | |
+|---|---:|
+| Giornate | 217 |
+| Corrispettivi | 567.701,98 € |
+| Fatture | 1.533,30 € |
+| Contanti incassati | 93.242,90 € |
+| Spese di cassa | 1.116,89 € |
+| Versamenti | 87.671,60 € |
+| Chiusure verificate dalla banca | 211 su 217 |
+
+Per punto vendita: Valdichiana 111.946,63 · Valmontone 90.914,58 · Torino 87.782,99 ·
+Franciacorta 77.045,83 · Barberino 72.125,23 · Palmanova 68.405,34 · Brugnato 59.481,38.
+
+### Versamenti
+
+**31 dichiarati, 31 trovati in banca.** Ventinove coincidono al centesimo, due restano in
+«differenza» perche' la banca ha accreditato piu' di quanto scritto sullo specchietto:
+
+- FRANCIACORTA 08/07: dichiarati 2.455,00, in banca 3.060,00 (2.455,00 + 605,00, stesso
+  sportello a tre minuti di distanza);
+- FRANCIACORTA 22/07: dichiarati 2.995,00, in banca 3.035,00.
+
+Il dato del negozio non e' stato corretto d'ufficio: il movimento e' agganciato e la
+differenza resta visibile. Altri tre versamenti erano spezzati in due operazioni e sono stati
+agganciati a mano (Torino 10/07 = 1.470 + 100, Torino 21/07 = 2.880 + 100, e il caso
+Franciacorta gia' citato): stessa miglioria al motore segnalata per agosto.
+
+### Le 3 giornate che non quadrano
+
+| Punto vendita | Giorno | Differenza | Cosa si vede |
+|---|---|---:|---|
+| BRUGNATO | 28/07 | −4,90 | annullo scontrino di 372,80 del 25/07 annotato nel foglio |
+| PALMANOVA | 28/07 | −106,00 | |
+| PALMANOVA | 29/07 | +106,00 | una vendita in contanti segnata il giorno dopo |
+
+### Le 6 righe POS con differenza
+
+Tre sono lo stesso caso visto ad agosto: il **pay by link passa dal POS MPS**, quindi la banca
+accredita quell'importo insieme al POS e il confronto non torna (Valdichiana 07/07 +48,00 e
+15/07 +60,10, Torino 27/07 +41,80 al lordo delle commissioni). Le altre tre sono commissioni
+su importi minimi (Valmontone 26/07 su 20,70 e 27/07 su 101,50).
+
+> **Seconda miglioria da fare**: il canale «Pay by link» non ha codice terminale, ma i suoi
+> incassi arrivano sull'accredito del POS MPS. Cinque conferme in due mesi. Assegnandogli il
+> terminale MPS il riscontro tornerebbe da solo.
+
+### Scelte di merito
+
+- **Brugnato** non ha la colonna CONTANTI nel foglio di luglio: il contante e' stato ricavato
+  per differenza (corrispettivi + fatture − altri canali).
+- **Franciacorta**: due righe datate 9/6 e 27/6 stanno in sequenza fra l'8/7 e il 10/7 e fra
+  il 26/7 e il 28/7. Sono il 9 e il 27 luglio.
+- **Versamenti a cavallo di mese**: quelli di fine luglio accreditati a inizio agosto e gia'
+  registrati sulle chiusure di agosto non sono stati duplicati (Barberino 1.420,00 del 03/08,
+  Valdichiana 1.140,15 del 03/08, Torino 600,00 del 01/08, Valmontone 1.365,00 dentro i
+  2.400,00 del 03/08). Brugnato 1.135,00 era ancora orfano ed e' stato registrato sul 31/07.
+
+---
+
+## il conto del contante si chiude
+
+Due mesi interi permettono la verifica vera: quanto contante e' entrato, quanto e' uscito, e
+quanto doveva restare in cassa il 31 agosto. Il residuo si legge nel primo versamento di
+settembre, che porta in banca proprio quel contante.
+
+| Punto vendita | Contanti lug+ago | Spese | Versato lug+ago | Residuo atteso al 31/08 | Primo versamento di settembre | Scarto |
+|---|---:|---:|---:|---:|---|---:|
+| BARBERINO | 24.508,70 | 131,81 | 22.409,00 | 1.967,89 | 1.980,00 (01/09) | 12,11 |
+| BRUGNATO | 20.835,40 | 247,98 | 20.330,00 | 257,42 | 305,00 (02/09) | 47,58 |
+| FRANCIACORTA | 25.738,55 | 39,77 | 22.045,00 | 3.653,78 | 3.660,00 (01/09) | 6,22 |
+| PALMANOVA | 23.831,20 | 128,60 | 21.140,00 | 2.562,60 | 2.560,65 (01/09) | −1,95 |
+| TORINO | 20.381,15 | 563,22 | 18.080,00 | 1.737,93 | 1.680,00 (01/09) | −57,93 |
+| VALDICHIANA | 36.815,45 | 465,35 | 33.938,10 | 2.412,00 | 2.498,45 (04/09) | 86,45 |
+| VALMONTONE | 25.832,15 | 160,32 | 22.730,00 | 2.941,83 | 2.945,00 (01/09) | 3,17 |
+| **Totale** | **177.942,60** | **1.737,05** | **160.672,10** | **15.533,45** | **15.629,10** | **95,65** |
+
+Su 177.942,60 € di contante incassato in due mesi e 160.672,10 € versati, il residuo calcolato
+e il contante effettivamente portato in banca a inizio settembre differiscono di **95,65 €**
+in tutto. Gli scarti per negozio stanno sotto i 90 €, e sono spiegati: il versamento di
+settembre include anche i contanti dei primi giorni del mese (Valdichiana versa il 04/09,
+Brugnato il 02/09) e il fondo cassa non e' mai esattamente zero.
+
+Nessun versamento resta orfano: i movimenti di versamento in banca da luglio a inizio
+settembre sono tutti agganciati a una giornata, e ogni versamento dichiarato dai negozi ha il
+suo accredito.
