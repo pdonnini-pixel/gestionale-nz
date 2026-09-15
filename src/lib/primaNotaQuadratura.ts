@@ -40,19 +40,24 @@ export type PnTxSnapshot = {
 
 export type QuadraturaConto = {
   bank_account_id: string
-  /** Saldo della banca all'ultimo scarico prima del periodo; null se non disponibile. */
-  saldo_iniziale: number | null
+  /** Saldo letto dalla banca all'ultimo scarico prima del periodo (e quando). */
+  saldo_scarico_iniziale: number | null
   scaricato_iniziale: string | null
-  /** Saldo della banca all'ultimo scarico entro la fine del periodo; null se non disponibile. */
-  saldo_finale: number | null
+  /** Movimenti datati prima del periodo ma arrivati DOPO lo scarico iniziale: rettificano il saldo iniziale. */
+  rettifica_iniziale: PnTxSnapshot[]
+  /** Saldo al giorno prima del periodo (data operazione) = saldo allo scarico + rettifica. */
+  saldo_iniziale: number | null
+  /** Saldo letto dalla banca all'ultimo scarico entro la fine del periodo (e quando). */
+  saldo_scarico_finale: number | null
   scaricato_finale: string | null
+  /** Movimenti datati nel periodo (o prima) ma arrivati DOPO lo scarico finale: rettificano il saldo finale. */
+  rettifica_finale: PnTxSnapshot[]
+  /** Saldo all'ultimo giorno del periodo (data operazione) = saldo allo scarico + rettifica. */
+  saldo_finale: number | null
   n_movimenti: number
   entrate: number
   uscite: number
-  /** Movimenti del periodo scaricati dopo lo scarico finale: fuori quadratura, dentro l'export. */
-  arrivati_dopo: PnTxSnapshot[]
-  /** Movimenti datati prima del periodo ma scaricati nel periodo: dentro il saldo finale, fuori dal saldo iniziale. */
-  precedenti_nel_periodo: PnTxSnapshot[]
+  /** saldo iniziale + tutti i movimenti del periodo (per data operazione). */
   saldo_finale_calcolato: number | null
   differenza: number | null
   stato: 'quadra' | 'non_quadra' | 'senza_saldi'
@@ -80,10 +85,24 @@ const latestWithSnapshot = (rows: PnTxSnapshot[]): PnTxSnapshot | null => {
   return best
 }
 
+const sum = (rows: PnTxSnapshot[]): number => rows.reduce((s, r) => s + r.amount, 0)
+
 /**
- * Quadratura di un conto sul periodo.
+ * Quadratura di un conto sul periodo, per DATA OPERAZIONE (dal primo all'ultimo
+ * giorno del periodo), come la vuole lo studio.
+ *
+ * Il saldo allo scarico è il saldo di quel momento, non del confine del mese:
+ * se fra lo scarico e il confine la banca contabilizza altri movimenti con data
+ * operazione dentro il mese, arrivano nello scarico dopo e il saldo va
+ * rettificato. Saldo al giorno prima del periodo = saldo allo scarico iniziale +
+ * movimenti datati prima del periodo arrivati dopo quello scarico. Saldo
+ * all'ultimo giorno = saldo allo scarico finale + movimenti (del periodo o
+ * precedenti) arrivati dopo quello scarico. La differenza resta la stessa della
+ * quadratura «allo scarico»: la parte indipendente è sempre il confronto fra i
+ * due saldi della banca e i movimenti scaricati fra i due.
+ *
  * @param periodRows movimenti del conto datati nel periodo
- * @param preRows    movimenti del conto datati prima del periodo (finestra di qualche settimana), per il saldo iniziale
+ * @param preRows    movimenti del conto datati prima del periodo (finestra di qualche settimana)
  * @param periodStart primo istante del periodo (ISO): il saldo iniziale è l'ultimo scarico PRIMA di questo istante
  * @param periodEndExclusive primo istante dopo la fine del periodo (ISO), per scegliere lo scarico finale
  */
@@ -93,24 +112,27 @@ export function quadraturaConto(bank_account_id: string, periodRows: PnTxSnapsho
   const fIni = ini?.fetched_at ?? null
   const fFin = fin?.fetched_at ?? null
 
-  const arrivati_dopo = fFin ? periodRows.filter(r => r.fetched_at && r.fetched_at > fFin) : []
-  const inQuadratura = fFin ? periodRows.filter(r => !(r.fetched_at && r.fetched_at > fFin)) : periodRows
-  const precedenti_nel_periodo = fIni && fFin ? preRows.filter(r => r.fetched_at && r.fetched_at > fIni && r.fetched_at <= fFin) : []
+  const rettifica_iniziale = fIni ? preRows.filter(r => r.fetched_at && r.fetched_at > fIni) : []
+  const rettifica_finale = fFin
+    ? [...periodRows.filter(r => r.fetched_at && r.fetched_at > fFin), ...preRows.filter(r => r.fetched_at && r.fetched_at > fFin)]
+    : []
 
   const entrate = r2(periodRows.filter(r => r.amount > 0).reduce((s, r) => s + r.amount, 0))
   const uscite = r2(periodRows.filter(r => r.amount < 0).reduce((s, r) => s - r.amount, 0))
-  const nettoInQuadratura = inQuadratura.reduce((s, r) => s + r.amount, 0)
-  const nettoPrecedenti = precedenti_nel_periodo.reduce((s, r) => s + r.amount, 0)
 
-  const saldo_iniziale = ini?.snapshot ?? null
-  const saldo_finale = fin?.snapshot ?? null
-  const saldo_finale_calcolato = saldo_iniziale == null ? null : r2(saldo_iniziale + nettoInQuadratura + nettoPrecedenti)
-  const differenza = saldo_iniziale == null || saldo_finale == null ? null : r2(saldo_finale - (saldo_finale_calcolato as number))
+  const saldo_scarico_iniziale = ini?.snapshot ?? null
+  const saldo_scarico_finale = fin?.snapshot ?? null
+  const saldo_iniziale = saldo_scarico_iniziale == null ? null : r2(saldo_scarico_iniziale + sum(rettifica_iniziale))
+  const saldo_finale = saldo_scarico_finale == null ? null : r2(saldo_scarico_finale + sum(rettifica_finale))
+  const saldo_finale_calcolato = saldo_iniziale == null ? null : r2(saldo_iniziale + sum(periodRows))
+  const differenza = saldo_finale == null || saldo_finale_calcolato == null ? null : r2(saldo_finale - saldo_finale_calcolato)
   const stato: QuadraturaConto['stato'] = differenza == null ? 'senza_saldi' : Math.abs(differenza) < 0.005 ? 'quadra' : 'non_quadra'
 
   return {
-    bank_account_id, saldo_iniziale, scaricato_iniziale: fIni, saldo_finale, scaricato_finale: fFin,
-    n_movimenti: periodRows.length, entrate, uscite, arrivati_dopo, precedenti_nel_periodo, saldo_finale_calcolato, differenza, stato,
+    bank_account_id,
+    saldo_scarico_iniziale, scaricato_iniziale: fIni, rettifica_iniziale, saldo_iniziale,
+    saldo_scarico_finale, scaricato_finale: fFin, rettifica_finale, saldo_finale,
+    n_movimenti: periodRows.length, entrate, uscite, saldo_finale_calcolato, differenza, stato,
   }
 }
 

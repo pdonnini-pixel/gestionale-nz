@@ -492,6 +492,14 @@ export default function PrimaNota() {
   )
   const accountName = (id: string) => bankAccounts.find(b => b.id === id)?.bank_name ?? '—'
   const fmtDateTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
+  // Confini del periodo per data operazione: il saldo iniziale è al giorno prima, quello finale all'ultimo giorno
+  const quadPeriodo = useMemo(() => {
+    const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
+    const dateEnd = month ? lastDayOfMonthYMD(year, month) : `${year}-12-31`
+    const prima = new Date(`${dateStart}T00:00:00`); prima.setDate(prima.getDate() - 1)
+    return { giornoPrima: prima.toLocaleDateString('it-IT'), ultimoGiorno: fmtDate(dateEnd) }
+  }, [year, month])
+  const sumRows = (rows: PnTxSnapshot[]) => rows.reduce((s, r) => s + r.amount, 0)
 
   // Righe formato Prima Nota standardizzato (una per movimento, fatture in causale)
   const rows = useMemo(() => movements.map(m => buildRow(m, fmtDate)), [movements])
@@ -554,10 +562,13 @@ export default function PrimaNota() {
       ...byOutlet.map(o => [o.label, o.n, o.pos, o.amex, o.versamenti, o.altro, o.totale]),
       ['Totale incassi', incassi.length, incassiTot.pos, incassiTot.amex, incassiTot.versamenti, incassiTot.altro, incassiTot.totale],
       [],
-      ['Quadratura con l\'estratto conto', 'Saldo iniziale (banca)', 'Scaricato il', 'Entrate', 'Uscite', 'Saldo finale calcolato', 'Saldo finale (banca)', 'Scaricato il', 'Differenza', 'Esito'],
+      ['Quadratura con l\'estratto conto', `Saldo al ${quadPeriodo.giornoPrima}`, 'di cui letto dalla banca il', 'Entrate', 'Uscite', `Saldo al ${quadPeriodo.ultimoGiorno} calcolato`, `Saldo al ${quadPeriodo.ultimoGiorno} (banca)`, 'di cui letto dalla banca il', 'Differenza', 'Esito'],
       ...quadratura.map(q => [
-        accountName(q.bank_account_id), q.saldo_iniziale ?? '', fmtDateTime(q.scaricato_iniziale), q.entrate, q.uscite,
-        q.saldo_finale_calcolato ?? '', q.saldo_finale ?? '', fmtDateTime(q.scaricato_finale), q.differenza ?? '',
+        accountName(q.bank_account_id), q.saldo_iniziale ?? '',
+        q.saldo_scarico_iniziale != null ? `${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${q.rettifica_iniziale.length ? ` + ${q.rettifica_iniziale.length} mov. arrivati dopo (${fmt(sumRows(q.rettifica_iniziale))})` : ''}` : 'n.d.',
+        q.entrate, q.uscite, q.saldo_finale_calcolato ?? '', q.saldo_finale ?? '',
+        q.saldo_scarico_finale != null ? `${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${q.rettifica_finale.length ? ` + ${q.rettifica_finale.length} mov. arrivati dopo (${fmt(sumRows(q.rettifica_finale))})` : ''}` : 'n.d.',
+        q.differenza ?? '',
         q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili',
       ]),
       [],
@@ -712,11 +723,11 @@ export default function PrimaNota() {
               <thead className="bg-slate-50 uppercase text-slate-600">
                 <tr>
                   <th className="px-3 py-2 text-left">Conto</th>
-                  <th className="px-3 py-2 text-right">Saldo iniziale (banca)</th>
+                  <th className="px-3 py-2 text-right">Saldo al {quadPeriodo.giornoPrima}</th>
                   <th className="px-3 py-2 text-right">Entrate</th>
                   <th className="px-3 py-2 text-right">Uscite</th>
-                  <th className="px-3 py-2 text-right">Saldo finale calcolato</th>
-                  <th className="px-3 py-2 text-right">Saldo finale (banca)</th>
+                  <th className="px-3 py-2 text-right">Saldo al {quadPeriodo.ultimoGiorno} calcolato</th>
+                  <th className="px-3 py-2 text-right">Saldo al {quadPeriodo.ultimoGiorno} (banca)</th>
                   <th className="px-3 py-2 text-right">Differenza</th>
                 </tr>
               </thead>
@@ -729,18 +740,25 @@ export default function PrimaNota() {
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {q.saldo_iniziale != null ? fmt(q.saldo_iniziale) : <span className="text-slate-400">n.d.</span>}
-                      {q.scaricato_iniziale && <span className="block text-slate-400">al {fmtDateTime(q.scaricato_iniziale)}</span>}
+                      {q.saldo_scarico_iniziale != null && (
+                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${q.rettifica_iniziale.length ? `. Più ${q.rettifica_iniziale.length} movimenti datati prima del periodo ma arrivati dopo quello scarico (${fmt(sumRows(q.rettifica_iniziale))}).` : '. Nessun movimento arrivato dopo.'}`}>
+                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_iniziale)}{q.rettifica_iniziale.length > 0 && ` + ${q.rettifica_iniziale.length} arrivati dopo`}</span>
+                        </Tooltip>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">+{fmt(q.entrate)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums text-red-700">−{fmt(q.uscite)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {q.saldo_finale_calcolato != null ? fmt(q.saldo_finale_calcolato) : <span className="text-slate-400">n.d.</span>}
-                      {q.precedenti_nel_periodo.length > 0 && <span className="block text-slate-400">incl. {q.precedenti_nel_periodo.length} mov. precedenti arrivati nel periodo ({fmt(q.precedenti_nel_periodo.reduce((s, r) => s + r.amount, 0))})</span>}
-                      {q.arrivati_dopo.length > 0 && <span className="block text-slate-400">escl. {q.arrivati_dopo.length} mov. arrivati dopo lo scarico ({fmt(q.arrivati_dopo.reduce((s, r) => s + r.amount, 0))})</span>}
+                      <span className="block text-slate-400">saldo iniziale + movimenti</span>
                     </td>
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {q.saldo_finale != null ? fmt(q.saldo_finale) : <span className="text-slate-400">n.d.</span>}
-                      {q.scaricato_finale && <span className="block text-slate-400">al {fmtDateTime(q.scaricato_finale)}</span>}
+                      {q.saldo_scarico_finale != null && (
+                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${q.rettifica_finale.length ? `. Più ${q.rettifica_finale.length} movimenti con data operazione entro il ${quadPeriodo.ultimoGiorno} ma arrivati dopo quello scarico (${fmt(sumRows(q.rettifica_finale))}).` : '. Nessun movimento arrivato dopo.'}`}>
+                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_finale)}{q.rettifica_finale.length > 0 && ` + ${q.rettifica_finale.length} arrivati dopo`}</span>
+                        </Tooltip>
+                      )}
                     </td>
                     <td className="px-3 py-1.5 text-right">
                       {q.stato === 'quadra' && <span className="inline-block px-2 py-0.5 rounded font-medium bg-emerald-100 text-emerald-700">0,00 · quadra</span>}

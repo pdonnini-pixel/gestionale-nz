@@ -33,8 +33,10 @@ describe('quadraturaConto (numeri BCC agosto 2026)', () => {
   it('saldo iniziale + movimenti = saldo finale della banca', () => {
     // 72133.46 + 17034 − 39445.9 − 16642.04 = 33079.52
     const q = quadraturaConto('bcc', period, pre, START_AGO, END_AGO)
+    expect(q.saldo_scarico_iniziale).toBe(72133.46)
     expect(q.saldo_iniziale).toBe(72133.46)
     expect(q.scaricato_iniziale).toBe('2026-07-31T06:00:00Z')
+    expect(q.saldo_scarico_finale).toBe(33079.52)
     expect(q.saldo_finale).toBe(33079.52)
     expect(q.scaricato_finale).toBe('2026-08-31T08:55:56Z')
     expect(q.entrate).toBe(17034)
@@ -42,27 +44,41 @@ describe('quadraturaConto (numeri BCC agosto 2026)', () => {
     expect(q.saldo_finale_calcolato).toBe(33079.52)
     expect(q.differenza).toBe(0)
     expect(q.stato).toBe('quadra')
-    expect(q.arrivati_dopo).toEqual([])
-    expect(q.precedenti_nel_periodo).toEqual([])
+    expect(q.rettifica_iniziale).toEqual([])
+    expect(q.rettifica_finale).toEqual([])
   })
-  it('un movimento del periodo scaricato dopo lo scarico finale esce dalla quadratura ma resta nei totali', () => {
+  it('un movimento di agosto arrivato dopo lo scarico del 31/08 rettifica il saldo al 31/08 (caso Intesa, −20)', () => {
     const late = tx({ id: 'late', transaction_date: '2026-08-31', amount: -100, fetched_at: '2026-09-01T06:00:00Z', snapshot: 32979.52 })
     const q = quadraturaConto('bcc', [...period, late], pre, START_AGO, END_AGO)
     expect(q.scaricato_finale).toBe('2026-08-31T08:55:56Z')
-    expect(q.arrivati_dopo.map(r => r.id)).toEqual(['late'])
+    expect(q.saldo_scarico_finale).toBe(33079.52)
+    expect(q.rettifica_finale.map(r => r.id)).toEqual(['late'])
+    expect(q.saldo_finale).toBe(32979.52)
     expect(q.uscite).toBe(56187.94)
+    expect(q.saldo_finale_calcolato).toBe(32979.52)
     expect(q.differenza).toBe(0)
     expect(q.stato).toBe('quadra')
   })
-  it('un movimento di luglio arrivato in agosto entra nel saldo finale e viene aggiunto', () => {
-    // Caso Intesa: addebito di 20 datato luglio, scaricato a settembre... qui scaricato dentro agosto
+  it('un movimento di luglio arrivato in agosto rettifica il saldo al 31/07 (caso Intesa, scarico del 28/07)', () => {
     const old = tx({ id: 'old', transaction_date: '2026-07-15', amount: -20, fetched_at: '2026-08-10T06:00:00Z', snapshot: 15441.09 })
     const period2 = period.map(r => (r.transaction_date >= '2026-08-10' ? { ...r, snapshot: (r.snapshot as number) - 20 } : r))
     const q = quadraturaConto('bcc', period2, [...pre, old], START_AGO, END_AGO)
-    expect(q.precedenti_nel_periodo.map(r => r.id)).toEqual(['old'])
+    expect(q.rettifica_iniziale.map(r => r.id)).toEqual(['old'])
+    expect(q.saldo_scarico_iniziale).toBe(72133.46)
+    expect(q.saldo_iniziale).toBe(72113.46)
+    expect(q.rettifica_finale).toEqual([])
     expect(q.saldo_finale).toBe(33059.52)
     expect(q.saldo_finale_calcolato).toBe(33059.52)
     expect(q.stato).toBe('quadra')
+  })
+  it('un movimento di luglio arrivato dopo lo scarico finale rettifica entrambi i saldi', () => {
+    const old = tx({ id: 'old', transaction_date: '2026-07-15', amount: -20, fetched_at: '2026-09-02T06:00:00Z', snapshot: 33059.52 })
+    const q = quadraturaConto('bcc', period, [...pre, old], START_AGO, END_AGO)
+    expect(q.rettifica_iniziale.map(r => r.id)).toEqual(['old'])
+    expect(q.rettifica_finale.map(r => r.id)).toEqual(['old'])
+    expect(q.saldo_iniziale).toBe(72113.46)
+    expect(q.saldo_finale).toBe(33059.52)
+    expect(q.differenza).toBe(0)
   })
   it('un movimento mancante fa emergere la differenza', () => {
     const q = quadraturaConto('bcc', period.filter(r => r.amount !== -16642.04), pre, START_AGO, END_AGO)
@@ -81,8 +97,8 @@ describe('quadraturaConto (numeri BCC agosto 2026)', () => {
   it('lo scarico finale è l ultimo entro la fine del periodo, non quello di oggi', () => {
     const sept = tx({ transaction_date: '2026-08-31', amount: 0, fetched_at: '2026-09-14T06:00:00Z', snapshot: 27816.78 })
     const q = quadraturaConto('bcc', [...period, sept], pre, START_AGO, END_AGO)
-    expect(q.saldo_finale).toBe(33079.52)
-    expect(q.arrivati_dopo).toHaveLength(1)
+    expect(q.saldo_scarico_finale).toBe(33079.52)
+    expect(q.rettifica_finale).toHaveLength(1)
   })
   it('quadraturaConti separa i conti', () => {
     const mps = tx({ bank_account_id: 'mps', transaction_date: '2026-08-05', amount: 10, fetched_at: '2026-08-05T06:00:00Z', snapshot: 110 })
