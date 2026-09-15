@@ -303,7 +303,7 @@ export default function PrimaNota() {
         const [payResults, fdResults, logResults] = await Promise.all([
           Promise.all(chunks.map(ids => supabase
             .from('payables')
-            .select('id, bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount')
+            .select('id, bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total')
             .in('bank_transaction_id', ids)
             .order('invoice_number', { ascending: true }))),
           Promise.all(chunks.map(ids => supabase
@@ -312,7 +312,7 @@ export default function PrimaNota() {
             .in('bank_transaction_id', ids))),
           Promise.all(chunks.map(ids => supabase
             .from('reconciliation_log')
-            .select('bank_transaction_id, payable_id, status, payables(id, invoice_number, supplier_name, supplier_vat, gross_amount)')
+            .select('bank_transaction_id, payable_id, status, payables(id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total)')
             .in('bank_transaction_id', ids)
             .eq('status', 'applied'))),
         ])
@@ -321,16 +321,16 @@ export default function PrimaNota() {
           if (!p.bank_transaction_id) continue
           seen.add(`${p.bank_transaction_id}:${p.id}`)
           const list = payMap.get(p.bank_transaction_id) ?? []
-          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount })
+          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total })
           payMap.set(p.bank_transaction_id, list)
         }
-        type LogRow = { bank_transaction_id: string | null; payable_id: string | null; payables: { id: string; invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null; gross_amount: number | null } | null }
+        type LogRow = { bank_transaction_id: string | null; payable_id: string | null; payables: { id: string; invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null; gross_amount: number | null; invoice_date: string | null; amount_paid: number | null; installment_number: number | null; installment_total: number | null } | null }
         for (const l of logResults.flatMap(r => (r.data ?? []) as unknown as LogRow[])) {
           const p = l.payables
           if (!l.bank_transaction_id || !p || seen.has(`${l.bank_transaction_id}:${p.id}`)) continue
           seen.add(`${l.bank_transaction_id}:${p.id}`)
           const list = payMap.get(l.bank_transaction_id) ?? []
-          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount })
+          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total })
           payMap.set(l.bank_transaction_id, list)
         }
         for (const f of fdResults.flatMap(r => r.data ?? [])) {
@@ -907,19 +907,36 @@ export default function PrimaNota() {
         ['IBAN', acc?.iban ?? ''],
         ['Periodo', `${periodoLabel} (dal ${fmtDate(dateStart)} al ${fmtDate(dateEnd)}, per ${dateBasis === 'contabile' ? 'data contabile' : 'data operazione'})`],
         [],
-        ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo'],
+        ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo', 'Di cui fattura'],
         [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''],
-        ...ms.map(m => {
+        ...ms.flatMap(m => {
           const r = buildRow(m, fmtDate, contropartitaOf(m))
-          return [r['Data operazione'], r['Data contabile'], r['Tipo movimento'], r.Contropartita, r['P.IVA Contropartita'], r['N. fatture'], r.Causale, r.Categoria,
-            m.amount > 0 ? Math.round(m.amount * 100) / 100 : '', m.amount < 0 ? Math.round(-m.amount * 100) / 100 : '', saldoById.get(m.id) ?? ''] as Array<string | number>
+          const rows: Array<Array<string | number>> = [[r['Data operazione'], r['Data contabile'], r['Tipo movimento'], r.Contropartita, r['P.IVA Contropartita'], r['N. fatture'], r.Causale, r.Categoria,
+            m.amount > 0 ? Math.round(m.amount * 100) / 100 : '', m.amount < 0 ? Math.round(-m.amount * 100) / 100 : '', saldoById.get(m.id) ?? '', '']]
+          // Movimento che salda piu' fatture (RiBa, distinta CBI): sotto, una riga per
+          // fattura con il suo importo nella colonna «Di cui fattura», cosi' lo studio
+          // verifica ogni fattura e ogni importo; la somma delle righe e' l'uscita, e
+          // l'eventuale resto (commissioni, acconto, nota di credito) ha la sua riga.
+          if (m.payables.length > 1) {
+            let somma = 0
+            for (const p of m.payables) {
+              const imp = Math.round(Number(p.amount_paid ?? p.gross_amount ?? 0) * 100) / 100
+              somma += imp
+              const rata = p.installment_total && p.installment_total > 1 ? ` · rata ${p.installment_number ?? '?'}/${p.installment_total}` : ''
+              rows.push(['', '', '↳ di cui fattura', p.supplier_name ?? '', p.supplier_vat ?? '', '', `Fatt. ${p.invoice_number ?? '?'}${p.invoice_date ? ` del ${fmtDate(p.invoice_date)}` : ''}${rata}`, '', '', '', '', imp])
+            }
+            const resto = Math.round((Math.abs(m.amount) - somma) * 100) / 100
+            if (Math.abs(resto) >= 0.005) rows.push(['', '', '↳ resto', resto > 0 ? 'commissioni o acconto non in fattura' : 'nota di credito o sconto', '', '', '', '', '', '', '', resto])
+            rows.push(['', '', '↳ totale fatture', `${m.payables.length} fatture`, '', '', '', '', '', '', '', Math.round(Math.abs(m.amount) * 100) / 100])
+          }
+          return rows
         }),
         [`Saldo finale al ${quadPeriodo.ultimoGiorno} (calcolato)`, `${ms.length} movimenti`, '', '', '', '', '', '', q.entrate, q.uscite, q.saldo_finale_calcolato ?? ''],
         [`Saldo finale al ${quadPeriodo.ultimoGiorno} (banca)`, q.saldo_scarico_finale != null ? `banca al ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${rettificaLabel(q.rettifica_finale) ? ' ' + rettificaLabel(q.rettifica_finale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_finale ?? ''],
         ['Differenza', q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili', '', '', '', '', '', '', '', '', q.differenza ?? ''],
       ]
       const wsAcc = XLSX.utils.aoa_to_sheet(aoa)
-      wsAcc['!cols'] = [30, 14, 22, 35, 16, 8, 60, 18, 14, 14, 14].map(wch => ({ wch }))
+      wsAcc['!cols'] = [30, 14, 22, 35, 16, 8, 60, 18, 14, 14, 14, 14].map(wch => ({ wch }))
       XLSX.utils.book_append_sheet(wb, wsAcc, sheetName(acc?.bank_name ?? 'Conto', used))
     }
     // Tutti i movimenti in un foglio piatto (per filtri e pivot), con IBAN in chiaro e saldo progressivo
@@ -940,7 +957,7 @@ export default function PrimaNota() {
     if (stipendi.flussi_non_abbinati.length > 0) {
       XLSX.utils.sheet_add_aoa(wsDip, [
         [],
-        ['Disposizioni senza buste paga che le spieghino', 'Pagato il', 'Conto Banca', 'ID flusso', 'Pagamenti nel flusso', 'Importo flusso', 'Commissioni flusso', 'Causale'],
+        ['Disposizioni senza buste paga che le spieghino', 'Pagato il', 'Conto Banca', 'ID flusso', 'Bonifici nel flusso (banca)', 'Importo flusso', 'Commissioni flusso', 'Causale'],
         ...stipendi.flussi_non_abbinati.map(x => [
           '', fmtDate(x.flusso.transaction_date), bankNameOf(x.flusso.bank_account_id), x.info.id_flusso ?? '', x.info.n_pagamenti ?? '',
           x.info.importo_bonifici ?? Math.round(-x.flusso.amount * 100) / 100, x.info.commissioni ?? '', x.flusso.description ?? '',
@@ -1622,7 +1639,7 @@ export default function PrimaNota() {
                         <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50/50">
                           <td className="px-3 py-1.5 whitespace-nowrap text-slate-700">{fmtDate(l.purchase_date)}</td>
                           <td className="px-3 py-1.5 whitespace-nowrap text-xs text-slate-500">{l.posting_date ? fmtDate(l.posting_date) : '—'}</td>
-                          <td className="px-3 py-1.5 text-slate-700 text-xs max-w-md"><div className="truncate" title={l.description}>{l.description}</div>{l.currency !== 'EUR' && l.original_amount != null && <span className="text-slate-400">{fmt(l.original_amount)} {l.currency}</span>}</td>
+                          <td className="px-3 py-1.5 text-slate-700 text-xs max-w-md"><Tooltip content={l.description}><div className="truncate cursor-help">{l.description}</div></Tooltip>{l.currency !== 'EUR' && l.original_amount != null && <span className="text-slate-400">{fmt(l.original_amount)} {l.currency}</span>}</td>
                           <td className={`px-3 py-1.5 text-right tabular-nums whitespace-nowrap font-medium ${l.amount < 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmt(l.amount)}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums text-xs text-slate-500">{l.fee ? fmt(l.fee) : ''}</td>
                           <td className="px-3 py-1.5 text-xs">{p ? <span className="text-slate-700">{p.supplier_name ?? '—'}<span className="block text-slate-400">fatt. {p.invoice_number ?? '?'}{p.payment_date ? ` · pagata il ${fmtDate(p.payment_date)}` : ''}</span></span> : l.amount < 0 ? <span className="text-slate-400">nessuna fattura con carta per questo importo</span> : ''}</td>
@@ -1720,7 +1737,7 @@ export default function PrimaNota() {
               </div>
               <div className="text-xs text-slate-500 mt-0.5">{x.Outlet || '—'} · competenza {x.Competenza}</div>
               <div className={`text-xs mt-1 ${r.flusso ? 'text-slate-600' : 'text-orange-800'}`}>
-                {r.flusso ? <>Pagato il {x['Pagato il']} · {x['Conto Banca']} · flusso {x['Disposizione (ID flusso)'] || '—'} ({x['Pagamenti nel flusso'] || '?'} pag., € {x['Importo flusso'] === '' ? '—' : fmt(x['Importo flusso'])})</> : x.Esito}
+                {r.flusso ? <>Pagato il {x['Pagato il']} · {x['Conto Banca']} · flusso {x['Disposizione (ID flusso)'] || '—'} ({x['Bonifici nel flusso (banca)'] || '?'} bonifici per {x['Buste nel flusso'] || '?'} buste, € {x['Importo flusso'] === '' ? '—' : fmt(x['Importo flusso'])})</> : x.Esito}
               </div>
             </div>
           )
@@ -1770,7 +1787,7 @@ export default function PrimaNota() {
                           <span className="cursor-help font-mono text-slate-700">{x['Disposizione (ID flusso)'] || '—'}</span>
                         </Tooltip>
                       ) : '—'}
-                      {x['Pagamenti nel flusso'] !== '' && <span className="block text-slate-400">{x['Pagamenti nel flusso']} pagamenti{x['Commissioni flusso'] !== '' && `, comm. ${fmt(x['Commissioni flusso'])}`}</span>}
+                      {x['Bonifici nel flusso (banca)'] !== '' && <span className={`block ${x['Bonifici nel flusso (banca)'] !== x['Buste nel flusso'] ? 'text-orange-700' : 'text-slate-400'}`}>{x['Bonifici nel flusso (banca)']} bonifici per {x['Buste nel flusso']} buste{x['Commissioni flusso'] !== '' && `, comm. ${fmt(x['Commissioni flusso'])}`}</span>}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{x['Importo flusso'] === '' ? '—' : fmt(x['Importo flusso'])}</td>
                     <td className="px-3 py-2 text-xs">

@@ -20,6 +20,11 @@ export type PnPayable = {
   supplier_name: string | null
   supplier_vat: string | null
   gross_amount: number | null
+  /** Dettaglio per il sottoinsieme fatture nei fogli per conto (facoltativi: non tutti i chiamanti li hanno). */
+  invoice_date?: string | null
+  amount_paid?: number | null
+  installment_number?: number | null
+  installment_total?: number | null
 }
 
 export type PnFiscalDeadline = {
