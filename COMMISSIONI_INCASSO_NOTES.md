@@ -131,10 +131,12 @@ arrivano i documenti nativi o non si applica un OCR.
 
 ## 5. difetti trovati nei dati vivi (da sistemare)
 
-1. **Categorie incoerenti sugli addebiti Nexi.** Sui movimenti 2026 di Nexi e Amex:
+1. ~~**Categorie incoerenti sugli addebiti Nexi.**~~ **Risolto** dalla NZ_ONLY 223. Prima:
    `commissioni_incasso` 82 righe (-796,15), nessuna categoria 36 righe (-3.263,02),
-   **`utenze` 36 righe (-1.589,92)**, `fees` 2 righe (-361,65). Le commissioni Nexi di
-   Valdichiana sono finite sotto «utenze». Serve una categoria sola e corretta.
+   **`utenze` 36 righe (-1.589,92)**, `fees` 2 righe (-361,65) — le commissioni Nexi di
+   Valdichiana erano finite sotto «utenze». Ora una riga sola: 156 movimenti su
+   `commissioni_incasso` per -6.010,74. Backup delle categorie precedenti in
+   `docs/backup/20260915_bank_transactions_categoria_commissioni_PRIMA.csv`.
 2. **Nessuna attribuzione all'outlet.** `bank_transactions` non ha outlet: il codice AX e
    il Payment Contract nel mandato lo consentirebbero in modo deterministico.
 3. **Nessun costo in conto economico.** La categoria `COMM_CARTE` («Commissioni carte e
@@ -142,11 +144,8 @@ arrivano i documenti nativi o non si applica un OCR.
    riceve niente da questi movimenti.
 4. **Addebito ricorrente da 25,62 non spiegato**, comparso su tutti i contratti Nexi il
    13/02, il 21/04 e il 12/08 (179,34 complessivi ad agosto). Non è in nessun estratto.
-5. **Migration 195 e NZ_ONLY 198 partono da una premessa sbagliata.** La 195 dice che gli
-   accrediti MPS arrivano al netto «tranne un terminale»: quel terminale è Valdichiana, ed è
-   l'unico al lordo per contratto. La 198 dice che l'Amex del POS MPS arriva dentro
-   l'accredito del giorno: è falso, l'Amex è sempre una riga separata al lordo (271 casi su
-   271). La tolleranza dell'1,5% a pioggia nasconde l'errore invece di risolverlo.
+5. ~~**Migration 195 e NZ_ONLY 198 partono da una premessa sbagliata.**~~ **Corretto** dalla
+   224 e dalla NZ_ONLY 225: vedi la sezione 7 qui sotto.
 
 ---
 
@@ -162,9 +161,61 @@ arrivano i documenti nativi o non si applica un OCR.
 
 ---
 
-## 7. riferimenti
+## 7. il riscontro cassa/banca rimesso a posto (224 e NZ_ONLY 225)
+
+### cosa sbagliavano la 195 e la 198
+La 195 tratta il regime di accredito come un'eccezione («al netto tranne un terminale»)
+e compensa con una tolleranza dell'1,5 % su tutti i canali POS. Ma il regime non è un
+caso: è scritto nel contratto del punto vendita. Dove l'accredito è al lordo (Valdichiana,
+Payment Contract `PC0001000583`) lo scarto ammesso deve essere zero, e una tolleranza
+dell'1,5 % su 77 mila euro di transato lascia passare 1.100 euro di differenza senza
+dire niente.
+
+La NZ_ONLY 198 degradava i sette canali «POS MPS Amex» a `kind='pos'` con lo stesso
+codice terminale del POS, perché dava per scontato che l'Amex arrivasse dentro
+l'accredito del giorno. È falso: l'Amex è sempre una riga separata, al lordo, il giorno
+dopo la vendita. Verificato su **271 righe su 271** negli estratti Amex di gennaio-agosto.
+La conseguenza era un numero falso a video: a settembre la riga Amex di Palmanova
+mostrava «accreditato 25.648,94» a fronte di **5.300,20 dichiarati**, perché le due righe
+della chiusura finivano nello stesso gruppo e il riscontro scriveva su entrambe il totale
+del terminale.
+
+### cosa fanno le nuove migration
+- **224** (tutti e tre i tenant): colonna `outlet_payment_channels.settlement_mode`
+  (`lordo`/`netto`) e riscrittura di `match_cash_closings_with_bank`. Il riscontro cerca,
+  fra i movimenti del terminale, quello che vale **esattamente** quanto la chiusura
+  dichiara sul canale Amex di quel giorno, lo abbina al canale Amex e lascia gli altri al
+  POS. La tolleranza diventa zero dove il regime è `lordo`.
+- **NZ_ONLY 225**: i sette canali «POS MPS Amex» tornano `kind='pos_amex'`, regime
+  `lordo`, tolleranza 0; il regime dei canali POS arriva da `acquirer_contracts`, non
+  scritto a mano.
+
+### prova, misurata in transazione su NZ (settembre 2026)
+| riga | prima | dopo |
+|---|---|---|
+| POS MPS Amex | dichiarato 5.300,20, accreditato 25.648,94 | 15 righe, dichiarato 1.896,84 = accreditato 1.896,84, scarto 0,00 |
+| POS MPS | scarto assorbito dalla tolleranza | 90 righe, scarto -639,85 (-0,63 %: sono le commissioni vere) |
+
+Altre 3 righe Amex risultano in attesa: sono le giornate **BRG 10/09, FRC 12/09, FRC 13/09**,
+dove l'accredito esatto non si trova. Si chiariscono con l'estratto Amex di settembre.
+
+### cosa resta aperto
+I **199 match già scritti** a settembre restano quelli sbagliati: 145 sulla riga «POS MPS» e
+**54 finiti sulla riga «POS MPS Amex» per 31.326,03 euro**. La correzione vale da sola solo
+per i giorni nuovi. Per rigenerarli serve cancellare quei match e azzerare
+`bank_amount`/`bank_status` sulle righe di chiusura: è una scrittura sui dati vivi, quindi
+richiede la **conferma binaria di Patrizio** (regola NO DATA LOSS).
+
+Da segnalare anche: i canali «Pay by link» sono stati modificati il 15/09 alle 14:55 da un
+utente, messi `kind='pos'` con i codici terminale dei POS MPS. Non li ho toccati, ma con la
+nuova logica quei canali competono con il POS sullo stesso terminale.
+
+---
+
+## 8. riferimenti
 
 - Dati estratti: `docs/commissioni_incasso_2026.csv`
 - Prima nota e export: `AUDIT_PRIMA_NOTA_COMMERCIALISTA_2026-09-14.md`
-- Riscontro cassa/banca: `supabase/migrations/20260907_195_*`, `NZ_ONLY_20260907_198_*`
+- Riscontro cassa/banca: `supabase/migrations/20260907_195_*`, `NZ_ONLY_20260907_198_*`,
+  corretti da `20260915_224_*` e `NZ_ONLY_20260915_225_*`
 - Archiviazione file: `src/lib/archivioFile.ts`, tabella `import_documents`
