@@ -53,7 +53,7 @@ import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
 import {
   buildRow, classifyMovement, counterpartOf, causaleOf, pivaOf, invoiceCountOf, invoicesTotalOf,
-  summarizeByKind, KIND_LABELS,
+  summarizeByKind, KIND_LABELS, isRiba, tipoMovimentoOf,
   type PnPayable, type PnFiscalDeadline, type PnMovement, type MovementKind,
 } from '../lib/primaNotaExport'
 import {
@@ -320,7 +320,7 @@ export default function PrimaNota() {
         const [payResults, fdResults, logResults] = await Promise.all([
           Promise.all(chunks.map(ids => supabase
             .from('payables')
-            .select('id, bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total')
+            .select('id, bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total, payment_method')
             .in('bank_transaction_id', ids)
             .order('invoice_number', { ascending: true }))),
           Promise.all(chunks.map(ids => supabase
@@ -329,7 +329,7 @@ export default function PrimaNota() {
             .in('bank_transaction_id', ids))),
           Promise.all(chunks.map(ids => supabase
             .from('reconciliation_log')
-            .select('bank_transaction_id, payable_id, status, payables(id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total)')
+            .select('bank_transaction_id, payable_id, status, payables(id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total, payment_method)')
             .in('bank_transaction_id', ids)
             .eq('status', 'applied'))),
         ])
@@ -338,16 +338,16 @@ export default function PrimaNota() {
           if (!p.bank_transaction_id) continue
           seen.add(`${p.bank_transaction_id}:${p.id}`)
           const list = payMap.get(p.bank_transaction_id) ?? []
-          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total })
+          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total, payment_method: p.payment_method })
           payMap.set(p.bank_transaction_id, list)
         }
-        type LogRow = { bank_transaction_id: string | null; payable_id: string | null; payables: { id: string; invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null; gross_amount: number | null; invoice_date: string | null; amount_paid: number | null; installment_number: number | null; installment_total: number | null } | null }
+        type LogRow = { bank_transaction_id: string | null; payable_id: string | null; payables: { id: string; invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null; gross_amount: number | null; invoice_date: string | null; amount_paid: number | null; installment_number: number | null; installment_total: number | null; payment_method: string | null } | null }
         for (const l of logResults.flatMap(r => (r.data ?? []) as unknown as LogRow[])) {
           const p = l.payables
           if (!l.bank_transaction_id || !p || seen.has(`${l.bank_transaction_id}:${p.id}`)) continue
           seen.add(`${l.bank_transaction_id}:${p.id}`)
           const list = payMap.get(l.bank_transaction_id) ?? []
-          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total })
+          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total, payment_method: p.payment_method })
           payMap.set(l.bank_transaction_id, list)
         }
         for (const f of fdResults.flatMap(r => r.data ?? [])) {
@@ -940,7 +940,7 @@ export default function PrimaNota() {
               const imp = Math.round(Number(p.amount_paid ?? p.gross_amount ?? 0) * 100) / 100
               somma += imp
               const rata = p.installment_total && p.installment_total > 1 ? ` · rata ${p.installment_number ?? '?'}/${p.installment_total}` : ''
-              rows.push(['', '', '↳ di cui fattura', p.supplier_name ?? '', p.supplier_vat ?? '', '', `Fatt. ${p.invoice_number ?? '?'}${p.invoice_date ? ` del ${fmtDate(p.invoice_date)}` : ''}${rata}`, '', '', '', '', imp])
+              rows.push(['', '', isRiba(p) ? '↳ di cui fattura RiBa' : '↳ di cui fattura', p.supplier_name ?? '', p.supplier_vat ?? '', '', `Fatt. ${p.invoice_number ?? '?'}${p.invoice_date ? ` del ${fmtDate(p.invoice_date)}` : ''}${rata}${isRiba(p) ? ' · RiBa' : ''}`, '', '', '', '', imp])
             }
             const resto = Math.round((Math.abs(m.amount) - somma) * 100) / 100
             if (Math.abs(resto) >= 0.005) rows.push(['', '', '↳ resto', resto > 0 ? 'commissioni o acconto non in fattura' : 'nota di credito o sconto', '', '', '', '', '', '', '', resto])
@@ -1015,7 +1015,7 @@ export default function PrimaNota() {
 
   const KindBadge = ({ m }: { m: Movement }) => {
     const k = classifyMovement(m)
-    return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${KIND_BADGE[k]}`}>{KIND_LABELS[k]}</span>
+    return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${KIND_BADGE[k]}`}>{tipoMovimentoOf(m)}</span>
   }
 
   return (

@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   classifyMovement, counterpartOf, pivaOf, causaleOf, buildRow, summarizeByKind, outletCodeFromNote,
+  isRiba, ribaCountOf, tipoMovimentoOf,
   invoicesTotalOf, type PnMovement, type PnPayable,
 } from './primaNotaExport'
 
@@ -91,6 +92,21 @@ describe('contropartita, P.IVA e causale con TUTTE le fatture del movimento', ()
     expect(pivaOf(riba)).toBe('')
     expect(causaleOf(riba)).toBe('Fatt. R1/0003572 (ARCO SPEDIZIONI SPA); R1/0003573 (ARCO SPEDIZIONI SPA); 99 (ALFATECNO S.R.L.)')
     expect(invoicesTotalOf(riba)).toBe(6892.19)
+  })
+  it('fatture a ricevuta bancaria: la RiBa si legge nel tipo movimento e nella causale', () => {
+    const r = (n: string, sup: string, vat: string, amt: number, method: string | null) => ({ ...pay(n, sup, vat, amt), payment_method: method })
+    const tutte = mv({ amount: -5866.19, description: 'EFFETTI RITIRATI', payables: [r('92', 'MARCO', '06151980486', 2866, 'riba_30'), r('119', 'ALFATECNO S.R.L.', '03916460482', 3000.19, 'riba_60')] })
+    expect(ribaCountOf(tutte)).toBe(2)
+    expect(tipoMovimentoOf(tutte)).toBe('Pagamento fornitore (RiBa)')
+    expect(causaleOf(tutte)).toBe('RiBa · Fatt. 92 (MARCO); 119 (ALFATECNO S.R.L.)')
+    expect(buildRow(tutte, (x) => x)['Tipo movimento']).toBe('Pagamento fornitore (RiBa)')
+    const miste = mv({ amount: -466.95, description: 'x', payables: [r('60828', 'DX SRL', '11111111111', 155.65, 'riba'), r('65166', 'DX SRL', '11111111111', 311.3, 'bonifico_ordinario')] })
+    expect(tipoMovimentoOf(miste)).toBe('Pagamento fornitore (RiBa e altro)')
+    expect(causaleOf(miste)).toBe('Fatt. 60828 · RiBa; 65166')
+    const bonifico = mv({ amount: -100, description: 'x', payables: [r('1', 'DX SRL', '11111111111', 100, 'bonifico_ordinario')] })
+    expect(isRiba(bonifico.payables[0])).toBe(false)
+    expect(tipoMovimentoOf(bonifico)).toBe('Pagamento fornitore')
+    expect(causaleOf(bonifico)).toBe('Fatt. 1')
   })
   it('un solo fornitore con più fatture: nome, P.IVA e tutti i numeri', () => {
     const m = mv({ amount: -466.95, description: 'Bonifico *DX SRL SALDO FATTURA 60828-65166', payables: [pay('60828', 'DX SRL', '11111111111', 155.65), pay('65166', 'DX SRL', '11111111111', 311.3)] })
