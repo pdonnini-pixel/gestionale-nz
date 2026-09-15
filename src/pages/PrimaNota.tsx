@@ -107,6 +107,10 @@ export default function PrimaNota() {
   const [pagamenti, setPagamenti] = useState<Pagamento[]>([])
   const [lookups, setLookups] = useState<PnLookups>({ bankAccounts: new Map(), bankTx: new Map(), categories: new Map(), outlets: new Map() })
   const [loadingPag, setLoadingPag] = useState(false)
+  // Filtro a clic dalle card e dalle etichette: «Da chiarire» deve portare
+  // SUBITO alle righe da sistemare, non a un numero da interpretare.
+  const [kindFilter, setKindFilter] = useState<MovementKind | null>(null)
+  const [fonteFilter, setFonteFilter] = useState<PagamentoFonte[] | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -277,6 +281,26 @@ export default function PrimaNota() {
   const pagRows = useMemo(() => pagamentiVisibili.map(p => buildPagamentoRow(p, lookups, fmtDate)), [pagamentiVisibili, lookups])
   const pagByFonte = useMemo(() => summarizePagamenti(pagamentiVisibili), [pagamentiVisibili])
   const pagTotale = useMemo(() => pagamentiVisibili.reduce((s, p) => s + importoPagato(p), 0), [pagamentiVisibili])
+  const senzaRiscontro = useMemo(
+    () => pagamentiVisibili.filter(p => { const f = fonteOf(p); return f === 'senza_riscontro' || f === 'provvisoria' }).length,
+    [pagamentiVisibili],
+  )
+
+  // Righe mostrate in tabella: quelle del filtro a clic, se attivo. Gli export
+  // restano sempre completi (la commercialista riceve tutto il periodo).
+  const movementsShown = useMemo(
+    () => kindFilter ? movements.filter(m => classifyMovement(m) === kindFilter) : movements,
+    [movements, kindFilter],
+  )
+  const pagamentiShown = useMemo(
+    () => fonteFilter ? pagamentiVisibili.filter(p => fonteFilter.includes(fonteOf(p))) : pagamentiVisibili,
+    [pagamentiVisibili, fonteFilter],
+  )
+  const pagRowsShown = useMemo(() => pagamentiShown.map(p => buildPagamentoRow(p, lookups, fmtDate)), [pagamentiShown, lookups])
+  const toggleKind = (k: MovementKind) => setKindFilter(cur => (cur === k ? null : k))
+  const toggleFonte = (fs: PagamentoFonte[]) => setFonteFilter(cur => (cur && cur.join() === fs.join() ? null : fs))
+  // Cambiando periodo, conto o vista il filtro a clic si azzera
+  useEffect(() => { setKindFilter(null); setFonteFilter(null) }, [year, month, bankAccountId, view])
 
   const totals = useMemo(() => {
     const dare = movements.filter(m => m.amount > 0).reduce((s, m) => s + m.amount, 0)
@@ -427,20 +451,33 @@ export default function PrimaNota() {
         <KpiBox label="Uscite (Avere)" value={`€ ${fmt(totals.avere)}`} color="red" />
         <KpiBox label="Saldo netto" value={`€ ${fmt(totals.netto)}`} color={totals.netto >= 0 ? 'emerald' : 'red'} />
         <KpiBox label="Da chiarire" value={totals.daChiarire.toString()} color={totals.daChiarire > 0 ? 'orange' : 'slate'}
-          hint="Movimenti che nessuna fonte spiega: né fattura, né F24, né causale riconoscibile" />
+          hint={totals.daChiarire > 0 ? 'Clicca per vedere solo questi movimenti e agganciarli in Riconciliazione o in Scadenze fiscali' : 'Nessun movimento senza spiegazione nel periodo'}
+          active={kindFilter === 'da_chiarire'} onClick={totals.daChiarire > 0 ? () => toggleKind('da_chiarire') : undefined} />
       </div>
 
       {/* Riepilogo per tipo di movimento: stesso contenuto del foglio Riepilogo dell'Excel */}
       {byKind.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
           {byKind.map(k => (
-            <span key={k.kind} className="inline-flex items-center gap-1.5">
+            <button key={k.kind} type="button" onClick={() => toggleKind(k.kind)} aria-pressed={kindFilter === k.kind}
+              title={kindFilter === k.kind ? 'Togli il filtro' : `Mostra solo: ${k.label}`}
+              className={`inline-flex items-center gap-1.5 rounded px-1 py-0.5 -mx-1 hover:bg-slate-100 ${kindFilter === k.kind ? 'ring-2 ring-slate-900 bg-slate-100' : ''}`}>
               <span className={`inline-block px-1.5 py-0.5 rounded font-medium ${KIND_BADGE[k.kind]}`}>{k.label}</span>
               <span className="tabular-nums">{k.n}</span>
               {k.entrate > 0 && <span className="text-emerald-700 tabular-nums">+{fmt(k.entrate)}</span>}
               {k.uscite > 0 && <span className="text-red-700 tabular-nums">−{fmt(k.uscite)}</span>}
-            </span>
+            </button>
           ))}
+        </div>
+      )}
+      {kindFilter && (
+        <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-4 text-sm text-orange-900">
+          <span>
+            Filtro attivo: <strong>{KIND_LABELS[kindFilter]}</strong> · {movementsShown.length} movimenti su {movements.length}.
+            {kindFilter === 'da_chiarire' && ' Per ognuno: se è un pagamento a fornitore agganciarlo in Riconciliazione, se è un F24 in Scadenze fiscali; il resto va spiegato a mano alla commercialista.'}
+            {' '}Gli export restano completi.
+          </span>
+          <button type="button" onClick={() => setKindFilter(null)} className="shrink-0 px-2 py-1 rounded bg-white border border-orange-200 hover:bg-orange-100 text-xs font-medium">Togli filtro</button>
         </div>
       )}
 
@@ -451,20 +488,33 @@ export default function PrimaNota() {
           <KpiBox label="Fatture pagate" value={pagamentiVisibili.length.toString()} color="slate" />
           <KpiBox label="Importo pagato" value={`€ ${fmt(pagTotale)}`} color="red" />
           <KpiBox label="Fornitori" value={new Set(pagamentiVisibili.map(p => p.supplier_vat || p.supplier_name || '')).size.toString()} color="slate" />
-          <KpiBox label="Senza riscontro" value={pagamentiVisibili.filter(p => { const f = fonteOf(p); return f === 'senza_riscontro' || f === 'provvisoria' }).length.toString()}
-            color={pagamentiVisibili.some(p => { const f = fonteOf(p); return f === 'senza_riscontro' || f === 'provvisoria' }) ? 'orange' : 'slate'}
-            hint="Fatture segnate pagate senza movimento bancario né contanti/carta" />
+          <KpiBox label="Senza riscontro" value={senzaRiscontro.toString()} color={senzaRiscontro > 0 ? 'orange' : 'slate'}
+            hint={senzaRiscontro > 0 ? 'Clicca per vedere solo le fatture dichiarate pagate senza movimento né contanti/carta' : 'Tutte le fatture pagate hanno un riscontro'}
+            active={!!fonteFilter && fonteFilter.includes('senza_riscontro')}
+            onClick={senzaRiscontro > 0 ? () => toggleFonte(['senza_riscontro', 'provvisoria']) : undefined} />
         </div>
       )}
       {view === 'pagamenti' && pagByFonte.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600">
           {pagByFonte.map(f => (
-            <span key={f.fonte} className="inline-flex items-center gap-1.5">
+            <button key={f.fonte} type="button" onClick={() => toggleFonte([f.fonte])} aria-pressed={!!fonteFilter && fonteFilter.length === 1 && fonteFilter[0] === f.fonte}
+              title={fonteFilter?.[0] === f.fonte && fonteFilter.length === 1 ? 'Togli il filtro' : `Mostra solo: ${f.label}`}
+              className={`inline-flex items-center gap-1.5 rounded px-1 py-0.5 -mx-1 hover:bg-slate-100 ${fonteFilter && fonteFilter.length === 1 && fonteFilter[0] === f.fonte ? 'ring-2 ring-slate-900 bg-slate-100' : ''}`}>
               <span className={`inline-block px-1.5 py-0.5 rounded font-medium ${FONTE_BADGE[f.fonte]}`}>{f.label}</span>
               <span className="tabular-nums">{f.n}</span>
               <span className={`tabular-nums ${f.importo < 0 ? 'text-violet-700' : 'text-red-700'}`}>{f.importo < 0 ? '+' : '−'}{fmt(Math.abs(f.importo))}</span>
-            </span>
+            </button>
           ))}
+        </div>
+      )}
+      {view === 'pagamenti' && fonteFilter && (
+        <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-4 text-sm text-orange-900">
+          <span>
+            Filtro attivo: <strong>{fonteFilter.map(f => FONTE_LABELS[f]).join(' + ')}</strong> · {pagamentiShown.length} fatture su {pagamentiVisibili.length}.
+            {fonteFilter.includes('senza_riscontro') && ' Sono fatture segnate pagate senza un movimento collegato: si agganciano in Banche → Riconciliazione (anche se già chiuse a mano).'}
+            {' '}Gli export restano completi.
+          </span>
+          <button type="button" onClick={() => setFonteFilter(null)} className="shrink-0 px-2 py-1 rounded bg-white border border-orange-200 hover:bg-orange-100 text-xs font-medium">Togli filtro</button>
         </div>
       )}
 
@@ -481,11 +531,11 @@ export default function PrimaNota() {
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
             <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
           </div>
-        ) : pagamentiVisibili.length === 0 ? (
+        ) : pagamentiShown.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
-            Nessuna fattura pagata nel periodo selezionato
+            {fonteFilter ? 'Nessuna fattura con questo filtro' : 'Nessuna fattura pagata nel periodo selezionato'}
           </div>
-        ) : pagamentiVisibili.map(p => {
+        ) : pagamentiShown.map(p => {
           const f = fonteOf(p)
           const tx = p.bank_transaction_id ? lookups.bankTx.get(p.bank_transaction_id) : undefined
           const acc = (tx?.bank_account_id ?? p.payment_bank_account_id) ? lookups.bankAccounts.get((tx?.bank_account_id ?? p.payment_bank_account_id) as string) : undefined
@@ -539,12 +589,12 @@ export default function PrimaNota() {
                 <tr><td colSpan={11} className="px-3 py-8 text-center text-slate-400">
                   <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
                 </td></tr>
-              ) : pagRows.length === 0 ? (
+              ) : pagRowsShown.length === 0 ? (
                 <tr><td colSpan={11} className="px-3 py-8 text-center text-slate-400">
-                  Nessuna fattura pagata nel periodo selezionato
+                  {fonteFilter ? 'Nessuna fattura con questo filtro' : 'Nessuna fattura pagata nel periodo selezionato'}
                 </td></tr>
-              ) : pagamentiVisibili.map((p, i) => {
-                const r = pagRows[i]
+              ) : pagamentiShown.map((p, i) => {
+                const r = pagRowsShown[i]
                 const f = fonteOf(p)
                 return (
                   <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50/50">
@@ -595,11 +645,11 @@ export default function PrimaNota() {
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
             <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
           </div>
-        ) : movements.length === 0 ? (
+        ) : movementsShown.length === 0 ? (
           <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
-            Nessun movimento nel periodo selezionato
+            {kindFilter ? 'Nessun movimento con questo filtro' : 'Nessun movimento nel periodo selezionato'}
           </div>
-        ) : movements.map(m => (
+        ) : movementsShown.map(m => (
           <div key={m.id} className="bg-white rounded-xl border border-slate-200 p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs text-slate-500">
@@ -654,11 +704,11 @@ export default function PrimaNota() {
                 <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
                   <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
                 </td></tr>
-              ) : movements.length === 0 ? (
+              ) : movementsShown.length === 0 ? (
                 <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
-                  Nessun movimento nel periodo selezionato
+                  {kindFilter ? 'Nessun movimento con questo filtro' : 'Nessun movimento nel periodo selezionato'}
                 </td></tr>
-              ) : movements.map(m => {
+              ) : movementsShown.map(m => {
                 const nFatt = invoiceCountOf(m)
                 const totFatt = invoicesTotalOf(m)
                 return (
@@ -712,18 +762,31 @@ export default function PrimaNota() {
 }
 
 type KpiColor = 'slate' | 'emerald' | 'red' | 'orange'
-function KpiBox({ label, value, color, hint }: { label: string; value: string; color: KpiColor; hint?: string }) {
+function KpiBox({ label, value, color, hint, onClick, active }: { label: string; value: string; color: KpiColor; hint?: string; onClick?: () => void; active?: boolean }) {
   const colors: Record<KpiColor, string> = {
     slate: 'text-slate-900',
     emerald: 'text-emerald-700',
     red: 'text-red-700',
     orange: 'text-orange-700',
   }
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <div className="text-xs text-slate-500">{label}</div>
+  const inner = (
+    <>
+      <div className="text-xs text-slate-500 flex items-center justify-between gap-2">
+        <span>{label}</span>
+        {onClick && <span className="text-[10px] uppercase tracking-wide text-slate-400">{active ? 'filtro attivo' : 'clicca'}</span>}
+      </div>
       <div className={`text-2xl font-bold mt-1 ${colors[color]}`}>{value}</div>
       {hint && <div className="text-[11px] text-slate-400 mt-1 leading-tight">{hint}</div>}
-    </div>
+    </>
   )
+  // Una card cliccabile è un bottone vero: tastiera e screen reader la usano come tale.
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} aria-pressed={!!active}
+        className={`text-left w-full bg-white rounded-xl border p-4 cursor-pointer hover:border-slate-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-900 ${active ? 'border-orange-400 ring-2 ring-orange-300' : 'border-slate-200'}`}>
+        {inner}
+      </button>
+    )
+  }
+  return <div className="bg-white rounded-xl border border-slate-200 p-4">{inner}</div>
 }
