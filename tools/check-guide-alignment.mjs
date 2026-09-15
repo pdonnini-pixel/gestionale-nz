@@ -45,6 +45,8 @@ const SOURCE_TO_GUIDES = {
   'src/lib/primaNotaQuadratura.ts': ['banche'],
   'src/lib/primaNotaStipendi.ts': ['banche'],
   'src/lib/cartaEstratto.ts': ['banche'],
+  'src/lib/primaNotaGuida.ts': ['banche'],
+  'src/lib/xlsxStyled.ts': ['banche'],
   'src/components/OpenBankingAcube.tsx': ['banche'],
   'src/components/AICategorization.tsx': ['banche', 'ai-categorie'],
   'src/components/PaymentAnomaliesPanel.tsx': ['banche'],
