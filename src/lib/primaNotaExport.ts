@@ -37,6 +37,8 @@ export type PnMovement = {
   counterpart: string | null
   merchant_name: string | null
   counterpart_name?: string | null
+  /** Nota del movimento: "Outlet: BRB · …" assegna a mano l'outlet (vedi outletCodeFromNote). */
+  note?: string | null
   supplier?: { name: string | null; partita_iva: string | null } | null
   payables: PnPayable[]
   fiscal_deadlines: PnFiscalDeadline[]
@@ -52,6 +54,8 @@ export type MovementKind =
   | 'finanziamento'
   | 'spese_banca'
   | 'giroconto'
+  | 'incasso_cliente'
+  | 'rimborso'
   | 'da_chiarire'
 
 export const KIND_LABELS: Record<MovementKind, string> = {
@@ -64,6 +68,8 @@ export const KIND_LABELS: Record<MovementKind, string> = {
   finanziamento: 'Finanziamento',
   spese_banca: 'Spese e commissioni bancarie',
   giroconto: 'Giroconto / prelievo',
+  incasso_cliente: 'Incasso cliente (bonifico)',
+  rimborso: 'Rimborso / restituzione',
   da_chiarire: 'Da chiarire',
 }
 
@@ -86,6 +92,12 @@ const RE_SDD_SERVIZI = /A FAVORE NEXI PAYMENTS|A FAVORE GLOBAL BLUE/i
 // agganciato a una fattura resta «da chiarire», non diventa «spese bancarie»
 // solo perché la causale cita le commissioni scorporate (IMPORTO COMMISSIONI).
 const RE_TRANSFER = /IMPORTO BONIFICI|DISPOSIZIONE|BONIFICO|BEU INTERN BANK/i
+// Bonifico in ENTRATA da un cliente privato per un acquisto in negozio o online
+// (corrispettivo pagato con bonifico): "BON. IST./SEPA ... ORD: NOME ... RI: Acquisto merce".
+const RE_BONIFICO_IN = /\bBON\.\s*(IST|SEPA)\b|BONIFICO/i
+const RE_ACQUISTO = /ACQUIST|ABITO|MERCE|ORDINE|\bODL\b|TAGLIA|SPEDIZION/i
+// Rimborso o restituzione in entrata (fornitore, corriere, assicurazione)
+const RE_RIMBORSO = /RIMBORS|RESTITUZ|STORNO|LIQUIDAZIONE TRANSATTIVA|RIACCREDIT/i
 
 const CATEGORY_KIND: Record<string, MovementKind> = {
   incassi_pos: 'pos',
@@ -97,6 +109,9 @@ const CATEGORY_KIND: Record<string, MovementKind> = {
   commissioni_incasso: 'spese_banca',
   finanziamenti: 'finanziamento',
   giroconti: 'giroconto',
+  incassi_clienti: 'incasso_cliente',
+  rimborsi_fornitori: 'rimborso',
+  rimborsi: 'rimborso',
 }
 
 export function classifyMovement(m: PnMovement): MovementKind {
@@ -114,6 +129,13 @@ export function classifyMovement(m: PnMovement): MovementKind {
   if (RE_SPESE_BANCA.test(d) && !RE_TRANSFER.test(d)) return 'spese_banca'
   const byCat = m.category ? CATEGORY_KIND[m.category] : undefined
   if (byCat) return byCat
+  // Entrate senza etichetta: un bonifico di un privato per un acquisto è un
+  // corrispettivo pagato con bonifico; un rimborso o una restituzione è tale.
+  // Si guarda la causale scritta dall'ordinante (dopo "RI:"), non l'intestazione
+  // tecnica della banca ("BONIFICO PER ORDINE/CONTO" conterrebbe "ordine").
+  const ri = /\bRI:\s*(.*)$/i.exec(d)?.[1] ?? d.replace(/BONIFICO PER ORDINE\/CONTO/i, '')
+  if (m.amount > 0 && RE_BONIFICO_IN.test(d) && RE_RIMBORSO.test(ri)) return 'rimborso'
+  if (m.amount > 0 && RE_BONIFICO_IN.test(d) && RE_ACQUISTO.test(ri)) return 'incasso_cliente'
   return 'da_chiarire'
 }
 
@@ -140,10 +162,24 @@ export function counterpartOf(m: PnMovement): string {
   if (fd?.title) return fd.title
   const benef = extractBeneficiary(m.description || '')
   if (benef) return benef
+  // Bonifico in entrata (MPS): "ORD: SCANU SABRINA BIC: …"
+  const ord = /\bORD:\s*(.+?)\s+(?:BIC|IND|INF)\s*:/i.exec(m.description || '')
+  if (ord) return ord[1].trim()
   if (m.counterpart_name) return m.counterpart_name
   if (m.counterpart) return m.counterpart
   if (m.merchant_name) return m.merchant_name
   return ''
+}
+
+/**
+ * Outlet assegnato a mano nella nota del movimento, con la convenzione
+ * "Outlet: CODICE · …" (es. "Outlet: BRB · corrispettivi Barberino agosto 2026").
+ * Serve per i casi che solo una persona può sapere (bonifico di un cliente
+ * privato per un acquisto in negozio) senza cambiare lo schema.
+ */
+export function outletCodeFromNote(note: string | null | undefined): string | null {
+  const m = /^\s*Outlet:\s*([A-Za-z0-9_-]+)/i.exec(note ?? '')
+  return m ? m[1].toUpperCase() : null
 }
 
 export function pivaOf(m: PnMovement): string {
@@ -183,7 +219,9 @@ export const invoicesTotalOf = (m: PnMovement): number | null =>
   m.payables.length > 0 ? Math.round(m.payables.reduce((s, p) => s + (Number(p.gross_amount) || 0), 0) * 100) / 100 : null
 
 export type PnRow = {
-  Data: string
+  'Data operazione': string
+  /** Data contabile della banca (raw_data.extra.postingDate); vuota se non fornita. */
+  'Data contabile': string
   'Conto Banca': string
   IBAN: string
   Tipo: 'Entrata' | 'Uscita'
@@ -200,21 +238,29 @@ export type PnRow = {
 
 export type PnBankAccount = { bank_name: string; account_name: string | null; iban: string | null } | null | undefined
 
+/**
+ * Riga di export. `contropartita`, se passata, sostituisce quella letta dal
+ * movimento: per POS e versamenti la pagina passa l'outlet di riferimento
+ * (attribuito dal codice terminale o dalla parola chiave), che allo studio
+ * dice più del testo della banca.
+ */
 export function buildRow(
-  m: PnMovement & { transaction_date: string; currency: string | null; bank_accounts?: PnBankAccount },
+  m: PnMovement & { transaction_date: string; posting_date?: string | null; currency: string | null; bank_accounts?: PnBankAccount },
   fmtDate: (d: string) => string,
+  contropartita?: string,
 ): PnRow {
   const n = invoiceCountOf(m)
   const tot = invoicesTotalOf(m)
   return {
-    Data: fmtDate(m.transaction_date),
+    'Data operazione': fmtDate(m.transaction_date),
+    'Data contabile': m.posting_date ? fmtDate(m.posting_date) : '',
     'Conto Banca': m.bank_accounts ? `${m.bank_accounts.bank_name}${m.bank_accounts.account_name ? ' — ' + m.bank_accounts.account_name : ''}` : '',
     IBAN: m.bank_accounts?.iban ?? '',
     Tipo: m.amount > 0 ? 'Entrata' : 'Uscita',
     'Tipo movimento': KIND_LABELS[classifyMovement(m)],
     Importo: Math.abs(m.amount),
     Valuta: m.currency ?? 'EUR',
-    Contropartita: counterpartOf(m),
+    Contropartita: contropartita || counterpartOf(m),
     'P.IVA Contropartita': pivaOf(m),
     'N. fatture': n > 0 ? n : '',
     'Totale fatture': tot ?? '',
@@ -223,7 +269,7 @@ export function buildRow(
   }
 }
 
-export const PN_COLUMN_WIDTHS = [12, 30, 30, 9, 22, 12, 6, 35, 16, 8, 12, 60, 18]
+export const PN_COLUMN_WIDTHS = [14, 14, 30, 30, 9, 22, 12, 6, 35, 16, 8, 12, 60, 18]
 
 // Riepilogo per tipo di movimento (foglio «Riepilogo» dell'Excel e controllo a
 // video): quante righe e quanto importo per ciascun tipo, entrate e uscite.

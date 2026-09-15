@@ -2,7 +2,7 @@
 // prese dall'audit AUDIT_PRIMA_NOTA_COMMERCIALISTA_2026-09-14.md.
 import { describe, it, expect } from 'vitest'
 import {
-  classifyMovement, counterpartOf, pivaOf, causaleOf, buildRow, summarizeByKind,
+  classifyMovement, counterpartOf, pivaOf, causaleOf, buildRow, summarizeByKind, outletCodeFromNote,
   invoicesTotalOf, type PnMovement, type PnPayable,
 } from './primaNotaExport'
 
@@ -113,13 +113,38 @@ describe('contropartita, P.IVA e causale con TUTTE le fatture del movimento', ()
   })
 })
 
+describe('entrate senza etichetta e outlet dalla nota', () => {
+  it('bonifico di un cliente privato per un acquisto → incasso cliente, con l ordinante come contropartita', () => {
+    const m = mv({ amount: 82, description: 'Causale: BONIFICO PER ORDINE/CONTO - Descrizione: FILIALE DISPONENTE 00560 BON. IST. 0845700003206403480546305463IT DEL 06.08.26 ORD: SCANU SABRINA BIC: ICRAITRRCP0 INF:RI: Acquisto merce vicolo Scanu Sabrina' })
+    expect(classifyMovement(m)).toBe('incasso_cliente')
+    expect(counterpartOf(m)).toBe('SCANU SABRINA')
+  })
+  it('bonifico in entrata di rimborso o restituzione → rimborso; l etichetta rimborsi_fornitori vale anche senza parola in causale', () => {
+    expect(classifyMovement(mv({ amount: 6.2, description: 'BON. SEPA 1101262380309856 DEL 27.08.26 ORD: BRT SPA BIC: UNCRITMMXXX INF:EE: 262370017580629 RI: LIQUIDAZIONE TRANSATTIVA: Anomalia 116/1944' }))).toBe('rimborso')
+    expect(classifyMovement(mv({ amount: 450, description: 'BON. SEPA 0306926532128407484017740177IT DEL 27.08.26 ORD: MIAN SRL BIC: BCITITMMXXX INF:EE: 62333012C', category: 'rimborsi_fornitori' }))).toBe('rimborso')
+    expect(classifyMovement(mv({ amount: 60, description: 'BON. SEPA X DEL 26.08.26 ORD: ROSSETI VERONICA BIC: WIDIITMMXXX IND:VIA X INF:RI: acquisto top piu Panta palazzo vicolo', category: 'incassi_clienti' }))).toBe('incasso_cliente')
+  })
+  it('un bonifico in entrata senza indizi resta da chiarire; le uscite non diventano mai incasso', () => {
+    expect(classifyMovement(mv({ amount: 100, description: 'BON. SEPA 123 DEL 01.08.26 ORD: ROSSI MARIO BIC: X INF:RI: ' }))).toBe('da_chiarire')
+    expect(classifyMovement(mv({ amount: -100, description: 'BONIFICO *ROSSI MARIO acquisto merce' }))).toBe('da_chiarire')
+  })
+  it('outletCodeFromNote legge la convenzione "Outlet: CODICE · …"', () => {
+    expect(outletCodeFromNote('Outlet: BRB · corrispettivi Barberino agosto 2026')).toBe('BRB')
+    expect(outletCodeFromNote('outlet: plm')).toBe('PLM')
+    expect(outletCodeFromNote('corrispettivi Barberino')).toBeNull()
+    expect(outletCodeFromNote(null)).toBeNull()
+  })
+})
+
 describe('buildRow e riepilogo', () => {
   it('riga export: IBAN in chiaro, tipo movimento, conteggio e totale fatture', () => {
     const row = buildRow({
       ...mv({ amount: -466.95, description: 'Bonifico *DX SRL SALDO FATTURA 60828-65166', category: null, payables: [pay('60828', 'DX SRL', '11111111111', 155.65), pay('65166', 'DX SRL', '11111111111', 311.3)] }),
-      transaction_date: '2026-08-07', currency: null,
+      transaction_date: '2026-08-07', posting_date: '2026-08-08', currency: null,
       bank_accounts: { bank_name: 'BCC Valdarno', account_name: 'IT37H0845705463000000017334', iban: 'IT37H0845705463000000017334' },
     }, (d) => d)
+    expect(row['Data operazione']).toBe('2026-08-07')
+    expect(row['Data contabile']).toBe('2026-08-08')
     expect(row.IBAN).toBe('IT37H0845705463000000017334')
     expect(row['Tipo movimento']).toBe('Pagamento fornitore')
     expect(row['N. fatture']).toBe(2)
@@ -127,6 +152,11 @@ describe('buildRow e riepilogo', () => {
     expect(row.Valuta).toBe('EUR')
     expect(row.Tipo).toBe('Uscita')
     expect(row.Importo).toBe(466.95)
+  })
+  it('riga export: la contropartita passata dalla pagina (outlet per POS e versamenti) vince su quella della banca', () => {
+    const base = { ...mv({ amount: 760, description: 'VERS. GDO DATA PR: 03-08-26 DATA DT: 01-08-26 VICOLO NEW ZAGO SRL CC PALMANOVA PALMANOVA', counterpart_name: 'VICOLO NEW ZAGO SRL' }), transaction_date: '2026-08-03', currency: null }
+    expect(buildRow(base, (d) => d, 'PLM · Palmanova, Contanti').Contropartita).toBe('PLM · Palmanova, Contanti')
+    expect(buildRow(base, (d) => d, '').Contropartita).toBe(buildRow(base, (d) => d).Contropartita)
   })
   it('riepilogo per tipo: entrate e uscite separate, ordine fisso', () => {
     const s = summarizeByKind([

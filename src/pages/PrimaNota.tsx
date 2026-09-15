@@ -20,9 +20,24 @@
 // la chiusura di cassa, dal codice terminale in causale (outlet_payment_channels)
 // o dalla parola chiave del versamento. Logica in src/lib/primaNotaIncassi.ts
 // (testata, copia fedele delle funzioni SQL del riscontro chiusure ↔ banca).
+//
+// Quadratura con l'estratto conto (idea di Patrizio, 15/09): per ogni conto
+// saldo iniziale della banca + movimenti nostri = saldo finale della banca. I
+// saldi vengono da raw_data (accountBalanceSnapshot allo scarico A-Cube), quindi
+// sono indipendenti dai movimenti: se quadra, l'export è completo. Più il
+// contante: versamenti e prelievi dal lato banca, fondo cassa, incassi, spese e
+// versamenti dichiarati dalle chiusure di cassa. Logica in
+// src/lib/primaNotaQuadratura.ts (testata).
+//
+// Quarta vista «Dipendenti» (richiesta di Patrizio, 15/09): per il mese la
+// lista con nome e cognome e il netto pagato, riconducibile alla disposizione
+// per emolumenti in banca (ID flusso CBI), così lo studio fa il collegamento.
+// Le buste paga vengono da employee_cost_slips (mese prima e mese del
+// pagamento), i flussi dai movimenti classificati «stipendi». Logica in
+// src/lib/primaNotaStipendi.ts (testata).
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store } from 'lucide-react'
+import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale, Users } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
@@ -37,9 +52,17 @@ import {
 } from '../lib/primaNotaPagamenti'
 import {
   attribuisciIncasso, buildIncassoRow, summarizeByOutlet, outletLabel,
-  INCASSI_COLUMN_WIDTHS, SENZA_OUTLET,
+  ATTRIBUZIONE_LABELS, INCASSI_COLUMN_WIDTHS, SENZA_OUTLET,
   type IncassiLookups, type IncassoKind, type Attribuzione,
 } from '../lib/primaNotaIncassi'
+import {
+  quadraturaConti, quadraturaContante, saldiProgressivi, prevDay,
+  type PnTxSnapshot, type PnClosingLite, type QuadraturaConto, type QuadraturaContante,
+} from '../lib/primaNotaQuadratura'
+import {
+  abbinaStipendi, buildStipendioRow, nomeDipendente, competenzaLabel, competenzeCandidate, STIPENDI_COLUMN_WIDTHS,
+  type PnSlip, type PnFlusso,
+} from '../lib/primaNotaStipendi'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
 import TableScroll from '../components/ui/TableScroll'
@@ -54,6 +77,7 @@ type MovementRaw = {
   description: string | null
   reference: string | null
   category: string | null
+  note: string | null
   counterpart: string | null
   counterpart_name: string | null
   merchant_name: string | null
@@ -61,10 +85,26 @@ type MovementRaw = {
   bank_account_id: string | null
   bank_accounts?: BankAccount | null
   suppliers?: Supplier | null
+  /** raw_data.fetchedAt, raw_data.extra.accountBalanceSnapshot e raw_data.extra.postingDate (select con JSON path) */
+  fetched_at?: string | null
+  snapshot?: string | number | null
+  posting_date?: string | null
 }
 type Movement = MovementRaw & PnMovement
+/** Data su cui si ragiona: quella dell'operazione (A-Cube madeOn) o quella contabile della banca (postingDate, come sull'estratto conto). */
+type DateBasis = 'contabile' | 'operazione'
+type WinRow = { id: string; bank_account_id: string | null; transaction_date: string; posting_date: string | null; amount: number; fetched_at: string | null; snapshot: number | null }
+const addDays = (ymd: string, n: number): string => { const d = new Date(`${ymd}T00:00:00`); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+/** Nome foglio Excel valido (max 31 caratteri, senza : \ / ? * [ ]) e unico. */
+const sheetName = (name: string, used: Set<string>): string => {
+  const base = name.replace(/[:\\/?*\[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 28) || 'Conto'
+  let n = base; let i = 2
+  while (used.has(n)) { n = `${base.slice(0, 25)} ${i}`; i += 1 }
+  used.add(n)
+  return n
+}
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
-type View = 'banca' | 'pagamenti' | 'incassi'
+type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti'
 
 const MONTHS = [
   { v: 1, l: 'Gennaio' }, { v: 2, l: 'Febbraio' }, { v: 3, l: 'Marzo' }, { v: 4, l: 'Aprile' },
@@ -87,6 +127,8 @@ const KIND_BADGE: Record<MovementKind, string> = {
   finanziamento: 'bg-slate-200 text-slate-700',
   spese_banca: 'bg-slate-100 text-slate-600',
   giroconto: 'bg-slate-100 text-slate-600',
+  incasso_cliente: 'bg-emerald-100 text-emerald-700',
+  rimborso: 'bg-teal-100 text-teal-700',
   da_chiarire: 'bg-orange-100 text-orange-800',
 }
 
@@ -104,9 +146,11 @@ const INCASSO_BADGE: Record<IncassoKind, string> = {
   pos: 'bg-emerald-100 text-emerald-700',
   amex: 'bg-sky-100 text-sky-700',
   versamento: 'bg-amber-100 text-amber-800',
+  bonifico: 'bg-teal-100 text-teal-700',
   altro: 'bg-slate-100 text-slate-600',
 }
 const ATTRIBUZIONE_BADGE: Record<Attribuzione, string> = {
+  nota: 'bg-violet-100 text-violet-700',
   chiusura: 'bg-emerald-50 text-emerald-700',
   terminale: 'bg-slate-100 text-slate-600',
   parola_chiave: 'bg-slate-100 text-slate-600',
@@ -127,7 +171,8 @@ export default function PrimaNota() {
   const [month, setMonth] = useState<number | null>(today.getMonth() + 1)
   const [bankAccountId, setBankAccountId] = useState<string>('all')
   const [view, setView] = useState<View>('banca')
-  const [movements, setMovements] = useState<Movement[]>([])
+  const [rawMovements, setRawMovements] = useState<Movement[]>([])
+  const [dateBasis, setDateBasis] = useState<DateBasis>('contabile')
   const [pagamenti, setPagamenti] = useState<Pagamento[]>([])
   const [lookups, setLookups] = useState<PnLookups>({ bankAccounts: new Map(), bankTx: new Map(), categories: new Map(), outlets: new Map() })
   const [loadingPag, setLoadingPag] = useState(false)
@@ -137,12 +182,31 @@ export default function PrimaNota() {
   const [fonteFilter, setFonteFilter] = useState<PagamentoFonte[] | null>(null)
   // Incassi per outlet: dizionari (canali, outlet, abbinamenti chiusure) e filtro a clic per outlet
   const [incassiLk, setIncassiLk] = useState<IncassiLookups>({ channels: [], outlets: new Map(), closingMatches: new Map(), bankAccounts: new Map() })
+  // Quadratura: movimenti di una finestra larga intorno al periodo (per i saldi della banca) e chiusure di cassa del periodo
+  const [winRaw, setWinRaw] = useState<WinRow[]>([])
+  const [closings, setClosings] = useState<PnClosingLite[]>([])
+  // Dipendenti: buste paga dei mesi candidati (mese prima e mese del pagamento)
+  const [slips, setSlips] = useState<PnSlip[]>([])
   const [outletFilter, setOutletFilter] = useState<string | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const companyId = company?.id
+  const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
+  // Ultimo giorno del mese in LOCALE (lastDayOfMonthYMD): `.toISOString()` lo spostava a UTC.
+  const dateEnd = month ? lastDayOfMonthYMD(year, month) : `${year}-12-31`
+  const basisDate = useCallback((m: { transaction_date: string; posting_date?: string | null }) =>
+    (dateBasis === 'contabile' && m.posting_date ? m.posting_date : m.transaction_date), [dateBasis])
+  // I movimenti del periodo secondo la data scelta: si scarica una finestra di
+  // ±15 giorni per data operazione e si filtra qui, così cambiare base non
+  // richiede un nuovo scarico. Ordine: conto, data, id (stabile).
+  const movements = useMemo<Movement[]>(
+    () => rawMovements
+      .filter(m => { const d = basisDate(m); return d >= dateStart && d <= dateEnd })
+      .sort((a, b) => (a.bank_accounts?.bank_name ?? '').localeCompare(b.bank_accounts?.bank_name ?? '', 'it') || basisDate(a).localeCompare(basisDate(b)) || a.id.localeCompare(b.id)),
+    [rawMovements, basisDate, dateStart, dateEnd],
+  )
 
   const loadBankAccounts = useCallback(async () => {
     if (!companyId) return
@@ -158,12 +222,11 @@ export default function PrimaNota() {
     if (!companyId) return
     setLoading(true); setError(null)
     try {
-      const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
-      // Ultimo giorno del mese in LOCALE: prima `.toISOString()` lo spostava a UTC,
-      // escludendo l'ultimo giorno del mese dai movimenti (bug fuso orario).
-      const dateEnd = month
-        ? lastDayOfMonthYMD(year, month)
-        : `${year}-12-31`
+      // Finestra di ±15 giorni per data operazione: la data contabile della banca
+      // può cadere qualche giorno dopo (fino a 7 visti finora), il filtro per
+      // data scelta è lato client.
+      const winStart = addDays(dateStart, -15)
+      const winEnd = addDays(dateEnd, 15)
 
       // Paginato: prima un `.limit(5000)` troncava SILENZIOSAMENTE l'estratto (su piu'
       // conti "Tutto l'anno" e' realistico superare 5.000 movimenti): KPI ed export
@@ -175,14 +238,15 @@ export default function PrimaNota() {
           let q = supabase
             .from('bank_transactions')
             .select(`
-              id, transaction_date, amount, currency, description, reference, category,
+              id, transaction_date, amount, currency, description, reference, category, note,
               counterpart, counterpart_name, merchant_name, supplier_id, bank_account_id,
+              fetched_at:raw_data->>fetchedAt, snapshot:raw_data->extra->>accountBalanceSnapshot, posting_date:raw_data->extra->>postingDate,
               bank_accounts!inner(id, bank_name, account_name, iban),
               suppliers(id, ragione_sociale, name, partita_iva)
             `)
             .eq('company_id', companyId)
-            .gte('transaction_date', dateStart)
-            .lte('transaction_date', dateEnd)
+            .gte('transaction_date', winStart)
+            .lte('transaction_date', winEnd)
             .order('transaction_date', { ascending: true })
             .order('id', { ascending: true })
           if (bankAccountId !== 'all') q = q.eq('bank_account_id', bankAccountId)
@@ -194,27 +258,47 @@ export default function PrimaNota() {
       // Fatture e scadenze fiscali agganciate al movimento (FK bank_transaction_id,
       // che PostgREST non risolve in embed): fetch separato e join lato client.
       // TUTTE le fatture per movimento: una RiBa o una distinta CBI ne salda decine.
+      // Più gli agganci del registro di riconciliazione (reconciliation_log,
+      // stato applied): un acconto agganciato «solo aggancio» (Wolf 07/08, fattura
+      // 218) non porta il bank_transaction_id sulla fattura, ma è un pagamento
+      // fornitore a tutti gli effetti e deve uscire come tale.
       const btIds = baseMovs.map(m => m.id).filter(Boolean)
       const payMap = new Map<string, PnPayable[]>()
       const fdMap = new Map<string, PnFiscalDeadline[]>()
       if (btIds.length > 0) {
         const chunks = chunk(btIds)
-        const [payResults, fdResults] = await Promise.all([
+        const [payResults, fdResults, logResults] = await Promise.all([
           Promise.all(chunks.map(ids => supabase
             .from('payables')
-            .select('bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount')
+            .select('id, bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount')
             .in('bank_transaction_id', ids)
             .order('invoice_number', { ascending: true }))),
           Promise.all(chunks.map(ids => supabase
             .from('fiscal_deadlines')
             .select('bank_transaction_id, title, f24_code, tax_period, deadline_type')
             .in('bank_transaction_id', ids))),
+          Promise.all(chunks.map(ids => supabase
+            .from('reconciliation_log')
+            .select('bank_transaction_id, payable_id, status, payables(id, invoice_number, supplier_name, supplier_vat, gross_amount)')
+            .in('bank_transaction_id', ids)
+            .eq('status', 'applied'))),
         ])
+        const seen = new Set<string>()
         for (const p of payResults.flatMap(r => r.data ?? [])) {
           if (!p.bank_transaction_id) continue
+          seen.add(`${p.bank_transaction_id}:${p.id}`)
           const list = payMap.get(p.bank_transaction_id) ?? []
           list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount })
           payMap.set(p.bank_transaction_id, list)
+        }
+        type LogRow = { bank_transaction_id: string | null; payable_id: string | null; payables: { id: string; invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null; gross_amount: number | null } | null }
+        for (const l of logResults.flatMap(r => (r.data ?? []) as unknown as LogRow[])) {
+          const p = l.payables
+          if (!l.bank_transaction_id || !p || seen.has(`${l.bank_transaction_id}:${p.id}`)) continue
+          seen.add(`${l.bank_transaction_id}:${p.id}`)
+          const list = payMap.get(l.bank_transaction_id) ?? []
+          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount })
+          payMap.set(l.bank_transaction_id, list)
         }
         for (const f of fdResults.flatMap(r => r.data ?? [])) {
           if (!f.bank_transaction_id) continue
@@ -223,7 +307,7 @@ export default function PrimaNota() {
           fdMap.set(f.bank_transaction_id, list)
         }
       }
-      setMovements(baseMovs.map(m => ({
+      setRawMovements(baseMovs.map(m => ({
         ...m,
         supplier: m.suppliers ? { name: m.suppliers.ragione_sociale ?? m.suppliers.name, partita_iva: m.suppliers.partita_iva } : null,
         payables: payMap.get(m.id) ?? [],
@@ -239,7 +323,7 @@ export default function PrimaNota() {
     } finally {
       setLoading(false)
     }
-  }, [companyId, year, month, bankAccountId])
+  }, [companyId, dateStart, dateEnd, bankAccountId])
 
   // Fatture pagate nel periodo (passo B): payables per payment_date, con i
   // dizionari per conto, movimento riscontrato, categoria e outlet. Il filtro
@@ -328,7 +412,93 @@ export default function PrimaNota() {
     }
   }, [companyId])
 
+  // Dati per la quadratura: i movimenti di una finestra larga (45 giorni prima,
+  // 15 dopo) con solo data, importo, scarico e saldo allo scarico, per ricavare
+  // i saldi della banca ai confini del periodo; le chiusure di cassa del
+  // periodo, con la somma delle righe «Contanti», per il lato cassa.
+  const loadQuadraturaData = useCallback(async () => {
+    if (!companyId) return
+    try {
+      let winQ = supabase
+        .from('bank_transactions')
+        .select('id, bank_account_id, transaction_date, amount, fetched_at:raw_data->>fetchedAt, snapshot:raw_data->extra->>accountBalanceSnapshot, posting_date:raw_data->extra->>postingDate')
+        .eq('company_id', companyId)
+        .gte('transaction_date', addDays(dateStart, -45))
+        .lte('transaction_date', addDays(dateEnd, 15))
+      if (bankAccountId !== 'all') winQ = winQ.eq('bank_account_id', bankAccountId)
+      const [preRes, clRes] = await Promise.all([
+        winQ.limit(10000),
+        supabase
+          .from('outlet_daily_closings')
+          .select('id, outlet_id, closing_date, status, cash_deposit, deposit_bank_amount, deposit_bank_status, cash_expenses, customer_refunds, cash_float_opening, cash_pending_opening, cash_float_declared, cash_pending_declared')
+          .eq('company_id', companyId)
+          .gte('closing_date', dateStart)
+          .lte('closing_date', dateEnd)
+          .neq('status', 'bozza')
+          .limit(5000),
+      ])
+      type PreRow = { id: string; bank_account_id: string | null; transaction_date: string; posting_date: string | null; amount: number; fetched_at: string | null; snapshot: string | number | null }
+      setWinRaw(((preRes.data ?? []) as unknown as PreRow[]).map(r => ({
+        id: r.id, bank_account_id: r.bank_account_id, transaction_date: r.transaction_date, posting_date: r.posting_date || null, amount: Number(r.amount),
+        fetched_at: r.fetched_at, snapshot: r.snapshot == null || r.snapshot === '' ? null : Number(r.snapshot),
+      })))
+      const cls = clRes.data ?? []
+      const cashByClosing = new Map<string, number>()
+      if (cls.length > 0) {
+        const lineResults = await Promise.all(chunk(cls.map(c => c.id)).map(ids => supabase
+          .from('outlet_daily_closing_lines')
+          .select('closing_id, amount, outlet_payment_channels!inner(kind)')
+          .in('closing_id', ids)
+          .eq('outlet_payment_channels.kind', 'contanti')))
+        for (const l of lineResults.flatMap(r => (r.data ?? []) as unknown as Array<{ closing_id: string; amount: number }>)) {
+          cashByClosing.set(l.closing_id, (cashByClosing.get(l.closing_id) ?? 0) + Number(l.amount))
+        }
+      }
+      setClosings(cls.map(c => ({
+        outlet_id: c.outlet_id, closing_date: c.closing_date, status: c.status,
+        cash_deposit: c.cash_deposit, deposit_bank_amount: c.deposit_bank_amount, deposit_bank_status: c.deposit_bank_status,
+        cash_expenses: c.cash_expenses, customer_refunds: c.customer_refunds,
+        cash_float_opening: c.cash_float_opening, cash_pending_opening: c.cash_pending_opening,
+        cash_float_declared: c.cash_float_declared, cash_pending_declared: c.cash_pending_declared,
+        contanti: cashByClosing.get(c.id) ?? 0,
+      })))
+    } catch (e) {
+      console.error('[PrimaNota] quadratura:', e)
+      setWinRaw([]); setClosings([])
+    }
+  }, [companyId, dateStart, dateEnd, bankAccountId])
+
+  // Buste paga dei mesi che un pagamento del periodo può saldare: per ogni
+  // mese del periodo, il mese stesso e quello prima (a gennaio, dicembre
+  // dell'anno prima). Nome e cognome dall'anagrafica dipendenti.
+  const loadSlips = useCallback(async () => {
+    if (!companyId) return
+    try {
+      const months = month ? [month] : Array.from({ length: 12 }, (_, i) => i + 1)
+      const pairs = new Map<string, { year: number; month: number }>()
+      for (const mm of months) for (const c of competenzeCandidate(`${year}-${String(mm).padStart(2, '0')}-01`)) pairs.set(`${c.year}-${c.month}`, c)
+      const orExpr = [...pairs.values()].map(c => `and(year.eq.${c.year},month.eq.${c.month})`).join(',')
+      const { data, error: err } = await supabase
+        .from('employee_cost_slips')
+        .select('id, employee_id, year, month, tipo, netto, outlet_code, employees(cognome, nome, last_name, first_name)')
+        .eq('company_id', companyId)
+        .or(orExpr)
+        .limit(5000)
+      if (err) throw err
+      type SlipRow = { id: string; employee_id: string | null; year: number; month: number; tipo: string | null; netto: number | null; outlet_code: string | null; employees: { cognome: string | null; nome: string | null; last_name: string | null; first_name: string | null } | null }
+      setSlips(((data ?? []) as unknown as SlipRow[]).map(r => ({
+        id: r.id, employee_id: r.employee_id, year: r.year, month: r.month, tipo: r.tipo, netto: r.netto == null ? null : Number(r.netto), outlet_code: r.outlet_code,
+        cognome: r.employees?.cognome || r.employees?.last_name || null, nome: r.employees?.nome || r.employees?.first_name || null,
+      })))
+    } catch (e) {
+      console.error('[PrimaNota] buste paga:', e)
+      setSlips([])
+    }
+  }, [companyId, year, month])
+
   useEffect(() => { loadBankAccounts() }, [loadBankAccounts])
+  useEffect(() => { loadQuadraturaData() }, [loadQuadraturaData])
+  useEffect(() => { loadSlips() }, [loadSlips])
   useEffect(() => { loadMovements() }, [loadMovements])
   useEffect(() => { loadPagamenti() }, [loadPagamenti])
   useEffect(() => { loadIncassiLookups(movements.filter(m => m.amount > 0).map(m => m.id)) }, [movements, loadIncassiLookups])
@@ -369,6 +539,18 @@ export default function PrimaNota() {
     [movements, incassiLk],
   )
   const incassiRows = useMemo(() => incassi.map(({ m, a }) => buildIncassoRow(m, a, incassiLk, fmtDate)), [incassi, incassiLk])
+  // Contropartita per la Prima Nota: per POS, Amex e versamenti è l'outlet di
+  // riferimento (con il canale), non il testo della banca; per il resto quella
+  // del movimento (fornitore, F24, beneficiario in causale).
+  const contropartitaOf = useMemo(() => {
+    const byId = new Map<string, string>()
+    for (const { m, a } of incassi) {
+      if (!a.outlet_id) continue
+      const label = outletLabel(a.outlet_id, incassiLk)
+      if (label) byId.set(m.id, a.channel?.label ? `${label}, ${a.channel.label}` : label)
+    }
+    return (m: Movement): string => byId.get(m.id) ?? counterpartOf(m)
+  }, [incassi, incassiLk])
   const byOutlet = useMemo(() => summarizeByOutlet(incassi, incassiLk), [incassi, incassiLk])
   const incassiTot = useMemo(() => {
     const sum = (k: IncassoKind | null) => Math.round(incassi.filter(x => k === null || x.a.kind === k).reduce((s, x) => s + x.m.amount, 0) * 100) / 100
@@ -379,6 +561,17 @@ export default function PrimaNota() {
     [incassi, outletFilter],
   )
   const incassiRowsShown = useMemo(() => incassiShown.map(({ m, a }) => buildIncassoRow(m, a, incassiLk, fmtDate)), [incassiShown, incassiLk])
+
+  // Dipendenti ed emolumenti: le disposizioni «stipendi» del periodo abbinate
+  // alle buste paga, una riga per dipendente con il collegamento al flusso.
+  const stipendiFlussi = useMemo<PnFlusso[]>(
+    () => movements.filter(m => classifyMovement(m) === 'stipendi').map(m => ({ id: m.id, transaction_date: basisDate(m), amount: Number(m.amount), description: m.description, bank_account_id: m.bank_account_id })),
+    [movements, basisDate],
+  )
+  const stipendi = useMemo(() => abbinaStipendi(stipendiFlussi, slips), [stipendiFlussi, slips])
+  const bankNameOf = useCallback((id: string | null) => (id ? bankAccounts.find(b => b.id === id)?.bank_name ?? '—' : ''), [bankAccounts])
+  const stipendiRows = useMemo(() => stipendi.rows.map(r => buildStipendioRow(r, bankNameOf, fmtDate)), [stipendi, bankNameOf])
+  const movementById = useMemo(() => new Map(movements.map(m => [m.id, m])), [movements])
   const toggleOutlet = (id: string) => setOutletFilter(cur => (cur === id ? null : id))
   // Cambiando periodo, conto o vista il filtro a clic si azzera
   useEffect(() => { setKindFilter(null); setFonteFilter(null); setOutletFilter(null) }, [year, month, bankAccountId, view])
@@ -392,11 +585,38 @@ export default function PrimaNota() {
 
   const byKind = useMemo(() => summarizeByKind(movements), [movements])
 
+  // Quadratura con l'estratto conto, per conto, e del contante
+  const quadratura = useMemo<QuadraturaConto[]>(() => {
+    const rows: PnTxSnapshot[] = winRaw.map(r => ({ id: r.id, bank_account_id: r.bank_account_id, date: basisDate(r), amount: r.amount, fetched_at: r.fetched_at, snapshot: r.snapshot }))
+    return quadraturaConti(rows, dateStart, dateEnd)
+      .sort((a, b) => (bankAccounts.find(x => x.id === a.bank_account_id)?.bank_name ?? '').localeCompare(bankAccounts.find(x => x.id === b.bank_account_id)?.bank_name ?? '', 'it'))
+  }, [winRaw, basisDate, dateStart, dateEnd, bankAccounts])
+  // Saldo progressivo dopo ogni movimento, per conto, dal saldo iniziale alla data (null se la banca non l'ha fornito)
+  const saldoById = useMemo(() => {
+    const map = new Map<string, number | null>()
+    for (const q of quadratura) {
+      const saldi = saldiProgressivi(q.movimenti, q.saldo_iniziale)
+      q.movimenti.forEach((m, i) => map.set(m.id, saldi[i]))
+    }
+    return map
+  }, [quadratura])
+  const quadContante = useMemo<QuadraturaContante>(
+    () => quadraturaContante(movements.map(m => ({ amount: Number(m.amount), description: m.description, isVersamento: classifyMovement(m) === 'versamento' })), closings),
+    [movements, closings],
+  )
+  const accountName = (id: string) => bankAccounts.find(b => b.id === id)?.bank_name ?? '—'
+  const fmtDateTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
+  // Confini del periodo per data operazione: il saldo iniziale è al giorno prima, quello finale all'ultimo giorno
+  const quadPeriodo = useMemo(() => ({ giornoPrima: fmtDate(prevDay(dateStart)), ultimoGiorno: fmtDate(dateEnd) }), [dateStart, dateEnd])
+  const sumRows = (rows: PnTxSnapshot[]) => rows.reduce((s, r) => s + r.amount, 0)
+  const rettificaLabel = (r: { piu: PnTxSnapshot[]; meno: PnTxSnapshot[] }) =>
+    [r.piu.length ? `+ ${r.piu.length} mov. arrivati dopo lo scarico (${fmt(sumRows(r.piu))})` : '', r.meno.length ? `− ${r.meno.length} mov. già nello scarico ma datati dopo (${fmt(sumRows(r.meno))})` : ''].filter(Boolean).join('; ')
+
   // Righe formato Prima Nota standardizzato (una per movimento, fatture in causale)
-  const rows = useMemo(() => movements.map(m => buildRow(m, fmtDate)), [movements])
+  const rows = useMemo(() => movements.map(m => ({ ...buildRow(m, fmtDate, contropartitaOf(m)), 'Saldo progressivo': saldoById.get(m.id) ?? '' })), [movements, saldoById, contropartitaOf])
 
   const exportCsv = () => {
-    const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : incassiRows
+    const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : stipendiRows
     if (src.length === 0) return
     const headers = Object.keys(src[0])
     const csvRows = [
@@ -411,7 +631,7 @@ export default function PrimaNota() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${view === 'banca' ? 'prima_nota' : view === 'pagamenti' ? 'pagamenti_fornitori' : 'incassi_outlet'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
+    a.download = `${view === 'banca' ? 'prima_nota' : view === 'pagamenti' ? 'pagamenti_fornitori' : view === 'incassi' ? 'incassi_outlet' : 'dipendenti_emolumenti'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -420,10 +640,39 @@ export default function PrimaNota() {
     if (rows.length === 0) return
     // xlsx caricata on-demand: ~140KB gzip che non devono pesare sull'apertura pagina
     const XLSX = await import('xlsx')
-    const ws = XLSX.utils.json_to_sheet(rows)
-    ws['!cols'] = PN_COLUMN_WIDTHS.map(wch => ({ wch }))
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Prima Nota')
+    const periodoLabel = month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`
+    // Un foglio per conto, come un estratto conto: saldo iniziale, movimenti con
+    // saldo progressivo, saldo finale calcolato e della banca, differenza.
+    const used = new Set<string>(['Tutti i movimenti', 'Pagamenti fornitori', 'Incassi per outlet', 'Dipendenti ed emolumenti', 'Riepilogo'])
+    for (const q of quadratura) {
+      const acc = bankAccounts.find(b => b.id === q.bank_account_id)
+      const ms = movements.filter(m => m.bank_account_id === q.bank_account_id)
+      if (ms.length === 0 && q.saldo_iniziale == null) continue
+      const aoa: Array<Array<string | number>> = [
+        ['Estratto conto', acc?.bank_name ?? '—'],
+        ['IBAN', acc?.iban ?? ''],
+        ['Periodo', `${periodoLabel} (dal ${fmtDate(dateStart)} al ${fmtDate(dateEnd)}, per ${dateBasis === 'contabile' ? 'data contabile' : 'data operazione'})`],
+        [],
+        ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo'],
+        [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''],
+        ...ms.map(m => {
+          const r = buildRow(m, fmtDate, contropartitaOf(m))
+          return [r['Data operazione'], r['Data contabile'], r['Tipo movimento'], r.Contropartita, r['P.IVA Contropartita'], r['N. fatture'], r.Causale, r.Categoria,
+            m.amount > 0 ? Math.round(m.amount * 100) / 100 : '', m.amount < 0 ? Math.round(-m.amount * 100) / 100 : '', saldoById.get(m.id) ?? ''] as Array<string | number>
+        }),
+        [`Saldo finale al ${quadPeriodo.ultimoGiorno} (calcolato)`, `${ms.length} movimenti`, '', '', '', '', '', '', q.entrate, q.uscite, q.saldo_finale_calcolato ?? ''],
+        [`Saldo finale al ${quadPeriodo.ultimoGiorno} (banca)`, q.saldo_scarico_finale != null ? `banca al ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${rettificaLabel(q.rettifica_finale) ? ' ' + rettificaLabel(q.rettifica_finale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_finale ?? ''],
+        ['Differenza', q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili', '', '', '', '', '', '', '', '', q.differenza ?? ''],
+      ]
+      const wsAcc = XLSX.utils.aoa_to_sheet(aoa)
+      wsAcc['!cols'] = [30, 14, 22, 35, 16, 8, 60, 18, 14, 14, 14].map(wch => ({ wch }))
+      XLSX.utils.book_append_sheet(wb, wsAcc, sheetName(acc?.bank_name ?? 'Conto', used))
+    }
+    // Tutti i movimenti in un foglio piatto (per filtri e pivot), con IBAN in chiaro e saldo progressivo
+    const ws = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ Nota: 'Nessun movimento nel periodo' }])
+    ws['!cols'] = [...PN_COLUMN_WIDTHS, 14].map(wch => ({ wch }))
+    XLSX.utils.book_append_sheet(wb, ws, 'Tutti i movimenti')
     // Foglio Pagamenti fornitori: una riga per fattura pagata nel periodo
     const wsPag = XLSX.utils.json_to_sheet(pagRows.length > 0 ? pagRows : [{ Nota: 'Nessuna fattura pagata nel periodo' }])
     wsPag['!cols'] = PAGAMENTI_COLUMN_WIDTHS.map(wch => ({ wch }))
@@ -432,9 +681,23 @@ export default function PrimaNota() {
     const wsInc = XLSX.utils.json_to_sheet(incassiRows.length > 0 ? incassiRows : [{ Nota: 'Nessun incasso nel periodo' }])
     wsInc['!cols'] = INCASSI_COLUMN_WIDTHS.map(wch => ({ wch }))
     XLSX.utils.book_append_sheet(wb, wsInc, 'Incassi per outlet')
+    // Foglio Dipendenti ed emolumenti: una riga per busta paga con il netto e la disposizione che l'ha pagata; in coda i flussi senza buste
+    const wsDip = XLSX.utils.json_to_sheet(stipendiRows.length > 0 ? stipendiRows : [{ Nota: 'Nessuna busta paga né disposizione per emolumenti nel periodo' }])
+    wsDip['!cols'] = STIPENDI_COLUMN_WIDTHS.map(wch => ({ wch }))
+    if (stipendi.flussi_non_abbinati.length > 0) {
+      XLSX.utils.sheet_add_aoa(wsDip, [
+        [],
+        ['Disposizioni senza buste paga che le spieghino', 'Pagato il', 'Conto Banca', 'ID flusso', 'Pagamenti nel flusso', 'Importo flusso', 'Commissioni flusso', 'Causale'],
+        ...stipendi.flussi_non_abbinati.map(x => [
+          '', fmtDate(x.flusso.transaction_date), bankNameOf(x.flusso.bank_account_id), x.info.id_flusso ?? '', x.info.n_pagamenti ?? '',
+          x.info.importo_bonifici ?? Math.round(-x.flusso.amount * 100) / 100, x.info.commissioni ?? '', x.flusso.description ?? '',
+        ]),
+      ], { origin: -1 })
+    }
+    XLSX.utils.book_append_sheet(wb, wsDip, 'Dipendenti ed emolumenti')
     // Sheet riepilogo: totali del periodo + righe e importi per tipo di movimento
     const summaryData: Array<Array<string | number>> = [
-      ['Periodo', month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`],
+      ['Periodo', `${periodoLabel} (per ${dateBasis === 'contabile' ? 'data contabile' : 'data operazione'})`],
       ['Conto', bankAccountId === 'all' ? 'Tutti i conti' : bankAccounts.find(b => b.id === bankAccountId)?.bank_name ?? '—'],
       ['Movimenti', totals.count],
       ['Totale Dare (entrate)', totals.dare],
@@ -452,9 +715,42 @@ export default function PrimaNota() {
       ['Incassi per outlet', 'Movimenti', 'POS', 'Amex', 'Versamenti contanti', 'Altri incassi', 'Totale'],
       ...byOutlet.map(o => [o.label, o.n, o.pos, o.amex, o.versamenti, o.altro, o.totale]),
       ['Totale incassi', incassi.length, incassiTot.pos, incassiTot.amex, incassiTot.versamenti, incassiTot.altro, incassiTot.totale],
+      [],
+      ['Dipendenti ed emolumenti', 'N.', 'Importo'],
+      ['Disposizioni per emolumenti nel periodo', stipendi.n_flussi, stipendi.totale_bonifici],
+      ['Commissioni sulle disposizioni', '', stipendi.totale_commissioni],
+      ['Buste paga abbinate a una disposizione', stipendi.n_buste_abbinate, stipendi.totale_netti_abbinati],
+      ['Buste paga del mese prima senza pagamento nel periodo', stipendi.n_buste_non_abbinate, ''],
+      ['Disposizioni senza buste che le spieghino', stipendi.flussi_non_abbinati.length, Math.round(stipendi.flussi_non_abbinati.reduce((s, x) => s + (x.info.importo_bonifici ?? -x.flusso.amount), 0) * 100) / 100],
+      [],
+      ['Quadratura con l\'estratto conto', `Saldo al ${quadPeriodo.giornoPrima}`, 'di cui letto dalla banca il', 'Entrate', 'Uscite', `Saldo al ${quadPeriodo.ultimoGiorno} calcolato`, `Saldo al ${quadPeriodo.ultimoGiorno} (banca)`, 'di cui letto dalla banca il', 'Differenza', 'Esito'],
+      ...quadratura.map(q => [
+        accountName(q.bank_account_id), q.saldo_iniziale ?? '',
+        q.saldo_scarico_iniziale != null ? `${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)} ${rettificaLabel(q.rettifica_iniziale)}`.trim() : 'n.d.',
+        q.entrate, q.uscite, q.saldo_finale_calcolato ?? '', q.saldo_finale ?? '',
+        q.saldo_scarico_finale != null ? `${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)} ${rettificaLabel(q.rettifica_finale)}`.trim() : 'n.d.',
+        q.differenza ?? '',
+        q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili',
+      ]),
+      [],
+      ['Contante', 'Importo', 'N.'],
+      ['Versamenti di contante in banca', quadContante.versamenti_banca, quadContante.n_versamenti_banca],
+      ['Prelievi di contante dalla banca', quadContante.prelievi_banca, quadContante.n_prelievi_banca],
+      ...(quadContante.cassa ? [
+        ['Chiusure di cassa nel periodo', quadContante.cassa.n_chiusure, quadContante.cassa.outlets],
+        ['Fondo cassa e da versare a inizio periodo', quadContante.cassa.fondo_iniziale ?? 'non noto', ''],
+        ['Contanti incassati nei negozi', quadContante.cassa.contanti_incassati, ''],
+        ['Spese di cassa', quadContante.cassa.spese, ''],
+        ['Rimborsi in contanti', quadContante.cassa.rimborsi, ''],
+        ['Versamenti dichiarati nelle chiusure', quadContante.cassa.versamenti_dichiarati, quadContante.cassa.n_versamenti_dichiarati],
+        ['di cui ritrovati in banca', quadContante.cassa.versamenti_trovati_in_banca, quadContante.cassa.n_versamenti_trovati],
+        ['Fondo cassa e da versare a fine periodo (contato)', quadContante.cassa.fondo_finale ?? 'non noto', ''],
+        ['Fondo cassa e da versare a fine periodo (calcolato)', quadContante.cassa.fondo_finale_calcolato ?? 'non noto', ''],
+        ['Differenza cassa', quadContante.cassa.differenza ?? '', ''],
+      ] : [['Chiusure di cassa nel periodo', 'nessuna: il contante si legge solo dal lato banca', '']]),
     ]
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
-    wsSummary['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 14 }]
+    wsSummary['!cols'] = [{ wch: 34 }, { wch: 25 }, { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 22 }]
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Riepilogo')
     XLSX.writeFile(wb, `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.xlsx`)
   }
@@ -505,12 +801,20 @@ export default function PrimaNota() {
             ))}
           </select>
         </label>
+        <label className="block">
+          <span className="text-xs text-slate-600">Periodo per</span>
+          <select value={dateBasis} onChange={e => setDateBasis(e.target.value as DateBasis)} title="Data contabile: quella stampata dalla banca sull'estratto conto. Data operazione: quella in cui è avvenuto il movimento."
+            className="mt-1 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
+            <option value="contabile">Data contabile (banca)</option>
+            <option value="operazione">Data operazione</option>
+          </select>
+        </label>
         <button onClick={loadMovements} disabled={loading} title="Aggiorna"
           className="px-3 py-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100">
           {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
         </button>
         <div className="flex-1" />
-        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : view === 'pagamenti' ? pagRows : incassiRows).length === 0}
+        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : stipendiRows).length === 0}
           className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg text-sm font-medium">
           <Download size={14} /> CSV
         </button>
@@ -533,6 +837,10 @@ export default function PrimaNota() {
         <button role="tab" aria-selected={view === 'incassi'} onClick={() => setView('incassi')}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'incassi' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
           <Store size={14} /> Incassi per outlet <span className="text-xs opacity-70">{incassi.length}</span>
+        </button>
+        <button role="tab" aria-selected={view === 'dipendenti'} onClick={() => setView('dipendenti')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'dipendenti' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+          <Users size={14} /> Dipendenti <span className="text-xs opacity-70">{stipendi.rows.length}</span>
         </button>
       </div>
 
@@ -571,6 +879,88 @@ export default function PrimaNota() {
             {' '}Gli export restano completi.
           </span>
           <button type="button" onClick={() => setKindFilter(null)} className="shrink-0 px-2 py-1 rounded bg-white border border-orange-200 hover:bg-orange-100 text-xs font-medium">Togli filtro</button>
+        </div>
+      )}
+
+      {/* Quadratura con l'estratto conto: saldo iniziale banca + movimenti nostri = saldo finale banca.
+          I saldi vengono dallo scarico A-Cube, non dai movimenti: se quadra, l'export è completo. */}
+      {!loading && movements.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 mb-4 overflow-hidden">
+          <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <Scale size={14} /> Quadratura con l'estratto conto
+            {quadratura.every(q => q.stato === 'quadra') && <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">tutti i conti quadrano</span>}
+            {quadratura.some(q => q.stato === 'non_quadra') && <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded bg-red-100 text-red-700">c'è una differenza</span>}
+          </div>
+          <TableScroll>
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 uppercase text-slate-600">
+                <tr>
+                  <th className="px-3 py-2 text-left">Conto</th>
+                  <th className="px-3 py-2 text-right">Saldo al {quadPeriodo.giornoPrima}</th>
+                  <th className="px-3 py-2 text-right">Entrate</th>
+                  <th className="px-3 py-2 text-right">Uscite</th>
+                  <th className="px-3 py-2 text-right">Saldo al {quadPeriodo.ultimoGiorno} calcolato</th>
+                  <th className="px-3 py-2 text-right">Saldo al {quadPeriodo.ultimoGiorno} (banca)</th>
+                  <th className="px-3 py-2 text-right">Differenza</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quadratura.map(q => (
+                  <tr key={q.bank_account_id} className="border-t border-slate-100">
+                    <td className="px-3 py-1.5 text-slate-800">
+                      {accountName(q.bank_account_id)}
+                      <span className="block text-slate-400">{q.n_movimenti} movimenti</span>
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {q.saldo_iniziale != null ? fmt(q.saldo_iniziale) : <span className="text-slate-400">n.d.</span>}
+                      {q.saldo_scarico_iniziale != null && (
+                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}. ${rettificaLabel(q.rettifica_iniziale) || 'Nessuna rettifica.'}`}>
+                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_iniziale)}{(q.rettifica_iniziale.piu.length + q.rettifica_iniziale.meno.length) > 0 && ` · ${q.rettifica_iniziale.piu.length + q.rettifica_iniziale.meno.length} rettifiche`}</span>
+                        </Tooltip>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">+{fmt(q.entrate)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-red-700">−{fmt(q.uscite)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {q.saldo_finale_calcolato != null ? fmt(q.saldo_finale_calcolato) : <span className="text-slate-400">n.d.</span>}
+                      <span className="block text-slate-400">saldo iniziale + movimenti</span>
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {q.saldo_finale != null ? fmt(q.saldo_finale) : <span className="text-slate-400">n.d.</span>}
+                      {q.saldo_scarico_finale != null && (
+                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}. ${rettificaLabel(q.rettifica_finale) || 'Nessuna rettifica.'}`}>
+                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_finale)}{(q.rettifica_finale.piu.length + q.rettifica_finale.meno.length) > 0 && ` · ${q.rettifica_finale.piu.length + q.rettifica_finale.meno.length} rettifiche`}</span>
+                        </Tooltip>
+                      )}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      {q.stato === 'quadra' && <span className="inline-block px-2 py-0.5 rounded font-medium bg-emerald-100 text-emerald-700">0,00 · quadra</span>}
+                      {q.stato === 'non_quadra' && <span className="inline-block px-2 py-0.5 rounded font-medium bg-red-100 text-red-700">{fmt(q.differenza ?? 0)}</span>}
+                      {q.stato === 'senza_saldi' && <Tooltip content="La banca non ha fornito il saldo allo scarico per questo periodo (movimenti importati prima di marzo 2026 o senza dati A-Cube)"><span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help">saldi n.d.</span></Tooltip>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
+          {/* Contante: la banca vede solo versamenti e prelievi; il resto sta nelle chiusure di cassa */}
+          <div className="px-3 py-2 border-t border-slate-100 text-xs text-slate-600 flex flex-wrap gap-x-5 gap-y-1">
+            <span className="font-semibold text-slate-800">Contante</span>
+            <span>Versamenti in banca <strong className="tabular-nums text-emerald-700">{fmt(quadContante.versamenti_banca)}</strong> ({quadContante.n_versamenti_banca})</span>
+            <span>Prelievi dalla banca <strong className="tabular-nums text-red-700">{fmt(quadContante.prelievi_banca)}</strong> ({quadContante.n_prelievi_banca})</span>
+            {quadContante.cassa ? (<>
+              <span>Chiusure di cassa <strong>{quadContante.cassa.n_chiusure}</strong> su {quadContante.cassa.outlets} outlet ({fmtDate(quadContante.cassa.dal)} → {fmtDate(quadContante.cassa.al)})</span>
+              <span>Contanti incassati <strong className="tabular-nums">{fmt(quadContante.cassa.contanti_incassati)}</strong></span>
+              <span>Spese di cassa <strong className="tabular-nums">{fmt(quadContante.cassa.spese)}</strong>{quadContante.cassa.rimborsi > 0 && <> · rimborsi <strong className="tabular-nums">{fmt(quadContante.cassa.rimborsi)}</strong></>}</span>
+              <span>Versamenti dichiarati <strong className="tabular-nums">{fmt(quadContante.cassa.versamenti_dichiarati)}</strong> ({quadContante.cassa.n_versamenti_dichiarati}), ritrovati in banca <strong className="tabular-nums">{fmt(quadContante.cassa.versamenti_trovati_in_banca)}</strong> ({quadContante.cassa.n_versamenti_trovati})</span>
+              <span>Fondo + da versare: inizio <strong className="tabular-nums">{quadContante.cassa.fondo_iniziale != null ? fmt(quadContante.cassa.fondo_iniziale) : 'n.d.'}</strong>, fine contato <strong className="tabular-nums">{quadContante.cassa.fondo_finale != null ? fmt(quadContante.cassa.fondo_finale) : 'n.d.'}</strong>, fine calcolato <strong className="tabular-nums">{quadContante.cassa.fondo_finale_calcolato != null ? fmt(quadContante.cassa.fondo_finale_calcolato) : 'n.d.'}</strong>
+                {quadContante.cassa.differenza != null && <> · differenza <strong className={`tabular-nums ${Math.abs(quadContante.cassa.differenza) < 0.005 ? 'text-emerald-700' : 'text-red-700'}`}>{fmt(quadContante.cassa.differenza)}</strong></>}
+                {quadContante.cassa.fondo_iniziale == null && <span className="text-slate-400"> (il primo giorno di almeno un outlet parte senza fondo noto: la quadratura cassa comincia dal periodo successivo)</span>}
+              </span>
+            </>) : (
+              <span className="text-slate-400">Nessuna chiusura di cassa nel periodo: il contante si legge solo dal lato banca (le chiusure partono dal 01/09/2026).</span>
+            )}
+          </div>
         </div>
       )}
 
@@ -810,7 +1200,7 @@ export default function PrimaNota() {
             <div key={m.id} className="bg-white rounded-xl border border-slate-200 p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="text-xs text-slate-500">
-                  {r.Data}{r['Data riferimento'] && <span className="text-slate-400"> · vendite del {r['Data riferimento']}</span>}
+                  {r['Data operazione']}{r['Data riferimento'] && <span className="text-slate-400"> · vendite del {r['Data riferimento']}</span>}
                   <span className="mx-1 text-slate-300">·</span>{r['Conto Banca'] || '—'}
                 </div>
                 <span className={`shrink-0 inline-block px-2 py-0.5 rounded text-xs font-medium ${INCASSO_BADGE[a.kind]}`}>{r.Tipo}</span>
@@ -821,7 +1211,7 @@ export default function PrimaNota() {
               </div>
               <div className="text-xs text-slate-600 mt-0.5 break-words">{r.Causale}</div>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
-                <span className={`inline-block px-1.5 py-0.5 rounded ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{r.Attribuzione}</span>
+                <span className={`inline-block px-1.5 py-0.5 rounded ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{ATTRIBUZIONE_LABELS[a.attribuzione]}</span>
                 {r.Terminale && <span className="font-mono text-slate-500">term. {r.Terminale}</span>}
               </div>
             </div>
@@ -858,19 +1248,129 @@ export default function PrimaNota() {
                 return (
                   <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50/50">
                     <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
-                      {r.Data}{r['Data riferimento'] && <span className="block text-xs text-slate-400">vendite del {r['Data riferimento']}</span>}
+                      {r['Data operazione']}{r['Data riferimento'] && <span className="block text-xs text-slate-400">vendite del {r['Data riferimento']}</span>}
                     </td>
                     <td className="px-3 py-2 text-slate-600 text-xs max-w-[160px]">
-                      <Tooltip content={r.IBAN ? `${r['Conto Banca']} · ${r.IBAN}` : ''}><div className="truncate cursor-help">{r['Conto Banca'] || '—'}</div></Tooltip>
+                      <Tooltip content={m.bank_accounts?.iban ? `${r['Conto Banca']} · ${m.bank_accounts.iban}` : ''}><div className="truncate cursor-help">{r['Conto Banca'] || '—'}</div></Tooltip>
                     </td>
                     <td className={`px-3 py-2 ${a.outlet_id ? 'text-slate-800' : 'text-orange-800'}`}>
                       {r.Outlet || 'Da attribuire'}{r.Canale && <span className="block text-xs text-slate-400">{r.Canale}{r.Terminale ? ` · ${r.Terminale}` : ''}</span>}
                     </td>
                     <td className="px-3 py-2 text-center"><span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${INCASSO_BADGE[a.kind]}`}>{r.Tipo}</span></td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap text-emerald-700">+ € {fmt(r.Importo)}</td>
-                    <td className="px-3 py-2"><span className={`inline-block px-2 py-0.5 rounded text-xs whitespace-nowrap ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{r.Attribuzione}</span></td>
+                    <td className="px-3 py-2"><span className={`inline-block px-2 py-0.5 rounded text-xs whitespace-nowrap ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{ATTRIBUZIONE_LABELS[a.attribuzione]}</span></td>
                     <td className="px-3 py-2 text-slate-600 text-xs max-w-md">
                       <Tooltip content={r.Causale}><div className="truncate cursor-help">{r.Causale || '—'}</div></Tooltip>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </TableScroll>
+      </div>
+      </>)}
+
+      {view === 'dipendenti' && (<>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        <KpiBox label="Disposizioni per emolumenti" value={stipendi.n_flussi.toString()} color="slate" hint={`bonifici € ${fmt(stipendi.totale_bonifici)} · commissioni € ${fmt(stipendi.totale_commissioni)}`} />
+        <KpiBox label="Netti pagati" value={`€ ${fmt(stipendi.totale_netti_abbinati)}`} color="emerald" hint={`${stipendi.n_buste_abbinate} buste paga abbinate a una disposizione`} />
+        <KpiBox label="Buste paga nel foglio" value={stipendi.rows.length.toString()} color="slate" hint="una riga per dipendente, con la disposizione che l'ha pagato" />
+        <KpiBox label="Buste senza pagamento" value={stipendi.n_buste_non_abbinate.toString()} color={stipendi.n_buste_non_abbinate > 0 ? 'orange' : 'slate'}
+          hint={stipendi.n_buste_non_abbinate > 0 ? 'Netti del mese prima che nessuna disposizione del periodo paga: pagati altrove (contanti, altro conto, altro mese) o busta da controllare' : 'Ogni busta del mese prima ha il suo pagamento'} />
+        <KpiBox label="Disposizioni senza buste" value={stipendi.flussi_non_abbinati.length.toString()} color={stipendi.flussi_non_abbinati.length > 0 ? 'orange' : 'slate'}
+          hint={stipendi.flussi_non_abbinati.length > 0 ? 'Flussi che nessun gruppo di buste spiega al centesimo: buste non ancora importate in Costo del personale, o importo diverso' : 'Ogni disposizione è spiegata dalle buste paga'} />
+      </div>
+      {stipendi.flussi_non_abbinati.length > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-4 text-sm text-orange-900">
+          <div className="font-medium mb-1">Disposizioni senza buste paga che le spieghino</div>
+          <ul className="text-xs space-y-0.5">
+            {stipendi.flussi_non_abbinati.map(x => (
+              <li key={x.flusso.id}>
+                {fmtDate(x.flusso.transaction_date)} · {bankNameOf(x.flusso.bank_account_id)} · flusso {x.info.id_flusso ?? '—'}{x.info.n_pagamenti != null && ` (${x.info.n_pagamenti} pagamenti)`} · bonifici <strong className="tabular-nums">{fmt(x.info.importo_bonifici ?? -x.flusso.amount)}</strong>
+                {x.info.commissioni != null && <> · commissioni {fmt(x.info.commissioni)}</>}
+              </li>
+            ))}
+          </ul>
+          <div className="text-xs mt-1">Se le buste del mese sono già importate in Costo del personale, l'importo del flusso non coincide con nessun gruppo di netti: da guardare con lo studio paghe.</div>
+        </div>
+      )}
+
+      {/* Dipendenti, mobile: una card per busta paga */}
+      <div className="md:hidden space-y-2">
+        {loading ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
+          </div>
+        ) : stipendi.rows.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            Nessuna busta paga né disposizione per emolumenti nel periodo selezionato
+          </div>
+        ) : stipendi.rows.map((r, i) => {
+          const x = stipendiRows[i]
+          return (
+            <div key={r.slip.id} className="bg-white rounded-xl border border-slate-200 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium text-slate-800">{x.Dipendente}</div>
+                <div className="text-lg font-bold tabular-nums text-slate-900">{x.Netto === '' ? '—' : `€ ${fmt(x.Netto)}`}</div>
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5">{x.Outlet || '—'} · competenza {x.Competenza}</div>
+              <div className={`text-xs mt-1 ${r.flusso ? 'text-slate-600' : 'text-orange-800'}`}>
+                {r.flusso ? <>Pagato il {x['Pagato il']} · {x['Conto Banca']} · flusso {x['Disposizione (ID flusso)'] || '—'} ({x['Pagamenti nel flusso'] || '?'} pag., € {x['Importo flusso'] === '' ? '—' : fmt(x['Importo flusso'])})</> : x.Esito}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Dipendenti, desktop */}
+      <div className="hidden md:block bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <TableScroll className="max-h-[70vh] overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
+              <tr>
+                <th className="px-3 py-2 text-left">Dipendente</th>
+                <th className="px-3 py-2 text-left">Outlet</th>
+                <th className="px-3 py-2 text-left">Competenza</th>
+                <th className="px-3 py-2 text-right">Netto</th>
+                <th className="px-3 py-2 text-left">Pagato il</th>
+                <th className="px-3 py-2 text-left">Conto Banca</th>
+                <th className="px-3 py-2 text-left">Disposizione</th>
+                <th className="px-3 py-2 text-right">Importo flusso</th>
+                <th className="px-3 py-2 text-left">Esito</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                  <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
+                </td></tr>
+              ) : stipendi.rows.length === 0 ? (
+                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                  Nessuna busta paga né disposizione per emolumenti nel periodo selezionato
+                </td></tr>
+              ) : stipendi.rows.map((r, i) => {
+                const x = stipendiRows[i]
+                const mv = r.flusso ? movementById.get(r.flusso.id) : undefined
+                return (
+                  <tr key={r.slip.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                    <td className="px-3 py-2 text-slate-800 whitespace-nowrap">{nomeDipendente(r.slip)}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs">{x.Outlet || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs whitespace-nowrap">{competenzaLabel(r.slip)}</td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap">{x.Netto === '' ? '—' : `€ ${fmt(x.Netto)}`}</td>
+                    <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{x['Pagato il'] || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs max-w-[160px]"><div className="truncate">{x['Conto Banca'] || '—'}</div></td>
+                    <td className="px-3 py-2 text-xs">
+                      {r.flusso ? (
+                        <Tooltip content={mv?.description ?? ''}>
+                          <span className="cursor-help font-mono text-slate-700">{x['Disposizione (ID flusso)'] || '—'}</span>
+                        </Tooltip>
+                      ) : '—'}
+                      {x['Pagamenti nel flusso'] !== '' && <span className="block text-slate-400">{x['Pagamenti nel flusso']} pagamenti{x['Commissioni flusso'] !== '' && `, comm. ${fmt(x['Commissioni flusso'])}`}</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{x['Importo flusso'] === '' ? '—' : fmt(x['Importo flusso'])}</td>
+                    <td className="px-3 py-2 text-xs">
+                      <span className={`inline-block px-2 py-0.5 rounded whitespace-nowrap ${r.flusso ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-100 text-orange-800'}`}>{x.Esito}</span>
                     </td>
                   </tr>
                 )
@@ -898,7 +1398,7 @@ export default function PrimaNota() {
           <div key={m.id} className="bg-white rounded-xl border border-slate-200 p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs text-slate-500">
-                {fmtDate(m.transaction_date)}
+                {fmtDate(basisDate(m))}{m.posting_date && m.posting_date !== m.transaction_date && <span className="text-slate-400"> (op. {fmtDate(m.transaction_date)}, cont. {fmtDate(m.posting_date)})</span>}
                 <span className="mx-1 text-slate-300">·</span>
                 {m.bank_accounts?.bank_name ?? '—'}
                 {m.bank_accounts?.iban && <span className="text-slate-400"> ***{m.bank_accounts.iban.slice(-6)}</span>}
@@ -907,8 +1407,9 @@ export default function PrimaNota() {
             </div>
             <div className={`text-lg font-bold mt-1 ${m.amount > 0 ? 'text-emerald-700' : 'text-red-700'}`}>
               € {fmt(Math.abs(m.amount))}
+              {!kindFilter && saldoById.get(m.id) != null && <span className="ml-2 text-xs font-normal text-slate-400">saldo {fmt(saldoById.get(m.id) as number)}</span>}
             </div>
-            <div className="text-sm font-medium text-slate-800 mt-0.5 break-words">{counterpartOf(m) || '—'}</div>
+            <div className="text-sm font-medium text-slate-800 mt-0.5 break-words">{contropartitaOf(m) || '—'}</div>
             {causaleOf(m) && (
               <div className="text-xs text-slate-600 mt-0.5 break-words">{causaleOf(m)}</div>
             )}
@@ -933,10 +1434,11 @@ export default function PrimaNota() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
               <tr>
-                <th className="px-3 py-2 text-left">Data</th>
+                <th className="px-3 py-2 text-left">{dateBasis === 'contabile' ? 'Data contabile' : 'Data operazione'}</th>
                 <th className="px-3 py-2 text-left">Conto Banca</th>
                 <th className="px-3 py-2 text-center">Tipo movimento</th>
                 <th className="px-3 py-2 text-right">Importo</th>
+                <th className="px-3 py-2 text-right">Saldo</th>
                 <th className="px-3 py-2 text-left">Contropartita</th>
                 <th className="px-3 py-2 text-left">P.IVA</th>
                 <th className="px-3 py-2 text-right">Fatt.</th>
@@ -946,19 +1448,55 @@ export default function PrimaNota() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">
                   <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
                 </td></tr>
               ) : movementsShown.length === 0 ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">
                   {kindFilter ? 'Nessun movimento con questo filtro' : 'Nessun movimento nel periodo selezionato'}
                 </td></tr>
-              ) : movementsShown.map(m => {
+              ) : quadratura.filter(q => movementsShown.some(m => m.bank_account_id === q.bank_account_id)).flatMap(q => {
+                // Estratto conto per conto: riga di apertura, movimenti con saldo progressivo, riga di chiusura.
+                // Con un filtro per tipo attivo l'elenco è parziale: niente saldi, solo le righe.
+                const ms = movementsShown.filter(m => m.bank_account_id === q.bank_account_id)
+                const open = !kindFilter ? [(
+                  <tr key={`open-${q.bank_account_id}`} className="border-t-2 border-slate-200 bg-slate-50/80">
+                    <td colSpan={4} className="px-3 py-2 font-semibold text-slate-800">{accountName(q.bank_account_id)} · saldo iniziale al {quadPeriodo.giornoPrima}</td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap">{q.saldo_iniziale != null ? fmt(q.saldo_iniziale) : <span className="text-slate-400 font-normal">n.d.</span>}</td>
+                    <td colSpan={5} className="px-3 py-2 text-xs text-slate-400">{q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' · ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'la banca non ha fornito il saldo per questo periodo'}</td>
+                  </tr>
+                )] : [(
+                  <tr key={`open-${q.bank_account_id}`} className="border-t-2 border-slate-200 bg-slate-50/80">
+                    <td colSpan={10} className="px-3 py-2 font-semibold text-slate-800">{accountName(q.bank_account_id)} <span className="font-normal text-slate-400">· {ms.length} movimenti con il filtro attivo</span></td>
+                  </tr>
+                )]
+                const close = !kindFilter ? [(
+                  <tr key={`close-${q.bank_account_id}`} className={`border-t border-slate-200 ${q.stato === 'non_quadra' ? 'bg-red-50' : 'bg-slate-50/80'}`}>
+                    <td colSpan={4} className="px-3 py-2 font-semibold text-slate-800">
+                      Saldo finale al {quadPeriodo.ultimoGiorno}
+                      <span className="font-normal text-slate-500"> · {ms.length} movimenti, entrate +{fmt(q.entrate)}, uscite −{fmt(q.uscite)}</span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap">{q.saldo_finale_calcolato != null ? fmt(q.saldo_finale_calcolato) : <span className="text-slate-400 font-normal">n.d.</span>}</td>
+                    <td colSpan={5} className="px-3 py-2 text-xs">
+                      {q.saldo_finale != null ? (<>
+                        <span className="text-slate-600">banca: <strong className="tabular-nums">{fmt(q.saldo_finale)}</strong></span>
+                        <span className="text-slate-400"> (al {fmtDateTime(q.scaricato_finale)}: {fmt(q.saldo_scarico_finale ?? 0)}{rettificaLabel(q.rettifica_finale) ? ' · ' + rettificaLabel(q.rettifica_finale) : ''})</span>
+                        {q.stato === 'quadra' && <span className="ml-2 inline-block px-2 py-0.5 rounded font-medium bg-emerald-100 text-emerald-700">quadra</span>}
+                        {q.stato === 'non_quadra' && <span className="ml-2 inline-block px-2 py-0.5 rounded font-medium bg-red-100 text-red-700">differenza {fmt(q.differenza ?? 0)}</span>}
+                      </>) : <span className="text-slate-400">saldo banca non disponibile</span>}
+                    </td>
+                  </tr>
+                )] : []
+                return [...open, ...ms.map(m => {
                 const nFatt = invoiceCountOf(m)
                 const totFatt = invoicesTotalOf(m)
+                const saldo = kindFilter ? null : saldoById.get(m.id)
                 return (
                 <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50/50">
-                  <td className="px-3 py-2 text-slate-700">{fmtDate(m.transaction_date)}</td>
+                  <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                    {fmtDate(basisDate(m))}
+                    {m.posting_date && m.posting_date !== m.transaction_date && <span className="block text-xs text-slate-400">{dateBasis === 'contabile' ? `op. ${fmtDate(m.transaction_date)}` : `cont. ${fmtDate(m.posting_date)}`}</span>}
+                  </td>
                   <td className="px-3 py-2 text-slate-600 text-xs">
                     <Tooltip content={`${m.bank_accounts?.bank_name ?? ''}${m.bank_accounts?.account_name ? ' — ' + m.bank_accounts.account_name : ''}${m.bank_accounts?.iban ? ' · ' + m.bank_accounts.iban : ''}`}>
                       <div>
@@ -971,15 +1509,16 @@ export default function PrimaNota() {
                   <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${m.amount > 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                     {m.amount > 0 ? '+' : '−'} € {fmt(Math.abs(m.amount))}
                   </td>
+                  <td className="px-3 py-2 text-right text-slate-600 tabular-nums whitespace-nowrap text-xs">{saldo != null ? fmt(saldo) : '—'}</td>
                   <td className="px-3 py-2 text-slate-700 max-w-[200px]">
-                    <Tooltip content={counterpartOf(m)}>
-                      <div className="truncate cursor-help">{counterpartOf(m) || '—'}</div>
+                    <Tooltip content={contropartitaOf(m)}>
+                      <div className="truncate cursor-help">{contropartitaOf(m) || '—'}</div>
                     </Tooltip>
                   </td>
                   <td className="px-3 py-2 text-slate-500 text-xs font-mono">{pivaOf(m) || '—'}</td>
                   <td className="px-3 py-2 text-right text-xs text-slate-600 whitespace-nowrap">
                     {nFatt > 0 ? (
-                      <Tooltip content={totFatt != null ? `Totale fatture € ${fmt(totFatt)}${Math.abs(totFatt - Math.abs(m.amount)) >= 0.01 ? ` (differenza € ${fmt(Math.abs(m.amount) - totFatt)}, commissioni)` : ''}` : ''}>
+                      <Tooltip content={totFatt != null ? `Totale fatture € ${fmt(totFatt)}${Math.abs(totFatt - Math.abs(m.amount)) >= 0.01 ? ` (differenza € ${fmt(Math.abs(m.amount) - totFatt)}: acconto, commissioni o note di credito)` : ''}` : ''}>
                         <span className="cursor-help">{nFatt}</span>
                       </Tooltip>
                     ) : '—'}
@@ -996,6 +1535,7 @@ export default function PrimaNota() {
                   </td>
                 </tr>
                 )
+                }), ...close]
               })}
             </tbody>
           </table>
