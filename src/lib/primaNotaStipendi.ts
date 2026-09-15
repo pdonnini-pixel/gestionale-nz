@@ -91,6 +91,8 @@ export type StipendioRow = {
   slip: PnSlip
   flusso: PnFlusso | null
   info: FlussoInfo | null
+  /** Quante buste paga spiega lo stesso flusso (per confronto con i bonifici contati dalla banca). */
+  buste_nel_flusso: number
 }
 
 export type StipendiResult = {
@@ -142,7 +144,7 @@ export function abbinaStipendi(flussi: PnFlusso[], slips: PnSlip[]): StipendiRes
       if (match) break
     }
     if (match) {
-      for (const s of match) { used.add(s.id); rows.push({ slip: s, flusso: f, info }); totale_netti_abbinati += Number(s.netto) || 0 }
+      for (const s of match) { used.add(s.id); rows.push({ slip: s, flusso: f, info, buste_nel_flusso: match.length }); totale_netti_abbinati += Number(s.netto) || 0 }
     } else {
       flussi_non_abbinati.push({ flusso: f, info })
     }
@@ -151,7 +153,7 @@ export function abbinaStipendi(flussi: PnFlusso[], slips: PnSlip[]): StipendiRes
   // quelle del mese prima del primo flusso (le altre sono di competenza futura)
   const firstMonth = ordered[0] ? competenzeCandidate(ordered[0].transaction_date)[0] : null
   const orfane = firstMonth ? slips.filter(s => !used.has(s.id) && s.year === firstMonth.year && s.month === firstMonth.month) : []
-  for (const s of orfane) rows.push({ slip: s, flusso: null, info: null })
+  for (const s of orfane) rows.push({ slip: s, flusso: null, info: null, buste_nel_flusso: 0 })
 
   rows.sort((a, b) => {
     const oa = a.slip.outlet_code ?? '', ob = b.slip.outlet_code ?? ''
@@ -172,7 +174,9 @@ export type StipendioExportRow = {
   'Pagato il': string
   'Conto Banca': string
   'Disposizione (ID flusso)': string
-  'Pagamenti nel flusso': number | ''
+  /** Bonifici contati dalla banca nella causale (NUM. TOT. PAGAMENTI): possono essere piu' delle buste se un netto e' pagato in piu' bonifici. */
+  'Bonifici nel flusso (banca)': number | ''
+  'Buste nel flusso': number | ''
   'Importo flusso': number | ''
   'Commissioni flusso': number | ''
   Esito: string
@@ -180,6 +184,22 @@ export type StipendioExportRow = {
 
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
 export const competenzaLabel = (s: { year: number; month: number }): string => `${MESI[s.month - 1] ?? s.month} ${s.year}`
+
+/**
+ * Esito leggibile. Se la banca conta piu' bonifici delle buste spiegate dal
+ * flusso (Gallo: 1 busta da 10.959,00, 4 bonifici e 5,00 di commissioni), il
+ * netto e' stato versato in piu' bonifici: lo si dice, non lo si nasconde.
+ */
+export function esitoStipendio(r: StipendioRow): string {
+  if (!r.flusso) return 'nessun pagamento trovato nel periodo'
+  const n = r.info?.n_pagamenti
+  if (n != null && n !== r.buste_nel_flusso) {
+    return n > r.buste_nel_flusso
+      ? `abbinata alla disposizione (${n} bonifici in banca per ${r.buste_nel_flusso} ${r.buste_nel_flusso === 1 ? 'busta' : 'buste'}: netto pagato in più bonifici)`
+      : `abbinata alla disposizione (${n} bonifici in banca per ${r.buste_nel_flusso} buste: un bonifico copre più buste)`
+  }
+  return 'abbinata alla disposizione'
+}
 
 export function buildStipendioRow(r: StipendioRow, bankName: (id: string | null) => string, fmtDate: (d: string) => string): StipendioExportRow {
   return {
@@ -190,11 +210,12 @@ export function buildStipendioRow(r: StipendioRow, bankName: (id: string | null)
     'Pagato il': r.flusso ? fmtDate(r.flusso.transaction_date) : '',
     'Conto Banca': r.flusso ? bankName(r.flusso.bank_account_id) : '',
     'Disposizione (ID flusso)': r.info?.id_flusso ?? '',
-    'Pagamenti nel flusso': r.info?.n_pagamenti ?? '',
+    'Bonifici nel flusso (banca)': r.info?.n_pagamenti ?? '',
+    'Buste nel flusso': r.flusso ? r.buste_nel_flusso : '',
     'Importo flusso': r.info?.importo_bonifici ?? (r.flusso ? r2(-r.flusso.amount) : ''),
     'Commissioni flusso': r.info?.commissioni ?? '',
-    Esito: r.flusso ? 'abbinata alla disposizione' : 'nessun pagamento trovato nel periodo',
+    Esito: esitoStipendio(r),
   }
 }
 
-export const STIPENDI_COLUMN_WIDTHS = [32, 18, 16, 12, 12, 28, 22, 10, 14, 12, 32]
+export const STIPENDI_COLUMN_WIDTHS = [32, 18, 16, 12, 12, 28, 22, 12, 10, 14, 12, 40]

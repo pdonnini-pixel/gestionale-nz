@@ -134,15 +134,24 @@ describe('buildStipendioRow', () => {
     expect(r).toEqual({
       Dipendente: 'CACCIOTTI DANIELA', Outlet: 'VALMONTONE', Competenza: 'luglio 2026', Netto: 1491,
       'Pagato il': '10/08/2026', 'Conto Banca': 'BCC Figline', 'Disposizione (ID flusso)': '136472521',
-      'Pagamenti nel flusso': 6, 'Importo flusso': 6693, 'Commissioni flusso': 10.5, Esito: 'abbinata alla disposizione',
+      'Bonifici nel flusso (banca)': 6, 'Buste nel flusso': 6, 'Importo flusso': 6693, 'Commissioni flusso': 10.5, Esito: 'abbinata alla disposizione',
     })
   })
   it('riga senza pagamento: campi del flusso vuoti', () => {
-    const r = buildStipendioRow({ slip: slip('VERDI', 'LUCA', 1000, 'TORINO'), flusso: null, info: null }, bankName, fmtDate)
+    const r = buildStipendioRow({ slip: slip('VERDI', 'LUCA', 1000, 'TORINO'), flusso: null, info: null, buste_nel_flusso: 0 }, bankName, fmtDate)
     expect(r['Pagato il']).toBe('')
     expect(r['Disposizione (ID flusso)']).toBe('')
     expect(r['Importo flusso']).toBe('')
     expect(r.Esito).toBe('nessun pagamento trovato nel periodo')
+  })
+  it('Gallo: 1 busta da 10.959,00 pagata con 4 bonifici (la banca ne conta 4, 5,00 di commissioni)', () => {
+    const res = abbinaStipendi([flusso('136498058', '10.959,00', 4, '5,00', -10964)], sede)
+    const gallo = res.rows.find(r => r.slip.cognome === 'GALLO')!
+    expect(gallo.buste_nel_flusso).toBe(1)
+    const r = buildStipendioRow(gallo, bankName, fmtDate)
+    expect(r['Bonifici nel flusso (banca)']).toBe(4)
+    expect(r['Buste nel flusso']).toBe(1)
+    expect(r.Esito).toBe('abbinata alla disposizione (4 bonifici in banca per 1 busta: netto pagato in più bonifici)')
   })
   it('nome e competenza', () => {
     expect(nomeDipendente({ ...slip('ROSSI', 'MARIO', 1, 'X'), nome: null })).toBe('ROSSI')
