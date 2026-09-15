@@ -1,13 +1,13 @@
 # Ricostruzione degli incassi giornalieri 2026 (NZ)
 
-> Sessione del 15/09/2026. Migration `NZ_ONLY_20260915_223` (agosto) e
-> `NZ_ONLY_20260915_225` (luglio).
-> Stesso impianto usato per settembre, ma senza le foto delle chiusure: i due mesi sono stati
-> ricostruiti dagli **specchietti incassi dei negozi** e riscontrati con l'**estratto conto**.
-> Luglio serviva a chiudere il conto del contante: i versamenti dei primi giorni di agosto
-> portavano in banca il contante di fine luglio.
+> Sessione del 15/09/2026. Migration da `NZ_ONLY_20260915_223` a `232`.
+> Ricostruiti a ritroso otto mesi, da agosto fino a gennaio, con lo stesso impianto usato per
+> settembre ma senza le foto delle chiusure: si parte dagli **specchietti incassi dei negozi**
+> su Drive e si riscontra tutto con l'**estratto conto**.
+> Si e' cominciato da agosto, poi luglio per chiudere il conto del contante, e da li' e' venuto
+> naturale scendere fino a gennaio: ogni mese che si aggiunge ripara qualcosa del mese dopo.
 
-Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [maggio](#maggio-2026) · [aprile](#aprile-2026) · [marzo](#marzo-2026) · [gennaio](#gennaio-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
+Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [maggio](#maggio-2026) · [aprile](#aprile-2026) · [marzo](#marzo-2026) · [gennaio](#gennaio-2026) · [febbraio](#febbraio-2026) · [il quadro finale](#il-quadro-finale-da-gennaio-a-settembre) · [il pay by link](#il-pay-by-link-passa-dal-pos)
 
 ---
 
@@ -490,3 +490,95 @@ nota da dove viene.
   −435,46 €**; le altre sono storni di scontrino e arrotondamenti.
 - Le 6 chiusure non verificate hanno una riga POS in differenza o mancante, quasi tutte accrediti
   Amex del 31 gennaio che arrivano a febbraio.
+
+---
+
+## febbraio 2026
+
+Migration `NZ_ONLY_20260915_232`. 139 chiusure su **cinque** punti vendita invece che sei:
+Torino non esiste ancora, e **Franciacorta manca** (vedi sotto). I corrispettivi dei cinque
+negozi caricati coincidono con `daily_revenue` su tutte e 139 le giornate.
+
+| | |
+|---|---:|
+| Corrispettivi (5 negozi) | 250.945,62 € |
+| Fatture | 164,64 € |
+| Contanti | 50.609,40 € |
+| Spese di cassa | 514,09 € |
+| Versamenti | 51.032,15 € |
+| Chiusure verificate dalla banca | 135 su 139 |
+
+**22 versamenti dichiarati, 22 trovati in banca, nessuna differenza e nessun aggancio manuale
+dentro il mese.**
+
+### Franciacorta febbraio resta fuori, e il motivo e' banale
+
+Lo specchietto di Franciacorta di febbraio e' l'unico file dell'intero recupero salvato in
+**.xls**, il vecchio formato binario di Excel. Il connettore Drive legge gli .xlsx e gli .ods, ma
+quel formato no. Mancano **28 giornate per 55.718,39 €** di corrispettivi, che il registro
+conosce gia': manca solo la ripartizione fra contanti, POS e versamenti.
+
+Si sblocca in trenta secondi: aprire il file su Drive con Fogli Google e fare
+**File → Scarica → Microsoft Excel (.xlsx)**, oppure **File → Salva come Fogli Google**. Poi
+basta una migration gemella della 232 per quelle 28 giornate.
+
+Una cosa di quel mese si e' comunque recuperata senza il foglio: il **versamento di chiusura
+febbraio, 1.895,00 €**, versato all'ATM il 04/03. Lo dice l'estratto conto, con la causale
+scritta per esteso, ed e' gia' sulla chiusura del 04/03.
+
+### Cosa e' emerso
+
+- **I versamenti attraversano i mesi in tutte e due le direzioni.** Quattro di fine gennaio
+  escono dalla cassa a febbraio (Valdichiana 1.876,75 il 01/02, Brugnato 1.030,00 e Valmontone
+  2.435,00 il 02/02, Barberino 1.280,00 il 03/02); cinque di fine febbraio escono a marzo
+  (Brugnato 295,00 e Valmontone 2.415,00 il 02/03, Palmanova 1.190,00 il 03/03, Valdichiana
+  1.837,30 e Franciacorta 1.895,00 il 04/03).
+- **Palmanova 03/02 porta 2.095,00 e non 805,00**: il versamento del 01-02/02 e quello del
+  27-31/01 finiscono nella stessa cassa continua e arrivano come un unico accredito il 06/02.
+- **Brugnato non ha il 10 febbraio**: corrispettivi zero, la giornata non esiste nel registro e
+  nessuna chiusura viene creata.
+- Quattro giornate non quadrano e restano dichiarate: Valmontone 21/02 (+86,55, un POS non
+  contabilizzato che lo studio ha trasmesso il 16/03), Valdichiana 05/02 (+34,50, annullato uno
+  scontrino del 26/01), Palmanova 27/02 (−37,32, uno scontrino battuto due volte), Barberino
+  10/02 (−0,35).
+
+---
+
+## il quadro finale: da gennaio a settembre
+
+| mese | chiusure | verificate | non quadrate | corrispettivi | versamenti |
+|---|---:|---:|---:|---:|---:|
+| gennaio | 179 | 174 | 7 | 501.525,44 € | 86.420,10 € |
+| febbraio | 139 | 135 | 4 | 250.945,62 € | 51.032,15 € |
+| marzo | 191 | 185 | 9 | 215.851,71 € | 44.726,70 € |
+| aprile | 203 | 198 | 3 | 372.705,73 € | 62.899,95 € |
+| maggio | 217 | 214 | 1 | 418.533,52 € | 61.852,80 € |
+| giugno | 210 | 194 | 0 | 389.279,32 € | 77.652,15 € |
+| luglio | 217 | 214 | 3 | 567.701,98 € | 87.671,60 € |
+| agosto | 217 | 213 | 8 | 444.099,25 € | 73.000,50 € |
+| settembre (al 14) | 98 | 96 | 1 | 156.247,60 € | 31.170,50 € |
+
+**1.671 chiusure, 1.623 verificate dalla banca.** Restano fuori le 28 giornate di Franciacorta di
+febbraio, per il formato del file.
+
+### Le tre cose da guardare
+
+1. **4.870,25 € dichiarati e mai arrivati in banca**: Palmanova 1.995,00 e Valdichiana 2.875,25,
+   entrambi sul 28 aprile. Non e' una questione di finestra temporale: la cassa continua dei due
+   negozi non registra nessun versamento fra il 24 aprile e il 4 maggio.
+2. **Palmanova 30/04**: 1.391,92 dichiarati sul POS contro 1.302,29 accreditati, −6,4 %. Tutte le
+   altre righe in differenza sono commissione sotto il 2 % su importi piccoli; questa no.
+3. **Palmanova 10/01**: −435,46 € fra corrispettivi e mezzi di pagamento, la giornata non quadrata
+   piu' grossa di tutto il recupero.
+
+### Le tre migliorie per il motore di riscontro
+
+Sono le stesse di luglio e agosto, ma ora con i numeri di nove mesi dietro.
+
+1. **Sommare piu' accrediti dello stesso giorno allo stesso sportello.** Ricorre da sola sei
+   volte: Franciacorta 13/01 e 20/01 e 08/04, Brugnato ad agosto, Torino 17/06, Valmontone 04/05.
+2. **Finestra all'indietro per i versamenti.** Il motore cerca solo in avanti, da `closing_date` a
+   +6 giorni. Quando il negozio versa e poi attribuisce la giornata dopo, il movimento e'
+   anteriore e non viene mai trovato: Torino 17/06, Franciacorta 14/05, Brugnato 15/04 e 21/04.
+   Quattro casi su nove mesi non sono un'eccezione.
+3. **Dare al pay by link il terminale del POS** (fatto, migration `226`).
