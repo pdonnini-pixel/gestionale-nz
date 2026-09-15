@@ -2,7 +2,7 @@
 // prese dall'audit AUDIT_PRIMA_NOTA_COMMERCIALISTA_2026-09-14.md.
 import { describe, it, expect } from 'vitest'
 import {
-  classifyMovement, counterpartOf, pivaOf, causaleOf, buildRow, summarizeByKind,
+  classifyMovement, counterpartOf, pivaOf, causaleOf, buildRow, summarizeByKind, outletCodeFromNote,
   invoicesTotalOf, type PnMovement, type PnPayable,
 } from './primaNotaExport'
 
@@ -110,6 +110,29 @@ describe('contropartita, P.IVA e causale con TUTTE le fatture del movimento', ()
   })
   it('senza niente resta vuota, non «—» nell\'Excel', () => {
     expect(counterpartOf(mv({ amount: 125.44, description: 'Causale: INCASSO TRAMITE P.O.S. - Descrizione: ACCREDITO POS - COD.SIA:6181087-00009' }))).toBe('')
+  })
+})
+
+describe('entrate senza etichetta e outlet dalla nota', () => {
+  it('bonifico di un cliente privato per un acquisto → incasso cliente, con l ordinante come contropartita', () => {
+    const m = mv({ amount: 82, description: 'Causale: BONIFICO PER ORDINE/CONTO - Descrizione: FILIALE DISPONENTE 00560 BON. IST. 0845700003206403480546305463IT DEL 06.08.26 ORD: SCANU SABRINA BIC: ICRAITRRCP0 INF:RI: Acquisto merce vicolo Scanu Sabrina' })
+    expect(classifyMovement(m)).toBe('incasso_cliente')
+    expect(counterpartOf(m)).toBe('SCANU SABRINA')
+  })
+  it('bonifico in entrata di rimborso o restituzione → rimborso; l etichetta rimborsi_fornitori vale anche senza parola in causale', () => {
+    expect(classifyMovement(mv({ amount: 6.2, description: 'BON. SEPA 1101262380309856 DEL 27.08.26 ORD: BRT SPA BIC: UNCRITMMXXX INF:EE: 262370017580629 RI: LIQUIDAZIONE TRANSATTIVA: Anomalia 116/1944' }))).toBe('rimborso')
+    expect(classifyMovement(mv({ amount: 450, description: 'BON. SEPA 0306926532128407484017740177IT DEL 27.08.26 ORD: MIAN SRL BIC: BCITITMMXXX INF:EE: 62333012C', category: 'rimborsi_fornitori' }))).toBe('rimborso')
+    expect(classifyMovement(mv({ amount: 60, description: 'BON. SEPA X DEL 26.08.26 ORD: ROSSETI VERONICA BIC: WIDIITMMXXX IND:VIA X INF:RI: acquisto top piu Panta palazzo vicolo', category: 'incassi_clienti' }))).toBe('incasso_cliente')
+  })
+  it('un bonifico in entrata senza indizi resta da chiarire; le uscite non diventano mai incasso', () => {
+    expect(classifyMovement(mv({ amount: 100, description: 'BON. SEPA 123 DEL 01.08.26 ORD: ROSSI MARIO BIC: X INF:RI: ' }))).toBe('da_chiarire')
+    expect(classifyMovement(mv({ amount: -100, description: 'BONIFICO *ROSSI MARIO acquisto merce' }))).toBe('da_chiarire')
+  })
+  it('outletCodeFromNote legge la convenzione "Outlet: CODICE · …"', () => {
+    expect(outletCodeFromNote('Outlet: BRB · corrispettivi Barberino agosto 2026')).toBe('BRB')
+    expect(outletCodeFromNote('outlet: plm')).toBe('PLM')
+    expect(outletCodeFromNote('corrispettivi Barberino')).toBeNull()
+    expect(outletCodeFromNote(null)).toBeNull()
   })
 })
 

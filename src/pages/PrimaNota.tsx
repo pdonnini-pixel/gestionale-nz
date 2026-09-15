@@ -66,6 +66,7 @@ type MovementRaw = {
   description: string | null
   reference: string | null
   category: string | null
+  note: string | null
   counterpart: string | null
   counterpart_name: string | null
   merchant_name: string | null
@@ -115,6 +116,8 @@ const KIND_BADGE: Record<MovementKind, string> = {
   finanziamento: 'bg-slate-200 text-slate-700',
   spese_banca: 'bg-slate-100 text-slate-600',
   giroconto: 'bg-slate-100 text-slate-600',
+  incasso_cliente: 'bg-emerald-100 text-emerald-700',
+  rimborso: 'bg-teal-100 text-teal-700',
   da_chiarire: 'bg-orange-100 text-orange-800',
 }
 
@@ -132,9 +135,11 @@ const INCASSO_BADGE: Record<IncassoKind, string> = {
   pos: 'bg-emerald-100 text-emerald-700',
   amex: 'bg-sky-100 text-sky-700',
   versamento: 'bg-amber-100 text-amber-800',
+  bonifico: 'bg-teal-100 text-teal-700',
   altro: 'bg-slate-100 text-slate-600',
 }
 const ATTRIBUZIONE_BADGE: Record<Attribuzione, string> = {
+  nota: 'bg-violet-100 text-violet-700',
   chiusura: 'bg-emerald-50 text-emerald-700',
   terminale: 'bg-slate-100 text-slate-600',
   parola_chiave: 'bg-slate-100 text-slate-600',
@@ -220,7 +225,7 @@ export default function PrimaNota() {
           let q = supabase
             .from('bank_transactions')
             .select(`
-              id, transaction_date, amount, currency, description, reference, category,
+              id, transaction_date, amount, currency, description, reference, category, note,
               counterpart, counterpart_name, merchant_name, supplier_id, bank_account_id,
               fetched_at:raw_data->>fetchedAt, snapshot:raw_data->extra->>accountBalanceSnapshot, posting_date:raw_data->extra->>postingDate,
               bank_accounts!inner(id, bank_name, account_name, iban),
@@ -240,27 +245,47 @@ export default function PrimaNota() {
       // Fatture e scadenze fiscali agganciate al movimento (FK bank_transaction_id,
       // che PostgREST non risolve in embed): fetch separato e join lato client.
       // TUTTE le fatture per movimento: una RiBa o una distinta CBI ne salda decine.
+      // Più gli agganci del registro di riconciliazione (reconciliation_log,
+      // stato applied): un acconto agganciato «solo aggancio» (Wolf 07/08, fattura
+      // 218) non porta il bank_transaction_id sulla fattura, ma è un pagamento
+      // fornitore a tutti gli effetti e deve uscire come tale.
       const btIds = baseMovs.map(m => m.id).filter(Boolean)
       const payMap = new Map<string, PnPayable[]>()
       const fdMap = new Map<string, PnFiscalDeadline[]>()
       if (btIds.length > 0) {
         const chunks = chunk(btIds)
-        const [payResults, fdResults] = await Promise.all([
+        const [payResults, fdResults, logResults] = await Promise.all([
           Promise.all(chunks.map(ids => supabase
             .from('payables')
-            .select('bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount')
+            .select('id, bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount')
             .in('bank_transaction_id', ids)
             .order('invoice_number', { ascending: true }))),
           Promise.all(chunks.map(ids => supabase
             .from('fiscal_deadlines')
             .select('bank_transaction_id, title, f24_code, tax_period, deadline_type')
             .in('bank_transaction_id', ids))),
+          Promise.all(chunks.map(ids => supabase
+            .from('reconciliation_log')
+            .select('bank_transaction_id, payable_id, status, payables(id, invoice_number, supplier_name, supplier_vat, gross_amount)')
+            .in('bank_transaction_id', ids)
+            .eq('status', 'applied'))),
         ])
+        const seen = new Set<string>()
         for (const p of payResults.flatMap(r => r.data ?? [])) {
           if (!p.bank_transaction_id) continue
+          seen.add(`${p.bank_transaction_id}:${p.id}`)
           const list = payMap.get(p.bank_transaction_id) ?? []
           list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount })
           payMap.set(p.bank_transaction_id, list)
+        }
+        type LogRow = { bank_transaction_id: string | null; payable_id: string | null; payables: { id: string; invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null; gross_amount: number | null } | null }
+        for (const l of logResults.flatMap(r => (r.data ?? []) as unknown as LogRow[])) {
+          const p = l.payables
+          if (!l.bank_transaction_id || !p || seen.has(`${l.bank_transaction_id}:${p.id}`)) continue
+          seen.add(`${l.bank_transaction_id}:${p.id}`)
+          const list = payMap.get(l.bank_transaction_id) ?? []
+          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount })
+          payMap.set(l.bank_transaction_id, list)
         }
         for (const f of fdResults.flatMap(r => r.data ?? [])) {
           if (!f.bank_transaction_id) continue
@@ -1305,7 +1330,7 @@ export default function PrimaNota() {
                   <td className="px-3 py-2 text-slate-500 text-xs font-mono">{pivaOf(m) || '—'}</td>
                   <td className="px-3 py-2 text-right text-xs text-slate-600 whitespace-nowrap">
                     {nFatt > 0 ? (
-                      <Tooltip content={totFatt != null ? `Totale fatture € ${fmt(totFatt)}${Math.abs(totFatt - Math.abs(m.amount)) >= 0.01 ? ` (differenza € ${fmt(Math.abs(m.amount) - totFatt)}, commissioni)` : ''}` : ''}>
+                      <Tooltip content={totFatt != null ? `Totale fatture € ${fmt(totFatt)}${Math.abs(totFatt - Math.abs(m.amount)) >= 0.01 ? ` (differenza € ${fmt(Math.abs(m.amount) - totFatt)}: acconto, commissioni o note di credito)` : ''}` : ''}>
                         <span className="cursor-help">{nFatt}</span>
                       </Tooltip>
                     ) : '—'}

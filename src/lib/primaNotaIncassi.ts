@@ -38,6 +38,8 @@ export type PnIncassoMovement = {
   description: string | null
   category: string | null
   bank_account_id: string | null
+  /** Nota del movimento: "Outlet: BRB · …" assegna l'outlet a mano. */
+  note?: string | null
 }
 
 export type IncassiLookups = {
@@ -48,18 +50,20 @@ export type IncassiLookups = {
   bankAccounts: Map<string, { bank_name: string; iban: string | null }>
 }
 
-export type IncassoKind = 'pos' | 'amex' | 'versamento' | 'altro'
+export type IncassoKind = 'pos' | 'amex' | 'versamento' | 'bonifico' | 'altro'
 
 export const INCASSO_KIND_LABELS: Record<IncassoKind, string> = {
   pos: 'POS',
   amex: 'Amex',
   versamento: 'Versamento contanti',
+  bonifico: 'Bonifico cliente',
   altro: 'Altro incasso',
 }
 
-export type Attribuzione = 'chiusura' | 'terminale' | 'parola_chiave' | 'da_attribuire'
+export type Attribuzione = 'nota' | 'chiusura' | 'terminale' | 'parola_chiave' | 'da_attribuire'
 
 export const ATTRIBUZIONE_LABELS: Record<Attribuzione, string> = {
+  nota: 'Assegnato a mano (nota)',
   chiusura: 'Chiusura di cassa',
   terminale: 'Codice terminale',
   parola_chiave: 'Parola chiave versamento',
@@ -130,7 +134,17 @@ export function incassoKindOf(m: PnIncassoMovement): IncassoKind {
   if (c === 'amex') return 'amex'
   if (c === 'pos' || terminalCodeOf(m.description)) return 'pos'
   if (isDeposit(m.description)) return 'versamento'
+  if (/\bBON\.\s*(IST|SEPA)\b|BONIFICO/i.test(D(m.description))) return 'bonifico'
   return 'altro'
+}
+
+/** Outlet scritto a mano nella nota ("Outlet: BRB · …"), risolto per codice. */
+export function outletFromNote(note: string | null | undefined, lk: IncassiLookups): string | null {
+  const m = /^\s*Outlet:\s*([A-Za-z0-9_-]+)/i.exec(note ?? '')
+  if (!m) return null
+  const code = m[1].toUpperCase()
+  for (const [id, o] of lk.outlets) if ((o.code ?? '').toUpperCase() === code) return id
+  return null
 }
 
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -158,6 +172,13 @@ export function attribuisciIncasso(m: PnIncassoMovement, lk: IncassiLookups): In
   const code = terminalCodeOf(m.description)
   const ref_date = refDateOf(m.description)
   const active = lk.channels.filter(c => c.is_active)
+
+  // Assegnazione a mano nella nota: vince su tutto (è una scelta di una persona)
+  const manual = outletFromNote(m.note, lk)
+  if (manual) {
+    const channel = active.find(c => c.outlet_id === manual && c.kind === (kind === 'bonifico' ? 'bonifico' : kind === 'versamento' ? 'contanti' : kind === 'amex' ? 'pos_amex' : 'pos')) ?? null
+    return { kind, outlet_id: manual, channel, attribuzione: 'nota', terminal_code: code, ref_date }
+  }
 
   const matched = lk.closingMatches.get(m.id)
   if (matched) {
