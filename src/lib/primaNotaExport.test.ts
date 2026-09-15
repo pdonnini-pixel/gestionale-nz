@@ -117,9 +117,11 @@ describe('buildRow e riepilogo', () => {
   it('riga export: IBAN in chiaro, tipo movimento, conteggio e totale fatture', () => {
     const row = buildRow({
       ...mv({ amount: -466.95, description: 'Bonifico *DX SRL SALDO FATTURA 60828-65166', category: null, payables: [pay('60828', 'DX SRL', '11111111111', 155.65), pay('65166', 'DX SRL', '11111111111', 311.3)] }),
-      transaction_date: '2026-08-07', currency: null,
+      transaction_date: '2026-08-07', posting_date: '2026-08-08', currency: null,
       bank_accounts: { bank_name: 'BCC Valdarno', account_name: 'IT37H0845705463000000017334', iban: 'IT37H0845705463000000017334' },
     }, (d) => d)
+    expect(row['Data operazione']).toBe('2026-08-07')
+    expect(row['Data contabile']).toBe('2026-08-08')
     expect(row.IBAN).toBe('IT37H0845705463000000017334')
     expect(row['Tipo movimento']).toBe('Pagamento fornitore')
     expect(row['N. fatture']).toBe(2)

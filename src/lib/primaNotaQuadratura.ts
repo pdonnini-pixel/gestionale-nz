@@ -29,7 +29,8 @@
 export type PnTxSnapshot = {
   id: string
   bank_account_id: string | null
-  transaction_date: string
+  /** Data su cui si ragiona (operazione o contabile, la scelgono i filtri della pagina), YYYY-MM-DD. */
+  date: string
   amount: number
   description?: string | null
   /** raw_data.fetchedAt (ISO) */
@@ -38,26 +39,34 @@ export type PnTxSnapshot = {
   snapshot: number | null
 }
 
+/** Rettifica di un saldo allo scarico per portarlo alla data: movimenti da aggiungere e da togliere. */
+export type Rettifica = {
+  /** Datati entro la data ma arrivati DOPO lo scarico: non sono nel saldo della banca, si aggiungono. */
+  piu: PnTxSnapshot[]
+  /** Datati DOPO la data ma già nello scarico (es. data contabile nel mese dopo): sono nel saldo della banca, si tolgono. */
+  meno: PnTxSnapshot[]
+}
+
 export type QuadraturaConto = {
   bank_account_id: string
   /** Saldo letto dalla banca all'ultimo scarico prima del periodo (e quando). */
   saldo_scarico_iniziale: number | null
   scaricato_iniziale: string | null
-  /** Movimenti datati prima del periodo ma arrivati DOPO lo scarico iniziale: rettificano il saldo iniziale. */
-  rettifica_iniziale: PnTxSnapshot[]
-  /** Saldo al giorno prima del periodo (data operazione) = saldo allo scarico + rettifica. */
+  rettifica_iniziale: Rettifica
+  /** Saldo al giorno prima del periodo = saldo allo scarico + piu − meno. */
   saldo_iniziale: number | null
   /** Saldo letto dalla banca all'ultimo scarico entro la fine del periodo (e quando). */
   saldo_scarico_finale: number | null
   scaricato_finale: string | null
-  /** Movimenti datati nel periodo (o prima) ma arrivati DOPO lo scarico finale: rettificano il saldo finale. */
-  rettifica_finale: PnTxSnapshot[]
-  /** Saldo all'ultimo giorno del periodo (data operazione) = saldo allo scarico + rettifica. */
+  rettifica_finale: Rettifica
+  /** Saldo all'ultimo giorno del periodo = saldo allo scarico + piu − meno. */
   saldo_finale: number | null
+  /** Movimenti del periodo, in ordine di data (e id). */
+  movimenti: PnTxSnapshot[]
   n_movimenti: number
   entrate: number
   uscite: number
-  /** saldo iniziale + tutti i movimenti del periodo (per data operazione). */
+  /** saldo iniziale + tutti i movimenti del periodo. */
   saldo_finale_calcolato: number | null
   differenza: number | null
   stato: 'quadra' | 'non_quadra' | 'senza_saldi'
@@ -87,67 +96,92 @@ const latestWithSnapshot = (rows: PnTxSnapshot[]): PnTxSnapshot | null => {
 
 const sum = (rows: PnTxSnapshot[]): number => rows.reduce((s, r) => s + r.amount, 0)
 
+/** Giorno dopo (YYYY-MM-DD). */
+export const nextDay = (ymd: string): string => {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().slice(0, 10)
+}
+
 /**
- * Quadratura di un conto sul periodo, per DATA OPERAZIONE (dal primo all'ultimo
- * giorno del periodo), come la vuole lo studio.
+ * Saldo del conto a fine giornata D, ricavato da uno scarico della banca: il
+ * saldo allo scarico contiene tutto ciò che era stato scaricato fino a quel
+ * momento, qualunque data avesse. Per portarlo alla data D:
+ *   + movimenti datati ≤ D ma arrivati dopo lo scarico (non ancora nel saldo);
+ *   − movimenti datati > D ma già nello scarico (nel saldo, ma non di competenza).
+ */
+function saldoAllaData(rows: PnTxSnapshot[], snap: PnTxSnapshot | null, day: string): { saldo: number | null; rettifica: Rettifica } {
+  if (!snap || snap.snapshot == null || !snap.fetched_at) return { saldo: null, rettifica: { piu: [], meno: [] } }
+  const f = snap.fetched_at
+  const piu = rows.filter(r => r.date <= day && r.fetched_at && r.fetched_at > f)
+  const meno = rows.filter(r => r.date > day && (!r.fetched_at || r.fetched_at <= f))
+  return { saldo: r2(snap.snapshot + sum(piu) - sum(meno)), rettifica: { piu, meno } }
+}
+
+/**
+ * Quadratura di un conto sul periodo [periodStart, periodEnd] per la data
+ * scelta (operazione o contabile), come la vuole lo studio.
  *
  * Il saldo allo scarico è il saldo di quel momento, non del confine del mese:
- * se fra lo scarico e il confine la banca contabilizza altri movimenti con data
- * operazione dentro il mese, arrivano nello scarico dopo e il saldo va
- * rettificato. Saldo al giorno prima del periodo = saldo allo scarico iniziale +
- * movimenti datati prima del periodo arrivati dopo quello scarico. Saldo
- * all'ultimo giorno = saldo allo scarico finale + movimenti (del periodo o
- * precedenti) arrivati dopo quello scarico. La differenza resta la stessa della
- * quadratura «allo scarico»: la parte indipendente è sempre il confronto fra i
- * due saldi della banca e i movimenti scaricati fra i due.
+ * saldo iniziale = saldo dell'ultimo scarico prima del periodo portato al
+ * giorno prima; saldo finale = saldo dell'ultimo scarico entro la fine del
+ * periodo portato all'ultimo giorno (vedi saldoAllaData). La parte
+ * indipendente resta il confronto fra due saldi della banca e i movimenti
+ * scaricati fra i due: se quadra, l'export è completo.
  *
- * @param periodRows movimenti del conto datati nel periodo
- * @param preRows    movimenti del conto datati prima del periodo (finestra di qualche settimana)
- * @param periodStart primo istante del periodo (ISO): il saldo iniziale è l'ultimo scarico PRIMA di questo istante
- * @param periodEndExclusive primo istante dopo la fine del periodo (ISO), per scegliere lo scarico finale
+ * @param rows tutti i movimenti del conto in una finestra larga (qualche
+ *   settimana prima e dopo il periodo), con la data scelta in `date`
  */
-export function quadraturaConto(bank_account_id: string, periodRows: PnTxSnapshot[], preRows: PnTxSnapshot[], periodStart: string, periodEndExclusive: string): QuadraturaConto {
-  const ini = latestWithSnapshot(preRows.filter(r => r.fetched_at && r.fetched_at < periodStart))
-  const fin = latestWithSnapshot(periodRows.filter(r => !r.fetched_at || r.fetched_at < periodEndExclusive))
-  const fIni = ini?.fetched_at ?? null
-  const fFin = fin?.fetched_at ?? null
+export function quadraturaConto(bank_account_id: string, rows: PnTxSnapshot[], periodStart: string, periodEnd: string): QuadraturaConto {
+  const startInstant = `${periodStart}T00:00:00Z`
+  const endExclusive = `${nextDay(periodEnd)}T00:00:00Z`
+  const ini = latestWithSnapshot(rows.filter(r => r.fetched_at && r.fetched_at < startInstant))
+  const fin = latestWithSnapshot(rows.filter(r => r.fetched_at && r.fetched_at < endExclusive))
 
-  const rettifica_iniziale = fIni ? preRows.filter(r => r.fetched_at && r.fetched_at > fIni) : []
-  const rettifica_finale = fFin
-    ? [...periodRows.filter(r => r.fetched_at && r.fetched_at > fFin), ...preRows.filter(r => r.fetched_at && r.fetched_at > fFin)]
-    : []
+  const inizio = saldoAllaData(rows, ini, prevDay(periodStart))
+  const fine = saldoAllaData(rows, fin, periodEnd)
 
-  const entrate = r2(periodRows.filter(r => r.amount > 0).reduce((s, r) => s + r.amount, 0))
-  const uscite = r2(periodRows.filter(r => r.amount < 0).reduce((s, r) => s - r.amount, 0))
+  const movimenti = rows
+    .filter(r => r.date >= periodStart && r.date <= periodEnd)
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id))
+  const entrate = r2(movimenti.filter(r => r.amount > 0).reduce((s, r) => s + r.amount, 0))
+  const uscite = r2(movimenti.filter(r => r.amount < 0).reduce((s, r) => s - r.amount, 0))
 
-  const saldo_scarico_iniziale = ini?.snapshot ?? null
-  const saldo_scarico_finale = fin?.snapshot ?? null
-  const saldo_iniziale = saldo_scarico_iniziale == null ? null : r2(saldo_scarico_iniziale + sum(rettifica_iniziale))
-  const saldo_finale = saldo_scarico_finale == null ? null : r2(saldo_scarico_finale + sum(rettifica_finale))
-  const saldo_finale_calcolato = saldo_iniziale == null ? null : r2(saldo_iniziale + sum(periodRows))
-  const differenza = saldo_finale == null || saldo_finale_calcolato == null ? null : r2(saldo_finale - saldo_finale_calcolato)
+  const saldo_finale_calcolato = inizio.saldo == null ? null : r2(inizio.saldo + sum(movimenti))
+  const differenza = fine.saldo == null || saldo_finale_calcolato == null ? null : r2(fine.saldo - saldo_finale_calcolato)
   const stato: QuadraturaConto['stato'] = differenza == null ? 'senza_saldi' : Math.abs(differenza) < 0.005 ? 'quadra' : 'non_quadra'
 
   return {
     bank_account_id,
-    saldo_scarico_iniziale, scaricato_iniziale: fIni, rettifica_iniziale, saldo_iniziale,
-    saldo_scarico_finale, scaricato_finale: fFin, rettifica_finale, saldo_finale,
-    n_movimenti: periodRows.length, entrate, uscite, saldo_finale_calcolato, differenza, stato,
+    saldo_scarico_iniziale: ini?.snapshot ?? null, scaricato_iniziale: ini?.fetched_at ?? null, rettifica_iniziale: inizio.rettifica, saldo_iniziale: inizio.saldo,
+    saldo_scarico_finale: fin?.snapshot ?? null, scaricato_finale: fin?.fetched_at ?? null, rettifica_finale: fine.rettifica, saldo_finale: fine.saldo,
+    movimenti, n_movimenti: movimenti.length, entrate, uscite, saldo_finale_calcolato, differenza, stato,
   }
 }
 
+/** Giorno prima (YYYY-MM-DD). */
+export const prevDay = (ymd: string): string => {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
 /** Raggruppa per conto e quadra ogni conto. */
-export function quadraturaConti(periodRows: PnTxSnapshot[], preRows: PnTxSnapshot[], periodStart: string, periodEndExclusive: string): QuadraturaConto[] {
+export function quadraturaConti(rows: PnTxSnapshot[], periodStart: string, periodEnd: string): QuadraturaConto[] {
   const ids = new Set<string>()
-  for (const r of periodRows) if (r.bank_account_id) ids.add(r.bank_account_id)
-  for (const r of preRows) if (r.bank_account_id) ids.add(r.bank_account_id)
-  return Array.from(ids).map(id => quadraturaConto(
-    id,
-    periodRows.filter(r => r.bank_account_id === id),
-    preRows.filter(r => r.bank_account_id === id),
-    periodStart,
-    periodEndExclusive,
-  ))
+  for (const r of rows) if (r.bank_account_id) ids.add(r.bank_account_id)
+  return Array.from(ids).map(id => quadraturaConto(id, rows.filter(r => r.bank_account_id === id), periodStart, periodEnd))
+}
+
+/**
+ * Saldo progressivo dopo ogni movimento (nell'ordine dato), a partire dal
+ * saldo iniziale; null se il saldo iniziale non è noto. A fine giornata è
+ * esatto; l'ordine dentro la stessa giornata è quello dell'elenco.
+ */
+export function saldiProgressivi(movimenti: Array<{ amount: number }>, saldoIniziale: number | null): Array<number | null> {
+  if (saldoIniziale == null) return movimenti.map(() => null)
+  let s = saldoIniziale
+  return movimenti.map(m => { s = r2(s + m.amount); return s })
 }
 
 // --- Contante ---------------------------------------------------------------

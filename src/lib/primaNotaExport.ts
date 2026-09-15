@@ -183,7 +183,9 @@ export const invoicesTotalOf = (m: PnMovement): number | null =>
   m.payables.length > 0 ? Math.round(m.payables.reduce((s, p) => s + (Number(p.gross_amount) || 0), 0) * 100) / 100 : null
 
 export type PnRow = {
-  Data: string
+  'Data operazione': string
+  /** Data contabile della banca (raw_data.extra.postingDate); vuota se non fornita. */
+  'Data contabile': string
   'Conto Banca': string
   IBAN: string
   Tipo: 'Entrata' | 'Uscita'
@@ -201,13 +203,14 @@ export type PnRow = {
 export type PnBankAccount = { bank_name: string; account_name: string | null; iban: string | null } | null | undefined
 
 export function buildRow(
-  m: PnMovement & { transaction_date: string; currency: string | null; bank_accounts?: PnBankAccount },
+  m: PnMovement & { transaction_date: string; posting_date?: string | null; currency: string | null; bank_accounts?: PnBankAccount },
   fmtDate: (d: string) => string,
 ): PnRow {
   const n = invoiceCountOf(m)
   const tot = invoicesTotalOf(m)
   return {
-    Data: fmtDate(m.transaction_date),
+    'Data operazione': fmtDate(m.transaction_date),
+    'Data contabile': m.posting_date ? fmtDate(m.posting_date) : '',
     'Conto Banca': m.bank_accounts ? `${m.bank_accounts.bank_name}${m.bank_accounts.account_name ? ' — ' + m.bank_accounts.account_name : ''}` : '',
     IBAN: m.bank_accounts?.iban ?? '',
     Tipo: m.amount > 0 ? 'Entrata' : 'Uscita',
@@ -223,7 +226,7 @@ export function buildRow(
   }
 }
 
-export const PN_COLUMN_WIDTHS = [12, 30, 30, 9, 22, 12, 6, 35, 16, 8, 12, 60, 18]
+export const PN_COLUMN_WIDTHS = [14, 14, 30, 30, 9, 22, 12, 6, 35, 16, 8, 12, 60, 18]
 
 // Riepilogo per tipo di movimento (foglio «Riepilogo» dell'Excel e controllo a
 // video): quante righe e quanto importo per ciascun tipo, entrate e uscite.

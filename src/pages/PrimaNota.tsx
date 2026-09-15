@@ -49,7 +49,7 @@ import {
   type IncassiLookups, type IncassoKind, type Attribuzione,
 } from '../lib/primaNotaIncassi'
 import {
-  quadraturaConti, quadraturaContante, snapshotFromRaw,
+  quadraturaConti, quadraturaContante, saldiProgressivi, prevDay,
   type PnTxSnapshot, type PnClosingLite, type QuadraturaConto, type QuadraturaContante,
 } from '../lib/primaNotaQuadratura'
 import { useCompany } from '../hooks/useCompany'
@@ -73,11 +73,24 @@ type MovementRaw = {
   bank_account_id: string | null
   bank_accounts?: BankAccount | null
   suppliers?: Supplier | null
-  /** raw_data.fetchedAt e raw_data.extra.accountBalanceSnapshot (select con JSON path) */
+  /** raw_data.fetchedAt, raw_data.extra.accountBalanceSnapshot e raw_data.extra.postingDate (select con JSON path) */
   fetched_at?: string | null
   snapshot?: string | number | null
+  posting_date?: string | null
 }
 type Movement = MovementRaw & PnMovement
+/** Data su cui si ragiona: quella dell'operazione (A-Cube madeOn) o quella contabile della banca (postingDate, come sull'estratto conto). */
+type DateBasis = 'contabile' | 'operazione'
+type WinRow = { id: string; bank_account_id: string | null; transaction_date: string; posting_date: string | null; amount: number; fetched_at: string | null; snapshot: number | null }
+const addDays = (ymd: string, n: number): string => { const d = new Date(`${ymd}T00:00:00`); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` }
+/** Nome foglio Excel valido (max 31 caratteri, senza : \ / ? * [ ]) e unico. */
+const sheetName = (name: string, used: Set<string>): string => {
+  const base = name.replace(/[:\\/?*\[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 28) || 'Conto'
+  let n = base; let i = 2
+  while (used.has(n)) { n = `${base.slice(0, 25)} ${i}`; i += 1 }
+  used.add(n)
+  return n
+}
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
 type View = 'banca' | 'pagamenti' | 'incassi'
 
@@ -142,7 +155,8 @@ export default function PrimaNota() {
   const [month, setMonth] = useState<number | null>(today.getMonth() + 1)
   const [bankAccountId, setBankAccountId] = useState<string>('all')
   const [view, setView] = useState<View>('banca')
-  const [movements, setMovements] = useState<Movement[]>([])
+  const [rawMovements, setRawMovements] = useState<Movement[]>([])
+  const [dateBasis, setDateBasis] = useState<DateBasis>('contabile')
   const [pagamenti, setPagamenti] = useState<Pagamento[]>([])
   const [lookups, setLookups] = useState<PnLookups>({ bankAccounts: new Map(), bankTx: new Map(), categories: new Map(), outlets: new Map() })
   const [loadingPag, setLoadingPag] = useState(false)
@@ -152,8 +166,8 @@ export default function PrimaNota() {
   const [fonteFilter, setFonteFilter] = useState<PagamentoFonte[] | null>(null)
   // Incassi per outlet: dizionari (canali, outlet, abbinamenti chiusure) e filtro a clic per outlet
   const [incassiLk, setIncassiLk] = useState<IncassiLookups>({ channels: [], outlets: new Map(), closingMatches: new Map(), bankAccounts: new Map() })
-  // Quadratura: movimenti delle settimane prima del periodo (per il saldo iniziale della banca) e chiusure di cassa del periodo
-  const [preRows, setPreRows] = useState<PnTxSnapshot[]>([])
+  // Quadratura: movimenti di una finestra larga intorno al periodo (per i saldi della banca) e chiusure di cassa del periodo
+  const [winRaw, setWinRaw] = useState<WinRow[]>([])
   const [closings, setClosings] = useState<PnClosingLite[]>([])
   const [outletFilter, setOutletFilter] = useState<string | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
@@ -161,6 +175,20 @@ export default function PrimaNota() {
   const [error, setError] = useState<string | null>(null)
 
   const companyId = company?.id
+  const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
+  // Ultimo giorno del mese in LOCALE (lastDayOfMonthYMD): `.toISOString()` lo spostava a UTC.
+  const dateEnd = month ? lastDayOfMonthYMD(year, month) : `${year}-12-31`
+  const basisDate = useCallback((m: { transaction_date: string; posting_date?: string | null }) =>
+    (dateBasis === 'contabile' && m.posting_date ? m.posting_date : m.transaction_date), [dateBasis])
+  // I movimenti del periodo secondo la data scelta: si scarica una finestra di
+  // ±15 giorni per data operazione e si filtra qui, così cambiare base non
+  // richiede un nuovo scarico. Ordine: conto, data, id (stabile).
+  const movements = useMemo<Movement[]>(
+    () => rawMovements
+      .filter(m => { const d = basisDate(m); return d >= dateStart && d <= dateEnd })
+      .sort((a, b) => (a.bank_accounts?.bank_name ?? '').localeCompare(b.bank_accounts?.bank_name ?? '', 'it') || basisDate(a).localeCompare(basisDate(b)) || a.id.localeCompare(b.id)),
+    [rawMovements, basisDate, dateStart, dateEnd],
+  )
 
   const loadBankAccounts = useCallback(async () => {
     if (!companyId) return
@@ -176,12 +204,11 @@ export default function PrimaNota() {
     if (!companyId) return
     setLoading(true); setError(null)
     try {
-      const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
-      // Ultimo giorno del mese in LOCALE: prima `.toISOString()` lo spostava a UTC,
-      // escludendo l'ultimo giorno del mese dai movimenti (bug fuso orario).
-      const dateEnd = month
-        ? lastDayOfMonthYMD(year, month)
-        : `${year}-12-31`
+      // Finestra di ±15 giorni per data operazione: la data contabile della banca
+      // può cadere qualche giorno dopo (fino a 7 visti finora), il filtro per
+      // data scelta è lato client.
+      const winStart = addDays(dateStart, -15)
+      const winEnd = addDays(dateEnd, 15)
 
       // Paginato: prima un `.limit(5000)` troncava SILENZIOSAMENTE l'estratto (su piu'
       // conti "Tutto l'anno" e' realistico superare 5.000 movimenti): KPI ed export
@@ -195,13 +222,13 @@ export default function PrimaNota() {
             .select(`
               id, transaction_date, amount, currency, description, reference, category,
               counterpart, counterpart_name, merchant_name, supplier_id, bank_account_id,
-              fetched_at:raw_data->>fetchedAt, snapshot:raw_data->extra->>accountBalanceSnapshot,
+              fetched_at:raw_data->>fetchedAt, snapshot:raw_data->extra->>accountBalanceSnapshot, posting_date:raw_data->extra->>postingDate,
               bank_accounts!inner(id, bank_name, account_name, iban),
               suppliers(id, ragione_sociale, name, partita_iva)
             `)
             .eq('company_id', companyId)
-            .gte('transaction_date', dateStart)
-            .lte('transaction_date', dateEnd)
+            .gte('transaction_date', winStart)
+            .lte('transaction_date', winEnd)
             .order('transaction_date', { ascending: true })
             .order('id', { ascending: true })
           if (bankAccountId !== 'all') q = q.eq('bank_account_id', bankAccountId)
@@ -242,7 +269,7 @@ export default function PrimaNota() {
           fdMap.set(f.bank_transaction_id, list)
         }
       }
-      setMovements(baseMovs.map(m => ({
+      setRawMovements(baseMovs.map(m => ({
         ...m,
         supplier: m.suppliers ? { name: m.suppliers.ragione_sociale ?? m.suppliers.name, partita_iva: m.suppliers.partita_iva } : null,
         payables: payMap.get(m.id) ?? [],
@@ -258,7 +285,7 @@ export default function PrimaNota() {
     } finally {
       setLoading(false)
     }
-  }, [companyId, year, month, bankAccountId])
+  }, [companyId, dateStart, dateEnd, bankAccountId])
 
   // Fatture pagate nel periodo (passo B): payables per payment_date, con i
   // dizionari per conto, movimento riscontrato, categoria e outlet. Il filtro
@@ -347,27 +374,22 @@ export default function PrimaNota() {
     }
   }, [companyId])
 
-  // Dati per la quadratura: i movimenti dei 45 giorni prima del periodo (solo
-  // data, importo, scarico e saldo allo scarico) danno il saldo iniziale della
-  // banca; le chiusure di cassa del periodo, con la somma delle righe
-  // «Contanti», danno il lato cassa del contante.
+  // Dati per la quadratura: i movimenti di una finestra larga (45 giorni prima,
+  // 15 dopo) con solo data, importo, scarico e saldo allo scarico, per ricavare
+  // i saldi della banca ai confini del periodo; le chiusure di cassa del
+  // periodo, con la somma delle righe «Contanti», per il lato cassa.
   const loadQuadraturaData = useCallback(async () => {
     if (!companyId) return
     try {
-      const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
-      const dateEnd = month ? lastDayOfMonthYMD(year, month) : `${year}-12-31`
-      const pre = new Date(`${dateStart}T00:00:00`)
-      pre.setDate(pre.getDate() - 45)
-      const preStart = `${pre.getFullYear()}-${String(pre.getMonth() + 1).padStart(2, '0')}-${String(pre.getDate()).padStart(2, '0')}`
-      let preQ = supabase
+      let winQ = supabase
         .from('bank_transactions')
-        .select('id, bank_account_id, transaction_date, amount, fetched_at:raw_data->>fetchedAt, snapshot:raw_data->extra->>accountBalanceSnapshot')
+        .select('id, bank_account_id, transaction_date, amount, fetched_at:raw_data->>fetchedAt, snapshot:raw_data->extra->>accountBalanceSnapshot, posting_date:raw_data->extra->>postingDate')
         .eq('company_id', companyId)
-        .gte('transaction_date', preStart)
-        .lt('transaction_date', dateStart)
-      if (bankAccountId !== 'all') preQ = preQ.eq('bank_account_id', bankAccountId)
+        .gte('transaction_date', addDays(dateStart, -45))
+        .lte('transaction_date', addDays(dateEnd, 15))
+      if (bankAccountId !== 'all') winQ = winQ.eq('bank_account_id', bankAccountId)
       const [preRes, clRes] = await Promise.all([
-        preQ.limit(5000),
+        winQ.limit(10000),
         supabase
           .from('outlet_daily_closings')
           .select('id, outlet_id, closing_date, status, cash_deposit, deposit_bank_amount, deposit_bank_status, cash_expenses, customer_refunds, cash_float_opening, cash_pending_opening, cash_float_declared, cash_pending_declared')
@@ -377,9 +399,9 @@ export default function PrimaNota() {
           .neq('status', 'bozza')
           .limit(5000),
       ])
-      type PreRow = { id: string; bank_account_id: string | null; transaction_date: string; amount: number; fetched_at: string | null; snapshot: string | number | null }
-      setPreRows(((preRes.data ?? []) as unknown as PreRow[]).map(r => ({
-        id: r.id, bank_account_id: r.bank_account_id, transaction_date: r.transaction_date, amount: Number(r.amount),
+      type PreRow = { id: string; bank_account_id: string | null; transaction_date: string; posting_date: string | null; amount: number; fetched_at: string | null; snapshot: string | number | null }
+      setWinRaw(((preRes.data ?? []) as unknown as PreRow[]).map(r => ({
+        id: r.id, bank_account_id: r.bank_account_id, transaction_date: r.transaction_date, posting_date: r.posting_date || null, amount: Number(r.amount),
         fetched_at: r.fetched_at, snapshot: r.snapshot == null || r.snapshot === '' ? null : Number(r.snapshot),
       })))
       const cls = clRes.data ?? []
@@ -404,9 +426,9 @@ export default function PrimaNota() {
       })))
     } catch (e) {
       console.error('[PrimaNota] quadratura:', e)
-      setPreRows([]); setClosings([])
+      setWinRaw([]); setClosings([])
     }
-  }, [companyId, year, month, bankAccountId])
+  }, [companyId, dateStart, dateEnd, bankAccountId])
 
   useEffect(() => { loadBankAccounts() }, [loadBankAccounts])
   useEffect(() => { loadQuadraturaData() }, [loadQuadraturaData])
@@ -475,17 +497,19 @@ export default function PrimaNota() {
 
   // Quadratura con l'estratto conto, per conto, e del contante
   const quadratura = useMemo<QuadraturaConto[]>(() => {
-    const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
-    const endExclusive = month
-      ? (month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`)
-      : `${year + 1}-01-01`
-    const periodRows: PnTxSnapshot[] = movements.map(m => ({
-      id: m.id, bank_account_id: m.bank_account_id, transaction_date: m.transaction_date, amount: Number(m.amount), description: m.description,
-      fetched_at: m.fetched_at ?? null, snapshot: m.snapshot == null || m.snapshot === '' ? null : Number(m.snapshot),
-    }))
-    return quadraturaConti(periodRows, preRows, `${dateStart}T00:00:00Z`, `${endExclusive}T00:00:00Z`)
+    const rows: PnTxSnapshot[] = winRaw.map(r => ({ id: r.id, bank_account_id: r.bank_account_id, date: basisDate(r), amount: r.amount, fetched_at: r.fetched_at, snapshot: r.snapshot }))
+    return quadraturaConti(rows, dateStart, dateEnd)
       .sort((a, b) => (bankAccounts.find(x => x.id === a.bank_account_id)?.bank_name ?? '').localeCompare(bankAccounts.find(x => x.id === b.bank_account_id)?.bank_name ?? '', 'it'))
-  }, [movements, preRows, year, month, bankAccounts])
+  }, [winRaw, basisDate, dateStart, dateEnd, bankAccounts])
+  // Saldo progressivo dopo ogni movimento, per conto, dal saldo iniziale alla data (null se la banca non l'ha fornito)
+  const saldoById = useMemo(() => {
+    const map = new Map<string, number | null>()
+    for (const q of quadratura) {
+      const saldi = saldiProgressivi(q.movimenti, q.saldo_iniziale)
+      q.movimenti.forEach((m, i) => map.set(m.id, saldi[i]))
+    }
+    return map
+  }, [quadratura])
   const quadContante = useMemo<QuadraturaContante>(
     () => quadraturaContante(movements.map(m => ({ amount: Number(m.amount), description: m.description, isVersamento: classifyMovement(m) === 'versamento' })), closings),
     [movements, closings],
@@ -493,16 +517,13 @@ export default function PrimaNota() {
   const accountName = (id: string) => bankAccounts.find(b => b.id === id)?.bank_name ?? '—'
   const fmtDateTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
   // Confini del periodo per data operazione: il saldo iniziale è al giorno prima, quello finale all'ultimo giorno
-  const quadPeriodo = useMemo(() => {
-    const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
-    const dateEnd = month ? lastDayOfMonthYMD(year, month) : `${year}-12-31`
-    const prima = new Date(`${dateStart}T00:00:00`); prima.setDate(prima.getDate() - 1)
-    return { giornoPrima: prima.toLocaleDateString('it-IT'), ultimoGiorno: fmtDate(dateEnd) }
-  }, [year, month])
+  const quadPeriodo = useMemo(() => ({ giornoPrima: fmtDate(prevDay(dateStart)), ultimoGiorno: fmtDate(dateEnd) }), [dateStart, dateEnd])
   const sumRows = (rows: PnTxSnapshot[]) => rows.reduce((s, r) => s + r.amount, 0)
+  const rettificaLabel = (r: { piu: PnTxSnapshot[]; meno: PnTxSnapshot[] }) =>
+    [r.piu.length ? `+ ${r.piu.length} mov. arrivati dopo lo scarico (${fmt(sumRows(r.piu))})` : '', r.meno.length ? `− ${r.meno.length} mov. già nello scarico ma datati dopo (${fmt(sumRows(r.meno))})` : ''].filter(Boolean).join('; ')
 
   // Righe formato Prima Nota standardizzato (una per movimento, fatture in causale)
-  const rows = useMemo(() => movements.map(m => buildRow(m, fmtDate)), [movements])
+  const rows = useMemo(() => movements.map(m => ({ ...buildRow(m, fmtDate), 'Saldo progressivo': saldoById.get(m.id) ?? '' })), [movements, saldoById])
 
   const exportCsv = () => {
     const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : incassiRows
@@ -529,10 +550,39 @@ export default function PrimaNota() {
     if (rows.length === 0) return
     // xlsx caricata on-demand: ~140KB gzip che non devono pesare sull'apertura pagina
     const XLSX = await import('xlsx')
-    const ws = XLSX.utils.json_to_sheet(rows)
-    ws['!cols'] = PN_COLUMN_WIDTHS.map(wch => ({ wch }))
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Prima Nota')
+    const periodoLabel = month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`
+    // Un foglio per conto, come un estratto conto: saldo iniziale, movimenti con
+    // saldo progressivo, saldo finale calcolato e della banca, differenza.
+    const used = new Set<string>(['Tutti i movimenti', 'Pagamenti fornitori', 'Incassi per outlet', 'Riepilogo'])
+    for (const q of quadratura) {
+      const acc = bankAccounts.find(b => b.id === q.bank_account_id)
+      const ms = movements.filter(m => m.bank_account_id === q.bank_account_id)
+      if (ms.length === 0 && q.saldo_iniziale == null) continue
+      const aoa: Array<Array<string | number>> = [
+        ['Estratto conto', acc?.bank_name ?? '—'],
+        ['IBAN', acc?.iban ?? ''],
+        ['Periodo', `${periodoLabel} (dal ${fmtDate(dateStart)} al ${fmtDate(dateEnd)}, per ${dateBasis === 'contabile' ? 'data contabile' : 'data operazione'})`],
+        [],
+        ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo'],
+        [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''],
+        ...ms.map(m => {
+          const r = buildRow(m, fmtDate)
+          return [r['Data operazione'], r['Data contabile'], r['Tipo movimento'], r.Contropartita, r['P.IVA Contropartita'], r['N. fatture'], r.Causale, r.Categoria,
+            m.amount > 0 ? Math.round(m.amount * 100) / 100 : '', m.amount < 0 ? Math.round(-m.amount * 100) / 100 : '', saldoById.get(m.id) ?? ''] as Array<string | number>
+        }),
+        [`Saldo finale al ${quadPeriodo.ultimoGiorno} (calcolato)`, `${ms.length} movimenti`, '', '', '', '', '', '', q.entrate, q.uscite, q.saldo_finale_calcolato ?? ''],
+        [`Saldo finale al ${quadPeriodo.ultimoGiorno} (banca)`, q.saldo_scarico_finale != null ? `banca al ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${rettificaLabel(q.rettifica_finale) ? ' ' + rettificaLabel(q.rettifica_finale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_finale ?? ''],
+        ['Differenza', q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili', '', '', '', '', '', '', '', '', q.differenza ?? ''],
+      ]
+      const wsAcc = XLSX.utils.aoa_to_sheet(aoa)
+      wsAcc['!cols'] = [30, 14, 22, 35, 16, 8, 60, 18, 14, 14, 14].map(wch => ({ wch }))
+      XLSX.utils.book_append_sheet(wb, wsAcc, sheetName(acc?.bank_name ?? 'Conto', used))
+    }
+    // Tutti i movimenti in un foglio piatto (per filtri e pivot), con IBAN in chiaro e saldo progressivo
+    const ws = XLSX.utils.json_to_sheet(rows.length > 0 ? rows : [{ Nota: 'Nessun movimento nel periodo' }])
+    ws['!cols'] = [...PN_COLUMN_WIDTHS, 14].map(wch => ({ wch }))
+    XLSX.utils.book_append_sheet(wb, ws, 'Tutti i movimenti')
     // Foglio Pagamenti fornitori: una riga per fattura pagata nel periodo
     const wsPag = XLSX.utils.json_to_sheet(pagRows.length > 0 ? pagRows : [{ Nota: 'Nessuna fattura pagata nel periodo' }])
     wsPag['!cols'] = PAGAMENTI_COLUMN_WIDTHS.map(wch => ({ wch }))
@@ -543,7 +593,7 @@ export default function PrimaNota() {
     XLSX.utils.book_append_sheet(wb, wsInc, 'Incassi per outlet')
     // Sheet riepilogo: totali del periodo + righe e importi per tipo di movimento
     const summaryData: Array<Array<string | number>> = [
-      ['Periodo', month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`],
+      ['Periodo', `${periodoLabel} (per ${dateBasis === 'contabile' ? 'data contabile' : 'data operazione'})`],
       ['Conto', bankAccountId === 'all' ? 'Tutti i conti' : bankAccounts.find(b => b.id === bankAccountId)?.bank_name ?? '—'],
       ['Movimenti', totals.count],
       ['Totale Dare (entrate)', totals.dare],
@@ -565,9 +615,9 @@ export default function PrimaNota() {
       ['Quadratura con l\'estratto conto', `Saldo al ${quadPeriodo.giornoPrima}`, 'di cui letto dalla banca il', 'Entrate', 'Uscite', `Saldo al ${quadPeriodo.ultimoGiorno} calcolato`, `Saldo al ${quadPeriodo.ultimoGiorno} (banca)`, 'di cui letto dalla banca il', 'Differenza', 'Esito'],
       ...quadratura.map(q => [
         accountName(q.bank_account_id), q.saldo_iniziale ?? '',
-        q.saldo_scarico_iniziale != null ? `${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${q.rettifica_iniziale.length ? ` + ${q.rettifica_iniziale.length} mov. arrivati dopo (${fmt(sumRows(q.rettifica_iniziale))})` : ''}` : 'n.d.',
+        q.saldo_scarico_iniziale != null ? `${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)} ${rettificaLabel(q.rettifica_iniziale)}`.trim() : 'n.d.',
         q.entrate, q.uscite, q.saldo_finale_calcolato ?? '', q.saldo_finale ?? '',
-        q.saldo_scarico_finale != null ? `${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${q.rettifica_finale.length ? ` + ${q.rettifica_finale.length} mov. arrivati dopo (${fmt(sumRows(q.rettifica_finale))})` : ''}` : 'n.d.',
+        q.saldo_scarico_finale != null ? `${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)} ${rettificaLabel(q.rettifica_finale)}`.trim() : 'n.d.',
         q.differenza ?? '',
         q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili',
       ]),
@@ -638,6 +688,14 @@ export default function PrimaNota() {
                 {b.bank_name}{b.account_name ? ` — ${b.account_name}` : ''}{b.iban ? ` (***${b.iban.slice(-6)})` : ''}
               </option>
             ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-xs text-slate-600">Periodo per</span>
+          <select value={dateBasis} onChange={e => setDateBasis(e.target.value as DateBasis)} title="Data contabile: quella stampata dalla banca sull'estratto conto. Data operazione: quella in cui è avvenuto il movimento."
+            className="mt-1 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white">
+            <option value="contabile">Data contabile (banca)</option>
+            <option value="operazione">Data operazione</option>
           </select>
         </label>
         <button onClick={loadMovements} disabled={loading} title="Aggiorna"
@@ -741,8 +799,8 @@ export default function PrimaNota() {
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {q.saldo_iniziale != null ? fmt(q.saldo_iniziale) : <span className="text-slate-400">n.d.</span>}
                       {q.saldo_scarico_iniziale != null && (
-                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${q.rettifica_iniziale.length ? `. Più ${q.rettifica_iniziale.length} movimenti datati prima del periodo ma arrivati dopo quello scarico (${fmt(sumRows(q.rettifica_iniziale))}).` : '. Nessun movimento arrivato dopo.'}`}>
-                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_iniziale)}{q.rettifica_iniziale.length > 0 && ` + ${q.rettifica_iniziale.length} arrivati dopo`}</span>
+                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}. ${rettificaLabel(q.rettifica_iniziale) || 'Nessuna rettifica.'}`}>
+                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_iniziale)}{(q.rettifica_iniziale.piu.length + q.rettifica_iniziale.meno.length) > 0 && ` · ${q.rettifica_iniziale.piu.length + q.rettifica_iniziale.meno.length} rettifiche`}</span>
                         </Tooltip>
                       )}
                     </td>
@@ -755,8 +813,8 @@ export default function PrimaNota() {
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {q.saldo_finale != null ? fmt(q.saldo_finale) : <span className="text-slate-400">n.d.</span>}
                       {q.saldo_scarico_finale != null && (
-                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${q.rettifica_finale.length ? `. Più ${q.rettifica_finale.length} movimenti con data operazione entro il ${quadPeriodo.ultimoGiorno} ma arrivati dopo quello scarico (${fmt(sumRows(q.rettifica_finale))}).` : '. Nessun movimento arrivato dopo.'}`}>
-                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_finale)}{q.rettifica_finale.length > 0 && ` + ${q.rettifica_finale.length} arrivati dopo`}</span>
+                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}. ${rettificaLabel(q.rettifica_finale) || 'Nessuna rettifica.'}`}>
+                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_finale)}{(q.rettifica_finale.piu.length + q.rettifica_finale.meno.length) > 0 && ` · ${q.rettifica_finale.piu.length + q.rettifica_finale.meno.length} rettifiche`}</span>
                         </Tooltip>
                       )}
                     </td>
@@ -1115,7 +1173,7 @@ export default function PrimaNota() {
           <div key={m.id} className="bg-white rounded-xl border border-slate-200 p-3">
             <div className="flex items-center justify-between gap-2">
               <div className="text-xs text-slate-500">
-                {fmtDate(m.transaction_date)}
+                {fmtDate(basisDate(m))}{m.posting_date && m.posting_date !== m.transaction_date && <span className="text-slate-400"> (op. {fmtDate(m.transaction_date)}, cont. {fmtDate(m.posting_date)})</span>}
                 <span className="mx-1 text-slate-300">·</span>
                 {m.bank_accounts?.bank_name ?? '—'}
                 {m.bank_accounts?.iban && <span className="text-slate-400"> ***{m.bank_accounts.iban.slice(-6)}</span>}
@@ -1124,6 +1182,7 @@ export default function PrimaNota() {
             </div>
             <div className={`text-lg font-bold mt-1 ${m.amount > 0 ? 'text-emerald-700' : 'text-red-700'}`}>
               € {fmt(Math.abs(m.amount))}
+              {!kindFilter && saldoById.get(m.id) != null && <span className="ml-2 text-xs font-normal text-slate-400">saldo {fmt(saldoById.get(m.id) as number)}</span>}
             </div>
             <div className="text-sm font-medium text-slate-800 mt-0.5 break-words">{counterpartOf(m) || '—'}</div>
             {causaleOf(m) && (
@@ -1150,10 +1209,11 @@ export default function PrimaNota() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
               <tr>
-                <th className="px-3 py-2 text-left">Data</th>
+                <th className="px-3 py-2 text-left">{dateBasis === 'contabile' ? 'Data contabile' : 'Data operazione'}</th>
                 <th className="px-3 py-2 text-left">Conto Banca</th>
                 <th className="px-3 py-2 text-center">Tipo movimento</th>
                 <th className="px-3 py-2 text-right">Importo</th>
+                <th className="px-3 py-2 text-right">Saldo</th>
                 <th className="px-3 py-2 text-left">Contropartita</th>
                 <th className="px-3 py-2 text-left">P.IVA</th>
                 <th className="px-3 py-2 text-right">Fatt.</th>
@@ -1163,19 +1223,55 @@ export default function PrimaNota() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">
                   <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
                 </td></tr>
               ) : movementsShown.length === 0 ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">
                   {kindFilter ? 'Nessun movimento con questo filtro' : 'Nessun movimento nel periodo selezionato'}
                 </td></tr>
-              ) : movementsShown.map(m => {
+              ) : quadratura.filter(q => movementsShown.some(m => m.bank_account_id === q.bank_account_id)).flatMap(q => {
+                // Estratto conto per conto: riga di apertura, movimenti con saldo progressivo, riga di chiusura.
+                // Con un filtro per tipo attivo l'elenco è parziale: niente saldi, solo le righe.
+                const ms = movementsShown.filter(m => m.bank_account_id === q.bank_account_id)
+                const open = !kindFilter ? [(
+                  <tr key={`open-${q.bank_account_id}`} className="border-t-2 border-slate-200 bg-slate-50/80">
+                    <td colSpan={4} className="px-3 py-2 font-semibold text-slate-800">{accountName(q.bank_account_id)} · saldo iniziale al {quadPeriodo.giornoPrima}</td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap">{q.saldo_iniziale != null ? fmt(q.saldo_iniziale) : <span className="text-slate-400 font-normal">n.d.</span>}</td>
+                    <td colSpan={5} className="px-3 py-2 text-xs text-slate-400">{q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' · ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'la banca non ha fornito il saldo per questo periodo'}</td>
+                  </tr>
+                )] : [(
+                  <tr key={`open-${q.bank_account_id}`} className="border-t-2 border-slate-200 bg-slate-50/80">
+                    <td colSpan={10} className="px-3 py-2 font-semibold text-slate-800">{accountName(q.bank_account_id)} <span className="font-normal text-slate-400">· {ms.length} movimenti con il filtro attivo</span></td>
+                  </tr>
+                )]
+                const close = !kindFilter ? [(
+                  <tr key={`close-${q.bank_account_id}`} className={`border-t border-slate-200 ${q.stato === 'non_quadra' ? 'bg-red-50' : 'bg-slate-50/80'}`}>
+                    <td colSpan={4} className="px-3 py-2 font-semibold text-slate-800">
+                      Saldo finale al {quadPeriodo.ultimoGiorno}
+                      <span className="font-normal text-slate-500"> · {ms.length} movimenti, entrate +{fmt(q.entrate)}, uscite −{fmt(q.uscite)}</span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap">{q.saldo_finale_calcolato != null ? fmt(q.saldo_finale_calcolato) : <span className="text-slate-400 font-normal">n.d.</span>}</td>
+                    <td colSpan={5} className="px-3 py-2 text-xs">
+                      {q.saldo_finale != null ? (<>
+                        <span className="text-slate-600">banca: <strong className="tabular-nums">{fmt(q.saldo_finale)}</strong></span>
+                        <span className="text-slate-400"> (al {fmtDateTime(q.scaricato_finale)}: {fmt(q.saldo_scarico_finale ?? 0)}{rettificaLabel(q.rettifica_finale) ? ' · ' + rettificaLabel(q.rettifica_finale) : ''})</span>
+                        {q.stato === 'quadra' && <span className="ml-2 inline-block px-2 py-0.5 rounded font-medium bg-emerald-100 text-emerald-700">quadra</span>}
+                        {q.stato === 'non_quadra' && <span className="ml-2 inline-block px-2 py-0.5 rounded font-medium bg-red-100 text-red-700">differenza {fmt(q.differenza ?? 0)}</span>}
+                      </>) : <span className="text-slate-400">saldo banca non disponibile</span>}
+                    </td>
+                  </tr>
+                )] : []
+                return [...open, ...ms.map(m => {
                 const nFatt = invoiceCountOf(m)
                 const totFatt = invoicesTotalOf(m)
+                const saldo = kindFilter ? null : saldoById.get(m.id)
                 return (
                 <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50/50">
-                  <td className="px-3 py-2 text-slate-700">{fmtDate(m.transaction_date)}</td>
+                  <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                    {fmtDate(basisDate(m))}
+                    {m.posting_date && m.posting_date !== m.transaction_date && <span className="block text-xs text-slate-400">{dateBasis === 'contabile' ? `op. ${fmtDate(m.transaction_date)}` : `cont. ${fmtDate(m.posting_date)}`}</span>}
+                  </td>
                   <td className="px-3 py-2 text-slate-600 text-xs">
                     <Tooltip content={`${m.bank_accounts?.bank_name ?? ''}${m.bank_accounts?.account_name ? ' — ' + m.bank_accounts.account_name : ''}${m.bank_accounts?.iban ? ' · ' + m.bank_accounts.iban : ''}`}>
                       <div>
@@ -1188,6 +1284,7 @@ export default function PrimaNota() {
                   <td className={`px-3 py-2 text-right font-semibold whitespace-nowrap ${m.amount > 0 ? 'text-emerald-700' : 'text-red-700'}`}>
                     {m.amount > 0 ? '+' : '−'} € {fmt(Math.abs(m.amount))}
                   </td>
+                  <td className="px-3 py-2 text-right text-slate-600 tabular-nums whitespace-nowrap text-xs">{saldo != null ? fmt(saldo) : '—'}</td>
                   <td className="px-3 py-2 text-slate-700 max-w-[200px]">
                     <Tooltip content={counterpartOf(m)}>
                       <div className="truncate cursor-help">{counterpartOf(m) || '—'}</div>
@@ -1213,6 +1310,7 @@ export default function PrimaNota() {
                   </td>
                 </tr>
                 )
+                }), ...close]
               })}
             </tbody>
           </table>
