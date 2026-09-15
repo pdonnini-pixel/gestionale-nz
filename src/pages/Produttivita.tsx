@@ -19,6 +19,10 @@ import {
   headcountCountByOutlet, lastGranitedPeriod, periodLabel,
   type HeadcountCost, type HeadcountEmployee, type HeadcountAllocation,
 } from '../lib/headcount';
+import {
+  getOutletLifecycle, isOutletOpenInPeriod, outletLifecycleCaption, safeRatio, safePct,
+  OUTLET_LIFECYCLE_STYLE, type OutletLifecycleFields,
+} from '../lib/outletLifecycle';
 
 function fmt(n: number | null | undefined, dec = 0): string {
   // null/undefined/NaN → 'N/D' cosi' non compaiono 'NaN €' nella UI e la
@@ -26,6 +30,35 @@ function fmt(n: number | null | undefined, dec = 0): string {
   // dato dipendenti).
   if (n == null || (typeof n === 'number' && !isFinite(n))) return 'N/D';
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
+}
+
+// Incidenza personale: null (ricavi 0) -> 'N/D' e badge neutro, mai 0%.
+function incidenzaBadge(v: number | null): string {
+  if (v == null) return 'bg-slate-100 text-slate-500';
+  if (v < 20) return 'bg-green-100 text-green-800';
+  if (v < 35) return 'bg-amber-100 text-amber-800';
+  return 'bg-red-100 text-red-800';
+}
+function fmtIncidenza(v: number | null): string {
+  return v == null ? 'N/D' : `${v.toFixed(1)}%`;
+}
+
+// Outlet «in apertura» per questa pagina: oggi non ha ancora aperto, oppure
+// nell'anno selezionato non era ancora aperto. I suoi costi restano visibili,
+// ma ROI/incidenza sono N/D e non entra in classifica, medie e raccomandazioni.
+function isInApertura(o: OutletLifecycleFields | undefined, year: number): boolean {
+  if (!o) return false;
+  const oggi = getOutletLifecycle(o);
+  return oggi === 'programmato' || (oggi !== 'chiuso' && !isOutletOpenInPeriod(o, year));
+}
+function aperturaCaption(o: OutletLifecycleFields, year: number): string {
+  return outletLifecycleCaption(o, getOutletLifecycle(o) === 'programmato' ? new Date() : new Date(year, 0, 1));
+}
+function AperturaBadge({ caption }: { caption: string | null }) {
+  if (!caption) return null;
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>{caption}</span>
+  );
 }
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
@@ -58,6 +91,9 @@ export default function Produttivita() {
   const [outletSet, setOutletSet] = useState<Set<string>>(new Set());
   // cost_center del budget -> nome outlet usato dalle allocazioni del personale.
   const [outletNameByCostCenter, setOutletNameByCostCenter] = useState<Record<string, string>>({});
+  // Date di apertura/chiusura per cost_center (stesse chiavi del ponte sopra),
+  // per riconoscere gli outlet «in apertura» (src/lib/outletLifecycle.ts).
+  const [outletAnagByCostCenter, setOutletAnagByCostCenter] = useState<Record<string, OutletLifecycleFields>>({});
   const [simulazioneAttiva, setSimulazioneAttiva] = useState(false);
   const [moved, setMoved] = useState<{ from: string | null; to: string | null; count: number }>({ from: null, to: null, count: 1 });
 
@@ -117,7 +153,7 @@ export default function Produttivita() {
         // per legare il centro di costo del budget al nome usato dalle allocazioni.
         let outletsQuery = supabase
           .from('outlets')
-          .select('id, code, name, cost_center_key');
+          .select('id, code, name, cost_center_key, opening_date, closing_date, is_active');
         if (companyId) outletsQuery = outletsQuery.eq('company_id', companyId);
 
         const [empRes, allocRes, outletsRes, costsRes, coaRes] = await Promise.all([
@@ -152,22 +188,25 @@ export default function Produttivita() {
 
         // Set dei cost_center che sono outlet reali + ponte cost_center -> nome outlet
         if (!outletsRes.error && outletsRes.data) {
-          const rows = outletsRes.data as unknown as { code?: string | null; name?: string | null; cost_center_key?: string | null }[];
+          const rows = outletsRes.data as unknown as { code?: string | null; name?: string | null; cost_center_key?: string | null; opening_date?: string | null; closing_date?: string | null; is_active?: boolean | null }[];
           setOutletSet(buildOutletCostCenterSet(rows as { code?: string; name?: string }[]));
           // budget_entries.cost_center è 'valdichiana' o 'sede_magazzino', le
           // allocazioni usano il NOME ('VALDICHIANA', 'SEDE / MAGAZZINO'): senza
           // questo ponte il conteggio dipendenti non trovava mai l'outlet e la
           // pagina mostrava N/D ovunque.
           const bridge: Record<string, string> = {};
+          const anag: Record<string, OutletLifecycleFields> = {};
           rows.forEach(o => {
             const name = (o.name || '').trim();
             if (!name) return;
+            const fields: OutletLifecycleFields = { opening_date: o.opening_date ?? null, closing_date: o.closing_date ?? null, is_active: o.is_active ?? true };
             [o.cost_center_key, o.code, o.name].forEach(k => {
               const key = (k || '').trim().toLowerCase();
-              if (key) bridge[key] = name;
+              if (key) { bridge[key] = name; anag[key] = fields; }
             });
           });
           setOutletNameByCostCenter(bridge);
+          setOutletAnagByCostCenter(anag);
         }
       } catch (err: unknown) {
         console.error('[Produttivita] fetch error:', err);
@@ -203,7 +242,7 @@ export default function Produttivita() {
 
   // Compute per-outlet productivity metrics from budget_entries
   interface OutletAggregate { ricavi: number; costo_personale: number; costi_totali: number }
-  interface OutletBaseRow { nome: string; ricavi: number; costo_personale: number; costi_totali: number; dipendenti: number | null; colore: string }
+  interface OutletBaseRow { nome: string; ricavi: number; costo_personale: number; costi_totali: number; dipendenti: number | null; colore: string; inApertura: boolean; aperturaCaption: string | null }
   const outletBaseData = useMemo<OutletBaseRow[]>(() => {
     if (!outletEntries.length) return [];
 
@@ -233,16 +272,22 @@ export default function Produttivita() {
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444'];
 
     return Object.entries(byOutlet)
-      .map(([nome, vals], idx) => ({
-        nome,
-        ricavi: vals.ricavi,
-        costo_personale: vals.costo_personale,
-        costi_totali: vals.costi_totali,
-        dipendenti: empCountByOutlet[outletNameByCostCenter[nome.trim().toLowerCase()] || nome] || null,
-        colore: colors[idx % colors.length],
-      }))
+      .map(([nome, vals], idx) => {
+        const anag = outletAnagByCostCenter[nome.trim().toLowerCase()];
+        const inApertura = isInApertura(anag, year);
+        return {
+          nome,
+          ricavi: vals.ricavi,
+          costo_personale: vals.costo_personale,
+          costi_totali: vals.costi_totali,
+          dipendenti: empCountByOutlet[outletNameByCostCenter[nome.trim().toLowerCase()] || nome] || null,
+          colore: colors[idx % colors.length],
+          inApertura,
+          aperturaCaption: inApertura && anag ? aperturaCaption(anag, year) : null,
+        };
+      })
       .sort((a, b) => b.ricavi - a.ricavi);
-  }, [outletEntries, empCountByOutlet, outletNameByCostCenter, revenueCodes, costCodes, personaleCodes]);
+  }, [outletEntries, empCountByOutlet, outletNameByCostCenter, outletAnagByCostCenter, year, revenueCodes, costCodes, personaleCodes]);
 
   // Monthly trend data for fatturato/dipendente per outlet
   type MonthRow = { mese: string } & Record<string, number | string>
@@ -302,11 +347,15 @@ export default function Produttivita() {
       const ricavo_per_ora = ore_annuali != null ? outlet.ricavi / ore_annuali : null;
       const costo_per_ora = ore_annuali != null ? outlet.costo_personale / ore_annuali : null;
       const margine_per_ora = (ricavo_per_ora != null && costo_per_ora != null) ? ricavo_per_ora - costo_per_ora : null;
-      const roi = outlet.costo_personale > 0 ? outlet.ricavi / outlet.costo_personale : 0;
-      const incidenza_personale = outlet.ricavi > 0 ? (outlet.costo_personale / outlet.ricavi) * 100 : 0;
+      // null quando il denominatore è 0 (nessun costo personale / nessun
+      // ricavo): la UI mostra 'N/D', mai uno 0 inventato.
+      const roi = safeRatio(outlet.ricavi, outlet.costo_personale);
+      const incidenza_personale = safePct(outlet.costo_personale, outlet.ricavi);
 
       return {
         nome: outlet.nome,
+        inApertura: outlet.inApertura,
+        aperturaCaption: outlet.aperturaCaption,
         dipendenti: dip,
         ricavi: outlet.ricavi,
         costo_personale: outlet.costo_personale,
@@ -344,7 +393,7 @@ export default function Produttivita() {
         };
         const fr = base[fromIdx];
         fr.margine_per_ora = (fr.ricavo_per_ora ?? 0) - (fr.costo_per_ora ?? 0);
-        fr.roi = fr.costo_personale > 0 ? fr.ricavi / fr.costo_personale : 0;
+        fr.roi = safeRatio(fr.ricavi, fr.costo_personale);
 
         const newToDip = toDipCurrent + moved.count;
         const newToOre = newToDip * 40 * 52;
@@ -359,7 +408,7 @@ export default function Produttivita() {
         };
         const to = base[toIdx];
         to.margine_per_ora = (to.ricavo_per_ora ?? 0) - (to.costo_per_ora ?? 0);
-        to.roi = to.costo_personale > 0 ? to.ricavi / to.costo_personale : 0;
+        to.roi = safeRatio(to.ricavi, to.costo_personale);
       }
     }
 
@@ -370,15 +419,21 @@ export default function Produttivita() {
   // valorizzato (altrimenti null > null = false e il reduce si rompe).
   const kpi = useMemo(() => {
     if (!metriche.length) return null;
-    const valide = metriche.filter(m => m.ricavo_per_ora != null);
+    // Best/worst e medie: solo outlet aperti (quelli in apertura non hanno
+    // ancora una produttività da confrontare).
+    const aperti = metriche.filter(m => !m.inApertura);
+    const valide = aperti.filter(m => m.ricavo_per_ora != null);
     const best = valide.length > 0 ? valide.reduce((a, b) => (a.ricavo_per_ora ?? 0) > (b.ricavo_per_ora ?? 0) ? a : b) : metriche[0];
     const worst = valide.length > 0 ? valide.reduce((a, b) => (a.ricavo_per_ora ?? 0) < (b.ricavo_per_ora ?? 0) ? a : b) : metriche[0];
     // Media calcolata SOLO sulle metriche con dato valido (exclude null)
-    const metricheValide = metriche.filter(m => m.ricavo_per_ora != null);
+    const metricheValide = valide;
     const avg_ricavo_ora = metricheValide.length > 0
       ? metricheValide.reduce((sum, m) => sum + (m.ricavo_per_ora ?? 0), 0) / metricheValide.length
       : null;
-    const avg_roi = metriche.reduce((sum, m) => sum + m.roi, 0) / metriche.length;
+    const roiValidi = aperti.filter(m => m.roi != null);
+    const avg_roi: number | null = roiValidi.length > 0
+      ? roiValidi.reduce((sum, m) => sum + (m.roi ?? 0), 0) / roiValidi.length
+      : null;
     const totRicavi = metriche.reduce((sum, m) => sum + (m.ricavi || 0), 0);
     const totDipendenti = metriche.reduce((sum, m) => sum + (m.dipendenti || 0), 0);
     // null quando non ci sono dipendenti: il template mostra 'N/D' invece
@@ -387,24 +442,27 @@ export default function Produttivita() {
     return { best_produttivita: best, worst_produttivita: worst, avg_ricavo_ora, avg_roi, fatturato_medio_dip, totRicavi, totDipendenti };
   }, [metriche]);
 
-  // Ranked table data: per outlet with rank/medal
+  // Ranked table data: per outlet with rank/medal. Gli outlet in apertura
+  // restano in tabella (in coda) ma senza posizione in classifica.
   const rankedMetriche = useMemo(() => {
-    return metriche
-      .slice()
+    const aperti = metriche
+      .filter(m => !m.inApertura)
       .sort((a, b) => (b.ricavo_per_dip || 0) - (a.ricavo_per_dip || 0))
-      .map((m, idx) => ({ ...m, rank: idx + 1 }));
+      .map((m, idx) => ({ ...m, rank: (idx + 1) as number | null }));
+    const inApertura = metriche.filter(m => m.inApertura).map(m => ({ ...m, rank: null as number | null }));
+    return [...aperti, ...inApertura];
   }, [metriche]);
 
-  // Chart: incidenza personale per outlet
+  // Chart: incidenza personale per outlet (null in coda, senza valore)
   const incidenzaChart = useMemo(() => {
     return metriche
       .slice()
-      .sort((a, b) => a.incidenza_personale - b.incidenza_personale)
+      .sort((a, b) => (a.incidenza_personale ?? Infinity) - (b.incidenza_personale ?? Infinity))
       .map(m => ({
         nome: m.nome,
         Ricavi: Math.round(m.ricavi),
         'Costo Personale': Math.round(m.costo_personale),
-        'Incidenza %': parseFloat(m.incidenza_personale.toFixed(1)),
+        'Incidenza %': m.incidenza_personale == null ? null : parseFloat(m.incidenza_personale.toFixed(1)),
       }));
   }, [metriche]);
 
@@ -431,12 +489,16 @@ export default function Produttivita() {
     const recs = [];
 
     metriche.forEach(m => {
-      const rapporto = m.costo_personale > 0 ? m.ricavi / m.costo_personale : 999;
+      // Niente raccomandazioni per gli outlet in apertura o senza rapporto
+      // calcolabile (roi null): non è un negozio che rende poco, non ha
+      // ancora venduto.
+      if (m.inApertura || m.roi == null) return;
+      const rapporto = m.roi;
       if (rapporto < ottimal_ratio) {
         recs.push({
           outlet: m.nome,
           tipo: 'attenzione',
-          impact: `Incidenza personale ${m.incidenza_personale.toFixed(1)}% - rapporto ricavi/costo personale: ${rapporto.toFixed(2)}x (target: ${ottimal_ratio}x)`
+          impact: `Incidenza personale ${fmtIncidenza(m.incidenza_personale)} - rapporto ricavi/costo personale: ${rapporto.toFixed(2)}x (target: ${ottimal_ratio}x)`
         });
       }
     });
@@ -598,14 +660,16 @@ export default function Produttivita() {
               </thead>
               <tbody>
                 {rankedMetriche.map((m) => {
-                  const medal = m.rank <= 3 ? MEDAL[m.rank] : '';
+                  const medal = m.rank != null && m.rank <= 3 ? MEDAL[m.rank] : '';
                   const rowBg = m.rank === 1 ? 'bg-amber-50' : m.rank === 2 ? 'bg-slate-50' : m.rank === 3 ? 'bg-orange-50' : '';
                   return (
                     <tr key={m.nome} className={`border-b border-slate-100 ${rowBg}`}>
                       <td className="px-4 py-3 text-center text-lg">
-                        {medal || <span className="text-slate-400 text-sm">{m.rank}</span>}
+                        {medal || <span className="text-slate-400 text-sm">{m.rank ?? '—'}</span>}
                       </td>
-                      <td className="px-4 py-3 text-slate-900 font-medium">{m.nome}</td>
+                      <td className="px-4 py-3 text-slate-900 font-medium">
+                        <span className="flex items-center gap-2">{m.nome}<AperturaBadge caption={m.aperturaCaption} /></span>
+                      </td>
                       <td className="px-4 py-3 text-right text-slate-700">{fmt(m.ricavi, 0)} &euro;</td>
                       <td className="px-4 py-3 text-right text-slate-700">
                         {/* Niente piu' '(stima)': quando il dato manca si mostra N/D,
@@ -616,12 +680,8 @@ export default function Produttivita() {
                         {m.ricavo_per_dip != null ? `${fmt(m.ricavo_per_dip, 0)} €` : <span className="text-slate-400 text-xs">N/D</span>}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
-                          m.incidenza_personale < 20 ? 'bg-green-100 text-green-800' :
-                          m.incidenza_personale < 35 ? 'bg-amber-100 text-amber-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {m.incidenza_personale.toFixed(1)}%
+                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${incidenzaBadge(m.incidenza_personale)}`}>
+                          {fmtIncidenza(m.incidenza_personale)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(m.roi, 2)}</td>
@@ -740,24 +800,24 @@ export default function Produttivita() {
               <tbody>
                 {metriche
                   .slice()
-                  .sort((a, b) => (b.ricavo_per_ora ?? 0) - (a.ricavo_per_ora ?? 0))
-                  .map((m, idx) => {
-                    const isTop = idx === 0;
-                    const isBottom = idx === metriche.length - 1;
+                  // Outlet in apertura in coda, senza evidenza «peggiore»
+                  .sort((a, b) => Number(a.inApertura) - Number(b.inApertura) || (b.ricavo_per_ora ?? 0) - (a.ricavo_per_ora ?? 0))
+                  .map((m, idx, arr) => {
+                    const nAperti = arr.filter(r => !r.inApertura).length;
+                    const isTop = idx === 0 && !m.inApertura;
+                    const isBottom = !m.inApertura && nAperti > 1 && idx === nAperti - 1;
                     const rowClass = isTop ? 'bg-green-50' : isBottom ? 'bg-red-50' : '';
 
                     return (
                       <tr key={m.nome} className={`border-b border-slate-200 ${rowClass}`}>
-                        <td className="px-4 py-3 text-slate-900 font-medium">{m.nome}</td>
+                        <td className="px-4 py-3 text-slate-900 font-medium">
+                          <span className="flex items-center gap-2">{m.nome}<AperturaBadge caption={m.aperturaCaption} /></span>
+                        </td>
                         <td className="px-4 py-3 text-right text-slate-700">{fmt(m.ricavi, 0)} &euro;</td>
                         <td className="px-4 py-3 text-right text-slate-700">{fmt(m.costo_personale, 0)} &euro;</td>
                         <td className="px-4 py-3 text-right">
-                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
-                            m.incidenza_personale < 20 ? 'bg-green-100 text-green-800' :
-                            m.incidenza_personale < 35 ? 'bg-amber-100 text-amber-800' :
-                            'bg-red-100 text-red-800'
-                          }`}>
-                            {m.incidenza_personale.toFixed(1)}%
+                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${incidenzaBadge(m.incidenza_personale)}`}>
+                            {fmtIncidenza(m.incidenza_personale)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-900">

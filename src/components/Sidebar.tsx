@@ -10,7 +10,7 @@ import {
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
   Menu, X, ChevronsLeft, ChevronsRight,
-  MessageSquare, Shield, RefreshCw, ClipboardList,
+  MessageSquare, Shield, RefreshCw, ClipboardList, Wallet, Receipt, Percent, Scale,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -70,6 +70,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       items: [
         { to: '/banche', icon: Landmark, label: 'Banche', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/cash-flow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
+        { to: '/fabbisogno', icon: Scale, label: 'Fabbisogno', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico', roles: ['super_advisor', 'ceo', 'cfo'] },
       ],
     },
@@ -80,6 +81,10 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         { to: '/outlet', icon: Store, label: posSingular, roles: ['super_advisor', 'ceo', 'coo'] },
         { to: '/confronto-outlet', icon: GitCompare, label: `Confronto ${posPlural}`, roles: ['super_advisor', 'ceo', 'cfo'], minOutlets: 2 },
         { to: '/budget', icon: Target, label: 'Budget & Controllo', roles: ['super_advisor', 'ceo', 'cfo'] },
+        // Specchietto incassi: la cassiera (operatore_cassa) vede SOLO la chiusura;
+        // chi amministra vede il riepilogo mensile e configura i canali.
+        { to: '/chiusura-cassa', icon: Wallet, label: 'Chiusura cassa', roles: ['super_advisor', 'contabile', 'operatore_cassa'] },
+        { to: '/incassi-giornalieri', icon: Receipt, label: 'Incassi giornalieri', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       ],
     },
     {
@@ -90,6 +95,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         { to: '/fatturazione', icon: FileText, label: 'Fatturazione', badgeKey: 'fatt-anomalie', roles: ['super_advisor', 'cfo', 'contabile'] },
         { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/storico-distinte', icon: ClipboardList, label: 'Storico Distinte', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/liquidazione-iva', icon: Percent, label: 'Liquidazione IVA', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       ],
     },
     {
@@ -147,15 +153,19 @@ export function buildBreadcrumbMap(
     '/': { section: 'Cruscotto', page: 'Dashboard' },
     '/banche': { section: 'Finanza', page: 'Banche' },
     '/cash-flow': { section: 'Finanza', page: 'Cashflow' },
+    '/fabbisogno': { section: 'Finanza', page: 'Fabbisogno' },
     '/conto-economico': { section: 'Finanza', page: 'Conto Economico' },
     '/outlet': { section: sectionPos, page: posSingular },
     '/confronto-outlet': { section: sectionPos, page: `Confronto ${posPlural}` },
     '/budget': { section: sectionPos, page: 'Budget & Controllo' },
+    '/chiusura-cassa': { section: sectionPos, page: 'Chiusura cassa' },
+    '/incassi-giornalieri': { section: sectionPos, page: 'Incassi giornalieri' },
     '/fornitori': { section: 'Ciclo Passivo', page: 'Fornitori' },
     '/fatturazione': { section: 'Ciclo Passivo', page: 'Fatturazione' },
     '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
     '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali / Interni' },
     '/storico-distinte': { section: 'Ciclo Passivo', page: 'Storico Distinte' },
+    '/liquidazione-iva': { section: 'Ciclo Passivo', page: 'Liquidazione IVA' },
     '/dipendenti': { section: 'Risorse', page: 'Dipendenti' },
     '/ai-categorie': { section: 'AI & Analytics', page: 'AI Categorie' },
     '/margini': { section: 'AI & Analytics', page: `Margini ${posPlural}` },
@@ -241,6 +251,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
     contabile: 'Contabile',
     budget_approver: 'Approvatore Budget',
     viewer: 'Sola lettura',
+    operatore_cassa: 'Operatore cassa',
   }
 
   // Ruolo 'viewer' (sola lettura): vede le pagine dati, nessuna scrittura.
@@ -248,7 +259,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
   // qui decidiamo solo cosa mostrare nel menu. Escluse: Impostazioni, Import
   // Hub, Archivio, AI Categorie, Divisione Fornitori, Admin Segnalazioni.
   const VIEWER_ROUTES = new Set<string>([
-    '/', '/banche', '/cash-flow', '/conto-economico', '/outlet',
+    '/', '/banche', '/cash-flow', '/fabbisogno', '/conto-economico', '/outlet',
     '/confronto-outlet', '/budget', '/fornitori', '/fatturazione',
     '/scadenzario', '/margini', '/produttivita', '/scenario',
     '/dipendenti', '/ticket',

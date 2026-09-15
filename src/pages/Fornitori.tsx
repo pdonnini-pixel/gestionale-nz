@@ -27,6 +27,12 @@ import TextTooltip from '../components/Tooltip';
 import TableScroll from '../components/ui/TableScroll';
 import { useOutlets } from '../hooks/useOutlets';
 import { usePeriod } from '../hooks/usePeriod';
+import { isPayableClosed, payableOpenAmount, fetchDisposizioniMap, type DisposizioniMap, type PayableOpenInput } from '../lib/payableOpenAmount';
+// Stato EFFETTIVO ricalcolato dalla data di scadenza (oggi > due_date → 'scaduto'),
+// come fa lo Scadenzario: lo status salvato nel DB non viene aggiornato allo
+// scadere e resterebbe 'da_pagare' (GGZ: 3 fatture del 31/08 lette "a scadere"
+// qui e "scadute" nello Scadenzario).
+import { calculatePayableStatus } from './scadenzario/helpers';
 import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../components/SupplierAllocationEditor';
 import InvoiceViewer from '../components/InvoiceViewer';
 // pdfjs-dist (~350KB gzip) caricata solo all'apertura di un allegato PDF
@@ -80,6 +86,21 @@ const BASE_LABEL: Record<string, string> = {
   fine_mese: 'Fine mese',
 };
 
+// Campi che il sistema compila da solo leggendo la fattura elettronica del
+// fornitore (bridge A-Cube). Servono a distinguerli da quelli scritti a mano.
+const PROFILE_FIELD_LABEL: Record<string, string> = {
+  codice_fiscale: 'codice fiscale',
+  regime_fiscale: 'regime fiscale',
+  indirizzo: 'indirizzo',
+  cap: 'CAP',
+  citta: 'città',
+  provincia: 'provincia',
+  iban: 'IBAN',
+  piano_pagamento: 'modalità delle scadenze',
+  metodo_pagamento: 'metodo di pagamento',
+  categoria: 'categoria',
+};
+
 // Carica TUTTE le payables del tenant con colonne leggere (mai xml_content),
 // paginando a blocchi da 1000 per superare il cap righe di PostgREST. Gli
 // aggregati per-fornitore e i KPI vengono poi ricalcolati lato client e
@@ -89,9 +110,17 @@ async function fetchAllPayables(companyId: string): Promise<Array<Record<string,
   const all: Array<Record<string, unknown> & { id: string }> = [];
   for (let guard = 0, from = 0; guard < 50; guard++, from += pageSize) {
     const { data, error } = await supabase.from('payables')
-      .select('id, supplier_id, invoice_number, invoice_date, due_date, gross_amount, amount_remaining, status, payment_method, cash_movement_id')
+      // amount_paid / closed_manually / payment_date servono a payableOpenAmount
+      // (stessa regola "aperta" dello Scadenzario: NC chiuse a mano e quote in
+      // distinta in sospeso escono dal "da pagare").
+      .select('id, supplier_id, invoice_number, invoice_date, due_date, gross_amount, amount_paid, amount_remaining, status, payment_method, cash_movement_id, closed_manually, payment_date, is_provisional_paid, is_auto_debit')
       .eq('company_id', companyId)
       .not('supplier_id', 'is', null)
+      // Righe NASCOSTE (is_placeholder: autofatture reverse charge TD16-19,
+      // doppioni rimossi, righe "CHIUSO DA GO-LIVE"): non sono debiti e la vista
+      // v_payables_operative dello Scadenzario gia' le esclude. Senza questo
+      // filtro Fornitori le contava come "da pagare" (es. MILANI 26/A, 1.220 €).
+      .or('is_placeholder.is.null,is_placeholder.eq.false')
       .order('invoice_date', { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) { console.warn('payables load:', error.message); break; }
@@ -135,6 +164,10 @@ export default function Fornitori() {
   // per-fornitore e KPI calcolati lato client e filtrabili per anno. Volume
   // piccolo (~769 righe NZ); paginato per superare il cap 1000 di PostgREST.
   const [allPayables, setAllPayables] = useState<PayableRow[]>([]);
+  // Quote gia' disposte in distinta (payable_id → disposto/NC compensate): la
+  // parte "in sospeso" non e' piu' da pagare a mano e va tolta dal residuo,
+  // come fa lo Scadenzario. Best-effort: mappa vuota = residuo pieno.
+  const [disposizioni, setDisposizioni] = useState<DisposizioniMap>(new Map());
   // Modalità di divisione attiva per fornitore (supplier_id → AllocationMode).
   // Caricata con UNA query aggregata in loadData (no N+1) e aggiornata in
   // place quando si salva dal pannello Gestione.
@@ -144,6 +177,8 @@ export default function Fornitori() {
   // UI state
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  // Export Excel "fatture per categoria": true mentre la libreria xlsx si carica.
+  const [exportingCategorie, setExportingCategorie] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   // Filtro "Stato lavorazione": '' = Tutti | lavorare | nocat | nosplit | scaduto
   const [filterWork, setFilterWork] = useState('all');
@@ -244,7 +279,7 @@ export default function Fornitori() {
       setLoading(false);
     }, 15000);
     try {
-      const [suppRes, payables, rulesRes] = await Promise.all([
+      const [suppRes, payables, rulesRes, dispMap] = await Promise.all([
         supabase.from('suppliers').select('*')
           .eq('company_id', COMPANY_ID)
           .or('is_deleted.is.null,is_deleted.eq.false')
@@ -260,6 +295,12 @@ export default function Fornitori() {
           .select('supplier_id, allocation_mode')
           .eq('company_id', COMPANY_ID)
           .eq('is_active', true),
+        // Disposizioni in distinta + NC compensate: per il "da pagare" al netto
+        // delle quote in sospeso (stessa fonte dello Scadenzario).
+        fetchDisposizioniMap(COMPANY_ID).catch((e: unknown) => {
+          console.warn('disposizioni load:', e instanceof Error ? e.message : e);
+          return new Map() as DisposizioniMap;
+        }),
       ]);
 
       if (suppRes.error) console.warn('suppliers load:', suppRes.error.message);
@@ -267,6 +308,7 @@ export default function Fornitori() {
 
       setSuppliers((suppRes.data || []) as unknown as SupplierRow[]);
       setAllPayables(payables);
+      setDisposizioni(dispMap);
       const ruleMap: Record<string, AllocationMode> = {};
       (rulesRes.data || []).forEach((r: Record<string, unknown>) => {
         const sid = r.supplier_id as string | null;
@@ -440,29 +482,41 @@ export default function Fornitori() {
   // Aggregati per-fornitore calcolati lato client dalle payables FILTRATE per
   // anno (invoice_date). Replica la logica del vecchio v_fornitori_kpi ma resa
   // anno-consapevole: al cambio anno fatturato/da pagare/scaduto si aggiornano.
-  interface SupplierStat { total: number; paid: number; pending: number; overdue: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number }
-  const CLOSED = ['pagato', 'annullato', 'bloccato'];
+  // "Da pagare" e "scaduto" usano payableOpenAmount (src/lib/payableOpenAmount):
+  // la stessa regola "aperta" dello Scadenzario, cosi' le due pagine tornano
+  // uguali (bug GGZ: NC chiusa a mano ancora scalata qui → −174,48 €).
+  // Il "da pagare" (pending, netto) si legge come formula in tre righe:
+  //   overdue (scaduto, lordo) + toCome (a scadere, lordo) − |openCredits| (NC da scalare)
+  // Le tre voci sono disgiunte e sommano esattamente a pending: ogni riga aperta
+  // finisce in una sola (scaduto / positiva non scaduta / nota di credito).
+  interface SupplierStat { total: number; paid: number; pending: number; overdue: number; toCome: number; openCredits: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number }
+  const fmt0 = (n: number) => Math.abs(n).toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const openAmountOf = useCallback((p: PayableRow): number =>
+    payableOpenAmount(p as unknown as PayableOpenInput, disposizioni.get(p.id)), [disposizioni]);
   const supplierStats = useMemo<Record<string, SupplierStat>>(() => {
     const stats: Record<string, SupplierStat> = {};
     for (const p of allPayables) {
       if (yearOf(p.invoice_date) !== year) continue;
       const key = p.supplier_id as string | null;
       if (!key) continue;
-      const s = stats[key] || (stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set<string>(), paidCount: 0, reconciledCount: 0 });
+      const s = stats[key] || (stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set<string>(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 });
       const gross = Number(p.gross_amount) || 0;
-      const remaining = Number(p.amount_remaining) || 0;
+      const open = openAmountOf(p); // 0 se chiusa; residuo − quota in distinta altrimenti
       const status = String(p.status || '');
+      const effStatus = calculatePayableStatus(p); // scaduto per data, come lo Scadenzario
       s.count++;
       s.grossTotal += gross;
       if (status === 'pagato') { s.paid += gross; s.paidCount++; if (p.cash_movement_id) s.reconciledCount++; }
-      if (status === 'scaduto') s.overdue += remaining;
-      if (!CLOSED.includes(status)) s.pending += remaining;
+      if (status === 'nota_credito' || gross < 0) { if (open < 0) s.openCredits += open; }
+      else if (effStatus === 'scaduto') s.overdue += open;
+      else if (open > 0) s.toCome += open;
+      s.pending += open;
       if (p.payment_method) s.methods.add(String(p.payment_method));
       const d = p.invoice_date ? String(p.invoice_date) : null;
       if (d && (!s.lastDate || d > s.lastDate)) s.lastDate = d;
     }
     return stats;
-  }, [allPayables, year]);
+  }, [allPayables, year, openAmountOf]);
 
   // Filtered & sorted suppliers
   const filteredSuppliers = useMemo(() => {
@@ -561,24 +615,25 @@ export default function Fornitori() {
 
   // KPIs dell'anno selezionato — totali coerenti fra loro, dalle payables filtrate:
   // - totalFatturato: somma gross_amount POSITIVI (esclude note credito negative).
-  // - totalPending: amount_remaining di fatture non chiuse (escluse anche NC).
-  // - overdue: amount_remaining scaduto. - payCount: n. fatture dell'anno.
+  // - totalPending: importo aperto (payableOpenAmount) di fatture non chiuse, escluse NC.
+  // - overdue: importo aperto scaduto. - payCount: n. fatture dell'anno.
   const kpis = useMemo(() => {
     const active = suppliers.filter(s => s.is_active !== false).length;
-    let totalPending = 0, overdue = 0, totalFatturato = 0, totalCrediti = 0, payCount = 0;
+    let totalPending = 0, overdue = 0, totalFatturato = 0, totalCrediti = 0, payCount = 0, openCredits = 0;
     const suppliersWithPayables = new Set<string>();
     for (const p of allPayables) {
       if (yearOf(p.invoice_date) !== year) continue;
       const gross = Number(p.gross_amount) || 0;
-      const remaining = Number(p.amount_remaining) || 0;
+      const open = openAmountOf(p);
       const status = String(p.status || '');
       const isNC = status === 'nota_credito' || gross < 0;
       payCount++;
       if (p.supplier_id) suppliersWithPayables.add(p.supplier_id as string);
       if (!isNC && gross > 0) totalFatturato += gross;        // gross positivi, escluse NC
       if (isNC) totalCrediti += Math.abs(gross);              // abs note credito
-      if (status === 'scaduto') overdue += remaining;         // remaining scadute
-      if (!CLOSED.includes(status) && !isNC) totalPending += remaining; // remaining aperte escluse NC
+      if (calculatePayableStatus(p) === 'scaduto') overdue += open; // scaduto per data (come Scadenzario), netto distinte
+      if (isNC && open < 0) openCredits += open;              // NC ancora da scalare (negativo)
+      if (!isNC) totalPending += open;                        // aperto, escluse NC
     }
     // Copertura lavorazione (sul totale fornitori, non filtrato per anno)
     const withCategory = suppliers.filter(s => !!s.category).length;
@@ -586,8 +641,8 @@ export default function Fornitori() {
     // Quanti fornitori hanno davvero la loro modalità di pagamento: gli altri
     // usano la regola standard, e le loro scadenze possono essere sbagliate.
     const withPlan = suppliers.filter(s => planStatus(s) === 'ok').length;
-    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, payCount, withPayables: suppliersWithPayables.size, withCategory, withDivision, withPlan };
-  }, [suppliers, allPayables, year, ruleModeBySupplier]);
+    return { active, total: suppliers.length, totalPending, overdue, openCredits, totalFatturato, totalCrediti, payCount, withPayables: suppliersWithPayables.size, withCategory, withDivision, withPlan };
+  }, [suppliers, allPayables, year, ruleModeBySupplier, openAmountOf]);
 
   // Charts data
   interface CatBucket { name: string; value: number; count: number }
@@ -779,6 +834,129 @@ export default function Fornitori() {
     a.click();
   }
 
+  // Export Excel — dettaglio delle fatture che compongono ogni categoria.
+  // Il grafico "Spesa per categoria" mostra solo il totale: qui si scarica
+  // l'elenco delle fatture che formano quel totale, così il numero a video si
+  // può verificare riga per riga contro la contabilità.
+  // Perimetro identico al grafico: fatture dell'anno selezionato, con fornitore
+  // agganciato, importo lordo (le note di credito restano col segno meno).
+  // Un foglio per categoria + "Riepilogo" + "Tutte le fatture".
+  async function exportFattureCategorie() {
+    const supplierById = new Map(suppliers.map(s => [String(s.id), s]));
+    const statoLabel: Record<string, string> = {
+      pagato: 'Pagato', pagato_provvisorio: 'Pagato (provvisorio)', nota_credito: 'Nota di credito',
+      sospeso: 'Sospeso', rimandato: 'Rimandato', annullato: 'Annullato', parziale: 'Parziale',
+      addebito_automatico: 'Addebito automatico', scaduto: 'Scaduto', in_scadenza: 'In scadenza',
+      da_pagare: 'Da pagare',
+    };
+    const itDate = (d: string) => (d ? new Date(d).toLocaleDateString('it-IT') : '');
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const righe = allPayables
+      .filter(p => yearOf(p.invoice_date) === year && p.supplier_id && supplierById.has(String(p.supplier_id)))
+      .map(p => {
+        const s = supplierById.get(String(p.supplier_id)) as SupplierRow;
+        const stato = calculatePayableStatus(p);
+        return {
+          categoria: String(s.category || 'Non categorizzato'),
+          fornitore: getName(s),
+          piva: getVat(s),
+          numero: String(p.invoice_number || ''),
+          data: p.invoice_date ? String(p.invoice_date) : '',
+          scadenza: p.due_date ? String(p.due_date) : '',
+          totale: round2(Number(p.gross_amount) || 0),
+          daPagare: round2(openAmountOf(p)),
+          stato: statoLabel[stato] || stato,
+        };
+      })
+      .sort((a, b) => a.categoria.localeCompare(b.categoria, 'it') || (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+
+    if (righe.length === 0) {
+      showToast(`Nessuna fattura da esportare per il ${year}`, 'error');
+      return;
+    }
+
+    setExportingCategorie(true);
+    try {
+      // xlsx caricata on-demand: non deve pesare sull'apertura della pagina.
+      const XLSX = await import('xlsx');
+      const wb = XLSX.utils.book_new();
+
+      // Categorie in ordine di spesa decrescente, come il grafico.
+      const categorie = Array.from(new Set(righe.map(r => r.categoria)))
+        .map(cat => {
+          const list = righe.filter(r => r.categoria === cat);
+          return {
+            cat,
+            list,
+            totale: round2(list.reduce((s, r) => s + r.totale, 0)),
+            daPagare: round2(list.reduce((s, r) => s + r.daPagare, 0)),
+            fornitori: new Set(list.map(r => r.fornitore)).size,
+          };
+        })
+        .sort((a, b) => b.totale - a.totale);
+
+      // Foglio 1 — riepilogo che riconcilia con i totali a video.
+      const riepilogo: (string | number)[][] = [
+        [`Fatture fornitori per categoria — anno ${year}`],
+        [`Estratto il ${new Date().toLocaleString('it-IT')}`],
+        [],
+        ['Categoria', 'Fornitori con fatture', 'N. fatture', 'Totale fatture €', 'Ancora da pagare €'],
+        ...categorie.map(c => [c.cat, c.fornitori, c.list.length, c.totale, c.daPagare]),
+        [
+          'TOTALE', '', righe.length,
+          round2(righe.reduce((s, r) => s + r.totale, 0)),
+          round2(righe.reduce((s, r) => s + r.daPagare, 0)),
+        ],
+      ];
+      const wsRiep = XLSX.utils.aoa_to_sheet(riepilogo);
+      wsRiep['!cols'] = [{ wch: 28 }, { wch: 20 }, { wch: 12 }, { wch: 18 }, { wch: 18 }];
+      XLSX.utils.book_append_sheet(wb, wsRiep, 'Riepilogo');
+
+      // Un foglio per categoria. Nome foglio: max 31 caratteri, niente : \ / ? * [ ]
+      const usati = new Set<string>(['Riepilogo']);
+      const nomeFoglio = (cat: string) => {
+        const base = (cat.replace(/[:\\/?*[\]]/g, ' ').trim() || 'Categoria').slice(0, 31);
+        let nome = base;
+        for (let i = 2; usati.has(nome); i++) nome = `${base.slice(0, 28)} ${i}`;
+        usati.add(nome);
+        return nome;
+      };
+      const intestazione = ['Fornitore', 'P.IVA', 'N. fattura', 'Data fattura', 'Scadenza', 'Totale fattura €', 'Ancora da pagare €', 'Stato'];
+      const larghezze = [{ wch: 38 }, { wch: 14 }, { wch: 16 }, { wch: 13 }, { wch: 13 }, { wch: 17 }, { wch: 18 }, { wch: 20 }];
+      for (const c of categorie) {
+        const aoa: (string | number)[][] = [
+          [`Categoria: ${c.cat} — anno ${year}`],
+          [],
+          intestazione,
+          ...c.list.map(r => [r.fornitore, r.piva, r.numero, itDate(r.data), itDate(r.scadenza), r.totale, r.daPagare, r.stato]),
+          ['TOTALE', '', '', '', '', c.totale, c.daPagare, ''],
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = larghezze;
+        XLSX.utils.book_append_sheet(wb, ws, nomeFoglio(c.cat));
+      }
+
+      // Ultimo foglio — tutte le fatture insieme, con la colonna categoria,
+      // per chi preferisce filtrare a mano invece di saltare fra i fogli.
+      const tutte: (string | number)[][] = [
+        ['Categoria', ...intestazione],
+        ...righe.map(r => [r.categoria, r.fornitore, r.piva, r.numero, itDate(r.data), itDate(r.scadenza), r.totale, r.daPagare, r.stato]),
+      ];
+      const wsTutte = XLSX.utils.aoa_to_sheet(tutte);
+      wsTutte['!cols'] = [{ wch: 24 }, ...larghezze];
+      XLSX.utils.book_append_sheet(wb, wsTutte, 'Tutte le fatture');
+
+      XLSX.writeFile(wb, `Fatture_per_categoria_${year}.xlsx`);
+      showToast(`Excel scaricato: ${righe.length} fatture in ${categorie.length} categorie`);
+    } catch (e) {
+      console.warn('export fatture per categoria:', e);
+      showToast('Export non riuscito, riprova', 'error');
+    } finally {
+      setExportingCategorie(false);
+    }
+  }
+
   // ─── HELPER: get supplier display name ────────────────────────
   const getName = (s: SupplierRow) => String(s.ragione_sociale || s.name || 'N/D');
   const getVat = (s: SupplierRow) => String(s.partita_iva || s.vat_number || '');
@@ -789,7 +967,7 @@ export default function Fornitori() {
   const renderSupplierDetail = (s: SupplierRow) => {
     const name = getName(s);
     const vat = getVat(s);
-    const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
+    const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 };
     // Scadenze del fornitore dell'anno selezionato, derivate da
     // allPayables (già ordinate per invoice_date desc) — coerenti
     // con KPI e statistiche year-aware.
@@ -797,15 +975,15 @@ export default function Fornitori() {
     const avgAmount = supplierPays.length > 0
       ? supplierPays.reduce((acc, p) => acc + (Number(p.gross_amount) || 0), 0) / supplierPays.length
       : 0;
-    // Scadenze ancora DA PAGARE (esclude pagate, annullate, note di
-    // credito e residui a zero), ordinate dalla piu' recente. Le
-    // scadute vanno in cima. Serve per il riquadro qui sotto.
+    // Scadenze ancora DA PAGARE (esclude chiuse, note di credito, quote gia'
+    // in distinta e residui a zero: stessa regola dello Scadenzario), ordinate
+    // dalla piu' recente. Le scadute vanno in cima. Serve per il riquadro qui sotto.
     const openPays = supplierPays
-      .filter(p => !['pagato', 'annullato', 'nota_credito'].includes(String(p.status)))
-      .filter(p => (Number(p.amount_remaining ?? p.gross_amount) || 0) > 0)
+      .filter(p => !isPayableClosed(p as unknown as PayableOpenInput) && String(p.status) !== 'nota_credito')
+      .filter(p => openAmountOf(p) > 0)
       .sort((a, b) => {
-        const sa = a.status === 'scaduto' ? 0 : 1;
-        const sb = b.status === 'scaduto' ? 0 : 1;
+        const sa = calculatePayableStatus(a) === 'scaduto' ? 0 : 1;
+        const sb = calculatePayableStatus(b) === 'scaduto' ? 0 : 1;
         if (sa !== sb) return sa - sb;
         return new Date(String(b.due_date || '')).getTime() - new Date(String(a.due_date || '')).getTime();
       });
@@ -828,6 +1006,18 @@ export default function Fornitori() {
             <Detail label="Città" value={[s.cap, s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ')} />
             <Detail label="Email" value={s.email as string | null | undefined} />
             <Detail label="Telefono" value={s.telefono as string | null | undefined} />
+            {/* Da dove arriva il dato: i campi letti dalla fattura elettronica
+                sono compilati dal sistema, quelli non elencati sono a mano. */}
+            {Boolean(s.profile_from_invoice_at) && (
+              <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-[11px] leading-snug text-slate-500">
+                Compilato leggendo la fattura del{' '}
+                {new Date(String(s.profile_from_invoice_at)).toLocaleDateString('it-IT')}
+                {((s.profile_from_invoice_fields as string[] | null) || []).length > 0 && (
+                  <>: {((s.profile_from_invoice_fields as string[] | null) || [])
+                    .map(f => PROFILE_FIELD_LABEL[f] || f).join(', ')}</>
+                )}
+              </div>
+            )}
           </div>
         </div>
         {/* Col 2: Condizioni & classificazione */}
@@ -870,10 +1060,23 @@ export default function Fornitori() {
               <Detail label="Riconciliati" value={`${stats.reconciledCount}/${stats.paidCount} in banca`} />
             )}
             <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
+            {/* Formula del "da pagare": scaduto + a scadere − NC da scalare */}
             {stats.overdue > 0 && (
               <div className="flex">
                 <span className="text-red-500 w-28 shrink-0 text-xs font-medium">Scaduto</span>
                 <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            {stats.toCome > 0 && (
+              <div className="flex">
+                <span className="text-amber-600 w-28 shrink-0 text-xs font-medium">+ A scadere</span>
+                <span className="text-amber-600 text-xs font-semibold">€ {stats.toCome.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            {stats.openCredits < 0 && (
+              <div className="flex">
+                <span className="text-emerald-600 w-28 shrink-0 text-xs font-medium">− NC da scalare</span>
+                <span className="text-emerald-600 text-xs font-semibold">€ {Math.abs(stats.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
               </div>
             )}
             {avgAmount > 0 && (
@@ -1132,7 +1335,9 @@ export default function Fornitori() {
         <KpiCard icon={Tag} label="Con categoria" value={`${kpis.withCategory} / ${kpis.total}`} color="purple" />
         <KpiCard icon={Split} label="Con divisione" value={`${kpis.withDivision} / ${kpis.total}`} color="purple" />
         <KpiCard icon={Calendar} label="Con modalità pag." value={`${kpis.withPlan} / ${kpis.total}`} color={kpis.withPlan < kpis.total ? 'amber' : 'green'} />
-        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
+        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          sub={kpis.openCredits < 0 ? `NC da scalare −${Math.abs(kpis.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : undefined}
+          color={kpis.overdue > 0 ? 'red' : 'green'} />
         <KpiCard icon={FileText} label="Totale fatture" value={`€ ${kpis.totalFatturato.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} sub={`${kpis.payCount.toLocaleString('de-DE')} fatture`} color="blue" />
       </div>
 
@@ -1240,7 +1445,7 @@ export default function Fornitori() {
                 {sortedSuppliers.map(s => {
                   const name = getName(s);
                   const vat = getVat(s);
-                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
+                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 };
                   const isExpanded = expandedId === s.id;
                   const pm = s.payment_method || s.default_payment_method;
 
@@ -1316,13 +1521,16 @@ export default function Fornitori() {
                           ) : <span className="text-xs text-slate-300">—</span>}
                         </td>
                         <td className="px-3 py-2.5 text-right">
-                          {stats.overdue > 0 ? (
+                          {(stats.overdue > 0 || stats.toCome > 0 || stats.openCredits < 0) ? (
                             <div>
-                              <div className="font-semibold text-red-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
-                              <div className="text-xs text-red-500">{stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })} scaduto</div>
+                              {/* Netto da pagare, poi la formula che lo spiega (righe solo se ≠ 0) */}
+                              <div className={`font-semibold ${stats.overdue > 0 ? 'text-red-600' : 'text-amber-600'}`}>€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
+                              <div className="text-[11px] leading-tight tabular-nums text-slate-500 space-y-px">
+                                {stats.overdue > 0 && <div><span className="text-red-500">scaduto</span> {fmt0(stats.overdue)}</div>}
+                                {stats.toCome > 0 && <div><span className="text-amber-600">+ a scadere</span> {fmt0(stats.toCome)}</div>}
+                                {stats.openCredits < 0 && <div><span className="text-emerald-600">− NC</span> {fmt0(stats.openCredits)}</div>}
+                              </div>
                             </div>
-                          ) : stats.pending > 0 ? (
-                            <div className="font-medium text-amber-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
                           ) : stats.grossTotal > 0 ? (
                             <span className="text-xs text-emerald-500 font-medium">Saldato</span>
                           ) : <span className="text-xs text-slate-300">—</span>}
@@ -1410,7 +1618,7 @@ export default function Fornitori() {
               ) : sortedSuppliers.map(s => {
                 const name = getName(s);
                 const vat = getVat(s);
-                const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
+                const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 };
                 const isExpanded = expandedId === s.id;
                 const pm = s.payment_method || s.default_payment_method;
                 return (
@@ -1455,13 +1663,15 @@ export default function Fornitori() {
                           {stats.count > 0 && <span className="text-slate-400"> · {stats.count} fatt.</span>}
                         </div>
                         <div className="text-right text-sm">
-                          {stats.overdue > 0 ? (
-                            <span className="font-semibold text-red-600">
-                              € {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}
-                              <span className="block text-[11px] font-medium text-red-500">di cui {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })} scaduto</span>
+                          {(stats.overdue > 0 || stats.toCome > 0 || stats.openCredits < 0) ? (
+                            <span className={`font-semibold ${stats.overdue > 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                              € {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })} da pagare
+                              <span className="block text-[11px] font-medium leading-tight tabular-nums text-slate-500">
+                                {stats.overdue > 0 && <span className="block"><span className="text-red-500">scaduto</span> {fmt0(stats.overdue)}</span>}
+                                {stats.toCome > 0 && <span className="block"><span className="text-amber-600">+ a scadere</span> {fmt0(stats.toCome)}</span>}
+                                {stats.openCredits < 0 && <span className="block"><span className="text-emerald-600">− NC</span> {fmt0(stats.openCredits)}</span>}
+                              </span>
                             </span>
-                          ) : stats.pending > 0 ? (
-                            <span className="font-medium text-amber-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })} da pagare</span>
                           ) : stats.grossTotal > 0 ? (
                             <span className="text-xs text-emerald-500 font-medium">Saldato</span>
                           ) : null}
@@ -1543,7 +1753,20 @@ export default function Fornitori() {
 
               {/* Spend by Category */}
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-slate-700 mb-4">Spesa per categoria</h3>
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <h3 className="text-sm font-semibold text-slate-700">Spesa per categoria</h3>
+                  {/* Il grafico dà solo il totale: l'Excel apre il totale nelle
+                      singole fatture, un foglio per categoria. */}
+                  <button
+                    onClick={exportFattureCategorie}
+                    disabled={exportingCategorie}
+                    title="Scarica l'elenco delle fatture che compongono ogni categoria"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-60 whitespace-nowrap"
+                  >
+                    {exportingCategorie ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    Excel dettaglio fatture
+                  </button>
+                </div>
                 {/* Fix 12.1: empty state quando l'unica categoria e' "Non
                     categorizzato" (grafico con una sola fetta = inutile).
                     Suggeriamo all'utente di categorizzare i fornitori. */}

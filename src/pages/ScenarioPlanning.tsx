@@ -10,10 +10,28 @@ import { usePeriod } from '../hooks/usePeriod';
 import { useAvailableYears } from '../hooks/useAvailableYears';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import PageHeader from '../components/PageHeader';
+import {
+  getOutletLifecycle, isOutletOpenInPeriod, outletLifecycleCaption,
+  OUTLET_LIFECYCLE_STYLE, type OutletLifecycleFields,
+} from '../lib/outletLifecycle';
 
 function fmt(n: number, dec = 0) {
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
+
+// Outlet «in apertura» per questa pagina: oggi non ha ancora aperto, oppure
+// nell'anno selezionato non era ancora aperto. I suoi costi restano nei totali
+// aziendali, ma non conta come punto vendita nelle medie per outlet.
+function isInApertura(o: OutletLifecycleFields | undefined, year: number): boolean {
+  if (!o) return false;
+  const oggi = getOutletLifecycle(o);
+  return oggi === 'programmato' || (oggi !== 'chiuso' && !isOutletOpenInPeriod(o, year));
+}
+function aperturaCaption(o: OutletLifecycleFields, year: number): string {
+  return outletLifecycleCaption(o, getOutletLifecycle(o) === 'programmato' ? new Date() : new Date(year, 0, 1));
+}
+
+type OutletAnagRow = { code: string | null; name: string | null; opening_date: string | null; closing_date: string | null; is_active: boolean | null };
 
 export default function ScenarioPlanning() {
   const { profile } = useAuth();
@@ -32,6 +50,8 @@ export default function ScenarioPlanning() {
   // stimare i ricavi medi SENZA includere gli aggregati virtuali (costi non divisi,
   // rettifiche, "all") che altrimenti gonfiano numOutlet e sottostimano la media.
   const [outletSet, setOutletSet] = useState<Set<string>>(new Set());
+  // Anagrafica outlet con date di apertura/chiusura (src/lib/outletLifecycle.ts).
+  const [outletAnag, setOutletAnag] = useState<OutletAnagRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: string; text: string } | null>(null);
 
@@ -65,10 +85,12 @@ export default function ScenarioPlanning() {
         setRawEntries(data);
 
         // Anagrafica outlet reali (attivi) per distinguere i cost_center virtuali.
-        let outletsQuery = supabase.from('outlets').select('code, name').eq('is_active', true);
+        let outletsQuery = supabase.from('outlets').select('code, name, opening_date, closing_date, is_active').eq('is_active', true);
         if (companyId) outletsQuery = outletsQuery.eq('company_id', companyId);
         const { data: outletsData } = await outletsQuery;
-        setOutletSet(buildOutletCostCenterSet((outletsData || []) as { code?: string; name?: string }[]));
+        const outletRows = (outletsData || []) as OutletAnagRow[];
+        setOutletSet(buildOutletCostCenterSet(outletRows as { code?: string; name?: string }[]));
+        setOutletAnag(outletRows);
       } catch (err: unknown) {
         console.error('[ScenarioPlanning] fetch error:', err);
         setError((err as Error).message);
@@ -78,6 +100,23 @@ export default function ScenarioPlanning() {
     }
     fetchData();
   }, [year, profile?.company_id]);
+
+  // Outlet in apertura per l'anno scelto: chiavi cost_center (code/name in
+  // minuscolo) -> etichetta «In apertura dal ...». Non contano come punti
+  // vendita nelle medie per outlet (i loro costi restano nei totali).
+  const inAperturaByCC = useMemo<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    outletAnag.forEach(o => {
+      const fields: OutletLifecycleFields = { opening_date: o.opening_date, closing_date: o.closing_date, is_active: o.is_active ?? true };
+      if (!isInApertura(fields, year)) return;
+      const caption = aperturaCaption(fields, year);
+      [o.code, o.name].forEach(k => {
+        const key = (k || '').trim().toLowerCase();
+        if (key) out[key] = caption;
+      });
+    });
+    return out;
+  }, [outletAnag, year]);
 
   // Compute baseline totals
   const baseline = useMemo(() => {
@@ -89,7 +128,11 @@ export default function ScenarioPlanning() {
     let costiTotali = 0;
     // Aggregati dei soli OUTLET REALI: servono per contare i punti vendita e stimare
     // i ricavi medi per un nuovo outlet, senza inquinamento dei cost_center virtuali.
-    const outletCount = new Set<string>();
+    // Un cost_center conta come punto vendita solo se ha ricavi nell'anno
+    // oppure e' un outlet gia' aperto: un outlet in apertura con soli costi
+    // (canone, allestimento) prima gonfiava numOutlet e sgonfiava le medie.
+    const outletSeen = new Set<string>();
+    const ricaviByCC: Record<string, number> = {};
     let ricaviOutletReali = 0;
     // Fail-safe: se l'anagrafica outlet non e' caricata (set vuoto), si considera
     // ogni cost_center come outlet (comportamento precedente) per non rompere la stima.
@@ -99,11 +142,14 @@ export default function ScenarioPlanning() {
       const code = (row.account_code || '').toString();
       const amount = parseFloat(row.budget_amount) || 0;
       const isRealOutlet = hasOutletAnagrafica ? isOutletCostCenter(row.cost_center, outletSet) : !!row.cost_center;
-      if (row.cost_center && isRealOutlet) outletCount.add(row.cost_center);
+      if (row.cost_center && isRealOutlet) outletSeen.add(row.cost_center);
 
       if (code.startsWith('5')) {
         ricaviTotali += amount;
-        if (isRealOutlet) ricaviOutletReali += amount;
+        if (isRealOutlet) {
+          ricaviOutletReali += amount;
+          if (row.cost_center) ricaviByCC[row.cost_center] = (ricaviByCC[row.cost_center] || 0) + amount;
+        }
       }
       if (code.startsWith('63')) {
         costiPersonale += amount;
@@ -113,7 +159,15 @@ export default function ScenarioPlanning() {
       }
     });
 
-    const numOutlet = outletCount.size || 1;
+    const outletInApertura: { cc: string; caption: string }[] = [];
+    let outletContati = 0;
+    outletSeen.forEach(cc => {
+      const caption = inAperturaByCC[cc.trim().toLowerCase()];
+      const hasRicavi = (ricaviByCC[cc] || 0) > 0;
+      if (caption && !hasRicavi) outletInApertura.push({ cc, caption });
+      else outletContati += 1;
+    });
+    const numOutlet = outletContati || 1;
     // Media ricavi per outlet basata sui SOLI outlet reali (stima per nuovo outlet).
     const avgRicaviOutlet = ricaviOutletReali / numOutlet;
     const avgCostiOutlet = costiTotali / numOutlet;
@@ -125,13 +179,14 @@ export default function ScenarioPlanning() {
       costiPersonale,
       costiTotali,
       numOutlet,
+      outletInApertura,
       avgRicaviOutlet,
       avgCostiOutlet,
       avgPersonaleOutlet,
       utile: ricaviTotali - costiTotali,
       marginePercent,
     };
-  }, [rawEntries, outletSet]);
+  }, [rawEntries, outletSet, inAperturaByCC]);
 
   // Compute scenario
   const scenario = useMemo(() => {
@@ -331,6 +386,18 @@ export default function ScenarioPlanning() {
                     <span className="text-slate-600">{labels.pointOfSalePlural} attivi</span>
                     <span className="font-semibold text-slate-900">{baseline.numOutlet}</span>
                   </div>
+                  {/* Outlet non ancora aperti: costi nei totali, fuori dal conteggio e dalle medie. */}
+                  {baseline.outletInApertura.length > 0 && (
+                    <div className="text-xs text-slate-500 space-y-1">
+                      <div>Non contati nelle medie ({baseline.outletInApertura.length} in apertura):</div>
+                      {baseline.outletInApertura.map(o => (
+                        <div key={o.cc} className="flex items-center justify-between gap-2">
+                          <span className="text-slate-700 truncate">{o.cc}</span>
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>{o.caption}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-slate-600">Ricavi Totali</span>
                     <span className="font-semibold text-green-700">{fmt(baseline.ricaviTotali)} &euro;</span>

@@ -14,6 +14,7 @@ import { useIsMobile } from '../hooks/useIsMobile';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useOutlets } from '../hooks/useOutlets';
 import PageHeader from '../components/PageHeader';
+import { outletLifecycleCaption, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle';
 
 // Formato numero italiano
 function fmt(n: number, dec = 0): string {
@@ -229,9 +230,19 @@ export default function AnalyticsPOS() {
 
   // Outlet derivati dagli outlet reali del tenant (non più cablati su NZ).
   // I dati POS restano simulati (nessuna sorgente cassa nel DB) ma per-tenant.
-  const outlets = useMemo(() => buildOutletsFromTenant(tenantOutlets), [tenantOutlets]);
+  // Gli outlet «in apertura» (opening_date futura) NON ricevono dati simulati:
+  // restano nel selettore ma mostrano l'avviso «nessun dato prima dell'apertura».
+  const outlets = useMemo(
+    () => buildOutletsFromTenant(tenantOutlets.filter(o => o.lifecycle !== 'programmato')),
+    [tenantOutlets],
+  );
+  const plannedOutlets = useMemo(() => tenantOutlets.filter(o => o.lifecycle === 'programmato'), [tenantOutlets]);
   // Empty state finché il tenant non ha almeno un outlet configurato.
-  const hasOutlets = outlets.length > 0;
+  const hasOutlets = tenantOutlets.length > 0;
+  const hasOperativeOutlets = outlets.length > 0;
+  // Selezione su un outlet in apertura: nessun dato da calcolare (posData non lo contiene).
+  const plannedSelected = plannedOutlets.find(o => o.id === selectedOutlet) ?? null;
+  const effectiveSelected = plannedSelected ? null : selectedOutlet;
   // viewMode persistito in URL come ?view=… (default 'annual')
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get('view');
@@ -246,12 +257,12 @@ export default function AnalyticsPOS() {
 
   const posData = useMemo(() => generatePOSData(outlets), [outlets]);
   const chartData = useMemo(() => buildChartData(posData), [posData]);
-  const kpis = useMemo(() => calculateKPIs(posData, selectedOutlet), [posData, selectedOutlet]);
-  const distribution = useMemo(() => calculateDistribution(posData, selectedOutlet), [posData, selectedOutlet]);
+  const kpis = useMemo(() => calculateKPIs(posData, effectiveSelected), [posData, effectiveSelected]);
+  const distribution = useMemo(() => calculateDistribution(posData, effectiveSelected), [posData, effectiveSelected]);
   const performers = useMemo(() => getPerformers(posData, outlets), [posData, outlets]);
 
-  const outletData = selectedOutlet
-    ? outlets.filter(o => o.id === selectedOutlet)
+  const outletData = effectiveSelected
+    ? outlets.filter(o => o.id === effectiveSelected)
     : outlets;
 
   // Table: outlet comparison
@@ -333,9 +344,9 @@ export default function AnalyticsPOS() {
               className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Tutti gli {labels.pointOfSalePluralLower}</option>
-              {outlets.map(outlet => (
+              {tenantOutlets.map(outlet => (
                 <option key={outlet.id} value={outlet.id}>
-                  {outlet.label}
+                  {outlet.lifecycle === 'programmato' ? `${outlet.name} · ${outletLifecycleCaption(outlet)}` : outlet.name}
                 </option>
               ))}
             </select>
@@ -368,6 +379,19 @@ export default function AnalyticsPOS() {
           </div>
         </div>
 
+        {plannedSelected || !hasOperativeOutlets ? (
+          /* Outlet in apertura: nessun dato POS (nemmeno simulato) prima dell'apertura. */
+          <div className="bg-white rounded-2xl border border-blue-200 p-10 text-center">
+            <Store className="w-14 h-14 mx-auto mb-4 text-blue-300" />
+            <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full mb-3 ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+              {outletLifecycleCaption(plannedSelected ?? plannedOutlets[0])}
+            </span>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              {outletLifecycleCaption(plannedSelected ?? plannedOutlets[0])}: nessun dato operativo prima dell'apertura.
+            </p>
+          </div>
+        ) : (
+        <>
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
@@ -650,6 +674,8 @@ export default function AnalyticsPOS() {
             </div>
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

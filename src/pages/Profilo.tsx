@@ -116,7 +116,7 @@ export default function Profilo() {
 
       <PageHeader
         title="Il tuo profilo"
-        subtitle="Gestisci i tuoi dati personali e la tua password. Per i dati dell'azienda vai su Impostazioni."
+        subtitle={profile?.role === 'operatore_cassa' ? 'Gestisci i tuoi dati personali e la tua password.' : "Gestisci i tuoi dati personali e la tua password. Per i dati dell'azienda vai su Impostazioni."}
       />
 
       {/* ─── DATI PERSONALI ─── */}

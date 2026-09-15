@@ -25,3 +25,6 @@ tools/provisioning/_nz_schema_dump.sql
 
 # Stato CLI Supabase locale
 supabase/.temp/
+
+# Impostazioni personali Claude Code (non versionate)
+.claude/settings.local.json

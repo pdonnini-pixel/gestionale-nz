@@ -1,0 +1,12 @@
+-- ROLLBACK 20260911_217
+--
+-- La migration sposta un arrotondamento (meno di 1 euro) sull'ultima rata
+-- aperta. Le righe toccate si riconoscono dalla nota che lascia.
+--
+-- UPDATE public.payables
+-- SET gross_amount = gross_amount - <delta>, amount_remaining = amount_remaining - <delta>
+-- WHERE notes LIKE '%Ultima rata portata a quadrare il totale della fattura%';
+--
+-- Il <delta> di ogni riga e' scritto nella nota stessa. Prima di eseguire,
+-- fare la SELECT di controllo: dopo il rollback le rate NON sommeranno piu' il
+-- totale del documento, che e' la condizione sbagliata da cui si partiva.

@@ -1,0 +1,581 @@
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { CalendarClock, CheckCircle2, RefreshCw, Save, X, AlertTriangle, Settings2, Undo2, Receipt, Wallet, Loader2 } from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../components/Toast'
+import PageHeader from '../components/PageHeader'
+import StatKpi from '../components/ui/StatKpi'
+import { todayYMD } from '../lib/dateLocal'
+import {
+  buildLiquidazioni, parseTaxPeriod, taxPeriod, titoloScadenzaIva, MESI_IVA, FONTE_LABEL, STATO_LABEL,
+  type IvaComponentiMese, type IvaSettings, type IvaMeseConfermato, type IvaMesePagato, type IvaLiquidazioneRow,
+} from '../lib/ivaLiquidazione'
+
+/* ───── helpers ───── */
+function fmt(n: number | null | undefined) {
+  if (n == null || Number.isNaN(n)) return '—'
+  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+}
+const fmtDate = (d: string | null | undefined) => d ? new Date(d + 'T00:00:00').toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
+const parseNum = (s: string): number => {
+  const v = parseFloat(String(s).replace(/\./g, '').replace(',', '.'))
+  return Number.isFinite(v) ? v : 0
+}
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
+
+const EDIT_ROLES = ['super_advisor', 'contabile', 'cfo']
+
+interface FiscalIvaRow {
+  id: string
+  tax_period: string | null
+  status: string
+  amount: number | null
+  amount_paid: number | null
+  due_date: string
+  paid_date: string | null
+}
+
+interface SettlementRow extends IvaMeseConfermato {
+  id: string
+}
+
+const STATO_STYLE: Record<IvaLiquidazioneRow['stato'], string> = {
+  pagata: 'bg-emerald-100 text-emerald-700',
+  confermata: 'bg-indigo-100 text-indigo-700',
+  stima: 'bg-amber-100 text-amber-700',
+  in_corso: 'bg-sky-100 text-sky-700',
+  futura: 'bg-slate-100 text-slate-600',
+}
+
+const FONTE_STYLE: Record<IvaLiquidazioneRow['fonteCorrispettivi'], string> = {
+  chiusure: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  chiusure_parziali: 'bg-sky-50 text-sky-700 border-sky-200',
+  consuntivo: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  preventivo: 'bg-amber-50 text-amber-700 border-amber-200',
+  confermata: 'bg-indigo-50 text-indigo-700 border-indigo-200',
+  nessuna: 'bg-slate-50 text-slate-500 border-slate-200',
+}
+
+/* ───── pagina ───── */
+export default function LiquidazioneIva() {
+  const { profile } = useAuth()
+  const { toast } = useToast()
+  const COMPANY_ID = profile?.company_id
+  const canEdit = EDIT_ROLES.includes(profile?.role || '')
+
+  const today = useMemo(() => new Date(), [])
+  const [year, setYear] = useState(today.getFullYear())
+  const [loading, setLoading] = useState(true)
+  const [componenti, setComponenti] = useState<IvaComponentiMese[]>([])
+  const [confermati, setConfermati] = useState<SettlementRow[]>([])
+  const [fiscalRows, setFiscalRows] = useState<FiscalIvaRow[]>([])
+  const [settings, setSettings] = useState<IvaSettings | null>(null)
+
+  // Parametri: form
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [sForm, setSForm] = useState({ rate: '22', startYear: String(today.getFullYear()), startMonth: String(today.getMonth() + 1), openingCredit: '0', cutoff: '15' })
+  // Giorno del mese successivo entro cui una fattura resta nel mese della sua data (regola del commercialista)
+  const [cutoffDay, setCutoffDay] = useState(15)
+  const [savingSettings, setSavingSettings] = useState(false)
+
+  // Conferma mese: form inline
+  const [confirmKey, setConfirmKey] = useState<string | null>(null)
+  const [cForm, setCForm] = useState({ corr: '', ivaAtt: '', ivaCred: '', tot: '', note: '', chiuso: '' })
+  const [busyKey, setBusyKey] = useState<string | null>(null)
+  const [removeArm, setRemoveArm] = useState<string | null>(null)
+
+  const loadData = useCallback(async () => {
+    if (!COMPANY_ID) return
+    setLoading(true)
+    try {
+      const [comp, sett, conf, fisc] = await Promise.all([
+        supabase.from('v_iva_componenti_mensili').select('*').eq('company_id', COMPANY_ID),
+        supabase.from('vat_settings').select('*').eq('company_id', COMPANY_ID).maybeSingle(),
+        supabase.from('vat_settlements').select('*').eq('company_id', COMPANY_ID),
+        supabase.from('fiscal_deadlines').select('id, tax_period, status, amount, amount_paid, due_date, paid_date')
+          .eq('company_id', COMPANY_ID).eq('deadline_type', 'iva_periodica'),
+      ])
+      if (comp.error) throw comp.error
+      setComponenti((comp.data || []).map(r => ({
+        year: Number(r.year), month: Number(r.month),
+        chiusure_netto: Number(r.chiusure_netto ?? 0), giorni_chiusura: Number(r.giorni_chiusura ?? 0),
+        consuntivo_netto: Number(r.consuntivo_netto ?? 0), preventivo_netto: Number(r.preventivo_netto ?? 0),
+        iva_fatture_attive: Number(r.iva_fatture_attive ?? 0), n_fatture_attive: Number(r.n_fatture_attive ?? 0),
+        iva_fatture_passive: Number(r.iva_fatture_passive ?? 0), iva_note_credito: Number(r.iva_note_credito ?? 0),
+        iva_integrazioni: Number(r.iva_integrazioni ?? 0), n_fatture_passive: Number(r.n_fatture_passive ?? 0),
+        n_note_credito: Number(r.n_note_credito ?? 0), n_integrazioni: Number(r.n_integrazioni ?? 0),
+      })))
+      if (sett.data) {
+        const s = sett.data
+        const st: IvaSettings = {
+          salesVatRate: Number(s.sales_vat_rate ?? 22),
+          startYear: Number(s.start_year ?? today.getFullYear()),
+          startMonth: Number(s.start_month ?? today.getMonth() + 1),
+          openingCredit: Number(s.opening_credit ?? 0),
+        }
+        setSettings(st)
+        const cd = Number(s.competenza_cutoff_day ?? 15) || 15
+        setCutoffDay(cd)
+        setSForm({ rate: String(st.salesVatRate), startYear: String(st.startYear), startMonth: String(st.startMonth), openingCredit: String(st.openingCredit), cutoff: String(cd) })
+      } else {
+        setSettings(null)
+      }
+      setConfermati((conf.data || []).map(r => ({
+        id: r.id, year: Number(r.year), month: Number(r.month),
+        corrispettivi_netti: Number(r.corrispettivi_netti ?? 0),
+        iva_debito_corrispettivi: Number(r.iva_debito_corrispettivi ?? 0),
+        iva_debito_fatture_attive: Number(r.iva_debito_fatture_attive ?? 0),
+        iva_credito: Number(r.iva_credito ?? 0),
+        importo: Number(r.importo ?? 0),
+        importo_manuale: Boolean(r.importo_manuale),
+        note: r.note,
+        registro_chiuso_il: r.registro_chiuso_il ?? null,
+      })))
+      setFiscalRows((fisc.data || []) as FiscalIvaRow[])
+    } catch (e) {
+      console.error('Load liquidazione IVA error:', e)
+      toast({ type: 'error', message: 'Errore nel caricamento della liquidazione IVA' })
+    } finally {
+      setLoading(false)
+    }
+  }, [COMPANY_ID, today, toast])
+
+  useEffect(() => { loadData() }, [loadData])
+
+  // Senza parametri salvati si parte dal mese corrente con credito zero (e lo si dice).
+  const effSettings: IvaSettings = settings ?? {
+    salesVatRate: 22, startYear: today.getFullYear(), startMonth: today.getMonth() + 1, openingCredit: 0,
+  }
+
+  const fiscalByPeriod = useMemo(() => {
+    const m = new Map<string, FiscalIvaRow>()
+    fiscalRows.forEach(f => {
+      if (f.status === 'cancelled') return
+      const p = parseTaxPeriod(f.tax_period)
+      if (!p) return
+      const k = `${p.year}-${String(p.month).padStart(2, '0')}`
+      const prev = m.get(k)
+      // se ci sono piu' righe per lo stesso periodo vince quella pagata
+      if (!prev || (f.status === 'paid' && prev.status !== 'paid')) m.set(k, f)
+    })
+    return m
+  }, [fiscalRows])
+
+  const pagati: IvaMesePagato[] = useMemo(() => {
+    const out: IvaMesePagato[] = []
+    fiscalByPeriod.forEach((f, k) => {
+      if (f.status !== 'paid') return
+      const [y, mth] = k.split('-').map(Number)
+      const amt = Number(f.amount_paid) > 0 ? Number(f.amount_paid) : Number(f.amount || 0)
+      out.push({ year: y, month: mth, amount: amt })
+    })
+    return out
+  }, [fiscalByPeriod])
+
+  const rows = useMemo(() => buildLiquidazioni({
+    componenti, settings: effSettings, confermati, pagati, toYear: year, toMonth: 12, today,
+  }).filter(r => r.year === year), [componenti, effSettings, confermati, pagati, year, today])
+
+  const kpi = useMemo(() => {
+    const todayStr = todayYMD()
+    const prossima = rows.find(r => r.stato !== 'pagata' && r.dueDate >= todayStr && r.importo > 0)
+    const daVersare = rows.filter(r => r.importo > 0 && r.stato !== 'pagata').reduce((s, r) => s + r.importo, 0)
+    const last = rows[rows.length - 1]
+    const creditoAperto = last && last.importo < 0 ? -last.importo : 0
+    const versato = rows.filter(r => r.stato === 'pagata').reduce((s, r) => s + r.importo, 0)
+    return { prossima, daVersare, creditoAperto, versato }
+  }, [rows])
+
+  /* ── parametri ── */
+  const saveSettings = async () => {
+    if (!COMPANY_ID) return
+    const rate = parseNum(sForm.rate)
+    const sy = Number(sForm.startYear); const sm = Number(sForm.startMonth)
+    if (rate < 0 || rate > 100) { toast({ type: 'error', message: 'Aliquota non valida (0-100)' }); return }
+    if (!(sy >= 2000 && sy <= 2100) || !(sm >= 1 && sm <= 12)) { toast({ type: 'error', message: 'Mese di partenza non valido' }); return }
+    setSavingSettings(true)
+    try {
+      const { error } = await supabase.from('vat_settings').upsert({
+        company_id: COMPANY_ID, sales_vat_rate: rate, start_year: sy, start_month: sm,
+        opening_credit: Math.abs(parseNum(sForm.openingCredit)),
+        competenza_cutoff_day: Math.min(28, Math.max(1, Math.round(Number(sForm.cutoff)) || 15)),
+      }, { onConflict: 'company_id' })
+      if (error) throw error
+      toast({ type: 'success', message: 'Parametri IVA salvati' })
+      setSettingsOpen(false)
+      await loadData()
+    } catch (e) {
+      console.error('Save vat_settings error:', e)
+      toast({ type: 'error', message: 'Errore nel salvataggio dei parametri' })
+    } finally {
+      setSavingSettings(false)
+    }
+  }
+
+  /* ── conferma mese ── */
+  const openConfirm = (r: IvaLiquidazioneRow) => {
+    setConfirmKey(r.key)
+    setCForm({
+      corr: String(r.corrispettiviNetti), ivaAtt: String(r.ivaFattureAttive), ivaCred: String(r.ivaCredito),
+      tot: r.importoManuale ? String(r.importo) : '',
+      note: r.note || '',
+      // Chiusura del registro: quella già salvata, altrimenti oggi (confermare un mese lo chiude)
+      chiuso: confermati.find(c => c.year === r.year && c.month === r.month)?.registro_chiuso_il || todayYMD(),
+    })
+  }
+
+  const saveConfirm = async (r: IvaLiquidazioneRow) => {
+    if (!COMPANY_ID) return
+    const corr = parseNum(cForm.corr); const ivaAtt = parseNum(cForm.ivaAtt); const ivaCred = parseNum(cForm.ivaCred)
+    const ivaDeb = round2(corr * effSettings.salesVatRate / 100)
+    // Se il commercialista ha dato solo il totale, quello vince: i componenti
+    // restano accanto come traccia, senza doverli falsare per far tornare la somma.
+    const totManuale = cForm.tot.trim() !== ''
+    const importo = totManuale
+      ? round2(parseNum(cForm.tot))
+      : round2(ivaDeb + ivaAtt - ivaCred - r.riportoPrecedente)
+    setBusyKey(r.key)
+    try {
+      const { error } = await supabase.from('vat_settlements').upsert({
+        company_id: COMPANY_ID, year: r.year, month: r.month,
+        corrispettivi_netti: corr, iva_debito_corrispettivi: ivaDeb, iva_debito_fatture_attive: ivaAtt,
+        iva_credito: ivaCred, iva_riporto_precedente: r.riportoPrecedente, importo,
+        importo_manuale: totManuale,
+        fonte_corrispettivi: 'manuale', note: cForm.note.trim() || null,
+        registro_chiuso_il: /^\d{4}-\d{2}-\d{2}$/.test(cForm.chiuso) ? cForm.chiuso : todayYMD(),
+        confirmed_by: profile?.id ?? null, confirmed_at: new Date().toISOString(),
+      }, { onConflict: 'company_id,year,month' })
+      if (error) throw error
+      toast({ type: 'success', message: `${MESI_IVA[r.month]} ${r.year} confermato: ${importo >= 0 ? 'da versare' : 'a credito'} € ${fmt(Math.abs(importo))}` })
+      setConfirmKey(null)
+      await loadData()
+    } catch (e) {
+      console.error('Save vat_settlements error:', e)
+      toast({ type: 'error', message: 'Errore nel salvataggio della conferma' })
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  const removeConfirm = async (r: IvaLiquidazioneRow) => {
+    const row = confermati.find(c => c.year === r.year && c.month === r.month)
+    if (!row) return
+    if (removeArm !== r.key) { setRemoveArm(r.key); return }
+    setBusyKey(r.key)
+    try {
+      const { error } = await supabase.from('vat_settlements').delete().eq('id', row.id)
+      if (error) throw error
+      toast({ type: 'info', message: `${MESI_IVA[r.month]} ${r.year}: conferma rimossa, torna la stima` })
+      setRemoveArm(null)
+      await loadData()
+    } catch (e) {
+      console.error('Delete vat_settlements error:', e)
+      toast({ type: 'error', message: 'Errore nella rimozione della conferma' })
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  /* ── scadenza in fiscal_deadlines ── */
+  const upsertScadenza = async (r: IvaLiquidazioneRow) => {
+    if (!COMPANY_ID) return
+    const existing = fiscalByPeriod.get(r.key)
+    if (existing?.status === 'paid') { toast({ type: 'info', message: 'Questa scadenza risulta già pagata: non la tocco.' }); return }
+    setBusyKey(r.key)
+    try {
+      const noteStima = r.stato === 'confermata'
+        ? `Liquidazione IVA ${MESI_IVA[r.month]} ${r.year} confermata dalla pagina Liquidazione IVA.`
+        : `Stima automatica (${FONTE_LABEL[r.fonteCorrispettivi]}) dalla pagina Liquidazione IVA del ${fmtDate(todayYMD())}: si aggiorna al prossimo ricalcolo.`
+      if (r.importo <= 0) {
+        if (existing) {
+          const { error } = await supabase.from('fiscal_deadlines').update({ status: 'cancelled', amount: 0, notes: `A credito (€ ${fmt(-r.importo)} riportato al mese dopo). ${noteStima}` }).eq('id', existing.id)
+          if (error) throw error
+          toast({ type: 'info', message: 'Mese a credito: la scadenza esistente è stata annullata.' })
+        } else {
+          toast({ type: 'info', message: 'Mese a credito: nessuna scadenza da creare, il credito passa al mese dopo.' })
+        }
+      } else if (existing) {
+        const { error } = await supabase.from('fiscal_deadlines').update({
+          amount: r.importo, due_date: r.dueDate, f24_code: r.f24Code, notes: noteStima,
+        }).eq('id', existing.id)
+        if (error) throw error
+        toast({ type: 'success', message: `Scadenza ${MESI_IVA[r.month]} aggiornata a € ${fmt(r.importo)}` })
+      } else {
+        const { error } = await supabase.from('fiscal_deadlines').insert({
+          company_id: COMPANY_ID, deadline_type: 'iva_periodica', title: titoloScadenzaIva(r.year, r.month),
+          description: 'Liquidazione IVA periodica (F24, codice tributo ' + r.f24Code + ')',
+          amount: r.importo, due_date: r.dueDate, f24_code: r.f24Code, tax_period: taxPeriod(r.year, r.month),
+          payment_method: 'f24', is_recurring: true, recurrence_rule: 'monthly', status: 'pending',
+          notes: noteStima, created_by: profile?.id ?? null,
+        })
+        if (error) throw error
+        toast({ type: 'success', message: `Scadenza ${MESI_IVA[r.month]} creata: € ${fmt(r.importo)} entro il ${fmtDate(r.dueDate)}` })
+      }
+      await loadData()
+    } catch (e) {
+      console.error('Upsert fiscal_deadlines IVA error:', e)
+      toast({ type: 'error', message: 'Errore nella scrittura della scadenza' })
+    } finally {
+      setBusyKey(null)
+    }
+  }
+
+  const years = useMemo(() => {
+    const ys = new Set<number>([today.getFullYear(), effSettings.startYear])
+    componenti.forEach(c => ys.add(c.year))
+    return Array.from(ys).filter(y => y >= effSettings.startYear).sort()
+  }, [componenti, effSettings.startYear, today])
+
+  const inputCls = 'w-full px-2 py-1 border border-slate-200 rounded-lg text-xs text-right tabular-nums bg-white focus:outline-none focus:ring-1 focus:ring-blue-400/40'
+  const selectCls = 'px-3 py-1.5 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-1 focus:ring-blue-400/40 bg-white'
+  const btnSecondary = 'inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 hover:bg-slate-50 transition disabled:opacity-50'
+  const btnPrimary = 'inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 text-white rounded-lg text-xs font-medium hover:bg-blue-700 transition shadow-sm disabled:opacity-50'
+
+  return (
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+        <PageHeader
+          title="Liquidazione IVA"
+          subtitle="Stima mensile dell'IVA da versare: corrispettivi netti × aliquota + fatture attive − fatture passive ricevute nel mese − credito riportato"
+          noDivider
+          actions={(
+            <div className="flex items-center gap-2">
+              <select value={year} onChange={e => setYear(Number(e.target.value))} className={selectCls} aria-label="Anno">
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <button onClick={() => loadData()} className={btnSecondary} title="Ricalcola con i dati aggiornati">
+                <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Ricalcola
+              </button>
+              {canEdit && (
+                <button onClick={() => setSettingsOpen(o => !o)} className={settingsOpen ? btnPrimary : btnSecondary}>
+                  <Settings2 size={14} /> Parametri
+                </button>
+              )}
+            </div>
+          )}
+        />
+
+        {!settings && !loading && (
+          <div className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+            <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold">Parametri non ancora impostati.</span> Il calcolo parte dal mese corrente con aliquota 22% e credito iniziale zero.
+              {canEdit ? ' Apri «Parametri» per indicare il mese di partenza e il credito IVA da riportare.' : ' Chiedi a un super advisor o al contabile di impostarli.'}
+            </div>
+          </div>
+        )}
+
+        {settingsOpen && canEdit && (
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-2 text-sm font-semibold text-slate-900 border-b border-slate-100">Parametri della liquidazione</div>
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                <label className="text-xs text-slate-600">Aliquota vendite (%)
+                  <input value={sForm.rate} onChange={e => setSForm({ ...sForm, rate: e.target.value })} className={inputCls + ' mt-1'} inputMode="decimal" />
+                </label>
+                <label className="text-xs text-slate-600">Mese di partenza
+                  <select value={sForm.startMonth} onChange={e => setSForm({ ...sForm, startMonth: e.target.value })} className={selectCls + ' mt-1 w-full'}>
+                    {MESI_IVA.slice(1).map((n, i) => <option key={n} value={i + 1}>{n}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs text-slate-600">Anno di partenza
+                  <input value={sForm.startYear} onChange={e => setSForm({ ...sForm, startYear: e.target.value })} className={inputCls + ' mt-1'} inputMode="numeric" />
+                </label>
+                <label className="text-xs text-slate-600">Credito IVA iniziale (€)
+                  <input value={sForm.openingCredit} onChange={e => setSForm({ ...sForm, openingCredit: e.target.value })} className={inputCls + ' mt-1'} inputMode="decimal" />
+                </label>
+                <label className="text-xs text-slate-600">Fatture del mese: entro il giorno (del mese dopo)
+                  <input value={sForm.cutoff} onChange={e => setSForm({ ...sForm, cutoff: e.target.value })} className={inputCls + ' mt-1'} inputMode="numeric" title="Una fattura datata nel mese resta nel mese se arriva via SDI entro questo giorno del mese successivo (15 = massimo di legge). Oltre, va nel mese di arrivo." />
+                </label>
+              </div>
+              <p className="text-xs text-slate-500">Il mese di partenza è il primo mese calcolato: il credito iniziale è quello da riportare in quel mese (zero se il mese precedente era a debito). I mesi prima non vengono ricostruiti. Il giorno limite vale per i mesi non ancora confermati: le fatture del mese arrivate via SDI entro quel giorno del mese dopo restano nel mese (15 è il massimo di legge). Per un mese confermato conta invece la data «registro chiuso il» salvata con la conferma: da quel giorno in poi le fatture del mese passano al mese successivo, come nel registro dello studio.</p>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setSettingsOpen(false)} className={btnSecondary}>Annulla</button>
+                <button onClick={saveSettings} disabled={savingSettings} className={btnPrimary}>
+                  <Save size={14} /> Salva
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* KPI */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatKpi icon={CalendarClock} color="blue" label="Prossimo versamento"
+            value={kpi.prossima ? `€ ${fmt(kpi.prossima.importo)}` : '—'}
+            sub={kpi.prossima ? `${MESI_IVA[kpi.prossima.month]} ${kpi.prossima.year} · entro il ${fmtDate(kpi.prossima.dueDate)} · ${STATO_LABEL[kpi.prossima.stato]}` : 'nessun mese da versare'} />
+          <StatKpi icon={Receipt} color="amber" label="Da versare nell'anno" value={`€ ${fmt(kpi.daVersare)}`} sub="mesi non ancora pagati, stime comprese" />
+          <StatKpi icon={CheckCircle2} color="emerald" label="Già versato" value={`€ ${fmt(kpi.versato)}`} sub="IVA periodica pagata in Scadenze Fiscali" />
+          <StatKpi icon={Wallet} color="slate" label="Credito a fine anno" value={`€ ${fmt(kpi.creditoAperto)}`} sub="riportato all'anno successivo, se resta" />
+        </div>
+
+        {/* Tabella */}
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="px-4 py-2 text-sm font-semibold text-slate-900 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
+            <span>Liquidazioni {year}: dal mese di partenza ({MESI_IVA[effSettings.startMonth]} {effSettings.startYear}, credito iniziale € {fmt(effSettings.openingCredit)})</span>
+            <span className="text-xs font-normal text-slate-500">aliquota vendite {effSettings.salesVatRate}%</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="px-3 py-2 text-left">Mese</th>
+                  <th className="px-3 py-2 text-left">Corrispettivi netti</th>
+                  <th className="px-3 py-2 text-right">IVA vendite</th>
+                  <th className="px-3 py-2 text-right">IVA acquisti</th>
+                  <th className="px-3 py-2 text-right">Riporto</th>
+                  <th className="px-3 py-2 text-right">Liquidazione</th>
+                  <th className="px-3 py-2 text-left">Scadenza</th>
+                  <th className="px-3 py-2 text-left">Stato</th>
+                  {canEdit && <th className="px-3 py-2 text-right">Azioni</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {loading && rows.length === 0 && (
+                  <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-500"><Loader2 className="inline animate-spin mr-2" size={18} />Caricamento…</td></tr>
+                )}
+                {!loading && rows.length === 0 && (
+                  <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-500">Nessun mese da calcolare per il {year}: controlla il mese di partenza nei parametri.</td></tr>
+                )}
+                {rows.map(r => {
+                  const fisc = fiscalByPeriod.get(r.key)
+                  const isConfirm = confirmKey === r.key
+                  const isBusy = busyKey === r.key
+                  const aCredito = r.importo < 0
+                  return (
+                    <tr key={r.key} className={`border-t border-slate-100 align-top ${r.stato === 'in_corso' ? 'bg-blue-50/30' : ''}`}>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <div className="font-medium text-slate-900">{MESI_IVA[r.month]} {r.year}</div>
+                        <div className="text-xs text-slate-500">F24 {r.f24Code}</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        {isConfirm ? (
+                          <input value={cForm.corr} onChange={e => setCForm({ ...cForm, corr: e.target.value })} className={inputCls} inputMode="decimal" aria-label="Corrispettivi netti" />
+                        ) : (
+                          <>
+                            <div className="tabular-nums text-slate-900">{fmt(r.corrispettiviNetti)}</div>
+                            <span className={`inline-block mt-0.5 text-[11px] px-1.5 py-0.5 rounded border ${FONTE_STYLE[r.fonteCorrispettivi]}`}>
+                              {FONTE_LABEL[r.fonteCorrispettivi]}{r.giorniChiusura > 0 ? ` · ${r.giorniChiusura} gg` : ''}
+                            </span>
+                          </>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="tabular-nums text-slate-900">{fmt(r.ivaDebitoCorrispettivi + r.ivaFattureAttive)}</div>
+                        {isConfirm ? (
+                          <label className="block text-[11px] text-slate-500 mt-1">fatture attive
+                            <input value={cForm.ivaAtt} onChange={e => setCForm({ ...cForm, ivaAtt: e.target.value })} className={inputCls + ' mt-0.5'} inputMode="decimal" />
+                          </label>
+                        ) : (
+                          <div className="text-[11px] text-slate-500">{effSettings.salesVatRate}% su corrisp. + {fmt(r.ivaFattureAttive)} fatture attive</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {isConfirm ? (
+                          <input value={cForm.ivaCred} onChange={e => setCForm({ ...cForm, ivaCred: e.target.value })} className={inputCls} inputMode="decimal" aria-label="IVA acquisti" />
+                        ) : (
+                          <>
+                            <div className="tabular-nums text-slate-900">{r.ivaCreditoStimato ? '≈ ' : ''}{fmt(r.ivaCredito)}</div>
+                            <div className="text-[11px] text-slate-500">
+                              {r.ivaCreditoStimato
+                                ? 'media dei mesi chiusi'
+                                : `${r.nFatturePassive} fatture ricevute${r.nNoteCredito ? `, ${r.nNoteCredito} NC` : ''}${r.ivaIntegrazioni ? ` · RC neutro ${fmt(r.ivaIntegrazioni)}` : ''}`}
+                            </div>
+                          </>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-600">{r.riportoPrecedente > 0 ? `− ${fmt(r.riportoPrecedente)}` : '—'}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums font-semibold ${aCredito ? 'text-emerald-700' : 'text-slate-900'}`}>
+                        {isConfirm ? (
+                          <>
+                            <input value={cForm.tot} onChange={e => setCForm({ ...cForm, tot: e.target.value })}
+                              className={inputCls} inputMode="decimal" placeholder="dal calcolo"
+                              aria-label="Importo definitivo della liquidazione" />
+                            <div className="text-[11px] font-normal text-slate-500 mt-0.5">
+                              {cForm.tot.trim() !== ''
+                                ? 'vince su corrispettivi e IVA'
+                                : 'vuoto: si ricalcola al salvataggio'}
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            {aCredito ? `a credito ${fmt(-r.importo)}` : fmt(r.importo)}
+                            {r.importoManuale && (
+                              <div className="text-[11px] font-normal text-indigo-600" title="Totale comunicato dal commercialista, non calcolato dai componenti">
+                                importo dato
+                              </div>
+                            )}
+                          </>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap">
+                        <div className="text-slate-900">{fmtDate(r.dueDate)}</div>
+                        {fisc ? (
+                          <div className={`text-[11px] ${fisc.status === 'paid' ? 'text-emerald-600' : 'text-blue-600'}`}>
+                            {fisc.status === 'paid'
+                              ? `pagata ${fmt(Number(fisc.amount_paid) > 0 ? Number(fisc.amount_paid) : Number(fisc.amount || 0))}${fisc.paid_date ? ` il ${fmtDate(fisc.paid_date)}` : ''}`
+                              : `in Scadenze Fiscali: ${fmt(Number(fisc.amount || 0))}`}
+                          </div>
+                        ) : (
+                          <div className="text-[11px] text-slate-400">non ancora nello scadenzario</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-block text-[11px] font-medium px-2 py-0.5 rounded-full ${STATO_STYLE[r.stato]}`}>{STATO_LABEL[r.stato]}</span>
+                        {r.stato === 'confermata' && (() => { const ch = confermati.find(c => c.year === r.year && c.month === r.month)?.registro_chiuso_il; return ch ? <div className="text-[11px] text-slate-500 mt-1">registro chiuso il {fmtDate(ch)}</div> : null })()}
+                        {r.note && <div className="text-[11px] text-slate-500 mt-1 max-w-[180px] line-clamp-2" title={r.note}>{r.note}</div>}
+                      </td>
+                      {canEdit && (
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          {isConfirm ? (
+                            <div className="flex flex-col gap-1 items-end">
+                              <label className="text-[11px] text-slate-500 text-right" title="Le fatture del mese arrivate via SDI dopo questo giorno passano al mese successivo (è il giorno in cui lo studio ha chiuso il registro acquisti)">registro chiuso il
+                                <input type="date" value={cForm.chiuso} onChange={e => setCForm({ ...cForm, chiuso: e.target.value })} className="block w-40 mt-0.5 px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400/40" aria-label="Registro chiuso il" />
+                              </label>
+                              <input value={cForm.note} onChange={e => setCForm({ ...cForm, note: e.target.value })} placeholder="nota (facoltativa)" className="w-40 px-2 py-1 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-1 focus:ring-blue-400/40" />
+                              <div className="flex gap-1">
+                                <button onClick={() => setConfirmKey(null)} className={btnSecondary} title="Annulla"><X size={13} /> Annulla</button>
+                                <button onClick={() => saveConfirm(r)} disabled={isBusy} className={btnPrimary}>
+                                  <CheckCircle2 size={13} /> Salva conferma
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex gap-1 justify-end">
+                              {r.stato !== 'pagata' && r.stato !== 'futura' && (
+                                <button onClick={() => openConfirm(r)} disabled={isBusy} className={btnSecondary} title="Inserisci i numeri definitivi del mese">
+                                  {r.stato === 'confermata' ? 'Modifica' : 'Conferma'}
+                                </button>
+                              )}
+                              {r.stato === 'confermata' && (
+                                <button onClick={() => removeConfirm(r)} disabled={isBusy} className={removeArm === r.key ? btnSecondary + ' border-red-300 text-red-700 bg-red-50' : btnSecondary} title="Torna alla stima automatica">
+                                  <Undo2 size={13} />{removeArm === r.key ? 'Confermi?' : 'Rimuovi'}
+                                </button>
+                              )}
+                              {fisc?.status !== 'paid' && r.stato !== 'futura' && (
+                                <button onClick={() => upsertScadenza(r)} disabled={isBusy} className={btnPrimary} title="Crea o aggiorna la scadenza in Scadenze Fiscali (e quindi in Scadenzario e Cashflow)">
+                                  <CalendarClock size={13} /> {fisc ? 'Aggiorna scadenza' : 'Crea scadenza'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="text-xs text-slate-500 space-y-1">
+          <p><span className="font-semibold text-slate-700">Corrispettivi netti</span>: chiusure di cassa confermate quando ci sono (mese in corso: chiusure fino a oggi più preventivo per i giorni restanti), altrimenti il consuntivo e poi il preventivo di Budget &amp; Controllo. Sono imponibili: l'IVA vendite è corrispettivi × aliquota.</p>
+          <p><span className="font-semibold text-slate-700">IVA acquisti</span>: fatture passive per competenza, come nel registro del commercialista: una fattura del mese resta nel mese se arriva via SDI entro la chiusura del registro di quel mese (la data «registro chiuso il» salvata con la conferma; per i mesi non confermati il giorno {cutoffDay} del mese successivo, parametro), altrimenti va nel mese in cui arriva; meno le note di credito. Le integrazioni reverse charge (TD16/17/18/19) sono neutre e non entrano. Per i mesi futuri si usa la media dei mesi chiusi (≈). Tutta l'IVA è considerata detraibile.</p>
+          <p><span className="font-semibold text-slate-700">Riporto</span>: se un mese chiude a credito, il credito riduce la liquidazione del mese dopo. Un mese confermato usa i numeri inseriti a mano; un mese pagato usa l'importo versato registrato in Scadenze Fiscali.</p>
+          <p><span className="font-semibold text-slate-700">Scadenza</span>: il 16 del mese successivo (20 agosto per luglio, giorno lavorativo successivo se cade nel weekend), codice tributo 60 + mese. «Crea scadenza» la scrive in Scadenze Fiscali: da lì entra in Scadenzario e Cashflow Prospettico.</p>
+        </div>
+      </div>
+    </div>
+  )
+}

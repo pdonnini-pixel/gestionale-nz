@@ -5,6 +5,7 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useOutlets } from '../hooks/useOutlets';
 import PageHeader from '../components/PageHeader';
+import { outletLifecycleCaption, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle';
 
 function fmt(n: number, dec = 0): string {
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
@@ -57,9 +58,15 @@ export default function OpenToBuy() {
   const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
   const [season, setSeason] = useState<'SS26' | 'FW26'>('SS26');
 
-  // Outlet reali del tenant (non più cablati su NZ).
-  const outletNames = useMemo(() => tenantOutlets.map((o) => o.name), [tenantOutlets]);
-  const hasOutlets = outletNames.length > 0;
+  // Outlet reali del tenant (non più cablati su NZ). Gli outlet «in apertura»
+  // non ricevono un piano OTB di esempio: restano in lista con l'avviso
+  // «nessun dato operativo prima dell'apertura».
+  const outletNames = useMemo(
+    () => tenantOutlets.filter((o) => o.lifecycle !== 'programmato').map((o) => o.name),
+    [tenantOutlets],
+  );
+  const plannedOutlets = useMemo(() => tenantOutlets.filter((o) => o.lifecycle === 'programmato'), [tenantOutlets]);
+  const hasOutlets = tenantOutlets.length > 0;
 
   // Valori di esempio per gli outlet del tenant (NON salvati). Vengono
   // riallineati quando cambia l'insieme di outlet (es. primo caricamento),
@@ -319,6 +326,21 @@ export default function OpenToBuy() {
                 </div>
               );
             })}
+            {/* Outlet in apertura: nessun parametro di esempio prima dell'apertura. */}
+            {plannedOutlets.map((o) => (
+              <div key={o.id} className="bg-white rounded-xl border border-blue-200 shadow-sm p-6 flex items-center gap-4">
+                <Store className="w-8 h-8 text-blue-300 shrink-0" />
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    {o.name}
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+                      {outletLifecycleCaption(o)}
+                    </span>
+                  </h3>
+                  <p className="text-sm text-slate-500 mt-1">{outletLifecycleCaption(o)}: nessun dato operativo prima dell'apertura.</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -404,6 +426,22 @@ export default function OpenToBuy() {
                     <td className="px-6 py-3 text-right text-slate-700">€{fmt(row.scorta_finale_target, 0)}</td>
                     <td className="px-6 py-3 text-right text-slate-700">{fmt(row.markdown_previsto, 1)}%</td>
                     <td className="px-6 py-3 text-right font-bold text-blue-600">€{fmt(row.otb, 0)}</td>
+                  </tr>
+                ))}
+                {/* Outlet in apertura: nessun piano prima dell'apertura. */}
+                {plannedOutlets.map((o) => (
+                  <tr key={o.id} className="bg-blue-50/40">
+                    <td className="px-6 py-3 font-medium text-slate-900">
+                      <span className="inline-flex items-center gap-2">
+                        {o.name}
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+                          {outletLifecycleCaption(o)}
+                        </span>
+                      </span>
+                    </td>
+                    <td className="px-6 py-3 text-sm text-slate-500" colSpan={6}>
+                      {outletLifecycleCaption(o)}: nessun dato operativo prima dell'apertura.
+                    </td>
                   </tr>
                 ))}
               </tbody>

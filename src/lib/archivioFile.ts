@@ -96,6 +96,39 @@ export async function archiviaFile(p: ArchiviaParams): Promise<FileArchiviato> {
   }
 }
 
+/**
+ * «Ricaricare sovrascrive», anche in archivio.
+ *
+ * Quando lo stesso documento viene ricaricato per lo stesso periodo (il consulente
+ * ristampa, oppure il primo file era quello sbagliato), i dati vengono sostituiti:
+ * l'archivio deve dire la stessa cosa, altrimenti chi lo riapre per capire un
+ * numero rischia di leggere la versione vecchia.
+ *
+ * Non cancella niente: il caricamento precedente resta, marcato come sostituito e
+ * con il puntatore a quello che l'ha rimpiazzato. La UI mostra di default solo la
+ * versione corrente.
+ */
+export async function sostituisciPrecedenti(p: {
+  companyId: string;
+  funzione: string;
+  year?: number | null;
+  month?: number | null;
+  nuovoId: string | null;
+}): Promise<number> {
+  if (!p.nuovoId) return 0;
+  let q = supabase.from('import_documents')
+    .update({ superseded_at: new Date().toISOString(), superseded_by: p.nuovoId })
+    .eq('company_id', p.companyId)
+    .eq('funzione', p.funzione)
+    .neq('id', p.nuovoId)
+    .is('superseded_at', null);
+  q = p.year == null ? q.is('year', null) : q.eq('year', p.year);
+  q = p.month == null ? q.is('month', null) : q.eq('month', p.month);
+  const { data, error } = await q.select('id');
+  if (error) return 0;
+  return (data || []).length;
+}
+
 /** Collega a posteriori il file al dato che ha prodotto. */
 export async function collegaFileArchiviato(
   documentId: string | null,

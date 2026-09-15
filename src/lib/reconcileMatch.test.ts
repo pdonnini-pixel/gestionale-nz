@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer } from './reconcileMatch'
+import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement } from './reconcileMatch'
 
 // Casi reali (New Zago, tab Banche → Riconciliazione). Vedi RICONCILIAZIONE_REGOLE.md R5/R6.
 describe('extractBeneficiary', () => {
@@ -92,5 +92,145 @@ describe('isRealTransfer', () => {
   })
   it('un F24 non è un trasferimento a fornitore', () => {
     expect(isRealTransfer('DELEGA F24 TRIBUTI')).toBe(false)
+  })
+})
+
+describe('supplierKeyOf', () => {
+  it('tiene insieme le varianti anagrafiche con la stessa P.IVA', () => {
+    const a = supplierKeyOf({ supplier_vat: '05006900962', supplier_name: 'ZUCCHETTI SPA' })
+    const b = supplierKeyOf({ supplier_vat: '05006900962', supplier_name: 'ZUCCHETTI SPA AD AZIONISTA UNICO' })
+    expect(a).toBe(b)
+  })
+  it('tiene separati fornitori diversi senza P.IVA', () => {
+    expect(supplierKeyOf({ supplier_name: 'Amazon Business EU' }))
+      .not.toBe(supplierKeyOf({ supplier_name: 'CNH INDUSTRIAL CAPITAL EUROPE' }))
+  })
+})
+
+describe('sigWords — parole generiche che non identificano un fornitore', () => {
+  it('AMAZON PAYMENTS EUROPE e CNH INDUSTRIAL CAPITAL EUROPE non si somigliano', () => {
+    expect(namesOverlap('AMAZON PAYMENTS EUROPE', 'CNH INDUSTRIAL CAPITAL EUROPE')).toBe(false)
+  })
+  it('AMAZON resta la parola distintiva', () => {
+    expect(namesOverlap('AMAZON PAYMENTS EUROPE', 'Amazon Business EU S.a.r.l, Sede Secondaria')).toBe(true)
+  })
+})
+
+describe('invoiceTokens / invoiceCitedIn', () => {
+  it('legge i numeri dalla causale MPS "SALDO FATTURA 60828-65166"', () => {
+    const t = invoiceTokens('Bonifico tramite corporate banking *ZUCCHETTI SPA SALDO FATTURA 60828-65166ID.BON:0832500021409994483773002800IT')
+    expect(t).toContain('60828')
+    expect(t).toContain('65166')
+    expect(invoiceCitedIn('60828/PI', t)).toBe(true)
+    expect(invoiceCitedIn('8086/FD', t)).toBe(false)
+  })
+  it('riconosce il codice Amazon anche troncato dalla banca', () => {
+    const t = invoiceTokens('Bonifico tramite corporate banking *AMAZON PAYMENTS EUROPE SSF-IT662TPABEY-IT65OHAABEID.BON:0832500021650253483773002800IE')
+    expect(invoiceCitedIn('IT662TPABEY', t)).toBe(true)
+    expect(invoiceCitedIn('IT65OHAABEY', t)).toBe(true)   // in causale arriva come IT65OHAABE
+    expect(invoiceCitedIn('IT6IJXABEY', t)).toBe(false)
+  })
+})
+
+describe('findExactCombo', () => {
+  it('trova la combinazione esatta del bonifico Amazon del 14/07 (415,85)', () => {
+    // fatture Amazon aperte, comprese quelle piccole che il vecchio taglio "solo le
+    // 12 più grandi" scartava: 52,72 + 262,24 + 20,89 + 80,00 = 415,85
+    const importi = [262.24, 229.74, 192.15, 162.89, 113.64, 92.32, 88.80, 80.00, 79.52, 76.90, 67.64, 66.78, 52.72, 49.35, 39.87, 20.89]
+    const items = importi.map((x) => ({ cents: Math.round(x * 100) }))
+    const sol = findExactCombo(items, 41585)
+    expect(sol).not.toBeNull()
+    expect(sol!.map((i) => importi[i]).sort((a, b) => a - b)).toEqual([20.89, 52.72, 80, 262.24])
+  })
+  it('rifiuta la combinazione che sbaglia di 41 centesimi', () => {
+    // 366,00 (CNH) + 88,80 − 38,54 = 416,26 contro un movimento di 415,85
+    const items = [366.0, 88.8, -38.54].map((x) => ({ cents: Math.round(x * 100) }))
+    expect(findExactCombo(items, 41585)).toBeNull()
+  })
+  it('include la nota di credito quando serve a far tornare il netto', () => {
+    const importi = [366.0, 88.8, -38.54]
+    const sol = findExactCombo(importi.map((x) => ({ cents: Math.round(x * 100) })), 41626)
+    expect(sol).toEqual([0, 1, 2])
+  })
+  it('non propone niente se due combinazioni diverse fanno la stessa cifra', () => {
+    const items = [100, 60, 40, 50, 50].map((x) => ({ cents: x * 100 }))
+    expect(findExactCombo(items, 10000)).toBeNull()
+  })
+  it('rompe il pareggio con le fatture citate in causale', () => {
+    const items = [
+      { cents: 6000, cited: true }, { cents: 4000, cited: true },
+      { cents: 5000, cited: false }, { cents: 5000, cited: false },
+    ]
+    expect(findExactCombo(items, 10000)).toEqual([0, 1])
+  })
+  it('vuole almeno due voci: la fattura singola non è un gruppo', () => {
+    expect(findExactCombo([{ cents: 10000 }, { cents: 300 }], 10000)).toBeNull()
+  })
+})
+
+describe('hasPaymentStructure', () => {
+  it('scarta una disposizione che non paga un fornitore', () => {
+    expect(hasPaymentStructure('Causale: DISPOSIZIONE - Descrizione: FONDO DI GARANZIA MCC')).toBe(false)
+  })
+  it('tiene i flussi CBI e i bonifici veri', () => {
+    expect(hasPaymentStructure('Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 136163365 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 51,80')).toBe(true)
+    expect(hasPaymentStructure('ADDEBITO SDD N. 646373990 A FAVORE PALMANOVA PROPCO S.R.L.')).toBe(true)
+    expect(hasPaymentStructure('Bonifico tramite Internet Banking *ATENA SERVIZI GLOBALI SO')).toBe(true)
+  })
+})
+
+describe('invoiceCitedIn — numeri con prefisso di serie', () => {
+  it('riconosce FPR 238/26 dal "SALDO FATTURA 238-240" della causale', () => {
+    const t = invoiceTokens('Bonifico tramite Internet Banking *ATENA SERVIZI GLOBALI SOSALDO FATTURA 238-240 ID.BON:0845700003140308480546')
+    expect(invoiceCitedIn('FPR 238/26', t)).toBe(true)
+    expect(invoiceCitedIn('FPR 240/26', t)).toBe(true)
+    expect(invoiceCitedIn('FPR 241/26', t)).toBe(false)
+  })
+})
+
+// Causali vere dell'estratto conto New Zago 2026, portate da Patrizio il 10/09/2026
+// chiedendo «perché non le abbina queste?». La risposta per due terzi di quella
+// lista è che non c'è niente da abbinare: sono movimenti della banca o giri interni.
+describe('isBankOwnMovement', () => {
+  const dellaBanca = [
+    'Causale: PAGAMENTO RATA DI MUTUO - Descrizione: ADD. RATA FINANZ. N 0994486821 SCAD. 31-08-2026',
+    'Causale: RIMBORSO FINANZIAMENTI - Descrizione: RIMBORSO PARZ. FINANZ. NUMERO 0994309234',
+    'Causale: CANONE RAPPORTO PACKAGE - Descrizione: CANONE SET DI BASE MPS MIO Business',
+    'Addebito Canone home banking Sblocco utente',
+    'Causale: COMM/SPESE SU FIDEJUSSION - Descrizione: ORD: NEW ZAGO S.R.L. FIDEIUSSIONE DEL 28.08.2025',
+    'Causale: DISPOSIZIONE - Descrizione: FONDO DI GARANZIA MCC',
+    'PRELEVAMENTO CON MODULI DI SPORTELLO PREL.CONT. DA SPORTELLO',
+    'VOSTRA DISPOSIZIONE A FAVORE DI N.D. DISPOSIZIONE GIROCONTO PER COSTITUZIONE PEGNO DENARO',
+    'Bonifico tramite Internet Banking *NEW ZAGO S.R.L. PASSAGGIO CONTANTI NEGOZI',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 653537599 A FAVORE NEXI PAYMENTS SPA CODICE MANDATO CL2XV900815659PC0001379716 IMPORTO 4,50',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 652703413 A FAVORE GLOBAL BLUE ITALIA SRL CODICE MANDATO ITA145205C IMPORTO 259,90',
+    'Causale: ADDEBITO DIRETTO CARTA - Descrizione: ADDEBITO SDD N. 637401479 A FAVORE BANCA MONTE DEI PASCHI D CODICE MANDATO BPRGQ91030482164900000 IMPORTO 50,00 - N.I.S.EB POSIZIONE CARTA 4821649 ESTRATTO CONTO DEL 20260531',
+  ]
+  it.each(dellaBanca)('riconosce come movimento della banca: %s', (d) => {
+    expect(isBankOwnMovement(d)).toBe(true)
+  })
+
+  // Questi invece pagano fatture vere e devono restare abbinabili.
+  const daAbbinare = [
+    'Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 137123484 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 40.000,00 IMPORTO COMMISSIONI: 1,75',
+    'Bonifico tramite Internet Banking *SFORAZZINI SRL SF-11245-11037 ID.BON:0845700172770303480546302800IT',
+    'Causale: EFFETTI RITIRATI - Descrizione: NUM.EFFETTI: 4 RIF.OP. 2609090014927',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 627421361 A FAVORE VALDICHIANA PROPCO SRL CODICE MANDATO BTWEP04G110240424 IMPORTO 36541,42',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 639774752 A FAVORE ENEGAN SPA CODICE MANDATO A56S04000107362100484 IMPORTO 3637,73',
+    'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 621973079 A FAVORE LIGNANO BANDA LARGA CODICE MANDATO 07362100484 IMPORTO 244,00',
+    'VOSTRO ASSEGNO BANCARIO N. ASSEGNO N. AB/NS DA CIT',
+    'Addebito MAV da Internet Banking MAV 06230/736901748742',
+  ]
+  it.each(daAbbinare)('lascia abbinabile il pagamento a fornitore: %s', (d) => {
+    expect(isBankOwnMovement(d)).toBe(false)
+  })
+
+  it('non scambia un canone di LOCAZIONE per un canone bancario', () => {
+    // «CANONE» da solo non basta: solo le forme del rapporto con la banca.
+    expect(isBankOwnMovement('Bonifico a favore SAN MAURO SPA CANONE LOCAZIONE MESE DI AGOSTO')).toBe(false)
+  })
+
+  it('regge le causali vuote', () => {
+    expect(isBankOwnMovement('')).toBe(false)
   })
 })
