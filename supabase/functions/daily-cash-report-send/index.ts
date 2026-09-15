@@ -362,8 +362,8 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
 //   (nessun piè di pagina: il modello finisce con la riga del totale)
 // Regole di riempimento (Meta vieta gli "a capo" e le variabili vuote):
 //   - etichetta con «giorno»/«data»/«report» → data gg/mm/aa ([PROVA] nella prova)
-//   - etichetta con «totale» → totale della giornata
-//   - etichetta = nome di un punto vendita → incasso di quel negozio
+//   - etichetta con «totale» → totale della giornata (con « €» se il testo fisso non dice già «euro»)
+//   - etichetta = nome di un punto vendita → incasso di quel negozio, con « €»
 //     («manca» se non ha chiuso, «chiuso» se giorno di chiusura, «(bozza)» se non confermato)
 //   - riga con la sola {{n}} → prossimo punto vendita non ancora assegnato, in ordine di nome
 //   - slot senza corrispondenza → «-»
@@ -373,11 +373,12 @@ function eurPlain(n: number): string {
 }
 function oneLine(s: string): string { const t = s.replace(/\s+/g, " ").trim(); return t || "-"; }
 function normName(s: string): string { return s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, ""); }
+// Gli importi portano sempre il simbolo dell'euro, tranne dove il testo fisso del modello dice già «euro».
 function rowAmount(row: RowData): string {
   const c = row.closing;
   if (!c) return "manca";
   if (c.is_closed_day) return "chiuso";
-  return `${eurPlain(num(c.total_receipts))}${c.status === "bozza" ? " (bozza)" : ""}`;
+  return `${eurPlain(num(c.total_receipts))} €${c.status === "bozza" ? " (bozza)" : ""}`;
 }
 function whatsappVariables(r: ReportData, kind: string, templateBody: string, followup: Followup | null = null): Record<string, string> {
   const [y, m, d] = r.date.split("-");
@@ -393,7 +394,7 @@ function whatsappVariables(r: ReportData, kind: string, templateBody: string, fo
     const label = line.replace(/\{\{\d+\}\}/g, "").replace(/[€:·]/g, "").trim();
     if (!label) { bare.push(n); continue; }
     if (/giorno|data|report/i.test(label)) { vars[n] = dateStr; continue; }
-    if (/totale/i.test(label)) { vars[n] = eurPlain(r.totals.total); continue; }
+    if (/totale/i.test(label)) { vars[n] = /euro|€/i.test(label) ? eurPlain(r.totals.total) : `${eurPlain(r.totals.total)} €`; continue; }
     const row = rows.find((x) => normName(x.outlet.name) === normName(label));
     if (row) { vars[n] = rowAmount(row); used.add(row.outlet.id); } else vars[n] = "-";
   }
