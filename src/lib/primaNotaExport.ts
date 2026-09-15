@@ -25,6 +25,8 @@ export type PnPayable = {
   amount_paid?: number | null
   installment_number?: number | null
   installment_total?: number | null
+  /** Metodo di pagamento della scadenza (riba_30, bonifico_ordinario, …): serve a far capire le RiBa. */
+  payment_method?: string | null
 }
 
 export type PnFiscalDeadline = {
@@ -194,17 +196,38 @@ export function pivaOf(m: PnMovement): string {
   return m.supplier?.partita_iva ?? ''
 }
 
+// Fattura pagata a ricevuta bancaria (riba, riba_30/60/90/120): lo studio la
+// registra diversamente da un bonifico, quindi va fatta capire ovunque.
+export const isRiba = (p: PnPayable): boolean => /^riba/i.test(String(p.payment_method ?? ''))
+export const ribaCountOf = (m: PnMovement): number => m.payables.filter(isRiba).length
+
+// Tipo movimento con la RiBa in chiaro: «Pagamento fornitore (RiBa)» quando
+// tutte le fatture saldate sono a ricevuta bancaria, «(RiBa e altro)» se
+// solo alcune lo sono.
+export function tipoMovimentoOf(m: PnMovement): string {
+  const kind = classifyMovement(m)
+  const label = KIND_LABELS[kind]
+  if (kind !== 'fornitore') return label
+  const nRiba = ribaCountOf(m)
+  if (nRiba === 0) return label
+  return nRiba === m.payables.length ? `${label} (RiBa)` : `${label} (RiBa e altro)`
+}
+
 // Causale: tutte le fatture saldate (numero, e fornitore quando sono di più
 // fornitori), oppure il dettaglio dell'F24 (titolo, codice tributo, periodo),
-// altrimenti riferimento o causale bancaria.
+// altrimenti riferimento o causale bancaria. Le RiBa si vedono: «RiBa · Fatt. …»
+// quando lo sono tutte, altrimenti «· RiBa» accanto alla singola fattura.
 export function causaleOf(m: PnMovement): string {
   if (m.payables.length > 0) {
     const multi = distinctSuppliers(m.payables).length > 1
+    const nRiba = ribaCountOf(m)
+    const allRiba = nRiba === m.payables.length
     const parts = m.payables.map((p) => {
       const n = String(p.invoice_number || '').trim() || '?'
-      return multi ? `${n} (${String(p.supplier_name || '').trim()})` : n
+      const base = multi ? `${n} (${String(p.supplier_name || '').trim()})` : n
+      return !allRiba && isRiba(p) ? `${base} · RiBa` : base
     })
-    return `Fatt. ${parts.join('; ')}`
+    return `${allRiba ? 'RiBa · ' : ''}Fatt. ${parts.join('; ')}`
   }
   if (m.fiscal_deadlines.length > 0) {
     return m.fiscal_deadlines
@@ -262,7 +285,7 @@ export function buildRow(
     'Conto Banca': m.bank_accounts ? `${m.bank_accounts.bank_name}${m.bank_accounts.account_name ? ' — ' + m.bank_accounts.account_name : ''}` : '',
     IBAN: m.bank_accounts?.iban ?? '',
     Tipo: m.amount > 0 ? 'Entrata' : 'Uscita',
-    'Tipo movimento': KIND_LABELS[classifyMovement(m)],
+    'Tipo movimento': tipoMovimentoOf(m),
     Importo: Math.abs(m.amount),
     Valuta: m.currency ?? 'EUR',
     Contropartita: contropartita || counterpartOf(m),

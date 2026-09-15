@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  parseFlusso, competenzeCandidate, abbinaStipendi, buildStipendioRow, nomeDipendente, competenzaLabel,
+  parseFlusso, competenzeCandidate, abbinaStipendi, buildStipendioRow, nomeDipendente, competenzaLabel, addebitoBanca,
   type PnFlusso, type PnSlip,
 } from './primaNotaStipendi'
 
@@ -134,7 +134,7 @@ describe('buildStipendioRow', () => {
     expect(r).toEqual({
       Dipendente: 'CACCIOTTI DANIELA', Outlet: 'VALMONTONE', Competenza: 'luglio 2026', Netto: 1491,
       'Pagato il': '10/08/2026', 'Conto Banca': 'BCC Figline', 'Disposizione (ID flusso)': '136472521',
-      'Bonifici nel flusso (banca)': 6, 'Buste nel flusso': 6, 'Importo flusso': 6693, 'Commissioni flusso': 10.5, Esito: 'abbinata alla disposizione',
+      'Bonifici nel flusso (banca)': 6, 'Buste nel flusso': 6, 'Importo flusso': 6693, 'Commissioni flusso': 10.5, 'Addebito in banca': 6703.5, Esito: 'abbinata alla disposizione',
     })
   })
   it('riga senza pagamento: campi del flusso vuoti', () => {
@@ -142,6 +142,7 @@ describe('buildStipendioRow', () => {
     expect(r['Pagato il']).toBe('')
     expect(r['Disposizione (ID flusso)']).toBe('')
     expect(r['Importo flusso']).toBe('')
+    expect(r['Addebito in banca']).toBe('')
     expect(r.Esito).toBe('nessun pagamento trovato nel periodo')
   })
   it('Gallo: 1 busta da 10.959,00 pagata con 4 bonifici (la banca ne conta 4, 5,00 di commissioni)', () => {
@@ -157,5 +158,16 @@ describe('buildStipendioRow', () => {
     expect(nomeDipendente({ ...slip('ROSSI', 'MARIO', 1, 'X'), nome: null })).toBe('ROSSI')
     expect(nomeDipendente({ ...slip('', '', 1, 'X'), cognome: null, nome: null })).toBe('—')
     expect(competenzaLabel({ year: 2026, month: 12 })).toBe('dicembre 2026')
+  })
+})
+
+describe('addebitoBanca: la cifra che lo studio cerca sull\'estratto conto', () => {
+  it('con il movimento e\' il suo importo, che gia\' comprende le commissioni (Gallo: 10.959 + 5 = 10.964)', () => {
+    expect(addebitoBanca({ amount: -10964 }, { id_flusso: '136498058', n_pagamenti: 4, importo_bonifici: 10959, commissioni: 5 })).toBe(10964)
+  })
+  it('senza movimento somma bonifici e commissioni della causale; senza niente resta vuoto', () => {
+    expect(addebitoBanca(null, { id_flusso: 'x', n_pagamenti: 6, importo_bonifici: 6693, commissioni: 10.5 })).toBe(6703.5)
+    expect(addebitoBanca(null, { id_flusso: 'x', n_pagamenti: 1, importo_bonifici: 100, commissioni: null })).toBe(100)
+    expect(addebitoBanca(null, null)).toBe('')
   })
 })

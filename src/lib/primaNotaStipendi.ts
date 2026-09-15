@@ -179,6 +179,8 @@ export type StipendioExportRow = {
   'Buste nel flusso': number | ''
   'Importo flusso': number | ''
   'Commissioni flusso': number | ''
+  /** Importo che la banca addebita per la disposizione (bonifici + commissioni): e' la cifra da cercare sull'estratto conto per assegnare la distinta a quel gruppo di dipendenti. */
+  'Addebito in banca': number | ''
   Esito: string
 }
 
@@ -214,8 +216,20 @@ export function buildStipendioRow(r: StipendioRow, bankName: (id: string | null)
     'Buste nel flusso': r.flusso ? r.buste_nel_flusso : '',
     'Importo flusso': r.info?.importo_bonifici ?? (r.flusso ? r2(-r.flusso.amount) : ''),
     'Commissioni flusso': r.info?.commissioni ?? '',
+    'Addebito in banca': addebitoBanca(r.flusso, r.info),
     Esito: esitoStipendio(r),
   }
 }
 
-export const STIPENDI_COLUMN_WIDTHS = [32, 18, 16, 12, 12, 28, 22, 12, 10, 14, 12, 40]
+/**
+ * Addebito unico in banca per la disposizione: l'importo del movimento (che
+ * gia' comprende le commissioni), altrimenti bonifici + commissioni letti
+ * dalla causale. Monica (Studio Poli) cerca questa cifra sull'estratto conto.
+ */
+export function addebitoBanca(flusso: { amount: number } | null, info: FlussoInfo | null): number | '' {
+  if (flusso) return r2(-flusso.amount)
+  if (info?.importo_bonifici != null) return r2(info.importo_bonifici + (info.commissioni ?? 0))
+  return ''
+}
+
+export const STIPENDI_COLUMN_WIDTHS = [32, 18, 16, 12, 12, 28, 22, 12, 10, 14, 12, 16, 40]
