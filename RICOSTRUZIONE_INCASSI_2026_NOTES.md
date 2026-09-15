@@ -7,7 +7,7 @@
 > Luglio serviva a chiudere il conto del contante: i versamenti dei primi giorni di agosto
 > portavano in banca il contante di fine luglio.
 
-Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [maggio](#maggio-2026) · [aprile](#aprile-2026) · [marzo](#marzo-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
+Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [maggio](#maggio-2026) · [aprile](#aprile-2026) · [marzo](#marzo-2026) · [gennaio](#gennaio-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
 
 ---
 
@@ -445,3 +445,48 @@ una riga POS in «differenza» per sola commissione fra l'1,6 % e l'1,7 % su imp
   Torino 80,00 il 02/04, Franciacorta 85,00 il 08/04. Qui restano a zero, con la nota che dice
   dove sono andati. Quando ad aprile li avevo chiamati «assenti dagli specchietti» era vero
   solo a meta': assenti dallo specchietto di aprile, non da quello di marzo.
+
+---
+
+## gennaio 2026
+
+Migration `NZ_ONLY_20260915_231`. 179 chiusure su **6** punti vendita: Torino non esiste ancora,
+apre il 26 marzo. Il 1 gennaio e' chiuso ovunque, Barberino anche il 6.
+
+| | |
+|---|---:|
+| Corrispettivi | 501.525,44 € |
+| Fatture | 1.001,10 € |
+| Contanti | 91.352,52 € |
+| Spese di cassa | 875,33 € |
+| Versamenti registrati a gennaio | 86.420,10 € |
+| Chiusure verificate dalla banca | 173 su 179 |
+
+**21 versamenti dichiarati e riscontrabili a gennaio, 21 trovati in banca, nessuna differenza.**
+
+### Il registro batte lo specchietto, e per la prima volta serve dirlo
+
+In sette mesi di ricostruzione i corrispettivi degli specchietti hanno sempre coinciso con
+`daily_revenue` al centesimo. A gennaio no: **quattro giornate di Valdichiana** divergono, e in
+modo istruttivo. Il 24 e il 26 gennaio si scambiano 78,12 €; il 30 e il 31 si scambiano 48,50 €.
+Il negozio attribuisce l'importo a una giornata, il registro a quella accanto. Il totale del mese
+coincide al centesimo.
+
+Vale il registro. Non per gerarchia, ma per una ragione meccanica: la proiezione scrive
+`total_receipts` dentro `gross_revenue`, quindi usare il numero dello specchietto avrebbe
+**riscritto il dato fiscale**. Le quattro chiusure prendono il valore del registro e portano in
+nota da dove viene.
+
+### Cosa e' emerso
+
+- **Franciacorta 13/01 e 20/01**: un solo versamento dichiarato, due operazioni allo stesso ATM a
+  due minuti di distanza (5.100 + 830 e 3.000 + 900). Stesso caso di Brugnato ad agosto.
+- **Palmanova 31/01**: i 1.290,00 non sono mai arrivati da soli. Vanno in banca insieme agli
+  805,00 del 01-02 febbraio e la cassa continua li accredita il 6 febbraio come **un unico
+  importo di 2.095,00**. La giornata resta a zero, con la nota che dice dove sono andati.
+- Altri quattro versamenti di fine gennaio escono dalla cassa a febbraio e restano a zero qui:
+  Barberino 1.280,00, Valdichiana 1.876,75, Brugnato 1.030,00, Valmontone 2.435,00.
+- Sette giornate non quadrano sullo specchietto. La sola davvero rilevante e' **Palmanova 10/01,
+  −435,46 €**; le altre sono storni di scontrino e arrotondamenti.
+- Le 6 chiusure non verificate hanno una riga POS in differenza o mancante, quasi tutte accrediti
+  Amex del 31 gennaio che arrivano a febbraio.
