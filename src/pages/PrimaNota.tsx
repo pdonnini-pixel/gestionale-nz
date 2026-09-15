@@ -20,9 +20,17 @@
 // la chiusura di cassa, dal codice terminale in causale (outlet_payment_channels)
 // o dalla parola chiave del versamento. Logica in src/lib/primaNotaIncassi.ts
 // (testata, copia fedele delle funzioni SQL del riscontro chiusure ↔ banca).
+//
+// Quadratura con l'estratto conto (idea di Patrizio, 15/09): per ogni conto
+// saldo iniziale della banca + movimenti nostri = saldo finale della banca. I
+// saldi vengono da raw_data (accountBalanceSnapshot allo scarico A-Cube), quindi
+// sono indipendenti dai movimenti: se quadra, l'export è completo. Più il
+// contante: versamenti e prelievi dal lato banca, fondo cassa, incassi, spese e
+// versamenti dichiarati dalle chiusure di cassa. Logica in
+// src/lib/primaNotaQuadratura.ts (testata).
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store } from 'lucide-react'
+import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
@@ -40,6 +48,10 @@ import {
   ATTRIBUZIONE_LABELS, INCASSI_COLUMN_WIDTHS, SENZA_OUTLET,
   type IncassiLookups, type IncassoKind, type Attribuzione,
 } from '../lib/primaNotaIncassi'
+import {
+  quadraturaConti, quadraturaContante, snapshotFromRaw,
+  type PnTxSnapshot, type PnClosingLite, type QuadraturaConto, type QuadraturaContante,
+} from '../lib/primaNotaQuadratura'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
 import TableScroll from '../components/ui/TableScroll'
@@ -61,6 +73,9 @@ type MovementRaw = {
   bank_account_id: string | null
   bank_accounts?: BankAccount | null
   suppliers?: Supplier | null
+  /** raw_data.fetchedAt e raw_data.extra.accountBalanceSnapshot (select con JSON path) */
+  fetched_at?: string | null
+  snapshot?: string | number | null
 }
 type Movement = MovementRaw & PnMovement
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
@@ -137,6 +152,9 @@ export default function PrimaNota() {
   const [fonteFilter, setFonteFilter] = useState<PagamentoFonte[] | null>(null)
   // Incassi per outlet: dizionari (canali, outlet, abbinamenti chiusure) e filtro a clic per outlet
   const [incassiLk, setIncassiLk] = useState<IncassiLookups>({ channels: [], outlets: new Map(), closingMatches: new Map(), bankAccounts: new Map() })
+  // Quadratura: movimenti delle settimane prima del periodo (per il saldo iniziale della banca) e chiusure di cassa del periodo
+  const [preRows, setPreRows] = useState<PnTxSnapshot[]>([])
+  const [closings, setClosings] = useState<PnClosingLite[]>([])
   const [outletFilter, setOutletFilter] = useState<string | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(false)
@@ -177,6 +195,7 @@ export default function PrimaNota() {
             .select(`
               id, transaction_date, amount, currency, description, reference, category,
               counterpart, counterpart_name, merchant_name, supplier_id, bank_account_id,
+              fetched_at:raw_data->>fetchedAt, snapshot:raw_data->extra->>accountBalanceSnapshot,
               bank_accounts!inner(id, bank_name, account_name, iban),
               suppliers(id, ragione_sociale, name, partita_iva)
             `)
@@ -328,7 +347,69 @@ export default function PrimaNota() {
     }
   }, [companyId])
 
+  // Dati per la quadratura: i movimenti dei 45 giorni prima del periodo (solo
+  // data, importo, scarico e saldo allo scarico) danno il saldo iniziale della
+  // banca; le chiusure di cassa del periodo, con la somma delle righe
+  // «Contanti», danno il lato cassa del contante.
+  const loadQuadraturaData = useCallback(async () => {
+    if (!companyId) return
+    try {
+      const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
+      const dateEnd = month ? lastDayOfMonthYMD(year, month) : `${year}-12-31`
+      const pre = new Date(`${dateStart}T00:00:00`)
+      pre.setDate(pre.getDate() - 45)
+      const preStart = `${pre.getFullYear()}-${String(pre.getMonth() + 1).padStart(2, '0')}-${String(pre.getDate()).padStart(2, '0')}`
+      let preQ = supabase
+        .from('bank_transactions')
+        .select('id, bank_account_id, transaction_date, amount, fetched_at:raw_data->>fetchedAt, snapshot:raw_data->extra->>accountBalanceSnapshot')
+        .eq('company_id', companyId)
+        .gte('transaction_date', preStart)
+        .lt('transaction_date', dateStart)
+      if (bankAccountId !== 'all') preQ = preQ.eq('bank_account_id', bankAccountId)
+      const [preRes, clRes] = await Promise.all([
+        preQ.limit(5000),
+        supabase
+          .from('outlet_daily_closings')
+          .select('id, outlet_id, closing_date, status, cash_deposit, deposit_bank_amount, deposit_bank_status, cash_expenses, customer_refunds, cash_float_opening, cash_pending_opening, cash_float_declared, cash_pending_declared')
+          .eq('company_id', companyId)
+          .gte('closing_date', dateStart)
+          .lte('closing_date', dateEnd)
+          .neq('status', 'bozza')
+          .limit(5000),
+      ])
+      type PreRow = { id: string; bank_account_id: string | null; transaction_date: string; amount: number; fetched_at: string | null; snapshot: string | number | null }
+      setPreRows(((preRes.data ?? []) as unknown as PreRow[]).map(r => ({
+        id: r.id, bank_account_id: r.bank_account_id, transaction_date: r.transaction_date, amount: Number(r.amount),
+        fetched_at: r.fetched_at, snapshot: r.snapshot == null || r.snapshot === '' ? null : Number(r.snapshot),
+      })))
+      const cls = clRes.data ?? []
+      const cashByClosing = new Map<string, number>()
+      if (cls.length > 0) {
+        const lineResults = await Promise.all(chunk(cls.map(c => c.id)).map(ids => supabase
+          .from('outlet_daily_closing_lines')
+          .select('closing_id, amount, outlet_payment_channels!inner(kind)')
+          .in('closing_id', ids)
+          .eq('outlet_payment_channels.kind', 'contanti')))
+        for (const l of lineResults.flatMap(r => (r.data ?? []) as unknown as Array<{ closing_id: string; amount: number }>)) {
+          cashByClosing.set(l.closing_id, (cashByClosing.get(l.closing_id) ?? 0) + Number(l.amount))
+        }
+      }
+      setClosings(cls.map(c => ({
+        outlet_id: c.outlet_id, closing_date: c.closing_date, status: c.status,
+        cash_deposit: c.cash_deposit, deposit_bank_amount: c.deposit_bank_amount, deposit_bank_status: c.deposit_bank_status,
+        cash_expenses: c.cash_expenses, customer_refunds: c.customer_refunds,
+        cash_float_opening: c.cash_float_opening, cash_pending_opening: c.cash_pending_opening,
+        cash_float_declared: c.cash_float_declared, cash_pending_declared: c.cash_pending_declared,
+        contanti: cashByClosing.get(c.id) ?? 0,
+      })))
+    } catch (e) {
+      console.error('[PrimaNota] quadratura:', e)
+      setPreRows([]); setClosings([])
+    }
+  }, [companyId, year, month, bankAccountId])
+
   useEffect(() => { loadBankAccounts() }, [loadBankAccounts])
+  useEffect(() => { loadQuadraturaData() }, [loadQuadraturaData])
   useEffect(() => { loadMovements() }, [loadMovements])
   useEffect(() => { loadPagamenti() }, [loadPagamenti])
   useEffect(() => { loadIncassiLookups(movements.filter(m => m.amount > 0).map(m => m.id)) }, [movements, loadIncassiLookups])
@@ -392,6 +473,26 @@ export default function PrimaNota() {
 
   const byKind = useMemo(() => summarizeByKind(movements), [movements])
 
+  // Quadratura con l'estratto conto, per conto, e del contante
+  const quadratura = useMemo<QuadraturaConto[]>(() => {
+    const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
+    const endExclusive = month
+      ? (month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`)
+      : `${year + 1}-01-01`
+    const periodRows: PnTxSnapshot[] = movements.map(m => ({
+      id: m.id, bank_account_id: m.bank_account_id, transaction_date: m.transaction_date, amount: Number(m.amount), description: m.description,
+      fetched_at: m.fetched_at ?? null, snapshot: m.snapshot == null || m.snapshot === '' ? null : Number(m.snapshot),
+    }))
+    return quadraturaConti(periodRows, preRows, `${dateStart}T00:00:00Z`, `${endExclusive}T00:00:00Z`)
+      .sort((a, b) => (bankAccounts.find(x => x.id === a.bank_account_id)?.bank_name ?? '').localeCompare(bankAccounts.find(x => x.id === b.bank_account_id)?.bank_name ?? '', 'it'))
+  }, [movements, preRows, year, month, bankAccounts])
+  const quadContante = useMemo<QuadraturaContante>(
+    () => quadraturaContante(movements.map(m => ({ amount: Number(m.amount), description: m.description, isVersamento: classifyMovement(m) === 'versamento' })), closings),
+    [movements, closings],
+  )
+  const accountName = (id: string) => bankAccounts.find(b => b.id === id)?.bank_name ?? '—'
+  const fmtDateTime = (iso: string | null) => (iso ? new Date(iso).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—')
+
   // Righe formato Prima Nota standardizzato (una per movimento, fatture in causale)
   const rows = useMemo(() => movements.map(m => buildRow(m, fmtDate)), [movements])
 
@@ -452,9 +553,32 @@ export default function PrimaNota() {
       ['Incassi per outlet', 'Movimenti', 'POS', 'Amex', 'Versamenti contanti', 'Altri incassi', 'Totale'],
       ...byOutlet.map(o => [o.label, o.n, o.pos, o.amex, o.versamenti, o.altro, o.totale]),
       ['Totale incassi', incassi.length, incassiTot.pos, incassiTot.amex, incassiTot.versamenti, incassiTot.altro, incassiTot.totale],
+      [],
+      ['Quadratura con l\'estratto conto', 'Saldo iniziale (banca)', 'Scaricato il', 'Entrate', 'Uscite', 'Saldo finale calcolato', 'Saldo finale (banca)', 'Scaricato il', 'Differenza', 'Esito'],
+      ...quadratura.map(q => [
+        accountName(q.bank_account_id), q.saldo_iniziale ?? '', fmtDateTime(q.scaricato_iniziale), q.entrate, q.uscite,
+        q.saldo_finale_calcolato ?? '', q.saldo_finale ?? '', fmtDateTime(q.scaricato_finale), q.differenza ?? '',
+        q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili',
+      ]),
+      [],
+      ['Contante', 'Importo', 'N.'],
+      ['Versamenti di contante in banca', quadContante.versamenti_banca, quadContante.n_versamenti_banca],
+      ['Prelievi di contante dalla banca', quadContante.prelievi_banca, quadContante.n_prelievi_banca],
+      ...(quadContante.cassa ? [
+        ['Chiusure di cassa nel periodo', quadContante.cassa.n_chiusure, quadContante.cassa.outlets],
+        ['Fondo cassa e da versare a inizio periodo', quadContante.cassa.fondo_iniziale ?? 'non noto', ''],
+        ['Contanti incassati nei negozi', quadContante.cassa.contanti_incassati, ''],
+        ['Spese di cassa', quadContante.cassa.spese, ''],
+        ['Rimborsi in contanti', quadContante.cassa.rimborsi, ''],
+        ['Versamenti dichiarati nelle chiusure', quadContante.cassa.versamenti_dichiarati, quadContante.cassa.n_versamenti_dichiarati],
+        ['di cui ritrovati in banca', quadContante.cassa.versamenti_trovati_in_banca, quadContante.cassa.n_versamenti_trovati],
+        ['Fondo cassa e da versare a fine periodo (contato)', quadContante.cassa.fondo_finale ?? 'non noto', ''],
+        ['Fondo cassa e da versare a fine periodo (calcolato)', quadContante.cassa.fondo_finale_calcolato ?? 'non noto', ''],
+        ['Differenza cassa', quadContante.cassa.differenza ?? '', ''],
+      ] : [['Chiusure di cassa nel periodo', 'nessuna: il contante si legge solo dal lato banca', '']]),
     ]
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
-    wsSummary['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 14 }]
+    wsSummary['!cols'] = [{ wch: 34 }, { wch: 25 }, { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 22 }]
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Riepilogo')
     XLSX.writeFile(wb, `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.xlsx`)
   }
@@ -571,6 +695,81 @@ export default function PrimaNota() {
             {' '}Gli export restano completi.
           </span>
           <button type="button" onClick={() => setKindFilter(null)} className="shrink-0 px-2 py-1 rounded bg-white border border-orange-200 hover:bg-orange-100 text-xs font-medium">Togli filtro</button>
+        </div>
+      )}
+
+      {/* Quadratura con l'estratto conto: saldo iniziale banca + movimenti nostri = saldo finale banca.
+          I saldi vengono dallo scarico A-Cube, non dai movimenti: se quadra, l'export è completo. */}
+      {!loading && movements.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 mb-4 overflow-hidden">
+          <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 text-sm font-semibold text-slate-800">
+            <Scale size={14} /> Quadratura con l'estratto conto
+            {quadratura.every(q => q.stato === 'quadra') && <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">tutti i conti quadrano</span>}
+            {quadratura.some(q => q.stato === 'non_quadra') && <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded bg-red-100 text-red-700">c'è una differenza</span>}
+          </div>
+          <TableScroll>
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 uppercase text-slate-600">
+                <tr>
+                  <th className="px-3 py-2 text-left">Conto</th>
+                  <th className="px-3 py-2 text-right">Saldo iniziale (banca)</th>
+                  <th className="px-3 py-2 text-right">Entrate</th>
+                  <th className="px-3 py-2 text-right">Uscite</th>
+                  <th className="px-3 py-2 text-right">Saldo finale calcolato</th>
+                  <th className="px-3 py-2 text-right">Saldo finale (banca)</th>
+                  <th className="px-3 py-2 text-right">Differenza</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quadratura.map(q => (
+                  <tr key={q.bank_account_id} className="border-t border-slate-100">
+                    <td className="px-3 py-1.5 text-slate-800">
+                      {accountName(q.bank_account_id)}
+                      <span className="block text-slate-400">{q.n_movimenti} movimenti</span>
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {q.saldo_iniziale != null ? fmt(q.saldo_iniziale) : <span className="text-slate-400">n.d.</span>}
+                      {q.scaricato_iniziale && <span className="block text-slate-400">al {fmtDateTime(q.scaricato_iniziale)}</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">+{fmt(q.entrate)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-red-700">−{fmt(q.uscite)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {q.saldo_finale_calcolato != null ? fmt(q.saldo_finale_calcolato) : <span className="text-slate-400">n.d.</span>}
+                      {q.precedenti_nel_periodo.length > 0 && <span className="block text-slate-400">incl. {q.precedenti_nel_periodo.length} mov. precedenti arrivati nel periodo ({fmt(q.precedenti_nel_periodo.reduce((s, r) => s + r.amount, 0))})</span>}
+                      {q.arrivati_dopo.length > 0 && <span className="block text-slate-400">escl. {q.arrivati_dopo.length} mov. arrivati dopo lo scarico ({fmt(q.arrivati_dopo.reduce((s, r) => s + r.amount, 0))})</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">
+                      {q.saldo_finale != null ? fmt(q.saldo_finale) : <span className="text-slate-400">n.d.</span>}
+                      {q.scaricato_finale && <span className="block text-slate-400">al {fmtDateTime(q.scaricato_finale)}</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      {q.stato === 'quadra' && <span className="inline-block px-2 py-0.5 rounded font-medium bg-emerald-100 text-emerald-700">0,00 · quadra</span>}
+                      {q.stato === 'non_quadra' && <span className="inline-block px-2 py-0.5 rounded font-medium bg-red-100 text-red-700">{fmt(q.differenza ?? 0)}</span>}
+                      {q.stato === 'senza_saldi' && <Tooltip content="La banca non ha fornito il saldo allo scarico per questo periodo (movimenti importati prima di marzo 2026 o senza dati A-Cube)"><span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help">saldi n.d.</span></Tooltip>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </TableScroll>
+          {/* Contante: la banca vede solo versamenti e prelievi; il resto sta nelle chiusure di cassa */}
+          <div className="px-3 py-2 border-t border-slate-100 text-xs text-slate-600 flex flex-wrap gap-x-5 gap-y-1">
+            <span className="font-semibold text-slate-800">Contante</span>
+            <span>Versamenti in banca <strong className="tabular-nums text-emerald-700">{fmt(quadContante.versamenti_banca)}</strong> ({quadContante.n_versamenti_banca})</span>
+            <span>Prelievi dalla banca <strong className="tabular-nums text-red-700">{fmt(quadContante.prelievi_banca)}</strong> ({quadContante.n_prelievi_banca})</span>
+            {quadContante.cassa ? (<>
+              <span>Chiusure di cassa <strong>{quadContante.cassa.n_chiusure}</strong> su {quadContante.cassa.outlets} outlet ({fmtDate(quadContante.cassa.dal)} → {fmtDate(quadContante.cassa.al)})</span>
+              <span>Contanti incassati <strong className="tabular-nums">{fmt(quadContante.cassa.contanti_incassati)}</strong></span>
+              <span>Spese di cassa <strong className="tabular-nums">{fmt(quadContante.cassa.spese)}</strong>{quadContante.cassa.rimborsi > 0 && <> · rimborsi <strong className="tabular-nums">{fmt(quadContante.cassa.rimborsi)}</strong></>}</span>
+              <span>Versamenti dichiarati <strong className="tabular-nums">{fmt(quadContante.cassa.versamenti_dichiarati)}</strong> ({quadContante.cassa.n_versamenti_dichiarati}), ritrovati in banca <strong className="tabular-nums">{fmt(quadContante.cassa.versamenti_trovati_in_banca)}</strong> ({quadContante.cassa.n_versamenti_trovati})</span>
+              <span>Fondo + da versare: inizio <strong className="tabular-nums">{quadContante.cassa.fondo_iniziale != null ? fmt(quadContante.cassa.fondo_iniziale) : 'n.d.'}</strong>, fine contato <strong className="tabular-nums">{quadContante.cassa.fondo_finale != null ? fmt(quadContante.cassa.fondo_finale) : 'n.d.'}</strong>, fine calcolato <strong className="tabular-nums">{quadContante.cassa.fondo_finale_calcolato != null ? fmt(quadContante.cassa.fondo_finale_calcolato) : 'n.d.'}</strong>
+                {quadContante.cassa.differenza != null && <> · differenza <strong className={`tabular-nums ${Math.abs(quadContante.cassa.differenza) < 0.005 ? 'text-emerald-700' : 'text-red-700'}`}>{fmt(quadContante.cassa.differenza)}</strong></>}
+                {quadContante.cassa.fondo_iniziale == null && <span className="text-slate-400"> (il primo giorno di almeno un outlet parte senza fondo noto: la quadratura cassa comincia dal periodo successivo)</span>}
+              </span>
+            </>) : (
+              <span className="text-slate-400">Nessuna chiusura di cassa nel periodo: il contante si legge solo dal lato banca (le chiusure partono dal 01/09/2026).</span>
+            )}
+          </div>
         </div>
       )}
 
