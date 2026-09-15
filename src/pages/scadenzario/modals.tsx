@@ -7,6 +7,7 @@ import { extractScadenzaFromPdf, ScadenzaExtractError, type ExtractedScadenza } 
 import { archiviaFile } from '../../lib/archivioFile';
 import { useAuth } from '../../hooks/useAuth';
 import { SCHEDULE_MODE_GROUPS, findScheduleMode, derivePlan, computeInstallments, scheduleModeText, SCHEDULE_GROUP_TEXT } from '../../lib/paymentSchedule';
+import { PAYMENT_METHOD_ALIAS } from './helpers';
 
 export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string }
 export type ScheduleLike = Record<string, unknown> & { id?: string; gross_amount?: number | null; due_date?: string | null; status?: string | null; invoice_number?: string | null }
@@ -453,7 +454,9 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
           className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
           {paymentGroups.map(g => (
             <optgroup key={g.label} label={g.label}>
-              {g.methods.map(m => <option key={m} value={m}>{paymentMethodLabels[m]}</option>)}
+              {/* Esclude i pseudo-metodi solo-filtro ('bonifico'/'riba'/'carta'): non
+                  sono nell'enum del DB e romperebbero il salvataggio se selezionati. */}
+              {g.methods.filter(m => !(m in PAYMENT_METHOD_ALIAS)).map(m => <option key={m} value={m}>{paymentMethodLabels[m]}</option>)}
             </optgroup>
           ))}
         </select>

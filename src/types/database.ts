@@ -9554,6 +9554,7 @@ export type Database = {
       bank_statements: {
         Row: {
           bank_account_id: string | null
+          card_last4: string | null
           closing_balance: number | null
           company_id: string
           created_at: string | null
@@ -9569,13 +9570,16 @@ export type Database = {
           period_month: number | null
           period_to: string | null
           period_year: number | null
+          settled_bank_transaction_id: string | null
           source_label: string | null
+          statement_total: number | null
           status: string | null
           transaction_count: number | null
           uploaded_by: string | null
         }
         Insert: {
           bank_account_id?: string | null
+          card_last4?: string | null
           closing_balance?: number | null
           company_id: string
           created_at?: string | null
@@ -9591,13 +9595,16 @@ export type Database = {
           period_month?: number | null
           period_to?: string | null
           period_year?: number | null
+          settled_bank_transaction_id?: string | null
           source_label?: string | null
+          statement_total?: number | null
           status?: string | null
           transaction_count?: number | null
           uploaded_by?: string | null
         }
         Update: {
           bank_account_id?: string | null
+          card_last4?: string | null
           closing_balance?: number | null
           company_id?: string
           created_at?: string | null
@@ -9613,7 +9620,9 @@ export type Database = {
           period_month?: number | null
           period_to?: string | null
           period_year?: number | null
+          settled_bank_transaction_id?: string | null
           source_label?: string | null
+          statement_total?: number | null
           status?: string | null
           transaction_count?: number | null
           uploaded_by?: string | null
@@ -10188,6 +10197,102 @@ export type Database = {
           year?: number | null
         }
         Relationships: []
+      }
+      card_transactions: {
+        Row: {
+          amount: number
+          card_last4: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          currency: string
+          description: string
+          fee: number
+          id: string
+          note: string | null
+          original_amount: number | null
+          payable_id: string | null
+          posting_date: string | null
+          purchase_date: string
+          raw: Json | null
+          row_no: number
+          statement_id: string
+        }
+        Insert: {
+          amount: number
+          card_last4?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          description?: string
+          fee?: number
+          id?: string
+          note?: string | null
+          original_amount?: number | null
+          payable_id?: string | null
+          posting_date?: string | null
+          purchase_date: string
+          raw?: Json | null
+          row_no: number
+          statement_id: string
+        }
+        Update: {
+          amount?: number
+          card_last4?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          currency?: string
+          description?: string
+          fee?: number
+          id?: string
+          note?: string | null
+          original_amount?: number | null
+          payable_id?: string | null
+          posting_date?: string | null
+          purchase_date?: string
+          raw?: Json | null
+          row_no?: number
+          statement_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "card_transactions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "card_transactions_payable_id_fkey"
+            columns: ["payable_id"]
+            isOneToOne: false
+            referencedRelation: "payables"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "card_transactions_payable_id_fkey"
+            columns: ["payable_id"]
+            isOneToOne: false
+            referencedRelation: "v_payables_operative"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "card_transactions_payable_id_fkey"
+            columns: ["payable_id"]
+            isOneToOne: false
+            referencedRelation: "v_payables_schedule"
+            referencedColumns: ["payable_id"]
+          },
+          {
+            foreignKeyName: "card_transactions_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "bank_statements"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       cash_budget: {
         Row: {
@@ -11831,6 +11936,7 @@ export type Database = {
           description: string | null
           due_date: string | null
           gross_amount: number | null
+          withholding_amount: number
           id: string
           import_batch_id: string | null
           invoice_date: string | null
@@ -11855,7 +11961,6 @@ export type Database = {
           tipo_documento: string | null
           updated_at: string | null
           vat_amount: number | null
-          withholding_amount: number
           xml_content: string | null
           xml_file_path: string | null
         }
@@ -11870,6 +11975,7 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           gross_amount?: number | null
+          withholding_amount?: number
           id?: string
           import_batch_id?: string | null
           invoice_date?: string | null
@@ -11894,7 +12000,6 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
-          withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
         }
@@ -11909,6 +12014,7 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           gross_amount?: number | null
+          withholding_amount?: number
           id?: string
           import_batch_id?: string | null
           invoice_date?: string | null
@@ -11933,7 +12039,6 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
-          withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
         }
@@ -15384,6 +15489,7 @@ export type Database = {
           due_date: string
           electronic_invoice_id: string | null
           gross_amount: number
+          withholding_amount: number
           iban: string | null
           id: string
           import_batch_id: string | null
@@ -15425,7 +15531,6 @@ export type Database = {
           verified: boolean | null
           verified_at: string | null
           verified_by: string | null
-          withholding_amount: number
         }
         Insert: {
           acube_uuid?: string | null
@@ -15440,6 +15545,7 @@ export type Database = {
           due_date: string
           electronic_invoice_id?: string | null
           gross_amount: number
+          withholding_amount?: number
           iban?: string | null
           id?: string
           import_batch_id?: string | null
@@ -15481,7 +15587,6 @@ export type Database = {
           verified?: boolean | null
           verified_at?: string | null
           verified_by?: string | null
-          withholding_amount?: number
         }
         Update: {
           acube_uuid?: string | null
@@ -15496,6 +15601,7 @@ export type Database = {
           due_date?: string
           electronic_invoice_id?: string | null
           gross_amount?: number
+          withholding_amount?: number
           iban?: string | null
           id?: string
           import_batch_id?: string | null
@@ -15537,7 +15643,6 @@ export type Database = {
           verified?: boolean | null
           verified_at?: string | null
           verified_by?: string | null
-          withholding_amount?: number
         }
         Relationships: [
           {

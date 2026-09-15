@@ -6,6 +6,40 @@
 
 
 
+
+> ## ⏩ PAGAMENTO ANTICIPATO: IL MOTORE NON LO AGGANCIA (2026-09-13) - CASO CHIUSO A MANO
+>
+> **Il caso.** SAMA' S.R.L., fattura 6423/03 del 09/09/2026 da 50,02, con «BONIFICO
+> BANCARIO ANTICIPATO» scritto nel documento. Il bonifico era partito il 04/09 (valuta
+> 07/09) dal Banco Fiorentino, con causale «SAMA SRL SALDO PREVENTIVO 11447-26»: pagata
+> prima ancora di essere emessa.
+>
+> **Perche' non si aggancia da solo.** Entrambi i matcher scartano i movimenti anteriori
+> alla data della fattura: `try_match_amount_bank_transaction` con
+> `(p.invoice_date IS NULL OR v_bt.transaction_date >= p.invoice_date)` e
+> `try_match_bank_transaction` con `(payables.invoice_date IS NULL OR payables.invoice_date
+> <= v_bt.transaction_date)`. Con un anticipo la condizione non puo' mai essere vera, quindi
+> la scadenza nasce «da pagare» per una cosa gia' pagata: rischio concreto di pagare due volte.
+>
+> **Perche' NON e' stata allargata la regola.** Misurato sul 2026: i movimenti non
+> riconciliati che hanno una scadenza di importo identico con fattura successiva sono 28 per
+> 9.001,66, ma **solo uno** ha il fornitore nominato in causale, ed e' un addebito SDD di SAN
+> MAURO che paga una fattura diversa, gia' chiusa. Allargare la finestra avrebbe prodotto
+> abbinamenti sbagliati, che chiudono scadenze per errore: peggio del problema. Patrizio ha
+> scelto di gestire il caso a mano.
+>
+> **Come e' finita.** La fattura e' arrivata via SDI il 13/09 (quattro giorni dopo
+> l'emissione: il PDF di cortesia arriva subito, la trasmissione allo SdI puo' tardare fino a
+> 12 giorni). Il fornitore e' nato configurato dalle regole del 10/09: anagrafica completa da
+> Lecco, categoria «Spese manutenzione» dalle righe, piano `data_fattura 0 gg 1 rata` letto
+> dai termini della fattura, metodo bonifico da MP05. Aggancio con `reconcile_movement`:
+> scadenza **pagata** con data 07/09, movimento riconciliato, zero scadenze SAMA aperte.
+>
+> **Se ricapita**: cercare il movimento per importo e causale, poi `reconcile_movement(
+> p_bt_id, p_payable_id)`. E ricordare che l'anticipo non e' un errore del motore: e' una
+> scelta di prudenza documentata qui.
+
+
 > ## 🏷️ IL METODO ARRIVA DALLA CATEGORIA, E LA BANCA NON E' PIU' UN'ANOMALIA (2026-09-10) - FATTO
 >
 > **Patrizio**: «se ci sono delle fatture senza specifica devo collegarli alla categoria che
@@ -536,6 +570,42 @@
 > pari merito. Tra fatture **diverse** il pari merito resta una proposta, come in v3.
 > Test a secco su NZ (transazione annullata): SDD 13/07 con tre rate aperte → rata 1;
 > SDD 10/08 con rate 2 e 3 aperte → rata 2; SDD 10/08 con rate 1 e 3 aperte → rata 1.
+
+> ## 🐺 WOLF GROUP — le scadenze aperte seguono la scheda fornitore (2026-09-03) — FATTO
+>
+> **Richiesta di Patrizio**: «definisci le fatture escluse, quelle in parziale, con la
+> modalità di pagamento che ha da scheda fornitore».
+>
+> La scheda WOLF GROUP dice **bonifico ordinario, 60/90 gg DFFM su 2 rate**. Nessuna
+> delle tre fatture aperte lo seguiva: erano tutte a **rata unica alla data della
+> fattura**, quindi due risultavano scadute e la terza, già pagata in parte, restava
+> appesa al 30/06. Il motivo non è un bug ma la **guardia forward-only della migration
+> 089**: il bridge A-Cube genera le rate dal piano fornitore solo per le fatture emesse
+> dal 31/07/2026, e tutte e tre sono precedenti.
+>
+> | fattura | prima | dopo |
+> |---|---|---|
+> | 218 (79.683,24, parziale) | rata unica 30/06 | una riga sola, rata 2/2 al **31/08** |
+> | 285 (19.941,75) | rata unica 30/06 | 9.970,88 al **31/08** + 9.970,87 al **30/09** |
+> | 357 (34.056,67) | rata unica 29/07 | 17.028,34 al **30/09** + 17.028,33 al **31/10** |
+>
+> **La 218 non si spezza.** L'acconto di 39.683,24 (bonifico 39.445,90 + NC n.68 da
+> 237,34) è già uscito dal conto ed è agganciato a un movimento bancario: importi,
+> `amount_paid` e riconciliazione **non si toccano**. Si sposta solo la scadenza sulla
+> rata del piano che copre il residuo di 40.000,00. Spezzarla avrebbe creato una rata 1
+> aperta per 158,38 € di differenza, cioè un residuo fantasma da smaltire a mano.
+>
+> Date e importi vengono da `fn_supplier_installment_schedule`, la stessa funzione che
+> usa il bridge: nessun valore scritto a mano. La somma delle rate coincide **al
+> centesimo** con il lordo di ogni fattura (verificato dopo l'esecuzione), il debito
+> aperto verso il fornitore resta **93.998,42 €** come prima. Migration
+> `NZ_ONLY_20260903_169`, backup in `_bkp_wolf_piano_20260903`, rollback nel file
+> `_ROLLBACK`. Solo NZ: WOLF GROUP non esiste su Made né su Zago (verificato, 0 righe).
+>
+> **Restano fuori, in attesa di indicazione**: le altre due parziali del gestionale,
+> GABRIEL IOSUB `10/A` (12.201,75 residui, scadenza ferma alla data fattura del 31/03)
+> e MINGARDO `48` (2.802,00 residui). Stesso schema, fornitori diversi: valgono la
+> stessa domanda prima di toccarle.
 
 > ## 🧩 RATE ACCAVALLATE, NON DOPPIONI (2026-09-03) — diagnosi corretta
 >
@@ -1640,3 +1710,31 @@ meno o in più del documento. Irrilevante in bilancio, fatale per i controlli ch
 confrontano al centesimo — la verifica al carico di una distinta Ri.Ba. e il
 confronto con l'elenco della banca. Sistemato dalla 217, che sposta
 l'arrotondamento sull'ultima rata ancora aperta e non tocca mai una rata pagata.
+
+## Ritenuta d'acconto (03/09/2026, migration 170)
+
+Le fatture dei professionisti (studi associati, geometri, consulenti) portano
+`DatiRitenuta` nell'XML: al fornitore va il totale documento meno la ritenuta,
+la ritenuta la versa l'azienda con l'F24. Prima la scadenza nasceva al lordo e
+il motore di riconciliazione non trovava mai il bonifico (Signorini 191:
+scadenza 8.098,75, bonifico 6.822,15, differenza 1.276,60 = ritenuta 20%).
+
+**Convenzione unica, valida ovunque:**
+- `payables.gross_amount` = DOVUTO AL FORNITORE, già al netto della ritenuta
+  (è l'importo che esce dalla banca).
+- `payables.withholding_amount` = quota di ritenuta della rata.
+- totale documento della rata = `gross_amount + withholding_amount`.
+- `electronic_invoices.gross_amount` resta il totale documento;
+  `electronic_invoices.withholding_amount` = ritenuta letta dall'XML.
+
+Così motore di riconciliazione, distinte, chiusure, residui e cashflow, che
+ragionano su `gross_amount` / `amount_remaining`, restano invariati. Cambia
+solo la creazione delle scadenze: `fn_invoice_to_payable`,
+`sync_acube_sdi_passive_to_payable` (con `fn_invoice_withholding` XML +
+fallback payload JSON) e l'import XML frontend (`transformInvoiceToRecords`).
+Le rate dell'XML sono accettate se la loro somma è il netto (standard SDI) o
+il lordo (riproporzionate); la ritenuta si ripartisce pro-quota.
+
+Backfill NZ: 8 fatture (Rubini, Impresa Valdarno, Marchetti, Signorini,
+Boschetti, Valia, Rocciola, Scandella), backup in
+`payables_bak_ritenuta_20260903`. Made e Zago: nessuna fattura con ritenuta.

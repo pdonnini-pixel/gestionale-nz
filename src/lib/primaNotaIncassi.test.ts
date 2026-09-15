@@ -94,7 +94,8 @@ describe('parser causale (copia delle funzioni SQL)', () => {
     expect(incassoKindOf(mov(NUMIA))).toBe('pos')
     expect(incassoKindOf(mov(VERS_GDO))).toBe('versamento')
     expect(incassoKindOf(mov(VERS_CC))).toBe('versamento')
-    expect(incassoKindOf(mov(BONIFICO_IN))).toBe('altro')
+    expect(incassoKindOf(mov(BONIFICO_IN))).toBe('bonifico')
+    expect(incassoKindOf(mov('ACCREDITO RIMBORSO ASSICURAZIONE'))).toBe('altro')
   })
   it('parole chiave del canale Contanti, anche più di una separate da |', () => {
     expect(depositKeywordMatches('FRANCIACORTA|ATM 01030-2121', VERS_ATM)).toBe(true)
@@ -151,9 +152,9 @@ describe('attribuisciIncasso', () => {
     expect(a.kind).toBe('versamento')
     expect(a.attribuzione).toBe('da_attribuire')
   })
-  it('bonifico in entrata: altro incasso, senza outlet', () => {
+  it('bonifico in entrata: bonifico cliente, senza outlet finché nessuno lo assegna', () => {
     const a = attribuisciIncasso(mov(BONIFICO_IN, 58), LK)
-    expect(a.kind).toBe('altro')
+    expect(a.kind).toBe('bonifico')
     expect(a.outlet_id).toBeNull()
   })
   it('un abbinamento con la chiusura di cassa vince su tutto', () => {
@@ -165,17 +166,36 @@ describe('attribuisciIncasso', () => {
   })
 })
 
+describe('assegnazione a mano dalla nota', () => {
+  const BON = 'FILIALE DISPONENTE 00560 BON. IST. 0845700003206403480546305463IT DEL 06.08.26 ORD: SCANU SABRINA BIC: ICRAITRRCP0 INF:RI: Acquisto merce vicolo Scanu Sabrina'
+  it('un bonifico in entrata è un «bonifico cliente»; con la nota "Outlet: BRB" va a Barberino', () => {
+    const m = mov(BON, 82, { note: 'Outlet: BRB · corrispettivi Barberino agosto 2026, bonifico cliente (Scanu Sabrina)' })
+    const a = attribuisciIncasso(m, LK)
+    expect(a.kind).toBe('bonifico')
+    expect(a.outlet_id).toBe('BRB')
+    expect(a.attribuzione).toBe('nota')
+    expect(attribuisciIncasso(mov(BON, 82), LK).outlet_id).toBeNull()
+    expect(attribuisciIncasso(mov(BON, 82, { note: 'Outlet: XXX' }), LK).outlet_id).toBeNull()
+  })
+  it('la nota vince anche sul codice terminale', () => {
+    expect(attribuisciIncasso(mov(MPS, 100, { note: 'Outlet: TRN · spostato a mano' }), LK).outlet_id).toBe('TRN')
+  })
+})
+
 describe('riga export e riepilogo', () => {
   const fmt = (d: string | null) => (d ? d.split('-').reverse().join('/') : '')
   it('buildIncassoRow', () => {
     const m = mov(MPS, 1234.567, { bank_account_id: 'mps', category: 'incassi_pos' })
     const r = buildIncassoRow(m, attribuisciIncasso(m, LK), LK, fmt)
-    expect(r).toMatchObject({
-      Data: '05/08/2026', 'Data riferimento': '01/08/2026', 'Conto Banca': 'MPS', IBAN: 'IT00MPS',
+    expect(r).toEqual({
+      'Data operazione': '05/08/2026', 'Data riferimento': '01/08/2026', 'Conto Banca': 'MPS',
       Outlet: 'VDC · Valdichiana', Canale: 'POS MPS', Tipo: 'POS', Terminale: '00002', Importo: 1234.57,
-      Attribuzione: 'Codice terminale', Categoria: 'incassi_pos',
+      Causale: MPS,
     })
-    expect(r.Causale).toBe(MPS)
+    // Niente IBAN, attribuzione né categoria nel foglio: stanno in pagina
+    expect(Object.keys(r)).not.toContain('IBAN')
+    expect(Object.keys(r)).not.toContain('Attribuzione')
+    expect(Object.keys(r)).not.toContain('Categoria')
   })
   it('summarizeByOutlet: colonne per natura, «Da attribuire» in fondo', () => {
     const ms = [mov(MPS, 100), mov(AMEX, 50, { bank_account_id: 'bcc' }), mov(VERS_GDO, 760), mov(BONIFICO_IN, 58), mov('VERSAMENTO DA ATM 01030-9999', 10)]

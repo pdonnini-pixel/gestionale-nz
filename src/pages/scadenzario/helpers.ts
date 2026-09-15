@@ -142,6 +142,14 @@ export const paymentGroups = [
   { label: 'Altro', key: 'altro', methods: ['rimessa_diretta', 'carta_credito', 'carta_debito', 'carta', 'assegno', 'contanti', 'compensazione', 'f24', 'mav', 'rav', 'bollettino_postale', 'altro'] },
 ];
 
+// Pseudo-metodi usati SOLO per raggruppare i filtri ('bonifico'/'riba'/'carta'):
+// NON esistono nell'enum payment_method del DB, quindi non devono mai finire in
+// un INSERT su payables (Postgres 22P02 → la scadenza non si salva). Mappa
+// alias → valore enum reale; usata per normalizzare prima dell'INSERT e per
+// nasconderli dal menù di creazione (restano validi per il filtro).
+export const PAYMENT_METHOD_ALIAS: Record<string, string> = { bonifico: 'bonifico_ordinario', riba: 'riba_30', carta: 'carta_credito' };
+export const toDbPaymentMethod = (m?: string | null): string => PAYMENT_METHOD_ALIAS[m || ''] || m || 'bonifico_ordinario';
+
 export const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
 
 // ── SCADENZE-STIMA da ricorrenza (on-the-fly) ─────────────────────────────
