@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useToast } from '../components/Toast';
@@ -38,6 +37,8 @@ import { usePeriod } from '../hooks/usePeriod';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import TextTooltip from '../components/Tooltip';
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark';
+import { Modal } from '../components/ui/Modal';
+import { isOutletOpenInPeriod, isOutletOpenOn } from '../lib/outletLifecycle';
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -79,6 +80,21 @@ const toISODate = (date: Date | string): string => {
   const d = new Date(date);
   return `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
 };
+
+// Finestra del canone di un outlet: il canone decorre da rent_start_date (in
+// mancanza contract_start, poi opening_date) e cessa dopo closing_date. Un
+// outlet «in apertura» con canone già in corso pesa quindi dalla decorrenza,
+// non da gennaio; senza alcuna data il canone si proietta sempre (comportamento
+// storico). Riusa i predicati del ciclo di vita passando la decorrenza come
+// «apertura» e la chiusura come «chiusura».
+type RentRow = { rent_monthly?: unknown; rent_start_date?: unknown; contract_start?: unknown; opening_date?: unknown; closing_date?: unknown };
+const rentWindow = (o: RentRow): { opening_date: string | null; closing_date: string | null } => {
+  const start = o.rent_start_date ?? o.contract_start ?? o.opening_date ?? null;
+  return { opening_date: start ? String(start) : null, closing_date: o.closing_date ? String(o.closing_date) : null };
+};
+const isRentActiveInMonth = (o: RentRow, y: number, monthIdx: number): boolean =>
+  isOutletOpenInPeriod(rentWindow(o), y, monthIdx + 1, monthIdx + 1);
+const isRentActiveOn = (o: RentRow, day: Date): boolean => isOutletOpenOn(rentWindow(o), day);
 
 // Helper: get Monday of the week containing the given date
 const getWeekStart = (date: Date): Date => {
@@ -411,14 +427,17 @@ export default function CashflowProspettico() {
           .eq('is_active', true),
         supabase
           .from('outlets')
-          .select('id, code, name, rent_monthly')
+          .select('id, code, name, rent_monthly, rent_start_date, contract_start, opening_date, closing_date')
           .eq('company_id', companyId)
           .eq('is_active', true),
         supabase
           .from('payables')
           .select('id, due_date, gross_amount, amount_paid, outlet_id, status, supplier_id, supplier_name, invoice_number, installment_number, installment_total')
           .eq('company_id', companyId)
-          .in('status', ['da_pagare', 'in_scadenza', 'scaduto']),
+          // 'parziale' incluso: le fatture con pagamento parziale hanno ancora un
+          // residuo dovuto e vanno nelle proiezioni (entra il residuo, non il lordo,
+          // perché le viste sommano solo gross_amount - amount_paid > 0).
+          .in('status', ['da_pagare', 'in_scadenza', 'scaduto', 'parziale']),
         // Daily revenue for daily/weekly views
         supabase
           .from('daily_revenue')
@@ -457,7 +476,9 @@ export default function CashflowProspettico() {
       // Store raw data for drill-down
       setRawPayables(payablesScadenze || []);
       setRawDailyRevenue(dailyRevenueData || []);
-      setRawOutlets(outletsData || []);
+      // Cast: rent_start_date (migration outlet in apertura) non è ancora nei tipi DB generati.
+      const outletRows = ((outletsData || []) as unknown as AnyRow[]);
+      setRawOutlets(outletRows);
       setRawRecurringCosts(recurringCosts || []);
       setRawLoans(loansData || []);
       setRawBudgetConfronto(budgetConfrontoData || []);
@@ -517,23 +538,22 @@ export default function CashflowProspettico() {
       // Filter by outlet if not 'all'
       let filteredOutlet = selectedOutlet === 'all' ? null : selectedOutlet;
 
-      // B4: Calculate total monthly rent from active outlets
-      let totalMonthlyRent = 0;
-      if (outletsData) {
-        outletsData.forEach(outlet => {
-          if (!filteredOutlet || outlet.code === filteredOutlet) {
-            totalMonthlyRent += Number(outlet.rent_monthly) || 0;
-          }
-        });
-      }
+      // B4: canoni mensili degli outlet, mese per mese. Il canone di un outlet
+      // conta solo nei mesi in cui decorre (rent_start_date → contract_start →
+      // opening_date) e fino a closing_date: un outlet in apertura a novembre
+      // non pesa sul cashflow da gennaio.
+      const monthlyRent: number[] = Array.from({ length: 12 }, (_, m) =>
+        outletRows.reduce((sum, outlet) => {
+          if (filteredOutlet && outlet.code !== filteredOutlet) return sum;
+          if (!isRentActiveInMonth(outlet, year, m)) return sum;
+          return sum + (Number(outlet.rent_monthly) || 0);
+        }, 0));
 
       // B1: Build a map of outlet_id -> outlet.code for payables filtering
       const outletIdToCode: Record<string, string> = {};
-      if (outletsData) {
-        outletsData.forEach(outlet => {
-          if (outlet.id && outlet.code) outletIdToCode[outlet.id] = outlet.code;
-        });
-      }
+      outletRows.forEach(outlet => {
+        if (outlet.id && outlet.code) outletIdToCode[String(outlet.id)] = String(outlet.code);
+      });
 
       // Process monthly data
       type MonthData = {
@@ -554,7 +574,7 @@ export default function CashflowProspettico() {
         uscite_sdi: 0,
         uscite_ricorrenti: 0,
         uscite_scadenze: 0,
-        uscite_canoni: totalMonthlyRent,
+        uscite_canoni: monthlyRent[i],
         rate_finanziamenti: 0,
         uscite_fiscali: monthlyFiscal[i] || 0,
         uscite_stima: 0,
@@ -605,9 +625,14 @@ export default function CashflowProspettico() {
         payablesData.forEach(payable => {
           const p = payable as Record<string, unknown>
           if (!['pagato', 'annullato'].includes(String(p.status || ''))) {
-            const month = parseMonth(String(p.due_date || ''));
-            if (month !== null && (!filteredOutlet || p.cost_center_code === filteredOutlet)) {
-              const outstandingAmount = (Number(p.amount_total) || 0) - (Number(p.amount_paid) || 0);
+            const dueRaw = String(p.due_date || '');
+            // La vista v_payables_operative non filtra per anno: escludo gli altri anni.
+            if (dueRaw && new Date(dueRaw).getFullYear() !== year) return;
+            const month = parseMonth(dueRaw);
+            // Colonne reali della vista: outlet_code (non cost_center_code) e
+            // amount_remaining/gross_amount (non amount_total, che non esiste).
+            if (month !== null && (!filteredOutlet || p.outlet_code === filteredOutlet)) {
+              const outstandingAmount = (Number(p.gross_amount) || 0) - (Number(p.amount_paid) || 0);
               monthData[month].uscite_sdi += outstandingAmount;
             }
           }
@@ -696,7 +721,7 @@ export default function CashflowProspettico() {
       // Economico (qui non più letto per le uscite).
       monthData.forEach((month, idx) => {
         const isForecast = month.tipo === 'Previsione' || month.tipo === 'In corso';
-        month.uscite_canoni = totalMonthlyRent;       // canone reale per tutti i mesi
+        month.uscite_canoni = monthlyRent[idx];       // canone reale dei soli outlet con canone in corso nel mese
         // Le entrate previsionali restano dal B&C: il marcatore segnaposto sui ricavi resta.
         month.entrate_ph = isForecast ? revPhByMonth[idx] : false;
         // Stima viva (solo mesi futuri): per ogni voce usa l'OVERRIDE del mese se presente,
@@ -822,13 +847,11 @@ export default function CashflowProspettico() {
       outletIdToName[id] = String(o.name || o.code || '');
     });
 
-    // Total daily rent (monthly rent / 30)
-    let totalDailyRent = 0;
-    rawOutlets.forEach(outlet => {
-      if (!filteredOutlet || outlet.code === filteredOutlet) {
-        totalDailyRent += (Number(outlet.rent_monthly) || 0) / 30;
-      }
-    });
+    // Canone giornaliero (canone mensile / 30) dei soli outlet il cui canone
+    // decorre in quel giorno (rent_start_date/contract_start/opening_date → closing_date).
+    const rentOutlets = rawOutlets.filter(outlet => !filteredOutlet || outlet.code === filteredOutlet);
+    const dailyRentOn = (day: Date): number =>
+      rentOutlets.reduce((sum, outlet) => isRentActiveOn(outlet, day) ? sum + (Number(outlet.rent_monthly) || 0) / 30 : sum, 0);
 
     // Daily recurring costs (monthly costs prorated to daily)
     let dailyRecurring = 0;
@@ -889,6 +912,19 @@ export default function CashflowProspettico() {
       });
     });
 
+    // Scadenze fiscali per data (residuo non pagato): la vista mensile le include,
+    // giornaliera/settimanale le ignoravano. Stessa logica della mensile (riga ~1365).
+    type FiscalItem = { title: string; amount: number };
+    const fiscalByDate: Record<string, FiscalItem[]> = {};
+    (rawFiscal || []).forEach(f => {
+      if (['paid', 'cancelled', 'pagato', 'annullato'].includes(String(f.status || '').toLowerCase())) return;
+      if (!f.due_date) return;
+      const residuo = (Number(f.amount) || 0) - (Number(f.amount_paid) || 0);
+      if (residuo <= 0) return;
+      const dateKey = String(f.due_date).slice(0, 10);
+      (fiscalByDate[dateKey] ||= []).push({ title: String(f.title || f.deadline_type || 'Scadenza fiscale'), amount: residuo });
+    });
+
     // Build budget-based daily revenue estimate (monthly budget / days in month)
     const monthlyBudgetRevenue: number[] = Array(12).fill(0);
     let hasConfrontoRev = false;
@@ -938,14 +974,20 @@ export default function CashflowProspettico() {
       // (pro-rata) + ricorrenti + rate finanziamenti. Niente stima costi-a-budget.
       const payableItems = payablesByDate[dateKey] || [];
       const payablesTotal = payableItems.reduce((sum, p) => sum + p.gross_amount, 0);
-      const uscite = Math.round(payablesTotal + totalDailyRent + dailyRecurring + dailyLoan);
+      // Scadenze fiscali e stipendi/amministratori del giorno (allineato alla vista mensile).
+      const fiscalItems = fiscalByDate[dateKey] || [];
+      const fiscalTotal = fiscalItems.reduce((sum, f) => sum + f.amount, 0);
+      const salaryItems = estimateVoices.filter(v => v.day === date.getDate() && v.amount > 0);
+      const salaryTotal = salaryItems.reduce((sum, v) => sum + v.amount, 0);
+      const totalDailyRent = dailyRentOn(date);
+      const uscite = Math.round(payablesTotal + fiscalTotal + salaryTotal + totalDailyRent + dailyRecurring + dailyLoan);
 
       const flusso = entrate - uscite;
       cumBalance += flusso;
 
-      // Dettaglio canoni reali per outlet (pro-rata giornaliero)
-      const costBaseItems = rawOutlets
-        .filter(o => !filteredOutlet || o.code === filteredOutlet)
+      // Dettaglio canoni reali per outlet (pro-rata giornaliero), solo canoni in corso quel giorno
+      const costBaseItems = rentOutlets
+        .filter(o => isRentActiveOn(o, date))
         .map(o => ({
           label: String(o.name || o.code || ''),
           amount: Math.round((Number(o.rent_monthly) || 0) / 30)
@@ -966,6 +1008,8 @@ export default function CashflowProspettico() {
           : [{ label: 'Stima da budget', amount: Math.round(budgetDaily * multiplier) }],
         usciteItems: [
           ...payableItems.map(p => ({ label: `Fatt. ${p.invoice_number}`, amount: Math.round(p.gross_amount) })),
+          ...fiscalItems.map(f => ({ label: `Fiscale: ${f.title}`, amount: Math.round(f.amount) })),
+          ...salaryItems.map(v => ({ label: v.label, amount: Math.round(v.amount) })),
           ...costBaseItems,
           ...(dailyRecurring > 0 ? [{ label: 'Costi ricorrenti (pro-rata)', amount: Math.round(dailyRecurring) }] : []),
           ...(dailyLoan > 0 ? [{ label: 'Rate finanziamenti (pro-rata)', amount: Math.round(dailyLoan) }] : [])
@@ -974,7 +1018,7 @@ export default function CashflowProspettico() {
     }
 
     return days;
-  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
+  }, [viewMode, rawDailyRevenue, rawPayables, rawFiscal, estimateVoices, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
 
   // ===== WEEKLY VIEW COMPUTATION =====
   const weeklyData = useMemo(() => {
@@ -992,12 +1036,10 @@ export default function CashflowProspettico() {
       outletIdToName[id] = String(o.name || o.code || '');
     });
 
-    let totalDailyRent = 0;
-    rawOutlets.forEach(outlet => {
-      if (!filteredOutlet || outlet.code === filteredOutlet) {
-        totalDailyRent += (Number(outlet.rent_monthly) || 0) / 30;
-      }
-    });
+    // Canone giornaliero dei soli outlet con canone in corso quel giorno (vedi vista giornaliera).
+    const rentOutlets = rawOutlets.filter(outlet => !filteredOutlet || outlet.code === filteredOutlet);
+    const dailyRentOn = (day: Date): number =>
+      rentOutlets.reduce((sum, outlet) => isRentActiveOn(outlet, day) ? sum + (Number(outlet.rent_monthly) || 0) / 30 : sum, 0);
 
     let dailyRecurring = 0;
     (rawRecurringCosts || []).forEach(cost => {
@@ -1046,6 +1088,19 @@ export default function CashflowProspettico() {
         supplier_id: p.supplier_id,
         gross_amount: outstanding
       });
+    });
+
+    // Scadenze fiscali per data (residuo non pagato): in modo speculare alla vista
+    // giornaliera e mensile. Prima la settimanale le ignorava.
+    type FiscalItem = { title: string; amount: number };
+    const fiscalByDate: Record<string, FiscalItem[]> = {};
+    (rawFiscal || []).forEach(f => {
+      if (['paid', 'cancelled', 'pagato', 'annullato'].includes(String(f.status || '').toLowerCase())) return;
+      if (!f.due_date) return;
+      const residuo = (Number(f.amount) || 0) - (Number(f.amount_paid) || 0);
+      if (residuo <= 0) return;
+      const dateKey = String(f.due_date).slice(0, 10);
+      (fiscalByDate[dateKey] ||= []).push({ title: String(f.title || f.deadline_type || 'Scadenza fiscale'), amount: residuo });
     });
 
     const monthlyBudgetRevenue: number[] = Array(12).fill(0);
@@ -1097,6 +1152,10 @@ export default function CashflowProspettico() {
       for (let d = 0; d < 7; d++) {
         const date = new Date(wStart);
         date.setDate(wStart.getDate() + d);
+        // La prima settimana parte dal lunedì: salta i giorni già passati per non
+        // conteggiare ricavi/costi di giorni trascorsi (allineato alla vista giornaliera
+        // che parte da oggi). Evita il "doppio conteggio" della settimana corrente.
+        if (date < today) continue;
         const dateKey = toISODate(date);
         const month = date.getMonth();
         const daysInMonth = new Date(date.getFullYear(), month + 1, 0).getDate();
@@ -1116,13 +1175,25 @@ export default function CashflowProspettico() {
 
         const payableItems = payablesByDate[dateKey] || [];
         const payablesTotal = payableItems.reduce((sum, p) => sum + p.gross_amount, 0);
+        // Scadenze fiscali e stipendi/amministratori del giorno (allineato a giornaliera/mensile).
+        const fiscalItems = fiscalByDate[dateKey] || [];
+        const fiscalTotal = fiscalItems.reduce((sum, f) => sum + f.amount, 0);
+        const salaryItems = estimateVoices.filter(v => v.day === date.getDate() && v.amount > 0);
+        const salaryTotal = salaryItems.reduce((sum, v) => sum + v.amount, 0);
         // Modello A: canoni reali (pro-rata), niente stima costi-a-budget.
+        const totalDailyRent = dailyRentOn(date);
         weekCostBase += totalDailyRent;
-        const dayUscite = Math.round(payablesTotal + totalDailyRent + dailyRecurring + dailyLoan);
+        const dayUscite = Math.round(payablesTotal + fiscalTotal + salaryTotal + totalDailyRent + dailyRecurring + dailyLoan);
         weekUscite += dayUscite;
 
         payableItems.forEach(p => {
           weekUsciteItems.push({ label: `${formatDate(date)} - Fatt. ${p.invoice_number}`, amount: Math.round(p.gross_amount) });
+        });
+        fiscalItems.forEach(f => {
+          weekUsciteItems.push({ label: `${formatDate(date)} - Fiscale: ${f.title}`, amount: Math.round(f.amount) });
+        });
+        salaryItems.forEach(v => {
+          weekUsciteItems.push({ label: `${formatDate(date)} - ${v.label}`, amount: Math.round(v.amount) });
         });
       }
 
@@ -1150,7 +1221,7 @@ export default function CashflowProspettico() {
     }
 
     return weeks;
-  }, [viewMode, rawDailyRevenue, rawPayables, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
+  }, [viewMode, rawDailyRevenue, rawPayables, rawFiscal, estimateVoices, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
 
   // Force daily computation for weekly view by making dailyData not depend on viewMode for weekly
   // Actually, weeklyData computes independently. Let's fix the dependency:
@@ -1296,7 +1367,9 @@ export default function CashflowProspettico() {
         }
       });
       // Canoni reali per outlet (Modello A: niente stima costi-a-budget).
+      // Un canone non ancora decorso (o cessato) in questo mese non compare.
       rawOutlets.forEach(o => {
+        if (!isRentActiveInMonth(o, year, monthIdx)) return;
         if (!filteredOutlet || o.code === filteredOutlet) {
           const rent = Number(o.rent_monthly) || 0;
           if (rent > 0) {
@@ -1510,8 +1583,8 @@ export default function CashflowProspettico() {
             <span className="text-indigo-500 text-sm">{showForecastList ? '▼ Nascondi' : '▶ Mostra'}</span>
           </button>
           {showForecastList && (
-            <div className="border-t border-indigo-100 max-h-[400px] overflow-y-auto">
-              <table className="w-full text-sm">
+            <div className="border-t border-indigo-100 max-h-[400px] overflow-y-auto overflow-x-auto scroll-shadow-x">
+              <table className="w-full min-w-[560px] text-sm">
                 <thead className="bg-indigo-50/50 text-xs text-indigo-700 uppercase">
                   <tr>
                     <th className="px-4 py-2 text-left">Data</th>
@@ -1546,30 +1619,38 @@ export default function CashflowProspettico() {
       )}
 
       {/* Modal conferma elimina previsione (sostituisce confirm() nativo) */}
-      {forecastToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setForecastToDelete(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 mb-2">Elimina previsione?</h2>
-            <p className="text-sm text-slate-600 mb-5">Verrà eliminata: <span className="font-medium text-slate-900">{forecastToDelete.descr}</span></p>
-            <div className="flex gap-2">
-              <button onClick={() => setForecastToDelete(null)}
-                className="flex-1 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
-                Annulla
-              </button>
-              <button onClick={handleConfirmDeleteForecast}
-                className="flex-1 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg">
-                Elimina
-              </button>
-            </div>
-          </div>
+      <Modal
+        open={!!forecastToDelete}
+        onClose={() => setForecastToDelete(null)}
+        bare
+        ariaLabel="Elimina previsione"
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 max-h-[90dvh] overflow-y-auto"
+      >
+        <h2 className="text-lg font-bold text-slate-900 mb-2">Elimina previsione?</h2>
+        <p className="text-sm text-slate-600 mb-5">Verrà eliminata: <span className="font-medium text-slate-900">{forecastToDelete?.descr}</span></p>
+        <div className="flex gap-2">
+          <button onClick={() => setForecastToDelete(null)}
+            className="flex-1 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg">
+            Annulla
+          </button>
+          <button onClick={handleConfirmDeleteForecast}
+            className="flex-1 py-2.5 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg">
+            Elimina
+          </button>
         </div>
-      )}
+      </Modal>
 
       {/* Modal Previsione uscita inline (creazione o modifica) */}
-      {showForecastModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !forecastSaving && setShowForecastModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-slate-900 mb-1">{editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}</h2>
+      <Modal
+        open={showForecastModal}
+        onClose={() => !forecastSaving && setShowForecastModal(false)}
+        bare
+        ariaLabel={editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 max-h-[90dvh] overflow-y-auto"
+      >
+        <h2 className="text-lg font-bold text-slate-900 mb-1">{editingForecastId ? 'Modifica previsione' : 'Aggiungi previsione uscita'}</h2>
             <p className="text-xs text-slate-500 mb-4">Entra solo nel cashflow prospettico, NON nel Conto Economico</p>
             <div className="space-y-3">
               {/* B.1 — Tipo: una tantum o ricorrente (solo in creazione) */}
@@ -1639,9 +1720,7 @@ export default function CashflowProspettico() {
                 {forecastSaving ? 'Salvataggio...' : 'Aggiungi previsione'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
       <div className="mb-8">
         {/* View Mode Selector */}
         <div className="flex gap-1 mb-4 bg-slate-200 rounded-lg p-1 w-fit">
@@ -1768,7 +1847,7 @@ export default function CashflowProspettico() {
 
       {/* Detail Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -1965,7 +2044,7 @@ export default function CashflowProspettico() {
 
       {/* Summary row */}
       <div className="mt-4 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-        <div className="grid grid-cols-5 gap-4 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 text-center">
           <div>
             <p className="text-xs font-medium text-indigo-700 mb-1">TOTALE ENTRATE</p>
             <p className="text-lg font-bold text-indigo-900">{formatCurrency(totalInflows)}</p>
@@ -2058,7 +2137,7 @@ function DrillDownPanel({ items, column, onClose, onEdit, title }: { items: Dril
           {(isEntrate ? 'Dettaglio Entrate' : 'Dettaglio Uscite')}{title ? ` — ${title}` : ''}
           {items.length > 0 && <span className="ml-1 font-normal text-slate-500">· {formatCurrency(total)}</span>}
         </h4>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition">
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition" title="Chiudi dettaglio">
           <X size={16} />
         </button>
       </div>
@@ -2102,7 +2181,6 @@ function DrillDownPanel({ items, column, onClose, onEdit, title }: { items: Dril
           <span className="text-slate-400">(modificabile)</span>
         </div>
       )}
-      <PageHelp page="cashflow" />
     </div>
   );
 }

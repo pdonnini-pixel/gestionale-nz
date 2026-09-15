@@ -40,6 +40,7 @@ import {
   Filter, Calendar, CheckCircle2, Link2, Loader2, ChevronDown
 } from 'lucide-react'
 import TextTooltip from './Tooltip'
+import { Modal } from './ui/Modal'
 
 const PAGE_SIZE = 50
 
@@ -171,8 +172,15 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
     : null
 
   return (
-    <div className="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[70vh] flex flex-col">
+    <Modal
+      open
+      onClose={onClose}
+      bare
+      closeOnBackdrop={false}
+      ariaLabel="Riconcilia movimento"
+      containerClassName="fixed inset-0 z-[60] bg-black/50 flex items-center justify-center"
+      panelClassName="bg-white rounded-2xl shadow-xl max-w-lg w-full mx-4 max-h-[70dvh] flex flex-col"
+    >
         <div className="p-5 border-b border-gray-100">
           <div className="flex items-center justify-between">
             <div>
@@ -181,7 +189,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
                 {formatDate(transaction.transaction_date)} · <TextTooltip content={transaction.description || ''}><span>{transaction.description?.slice(0, 40)}...</span></TextTooltip> · {fmt(Math.abs(transaction.amount))} €
               </p>
             </div>
-            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg">
+            <button onClick={onClose} className="p-1.5 hover:bg-gray-100 rounded-lg" title="Chiudi">
               <X className="w-4 h-4 text-gray-400" />
             </button>
           </div>
@@ -250,8 +258,7 @@ function ReconciliationModal({ isOpen, onClose, transaction, onReconcile }: { is
             </div>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -496,6 +503,7 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
               <button
                 onClick={onClose}
                 className="p-2 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+                title="Chiudi"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -652,7 +660,7 @@ export default function AccountDetail({ isOpen, onClose, account, onSync }: Acco
 
           {/* Transactions Table */}
           <div className="px-6 py-4">
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200">

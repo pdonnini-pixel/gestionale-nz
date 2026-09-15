@@ -20,10 +20,10 @@
  */
 
 import { useMemo, useState } from 'react'
-import * as XLSX from 'xlsx'
-import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
+// xlsx / jspdf caricate on-demand al click su "Genera": import statico =
+// ~200KB gzip pagati all'apertura della pagina che monta questo dialog.
 import { X, FileSpreadsheet, FileText, Download } from 'lucide-react'
+import { Modal } from './ui/Modal'
 import { useToast } from './Toast'
 import {
   buildSheets,
@@ -151,7 +151,8 @@ export default function ExportBilancioDialog({
   }
 
   // ─── EXCEL ──────────────────────────────────────────────────────────────
-  function generaExcel() {
+  async function generaExcel() {
+    const XLSX = await import('xlsx')
     const wb = XLSX.utils.book_new()
     const usedNames = new Set<string>()
 
@@ -206,7 +207,8 @@ export default function ExportBilancioDialog({
   }
 
   // ─── EXCEL MENSILE (12 mesi + Totale anno) ──────────────────────────────
-  function generaExcelMensile() {
+  async function generaExcelMensile() {
+    const XLSX = await import('xlsx')
     const wb = XLSX.utils.book_new()
     const usedNames = new Set<string>()
     const lastCol = 13 // colonne valore: 12 mesi (1..12) + Totale anno (13)
@@ -262,7 +264,11 @@ export default function ExportBilancioDialog({
   }
 
   // ─── PDF ────────────────────────────────────────────────────────────────
-  function generaPdf() {
+  async function generaPdf() {
+    const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+      import('jspdf'),
+      import('jspdf-autotable'),
+    ])
     const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
     const RED: [number, number, number] = [220, 38, 38]
     const isNeg = (txt: string) => txt.trim().startsWith('-')
@@ -336,12 +342,12 @@ export default function ExportBilancioDialog({
     doc.save(`${fileBase()}.pdf`)
   }
 
-  function genera() {
+  async function genera() {
     setGenerating(true)
     try {
-      if (viewType === 'mensile') generaExcelMensile()
-      else if (effectiveFormat === 'excel') generaExcel()
-      else generaPdf()
+      if (viewType === 'mensile') await generaExcelMensile()
+      else if (effectiveFormat === 'excel') await generaExcel()
+      else await generaPdf()
       onClose()
     } catch (err) {
       console.error('[ExportBilancio]', err)
@@ -354,8 +360,14 @@ export default function ExportBilancioDialog({
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+    <Modal
+      open
+      onClose={onClose}
+      bare
+      ariaLabel="Esporta bilancio previsionale"
+      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90dvh] overflow-auto"
+      containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
+    >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <div className="flex items-center gap-3">
@@ -367,7 +379,7 @@ export default function ExportBilancioDialog({
               <p className="text-sm text-slate-500">Vista gerarchica previsionale (macro + sottoconti esplosi) per outlet e Totale azienda</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-lg">
+          <button onClick={onClose} title="Chiudi" className="p-2 hover:bg-slate-100 rounded-lg">
             <X size={20} className="text-slate-500" />
           </button>
         </div>
@@ -517,7 +529,6 @@ export default function ExportBilancioDialog({
             {generating ? 'Generazione…' : (effectiveFormat === 'excel' ? 'Scarica Excel' : 'Scarica PDF')}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
@@ -33,7 +32,9 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import TextTooltip from '../components/Tooltip'
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 
-import PdfViewer from '../components/PdfViewer'
+// pdfjs-dist (~350KB gzip) caricata solo all'apertura di un allegato PDF
+const PdfViewer = React.lazy(() => import('../components/PdfViewer'))
+import { Modal } from '../components/ui/Modal'
 import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
 
 // ===== TYPES =====
@@ -357,7 +358,7 @@ export default function ContoEconomico() {
   const { hasRole } = useRole()
   const labels = useCompanyLabels()
   const COMPANY_ID = profile?.company_id
-  const { year, quarter, getDateRange } = usePeriod()
+  const { year, quarter, getDateRange, setYear } = usePeriod()
   // periodType persistito in URL come ?periodo=… (default 'annuale')
   const [searchParams, setSearchParams] = useSearchParams()
   const periodoParam = searchParams.get('periodo')
@@ -1255,8 +1256,9 @@ export default function ContoEconomico() {
     if (!COMPANY_ID) return
     setBudgetRefreshing(true)
     try {
+      // p_outlet_id ha DEFAULT NULL nella funzione: qui il consuntivo e' sempre
+      // di tutta l'azienda, quindi l'argomento si omette e basta.
       const { data, error } = await supabase.rpc('refresh_budget_consuntivo', {
-        p_outlet_id: null,
         p_year: year,
       })
       if (error) throw error
@@ -1430,18 +1432,11 @@ export default function ContoEconomico() {
   const commitImportedData = async (records: Array<Record<string, unknown>>) => {
     try {
       if (!COMPANY_ID) return
-      await supabase
-        .from('balance_sheet_data')
-        .delete()
-        .eq('company_id', COMPANY_ID!)
-        .eq('year', year)
-        .eq('period_type', periodType)
-        .eq('section', 'conto_economico')
-
-      const { error } = await supabase
-        .from('balance_sheet_data')
-        .insert(records as never)
-
+      // Salvataggio ATOMICO (migration 107): sostituisce l'intera sezione
+      // conto_economico in un'unica transazione (DELETE+INSERT tutto-o-niente).
+      const { error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+        'save_balance_sheet', { p_records: records, p_replace_sections: ['conto_economico'] }
+      )
       if (error) throw error
 
       setShowImportForm(false)
@@ -1529,23 +1524,13 @@ export default function ContoEconomico() {
           }
         })
 
-      // Upsert each record (delete existing, then insert)
-      for (const record of records) {
-        await supabase
-          .from('balance_sheet_data')
-          .delete()
-          .eq('company_id', COMPANY_ID!)
-          .eq('year', year)
-          .eq('period_type', periodType)
-          .eq('section', 'conto_economico')
-          .eq('account_code', record.account_code)
-
-        const { error } = await supabase
-          .from('balance_sheet_data')
-          .insert(record)
-
-        if (error) throw error
-      }
+      // Salvataggio ATOMICO (migration 107) in MODO "per chiave" (p_replace_sections
+      // vuoto): cancella e reinserisce SOLO i record modificati, in un'unica
+      // transazione. Le altre righe della sezione restano intatte.
+      const { error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+        'save_balance_sheet', { p_records: records, p_replace_sections: [] }
+      )
+      if (error) throw error
 
       setSaveMessage({ type: 'success', text: `Salvate ${records.length} modifiche` })
       setDirtyFields({})
@@ -1569,22 +1554,14 @@ export default function ContoEconomico() {
     if (!COMPANY_ID) return
     setBilancioSaving(true)
     try {
-      for (const section of sectionsToWrite) {
-        await supabase
-          .from('balance_sheet_data')
-          .delete()
-          .eq('company_id', COMPANY_ID!)
-          .eq('year', year)
-          .eq('period_type', periodType)
-          .eq('section', section)
-      }
-
-      // Insert in batches of 100
-      for (let i = 0; i < records.length; i += 100) {
-        const batch = records.slice(i, i + 100)
-        const { error } = await supabase.from('balance_sheet_data').insert(batch as never)
-        if (error) throw error
-      }
+      // Salvataggio ATOMICO (migration 107): DELETE delle sezioni + INSERT dei nuovi
+      // record in un'unica transazione lato DB. Se qualcosa fallisce, NIENTE viene
+      // cancellato (prima il pattern DELETE-poi-INSERT sciolto poteva svuotare una
+      // sezione e non riscriverla → perdita dati). company_id lo impone la RPC dal JWT.
+      const { error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+        'save_balance_sheet', { p_records: records, p_replace_sections: sectionsToWrite }
+      )
+      if (error) throw error
 
       setBilancioSaved(true)
       loadPeriodData()
@@ -1706,6 +1683,16 @@ export default function ContoEconomico() {
   const cePrev = prevYearData || {}
   const ricavi25 = ce25.ricavi_vendite || 0
   const ricaviPrev = cePrev.ricavi_vendite || 0
+
+  // ═══ Empty-state: nessun bilancio importato per l'anno/periodo selezionato ═══
+  // ce25 ha chiavi solo se balance_sheet_data ha righe per (year, period_type).
+  // Se e' vuoto, tutte le KPI cadono sui fallback a 0 (fuorviante): mostriamo
+  // invece un empty-state esplicito al posto delle card a zero e degli indici.
+  const ceEmpty = Object.keys(ce25).length === 0
+  // Anno piu' recente che ha un bilancio importato, diverso da quello selezionato
+  // (vuoto). availableYears e' gia' ordinato desc e popolato da balance_sheet_data.
+  // null su tenant vergini (nessuno storico) -> nessun bottone di switch.
+  const fallbackYear = availableYears.find(y => y !== year) ?? null
 
   // ═══ DATA QUALITY CHECK ═══════════════════════════════════════════════
   // Confronta valori chiave tra le 2 fonti del Conto Economico:
@@ -1869,7 +1856,7 @@ export default function ContoEconomico() {
               )}
             </h3>
             <button onClick={() => { setShowImportForm(false); setParsedFields(null); setPdfPreview(null); setFormErrors({}) }}
-              className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
+              title="Chiudi" className="text-slate-400 hover:text-slate-600"><X size={18} /></button>
           </div>
 
           {/* PDF preview + form side by side */}
@@ -1937,7 +1924,29 @@ export default function ContoEconomico() {
         </div>
       )}
 
-      {/* KPI Row */}
+      {/* KPI Row — empty-state esplicito quando non c'e' bilancio importato per
+          l'anno/periodo (evita il muro di card a 0,00 € + il badge -100% fuorviante) */}
+      {!loading && ceEmpty ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center shadow-sm">
+          <div className="mx-auto w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mb-3">
+            <FileText size={22} className="text-slate-400" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-900">
+            Nessun bilancio per {periodType} {year}
+          </h3>
+          <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+            Non risultano dati di conto economico caricati per questo periodo.
+            Ricavi, margini, utile ed EBIT compariranno qui non appena verrà
+            importato il bilancio {periodType} {year}.
+          </p>
+          {fallbackYear != null && (
+            <button onClick={() => setYear(fallbackYear)}
+              className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition">
+              <ArrowUpRight size={15} /> Vedi {fallbackYear}
+            </button>
+          )}
+        </div>
+      ) : (
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <Kpi icon={DollarSign} label="Ricavi" value={`${fmt(ricavi25)} €`} color="blue"
           sub={`${periodType} ${year}`} trend={variation(ricavi25, ricaviPrev)} />
@@ -1952,6 +1961,7 @@ export default function ContoEconomico() {
         <Kpi icon={Calculator} label="EBIT" value={`${fmt(ebit25)} €`} color="indigo"
           sub={`${ebitPct25.toFixed(1)}% ricavi`} trend={variation(ebit25, cePrev.differenza_ab)} />
       </div>
+      )}
 
       {/* ═══ CASSA VIEW — Cash-basis metrics from bank movements ═══ */}
       {viewMode === 'cassa' && (
@@ -1999,7 +2009,7 @@ export default function ContoEconomico() {
                     </ResponsiveContainer>
 
                     {/* Monthly table */}
-                    <div className="mt-4 overflow-x-auto">
+                    <div className="mt-4 overflow-x-auto scroll-shadow-x">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
@@ -2049,7 +2059,7 @@ export default function ContoEconomico() {
                         <Tooltip content={<GlassTooltip formatter={v => `${fmt(v)} €`} suffix="" />} />
                       </RePie>
                     </ResponsiveContainer>
-                    <div className="mt-4 overflow-x-auto">
+                    <div className="mt-4 overflow-x-auto scroll-shadow-x">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
@@ -2090,7 +2100,7 @@ export default function ContoEconomico() {
               {ricavi25 > 0 && (
                 <Section title="Confronto Competenza vs Cassa" icon={Calculator} defaultOpen={true}>
                   <div className="p-5">
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto scroll-shadow-x">
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="border-b border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
@@ -2326,7 +2336,7 @@ export default function ContoEconomico() {
       )}
 
       {/* ═══ INDICI DI BILANCIO — right after KPIs ═══ */}
-      {viewMode === 'competenza' && (
+      {viewMode === 'competenza' && !ceEmpty && (
       <Section title="Indici di bilancio" icon={ShieldCheck}>
         <div className="p-5">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -2447,7 +2457,7 @@ export default function ContoEconomico() {
             </div>
 
             {/* Tabella confronto */}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
@@ -2520,7 +2530,7 @@ export default function ContoEconomico() {
           badge={prevBilancioData ? `${year - 1} disponibile` : `Nessun dato ${year - 1}`}>
           <div className="p-5">
             {/* CE Summary YoY Table */}
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b-2 border-slate-200 text-xs text-slate-500 uppercase tracking-wider">
@@ -2936,15 +2946,20 @@ export default function ContoEconomico() {
       </Section>
 
       {/* Approval confirmation modal */}
-      {showApproveConfirm && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowApproveConfirm(null)}>
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
+      <Modal
+        open={!!showApproveConfirm}
+        onClose={() => setShowApproveConfirm(null)}
+        bare
+        ariaLabel="Conferma approvazione"
+        containerClassName="fixed inset-0 bg-black/30 flex items-center justify-center z-50"
+        panelClassName="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4"
+      >
             <h3 className="text-lg font-bold text-slate-900 mb-2">Conferma approvazione</h3>
             <p className="text-sm text-slate-600 mb-1">
               Stai per approvare il bilancio:
             </p>
             <p className="text-sm font-medium text-slate-900 mb-3">
-              {showApproveConfirm.file_name} — {showApproveConfirm.period_label}
+              {showApproveConfirm?.file_name} — {showApproveConfirm?.period_label}
             </p>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
               <p className="text-xs text-amber-800 flex items-center gap-1.5">
@@ -2957,24 +2972,27 @@ export default function ContoEconomico() {
                 className="px-4 py-2 rounded-lg text-sm border border-slate-300 text-slate-700 hover:bg-slate-50">
                 Annulla
               </button>
-              <button onClick={() => handleApproveImport(showApproveConfirm)}
+              <button onClick={() => { if (showApproveConfirm) handleApproveImport(showApproveConfirm) }}
                 className="px-4 py-2 rounded-lg text-sm bg-green-600 text-white hover:bg-green-700 font-medium flex items-center gap-1">
                 <CheckCircle size={14} /> Approva bilancio
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Modale conferma sovrascrittura (NO DATA LOSS) */}
-      {saveConfirm && (
-        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4" onClick={() => setSaveConfirm(null)}>
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-bold text-slate-900 mb-2">{saveConfirm.title}</h3>
+      <Modal
+        open={!!saveConfirm}
+        onClose={() => setSaveConfirm(null)}
+        bare
+        ariaLabel={saveConfirm?.title ?? 'Conferma sovrascrittura'}
+        containerClassName="fixed inset-0 bg-black/30 flex items-center justify-center z-50 p-4"
+        panelClassName="bg-white rounded-xl shadow-xl p-6 max-w-md w-full mx-4"
+      >
+            <h3 className="text-lg font-bold text-slate-900 mb-2">{saveConfirm?.title}</h3>
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
               <p className="text-xs text-amber-800 flex items-start gap-1.5">
                 <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                <span>{saveConfirm.message}</span>
+                <span>{saveConfirm?.message}</span>
               </p>
             </div>
             <div className="flex gap-2 justify-end">
@@ -2983,14 +3001,12 @@ export default function ContoEconomico() {
                 Annulla
               </button>
               <button
-                onClick={() => { const cb = saveConfirm.onConfirm; setSaveConfirm(null); cb() }}
+                onClick={() => { if (saveConfirm) { const cb = saveConfirm.onConfirm; setSaveConfirm(null); cb() } }}
                 className="px-4 py-2 rounded-lg text-sm bg-red-600 text-white hover:bg-red-700 font-medium">
-                {saveConfirm.confirmLabel || 'Sovrascrivi'}
+                {saveConfirm?.confirmLabel || 'Sovrascrivi'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Loading indicator */}
       {loading && (
@@ -2999,7 +3015,6 @@ export default function ContoEconomico() {
           <span className="ml-2 text-slate-600">Caricamento dati...</span>
         </div>
       )}
-      <PageHelp page="conto-economico" />
       </div>
     </div>
   )
@@ -3124,20 +3139,21 @@ function TreeNode({ node, depth = 0, prevByCode, showYoY, isCost }: { node: Tree
           </span>
           {showYoY && prevByCode && (
             <>
-              <span className={`tabular-nums text-right w-24 ${
-                isMacroRow ? 'text-[11px] font-medium text-slate-500' : 'text-[10px] text-slate-400'
+              {/* Minimo 12px (text-xs): 9-10px erano illeggibili su smartphone */}
+              <span className={`tabular-nums text-right w-24 text-xs ${
+                isMacroRow ? 'font-medium text-slate-500' : 'text-slate-500'
               }`}>
                 {prevAmount != null ? `${fmtAmount(prevAmount)} \u20AC` : '\u2014'}
               </span>
               <span className="w-16 text-right">
                 {delta != null ? (
-                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full font-semibold ${
-                    isMacroRow ? 'text-[10px]' : 'text-[9px]'
-                  } ${isPositiveImprovement ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                  <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full font-semibold text-xs ${
+                    isPositiveImprovement ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'
+                  }`}>
                     {delta >= 0 ? '+' : ''}{delta.toFixed(1)}%
                   </span>
                 ) : (
-                  <span className="text-[10px] text-slate-300">{prevAmount == null ? '\u2014' : ''}</span>
+                  <span className="text-xs text-slate-400">{prevAmount == null ? '\u2014' : ''}</span>
                 )}
               </span>
             </>

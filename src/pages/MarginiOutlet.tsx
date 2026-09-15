@@ -1,21 +1,45 @@
-import { useState, useEffect, useMemo } from 'react'
+import { Fragment, useState, useEffect, useMemo } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell, LabelList,
 } from 'recharts'
 import { TrendingUp, Loader2, AlertCircle, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, OUTLET_COLORS } from '../components/ChartTheme'
 import { supabase } from '../lib/supabase'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
+import { buildOutletCostCenterSet, isOutletCostCenter } from '../lib/outletCostCenters'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useTableSort } from '../hooks/useTableSort'
 import SortableTh from '../components/ui/SortableTh'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { formatOutletName } from '../lib/formatters'
+import {
+  getOutletLifecycle, isOutletOpenInPeriod, outletLifecycleCaption, safePct,
+  OUTLET_LIFECYCLE_STYLE, type OutletLifecycleFields,
+} from '../lib/outletLifecycle'
 
 const fmt = (n: number | null | undefined): string => n == null ? '\u2014' : new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n)
 const fmtPct = (n: number | null | undefined): string => n == null ? '\u2014' : `${n.toFixed(1)}%`
+
+// Outlet \u00abin apertura\u00bb per questa pagina: oggi non ha ancora aperto, oppure
+// nell'anno selezionato non era ancora aperto (es. apre l'anno prossimo).
+// I suoi costi sono reali e si vedono; margine e medie di catena lo escludono.
+function isInApertura(o: OutletLifecycleFields | undefined, year: number): boolean {
+  if (!o) return false
+  const oggi = getOutletLifecycle(o)
+  return oggi === 'programmato' || (oggi !== 'chiuso' && !isOutletOpenInPeriod(o, year))
+}
+function aperturaCaption(o: OutletLifecycleFields, year: number): string {
+  return outletLifecycleCaption(o, getOutletLifecycle(o) === 'programmato' ? new Date() : new Date(year, 0, 1))
+}
+// Badge «In apertura dal gg/mm/aaaa» accanto al nome dell'outlet.
+function AperturaBadge({ caption }: { caption: string | null }) {
+  if (!caption) return null
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>{caption}</span>
+  )
+}
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic']
 
@@ -52,20 +76,55 @@ export default function MarginiOutlet() {
   const [availableYears, setAvailableYears] = useState<number[]>([])
   // TODO: tighten type — Supabase data
   const [rawData, setRawData] = useState<any[]>([])
+  // Anagrafica outlet reali del tenant (code+name), per escludere dai margini i
+  // cost_center "virtuali" (costi non divisi, rettifiche, sede/magazzino, "all").
+  const [outletSet, setOutletSet] = useState<Set<string>>(new Set())
+  // Anagrafica (date apertura/chiusura) per cost_center (code e name in minuscolo):
+  // serve a riconoscere gli outlet «in apertura» (src/lib/outletLifecycle.ts).
+  const [outletAnagByCC, setOutletAnagByCC] = useState<Record<string, OutletLifecycleFields>>({})
   const [expandedOutlet, setExpandedOutlet] = useState<string | null>(null)
 
-  // Carica gli anni disponibili da budget_entries per popolare il dropdown
+  // Carica gli anni disponibili da budget_entries per popolare il dropdown.
+  // Paginato: .range(0,9999) NON aggira il cap PostgREST di 1000 righe -> con oltre
+  // 1000 righe alcuni anni potevano mancare dal dropdown. Basta il campo year.
   useEffect(() => {
     async function loadYears() {
-      let q = supabase.from('budget_entries').select('year').range(0, 9999)
-      if (profile?.company_id) q = q.eq('company_id', profile.company_id)
-      const { data } = await q
+      const rows = await fetchAllPaged<{ year: number | null }>(
+        (from, to) => {
+          let q = supabase.from('budget_entries').select('year').order('year', { ascending: false })
+          if (profile?.company_id) q = q.eq('company_id', profile.company_id)
+          return q.range(from, to)
+        },
+        'budget_entries.year',
+      )
       const years = Array.from(
-        new Set((data || []).map(r => r.year).filter((y): y is number => typeof y === 'number'))
+        new Set(rows.map(r => r.year).filter((y): y is number => typeof y === 'number'))
       ).sort((a, b) => b - a)
       setAvailableYears(years)
     }
     loadYears()
+  }, [profile?.company_id])
+
+  // Carica l'anagrafica degli outlet reali (attivi) per filtrare i cost_center.
+  useEffect(() => {
+    async function loadOutlets() {
+      let q = supabase.from('outlets').select('code, name, opening_date, closing_date, is_active').eq('is_active', true)
+      if (profile?.company_id) q = q.eq('company_id', profile.company_id)
+      const { data } = await q
+      type OutletRow = { code?: string | null; name?: string | null; opening_date?: string | null; closing_date?: string | null; is_active?: boolean | null }
+      const rows = (data || []) as OutletRow[]
+      setOutletSet(buildOutletCostCenterSet(rows as { code?: string; name?: string }[]))
+      const anag: Record<string, OutletLifecycleFields> = {}
+      rows.forEach(o => {
+        const fields: OutletLifecycleFields = { opening_date: o.opening_date ?? null, closing_date: o.closing_date ?? null, is_active: o.is_active ?? true }
+        ;[o.code, o.name].forEach(k => {
+          const key = (k || '').trim().toLowerCase()
+          if (key) anag[key] = fields
+        })
+      })
+      setOutletAnagByCC(anag)
+    }
+    loadOutlets()
   }, [profile?.company_id])
 
   // Fetch budget_entries for all outlets, selected year (including month for heatmap)
@@ -75,19 +134,22 @@ export default function MarginiOutlet() {
       setError(null)
       try {
         const companyId = profile?.company_id
-        let query = supabase
-          .from('budget_entries')
-          .select('cost_center, account_code, budget_amount, month')
-          .eq('year', year)
-          .range(0, 9999) // override default Supabase limit 1000
+        // Paginato: .range(0,9999) NON aggira il cap PostgREST di 1000 righe. Oltre
+        // le 1000 righe i dati venivano troncati SENZA errore -> totali/margini
+        // sbagliati. Ora si scarica tutto in blocchi da 1000.
+        const data = await fetchAllPaged(
+          (from, to) => {
+            let q = supabase
+              .from('budget_entries')
+              .select('id, cost_center, account_code, budget_amount, month')
+              .eq('year', year)
+              .order('id', { ascending: true })
+            if (companyId) q = q.eq('company_id', companyId)
+            return q.range(from, to)
+          },
+          'budget_entries',
+        )
 
-        if (companyId) {
-          query = query.eq('company_id', companyId)
-        }
-
-        const { data, error: fetchError } = await query
-
-        if (fetchError) throw fetchError
         // Sprint 2 hotfix (29/05/2026 sera): rollback override budget_confronto.
         // Il fix per-riga /12 produceva numeri esplosi quando il numero di righe per
         // (cost_center, account_code) non era 12. Pagina torna a mostrare budget_entries
@@ -104,14 +166,27 @@ export default function MarginiOutlet() {
     fetchData()
   }, [year, profile?.company_id])
 
+  // Righe dei soli outlet REALI: esclude i cost_center virtuali (costi non divisi,
+  // rettifiche, sede/magazzino, "all") che altrimenti apparirebbero come falsi punti
+  // vendita con margine 0 -> falsi "margini critici" e medie falsate.
+  // Fail-safe: se l'anagrafica outlet non e' ancora caricata (set vuoto), NON si
+  // filtra (si mostra tutto, comportamento precedente) per non nascondere dati reali.
+  const outletRows = useMemo(() => {
+    if (outletSet.size === 0) return rawData
+    return rawData.filter(r => isOutletCostCenter(r.cost_center, outletSet))
+  }, [rawData, outletSet])
+
   // Compute margins per outlet (aggregated)
   interface OutletAgg { ricavi: number; costi: number }
-  interface OutletMargin { nome: string; ricavi: number; costi: number; margine: number; marginePercent: number }
+  // marginePercent: null quando i ricavi sono 0 (rapporto indeterminato, mai 0%).
+  // inApertura: outlet non ancora aperto -> costi reali visibili, ma fuori da
+  // allarmi, medie e classifica.
+  interface OutletMargin { nome: string; ricavi: number; costi: number; margine: number; marginePercent: number | null; inApertura: boolean; aperturaCaption: string | null }
   const outletMargins = useMemo<OutletMargin[]>(() => {
-    if (!rawData.length) return []
+    if (!outletRows.length) return []
 
     const byOutlet: Record<string, OutletAgg> = {}
-    rawData.forEach(row => {
+    outletRows.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto'
       if (!byOutlet[outlet]) byOutlet[outlet] = { ricavi: 0, costi: 0 }
 
@@ -128,17 +203,22 @@ export default function MarginiOutlet() {
     return Object.entries(byOutlet)
       .map(([nome, vals]) => {
         const margine = vals.ricavi - vals.costi
-        const marginePercent = vals.ricavi > 0 ? (margine / vals.ricavi) * 100 : 0
+        const marginePercent = safePct(margine, vals.ricavi)
+        const anag = outletAnagByCC[nome.trim().toLowerCase()]
+        const inApertura = isInApertura(anag, year)
         return {
           nome,
           ricavi: vals.ricavi,
           costi: vals.costi,
           margine,
           marginePercent,
+          inApertura,
+          aperturaCaption: inApertura && anag ? aperturaCaption(anag, year) : null,
         }
       })
-      .sort((a, b) => b.marginePercent - a.marginePercent)
-  }, [rawData])
+      // null (nessun ricavo) in coda
+      .sort((a, b) => (b.marginePercent ?? -Infinity) - (a.marginePercent ?? -Infinity))
+  }, [outletRows, outletAnagByCC, year])
 
   // Sort tabella margini per outlet
   const { sorted: sortedMargins, sortBy: moSortBy, onSort: moOnSort, reset: moResetSort } = useTableSort(
@@ -148,11 +228,11 @@ export default function MarginiOutlet() {
   )
 
   // Heatmap data: months (columns) x outlets (rows) with margin %
-  const heatmapData = useMemo<Record<string, Record<number, number>>>(() => {
-    if (!rawData.length) return {}
+  const heatmapData = useMemo<Record<string, Record<number, number | null>>>(() => {
+    if (!outletRows.length) return {}
 
     const byOutletMonth: Record<string, OutletAgg> = {}
-    rawData.forEach(row => {
+    outletRows.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto'
       const month = parseInt(row.month) || 0
       if (month < 1 || month > 12) return
@@ -171,17 +251,18 @@ export default function MarginiOutlet() {
     })
 
     // Build map: outlet -> month -> marginPercent
-    const result: Record<string, Record<number, number>> = {}
+    const result: Record<string, Record<number, number | null>> = {}
     Object.entries(byOutletMonth).forEach(([key, vals]) => {
       const [outlet, monthStr] = key.split('__')
       const month = parseInt(monthStr)
       if (!result[outlet]) result[outlet] = {}
       const margine = vals.ricavi - vals.costi
-      result[outlet][month] = vals.ricavi > 0 ? (margine / vals.ricavi) * 100 : (margine < 0 ? -100 : 0)
+      // Senza ricavi il margine % non esiste: cella neutra («—»), non -100%.
+      result[outlet][month] = safePct(margine, vals.ricavi)
     })
 
     return result
-  }, [rawData])
+  }, [outletRows])
 
   // Drill-down: breakdown by account for the expanded outlet
   interface AccountAgg { code: string; amount: number }
@@ -191,7 +272,7 @@ export default function MarginiOutlet() {
     const ricaviMap: Record<string, AccountAgg> = {}
     const costiMap: Record<string, AccountAgg> = {}
 
-    rawData.forEach(row => {
+    outletRows.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto'
       if (outlet !== expandedOutlet) return
 
@@ -213,7 +294,7 @@ export default function MarginiOutlet() {
       ricaviAccounts: Object.values(ricaviMap).sort((a, b) => b.amount - a.amount),
       costiAccounts: Object.values(costiMap).sort((a, b) => b.amount - a.amount),
     }
-  }, [expandedOutlet, rawData])
+  }, [expandedOutlet, outletRows])
 
   // Chart data with percentage labels
   const chartData = useMemo(() => {
@@ -226,12 +307,21 @@ export default function MarginiOutlet() {
     }))
   }, [outletMargins])
 
-  // Outlets with critically low margin
+  // Outlets with critically low margin. Esclusi gli outlet in apertura e quelli
+  // senza ricavi (margine % nullo): non sono negozi che vendono male.
   const criticalOutlets = useMemo(() => {
-    return outletMargins.filter(o => o.marginePercent < 5)
+    return outletMargins.filter(o => !o.inApertura && o.marginePercent != null && o.marginePercent < 5)
   }, [outletMargins])
 
-  const marginBadge = (pct: number): string => {
+  // Media di catena: solo outlet aperti con margine % calcolabile.
+  const margineMedio = useMemo<number | null>(() => {
+    const validi = outletMargins.filter(o => !o.inApertura && o.marginePercent != null)
+    if (!validi.length) return null
+    return validi.reduce((s, o) => s + (o.marginePercent ?? 0), 0) / validi.length
+  }, [outletMargins])
+
+  const marginBadge = (pct: number | null): string => {
+    if (pct == null) return 'bg-slate-100 text-slate-500'
     if (pct > 10) return 'bg-green-100 text-green-800'
     if (pct >= 0) return 'bg-amber-100 text-amber-800'
     return 'bg-red-100 text-red-800'
@@ -330,8 +420,11 @@ export default function MarginiOutlet() {
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
                 <p className="text-slate-600 text-sm font-medium mb-1">Margine Medio</p>
                 <p className="text-2xl font-bold text-slate-900">
-                  {fmtPct(outletMargins.reduce((s, o) => s + o.marginePercent, 0) / outletMargins.length)}
+                  {fmtPct(margineMedio)}
                 </p>
+                {outletMargins.some(o => o.inApertura) && (
+                  <p className="text-xs text-slate-400 mt-1">Esclusi i {labels.pointOfSalePluralLower} in apertura</p>
+                )}
               </div>
             </div>
 
@@ -365,7 +458,7 @@ export default function MarginiOutlet() {
                     <LabelList
                       dataKey="marginePct"
                       position="top"
-                      formatter={(v) => `${Number(v ?? 0).toFixed(1)}%`}
+                      formatter={(v) => v == null ? '' : `${Number(v).toFixed(1)}%`}
                       style={{ fontSize: 11, fontWeight: 600, fill: '#334155' }}
                     />
                   </Bar>
@@ -378,7 +471,7 @@ export default function MarginiOutlet() {
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Heatmap Margini Mensili</h2>
                 <p className="text-sm text-slate-500 mb-4">Colore per margine %: verde = alto, giallo = medio, rosso = basso/negativo</p>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scroll-shadow-x">
                   <table className="w-full text-sm">
                     <thead>
                       <tr>
@@ -391,7 +484,12 @@ export default function MarginiOutlet() {
                     <tbody>
                       {outletNames.map((outlet) => (
                         <tr key={outlet} className="border-b border-slate-100">
-                          <td className="px-3 py-2 text-slate-900 font-medium bg-white sticky left-0 z-10">{formatOutletName(outlet)}</td>
+                          <td className="px-3 py-2 text-slate-900 font-medium bg-white sticky left-0 z-10">
+                            <span className="flex items-center gap-2">
+                              {formatOutletName(outlet)}
+                              <AperturaBadge caption={outletMargins.find(o => o.nome === outlet)?.aperturaCaption ?? null} />
+                            </span>
+                          </td>
                           {MONTHS.map((_, idx) => {
                             const monthNum = idx + 1
                             const pct = heatmapData[outlet]?.[monthNum] ?? null
@@ -442,7 +540,7 @@ export default function MarginiOutlet() {
                   <button onClick={moResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
                 </div>
               )}
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto scroll-shadow-x">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">
@@ -456,15 +554,25 @@ export default function MarginiOutlet() {
                   <tbody>
                     {sortedMargins.map((o, idx) => {
                       const isExpanded = expandedOutlet === o.nome
+                      // Evidenza migliore/peggiore solo tra gli outlet aperti con
+                      // margine % calcolabile: un outlet in apertura non è «il peggiore».
+                      const ranked = sortedMargins.filter(r => !r.inApertura && r.marginePercent != null)
+                      const isRanked = !o.inApertura && o.marginePercent != null
+                      const isFirst = isRanked && ranked[0] === o
+                      const isLast = isRanked && ranked.length > 1 && ranked[ranked.length - 1] === o
+                      const rowTone = idx === 0 && isFirst ? 'bg-green-50' : idx === sortedMargins.length - 1 && isLast ? 'bg-red-50' : ''
                       return (
-                        <tr key={o.nome} className="contents">
+                        <Fragment key={o.nome}>
                           <tr
-                            className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${idx === 0 ? 'bg-green-50' : idx === sortedMargins.length - 1 ? 'bg-red-50' : ''}`}
+                            className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50 transition-colors ${rowTone}`}
                             onClick={() => setExpandedOutlet(isExpanded ? null : o.nome)}
                           >
-                            <td className="px-4 py-3 text-slate-900 font-medium flex items-center gap-2">
-                              {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                              {formatOutletName(o.nome)}
+                            <td className="px-4 py-3 text-slate-900 font-medium">
+                              <span className="flex items-center gap-2">
+                                {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                                {formatOutletName(o.nome)}
+                                <AperturaBadge caption={o.aperturaCaption} />
+                              </span>
                             </td>
                             <td className="px-4 py-3 text-right text-slate-700">{fmt(o.ricavi)} &euro;</td>
                             <td className="px-4 py-3 text-right text-slate-700">{fmt(o.costi)} &euro;</td>
@@ -516,7 +624,7 @@ export default function MarginiOutlet() {
                               </td>
                             </tr>
                           )}
-                        </tr>
+                        </Fragment>
                       )
                     })}
                   </tbody>
@@ -532,7 +640,7 @@ export default function MarginiOutlet() {
                         {(() => {
                           const totR = outletMargins.reduce((s, o) => s + o.ricavi, 0)
                           const totM = outletMargins.reduce((s, o) => s + o.margine, 0)
-                          const pct = totR > 0 ? (totM / totR) * 100 : 0
+                          const pct = safePct(totM, totR)
                           return (
                             <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${marginBadge(pct)}`}>
                               {fmtPct(pct)}
@@ -548,7 +656,6 @@ export default function MarginiOutlet() {
           </>
         )}
       </div>
-      <PageHelp page="margini-outlet" />
     </div>
   )
 }

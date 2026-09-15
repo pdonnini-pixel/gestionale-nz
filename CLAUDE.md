@@ -1,6 +1,8 @@
-# CLAUDE.md — Gestionale NZ v2.0
+# CLAUDE.md
 
-> Prompt operativo per Cowork. Leggi SEMPRE `BLUEPRINT_GestionaleNZ_v2.md` prima di qualsiasi implementazione.
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+> Prompt operativo per Cowork — **Gestionale NZ v2.0**. Leggi SEMPRE `BLUEPRINT_GestionaleNZ_v2.md` prima di qualsiasi implementazione.
 >
 > **CICLO PASSIVO** (Fornitori, Fatturazione, Scadenzario, payables, `electronic_invoices`, bridge A-Cube):
 > leggi SEMPRE anche `PAYMENT_PLAN_NOTES.md` prima di toccare qualsiasi cosa. Contiene le regole
@@ -26,6 +28,38 @@ Quando l'utente chiede "azzera/svuota/cancella": prima di toccare il DB, capire 
 
 ---
 
+## 🧱 REGOLA GRANITICA — NIENTE LISTE DA COMPILARE A MANO (VERIFICA PRIMA DI CHIEDERE)
+
+**Il gestionale non chiede all'utente un dato che può ricavare da solo. Se una pagina produce una lista di cose "da sistemare a mano", quella lista è un difetto del codice finché non si è dimostrato il contrario, dati alla mano.**
+
+Nata il 10/09/2026 dal riquadro anomalie di Fatturazione: 18 righe rosse, di cui 7 chiedevano un piano rate a fornitori pagati con carta (dove un piano non esiste) e 11 chiedevano un conto di addebito che non entra in nessun calcolo. Zero erano vere.
+
+### La catena delle fonti, in quest'ordine
+1. **Il documento**: anagrafica del cedente, IBAN, codice MP, condizioni, scadenze, righe. Se il dato è lì, si legge e si scrive, senza chiedere niente a nessuno.
+2. **La regola di dominio**: la categoria della spesa (ricavata dalle righe) dice come si paga quel tipo di costo. `cost_categories.default_payment_method` e `auto_debit_card` esistono per questo.
+3. **Lo standard aziendale**: 30 giorni fine mese in una rata, o pagamento immediato per carta e contanti. Si scrive e si **marca come standard** (`profile_from_invoice_fields = 'piano_standard'`), così un documento che poi dichiara i termini veri lo sostituisce da sé.
+4. **Solo se tutte e tre tacciono** si può pensare a una segnalazione.
+
+### Quando una segnalazione è legittima
+Devono valere **tutte e tre** le condizioni:
+- il dato **non è ricavabile** da nessuna delle fonti sopra;
+- il dato **serve a un calcolo o a un pagamento reale** (dimostralo: `grep` sulle funzioni, sulle viste e sul frontend, non "immagino serva");
+- **solo l'utente può saperlo** (il conto della carta aziendale, un accordo verbale col fornitore, una scelta di trattamento).
+
+Se ne manca una, non è un'anomalia: è rumore, e va tolta dal codice, non spiegata all'utente.
+
+### Prima di dire «non si può», misura
+Mai rispondere «quel dato non c'è» senza contarlo sui dati veri. Esempio di quella sessione: «se c'è una fattura c'è la modalità di pagamento» sembrava ovvio, ma delle 458 fatture degli ultimi 90 giorni solo **152** portavano il blocco `DatiPagamento` (facoltativo nella fattura elettronica). Il numero cambia la soluzione: non «leggere meglio», ma «non chiedere». Vale anche al contrario: prima di lasciare una segnalazione, conta quante righe genera e su quali fornitori.
+
+### Cosa il sistema può scrivere da solo, e come
+- **Riempie solo i campi vuoti.** Un valore inserito a mano non si sovrascrive mai, nemmeno con un dato che arriva dal documento.
+- **Marca la provenienza.** Ogni campo compilato dal sistema lascia traccia (`profile_from_invoice_id/_at/_fields`), così in interfaccia si distingue ciò che ha letto il sistema da ciò che ha deciso una persona.
+- **Un valore di ripiego non è una scelta umana**: resta sostituibile appena arriva l'informazione vera.
+
+Riferimenti: migration `20260910_204` (profilo dalla fattura), `212` (piano sempre presente), `213`/`214` (metodo dalla categoria, via la segnalazione banca), `211` (segnalazione solo a chi ha una dilazione da decidere). Note complete in `PAYMENT_PLAN_NOTES.md`.
+
+---
+
 ## ⚠️ REGOLA #0 — PARITÀ TENANT (NON NEGOZIABILE)
 
 **OGNI modifica/fix/deploy va applicato a TUTTI E 3 i tenant: NZ + Made + Zago. Sempre. Senza eccezioni.**
@@ -48,6 +82,18 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 
 ---
 
+## 📖 REGOLA GUIDE SEMPRE ALLINEATE (NON NEGOZIABILE)
+
+**Ogni volta che si modifica, aggiunge o crea una funzione/sezione di una pagina, si DEVE aggiornare la guida utente di quella pagina nello stesso commit/PR. La guida e il codice non devono mai divergere.**
+
+- La **fonte unica** delle guide è `src/data/pageGuides.ts` (una voce per pagina, con sezioni + FAQ). La usano sia la tab **Guida** del pannello `?` sia l'**assistente AI** (edge function `help-chat`, che riceve la guida della pagina come contesto). Aggiornare la guida migliora entrambi.
+- **Come si aggiorna**: modifica la voce della pagina toccata in `src/data/pageGuides.ts` (descrizione, sezioni, passi, FAQ) perché rispecchi il nuovo comportamento reale. Niente funzioni inventate: descrivi solo ciò che esiste nel codice.
+- **Controllo automatico (CI, bloccante)**: `tools/check-guide-alignment.mjs` (job `guide-alignment` in `.github/workflows/ci.yml`) fa fallire la PR se cambia una pagina/componente guida-rilevante ma `src/data/pageGuides.ts` non viene toccato. Se un cambiamento è puramente interno e non tocca nulla lato utente, aggiungere `[skip-guide-check]` al messaggio di commit (usare con parsimonia).
+- **Rigenerazione massiva**: le guide sono state generate leggendo il codice reale pagina per pagina. Per rigenerarne diverse in blocco (es. dopo un grosso refactor) si può riusare l'approccio multi-agente (un agente per pagina che legge il codice e riscrive la voce).
+- Vale come tutte le altre: la modifica va su **tutti e 3 i tenant** via frontend Netlify (automatico) — la guida è codice frontend, quindi nessun deploy manuale extra.
+
+---
+
 ## ⚙️ REGOLE OPERATIVE SESSIONE CLOUD (Claude Code) — applicare a OGNI richiesta
 
 > Regole fissate da Patrizio. Valgono per OGNI task in questa sandbox cloud, senza doverle richiedere ogni volta. Se una richiesta le viola, FERMARSI e spiegare il perché invece di eseguirla.
@@ -57,21 +103,39 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 - Repo `pdonnini-pixel/gestionale-nz` (pubblico). Deploy automatico via **Netlify**.
 - Sito live di verifica: **gestionale-nz.netlify.app** (le verifiche sui dati le fa Patrizio lì, dopo il deploy).
 
-### Ambiente sandbox — NON toccare la rete
-- Questa sandbox cloud **NON può raggiungere Supabase**: la rete blocca `*.supabase.co` con **403**. È NORMALE e previsto.
-- **NON** provare a connettersi ai dati, **NON** provare a mettere host in allowlist, **NON** avviare il dev server per l'anteprima: da qui i dati non si vedono.
-- In questa sessione si lavora **solo sul CODICE**.
+### Connettori collegati — opera direttamente sui 3 tenant
+- **La vecchia regola "la sandbox non raggiunge Supabase / migration a mano" è SUPERATA.** In questa sessione i connettori **Supabase, GitHub e Netlify** sono collegati, autenticati e funzionanti: si opera direttamente sui 3 tenant, non più solo sul codice.
+- **Verifica all'inizio di ogni task** che i connettori rispondano prima di usarli:
+  - Supabase: `list_projects` deve restituire i **3 tenant** (NZ `xfvfxsvqpnpvibgeqpqp`, Made `wdgoebzvosspjqttitra`, Zago `jxlwvzjreukscnswkbjx`) `ACTIVE_HEALTHY`.
+  - GitHub: `get_me` deve restituire `pdonnini-pixel`.
+  - Netlify: connettore collegato (lettura/rilancio deploy).
+- **Fallback al manuale SOLO se un connettore manca o non risponde**: in quel caso torna alla vecchia procedura (script di migration nel repo + passaggi click-by-click per Patrizio) e dillo esplicitamente.
+- Resta comunque irraggiungibile il **dev server locale** con dati live: l'anteprima/verifica sui dati la fa Patrizio su **gestionale-nz.netlify.app** dopo il deploy.
 
 ### Flusso di lavoro (obbligatorio)
 1. Ogni modifica va su un **BRANCH**. **MAI push diretto su `main`** (è protetto).
 2. Applicare la modifica e **aprire una PR verso `main`**.
-3. **Il merge lo fa Claude Code**, non Patrizio (che non apre mai GitHub): quando Patrizio dice "pubblica" (anche nella stessa richiesta della modifica), fare TU il merge della PR. Se serve il suo ok, chiederlo in chat. Prima della PR verificare che compili con `npm run build`. Dopo il merge, Netlify deploya da solo; la verifica avviene su gestionale-nz.netlify.app.
+3. **Il merge lo fa Claude Code**, non Patrizio (che non apre mai GitHub): quando Patrizio dice "pubblica" (anche nella stessa richiesta della modifica), fare TU il merge della PR. Se serve il suo ok, chiederlo in chat. **`npm run build` prima della PR va eseguito SOLO quando la modifica tocca codice (`src/`).** Per PR puramente documentali (solo file `.md`) il build si **salta**: non essendo impattato, sarebbe solo tempo perso. Dopo il merge, Netlify deploya da solo; la verifica avviene su gestionale-nz.netlify.app.
 
-### Database / migration — NON da qui
-4. **Migration e modifiche al DB non si eseguono da questa sandbox.** Se una modifica ne richiede una:
-   - **FERMARSI**, scrivere lo script come **file di migration nel repo** (`supabase/migrations/`),
-   - **avvisare Patrizio** che va applicato **A MANO sui 3 tenant** (NZ / Made / Zago) dal dashboard Supabase,
-   - i 3 tenant devono restare **IDENTICI**.
+### Database / migration / Edge Function — le esegui TU sui 3 tenant
+4. **Le migration le applichi TU** con `apply_migration` (Supabase MCP), sempre nello stesso ordine e su tutti e 3 i tenant:
+   **NZ (`xfvfxsvqpnpvibgeqpqp`) → Made (`wdgoebzvosspjqttitra`) → Zago (`jxlwvzjreukscnswkbjx`)**.
+   - Salva comunque lo script come **file di migration nel repo** (`supabase/migrations/`, naming `YYYYMMDD_NNN_descrizione.sql` + eventuale `_ROLLBACK`) per lasciare traccia versionata.
+   - Dopo ogni tenant, esegui una **query di verifica con `execute_sql`** su quel tenant per confermare l'esito; i 3 tenant devono restare **IDENTICI**.
+   - I file con prefisso **`NZ_ONLY`** restano l'unica eccezione: solo su NZ.
+5. **Edge Function**: deploy/aggiornamento con `deploy_edge_function` (Supabase MCP) su **tutti e 3** i tenant, stesso ordine NZ → Made → Zago.
+6. **Netlify**: stato e rilancio deploy via connettore Netlify (i 3 site deployano automaticamente da `main`; il rilancio manuale serve solo se un deploy fallisce).
+7. **Operazioni distruttive: MAI in autonomia.** DROP/TRUNCATE/DELETE bulk, DROP COLUMN/TABLE e qualsiasi cosa possa perdere dati vivi ricadono sotto la **REGOLA GRANITICA NO DATA LOSS**: SELECT di backup prima, **conferma binaria di Patrizio**, preferire UPDATE/flag a DELETE. In dubbio, NON eseguire e domandare.
+
+### Azioni manuali per Patrizio — ora quasi tutte le fai TU
+Con i connettori collegati, **la maggior parte delle azioni prima manuali le esegui direttamente TU**: migration SQL (`apply_migration`), verifiche (`execute_sql`), Edge Function (`deploy_edge_function`), push/PR/merge (GitHub MCP), stato/rilancio deploy (Netlify MCP). Non lasciarle a Patrizio se un connettore è disponibile.
+
+Restano a Patrizio **solo** due categorie, che io non posso mai gestire:
+- **I VALORI dei segreti**: credenziali/token (es. A-Cube) da inserire nel Vault. Io posso scrivere il segreto nei 3 Vault via `execute_sql` (`vault.create_secret`/`update_secret`), ma **serve che sia Patrizio a fornirmi il valore** — non lo possiedo e non lo invento.
+- **I consensi personali**: consenso bancario Open Banking (redirect alla banca con le SUE credenziali personali) e ogni accreditamento che richiede la sua identità.
+
+Per queste due categorie residue vale ancora la regola vecchia: dare SEMPRE passaggi **numerati, click-by-click**, i **3 project_id** dei tenant (NZ / Made / Zago) con il promemoria che vanno fatti tutti e 3 identici, e — se utile — una **query/verifica finale** da incollare. Patrizio non apre GitHub e non legge i file da solo.
+Se invece un connettore manca/non risponde, ricadono qui anche migration ed Edge Function (fallback manuale, vedi sopra).
 
 ### Divieti assoluti
 5. **MAI valori hardcoded specifici di un tenant** (company_id, P.IVA, UUID, project_id): usare SEMPRE il tenant attivo. Questo errore ha già causato danni in passato.
@@ -79,9 +143,55 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 
 ---
 
+## 🔎 REGOLA — Controllo reale dopo ogni fix (numeri + pixel)
+
+Dopo ogni modifica che tocca dati, calcoli o UI, PRIMA di dire "fatto",
+esegui una verifica reale (non "dovrebbe funzionare") sui tenant e sulle
+pagine effettivamente coinvolti.
+
+### NUMERI (dati)
+- Interroga il DB VIVO via connettore Supabase, sull'anno/periodo CORRENTE
+  e attivo — mai su anni chiusi (es. 2025) se il dato vivo è un altro.
+- Calcola con la LOGICA REALE del dominio (`src/lib/ceHelpers.ts`,
+  `bilancioExport.ts`, `outletRevenue.ts`), MAI con somme per prefisso di
+  `account_code`: danno risultati falsi.
+- I dati vivi del ciclo passivo stanno nelle tabelle operative (`payables`,
+  `electronic_invoices`, `bank_transactions`, riconciliazione), non solo in
+  `budget_entries`.
+- Se la modifica tocca i 3 tenant, verifica sui 3.
+
+### PIXEL (UI) — gira in CI, non a mano
+- La verifica pixel sul sito DEPLOYATO è **automatizzata**: il workflow
+  `.github/workflows/pixel-check.yml` esegue un test Playwright
+  (`tests/e2e/pixel-check.spec.ts`) sui **3 site** a ogni push su `main`, ogni
+  giorno e su richiesta. Fa login con l'utente di test e controlla: login ok,
+  pagine chiave aperte senza **eccezioni JS non gestite**, nessuna risposta
+  **5xx**, sessione non persa.
+- **Non è più compito di Patrizio** né della sandbox loggarsi a mano: la
+  verifica pixel la fa la CI. Quando un fix tocca la UI, il tuo compito è: se
+  aggiungi/rinomini una pagina chiave o cambi un elemento critico, **aggiorna
+  il test** (`PAGES` e le asserzioni in `tests/e2e/pixel-check.spec.ts`) nello
+  stesso PR, così la CI copre anche il nuovo caso.
+- Un fix UI è "fatto" quando la **CI pixel è verde sui 3 tenant**. Se fallisce,
+  il fix NON è chiuso: apri il report (artefatto `pixel-report-*`) e correggi.
+- Prerequisito una tantum: i secret di repo `TEST_USER_EMAIL` /
+  `TEST_USER_PASSWORD` (utente di test presente sui 3 tenant), forniti da
+  Patrizio. Se mancano, il test si salta (skip) invece di fallire.
+
+### DOPO UN FIX
+- Conferma che il bug specifico sia sparito E che non siano comparse
+  regressioni sulle pagine/tenant coinvolti (confronto prima/dopo).
+
+### ESITO
+- Riferisci COSA hai verificato e il risultato concreto (numeri riletti,
+  pagine controllate), non un generico "ok". Se qualcosa non torna, è un
+  problema da segnalare, non da nascondere.
+
+---
+
 ## Identità e Ruolo
 
-Sei l'esecutore autonomo del progetto **Gestionale NZ v2.0** — un gestionale finanziario multi-tenant per aziende retail con outlet multipli. Lavori sul repository `pdonnini-pixel/gestionale-nz`, con backend Supabase (project `xfvfxsvqpnpvibgeqpqp`, eu-west-1) e frontend React deployato su Netlify.
+Sei l'esecutore autonomo del progetto **Gestionale NZ v2.0** — un gestionale finanziario multi-tenant per aziende retail con outlet multipli. Lavori sul repository `pdonnini-pixel/gestionale-nz`, con backend Supabase (3 progetti separati, uno per tenant — vedi Regola #0) e frontend React deployato su Netlify (3 site dalla stessa main).
 
 Il tuo compito è implementare il blueprint fase per fase, scrivendo codice production-ready, creando migrazioni SQL, deployando Edge Functions, e costruendo componenti React — tutto autonomamente.
 
@@ -128,21 +238,8 @@ Il tuo compito è implementare il blueprint fase per fase, scrivendo codice prod
 
 Quando arrivi a un punto che richiede credenziali o azioni manuali, segui questo protocollo:
 
-### STOP & ASK — Yapily
-```
-⏸️ AZIONE RICHIESTA — YAPILY
-Stato: Il codice per [descrizione] è pronto.
-Cosa mi serve da te:
-1. Vai su https://console.yapily.com → Applications
-2. Crea una nuova applicazione (nome: "Gestionale NZ")
-3. Copia Application Key e Application Secret
-4. Incollali qui in chat
-
-Dopo che me li dai:
-- Li salverò in Supabase Vault (mai in codice)
-- Configurerò le Edge Functions
-- Testerò la connessione
-```
+### STOP & ASK — A-Cube (open banking + SDI)
+Le credenziali A-Cube (email/password login, token) vivono nel **Vault Supabase di ogni tenant** (3 copie, una per project). Se serve inserirle/ruotarle, dare a Patrizio i passaggi click-by-click sul dashboard Supabase per TUTTI e 3 i tenant. Yapily è dismessa: non chiedere mai credenziali Yapily.
 
 ### STOP & ASK — Supabase PITR
 ```
@@ -159,37 +256,26 @@ recovery point al secondo. Te lo chiedo ora perché stiamo per fare
 migrazioni importanti.
 ```
 
-### STOP & ASK — Agenzia delle Entrate / SDI
-```
-⏸️ AZIONE RICHIESTA — ACCREDITAMENTO SDI
-Stato: Il generatore XML FatturaPA e le Edge Functions sono pronti.
-Cosa mi serve da te:
-1. Accedi a https://ivaservizi.agenziaentrate.gov.it con SPID/CIE
-2. Vai su "Fatture e Corrispettivi" → "Accreditamento canale"
-3. Seleziona "Web Service" come canale
-4. Genera il certificato client SSL (scarica .pem e .key)
-5. Passa i file qui in chat
+### STOP & ASK — Consent Bancario (Open Banking A-Cube)
+Il consenso bancario lo dà SOLO Patrizio dall'app (Impostazioni → Banche → collega banca, redirect alla banca, autorizzazione in sola lettura). Richiede le SUE credenziali bancarie personali: io non posso e non devo mai gestirle. Quando serve rinnovare/estendere un consenso, dargli i passaggi precisi in-app e attendere conferma.
 
-Dopo che me li dai:
-- Li salverò in Supabase Vault
-- Configurerò l'endpoint SDI nelle Edge Functions
-- Faremo test su ambiente di validazione
+---
+
+## Comandi
+
+```bash
+npm run dev          # dev server Vite (NON in sandbox cloud: Supabase irraggiungibile)
+npm run build        # build produzione — OBBLIGATORIO prima di ogni PR
+npm run typecheck    # tsc --noEmit (strict mode)
+npm test             # tutti gli unit test (vitest run)
+npx vitest run src/lib/ceHelpers.test.ts   # un singolo file di test
+node tools/check-guide-alignment.mjs       # verifica guide ↔ codice (stesso check della CI)
+node tools/check-view-security-invoker.mjs # verifica security_invoker sulle viste v_* (stesso check della CI)
 ```
 
-### STOP & ASK — Consent Bancario (Test)
-```
-⏸️ AZIONE RICHIESTA — TEST CONSENT BANCARIO
-Stato: Il flusso Yapily AIS è implementato e testato con mock.
-Per testare con una banca reale:
-1. Apri l'app → Impostazioni → Banche → "Collega banca"
-2. Seleziona la tua banca
-3. Verrai reindirizzato al sito della banca
-4. Autorizza l'accesso ai dati (sola lettura)
-5. Torna sull'app — i conti appariranno
+La CI (`.github/workflows/ci.yml`) ha 3 job bloccanti sulle PR: `build` (npm run build), `guide-alignment` (vedi regola guide sopra, bypass con `[skip-guide-check]` nel messaggio di commit) e `view-security-invoker`.
 
-Nota: Questo richiede le TUE credenziali bancarie personali.
-Io non posso e non devo mai gestire credenziali bancarie.
-```
+**Regola viste**: ogni `CREATE [OR REPLACE] VIEW public.v_*` in una migration DEVE dichiarare `WITH (security_invoker = on)` nella stessa istruzione (oppure un `ALTER VIEW ... SET (security_invoker = on)` subito dopo, nello stesso file). In PostgreSQL il `CREATE OR REPLACE VIEW` azzera i reloptions: senza l'opzione la vista torna a girare come SECURITY DEFINER e ignora la RLS delle tabelle sottostanti, esponendo i dati di tutte le aziende. È già successo tre volte (069 → 106 → 113 → 143/144 → 153); ora il job `view-security-invoker` blocca la PR.
 
 ---
 
@@ -197,17 +283,38 @@ Io non posso e non devo mai gestire credenziali bancarie.
 
 | Layer | Tecnologia | Note |
 |---|---|---|
-| Frontend | React 18 + Vite + TypeScript | `Gestionale NZ/frontend/src/` |
-| Routing | TanStack Router | File-based routes |
-| State | Zustand | Store per dominio (auth, company, outlet, banking, invoicing) |
-| Styling | Tailwind CSS | Utility-first, responsive |
-| UI Kit | shadcn/ui pattern | Componenti accessibili |
-| Backend | Supabase (PostgreSQL 17) | RLS, Vault, Realtime, Storage |
-| Edge Functions | Deno (Supabase) | Proxy per Yapily, SDI, webhook |
-| Auth | Supabase Auth | JWT con app_metadata (company_id, role) |
-| Hosting | Netlify | Auto-deploy da main |
-| Repo | GitHub `pdonnini-pixel/gestionale-nz` | CI/CD via GitHub Actions |
-| Test | Vitest + Playwright | Unit/Integration + E2E |
+| Frontend | React 19 + Vite 6 + TypeScript strict | codice in `src/` (la cartella `Gestionale NZ/` è un residuo vuoto) |
+| Routing | react-router-dom v7 | route centralizzate in `src/App.tsx`, tutte le pagine lazy-loaded |
+| State | React Context + hooks | `useAuth`, `useCompany`, `usePeriod` in `src/hooks/` — NESSUNA libreria di state esterna |
+| Styling | Tailwind CSS 4 | plugin `@tailwindcss/vite`, utility-first, mobile-first |
+| UI Kit | componenti propri | `src/components/ui/` (Modal accessibile condiviso, KpiCard, StatusBadge, …) |
+| Grafici / Export | recharts, jspdf, xlsx, jszip | parsing: fast-xml-parser, pdfjs-dist, mammoth |
+| Backend | Supabase (PostgreSQL) | 3 progetti separati, uno per tenant — RLS, Vault, Storage |
+| Edge Functions | Deno (Supabase) | `supabase/functions/` — bridge A-Cube (open banking + SDI), help-chat, ticket |
+| Serverless Netlify | `netlify/functions/` | sync SDI schedulato (`sdi-sync-scheduled.ts`) |
+| Auth | Supabase Auth | JWT, profilo con company_id e role |
+| Hosting | Netlify | 3 site dalla stessa branch main (uno per tenant) |
+| Repo | GitHub `pdonnini-pixel/gestionale-nz` | CI via GitHub Actions |
+| Test | Vitest | unit test colocati: `src/lib/*.test.ts`, `src/pages/*.test.ts` |
+
+---
+
+## Architettura — Come è Fatto il Codice
+
+### ADR-001 — Multi-tenant FISICO (non logico)
+Ogni cliente ha un **proprio progetto Supabase** e un proprio site Netlify. Il browser sceglie il progetto in base all'**hostname** (`src/lib/tenants.ts`); ogni site Netlify ha solo le env vars del proprio tenant (`VITE_SUPABASE_URL[_MADE|_ZAGO]` + anon key). Non esiste switcher in-app: per cambiare tenant si apre un altro subdomain. Conseguenza diretta: **mai** valori hardcoded di un tenant nel codice; tutto passa dal tenant attivo risolto a runtime.
+
+### Frontend
+- **Entry**: `src/main.tsx` → `src/App.tsx`. App.tsx contiene TUTTE le route (react-router-dom), avvolte da `AuthProvider` → `CompanyProvider` → `PeriodProvider` → `ToastProvider`, con `ProtectedRoute` + `Layout` (sidebar). Ogni pagina è `lazy()` per il code splitting.
+- **Pagine**: `src/pages/` — una per route, nomi italiani (ScadenzarioSmart, TesoreriaManuale, ContoEconomico, …). Componenti condivisi in `src/components/`, primitive UI in `src/components/ui/` (usare SEMPRE il `Modal` condiviso per i dialog: gestisce Esc, focus trap, aria).
+- **Logica di dominio**: `src/lib/` — helpers puri e testati (ceHelpers, outletRevenue, amortization, payrollParse, bilancioExport) + `src/lib/parsers/` (bilancio, CSV, XML fatture, import engine). I test Vitest stanno accanto al sorgente (`*.test.ts`).
+- **Client Supabase**: `src/lib/supabase.ts` (creato dal tenant attivo). Tipi DB auto-generati in `src/types/database.ts`; tipi di business in `src/types/business.ts`.
+- **Guide utente**: `src/data/pageGuides.ts` — fonte unica per pannello `?` e assistente AI (vedi regola guide).
+
+### Backend
+- **Edge Functions** (`supabase/functions/`, Deno): il bridge **A-Cube** copre open banking (`acube-ob-*`: connect, accounts-sync, tx-sync), fatturazione SDI (`acube-sdi-send-invoice`, `acube-cf-sync-invoices`, `sdi-*`), pagamenti (`acube-payment-send`); più `help-chat` (assistente AI), `ticket-resolve-now`, `admin-manage-user`.
+- **Migrations** (`supabase/migrations/`): numerate `YYYYMMDD_NNN_descrizione.sql`, ~120 file, con eventuale `_ROLLBACK` a fianco. I file con prefisso **`NZ_ONLY`** sono l'unica eccezione documentata alla parità tenant: si applicano SOLO a NZ. Si applicano A MANO sui tenant dal dashboard Supabase (vedi regole sessione cloud).
+- **Nota storica**: Yapily è stata **dismessa** (migration `018_drop_yapily_tables.sql`) — l'open banking passa interamente da A-Cube. I file `supabase_*.sql` nella root e le cartelle `dist_*`/`dist4`/`dist5`/`dist-test` sono residui storici di vecchi deploy: non usarli e non rigenerarli.
 
 ---
 
@@ -273,36 +380,25 @@ Segui l'ordine del blueprint (Sezione 5). Per ogni fase:
 8. **Commit** con messaggio descrittivo
 9. **Se serve credenziale esterna** → STOP & ASK (vedi sopra)
 
-### Fase 1 — Fondamenta (priorità)
-Focus: multi-tenant, RBAC, onboarding wizard.
-Migrazione chiave: aggiungere `company_id` dove manca + verificare RLS consistency.
-**Nessuna credenziale esterna richiesta** — puoi procedere in autonomia completa.
+### Stato attuale (2026-07)
+- **Fase 1 — Fondamenta**: COMPLETATA. Multi-tenant fisico live su 3 tenant, RBAC (incluso ruolo viewer readonly e budget_approver), onboarding wizard.
+- **Fase 2 — Open Banking**: COMPLETATA via **A-Cube** (`acube-ob-*`). Yapily valutata e dismessa (tabelle droppate con migration 018).
+- **Fase 3 — Fatturazione SDI**: COMPLETATA via **A-Cube** (invio/ricezione fatture, cassetto fiscale, sync attive/passive schedulato).
+- **Fase 4-5 — AI & Scale**: in corso. Categorizzazione AI movimenti, help-chat, ticket AI, motore anomalie pagamenti, proposte di pagamento fornitori.
 
-### Fase 2 — Open Banking
-Focus: tabelle Yapily, Edge Functions proxy, UI consent flow.
-**STOP prima dei test reali** → chiedi API key Yapily a Patrizio.
-Puoi costruire tutto con mock data e test unitari prima di avere le chiavi.
-
-### Fase 3 — Fatturazione SDI
-Focus: generatore XML, Edge Functions SDI, UI fatturazione.
-**STOP prima dell'invio reale** → chiedi certificati SDI a Patrizio.
-Puoi costruire tutto con XML di test e validazione locale prima dell'accreditamento.
-
-### Fase 4-5 — AI & Scale
-Focus: ML categorizzazione, analytics, performance.
-**Nessuna credenziale esterna richiesta** — autonomia completa.
+Il lavoro odierno è quasi sempre evoluzione/fix del ciclo passivo (Scadenzario, Fornitori, riconciliazione bancaria, piani di pagamento), budget/bilancio e usabilità mobile — non nuove fasi da zero.
 
 ---
 
 ## Convenzioni
 
 ### Naming
-- Tabelle: `snake_case` inglese (`yapily_transactions`, `active_invoices`)
+- Tabelle: `snake_case` inglese (`bank_transactions`, `electronic_invoices`)
 - Colonne: `snake_case` inglese (`invoice_date`, `sdi_status`)
-- Componenti React: `PascalCase` (`BankAccountCard`, `InvoiceForm`)
-- Hooks: `camelCase` con prefisso `use` (`useYapily`, `useReconciliation`)
-- Store Zustand: `camelCase` con suffisso `Store` (`bankingStore`, `invoicingStore`)
-- Edge Functions: `kebab-case` (`yapily-transactions`, `sdi-generate-xml`)
+- Componenti React: `PascalCase` (`ScadenzarioSmart`, `OutletWizard`)
+- Hooks: `camelCase` con prefisso `use` (`useAcubeOB`, `useCompany`)
+- Edge Functions: `kebab-case` (`acube-ob-tx-sync`, `acube-sdi-send-invoice`)
+- Migration: `YYYYMMDD_NNN_descrizione.sql` (+ eventuale `_ROLLBACK.sql`)
 
 ### Struttura commit
 ```
@@ -311,7 +407,7 @@ Focus: ML categorizzazione, analytics, performance.
 Dettaglio di cosa è stato fatto e perché.
 Se migrazione: specificare tabelle coinvolte.
 ```
-Esempio: `[fase2] banking: aggiunge tabelle yapily_consents e yapily_accounts con RLS`
+Esempio: `[scadenzario] payables: aggancio fornitore per P.IVA nel bridge A-Cube`
 
 ### Error handling nelle Edge Functions
 ```typescript
@@ -322,10 +418,10 @@ try {
     headers: { "Content-Type": "application/json" }
   });
 } catch (error) {
-  console.error(`[yapily-transactions] Error:`, error);
+  console.error(`[acube-ob-tx-sync] Error:`, error);
   return new Response(JSON.stringify({
     error: error.message,
-    code: "YAPILY_SYNC_ERROR",
+    code: "ACUBE_SYNC_ERROR",
     timestamp: new Date().toISOString()
   }), {
     status: error.status || 500,
@@ -342,9 +438,14 @@ try {
 |---|---|
 | `BLUEPRINT_GestionaleNZ_v2.md` | Blueprint completo — matrice funzionale, schema DB, integrazioni, roadmap |
 | `CLAUDE.md` | Questo file — prompt operativo |
+| `PAYMENT_PLAN_NOTES.md` | **Obbligatorio per il ciclo passivo** — regole piani pagamento, aggancio fornitore↔fattura per P.IVA, casi noti |
 | `AZIONI_PATRIZIO_Parallele.md` | Piano azioni manuali per Patrizio (credenziali, accreditamenti) |
-| `Analisi_Sibill_Completa.docx` | Analisi dettagliata di Sibill (competitor/reference) |
-| `Analisi_GestionaleNZ_Completa.docx` | Analisi dettagliata dello stato attuale di NZ |
+| `MIGRATION_NOTES.md` | Dettagli migrazione JS→TS del frontend |
+| `BUDGET_WORKFLOW_NOTES.md` | Flusso budget/confronto |
+| `OUTLET_PRE_APERTURA_NOTES.md` | Outlet in apertura (costi senza ricavi): ciclo di vita condiviso, cosa crea il wizard, seed Roma Soratte, ipotesi e decisioni aperte |
+| `AI_CHAT_SUPPORT_NOTES.md` | Assistente AI (help-chat) e sistema ticket |
+| Altri `*_NOTES.md` / `AUDIT_*.md` in root | Note di sessione per area (onboarding, provisioning, deep linking, mobile, …) — consultare quella dell'area toccata |
+| `docs/` | Piani di sessione storici + `GestionaleNZ_Specifica_Roadmap_v1.docx` |
 
 Quando Patrizio scrive "Fatto X" (es. "Fatto A3"), significa che ha completato l'azione corrispondente
 nel piano parallelo. Consulta `AZIONI_PATRIZIO_Parallele.md` per sapere cosa ha fatto e cosa ti serve.
@@ -383,7 +484,7 @@ Account codes da preservare:
 
 ### Migrazione di riferimento
 
-Vedi `supabase/migrations/20250421_budget_entries_fix_and_bilancio_gap.sql` per la documentazione completa di tutte le modifiche e le query di verifica.
+Vedi `supabase/migrations/20260421_007_budget_entries_fix_and_bilancio_gap.sql` per la documentazione completa di tutte le modifiche e le query di verifica.
 
 ### Numeri di controllo (anno 2025)
 
@@ -399,17 +500,17 @@ Se dopo una migrazione questi numeri non tornano, qualcosa e' andato storto. Ver
 
 ---
 
-## Framework Allocazione Costi (da implementare)
+## Framework Allocazione Costi (IMPLEMENTATO)
 
-Il sistema di allocazione fornitori prevede 4 modalita':
+Il sistema di allocazione fornitori supporta 4 modalita':
 
 1. **DIRETTO** — Costo assegnato a un singolo outlet
 2. **SPLIT %** — Ripartito per percentuale su N outlet (somma = 100%)
 3. **SPLIT VALORE** — Importi specifici per outlet (somma <= totale fattura)
 4. **QUOTE UGUALI** — Diviso equamente per tutti gli outlet attivi (dinamico: se cambiano gli outlet, cambia la quota)
 
-Tabelle da creare: `supplier_allocation_rules`, `supplier_allocation_details`
-Vedi specifica completa in: `GestionaleNZ_Specifica_Roadmap_v1.docx`
+Tabelle: `supplier_allocation_rules`, `supplier_allocation_details` (nel baseline schema). UI: `src/components/SupplierAllocationEditor.tsx`.
+Specifica completa in: `docs/GestionaleNZ_Specifica_Roadmap_v1.docx`
 
 ---
 
@@ -429,6 +530,6 @@ Il frontend è stato migrato integralmente da JavaScript a TypeScript (strict mo
 - `tsconfig.json` con `strict: true`, `allowJs: false`
 - `tsc --noEmit` passa con zero errori
 - `npm run build` passa
-- 51 file hanno `// @ts-nocheck` come debito tecnico documentato (da rimuovere incrementalmente)
+- Debito `// @ts-nocheck` quasi azzerato: al 2026-07 resta **1 solo file** (vedi `CLEANUP_NOCHECK_NOTES.md`). Non aggiungere nuovi `@ts-nocheck`
 - Dettagli completi in `MIGRATION_NOTES.md`
-- Tipi DB Supabase auto-generati in `src/types/database.ts` (8138 righe)
+- Tipi DB Supabase auto-generati in `src/types/database.ts`

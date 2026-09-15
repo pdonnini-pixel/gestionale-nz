@@ -32,6 +32,7 @@ import {
 import { useOutlets } from '../hooks/useOutlets';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import PageHeader from '../components/PageHeader';
+import { outletLifecycleCaption, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle';
 
 const StoreManager = () => {
   const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
@@ -42,9 +43,17 @@ const StoreManager = () => {
     id: (o.code || o.name).toLowerCase(),
     label: o.code ? `${o.name} (${o.code})` : o.name,
     city: o.city || '',
+    // Ciclo di vita: un outlet «in apertura» resta selezionabile ma non ha
+    // dati operativi (né simulati) prima dell'apertura.
+    lifecycle: o.lifecycle,
+    opening_date: o.opening_date,
+    closing_date: o.closing_date,
   }));
 
   const [selectedOutlet, setSelectedOutlet] = useState<string>('');
+  // Apertura del menu cambio-outlet gestita a stato: su touch l'hover non
+  // esiste, il vecchio group-hover rendeva il menu inaffidabile da telefono.
+  const [outletMenuOpen, setOutletMenuOpen] = useState(false);
   const [checklist, setChecklist] = useState<{ id: number; label: string; completed: boolean }[]>([
     { id: 1, label: 'Riordino magazzino', completed: false },
     { id: 2, label: 'Verifica esposizione', completed: true },
@@ -96,12 +105,14 @@ const StoreManager = () => {
     { ora: '20:00', vendite: 0 },
   ];
 
-  // Staff on duty
+  // Staff on duty (DEMO: nomi generici, non persone reali. Prima c'erano nomi e
+  // cognomi reali del tenant NZ hardcoded, visibili anche su Made e Zago — viola
+  // la regola "mai valori hardcoded specifici di un tenant").
   const staffData = [
-    { id: 1, nome: 'Felici Silvia', turno: 'mattina', ore: 6, vendite: 920 },
-    { id: 2, nome: 'Lorenzini Martina', turno: 'mattina', ore: 6, vendite: 850 },
-    { id: 3, nome: 'Mucciarelli Ginevra', turno: 'pomeriggio', ore: 4, vendite: 680 },
-    { id: 4, nome: 'Tavanti Sara', turno: 'giornata', ore: 8, vendite: 1400 },
+    { id: 1, nome: 'Dipendente 1', turno: 'mattina', ore: 6, vendite: 920 },
+    { id: 2, nome: 'Dipendente 2', turno: 'mattina', ore: 6, vendite: 850 },
+    { id: 3, nome: 'Dipendente 3', turno: 'pomeriggio', ore: 4, vendite: 680 },
+    { id: 4, nome: 'Dipendente 4', turno: 'giornata', ore: 8, vendite: 1400 },
   ];
 
   // Top 5 products
@@ -135,14 +146,18 @@ const StoreManager = () => {
     );
   };
 
-  // Imposta selectedOutlet di default sul primo outlet del tenant quando caricato.
+  // Imposta selectedOutlet di default sul primo outlet OPERATIVO del tenant
+  // (non «in apertura»); se sono tutti in apertura, sul primo in lista.
   useEffect(() => {
     if (!selectedOutlet && outlets.length > 0) {
-      setSelectedOutlet(outlets[0].id);
+      const firstOperative = outlets.find((o) => o.lifecycle !== 'programmato') ?? outlets[0];
+      setSelectedOutlet(firstOperative.id);
     }
   }, [outlets, selectedOutlet]);
 
   const currentOutlet = outlets.find((o) => o.id === selectedOutlet);
+  // Outlet in apertura: niente KPI/turni/prodotti simulati, solo l'avviso.
+  const plannedCaption = currentOutlet?.lifecycle === 'programmato' ? outletLifecycleCaption(currentOutlet) : null;
 
   if (outletsLoading) {
     return (
@@ -177,40 +192,69 @@ const StoreManager = () => {
         title="Dashboard Punto Vendita"
         subtitle={new Date().toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
         actions={
-          <div className="relative group">
+          <div className="relative">
             <button
-              onClick={() => setSelectedOutlet((current) => current)}
-              className="flex items-center gap-3 bg-white border border-gray-300 rounded-lg px-4 py-3 hover:bg-gray-50 transition"
+              onClick={() => setOutletMenuOpen((o) => !o)}
+              aria-expanded={outletMenuOpen}
+              aria-haspopup="listbox"
+              className="flex items-center gap-3 bg-white border border-gray-300 rounded-lg px-4 py-3 min-h-[44px] hover:bg-gray-50 transition"
             >
               <span className="text-gray-900 font-medium">{currentOutlet?.label ?? ''}</span>
-              <ChevronDown size={18} className="text-gray-500" />
+              <ChevronDown size={18} className={`text-gray-500 transition-transform ${outletMenuOpen ? 'rotate-180' : ''}`} />
             </button>
             {/* Dropdown menu */}
-            <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-10 hidden group-hover:block">
-              {outlets.map((outlet) => (
-                <button
-                  key={outlet.id}
-                  onClick={() => setSelectedOutlet(outlet.id)}
-                  className={`block w-full text-left px-4 py-2 text-sm transition ${
-                    selectedOutlet === outlet.id
-                      ? 'bg-blue-50 text-blue-900 font-medium'
-                      : 'text-gray-700 hover:bg-gray-50'
-                  }`}
-                >
-                  {outlet.label}
-                </button>
-              ))}
-            </div>
+            {outletMenuOpen && (
+              <>
+                {/* Backdrop: tap fuori dal menu = chiudi (equivalente touch del click-outside) */}
+                <div className="fixed inset-0 z-10" onClick={() => setOutletMenuOpen(false)} aria-hidden="true" />
+                <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20">
+                  {outlets.map((outlet) => (
+                    <button
+                      key={outlet.id}
+                      onClick={() => { setSelectedOutlet(outlet.id); setOutletMenuOpen(false); }}
+                      className={`block w-full text-left px-4 py-2.5 min-h-[44px] text-sm transition ${
+                        selectedOutlet === outlet.id
+                          ? 'bg-blue-50 text-blue-900 font-medium'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
+                    >
+                      {outlet.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         }
       />
 
+      {plannedCaption ? (
+        <div className="bg-white rounded-2xl border border-blue-200 p-10 text-center">
+          <Store className="w-14 h-14 mx-auto mb-4 text-blue-300" />
+          <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full mb-3 ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+            {plannedCaption}
+          </span>
+          <p className="text-sm text-gray-500 max-w-md mx-auto">
+            {plannedCaption}: nessun dato operativo prima dell'apertura.
+          </p>
+        </div>
+      ) : (
+      <>
+      {/* Badge "Dati simulati": questa pagina mostra numeri e personale di ESEMPIO,
+          non collegati alla cassa o alle presenze reali. Coerente con AnalyticsPOS /
+          StockSellthrough / OpenToBuy. Evita che i valori credibili siano scambiati
+          per dati veri. */}
+      <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800">
+        <AlertTriangle size={16} className="shrink-0" />
+        <span><strong>Dati simulati (demo).</strong> Incassi, personale in turno e prodotti sono valori di esempio: questa pagina non è ancora collegata alla cassa né alle presenze reali del punto vendita.</span>
+      </div>
+
       {/* Main Grid */}
-      <div className="grid grid-cols-12 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6">
         {/* Left Column: KPIs and Charts */}
-        <div className="col-span-8 space-y-6">
+        <div className="lg:col-span-8 space-y-6">
           {/* Today's KPIs */}
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4">
             {/* Incasso */}
             <div className="rounded-2xl p-4 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
               <div className="flex items-start justify-between">
@@ -369,7 +413,7 @@ const StoreManager = () => {
           {/* Comparative Table */}
           <div className="rounded-2xl p-6 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
             <h3 className="text-gray-900 font-semibold mb-4">Comparativo Ricavi</h3>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
                 <p className="text-gray-600 text-sm font-medium">Oggi</p>
                 <p className="text-2xl font-bold text-gray-900 mt-2">
@@ -399,7 +443,7 @@ const StoreManager = () => {
         </div>
 
         {/* Right Column: Staff, Checklist, Weather, Actions */}
-        <div className="col-span-4 space-y-6">
+        <div className="lg:col-span-4 space-y-6">
           {/* Monthly Progress - Circular */}
           <div className="rounded-2xl p-6 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
             <h3 className="text-gray-900 font-semibold mb-6">Ricavo Mese</h3>
@@ -547,6 +591,8 @@ const StoreManager = () => {
           </div>
         </div>
       </div>
+      </>
+      )}
       </div>
     </div>
   );

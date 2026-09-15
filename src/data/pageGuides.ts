@@ -1,0 +1,3138 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// FONTE UNICA DELLE GUIDE PAGINA — usata da HelpPanel (tab "Guida") e
+// dall'assistente AI (edge function help-chat, che riceve la guida come contesto).
+//
+// ⚠️ REGOLA (CLAUDE.md): ogni volta che modifichi/aggiungi una funzione di una
+// pagina, aggiorna QUI la voce corrispondente nello stesso commit. La CI
+// (tools/check-guide-alignment.mjs) blocca la PR se dimentichi di farlo.
+// Le voci sono state generate leggendo il codice reale, ma da ora si aggiornano
+// a mano insieme al codice.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface GuideSection {
+  heading: string
+  body: string
+  steps?: string[]
+}
+
+export interface GuideFaq {
+  q: string
+  a: string
+}
+
+export interface PageGuide {
+  /** Rotta canonica della pagina (chiave di matching). */
+  path: string
+  /** Nome icona lucide (mappato in HelpPanel). */
+  icon: string
+  title: string
+  description: string
+  sections: GuideSection[]
+  faq: GuideFaq[]
+}
+
+export const PAGE_GUIDES: PageGuide[] = [
+  {
+    "path": "/",
+    "icon": "LayoutDashboard",
+    "title": "Dashboard",
+    "description": "La Dashboard è la pagina che vedi appena entri nel gestionale: un cruscotto riassuntivo con i numeri chiave dell'azienda, gli avvisi da gestire e il confronto tra i punti vendita. Da qui puoi capire in pochi secondi come sta andando l'attività e cliccare per approfondire.",
+    "sections": [
+      {
+        "heading": "Il saluto e il periodo di riferimento",
+        "body": "In alto trovi il saluto con il tuo nome e, subito sotto, il periodo a cui si riferiscono i dati mostrati (ad esempio l'anno o il trimestre selezionato). Se i dati arrivano da un bilancio già importato, vedrai anche la scritta 'Dati da bilancio importato'. In alto a destra c'è anche l'indicazione di quando i dati sono stati aggiornati l'ultima volta."
+      },
+      {
+        "heading": "I 4 indicatori principali",
+        "body": "Subito sotto il saluto trovi quattro riquadri con i numeri più importanti: Ricavi, Margine netto (o Costi, se i dati arrivano dalle fatture), Liquidità e Scadenze aperte. Ogni riquadro è cliccabile e ti porta alla pagina di dettaglio corrispondente.",
+        "steps": [
+          "Ricavi: mostra il totale incassato nel periodo. Se sotto compare l'etichetta 'Consuntivo' significa che il dato è già consolidato per i mesi chiusi, mentre 'previsionale' indica una stima di chiusura anno. Se vedi '—' vuol dire che non ci sono ancora dati per l'anno selezionato: in questo caso vai su Budget e Controllo per inserirli.",
+          "Margine netto: indica quanto rimane dei ricavi dopo i costi, in percentuale. Se non è ancora disponibile (perché i costi non sono stati inseriti) vedrai '—' con la nota 'Margine disponibile dopo l'inserimento dei costi'.",
+          "Liquidità: è il saldo totale dei conti correnti collegati, con la data e l'ora dell'ultimo aggiornamento. Se il saldo è negativo il riquadro si evidenzia in rosso.",
+          "Scadenze aperte: somma le fatture scadute e quelle in scadenza nei prossimi 7 giorni. Clicca per andare allo Scadenzario e gestirle."
+        ]
+      },
+      {
+        "heading": "Alert & Azioni",
+        "body": "Questo riquadro raccoglie tutte le segnalazioni che richiedono la tua attenzione, con un pulsante per andare direttamente a risolverle. Se non ci sono segnalazioni, vedrai il messaggio 'Nessuna segnalazione — tutto sotto controllo'.",
+        "steps": [
+          "Fatture scadute: pagamenti non ancora effettuati oltre la data di scadenza. Clicca 'Gestisci' per andare allo Scadenzario.",
+          "PFN negativa: significa che i debiti superano la liquidità disponibile. Clicca 'Banche' per approfondire.",
+          "Esercizio in perdita o in utile: ti mostra se l'anno si sta chiudendo in negativo o positivo, con il margine percentuale.",
+          "Scadenze nei prossimi 7 giorni: ti avvisa delle prossime scadenze in arrivo.",
+          "Movimenti bancari senza categoria contabile: ti segnala quanti movimenti importati dalle banche non hanno ancora una categoria assegnata. Clicca 'Vai ai movimenti' per assegnarla dalla lista movimenti bancari."
+        ]
+      },
+      {
+        "heading": "Cashflow ultimi 30 giorni",
+        "body": "A fianco degli Alert trovi un grafico con l'andamento di entrate e uscite bancarie degli ultimi 30 giorni, con il totale di entrate, uscite e il saldo netto. Toccando il grafico (o passandoci sopra il mouse) puoi vedere il dettaglio giorno per giorno. Se non ci sono ancora estratti conto importati, il riquadro ti suggerisce di importarli da ImportHub."
+      },
+      {
+        "heading": "Performance dei punti vendita",
+        "body": "In basso trovi la classifica dei punti vendita, ordinati dal ricavo più alto al più basso. Per ogni punto vendita vedi i ricavi da inizio anno, la percentuale sul totale del gruppo, il confronto con il budget (vs Budget) e il budget dell'intero anno. In fondo alla tabella c'è sempre una riga con il totale del gruppo.",
+        "steps": [
+          "Il colore del numero 'vs Budget' ti aiuta a capire a colpo d'occhio la situazione: nero se il punto vendita è in linea o sopra il budget, rosso se è sotto.",
+          "Clicca su un punto vendita (o sulla freccia a destra della riga) per aprire la scheda di dettaglio di quel punto vendita.",
+          "Clicca su 'Confronto completo' in alto a destra della sezione per vedere l'analisi comparativa completa tra tutti i punti vendita.",
+          "Se non ci sono ancora dati sufficienti, il riquadro ti suggerisce di importare il bilancio oppure di assegnare i fornitori ai punti vendita."
+        ]
+      },
+      {
+        "heading": "Da dove arrivano i numeri",
+        "body": "I dati della Dashboard vengono presi automaticamente, in ordine di priorità, dalle fonti disponibili: prima i riepiloghi ufficiali, poi il bilancio importato, poi (se l'anno è ancora in corso e il bilancio non è ancora disponibile) i dati di consuntivo e previsione inseriti in Budget e Controllo, e infine le fatture elettroniche. Non devi fare nulla per scegliere la fonte: il sistema mostra sempre il dato più affidabile disponibile per il periodo selezionato."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Nella classifica degli outlet resta in fondo con il badge «In apertura dal gg/mm/aaaa»: i valori a zero non indicano un negozio che vende male."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché in alcuni riquadri vedo il simbolo '—' invece di un numero?",
+        "a": "Il simbolo '—' indica che per il periodo selezionato non ci sono ancora dati sufficienti (ad esempio i costi non sono stati inseriti, oppure non è stato importato nulla per quell'anno). Segui il suggerimento indicato nel riquadro stesso per capire dove inserire i dati mancanti."
+      },
+      {
+        "q": "Cosa significa l'etichetta 'Consuntivo ... mesi chiusi · granitico' vicino ai Ricavi?",
+        "a": "Indica che il valore mostrato è un dato consolidato e definitivo per i mesi già chiusi dell'anno in corso, mentre il valore 'previsionale' accanto è una stima di come potrebbe chiudere l'intero anno."
+      },
+      {
+        "q": "Cosa vuol dire il colore rosso nella colonna 'vs Budget' della classifica punti vendita?",
+        "a": "Il rosso indica che il punto vendita è sotto l'obiettivo di budget previsto per quel periodo. Il colore nero (non verde) indica invece che è in linea o sopra il budget."
+      },
+      {
+        "q": "Non vedo il grafico del Cashflow: perché?",
+        "a": "Il grafico compare solo se sono stati importati movimenti bancari degli ultimi 30 giorni. Se è vuoto, il riquadro ti suggerisce di importare gli estratti conto da ImportHub."
+      },
+      {
+        "q": "Come faccio ad aprire la scheda di un singolo punto vendita dalla Dashboard?",
+        "a": "Clicca sulla riga del punto vendita nella tabella 'Performance' (o sulla freccia a destra): si apre direttamente la pagina di dettaglio di quel punto vendita."
+      },
+      {
+        "q": "Cosa devo fare se vedo l'avviso 'movimenti bancari senza categoria contabile'?",
+        "a": "Clicca su 'Vai ai movimenti' nell'avviso: ti porta direttamente all'elenco dei movimenti bancari senza categoria, dove puoi assegnarla."
+      },
+      {
+        "q": "Cosa significa il banner giallo 'alcuni dati potrebbero non essere stati caricati'?",
+        "a": "Vuol dire che, mentre la Dashboard caricava, almeno una delle richieste al sistema non è andata a buon fine (di solito per connessione instabile). In quel caso alcuni numeri potrebbero essere incompleti o mostrare 0 non reale: premi 'Ricarica' nel banner per riprovare. Prima questo tipo di errore era silenzioso e i valori a 0 sembravano dati veri."
+      },
+      {
+        "q": "Le chat con l'assistente AI si perdono quando cambio pagina?",
+        "a": "No. Il pulsante '?' in basso a destra ha tre schede: 'Guida', 'Chiedi all'AI' e 'Le chat'. La conversazione di ogni sezione resta APERTA finché non sei tu a chiuderla con 'Chiudi chat': cambiare pagina, ricaricare il browser o uscire e rientrare non la chiude, e tornando in quella sezione riprendi da dove eri rimasta. Dalla scheda 'Le chat' vedi l'elenco delle conversazioni (aperte e archiviate) con domande e risposte per intero, cercabili per testo, sezione o persona."
+      },
+      {
+        "q": "Cosa succede quando chiudo una chat con l'assistente?",
+        "a": "La chat viene archiviata: resta consultabile per sempre nella scheda 'Le chat', ma non si possono più aggiungere domande. La domanda successiva che fai in quella sezione apre automaticamente una nuova chat. Le chat sono visibili a tutti i colleghi dell'azienda, così le risposte utili restano patrimonio di tutti."
+      }
+    ]
+  },
+  {
+    "path": "/outlet/operativi",
+    "icon": "Store",
+    "title": "Punti vendita operativi (Outlet)",
+    "description": "Questa pagina raccoglie tutti i punti vendita (Outlet) già aperti: da qui puoi vedere i ricavi dell'anno, aprire la scheda di dettaglio di ciascun punto vendita, crearne uno nuovo e gestirne i documenti e le scadenze contrattuali.",
+    "sections": [
+      {
+        "heading": "La griglia degli outlet",
+        "body": "All'apertura della pagina vedi una card per ogni punto vendita, con nome, codice, centro commerciale, data di apertura, un'etichetta di stato (Attivo, In apertura oppure Chiuso, calcolata automaticamente dalle date di apertura/chiusura) e i ricavi dell'anno selezionato. In alto trovi una barra di ricerca per filtrare per nome, codice o centro commerciale, e il pulsante 'Aggiorna' per ricaricare i dati. Cliccando su una card si apre la scheda di dettaglio dell'outlet. L'anno mostrato è quello scelto con il selettore periodo in alto nel gestionale."
+      },
+      {
+        "heading": "Creare un nuovo outlet manualmente",
+        "body": "Se hai i permessi necessari vedi il pulsante 'Nuovo outlet', che apre una procedura guidata a più passaggi. Ogni passaggio raccoglie un gruppo di informazioni; puoi tornare indietro con 'Indietro' e proseguire con 'Avanti'. Nell'ultimo passaggio trovi il riepilogo di tutti i dati inseriti, da controllare prima di salvare.",
+        "steps": [
+          "Anagrafica: nome outlet, codice, insegna/brand, tipo (Outlet, Retail, Corner, oppure Sede / magazzino per una sede senza cassa, che resta fuori dalle pagine di chiusura cassa e incassi), superficie lorda e di vendita, codice unità nel centro.",
+          "Ubicazione: centro commerciale, società concedente (testo) e fornitore concedente (scelto dall'anagrafica fornitori, così fatture, scadenze e contratto puntano allo stesso soggetto), indirizzo, città, provincia, regione.",
+          "Contratto: data consegna immobile, data apertura (obbligatoria), conferma apertura, date di inizio/fine contratto, decorrenza del canone (da questa data il Cashflow proietta l'affitto; vuota = dall'inizio contratto), durata, giorni gratuiti iniziali, mese della clausola di recesso.",
+          "Canone e Costi: canone annuo garantito (il canone mensile si calcola da solo), canone al metro quadro, percentuale di canone variabile, eventuali canoni diversi per anno 2 e anno 3, spese condominiali e marketing mensili, budget personale mensile.",
+          "Garanzie e Target: fideiussione/garanzia bancaria con la sua data di scadenza (alimenta gli avvisi della scheda), caparra o acconto già versato, anticipo canone, costi di allestimento, target di margine e di costo merce, soglia di fatturato minimo per il recesso, note libere.",
+          "Riepilogo: controlla tutti i dati inseriti e conferma con 'Crea outlet'. Al salvataggio il sistema crea anche il centro di costo gemello dell'outlet (codice in minuscolo ricavato dal nome, es. roma_soratte), che serve a Budget & Controllo, Confronto, Margini, Produttività e Personale."
+        ]
+      },
+      {
+        "heading": "Creare un outlet a partire da un contratto",
+        "body": "In alternativa al form manuale, il pulsante 'Crea da contratto' permette di caricare il file del contratto di affitto: il sistema ne estrae automaticamente i dati principali (date, canoni, garanzie...) e apre la stessa procedura guidata già pre-compilata, con un passaggio in più dedicato agli allegati del contratto (planimetrie, condizioni generali, fideiussioni, ecc.), dove puoi caricare subito i file oppure farlo in un secondo momento dalla scheda dell'outlet. Verifica sempre i dati pre-compilati prima di salvare, perché provengono da un'estrazione automatica."
+      },
+      {
+        "heading": "Scheda di dettaglio outlet — Overview",
+        "body": "Aprendo un outlet vedi quattro numeri chiave (ricavi dell'anno, media mensile, mese migliore, incidenza della locazione sui ricavi: «—» finché non ci sono ricavi, mai 0%), il grafico degli incassi degli ultimi 7 giorni, gli avvisi di scadenza (apertura programmata, contratto in scadenza, finestra di recesso calcolata dal mese di recesso, fideiussione in scadenza), il confronto mese per mese tra preventivo e consuntivo, l'anagrafica sintetica (con concedente, decorrenza del canone, fideiussione e caparra), il riquadro «Contratto» se il contratto è registrato (canone, variabile, rivalutazione, soglia di recesso e le prossime scadenze contrattuali) e, se disponibili, i dati estratti dal contratto. Se l'outlet è in apertura compare in alto il riquadro «In apertura tra N giorni» con consegna, decorrenza canone, caparra versata, fideiussione, allestimento e costi mensili che partiranno dall'apertura."
+      },
+      {
+        "heading": "Scheda di dettaglio outlet — Corrispettivi, Budget, Staff",
+        "body": "La scheda dell'outlet ha altre tre schede interne. 'Corrispettivi' mostra gli incassi giornalieri (con selettore 7/30/90 giorni), il totale del periodo, la media giornaliera, lo scontrino medio, il giorno migliore, un grafico e la tabella giorno per giorno. 'Budget' rimanda alla pagina Budget & Controllo per il dettaglio completo, mostrando intanto un grafico dei ricavi a budget. 'Staff' elenca i dipendenti assegnati all'outlet con ruolo, tipo di contratto, retribuzione annua lorda e stato (Attivo/Cessato), oltre al numero di dipendenti attivi e al costo medio per dipendente."
+      },
+      {
+        "heading": "Scheda di dettaglio outlet — Documenti",
+        "body": "In questa scheda trovi due archivi. 'Archivio documenti' permette di caricare (anche trascinando i file, fino a 50 MB ciascuno), cercare, filtrare per categoria (Contratto, Allegato, Rinnovo, Comunicazione), anteprima, scaricare, eliminare i documenti e consultarne lo storico versioni quando un file viene sostituito. 'Documenti e allegati' è invece una lista di allegati richiesti (ad esempio quelli citati nel contratto): ogni voce mostra se è già stata caricata, permette di caricare il file cliccandoci sopra, visualizzarlo o eliminarlo, e puoi aggiungere nuovi tipi di allegato con 'Aggiungi tipo allegato'."
+      },
+      {
+        "heading": "Modificare o eliminare un outlet",
+        "body": "Dalla scheda di dettaglio, se hai i permessi, trovi i pulsanti 'Modifica' (riapre la stessa procedura guidata con i dati già inseriti, da correggere) e 'Elimina' (chiede conferma prima di procedere e avverte che verranno eliminati anche tutti gli allegati collegati a quell'outlet)."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché non vedo i pulsanti 'Nuovo outlet' o 'Modifica/Elimina'?",
+        "a": "Questi pulsanti sono visibili solo agli utenti con i permessi adeguati. Se ti servono, contatta chi gestisce gli accessi del gestionale."
+      },
+      {
+        "q": "Cosa significa l'etichetta Attivo, In apertura o Chiuso su una card?",
+        "a": "Non è un dato inserito a mano: viene calcolato dalle date di apertura e chiusura dell'outlet. 'In apertura' significa che la data di apertura è nel futuro (l'outlet ha già costi ma non ricavi, e le pagine di confronto lo tengono fuori da medie e classifiche), 'Chiuso' che la data di chiusura è già passata, 'Attivo' negli altri casi."
+      },
+      {
+        "q": "Come cambio l'anno di cui vedo i ricavi?",
+        "a": "Usa il selettore del periodo/anno che si trova in alto nel gestionale: è lo stesso selettore usato anche nella pagina Budget & Controllo, quindi i numeri restano coerenti tra le due pagine."
+      },
+      {
+        "q": "Posso caricare più documenti insieme nell'Archivio documenti?",
+        "a": "Sì, puoi trascinare più file contemporaneamente nella zona di caricamento oppure selezionarne più di uno dal pulsante 'Carica documenti'. Ogni file può arrivare al massimo a 50 MB."
+      },
+      {
+        "q": "Cosa succede se carico di nuovo un file con lo stesso nome?",
+        "a": "Il sistema conserva la versione precedente nello storico versioni (icona con l'orologio), così puoi sempre risalire ai file caricati in passato per quel documento."
+      }
+    ]
+  },
+  {
+    "path": "/outlet/valutazione",
+    "icon": "Store",
+    "title": "Punti vendita in valutazione (Outlet)",
+    "description": "In questa pagina puoi costruire delle simulazioni di conto economico per ipotesi di nuovi punti vendita non ancora aperti, per valutare in anticipo se convengono, senza toccare i dati reali dei punti vendita già operativi.",
+    "sections": [
+      {
+        "heading": "Simulazioni salvate",
+        "body": "In alto trovi l'elenco delle simulazioni già create, ciascuna con nome, totale costi e totale ricavi inseriti, data di creazione e un'etichetta di stato (Bozza, Approvato o Archiviato). Clicca su una simulazione per aprirla e modificarla. Il pulsante '+ Nuova simulazione' apre una bozza vuota."
+      },
+      {
+        "heading": "Creare una nuova simulazione",
+        "body": "Dopo aver cliccato su 'Nuova simulazione', dai un nome alla simulazione (ad esempio il nome del possibile nuovo outlet) e compila i due elenchi affiancati: 'Componenti Negative' per i costi e 'Componenti Positive' per i ricavi. Ogni elenco è organizzato per macro-voce (aprendo/chiudendo le voci con la freccetta) fino ad arrivare ai singoli conti, dove puoi digitare l'importo previsto. Tutti gli importi partono da zero: nella nuova simulazione non c'è nessun dato precompilato dagli outlet reali.",
+        "steps": [
+          "Clicca '+ Nuova simulazione'.",
+          "Scrivi un nome che identifichi l'ipotesi di outlet.",
+          "Compila gli importi previsti nei costi (Componenti Negative) e nei ricavi (Componenti Positive), voce per voce.",
+          "Controlla il riquadro in basso con l'utile o la perdita prevista e il margine percentuale.",
+          "Clicca 'Salva' per registrare la simulazione."
+        ]
+      },
+      {
+        "heading": "Il risultato della simulazione",
+        "body": "In fondo alla pagina trovi il totale costi, il totale ricavi e il risultato ('Utile previsto' o 'Perdita prevista') calcolato automaticamente man mano che inserisci gli importi, insieme al margine percentuale sui ricavi previsti."
+      },
+      {
+        "heading": "Gestire una simulazione esistente",
+        "body": "Aprendo una simulazione salvata puoi modificarne gli importi e salvare di nuovo. Il menu a tendina 'Copia da simulazione...' permette di riprendere costi e ricavi da un'altra simulazione già creata, come punto di partenza. Il pulsante 'Cancella dati' azzera tutti gli importi inseriti (utile per ripartire da zero). 'Chiudi' esce dalla simulazione senza perdere quanto già salvato."
+      },
+      {
+        "heading": "Stato ed eliminazione di una simulazione",
+        "body": "Ogni simulazione nasce come 'Bozza'. Dall'elenco puoi farla avanzare di stato con le icone a fianco: la stella la porta ad 'Approvato', l'icona archivio la porta ad 'Archiviato'. L'icona del cestino elimina la simulazione, con una finestra di conferma perché l'operazione non è reversibile. La finestra di conferma si può chiudere anche con il tasto Esc o cliccando fuori, ed è utilizzabile da tastiera e con i lettori di schermo."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Che differenza c'è tra punti vendita 'operativi' e 'in valutazione'?",
+        "a": "La pagina degli operativi mostra i punti vendita già aperti con i loro dati reali. Quella 'in valutazione' serve invece a simulare, con numeri ipotetici, come potrebbe andare un punto vendita non ancora esistente, prima di decidere se aprirlo."
+      },
+      {
+        "q": "Da dove partono gli importi di una nuova simulazione?",
+        "a": "Partono sempre da zero: nessun valore viene copiato automaticamente dagli outlet reali. Puoi però usare 'Copia da simulazione...' per riprendere i numeri di un'altra ipotesi già inserita."
+      },
+      {
+        "q": "Se approvo una simulazione, l'outlet viene creato automaticamente?",
+        "a": "No. La simulazione resta uno strumento di valutazione. Se poi si decide di aprire davvero il nuovo punto vendita, l'outlet operativo va creato a parte dalla pagina 'Outlet operativi', con il pulsante 'Nuovo outlet'."
+      },
+      {
+        "q": "Posso avere più simulazioni per la stessa ipotesi di outlet?",
+        "a": "Sì, puoi creare tutte le simulazioni che vuoi, ad esempio per confrontare scenari diversi (canone più alto, meno personale, ecc.) usando anche la funzione 'Copia da simulazione...' per non ripartire da zero ogni volta."
+      }
+    ]
+  },
+  {
+    "path": "/confronto-outlet",
+    "icon": "GitCompare",
+    "title": "Confronto punti vendita (Outlet)",
+    "description": "Questa pagina mette a confronto, fianco a fianco, il conto economico di tutti i punti vendita (Outlet): puoi vedere chi fattura di più, chi ha il margine migliore e come si scostano i risultati reali rispetto al preventivo.",
+    "sections": [
+      {
+        "heading": "Filtri: periodo e vista",
+        "body": "In alto vedi l'anno e il periodo attivi (impostati dal selettore periodo generale del gestionale) e tre pulsanti per scegliere la vista: 'Preventivo' mostra i dati a budget, 'Consuntivo' mostra i dati reali registrati, 'Scostamento' mostra la differenza tra consuntivo e preventivo. In alto a destra trovi il pulsante per esportare i dati mostrati."
+      },
+      {
+        "heading": "KPI di sintesi",
+        "body": "Quattro riquadri riassumono la situazione della catena: quanti outlet hanno dati disponibili, i ricavi totali (con lo scostamento complessivo rispetto al preventivo, quando ci sono mesi consuntivati), il numero totale di dipendenti in forza nei punti vendita, e il ricavo medio per dipendente. Il numero dei dipendenti viene dai cedolini, la stessa fonte della pagina Dipendenti: sotto al numero è scritto di quale mese si tratta, e se quel mese cade fuori dal periodo che hai scelto viene segnalato. La sede o magazzino non è compresa, perché questa pagina confronta i punti vendita fra loro: per il totale che comprende anche la sede guarda la pagina Dipendenti."
+      },
+      {
+        "heading": "Grafici comparativi",
+        "body": "Due grafici a barre mostrano, per ogni outlet, i ricavi e il margine, con colori diversi per outlet e (nel grafico del margine) rosso quando il margine è negativo."
+      },
+      {
+        "heading": "Tabella di benchmark",
+        "body": "Una tabella riassuntiva mette a confronto tutti gli outlet su una serie di indicatori (ricavi, margine in euro e in percentuale, numero dipendenti in forza dai cedolini, ricavo per dipendente, costo personale, affitto, incidenza del personale e dell'affitto sui ricavi). Il valore migliore di ogni riga è evidenziato in verde; in vista 'Scostamento' i colori seguono invece il significato del cambiamento (verde se il numero è andato nella direzione giusta, rosso se in quella sbagliata)."
+      },
+      {
+        "heading": "Schede outlet — confronto dettagliato",
+        "body": "Sotto la tabella trovi una scheda per ogni outlet, con i ricavi (o lo scostamento, in vista Scostamento), un'etichetta che indica quanto è affidabile il dato mostrato ('Granitico' = dato reale confermato, 'X reali + Y previsti' = dato misto, 'Preventivo' = solo stima), il numero di dipendenti in forza secondo i cedolini (passa il mouse sul riquadro per vedere di quale mese), lo scostamento rispetto al preventivo, un link 'Apri in Budget & Controllo' per andare al dettaglio di quell'outlet, quattro riquadri di costo (acquisto merci, costo personale, costo locazioni, costo per servizi), il margine dell'outlet e, quando disponibile, la quota di costi di sede attribuita e il margine dopo la sede (ed eventualmente dopo le imposte). Il pulsante 'Mostra dettaglio' apre l'elenco completo delle voci di costo e ricavo di quell'outlet."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Compare con l'etichetta «In apertura dal gg/mm/aaaa»: margine %, incidenze e break-even restano n/d, non entra nel benchmark migliore/peggiore, nella classifica per fatturato, nelle medie di catena né nel riparto della quota sede, così gli altri outlet non vengono alterati."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Cosa vuol dire l'etichetta 'Scostamento' su una scheda outlet?",
+        "a": "È la differenza tra il dato consuntivo (reale) e il preventivo, calcolata solo sui mesi già chiusi. Il segno meno in rosso indica che il risultato è sotto il preventivo, un valore senza segno (nero) indica che è pari o sopra."
+      },
+      {
+        "q": "Cosa significa l'etichetta 'Granitico' su una scheda?",
+        "a": "Indica che il dato mostrato è un consuntivo reale e confermato, non una stima. Se vedi invece 'X reali + Y previsti' significa che alcuni mesi hanno un dato reale e altri sono ancora stimati."
+      },
+      {
+        "q": "Perché un outlet mostra 'Nessun dato'?",
+        "a": "Significa che per quell'outlet non ci sono ancora dati caricati dal Budget o dal Bilancio per il periodo selezionato. Puoi caricarli dalla pagina Budget & Controllo."
+      },
+      {
+        "q": "Cosa vuol dire 'Quota sede'?",
+        "a": "È la parte dei costi generali di sede e magazzino attribuita a ciascun outlet, ripartita in proporzione al suo fatturato. Sottraendola al margine dell'outlet si ottiene il 'Margine dopo sede'."
+      }
+    ]
+  },
+  {
+    "path": "/margini",
+    "icon": "BarChart3",
+    "title": "Analisi Margini per punto vendita (Outlet)",
+    "description": "Questa pagina calcola, a partire dai dati di budget, il margine di ciascun punto vendita mese per mese, evidenziando con colori chi sta andando bene e chi ha margini bassi o negativi.",
+    "sections": [
+      {
+        "heading": "Selezione dell'anno",
+        "body": "In alto puoi scegliere l'anno da analizzare da un menu a tendina: l'elenco degli anni disponibili viene costruito automaticamente in base a quelli presenti nei dati di budget."
+      },
+      {
+        "heading": "Avviso margini critici",
+        "body": "Se uno o più outlet hanno un margine inferiore al 5%, compare in alto un banner rosso che li elenca, per farteli notare subito senza dover scorrere tutta la pagina."
+      },
+      {
+        "heading": "Riepilogo numerico",
+        "body": "Quattro riquadri mostrano il numero di outlet analizzati, i ricavi totali, i costi totali e il margine medio della catena per l'anno selezionato."
+      },
+      {
+        "heading": "Grafico ricavi, costi e margine",
+        "body": "Un grafico a barre confronta, outlet per outlet, ricavi, costi e margine in euro; sopra la barra del margine è indicata anche la percentuale di margine."
+      },
+      {
+        "heading": "Mappa colorata dei margini mensili",
+        "body": "Una tabella mostra, per ogni outlet (righe) e per ogni mese (colonne), il margine percentuale di quel mese, colorato dal verde (margine alto) al rosso (margine basso o negativo). La legenda con le fasce di colore è riportata sotto la tabella."
+      },
+      {
+        "heading": "Tabella di dettaglio con approfondimento per conto",
+        "body": "In fondo trovi la tabella con ricavi, costi, margine e margine percentuale di ogni outlet, ordinabile cliccando sulle intestazioni delle colonne. Cliccando su una riga si apre il dettaglio con l'elenco dei conti di ricavo e di costo che compongono quel totale. In fondo alla tabella c'è la riga con i totali della catena."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Mostra i costi con l'etichetta «In apertura dal …», ma il margine % è «—» (non 0%), le celle della mappa restano neutre, non genera l'allarme di margine critico e non entra nel margine medio di catena."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Da dove arrivano i dati di ricavi e costi mostrati in questa pagina?",
+        "a": "Vengono dai dati di budget (budget_entries): i conti che iniziano per 5 sono considerati ricavi, quelli che iniziano per 6 o 7 sono considerati costi. Vengono considerati SOLO i punti vendita reali dell'anagrafica: le voci tecniche di budget non riferite a un punto vendita (es. costi non divisi, rettifiche di bilancio, sede/magazzino) sono escluse da margini, medie e avvisi, così non compaiono come falsi punti vendita 'in perdita'."
+      },
+      {
+        "q": "Cosa significa il colore rosso nella mappa mensile?",
+        "a": "Indica un mese con margine basso o negativo per quell'outlet. Il verde indica invece un margine alto: la legenda sotto la tabella spiega le fasce percentuali associate a ciascun colore."
+      },
+      {
+        "q": "Come vedo il dettaglio dei singoli conti di un outlet?",
+        "a": "Clicca sulla riga dell'outlet nella tabella in fondo alla pagina: si apre un pannello con l'elenco dei conti di ricavo e di costo che compongono il totale mostrato."
+      },
+      {
+        "q": "Perché non vedo nessun anno nel menu a tendina?",
+        "a": "L'elenco degli anni si costruisce solo dai dati effettivamente presenti nel budget: se non è stato ancora caricato nessun dato, il menu resterà vuoto o mostrerà solo l'anno corrente."
+      }
+    ]
+  },
+  {
+    "path": "/margini-categoria",
+    "icon": "BarChart3",
+    "title": "Margini per Categoria",
+    "description": "Questa pagina calcola i margini reali degli outlet a partire dagli incassi giornalieri e dai costi effettivamente registrati (fatture fornitori e movimenti bancari), e permette di guardare la struttura dei costi e l'andamento nel tempo.",
+    "sections": [
+      {
+        "heading": "Filtri periodo ed esportazione",
+        "body": "In alto puoi scegliere il periodo di analisi tra 'YTD' (l'anno selezionato) e 'Ultimi 12 mesi'. Con 'YTD' compare anche un menu a tendina per cambiare anno: gli anni proposti sono quelli realmente presenti nei dati, e la scelta vale per tutto il gestionale (resta memorizzata anche cambiando pagina). Il pulsante di esportazione accanto ti permette di scaricare i dati mostrati."
+      },
+      {
+        "heading": "Riepilogo numerico",
+        "body": "Una riga di riquadri mostra ricavi totali, costi totali, margine (in euro e percentuale), numero di outlet attivi, l'outlet con il margine migliore e quello con il margine peggiore, con relativa percentuale. I costi di ogni punto vendita sommano le fatture fornitori e le uscite bancarie NON collegate a una fattura (stipendi, F24, commissioni…): i movimenti già riconciliati a una fattura non vengono contati due volte."
+      },
+      {
+        "heading": "Scheda Per Outlet",
+        "body": "Mostra un grafico a barre con ricavi, costi e margine di ciascun outlet, seguito da una tabella ordinabile (clicca sulle intestazioni delle colonne) con ricavi, costi, margine, margine percentuale, numero di scontrini, scontrino medio, budget assegnato con lo scostamento percentuale, e un pallino colorato che indica se l'outlet ha raggiunto il proprio margine obiettivo (verde) o no (ambra); il pallino è grigio se l'outlet non ha ancora ricavi nel periodo. Lo scostamento dal budget confronta i costi del periodo con il budget dello STESSO periodo (pro-rata sui mesi trascorsi per 'YTD', 12 mesi per 'Ultimi 12 mesi'), così il confronto è tra grandezze omogenee e non risulta falsamente negativo a inizio anno."
+      },
+      {
+        "heading": "Scheda Struttura Costi",
+        "body": "Mostra un grafico a torta con la distribuzione dei costi per macro-categoria (ad esempio Locazione & Affitti, Personale, Generali & Amministrative, Oneri Finanziari, Oneri Diversi) e, a fianco, un elenco dettagliato con l'importo e la percentuale di ogni categoria, con una barra di avanzamento e le singole voci di costo che la compongono."
+      },
+      {
+        "heading": "Scheda Trend Mensile",
+        "body": "Mostra due grafici: il confronto mese per mese tra ricavi e costi, e l'andamento del margine percentuale nel tempo."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. È segnalato dal badge «In apertura dal …», ha margine % «—» e non concorre a miglior/peggior margine; il budget di confronto conta solo i mesi in cui il negozio è effettivamente aperto, quindi non inventa un budget di personale per un negozio non ancora attivo."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Che differenza c'è tra questa pagina e 'Analisi Margini per punto vendita'?",
+        "a": "Questa pagina calcola i margini sui dati realmente registrati (incassi giornalieri e fatture/costi bancari nel periodo scelto), mentre 'Analisi Margini per punto vendita' li calcola sui dati inseriti a budget. Possono quindi mostrare numeri diversi."
+      },
+      {
+        "q": "Perché vedo il messaggio 'Nessun dato nel periodo selezionato'?",
+        "a": "Significa che per il periodo scelto non risultano ancora importati i corrispettivi (incassi giornalieri) o le fatture dei fornitori. Puoi importarli dalla pagina Import Hub."
+      },
+      {
+        "q": "Cosa indica il pallino colorato nella tabella 'Per Outlet'?",
+        "a": "Indica se l'outlet ha raggiunto o superato il margine percentuale obiettivo impostato per quel punto vendita: verde se raggiunto, ambra se sotto obiettivo, grigio se l'outlet non ha ancora ricavi nel periodo."
+      },
+      {
+        "q": "Come cambio il periodo analizzato?",
+        "a": "Usa i due pulsanti in alto: 'YTD' mostra l'anno corrente da gennaio a oggi, 'Ultimi 12 mesi' mostra invece i dodici mesi precedenti alla data odierna."
+      },
+      {
+        "q": "Cos'è la riga 'Non assegnato'?",
+        "a": "Raccoglie i ricavi e i costi che non risultano assegnati a nessun punto vendita attivo (per esempio fatture senza punto vendita, o voci di punti vendita disattivati). Prima queste cifre erano escluse dai totali ma comparivano nella Struttura Costi, creando due numeri diversi nella stessa pagina; ora sono visibili e i totali quadrano con il dettaglio."
+      },
+      {
+        "q": "Le fatture annullate e le note di credito influenzano i costi?",
+        "a": "Le fatture annullate NON vengono conteggiate tra i costi (non sono un costo reale). Le note di credito invece sì, ma con segno negativo: riducono correttamente il costo del periodo, come deve essere."
+      }
+    ]
+  },
+  {
+    "path": "/scadenzario",
+    "icon": "Receipt",
+    "title": "Scadenzario e Distinta pagamenti",
+    "description": "Da qui vedi tutte le fatture dei fornitori da pagare, prepari la distinta dei bonifici da mandare a chi esegue i pagamenti e, quando torna confermata, la registri nel gestionale. Una fattura risulta davvero \"pagata\" solo quando il bonifico arriva in banca e viene abbinato a lei: fino ad allora resta \"in sospeso\".",
+    "sections": [
+      {
+        "heading": "A cosa serve questa pagina e come leggere l'elenco",
+        "body": "Lo Scadenzario raccoglie tutte le scadenze di pagamento verso i fornitori (e, se attive, le scadenze fiscali come F24). In alto trovi tre schede: \"Situazione\" mostra un riepilogo generale (quanto c'è da pagare, quanto è scaduto, la liquidità disponibile), \"Scadenzario\" è la lista operativa delle fatture con cui lavori ogni giorno, \"Ricorrenze\" mostra i costi che si ripetono nel tempo (affitti, utenze, abbonamenti).\n\nNella scheda \"Scadenzario\" ogni riga è una scadenza: fornitore, numero fattura, importo, data di scadenza e stato colorato (Scaduto in rosso, Addebito automatico in indaco, In scadenza in arancio, Da pagare in blu, Parziale in arancio scuro, Pagato in verde, Pagato (provvisorio) in verde acqua per le scadenze chiuse alla data in attesa della prova bancaria (RiBa, e dal 09/09/2026 anche contanti, carta di credito e carta di debito), In sospeso con un'etichetta a orologio). Nella colonna descrizione, sotto il nome del fornitore, il riferimento della fattura mostra insieme il numero, la data di emissione della fattura e, se presente, la scadenza naturale — cioè la scadenza originale della fattura, che può differire dalla data mostrata nella colonna Data quando questa è stata rinviata. Puoi filtrare per outlet, per stato, per metodo di pagamento (Bonifici, RiBa, Addebito diretto, Altro) e cercare per nome fornitore o numero fattura.\n\nC'è anche un filtro \"Tipo\": \"Tutte le scadenze\" (predefinito, mostra tutto), \"Solo Fornitori\", \"Solo Fiscali / Interni\" e \"Incassi\". Le scadenze fiscali/interne comprendono sia le scadenze fiscali vere e proprie (F24, IVA, contributi… dalla pagina Scadenze Fiscali) sia quelle che aggiungi a mano scegliendo come tipo di nominativo \"Fiscale\" o \"Interno\" (per esempio una TARI pagata con F24): queste ultime, pur essendo inserite come scadenze normali, compaiono sotto \"Solo Fiscali / Interni\" e non tra i Fornitori.\n\nCon il pulsante di vista in alto a destra scegli come vedere l'elenco: \"Mese\" (predefinita) raggruppa le scadenze in sezioni mensili collassabili, \"Lista piatta\" mostra tutte le righe di seguito, \"Calendario\" le dispone sul calendario.\n\nNella vista Mese, dentro ogni mese le scadenze sono ordinate per fornitore in ordine alfabetico (le righe dello stesso fornitore restano vicine, aggregate); a parità di fornitore compaiono dalla fattura più vecchia, ordinate prima per data di emissione fattura e poi per numero fattura. Se clicchi le intestazioni di colonna per un ordinamento personalizzato, quello ha la precedenza (con il pulsante \"Reset\" torni all'ordine predefinito).\n\nLe parcelle di professionisti e studi con ritenuta d'acconto (commercialista, consulente del lavoro, tecnici) compaiono con l'importo che devi davvero bonificare, cioè il totale della fattura meno la ritenuta che trattieni tu e versi all'erario: se la parcella è di 4.648,88 con 732,80 di ritenuta, in Scadenzario leggi 3.916,08. Il totale del documento e l'IVA restano registrati sulla fattura.\n\nLe note di credito compaiono con l'importo in rosso col segno meno: non si pagano, ma si possono usare per abbassare l'importo di una fattura dello stesso fornitore (vedi più sotto). Ovunque una nota di credito venga mostrata (riga elenco, badge, pannello di pagamento, causali) trovi sempre insieme il suo numero, la sua data di emissione e l'importo. È questa la scheda che usi per selezionare le fatture e creare la distinta dei bonifici."
+      },
+      {
+        "heading": "Aggiungere una scadenza a mano (es. un proforma)",
+        "body": "Per una scadenza che non arriva dalle fatture elettroniche (per esempio un proforma o un pagamento concordato) usa il pulsante \"Aggiungi scadenza\". Scegli il nominativo (un fornitore già a sistema oppure aggiungine uno nuovo al volo), il tipo, il numero documento, la data documento e l'importo totale.\n\nCompila da PDF: in cima al modulo c'è il riquadro \"Compila da PDF\". Carica il documento (proforma, notula, parcella, fattura…) e il sistema lo legge e compila da solo nominativo, numero e data documento, importo da pagare, metodo di pagamento e — quando riesce a ricavarle — le scadenze. Il fornitore viene riconosciuto per partita IVA: se è già a sistema viene selezionato quello esistente, altrimenti viene proposto come nuovo nominativo da creare. Sotto al riquadro compare un riepilogo dei campi compilati; controlla SEMPRE i dati e correggi ciò che serve prima di salvare (soprattutto se l'avviso segnala una lettura poco sicura, un nuovo nominativo o una nota di credito). Se il PDF è una scansione senza testo, o il servizio non è disponibile, inserisci i dati a mano. Il file non viene caricato da nessuna parte: viene solo letto sul momento.\n\nLa data di scadenza, quando non la ricava dal documento, NON si scrive a mano: viene calcolata in automatico dalle REGOLE INTERNE, cioè dal piano di pagamento del fornitore (base a data fattura o fine mese, giorni, numero di rate) oppure, se quel fornitore non ha un piano impostato, dalla regola predefinita \"a vista\" = 30 giorni data fattura a fine mese, in un'unica rata. Le scadenze così proposte restano correggibili: puoi modificare date e importi, aggiungere o togliere rate, e il pulsante \"Ricalcola dalle regole\" rimette il calcolo automatico. La somma delle rate deve sempre coincidere con l'importo totale (un avviso te lo segnala se non torna). Gli importi (totale e singole rate) si inseriscono digitando: i campi non hanno più le frecce su/giù e non cambiano con la rotella del mouse, così non si modificano per errore.",
+        "steps": [
+          "Premi \"Aggiungi scadenza\" in alto nella scheda Scadenzario.",
+          "Se hai il documento in PDF, usa \"Compila da PDF\" in cima al modulo per farlo leggere in automatico; poi verifica i campi compilati.",
+          "In alternativa (o per correggere), scegli il nominativo e imposta data documento e importo: le scadenze si calcolano da sole con le regole del fornitore (o \"a vista\" 30 gg fine mese di default).",
+          "Se serve, correggi le date/importi delle rate a mano, oppure premi \"Ricalcola dalle regole\" per ripristinare il calcolo automatico.",
+          "Lascia \"Una tantum\" per inserire solo questa scadenza; scegli una periodicità (mensile, trimestrale…) solo se il costo va registrato anche tra le Ricorrenze.",
+          "Premi \"Crea scadenza\": vengono create tante righe quante sono le rate."
+        ]
+      },
+      {
+        "heading": "Passo 1 — Selezionare le fatture da pagare",
+        "body": "Ogni volta che selezioni una fattura, il gestionale apre sotto la riga un piccolo pannello per impostare come pagarla; in fondo alla pagina compare una barra con il totale selezionato e, per ogni banca coinvolta, il saldo di partenza e il saldo che resterebbe dopo il pagamento. Il saldo di partenza è il saldo previsionale del conto, cioè quello reale già al netto delle distinte precedenti ancora da pagare su quel conto (contrassegnato \"prev.\"). Quei soldi sono davvero impegnati: sono le distinte che trovi in Storico Distinte, non ancora uscite dal conto. Se scendi sotto il previsionale il numero diventa arancione, accanto vedi quanto stai intaccando e quanto resta davvero sul conto, e prima di creare la distinta ti viene chiesta una conferma. Confermando procedi: la disponibilità reale della banca resta tua, se decidi di pagare altro puoi farlo. Se superi anche il saldo reale l'avviso diventa rosso e la conferma è più esplicita, ma nemmeno lì il gestionale ti blocca (può servire con un fido o con incassi in arrivo). Nella tendina \"Seleziona banca…\" vedi il residuo previsionale e, quando i due valori differiscono, anche quello reale.",
+        "steps": [
+          "Vai sulla scheda \"Scadenzario\" (in alto) e, se vuoi, filtra per stato \"Da pagare\", \"Scaduto\" o simili per vedere solo ciò che ti interessa.",
+          "Spunta la casella a sinistra di ogni fattura che vuoi mettere in pagamento.",
+          "Se una fattura risulta già \"in distinta\" da prima, il gestionale ti avvisa con un messaggio: non verrà aggiunta due volte.",
+          "Controlla in basso il totale selezionato e i saldi delle banche coinvolte: il verde indica che resti dentro il previsionale, l'arancione che stai usando soldi già impegnati in distinte precedenti (te lo farà confermare), il rosso che superi il saldo reale.",
+          "L'unica cosa che blocca davvero il pulsante \"Crea distinta\" è una fattura selezionata senza banca assegnata."
+        ]
+      },
+      {
+        "heading": "Passo 2 — Assegnare banca e tipo di pagamento",
+        "body": "Nel pannello che si apre sotto ogni fattura selezionata scegli da quale conto bancario pagare e se si tratta di un pagamento a Saldo o Parziale. \"Saldo\" significa che paghi tutto il residuo della fattura ed è quindi un pagamento di tipo SALDO. \"Parziale\" significa che versi solo un acconto: puoi scrivere a mano l'importo che vuoi pagare nel campo \"Acconto (lordo)\", oppure premere il tasto \"50%\" accanto al campo, che imposta in automatico la metà del residuo. È sempre un pagamento di tipo ACCONTO. Man mano che scegli l'acconto, il pannello mostra subito in basso l'etichetta ACCONTO/SALDO, il \"netto bonifico\" (l'importo scelto meno le eventuali note di credito) e, per i pagamenti parziali, il \"Residuo da saldare dopo\", cioè quanto resterà della fattura da pagare in un secondo momento. Se la fattura fa parte di un piano a rate (per esempio 1 di 3, 2 di 3), il gestionale calcola da solo se è un ACCONTO (rata intermedia) o un SALDO (ultima rata) e lo scrive accanto all'importo, insieme al numero della rata. Se non assegni una banca a una fattura selezionata, il pulsante per creare la distinta resta bloccato e compare un avviso."
+      },
+      {
+        "heading": "Passo 3 — Scalare le note di credito",
+        "body": "Se il fornitore della fattura selezionata ha anche delle note di credito ancora aperte, nel pannello compaiono dei pulsanti \"Scala note di credito\": su ognuno leggi sempre il numero della nota, la sua data di emissione e l'importo (per esempio \"NC 123 del 15/07/2026 −500,00\"). Le note sono distinte per periodo di scadenza e ordinate così: prima quelle con scadenza in mesi PRECEDENTI alla fattura (le più vecchie da smaltire), poi quelle che scadono nello STESSO mese della fattura che stai pagando (cioè il mese sotto cui la fattura compare nello scadenzario), infine quelle con scadenza SUCCESSIVA. Le precedenti e quelle del mese corrente sono entrambe da compensare ora e appaiono in verde — è la compensazione più comune, si salda il mese scalando le note di credito di quel periodo o più vecchie; quelle con scadenza in un mese successivo restano comunque selezionabili ma in colore ambra, così le distingui a colpo d'occhio. Sul pulsante viene sempre mostrata la data di emissione della nota, mentre il colore dipende dal mese di scadenza: per questo una nota emessa a marzo ma con scadenza a giugno appare in verde accanto a una fattura che scade a giugno. Selezionandone una o più, l'importo del bonifico si riduce automaticamente di quel valore (il \"netto bonifico\" si aggiorna subito) e sotto compare il dettaglio delle note scalate, sempre con numero, data e importo; la causale del pagamento riporta lo stesso riferimento, per esempio \"al netto NC n.123 del 15/07/2026 (500,00)\", pronta da copiare nel bonifico vero e proprio. La data di emissione della nota di credito viene mostrata insieme a numero e importo ovunque la nota compaia nel gestionale. Se stai facendo un pagamento parziale, oltre al netto da versare ora vedi anche il \"Residuo da saldare dopo\": è la parte della fattura che resterà da pagare in un momento successivo, al netto dell'acconto scelto. Le note di credito NON vengono chiuse in questo momento: restano collegate alla fattura e si chiuderanno insieme a lei solo quando il pagamento verrà davvero riconosciuto in banca. Dopo aver confermato la distinta, una nota di credito scalata smette di comparire tra le note \"aperte\" dello scadenzario e si sposta nel filtro \"In sospeso\" insieme alla fattura, con l'etichetta \"In distinta\": è impegnata in quella distinta, in attesa di riconciliazione. Per staccarla, rimuovi la fattura dalla distinta (la nota torna disponibile)."
+      },
+      {
+        "heading": "Passo 4 — Creare la distinta e inviare la mail",
+        "body": "Quando hai selezionato tutte le fatture della giornata e impostato banca/tipo per ciascuna, premi il pulsante \"Crea distinta\" nella barra in basso. Si apre un'anteprima con il riepilogo per ogni banca (IBAN, saldo attuale, elenco pagamenti, totale e saldo stimato dopo i pagamenti) e il testo di una email già pronta. In questo momento non viene ancora scritto nulla nel gestionale: puoi rileggere con calma, correggere qualcosa tornando indietro e rigenerare la distinta quante volte vuoi.\n\nL'invio della mail è il primo passo obbligatorio: premi \"Invia email ai destinatari\" e la mail parte direttamente dal sistema verso gli indirizzi dell'amministrazione, senza bisogno che tu abbia Gmail aperto o un programma di posta configurato. Quando l'invio va a buon fine compare la spunta verde \"Email inviata\". Poiché la mail parte dal server (non dalla tua casella), NON la troverai nella \"posta inviata\" del tuo Gmail: è normale. Soprattutto: la spunta verde \"Email inviata\" significa solo che la mail è partita, NON che la distinta è salvata — per salvarla devi ancora premere \"Conferma distinta\" (Passo 5). In alternativa, se preferisci mandarla dal tuo Gmail o incollarla altrove, restano i pulsanti \"Apri in Gmail\" e \"Copia testo\"; in quel caso, dopo aver inviato a mano, metti la spunta \"ho inviato la distinta a mano\" per poter proseguire.",
+        "steps": [
+          "Premi \"Crea distinta\": si apre l'anteprima con il dettaglio per ogni banca coinvolta.",
+          "Controlla fornitori, importi, IBAN beneficiario e causali (comprese le eventuali note di credito).",
+          "Se qualcosa non torna, chiudi l'anteprima, correggi la selezione o il pannello di banca/tipo e ricrea la distinta.",
+          "Quando è tutto corretto, premi \"Invia email ai destinatari\": la mail parte dal sistema e arriva all'amministrazione anche se non usi Gmail.",
+          "Se preferisci inviarla a mano (\"Apri in Gmail\" o \"Copia testo\"), dopo l'invio spunta la casella \"ho inviato la distinta a mano\" per sbloccare la conferma."
+        ]
+      },
+      {
+        "heading": "Passo 5 — Confermare la distinta",
+        "body": "La conferma si sblocca solo dopo che la mail della distinta è stata inviata (spunta verde \"Email inviata\", oppure la casella di invio manuale spuntata): è una garanzia che chi esegue i pagamenti abbia davvero ricevuto la disposizione. Solo quando premi \"Conferma distinta\" nella finestra di anteprima, il gestionale registra davvero le fatture selezionate: passano allo stato \"in sospeso\" e spariscono dall'elenco delle scadenze attive. Attenzione: la conferma NON segna le fatture come pagate. Significa solo che è stata predisposta e inviata la disposizione di pagamento; restano in attesa finché il bonifico non arriva davvero in banca. Se chiudi la finestra di anteprima senza premere \"Conferma distinta\", non viene salvato nulla e le fatture restano normalmente selezionabili: proprio per non perderla per errore, quando provi a chiudere una distinta non ancora confermata il gestionale ti avvisa (\"La distinta non è ancora stata confermata\") e ti chiede se tornare a confermarla o chiudere senza salvare. Dopo aver inviato la mail, il pulsante \"Conferma distinta\" si mette in evidenza (bordo arancione lampeggiante) proprio per ricordarti che manca quest'ultimo passaggio.",
+        "steps": [
+          "Assicurati di aver inviato la mail (Passo 4): finché non è partita, il pulsante \"Conferma distinta\" resta bloccato.",
+          "Nella finestra di anteprima, premi \"Conferma distinta\".",
+          "Le fatture incluse passano allo stato \"in sospeso\" ed escono dall'elenco principale delle scadenze da pagare.",
+          "Se torni sulla pagina in un altro momento, ritrovi il lavoro non ancora confermato: il gestionale salva da solo una bozza nel browser (visibile con il messaggio \"Bozza distinta ripristinata\"); si azzera solo dopo la conferma o se premi \"Annulla\"."
+        ]
+      },
+      {
+        "heading": "Dopo la conferma: stato \"In sospeso\" e riconciliazione",
+        "body": "Le fatture disposte in distinta si trovano usando il filtro di stato \"In sospeso\" (o il riquadro rapido in alto con conteggio e totale, che somma solo la quota effettivamente disposta e in attesa di riscontro). Restano lì finché non succede una di queste due cose: il movimento bancario in uscita arriva sull'estratto conto e viene riconosciuto automaticamente (allora la fattura, e le eventuali note di credito collegate, si chiudono da sole), oppure il bonifico non viene riconosciuto in automatico (per esempio perché la causale non è chiara, o perché l'importo è al netto di una nota di credito) e va abbinato a mano dalla pagina Banche, sezione Riconciliazione, senza creare doppioni. Caso particolare dell'ACCONTO: se hai disposto solo una parte della fattura, in sospeso finisce soltanto la quota-acconto, mentre la differenza ancora da pagare resta visibile fra le fatture aperte con il suo importo residuo e il badge giallo \"Acconto … € in distinta\"; la fattura si chiude del tutto solo quando anche il residuo viene pagato. Se ti accorgi di aver sbagliato qualcosa dopo la conferma (per esempio la banca), usa \"Rimuovi dalla distinta\" sulla singola fattura: torna attiva e puoi ricrearla con i dati giusti."
+      },
+      {
+        "heading": "Fatture pagate con carta: \"In attesa (carta)\"",
+        "body": "Due tipi di spesa escono dal conto da soli e non sono un pagamento da disporre a mano. Il primo: le fatture pagate con CARTA (carta di credito o prepagata), addebitate in automatico tra il 20 e il 30 del mese successivo all'emissione. Il secondo, dal 10 settembre 2026: gli ADDEBITI DIRETTI, cioè SDD e RID, che partono dal conto alla loro data di scadenza perché hai firmato un mandato al fornitore (nella fattura elettronica sono i codici MP09, MP10, MP11, MP16, MP17, MP19, MP20 e MP21, per esempio il «SEPA Direct Debit B2B» delle bollette). Prima gli addebiti diretti restavano fra le scadenze aperte come se fossero bonifici da fare: ora sono marcati come automatici, spariscono dalla lista dei pagamenti da disporre e dal totale da pagare, e si chiudono da soli alla loro data (le carte al 20, gli SDD alla scadenza della fattura). La RiBa resta fuori da questa regola, perché ha il suo meccanismo. Sul resto vale quanto segue. Il gestionale le riconosce in tre modi: 1) quando il documento riporta come modalità di pagamento la \"carta di pagamento\" (es. carte BCC); 2) quando appartengono a una categoria di costo marcata \"Si paga con carta\" (per esempio \"Mezzi e carburante\"): quella marcatura si imposta dal pannello \"Gestisci categorie\" spuntando \"Si paga con carta\", e vale per tutte le fatture di quella categoria; 3) quando il fornitore è configurato con metodo di pagamento a carta (Carta di credito/debito): così vengono prese anche le fatture che nel documento non indicano la modalità di pagamento (capita, es. certi caselli/pedaggi o abbonamenti). Dal 10 settembre 2026 c'è un quarto modo, pensato per i fornitori occasionali che non hai mai categorizzato: se il documento non dice niente e il fornitore neppure, il gestionale legge le DESCRIZIONI DI RIGA della fattura e da lì ricava la categoria (per esempio «gasolio self» o «pedaggi» porta a «Mezzi e carburante», «servizio di pulizie» a «Pulizie», «lavori di manutenzione» a «Spese manutenzione»). Se la categoria trovata è marcata «Si paga con carta», la fattura passa da sola fra gli addebiti automatici, senza che tu debba abbinarla a mano. Vince la parola che ricorre di più nelle righe, non la più lunga; se due categorie pareggiano, o se in una fattura lunga compare una parola sola (di solito una voce accessoria, tipo le spese di spedizione), il gestionale non sceglie e la fattura resta da categorizzare a mano. Le parole chiave di ogni categoria si vedono e si cambiano da «Gestisci categorie».\n\nQuando le fonti si contraddicono l'ordine di forza è: modalità dichiarata nel documento, poi anagrafica del fornitore, poi categoria di costo. Dal 10 settembre 2026 la modalità scritta in fattura vince sempre, qualunque sia: se il documento dichiara bonifico, assegno, Ri.Ba., MAV, bollettino o un addebito diretto (RID, SDD), né la categoria né l'anagrafica lo spostano a carta. Prima l'eccezione valeva solo per gli addebiti diretti, e capitava che un fornitore che dichiara bonifico finisse tra gli addebiti a carta perché la sua categoria è marcata «si paga con carta»: era il caso di Amazon, che si paga a bonifico. Categoria e anagrafica decidono, come prima, per le fatture che sul pagamento non dicono niente.\n\nQueste fatture NON compaiono nella lista attiva dello scadenzario (per non confonderle con ciò che devi pagare a mano): sono raccolte nel filtro rapido \"In attesa carta\" (badge indaco), con data prevista il 20 del mese successivo. Dal 10 settembre 2026 restano fuori anche dai TOTALI di quanto c'è da pagare — «Totale da pagare», «Scaduto», «Prossimi 7 giorni» e il riepilogo per metodo di pagamento contano solo ciò che devi disporre tu. Prima ci finivano dentro e gonfiavano il numero con soldi che escono da soli. Restano però conteggiate nel saldo e nel cashflow come uscita futura — non spariscono. Si chiudono da sole diventando \"pagate\" quando carichi l'estratto conto delle carte e i relativi movimenti bancari vengono riconciliati. Se un addebito non risulta ancora avvenuto oltre la data prevista, resta comunque tra gli \"In attesa carta\" finché la banca non lo riconcilia."
+      },
+      {
+        "heading": "Fornitori a Ricevuta Bancaria (RiBa): \"Pagato (provvisorio)\"",
+        "body": "Per i fornitori pagati con RICEVUTA BANCARIA (RiBa) è la banca ad addebitarti alla scadenza di ogni rata, a prescindere dalla divisione 30/60/90. Quindi, ALLA DATA DI SCADENZA, il gestionale dà la scadenza per pagata e la chiude in via PROVVISORIA (badge verde acqua \"Pagato (provvisorio)\"): esce dalla lista attiva dello scadenzario e conta come uscita in cassa e nel partitario, ma resta segnata come provvisoria.\n\nResta provvisoria finché non arriva una conferma: 1) l'upload di una distinta della ricevuta bancaria (col pulsante \"Carica distinta RiBa\", con verifica degli importi al centesimo — vedi sezione dedicata), oppure 2) un movimento bancario che viene riconciliato a quella scadenza. In quel momento la scadenza diventa \"Pagato\" definitivo e perde la dicitura \"provvisorio\". Se non arriva né l'una né l'altra, resta pagata di default.\n\nLe RiBa chiuse in via provvisoria si richiamano dal riquadro rapido \"RiBa provvisorie\" in alto (badge verde acqua, con conteggio e totale) o dal filtro di stato \"Pagato (provvisorio — RiBa)\". L'automatismo vale sulle scadenze da oggi in poi: per chiudere in blocco lo storico RiBa già scaduto c'è il pulsante \"Chiudi storico RiBa\" (solo per i ruoli contabile e super advisor), ed è un'operazione reversibile. Attenzione: le NOTE DI CREDITO dei fornitori RiBa NON vengono mai compensate in automatico qui — vanno abbinate a mano alla singola scadenza (funzione dedicata in arrivo).\n\nLa stessa cosa vale, dal 9 settembre 2026, per le scadenze pagate IN CONTANTI, CON CARTA DI CREDITO e CON CARTA DI DEBITO. Il motivo è lo stesso ma al contrario: questi tre metodi non lasciano in banca un movimento riconducibile alla singola fattura (i contanti non passano dal conto, la carta di credito produce un unico addebito mensile cumulativo, la carta di debito genera un pagamento POS che di solito nomina l'esercente e non il fornitore fatturato), quindi senza una regola quelle scadenze resterebbero aperte per sempre anche a pagamento avvenuto. Vengono quindi chiuse in via provvisoria, con la stessa etichetta verde acqua e la stessa reversibilità: se poi il movimento arriva davvero, sia da A-Cube sia da un estratto conto caricato a mano, viene agganciato e la chiusura diventa definitiva. La data della chiusura cambia col metodo, perché è quella in cui i soldi escono davvero dal conto: per le CARTE è la data di addebito, cioè il 20 del mese successivo alla spesa, e fino a quel giorno la scadenza sta comunque fuori dalla lista dei pagamenti (compare nel riquadro «In attesa carta»); per i CONTANTI è la data della FATTURA, perché in contanti si paga alla consegna, e la chiusura avviene subito senza aspettare nessuna scadenza. Il motivo è pratico: una spesa già pagata che resta fra le Aperte confonde chi prepara i bonifici e gonfia il totale da saldare con soldi che sono già usciti. Ogni chiusura di questo tipo lascia una riga nello storico della scadenza che dice metodo e data."
+      },
+      {
+        "heading": "Caricare la distinta della banca (RiBa) — riscontro al centesimo",
+        "body": "Quando la banca ti restituisce la distinta delle ricevute bancarie (es. la \"Distinta di Ritiro Effetti Pagati\" di MPS), usa il pulsante \"Carica distinta RiBa\" (in alto tra i filtri, solo per i ruoli contabile e super advisor). Scegli, se vuoi, la banca di addebito e carica il file: va bene un PDF, un CSV o un Excel (.xlsx).\n\nIl sistema legge ogni effetto della distinta (creditore, P.IVA/codice fiscale, importo, scadenza) e riconosce il fornitore per Partita IVA (o, se in distinta c'è un codice fiscale che non combacia, per nome). Poi apri ogni effetto e SELEZIONI le fatture RiBa aperte di quel fornitore che lo compongono: sotto vedi in tempo reale \"Selezionato X € / Importo €\", che diventa verde con la spunta ✓ solo quando la somma coincide ESATTAMENTE, al centesimo. Molti effetti sono cumulativi (un importo = somma di più fatture): per questo la selezione è multipla. Spesso l'effetto è già AL NETTO di note di credito (in distinta trovi diciture come \"ACC FATT 3480 MENO NC 3438 3439\"): in quel caso, oltre alle fatture, spunta anche le NOTE DI CREDITO (in rosso, con il segno meno) che la banca ha scalato — il netto (fatture − note di credito) deve fare l'importo dell'effetto. Quando un solo importo coincide con una sola scadenza, il gestionale lo pre-seleziona da solo.\n\nCon \"Conferma\" vengono chiusi solo gli effetti la cui selezione quadra al centesimo: le relative scadenze diventano \"Pagato\" definitivo (perdono il \"provvisorio\"), e le eventuali note di credito spuntate vengono chiuse e registrate in AVERE, tutto tracciato nel partitario del fornitore. Niente si chiude a fiducia: se la somma non torna, quell'effetto resta aperto e da verificare (te lo dice il riepilogo finale). Il file caricato resta agganciato alla distinta."
+      },
+      {
+        "heading": "Note di credito dei fornitori RiBa: abbinarle a mano",
+        "body": "Le note di credito dei fornitori a ricevuta bancaria NON vengono compensate in automatico: la banca addebita l'effetto per intero, e la nota di credito va recuperata a parte. Per gestirle usa il pulsante \"NC RiBa da abbinare\" (in alto tra i filtri, solo per i ruoli contabile e super advisor): si apre l'elenco delle note di credito ancora aperte dei fornitori RiBa.\n\nPer ognuna scegli, dal menu, la scadenza/pagamento dello stesso fornitore a cui abbinarla e premi \"Abbina\". La nota di credito viene chiusa e registrata in AVERE nel partitario del fornitore, con il riferimento alla scadenza scelta; sparisce così dall'elenco delle NC da abbinare. Il sistema non ti fa abbinare una nota di credito a un fornitore diverso. L'operazione è reversibile (si può riaprire la nota di credito)."
+      },
+      {
+        "heading": "Chiudere una scadenza a mano",
+        "body": "Se un pagamento non passerà mai da un movimento bancario tracciato nel gestionale (per esempio pagamento in contanti, compensazione, o un vecchio pagamento fatto fuori sistema), puoi chiuderlo a mano invece di aspettare la riconciliazione. Dal menu di stato di una fattura scegli \"Chiudi a mano\": indichi la data, un importo (puoi chiudere anche solo una parte del residuo, lasciando la fattura \"parziale\" per il resto) e, se vuoi, una motivazione. L'operazione viene registrata nel partitario del fornitore con la dicitura \"Chiusa a mano\" ma non crea nessun movimento bancario: i movimenti reali restano solo quelli davvero importati dall'estratto conto. Per una nota di credito, chiuderla a mano significa stralciare il credito RESIDUO (la parte non ancora usata in compensazione) e la scrittura viene registrata in Avere; se vuoi invece usarla per chiudere una fattura, usa \"Compensa con nota di credito\" (sezione dedicata).\n\nSe più avanti il bonifico reale di quella fattura arriva sull'estratto conto e viene riconciliato, la scadenza mostra nella colonna \"Conto\" il movimento vero (banca reale e data) e l'etichetta \"Chiusa a mano\" sparisce: a quel punto la verità è il movimento bancario, non più la chiusura manuale, e non ha senso mostrare entrambi.\n\nL'etichetta sparisce anche se la scadenza viene riaperta: da quel momento la riga è di nuovo aperta, il pagato torna a zero e non ha più senso mostrarla come chiusa. Vale sia che la riapertura passi dal comando \"Riapri fattura\", sia che arrivi da un'altra strada, per esempio la rimozione da una distinta."
+      },
+      {
+        "heading": "Compensare una fattura con una nota di credito (totale o parziale)",
+        "body": "Quando una fattura va chiusa a fronte di una nota di credito dello stesso fornitore, senza nessun bonifico (per esempio uno storno totale, un reso, un accordo commerciale), usa \"Compensa con nota di credito\". Lo trovi in due posti: nel menu di stato della fattura (clic sullo stato della riga) e come icona a forma di anello tra le azioni a fine riga. Compare solo se il fornitore ha note di credito ancora aperte con credito residuo; sulla riga di una nota di credito il comando si chiama \"Compensa su fattura\" e compare se ci sono fatture aperte dello stesso fornitore. Il sistema non ti fa compensare fornitori diversi (l'aggancio vale anche per partita IVA) e non tocca le note di credito già impegnate in una distinta in attesa di riconciliazione.\n\nNella finestra scegli la controparte (la nota di credito, o la fattura), vedi il residuo della fattura e il credito della nota, e l'importo viene proposto già al massimo compensabile, cioè il minore tra i due: puoi solo abbassarlo. Tre casi. Importi uguali: fattura pagata (chiusa a mano) e nota di credito chiusa, registrata in Avere, saldo zero. Nota più piccola della fattura: la nota si chiude e la fattura resta \"parziale\" per la differenza, da pagare o compensare dopo. Nota più grande della fattura: la fattura si chiude e sulla nota resta un CREDITO RESIDUO, che vedi come importo della nota nello scadenzario, nel badge \"NC\" sulle fatture del fornitore e nel partitario, pronto da usare su un'altra fattura (anche in distinta). Indichi la data di compensazione e, se vuoi, una motivazione.\n\nNon viene creato nessun movimento bancario: la prima nota resta quella dell'estratto conto. Nel partitario del fornitore compaiono la chiusura della fattura (dicitura con il numero della nota) e la scrittura in Avere della nota per la quota usata. Tutto è reversibile con \"Riapri\": riaprendo la fattura, la nota riprende il credito; riaprendo la nota, le fatture compensate con lei tornano dovute per quella quota."
+      },
+      {
+        "heading": "Riaprire una fattura chiusa per errore",
+        "body": "Se una fattura è stata chiusa per sbaglio — chiusa a mano quando non doveva, oppure riconciliata dal sistema sul movimento bancario sbagliato («incrociata male») — puoi riportarla allo stato aperto senza perdere nulla. Trovi il comando \"Riapri fattura\" in due posti: nel menu di stato (clic sullo stato della riga) e come icona di riapertura (freccia curva) tra le azioni a fine riga. Compare solo sulle scadenze che risultano chiuse: pagate, parziali, chiuse a mano, chiuse in via provvisoria (RiBa) o agganciate a un movimento bancario. Sulle note di credito compare quando sono state chiuse a mano oppure usate, anche solo in parte, in una compensazione: riaprendo la nota torna al credito pieno e le fatture compensate con lei tornano dovute per quella quota.\n\nAlla conferma (con motivazione facoltativa) la fattura torna aperta: il pagato viene azzerato e lo stato torna a \"da pagare\" o \"scaduto\" secondo la scadenza. Se era agganciata a un movimento bancario, quel movimento viene LIBERATO e torna nella coda \"da riconciliare\", così puoi riabbinarlo alla fattura giusta; le eventuali note di credito che erano state compensate su quella fattura tornano disponibili. L'operazione è tracciata nel partitario del fornitore con la dicitura \"Riaperta a mano\" (chi e quando) ed è completamente reversibile: nessun dato viene cancellato, e la riconciliazione automatica può rifare l'abbinamento corretto quando arriva il movimento giusto."
+      },
+      {
+        "heading": "La colonna \"Conto\": da dove e come è stata pagata davvero",
+        "body": "La colonna \"Conto\" non mostra la banca su cui si *prevedeva* di pagare, ma la REALTÀ del pagamento. Ha quattro forme:\n\n• Pillola VERDE con nome banca e data (es. \"MPS · 10/07\"): la fattura è stata pagata da un MOVIMENTO bancario reale, riconosciuto sull'estratto conto e abbinato a lei. La banca indicata è quella dove il denaro si è mosso davvero; passando il mouse vedi data, importo e descrizione del movimento, e se il pagamento è arrivato da una distinta / RI.BA.\n\n• Pillola VIOLA \"✎ A mano\" con operatore e data (es. \"✎ A mano · Lilian · 06/08\"): la scadenza è stata chiusa a mano da quella persona in quella data (vedi \"Chiudere una scadenza a mano\"). Non c'è un movimento bancario tracciato: il tooltip riporta chi, quando, l'eventuale motivazione e — se era stata impostata — la banca solo \"prevista\". La pillola compare solo se la scadenza risulta davvero chiusa: su una riga tornata aperta sparisce, così non capita di vedere insieme \"Scaduto\" e \"chiusa a mano\".\n\n• Pillola GRIGIA \"Pagato\" con data: la fattura risulta pagata (di solito da import o da dati pregressi) ma senza un movimento bancario collegato né una chiusura a mano registrata.\n\n• Trattino \"—\": la scadenza non è ancora pagata.\n\nIn breve: se vedi una banca in verde, quel pagamento è passato davvero da quel conto; se vedi viola o grigio, non c'è (ancora) un movimento bancario che lo dimostri, e il gestionale te lo dice invece di mostrarti una banca solo prevista."
+      },
+      {
+        "heading": "La colonna \"Categoria\" e la gestione delle categorie di costo",
+        "body": "Ogni fattura ha una colonna \"Categoria\": è la categoria di costo (piano dei conti costi) con cui la spesa viene classificata e poi confluisce in Conto Economico, budget e report. Se una fattura è \"Non categorizzata\", clicca la pillola e scegli una categoria dall'elenco (o cerca per nome); \"Rimuovi categoria\" la toglie. Quando assegni una categoria a una fattura, il sistema la imposta come categoria predefinita di quel fornitore e la propaga automaticamente a tutte le altre fatture dello stesso fornitore ancora senza categoria (abbinamento per fornitore, in mancanza per Partita IVA o nome): così categorizzi una volta sola e vale per tutto lo storico e le fatture future.\n\nDal pulsante \"Gestisci categorie\" (sopra l'elenco delle scadenze) apri il pannello delle categorie: vedi tutte le categorie con il loro colore e gruppo contabile e, per ognuna, quanti fornitori vi sono collegati (espandi con \"fornitori\") e quante fatture la usano. Se hai il ruolo di super advisor puoi anche creare una nuova categoria (nome, gruppo contabile, colore) e modificare nome, gruppo o colore di quelle esistenti; il codice interno viene generato in automatico e non è modificabile. Nel form c'è anche la spunta \"Si paga con carta (addebito automatico)\": marcandola, tutte le fatture di quella categoria vengono trattate come addebiti automatici a carta (non compaiono come scadenza da pagare a mano, restano nel saldo e si chiudono con l'estratto conto carte). Le categorie marcate mostrano un'etichetta \"💳 carta\". Gli altri ruoli vedono il pannello in sola lettura.\n\nDallo stesso pannello puoi anche SPOSTARE i fornitori da una categoria all'altra, uno alla volta o più insieme: espandi una categoria, spunta i fornitori da spostare, scegli la categoria di destinazione e premi \"Sposta\". Lo spostamento cambia la categoria predefinita del fornitore e RIALLINEA tutte le sue fatture alla nuova categoria (anche quelle già categorizzate diversamente).",
+        "steps": [
+          "Per categorizzare una fattura, clicca la pillola nella colonna \"Categoria\" e scegli la voce giusta: viene propagata alle altre fatture dello stesso fornitore senza categoria.",
+          "Per creare o rinominare categorie, premi \"Gestisci categorie\" sopra l'elenco.",
+          "Nel pannello, usa \"Nuova categoria\" per crearne una, oppure l'icona matita per modificare nome, gruppo contabile e colore di una esistente.",
+          "Espandi \"fornitori\" su una categoria per vedere e selezionare i fornitori collegati.",
+          "Per spostarli, spunta uno o più fornitori, scegli la categoria di destinazione dal menu e premi \"Sposta\": tutte le loro fatture vengono riallineate."
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Una fattura arrivata dallo SDI ha scadenza e metodo diversi dal piano del fornitore: quale vale?",
+        "a": "Vale la fattura. Quando una fattura elettronica arriva da A-Cube, il gestionale legge i termini di pagamento scritti dal fornitore: modalità (bonifico, Ri.Ba., carta, SDD, contanti…), tipologia (pagamento completo, a rate o anticipo) e date di scadenza. Se ci sono, la scadenza nasce con quelle date e quel metodo, perché sono ciò che il fornitore si aspetta; la nota della riga dice «Termini letti dalla fattura» con il codice della modalità. Il piano di pagamento in anagrafica fornitore entra in gioco solo se la fattura non porta nessun termine, e serve comunque a precisare la variante del metodo (per esempio Ri.Ba. a 60 o 90 giorni). Quando la fattura dichiara CONTANTI (codice MP01) quella indicazione vince sempre sul piano del fornitore: la scadenza diventa in contanti e si chiude subito con la data della fattura, perché in contanti si paga alla consegna e non c'è nessun bonifico da disporre. Una fattura che indica carta di pagamento viene messa in Addebito automatico con scadenza al 20 del mese successivo, come le altre carte. Lo stesso vale quando la fattura NON dice niente sul pagamento (capita spesso con bar, ristoranti, distributori e negozi: nell'XML manca proprio il blocco dei dati di pagamento) ma la spesa appartiene a una categoria marcata «si paga con carta» — per esempio Viaggi e trasferte, Acquisti on line, mezzi e carburante — oppure il fornitore è configurato a carta in anagrafica. Attenzione alla differenza: se invece la fattura una modalità la dichiara, e non è carta né contanti, comanda lei. Una fattura che dice bonifico resta un bonifico anche se la sua categoria è marcata «si paga con carta», e prende la scadenza dalla fattura o, in mancanza, dal piano del fornitore. In quei casi il gestionale non applica il piano del fornitore (che darebbe una scadenza da bonifico, tipo 30 giorni fine mese): mette Addebito automatico e scadenza al 20 del mese successivo alla spesa, che è quando la carta addebita davvero il conto. Non è quindi una scadenza «a vista»: il pagamento avviene sul posto, ma i soldi escono dal conto all'addebito della carta, ed è quella la data che conta per la cassa.",
+      },
+      {
+        "q": "Quando aggiungo una scadenza a mano, perché non posso scrivere io la data di scadenza?",
+        "a": "Perché la scadenza segue le regole interne, non una data personalizzata: il gestionale la calcola dal piano del fornitore (base data fattura o fine mese, giorni, numero rate) o, se il fornitore non ha un piano, dalla regola predefinita \"a vista\" = 30 giorni data fattura a fine mese. Esempio: un documento del 30/06 a vista scade il 31/07. Se un caso particolare lo richiede puoi comunque correggere date e importi a mano dopo il calcolo; \"Ricalcola dalle regole\" ripristina i valori automatici."
+      },
+      {
+        "q": "Posso far compilare la scadenza leggendola da un PDF?",
+        "a": "Sì. Apri \"Aggiungi scadenza\" e usa il riquadro \"Compila da PDF\" in cima al modulo: scegli il documento (proforma, notula, parcella, fattura…) e il sistema compila da solo nominativo, numero e data documento, importo da pagare, metodo di pagamento e, quando riesce a ricavarle, le scadenze. Il fornitore viene riconosciuto per partita IVA (se è già a sistema seleziona quello esistente, altrimenti lo propone come nuovo). Controlla sempre i campi compilati e correggi ciò che serve prima di premere \"Crea scadenza\", soprattutto se compare un avviso di lettura poco sicura, di nuovo nominativo o di nota di credito. Se il PDF è una scansione senza testo selezionabile non si riesce a leggerlo: in quel caso inserisci i dati a mano. Il file non viene salvato da nessuna parte, viene solo letto sul momento."
+      },
+      {
+        "q": "Come inserisco un pagamento a più rate?",
+        "a": "Se il fornitore ha un piano con più rate, aggiungendo la scadenza le rate vengono già proposte tutte, con date e importi calcolati (parti uguali, l'ultima quadra il totale). Puoi anche costruirle a mano con \"Aggiungi rata\" e il cestino per toglierne: l'importante è che la somma delle rate coincida con l'importo totale. Alla creazione ogni rata diventa una riga dello scadenzario, numerata (rata 1/3, 2/3…)."
+      },
+      {
+        "q": "Vedo due righe della stessa fattura con la stessa data: è un doppione?",
+        "a": "Quasi mai. Sono due rate diverse dello stesso piano che vengono a cadere nello stesso giorno, e succede ogni volta che una rata slitta: se la prima non viene presentata alla sua scadenza e passa al mese dopo, finisce accanto alla seconda. Per distinguerle guarda il contatore della rata: dal 11 settembre 2026 ogni riga dice sempre \"1 di 3\", \"2 di 3\" e così via, e porta il proprio scaglione (Ri.Ba. 60, 90, 120). Prima molte righe non avevano né il totale né il metodo, e due rate identiche nello stesso giorno sembravano la stessa cosa scritta due volte. Se i contatori sono diversi non è un doppione: apri la fattura dal numero e confronta con il riquadro delle scadenze del documento, che è la fonte di verità. Un doppione vero, invece, è una riga che il gestionale ha già messo da parte: non compare più nell'elenco.",
+      },
+      {
+        "q": "Perché nella scheda di un fornitore che paghiamo con Ri.Ba. l'IBAN è vuoto?",
+        "a": "Perché quell'IBAN non c'è. Nelle fatture pagate con Ri.Ba. o con addebito diretto il campo IBAN del documento contiene il conto di CHI PAGA, cioè il nostro, non quello del fornitore: è il conto su cui la banca andrà a prendere i soldi. Fino al 10 settembre 2026 il gestionale lo leggeva come IBAN del fornitore e lo copiava in anagrafica: undici fornitori si sono trovati scritto il nostro conto MPS al posto del loro. Ora quel campo viene lasciato vuoto e il sistema rifiuta di scriverci dentro un IBAN che corrisponde a uno dei conti dell'azienda. Per una Ri.Ba. l'IBAN del fornitore non serve comunque a niente: quello che conta è la \"Banca di addebito\", cioè il conto da cui esce il denaro, che imposti nella scheda del fornitore.",
+      },
+      {
+        "q": "Come creo o modifico una categoria di costo, e chi può farlo?",
+        "a": "Premi \"Gestisci categorie\" sopra l'elenco delle scadenze: si apre un pannello con tutte le categorie. Con il pulsante \"Nuova categoria\" ne crei una (nome, gruppo contabile, colore); con l'icona matita cambi nome, gruppo o colore di una esistente. Il codice interno è generato in automatico e non si modifica. Creare e modificare categorie è riservato al ruolo super advisor; gli altri ruoli vedono il pannello in sola lettura. Nello stesso pannello, espandendo una categoria, vedi anche i fornitori collegati e quante fatture la usano."
+      },
+      {
+        "q": "Come sposto un fornitore (o più fornitori) in un'altra categoria?",
+        "a": "Apri \"Gestisci categorie\", espandi la categoria dove si trovano ora (clic su \"N fornitori\"), spunta uno o più fornitori, scegli la categoria di destinazione dal menu a tendina e premi \"Sposta\". Il fornitore assume la nuova categoria come predefinita e TUTTE le sue fatture vengono riallineate alla nuova categoria, comprese quelle che erano state categorizzate diversamente. Serve il ruolo super advisor."
+      },
+      {
+        "q": "\"Una tantum\" vuol dire che quel costo non si ripeterà mai?",
+        "a": "No. \"Una tantum\" significa solo che in questa occasione stai inserendo una singola scadenza; lo stesso costo potrà ripresentarsi in futuro e lo reinserirai allo stesso modo. Se invece vuoi registrarlo come costo che si ripete automaticamente, scegli una periodicità (mensile, trimestrale, ecc.): oltre alla prima scadenza verrà creata anche una Ricorrenza."
+      },
+      {
+        "q": "Le fatture pagate con carta (es. carburante) le devo pagare a mano dallo scadenzario?",
+        "a": "No. Le fatture a carta (modalità \"carta di pagamento\" nel documento, oppure categoria marcata \"Si paga con carta\" come \"Mezzi e carburante\") sono addebiti automatici: vengono prelevati dal conto tra il 20 e il 30 del mese successivo. Per non confonderti, NON compaiono nella lista attiva dello scadenzario: le trovi nel filtro rapido \"In attesa carta\" (badge indaco), con data prevista il 20 del mese successivo. Restano contate nel saldo/cashflow come uscita futura e diventano \"pagate\" da sole quando carichi l'estratto conto delle carte e i movimenti si riconciliano. Per marcare una categoria come \"a carta\", apri \"Gestisci categorie\", modifica la categoria e spunta \"Si paga con carta\". Se invece la fattura è di un fornitore occasionale mai categorizzato, il gestionale prova comunque a capirlo leggendo le descrizioni di riga del documento: una fattura con scritto «gasolio» finisce da sola in «Mezzi e carburante», e quindi fra gli addebiti a carta. Fa eccezione una fattura che dichiara un addebito diretto (RID, SDD, RiBa): quella resta sul suo canale, perché esce dal conto alla sua data."
+      },
+      {
+        "q": "Quando una fattura risulta davvero pagata?",
+        "a": "Mai al momento della conferma della distinta. Una fattura diventa \"pagata\" solo quando il movimento bancario in uscita viene riconosciuto e abbinato a lei (in automatico o a mano in Riconciliazione), oppure se la chiudi tu manualmente. Fino ad allora resta \"in sospeso\"."
+      },
+      {
+        "q": "Come invio la mail della distinta se non uso Gmail?",
+        "a": "Premi \"Invia email ai destinatari\" nell'anteprima della distinta: la mail parte direttamente dal sistema verso gli indirizzi dell'amministrazione, senza bisogno che tu abbia Gmail loggato o un programma di posta configurato. Se l'invio va a buon fine compare la spunta verde \"Email inviata\" e si sblocca \"Conferma distinta\". Se per qualsiasi motivo il sistema non riesce a inviare, puoi usare \"Apri in Gmail\" o \"Copia testo\" e poi spuntare \"ho inviato la distinta a mano\" per proseguire."
+      },
+      {
+        "q": "Perché \"Conferma distinta\" è bloccato/grigio?",
+        "a": "Perché prima devi inviare la mail della distinta. La conferma si sblocca solo dopo che la mail è partita (spunta verde \"Email inviata\") oppure dopo aver spuntato la casella di invio manuale. È una garanzia che chi esegue i bonifici abbia ricevuto la disposizione prima che la registri nel gestionale."
+      },
+      {
+        "q": "Ho inviato l'email e ho visto il messaggio verde, ma la distinta non c'è in Storico e le scadenze sono ancora da pagare: perché?",
+        "a": "Perché l'invio dell'email è solo il Passo 4: da solo NON crea la distinta. La distinta viene salvata solo quando premi \"Conferma distinta\" (Passo 5) nella finestra di anteprima. Se hai inviato la mail e poi hai chiuso la finestra senza confermare, non è stato registrato nulla e le scadenze restano da pagare (non hai perso niente: sono ancora lì, selezionabili). Ripeti: seleziona le scadenze, assegna la banca, \"Crea distinta\", \"Invia email\" e poi premi il pulsante verde \"Conferma distinta\". Nota: la mail parte dal server, quindi non la vedrai nella \"posta inviata\" del tuo Gmail — questo è normale e non significa che qualcosa sia andato storto."
+      },
+      {
+        "q": "Posso mettere in distinta anche le scadenze fiscali (F24, IVA, contributi)?",
+        "a": "Sì. Le scadenze fiscali e interne compaiono nell'elenco con l'icona 📋: puoi selezionarle insieme alle fatture fornitori, assegnare la banca e includerle nella distinta. Entrano nell'anteprima, nell'email ai destinatari e nello Storico Distinte come le fatture, e alla conferma vengono registrate (badge \"In distinta\"). Puoi anche toglierle con \"Rimuovi dalla distinta\". Restano comunque gestibili come prima dalla pagina Scadenze Fiscali (segna pagata, ecc.)."
+      },
+      {
+        "q": "Ho confermato la distinta ma avevo scelto la banca sbagliata: come rimedio?",
+        "a": "Vai sul filtro \"In sospeso\", trova la fattura e usa il pulsante \"Rimuovi dalla distinta\": torna attiva come prima e puoi rifare la selezione con la banca corretta. Se non hai ancora confermato, basta cambiare la banca nel pannello sotto la riga e ricreare l'anteprima."
+      },
+      {
+        "q": "Il saldo della banca mostrato quando creo la distinta è quello vero in banca?",
+        "a": "Il numero principale è il saldo previsionale: il gestionale parte dal saldo reale del conto e ne sottrae quanto resta da pagare delle distinte già disposte su quello stesso conto (contrassegnate \"prev.\"). Della parte già pagata non resta traccia negli impegni: è uscita davvero e sta già dentro il saldo reale, quindi non viene sottratta due volte. Se decidi di usare comunque quella liquidità puoi farlo: il valore diventa arancione, ti viene chiesta una conferma e, confermando, la distinta si crea. Il saldo reale (quello che vedi nell'home banking) non viene mai modificato: lo trovi nella pagina Banche. Man mano che spunti nuove fatture, entrambi i saldi scendono dell'importo che stai per pagare."
+      },
+      {
+        "q": "Perché non riesco a creare la distinta? Il saldo previsionale mi blocca?",
+        "a": "No, il previsionale avvisa ma non blocca: puoi impegnare il 100% della disponibilità reale della banca anche se avevi già disposto altre distinte su quel conto. Quando succede compare una richiesta di conferma che ti ricorda quanto è già destinato alle distinte precedenti; rispondendo di sì la distinta viene creata. L'unico caso in cui il pulsante \"Crea distinta\" resta grigio è una fattura selezionata senza banca assegnata: assegnala e il pulsante si riattiva."
+      },
+      {
+        "q": "Che differenza c'è tra ACCONTO e SALDO nella distinta?",
+        "a": "È ACCONTO quando scegli \"Parziale\" (paghi solo una parte) oppure quando la fattura è una rata intermedia di un piano a più rate. È SALDO quando paghi tutto il residuo, oppure quando è l'ultima rata del piano. L'etichetta mostra anche il numero di rata, ad esempio \"SALDO (rata 3/3)\". Quando scegli \"Parziale\" puoi digitare l'importo dell'acconto oppure premere \"50%\" per metà del residuo; il pannello ti mostra subito il netto da versare ora e il \"Residuo da saldare dopo\", cioè quanto resterà della fattura per un pagamento successivo."
+      },
+      {
+        "q": "Ho messo in distinta solo un acconto: perché la fattura resta comunque tra le aperte?",
+        "a": "Perché con un acconto la fattura NON è chiusa: solo la quota-acconto va \"in sospeso\" (in attesa del riscontro bancario), mentre la differenza ancora da pagare resta fra le fatture aperte con il suo importo residuo. Sulla riga vedi il badge giallo \"Acconto … € in distinta\" e, come importo, il residuo che resta da saldare (col lordo barrato). Quando l'acconto viene pagato — riconciliato in banca oppure chiuso a mano — il pagato sale e il residuo scende da solo, ma la fattura NON sparisce: resta comunque fra le aperte con il suo residuo (senza più il badge dell'acconto, perché ormai è saldato) finché non paghi anche quello. Si chiude del tutto solo quando anche il residuo viene pagato."
+      },
+      {
+        "q": "Come dispongo il residuo di una fattura su cui ho già messo in distinta un acconto?",
+        "a": "Selezioni normalmente la fattura dalle aperte: il gestionale ti propone in automatico l'importo del RESIDUO (non l'intero lordo) e ti lascia scegliere la banca, che NON viene pre-caricata (può essere diversa da quella dell'acconto). Confermi e crei la seconda distinta come al solito: puoi farlo anche prima che l'acconto sia arrivato in banca. A quel punto la fattura risulta interamente disposta e si sposta in \"In sospeso\"; si chiuderà quando i movimenti (acconto e residuo) verranno riconciliati. La somma di quello che disponi non può mai superare il residuo della fattura. Se avevi già scalato una nota di credito sull'acconto, quella nota non ricompare più tra quelle disponibili (non si scala due volte). Se vuoi disfare tutto, \"Rimuovi dalla distinta\" toglie in un colpo sia l'acconto sia il residuo e riporta la fattura attiva."
+      },
+      {
+        "q": "Una fattura da 8.000 euro ha due note di credito da 1.000 euro ciascuna: come procedo?",
+        "a": "Riconosci subito le fatture compensabili: sulla riga della fattura, accanto al nome del fornitore, compare un badge verde \"NC −importo\" (o \"2 NC −importo\" se sono più di una) quando quel fornitore ha note di credito ancora aperte da scalare — così le vedi a colpo d'occhio senza dover prima selezionare la fattura (passandoci sopra vedi numero, data di emissione e importo di ciascuna). Per usarle: seleziona la fattura, poi nel pannello sotto la riga usa \"Scala note di credito\" e spunta le due note (ogni pulsante mostra numero, data di emissione e importo): il bonifico da fare diventa 6.000 euro e la causale suggerita cita entrambe le note con il loro numero e la loro data. Esegui il bonifico per 6.000; dopo la conferma, la fattura e le due note di credito compaiono insieme nel filtro \"In sospeso\" (le note con l'etichetta \"In distinta\", non più tra le note aperte); quando il movimento viene riconciliato, fattura e note di credito si chiudono insieme, in automatico. Se hai sbagliato e vuoi togliere una nota, rimuovi la fattura dalla distinta: le note collegate tornano disponibili e puoi rifare la selezione."
+      },
+      {
+        "q": "Se chiudo una fattura a mano e poi il bonifico arriva comunque sull'estratto conto, si conta due volte?",
+        "a": "No. La chiusura a mano non genera nessun movimento bancario nel gestionale: i movimenti reali sono solo quelli importati dall'estratto conto. Se il bonifico arriva davvero, lo abbini alla fattura (anche se già chiusa a mano) dalla pagina Banche → Riconciliazione, così non resta un movimento senza abbinamento."
+      },
+      {
+        "q": "Perdo il lavoro se cambio pagina o chiudo il browser prima di confermare la distinta?",
+        "a": "No, il gestionale salva automaticamente una bozza nel tuo browser mentre selezioni le scadenze. Quando torni sulla pagina la ritrovi già pronta con un messaggio di conferma: restano selezionate tutte le righe, comprese le scadenze fiscali e le note di credito già scalate su una fattura. Attenzione: la bozza è legata al tuo browser/computer, non è condivisa con le colleghe che usano un'altra postazione."
+      },
+      {
+        "q": "Come sposto in avanti la scadenza di una fattura?",
+        "a": "Usa l'icona calendario \"Rimanda\" sulla riga della fattura: si apre una finestra con un tasto rapido \"Fine mese successivo\" (imposta come nuova scadenza l'ultimo giorno del mese successivo a quello corrente) e l'opzione \"Scegli data\" per indicare una data qualsiasi. La fattura prende la nuova scadenza e, se era scaduta, torna tra quelle da pagare."
+      },
+      {
+        "q": "Se io e un'altra collega chiudiamo a mano la stessa fattura nello stesso momento, si rischia di perdere un pagamento?",
+        "a": "No. La chiusura manuale registra l'importo pagato in modo protetto: il conteggio viene fatto al momento del salvataggio sul valore aggiornato, sommando l'importo (non sovrascrivendolo). Così, se nel frattempo qualcun altro (o la riconciliazione bancaria) ha già registrato un pagamento parziale su quella fattura, il tuo non lo cancella: i due importi si sommano correttamente."
+      }
+    ]
+  },
+  {
+    "path": "/storico-distinte",
+    "icon": "Receipt",
+    "title": "Storico Distinte",
+    "description": "Questa pagina raccoglie tutte le distinte di pagamento create dallo Scadenzario, una per ogni giorno in cui hai confermato dei pagamenti verso i fornitori. Serve per ritrovare rapidamente cosa è stato disposto in un certo giorno, quanto è già stato pagato e quanto è ancora in attesa.",
+    "sections": [
+      {
+        "heading": "A cosa serve questa pagina",
+        "body": "Ogni volta che nello Scadenzario premi \"Conferma distinta\", il gestionale registra un gruppo di fatture da pagare. Lo Storico Distinte raggruppa automaticamente queste registrazioni per giorno di creazione: ogni giorno diventa una \"distinta\" con l'elenco delle fatture incluse, il totale complessivo e il totale suddiviso per ciascuna banca usata. È una pagina di sola consultazione: qui non si crea né si modifica nulla, si trova solo lo storico di quello che è stato disposto."
+      },
+      {
+        "heading": "Il riepilogo generale in alto",
+        "body": "Appena entri nella pagina vedi quattro numeri riassuntivi: quante distinte esistono in totale, quante scadenze sono state disposte complessivamente, il totale disposto in euro e il totale già effettivamente pagato in euro. Questi numeri considerano tutte le distinte, non solo quelle aperte in quel momento."
+      },
+      {
+        "heading": "Come sono organizzate le distinte",
+        "body": "Le distinte sono elencate dalla più recente alla più vecchia, una riga per ogni giorno (per esempio \"Distinta del lunedì 14 luglio 2026\"). In cima a ogni riga trovi la data e il numero di scadenze a sinistra, il totale della distinta e la quota già pagata a destra; sotto, su una riga propria, un'etichetta per ogni banca coinvolta con il relativo totale. Quando le banche sono molte le etichette vanno a capo senza mai coprire la data, e i nomi lunghi sono accorciati (passaci sopra il mouse per leggerli per intero). Aprendo la distinta le etichette lasciano il posto al dettaglio per banca.",
+        "steps": [
+          "Scorri l'elenco per trovare il giorno che ti interessa (le più recenti sono in alto).",
+          "Clicca sulla riga della distinta per aprirla ed espandere il dettaglio.",
+          "Clicca di nuovo per richiuderla."
+        ]
+      },
+      {
+        "heading": "Il dettaglio di una distinta aperta",
+        "body": "Aprendo una distinta trovi prima un riquadro per ciascuna banca usata quel giorno, con il totale disposto su quella banca e quanto di quel totale è già stato pagato (con il conteggio, per esempio \"3/5\" fatture pagate su 5). Sotto trovi la tabella con ogni singola scadenza inclusa nella distinta: fornitore, numero fattura, banca, importo e stato. Lo stato di ogni riga può essere \"Pagato\" (etichetta verde) quando la fattura risulta saldata, \"Acconto\" (etichetta azzurra) quando l'importo che era stato disposto è uscito davvero ma la fattura resta aperta per il residuo, oppure \"In distinta\" (etichetta arancione) se il pagamento non è ancora stato riscontrato. Quello che conta per chiudere una riga è l'importo disposto, non l'intera fattura: un acconto versato è una disposizione conclusa."
+      },
+      {
+        "heading": "Eliminare una distinta o una singola scadenza (finché non è pagata)",
+        "body": "Da questa pagina puoi anche cancellare una distinta, o una singola scadenza al suo interno, purché non sia ancora stata pagata. È utile quando una distinta è stata creata per errore o va rifatta. L'operazione è consentita a tutte le operatrici e non cancella nessuna fattura: rimuove solo la disposizione di pagamento e riporta le scadenze attive nello Scadenzario, esattamente come \"Rimuovi dalla distinta\". Le scadenze già pagate non si possono togliere e restano sempre intoccate.\n\nSulla riga di ogni giornata, in alto a destra, trovi il pulsante \"Elimina\": toglie in un colpo solo tutte le scadenze della distinta non ancora pagate (quelle pagate restano). Aprendo la distinta, invece, ogni riga non ancora pagata ha un cestino per rimuovere solo quella. In entrambi i casi compare una richiesta di conferma prima di procedere.",
+        "steps": [
+          "Per eliminare l'intera distinta: premi \"Elimina\" sulla riga del giorno e conferma.",
+          "Per togliere una sola scadenza: apri la distinta e premi il cestino sulla riga interessata.",
+          "Conferma nella finestra che si apre: le scadenze tornano attive nello Scadenzario e puoi rifare la distinta quando vuoi.",
+          "Se una scadenza è già \"Pagato\", il cestino non compare: quel dato non è modificabile da qui."
+        ]
+      },
+      {
+        "heading": "Cosa fare se una distinta non compare",
+        "body": "Se l'elenco è vuoto, significa che non è ancora stata confermata nessuna distinta dallo Scadenzario: la pagina mostra un messaggio che rimanda proprio a quel passaggio. Ricorda che una distinta appare qui solo dopo aver premuto \"Conferma distinta\" nello Scadenzario: la semplice anteprima non basta."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Posso cancellare una distinta da questa pagina?",
+        "a": "Sì, finché non è pagata. Usa il pulsante \"Elimina\" sulla riga della giornata per togliere tutte le scadenze non ancora pagate di quella distinta, oppure apri la distinta e usa il cestino su una singola scadenza. Non viene cancellata nessuna fattura: la disposizione viene rimossa e le scadenze tornano attive nello Scadenzario. Le scadenze già pagate restano sempre intoccate. In alternativa puoi sempre usare \"Rimuovi dalla distinta\" dallo Scadenzario (filtro \"In sospeso\")."
+      },
+      {
+        "q": "Perché una fattura risulta ancora \"In distinta\" invece di \"Pagato\"?",
+        "a": "Perché il bonifico non è ancora stato riconosciuto sull'estratto conto e abbinato a quella fattura. Appena la riconciliazione avviene (in automatico o a mano dalla pagina Banche), lo stato passa a \"Pagato\" anche qui."
+      },
+      {
+        "q": "Cosa vuol dire l'etichetta \"Acconto\" su una riga della distinta?",
+        "a": "Che con quella distinta è stato disposto un acconto, non il saldo: l'importo disposto è uscito dal conto e quindi la riga è conclusa, ma la fattura resta aperta per la parte che manca. La trovi ancora nello Scadenzario per il residuo, e nel partitario del fornitore l'acconto compare già in DARE."
+      },
+      {
+        "q": "Nello Storico vedo anche righe con l'icona 📋: cosa sono?",
+        "a": "Sono le scadenze fiscali e interne (F24, IVA, contributi, stipendi…) messe in distinta dallo Scadenzario. Compaiono insieme alle fatture fornitori, raggruppate per giorno e per banca, ed è possibile eliminarle come le altre finché non risultano pagate."
+      },
+      {
+        "q": "Come sono raggruppate le distinte, per data di scadenza della fattura?",
+        "a": "No, il raggruppamento è per il giorno in cui hai confermato la distinta nello Scadenzario, non per la data di scadenza delle singole fatture: fatture con scadenze diverse possono comparire nella stessa distinta se sono state disposte insieme lo stesso giorno."
+      },
+      {
+        "q": "Il totale \"pagato\" di una banca considera solo quella distinta?",
+        "a": "Sì: i totali per banca mostrati aprendo una distinta si riferiscono solo alle fatture incluse in quella specifica distinta, non a tutti i pagamenti mai fatti su quel conto."
+      }
+    ]
+  },
+  {
+    "path": "/banche",
+    "icon": "Landmark",
+    "title": "Banche",
+    "description": "La pagina Banche è il punto in cui vedi tutta la liquidità dell'azienda: saldi dei conti, movimenti in entrata e uscita, abbinamento dei pagamenti alle fatture fornitori e i finanziamenti in corso. Accanto al saldo reale di ogni conto viene mostrato anche il saldo previsionale, cioè il saldo al netto delle distinte di pagamento (fornitori e F24) ancora da pagare su quel conto. I dati bancari arrivano automaticamente dalle banche collegate, non servono più caricamenti manuali di file.",
+    "sections": [
+      {
+        "heading": "Panoramica",
+        "body": "È la prima schermata che vedi aprendo Banche: un riepilogo veloce della situazione di cassa. In alto trovi quattro numeri: quanto c'è disponibile in banca in questo momento, quanto è entrato e quanto è uscito negli ultimi 30 giorni, e quanti movimenti sono ancora da riconciliare con le fatture fornitori. Se hai creato delle distinte di pagamento non ancora saldate, sotto la \"Posizione di cassa\" compare anche il saldo previsionale, cioè quanto resterebbe dopo aver pagato tutte le distinte in sospeso. Sotto trovi un grafico con l'andamento di entrate e uscite, i saldi per singola banca (con il previsionale accanto al reale), le scadenze fornitori dei prossimi 30 giorni e gli ultimi movimenti registrati. Nell'elenco delle scadenze, quelle gi\u00e0 impegnate in banca portano l'etichetta azzurra \"in distinta\": vuol dire che il pagamento \u00e8 gi\u00e0 partito e non devi fare nulla, o perch\u00e9 la fattura \u00e8 dentro una distinta di pagamento (bonifico gi\u00e0 disposto) o perch\u00e9 l'effetto RI.BA \u00e8 gi\u00e0 stato presentato alla banca, che lo addebiter\u00e0 da sola alla scadenza. Passandoci sopra col mouse compare la spiegazione. Le scadenze senza etichetta sono invece quelle che richiedono ancora un'azione da parte tua.",
+        "steps": [
+          "Dai un'occhiata al numero \"Da riconciliare\": se è alto, conviene passare alla scheda Riconciliazione.",
+          "Clicca su una delle quattro card in alto (o su \"Vedi tutto\") per essere portata direttamente nella scheda corrispondente.",
+          "Nelle scadenze dei prossimi 30 giorni, guarda l'etichetta \"in distinta\": le righe che ce l'hanno sono gi\u00e0 disposte o gi\u00e0 presentate in banca, quindi non richiedono un pagamento da fare a mano."
+        ]
+      },
+      {
+        "heading": "Conti Bancari e Open Banking",
+        "body": "In questa scheda colleghi le banche vere dell'azienda tramite Open Banking (fornitore A-Cube): una volta collegata, il gestionale riceve automaticamente saldi e movimenti, senza bisogno di caricare estratti conto a mano. Per ogni banca collegata vedi il nome, l'IBAN, il saldo aggiornato e da quanto tempo non viene sincronizzata. Se su quel conto ci sono distinte di pagamento ancora da saldare, sotto il saldo reale compare anche il previsionale (\"prev.\"), cioè il saldo al netto di quelle distinte: il saldo reale resta il numero principale e non viene mai modificato. In alto viene mostrato anche lo stato del consenso della banca (attivo, in attesa, scaduto o revocato) e il totale disponibile su tutti i conti collegati (con il previsionale complessivo quando ci sono distinte aperte).",
+        "steps": [
+          "Per collegare la prima banca, clicca \"Collega prima banca\" e compila P.IVA, ragione sociale ed email dell'azienda.",
+          "Clicca \"Avvia consenso\": si apre una nuova finestra sul sito della banca, dove dai il consenso PSD2 (accesso in sola lettura ai conti).",
+          "Completato il consenso, torna sulla pagina e clicca \"Ho completato il consenso — Importa conti\".",
+          "Da quel momento, usa il pulsante \"Aggiorna conti e movimenti\" ogni volta che vuoi far arrivare i dati più recenti dalla banca.",
+          "Per collegare un'altra banca, ripeti la procedura cliccando \"Collega altra banca\"."
+        ]
+      },
+      {
+        "heading": "Movimenti",
+        "body": "Qui trovi l'elenco di tutti i movimenti bancari (entrate e uscite) con data, conto, descrizione, importo, saldo e stato di riconciliazione. Puoi cercare per descrizione o controparte, filtrare per conto, tipo (entrate/uscite), stato di riconciliazione, categoria contabile e periodo. A ogni movimento puoi assegnare una categoria contabile dal menu a tendina nella colonna \"Categoria contabile\": se manca, la casella è evidenziata in arancione. L'elenco si può esportare in PDF, CSV o Excel. Importante sul periodo: quando apri la scheda, l'elenco è ristretto all'anno selezionato nel selettore Anno in alto (quello globale, memorizzato nel browser). Se quel selettore è rimasto su un anno passato, vedrai solo i movimenti di quell'anno e sembrerà che manchino movimenti (spesso le entrate, che sono le più numerose): un banner azzurro te lo segnala con il pulsante \"Mostra tutti gli anni\" per sganciare il filtro. Anche \"Pulisci filtri\" azzera le date e mostra i movimenti di tutti gli anni. L'elenco carica sempre TUTTI i movimenti del conto, senza tetti nascosti.",
+        "steps": [
+          "Se ti sembra che manchino dei movimenti (es. le entrate recenti), controlla il selettore Anno in alto: portalo sull'anno giusto, oppure clicca \"Mostra tutti gli anni\" nel banner azzurro / \"Pulisci filtri\".",
+          "Usa la barra di ricerca e i filtri in alto per restringere l'elenco (ad esempio solo un conto o solo le uscite di un mese).",
+          "Clicca sull'intestazione di una colonna (Data, Descrizione, Importo) per ordinare la tabella.",
+          "Per assegnare o cambiare la categoria di un movimento, apri il menu a tendina nella riga corrispondente e scegli la voce giusta.",
+          "Usa i pulsanti PDF, CSV o Excel in alto per esportare l'elenco filtrato."
+        ]
+      },
+      {
+        "heading": "Riepilogo del giorno",
+        "body": "In cima alla scheda Riconciliazione trovi un riquadro di controllo per tenere sotto controllo il lavoro giorno per giorno. Ha due tessere: \"Riconciliati oggi\" (quanti pagamenti sono stati abbinati a una fattura nella data scelta, con il totale in euro) e \"Da riconciliare\" (quanti movimenti in uscita sono ancora senza abbinamento, con il totale). Puoi scegliere la data con le frecce o il calendario (il pulsante \"Oggi\" ti riporta al giorno corrente). Cliccando su una tessera si apre l'elenco di dettaglio: nei riconciliati vedi fornitore, fattura, data del movimento e se l'abbinamento è avvenuto in automatico o a mano; nei \"da riconciliare\" vedi data, banca, controparte e importo delle uscite ancora aperte. Per i movimenti da riconciliare puoi restringere il periodo (ultimi 30/60/90 giorni, 6 mesi o tutte) così l'elenco resta gestibile. Le commissioni bancarie e i movimenti che non sono pagamenti a fornitori (stipendi, imposte, finanziamenti, incassi, rate di mutuo, canoni del rapporto bancario, prelievi, giroconti e passaggi di contanti, commissioni POS e addebito dell'estratto carte) non compaiono tra i \"da riconciliare\": non vanno abbinati a una fattura. Per lo stesso motivo, sul tab Riconciliazione compare un solo numero: gli abbinamenti da confermare se ci sono, altrimenti quanti movimenti restano da abbinare.",
+        "steps": [
+          "Al mattino apri Banche → Riconciliazione e guarda il riquadro in alto: \"Riconciliati oggi\" ti dice cosa si è già chiuso, \"Da riconciliare\" cosa resta da abbinare.",
+          "Clicca sulla tessera \"Da riconciliare\" per vedere l'elenco delle uscite ancora senza fattura, e usa il menu del periodo per concentrarti su quelle recenti.",
+          "Cambia la data (frecce o calendario) per vedere cosa è stato riconciliato in un altro giorno; \"Oggi\" ti riporta alla giornata corrente.",
+          "Per abbinare un movimento rimasto aperto, scorri sotto nella sezione Riconciliazione e usa gli abbinamenti suggeriti o la ricerca manuale."
+        ]
+      },
+      {
+        "heading": "Riconciliazione",
+        "body": "Qui abbini i movimenti in uscita dal conto alle fatture fornitori corrispondenti, così il sistema sa quali fatture sono state effettivamente pagate. La scheda si divide in due viste: \"Da riconciliare\" e \"Riconciliati\". Nella vista \"Da riconciliare\", se il sistema trova un possibile abbinamento (per importo, nome fornitore e data) lo propone nella sezione \"Abbinamenti suggeriti\" con una percentuale di affidabilità: puoi confermarlo o rifiutarlo, anche in blocco per più righe insieme. Se selezioni un movimento dall'elenco a sinistra, a destra vedi le fatture proposte come possibile corrispondenza (o puoi cercarne una manualmente). Nella vista \"Riconciliati\" trovi tutti i movimenti già abbinati, con fornitore e numero fattura: da qui puoi annullare un abbinamento sbagliato con \"Annulla abbinamento\" (la fattura torna aperta, il movimento torna da riconciliare). Vengono proposti come abbinamento suggerito solo i casi affidabili: l'importo del movimento deve coincidere con il residuo della fattura (entro il 5%) e l'affidabilità deve essere almeno del 70%; i match con importo lontano non compaiono. Ogni movimento viene verificato non solo contro le fatture ancora aperte, ma SEMPRE anche contro le fatture già segnate come pagate ma senza movimento bancario collegato — sia quelle chiuse a mano dalla contabile, sia quelle risultate pagate al momento dell'import/go-live: la regola è che QUALSIASI fattura senza aggancio bancario è abbinabile (anche dalla ricerca manuale), perché il bonifico che l'ha pagata è rimasto \"orfano\" e va collegato (la fattura resta pagata, si collega solo il movimento). Questi suggerimenti sono contrassegnati con l'etichetta \"chiusa a mano\". Dal 10 settembre 2026 questo vale anche per l'abbinamento automatico per importo: prima il motore, fra le fatture già pagate, guardava solo quelle chiuse a mano o chiuse in via provvisoria, e si perdeva le fatture risultate pagate all'import. Ora considera qualsiasi fattura senza movimento collegato, con due paletti: restano fuori quelle pagate in contanti o con carta (quei pagamenti non lasciano un bonifico in banca, quindi un importo uguale sarebbe una coincidenza), e su una fattura già pagata l'abbinamento aggiunge solo il collegamento al movimento, senza toccare importi, stato e data di pagamento. Sotto i suggerimenti ad alta affidabilità c'è una seconda sezione \"Da verificare — beneficiario dalla causale\" (un movimento che risulta saldato da un gruppo di più fatture non compare qui, ma solo fra i pagamenti raggruppati: la somma esatta di più fatture è una lettura più affidabile di una singola fattura accettata con il 5% di tolleranza): per i bonifici il sistema legge il beneficiario scritto nella causale — sia nella forma \"…a favore di: NOME…\", sia quando il nome è riportato dopo un asterisco nei bonifici da internet banking (es. \"…*NOME SRL SF-1234…\") — e lo abbina alla fattura di quel fornitore — aperta oppure già chiusa a mano — quando l'importo coincide (entro il 5%). Serve sia il nome sia l'importo: così non propone abbinamenti sbagliati per pura coincidenza di importo (es. bonifici a fondi o assicurazioni come Azimut o Mediolanum, che non sono fornitori con fattura; oppure un bonifico che nomina un fornitore ma il cui importo combacia per caso con le fatture di un altro). Ogni riga mostra il beneficiario e la fattura proposta (con l'etichetta \"chiusa a mano\" quando la fattura era già stata pagata manualmente); l'abbinamento va confermato una alla volta (non c'è \"conferma tutti\"), e \"Nascondi\" toglie una proposta che non ti interessa. I movimenti che non sono pagamenti a fornitori (F24, bolli, CBILL/PagoPA, giroconti, commissioni, ricariche) non vengono proposti. Dal 10 settembre 2026 l'elenco riconosce anche tutto ciò che la banca addebita per conto proprio o che è un giro interno all'azienda, leggendolo dalla CAUSALE: rate di mutuo e rimborsi di finanziamento, canone del rapporto e dell'home banking, commissioni su fideiussione, Fondo di garanzia MCC, prelievi di sportello, passaggi di contanti fra i conti, giroconti e costituzioni di pegno, le commissioni POS Nexi, i rimborsi tax free Global Blue e l'addebito mensile dell'estratto carte. Dietro a questi movimenti non c'è nessuna fattura da chiudere, quindi restano fuori dalla lista invece di riempirla: su New Zago erano 110 righe su 250, per 220.258 €. Restano invece abbinabili, perché pagano fatture vere, le distinte CBI, i bonifici singoli, gli effetti RiBa, gli assegni, i MAV e gli addebiti diretti verso locatori e utenze (affitti, Enegan, Hera, Lignano Banda Larga). Un canone di LOCAZIONE non viene mai scambiato per un canone bancario. Quando invece il numero della fattura è scritto per esteso nella causale del movimento e l'importo coincide, l'abbinamento si chiude già da solo (non serve confermarlo); le fatture già chiuse a mano non si chiudono mai in automatico, richiedono sempre la tua conferma. Infine, quando un unico bonifico salda più fatture dello stesso fornitore (es. 466,95 = 155,65 + 311,30): se la causale cita esplicitamente il fornitore e i numeri delle fatture e la somma è esatta, il caso è certo e viene riconciliato IN AUTOMATICO (non ti viene chiesto di confermare ciò che è granitico); se invece l'abbinamento è probabile ma non certo (importo che torna ma numeri non citati in causale), compare la sezione \"Pagamenti raggruppati — un bonifico, più fatture\" che ti propone la combinazione da confermare a mano (fino a sei fatture, note di credito comprese). Ogni riga ha una casella di spunta: puoi confermare un gruppo alla volta col suo pulsante, oppure spuntare quelli giusti (c'è anche \"Seleziona tutti\") e premere \"Conferma selezionati\" per registrarli tutti insieme. Ogni gruppo resta comunque indipendente e tutto-o-niente: se uno non è più valido, gli altri vengono registrati lo stesso e alla fine un messaggio dice quanti sono passati, quante fatture sono state abbinate e quali gruppi no, con il motivo. La pagina si aggiorna da sola, non serve ricaricarla. Tre condizioni devono valere tutte, altrimenti la proposta non compare: le fatture del gruppo devono essere dello STESSO fornitore, riconosciuto dalla partita IVA e non dal nome (due aziende diverse possono chiamarsi in modo simile: AMAZON PAYMENTS EUROPE e CNH INDUSTRIAL CAPITAL EUROPE condividono la parola \"Europe\", ma non sono lo stesso fornitore; al contrario ZUCCHETTI SPA e ZUCCHETTI SPA AD AZIONISTA UNICO hanno la stessa partita IVA e restano insieme); la somma deve tornare al CENTESIMO, perché la commissione bancaria non è mai dentro il bonifico ma viene addebitata con una riga separata, quindi uno scarto anche di pochi centesimi vuol dire che il gruppo è sbagliato; e la combinazione dev'essere UNICA, cioè se più insiemi di fatture fanno la stessa cifra non ti viene proposto niente, a meno che i numeri di fattura scritti in causale (\"SALDO FATTURA 60828-65166\") indichino senza dubbio quale sia quello giusto. L'aggancio è comunque tutto-o-niente: se la somma non coincide esatta, non abbina nulla, e chi conferma riceve un avviso con lo scarto. Quando la causale non nomina nessun beneficiario, il fornitore verrebbe dedotto dal solo importo: in quel caso il movimento viene preso in considerazione solo se ha davvero la forma di un pagamento (dichiara l'importo bonificato, il numero di pagamenti del flusso o il beneficiario), così un addebito come \"FONDO DI GARANZIA MCC\" non si porta dietro fatture che sommano a quella cifra per pura coincidenza. Per i bonifici aziendali \"anonimi\" (flussi CBI tipo \"DISPOSIZIONE - FILIALE DISPONENTE\", che non riportano il nome del beneficiario in causale) il sistema scorpora prima la commissione bancaria dal totale (legge \"IMPORTO BONIFICI\" e \"IMPORTO COMMISSIONI\") e confronta il NETTO; in questi casi, sotto l'importo del movimento, trovi scritto il netto e la commissione (per esempio \"-53,55 €\" con sotto \"netto 51,80 + 1,75 comm.\"), così si capisce a colpo d'occhio perché le fatture sommano a una cifra diversa da quella uscita dal conto. Nei bonifici singoli, invece, la commissione non compare perché la banca la addebita con un movimento a parte da 0,70 o 0,75 €: lì l'importo del movimento coincide già col totale delle fatture; e siccome un bonifico è sempre verso un solo fornitore, cerca l'unico fornitore le cui fatture — una singola o una combinazione, mai un mix tra fornitori diversi — sommano a quel netto, e lo propone. Se combacia più d'un fornitore, non propone nulla (niente indovinelli).",
+        "steps": [
+          "Apri \"Abbinamenti suggeriti\": per ogni proposta clicca \"Conferma\" se è corretta, oppure \"Rifiuta\" se non lo è.",
+          "Per confermare più abbinamenti insieme, seleziona le caselle e clicca \"Conferma selezionati\", oppure \"Conferma tutti\" per accettarli tutti in una volta.",
+          "Se un movimento non ha suggerimenti, selezionalo dall'elenco a sinistra: a destra compaiono le fatture aperte più simili per importo, oppure puoi cercare la fattura giusta a mano e collegarla.",
+          "Per correggere un abbinamento già confermato, passa alla vista \"Riconciliati\" e clicca \"Annulla abbinamento\" sulla riga interessata."
+        ]
+      },
+      {
+        "heading": "Prima Nota",
+        "body": "È una vista pronta per l'esportazione, da consegnare alla commercialista, costruita come un estratto conto: per ogni conto il saldo iniziale, i movimenti del periodo con il saldo progressivo dopo ognuno, il saldo finale calcolato e quello della banca. Mostra i movimenti bancari di un periodo (anno o singolo mese, tutti i conti o uno solo) con data, conto, tipo di movimento, importo, saldo progressivo, controparte, partita IVA, numero di fatture saldate, causale e categoria. Il filtro \"Periodo per\" decide quale data conta per stare nel periodo: \"Data contabile (banca)\", quella stampata dalla banca sull'estratto conto e che lo studio legge, oppure \"Data operazione\", quella in cui il movimento è avvenuto (di solito coincidono; a fine mese le competenze e le commissioni possono avere data contabile nel mese dopo). Quando le due date sono diverse la tabella mostra anche l'altra sotto la data principale, e nell'Excel ci sono entrambe le colonne. Il saldo progressivo è esatto a fine giornata; l'ordine dei movimenti dentro la stessa giornata è quello dell'elenco. Il \"Tipo movimento\" dice che cos'è ogni riga senza doverla leggere: Pagamento fornitore (ha una o più fatture agganciate), F24 / imposte, Stipendi, Incasso POS, Versamento contanti, Carta di credito, Finanziamento (rate di mutuo), Spese e commissioni bancarie (canoni, commissioni, fideiussioni, SDD Nexi e Global Blue), Giroconto / prelievo, oppure Da chiarire quando nessuna fonte lo spiega. Lo ricava prima dagli agganci (fattura in Scadenzario, scadenza in Scadenze fiscali), poi dalla causale scritta dalla banca, infine dall'etichetta della categoria. Un movimento che salda più fatture (una RiBa con trenta effetti, una distinta CBI) porta TUTTE le fatture: la controparte è il fornitore se è uno solo, altrimenti \"N fornitori (M fatture)\", la causale elenca tutti i numeri di fattura (con il fornitore accanto quando sono di fornitori diversi), la colonna Fatt. mostra quante sono e, al passaggio del mouse, il loro totale e la differenza con l'addebito (di solito la commissione). Per gli F24 agganciati in Scadenze fiscali la causale riporta titolo, codice tributo e periodo. Se non c'è nessun aggancio, la controparte viene letta dal beneficiario in causale (bonifici con il nome dopo l'asterisco, SDD \"a favore di\"). Per gli accrediti POS e Amex e per i versamenti di contante la controparte è il punto vendita di riferimento con il canale (per esempio \"PLM · Palmanova, POS MPS\"), attribuito come nella vista Incassi per outlet; se l'attribuzione manca resta il testo della banca. Un bonifico in entrata di un cliente privato per un acquisto (causale con \"acquisto\", \"abito\", \"merce\", \"ordine\") è un Incasso cliente (bonifico), cioè un corrispettivo pagato con bonifico: la controparte è l'ordinante; un bonifico in entrata con \"rimborso\", \"restituzione\" o \"storno\" è un Rimborso / restituzione. Per assegnare a mano a un outlet un incasso che il sistema non può attribuire (il bonifico di un cliente per un acquisto in un negozio preciso), si scrive nella nota del movimento, in Banche → Movimenti, \"Outlet: CODICE · motivo\" (per esempio \"Outlet: BRB · corrispettivi Barberino agosto 2026\"): la Prima Nota e la vista Incassi per outlet leggono quel codice e mostrano l'outlet con attribuzione \"Assegnato a mano (nota)\". In alto trovi i totali del periodo (movimenti, entrate, uscite, saldo netto) e il contatore \"Da chiarire\", poi una riga con quante righe e quanti euro ci sono per ogni tipo di movimento. Sotto, il riquadro \"Quadratura con l'estratto conto\", per la data scelta nel filtro \"Periodo per\": per ogni conto il saldo al giorno prima del periodo (per agosto, al 31/07), le entrate e le uscite del periodo, il saldo all'ultimo giorno calcolato (saldo iniziale più movimenti), il saldo all'ultimo giorno secondo la banca e la differenza. I saldi vengono dallo scarico A-Cube (il saldo del conto al momento dello scarico), non dai movimenti: se la differenza è zero l'estratto conto è completo, senza movimenti mancanti né doppioni. Siccome lo scarico non cade sempre sul confine del mese, il saldo alla data è il saldo letto dalla banca allo scarico, rettificato: più i movimenti datati entro quel giorno ma arrivati dopo lo scarico, meno i movimenti già nello scarico ma datati dopo (per esempio una competenza con data contabile nel mese successivo). Sotto ogni saldo vedi quando la banca l'ha fornito e quante rettifiche ci sono, e al passaggio del mouse la composizione. La tabella dei movimenti ripete la stessa struttura conto per conto: una riga di apertura con il saldo iniziale, i movimenti con il saldo progressivo, una riga di chiusura con saldo finale calcolato, saldo della banca ed esito; con un filtro per tipo attivo l'elenco è parziale e i saldi non vengono mostrati. Per i mesi importati prima di marzo 2026 la banca non ha fornito i saldi e la riga dice \"saldi n.d.\". Nello stesso riquadro c'è il Contante: versamenti di contante in banca e prelievi dalla banca, e, se nel periodo ci sono chiusure di cassa (dal 1° settembre 2026), contanti incassati nei negozi, spese di cassa, rimborsi, versamenti dichiarati nelle chiusure e quanti sono stati ritrovati in banca, fondo cassa più da versare a inizio e fine periodo (contato e calcolato) e la differenza cassa; se il primo giorno di un outlet parte senza fondo noto, la quadratura cassa comincia dal periodo successivo. La card \"Da chiarire\" e ogni etichetta della riga per tipo si cliccano: la tabella mostra solo quei movimenti, un avviso arancione dice quanti sono e come sistemarli (fornitore in Riconciliazione, F24 in Scadenze fiscali), e \"Togli filtro\" riporta l'elenco completo; il filtro si azzera da solo cambiando periodo, conto o vista, e gli export CSV/Excel restano sempre completi. Sopra la tabella scegli la vista: \"Movimenti banca\" (una riga per movimento, quella descritta fin qui), \"Pagamenti fornitori\" (una riga per FATTURA pagata nel periodo, secondo la data di pagamento dello Scadenzario), \"Incassi per outlet\" (le entrate del periodo attribuite al punto vendita) \"Dipendenti\" (una riga per busta paga, con la disposizione bancaria che l'ha pagata) oppure \"Carte\" (gli estratti conto delle carte del periodo, riga per riga, come per le banche). Nella vista Pagamenti fornitori una RiBa da trenta effetti diventa trenta righe: per ognuna vedi quando è stata pagata, la Fonte (Banca se c'è il movimento riscontrato, Contanti, Carta, Nota di credito per le note compensate, Provvisoria se il pagamento è dichiarato ma senza riscontro, Chiusa a mano, Senza riscontro), il conto e la data del movimento bancario, fornitore e partita IVA, numero e data fattura, la rata se il piano ne ha più di una, imponibile, IVA, eventuale ritenuta, lordo, importo pagato, metodo, categoria di costo e conto del conto economico, outlet se assegnato; la motivazione di una chiusura a mano compare passando il mouse sul badge Fonte. Entrano anche le fatture pagate in contanti o con carta, che non passano dal conto e non compaiono fra i movimenti; con un conto selezionato restano solo le fatture riscontrate o disposte su quel conto. Le card mostrano fatture pagate, importo, fornitori e il contatore \"Senza riscontro\" (dichiarate pagate senza movimento né contanti/carta: da agganciare in Riconciliazione); sotto, una riga con righe e importi per fonte. Anche qui la card \"Senza riscontro\" e le etichette per fonte si cliccano per vedere solo quelle fatture, con \"Togli filtro\" per tornare all'elenco completo. Nella vista Incassi per outlet ogni entrata in banca (giroconti esclusi) è attribuita al punto vendita senza chiedere niente: prima dall'abbinamento con la chiusura di cassa fatto dal riscontro notturno, poi dal codice terminale scritto nella causale dell'accredito (MPS, Amex, BCC/Numia/PagoBancomat) confrontato con i canali POS dell'outlet in Incassi giornalieri → Canali (stesso codice, stesso tipo POS o Amex e, a parità, stesso conto), infine, per i versamenti di contante, dalla parola chiave del canale Contanti (PALMANOVA, FOIANO, ATM 9750, cassa continua). Per ogni riga vedi data dell'operazione e giorno di vendita a cui si riferisce, conto, outlet e canale, Tipo (POS, Amex, Versamento contanti, Altro incasso per bonifici di clienti e rimborsi), importo, il badge di attribuzione (Chiusura di cassa, Codice terminale, Parola chiave versamento, Da attribuire) e causale. Nel foglio Excel e nel CSV le colonne sono solo quelle che servono allo studio: Data operazione, Data riferimento, Conto Banca, Outlet, Canale, Tipo, Terminale, Importo, Causale (niente IBAN, attribuzione né categoria). Le card mostrano il totale incassato in banca, POS e Amex, versamenti, altri incassi e il contatore \"Da attribuire\"; sotto, una tabella per outlet con movimenti, POS, Amex, versamenti, altro e totale. La card \"Da attribuire\" e il nome di ogni outlet nella tabella si cliccano per vedere solo quelle entrate, con \"Togli filtro\" per tornare all'elenco completo: un accredito POS senza outlet ha un codice terminale non censito nei canali, un versamento senza outlet non contiene la parola chiave del canale Contanti, e si sistemano in Incassi giornalieri → Canali; i bonifici di clienti restano senza outlet. Nella vista Dipendenti ogni disposizione per emolumenti del periodo (i movimenti di tipo Stipendi, di solito il 10 del mese, una per outlet) viene abbinata alle buste paga caricate in Personale → Costo del personale: il sistema legge dalla causale della banca l'ID flusso CBI, il numero di pagamenti, l'importo dei bonifici e le commissioni, e cerca fra i netti del mese prima (o dello stesso mese, per gli anticipi), raggruppati per outlet, il gruppo che somma esattamente all'importo dei bonifici; se un outlet è pagato con due disposizioni (per esempio la sede), trova il sottoinsieme giusto. Per ogni riga vedi nome e cognome, outlet, mese di competenza, netto, data del pagamento, conto, ID flusso (con la causale completa al passaggio del mouse), quanti bonifici la banca conta nel flusso e quante buste lo spiegano, commissioni e importo del flusso, esito. Se i bonifici contati dalla banca sono più delle buste (la sede: una busta da 10.959,00 pagata con quattro bonifici, 5,00 di commissioni), il netto è stato versato in più bonifici e l'esito lo dice in chiaro. Le card mostrano quante disposizioni ci sono (con bonifici e commissioni), i netti pagati, le buste nel foglio, le buste del mese prima senza pagamento nel periodo e le disposizioni che nessun gruppo di buste spiega al centesimo (buste non ancora importate o importo diverso: da guardare con lo studio paghe), elencate in un riquadro arancione. Non c'è niente da compilare: se i netti sono caricati, l'abbinamento è automatico. Nella vista Carte ogni estratto conto carta del periodo (carte di credito CartaBCC/Numia e Carta Montepaschi, prepagata Tasca) è un blocco con le sue operazioni: data di acquisto e di registrazione, descrizione, importo (spese in rosso, ricariche e storni in verde), commissioni, la fattura dello Scadenzario pagata con quella riga (stesso importo, pagata con carta entro dieci giorni) e il riscontro con la banca. Per le carte di credito il riscontro è l'addebito unico dell'estratto sul conto, cercato per importo nei 75 giorni successivi: la BCC addebita le due carte in un movimento solo più le commissioni, quindi l'addebito vale per tutti gli estratti dello stesso mese e la differenza mostrata sono le commissioni; per la prepagata il riscontro è, ricarica per ricarica, l'addebito \"Ricarica carta\" in banca. Gli estratti si importano con \"Importa estratto carta\" (PDF di CartaBCC e Carta Montepaschi, Excel o PDF del portale Tasca): il sistema legge dal documento la carta, il mese e le righe, mostra un'anteprima con totale letto, totale dichiarato dal documento ed eventuali avvisi, poi salva le righe e archivia il file in Banche → Archivio; un estratto già importato non viene toccato. Gli estratti già in Archivio ma senza righe (quelli caricati prima di questa funzione) hanno il pulsante \"Leggi le righe dal file archiviato\", che fa la stessa cosa senza ricaricare il file. Le card mostrano quanti estratti ci sono nel periodo (e quanti senza righe), le spese con carta, ricariche e storni, gli addebiti trovati in banca e le fatture agganciate. Da qui scarichi CSV (della vista aperta, con tutte le colonne e il saldo progressivo) o Excel. L'Excel ha un foglio per ogni conto, impaginato come un estratto conto: intestazione con banca, IBAN, periodo e data usata, riga del saldo iniziale (con il saldo letto dalla banca e le rettifiche), i movimenti con data operazione, data contabile, tipo, controparte, partita IVA, fatture, causale, categoria, entrate, uscite e saldo progressivo; quando un movimento salda più fatture (una RiBa, una distinta), sotto di esso c'è una riga per ogni fattura con fornitore, partita IVA, numero, data, rata e importo nella colonna \"Di cui fattura\", più la riga del resto (commissioni, acconto, nota di credito) se la somma delle fatture non coincide con l'uscita, e la riga del totale; poi le righe del saldo finale calcolato, del saldo finale della banca e della differenza. Seguono i fogli Tutti i movimenti (tabella piatta di tutti i conti, con IBAN in chiaro, per filtri e pivot), Pagamenti fornitori (una riga per fattura), Incassi per outlet (una riga per entrata), Dipendenti ed emolumenti (una riga per busta paga con netto e disposizione che l'ha pagata, e in coda le disposizioni senza buste), un foglio per ogni estratto carta con righe, totale letto e dichiarato, addebito in banca e differenza, e Riepilogo con i totali, la tabella per tipo di movimento, quella per fonte di pagamento, quella degli incassi per outlet, il blocco dipendenti ed emolumenti, la tabella delle carte (operazioni, spese, accrediti, commissioni, totale dichiarato, addebito in banca, fatture agganciate), la quadratura con l'estratto conto per conto e il blocco del contante.",
+        "steps": [
+          "Scegli anno, eventualmente il mese, il conto (o \"Tutti i conti\") e la data da usare per il periodo (contabile come sull'estratto conto, oppure operazione) con i filtri in alto.",
+          "Controlla i totali nelle card (Entrate, Uscite, Saldo netto) e il contatore \"Da chiarire\": se è maggiore di zero, cliccalo per vedere solo quei movimenti e agganciali in Riconciliazione o in Scadenze fiscali prima di consegnare.",
+          "Guarda il riquadro \"Quadratura con l'estratto conto\": ogni conto deve dire \"quadra\" (saldo iniziale della banca + movimenti = saldo finale della banca). Se c'è una differenza, mancano o sono doppi dei movimenti: rilancia la sincronizzazione in Conti Bancari prima di consegnare.",
+          "Su un movimento con più fatture, passa il mouse sul numero nella colonna Fatt. per vedere il totale delle fatture e la differenza con l'addebito.",
+          "Passa alla vista \"Pagamenti fornitori\" per vedere una riga per ogni fattura pagata nel periodo, contanti e carta compresi; il badge Fonte dice da dove risulta pagata.",
+          "Passa alla vista \"Incassi per outlet\" per vedere POS, Amex e versamenti attribuiti a ogni punto vendita; se il contatore \"Da attribuire\" è maggiore di zero, cliccalo e censisci il codice terminale o la parola chiave mancante in Incassi giornalieri → Canali.",
+          "Clicca \"CSV\" o \"Excel\" per scaricare il file da inviare alla commercialista."
+        ]
+      },
+      {
+        "heading": "Finanziamenti",
+        "body": "In questa scheda tieni traccia dei finanziamenti attivi collegati ai conti bancari dell'azienda, sia quelli dei soci sia quelli bancari: importo, tasso, piano di rientro e documenti allegati (contratti, piani di ammortamento). Ogni finanziamento deve essere collegato a un conto bancario già esistente. Puoi disattivare un finanziamento chiuso senza perdere lo storico, e volendo mostrare di nuovo anche quelli disattivati.",
+        "steps": [
+          "Per registrare un nuovo finanziamento, apri il modulo di inserimento, scegli il conto collegato e compila importo e condizioni.",
+          "Apri un finanziamento esistente per modificarlo, vedere il piano rate o caricare/scaricare i documenti allegati.",
+          "Quando un finanziamento è stato completamente rimborsato, disattivalo invece di eliminarlo: i dati restano consultabili."
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Nella scheda Movimenti mancano dei movimenti in entrata: perché io ne vedo meno di un collega?",
+        "a": "Quasi sempre è il filtro Anno. La scheda Movimenti mostra solo i movimenti dell'anno selezionato nel selettore Anno in alto, che è memorizzato nel tuo browser: se sul tuo computer è rimasto impostato su un anno passato, vedi solo quell'anno e le entrate dell'anno in corso spariscono dall'elenco (mentre un collega con l'anno corretto le vede). I dati non sono persi e le banche continuano a sincronizzarsi normalmente. Soluzione: porta il selettore Anno in alto sull'anno corrente, oppure clicca \"Mostra tutti gli anni\" nel banner azzurro sopra l'elenco (o \"Pulisci filtri\")."
+      },
+      {
+        "q": "Perché non trovo più il pulsante per caricare l'estratto conto in CSV?",
+        "a": "Non serve più: dal collegamento con l'Open Banking, saldi e movimenti arrivano automaticamente dalle banche collegate. Il caricamento manuale è stato disattivato nella scheda Conti Bancari."
+      },
+      {
+        "q": "Come collego una banca nuova?",
+        "a": "Vai nella scheda \"Conti Bancari\" e clicca \"Collega prima banca\" (o \"Collega altra banca\" se ne hai già una): ti verrà chiesto di dare il consenso sul sito della tua banca, poi di importare i conti."
+      },
+      {
+        "q": "Cosa significa \"Da riconciliare\" su un movimento?",
+        "a": "Vuol dire che quel movimento in uscita non è ancora stato abbinato a nessuna fattura fornitore. Puoi abbinarlo dalla scheda Riconciliazione."
+      },
+      {
+        "q": "Ho confermato un abbinamento sbagliato, come lo tolgo?",
+        "a": "Nella scheda Riconciliazione passa alla vista \"Riconciliati\" e clicca \"Annulla abbinamento\" sul movimento interessato: la fattura torna aperta e il movimento torna disponibile per un nuovo abbinamento."
+      },
+      {
+        "q": "Cosa vuol dire l'etichetta \"chiusa a mano\" su un abbinamento suggerito?",
+        "a": "Significa che quella fattura era già stata segnata come pagata manualmente, ma senza collegarle il movimento bancario. Il sistema ora controlla ogni movimento anche contro queste fatture: quando trova il bonifico che l'ha pagata (stesso importo e stesso fornitore nella causale) propone l'aggancio. Confermandolo la fattura resta pagata e il movimento smette di risultare \"da riconciliare\", senza registrare due volte il pagamento. Questi casi non si chiudono mai da soli: li confermi tu, uno per uno."
+      },
+      {
+        "q": "Ho un costo che torna ogni mese uguale (Trenitalia, Telepass, NEXI, vigilanza…): come vengono abbinati?",
+        "a": "Questi costi ricorrenti a importo fisso vengono abbinati in automatico fattura-per-movimento in ordine di data: la fattura di gennaio con il pagamento di gennaio, febbraio con febbraio e così via. Una stessa fattura non viene mai proposta per più movimenti. Se in un mese c'è un pagamento ma la fattura non è ancora in gestionale, quel movimento resta \"da riconciliare\" finché la fattura non arriva. Se invece fattura e movimento sono l'uno per l'altro (unico importo, unico movimento, stesso fornitore), l'abbinamento si chiude da solo."
+      },
+      {
+        "q": "Un bonifico ha pagato più fatture insieme: come lo abbino?",
+        "a": "Nella scheda Riconciliazione, sotto le altre proposte, c'è la sezione \"Pagamenti raggruppati — un bonifico, più fatture\". Il sistema cerca la combinazione di fatture dello stesso fornitore la cui somma coincide con l'importo del movimento e te la propone già pronta; propone il gruppo più piccolo che quadra e riconosce anche gli addebiti che saldano molte fatture insieme (es. un unico addebito SDD di utenza che chiude cinque bollette). Con \"Conferma gruppo\" agganci tutte le fatture del gruppo a quell'unico movimento in una volta sola. È un'operazione tutto-o-niente: se la somma delle fatture non corrisponde esattamente all'importo del bonifico, non abbina nulla e te lo segnala. Molti di questi addebiti, quando la banca elenca in causale i numeri delle fatture, ora si chiudono già da soli senza doverli confermare a mano."
+      },
+      {
+        "q": "Come faccio a sapere ogni giorno cosa è stato riconciliato e cosa resta da abbinare?",
+        "a": "In cima alla scheda Riconciliazione c'è il \"Riepilogo del giorno\": la tessera \"Riconciliati oggi\" mostra i pagamenti abbinati nella data scelta (con totale), la tessera \"Da riconciliare\" mostra i movimenti in uscita ancora senza fattura. Clicca su una tessera per aprire il dettaglio, cambia la data con le frecce o il calendario e usa il menu del periodo per filtrare le uscite non abbinate."
+      },
+      {
+        "q": "Ho creato una distinta di pagamento ma il saldo del conto non è cambiato: perché?",
+        "a": "È corretto: il saldo reale rispecchia sempre e solo i soldi effettivamente in banca (sincronizzati via Open Banking), e finché il pagamento non è davvero uscito il saldo non si muove. La distinta è un impegno, non un pagamento eseguito. Per vedere l'effetto della distinta guarda il saldo previsionale (\"prev.\") mostrato accanto al saldo reale nella card del conto, nei \"Saldi per banca\" e sotto la \"Posizione di cassa\": è il saldo reale meno le distinte (fornitori + F24) ancora da pagare su quel conto. Quando il pagamento avviene ed è riconciliato, quell'importo esce dal previsionale ed è già dentro il saldo reale."
+      },
+      {
+        "q": "Che differenza c'è tra saldo reale e saldo previsionale?",
+        "a": "Il saldo reale è la liquidità effettivamente presente sul conto in questo momento (dato che arriva dalla banca). Il saldo previsionale è il saldo reale meno le distinte di pagamento ancora da saldare (fatture fornitori e scadenze fiscali/F24 messe in distinta ma non ancora pagate) assegnate a quel conto: ti dice quanto ti resterebbe una volta pagato tutto ciò che hai già disposto. Degli importi già pagati non resta traccia negli impegni: quelli sono usciti davvero e stanno già dentro il saldo reale, quindi non vengono sottratti due volte (anche quando la fattura è stata saldata solo in parte). Il previsionale non modifica mai il saldo reale e non ti impedisce di usare la disponibilità del conto: nello Scadenzario, se decidi di pagare qualcosa con soldi già impegnati in una distinta precedente, il gestionale te lo segnala in arancione e te lo fa confermare, poi procede."
+      },
+      {
+        "q": "Dove prendo il file da mandare alla commercialista?",
+        "a": "Nella scheda \"Prima Nota\": scegli periodo e conto, poi scarica in CSV o Excel. Ogni riga riporta il tipo di movimento, la controparte e tutte le fatture o l'F24 che salda; prima di consegnare porta a zero il contatore \"Da chiarire\"."
+      },
+      {
+        "q": "Il commercialista vuole l'elenco delle fatture pagate nel mese, non i movimenti: dove lo prendo?",
+        "a": "In Banche → Prima Nota, vista \"Pagamenti fornitori\": una riga per ogni fattura pagata nel periodo, con conto e data del movimento, imponibile, IVA, importo pagato, metodo, categoria e conto CE. Comprende contanti, carta e note di credito compensate. Nell'Excel è il secondo foglio, sempre presente anche se stai guardando i movimenti."
+      },
+      {
+        "q": "Come faccio a sapere che l'estratto conto della Prima Nota è completo prima di mandarlo allo studio?",
+        "a": "Dal riquadro \"Quadratura con l'estratto conto\" in Banche → Prima Nota (vista Movimenti banca): per ogni conto il saldo al giorno prima del periodo più i movimenti del periodo deve dare il saldo all'ultimo giorno secondo la banca. I saldi arrivano dallo scarico A-Cube, non dai nostri movimenti (rettificati con i movimenti arrivati dopo lo scarico, che vedi indicati), quindi se dice \"quadra\" non manca niente e non c'è niente di doppio. La stessa tabella è nel foglio Riepilogo dell'Excel. Il contante ha il suo blocco: versamenti e prelievi dal lato banca e, da settembre 2026, incassi, spese, versamenti e fondo cassa dalle chiusure."
+      },
+      {
+        "q": "Lo studio confronta l'Excel con l'estratto conto della banca e trova un movimento in un mese diverso: perché?",
+        "a": "La banca stampa l'estratto conto per data contabile, che per competenze e commissioni di fine mese può cadere nel mese successivo rispetto alla data dell'operazione. In Banche → Prima Nota imposta \"Periodo per\" su \"Data contabile (banca)\": il periodo, i saldi e il foglio per conto seguono le stesse date dell'estratto conto. La colonna Data operazione resta nel file per chi la vuole."
+      },
+      {
+        "q": "Il commercialista vuole gli incassi divisi per negozio: da dove li prendo?",
+        "a": "In Banche → Prima Nota, vista \"Incassi per outlet\": ogni accredito POS o Amex e ogni versamento di contante è attribuito al punto vendita dal codice terminale o dalla parola chiave del canale (o dalla chiusura di cassa già abbinata), con una tabella per outlet in alto. Nell'Excel è il terzo foglio. Se una riga resta \"Da attribuire\", il codice terminale o la parola chiave mancano nei canali dell'outlet: si aggiungono in Incassi giornalieri → Canali e la riga si sistema da sola."
+      },
+      {
+        "q": "Lo studio mi chiede per ogni dipendente il netto pagato nel mese e con quale bonifico: dove lo trovo?",
+        "a": "In Banche → Prima Nota, vista \"Dipendenti\": una riga per busta paga con nome e cognome, outlet, mese di competenza, netto, data del pagamento, conto e ID flusso CBI della disposizione per emolumenti che l'ha pagata. L'abbinamento è automatico: l'importo dei bonifici scritto nella causale della banca deve coincidere al centesimo con la somma dei netti di un gruppo di buste dello stesso outlet (mese prima o stesso mese). Nell'Excel è il foglio \"Dipendenti ed emolumenti\". Servono i netti caricati in Personale → Costo del personale: se una disposizione resta \"senza buste\", o le buste di quel mese non sono ancora importate o l'importo non torna."
+      },
+      {
+        "q": "Come porto in Prima Nota le spese fatte con le carte aziendali?",
+        "a": "In Banche → Prima Nota, vista \"Carte\", clicca \"Importa estratto carta\" e scegli il PDF dell'estratto (CartaBCC/Numia, Carta Montepaschi) o l'Excel/PDF del portale della prepagata Tasca: il sistema legge carta, mese e operazioni dal documento, mostra l'anteprima e salva le righe, archiviando il file. Ogni spesa viene agganciata alla fattura pagata con carta con lo stesso importo, e per le carte di credito viene cercato in banca l'addebito dell'estratto (per la BCC un movimento solo per le due carte, più le commissioni). Nell'Excel ogni carta ha il suo foglio, come i conti. Gli estratti archiviati prima di questa funzione hanno il pulsante \"Leggi le righe dal file archiviato\"."
+      },
+      {
+        "q": "In Prima Nota un addebito RiBa mostra una fattura sola, ma ne pagava trenta: perché?",
+        "a": "Non più: ogni movimento porta tutte le fatture agganciate. La controparte diventa \"N fornitori (M fatture)\" se i fornitori sono più di uno, la causale elenca tutti i numeri e la colonna Fatt. conta le fatture. Se ne vedi meno di quelle attese, vuol dire che le altre non sono ancora agganciate a quel movimento: si fa in Riconciliazione."
+      },
+      {
+        "q": "Dove trovo la categorizzazione automatica delle spese con l'intelligenza artificiale?",
+        "a": "È in una pagina separata dal menu, \"AI Categorie\" (sezione AI & Analytics): non è dentro Banche, ma lavora sugli stessi movimenti."
+      }
+    ]
+  },
+  {
+    "path": "/ai-categorie",
+    "icon": "Sparkles",
+    "title": "AI Categorie",
+    "description": "Questa pagina usa l'intelligenza artificiale per proporre automaticamente una categoria di spesa a ogni movimento bancario, così non devi assegnarle tutte a mano. Tu resti sempre al comando: puoi confermare, correggere o assegnare manualmente ogni suggerimento.",
+    "sections": [
+      {
+        "heading": "Cosa vedi in alto: i numeri della categorizzazione",
+        "body": "In cima alla pagina trovi cinque numeri: quanti movimenti sono stati caricati in totale, quanti hanno già una categoria confermata, quanti hanno un suggerimento dell'IA ancora da verificare, quanti non hanno nessun suggerimento e quante anomalie sono state rilevate. Sono gli stessi movimenti bancari che vedi nella pagina Banche: qui non devi caricare nulla, lavori direttamente su quelli già presenti.",
+        "steps": [
+          "Guarda il numero \"Da verificare\": indica quanti suggerimenti dell'IA aspettano una tua conferma.",
+          "Guarda \"Non categorizzati\": sono i movimenti per cui l'IA non ha trovato nessun suggerimento e vanno assegnati a mano."
+        ]
+      },
+      {
+        "heading": "Avviare la categorizzazione automatica",
+        "body": "Il pulsante \"Avvia categorizzazione AI\" analizza i movimenti senza categoria e propone per ciascuno la categoria di spesa più probabile, basandosi su regole imparate in precedenza, parole chiave nella descrizione e pattern ricorrenti. Al termine compare un messaggio con quanti movimenti sono stati categorizzati e quanti erano già a posto.",
+        "steps": [
+          "Clicca \"Avvia categorizzazione AI\" e attendi il messaggio di completamento.",
+          "Passa alla scheda \"Da verificare\" per controllare i suggerimenti appena generati."
+        ]
+      },
+      {
+        "heading": "Verificare e correggere i suggerimenti",
+        "body": "I movimenti sono organizzati in quattro schede: \"Da verificare\" (l'IA ha proposto una categoria ma tu non l'hai ancora confermata), \"Non categorizzati\" (nessun suggerimento disponibile), \"Confermati\" (categoria approvata da un'operatrice) e \"Tutti\". Per ogni suggerimento vedi una percentuale di confidenza (verde se alta, arancione se media, rossa se bassa) e il metodo usato dall'IA (regola appresa, parola chiave, pattern o assegnazione manuale). Passando il mouse (o toccando, da telefono) sulla descrizione di un movimento compare un riquadro di spiegazione: mostra la descrizione completa, la controparte, lo stato (confermato, suggerito da verificare o non categorizzato), la categoria, il significato della confidenza e del metodo, e soprattutto l'impatto — cioè in quali report entra quel movimento e perché. Il punto chiave è che solo una categoria confermata viene conteggiata nei report (Conto Economico vista cassa, Margini per Categoria, Costi Ricorrenti): finché un suggerimento dell'IA resta \"da verificare\" non muove nessun numero. Puoi accettare il suggerimento con \"Conferma\", oppure cliccare \"Correggi\" (o \"Assegna\" se manca) per scegliere tu la categoria giusta da un menu a tendina.",
+        "steps": [
+          "Apri la scheda \"Da verificare\" per vedere i movimenti con un suggerimento IA in attesa.",
+          "Per ogni riga, clicca \"Conferma\" se la categoria proposta è corretta.",
+          "Se la categoria proposta è sbagliata, clicca \"Correggi\", scegli la categoria giusta dal menu e salva.",
+          "Per i movimenti nella scheda \"Non categorizzati\", clicca \"Assegna\" e scegli tu la categoria.",
+          "Anche un movimento già confermato può essere cambiato: clicca \"Modifica\" sulla sua riga."
+        ]
+      },
+      {
+        "heading": "Confermare più movimenti insieme",
+        "body": "Quando ci sono molti suggerimenti con confidenza alta, non serve confermarli uno per uno: il pulsante \"Conferma tutti ≥85%\" accetta in blocco tutti i movimenti con almeno l'85% di confidenza, dopo una richiesta di conferma con il numero di movimenti coinvolti. La conferma in blocco fa esattamente quello che faresti riga per riga, quindi anche da qui l'IA impara: ogni categoria confermata rafforza le regole che rendono più precisi i suggerimenti successivi. Se qualche movimento non riesce, gli altri restano confermati lo stesso e compare un avviso con quanti sono rimasti indietro.",
+        "steps": [
+          "Clicca \"Conferma tutti ≥85%\" quando compare (è visibile solo se ci sono suggerimenti in attesa).",
+          "Conferma nel messaggio che appare: i movimenti selezionati passano automaticamente tra i \"Confermati\".",
+          "Se compare l'avviso delle conferme non riuscite, torna sulla scheda \"Da verificare\": i movimenti rimasti sono ancora lì e puoi riprovare.",
+          "Controlla comunque a mano i pochi movimenti rimasti con confidenza più bassa."
+        ]
+      },
+      {
+        "heading": "Anomalie da controllare",
+        "body": "Il pulsante \"Rileva anomalie\" fa analizzare i movimenti alla ricerca di situazioni da controllare: possibili duplicati, importi fuori dal normale o scadenze fornitore non pagate. I risultati compaiono nel pannello \"Anomalie\", con una breve descrizione e, quando disponibile, un suggerimento su come risolvere. Segnalare un'anomalia non modifica né cancella nessun dato: serve solo a segnalarti qualcosa da verificare di persona.",
+        "steps": [
+          "Clicca \"Rileva anomalie\" per aggiornare l'elenco.",
+          "Clicca \"Anomalie (N)\" per aprire o chiudere il pannello con il dettaglio.",
+          "Dopo aver controllato e sistemato una segnalazione, clicca \"Risolvi\" sulla riga per toglierla dall'elenco."
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Cos'è la percentuale di \"confidenza\" accanto a un suggerimento?",
+        "a": "Indica quanto l'IA è sicura della categoria proposta: più è alta (verde), più il suggerimento è affidabile. Sotto una certa soglia il colore diventa arancione o rosso, segno che conviene controllare bene prima di confermare."
+      },
+      {
+        "q": "L'IA ha sbagliato categoria, come la correggo?",
+        "a": "Clicca \"Correggi\" (o \"Modifica\" se il movimento era già confermato), scegli la categoria giusta dal menu a tendina e salva. La correzione resta memorizzata sul movimento."
+      },
+      {
+        "q": "Devo controllare ogni singolo movimento uno per uno?",
+        "a": "No. Puoi usare \"Conferma tutti ≥85%\" per accettare in blocco i suggerimenti con confidenza alta, e dedicare tempo solo ai pochi movimenti con confidenza bassa o senza suggerimento. Vale come confermarli a mano uno per uno, comprese le regole che l'IA impara dalle tue conferme."
+      },
+      {
+        "q": "Da dove arrivano i movimenti che vedo in questa pagina?",
+        "a": "Sono gli stessi movimenti bancari che vedi nella pagina Banche: qui non c'è nessun caricamento da fare, lavori direttamente sui dati già presenti nel gestionale."
+      },
+      {
+        "q": "Confermare un suggerimento cambia i numeri delle altre pagine?",
+        "a": "Sì, ma solo quando confermi: la categoria confermata fa entrare quel movimento nei report per categoria (Conto Economico nella vista cassa, Margini per Categoria, Costi Ricorrenti). Un suggerimento ancora \"da verificare\" non è conteggiato da nessuna parte. Per vedere l'impatto di ogni movimento passa il mouse sulla sua descrizione: il riquadro spiega stato, categoria, confidenza, metodo e in quali report entra."
+      },
+      {
+        "q": "Cosa devo fare quando vedo un'anomalia segnalata?",
+        "a": "Leggi la descrizione e il suggerimento su come risolverla, verifica il movimento (ad esempio se è davvero un duplicato), sistema il dato se necessario e poi clicca \"Risolvi\" per toglierla dall'elenco."
+      },
+      {
+        "q": "I contatori in alto (confermati, da verificare, non categorizzati) considerano tutti i movimenti?",
+        "a": "Sì: i contatori e i totali si basano sull'intero elenco dei movimenti dell'azienda, non solo su una parte. Prima venivano calcolati solo sui movimenti più recenti (fino a 500) e potevano risultare incompleti; ora rispecchiano tutti i movimenti presenti."
+      }
+    ]
+  },
+  {
+    "path": "/dipendenti",
+    "icon": "Users",
+    "title": "Personale",
+    "description": "La pagina Personale raccoglie l'anagrafica dei dipendenti, i cedolini mensili (netto e costo lordo) e il confronto con il budget del personale, tutto suddiviso per punto vendita. È il punto dove tenere aggiornati organico, stipendi e allocazioni.",
+    "sections": [
+      {
+        "heading": "Come è organizzata la pagina",
+        "body": "In alto trovi cinque schede: Panoramica, Per outlet, Organico, Costi & cedolini, Costo lordo. In alto a destra puoi scegliere l'anno e il mese di riferimento: quasi tutti i numeri della pagina (netti, organico attivo) si riferiscono al mese selezionato. Il pulsante \"Dipendente\" in alto apre subito il modulo per aggiungere una persona nuova."
+      },
+      {
+        "heading": "Panoramica",
+        "body": "Mostra i numeri di sintesi del mese e dell'anno scelti: quante persone sono in organico (cioè hanno un cedolino caricato per quel mese), il costo del personale a budget, il totale dei netti pagati nel mese, il costo medio per addetto e l'incidenza del costo del personale sui ricavi. C'è anche un grafico a barre con il costo per ogni punto vendita e un riquadro \"Quadratura del personale\" che confronta tre fonti diverse (netti caricati, budget, bilancio) per verificare che i numeri si avvicinino tra loro."
+      },
+      {
+        "heading": "Per outlet",
+        "body": "Elenca ogni punto vendita con il numero di dipendenti pagati nel mese, il netto totale e il costo annuo a budget. Aprendo un punto vendita vedi l'elenco delle persone assegnate con il relativo netto del mese. In fondo trovi la sezione \"Amministratori\", separata dagli altri dipendenti perché non entra nei conteggi di organico."
+      },
+      {
+        "heading": "Organico — l'anagrafica dei dipendenti",
+        "body": "È l'elenco completo delle persone, raggruppate per sede. Puoi filtrare per stato (Attivi, Cessati, Tutti), per sede e cercare per nome. Da qui gestisci ogni dipendente con le icone azione sulla riga.",
+        "steps": [
+          "Per aggiungere un dipendente: clicca \"Dipendente\" e compila almeno cognome, nome e data di inizio contratto (obbligatori); puoi indicare anche matricola, codice fiscale, qualifica, livello, tipo di contratto e, se è a tempo determinato, scadenza e proroghe.",
+          "Per modificare i dati di un dipendente: clicca l'icona a forma di matita sulla riga.",
+          "Per assegnare la persona a uno o più punti vendita: clicca l'icona con il simbolo di percentuale (Allocazione) e indica su quali outlet lavora e con quale percentuale; la somma delle percentuali non può superare il 100%.",
+          "Per caricare il cedolino PDF del mese: clicca l'icona di caricamento sulla riga della persona.",
+          "Per cessare un dipendente: clicca l'icona del cestino, indica la data di cessazione e conferma. Il dipendente NON viene cancellato: resta in archivio tra i \"Cessati\", visibile e riattivabile in qualsiasi momento.",
+          "Per riattivare un dipendente cessato: nella scheda dei cessati clicca l'icona di riattivazione.",
+          "Per aprire la scheda con il dettaglio mese per mese dei netti: clicca sul nome del dipendente oppure sull'icona documento."
+        ]
+      },
+      {
+        "heading": "Scheda dipendente: i netti mese per mese",
+        "body": "Aprendo la scheda di una persona trovi i dati anagrafici e di contratto in sola lettura (con un pulsante \"Modifica\" per correggerli) e dodici caselle, una per mese, dove inserire il netto in busta paga. Il sistema tiene conto di 14 mensilità: la tredicesima va sommata al netto di dicembre e la quattordicesima al netto di giugno. Il totale annuo mostrato è semplicemente la somma dei mesi compilati, non una stima. Attenzione: i valori inseriti a mano qui sono provvisori — se in seguito importi l'elenco netti ufficiale dello stesso mese, quello sovrascrive il valore inserito manualmente."
+      },
+      {
+        "heading": "Costi & cedolini",
+        "body": "Qui trovi, raggruppati per sede, tutti i cedolini (netti) caricati per il mese selezionato, con il totale pagato e la possibilità di aprire il PDF del cedolino di ogni persona. In fondo alla pagina c'è l'importazione dei netti (buste paga), che accetta PDF oppure fogli Excel/CSV. I costi lordi NON si caricano da qui: hanno una porta sola, la scheda «Costo lordo», e in fondo alla pagina c'è il collegamento per andarci. Il carico dei netti è ciò che rende definitivo il mese: da ogni riga il sistema prende anche la filiale, che diventa il punto vendita di quella persona PER QUEL MESE. Se in seguito la persona viene spostata, i mesi già caricati restano come erano.",
+        "steps": [
+          "Il software paghe stampa a parte un tabulato \"Netti negativi\": sono le persone che quel mese non incassano nulla e devono restituire, per effetto di un conguaglio. Quel file NON si importa, per scelta: il netto del mese deve restare quello effettivamente pagato, cioè quello che esce dalla banca, e il negativo si recupera dal cedolino del mese successivo. Se lo carichi per sbaglio il gestionale lo riconosce e te lo dice, e il file finisce comunque in archivio.",
+          "Da qui si caricano i netti. Il file con i costi lordi aziendali va invece nella scheda «Costo lordo»: sono due dati distinti con due documenti distinti, e caricare i netti non riempie i costi lordi. L'avviso giallo \"il cedolino è già stato caricato\" compare solo se quel mese ha già dei netti dello stesso tipo di cedolino.",
+          "Tocca l'area per selezionare il file dal tuo dispositivo, oppure (da computer) trascinalo dentro.",
+          "Il sistema prova a riconoscere automaticamente ogni dipendente (per matricola o per nome e cognome); se non lo trova, propone di crearne uno nuovo. Se la stessa persona compare nel file con due matricole diverse, viene creata una scheda sola: dentro un unico file paghe, due righe con lo stesso cognome e nome sono la stessa persona. La matricola in più finisce nel registro delle matricole, così i mesi successivi si agganciano da soli.",
+          "Controlla l'anteprima: viene mostrato anche lo scostamento tra il totale calcolato e il totale dichiarato nel file, così puoi accorgerti subito di eventuali errori. Se una persona compare su più righe (conguagli o cedolini separati), l'anteprima lo segnala e gli importi vengono sommati in un'unica riga del mese.",
+          "Se il file non fa capire la filiale di qualche riga, l'anteprima lo dice con un avviso giallo e i nomi delle persone coinvolte. Quelle persone tengono il punto vendita che hanno già in anagrafica; chi non ne ha resta \"da assegnare\" finché non glielo dai in Organico. Quando invece la filiale c'è, e la persona non ha ancora una sede, il carico gliela assegna da solo: chi ce l'ha già non viene mai riscritto dall'import.",
+          "Il gestionale riconosce la filiale confrontandola con il nome del punto vendita, il nome del centro commerciale e la città. Se il consulente del lavoro usa un nome che non somiglia a nessuno di questi (capita quando cambia indirizzo o apre una seconda posizione per la stessa struttura), quella filiale si può associare al punto vendita giusto una volta sola, e da lì in poi viene riconosciuta da sé in tutti i mesi. È una configurazione dell'anagrafica outlet: segnalala a chi gestisce il sistema indicando il nome esatto che compare nel file.",
+          "Prima di confermare leggi il riquadro \"Cosa cambia\": ti dice quante persone entrano nel mese, quante escono (cioè erano a sistema ma non sono in questo file) e chi cambia punto vendita rispetto a quanto risultava. I conteggi sono di PERSONE, non di righe: se qualcuno lavora su due filiali il file ha due righe ma la persona è una, e il riquadro lo scrive fra parentesi. Ricaricando lo stesso file quindi non deve cambiare niente: zero entrati, zero usciti, stesso numero di cedolini.",
+          "Se qualcuno è uscito, puoi spuntare \"Togli dal mese chi non è nel file\": serve quando ricarichi un mese corretto dopo uno sbagliato, altrimenti le persone di troppo continuerebbero a essere contate. La spunta è spenta di default e non cancella niente: il netto viene azzerato e i valori restano recuperabili nello storico degli import.",
+          "Conferma l'importazione: i dati salvati per il mese vengono aggiornati (se esistevano già dei netti per quel mese, vengono sovrascritti)."
+        ]
+      },
+      {
+        "heading": "Costo lordo",
+        "body": "Questa scheda mostra il costo aziendale del personale, e ha due livelli alimentati da due documenti diversi. Il documento principale è il \"Prospetto riepilogativo elaborazione paghe\", che il consulente manda OGNI MESE: dà il costo del lavoro per punto vendita, i compensi degli amministratori tenuti separati e le posizioni INAIL (PAT) su cui stanno i tassi. È da lì che vengono i due numeri in cima alla scheda e il riepilogo mese per mese, perché è la fonte che c'è sempre. Sotto, come approfondimento, c'è il DETTAGLIO PER DIPENDENTE che arriva dalla \"Statistica costo orario\": una riga per persona e mese, con retribuzione, contribuzione e INAIL di ciascuna e il TFR già dentro la retribuzione. Quel report però si richiede a mano al consulente, quindi copre solo i mesi in cui è stato chiesto: serve a vedere chi c'è dentro il costo di un punto vendita, non a fare i totali. Quando arriva un aggiornamento lo si carica e i mesi nuovi compaiono lì sotto. Sono due sguardi sullo stesso costo, uno per persona e uno per negozio, e il gestionale mostra la differenza fra i due totali accanto a ogni outlet quando supera un euro. Il raggruppamento per punto vendita del dettaglio per dipendente va a cascata: prima quello letto al momento del carico, poi l'anagrafica di oggi, così basta assegnare la sede in Organico perché la persona esca dal gruppo \"Da assegnare\" senza ricaricare il PDF. Le righe si agganciano alla persona anche quando il software paghe le cambia la matricola, perché il gestionale tiene il registro di tutte le matricole avute. Ricaricare lo stesso mese aggiorna i dati, non li duplica, e se il file contiene più aziende scegli quale importare. I TASSI INAIL si inseriscono nella tabella \"Tassi INAIL per PAT\" in fondo alla scheda: l'INAIL di ogni outlet è l'imponibile di ciascuna PAT moltiplicato per il suo tasso, quindi finché il tasso manca quell'INAIL vale zero. Un tasso può portare l'etichetta \"stimato\": vuol dire che non viene dall'autoliquidazione INAIL ma è stato dedotto dai mesi in cui il Prospetto paghe e la Statistica costo orario coprono lo stesso periodo, dividendo l'INAIL vero per l'imponibile della PAT. È una stima, serve solo a non lasciare la voce a zero, e passandoci sopra il mouse leggi da dove viene. Appena hai il tasso ufficiale riscrivilo nella casella: il salvataggio a mano toglie l'etichetta. I DUE NUMERI IN CIMA alla scheda leggono la fonte migliore disponibile per ogni mese: il dettaglio per dipendente quando c'è, altrimenti il Prospetto per outlet, e in questo caso il mese porta la scritta \"outlet\" nel riepilogo di periodo, perché di quel mese si sa il costo del punto vendita ma non la ripartizione persona per persona. Nella tabella per outlet, i compensi degli amministratori sono dentro \"Totale retrib.\" ma fuori dal costo del punto vendita: la colonna \"di cui amm.\" li mostra in negativo, così la riga torna leggendola da sinistra a destra. Se lo stesso punto vendita compare su due righe vuol dire che quel mese aveva due filiali aperte, tipicamente durante un trasloco della sede: sotto il nome trovi il codice della filiale per distinguerle, e sono due righe giuste, non un doppione. RICARICARE SOVRASCRIVE: se lo stesso documento viene caricato di nuovo per lo stesso periodo, i dati del mese vengono sostituiti e in Archivio documenti resta in elenco solo il file nuovo. Quello vecchio non viene cancellato, è marcato come sostituito e si rivede con l'interruttore \"Mostra anche le versioni sostituite\"."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Se cesso un dipendente per sbaglio, perdo i suoi dati?",
+        "a": "No. La cessazione non cancella nulla: la persona resta in archivio tra i \"Cessati\" con tutta la sua storia (cedolini, costi, allocazioni) e puoi riattivarla in qualsiasi momento con l'apposita icona."
+      },
+      {
+        "q": "Come si decide quante persone sono in forza in un punto vendita?",
+        "a": "Lo decide il carico dei cedolini di quel mese: le persone con un cedolino caricato per quell'outlet in quel mese. Se a luglio arrivano cinque cedolini dove a giugno ne arrivavano sei, da luglio quell'outlet ha cinque persone, e resta così finché un nuovo carico non dice altro. L'anagrafica serve per i dati della persona, non per fare il numero. Anche il punto vendita è un fatto del mese: viene letto dalla filiale scritta sul cedolino, quindi spostare qualcuno oggi non cambia i mesi già caricati."
+      },
+      {
+        "q": "Perché un dipendente non compare nell'organico del mese anche se è attivo?",
+        "a": "L'organico \"del mese\" conta solo le persone per cui è stato caricato il cedolino (netto) di quel mese. Se manca il cedolino, la persona è comunque nell'anagrafica (scheda Organico) ma non compare nei totali del mese finché non importi o inserisci il suo netto."
+      },
+      {
+        "q": "Qual è la differenza tra la scheda \"Costi & cedolini\" e \"Costo lordo\"?",
+        "a": "\"Costi & cedolini\" gestisce il netto in busta paga per dipendente (quello che la persona riceve) ed è l'unico posto da cui si caricano i netti. \"Costo lordo\" gestisce il costo aziendale completo (retribuzione, contributi, INAIL, TFR) per dipendente e per outlet, alimentato dalla \"Statistica costo orario\" del software paghe, ed è l'unico posto da cui si caricano i lordi. Una porta sola per ogni numero: così non possono esistere due versioni dello stesso costo."
+      },
+      {
+        "q": "Chi sono gli \"Amministratori\" e perché sono separati?",
+        "a": "Sono le persone con qualifica \"Amministratore\". Non vengono conteggiate nell'organico dipendenti né nel costo medio per addetto, ma hanno una loro sezione dedicata (visibile in Per outlet e in Organico) con netto e costo lordo annuo."
+      },
+      {
+        "q": "Perché una persona finisce in \"Da assegnare\" nel costo lordo?",
+        "a": "Perché non ha un punto vendita: né sul dato caricato, né in anagrafica. Succede tipicamente a chi entra in azienda da poco, quando il file paghe non ne dice la filiale. Basta aprire Organico, cliccare l'icona Allocazione sulla sua riga e indicare la sede: il costo lordo si riallinea subito, senza ricaricare niente. Se invece la riga non si aggancia proprio a nessuna persona, vuol dire che la matricola del file non corrisponde a nessuna di quelle in anagrafica: correggi la matricola sulla scheda della persona e ricarica il file."
+      },
+      {
+        "q": "Posso assegnare una persona a più punti vendita contemporaneamente?",
+        "a": "Sì, usando l'icona Allocazione: puoi indicare più sedi con una percentuale ciascuna, purché la somma non superi il 100%."
+      }
+    ]
+  },
+  {
+    "path": "/conto-economico",
+    "icon": "BarChart3",
+    "title": "Conto Economico & Bilancio",
+    "description": "Questa pagina mostra il quadro completo dei conti dell'azienda: ricavi, costi, margini e utile, sia con i dati ufficiali di bilancio sia confrontati con i dati operativi inseriti in Budget & Controllo. Serve per capire a colpo d'occhio come sta andando l'azienda nel periodo scelto.",
+    "sections": [
+      {
+        "heading": "Scegliere il periodo e la vista",
+        "body": "In alto puoi scegliere il tipo di periodo (annuale, trimestrale, mensile o provvisorio) e poi una delle tre viste: 'Competenza' (i dati contabili classici, quelli del bilancio), 'Cassa' (basata sui movimenti bancari reali, entrate e uscite), oppure 'Riconciliazione' (che spiega passo per passo come si passa dal risultato dei punti vendita al bilancio ufficiale). L'anno di riferimento si imposta dal selettore periodo generale del gestionale.",
+        "steps": [
+          "Scegli il tipo di periodo dal primo menu a tendina (annuale, trimestrale, mensile, provvisorio).",
+          "Clicca su 'Competenza', 'Cassa' o 'Riconciliazione' per cambiare vista.",
+          "Attiva 'Confronto YoY' per vedere il confronto con l'anno precedente accanto ai dati dell'anno corrente."
+        ]
+      },
+      {
+        "heading": "In alto: i numeri chiave (KPI)",
+        "body": "Sotto i controlli trovi sei riquadri riassuntivi: Ricavi, Margine lordo, Costo personale, Affitti, Utile ed EBIT, ciascuno con la percentuale sui ricavi. Sono un colpo d'occhio rapido sulla salute economica del periodo scelto. I numeri si basano sul bilancio importato per l'anno e il tipo di periodo selezionati: se per quel periodo non è ancora stato caricato nessun bilancio, al posto dei riquadri (che sarebbero tutti a zero) compare un avviso 'Nessun bilancio per…', con un pulsante 'Vedi [anno]' che ti porta all'ultimo anno per cui esistono dati."
+      },
+      {
+        "heading": "Vista Cassa: entrate e uscite reali",
+        "body": "Mostra i flussi di cassa mese per mese e per categoria, calcolati sui movimenti bancari importati (dalla sezione Banche). Se non è stato ancora importato nulla, la pagina lo segnala chiaramente. C'è anche un confronto diretto tra 'Competenza' (i dati contabili) e 'Cassa' (i soldi effettivamente entrati e usciti), con la differenza (varianza) evidenziata: è normale che ci sia uno scarto, dovuto ai tempi di incasso e pagamento."
+      },
+      {
+        "heading": "Vista Riconciliazione: dal risultato dei negozi al bilancio ufficiale",
+        "body": "Questa vista spiega in tre passaggi come si arriva dal 'Risultato Gestionale' (ricavi meno costi di tutti i punti vendita, meno le spese non divise) al risultato del bilancio ufficiale: prima si sommano le 'Rettifiche di Riconciliazione' (correzioni tecniche, ad esempio la merce comprata ma non ancora venduta), poi si arriva all'EBIT e infine, aggiungendo proventi e oneri finanziari, all'Utile Netto. Se il bilancio ufficiale non è ancora disponibile per l'anno scelto, la pagina lo segnala e mostra solo il calcolo gestionale."
+      },
+      {
+        "heading": "Indici di bilancio",
+        "body": "Una serie di indicatori con soglie di riferimento per il settore retail moda: Margine lordo %, Incidenza personale, Incidenza affitti ed EBIT %. Ogni indicatore mostra il valore, la formula di calcolo e un giudizio (verde/giallo/rosso) rispetto ai valori tipici di riferimento del settore."
+      },
+      {
+        "heading": "Confronto con Budget e Controllo",
+        "body": "Questa sezione mette a confronto il preventivo e il consuntivo così come inseriti nella pagina Budget & Controllo (tab 'Preventivo vs Consuntivo'), mostrando lo scostamento in euro e percentuale per Ricavi, Costi e Risultato gestionale. Se il preventivo dell'anno non è ancora stato compilato, la pagina te lo segnala e ti invita ad andare su Budget e Controllo. Un pallino colorato accanto a un importo segnala che il preventivo contiene ancora voci provvisorie non confermate."
+      },
+      {
+        "heading": "Un avviso importante: incoerenze tra bilancio e budget",
+        "body": "Se i totali del bilancio ufficiale importato non coincidono con la somma delle righe inserite in Budget e Controllo, compare un riquadro di attenzione giallo che elenca le voci in disaccordo, con entrambi i valori a confronto. In questo caso conviene verificare con il commercialista quale dato è quello corretto."
+      },
+      {
+        "heading": "Bilancio — Dettaglio completo",
+        "body": "Qui trovi l'elenco completo e dettagliato delle voci di Stato Patrimoniale (Attività e Passività) e di Conto Economico (Costi e Ricavi), organizzate ad albero (clicca per aprire i dettagli di ogni voce). Con 'Confronto YoY' attivo, ogni totale mostra anche la variazione percentuale rispetto all'anno precedente."
+      },
+      {
+        "heading": "Analisi e raccomandazioni",
+        "body": "Un riepilogo automatico in linguaggio semplice: punti di forza, punti di debolezza e raccomandazioni, generati a partire dai numeri del periodo scelto."
+      },
+      {
+        "heading": "Bilanci importati e Nota Integrativa",
+        "body": "Nel riquadro 'Bilanci importati' trovi l'elenco dei bilanci caricati nel sistema, con lo stato (in attesa, approvato o rifiutato): se un bilancio è 'in attesa', puoi approvarlo o rifiutarlo. Attenzione: una volta approvato, il bilancio è considerato definitivo, quindi prima di confermare controlla che i dati siano corretti. Più in basso, nella 'Nota Integrativa', puoi scrivere liberamente commenti, criteri di valutazione o fatti rilevanti relativi al bilancio del periodo: il testo si salva con il pulsante 'Salva nota'.",
+        "steps": [
+          "Nel riquadro 'Bilanci importati', individua il bilancio con stato 'In attesa'.",
+          "Clicca 'Approva' per confermarlo in via definitiva, oppure 'Rifiuta' se non è corretto.",
+          "Se scegli 'Approva', conferma nella finestra di avviso che si apre.",
+          "Per scrivere una nota, apri la sezione 'Nota Integrativa', scrivi il testo e clicca 'Salva nota'."
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Da dove arrivano i dati di preventivo e consuntivo mostrati in questa pagina?",
+        "a": "Da Budget & Controllo: il preventivo e il consuntivo sono quelli inseriti nel tab 'Preventivo vs Consuntivo' di quella pagina, non dalle fatture o dallo scadenzario."
+      },
+      {
+        "q": "Perché vedo un avviso giallo di 'incoerenza' tra bilancio e budget?",
+        "a": "Significa che i totali del bilancio ufficiale importato e quelli calcolati dalle righe di Budget e Controllo non coincidono per una o più voci. Va verificato con il commercialista quale dato è corretto; spesso la soluzione è reimportare un bilancio corretto."
+      },
+      {
+        "q": "Cosa succede se approvo un bilancio importato per sbaglio?",
+        "a": "L'approvazione lo rende definitivo, quindi è importante controllare i dati prima di confermare nella finestra di avviso che compare. In caso di dubbio, contatta chi gestisce il gestionale prima di approvare."
+      },
+      {
+        "q": "Cosa vuol dire il pallino colorato accanto ad alcuni importi?",
+        "a": "Indica che il valore include ancora voci segnaposto (provvisorie), non ancora confermate in Budget & Controllo, quindi il totale potrebbe non essere definitivo."
+      },
+      {
+        "q": "Le funzioni 'Trend', 'Simulation Mode' e 'Import PDF' non fanno nulla quando ci clicco, perché?",
+        "a": "Sono funzioni segnalate come 'Coming soon': sono già visibili in anteprima ma non ancora attive in questa versione del gestionale."
+      },
+      {
+        "q": "Perché i riquadri KPI (Ricavi, Utile, EBIT…) sono tutti a zero?",
+        "a": "Perché per l'anno e il tipo di periodo selezionati non risulta ancora importato nessun bilancio: i KPI leggono i dati del bilancio ufficiale, quindi senza bilancio restano a zero. In quel caso la pagina non mostra le card a zero ma un avviso 'Nessun bilancio per…' con il pulsante 'Vedi [anno]' che passa all'ultimo anno con dati disponibili. Controlla quindi l'anno impostato nel selettore periodo generale in alto."
+      }
+    ]
+  },
+  {
+    "path": "/budget",
+    "icon": "Calculator",
+    "title": "Budget & Controllo",
+    "description": "La pagina Budget & Controllo serve per costruire il preventivo (Business Plan) di ogni punto vendita e della Sede, confrontarlo mese per mese con i dati reali (consuntivo), e inserire velocemente i corrispettivi. È il cuore del lavoro di budget: tutto quello che scrivi qui alimenta anche il Conto Economico.",
+    "sections": [
+      {
+        "heading": "Le tre schede della pagina",
+        "body": "In alto trovi tre pulsanti (schede): 'Business Plan', 'Preventivo vs Consuntivo' e 'Inserimento Rapido'. Sono tre modi diversi di lavorare sugli stessi dati, quindi quello che salvi in una scheda si vede anche nelle altre. L'anno di riferimento è mostrato accanto al titolo della pagina e si cambia dal selettore periodo generale del gestionale."
+      },
+      {
+        "heading": "Scheda Business Plan: inserire i costi previsti",
+        "body": "Qui vedi una scheda per la Sede e una per ciascun punto vendita. Ogni scheda mostra il totale ricavi (Valore della Produzione), il totale costi previsti e il risultato (utile o perdita). Cliccando sull'intestazione della scheda si apre il dettaglio con l'elenco completo delle voci di costo, organizzate ad albero (macro-categorie che si aprono nei dettagli). I ricavi in questa scheda sono di sola lettura: si inseriscono invece nella scheda 'Inserimento Rapido' o in 'Preventivo vs Consuntivo'.",
+        "steps": [
+          "Apri la scheda del punto vendita (o della Sede) cliccando sulla sua intestazione.",
+          "Nell'elenco 'Componenti Negative' (i costi), clicca sulla freccetta per aprire una macro-categoria e trovare la voce che ti interessa.",
+          "Scrivi l'importo annuale nella casella a destra della voce: il numero si formatta da solo (es. 9.000,00). Appena esci dalla casella il valore si salva automaticamente e appare un segno di conferma verde per qualche secondo.",
+          "In alto vedi aggiornarsi in tempo reale il totale costi e il risultato (utile/perdita) della scheda.",
+          "Se vuoi ripulire tutti i costi inseriti per quel punto vendita, usa il pulsante 'Cancella costi' (chiede conferma prima di procedere)."
+        ]
+      },
+      {
+        "heading": "Approvare e sbloccare un preventivo",
+        "body": "Solo chi ha il permesso di approvare (tipicamente Lilian) vede i pulsanti 'Approva preventivo' e 'Sblocca preventivo'. Un preventivo approvato viene bloccato (non più modificabile) e sulla scheda compare l'etichetta 'Approvato' con la data. Per modificarlo di nuovo occorre sbloccarlo, indicando obbligatoriamente un motivo: questa azione resta registrata nello storico. Chi non ha il permesso di approvazione vede le schede in sola lettura e solo quelle già approvate o sbloccate (le bozze non ancora approvate restano nascoste, per non mostrare dati provvisori).",
+        "steps": [
+          "Compila i costi della scheda.",
+          "Clicca 'Approva preventivo': si apre una finestra di conferma che spiega che il preventivo verrà bloccato.",
+          "Confermi e la scheda passa allo stato 'Approvato' (lucchetto chiuso).",
+          "Se serve correggere qualcosa dopo l'approvazione, clicca 'Sblocca preventivo', scrivi il motivo (almeno 5 caratteri) e conferma."
+        ]
+      },
+      {
+        "heading": "Scheda Preventivo vs Consuntivo",
+        "body": "Questa scheda mette a confronto, voce per voce, il preventivo (quanto avevamo previsto) con il consuntivo (quanto è successo davvero) e mostra lo scostamento in euro e in percentuale. In alto puoi scegliere il punto vendita dal menu a tendina, oppure la vista aggregata 'Tutti gli outlet' che somma tutti i punti vendita (e la Sede, se già approvata). Puoi anche scegliere tra vista 'Annuale' (i totali dell'anno) e vista 'Mensile' (mese per mese). Nella vista aggregata è disponibile solo la vista Annuale.",
+        "steps": [
+          "Scegli il punto vendita (o 'Tutti gli outlet') dal menu a tendina in alto.",
+          "Scegli 'Annuale' o 'Mensile' con i due pulsanti accanto.",
+          "Nella colonna 'Consuntivo' scrivi l'importo realmente registrato per quella voce: appena esci dalla casella si salva da solo (nessun bottone 'Salva' obbligatorio).",
+          "Se serve, usa la colonna 'Rettifica' per una correzione manuale su una voce specifica (es. una spesa dimenticata).",
+          "In fondo trovi il riepilogo con Risultato prima delle imposte, Imposte e Risultato dopo le imposte."
+        ]
+      },
+      {
+        "heading": "Le Imposte",
+        "body": "Nella vista aggregata 'Tutti gli outlet' puoi inserire l'importo annuale delle imposte sul reddito (un unico numero, positivo, per tutta l'azienda): si salva da solo appena esci dalla casella. Il sistema lo ripartisce automaticamente sui punti vendita aperti, in proporzione ai loro ricavi (la Sede non riceve quota). Se guardi il singolo punto vendita, l'importo delle imposte è già la quota calcolata per quel punto vendita e non è modificabile da lì."
+      },
+      {
+        "heading": "Scheda Inserimento Rapido",
+        "body": "È il modo più veloce per inserire i corrispettivi (i ricavi) mese per mese: una tabella con tutti i punti vendita in colonna e due righe, una per il Preventivo (la previsione) e una per il Consuntivo (il dato reale, definitivo, dei mesi già chiusi). Scegli il mese con i pulsanti in alto, poi scrivi gli importi nelle caselle: ogni cella si salva da sola appena esci da essa. Questi numeri alimentano direttamente sia il Business Plan che il Conto Economico. Sotto l'etichetta della riga Consuntivo c'è il pulsante \"Proponi da chiusure cassa\": somma le chiusure di cassa confermate del mese (quelle che le cassiere inseriscono da Chiusura cassa e che si vedono in Incassi giornalieri), scorpora l'IVA con l'aliquota di Impostazioni → Report incassi serale e mostra una tabella con, per ogni punto vendita, le giornate chiuse sul totale del mese (⚠ se il mese non è coperto per intero), i corrispettivi lordi, il consuntivo proposto netto IVA e quello attuale. Niente viene scritto da solo: con \"Usa\" accetti il valore di un punto vendita, con \"Usa tutti\" tutti insieme; il valore finisce nella riga Consuntivo come se lo avessi digitato (granitico).",
+        "steps": [
+          "Clicca sul mese che vuoi compilare (in alto, pulsanti Gen-Dic).",
+          "Nella riga 'Preventivo' scrivi l'importo previsto per ciascun punto vendita.",
+          "Nella riga 'Consuntivo' scrivi l'importo reale (solo per mesi già chiusi): questo dato è considerato definitivo.",
+          "Esci dalla casella (clic altrove o tasto Tab) per salvare: non serve alcun pulsante.",
+          "Per i mesi in cui le cassiere usano Chiusura cassa: premi \"Proponi da chiusure cassa\" e accetta i valori con \"Usa\" o \"Usa tutti\" invece di ricopiarli a mano."
+        ]
+      },
+      {
+        "heading": "Esportare il bilancio",
+        "body": "Dalla scheda 'Preventivo vs Consuntivo' puoi generare un file Excel con il bilancio consuntivo del periodo scelto, tramite il pulsante 'Esporta bilancio' in alto a destra. È disponibile per tutti, anche in sola lettura.",
+        "steps": [
+          "Vai nella scheda 'Preventivo vs Consuntivo'.",
+          "Clicca 'Esporta bilancio' in alto a destra.",
+          "Segui le indicazioni nella finestra che si apre per scaricare il file Excel."
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché non riesco a modificare i costi di un punto vendita?",
+        "a": "O non hai il permesso di approvazione (modalità sola lettura, riservata a chi gestisce i budget), oppure quel preventivo è già stato approvato e quindi bloccato. In quest'ultimo caso serve che chi approva lo sblocchi, indicando un motivo."
+      },
+      {
+        "q": "Cosa vuol dire il pallino colorato accanto ad alcuni importi?",
+        "a": "Segnala che quel valore è ancora un dato segnaposto (provvisorio, non ancora confermato dall'operatrice) e va controllato e confermato."
+      },
+      {
+        "q": "Qual è la differenza tra Preventivo e Consuntivo?",
+        "a": "Il Preventivo è la previsione, un numero che si può sempre correggere. Il Consuntivo è il dato reale del mese chiuso: una volta inserito è considerato definitivo ('granitico') e rappresenta ciò che è davvero successo."
+      },
+      {
+        "q": "Se cambio pagina o punto vendita senza cliccare Salva, perdo i dati inseriti?",
+        "a": "No. Ogni casella si salva automaticamente non appena esci da essa (vedi la conferma verde). Fanno eccezione i ricavi nella scheda Business Plan, gestiti dal pulsante Salva della scheda."
+      },
+      {
+        "q": "Dove inserisco i corrispettivi (ricavi) mese per mese nel modo più veloce?",
+        "a": "Nella scheda 'Inserimento Rapido': è pensata apposta per inserire in pochi secondi preventivo e consuntivo di tutti i punti vendita, mese per mese."
+      }
+    ]
+  },
+  {
+    "path": "/chiusura-cassa",
+    "icon": "Wallet",
+    "title": "Chiusura cassa",
+    "description": "La pagina Chiusura cassa è lo specchietto incassi del negozio, in cinque blocchi. 1) Incassi del giorno: totale corrispettivi dello scontrino di chiusura (con l'unica foto obbligatoria), più le vendite con fattura, uguale il totale incassato, che deve coincidere con la somma dei mezzi di pagamento (contanti, POS, pay by link, bonifico). 2) Spese pagate con i contanti e rimborsi a cliente. 3) Versamento in banca. 4) Fondo cassa contato stasera. 5) Contanti ancora da versare, contati stasera. Dalla foto unica il gestionale legge totale, contanti e le chiusure dei POS e li propone nei campi ancora vuoti, da controllare sempre; le spese e il versamento hanno la loro foto e la loro lettura. La pagina controlla in tempo reale che la giornata quadri, sia sugli incassi sia sul contante, e alla conferma il giorno diventa definitivo. Chi amministra (super advisor e contabile) usa la stessa pagina scegliendo il punto vendita.",
+    "sections": [
+      {
+        "heading": "Il giorno da chiudere",
+        "body": "In alto vedi il punto vendita e il giorno (di default oggi). Con le frecce passi al giorno precedente o successivo; non si può andare oltre oggi. Sotto il giorno compare lo stato: \"Bozza\" finché non confermi, \"Confermata\" dopo. In fondo alla pagina il calendario del mese mostra i giorni già confermati in verde, quelli in bozza in arancione, quelli mancanti in rosso e i giorni di negozio chiuso in grigio: tocca un giorno per aprirlo."
+      },
+      {
+        "heading": "1. Incassi del giorno: corrispettivi + fatture = totale incassato",
+        "body": "Scrivi il totale corrispettivi come compare sullo scontrino di chiusura e fotografalo con il pulsante \"Foto\" sotto il campo: è l'unica foto della giornata ed è obbligatoria, senza non si può confermare (fa eccezione il giorno di negozio chiuso). Metti nell'inquadratura lo scontrino di chiusura del registratore e accanto le chiusure dei POS, come negli esempi. Sotto c'è la riga \"+ Fatture\": le vendite fatte con fattura non passano dallo scontrino, quindi si sommano ai corrispettivi e non sono un mezzo di pagamento. La riga \"= Totale incassato\" è la somma dei due. Poi, sotto \"Come è stato incassato\", un importo per ogni mezzo di pagamento configurato per il tuo negozio, nell'ordine: Contanti, poi tutti i POS (per esempio POS MPS, POS MPS Amex, POS BCC, POS BCC Amex), poi Pay by link e Bonifico. Sui POS non c'è il pulsante foto: le chiusure dei terminali stanno nella foto unica. Dopo lo scatto compare sotto la foto la scritta \"lettura…\" e poi \"dalla foto: importo\": nei campi ancora vuoti il gestionale scrive il totale corrispettivi, i contanti e, se nella foto ci sono le chiusure dei POS, l'importo di ogni terminale nella sua riga (prima confronta il numero di terminale stampato sullo scontrino con l'\"ID terminale POS\" del canale, poi riconosce la banca stampata, per esempio BCC, e mette l'Amex sulla riga Amex; senza indizi usa la riga POS rimasta libera). Se avevi già scritto un importo diverso il chip diventa arancione con il pulsante \"usa\" per copiarlo; con \"(da controllare)\" o \"?\" la lettura è incerta e va verificata sullo scontrino; \"lettura non riuscita\" ha il pulsante \"riprova\". I numeri letti sono solo una proposta: fa fede quello che scrivi tu. Puoi scrivere gli importi con la virgola (es. 1.234,50). In fondo al blocco la riga \"Somma mezzi di pagamento\" confronta i mezzi con il totale incassato: verde se coincide, rossa con la differenza altrimenti. Se un canale è segnato \"fuori totale\" il suo importo non entra nel confronto. Sul telefono l'account di negozio vede solo questa pagina e il Profilo, con le due voci nella barra in basso: niente menu laterale né fascia del tenant.",
+        "steps": [
+          "Tocca \"Foto\" sotto il totale: con l'account di negozio si apre direttamente la fotocamera del telefono; scatta lo scontrino di chiusura con accanto le chiusure dei POS. Chi amministra (super advisor, contabile) vede invece la scelta tra fotocamera e galleria, per caricare una foto ricevuta dal negozio",
+          "Controlla i numeri proposti e completa quelli mancanti: prima Contanti, poi i POS uno dietro l'altro, poi gli altri mezzi; se ci sono vendite con fattura scrivile nella riga \"+ Fatture\"",
+          "Le anteprime compaiono accanto al pulsante: toccane una per vederla a schermo intero",
+          "Finché la chiusura è in bozza puoi togliere una tua foto sfocata con la X sull'anteprima"
+        ]
+      },
+      {
+        "heading": "2. Spese cassa e rimborsi a cliente",
+        "body": "Ogni uscita pagata con i contanti del negozio è una riga a sé. \"Spesa cassa\" ha importo, descrizione e il pulsante per fotografare lo scontrino (facoltativo, ma senza foto potrà esserti chiesto un chiarimento). \"Rimborso a cliente\" ha importo e una nota di spiegazione obbligatoria, nessuna foto. Entrambe riducono il contante atteso in cassa. Il totale della sezione compare in alto a destra; una riga si toglie con il cestino.",
+        "steps": [
+          "Tocca \"Spesa cassa\" o \"Rimborso a cliente\" per aggiungere una riga",
+          "Scrivi importo e descrizione (per il rimborso il motivo è obbligatorio)",
+          "Per la spesa, fotografa lo scontrino con il pulsante della riga"
+        ]
+      },
+      {
+        "heading": "3. Versamento in banca",
+        "body": "Qui registri il versamento fatto oggi, se c'è stato: importo, causale (es. ATM MPS) e la foto della ricevuta, che viene letta e proposta nel campo se era vuoto. Se oggi non hai versato, lascia 0: i contanti restano in cassa e li conti nel blocco 5."
+      },
+      {
+        "heading": "4. Fondo cassa contato stasera",
+        "body": "Il fondo fisso che resta in cassa per domani, contato a fine giornata, senza gli incassi che aspettano il versamento. La prima volta, quando non esiste ancora una chiusura confermata precedente per il negozio, compare il riquadro della partenza, da compilare una volta sola: \"Fondo cassa di ieri\" (il contante fisso che c'era in cassa stamattina) e \"Contanti ancora da versare di ieri\" (incassi dei giorni scorsi non ancora portati in banca; 0 se non ce n'erano). Se non conosci i due valori, usa il campo \"Contanti in cassa adesso, tutti\": conta tutto il contante nel cassetto prima del versamento e scrivilo; il gestionale ricava la partenza togliendo gli incassi in contanti di oggi e rimettendo spese e rimborsi, e te la mostra sotto il campo. Dalla seconda sera la partenza arriva da sola dall'ultima chiusura confermata (fondo contato + contanti da versare contati)."
+      },
+      {
+        "heading": "5. Contanti ancora da versare, contati stasera",
+        "body": "Gli incassi in contanti, di oggi e dei giorni scorsi, che aspettano il prossimo versamento: contali separatamente dal fondo e scrivili qui. Dopo un versamento qui resta solo quello che non hai portato in banca. Sotto il campo la riga \"Contante atteso in cassa\" mostra il conto del gestionale: fondo di ieri + contanti da versare di ieri + contanti di oggi − spese cassa − rimborsi − versamento; lo confronta con quello che hai contato (fondo + da versare): verde se quadra, altrimenti eccedenza o ammanco con l'importo. Esempio: ieri sera fondo 200 e da versare 500; oggi contanti 300, spese 20, versamento 500. Atteso: 200 + 500 + 300 − 20 − 500 = 480. Se stasera conti fondo 200 e da versare 280, quadra; se conti 200 e 250, ammanco di 30."
+      },
+      {
+        "heading": "Rispetto all'obiettivo",
+        "body": "Solo per chi amministra (super advisor e contabile), non per l'account di negozio: sotto il blocco 1, appena c'è un totale, compare il riquadro \"Rispetto all'obiettivo\" (solo se per il mese c'è un budget ricavi nell'Inserimento rapido). Lo stesso confronto è nel dettaglio della giornata in Incassi giornalieri. L'obiettivo di oggi è la quota del budget del mese assegnata a questo giorno: il gestionale distribuisce il budget sui giorni con un peso per giorno della settimana e per i festivi, ricavato dagli ultimi 12 mesi di incassi del punto vendita (in bassa stagione il weekend pesa di più, in alta stagione lavorano anche i feriali). Tre righe: \"Oggi\" (incassato su obiettivo del giorno), \"Settimana a oggi\" (da lunedì a oggi) e \"Mese a oggi\", ognuna con l'etichetta in linea, sopra o sotto e la percentuale. Le fasce non sono uguali: il singolo giorno oscilla molto, quindi è \"in linea\" entro ±30 %; la settimana entro ±15 %; il mese entro ±8 %. Un martedì sotto del 20 % è normale; una settimana sotto del 20 % no. Le giornate mancanti (non ancora chiuse) non contano né nell'incassato né nell'atteso."
+      },
+      {
+        "heading": "6. Salvare e confermare",
+        "body": "\"Salva bozza\" memorizza quello che hai scritto senza chiudere il giorno: puoi tornarci più tardi. \"Conferma chiusura\" rende il giorno definitivo: serve la foto dello scontrino di chiusura e, se il totale o il fondo cassa non quadrano, una nota che spieghi la differenza. Se mancano foto facoltative (chiusure POS, scontrini delle spese, ricevuta del versamento) compare un avviso con l'elenco: puoi tornare a fotografare o confermare comunque, sapendo che potrà esserti chiesto un chiarimento. Nel campo \"Chi ha fatto la chiusura\" scrivi il tuo nome: viene ricordato sul telefono per le volte successive. Dopo la conferma i campi diventano di sola lettura.",
+        "steps": [
+          "Controlla che le due righe di quadratura siano verdi: \"Somma mezzi di pagamento\" nel blocco 1 e \"Contante atteso in cassa\" nel blocco 5 (o scrivi una nota se non lo sono)",
+          "Tocca \"Conferma chiusura\"; se compare l'avviso delle foto mancanti scegli \"Torna a fotografare\" o \"Conferma comunque\"",
+          "Se hai sbagliato qualcosa dopo la conferma, tocca \"Chiedi riapertura\" e indica il motivo: chi amministra riceve un avviso e può riaprire la giornata"
+        ]
+      },
+      {
+        "heading": "Negozio chiuso",
+        "body": "Nei giorni di chiusura del negozio spunta \"Negozio chiuso\" e conferma: la giornata viene registrata a zero, senza foto, così il calendario del mese non ha buchi e fondo cassa e contanti da versare passano invariati al giorno successivo."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Ho fatto la foto ma il numero proposto è sbagliato: cosa faccio?",
+        "a": "Correggi il campo a mano: la lettura automatica è solo una proposta e non sostituisce mai quello che scrivi. Il chip sotto la foto resterà arancione con il valore letto, così chi controlla vede la differenza; se la foto è sfocata o tagliata, rifalla con \"Altra foto\" e usa \"riprova\"."
+      },
+      {
+        "q": "Ho inserito una giornata sbagliata o di prova: come la cancello per rifarla?",
+        "a": "Può farlo solo il super advisor: in fondo alla pagina, accanto ai pulsanti principali, c'è \"Cancella giornata\" (icona del cestino). Chiede conferma e un motivo facoltativo, poi toglie importi, spese, rimborsi, foto e il ricavo giornaliero che quella chiusura aveva creato: la giornata torna vuota e si può reinserire da zero. L'operazione resta tracciata tra le notifiche. Chi non è super advisor può solo chiedere la riapertura."
+      },
+      {
+        "q": "Non riesco a confermare: dice che manca la foto dello scontrino di chiusura",
+        "a": "È l'unica foto obbligatoria: tocca \"Foto\" sotto il campo del totale corrispettivi, scatta lo scontrino di chiusura del registratore e riprova. Solo il giorno di negozio chiuso non la richiede. Le altre foto (chiusure POS, scontrini delle spese, ricevuta del versamento) sono facoltative, ma senza potrà esserti chiesto un chiarimento."
+      },
+      {
+        "q": "Il totale incassato non quadra con i mezzi di pagamento, cosa faccio?",
+        "a": "Ricontrolla gli importi dei singoli mezzi rispetto agli scontrini di chiusura dei POS e al contante contato, e controlla di aver messo le vendite con fattura nella riga \"+ Fatture\" (si sommano ai corrispettivi) e non tra i mezzi di pagamento. Il caso tipico: una fattura pagata con il POS fa incassare al POS più dello scontrino; con la fattura scritta nella sua riga il totale torna. Se la differenza è reale, scrivi nelle Note cosa è successo: la conferma è permessa con una nota, così chi amministra sa come leggerla."
+      },
+      {
+        "q": "Mi chiede il \"fondo cassa di ieri\" e i \"contanti ancora da versare di ieri\": cosa devo scrivere?",
+        "a": "Sono la partenza del contante: il fondo fisso che c'era in cassa stamattina e gli incassi dei giorni scorsi non ancora versati. Li chiede solo la prima volta, quando non esiste ancora una chiusura confermata precedente per il negozio con il fondo contato; dai giorni successivi li prende da solo dall'ultima chiusura confermata. Se non li sai, usa il campo \"Contanti in cassa adesso, tutti\": conta tutto il contante nel cassetto prima di fare il versamento e scrivilo; il gestionale ricava la partenza togliendo gli incassi in contanti di oggi e rimettendo spese e rimborsi pagati in contanti, e la mostra sotto il campo. Poi conta e scrivi separatamente il fondo che resta per domani (blocco 4) e i contanti che aspettano il versamento (blocco 5)."
+      },
+      {
+        "q": "Dove metto una vendita con fattura?",
+        "a": "Nella riga \"+ Fatture\" del blocco 1, che si somma ai corrispettivi per fare il totale incassato. Il modo in cui il cliente ha pagato la fattura (POS, bonifico, contanti) va invece nel mezzo di pagamento corrispondente, come per qualunque altra vendita: così la somma dei mezzi torna con il totale incassato."
+      },
+      {
+        "q": "La foto ha compilato i POS: posso fidarmi?",
+        "a": "Il gestionale legge ogni scontrino di chiusura POS presente nella foto e lo mette nella riga del terminale che riconosce dalla banca stampata (BCC, Nexi/MPS, American Express); se lo scontrino non dice la banca usa la riga POS ancora libera. Va controllato sempre con gli scontrini in mano, soprattutto se il negozio ha due terminali: se un importo è sulla riga sbagliata, correggilo a mano. Compila solo i campi vuoti, mai quelli che hai già scritto."
+      },
+      {
+        "q": "Ho confermato per sbagliato: posso correggere?",
+        "a": "Dopo la conferma il giorno è in sola lettura. Tocca \"Chiedi riapertura\", spiega il motivo e chi amministra (super advisor o contabile) riceverà un avviso per riaprire la giornata; a quel punto potrai correggerla e confermarla di nuovo."
+      },
+      {
+        "q": "Non vedo nessun canale di incasso (contanti, POS…)",
+        "a": "I canali vengono configurati da chi amministra nella pagina Incassi giornalieri, scheda \"Canali di incasso\". Finché non ci sono, la chiusura del tuo negozio non si può compilare: segnalalo a chi amministra."
+      },
+      {
+        "q": "Cosa vuol dire «sotto» nel riquadro Rispetto all'obiettivo?",
+        "a": "Il riquadro lo vede solo chi amministra. Vuol dire che l'incassato è sotto l'obiettivo oltre la fascia di normalità: ±30 % per il singolo giorno, ±15 % per la settimana a oggi, ±8 % per il mese a oggi. Sul giorno singolo capita spesso e non è un problema; guarda la riga della settimana e quella del mese. L'obiettivo di un giorno dipende dal giorno della settimana: un sabato o una domenica valgono tre o quattro volte un martedì."
+      },
+      {
+        "q": "Dove finiscono i numeri che inserisco?",
+        "a": "Alla conferma il giorno viene scritto nei ricavi giornalieri del punto vendita, che alimentano la scheda Corrispettivi dell'outlet, la dashboard e il cashflow. Chi amministra li vede riepilogati per mese nella pagina Incassi giornalieri, con le tue foto accanto ai numeri."
+      }
+    ]
+  },
+  {
+    "path": "/incassi-giornalieri",
+    "icon": "Receipt",
+    "title": "Incassi giornalieri",
+    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali corrispettivi, fatture, totale incassato, mezzi di pagamento, spese, versamenti, fondo cassa, contanti da versare, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Banca\" (super advisor e contabile) si vede il riscontro automatico con i movimenti bancari: accrediti POS e Amex per terminale, versamenti trovati, chiusure verificate. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila e i codici terminale che rendono possibile il riscontro. Compaiono solo i punti vendita che vendono: una sede o un magazzino (tipo \"Sede / magazzino\" nella scheda outlet) resta fuori da questa pagina e da Chiusura cassa.",
+    "sections": [
+      {
+        "heading": "Riepilogo del mese",
+        "body": "Con le frecce scegli il mese. Il pulsante \"Esporta Excel\" scarica il mese in un file .xlsx: un foglio \"Riepilogo\" con i giorni in riga e i punti vendita in colonna (totali di riga e di colonna) e un foglio per ogni punto vendita nella forma del vecchio foglio Excel (totale corrispettivi, fatture, totale incassato, una colonna per canale, spese, rimborsi, versamenti, fondo cassa, contanti da versare, differenza di cassa, stato, chi ha chiuso, note); se hai scelto un solo punto vendita esporta solo quello. Con \"Tutti i punti vendita\" vedi una tabella giorni × outlet: in ogni cella il totale corrispettivi del giorno, colorato in verde se la chiusura è confermata, arancione se è ancora in bozza, rosso se manca (giorno passato senza chiusura), grigio se il negozio era chiuso; l'ultima riga e l'ultima colonna riportano i totali del mese. Scegliendo un solo punto vendita la tabella prende la forma del foglio Excel: una riga al giorno con totale, una colonna per ogni canale di incasso, spese cassa, rimborsi a cliente, versamenti, fondo cassa contato, differenza di cassa, numero di foto (con il segno ≠ se una foto letta automaticamente non coincide con il totale o il versamento scritti) e stato, con i totali di colonna in fondo. Accanto agli importi dei canali POS e Amex e al versamento compare l'esito del riscontro con la banca: ✓ accreditato, ≠ accreditato con differenza, ✗ accredito non trovato, ? canale senza codice terminale; passando il mouse si legge l'importo arrivato in banca. Lo stato \"Verificata con la banca\" indica che tutti i POS del giorno sono stati accreditati e il versamento è stato trovato.",
+        "steps": [
+          "Clicca su una cella (o su una riga) per aprire il dettaglio della giornata",
+          "Nel dettaglio vedi tutti gli importi: totale corrispettivi, \"+ Fatture\" e \"= Totale incassato\", i mezzi di pagamento con la loro somma e la differenza rispetto all'incassato, spese e rimborsi con la loro descrizione, versamento, \"Contante atteso in cassa\" (fondo di ieri + da versare di ieri + contanti − spese − rimborsi − versamento), fondo cassa contato, contanti da versare contati e differenza di cassa; poi le note, chi ha chiuso e quando, e le foto degli scontrini con l'indicazione di cosa giustificano (scontrino di chiusura, chiusura POS di un canale, spesa, versamento): clicca una foto per aprirla a schermo intero. Sotto ogni foto c'è l'esito della lettura automatica: \"dalla foto\" con l'importo letto (verde se coincide con quanto scritto, arancione con la differenza se non coincide o se la lettura è incerta), più i dati secondari letti dallo scontrino (contanti ed elettronico, numero documenti, gran totale, numero azzeramenti, esito trasmissione, terminale POS, data e ora); \"Rileggi\" ripete la lettura. Se manca la foto dello scontrino di chiusura viene segnalato in rosso",
+          "Se la giornata è in bozza, \"Apri per modificare\" porta alla pagina Chiusura cassa di quel giorno e punto vendita",
+          "Il super advisor ha anche \"Cancella giornata\": dopo una conferma esplicita cancella importi, spese, rimborsi, foto e il ricavo giornaliero proiettato, così la giornata torna vuota e può essere reinserita da zero; resta una notifica di traccia con chi, quando e il motivo",
+          "Se la giornata manca, \"Compila la chiusura\" apre la stessa pagina per inserirla"
+        ]
+      },
+      {
+        "heading": "Riaprire una chiusura confermata",
+        "body": "Solo super advisor e contabile possono riaprire una chiusura confermata: nel dettaglio della giornata scrivi il motivo e clicca \"Riapri\". La giornata torna in bozza, il motivo resta registrato e il negozio può correggerla e confermarla di nuovo. Quando una cassiera chiede la riapertura dalla sua pagina, arriva un avviso nella campanella con il collegamento diretto alla giornata."
+      },
+      {
+        "heading": "Canali di incasso",
+        "body": "I canali sono le colonne che la cassiera compila ogni sera: per ogni punto vendita puoi definire nome (es. \"POS MPS\"), tipo (contanti, POS, POS American Express, pay by link, fatture, bonifico, altro), conto bancario su cui accredita, codice terminale, ID terminale POS stampato sulla chiusura del terminale, se l'importo concorre al totale corrispettivi e se il canale è attivo. Un canale non più usato si disattiva, non si cancella. Il codice terminale è la chiave del riscontro con la banca: per i canali POS e Amex sono le ultime 5 cifre del codice che compare negli accrediti (es. 00002); per il canale Contanti è invece la parola che compare nella causale del versamento del negozio (es. PALMANOVA, FOIANO o il numero dello sportello ATM; più parole separate da |). La colonna \"Tolleranza banca %\" (solo canali POS e Amex) è lo scarto percentuale ammesso fra l'importo scritto dalla cassiera e quello arrivato in banca: serve perché l'acquirer accredita al netto delle commissioni (con MPS fra lo 0,4 e l'1,1 % in meno). I canali POS nascono con 1,5 %, gli Amex con 0 (accreditano il lordo); 0 significa che vale solo il centesimo. Attenzione al tipo: l'American Express passato sul POS Nexi/MPS (la voce \"Amexco\" della chiusura di quel terminale) viene accreditato da MPS insieme a Bancomat e Nexi, quindi quel canale è di tipo POS con lo stesso codice del POS MPS; il tipo \"POS American Express\" serve solo per gli Amex accreditati direttamente da American Express (terminale Numia/BCC, causale \"American Express\" con il codice del terminale BCC). In cima alla scheda c'è la tabella \"Codici terminale visti in banca\": elenca i codici trovati negli accrediti degli ultimi 90 giorni con numero, totale, ultima data e causale, e dice se ogni codice è già mappato su un canale. Il campo del codice propone gli stessi codici mentre scrivi.",
+        "steps": [
+          "Apri la scheda \"Canali di incasso\"",
+          "Per un punto vendita senza canali clicca \"Crea canali standard\" (Contanti, POS, Pay by link, Fatture, Bonifico) e poi rinominali e completali",
+          "\"Aggiungi canale\" crea una riga vuota: compila almeno il nome e il tipo",
+          "Nel canale POS di ogni negozio scrivi il codice terminale preso dalla tabella dei codici visti in banca (POS carte nel canale POS, American Express nel canale Amex); nel canale Contanti scrivi la parola chiave del versamento",
+          "Modifica i campi direttamente nella tabella e clicca \"Salva\" sulla riga"
+        ]
+      },
+      {
+        "heading": "Obiettivo del mese",
+        "body": "Sopra la tabella del riepilogo, il riquadro \"Obiettivo del mese\" confronta gli incassi con il budget ricavi dell'Inserimento rapido (Budget → Inserimento Rapido). Il budget dell'Inserimento rapido è netto IVA, le chiusure sono corrispettivi lordi: il riquadro aggiunge l'IVA impostata in Impostazioni → Report incassi serale (22 % di default). Il budget lordo del mese viene distribuito sui giorni con un peso per giorno della settimana e per i festivi, ricavato dagli ultimi 12 mesi di incassi giornalieri di ogni punto vendita (storico dei registri corrispettivi e chiusure di cassa): in bassa stagione (da settembre a maggio) sabato e domenica valgono tre o quattro volte un martedì, in alta stagione (giugno, luglio, agosto, dicembre) i feriali pesano di più; i festivi hanno un peso proprio per outlet. Se un punto vendita ha meno di 12 mesi di storico usa i pesi degli altri; i giorni segnati \"negozio chiuso\" escono dal riparto. Per ogni punto vendita: budget del mese, obiettivo del giorno (l'obiettivo dell'ultimo giorno già chiuso), obiettivo a oggi (somma degli obiettivi dei giorni già chiusi: il giorno di oggi conta solo se la sua chiusura è già inserita), incassato a oggi (chiusure non in bozza), \"Vs obiettivo a oggi\" (scostamento in euro, verde o rosso: dice se si è in linea con il ritmo del mese; la percentuale è nella riga di riepilogo in alto), \"Raggiunto del mese\" (quota del budget del mese già incassata) e proiezione a fine mese (incassato ÷ quota di budget attesa a oggi × budget mese); in fondo il totale dell'azienda. Per un mese passato l'obiettivo a oggi è tutto il budget; per un mese futuro è zero. Se un punto vendita non ha budget per il mese, non compare nel riquadro ed è indicato nella nota sotto. Il riquadro si può nascondere con \"nascondi\". Gli stessi numeri arrivano ogni sera nel report incassi via mail, con la fascia in linea, sopra o sotto per il giorno (±30 %), e nel dettaglio di ogni giornata (clic sulla cella) c'è il riquadro \"Rispetto all'obiettivo\" con giorno, settimana e mese fino a quel giorno, ognuno con in linea / sopra / sotto (fasce ±30 %, ±15 %, ±8 %). Le operatrici di cassa non vedono questi confronti.",
+        "steps": [
+          "Scegli il mese con le frecce: il riquadro segue il mese selezionato",
+          "Con il filtro su un solo punto vendita vedi la riga di quel negozio",
+          "Clicca \"Inserimento rapido\" nella nota per modificare il budget"
+        ]
+      },
+      {
+        "heading": "Banca: riscontro con i movimenti bancari",
+        "body": "Solo super advisor e contabile. Ogni mattina alle 8 (ora italiana) il gestionale confronta le chiusure confermate degli ultimi 60 giorni con i movimenti bancari: per ogni accredito POS legge dalla causale il codice terminale e il giorno di vendita, somma gli accrediti di quel giorno e li confronta con l'importo scritto dalla cassiera sul canale con quel codice, entro la tolleranza percentuale del canale (le commissioni trattenute dall'acquirer); per gli accrediti American Express, che portano la data dell'accredito e coprono più giornate (fine settimana, giorni con pochi Amex), cerca la sequenza di giornate consecutive fino a 10 giorni prima la cui somma sul canale Amex coincide con l'accreditato e assegna a ogni giornata la sua quota; se di una giornata è arrivata solo una parte dell'accredito (per esempio il Bancomat ma non ancora il Nexi) la riga resta \"in attesa\" con l'importo parziale per 5 giorni, poi diventa ≠; per il versamento cerca in banca un versamento di contante dello stesso importo entro 6 giorni, con la parola chiave del negozio. Quando tutti i POS del giorno sono accreditati e il versamento è stato trovato, la chiusura passa a \"Verificata con la banca\". La scheda mostra il mese scelto: la tabella dei canali POS (giorni, dichiarato, accreditato, differenza e quante giornate sono ✓ accreditate, ≠ con differenza, ✗ senza accredito, in attesa), la tabella dei contanti per punto vendita (incassati, spese e rimborsi, versamenti dichiarati e trovati in banca, fondo cassa a inizio e fine mese, versamenti non trovati), gli accrediti di terminali non ancora mappati e gli accrediti che non hanno una chiusura confermata per quel giorno. Il pulsante \"Verifica con la banca ora\" lancia subito il riscontro senza aspettare la mattina. Sotto ognuna delle due tabelle c'\u00e8 una riga che spiega il significato delle colonne (dichiarato, accreditato, le quattro colonne \u2713 \u2260 \u2717 e in attesa, versamenti dichiarati e trovati in banca), cos\u00ec non serve aprire la guida per leggerla.",
+        "steps": [
+          "Apri la scheda \"Banca\" e scegli il mese con le frecce",
+          "Se compaiono terminali non mappati, vai in \"Canali di incasso\" e scrivi il codice nel canale giusto, poi torna qui e premi \"Verifica con la banca ora\"",
+          "Una differenza in rosso su un canale indica giornate in cui l'accreditato non coincide con il dichiarato: apri il dettaglio del giorno dal Riepilogo per vedere i movimenti bancari abbinati",
+          "Un versamento \"non trovato\" dopo 7 giorni va controllato con il negozio: importo diverso, versato su un altro conto o non ancora fatto"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché una cella è rossa?",
+        "a": "È un giorno già passato per cui il punto vendita non ha registrato nessuna chiusura, nemmeno in bozza. Apri la cella e usa \"Compila la chiusura\" oppure chiedi al negozio di farla."
+      },
+      {
+        "q": "La cassiera dice che non vede i campi da compilare",
+        "a": "Quasi sempre mancano i canali di incasso per quel punto vendita: vai nella scheda \"Canali di incasso\" e creali (anche con \"Crea canali standard\"). Se invece l'account non vede nessun punto vendita, controlla in Impostazioni → Utenti che all'operatore cassa sia assegnato l'outlet giusto. Un contabile o un altro ruolo aziendale senza punti vendita assegnati li vede tutti; se la pagina mostra l'avviso \"Nessun punto vendita è collegato a questo accesso\", l'accesso ha assegnazioni parziali o sbagliate da sistemare in Impostazioni → Utenti."
+      },
+      {
+        "q": "Chi può riaprire una chiusura confermata?",
+        "a": "Solo super advisor e contabile, dal dettaglio della giornata. La cassiera può soltanto chiederlo dalla sua pagina; la richiesta arriva come avviso nella campanella."
+      },
+      {
+        "q": "Nella scheda Banca cosa vogliono dire le colonne \u2713, \u2260, \u2717 e \"in attesa\"?",
+        "a": "Contano le giornate del mese per quel canale, non gli importi. \u2713 sono le giornate il cui accredito \u00e8 arrivato in banca dell'importo giusto; \u2260 quelle accreditate con un importo diverso da quello dichiarato dalla cassiera, oltre la tolleranza del canale; \u2717 quelle di cui l'accredito non si trova proprio; \"in attesa\" quelle che stanno ancora aspettando l'accredito, o che non si possono verificare perch\u00e9 il canale non ha un codice terminale. La stessa spiegazione \u00e8 scritta sotto la tabella, dentro la pagina."
+      },
+      {
+        "q": "Perch\u00e9 l'accreditato \u00e8 pi\u00f9 basso del dichiarato?",
+        "a": "Perch\u00e9 l'acquirer accredita al netto delle commissioni: con MPS si va indicativamente dallo 0,4 all'1,1 % in meno. Per questo ogni canale ha una \"Tolleranza banca %\" nella scheda Canali di incasso: entro quello scarto la giornata \u00e8 considerata accreditata (\u2713) e non segnalata come differenza. Gli Amex accreditati direttamente da American Express arrivano invece al lordo, quindi nascono con tolleranza 0. Se la differenza \u00e8 grossa e sistematica, di solito il codice terminale del canale \u00e8 sbagliato oppure la tolleranza \u00e8 troppo stretta."
+      },
+      {
+        "q": "Cosa significa la chiusura \"Verificata con la banca\"?",
+        "a": "Che il riscontro automatico ha trovato in banca tutti gli accrediti POS e Amex di quel giorno per gli importi scritti dalla cassiera, e il versamento dichiarato. Non richiede nessuna azione: è la conferma definitiva della giornata. Se una giornata resta \"Confermata\" a lungo, guarda nella scheda Banca quale riga è ≠ o ✗. Una riga Amex resta \"in attesa\" fino a 10 giorni perché American Express accredita a blocchi di più giornate."
+      },
+      {
+        "q": "I totali mensili finiscono nel consuntivo del budget?",
+        "a": "Non ancora in automatico. Alla conferma ogni giornata viene scritta nei ricavi giornalieri del punto vendita (scheda Corrispettivi dell'outlet, dashboard, cashflow); la proposta del consuntivo mensile in Budget e Controllo è prevista in una fase successiva."
+      }
+    ]
+  },
+  {
+    "path": "/stock",
+    "icon": "Package",
+    "title": "Analisi Sell-Through Magazzino",
+    "description": "Una vista che mostra, per ogni punto vendita e categoria di prodotto, quanto velocemente la merce viene venduta (sell-through) e da quanto tempo resta in giacenza. Aiuta a individuare stock in eccesso o che invecchia troppo.",
+    "sections": [
+      {
+        "heading": "Importante: dati simulati",
+        "body": "La pagina mostra un avviso ben visibile \"Dati simulati (demo)\": i numeri di giacenza e sell-through non arrivano da un magazzino reale collegato al gestionale, ma sono generati come esempio sui punti vendita effettivi dell'azienda. Quando in futuro sarà collegata una fonte magazzino vera, questa pagina userà i dati reali."
+      },
+      {
+        "heading": "KPI generali",
+        "body": "Quattro caselle in alto riassumono la situazione: valore totale dello stock a magazzino, tasso di sell-through complessivo (percentuale di merce acquistata già venduta), giorni medi di giacenza e numero di \"alert critici\" (categorie con vendite troppo lente o merce ferma da troppo tempo)."
+      },
+      {
+        "heading": "Grafici sell-through e valore stock",
+        "body": "Due grafici a barre mostrano, per ogni punto vendita, la percentuale di sell-through e il valore economico dello stock rimasto."
+      },
+      {
+        "heading": "Analisi dell'invecchiamento (aging)",
+        "body": "Un grafico e un riepilogo dividono i pezzi in magazzino in quattro fasce di giacenza: 0-30 giorni, 31-60 giorni, 61-90 giorni e oltre 90 giorni. Più pezzi ci sono nelle fasce alte, più c'è merce che resta ferma a lungo e rischia di dover essere scontata."
+      },
+      {
+        "heading": "Avvisi",
+        "body": "Un elenco degli avvisi attivi: \"Basso sell-through\" quando in una categoria si è venduto meno del 40% del comprato, \"Stock aged\" quando la giacenza media supera i 90 giorni (avviso rosso) e \"Stock aging\" quando è tra 60 e 90 giorni (avviso giallo). Ogni avviso indica punto vendita e categoria interessata."
+      },
+      {
+        "heading": "Dettaglio per punto vendita",
+        "body": "Un elenco a fisarmonica con un riquadro per ogni punto vendita: cliccandoci sopra si apre la tabella con tutte le categorie di prodotto (T-shirt, Felpe, Pantaloni, Giacche, Accessori, Calzature), con pezzi acquistati, venduti, in stock, percentuale di sell-through, giorni di giacenza, valore dello stock e potenziale di ricavo se tutto venisse venduto al prezzo pieno.",
+        "steps": [
+          "Clicca sull'intestazione di un punto vendita per aprire o chiudere il dettaglio.",
+          "Nella tabella, la colonna \"Sell-th. %\" è colorata in rosso se sotto il 50% e in verde se sopra.",
+          "La colonna \"Giacenza gg\" è colorata in base alla soglia: verde entro 60 giorni, giallo tra 60 e 90, rosso oltre 90 giorni."
+        ]
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "I punti vendita con data di apertura futura non hanno giacenze né sell-through: compaiono in fondo al dettaglio con la scritta «In apertura dal …: nessun dato operativo prima dell'apertura» e non entrano nelle medie."
+      }
+    ],
+    "faq": [
+      {
+        "q": "I numeri di questa pagina sono affidabili per decidere i riordini?",
+        "a": "No, non ancora: sono dati simulati generati come esempio, non provengono da un magazzino reale. Vanno usati solo per farsi un'idea di come funzionerà la pagina quando sarà collegata a una fonte dati reale."
+      },
+      {
+        "q": "Cosa significa \"sell-through\"?",
+        "a": "È la percentuale di merce acquistata che è stata effettivamente venduta. Ad esempio, se sono stati comprati 100 pezzi e venduti 60, il sell-through è del 60%."
+      },
+      {
+        "q": "Perché una categoria compare tra gli avvisi?",
+        "a": "Perché ha un sell-through sotto il 40% (vende poco rispetto a quanto acquistato) oppure una giacenza media sopra i 60 giorni (la merce resta ferma da tempo)."
+      }
+    ]
+  },
+  {
+    "path": "/analytics-pos",
+    "icon": "BarChart3",
+    "title": "Analytics POS",
+    "description": "Una vista dedicata all'analisi degli scontrini: quanti se ne emettono, quale importo medio, quanti pezzi per scontrino e come si comportano i diversi punti vendita nel corso dell'anno.",
+    "sections": [
+      {
+        "heading": "Importante: dati simulati",
+        "body": "In alto compare l'avviso \"Dati simulati (demo)\": i numeri di scontrini, importi e vendite non arrivano da un sistema cassa reale collegato al gestionale, ma sono generati come esempio sui punti vendita effettivi dell'azienda. Quando la cassa sarà collegata, la pagina mostrerà i dati reali."
+      },
+      {
+        "heading": "Filtri",
+        "body": "Puoi scegliere un punto vendita specifico (oppure lasciare \"Tutti\" per vedere il totale aziendale) e passare tra visualizzazione \"Annuale\" e \"Mensile\"."
+      },
+      {
+        "heading": "KPI principali",
+        "body": "Quattro caselle mostrano: numero totale di scontrini, scontrino medio, pezzi per scontrino (indicatore UPT, cioè quanti articoli in media contiene ogni scontrino) e ricavo medio per pezzo venduto."
+      },
+      {
+        "heading": "Andamento mensile",
+        "body": "Un grafico a linee mostra come cambia lo scontrino medio mese per mese, con una linea per ogni punto vendita. Un grafico a barre mostra invece il numero di scontrini emessi ogni mese, sempre suddiviso per punto vendita."
+      },
+      {
+        "heading": "Distribuzione per fascia di importo",
+        "body": "Un grafico a torta mostra come si distribuiscono gli scontrini in base all'importo: 0-20€, 20-50€, 50-100€, 100-200€ e oltre 200€."
+      },
+      {
+        "heading": "Confronto tra punti vendita",
+        "body": "Una tabella riepiloga, per ogni punto vendita, il numero di scontrini, lo scontrino medio, i pezzi per scontrino, il ricavo per pezzo e l'indicatore UPT. In fondo alla pagina trovi due riquadri con il punto vendita migliore e quello con le performance più basse, in base al ricavo totale annuale."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "I punti vendita con data di apertura futura restano nell'elenco ma non ricevono dati simulati: al loro posto compare «In apertura dal …: nessun dato operativo prima dell'apertura» e sono esclusi da medie, classifiche e grafici."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Posso usare questi numeri per decisioni reali sulle vendite?",
+        "a": "No, non ancora: sono dati simulati generati come esempio, la pagina non è collegata a un sistema cassa reale. Servono a mostrare come funzionerà l'analisi quando i dati reali saranno disponibili."
+      },
+      {
+        "q": "Cosa significa UPT?",
+        "a": "È l'abbreviazione di \"Units Per Transaction\": il numero medio di pezzi venduti per ogni scontrino."
+      },
+      {
+        "q": "Come cambia la pagina se scelgo un solo punto vendita nel filtro?",
+        "a": "I KPI, la distribuzione per fascia di importo e i grafici si aggiornano per mostrare solo i dati di quel punto vendita, invece del totale di tutti gli outlet."
+      }
+    ]
+  },
+  {
+    "path": "/cash-flow",
+    "icon": "Wallet",
+    "title": "Cashflow Prospettico",
+    "description": "Questa pagina mostra la proiezione della liquidità: quanti soldi ci saranno in cassa nei prossimi giorni, settimane o mesi, sommando entrate e uscite previste a quelle già certe. Aiuta a capire in anticipo se in un certo periodo il saldo rischia di andare in negativo.",
+    "sections": [
+      {
+        "heading": "Come è organizzata la proiezione",
+        "body": "In alto puoi scegliere tra tre visualizzazioni: 'Giornaliero' (i prossimi 30 giorni), 'Settimanale' (i prossimi 3 mesi) e 'Mensile' (i prossimi 12 mesi). In tutte e tre trovi lo stesso schema: quattro riquadri con Saldo Iniziale, Entrate Stimate, Uscite Stimate e Saldo Finale Stimato, un grafico con l'andamento e una tabella di dettaglio riga per riga (giorno, settimana o mese).",
+        "steps": [
+          "Scegli la visualizzazione che ti serve cliccando su 'Giornaliero', 'Settimanale' o 'Mensile'.",
+          "Guarda i quattro riquadri in alto per il colpo d'occhio generale.",
+          "Scorri il grafico e la tabella sotto per il dettaglio periodo per periodo."
+        ]
+      },
+      {
+        "heading": "Da dove arrivano i numeri",
+        "body": "Il saldo iniziale è la somma dei conti bancari collegati. Le entrate previste vengono soprattutto dai ricavi inseriti in Budget & Controllo. Le uscite previste sommano: le fatture fornitori e le scadenze dello Scadenzario (comprese quelle pagate solo in parte, di cui viene contato il residuo ancora da pagare), le scadenze fiscali, gli stipendi e i compensi amministratori stimati, i costi ricorrenti (es. affitti), le rate dei finanziamenti e le previsioni manuali che inserisci tu in questa pagina. Le tre viste (Giornaliero, Settimanale, Mensile) usano gli stessi componenti, così i totali sono coerenti tra loro; la settimana in corso parte da oggi e non riconteggia i giorni già passati. Nella vista Mensile, i mesi già passati mostrano il dato reale ('Consuntivo', preso dai movimenti bancari), il mese in corso è etichettato 'In corso' e i mesi futuri sono etichettati 'Previsione'."
+      },
+      {
+        "heading": "Vedere il dettaglio di una riga (entrate o uscite)",
+        "body": "In tabella, gli importi di 'Entrate' e 'Uscite' sono cliccabili: cliccandoci si apre sotto la riga un pannello con l'elenco delle singole voci che compongono quel totale (es. quali fatture, quali scadenze), utile per capire da cosa dipende un numero.",
+        "steps": [
+          "Individua nella tabella il periodo che ti interessa.",
+          "Clicca sull'importo di Entrate o Uscite di quella riga.",
+          "Si apre il dettaglio sotto; clicca di nuovo per richiuderlo."
+        ]
+      },
+      {
+        "heading": "Aggiungere una previsione di uscita manuale",
+        "body": "Se sai già che ci sarà una spesa futura non ancora presente nel sistema (ad esempio un lavoro di ristrutturazione), puoi inserirla manualmente con il pulsante 'Previsione uscita' in alto a destra. Puoi scegliere se è una spesa 'Una tantum' (una volta sola, con una data) oppure 'Ricorrente' (si ripete con una frequenza scelta - mensile, bimestrale, trimestrale, semestrale o annuale - fino a una data di fine, se indicata). Questa previsione entra solo nel Cashflow Prospettico, non nel Conto Economico.",
+        "steps": [
+          "Clicca il pulsante '+ Previsione uscita' in alto a destra.",
+          "Scegli il tipo: 'Una tantum' o 'Ricorrente'.",
+          "Inserisci la data prevista (o la data di inizio, se ricorrente) e, per le ricorrenti, la frequenza e il giorno del mese.",
+          "Inserisci l'importo in euro e una breve descrizione.",
+          "Clicca 'Aggiungi previsione' per salvare."
+        ]
+      },
+      {
+        "heading": "Gestire le previsioni già inserite",
+        "body": "Tutte le previsioni manuali inserite sono elencate nel riquadro 'Previsioni manuali', che puoi aprire o chiudere cliccandoci sopra. Da lì puoi modificare o eliminare ciascuna previsione con le icone a destra della riga.",
+        "steps": [
+          "Apri il riquadro 'Previsioni manuali' in alto (mostra quante ce ne sono e il totale).",
+          "Clicca l'icona della matita per modificare una previsione, oppure l'icona del cestino per eliminarla.",
+          "In caso di eliminazione, conferma nella finestra che appare."
+        ]
+      },
+      {
+        "heading": "L'avviso di saldo negativo",
+        "body": "Se in un periodo futuro il saldo previsto scende sotto zero, in cima alla pagina appare un banner rosso che segnala la data in cui questo accadrà, con le uscite previste e il saldo atteso. È un campanello d'allarme per intervenire in anticipo (es. sollecitare incassi o rimandare spese)."
+      },
+      {
+        "heading": "Aggiornare i dati",
+        "body": "Se hai modificato fatture, scadenze o costi ricorrenti in altre pagine del gestionale, usa il pulsante 'Aggiorna' in alto per rileggere subito i dati più recenti senza dover ricaricare la pagina."
+      },
+      {
+        "heading": "Canone dei punti vendita e decorrenza",
+        "body": "Il canone di ogni punto vendita entra nelle uscite solo dalla data di decorrenza del canone impostata nella scheda outlet (in mancanza, dalla data di inizio contratto o di apertura) e fino all'eventuale chiusura. Un negozio che apre a novembre non pesa sul cashflow dei mesi precedenti; caparra, costi iniziali e altre uscite prima dell'apertura si vedono perché sono nello Scadenzario come scadenze o previsioni."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché alcuni importi di entrate hanno il simbolo ≈ davanti?",
+        "a": "Significa che è una stima basata sul preventivo di Budget & Controllo, non un dato certo: può ancora cambiare."
+      },
+      {
+        "q": "Cosa significano le etichette Consuntivo, In corso e Previsione nella vista Mensile?",
+        "a": "'Consuntivo' è un mese già chiuso con dati reali dai movimenti bancari. 'In corso' è il mese attuale, ancora parzialmente stimato. 'Previsione' è un mese futuro, calcolato solo da stime."
+      },
+      {
+        "q": "Se aggiungo una previsione di uscita qui, si vede anche nel Conto Economico o in Budget & Controllo?",
+        "a": "No. Le previsioni manuali inserite in questa pagina servono solo per il Cashflow Prospettico e non modificano il Conto Economico né il Business Plan."
+      },
+      {
+        "q": "Cosa vuol dire il pallino colorato accanto ad alcuni importi di entrate previste?",
+        "a": "Segnala che la stima di quel mese si basa su voci di budget ancora provvisorie (segnaposto), non confermate in Budget & Controllo."
+      },
+      {
+        "q": "Perché il saldo iniziale non corrisponde a quello che vedo in banca?",
+        "a": "Il saldo iniziale qui è la somma dei conti bancari collegati al gestionale nella sezione Banche: verifica che tutti i conti siano collegati e aggiornati."
+      }
+    ]
+  },
+  {
+    "path": "/fabbisogno",
+    "icon": "Scale",
+    "title": "Simulazione fabbisogno",
+    "description": "Questa pagina mette a confronto gli impegni obbligatori entro una certa data con le risorse che ci saranno davvero in cassa, e dice quanto manca. La differenza rispetto a un cashflow è che qui la scelta di cosa sia obbligatorio la fa una persona, spuntando le voci una per una: il risultato è una decisione misurata, non una regola automatica.",
+    "sections": [
+      {
+        "heading": "Il prospetto di sintesi in alto",
+        "body": "La prima fascia riassume la posizione alla data scelta: impegni obbligatori, risorse disponibili e differenza fra i due, con il grado di copertura in percentuale e, se la cassa passa sotto zero, il giorno in cui accade. Sotto ai tre riquadri una riga di testo spiega il risultato per esteso, così il numero non resta senza contesto. Il campo Data di riferimento in alto a destra sposta tutta la simulazione.",
+        "steps": [
+          "Scegli la data entro cui vuoi ragionare.",
+          "Leggi il terzo riquadro: se è rosso, quella cifra va reperita o rinviata.",
+          "Se compare la data di saldo negativo, quello è il giorno critico da gestire, non la fine del mese."
+        ]
+      },
+      {
+        "heading": "Passo 1: cosa non possiamo non pagare",
+        "body": "L'elenco degli impegni in scadenza entro la data su cui hai davvero una scelta: fatture fornitori, imposte, personale. La spunta segna la voce come obbligatoria e si salva subito, legata alla data di riferimento; la vedono anche gli altri utenti dell'azienda. Di base le fatture sono raggruppate per fornitore: ogni riga è la posizione intera, con il numero di fatture, il totale, quanto è già scaduto e la prima scadenza. Si apre col nome e sotto compaiono le fatture in ordine di emissione, con la scadenza a fianco. La spunta sull'intestazione prende o lascia tutta la posizione, quella sulla singola fattura serve per il parziale. L'interruttore «Per fornitore / Per scadenza» a destra dei filtri torna alla lista piatta ordinata per data quando ti serve vedere cosa cade prima.",
+        "steps": [
+          "Apri il fornitore che ti interessa e decidi la sua posizione, invece di rincorrere le sue fatture sparse nell'elenco.",
+          "Usa «tutte» sulla categoria che vuoi coprire per intero, poi togli le singole voci che puoi rimandare.",
+          "Passa a «Per scadenza» quando la domanda è cosa scade prima, non con chi sei esposto.",
+          "Filtra per categoria, per scadute o per RiBa con i pulsanti sopra la tabella.",
+          "Cerca un fornitore o un numero di fattura con il campo di ricerca a destra.",
+          "I pulsanti «spunta tutte» e «togli le spunte» agiscono solo sulle voci mostrate dal filtro attivo."
+        ]
+      },
+      {
+        "heading": "Allineamento con lo Scadenzario",
+        "body": "Gli importi delle fatture sono quelli APERTI dello Scadenzario, non il residuo grezzo. La differenza si vede quando un bonifico è già stato messo in distinta: quella quota è un impegno preso, la banca la addebiterà, e non ha senso rimetterla in discussione. Compare quindi in una striscia azzurra sopra l'elenco, «bonifici già disposti in distinta», conteggiata fra gli impegni ma fuori dalle voci da decidere, esattamente come la vedi marcata «In distinta» nello Scadenzario. Se di una fattura è stato disposto solo un acconto, in elenco resta la differenza ancora da pagare. Restano fuori da entrambe le pagine, perché non sono debito da saldare, le righe segnaposto e le integrazioni reverse charge (TD16-TD19), che sono documenti a sé e non comportano un'uscita.",
+        "steps": [
+          "Apri «vedi il dettaglio» nella striscia azzurra per sapere quali bonifici sono già partiti.",
+          "Se un importo non torna con lo Scadenzario, controlla se quella fattura ha una disposizione aperta."
+        ]
+      },
+      {
+        "heading": "Addebiti automatici e RiBa: due cose diverse",
+        "body": "SDD, RID e addebiti su carta partono dal conto alla scadenza per un mandato dato al creditore: nessuno li dispone e nessuno li può fermare. Siccome non c'è niente da decidere, non compaiono nell'elenco: sarebbero righe da scorrere a vuoto. Stanno in una striscia rossa sopra la tabella, con il totale e il numero di voci, e sono già scalati dalle risorse disponibili; «vedi il dettaglio» apre l'elenco completo se vuoi controllarlo. Le RiBa sono un'altra cosa: una ricevuta bancaria si può lasciare impagata, torna insoluta al fornitore e costa in commissioni e in rapporto, ma resta una decisione. Per questo restano in elenco con la spunta libera e l'etichetta ambra «RiBa», e se ne lasci qualcuna fuori dagli obbligatori compare un avviso che ti ricorda cosa comporta. Le imposte non sono automatiche: l'F24 va sempre disposto.",
+        "steps": [
+          "Apri «vedi il dettaglio» nella striscia rossa per controllare cosa uscirà da solo.",
+          "Il filtro «RiBa» mostra le ricevute bancarie, per decidere quali onorare.",
+          "Nel riquadro di ogni categoria trovi sia la quota automatica sia le RiBa non ancora spuntate."
+        ]
+      },
+      {
+        "heading": "Personale e IVA: calcolati, non a scadenzario",
+        "body": "Due uscite importanti non stanno nello Scadenzario e vengono ricostruite. Il personale esce in due momenti distinti: i netti in busta intorno al 10 e l'F24 di ritenute e contributi il 16, calcolati sull'ultimo cedolino chiuso più il prospetto contributivo dello stesso mese. Su un orizzonte lungo entrano anche la quattordicesima, che si paga col cedolino di giugno, e la tredicesima del 20 dicembre, entrambe pari a una mensilità. L'IVA arriva dalla stessa catena di liquidazione della pagina Liquidazione IVA: se una liquidazione è già presente come scadenza fiscale aperta non viene contata due volte.",
+        "steps": [
+          "Le due spunte «Personale» e «Liquidazione IVA», in fondo al passo 2, escludono l'una o l'altra dal calcolo.",
+          "I giorni del mese per i netti e per l'F24 si cambiano nei due campi accanto.",
+          "Il campo «correggi i netti» sovrascrive l'importo dell'ultimo cedolino: lordo e contributi si riproporzionano di conseguenza."
+        ]
+      },
+      {
+        "heading": "Passo 2: quanto avrai",
+        "body": "La liquidità di oggi sui conti attivi, più gli incassi previsti dei punti vendita fino alla data. Il ritmo non è una media del passato: è quello effettivo del mese in corso, che si aggiorna da solo ogni sera quando i negozi caricano i ricavi. Il terzo riquadro confronta il mese con l'obiettivo preso da Budget → Inserimento rapido, portato a lordo IVA perché in cassa entra l'incasso pieno: mostra quanto è stato fatto, dove si chiude con questo ritmo e quanto servirebbe al giorno per centrare l'obiettivo.",
+        "steps": [
+          "Correggi la liquidità se conosci accrediti o addebiti non ancora visibili nei saldi.",
+          "Correggi l'incasso giornaliero se il periodo da simulare è diverso dall'andamento corrente.",
+          "Attiva il fido se vuoi vedere quanto del fabbisogno è già coperto dalla banca."
+        ]
+      },
+      {
+        "heading": "Passo 3: andamento della cassa",
+        "body": "Il grafico proietta il saldo giorno per giorno con i soli impegni obbligatori: incassi al ritmo corrente, uscite alla loro data, arretrato scaduto imputato tutto al primo giorno. La linea rossa tratteggiata è lo zero. Serve a vedere il momento della tensione, che spesso non coincide con la fine del periodo."
+      },
+      {
+        "heading": "Azzerare e ricominciare",
+        "body": "Il pulsante Azzera in alto toglie tutte le spunte messe per quella data di riferimento, dopo una richiesta di conferma che dice quante voci e quale importo verranno liberati. Serve a ripartire da zero con un'ipotesi diversa. Gli addebiti automatici restano, perché non dipendono da una scelta, e nessuna fattura viene modificata: si cancella solo la classificazione."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché non trovo in elenco una fattura a SDD, RID o carta?",
+        "a": "Perché su quelle non c'è niente da decidere: escono dal conto alla scadenza per un mandato già dato al creditore. Toglierle dall'elenco evita di scorrere righe su cui non puoi agire, ma i loro importi restano contati e già scalati dalle risorse. Le trovi tutte nella striscia rossa sopra la tabella, con «vedi il dettaglio»."
+      },
+      {
+        "q": "Le RiBa sono obbligatorie?",
+        "a": "No, e questa è la differenza che conta. Una ricevuta bancaria non pagata torna insoluta al fornitore: paghi le commissioni di insoluto e ci rimetti nel rapporto, ma la cassa quel giorno resta tua. È quindi una scelta e la spunta è libera. Se lasci delle RiBa fuori dagli obbligatori la pagina te lo dice con un avviso, così la decisione è consapevole e non una svista."
+      },
+      {
+        "q": "L'IVA è un addebito automatico?",
+        "a": "No, e infatti la pagina non la tratta come tale. L'F24 va disposto, quindi l'IVA e le altre imposte restano voci che spunti tu. Fra gli addebiti automatici ci sono solo SDD, RID e carte; le RiBa nemmeno, perché si possono lasciare insolute."
+      },
+      {
+        "q": "Da dove viene il costo del personale?",
+        "a": "Dall'ultimo cedolino chiuso presente in Dipendenti, per i netti, e dal prospetto contributivo dello stesso mese per lordo e contributi. L'F24 è la somma di ritenute e contributi a carico del dipendente (la differenza fra lordo e netto) più i contributi a carico azienda. Sono due uscite separate perché escono in due giorni diversi."
+      },
+      {
+        "q": "Perché una fattura che vedo in Scadenzario qui non compare?",
+        "a": "Tre motivi possibili. Ha il bonifico già disposto in distinta, e allora sta nella striscia azzurra sopra l'elenco invece che fra le voci da decidere. Oppure è a SDD, RID o carta, e sta nella striscia rossa. Oppure ha scadenza oltre la data di riferimento che hai impostato in alto a destra: sposta la data e ricompare."
+      },
+      {
+        "q": "Che succede se due persone spuntano la stessa voce?",
+        "a": "Niente di male: la selezione è una sola, condivisa fra gli utenti dell'azienda, e una voce può essere obbligatoria o non esserlo. Se tu e Sabrina spuntate la stessa riga nello stesso momento, o se fai doppio clic sulla casella, resta una spunta sola e la pagina si riallinea da sé. Per vedere le spunte messe da un altro mentre eri sulla pagina, usa Ricarica in alto."
+      },
+      {
+        "q": "Se spunto una fattura, il suo importo resta bloccato?",
+        "a": "No. La spunta dice «questa è obbligatoria»; l'importo continua a essere letto dallo Scadenzario, quindi se la fattura viene pagata in parte o cambia, il numero qui si aggiorna da solo. Restano fissi solo gli importi calcolati di personale e IVA, che sono stime."
+      },
+      {
+        "q": "Che differenza c'è con il Cashflow Prospettico?",
+        "a": "Il Cashflow proietta entrate e uscite nel tempo e mostra come si muove il saldo. Questa pagina risponde a una domanda più stretta: a una data precisa, con i soldi che ci saranno, quali impegni si riescono a onorare fra quelli che qualcuno ha deciso essere obbligatori."
+      },
+      {
+        "q": "Cambio la data di riferimento e le spunte spariscono: è normale?",
+        "a": "Sì. Ogni data ha la sua selezione, perché il piano di settembre non è quello di ottobre. Tornando alla data precedente ritrovi le spunte di prima."
+      },
+      {
+        "q": "Chi vede questa pagina e chi può mettere le spunte?",
+        "a": "La voce Fabbisogno nel menu Finanza è visibile a super advisor, CEO, CFO e contabile (amministrazione), oltre all'account di sola lettura. Le spunte, l'azzeramento e le correzioni di liquidità e incassi sono riservate ad amministrazione, CFO e super advisor: chi ha un altro ruolo consulta i numeri senza modificarli e vede un avviso di sola lettura sotto il prospetto."
+      },
+      {
+        "q": "Cosa non viene conteggiato?",
+        "a": "I costi ricorrenti non ancora fatturati, le RiBa presentate ma non ancora presenti in scadenzario e gli insoluti in corso di rientro. Se li conosci, tienine conto abbassando a mano la liquidità di partenza."
+      }
+    ]
+  },
+  {
+    "path": "/open-to-buy",
+    "icon": "Wallet",
+    "title": "Open-to-Buy Planner",
+    "description": "Uno strumento di simulazione per calcolare il budget di acquisto (Open-to-Buy) disponibile per la prossima stagione, punto vendita per punto vendita, in base a vendite previste, scorte e sconti di fine stagione attesi.",
+    "sections": [
+      {
+        "heading": "Importante: valori di esempio, modifiche non salvate",
+        "body": "In alto compare l'avviso \"Valori di esempio\": i parametri di partenza (vendite previste, scorte, ricarico) sono numeri di esempio calcolati sui punti vendita reali dell'azienda, pensati solo per farsi un'idea. Puoi modificarli liberamente per fare le tue simulazioni, ma le modifiche non vengono salvate da nessuna parte: se cambi pagina o ricarichi, i valori tornano a quelli di esempio."
+      },
+      {
+        "heading": "Selezione stagione",
+        "body": "In alto puoi scegliere tra due stagioni: Primavera/Estate 2026 (SS26) e Autunno/Inverno 2026 (FW26). Ogni stagione ha i propri parametri e il proprio calcolo indipendente."
+      },
+      {
+        "heading": "Cos'è l'Open-to-Buy (OTB)",
+        "body": "L'OTB è il budget di acquisto ancora disponibile per la stagione, calcolato così: Vendite Previste + Markdown Previsto (sconti di fine stagione attesi) + Scorta Finale Target − Scorta Iniziale. In pratica indica quanto si può ancora comprare, al costo, senza sforare gli obiettivi di scorta di fine stagione."
+      },
+      {
+        "heading": "KPI di riepilogo",
+        "body": "Quattro caselle mostrano il budget OTB totale su tutti i punti vendita, l'OTB medio per punto vendita, il target di sell-through e il budget stimato per i markdown (sconti). Il sell-through è calcolato come costo del venduto previsto diviso la merce disponibile al costo (scorta iniziale + acquisti OTB): indica quanta parte della merce disponibile ci si aspetta di vendere nella stagione."
+      },
+      {
+        "heading": "Parametri modificabili per punto vendita",
+        "body": "Per ogni punto vendita trovi una scheda con cinque campi da modificare: vendite previste (in euro), ricarico target (%), scorta iniziale (in euro), scorta finale target (in euro) e markdown previsto (%). Sotto ogni scheda viene ricalcolato in automatico l'OTB per quell'outlet.",
+        "steps": [
+          "Individua la scheda del punto vendita che vuoi simulare.",
+          "Modifica uno o più campi (ad esempio le vendite previste o il ricarico target).",
+          "L'OTB calcolato in fondo alla scheda si aggiorna subito.",
+          "I grafici e la tabella riepilogativa più in basso nella pagina si aggiornano automaticamente con i nuovi valori."
+        ]
+      },
+      {
+        "heading": "Grafici e tabella riepilogativa",
+        "body": "Un grafico a barre mostra il budget OTB per ogni punto vendita. Un secondo grafico mostra come si compone la disponibilità (vendite previste, markdown, scorta finale) per ciascun outlet. In fondo trovi una tabella completa con tutti i parametri e l'OTB calcolato per ogni punto vendita."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Per i punti vendita con data di apertura futura non viene proposto alcun piano di acquisto: compaiono con la scritta «In apertura dal …» nella griglia e nella tabella riepilogo, esclusi da medie e grafici."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Se modifico i parametri di un punto vendita e chiudo la pagina, la simulazione resta salvata?",
+        "a": "No. Le modifiche servono solo per la simulazione del momento: non vengono salvate da nessuna parte e si perdono uscendo dalla pagina o ricaricandola."
+      },
+      {
+        "q": "Da dove vengono i valori di partenza mostrati nelle schede?",
+        "a": "Sono valori di esempio, non dati reali di vendita storica: servono come punto di partenza plausibile per far provare lo strumento, calcolati sui punti vendita effettivi dell'azienda."
+      },
+      {
+        "q": "Cosa vuol dire \"scorta finale target\"?",
+        "a": "È il valore di magazzino (in euro, al costo) che si vuole avere in giacenza alla fine della stagione: un obiettivo di scorta, non un dato già registrato."
+      }
+    ]
+  },
+  {
+    "path": "/produttivita",
+    "icon": "Users",
+    "title": "Analisi Produttività",
+    "description": "Questa pagina confronta i punti vendita in base a quanto rende ogni ora di lavoro e ogni dipendente, incrociando i ricavi a budget con il numero di persone assegnate a ciascuna sede. Serve a capire dove il personale è più (o meno) produttivo.",
+    "sections": [
+      {
+        "heading": "Da dove arrivano i numeri",
+        "body": "I ricavi e il costo del personale vengono dal budget dell'anno selezionato (in alto a destra puoi cambiare anno: gli anni proposti sono quelli realmente presenti nei dati e la scelta resta memorizzata anche cambiando pagina). Vengono considerati SOLO i punti vendita reali dell'anagrafica: le voci tecniche di budget non riferite a un punto vendita (es. costi non divisi, rettifiche, sede/magazzino) sono escluse da classifiche, medie e raccomandazioni. Il numero di dipendenti per sede viene dalle allocazioni impostate nella pagina Personale (icona Allocazione): se un dipendente lavora al 50% in un outlet e al 50% in un altro, viene conteggiato come mezza persona in ciascuno. Se per un outlet non ci sono dipendenti allocati, le metriche che dipendono dal personale mostrano \"N/D\" (dato non disponibile) invece di un numero inventato — anche nel grafico del trend mensile, dove quell'outlet viene semplicemente saltato."
+      },
+      {
+        "heading": "Fatturato medio per dipendente",
+        "body": "Il riquadro grande in alto mostra il ricavo totale diviso per il numero di dipendenti (calcolati in \"teste equivalenti\", cioè tenendo conto delle percentuali di allocazione). Sotto trovate quattro schede: il punto vendita con il miglior ricavo per ora lavorata, quello con il peggiore, la media di tutti e il ROI medio del personale (rapporto tra ricavi e costo del personale)."
+      },
+      {
+        "heading": "Classifica produttività per outlet",
+        "body": "Una tabella che ordina i punti vendita dal più al meno produttivo in base al fatturato per dipendente, con medaglie per i primi tre posti. Per ciascun outlet vedi fatturato, numero di dipendenti, fatturato per dipendente, incidenza del costo del personale sui ricavi (colorata: verde sotto il 20%, giallo tra 20% e 35%, rosso sopra il 35%) e ROI."
+      },
+      {
+        "heading": "Grafici di confronto",
+        "body": "Il grafico \"Trend mensile fatturato/dipendente\" mostra come cambia il fatturato per dipendente mese per mese in ciascun outlet. Il grafico \"Ricavi vs Costo Personale\" confronta i due valori per outlet. Il grafico \"Ricavo vs Costo per Ora Lavoro\" mostra quanto rende un'ora di lavoro rispetto a quanto costa, per gli outlet per cui è disponibile il dato dipendenti."
+      },
+      {
+        "heading": "Tabella metriche complete",
+        "body": "Una tabella riepilogativa con tutti gli indicatori per ogni outlet: ricavi, costo personale, incidenza, ricavo/ora, costo/ora, margine/ora e ROI. La riga con il miglior ricavo per ora è evidenziata in verde, quella con il peggiore in rosso."
+      },
+      {
+        "heading": "Simulatore: sposta dipendente",
+        "body": "Permette di simulare, solo a video, cosa succederebbe spostando uno o più dipendenti da un punto vendita a un altro: come cambierebbero fatturato per dipendente, ricavo/ora e ROI nei due outlet coinvolti.",
+        "steps": [
+          "Clicca \"Attiva Simulazione\".",
+          "Scegli l'outlet di partenza (\"Da\") e quello di arrivo (\"A\").",
+          "Indica quante persone spostare.",
+          "Le tabelle e i KPI si aggiornano mostrando l'effetto simulato.",
+          "Clicca \"Disattiva Simulazione\" per tornare ai dati reali: nessuna modifica viene salvata, è solo un'ipotesi di lavoro."
+        ]
+      },
+      {
+        "heading": "Raccomandazioni",
+        "body": "In fondo alla pagina trovi alcuni suggerimenti automatici: un avviso per gli outlet dove il rapporto ricavi/costo del personale è sotto la soglia ottimale (1,8 volte), e un promemoria per mantenere l'organizzazione dell'outlet più produttivo."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Resta in tabella con l'etichetta «In apertura dal …»: ROI e incidenza del personale sono N/D, non ha posizione in classifica, non entra nelle medie né nelle raccomandazioni."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché per alcuni outlet vedo \"N/D\" invece di un numero?",
+        "a": "Significa che per quell'outlet non ci sono dipendenti allocati (pagina Personale, icona Allocazione). Senza quel dato non è possibile calcolare fatturato per dipendente o ricavo/costo per ora in modo corretto, quindi la pagina non inventa un valore ma mostra \"N/D\"."
+      },
+      {
+        "q": "Il simulatore di spostamento dipendenti modifica davvero l'organico?",
+        "a": "No. È solo un esercizio di simulazione a video per valutare l'impatto di un'ipotesi. Per spostare davvero una persona tra punti vendita bisogna modificarne l'allocazione nella pagina Personale."
+      },
+      {
+        "q": "Come viene contato un dipendente part-time o su più sedi?",
+        "a": "In base alla percentuale di allocazione impostata su ciascun outlet: ad esempio una persona al 60% in un outlet e al 40% in un altro pesa 0,6 e 0,4 rispettivamente nei conteggi di quella sede."
+      },
+      {
+        "q": "Da cosa dipende il colore dell'incidenza del costo del personale?",
+        "a": "Verde se il costo del personale è sotto il 20% dei ricavi, giallo tra il 20% e il 35%, rosso oltre il 35%: sono soglie indicative per far notare subito le situazioni da controllare."
+      }
+    ]
+  },
+  {
+    "path": "/scenario",
+    "icon": "BarChart3",
+    "title": "Scenario Planning",
+    "description": "Questa pagina permette di simulare 'cosa succederebbe se...': cosa cambia nell'utile dell'azienda se i ricavi aumentano o diminuiscono, se il costo del personale cambia, oppure se si apre un nuovo punto vendita. È uno strumento di simulazione: non modifica mai i dati reali del Budget.",
+    "sections": [
+      {
+        "heading": "Il punto di partenza (Baseline)",
+        "body": "Nel riquadro 'Baseline' a sinistra trovi il quadro reale dell'anno scelto, così come risulta da Budget & Controllo: numero di punti vendita attivi, Ricavi Totali, Costi Totali (di cui quanto è costo del personale), Utile Base e Margine %. È il punto di partenza da cui parte ogni simulazione. Se per l'anno scelto non ci sono ancora dati di budget, la pagina lo segnala chiaramente invece di mostrare numeri inventati.",
+        "steps": [
+          "Scegli l'anno da simulare dal menu 'Anno' in alto a destra: gli anni proposti sono quelli presenti nei dati e la scelta resta memorizzata anche cambiando pagina."
+        ]
+      },
+      {
+        "heading": "Impostare i parametri dello scenario",
+        "body": "Sotto la Baseline trovi tre leve per costruire la simulazione: il cursore 'Variazione Fatturato' (da -30% a +50%), il cursore 'Variazione Costo Personale' (da -20% a +30%) e l'interruttore 'Nuovo punto vendita' per simulare l'apertura di un altro negozio. Muovendo i cursori, tutti i risultati nella pagina si aggiornano subito, in tempo reale.",
+        "steps": [
+          "Trascina il cursore 'Variazione Fatturato' per simulare un aumento o una diminuzione percentuale dei ricavi.",
+          "Trascina il cursore 'Variazione Costo Personale' per simulare un aumento o una diminuzione percentuale del costo del personale.",
+          "Attiva l'interruttore 'Nuovo punto vendita' se vuoi simulare l'apertura di un altro negozio: si apre un campo dove indicare i costi annui stimati (il ricavo stimato è preso automaticamente come media dei punti vendita esistenti).",
+          "Per ripartire da zero, clicca 'Resetta Scenario': i cursori e l'interruttore tornano ai valori di default."
+        ]
+      },
+      {
+        "heading": "Leggere i risultati della simulazione",
+        "body": "Il riquadro 'Risultati Scenario in Tempo Reale' mostra il Margine Previsto (confrontato con quello attuale), l'impatto mensile sulla cassa e, a seconda che tu stia simulando o meno un nuovo punto vendita, i 'Mesi al Break-Even' (quanti mesi servono per rientrare dell'investimento) oppure il 'Delta Utile Annuo' rispetto alla situazione attuale. Più sotto, la tabella 'Confronto Scenario Attuale vs Simulato' mette voce per voce (Ricavi, Costi, Personale, Utile, Margine %) i valori di partenza accanto a quelli simulati, con la differenza in euro. Il grafico a barre in fondo confronta visivamente Ricavi, Costi e Utile tra scenario attuale e scenario simulato."
+      },
+      {
+        "heading": "Salvare uno scenario",
+        "body": "Quando modifichi almeno un parametro, compare il pulsante 'Salva Scenario' in alto a destra: ti permette di conservare la simulazione fatta. Se il salvataggio non riesce perché la funzione non è ancora attiva sul sistema, la pagina te lo segnala con un messaggio, ma i risultati restano comunque visibili e utilizzabili sullo schermo.",
+        "steps": [
+          "Imposta i parametri desiderati con i cursori e/o l'interruttore.",
+          "Clicca 'Salva Scenario' in alto a destra.",
+          "Attendi il messaggio di conferma (verde) o l'eventuale avviso."
+        ]
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Non è contato tra i punti vendita attivi e non abbassa i ricavi medi per outlet usati per simulare un nuovo negozio; i suoi costi restano nei totali aziendali ed è elencato sotto la baseline con l'etichetta «In apertura dal …»."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Se modifico i cursori qui, cambio i dati reali del Budget?",
+        "a": "No. È solo una simulazione: nulla di quello che fai in questa pagina modifica i dati di Budget & Controllo o del Conto Economico, a meno che tu non usi esplicitamente 'Salva Scenario' (che salva comunque una simulazione separata, non tocca il budget)."
+      },
+      {
+        "q": "Da dove prende i numeri di partenza questa pagina?",
+        "a": "Dai dati già inseriti in Budget & Controllo per l'anno selezionato (i budget_entries): se lì non c'è nulla per quell'anno, la pagina mostra un avviso di 'Nessun dato budget trovato'."
+      },
+      {
+        "q": "Come viene stimato il ricavo del nuovo punto vendita quando attivo l'interruttore?",
+        "a": "Il sistema calcola automaticamente la media dei ricavi dei SOLI punti vendita reali esistenti (le voci tecniche di budget non riferite a un negozio — costi non divisi, rettifiche, sede/magazzino — non contano né nella media né nel numero di punti vendita) e la usa come stima per il nuovo punto vendita; i costi invece li indichi tu nel campo che compare. I Ricavi e Costi Totali della Baseline restano invece quelli complessivi dell'azienda."
+      },
+      {
+        "q": "Cosa significa 'Mesi al Break-Even'?",
+        "a": "È una stima di quanti mesi servirebbero per recuperare l'investimento iniziale del nuovo punto vendita, calcolata sull'utile annuo stimato di quel punto vendita. Se compare 'Mai', significa che con i costi indicati il nuovo punto vendita non genererebbe utile."
+      }
+    ]
+  },
+  {
+    "path": "/store-manager",
+    "icon": "Store",
+    "title": "Dashboard Punto Vendita",
+    "description": "Una vista pensata per la giornata del negozio: incasso, obiettivi, vendite orarie, personale in turno e una checklist di attività operative. In alto puoi scegliere a quale punto vendita riferirti.",
+    "sections": [
+      {
+        "heading": "Importante: al momento i numeri sono di esempio",
+        "body": "In cima alla pagina è ora mostrato un badge 'Dati simulati (demo)' che lo rende esplicito: questa pagina mostra dati dimostrativi fissi (incasso, scontrini, personale in turno, top prodotti, meteo) e non è ancora collegata alla cassa o alle presenze reali del punto vendita. Anche i nomi del personale in turno sono generici ('Dipendente 1', 'Dipendente 2', …), non persone reali. Il selettore in alto a destra permette di cambiare punto vendita, ma i numeri sotto non cambiano di conseguenza: sono sempre gli stessi valori di esempio, indipendentemente dall'outlet scelto."
+      },
+      {
+        "heading": "KPI della giornata",
+        "body": "Quattro caselle in alto mostrano: incasso di oggi, numero di scontrini emessi, scontrino medio e pezzi venduti (con il confronto percentuale rispetto allo stesso periodo dell'anno precedente)."
+      },
+      {
+        "heading": "Obiettivi giornaliero, settimanale e mensile",
+        "body": "Tre barre di avanzamento mostrano quanto incasso è stato raggiunto rispetto all'obiettivo: giornaliero e settimanale come barra orizzontale, mensile come cerchio con la percentuale al centro. La barra dell'obiettivo giornaliero diventa verde quando si raggiunge il 100%, arancione se ancora sotto."
+      },
+      {
+        "heading": "Vendite per ora e top prodotti",
+        "body": "Un grafico a barre mostra l'andamento delle vendite ora per ora nella giornata. Sotto trovi la classifica dei cinque prodotti più venduti oggi, con quantità e importo, e una tabella di confronto tra l'incasso di oggi, quello di ieri e la media degli ultimi 7 giorni."
+      },
+      {
+        "heading": "Personale in servizio",
+        "body": "L'elenco delle persone in turno con l'orario (mattina, pomeriggio o giornata intera), le ore lavorate e le vendite realizzate da ciascuna."
+      },
+      {
+        "heading": "Checklist operativa",
+        "body": "Un elenco di attività da svolgere in negozio (es. riordino magazzino, verifica esposizione, chiusura cassa). Puoi spuntarle cliccandoci sopra per segnarle come completate.",
+        "steps": [
+          "Clicca su una voce della lista per segnarla come completata (o per togliere il segno di spunta).",
+          "Le voci completate appaiono barrate e in grigio.",
+          "Attenzione: lo stato delle spunte non viene salvato in modo permanente — ricaricando la pagina la checklist torna alla situazione di partenza."
+        ]
+      },
+      {
+        "heading": "Meteo e azioni veloci",
+        "body": "Un riquadro mostra temperatura e condizioni meteo della città dell'outlet selezionato (dato di esempio). Più sotto ci sono tre pulsanti — Segnala Problema, Richiedi Merce, Note Giornaliere — che al momento sono solo pulsanti dimostrativi: cliccandoli non succede ancora nulla, sono un'anteprima di funzioni che verranno collegate in futuro. In fondo compare anche un avviso con il tempo mancante alla chiusura cassa."
+      },
+      {
+        "heading": "Punti vendita in apertura",
+        "body": "I punti vendita con data di apertura futura sono selezionabili ma mostrano solo l'avviso «In apertura dal …: nessun dato operativo prima dell'apertura»; all'apertura della pagina viene proposto il primo negozio già operativo."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Se cambio punto vendita nel selettore in alto, cambiano i numeri della pagina?",
+        "a": "Il selettore cambia il nome del punto vendita mostrato, ma i dati sottostanti (incasso, scontrini, personale) sono ancora numeri di esempio uguali per tutti gli outlet: non riflettono ancora l'attività reale del punto vendita scelto."
+      },
+      {
+        "q": "Se clicco su \"Segnala Problema\" o \"Richiedi Merce\", parte una segnalazione?",
+        "a": "No, non ancora. Questi pulsanti sono presenti in pagina ma non sono collegati a nessuna funzione: al momento non generano nessuna richiesta o notifica."
+      },
+      {
+        "q": "Se spunto le voci della checklist e poi ricarico la pagina, restano segnate?",
+        "a": "No. Le spunte della checklist non vengono salvate: sono solo per uso immediato durante la sessione e si azzerano quando si ricarica o si riapre la pagina."
+      }
+    ]
+  },
+  {
+    "path": "/import-hub",
+    "icon": "DatabaseZap",
+    "title": "Hub Importazioni Dati",
+    "description": "L'Hub Importazioni è il punto unico da cui caricare in gestionale tutti i documenti e i file che arrivano dall'esterno: estratti conto, fatture, cedolini, bilanci, dati dei punti vendita e corrispettivi. Da qui i file vengono caricati, controllati e trasformati in dati utilizzabili nel resto del programma.",
+    "sections": [
+      {
+        "heading": "A cosa serve questa pagina",
+        "body": "L'Hub Importazioni Dati è organizzato in tre schede, visibili in alto: \"Fonti di importazioni\" (dove si caricano davvero i file, divisi per tipologia), \"Panoramica\" (alcuni numeri riassuntivi su quanto importato) e \"Cronologia\" (l'elenco storico di tutti i file caricati, di qualsiasi tipo). Si parte sempre dalla scheda \"Fonti di importazioni\" per caricare un nuovo file."
+      },
+      {
+        "heading": "Le fonti di importazione disponibili e cosa alimentano",
+        "body": "Ogni \"fonte\" corrisponde a un tipo di documento diverso. Scegliere quella giusta è importante perché ogni fonte alimenta una parte diversa del gestionale:\n\n• Estratti Conto Bancari — formati CSV, XLSX, PDF. Contengono i movimenti bancari e servono per la riconciliazione con le fatture da pagare. Richiede di indicare a quale conto bancario appartiene il file.\n\n• Fatture Elettroniche — formati XML, PDF. Sono le fatture ricevute dai fornitori tramite il canale Agenzia delle Entrate/SDI e alimentano l'archivio fatture e lo scadenzario.\n\n• Cedolini / Personale — formati PDF, XLSX. Sono i cedolini e i riepiloghi dei dipendenti; alimentano i costi del personale. Richiede di indicare mese e anno di riferimento.\n\n• Bilanci — formati PDF, XLSX. Sono i bilanci annuali dell'azienda. Richiede di indicare l'anno fiscale.\n\n• Documenti Generali — tutti i formati (PDF, Word, Excel, testo, immagini). Per contratti, comunicazioni e altri documenti che non rientrano nelle altre categorie. Richiede di scegliere una categoria (Contratto, Comunicazione, Altro).\n\n• POS Data — formati CSV, Excel. Sono i dati delle vendite dei singoli punti vendita. Richiede di indicare il punto vendita.\n\n• Corrispettivi — formati CSV, XML. Sono i corrispettivi giornalieri comunicati all'Agenzia delle Entrate. Richiede di indicare il punto vendita."
+      },
+      {
+        "heading": "Come caricare un file",
+        "body": "Il caricamento è sempre un'operazione in due passi: prima si carica il file, poi (se la fonte lo prevede) si \"processa\" per portare i dati dentro il gestionale. La dimensione massima per ogni file è 50 MB; i file vuoti non vengono accettati e il sistema segnala eventuali formati non validi.",
+        "steps": [
+          "Aprire la scheda \"Fonti di importazioni\"",
+          "Cliccare sulla fonte desiderata (es. Estratti Conto Bancari) e poi sul pulsante \"Importa\"",
+          "Se richiesto, selezionare l'opzione obbligatoria: conto bancario, mese/anno, anno fiscale, categoria documento o punto vendita a seconda della fonte scelta",
+          "Toccare \"Seleziona File\" e sceglierlo dal dispositivo, oppure (da computer) trascinarlo nell'area tratteggiata",
+          "Attendere il completamento della barra di caricamento",
+          "Il file compare nell'elenco \"File Importati\" con lo stato \"uploaded\" (caricato)"
+        ]
+      },
+      {
+        "heading": "Come elaborare (\"processare\") i file caricati",
+        "body": "Il semplice caricamento non basta a portare i dati nel gestionale: per i tipi di fonte che lo prevedono (estratti conto, fatture, POS, corrispettivi, bilanci, cedolini) è necessario un secondo passaggio, chiamato \"elaborazione\" o \"processo\", che legge il contenuto del file e crea i record corrispondenti.",
+        "steps": [
+          "Nell'elenco \"File Importati\", cliccare sull'icona a forma di lente (\"Anteprima dati\") per controllare come verranno letti i dati prima di confermarli",
+          "Cliccare \"Processa\" sul singolo file per elaborarlo e importare i dati",
+          "In alternativa, usare il pulsante \"Processa tutti\" per elaborare in un colpo solo tutti i file ancora in attesa",
+          "A elaborazione completata compare un riquadro con l'esito: numero di record importati con successo o eventuali errori da correggere",
+          "Se un file è già stato elaborato in precedenza, al suo posto compare il pulsante \"Riprocessa\": va usato solo se si vuole sostituire i dati già importati per lo stesso periodo, perché l'operazione non si può annullare"
+        ]
+      },
+      {
+        "heading": "Cosa succede dopo l'import di un estratto conto bancario",
+        "body": "Subito dopo aver elaborato con successo un estratto conto, il gestionale riconcilia automaticamente i movimenti in uscita con le fatture fornitori ancora da pagare e apre una finestra con l'esito reale: \"Analizzati\" (movimenti in uscita esaminati), \"Riconciliati\" (abbinamenti a importo esatto già applicati, con la fattura marcata come pagata) e \"Da confermare\" (abbinamenti incerti che restano da verificare a mano). Gli abbinamenti sicuri — dove l'importo del bonifico coincide con il totale della fattura — vengono applicati subito. Gli acconti e i pagamenti al netto di note di credito NON vengono chiusi in automatico: il loro importo è diverso dal totale della fattura, quindi finiscono tra i \"Da confermare\" e vanno abbinati nel tab Riconciliazione, dove il gestionale gestisce correttamente l'importo effettivo del bonifico e chiude anche le note di credito collegate.",
+        "steps": [
+          "Attendere il completamento della riconciliazione (compare un messaggio di caricamento)",
+          "Controllare i tre riquadri: movimenti analizzati, riconciliati in automatico, da confermare",
+          "Se ci sono abbinamenti da confermare, cliccare \"Vai alla Riconciliazione\" per rivederli uno per uno",
+          "Cliccare \"Chiudi\" per proseguire: gli abbinamenti a importo esatto sono comunque già stati applicati"
+        ]
+      },
+      {
+        "heading": "Gestire i file caricati: anteprima ed eliminazione",
+        "body": "Ogni file nella lista mostra nome, dimensione, data di caricamento e stato. Per i PDF è disponibile un'anteprima diretta a schermo. È possibile selezionare più file con le caselle di spunta ed eliminarli in blocco, oppure eliminarne uno singolarmente con l'icona a forma di X. L'eliminazione richiede sempre una conferma e non può essere annullata."
+      },
+      {
+        "heading": "La scheda Panoramica e la scheda Cronologia",
+        "body": "La scheda \"Panoramica\" mostra alcuni numeri di sintesi (percentuale di record validi, duplicati trovati, errori di mapping da risolvere, quante fonti sono attive) e due grafici: i record importati mese per mese e la distribuzione degli import per tipo di fonte. La scheda \"Cronologia\" elenca invece, in un'unica tabella, tutti i file caricati da qualunque fonte, con data, nome file, tipo di fonte, dimensione e stato: utile per ritrovare rapidamente un caricamento fatto in passato. Ricaricando lo stesso documento per lo stesso periodo, il file nuovo sostituisce il precedente: in Cronologia resta in elenco la versione che vale, non due file uguali fra cui indovinare. Il file sostituito non viene cancellato, porta l'etichetta \"sostituito\" e ricompare spuntando \"Mostra anche le versioni sostituite\"."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Qual è la dimensione massima di un file che posso caricare?",
+        "a": "50 MB per ogni singolo file. I file più grandi o i file vuoti vengono rifiutati con un messaggio di errore."
+      },
+      {
+        "q": "Ho caricato un file nella fonte sbagliata, come lo tolgo?",
+        "a": "Nell'elenco \"File Importati\" della fonte, clicca sull'icona X accanto al file per eliminarlo, poi caricalo di nuovo nella fonte corretta. Se il file era già stato elaborato, valuta con attenzione prima di eliminarlo perché i dati importati restano comunque nel gestionale finché non vengono rimossi separatamente."
+      },
+      {
+        "q": "Cosa significa il pulsante \"Riprocessa\"?",
+        "a": "Compare sui file già elaborati e serve a rileggerli da capo, sostituendo i dati già presenti per lo stesso periodo (stesso anno o stesso mese, a seconda della fonte). È un'operazione che non si può annullare, quindi va usata solo quando si è sicuri di voler sostituire i dati esistenti."
+      },
+      {
+        "q": "Perché dopo aver caricato un estratto conto si apre una finestra con dei \"match\"?",
+        "a": "È l'esito della riconciliazione automatica tra i movimenti bancari in uscita e le fatture dei fornitori ancora da pagare. Gli abbinamenti a importo esatto vengono applicati subito (la fattura risulta pagata); gli acconti, i pagamenti al netto di note di credito e i casi incerti restano \"da confermare\" e vanno chiusi a mano nel tab Riconciliazione, che gestisce correttamente l'importo effettivo del bonifico."
+      },
+      {
+        "q": "Dove trovo tutti i file caricati in passato, anche di tipi diversi?",
+        "a": "Nella scheda \"Cronologia\" in alto: mostra un elenco unico di tutti gli import, con data, nome file, fonte e stato."
+      },
+      {
+        "q": "Perché per alcune fonti devo scegliere prima un'opzione (conto, mese, punto vendita)?",
+        "a": "Perché quel dato serve al sistema per collegare correttamente il file: ad esempio un estratto conto deve sapere a quale conto bancario appartiene, un cedolino a quale mese si riferisce. Senza questa scelta il caricamento non parte."
+      },
+      {
+        "q": "Se carico più file insieme e qualcuno non viene caricato, come me ne accorgo?",
+        "a": "Il messaggio finale ora dice esattamente quanti file sono stati caricati e quali no (es. 'Caricati 2 di 5 file — 3 non riusciti: …'), e ogni file fallito genera un avviso di errore. Prima veniva sempre mostrato 'tutti caricati con successo' anche se alcuni erano falliti: i file mancanti restavano fuori senza che te ne accorgessi."
+      }
+    ]
+  },
+  {
+    "path": "/fornitori",
+    "icon": "Building2",
+    "title": "Fornitori",
+    "description": "In questa pagina trovi l'anagrafica completa dei fornitori dell'azienda, con le loro condizioni di pagamento, la categoria merceologica, la ripartizione dei costi tra i punti vendita e l'analisi della spesa. È divisa in due schede: Anagrafica e Analytics.",
+    "sections": [
+      {
+        "heading": "I fornitori nuovi si compilano da soli con la fattura",
+        "body": "Quando dallo SDI arriva la fattura di un fornitore che non è ancora in anagrafica, il fornitore viene creato sul momento e compilato leggendo la fattura stessa: ragione sociale e partita IVA, codice fiscale, indirizzo, CAP, città e provincia, regime fiscale, IBAN e istituto quando il documento indica il conto, il metodo di pagamento dal codice della modalità (bonifico, Ri.Ba., carta, RID, contanti…), la modalità delle scadenze ricavata dalle date di scadenza dichiarate (quante rate, a quanti giorni, se a data fattura o a fine mese) e la categoria dedotta dalle righe. Non devi più caricarlo a mano.\n\nSe la fattura non porta i termini di pagamento (succede spesso: nella fattura elettronica quella sezione è facoltativa e bar, distributori e negozi non la compilano), il metodo lo decide la CATEGORIA della spesa, che il sistema ricava dalle righe del documento: se in «Gestisci categorie» hai detto che «mezzi e carburante» si paga con carta, il distributore nuovo nasce con la carta e non con un bonifico immaginario. Solo se nemmeno la categoria dice niente si ripiega sul bonifico. Per le scadenze vale lo stesso: il fornitore non resta a metà, prende la regola standard, cioè 30 giorni fine mese in una rata, e per chi paga con carta o in contanti il pagamento immediato alla data della fattura. Quella regola è segnata come standard, non come accordo col fornitore, e la prima fattura che dichiara davvero le sue scadenze la sostituisce da sé. Il sistema tocca solo i campi vuoti: quello che scrivi tu non viene mai sovrascritto da una fattura successiva, nemmeno dal ripiego standard. I fornitori più vecchi, quelli creati quando il sistema scriveva «bonifico» d'ufficio a tutti, sono stati allineati una volta sola al metodo che dichiarano le loro fatture (carta, contanti, addebito diretto, Ri.Ba., assegno), dove almeno il 60% delle fatture degli ultimi diciotto mesi va nella stessa direzione; chi aveva già un metodo scelto a mano non è stato toccato, e chi era Ri.Ba. a 60 giorni è rimasto a 60. Quando il conto di addebito si capiva dai pagamenti già riconciliati è stato compilato anche quello. Nel dettaglio del fornitore, sotto l'anagrafica, una riga piccola dice da quale fattura arrivano i dati compilati automaticamente e quali sono, così distingui a colpo d'occhio ciò che ha letto il sistema da ciò che hai deciso tu. Se correggi un campo, resta com'è.\n\nQuando la fattura non porta la sezione dei pagamenti (capita, e non è un errore) il piano delle scadenze non si può ricavare: in quel caso il fornitore resta segnalato in Fatturazione come \"fornitore non riconosciuto\" e la modalità va scelta a mano qui, dal modulo di modifica."
+      },
+      {
+        "heading": "I riquadri riepilogativi e il selettore anno",
+        "body": "In alto puoi scegliere l'anno di riferimento: cambia i dati mostrati nei riquadri riepilogativi, nella colonna \"Fatturato\"/\"Da pagare\" della tabella e nella scheda Analytics. I riquadri mostrano: numero totale di fornitori (e quanti attivi), quanti hanno una categoria assegnata, quanti hanno una divisione tra punti vendita configurata, l'importo scaduto e il totale fatturato dell'anno con il numero di fatture.\n\nGli importi \"Da pagare\" e \"Scaduto\" (nei riquadri, nella colonna della tabella, nel dettaglio del fornitore e nell'aging della scheda Analytics) seguono la stessa regola dello Scadenzario, così per uno stesso fornitore le due pagine mostrano lo stesso numero: contano solo le scadenze ancora aperte, al netto delle note di credito ancora da usare; le note di credito già chiuse a mano o registrate nel partitario non vengono più scalate, e la quota di una fattura già messa in distinta e in attesa di riscontro bancario (\"in sospeso\") non viene contata come da pagare. Le righe nascoste dallo Scadenzario perché non sono debiti (per esempio le autofatture in reverse charge o i doppioni rimossi) non compaiono nemmeno qui.\n\nLo \"Scaduto\" è il lordo delle sole fatture in ritardo, senza compensare nulla; una fattura conta come scaduta in base alla data di scadenza (da oggi in avanti è a scadere, da ieri indietro è scaduta), con la stessa regola dello Scadenzario, anche se lo stato salvato non è ancora stato aggiornato; il \"Da pagare\" è invece il netto, quindi può risultare più basso dello scaduto. Per chiarirlo, nella colonna \"Da pagare\" della tabella (anche da smartphone) e nel dettaglio del fornitore sotto al netto compare la formula che lo spiega, in tre righe: \"scaduto\" (rosso) + \"a scadere\" (arancio, fatture aperte non ancora scadute) − \"NC\" (verde, note di credito ancora da scalare) = da pagare. Le righe a zero non compaiono. Nel riquadro \"Scaduto\" in alto, sotto al totale, trovi il totale delle NC da scalare dell'anno. Resta una differenza voluta: qui i totali sono dell'anno scelto (per data fattura), mentre lo Scadenzario mostra tutte le scadenze aperte di qualunque anno.",
+        "steps": [
+          "Scegli l'anno dal menu a tendina in alto per aggiornare i dati mostrati"
+        ]
+      },
+      {
+        "heading": "Scheda Anagrafica: cercare e filtrare i fornitori",
+        "body": "La tabella elenca tutti i fornitori con: nome, P.IVA, categoria, divisione tra punti vendita, metodo di pagamento, fatturato dell'anno, importo da pagare e stato di riconciliazione bancaria dei pagamenti. Le ragioni sociali molto lunghe vengono accorciate con i puntini per non allargare la tabella oltre lo schermo: il nome per esteso compare passando il mouse sopra, e resta comunque intero nel dettaglio della riga e nell'export. Da smartphone l'elenco compare come schede compatte, una per fornitore, con gli stessi dati chiave e i pulsanti Scheda, Modifica, Gestione e Disattiva sempre visibili; toccando la scheda si apre il dettaglio completo. Puoi cercare per nome, P.IVA, categoria o città, filtrare per categoria, per \"Stato\" (attivi/disattivati) e per \"Stato lavorazione\" (fornitori da completare: senza categoria, senza divisione, oppure con importi scaduti). Cliccando su una riga per espanderla vedi, oltre all'anagrafica e alle statistiche, tutto il piano di pagamento caricato: modalità (metodo), base di calcolo delle scadenze (Data fattura o Fine mese), giorni della prima scadenza, numero di rate e banca di pagamento. Con il pulsante \"Esporta\" in alto scarichi l'elenco in Excel/CSV con le stesse informazioni (modalità, base scadenze, 1ª scadenza, n° rate e banca), utile per rivedere in blocco cosa è impostato su ogni fornitore.",
+        "steps": [
+          "Usa la casella di ricerca per trovare un fornitore per nome, P.IVA, categoria o città",
+          "Usa il filtro \"Stato: tutti\" per vedere solo i fornitori da lavorare (senza categoria o divisione) oppure quelli con importi scaduti",
+          "Clicca su una riga per espanderla e vedere i dettagli completi: anagrafica, piano di pagamento (modalità, base scadenze, 1ª scadenza, n° rate, banca), statistiche e l'elenco delle scadenze ancora da pagare (le scadute per prime)",
+          "Usa \"Esporta\" per scaricare l'elenco completo con modalità e piano di pagamento di ogni fornitore, da controllare in un foglio Excel"
+        ]
+      },
+      {
+        "heading": "Creare o modificare un fornitore",
+        "body": "Con il pulsante \"Nuovo Fornitore\" in alto si apre un modulo per inserire un nuovo fornitore: dati anagrafici (ragione sociale, P.IVA, codice fiscale, codice SDI, PEC), Il modulo è diviso in tre schede, così non devi più scorrere tutto per arrivare a quello che ti serve. Quando modifichi un fornitore si apre su \"Pagamenti\", che è la scheda che si tocca quasi sempre; quando ne crei uno nuovo si apre su \"Anagrafica\", perché il nome va scritto per primo. Sotto al nome resta sempre visibile una striscia con metodo, modalità, categoria ed eventuale etichetta \"utenza\": sai com'è messo il fornitore senza aprire nulla. Un pallino giallo sulla linguetta di una scheda segnala che lì dentro manca qualcosa, e se provi a salvare con un campo obbligatorio vuoto il modulo apre da solo la scheda giusta.\n\n\"Pagamenti\" contiene il metodo, la banca di addebito, la modalità delle scadenze con la sua anteprima e la spunta \"è un'utenza\". \"Anagrafica\" contiene ragione sociale, P.IVA, codice fiscale, codice SDI, PEC, IBAN del fornitore e categoria. \"Recapiti e note\" contiene email, telefono, indirizzo e note. L'IBAN sta con l'anagrafica perché è il conto del fornitore, mentre la banca di addebito è il tuo e resta con i pagamenti.\n\nNella tendina del metodo la Ri.Ba. è una voce sola: il termine (30, 60, 90, 120 giorni) non si sceglie più lì, lo decide la modalità delle scadenze, e sotto la tendina leggi come verrà salvato. Prima i giorni si impostavano in due punti diversi e potevano contraddirsi, con fornitori marcati \"Ri.Ba. 30gg\" e un piano a 41 giorni.\n\nIl blocco delle scadenze ha un comando solo: la tendina \"Modalità di pagamento\". Contiene tutte le dilazioni d'uso comune, scritte come le usi tu: A Vista, Fine mese (0 gg DFFM), 30 gg DFFM, 30/60 gg DFFM, 30/60/90 gg DFFM, 30/60/90/120 gg DFFM, 60 gg DFFM, 60/90 gg DFFM, 60/90/120 gg DFFM, 90 gg DFFM, 90/120 gg DFFM, 120 gg DFFM, e le stesse calcolate a giorni dalla data fattura (D.F.). Scegliendone una si imposta tutto il resto da sé. Subito sotto c'è l'anteprima: dice a che data scade una fattura di prova (puoi cambiarne la data) e, con più rate, mostra ogni rata con la sua data e il suo importo su un esempio da 1.000 euro. È il modo più rapido per accorgersi di aver scelto la modalità sbagliata prima di salvare. Se il fornitore ha un accordo fuori standard (45 e 75 giorni, tre rate) apri \"Accordo fuori standard\" e scrivi a mano da cosa si conta, i giorni alla prima scadenza e il numero di rate: la tendina mostrerà \"Accordo fuori standard\" con il tuo piano. Il campo \"Termini pagamento (gg)\" non c'è più: era un doppione dei giorni alla prima scadenza e nessun calcolo lo usava.\n\nSe la modalità manca del tutto compare un avviso giallo che spiega cosa sta succedendo: quelle fatture scadono a 30 giorni fine mese in una rata sola, cioè la regola standard, non un accordo col fornitore. Il pulsante \"Usa la regola standard\" la conferma in un clic, se è davvero quella giusta. Per alcuni metodi di pagamento (Ri.Ba. 30/60/90/120, RID, SDD Core/B2B, carta di credito o debito) la banca di pagamento è obbligatoria, perché serve per lo storno nelle simulazioni di cash flow: in questi casi, se non selezioni una banca il salvataggio viene bloccato con un avviso. In fondo al modulo c'è la spunta \"È un'utenza (addebito permanente RID/SDD)\": attivala per i fornitori tipo HERA, Enel, Enegan, Acea, che addebitano le bollette in automatico senza che tu registri una fattura. Per questi fornitori gli addebiti in uscita che non trovano una fattura da abbinare vengono chiusi da soli come \"utenza\" (categoria utenze), così non restano indefinitamente tra i movimenti da riconciliare; se invece una bolletta è stata caricata come fattura, resta la precedenza alla fattura (viene abbinata a quella). Lo stesso modulo si apre in modifica cliccando sull'icona della matita nella riga del fornitore.",
+        "steps": [
+          "Clicca \"Nuovo Fornitore\" per aggiungerne uno, oppure l'icona della matita su una riga per modificarlo",
+          "Compila almeno la Ragione Sociale, che è obbligatoria",
+          "Se scegli un metodo di pagamento che richiede la banca (Ri.Ba., RID/SDD, carte), seleziona anche la banca di pagamento: senza di essa il salvataggio non viene consentito",
+          "Per le utenze con addebito permanente (HERA, Enel, Enegan…) spunta \"È un'utenza\", così i loro addebiti senza fattura si chiudono da soli",
+          "Clicca \"Crea Fornitore\" o \"Salva Modifiche\" per confermare"
+        ]
+      },
+      {
+        "heading": "Capire a colpo d'occhio chi non ha la modalità",
+        "body": "Nell'elenco la colonna \"Pagamento\" mostra due righe: sopra il metodo (bonifico, Ri.Ba., RID…), sotto la modalità delle scadenze (per esempio \"30/60 gg DFFM\"). Quando la modalità manca compare al suo posto un'etichetta gialla: \"da impostare\" se il fornitore non ne ha nessuna, \"da completare\" se il piano è a metà (per esempio manca il numero di giorni). Passandoci sopra leggi cosa comporta: quelle fatture scadono a 30 giorni fine mese in una rata sola, che è la regola standard e non l'accordo col fornitore. La stessa etichetta compare nella scheda del fornitore sul telefono e nella riga \"Scadenze\" del dettaglio.\n\nIn alto la card \"Con modalità pag.\" conta quanti fornitori sono a posto sul totale e diventa gialla finché ne manca qualcuno. Per lavorarli, usa la tendina \"Stato\": \"Senza modalità di pagamento\" li isola tutti, \"Piano scadenze da completare\" mostra quelli a metà, e \"Da lavorare\" li include insieme a chi non ha categoria o divisione. Anche l'esportazione Excel ha la colonna \"Modalità scadenze\", così puoi controllare l'intera anagrafica in un foglio solo.",
+        "steps": [
+          "Guarda la card \"Con modalità pag.\": se è gialla, qualche fornitore usa la regola standard invece del suo accordo.",
+          "Apri la tendina \"Stato\" e scegli \"Senza modalità di pagamento\".",
+          "Per ogni fornitore in elenco premi la matita, scegli la modalità giusta e controlla l'anteprima delle scadenze.",
+          "Se la regola standard è corretta, premi \"Usa la regola standard\" nell'avviso giallo e salva: il fornitore smette di comparire tra quelli da sistemare."
+        ]
+      },
+      {
+        "heading": "Revisione pagamenti (controllo veloce di tutti i fornitori)",
+        "body": "Il pulsante \"Revisione pagamenti\" in alto apre una schermata dedicata dove scorri tutti i fornitori attivi in ordine alfabetico e controlli, riga per riga, la Tipologia di pagamento (bonifico, Ri.Ba., RID…), la Modalità delle scadenze e la Banca. La tendina della Modalità elenca tutte le dilazioni: \"A Vista\", \"Fine mese\", 30, 60, 90, 120 gg e le rateizzazioni 30/60, 30/60/90, 30/60/90/120, 60/90, 60/90/120, 90/120, sia a fine mese (DFFM) sia a data fattura (D.F.), più \"Data fissa mese\" con il giorno da indicare a fianco. Se un fornitore ha già una condizione fuori elenco, quella resta in cima alla tendina e non si perde finché non la cambi. In alto, se qualche fornitore non ha ancora una modalità, compare un pulsante giallo con il conteggio: premilo per vedere solo quelli e sistemarli in fila; le loro righe hanno la casella della modalità evidenziata in giallo con scritto «da definire». Modifichi solo i fornitori sbagliati (la riga diventa gialla) e premi \"Salva e applica\": le correzioni vengono applicate subito ai fornitori. Ogni modifica salva anche il valore precedente, quindi è sempre annullabile. I fornitori che lasci invariati restano come sono.",
+        "steps": [
+          "Clicca \"Revisione pagamenti\" nell'intestazione della pagina Fornitori",
+          "Correggi Tipologia, Modalità e Banca solo dove serve; le righe modificate diventano gialle",
+          "Premi \"Salva e applica\" per aggiornare subito i fornitori",
+          "Usa \"Annulla modifiche\" per scartare le correzioni non ancora salvate"
+        ]
+      },
+      {
+        "heading": "Il pannello Gestione: categoria, divisione tra punti vendita e fatture",
+        "body": "Cliccando sull'icona a forma di cursori (\"Gestione fornitore\") in una riga si apre un pannello con tre blocchi. Il primo permette di assegnare o cambiare la categoria merceologica del fornitore (salvata subito, senza bisogno di aprire il modulo di modifica). Il secondo permette di impostare come il costo di questo fornitore viene ripartito tra i punti vendita: Diretto (tutto a un solo punto vendita), Split % (percentuali libere che devono sommare a 100%), Split Valore (un importo fisso per ciascun punto vendita) oppure Quote Uguali (diviso in parti uguali tra i punti vendita selezionati; se in futuro cambia il numero di punti vendita attivi, la quota si ricalcola automaticamente). Questa sezione è disponibile solo se l'azienda ha almeno due punti vendita attivi. Il terzo blocco mostra l'elenco delle fatture elettroniche di quel fornitore, con la possibilità di aprirle in formato leggibile o di aprire l'eventuale PDF allegato.",
+        "steps": [
+          "Clicca sull'icona dei cursori nella riga del fornitore per aprire il pannello Gestione",
+          "Nel blocco \"Categoria merceologica\" scegli la categoria dal menu: si salva subito",
+          "Nel blocco \"Divisione\" scegli una delle quattro modalità e compila i dati richiesti (percentuali, importi o selezione dei punti vendita), poi clicca \"Salva divisione\"",
+          "Nel blocco \"Fatture del fornitore\" clicca \"Apri\" per vedere una fattura formattata, oppure \"PDF\" per aprire l'eventuale documento PDF allegato"
+        ]
+      },
+      {
+        "heading": "Scheda contabile del fornitore",
+        "body": "Dall'icona a forma di libro nella riga di un fornitore si apre la sua scheda contabile completa, con partitario, fatture e pagamenti (vedi la guida dedicata a questa pagina).",
+        "steps": [
+          "Clicca sull'icona del libro nella riga del fornitore per aprire la sua scheda contabile"
+        ]
+      },
+      {
+        "heading": "Scheda Analytics: grafici di spesa",
+        "body": "Questa scheda mostra tre grafici calcolati sui dati dell'anno selezionato: i fornitori con la spesa più alta, la ripartizione della spesa per categoria merceologica (se nessun fornitore ha ancora una categoria, compare un invito ad assegnarle) e una tabella di analisi \"aging\" con, per ciascun fornitore, il totale fatturato, quanto è già stato pagato, quanto è in scadenza e quanto è scaduto.",
+        "steps": [
+          "Passa alla scheda \"Analytics\" per consultare i grafici",
+          "Se il grafico \"Spesa per categoria\" è vuoto o generico, assegna le categorie ai fornitori dal pannello Gestione o dalla pagina di categorizzazione automatica"
+        ]
+      },
+      {
+        "heading": "Disattivare un fornitore",
+        "body": "Il fornitore non viene mai cancellato definitivamente dal sistema: l'icona del cestino nella riga lo disattiva (chiede prima una conferma). Un fornitore disattivato resta consultabile ma non compare più tra quelli \"attivi\" nei filtri di default.",
+        "steps": [
+          "Clicca sull'icona del cestino nella riga del fornitore",
+          "Conferma quando il sistema chiede se vuoi disattivarlo"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Qual è la differenza tra le quattro modalità di divisione tra punti vendita?",
+        "a": "Diretto assegna tutto il costo a un solo punto vendita. Split % ripartisce il costo secondo percentuali che tu inserisci (devono sommare a 100%). Split Valore assegna un importo fisso in euro a ciascun punto vendita. Quote Uguali divide il costo in parti uguali tra i punti vendita selezionati, e si ricalcola da sola se in futuro cambia il numero di punti vendita attivi."
+      },
+      {
+        "q": "Perché non vedo il blocco \"Divisione tra punti vendita\" nel pannello Gestione?",
+        "a": "Quella sezione compare solo se l'azienda ha almeno due punti vendita attivi. Con un solo punto vendita attivo, tutti i costi vanno automaticamente a quell'unica sede e la divisione non serve."
+      },
+      {
+        "q": "Se cambio la categoria di un fornitore dal pannello Gestione, devo salvare separatamente?",
+        "a": "No, il salvataggio della categoria è immediato: appena la selezioni dal menu, viene registrata subito senza bisogno di un pulsante \"Salva\" aggiuntivo."
+      },
+      {
+        "q": "Cosa vuol dire il pallino accanto al numero di pagamenti riconciliati (es. 3/5)?",
+        "a": "Indica quanti dei pagamenti già effettuati a quel fornitore sono stati abbinati (riconciliati) a un movimento bancario reale. Il segno di spunta verde vuol dire che tutti sono riconciliati, il triangolo di avviso arancione che alcuni pagamenti non hanno ancora un movimento bancario associato."
+      },
+      {
+        "q": "Come faccio a vedere il PDF allegato a una fattura di un fornitore?",
+        "a": "Apri il pannello Gestione del fornitore (icona dei cursori), scorri fino a \"Fatture del fornitore\" e clicca il pulsante \"PDF\" sulla riga della fattura che ti interessa. Se il fornitore non ha allegato nessun PDF, il sistema te lo segnala con un messaggio: non è un errore, puoi comunque vedere la fattura con \"Apri\"."
+      },
+      {
+        "q": "Come verifico quale modalità e piano di pagamento è caricato su ogni fornitore?",
+        "a": "Due modi. Per un singolo fornitore: clicca sulla sua riga per espanderla e leggi il blocco pagamenti (modalità, base scadenze Data fattura/Fine mese, giorni della prima scadenza, numero di rate e banca). Per rivedere tutti insieme: clicca \"Esporta\" in alto e scarica il file Excel/CSV, che riporta per ogni fornitore modalità, base scadenze, 1ª scadenza, numero di rate e banca di pagamento — così puoi controllare l'intera anagrafica in un colpo solo."
+      },
+      {
+        "q": "Come imposto un fornitore \"fine mese data fattura\" (es. RiBa a fine mese)?",
+        "a": "Scegli la modalità \"Fine mese della fattura\". In alternativa apri \"Accordo fuori standard\", metti \"Si conta da\" su \"Fine mese\" e i giorni alla prima scadenza a 0: la scadenza cade l'ultimo giorno del mese della fattura (fattura del 3 agosto → scadenza 31 agosto). Se invece metti 30 gg, la scadenza slitta a fine mese del mese successivo (è il classico \"30 gg data fattura fine mese\"); con 60 o 90 gg si aggiunge un mese in più ogni 30 gg. Il piano serve alle fatture emesse dal 31/07/2026 solo quando la fattura non porta già i propri termini di pagamento: se la fattura elettronica indica una data di scadenza e una modalità (bonifico, Ri.Ba., carta, SDD…), valgono sempre quelle scritte dal fornitore, perché sono ciò che lui si aspetta. Il metodo in anagrafica serve allora solo a precisare la variante (per esempio Ri.Ba. a 60 o 90 giorni quando la fattura dice genericamente Ri.Ba.). Le fatture arrivate prima di questa regola e generate dal piano restano come sono."
+      }
+    ]
+  },
+  {
+    "path": "/fornitori/scheda-contabile",
+    "icon": "Building2",
+    "title": "Scheda Contabile Fornitore",
+    "description": "Questa pagina mostra la situazione contabile completa di un singolo fornitore: anagrafica, fatture ricevute anno per anno e il partitario (il registro con tutti i movimenti di dare e avere) che tiene traccia di quanto l'azienda deve o ha già pagato a quel fornitore. Si apre cliccando sull'icona del libro nella pagina Fornitori.",
+    "sections": [
+      {
+        "heading": "L'intestazione del fornitore",
+        "body": "In alto trovi i dati principali del fornitore (P.IVA, codice fiscale, indirizzo, IBAN, email, PEC, telefono) e alcuni pulsanti: \"Torna ai fornitori\" per uscire dalla scheda, tre pulsanti di stampa (scheda completa, solo fatture, solo partitario) e, se ci sono fatture scadute, un pulsante rosso \"Paga scadute\" che ti porta direttamente allo scadenzario con quel fornitore già impostato come filtro.",
+        "steps": [
+          "Usa \"Torna ai fornitori\" per tornare all'elenco",
+          "Usa uno dei tre pulsanti di stampa per stampare la versione che ti serve",
+          "Se compare \"Paga scadute\", cliccalo per andare allo scadenzario con le scadenze di questo fornitore già filtrate"
+        ]
+      },
+      {
+        "heading": "I riquadri riepilogativi",
+        "body": "Subito sotto l'intestazione trovi i numeri chiave: totale fatturato, totale già pagato, eventuale totale delle note di credito (compare solo se presenti), saldo contabile (in rosso se l'azienda è in debito verso il fornitore) e numero di fatture scadute sul totale."
+      },
+      {
+        "heading": "Ripresa saldo (saldo di apertura dell'anno)",
+        "body": "Questo riquadro mostra il saldo di apertura dell'anno selezionato, cioè il debito o credito residuo al 31 dicembre dell'anno precedente, riportato manualmente in fase di avvio del sistema o inserito da un operatore. Il segno negativo indica un debito dell'azienda verso il fornitore, positivo un credito a favore dell'azienda. Puoi modificarlo con il pulsante \"Modifica\", inserendo importo e data di riferimento.",
+        "steps": [
+          "Controlla il saldo di apertura mostrato per l'anno selezionato",
+          "Clicca \"Modifica\" se devi correggere l'importo o la data",
+          "Inserisci l'importo (usa il segno meno per un debito) e la data, poi clicca \"Salva\""
+        ]
+      },
+      {
+        "heading": "Tabella Fatture per anno",
+        "body": "Selezionando un anno dalle schede in alto (o \"Tutti\" per vederli tutti insieme) la tabella mostra le fatture di quel periodo: numero, data, scadenza, imponibile, IVA, totale, stato e data di pagamento (se pagata, indica quanti giorni mancano o sono passati dalla scadenza). Le note di credito sono evidenziate in verde con l'etichetta \"Nota Credito\". Se una fattura è divisa in più rate, una freccetta permette di espanderla e vedere il dettaglio di ogni rata con il proprio stato. Da ogni riga puoi aprire il documento originale o, se non ancora pagata, andare direttamente allo scadenzario per pagarla.",
+        "steps": [
+          "Clicca su un anno nelle schede in alto per filtrare le fatture di quel periodo, oppure su \"Tutti\" per vederle tutte",
+          "Clicca sulla freccetta a sinistra di una fattura con più rate per espanderla",
+          "Clicca sull'icona dell'occhio per aprire il documento originale della fattura",
+          "Clicca sull'icona della carta di credito per andare a pagare una fattura non ancora saldata"
+        ]
+      },
+      {
+        "heading": "Partitario — Conto Fornitore",
+        "body": "Il partitario è il registro contabile del fornitore: in colonna AVERE trovi le fatture ricevute (che aumentano il debito verso il fornitore), in colonna DARE i pagamenti effettuati e le note di credito (che lo riducono). Se una fattura è divisa in più rate e ne hai pagata solo una parte, il DARE registra SOLO l'importo effettivamente pagato (non l'intero totale della fattura) e la riga è etichettata \"Acconto\": così il saldo mostra correttamente il residuo ancora da pagare. Vale anche per gli acconti versati su una fattura unica: appena i soldi escono dal conto la riga entra in partitario, senza aspettare il saldo finale. Ogni riga mostra anche il saldo progressivo: se scende sotto zero (evidenziato in rosso) significa che l'azienda è ancora in debito. Puoi scegliere se ordinare i movimenti per data di emissione fattura o per data effettiva di pagamento, con il menu \"Ordina per\" in alto a destra della tabella. In fondo trovi i totali dei movimenti selezionati e il saldo corrente della scheda.",
+        "steps": [
+          "Scegli \"Data fattura\" o \"Data pagamento\" dal menu \"Ordina per\" in alto alla tabella",
+          "Leggi la colonna Saldo: un valore in rosso indica un debito residuo verso il fornitore",
+          "Controlla la riga dei totali in fondo per il saldo complessivo del periodo selezionato"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Ho versato un acconto su una fattura: lo vedo nel partitario?",
+        "a": "Sì. Un acconto pagato compare in DARE con la dicitura \"Acconto\" e la data del pagamento, e abbassa subito il saldo del fornitore. Non serve aspettare il saldo finale della fattura: quei soldi sono già usciti dal conto, e il debito verso il fornitore è quello che resta da pagare."
+      },
+      {
+        "q": "Cosa significa \"AVERE\" e cosa significa \"DARE\" nel partitario?",
+        "a": "AVERE raccoglie le fatture ricevute dal fornitore, che aumentano quanto l'azienda gli deve. DARE raccoglie i pagamenti effettuati e le note di credito, che riducono quel debito. Il saldo è la differenza tra le due colonne."
+      },
+      {
+        "q": "Perché il saldo è mostrato in rosso?",
+        "a": "Il saldo compare in rosso quando è negativo, cioè quando l'azienda ha ancora un debito aperto verso quel fornitore. Un saldo a zero (o positivo) significa che le partite sono chiuse o che il fornitore è addirittura in credito verso l'azienda."
+      },
+      {
+        "q": "Come faccio a pagare una fattura scaduta direttamente da qui?",
+        "a": "Se il fornitore ha fatture scadute, in alto compare il pulsante rosso \"Paga scadute\": cliccandolo vieni portata allo Scadenzario con quel fornitore già impostato come filtro. In alternativa puoi cliccare l'icona della carta di credito sulla singola fattura nella tabella."
+      },
+      {
+        "q": "A cosa serve la \"Ripresa saldo\"?",
+        "a": "Serve a registrare il saldo di apertura dell'anno, cioè il debito o credito che esisteva già al 31 dicembre dell'anno precedente prima che nel sistema fossero registrati i movimenti dell'anno corrente. Il partitario dell'anno parte sempre da questo valore."
+      },
+      {
+        "q": "Posso stampare solo il partitario senza l'elenco fatture?",
+        "a": "Sì, in alto trovi tre pulsanti di stampa distinti: uno per la scheda completa, uno per la sola tabella fatture e uno per il solo partitario."
+      }
+    ]
+  },
+  {
+    "path": "/fatturazione",
+    "icon": "FileCode",
+    "title": "Fatturazione Elettronica",
+    "description": "In questa pagina trovi tutte le fatture elettroniche dell'azienda: quelle ricevute dai fornitori, quelle emesse verso i clienti e gli incassi giornalieri dei punti vendita. La pagina è divisa in tre schede (Fatture Passive, Fatture Attive, Corrispettivi).",
+    "sections": [
+      {
+        "heading": "Come è organizzata la pagina",
+        "body": "In alto trovi il titolo \"Fatturazione Elettronica\" e il pulsante \"Sincronizza SDI\": serve per andare a scaricare subito le nuove fatture passive dal Sistema di Interscambio (SDI) tramite A-Cube, il fornitore che gestisce l'invio e la ricezione delle fatture elettroniche per conto dell'azienda. In automatico il download avviene già ogni 6 ore; il pulsante serve solo se vuoi forzare un aggiornamento immediato. Sotto il titolo trovi tre schede: Fatture Passive, Fatture Attive e Corrispettivi. Il numero tra parentesi accanto al nome di ogni scheda indica quante righe contiene.",
+        "steps": [
+          "Clicca su \"Sincronizza SDI\" se vuoi controllare subito se sono arrivate nuove fatture dai fornitori",
+          "Usa le tre schede in alto per passare da una vista all'altra"
+        ]
+      },
+      {
+        "heading": "Scheda Fatture Passive (le fatture che ricevi dai fornitori)",
+        "body": "Qui trovi l'elenco delle fatture elettroniche ricevute dai fornitori, con data, numero, fornitore, tipo documento, imponibile, IVA e totale. Nella colonna Tipo l'etichetta è in forma breve (per esempio \"Reverse charge\", \"Autofatt. estero\", \"Nota credito\"): passando il mouse sopra compare il codice ufficiale e la descrizione per esteso (per esempio \"TD17 · Integrazione/autofattura acquisti estero servizi\"). Le colonne più lunghe (numero, fornitore, tipo) vengono accorciate con i puntini e il testo completo si legge nel suggerimento al passaggio del mouse: così la tabella resta leggibile senza doverla scorrere in orizzontale. In alto vedi quattro riquadri riepilogativi: numero di fatture passive, numero di note di credito, totale lordo e totale IVA dell'anno selezionato. Sotto ai riquadri, se ci sono anomalie nella configurazione dei pagamenti di qualche fornitore, compare un avviso apposito. Puoi cercare per fornitore, numero fattura o codice SDI, e filtrare per anno. Cliccando su una riga (o sull'icona dell'occhio) si apre la fattura formattata, leggibile come un documento normale.",
+        "steps": [
+          "Usa la casella di ricerca per trovare una fattura per fornitore, numero o codice SDI",
+          "Scegli l'anno dal menu a tendina per filtrare l'elenco",
+          "Clicca su una riga della tabella per aprire la fattura in formato leggibile",
+          "Usa \"Importa XML\" per caricare manualmente un file XML di fattura ricevuto fuori dal circuito automatico",
+          "Usa \"Associa XML\" per collegare uno o più file XML già presenti sul computer a fatture già importate ma prive del documento originale (l'abbinamento avviene per numero fattura e P.IVA)"
+        ]
+      },
+      {
+        "heading": "L'avviso rosso \"anomalie sui fornitori da sistemare\"",
+        "body": "Sotto ai riquadri riepilogativi può comparire un riquadro rosso con l'elenco dei fornitori da sistemare; lo stesso numero appare come pallino rosso sulla voce Fatturazione nel menu di sinistra. Le segnalazioni riguardano solo le fatture dal 31/07/2026 in poi e sono di due famiglie. \"Fornitore non riconosciuto\" significa che il fornitore è stato creato in automatico quando è arrivata la sua prima fattura da SDI, da quella fattura non si è potuto ricavare il piano delle scadenze (il documento non porta la sezione dei pagamenti) e quel fornitore ha davvero delle fatture da pagare a mano. Quando la fattura i termini li porta (scadenze, codice della modalità, condizioni), il fornitore nasce già configurato e la segnalazione non compare proprio. Non compare nemmeno per chi si paga con carta o in contanti, e per chi ha solo spese ad addebito automatico: lì un piano rate non esiste, la spesa è già fatta e il conto viene addebitato per conto suo, quindi chiedere una dilazione non avrebbe senso. Nei casi che restano il fornitore va aperto in Fornitori, controllato e completato: la segnalazione compare una volta sola per fornitore e sparisce da sé appena imposti il piano di pagamento.\n\nLa segnalazione \"Banca di pagamento mancante\" non esiste più: il conto da cui esce l’addebito non entra in nessun calcolo di cassa, era una riga rossa per un dato che nessuna fattura contiene. Il campo resta nella scheda del fornitore e lo compili quando ti serve davvero. \"Importo non quadra\" significa che, per almeno una fattura di quel fornitore, la somma delle rate in Scadenzario non corrisponde al totale della fattura: vanno controllate e corrette le scadenze a mano. Le note di credito non fanno più scattare questa segnalazione: il loro importo in Scadenzario è negativo per costruzione (riducono il debito) e il controllo ora ne tiene conto. Lo stesso vale per le parcelle con ritenuta d'acconto: le rate sommano all'importo da bonificare, non al totale del documento, e il controllo confronta proprio quello. Il pulsante \"Risolto\" chiude la segnalazione per tutte le operatrici, non solo per te.",
+        "steps": [
+          "Leggi il tipo di segnalazione nell'etichetta rossa a sinistra del nome fornitore",
+          "Clicca \"Vai al fornitore\" per aprire la scheda e sistemare metodo, banca o piano rate",
+          "Per un importo che non quadra, controlla le rate del fornitore in Scadenzario e correggile",
+          "Clicca \"Risolto\" quando hai sistemato: la segnalazione sparisce per tutti gli utenti"
+        ]
+      },
+      {
+        "heading": "Notule e proforma inserite a mano (e l'avviso \"Notule da verificare\")",
+        "body": "Alcune parcelle — tipicamente del commercialista o di consulenti — arrivano prima come notula/proforma, senza numero di fattura elettronica. Per poterle pianificare e pagare le inserisci a mano nello Scadenzario (nominativo, importo, scadenza), lasciando vuoto o provvisorio il numero documento. Quando lo stesso documento viene poi emesso come fattura elettronica e arriva da A-Cube, porta un numero SDI diverso. Il sistema riconosce da solo che si tratta della stessa spesa e la fattura vera \"assorbe\" la notula: resta una sola riga, che mantiene l'eventuale stato \"pagato\" e la riconciliazione bancaria, ma prende numero e data veri della fattura SDI. Se invece il riconoscimento non è certo (per esempio fornitori che emettono più documenti dello stesso identico importo), la coppia non viene unita in automatico ma compare nell'avviso giallo \"Notule da verificare\", sotto ai riquadri della scheda Fatture Passive: lì controlli la corrispondenza e confermi con il pulsante \"Unisci\".",
+        "steps": [
+          "Inserisci la notula/proforma a mano dallo Scadenzario, con importo e scadenza (il numero documento è opzionale)",
+          "Quando arriva la fattura elettronica, nella maggior parte dei casi l'aggancio è automatico e non devi fare nulla",
+          "Se compare l'avviso giallo \"Notule da verificare\", leggi la coppia notula ↔ fattura SDI proposta",
+          "Se è corretta, clicca \"Unisci\": la fattura vera assorbe la notula tenendo lo stato pagato",
+          "Le coppie marcate \"ambiguo\" vanno controllate con più attenzione prima di unirle"
+        ]
+      },
+      {
+        "heading": "Scheda Fatture Attive (le fatture che emetti tu)",
+        "body": "Qui trovi le fatture emesse dall'azienda verso i clienti, con data, numero, cliente, tipo documento, totale e stato SDI. Lo stato SDI ti dice a che punto è la fattura: Bozza (non ancora inviata), Inviata, Ricevuta, Consegnata, Accettata, Scartata, Depositata o Errore. Cliccando su una riga si apre un pannello con tutti i dettagli del cliente, gli importi, la scadenza e la cronologia delle notifiche ricevute da SDI (ricevuta di consegna, notifica di scarto, mancata consegna, ecc.).",
+        "steps": [
+          "Cerca una fattura per cliente o numero, oppure filtra per periodo",
+          "Per una fattura in bozza senza documento, clicca sull'icona del foglio per generarne l'XML",
+          "Quando l'XML è pronto, clicca sull'icona dell'aeroplanino di carta per inviarla a SDI",
+          "Clicca su una riga per vedere il dettaglio completo e la cronologia delle notifiche SDI",
+          "Usa \"Converti Excel → XML\" per trasformare l'export del gestionale in file XML pronti per l'invio (vedi la guida dedicata a quella pagina)"
+        ]
+      },
+      {
+        "heading": "Scheda Corrispettivi (incassi giornalieri dei punti vendita)",
+        "body": "Questa scheda mostra gli incassi giornalieri registrati dalle casse (POS) dei punti vendita, riepilogati mese per mese e per punto vendita: incasso lordo, numero di transazioni e scontrino medio. In alto trovi due pulsanti per cambiare vista: \"POS\" mostra il riepilogo mensile calcolato dai dati di cassa; \"Cassetto Fiscale\" mostra invece i corrispettivi telematici così come risultano inviati all'Agenzia delle Entrate, con il relativo stato di invio (Inviato, In attesa, Errore). Puoi filtrare per punto vendita.",
+        "steps": [
+          "Scegli tra vista \"POS\" e vista \"Cassetto Fiscale\" con i due pulsanti in alto",
+          "Filtra per punto vendita se vuoi vedere solo un negozio",
+          "Nella vista Cassetto Fiscale controlla la colonna \"Stato AdE\" per capire se un corrispettivo è stato inviato correttamente"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Da dove arrivano le fatture passive che vedo in questa pagina?",
+        "a": "Arrivano automaticamente dal Sistema di Interscambio (SDI) tramite A-Cube, il fornitore che gestisce l'invio e la ricezione delle fatture elettroniche. Il sistema le scarica in automatico ogni 6 ore, oppure puoi forzare il download subito con il pulsante \"Sincronizza SDI\". In alternativa puoi importare manualmente un file XML con il pulsante \"Importa XML\" nella scheda Fatture Passive."
+      },
+      {
+        "q": "Cosa significa lo stato \"Bozza\" su una fattura attiva?",
+        "a": "Significa che la fattura è stata creata nel gestionale ma non è ancora stata inviata al Sistema di Interscambio. Prima serve generare l'XML, poi si può inviare."
+      },
+      {
+        "q": "Perché il pulsante \"Nuova via A-Cube\" nella scheda Fatture Attive è disattivato?",
+        "a": "L'emissione diretta di una nuova fattura tramite A-Cube è temporaneamente disattivata. Per creare i documenti da inviare, al momento va usato il pulsante \"Converti Excel → XML\", che genera i file XML a partire dall'export del gestionale."
+      },
+      {
+        "q": "Cosa vuol dire \"Associa XML\" e quando lo devo usare?",
+        "a": "Serve quando hai già una fattura importata nel sistema ma senza il file XML originale collegato: caricando uno o più XML, il sistema li abbina automaticamente alla fattura giusta cercando lo stesso numero fattura e, se disponibile, la stessa P.IVA del fornitore."
+      },
+      {
+        "q": "Perché nella vista Cassetto Fiscale non vedo nessun dato?",
+        "a": "Il canale di sincronizzazione automatica dei corrispettivi telematici con il cassetto fiscale dell'Agenzia delle Entrate non è ancora attivo per questo tenant: è normale se la lista risulta vuota."
+      },
+      {
+        "q": "Se le fatture non si caricano per un problema di connessione, come lo capisco?",
+        "a": "Se il caricamento fallisce compare un banner rosso con il messaggio d'errore e un pulsante 'Riprova' (sia sulle fatture passive/attive sia sui corrispettivi). In questo modo un errore di rete non viene scambiato per 'nessuna fattura presente': prima l'elenco mostrava 'Nessuna fattura trovata' anche quando in realtà c'era stato un errore."
+      },
+      {
+        "q": "Perché mi segnala \"importo non quadra\" su un fornitore che sembra a posto?",
+        "a": "Vuol dire che per almeno una sua fattura emessa dal 31/07/2026 la somma delle rate presenti in Scadenzario non corrisponde al totale della fattura: di solito perché le scadenze sono state modificate a mano o la fattura non porta un piano rate leggibile. Apri il fornitore, controlla le rate in Scadenzario e correggile; la segnalazione si chiude da sola quando gli importi tornano a quadrare. Le note di credito, che in Scadenzario hanno importo negativo, non generano più questa segnalazione, e nemmeno le parcelle con ritenuta d'acconto, le cui rate sommano all'importo da bonificare invece che al totale della fattura."
+      },
+      {
+        "q": "Ho inserito a mano la notula del commercialista: quando arriva la fattura vera avrò un doppione?",
+        "a": "No, nella maggior parte dei casi no. Quando la fattura elettronica arriva da A-Cube, il sistema riconosce che si tratta della stessa spesa già inserita come notula (per partita IVA del fornitore e per numero documento oppure per importo e data vicina) e la fattura vera assorbe la notula: resta una sola riga, che mantiene l'eventuale stato 'pagato' e la riconciliazione, ma prende numero e data veri della fattura SDI. Solo quando il riconoscimento non è certo la coppia non viene unita da sola e compare l'avviso 'Notule da verificare', dove puoi confermare l'aggancio con 'Unisci'."
+      }
+    ]
+  },
+  {
+    "path": "/fatturazione/nuova-acube",
+    "icon": "FileCode",
+    "title": "Nuova Fattura Attiva — A-Cube SDI",
+    "description": "Questa pagina è un modulo per creare ed emettere una nuova fattura attiva (cioè una fattura che l'azienda emette verso un cliente) tramite A-Cube, il servizio che si occupa dell'invio al Sistema di Interscambio (SDI). Si raggiunge dal link \"Torna a Fatturazione\" oppure dall'indirizzo /fatturazione/nuova-acube.",
+    "sections": [
+      {
+        "heading": "Scegliere l'ambiente: Sandbox o Production",
+        "body": "In cima al modulo trovi due pulsanti per scegliere l'ambiente di invio. \"Sandbox\" è un ambiente di prova: la fattura NON viene realmente inviata a SDI, quindi puoi usarla per fare dei test senza conseguenze. \"Production\" è l'ambiente reale: se scegli questa opzione la fattura viene davvero inviata al Sistema di Interscambio e diventa un documento fiscale a tutti gli effetti. Quando selezioni Production, compare un avviso: una fattura inviata in produzione non si può annullare, si può solo correggere emettendo una nota di credito.",
+        "steps": [
+          "Lascia \"Sandbox\" selezionato se vuoi solo fare una prova",
+          "Seleziona \"Production\" solo quando sei sicura di voler emettere davvero la fattura",
+          "Leggi con attenzione l'avviso arancione che compare in modalità Production prima di procedere"
+        ]
+      },
+      {
+        "heading": "Dati del cliente (Cessionario)",
+        "body": "In questa sezione inserisci i dati del cliente a cui è indirizzata la fattura: Partita IVA o Codice Fiscale (obbligatorio), Ragione sociale (obbligatoria), Città, Provincia e CAP.",
+        "steps": [
+          "Compila Partita IVA/Codice Fiscale e Ragione sociale: sono obbligatori, senza questi dati non puoi inviare la fattura",
+          "Compila anche Città, Provincia e CAP quando disponibili"
+        ]
+      },
+      {
+        "heading": "Dati del documento",
+        "body": "Qui imposti il numero della fattura (viene proposto automaticamente ma puoi modificarlo), la data e il tipo di documento. I tipi disponibili sono: TD01 — Fattura, TD04 — Nota di credito, TD24 — Fattura differita.",
+        "steps": [
+          "Controlla o modifica il numero fattura proposto",
+          "Verifica la data del documento",
+          "Scegli il tipo documento corretto dal menu a tendina"
+        ]
+      },
+      {
+        "heading": "Linee documento (le voci della fattura)",
+        "body": "Ogni riga della fattura ha una descrizione, una quantità, un prezzo unitario e un'aliquota IVA (22%, 10%, 4%, 5% o 0%). Puoi aggiungere altre righe con \"Aggiungi linea\" oppure eliminarle con l'icona del cestino (non puoi eliminare l'ultima riga rimasta). In fondo alla sezione il sistema calcola automaticamente l'imponibile, l'IVA e il totale della fattura.",
+        "steps": [
+          "Compila descrizione, quantità, prezzo unitario e aliquota IVA per ogni riga",
+          "Clicca \"Aggiungi linea\" se la fattura ha più voci",
+          "Usa il cestino per rimuovere una riga inserita per errore",
+          "Controlla il totale calcolato in fondo prima di inviare"
+        ]
+      },
+      {
+        "heading": "Invio della fattura",
+        "body": "Quando tutti i dati obbligatori sono compilati, il pulsante di invio si attiva e mostra l'ambiente scelto (es. \"Invia via A-Cube (sandbox)\"). Dopo l'invio, se tutto va a buon fine, compare un riquadro verde con l'identificativo A-Cube della fattura, l'eventuale identificativo SDI e il totale. In caso di errore compare invece un riquadro rosso con il messaggio di errore. Dal riquadro di successo puoi creare subito un'altra fattura.",
+        "steps": [
+          "Verifica che il pulsante di invio sia attivo (non grigio): significa che i campi obbligatori sono compilati",
+          "Clicca sul pulsante di invio e attendi la conferma",
+          "Se compare il riquadro verde, la fattura è stata inviata correttamente",
+          "Se compare il riquadro rosso, leggi il messaggio di errore e correggi i dati prima di ritentare",
+          "Clicca \"Crea un'altra fattura\" per ripartire da un modulo vuoto"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Cosa succede se invio una fattura in modalità Sandbox?",
+        "a": "Niente di reale: la fattura non viene inviata al Sistema di Interscambio, serve solo per fare una prova del modulo e verificare che i dati siano corretti."
+      },
+      {
+        "q": "Posso annullare una fattura inviata in Production?",
+        "a": "No. Una fattura inviata in ambiente Production è un documento fiscale reale e non si può annullare: l'unico modo per correggerla è emettere una nota di credito (tipo documento TD04)."
+      },
+      {
+        "q": "Quali campi sono obbligatori per poter inviare la fattura?",
+        "a": "Partita IVA/Codice Fiscale del cliente e Ragione sociale del cliente sono obbligatori. Anche numero e data documento vanno sempre compilati, così come almeno una riga con descrizione, quantità e prezzo."
+      },
+      {
+        "q": "Questa pagina è raggiungibile dal pulsante nella schermata Fatturazione?",
+        "a": "Al momento il pulsante \"Nuova via A-Cube\" nella scheda Fatture Attive di Fatturazione è disattivato. Questa pagina resta comunque raggiungibile direttamente dal suo indirizzo (/fatturazione/nuova-acube) se qualcuno te ne indica il link."
+      }
+    ]
+  },
+  {
+    "path": "/fatturazione/converti-xml",
+    "icon": "FileCode",
+    "title": "Converti Excel → XML Fattura Elettronica",
+    "description": "Questo strumento trasforma l'export Excel del gestionale in file XML di fattura elettronica (formato FPR12), pronti per essere importati sul sito dell'Agenzia delle Entrate. Funziona interamente sul tuo computer, senza inviare nulla a SDI: genera solo i file da caricare tu stessa.",
+    "sections": [
+      {
+        "heading": "Attenzione: è uno strumento provvisorio",
+        "body": "Gli XML generati NON sono firmati digitalmente (niente file .p7m) e non sono validati contro lo schema ufficiale dell'Agenzia delle Entrate: hanno comunque la stessa forma già usata in passato per l'importazione manuale. Ogni fattura ha un'unica riga di dettaglio generica (\"Fornitura merce vs/ordine\"), non articolo per articolo. L'aliquota IVA al 22% è fissa e non modificabile da questa pagina."
+      },
+      {
+        "heading": "I dati del cedente (la tua azienda)",
+        "body": "I dati dell'azienda che emette le fatture — ragione sociale, P.IVA, sede legale e regime fiscale — vengono letti automaticamente dall'anagrafica aziendale e mostrati nel riquadro \"Dati cedente\" in alto. Sono quelli che finiscono in ogni XML generato. Se l'anagrafica è incompleta (ad esempio manca la sede legale), la pagina lo segnala con un avviso e il pulsante \"Genera XML\" resta disattivato finché i dati non vengono completati: gli XML non vengono mai creati con dati cedente mancanti o inventati.",
+        "steps": [
+          "Controlla il riquadro \"Dati cedente\" in alto: deve mostrare ragione sociale, P.IVA, sede e regime della tua azienda",
+          "Se compare l'avviso di dati incompleti, l'anagrafica azienda va completata prima di poter generare gli XML"
+        ]
+      },
+      {
+        "heading": "Il numero di partenza (progressivo)",
+        "body": "Ogni fattura elettronica ha bisogno di un numero progressivo di trasmissione, che deve sempre aumentare rispetto all'ultimo usato. La pagina propone in automatico il numero successivo all'ultimo progressivo salvato nell'Archivio generazioni dell'azienda: lo storico è quindi condiviso, anche se cambi computer o browser. Solo se l'archivio non è raggiungibile viene usato come ripiego l'ultimo numero ricordato dal browser. Se non c'è nessuno storico, viene proposto un numero di partenza di default che puoi comunque modificare.",
+        "steps": [
+          "Controlla il riquadro in alto: ti dice qual era l'ultimo numero (e da dove arriva: archivio dell'azienda o questo browser) e quale sarà il prossimo",
+          "Modifica il \"Numero di partenza\" solo se sei sicura che il valore proposto non sia corretto"
+        ]
+      },
+      {
+        "heading": "Caricare i dati delle fatture",
+        "body": "Puoi fornire i dati in due modi, scegliendo la modalità con i due pulsanti in alto: \"Carica file Excel\" per trascinare o selezionare il file .xls/.xlsx esportato dal gestionale (il file deve avere il titolo in riga 1, le intestazioni delle colonne in riga 2 e i dati dalla riga 3 in poi); oppure \"Incolla righe\" per incollare direttamente da Excel una o più righe di dati copiate negli appunti (meglio includere anche la riga di intestazione, così le colonne vengono riconosciute per nome anziché per posizione).",
+        "steps": [
+          "Scegli \"Carica file Excel\" oppure \"Incolla righe\" a seconda di come hai i dati a disposizione",
+          "Per il file Excel: tocca il riquadro per selezionarlo dal dispositivo, oppure (da computer) trascinalo dentro",
+          "Per l'incolla: copia le righe da Excel (con intestazione, se possibile) e incollale nella casella di testo"
+        ]
+      },
+      {
+        "heading": "Generare gli XML",
+        "body": "Premendo \"Genera XML\" il sistema crea un file XML per ciascuna fattura trovata, con un numero progressivo assegnato in ordine di data. Sotto compaiono degli avvisi: quante fatture sono state generate e con quali numeri, e se ci sono anomalie da controllare, ad esempio fatture in cui Imponibile + Imposta non corrisponde esattamente al Totale, fatture senza provincia riconosciuta o senza data valida. Gli XML vengono comunque generati anche in presenza di questi avvisi, ma è bene ricontrollare i dati originali.",
+        "steps": [
+          "Clicca \"Genera XML\" dopo aver caricato o incollato i dati",
+          "Leggi gli avvisi colorati che compaiono sotto il pulsante",
+          "Nella tabella di riepilogo, controlla la colonna \"Quadra\": le righe con \"NO\" (evidenziate in rosso) hanno un'incongruenza tra imponibile, imposta e totale da verificare"
+        ]
+      },
+      {
+        "heading": "Scaricare i file generati",
+        "body": "Dopo la generazione puoi scaricare tutti gli XML insieme in un unico file compresso (.zip) con il pulsante \"Scarica tutti (.zip)\". Puoi anche vedere un'anteprima del primo XML generato, per un controllo veloce del contenuto prima di caricarlo sul sito dell'Agenzia delle Entrate.",
+        "steps": [
+          "Clicca \"Scarica tutti (.zip)\" per ottenere tutti i file XML in un colpo solo",
+          "Consulta l'anteprima del primo XML se vuoi controllarne il contenuto prima di procedere"
+        ]
+      },
+      {
+        "heading": "Archivio generazioni",
+        "body": "Ogni volta che generi un gruppo di XML, il sistema lo salva automaticamente in un archivio (visibile in fondo alla pagina), organizzato per data di generazione con l'intervallo di numeri progressivi usati. Da qui puoi ritrovare le generazioni passate, cercarle per numero fattura o cliente, filtrarle per periodo, riscaricare lo zip di un gruppo intero oppure il singolo file XML di una fattura, e — se necessario — eliminare una generazione dall'archivio.",
+        "steps": [
+          "Usa la casella di ricerca o il filtro per periodo per trovare una generazione passata",
+          "Clicca \"Scarica .zip\" su un gruppo per riscaricare tutti i suoi file",
+          "Clicca l'icona di download accanto a una singola fattura per scaricare solo quel file XML",
+          "Usa \"Elimina\" solo se sei sicura: l'eliminazione di una generazione dall'archivio non è reversibile"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Gli XML generati qui vengono inviati automaticamente all'Agenzia delle Entrate?",
+        "a": "No. Questo strumento lavora solo sul tuo computer e genera i file XML: nessun invio automatico avviene da questa pagina. Devi scaricare i file e importarli tu stessa sul sito dell'Agenzia delle Entrate."
+      },
+      {
+        "q": "Cosa significa quando una riga è evidenziata in rosso con \"NO\" nella colonna Quadra?",
+        "a": "Significa che per quella fattura la somma di Imponibile e Imposta non corrisponde al Totale indicato (con una tolleranza di un centesimo). Il file XML viene comunque generato, ma è bene ricontrollare i dati di origine prima di usarlo."
+      },
+      {
+        "q": "Perché il numero di partenza proposto cambia da una volta all'altra?",
+        "a": "Il sistema propone il numero successivo all'ultimo progressivo salvato nell'Archivio generazioni dell'azienda (condiviso tra computer e browser diversi), per evitare di riutilizzare per errore un numero già assegnato. Solo se l'archivio non è raggiungibile viene usato l'ultimo numero ricordato dal browser."
+      },
+      {
+        "q": "Posso modificare l'aliquota IVA o i dati dell'azienda che emette la fattura?",
+        "a": "L'aliquota IVA (22%) è fissa e non modificabile. I dati del cedente invece non sono più fissi: vengono letti dall'anagrafica della tua azienda e mostrati nel riquadro \"Dati cedente\" in alto; per correggerli va aggiornata l'anagrafica aziendale, non questa pagina."
+      },
+      {
+        "q": "Se elimino per sbaglio una generazione dall'archivio, posso recuperarla?",
+        "a": "No, l'eliminazione di una generazione dall'archivio non è reversibile: prima di confermare, il sistema chiede sempre una conferma esplicita proprio per questo motivo."
+      }
+    ]
+  },
+  {
+    "path": "/scadenze-fiscali",
+    "icon": "CalendarClock",
+    "title": "Scadenze Fiscali e Interne",
+    "description": "In questa pagina tieni sotto controllo tutte le scadenze da pagare: F24, IVA, imposte, contributi e uscite interne come stipendi, compensi e finanziamenti. Puoi vedere subito cosa è urgente, segnare i pagamenti fatti e aggiungerne di nuovi.",
+    "sections": [
+      {
+        "heading": "Cosa vedi in alto: il riepilogo",
+        "body": "Appena entri nella pagina trovi una barra con i numeri principali: quante scadenze sono scadute (in rosso, se presenti), quante cadono questa settimana, quante entro 30 giorni, il totale ancora da pagare e il totale già pagato. Questi numeri si aggiornano automaticamente ogni volta che aggiungi, modifichi o segni come pagata una scadenza."
+      },
+      {
+        "heading": "I tre gruppi di scadenze",
+        "body": "Sotto il riepilogo trovi tre pulsanti (schede) per filtrare l'elenco: \"Da pagare\" mostra tutto ciò che è ancora aperto; \"Pagati\" mostra le scadenze già saldate; \"Tutti\" mostra tutto, comprese quelle annullate. Accanto a ogni scheda c'è un numero che indica quante scadenze contiene.",
+        "steps": [
+          "Clicca su \"Da pagare\" per vedere solo ciò che devi ancora saldare",
+          "Clicca su \"Pagati\" per controllare lo storico dei pagamenti effettuati",
+          "Clicca su \"Tutti\" per avere la visione completa, comprese le voci annullate"
+        ]
+      },
+      {
+        "heading": "Cercare e filtrare una scadenza",
+        "body": "Accanto alle schede trovi un menu a tendina per filtrare per tipo (es. F24, IVA periodica, INPS, IMU, TARI, Bollo auto, ecc.) e un campo di ricerca dove puoi digitare il titolo, il codice F24 o il periodo di riferimento per trovare rapidamente quello che cerchi."
+      },
+      {
+        "heading": "Leggere la tabella delle scadenze",
+        "body": "Ogni riga della tabella mostra: la data di scadenza, il tipo (con un'etichetta colorata), il titolo (es. \"IVA mensile — Maggio 2026\"), il periodo di riferimento, l'importo, lo stato attuale e quanti giorni mancano alla scadenza. Le righe scadute hanno uno sfondo rosso chiaro, quelle urgenti (entro 7 giorni) uno sfondo giallo chiaro, così le riconosci a colpo d'occhio. Da smartphone l'elenco compare come schede compatte, una per scadenza, con le stesse informazioni e i pulsanti Pagato, Modifica e Annulla ben toccabili."
+      },
+      {
+        "heading": "Gli stati possibili di una scadenza",
+        "body": "Ogni scadenza può trovarsi in uno di questi stati, mostrati come etichetta colorata: \"Da pagare\" (ancora aperta), \"In scadenza\" (si avvicina la data), \"Scaduto\" (il termine è passato), \"Pagato\" (saldata), \"Annullato\" (non più valida) oppure \"Rinviato\" (posticipata)."
+      },
+      {
+        "heading": "Segnare una scadenza come pagata",
+        "body": "Per le scadenze non ancora pagate trovi il pulsante \"Pagato\" nella colonna Azioni. Cliccandolo il sistema cerca prima, fra i movimenti bancari non ancora riconciliati, un'uscita dello stesso importo esatto nei dintorni della scadenza (da 30 giorni prima a 60 dopo). Se ne trova, ti mostra l'elenco e ti chiede quale addebito ha pagato quella scadenza: scegliendolo, la scadenza viene chiusa e il movimento agganciato in un colpo solo, così l'addebito non resta orfano in prima nota. Se non trova nulla di corrispondente, la scadenza viene comunque segnata come pagata e ti avvisa che resta da riconciliare.",
+        "steps": [
+          "Individua la scadenza da segnare come saldata nella tabella",
+          "Clicca sul pulsante verde \"Pagato\" nella colonna Azioni",
+          "Se compare l'elenco degli addebiti, scegli quello giusto guardando data, banca e causale",
+          "Se nessuno corrisponde, usa \"Nessuno di questi: segna solo come pagata\"",
+          "La scadenza si sposta fra quelle pagate e il totale in alto si aggiorna"
+        ]
+      },
+      {
+        "heading": "L'etichetta \"in banca\"",
+        "body": "Accanto allo stato di una scadenza pagata puo' comparire l'etichetta azzurra \"in banca\": vuol dire che quella scadenza non e' solo segnata come pagata, ma e' anche agganciata al movimento bancario che l'ha saldata. E' la differenza fra dire \"l'ho pagata\" e poterlo dimostrare con l'addebito in estratto conto. Le scadenze pagate senza questa etichetta sono da riconciliare."
+      },
+      {
+        "heading": "Creare una nuova scadenza",
+        "body": "Usa il pulsante \"Nuova scadenza\" in alto a destra per aprire un modulo dove inserire titolo, tipo, data di scadenza, importo, eventuale codice F24, periodo di riferimento, metodo di pagamento e note. Puoi anche indicare se la scadenza è ricorrente (mensile, trimestrale, semestrale o annuale).",
+        "steps": [
+          "Clicca su \"Nuova scadenza\" in alto a destra",
+          "Compila almeno titolo, tipo e data di scadenza (i campi obbligatori)",
+          "Se vuoi, aggiungi importo, codice F24, periodo, metodo di pagamento e note",
+          "Se la scadenza si ripete nel tempo, spunta \"Ricorrente\" e scegli la frequenza",
+          "Clicca su \"Crea scadenza\" per salvare"
+        ]
+      },
+      {
+        "heading": "Modificare o eliminare una scadenza",
+        "body": "Nella colonna Azioni di ogni riga trovi anche l'icona per modificare (apre lo stesso modulo già compilato con i dati esistenti) e l'icona per eliminare (ti verrà chiesta una conferma prima di procedere)."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Cosa significa lo sfondo rosso o giallo su una riga?",
+        "a": "Lo sfondo rosso indica una scadenza già scaduta e non ancora pagata. Lo sfondo giallo indica una scadenza urgente, cioè entro i prossimi 7 giorni. Serve a farti notare subito le priorità senza dover leggere ogni riga."
+      },
+      {
+        "q": "Se sbaglio a segnare una scadenza come pagata, posso tornare indietro?",
+        "a": "Puoi modificare la scadenza (icona matita) e cambiare manualmente lo Stato riportandolo a \"Da pagare\" o a un altro stato dal menu a tendina del modulo."
+      },
+      {
+        "q": "Cosa vuol dire \"Ricorrente\"?",
+        "a": "È un'indicazione che la scadenza si ripete periodicamente (ad esempio ogni mese per l'IVA). Selezionandola puoi scegliere la frequenza: mensile, trimestrale, semestrale o annuale. Serve solo come promemoria, non crea automaticamente le scadenze future."
+      },
+      {
+        "q": "A cosa serve il campo \"Codice F24\"?",
+        "a": "È il codice tributo da riportare sul modello F24 per quel pagamento (ad esempio 6001 per l'IVA). Se lo inserisci, comparirà anche sotto il titolo nella tabella come promemoria."
+      },
+      {
+        "q": "Perché quando segno una scadenza come pagata mi chiede di scegliere un movimento bancario?",
+        "a": "Perché un F24 o un'IVA lasciano un addebito sul conto, e finché quell'addebito non viene collegato alla scadenza resta in prima nota come uscita senza spiegazione. Il sistema cerca le uscite non ancora riconciliate dello stesso importo esatto e ti chiede quale sia quella giusta: bastano un paio di secondi e la contabilità torna a quadrare da sola. Se preferisci non agganciare nulla, puoi sempre scegliere \"Nessuno di questi\"."
+      },
+      {
+        "q": "Ho agganciato il movimento sbagliato, posso disfare?",
+        "a": "Sì. L'aggancio è reversibile e non cancella niente: chiedi a chi gestisce la contabilità di annullarlo (il sistema stacca il movimento e lo rimette fra quelli da riconciliare, lasciando la scadenza pagata)."
+      },
+      {
+        "q": "Quando segno una scadenza come pagata o la annullo, come so se è andata a buon fine?",
+        "a": "Ora compare un messaggio di conferma ('Scadenza segnata come pagata' / 'Scadenza annullata') oppure, se qualcosa va storto, un messaggio d'errore chiaro. Prima, in caso di problema (rete o permessi), l'operazione poteva non riuscire senza alcun avviso e la lista si ricaricava come se fosse tutto a posto."
+      },
+      {
+        "q": "Cosa succede quando 'elimino' (cestino) una scadenza fiscale?",
+        "a": "La scadenza NON viene cancellata definitivamente: viene messa nello stato 'Annullato'. Sparisce dall'elenco 'Da pagare', ma resta consultabile nella scheda 'Tutti' come promemoria storico. È una scelta voluta per non perdere dati: se serve, la scadenza è sempre rintracciabile."
+      }
+    ]
+  },
+  {
+    "path": "/liquidazione-iva",
+    "icon": "Percent",
+    "title": "Liquidazione IVA",
+    "description": "La pagina Liquidazione IVA stima, mese per mese, quanta IVA l'azienda dovrà versare (o quanto credito porterà al mese dopo). Mette insieme i corrispettivi degli outlet, le fatture attive e le fatture dei fornitori ricevute nel mese, applica il credito riportato e propone la scadenza F24 del 16 del mese successivo. Da qui si conferma un mese con i numeri definitivi e si crea la scadenza in Scadenze Fiscali, così entra nello Scadenzario e nel Cashflow Prospettico.",
+    "sections": [
+      {
+        "heading": "Cosa vedi in alto: i quattro riquadri",
+        "body": "\"Prossimo versamento\" mostra il primo mese ancora da pagare con importo, data di scadenza e stato (stima, in corso, confermata). \"Da versare nell'anno\" somma tutti i mesi dell'anno non ancora pagati, stime comprese. \"Già versato\" riporta quanto risulta pagato in Scadenze Fiscali per l'IVA periodica. \"Credito a fine anno\" indica il credito che, se resta, passa all'anno successivo. In alto a destra scegli l'anno, ricalcoli con \"Ricalcola\" e, se hai il ruolo giusto, apri i \"Parametri\"."
+      },
+      {
+        "heading": "Come si calcola ogni riga",
+        "body": "Per ogni mese: IVA vendite = corrispettivi netti × aliquota (più l'IVA delle fatture attive emesse nel mese); IVA acquisti = IVA delle fatture dei fornitori di competenza del mese, con la regola del registro acquisti del commercialista: una fattura del mese resta nel mese se arriva via SDI entro la chiusura del registro di quel mese (la data \"registro chiuso il\" salvata quando il mese viene confermato; per i mesi non ancora confermati vale il giorno limite del mese successivo, parametro, 15 di default), altrimenti va nel mese in cui arriva; meno le note di credito; le integrazioni reverse charge (TD16, TD17, TD18, TD19) sono neutre e non entrano nel conto. Liquidazione = IVA vendite − IVA acquisti − credito riportato dal mese precedente. Se il risultato è positivo va versato con F24 (codice tributo 60 + mese: 6008 per agosto); se è negativo il mese è a credito e l'importo riduce il mese dopo (colonna \"Riporto\"). Tutta l'IVA sugli acquisti è considerata detraibile."
+      },
+      {
+        "heading": "Da dove arrivano i corrispettivi",
+        "body": "L'etichetta sotto l'importo dice quale fonte è stata usata. \"Chiusure cassa\": le chiusure di cassa confermate dei negozi (dato netto IVA), con il numero di giorni coperti. \"Chiusure + preventivo\": solo per il mese in corso, chiusure fino a oggi più il preventivo per i giorni che restano. \"Consuntivo B&C\": il consuntivo mensile inserito in Budget & Controllo (già al netto IVA). \"Preventivo B&C\": il preventivo di Budget & Controllo, usato quando non c'è altro (mesi futuri o mesi senza chiusure né consuntivo). \"Confermata\": i numeri inseriti a mano con il pulsante Conferma."
+      },
+      {
+        "heading": "Stati di un mese",
+        "body": "\"Stima\": mese chiuso, calcolato dai dati disponibili. \"In corso\": il mese corrente, che cambia ogni giorno con le nuove chiusure e le fatture che arrivano; l'IVA acquisti non scende mai sotto la media dei mesi chiusi, perché le fatture arrivano fino all'ultimo giorno. \"Previsione\": mese futuro, corrispettivi dal preventivo e IVA acquisti pari alla media dei mesi chiusi (segnata con ≈). \"Confermata\": numeri definitivi inseriti a mano. \"Pagata\": in Scadenze Fiscali la scadenza IVA di quel mese risulta pagata; l'importo versato diventa il risultato del mese."
+      },
+      {
+        "heading": "Confermare un mese con i numeri definitivi",
+        "body": "Quando hai i numeri veri (dal commercialista o dalla liquidazione fatta), premi \"Conferma\" sulla riga: diventano modificabili corrispettivi netti, IVA fatture attive, IVA acquisti e anche la casella del totale, con i valori stimati già proposti. Hai due modi di lavorare. Se conosci il dettaglio, correggi i tre ingredienti e lasci la casella del totale VUOTA: la liquidazione si ricalcola con l'aliquota e il riporto della riga. Se invece il commercialista ti ha dato solo la cifra da versare, la scrivi direttamente nella casella del totale: quel numero vince sul calcolo, i tre ingredienti restano accanto come traccia di come ci si era arrivati e la riga porta la dicitura \"importo dato\". Serve a non dover ritoccare l'IVA acquisti per far tornare la somma, che lascerebbe un numero falso in archivio. Nel campo \"registro chiuso il\" indichi il giorno in cui lo studio ha chiuso il registro acquisti del mese (proposto: oggi): le fatture del mese arrivate via SDI dopo quel giorno passano da sole al mese successivo, così la stima automatica del mese dopo non le perde e quella del mese chiuso coincide con il registro. Aggiungi una nota se vuoi e premi \"Salva conferma\": il mese passa in stato Confermata, sotto lo stato compare la data di chiusura del registro e il suo risultato alimenta il riporto del mese successivo e la Simulazione fabbisogno. \"Modifica\" riapre i campi; \"Rimuovi\" (con seconda conferma) cancella i numeri inseriti e fa tornare la stima automatica.",
+        "steps": [
+          "Se hai solo il totale da versare, scrivilo nella casella dell'importo e lascia stare le altre",
+          "Individua il mese nella tabella e premi \"Conferma\"",
+          "Correggi corrispettivi netti, IVA fatture attive e IVA acquisti con i valori definitivi",
+          "Controlla la data \"registro chiuso il\" (il giorno in cui lo studio ha chiuso il registro del mese)",
+          "Aggiungi una nota (facoltativa) e premi \"Salva conferma\"",
+          "Se serve, premi \"Aggiorna scadenza\" per allineare anche l'importo in Scadenze Fiscali"
+        ]
+      },
+      {
+        "heading": "Creare o aggiornare la scadenza F24",
+        "body": "\"Crea scadenza\" scrive in Scadenze Fiscali una riga di tipo IVA periodica con titolo, periodo (es. 08/2026), codice tributo, importo e data di scadenza: da quel momento compare nello Scadenzario (filtro \"Solo Fiscali / Interni\"), può entrare in una distinta e viene contata dal Cashflow Prospettico tra le uscite fiscali. Se la scadenza esiste già e non è pagata, il pulsante si chiama \"Aggiorna scadenza\" e ne aggiorna importo, data e codice. Una scadenza già pagata non viene mai toccata. Se il mese chiude a credito non c'è nulla da versare: la scadenza esistente viene annullata e il credito passa al mese dopo. La data proposta è il 16 del mese successivo (20 agosto per la liquidazione di luglio; il giorno lavorativo successivo se cade di sabato o domenica)."
+      },
+      {
+        "heading": "Parametri",
+        "body": "Nel pannello \"Parametri\" (super advisor, contabile, CFO) imposti: l'aliquota applicata ai corrispettivi (22% di default); il mese e l'anno di partenza, cioè il primo mese calcolato; il credito IVA iniziale da riportare in quel mese (zero se il mese precedente era a debito); il giorno limite del mese successivo entro cui una fattura del mese resta nel mese (15 di default, il massimo di legge), usato solo per i mesi non ancora confermati: per un mese confermato conta la data \"registro chiuso il\" salvata con la conferma. I mesi precedenti al mese di partenza non vengono ricostruiti. Finché i parametri non sono salvati la pagina parte dal mese corrente con aliquota 22% e credito zero e lo segnala con un avviso."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché l'IVA acquisti di un mese non coincide con le fatture datate quel mese?",
+        "a": "Perché il registro acquisti segue anche la data di arrivo, non solo la data del documento. Una fattura datata nel mese entra nel mese se arriva via SDI prima che lo studio chiuda il registro di quel mese (la data \"registro chiuso il\" salvata con la conferma; per i mesi non confermati il giorno limite del mese dopo, parametro, 15 di default). Se arriva dopo, va nel mese di arrivo. Esempio reale: le fatture di luglio 2026 arrivate dal 4 agosto, dopo la chiusura del registro di luglio, sono finite nella liquidazione di agosto; con la data di chiusura salvata, la stima automatica di agosto le conta come il registro."
+      },
+      {
+        "q": "Il mese in corso cambia ogni volta che apro la pagina: è normale?",
+        "a": "Sì. Ogni chiusura di cassa confermata e ogni fattura ricevuta aggiornano la stima. Il numero si stabilizza quando il mese si chiude; se vuoi fissarlo prima, usa \"Conferma\"."
+      },
+      {
+        "q": "Il commercialista mi ha dato solo il totale, senza il dettaglio: dove lo scrivo?",
+        "a": "Nella casella dell'importo, nella colonna del totale, dopo aver premuto \"Conferma\" sulla riga. Se la compili, quel numero vince su tutto e non serve toccare corrispettivi, IVA attive o IVA acquisti: restano come sono, a documentare da dove partiva la stima. La riga mostrerà \"importo dato\" sotto la cifra. Se invece lasci la casella vuota, il totale continua a essere calcolato dagli altri tre valori."
+      },
+      {
+        "q": "Ho pagato l'F24 ma il mese resta \"Stima\"",
+        "a": "Il pagamento va registrato in Scadenze Fiscali (pulsante \"Pagato\" sulla scadenza IVA periodica di quel mese, meglio se agganciato al movimento bancario). Appena la scadenza risulta pagata, qui il mese passa in stato Pagata e l'importo versato diventa il risultato usato per il riporto."
+      },
+      {
+        "q": "Dove finisce la quota indetraibile (auto, telefono, ristoranti)?",
+        "a": "Per ora da nessuna parte: tutta l'IVA sugli acquisti è considerata detraibile. Se il commercialista applica quote indetraibili, correggi l'IVA acquisti con \"Conferma\" quando hai il dato definitivo."
+      },
+      {
+        "q": "L'acconto IVA di dicembre è compreso?",
+        "a": "No, non ancora: la pagina calcola le liquidazioni mensili. L'acconto del 27 dicembre va inserito a mano in Scadenze Fiscali."
+      }
+    ]
+  },
+  {
+    "path": "/archivio",
+    "icon": "Archive",
+    "title": "Archivio Documenti",
+    "description": "L'Archivio Documenti è il luogo dove consultare, cercare e scaricare fatture ricevute, bilanci ed estratti conto già importati nel gestionale. Include anche la sezione Conservazione Sostitutiva, che tiene sotto controllo i tempi di conservazione obbligatoria dei documenti fiscali.",
+    "sections": [
+      {
+        "heading": "A cosa serve questa pagina",
+        "body": "In alto ci sono due schede: \"Archivio\", dove si consultano fatture, bilanci ed estratti conto già presenti nel gestionale, e \"Conservazione Sostitutiva\", dove si controlla lo stato di conservazione a norma dei documenti fiscali per i 10 anni previsti dalla legge. I documenti mostrati in questa pagina arrivano dai caricamenti fatti nella pagina Hub Importazioni; l'unica eccezione è il pulsante \"Archivia estratto conto\" (nella sezione Estratti Conto Bancari), che permette di salvare qui il file di un estratto conto senza importarne i movimenti."
+      },
+      {
+        "heading": "Sezione Fatture Ricevute",
+        "body": "Mostra tutte le fatture elettroniche ricevute dai fornitori per l'anno selezionato, con il totale in euro. Si possono raggruppare per fornitore oppure per mese, cercare per nome fornitore o numero fattura, e cambiare l'anno dal menu a tendina (che indica anche quante fatture ci sono per ogni anno). Ogni fattura mostra numero, data, importo ed eventuale stato di invio SDI (ad esempio ACCETTATA o RIFIUTATA, quando disponibile).",
+        "steps": [
+          "Aprire la sezione \"Fatture Ricevute\" cliccando sulla sua intestazione (parte chiusa per non affollare la pagina)",
+          "Scegliere l'anno di interesse e il tipo di raggruppamento (per fornitore o per mese)",
+          "Usare la casella di ricerca per trovare rapidamente un fornitore o un numero fattura",
+          "Cliccare su un gruppo (fornitore o mese) per espanderlo e vedere le singole fatture",
+          "Usare \"Espandi tutti\" / \"Comprimi tutti\" per aprire o chiudere tutti i gruppi insieme",
+          "Su ogni fattura, cliccare \"Anteprima\" per vederla in formato leggibile, oppure \"Scarica PDF\" per generarla in PDF e aprire la finestra di stampa"
+        ]
+      },
+      {
+        "heading": "Sezione Bilanci",
+        "body": "Elenca i bilanci annuali caricati, con anno, data di caricamento, dimensione del file e stato. Da qui si può aprire un'anteprima del PDF in una nuova scheda o scaricare il file. Se la lista è vuota, il messaggio ricorda che i bilanci si caricano dalla pagina Import Hub, sezione Bilanci.",
+        "steps": [
+          "Aprire la sezione \"Bilanci\" (di norma già aperta, essendo un elenco breve)",
+          "Cliccare \"Anteprima\" per aprire il PDF del bilancio in una nuova scheda",
+          "Cliccare \"Scarica\" per salvare il file sul computer"
+        ]
+      },
+      {
+        "heading": "Sezione Estratti Conto Bancari",
+        "body": "Elenca gli estratti conto archiviati, organizzati per rendere gestibile anche un archivio di centinaia di documenti. I documenti sono raggruppati per FONTE (ogni conto corrente e ogni carta è un gruppo a sé, con un contatore) e ordinati per periodo; i conti correnti appaiono prima delle carte. Una barra in alto permette di filtrare per tipo (Conti correnti / Carte), per anno e di cercare per fonte o nome file. Ogni voce mostra il periodo (es. \"Luglio 2026\") e il formato; per i conti c'è \"Anteprima\" (i movimenti a sistema per quel conto) e per tutti \"Scarica\" (il file originale). In cima alla sezione, il pulsante \"Archivia estratto conto\" consente di caricare qui PDF/XLS/CSV di uno o più estratti conto — anche un'intera cartella o uno ZIP — SENZA importarne i movimenti: utile quando i movimenti sono già presenti (es. sincronizzati via A-Cube) e si vuole solo conservare il documento, evitando doppioni. Tipo, fonte e periodo vengono riconosciuti in automatico dal nome file; le carte sono classificate come categoria a sé, separate dai conti.",
+        "steps": [
+          "Aprire la sezione \"Estratti Conto Bancari\"",
+          "Usare la barra filtri per restringere: tipo (Conti/Carte), anno, o ricerca testo; \"Azzera\" toglie i filtri",
+          "Cliccare l'intestazione di un gruppo (una fonte) per espanderlo/chiuderlo",
+          "Per archiviare: cliccare \"Archivia estratto conto\", scegliere un conto di ripiego (usato solo per file senza conto riconoscibile), selezionare file / una cartella / uno ZIP e confermare con \"Archivia\"",
+          "Su ogni documento: \"Anteprima\" (solo conti) per i movimenti a sistema, \"Scarica\" per il file originale"
+        ]
+      },
+      {
+        "heading": "Conservazione Sostitutiva: a cosa serve",
+        "body": "I documenti fiscali (fatture elettroniche e altri documenti contabili) devono per legge essere conservati per 10 anni dalla data di emissione, secondo l'articolo 2220 del Codice Civile e il Decreto Ministeriale 17/06/2014. Questa scheda tiene sotto controllo automaticamente tutti questi documenti e segnala quando una scadenza si sta avvicinando o è già passata, così da poter intervenire in tempo."
+      },
+      {
+        "heading": "Come leggere e usare la scheda Conservazione Sostitutiva",
+        "body": "In alto compaiono sei numeri riassuntivi: totale documenti, quanti sono ancora \"in conservazione\" regolare, quanti \"in scadenza\" (nei prossimi 6 mesi), quanti già \"scaduti\", e quanti sono fatture rispetto a documenti generici. Sotto, una tabella elenca ogni documento con tipo, data, importo, data di fine conservazione e stato (Conservato, Scade tra X giorni, Scaduto). Per i documenti scaduti sono disponibili le azioni \"Estendi\" (prolunga la conservazione) o \"Archivia\" (li segna come chiusi/gestiti).",
+        "steps": [
+          "Passare alla scheda \"Conservazione Sostitutiva\"",
+          "Controllare le card in alto per farsi un'idea generale (quanti documenti sono in scadenza o scaduti)",
+          "Usare i filtri rapidi \"Tutti / Attivi / In scadenza / Scaduti\" oppure il campo di ricerca per trovare un documento specifico",
+          "Per un documento scaduto, cliccare \"Estendi\" se serve prolungare i tempi di conservazione, oppure \"Archivia\" se è già stato gestito"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Cos'è la Conservazione Sostitutiva e perché devo controllarla?",
+        "a": "È l'obbligo di legge di conservare fatture e altri documenti fiscali per 10 anni. Questa scheda avvisa automaticamente quando un documento sta per raggiungere la scadenza dei 10 anni, così da poter agire (estendere o archiviare) prima che il termine passi senza essere gestito."
+      },
+      {
+        "q": "Cosa devo fare quando un documento risulta \"Scaduto\"?",
+        "a": "Puoi cliccare \"Estendi\" se la conservazione va prolungata, oppure \"Archivia\" se il documento è già stato gestito correttamente e non serve più tenerlo sotto osservazione in questa lista."
+      },
+      {
+        "q": "Perché alcune fatture non mostrano nessuna etichetta SDI?",
+        "a": "L'etichetta di stato SDI (es. ACCETTATA, RIFIUTATA) compare solo quando questa informazione è disponibile per quella fattura; se manca, semplicemente non viene mostrata nessuna etichetta."
+      },
+      {
+        "q": "Posso scaricare l'estratto conto originale così come l'ho caricato?",
+        "a": "Sì, nella sezione \"Estratti Conto Bancari\" c'è il pulsante \"Scarica\" su ogni file, che restituisce il documento originale caricato."
+      },
+      {
+        "q": "Da dove arrivano le fatture, i bilanci e gli estratti conto che vedo in questa pagina?",
+        "a": "Fatture, bilanci ed estratti conto importati arrivano dalla pagina Hub Importazioni Dati. Fa eccezione il pulsante \"Archivia estratto conto\" nella sezione Estratti Conto Bancari, con cui puoi caricare qui direttamente il file di un estratto conto (senza importarne i movimenti)."
+      },
+      {
+        "q": "Se archivio un estratto conto da qui, rischio di duplicare i movimenti già presenti?",
+        "a": "No. Il pulsante \"Archivia estratto conto\" salva soltanto i file originali (nel deposito documenti sicuro) e li aggiunge all'elenco: non legge né crea alcun movimento. È pensato proprio per conservare i documenti quando i movimenti di quel conto sono già a sistema (ad esempio sincronizzati via A-Cube), senza il rischio di doppioni. Puoi anche caricare un'intera cartella zippata in un'unica volta: lo ZIP viene scompattato nel browser e ogni documento archiviato singolarmente (il file .zip non viene conservato). Se invece devi importare i movimenti da un file, usa l'Hub Importazioni."
+      },
+      {
+        "q": "Come faccio a trovare velocemente le fatture di un fornitore specifico?",
+        "a": "Nella sezione Fatture Ricevute, imposta il raggruppamento \"Per fornitore\" e scrivi il nome nel campo di ricerca: i gruppi con risultati si aprono automaticamente."
+      }
+    ]
+  },
+  {
+    "path": "/impostazioni",
+    "icon": "Settings",
+    "title": "Impostazioni",
+    "description": "La pagina Impostazioni raccoglie i dati dell'azienda, la gestione degli utenti, il catalogo delle voci di costo, i centri di costo (punti vendita), la configurazione della fatturazione elettronica SDI e il report incassi serale (la mail automatica con le chiusure di cassa). Le sezioni visibili dipendono dal tuo ruolo utente.",
+    "sections": [
+      {
+        "heading": "Come è organizzata la pagina",
+        "body": "Le informazioni sono divise in blocchi a fisarmonica (uno sotto l'altro): Dati azienda, Utenti, Voci di costo, Centri di costo, Fatturazione SDI e Report incassi serale. Clicca sul titolo di un blocco per aprirlo o chiuderlo. Se un blocco appare più chiaro con un lucchetto, significa che il tuo ruolo non ha i permessi per accedervi: in quel caso contatta un amministratore."
+      },
+      {
+        "heading": "Dati azienda",
+        "body": "Qui trovi i dati anagrafici della società (ragione sociale, forma giuridica, sede legale, P.IVA, codice fiscale, REA, capitale sociale, PEC, codice SDI, ATECO, amministratore) e l'elenco dei soci con ruolo e quota di partecipazione.",
+        "steps": [
+          "Per modificare un singolo dato (es. la PEC), clicca sul valore: diventa un campo modificabile",
+          "Compila il nuovo valore e clicca \"Salva\" in fondo, oppure \"Annulla\" per lasciare tutto com'era",
+          "Per gestire i soci, clicca \"Modifica soci\": puoi aggiungere un nuovo socio, cambiarne nome/ruolo/quota o rimuoverlo",
+          "Le quote dei soci non possono superare il 100% in totale: se succede, il sistema ti avvisa e non salva"
+        ]
+      },
+      {
+        "heading": "Utenti",
+        "body": "In questa sezione gestisci gli accessi reali al gestionale: \"Invita utente\" crea il login e invia un'email per impostare la password; l'icona della chiave (\"Nuova password\") genera una password nuova e te la mostra una sola volta, da comunicare tu all'utente; \"Blocca\" impedisce l'accesso senza cancellare nulla; \"Elimina\" revoca il login. Ogni utente ha un'etichetta colorata con il ruolo (Super Advisor, CEO, CFO, COO, Contabile, Operatore cassa, Sola lettura). Il ruolo \"Operatore cassa (negozio)\" è l'account di un punto vendita, condiviso dal personale: entra e vede solo la pagina Chiusura cassa del proprio negozio, nessun altro dato aziendale.",
+        "steps": [
+          "Clicca \"Invita utente\" per aprire il modulo",
+          "Inserisci nome, cognome ed email (obbligatoria) e scegli il ruolo",
+          "Se il ruolo è \"Operatore cassa (negozio)\", scegli il punto vendita dell'account: è obbligatorio e determina quale chiusura di cassa può compilare",
+          "Clicca \"Invia invito\": all'utente arriva l'email per impostare la password",
+          "Con la matita su un utente esistente cambi ruolo (e punto vendita, per l'operatore cassa); il cestino elimina l'accesso dopo conferma",
+          "Con l'icona della chiave e poi \"Genera\" imposti una nuova password: compare in un riquadro verde con il pulsante \"Copia email e password\". Comunicala subito all'utente, perché non viene più mostrata e la vecchia password smette di funzionare"
+        ]
+      },
+      {
+        "heading": "Voci di costo",
+        "body": "Qui è raccolto il catalogo di tutte le voci di spesa dell'azienda, raggruppate per macro-gruppo (es. Locazione, Personale, Marketing). Ogni voce ha un codice, un nome, un importo annuo, il tipo (fisso o variabile, ricorrente o no) e i centri di costo (punti vendita) a cui è assegnata.",
+        "steps": [
+          "Usa la barra di ricerca o il filtro per centro di costo per trovare una voce specifica",
+          "Clicca su un gruppo (es. \"Locazione\") per espanderlo e vedere le voci al suo interno, con il totale del gruppo",
+          "Clicca \"Nuova voce\" per crearne una: servono almeno codice e nome",
+          "Puoi assegnare la voce a uno o più centri di costo, oppure a \"Tutti gli outlet\"",
+          "Puoi anche indicare che una voce è un sottoconto di un'altra, per creare una struttura gerarchica",
+          "Usa l'icona matita per modificare una voce esistente o il cestino per eliminarla (con conferma)"
+        ]
+      },
+      {
+        "heading": "Centri di costo",
+        "body": "I centri di costo rappresentano i punti vendita, la sede o il magazzino: sono le entità a cui vengono assegnate le voci di spesa. Qui puoi creare, modificare o eliminare un centro di costo, assegnandogli un codice, un'etichetta descrittiva e un colore identificativo.",
+        "steps": [
+          "Clicca \"Nuovo centro\" per crearne uno nuovo",
+          "Inserisci il codice (es. VDC) e l'etichetta (es. \"Punto vendita Centro\")",
+          "Scegli un colore per riconoscerlo facilmente nelle altre pagine",
+          "Salva con \"Aggiungi\", oppure modifica/elimina un centro esistente passando sopra la riga con il mouse"
+        ]
+      },
+      {
+        "heading": "Fatturazione SDI",
+        "body": "Questa sezione mostra lo stato dell'accreditamento al Sistema di Interscambio (SDI) per l'invio delle fatture elettroniche: se è attivo, se si è in ambiente di Test o Produzione, il codice SDI, la PEC di ricezione e lo stato dei certificati di sicurezza.",
+        "steps": [
+          "Clicca \"Test connessione\" per verificare che il collegamento con il Sistema di Interscambio funzioni",
+          "Puoi aggiornare il Codice SDI o la PEC ricezione scrivendo direttamente nel campo: il salvataggio avviene appena esci dal campo",
+          "L'interruttore \"Ambiente\" permette di passare tra Test e Produzione: in Test le fatture vengono validate ma non inviate davvero, in Produzione vengono trasmesse realmente",
+          "I certificati di sicurezza sono gestiti in modo protetto e non sono mai visibili per esteso in pagina"
+        ]
+      },
+      {
+        "heading": "Report incassi serale",
+        "body": "Sezione per super advisor e contabile. Attiva una mail automatica che ogni sera riepiloga le chiusure di cassa del giorno di tutti i punti vendita. Quando parte lo scegli tu: \"Appena tutti i punti vendita hanno confermato la chiusura\" (consigliato) fa partire mail e WhatsApp al momento dell'ultima conferma, che siano le 20:10 o le 23:05, con un'ora limite (ora italiana, valida anche con l'ora legale) oltre la quale il report parte comunque con i negozi mancanti in evidenza; \"A un'ora fissa\" fotografa la giornata a quell'ora. In entrambi i casi, se \"integrazione\" è attiva, una chiusura confermata dopo l'invio genera un secondo messaggio (mail e WhatsApp) con quel negozio e i totali aggiornati, così nessuno aspetta il giorno dopo. Il conteggio \"chiusure confermate su punti vendita\" nell'oggetto conta solo le chiusure confermate: le bozze sono elencate tra le mancanti. Contano come punti vendita da attendere solo quelli che hanno almeno un operatore cassa assegnato o una chiusura negli ultimi 60 giorni: un negozio appena creato in anagrafica (per esempio in apertura) non blocca il report e non compare tra i mancanti finché non entra in servizio. La mail riepiloga: una riga per negozio con totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza; i negozi che non hanno ancora chiuso in rosso; l'elenco delle cose da controllare (giornate che non quadrano, chiusure ancora in bozza, foto dello scontrino mancante, importi letti dalla foto diversi da quelli scritti, note della cassiera); il totale dell'azienda e il progressivo del mese; il confronto con l'obiettivo del budget: per ogni negozio l'obiettivo del giorno e lo scostamento +/-, più una tabella \"Mese vs obiettivo\" con budget del mese, obiettivo a oggi, incassato a oggi, +/-, percentuale raggiunta e proiezione a fine mese; il link a Incassi giornalieri. L'obiettivo viene dal budget ricavi mensile dell'Inserimento rapido (Budget → Inserimento Rapido), che è netto IVA: viene portato al lordo con l'aliquota impostata qui e diviso per i giorni del mese.",
+        "steps": [
+          "Spunta \"Invia il report ogni sera\" e scegli quando parte: a completamento (con l'ora limite) oppure a un'ora fissa",
+          "Lascia attiva l'integrazione se vuoi che una chiusura arrivata dopo l'invio generi un secondo messaggio con quel negozio e i totali aggiornati",
+          "Controlla l'aliquota IVA per il confronto con il budget (22 % di default): serve a rendere confrontabili il budget netto e i corrispettivi lordi delle chiusure",
+          "Scrivi i destinatari, uno per riga o separati da virgola: sotto il campo vedi quanti indirizzi sono validi",
+          "Se vuoi, attiva il sollecito (deve essere prima dell'ora di invio o dell'ora limite): a quell'ora gli operatori cassa dei negozi che non hanno ancora confermato ricevono un avviso in-app con il link alla loro chiusura",
+          "Decidi se la mail deve partire anche nei giorni senza nessuna chiusura registrata",
+          "Salva, poi usa \"Invia una prova a me\": la mail di oggi arriva solo al tuo indirizzo, con [PROVA] nell'oggetto",
+          "Se vuoi anche WhatsApp, spunta \"Invia anche su WhatsApp (versione breve)\" e scrivi i numeri (uno per riga, formato +39…): insieme alla mail arriva un messaggio di poche righe con incasso e scostamento di ogni negozio, totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale con un modello approvato da Meta; \"Prova WhatsApp\" lo manda subito ai numeri configurati",
+          "La tabella \"Ultimi invii\" mostra giorno e ora, tipo (report serale, integrazione, sollecito, prova), esito (mail e, se attivo, WhatsApp) e destinatari; se un invio non è riuscito vedi il motivo"
+        ]
+      },
+      {
+        "heading": "Centri di costo: codice e ruolo",
+        "body": "Il codice di un centro di costo è la chiave che lo lega all'outlet (chiave contabile), al budget e al conto dei ricavi: va scritto in minuscolo con il trattino basso al posto degli spazi (es. torino, roma_soratte, sede_magazzino) e il form lo normalizza da solo. Il campo Ruolo dice come il centro viene trattato: «Punto vendita» entra in confronti, margini e budget per outlet; «Sede / magazzino» e «Non operativo» (spese da ripartire, rettifiche) restano fuori. Quando crei un outlet dalla procedura guidata, il centro di costo gemello viene creato automaticamente."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Perché non vedo tutte le sezioni?",
+        "a": "L'accesso alle sezioni di Impostazioni dipende dal ruolo assegnato al tuo utente. Se una sezione ha il lucchetto e appare più chiara, il tuo ruolo non è abilitato a vederla o modificarla: contatta un amministratore."
+      },
+      {
+        "q": "Un negozio ha confermato la chiusura dopo che il report era già partito: che succede?",
+        "a": "Con l'integrazione attiva, alla conferma parte da solo un secondo messaggio (mail e WhatsApp) intitolato \"Integrazione incassi\": dice quale negozio ha confermato dopo il report e a che ora era partito il report, e riporta il quadro aggiornato di tutta la giornata. Se invece hai scelto l'invio a completamento, il report del giorno non parte finché tutti non hanno confermato, salvo l'ora limite."
+      },
+      {
+        "q": "Da dove viene l'obiettivo del giorno nel report incassi?",
+        "a": "Dal budget ricavi del mese di ogni negozio inserito in Budget → Inserimento Rapido. Quel budget è netto IVA, mentre le chiusure di cassa sono corrispettivi lordi: il report aggiunge l'IVA impostata nella sezione Report incassi serale e divide per i giorni del mese. Se un negozio non ha budget per il mese, nella mail compare un trattino e il nome del negozio nella nota sotto la tabella."
+      },
+      {
+        "q": "Cosa succede se passo l'ambiente SDI da Test a Produzione?",
+        "a": "In Produzione le fatture elettroniche vengono inviate realmente al Sistema di Interscambio dell'Agenzia delle Entrate. In Test vengono solo validate senza essere trasmesse ai destinatari. Cambia questa impostazione solo se sei sicuro, perché ha un impatto reale sull'invio delle fatture."
+      },
+      {
+        "q": "Posso assegnare una voce di costo a più punti vendita contemporaneamente?",
+        "a": "Sì, nella sezione Voci di costo puoi selezionare più centri di costo per la stessa voce, oppure scegliere \"Tutti gli outlet\" se riguarda l'intera azienda."
+      },
+      {
+        "q": "Un negozio ha perso la password dell'account cassa: come faccio?",
+        "a": "In Utenti trova l'account del negozio, clicca l'icona della chiave e poi \"Genera\": il gestionale imposta una nuova password e la mostra una sola volta in un riquadro verde. Copiala con \"Copia email e password\" e comunicala al negozio (telefono o email aziendale). Non serve che il negozio riceva email automatiche né che usi \"Password dimenticata?\"."
+      },
+      {
+        "q": "Come faccio a togliere l'accesso a un utente che non lavora più con noi?",
+        "a": "Puoi eliminarlo dalla sezione Utenti con l'icona del cestino, oppure modificarlo e disattivare la spunta \"Utente attivo\" se preferisci mantenere lo storico senza dargli accesso."
+      }
+    ]
+  },
+  {
+    "path": "/report-sincronizzazioni",
+    "icon": "DatabaseZap",
+    "title": "Report Sincronizzazioni",
+    "description": "Questa pagina mostra lo stato e lo storico degli aggiornamenti automatici dei dati che arrivano da fonti esterne: conti bancari, fatture passive (fornitori), fatture attive (vendite), corrispettivi e Cassetto Fiscale. Serve a capire a colpo d'occhio se tutto funziona regolarmente oppure se qualcosa è fermo da controllare.",
+    "sections": [
+      {
+        "heading": "A cosa serve questa pagina",
+        "body": "I dati di banche, fatture fornitori e Cassetto Fiscale non vengono caricati a mano ogni volta: il sistema li scarica automaticamente in modo periodico. Questa pagina è il registro di tutte queste sincronizzazioni automatiche (e di quelle avviate manualmente), così da avere sempre la prova di quando è stato fatto l'ultimo aggiornamento e se è andato a buon fine."
+      },
+      {
+        "heading": "Le card di riepilogo per ciascun canale",
+        "body": "In alto ci sono cinque riquadri, uno per ogni canale (\"feed\") di sincronizzazione: Banche, Fatture passive, Fatture attive, Corrispettivi e Cassetto Fiscale. Ogni riquadro mostra un pallino colorato e un'etichetta di stato:\n\n• \"Aggiornato\" (pallino scuro) — l'ultimo aggiornamento è recente e regolare.\n• \"In ritardo\" (pallino arancione) — l'ultimo aggiornamento riuscito è un po' più vecchio del previsto, oppure l'ultima esecuzione è stata completata con avvisi.\n• \"Fermo\" (pallino rosso) — l'ultima esecuzione è fallita, oppure non si aggiorna da troppo tempo.\n• \"Nessuna sincronizzazione\" (pallino grigio) — quel canale non ha ancora mai girato.\n\nBanche, Fatture passive, Fatture attive e Corrispettivi si aggiornano automaticamente ogni 6 ore; il Cassetto Fiscale una volta al giorno. Il canale Corrispettivi risulta \"non ancora attivo\" finché non viene collegato. Toccando una card (o passandoci sopra il mouse) compare il dettaglio (data/ora dell'ultimo aggiornamento e, se presente, la descrizione dell'errore)."
+      },
+      {
+        "heading": "La tabella dello storico delle esecuzioni",
+        "body": "Sotto le card c'è una tabella con una riga per ogni sincronizzazione eseguita, dalla più recente. Le colonne sono: Data e ora, Feed (il canale interessato), Origine (Automatica o Manuale), Periodo (l'intervallo di dati controllato), Esito (OK, Parziale, Errore o Vuoto) e Scaricati (quanti documenti/movimenti sono arrivati in quella esecuzione). Per chi ha un profilo da consulente è visibile anche una colonna \"Errore\" con il dettaglio tecnico in caso di problema."
+      },
+      {
+        "heading": "Il dettaglio: cosa è stato scaricato",
+        "body": "Le righe con almeno un elemento scaricato (colonna \"Scaricati\" maggiore di zero) hanno una freccetta a sinistra e si possono espandere cliccandoci sopra, per vedere esattamente cosa è arrivato in quella sincronizzazione. Le righe con \"0\" non si aprono perché non c'era nulla di nuovo.\n\n• Per le Banche il dettaglio è organizzato per banca reale (es. BCC, Intesa, MPS): ogni banca ha una sua intestazione con il riepilogo (numero di conti, movimenti scaricati e saldo) e, subito sotto, l'elenco dei suoi movimenti (data, descrizione, importo). Così si vede a colpo d'occhio da quale banca proviene ciascun movimento. Ogni banca si può aprire o chiudere cliccando sulla sua intestazione (di default è aperta se ha movimenti, chiusa se non ne ha). Se i movimenti totali sono più di 500 ne vengono mostrati i primi 500.\n• Per le Fatture passive e per il Cassetto Fiscale compare l'elenco delle fatture arrivate (numero, fornitore, data e importo).\n• Per le Fatture attive (le tue vendite) compare l'elenco delle fatture emesse scaricate, con la stessa struttura ma la colonna intestata \"Cliente\" invece di \"Fornitore\" (numero, cliente, data e importo).\n\nNota sullo storico: le sincronizzazioni più vecchie, precedenti all'attivazione di questo dettaglio, sono state ricostruite. Per queste righe il saldo per banca non viene mostrato (non sarebbe il saldo di quella data) e sono elencate solo le banche che in quella sincronizzazione hanno effettivamente portato movimenti. Dalle sincronizzazioni nuove in poi il dato è completo (tutte le banche collegate, anche con 0 movimenti nuovi, e il saldo reale del momento)."
+      },
+      {
+        "heading": "Come usare i filtri",
+        "body": "In alto sopra la tabella si possono filtrare i risultati per canale (\"Feed\"), oppure impostare un intervallo di date (\"Dal\" / \"Al\") per restringere lo storico a un periodo preciso. Il pulsante \"Azzera\" (visibile solo quando almeno un filtro è attivo) rimuove tutti i filtri e torna alla vista completa. Il pulsante \"Aggiorna\" in alto a destra ricarica i dati più recenti.",
+        "steps": [
+          "Selezionare un canale specifico dal menu \"Feed\", oppure lasciare \"Tutti i feed\"",
+          "Impostare le date \"Dal\" e \"Al\" per limitare la ricerca a un periodo",
+          "Cliccare \"Azzera\" per rimuovere i filtri e tornare alla vista completa",
+          "Cliccare \"Aggiorna\" per ricaricare i dati aggiornati"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Cosa significa \"Esito: Vuoto\" su una riga della tabella?",
+        "a": "Significa che quella sincronizzazione è andata a buon fine, ma quel giorno non c'erano nuovi documenti o movimenti da scaricare. È una situazione normale, non un errore."
+      },
+      {
+        "q": "Cosa devo fare se una card mostra il pallino rosso \"Fermo\"?",
+        "a": "Indica che quel canale non si aggiorna da troppo tempo o che l'ultima esecuzione è fallita. Conviene segnalarlo a chi segue la parte tecnica del gestionale, eventualmente riportando l'orario dell'ultimo aggiornamento riuscito mostrato nella card."
+      },
+      {
+        "q": "Perché non vedo la colonna \"Errore\" nella tabella?",
+        "a": "La colonna con il dettaglio tecnico dell'errore è visibile solo per i profili con ruolo di consulente (super advisor, CFO, contabile). Gli altri utenti vedono comunque tutte le altre colonne, incluso l'esito generale."
+      },
+      {
+        "q": "Ogni quanto si aggiornano automaticamente i dati?",
+        "a": "Banche, Fatture passive, Fatture attive e Corrispettivi ogni 6 ore; il Cassetto Fiscale una volta al giorno. Il canale Corrispettivi al momento risulta non ancora attivo."
+      },
+      {
+        "q": "Posso avviare io una sincronizzazione manuale da questa pagina?",
+        "a": "No: questa pagina mostra solo lo storico e lo stato delle sincronizzazioni già avvenute (automatiche o manuali), non permette di avviarne una nuova."
+      },
+      {
+        "q": "Come vedo cosa è stato scaricato in una sincronizzazione?",
+        "a": "Clicca sulla riga (quelle con \"Scaricati\" maggiore di zero hanno una freccetta a sinistra): si apre il dettaglio. Per le banche vedi il riepilogo per banca e l'elenco dei singoli movimenti; per le fatture passive e per il Cassetto Fiscale l'elenco delle fatture ricevute (con il fornitore); per le fatture attive l'elenco delle fatture di vendita emesse (con il cliente)."
+      },
+      {
+        "q": "Perché su alcune righe delle banche non vedo il saldo?",
+        "a": "Sono sincronizzazioni più vecchie, ricostruite dopo l'attivazione del dettaglio: per quelle non è disponibile il saldo di quella specifica data (esiste solo il saldo attuale del conto), quindi viene lasciato vuoto per non mostrare un valore fuorviante. Dalle sincronizzazioni nuove in poi il saldo mostrato è quello reale al momento dell'aggiornamento."
+      },
+      {
+        "q": "Perché a volte nel dettaglio compare una sola banca?",
+        "a": "Perché l'elenco \"Per banca\" mostra solo le banche che in quella specifica sincronizzazione hanno portato movimenti nuovi. Se in quella esecuzione i movimenti nuovi arrivavano da un solo conto, vedrai una sola banca; è normale e corretto."
+      }
+    ]
+  },
+  {
+    "path": "/profilo",
+    "icon": "UserCircle",
+    "title": "Il tuo profilo",
+    "description": "Nella pagina Profilo puoi aggiornare i tuoi dati personali (nome e cognome) e cambiare la tua password di accesso. Per i dati dell'azienda vai invece nella pagina Impostazioni.",
+    "sections": [
+      {
+        "heading": "Dati personali",
+        "body": "In questo primo riquadro puoi modificare il tuo nome e cognome. L'indirizzo email che usi per accedere è mostrato ma non è modificabile da qui: se hai bisogno di cambiarla, devi contattare il supporto.",
+        "steps": [
+          "Modifica il campo Nome e/o il campo Cognome",
+          "Il pulsante \"Salva modifiche\" si attiva solo se hai effettivamente cambiato qualcosa",
+          "Clicca \"Salva modifiche\" per confermare: comparirà un messaggio di conferma in alto a destra"
+        ]
+      },
+      {
+        "heading": "Cambiare la password",
+        "body": "Nel secondo riquadro puoi impostare una nuova password di accesso. Devi digitarla due volte per sicurezza: una nel campo \"Nuova password\" e una in \"Conferma nuova password\". La password deve avere almeno 8 caratteri.",
+        "steps": [
+          "Scrivi la nuova password nel campo \"Nuova password\" (minimo 8 caratteri)",
+          "Ripeti la stessa password nel campo \"Conferma nuova password\"",
+          "Puoi cliccare sull'icona a forma di occhio per vedere cosa hai scritto e controllare che sia corretto",
+          "Se le due password non coincidono, il sistema te lo segnala subito con un avviso rosso",
+          "Clicca \"Aggiorna password\": al prossimo accesso dovrai usare la nuova password"
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Posso cambiare la mia email da questa pagina?",
+        "a": "No. Il campo email è visibile ma bloccato. Se hai bisogno di cambiarla, contatta il supporto: richiede una verifica speciale che al momento non è disponibile direttamente in questa pagina."
+      },
+      {
+        "q": "Perché il pulsante \"Salva modifiche\" dei dati personali è disattivato?",
+        "a": "Il pulsante si attiva solo quando hai realmente cambiato nome o cognome rispetto ai dati salvati. Se non hai modificato nulla, resta disabilitato."
+      },
+      {
+        "q": "Cosa devo fare se dimentico la nuova password appena impostata?",
+        "a": "Dovrai richiedere l'assistenza del supporto per reimpostarla, perché la password non è visibile a nessuno una volta salvata."
+      },
+      {
+        "q": "La nuova password deve rispettare regole particolari?",
+        "a": "L'unico requisito richiesto dalla pagina è la lunghezza minima di 8 caratteri e che le due password inserite coincidano tra loro."
+      },
+      {
+        "q": "Perché non riesco a eliminare una voce di costo o un centro di costo?",
+        "a": "Per sicurezza (nessuna perdita di dati) l'eliminazione viene bloccata se la voce o il centro è ancora collegato a qualcosa: righe di budget, voci figlie, altre voci che lo usano come centro predefinito, o utenti che ne hanno l'accesso. Un messaggio indica quanti collegamenti esistono. Rimuovi prima quei collegamenti (o lascia la voce inutilizzata): così non restano dati 'orfani' che puntano a qualcosa che non esiste più."
+      }
+    ]
+  },
+  {
+    "path": "/ticket",
+    "icon": "FileText",
+    "title": "Ticket & Segnalazioni",
+    "description": "In questa pagina puoi segnalare un problema (bug) o richiedere una nuova funzione del gestionale. Ogni segnalazione viene seguita nel tempo e, quando possibile, risolta automaticamente da un assistente AI che lavora in background.",
+    "sections": [
+      {
+        "heading": "Cosa vedi arrivando nella pagina",
+        "body": "In alto trovi delle schede con i numeri riassuntivi: quante segnalazioni sono aperte, in corso, risolte, chiuse, quanti sono bug, quante sono richieste di nuove funzioni e il totale. Sotto trovi un avviso che indica a che ora è previsto il prossimo controllo automatico delle segnalazioni (l'AutoFix), con un conto alla rovescia."
+      },
+      {
+        "heading": "Aprire una nuova segnalazione",
+        "body": "Per segnalare un problema o proporre una nuova funzione, usa il pulsante \"Apri ticket\" in alto a destra. Si apre un modulo dove indicare il tipo, il modulo del gestionale coinvolto, un titolo, una descrizione facoltativa, la priorità ed eventuali allegati.",
+        "steps": [
+          "Clicca su \"Apri ticket\"",
+          "Scegli il tipo: \"Bug\" se qualcosa non funziona, oppure \"Nuova funzione\" se vuoi proporre un miglioramento",
+          "Seleziona il Modulo del gestionale a cui si riferisce la segnalazione (es. Banche, Fatturazione, Scadenzario...)",
+          "Scrivi un titolo breve e chiaro (obbligatorio, almeno 3 caratteri), ad esempio \"il pulsante Salva non si vede in Banche\"",
+          "Se vuoi, aggiungi una descrizione più dettagliata di cosa è successo o cosa vorresti",
+          "Scegli la priorità: Basso, Medio o Alto",
+          "Se utile, allega uno o più file: tocca l'area per sceglierli dal dispositivo (da telefono anche una foto dalla galleria); da computer puoi anche trascinarli dentro o incollare uno screenshot con Ctrl+V (Cmd+V su Mac). Sono accettati immagini e PDF fino a 10 MB ciascuno",
+          "Clicca \"Apri segnalazione\" per inviarla"
+        ]
+      },
+      {
+        "heading": "Filtrare e cercare le segnalazioni",
+        "body": "Sopra la tabella trovi delle pillole per filtrare per stato (\"Da lavorare\" mostra di default solo quelle aperte o in corso, oppure puoi scegliere In attesa, In corso, Risolto, Chiuso o Tutti) e per tipo (Bug o Funzioni). C'è anche un menu a tendina per filtrare per modulo del gestionale."
+      },
+      {
+        "heading": "Aprire il dettaglio di una segnalazione",
+        "body": "Clicca su una riga della tabella per aprire il dettaglio completo: titolo, descrizione, allegati, stato di avanzamento, e la sezione commenti dove puoi leggere gli aggiornamenti e scriverne di nuovi."
+      },
+      {
+        "heading": "Capire lo stato di avanzamento",
+        "body": "Ogni segnalazione passa attraverso queste fasi, mostrate con un percorso a pallini: \"In attesa\" (appena aperta, nessuno l'ha ancora presa in carico), \"In corso\" (qualcuno ci sta lavorando), \"Risolto\" (il problema è stato sistemato). Una segnalazione può anche essere \"Chiusa\", cioè archiviata senza ulteriori lavorazioni.",
+        "steps": [
+          "Dalla lista, se il tuo ticket è ancora \"In attesa\" o \"In corso\", significa che deve ancora essere lavorato",
+          "Se lo stato è \"Risolto\", il problema dovrebbe essere sistemato: verifica e, se serve, scrivi un commento",
+          "Se non sei soddisfatto della risoluzione, puoi riaprire la segnalazione (vedi sotto)"
+        ]
+      },
+      {
+        "heading": "Come funziona la risposta automatica dell'AI (AutoFix)",
+        "body": "Ogni ora, all'orario fisso indicato nel banner in alto alla pagina, un sistema automatico (AutoFix) prende in carico le segnalazioni ancora senza risposta: ne analizza fino a tre per giro e, quando ci riesce, prepara una correzione al codice. In entrambi i casi ti lascia un commento con l'icona del robot nella sezione Commenti del ticket, che spiega cosa ha fatto o perché non ce l'ha fatta. Da quel momento la segnalazione risulta già vista dall'automatismo e non viene ripresa da sola: se serve insistere, un amministratore può rilanciarla con \"Risolvi con AI\". Attenzione: una correzione proposta non è attiva subito nel gestionale — lo diventa quando Patrizio la rivede e la pubblica."
+      },
+      {
+        "heading": "Scrivere un commento",
+        "body": "Nella sezione Commenti del dettaglio ticket puoi aggiungere tu stessa un messaggio, ad esempio per dare più dettagli o segnalare che il problema persiste.",
+        "steps": [
+          "Apri il dettaglio del ticket",
+          "Scrivi il tuo messaggio nel campo in fondo alla sezione Commenti",
+          "Clicca \"Invia\" per pubblicarlo"
+        ]
+      },
+      {
+        "heading": "Le azioni disponibili su un ticket",
+        "body": "A seconda dello stato attuale, nel dettaglio del ticket trovi diversi pulsanti di azione: \"Prendi in carico\" (passa da In attesa a In corso), \"Risolvi\" (segna come risolto), \"Riapri\" (torna in attesa se il problema non era davvero sistemato) e \"Chiudi\" (archivia la segnalazione, chiedendo conferma perché una volta chiusa non viene più seguita dall'AutoFix)."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Devo per forza allegare uno screenshot?",
+        "a": "No, l'allegato è facoltativo. Aiuta però chi legge la segnalazione a capire subito il problema. Da telefono tocca l'area allegati e scegli una foto dalla galleria; da computer puoi incollare uno screenshot con Ctrl+V oppure trascinare un file nell'area apposita."
+      },
+      {
+        "q": "Quanto tempo ci vuole prima che qualcuno veda la mia segnalazione?",
+        "a": "Un controllo automatico (AutoFix) passa in rassegna le segnalazioni aperte ogni ora, all'orario mostrato nel banner in alto alla pagina. Le segnalazioni più semplici possono essere risolte direttamente dall'AI in quel momento."
+      },
+      {
+        "q": "Come faccio a sapere se la mia segnalazione è stata risolta?",
+        "a": "Controlla lo stato nella lista o nel dettaglio del ticket: se è \"Risolto\" il problema dovrebbe essere sistemato. Troverai anche un commento (spesso con l'icona del robot se è stato l'AutoFix) che spiega cosa è stato fatto."
+      },
+      {
+        "q": "Posso modificare o cancellare una segnalazione dopo averla inviata?",
+        "a": "Dal dettaglio puoi aggiungere commenti e cambiare lo stato (ad esempio riaprirla o chiuderla), ma non modificare il testo originale. La cancellazione definitiva è riservata agli amministratori."
+      }
+    ]
+  },
+  {
+    "path": "/ticket/admin",
+    "icon": "FileText",
+    "title": "Cruscotto Admin — Ticket & Segnalazioni",
+    "description": "Questa è la vista riservata agli amministratori per gestire in modo più veloce tutte le segnalazioni: selezionare più ticket insieme, chiedere all'AI di risolverli subito, chiuderli senza lavorarli, importarli o esportarli. È accessibile solo a chi ha il ruolo di amministratore (super_advisor).",
+    "sections": [
+      {
+        "heading": "Accesso riservato",
+        "body": "Questa pagina è visibile solo a chi ha il ruolo di amministratore. Se non hai i permessi, vedrai un messaggio di \"Accesso riservato\" con un pulsante per tornare alla vista normale delle segnalazioni (\"Ticket & Segnalazioni\")."
+      },
+      {
+        "heading": "La barra in alto",
+        "body": "Sotto il titolo trovi una barra azzurra con un pulsante per tornare alla vista operatore, l'indicazione \"Modalità Admin\" e, se presenti, un avviso con il numero di ticket \"fermi\" cioè segnalazioni aperte o in corso da almeno 3 giorni senza essere risolte."
+      },
+      {
+        "heading": "La lista dei ticket con selezione multipla",
+        "body": "La tabella è la stessa che vedono anche le operatrici, ma qui ogni riga ha una casella di selezione. Puoi selezionare uno o più ticket insieme (anche tutti con il pulsante in testa alla colonna) per applicare un'azione a tutti contemporaneamente. Per sicurezza, se cambi un filtro (stato, tipo o modulo) la selezione si azzera: le azioni si applicano sempre e solo ai ticket selezionati che stai vedendo in tabella.",
+        "steps": [
+          "Spunta la casella sulle righe dei ticket che vuoi gestire insieme",
+          "Oppure clicca l'icona in testa alla colonna per selezionarli tutti quelli visibili con i filtri attuali",
+          "Appena selezioni almeno un ticket, comparirà una barra di azioni sopra la tabella"
+        ]
+      },
+      {
+        "heading": "Le azioni sui ticket selezionati",
+        "body": "Nella barra che appare quando hai una selezione attiva trovi questi pulsanti: \"Prendi in carico\" (porta i ticket selezionati allo stato In corso), \"Risolvi con AI\" (chiede all'assistente AI di analizzare e provare a correggere i ticket selezionati), \"Chiudi senza lavorare\" (chiude direttamente i ticket senza passare dalle fasi normali), \"Riapri\" (li riporta in stato In attesa) e \"Cancella\" (li elimina definitivamente, con richiesta di conferma).",
+        "steps": [
+          "Seleziona i ticket su cui vuoi agire",
+          "Scegli l'azione desiderata dalla barra che appare sopra la tabella",
+          "Al termine di \"Risolvi con AI\" compare un messaggio con l'esito (quanti risolti con proposta di correzione, quanti non risolvibili, quanti in errore) e, se qualcosa non ha funzionato, anche il motivo del primo errore",
+          "Per \"Cancella\" ti verrà chiesta una conferma esplicita che elenca i titoli dei ticket che stai per eliminare, perché l'operazione non è reversibile",
+          "Per \"Chiudi senza lavorare\" si apre una finestra dove puoi scrivere il motivo della chiusura (facoltativo) prima di confermare"
+        ]
+      },
+      {
+        "heading": "Il pulsante \"Risolvi con AI\" nel dettaglio di un singolo ticket",
+        "body": "Aprendo il dettaglio di una singola segnalazione (stato In attesa o In corso), come amministratore vedi anche qui il pulsante \"Risolvi con AI\": invoca subito l'assistente che analizza il ticket e prova a risolverlo, senza dover aspettare il controllo automatico orario. Se lo hai appena usato, il pulsante resta temporaneamente disattivato per un minuto per evitare richieste doppie.",
+        "steps": [
+          "Apri il dettaglio del ticket che vuoi far analizzare subito dall'AI",
+          "Clicca \"Risolvi con AI\"",
+          "Attendi la risposta: se l'AI riesce a proporre una correzione te lo comunica; se non può risolverlo automaticamente, lascia un commento che lo spiega",
+          "Il ticket si aggiorna automaticamente con l'esito e gli eventuali nuovi commenti"
+        ]
+      },
+      {
+        "heading": "Importare ed esportare segnalazioni",
+        "body": "In alto a destra nella lista trovi due pulsanti aggiuntivi rispetto alla vista normale: \"Importa\" per caricare più segnalazioni insieme da un file CSV o Excel (con le colonne titolo, descrizione, modulo, priorità e tipo), ed \"Esporta CSV\" per scaricare l'elenco completo dei ticket in un file.",
+        "steps": [
+          "Per importare, clicca \"Importa\" e scegli il file CSV o Excel dal computer",
+          "Il sistema mostra un'anteprima con le righe valide e quelle con errori (che verranno saltate)",
+          "Controlla l'anteprima e clicca \"Importa\" per confermare il caricamento",
+          "Per esportare, clicca \"Esporta CSV\": viene scaricato automaticamente un file con tutte le segnalazioni"
+        ]
+      },
+      {
+        "heading": "Timeline degli ultimi commenti AutoFix",
+        "body": "In fondo alla pagina, se ci sono stati interventi automatici recenti, trovi un elenco degli ultimi commenti lasciati dall'AI sui vari ticket, con la data e il titolo della segnalazione a cui si riferiscono. Cliccando su una voce si apre direttamente il ticket corrispondente."
+      }
+    ],
+    "faq": [
+      {
+        "q": "Qual è la differenza tra questa pagina e \"Ticket & Segnalazioni\"?",
+        "a": "La lista dei ticket è la stessa, ma qui in più puoi selezionare più ticket insieme e agire su tutti contemporaneamente, importare/esportare in blocco e vedere le informazioni riservate agli amministratori (ticket fermi, timeline AutoFix)."
+      },
+      {
+        "q": "Cosa significa \"Chiudi senza lavorare\"?",
+        "a": "È un modo per chiudere subito uno o più ticket senza farli passare dalle fasi normali (In corso, Risolto). Va usato per segnalazioni duplicate, non riproducibili, fuori tema o già risolte in altro modo. Una volta chiusi, l'AutoFix non li considera più."
+      },
+      {
+        "q": "Cosa vuol dire \"ticket fermi\"?",
+        "a": "Sono le segnalazioni ancora aperte o in corso da almeno 3 giorni senza essere state risolte. Il numero viene mostrato nella barra in alto per aiutarti a individuare subito cosa richiede attenzione."
+      },
+      {
+        "q": "Se cancello un ticket per sbaglio, posso recuperarlo?",
+        "a": "No, la cancellazione è definitiva e irreversibile: per questo il sistema chiede sempre una conferma esplicita prima di procedere, sia per un singolo ticket che per una selezione multipla."
+      },
+      {
+        "q": "Cancellando un ticket, cosa succede ai suoi allegati (screenshot)?",
+        "a": "Vengono rimossi anche gli allegati dallo spazio di archiviazione, sia cancellando un singolo ticket sia una selezione multipla. Prima i file restavano abbandonati nello storage occupando spazio inutilmente; ora la pulizia è automatica."
+      },
+      {
+        "q": "Le finestre di dialogo (conferme, form) si possono usare da tastiera?",
+        "a": "Sì. In tutta l'app le finestre che si aprono sopra la pagina ora si chiudono con il tasto Esc, mantengono il focus della tastiera al loro interno (il Tab non 'scappa' dietro) e sono annunciate dai lettori di schermo. È un miglioramento di accessibilità trasversale: le funzioni e i passaggi restano identici."
+      }
+    ]
+  }
+]

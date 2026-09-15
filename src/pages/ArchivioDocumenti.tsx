@@ -1,21 +1,23 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // Tab ArchivioDocumenti — persistito in URL come ?tab=
-type ArchivioTab = 'archivio' | 'conservazione';
-const VALID_ARCHIVIO_TABS: ArchivioTab[] = ['archivio', 'conservazione'];
+type ArchivioTab = 'archivio' | 'banche' | 'conservazione';
+const VALID_ARCHIVIO_TABS: ArchivioTab[] = ['archivio', 'banche', 'conservazione'];
 import {
   FileText, Search, Download, Eye, RefreshCw,
   X, FileWarning, CheckCircle,
   AlertCircle, Database, FolderOpen, Archive, Users, Receipt,
   ShieldCheck, AlertTriangle, Lock, Unlock, BarChart3,
-  ChevronDown, ChevronRight, Building2, ExternalLink
+  ChevronDown, ChevronRight, Building2, ExternalLink, Upload
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import Tooltip from '../components/Tooltip';
 import InvoiceViewer from '../components/InvoiceViewer';
+import ArchivioUnificato from './archivio/ArchivioUnificato';
 import PageHeader from '../components/PageHeader';
+import { Modal } from '../components/ui/Modal';
 
 // ─── HELPERS ───────────────────────────────────────────────────
 function formatDate(d: string | null | undefined) {
@@ -85,10 +87,22 @@ export default function ArchivioDocumenti() {
   };
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
 
-  const showToast = (msg: string, type = 'success') => {
+  const showToast = useCallback((msg: string, type = 'success') => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
-  };
+  }, []);
+
+  // Le fatture elettroniche non hanno un file su Storage: l'XML sta in colonna
+  // e si legge per id solo quando serve (l'elenco pesava oltre 100 MB).
+  const [xmlFattura, setXmlFattura] = useState<string | null>(null);
+  const apriFatturaDaArchivio = useCallback(async (invoiceId: string) => {
+    if (!invoiceId) return;
+    const { data, error } = await supabase
+      .from('electronic_invoices').select('xml_content').eq('id', invoiceId).maybeSingle();
+    const xml = (data as { xml_content?: string | null } | null)?.xml_content;
+    if (error || !xml) { showToast('XML della fattura non disponibile', 'error'); return; }
+    setXmlFattura(xml);
+  }, [showToast]);
 
   // ── Conservazione state (invariato rispetto alla versione precedente) ──
   const [retentionDocs, setRetentionDocs] = useState<RetentionDoc[]>([]);
@@ -184,7 +198,9 @@ export default function ArchivioDocumenti() {
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader
         title="Archivio Documenti"
-        subtitle={activeTab === 'conservazione' ? 'Conservazione sostitutiva — 10 anni' : 'Fatture, bilanci ed estratti conto'}
+        subtitle={activeTab === 'conservazione' ? 'Conservazione sostitutiva — 10 anni'
+          : activeTab === 'banche' ? 'Archiviazione degli estratti conto e anteprima dei movimenti'
+          : 'Ogni documento del gestionale, diviso per sezione'}
         noDivider
       />
 
@@ -192,6 +208,7 @@ export default function ArchivioDocumenti() {
       <div className="flex gap-1 bg-white rounded-xl border border-slate-200 p-1 shadow-sm">
         {([
           { key: 'archivio', label: 'Archivio', icon: FolderOpen },
+          { key: 'banche', label: 'Estratti conto e strumenti', icon: Database },
           { key: 'conservazione', label: 'Conservazione Sostitutiva', icon: ShieldCheck },
         ] as const).map(tab => {
           const Icon = tab.icon;
@@ -211,7 +228,19 @@ export default function ArchivioDocumenti() {
         })}
       </div>
 
-      {activeTab === 'archivio' && <ArchivioTab companyId={COMPANY_ID ?? undefined} showToast={showToast} />}
+      {activeTab === 'archivio' && (
+        <ArchivioUnificato
+          companyId={COMPANY_ID ?? undefined}
+          showToast={showToast}
+          onApriFattura={apriFatturaDaArchivio}
+        />
+      )}
+
+      {activeTab === 'banche' && <ArchivioTab companyId={COMPANY_ID ?? undefined} showToast={showToast} />}
+
+      {xmlFattura && (
+        <InvoiceViewer xmlContent={xmlFattura} onClose={() => setXmlFattura(null)} />
+      )}
 
       {activeTab === 'conservazione' && (
         <ConservazioneTab
@@ -246,7 +275,7 @@ export default function ArchivioDocumenti() {
 
 interface InvoiceRow { id: string; invoice_date?: string | null; invoice_number?: string | null; supplier_name?: string | null; gross_amount?: number | null; xml_content?: string | null; storage_path?: string | null; sdi_status?: string | null; [key: string]: unknown }
 interface BalanceSheetRow { id: string; created_at?: string | null; [key: string]: unknown }
-interface EcFileRow { id: string; filename?: string | null; bank_account_id?: string | null; file_path?: string | null; file_size?: number | null; status?: string | null; transaction_count?: number | null; created_at?: string | null; bank_accounts?: { bank_name?: string; account_name?: string } | null; [key: string]: unknown }
+interface EcFileRow { id: string; filename?: string | null; bank_account_id?: string | null; file_path?: string | null; file_size?: number | null; status?: string | null; transaction_count?: number | null; created_at?: string | null; doc_kind?: string | null; source_label?: string | null; period_year?: number | null; period_month?: number | null; bank_accounts?: { bank_name?: string; account_name?: string } | null; [key: string]: unknown }
 interface EcPreviewRow { id: string; transaction_date?: string | null; description?: string | null; amount?: number | null; running_balance?: number | null; is_reconciled?: boolean | null }
 interface EcPreviewState { ec: EcFileRow; rows: EcPreviewRow[]; loading: boolean }
 
@@ -274,6 +303,17 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
 
   const [ecPreview, setEcPreview] = useState<EcPreviewState | null>(null);
 
+  // ─── Archivio EC (solo archiviazione file, NESSUN import movimenti) ──
+  // Conti attivi per la tendina del modal di archiviazione.
+  const [bankAccounts, setBankAccounts] = useState<Array<{ id: string; bank_name: string | null; account_name: string | null }>>([]);
+  // Stato del modal "Archivia estratto conto". null = chiuso.
+  const [ecArchive, setEcArchive] = useState<{ files: File[]; bankAccountId: string; busy: boolean } | null>(null);
+  // Filtri/ricerca dell'archivio EC (per reggere centinaia di documenti).
+  const [ecSearch, setEcSearch] = useState('');
+  const [ecKind, setEcKind] = useState<'all' | 'conto_corrente' | 'carta'>('all');
+  const [ecYear, setEcYear] = useState<number | 'all'>('all');
+  const [ecCollapsed, setEcCollapsed] = useState<Set<string>>(new Set());
+
   // Collasso delle 3 sezioni principali. Fatture parte CHIUSA perche'
   // con 199 fatture e' la sezione piu' rumorosa. Bilanci ed EC restano
   // aperti perche' sono liste corte (1-5 elementi).
@@ -297,8 +337,221 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
 
   async function loadAll() {
     setLoading(true);
-    await Promise.all([loadAllInvoicesMinimal(), loadBalanceSheets(), loadEcFiles()]);
+    await Promise.all([loadAllInvoicesMinimal(), loadBalanceSheets(), loadEcFiles(), loadBankAccounts()]);
     setLoading(false);
+  }
+
+  /** Conti bancari attivi — alimentano la tendina del modal "Archivia estratto conto". */
+  async function loadBankAccounts() {
+    if (!companyId) return;
+    try {
+      const { data } = await supabase
+        .from('bank_accounts')
+        .select('id, bank_name, account_name')
+        .eq('company_id', companyId)
+        .eq('is_active', true)
+        .order('bank_name', { ascending: true });
+      setBankAccounts((data || []) as Array<{ id: string; bank_name: string | null; account_name: string | null }>);
+    } catch (e: unknown) {
+      console.warn('load bank accounts:', e instanceof Error ? e.message : e);
+      setBankAccounts([]);
+    }
+  }
+
+  // Estensioni EC ammesse in archiviazione (documenti, non import).
+  const ARCHIVE_EXTS = ['pdf', 'xls', 'xlsx', 'csv'];
+
+  /**
+   * Prova ad assegnare automaticamente il conto a un file dal suo nome/percorso,
+   * confrontandolo con le parole distintive (≥4 lettere, non generiche) del
+   * bank_name dei conti attivi. Serve per gli zip/cartelle che contengono EC di
+   * conti diversi: i 4 conti noti (Mugello/Intesa/BCC/MPS) vengono riconosciuti
+   * dal nome file; il resto (es. carte) ricade sul conto di ripiego scelto.
+   */
+  function autoMatchAccount(path: string): string | null {
+    const up = path.toUpperCase();
+    const STOP = new Set(['BANCA', 'BANCO', 'CRED', 'COOP', 'SMALL', 'BUSINESS', 'CORPORATE', 'PERSONE', 'FAMIGLIE', 'MONTE', 'PASCHI', 'SIENA', 'SANPAOLO', 'FIORENTINO', 'IMPRUNETA']);
+    for (const ba of bankAccounts) {
+      const words = (ba.bank_name || '').toUpperCase().split(/[^A-Z]+/).filter(w => w.length >= 3 && !STOP.has(w));
+      // token forti tipici: MUGELLO, INTESA, MPS, BCC, VALDARNO, CASCIA
+      for (const w of words) {
+        if (up.includes(w)) return ba.id;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Deduce tipo documento, fonte e periodo dal percorso/nome file, per
+   * organizzare l'archivio e renderlo ricercabile. I conti vengono agganciati
+   * al bank_account; le carte sono una categoria a sé (bank_account_id = null).
+   */
+  function parseEcMeta(path: string, fallbackAccountId: string): {
+    doc_kind: 'conto_corrente' | 'carta'; source_label: string;
+    bank_account_id: string | null; period_year: number | null; period_month: number | null;
+  } {
+    const up = path.toUpperCase();
+    const MONTHS = ['GENNAIO', 'FEBBRAIO', 'MARZO', 'APRILE', 'MAGGIO', 'GIUGNO', 'LUGLIO', 'AGOSTO', 'SETTEMBRE', 'OTTOBRE', 'NOVEMBRE', 'DICEMBRE'];
+    let month: number | null = null;
+    for (let i = 0; i < 12; i++) if (up.includes(MONTHS[i])) { month = i + 1; break; }
+    // data compatta ddmmYYYY (es. 31072026) → mese dal 3°-4° gruppo
+    const ddmm = up.match(/\b\d{2}(\d{2})(20\d{2})\b/);
+    let year: number | null = null;
+    if (month == null && ddmm) month = parseInt(ddmm[1], 10);
+    const y4 = up.match(/(20\d{2})/);
+    if (y4) year = parseInt(y4[1], 10);
+    else { const y2 = up.match(/_(\d{2})\b/); if (y2) year = 2000 + parseInt(y2[1], 10); }
+
+    const isCard = /CARTA|TASCA|5582/.test(up) && !/CONTI CORRENTI\/EC (MUGELLO|INTESA|BCC|MPS)/.test(up);
+    if (isCard) {
+      let source = 'Carta';
+      if (/3145/.test(up)) source = 'Carta credito BCC *3145';
+      else if (/5388/.test(up)) source = 'Carta credito BCC *5388';
+      else if (/CARTA MPS|CARTA CREDITO MPS/.test(up)) source = 'Carta credito MPS';
+      else if (/TASCA/.test(up)) source = 'Carta prepagata Tasca *0580';
+      return { doc_kind: 'carta', source_label: source, bank_account_id: null, period_year: year, period_month: month };
+    }
+    // conto corrente
+    let source = 'Conto';
+    if (up.includes('EC MUGELLO') || up.includes('MUGELLO')) source = 'Conto Mugello';
+    else if (up.includes('EC INTESA') || up.includes('INTESA')) source = 'Conto Intesa';
+    else if (up.includes('EC BCC') || up.includes('BCC')) source = 'Conto BCC Figline';
+    else if (up.includes('EC MPS') || up.includes('MPS')) source = 'Conto MPS';
+    const acct = autoMatchAccount(path) || fallbackAccountId || null;
+    return { doc_kind: 'conto_corrente', source_label: source, bank_account_id: acct, period_year: year, period_month: month };
+  }
+
+  /**
+   * Archivia uno o più estratti conto SENZA importarne i movimenti.
+   * Accetta file singoli, selezione multipla e un archivio .zip (scompattato
+   * lato browser): in tutti i casi salva SOLO i documenti, mai movimenti.
+   *
+   * Perché serve: i movimenti dei conti sincronizzati (A-Cube) sono già in
+   * `bank_transactions`. Reimportare l'EC dal file per archiviarlo creerebbe
+   * doppioni (il dedup dell'import banca confronta anche la descrizione, che
+   * differisce da quella A-Cube). Per ogni documento:
+   *  - upload nel bucket privato `bank-statements` (stessa convenzione di ImportHub);
+   *  - riga in `bank_imports` (file fisico) con status='archived';
+   *  - riga in `bank_statements` (metadati elencati in questa pagina) con status='archived'
+   *    e transaction_count=null → nessun movimento viene creato.
+   * Reversibile: eliminando le due righe + l'oggetto storage si torna indietro.
+   */
+  async function archiveEcFiles() {
+    if (!companyId || !ecArchive) return;
+    const { files, bankAccountId } = ecArchive;
+    if (files.length === 0) { showToast('Seleziona almeno un file o uno zip', 'error'); return; }
+    setEcArchive(prev => prev ? { ...prev, busy: true } : prev);
+    let ok = 0;
+    const failed: string[] = [];
+    let autoAssigned = 0;
+    try {
+      // 1) Espandi eventuali .zip in una lista piatta { path, blob }.
+      const work: Array<{ path: string; blob: Blob; size: number }> = [];
+      for (const f of files) {
+        if (f.name.toLowerCase().endsWith('.zip')) {
+          const JSZip = (await import('jszip')).default;
+          const zip = await JSZip.loadAsync(f);
+          for (const entry of Object.values(zip.files) as Array<{ dir: boolean; name: string; async: (t: 'blob') => Promise<Blob> }>) {
+            if (entry.dir) continue;
+            const base = entry.name.split('/').pop() || entry.name;
+            if (base.startsWith('.') || base.startsWith('__MACOSX')) continue;
+            const ext = (base.split('.').pop() || '').toLowerCase();
+            if (!ARCHIVE_EXTS.includes(ext)) continue; // salta MANIFEST.csv? no: csv ammesso → ma escludo manifest/report per nome
+            if (/^manifest\b/i.test(base) || /report/i.test(base)) continue;
+            const blob = await entry.async('blob');
+            work.push({ path: entry.name, blob, size: blob.size });
+          }
+        } else {
+          // path relativo se il file arriva da una cartella (webkitdirectory), altrimenti il nome
+          const rel = (f as unknown as { webkitRelativePath?: string }).webkitRelativePath || f.name;
+          const base = rel.split('/').pop() || rel;
+          const ext = (base.split('.').pop() || '').toLowerCase();
+          if (!ARCHIVE_EXTS.includes(ext)) continue; // salta silenziosamente .md e non ammessi (cartelle miste)
+          if (/^manifest\b/i.test(base) || /report/i.test(base)) continue;
+          work.push({ path: rel, blob: f, size: f.size });
+        }
+      }
+      if (work.length === 0) { showToast('Nessun documento archiviabile trovato', 'error'); setEcArchive(prev => prev ? { ...prev, busy: false } : prev); return; }
+
+      // 2) Ogni documento: tipo/fonte/periodo dedotti dal nome; le carte non hanno conto.
+      for (const doc of work) {
+        const meta = parseEcMeta(doc.path, bankAccountId);
+        const account = meta.bank_account_id; // può essere null (carta o conto non riconosciuto)
+        if (meta.doc_kind === 'carta' || (meta.bank_account_id && meta.bank_account_id !== bankAccountId)) autoAssigned++;
+
+        const displayName = doc.path; // mantiene l'eventuale nome cartella (es. "Conti correnti/EC MPS…")
+        const ext = (displayName.split('.').pop() || '').toLowerCase();
+        const ts = Date.now();
+        const safeName = displayName.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filePath = `${companyId}/imports/bank/${ts}_${safeName}`;
+
+        // file_type ammesso dal vincolo DB: solo csv | xlsx | pdf (xls → xlsx).
+        const fileType = (ext === 'xls' || ext === 'xlsx') ? 'xlsx' : ext === 'pdf' ? 'pdf' : 'csv';
+
+        const { error: upErr } = await supabase.storage
+          .from('bank-statements')
+          .upload(filePath, doc.blob, { upsert: false });
+        if (upErr) { failed.push(`${displayName} (storage: ${upErr.message})`); continue; }
+
+        // File fisico (bank_imports). Catturo l'id per poter fare rollback se il passo dopo fallisce.
+        const { data: impRow, error: impErr } = await (supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => { select: (c: string) => { single: () => Promise<{ data: { id: string } | null; error: { message: string } | null }> } } } })
+          .from('bank_imports')
+          .insert({
+            company_id: companyId,
+            bank_account_id: account,
+            file_name: displayName,
+            file_path: filePath,
+            file_size: doc.size,
+            file_format: ext,
+            import_type: 'archive',
+            status: 'archived',
+          })
+          .select('id')
+          .single();
+        if (impErr) {
+          await supabase.storage.from('bank-statements').remove([filePath]);
+          failed.push(`${displayName} (bank_imports: ${impErr.message})`);
+          continue;
+        }
+
+        // Metadati (compare nella lista Estratti Conto). transaction_count=null → nessun movimento.
+        // status ammesso dal vincolo: pending|processing|completed|error → uso 'completed'.
+        const { error: stmtErr } = await (supabase as unknown as { from: (t: string) => { insert: (r: Record<string, unknown>) => Promise<{ error: { message: string } | null }> } })
+          .from('bank_statements')
+          .insert({
+            company_id: companyId,
+            bank_account_id: account,
+            filename: displayName,
+            file_type: fileType,
+            status: 'completed',
+            doc_kind: meta.doc_kind,
+            source_label: meta.source_label,
+            period_year: meta.period_year,
+            period_month: meta.period_month,
+          });
+        if (stmtErr) {
+          // rollback: niente riga metadati → rimuovo file fisico e riga import per non lasciare orfani
+          if (impRow?.id) await supabase.from('bank_imports').delete().eq('id', impRow.id);
+          await supabase.storage.from('bank-statements').remove([filePath]);
+          failed.push(`${displayName} (bank_statements: ${stmtErr.message})`);
+          continue;
+        }
+        ok++;
+      }
+
+      await loadEcFiles();
+      const autoNote = autoAssigned > 0 ? ` (${autoAssigned} assegnati al conto giusto in automatico)` : '';
+      if (failed.length === 0) {
+        showToast(`${ok} documento/i archiviato/i${autoNote} — nessun movimento importato`);
+        setEcArchive(null);
+      } else {
+        showToast(`${ok} archiviati${autoNote}, ${failed.length} falliti: ${failed.slice(0, 3).join(' · ')}${failed.length > 3 ? '…' : ''}`, 'error');
+        setEcArchive(prev => prev ? { ...prev, busy: false } : prev);
+      }
+    } catch (err: unknown) {
+      showToast('Errore archiviazione: ' + (err instanceof Error ? err.message : ''), 'error');
+      setEcArchive(prev => prev ? { ...prev, busy: false } : prev);
+    }
   }
 
   /**
@@ -331,9 +584,13 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
     if (!companyId) return;
     setLoadingYear(true);
     try {
+      // MAI select('*') qui: electronic_invoices porta xml_content, e per il
+      // solo 2026 sono 1.250 fatture per oltre 100 MB. La query sfondava il
+      // limite di 8 secondi e la pagina rispondeva «Errore caricamento fatture».
+      // L'XML serve solo quando si apre una fattura, e li' si legge per id.
       const { data, error } = await supabase
         .from('electronic_invoices')
-        .select('*')
+        .select('id, invoice_number, invoice_date, supplier_name, supplier_vat, gross_amount, net_amount, vat_amount, sdi_status, sdi_id, storage_path, xml_file_path, tipo_documento, due_date, retention_start, retention_end, retention_status, created_at')
         .eq('company_id', companyId)
         .gte('invoice_date', `${y}-01-01`)
         .lt('invoice_date', `${y + 1}-01-01`)
@@ -384,10 +641,10 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       const [stmtRes, impRes] = await Promise.all([
         supabase
           .from('bank_statements')
-          .select('id, filename, file_type, transaction_count, status, bank_account_id, created_at, bank_accounts(bank_name, account_name)')
+          .select('id, filename, file_type, transaction_count, status, bank_account_id, created_at, doc_kind, source_label, period_year, period_month, bank_accounts(bank_name, account_name)')
           .eq('company_id', companyId)
           .order('created_at', { ascending: false })
-          .limit(200),
+          .limit(1000),
         supabase
           .from('bank_imports')
           .select('id, file_name, file_path, file_size, bank_account_id, uploaded_at, created_at')
@@ -414,7 +671,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         }
       }
 
-      const enriched: EcFileRow[] = ((stmtRes.data || []) as Array<{ id: string; filename: string | null; bank_account_id: string | null }>).map(ec => {
+      const enriched: EcFileRow[] = ((stmtRes.data || []) as unknown as EcFileRow[]).map(ec => {
         const fn = (ec.filename || '').toLowerCase();
         const byFull = byAccountAndName.get(`${ec.bank_account_id || ''}::${fn}`);
         const byFn = byName.get(fn);
@@ -427,13 +684,9 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         };
       });
 
-      // Deduplica per bank_account_id: tieni l'import piu' recente
-      const latestByAccount = new Map<string, EcFileRow>();
-      for (const ec of enriched) {
-        const key = ec.bank_account_id || ec.id;
-        if (!latestByAccount.has(key)) latestByAccount.set(key, ec);
-      }
-      setEcFiles(Array.from(latestByAccount.values()));
+      // Mostra TUTTI gli estratti conto archiviati (una riga per file), non
+      // solo l'ultimo per conto: l'archivio deve elencare ogni documento.
+      setEcFiles(enriched);
     } catch (e: unknown) {
       console.warn('load ec files:', e instanceof Error ? e.message : e);
       setEcFiles([]);
@@ -441,10 +694,17 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   }
 
   /**
-   * Apre il modal di anteprima EC con i movimenti bancari. Legge da
-   * ENTRAMBE le tabelle dei movimenti (bank_transactions da TesoreriaManuale
-   * e cash_movements da ImportHub) con query separate in modo che se una
-   * fallisce (FK mancante) l'altra continua a funzionare.
+   * Apre il modal di anteprima EC con i movimenti bancari del conto.
+   *
+   * Legge SOLO da bank_transactions. C'era anche una seconda query su
+   * cash_movements, da quando quelle erano due tabelle distinte: dalla
+   * migration 20260515_033 cash_movements e' una VISTA di compatibilita'
+   * costruita su bank_transactions (una riga per movimento, verificato:
+   * stesso conteggio nelle due), quindi interrogarle entrambe avrebbe
+   * mostrato ogni movimento due volte. La seconda query chiedeva per giunta
+   * una colonna inesistente (balance_after) e falliva sempre: il catch la
+   * riduceva a un warn in console, ed e' il motivo per cui il doppione non
+   * si era mai visto.
    */
   async function openEcPreview(ec: EcFileRow) {
     if (!companyId || !ec.bank_account_id) return;
@@ -471,27 +731,6 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
           });
         }
       } catch (e: unknown) { console.warn('bt preview:', e instanceof Error ? e.message : e); }
-
-      try {
-        const { data, error } = await supabase
-          .from('cash_movements')
-          .select('id, date, description, amount, balance_after, is_reconciled')
-          .eq('company_id', companyId)
-          .eq('bank_account_id', ec.bank_account_id)
-          .order('date', { ascending: false })
-          .limit(100);
-        if (error) throw error;
-        for (const r of (data || [])) {
-          rows.push({
-            id: 'cm_' + r.id,
-            transaction_date: r.date,
-            description: r.description,
-            amount: r.amount,
-            running_balance: r.balance_after,
-            is_reconciled: r.is_reconciled,
-          });
-        }
-      } catch (e: unknown) { console.warn('cm preview:', e instanceof Error ? e.message : e); }
 
       rows.sort((a, b) => new Date(b.transaction_date || 0).getTime() - new Date(a.transaction_date || 0).getTime());
       setEcPreview({ ec, rows: rows.slice(0, 100), loading: false });
@@ -604,6 +843,50 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
     [filteredInvoices]
   );
 
+  // ─── ARCHIVIO EC: anni disponibili, filtro e raggruppamento per fonte ───
+  const ecAvailableYears = useMemo(() => {
+    const ys = new Set<number>();
+    for (const ec of ecFiles) if (ec.period_year) ys.add(Number(ec.period_year));
+    return Array.from(ys).sort((a, b) => b - a);
+  }, [ecFiles]);
+
+  const ecFilteredGroups = useMemo(() => {
+    const q = ecSearch.trim().toLowerCase();
+    const rows = ecFiles.filter(ec => {
+      if (ecKind !== 'all' && (ec.doc_kind || 'conto_corrente') !== ecKind) return false;
+      if (ecYear !== 'all' && Number(ec.period_year) !== ecYear) return false;
+      if (q) {
+        const hay = `${ec.source_label || ''} ${ec.filename || ''}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+    // raggruppa per fonte (source_label), fallback al nome banca o "Senza fonte"
+    const map = new Map<string, { label: string; kind: string; items: EcFileRow[] }>();
+    for (const ec of rows) {
+      const label = ec.source_label || ec.bank_accounts?.bank_name || 'Senza fonte';
+      const key = label;
+      if (!map.has(key)) map.set(key, { label, kind: ec.doc_kind || 'conto_corrente', items: [] });
+      map.get(key)!.items.push(ec);
+    }
+    const groups = Array.from(map.values());
+    // ordina: conti prima delle carte, poi alfabetico per fonte
+    groups.sort((a, b) => {
+      if (a.kind !== b.kind) return a.kind === 'conto_corrente' ? -1 : 1;
+      return a.label.localeCompare(b.label);
+    });
+    // dentro ogni gruppo: periodo desc, poi nome
+    for (const g of groups) {
+      g.items.sort((a, b) => {
+        const pa = (Number(a.period_year) || 0) * 100 + (Number(a.period_month) || 0);
+        const pb = (Number(b.period_year) || 0) * 100 + (Number(b.period_month) || 0);
+        if (pa !== pb) return pb - pa;
+        return (a.filename || '').localeCompare(b.filename || '');
+      });
+    }
+    return groups;
+  }, [ecFiles, ecSearch, ecKind, ecYear]);
+
   // Quando l'utente inizia a cercare, espande automaticamente i gruppi che
   // contengono risultati cosi vede subito cosa ha trovato senza click extra.
   // Se cancella la ricerca tornano tutti chiusi.
@@ -646,7 +929,13 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
   async function openInvoiceViewer(inv: any, { autoPrint = false } = {}) {
     setLoadingXml(inv.id);
     try {
+      // L'elenco non porta piu' l'XML (troppo pesante): si legge ora, per id.
       let xml = inv.xml_content;
+      if (!xml) {
+        const { data: riga } = await supabase
+          .from('electronic_invoices').select('xml_content').eq('id', inv.id).maybeSingle();
+        xml = (riga as { xml_content?: string | null } | null)?.xml_content || null;
+      }
       if (!xml && inv.xml_file_path) {
         const { data: blob } = await supabase.storage.from('invoices').download(inv.xml_file_path);
         if (blob) xml = await blob.text();
@@ -696,18 +985,12 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
 
   return (
     <div className="space-y-6">
-      {/* KPI CARDS — conteggi dinamici sull'anno selezionato per le fatture */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <KpiCard
-          label={`Fatture ${year}`}
-          value={invoices.length}
-          icon={Receipt}
-          color="blue"
-          sub={`Totale: ${allInvoices.length} su ${availableYears.length} ann${availableYears.length === 1 ? 'o' : 'i'}`}
-        />
-        <KpiCard label="Bilanci" value={balanceSheets.length} icon={BarChart3} color="indigo" sub="PDF archiviati" />
-        <KpiCard label="Estratti Conto" value={ecFiles.length} icon={Database} color="emerald" sub={`${ecFiles.reduce((s, e) => s + Number(e.transaction_count || 0), 0)} movimenti totali`} />
-        <KpiCard label={`Totale ${year}`} value={invoices.length + balanceSheets.length + ecFiles.length} icon={FolderOpen} color="slate" sub="documenti consultabili" />
+      {/* KPI — qui si guardano solo gli estratti conto: fatture e bilanci
+          stanno nella scheda «Archivio» insieme a tutto il resto. */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <KpiCard label="Estratti conto" value={ecFiles.filter(e => (e.doc_kind || 'conto_corrente') === 'conto_corrente').length} icon={Database} color="emerald" sub="file archiviati" />
+        <KpiCard label="Carte" value={ecFiles.filter(e => e.doc_kind === 'carta').length} icon={Receipt} color="blue" sub="estratti carta" />
+        <KpiCard label="Totale file bancari" value={ecFiles.length} icon={FolderOpen} color="slate" sub="consultabili qui" />
       </div>
 
       {loading && (
@@ -717,245 +1000,9 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         </div>
       )}
 
-      {/* ═══════════ SEZIONE FATTURE ═══════════ */}
-      <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100 flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => toggleSection('fatture')}
-            className="flex items-center gap-2 hover:bg-slate-50 -mx-2 -my-1 px-2 py-1 rounded-lg transition text-left"
-            title={sectionOpen.fatture ? 'Chiudi sezione' : 'Apri sezione'}
-          >
-            {sectionOpen.fatture ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
-            <div className="p-2 bg-blue-50 rounded-lg">
-              <Receipt size={18} className="text-blue-600" />
-            </div>
-            <div>
-              <h2 className="font-semibold text-slate-900 flex items-center gap-2">
-                Fatture Ricevute {year}
-                {loadingYear && <RefreshCw size={14} className="animate-spin text-blue-500" />}
-              </h2>
-              <p className="text-xs text-slate-500">
-                {filteredInvoices.length} fattur{filteredInvoices.length === 1 ? 'a' : 'e'} · {formatCurrency(totalInvoicesAmount)}
-              </p>
-            </div>
-          </button>
-
-          <div className={`flex items-center gap-2 ml-auto ${sectionOpen.fatture ? '' : 'opacity-50 pointer-events-none'}`}>
-            <div className="relative">
-              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Cerca fornitore, numero..."
-                value={searchInvoices}
-                onChange={e => setSearchInvoices(e.target.value)}
-                className="pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm w-56"
-              />
-            </div>
-            {groups.length > 0 && (
-              <button
-                onClick={toggleAllGroups}
-                className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-700 hover:bg-slate-50 inline-flex items-center gap-1.5"
-                title={allExpanded ? 'Chiudi tutti i gruppi' : 'Apri tutti i gruppi'}
-              >
-                {allExpanded ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
-                {allExpanded ? 'Comprimi tutti' : 'Espandi tutti'}
-              </button>
-            )}
-            <select
-              value={groupBy}
-              onChange={e => { setGroupBy(e.target.value); setExpandedGroups(new Set()); }}
-              className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
-              title="Raggruppa per"
-            >
-              <option value="supplier">Per fornitore</option>
-              <option value="month">Per mese</option>
-            </select>
-            <select
-              value={year}
-              onChange={e => { setYear(Number(e.target.value)); setExpandedGroups(new Set()); }}
-              className="px-3 py-1.5 border border-slate-200 rounded-lg text-sm"
-              title="Anno fatture"
-            >
-              {availableYears.map(y => {
-                const count = invoicesPerYear[String(y)] || 0;
-                return (
-                  <option key={y} value={y}>
-                    {y}{count > 0 ? ` (${count})` : ''}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-        </div>
-
-        {sectionOpen.fatture && (
-        <div className="divide-y divide-slate-100">
-          {groups.length === 0 && !loading && (
-            <div className="text-center py-12">
-              <FileWarning size={32} className="text-slate-300 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">Nessuna fattura per {year}</p>
-            </div>
-          )}
-
-          {groups.map(group => {
-            const expanded = expandedGroups.has(group.key);
-            return (
-              <div key={group.key}>
-                <button
-                  onClick={() => toggleGroup(group.key)}
-                  className="w-full px-5 py-3 flex items-center gap-3 hover:bg-slate-50 transition text-left"
-                >
-                  {expanded ? <ChevronDown size={16} className="text-slate-500" /> : <ChevronRight size={16} className="text-slate-400" />}
-                  {groupBy === 'supplier'
-                    ? <Building2 size={14} className="text-blue-500 shrink-0" />
-                    : <div className="w-7 h-7 bg-indigo-100 text-indigo-700 rounded font-semibold text-xs flex items-center justify-center">{MONTH_LABELS[new Date(group.invoices[0].invoice_date || '').getMonth()]}</div>
-                  }
-                  <div className="flex-1 min-w-0">
-                    <Tooltip content={group.label}><div className="font-medium text-slate-800 truncate">{group.label}</div></Tooltip>
-                    <div className="text-xs text-slate-500">{group.invoices.length} fattur{group.invoices.length === 1 ? 'a' : 'e'}</div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="font-semibold text-slate-900">{formatCurrency(group.total)}</div>
-                  </div>
-                </button>
-
-                {expanded && (
-                  <div className="bg-slate-50/60 border-t border-slate-100">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="text-[10px] uppercase text-slate-500">
-                          <th className="px-5 py-2 text-left font-semibold">Numero</th>
-                          <th className="px-4 py-2 text-left font-semibold">Data</th>
-                          {groupBy === 'month' && <th className="px-4 py-2 text-left font-semibold">Fornitore</th>}
-                          <th className="px-4 py-2 text-right font-semibold">Importo</th>
-                          <th className="px-4 py-2 text-center font-semibold">SDI</th>
-                          <th className="px-5 py-2 text-right font-semibold">Azioni</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {group.invoices.map(inv => (
-                          <tr key={inv.id} className="border-t border-slate-200/70 hover:bg-white">
-                            <td className="px-5 py-2.5 text-sm font-medium text-slate-800">{inv.invoice_number || '—'}</td>
-                            <td className="px-4 py-2.5 text-sm text-slate-600">{formatDate(inv.invoice_date)}</td>
-                            {groupBy === 'month' && (
-                              <Tooltip content={inv.supplier_name ?? ''}><td className="px-4 py-2.5 text-sm text-slate-600 truncate max-w-xs">{inv.supplier_name || '—'}</td></Tooltip>
-                            )}
-                            <td className="px-4 py-2.5 text-sm text-right font-medium text-slate-900">
-                              {formatCurrency(inv.gross_amount || (inv as { total_amount?: number | null }).total_amount || null)}
-                            </td>
-                            <td className="px-4 py-2.5 text-center">
-                              {inv.sdi_status && (
-                                <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                                  inv.sdi_status === 'ACCEPTED' ? 'bg-emerald-50 text-emerald-700' :
-                                  inv.sdi_status === 'REJECTED' ? 'bg-red-50 text-red-700' :
-                                  'bg-slate-100 text-slate-600'
-                                }`}>
-                                  {inv.sdi_status}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-5 py-2.5 text-right">
-                              <div className="inline-flex items-center gap-1">
-                                <button
-                                  onClick={() => openInvoiceViewer(inv)}
-                                  disabled={loadingXml === inv.id}
-                                  className="px-2.5 py-1 bg-blue-50 text-blue-700 rounded-lg text-xs font-semibold hover:bg-blue-100 border border-blue-200 inline-flex items-center gap-1 disabled:opacity-50"
-                                  title="Apri la fattura in formato leggibile"
-                                >
-                                  {loadingXml === inv.id ? <RefreshCw size={12} className="animate-spin" /> : <Eye size={12} />}
-                                  Anteprima
-                                </button>
-                                <button
-                                  onClick={() => openInvoiceViewer(inv, { autoPrint: true })}
-                                  disabled={loadingXml === inv.id}
-                                  className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1 disabled:opacity-50"
-                                  title="Genera PDF leggibile e apri dialogo di stampa"
-                                >
-                                  <Download size={12} /> Scarica PDF
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        )}
-      </section>
-
-      {/* ═══════════ SEZIONE BILANCI ═══════════ */}
-      <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <button
-          onClick={() => toggleSection('bilanci')}
-          className="w-full px-5 py-4 border-b border-slate-100 flex items-center gap-2 hover:bg-slate-50 text-left transition"
-          title={sectionOpen.bilanci ? 'Chiudi sezione' : 'Apri sezione'}
-        >
-          {sectionOpen.bilanci ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-400" />}
-          <div className="p-2 bg-indigo-50 rounded-lg">
-            <BarChart3 size={18} className="text-indigo-600" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-slate-900">Bilanci</h2>
-            <p className="text-xs text-slate-500">{balanceSheets.length} document{balanceSheets.length === 1 ? 'o' : 'i'}</p>
-          </div>
-        </button>
-        {sectionOpen.bilanci && (
-        <div className="divide-y divide-slate-100">
-          {balanceSheets.length === 0 ? (
-            <div className="text-center py-10">
-              <BarChart3 size={28} className="text-slate-300 mx-auto mb-2" />
-              <p className="text-sm text-slate-500">Nessun bilancio caricato</p>
-              <p className="text-xs text-slate-400">Caricali da Import Hub → Bilanci</p>
-            </div>
-          ) : (
-            balanceSheets.map(bs => (
-              <div key={bs.id} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50">
-                <div className="p-2 bg-red-50 rounded-lg shrink-0">
-                  <FileText size={16} className="text-red-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <Tooltip content={String(bs.file_name ?? '')}>
-                    <div className="font-medium text-slate-800 truncate">
-                      {String(bs.file_name ?? 'Bilancio senza nome')}
-                    </div>
-                  </Tooltip>
-                  <div className="text-xs text-slate-500 flex gap-3">
-                    {bs.year != null && <span>Anno {String(bs.year)}</span>}
-                    <span>{formatDate((bs.created_at || (bs.uploaded_at as string | null | undefined)) ?? null)}</span>
-                    {bs.file_size != null && <span>{formatSize(bs.file_size as number)}</span>}
-                    {bs.status != null && <span className="text-indigo-600">· {String(bs.status)}</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  {bs.file_path != null && (
-                    <>
-                      <button
-                        onClick={() => openPdfPreview('balance-sheets', String(bs.file_path))}
-                        className="px-2.5 py-1 bg-indigo-50 text-indigo-700 rounded-lg text-xs font-semibold hover:bg-indigo-100 border border-indigo-200 inline-flex items-center gap-1"
-                        title="Apri il PDF in una nuova scheda"
-                      >
-                        <Eye size={12} /> Anteprima
-                      </button>
-                      <button
-                        onClick={() => downloadFile('balance-sheets', String(bs.file_path), bs.file_name ? String(bs.file_name) : undefined)}
-                        className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
-                      >
-                        <Download size={12} /> Scarica
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-        )}
-      </section>
+      {/* Fatture e bilanci vivono nella scheda «Archivio», che li mostra insieme
+          a tutti gli altri documenti. Qui restano gli estratti conto, perché
+          hanno azioni proprie: archiviazione del file e anteprima dei movimenti. */}
 
       {/* ═══════════ SEZIONE ESTRATTI CONTO ═══════════ */}
       <section className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -970,76 +1017,121 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
           </div>
           <div>
             <h2 className="font-semibold text-slate-900">Estratti Conto Bancari</h2>
-            <p className="text-xs text-slate-500">{ecFiles.length} file</p>
+            <p className="text-xs text-slate-500">{ecFiles.length} documenti · {ecFilteredGroups.length} fonti</p>
           </div>
         </button>
         {sectionOpen.ec && (
-        <div className="divide-y divide-slate-100">
+        <div>
+          {/* Toolbar: archivia il file EC senza importarne i movimenti */}
+          <div className="px-5 py-3 flex items-center justify-between gap-3 bg-slate-50/60 border-b border-slate-100">
+            <p className="text-xs text-slate-500">
+              Archivia il PDF/XLS dell'estratto conto <span className="font-medium text-slate-600">senza importarne i movimenti</span> (utile quando i movimenti sono già sincronizzati via A-Cube).
+            </p>
+            <button
+              onClick={() => setEcArchive({ files: [], bankAccountId: bankAccounts[0]?.id || '', busy: false })}
+              className="shrink-0 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 inline-flex items-center gap-1.5"
+              title="Carica e archivia un estratto conto (nessun movimento verrà importato)"
+            >
+              <Upload size={13} /> Archivia estratto conto
+            </button>
+          </div>
+
           {ecFiles.length === 0 ? (
             <div className="text-center py-10">
               <Database size={28} className="text-slate-300 mx-auto mb-2" />
               <p className="text-sm text-slate-500">Nessun estratto conto</p>
-              <p className="text-xs text-slate-400">Importali da Import Hub → Estratti Conto</p>
+              <p className="text-xs text-slate-400">Usa "Archivia estratto conto" qui sopra, oppure importali da Import Hub</p>
             </div>
           ) : (
-            ecFiles.map(ec => {
-              const ba = (ec as { bank_accounts?: { bank_name?: string; account_name?: string } }).bank_accounts
-              const bankLabel = ba?.bank_name
-                ? `${ba.bank_name}${ba.account_name ? ` — ${ba.account_name}` : ''}`
-                : 'Banca';
-              const statusColor = ec.status === 'completed' ? 'text-emerald-600'
-                : ec.status === 'processing' ? 'text-amber-600'
-                : 'text-slate-500';
-              const txCount = (ec as { transaction_count?: number | null }).transaction_count
-              const createdAt = (ec as { created_at?: string | null }).created_at
+          <>
+            {/* Barra filtri/ricerca */}
+            <div className="px-5 py-3 flex flex-wrap items-center gap-2 border-b border-slate-100">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={ecSearch}
+                  onChange={e => setEcSearch(e.target.value)}
+                  placeholder="Cerca per fonte o nome file…"
+                  className="w-full pl-8 pr-3 py-1.5 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400"
+                />
+              </div>
+              <select value={ecKind} onChange={e => setEcKind(e.target.value as typeof ecKind)}
+                className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-700">
+                <option value="all">Tutti i tipi</option>
+                <option value="conto_corrente">Conti correnti</option>
+                <option value="carta">Carte</option>
+              </select>
+              <select value={String(ecYear)} onChange={e => setEcYear(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+                className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-sm text-slate-700">
+                <option value="all">Tutti gli anni</option>
+                {ecAvailableYears.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              {(ecSearch || ecKind !== 'all' || ecYear !== 'all') && (
+                <button onClick={() => { setEcSearch(''); setEcKind('all'); setEcYear('all'); }}
+                  className="px-2.5 py-1.5 text-xs text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg inline-flex items-center gap-1">
+                  <X size={12} /> Azzera
+                </button>
+              )}
+            </div>
+
+            {/* Gruppi per fonte (conto/carta) */}
+            {ecFilteredGroups.length === 0 ? (
+              <div className="text-center py-10 text-sm text-slate-500">Nessun documento con questi filtri.</div>
+            ) : ecFilteredGroups.map(group => {
+              const collapsed = ecCollapsed.has(group.label);
+              const isCard = group.kind === 'carta';
               return (
-                <div key={ec.id} className="px-5 py-3 flex items-center gap-3 hover:bg-slate-50">
-                  <div className="p-2 bg-emerald-50 rounded-lg shrink-0">
-                    <FileText size={16} className="text-emerald-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <Tooltip content={ec.filename ?? ''}>
-                      <div className="font-medium text-slate-800 truncate">
-                        {ec.filename || 'EC senza nome'}
-                      </div>
-                    </Tooltip>
-                    <div className="text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-1">
-                      <span className="font-medium text-slate-700">{bankLabel}</span>
-                      {txCount != null && (
-                        <span>{Number(txCount).toLocaleString('de-DE')} movimenti</span>
-                      )}
-                      <span>{formatDate(createdAt)}</span>
-                      {ec.status && <span className={statusColor}>· {String(ec.status)}</span>}
+                <div key={group.label} className="border-b border-slate-100 last:border-b-0">
+                  <button
+                    onClick={() => setEcCollapsed(prev => { const n = new Set(prev); n.has(group.label) ? n.delete(group.label) : n.add(group.label); return n; })}
+                    className="w-full px-5 py-2.5 flex items-center gap-2 hover:bg-slate-50 text-left"
+                  >
+                    {collapsed ? <ChevronRight size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-semibold ${isCard ? 'bg-violet-50 text-violet-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                      {isCard ? 'Carta' : 'Conto'}
+                    </span>
+                    <span className="font-medium text-slate-800 text-sm">{group.label}</span>
+                    <span className="text-xs text-slate-400">· {group.items.length}</span>
+                  </button>
+                  {!collapsed && (
+                    <div className="divide-y divide-slate-50">
+                      {group.items.map(ec => {
+                        const per = ec.period_month != null ? `${MONTH_FULL[Number(ec.period_month) - 1]} ${ec.period_year ?? ''}`.trim()
+                          : (ec.period_year ? String(ec.period_year) : (ec.filename?.split('/').pop() || 'documento'));
+                        const ft = String(ec.file_type || '').toUpperCase();
+                        return (
+                          <div key={ec.id} className="pl-12 pr-5 py-2 flex items-center gap-3 hover:bg-slate-50">
+                            <FileText size={15} className={isCard ? 'text-violet-500 shrink-0' : 'text-emerald-600 shrink-0'} />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm text-slate-800 font-medium">{per}</div>
+                              <Tooltip content={ec.filename ?? ''}>
+                                <div className="text-[11px] text-slate-400 truncate">{ec.filename?.split('/').pop()}</div>
+                              </Tooltip>
+                            </div>
+                            {ft && <span className="text-[10px] font-semibold text-slate-400 shrink-0">{ft}</span>}
+                            <div className="flex items-center gap-1 shrink-0">
+                              {!isCard && (
+                                <button onClick={() => openEcPreview(ec)}
+                                  className="px-2 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 border border-emerald-200 inline-flex items-center gap-1"
+                                  title="Vedi i movimenti a sistema per questo conto">
+                                  <Eye size={12} /> Anteprima
+                                </button>
+                              )}
+                              <button onClick={() => downloadEcFile(ec)}
+                                className="px-2 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
+                                title="Scarica il file originale">
+                                <Download size={12} /> Scarica
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      onClick={() => openEcPreview(ec)}
-                      className="px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg text-xs font-semibold hover:bg-emerald-100 border border-emerald-200 inline-flex items-center gap-1"
-                      title="Vedi i primi 100 movimenti importati"
-                    >
-                      <Eye size={12} /> Anteprima
-                    </button>
-                    <button
-                      onClick={() => downloadEcFile(ec)}
-                      className="px-2.5 py-1 bg-white text-slate-700 rounded-lg text-xs font-semibold hover:bg-slate-50 border border-slate-200 inline-flex items-center gap-1"
-                      title="Scarica il file originale (.xls/.xlsx) dal bucket bank-statements"
-                    >
-                      <Download size={12} /> Scarica
-                    </button>
-                    {ec.bank_account_id && (
-                      <button
-                        onClick={() => navigate(`/banche?tab=movimenti&account=${ec.bank_account_id}`)}
-                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg"
-                        title="Apri la pagina Movimenti della banca"
-                      >
-                        <ExternalLink size={14} />
-                      </button>
-                    )}
-                  </div>
+                  )}
                 </div>
               );
-            })
+            })}
+          </>
           )}
         </div>
         )}
@@ -1055,9 +1147,16 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
       )}
 
       {/* ═══════════ EC PREVIEW MODAL ═══════════ */}
-      {ecPreview && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setEcPreview(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <Modal
+        open={!!ecPreview}
+        onClose={() => setEcPreview(null)}
+        bare
+        ariaLabel="Anteprima estratto conto"
+        containerClassName="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+        panelClassName="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90dvh] flex flex-col overflow-hidden"
+      >
+        {ecPreview && (
+          <>
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-emerald-50 rounded-lg">
@@ -1078,7 +1177,7 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                 >
                   <Download size={13} /> Scarica file
                 </button>
-                <button onClick={() => setEcPreview(null)} className="p-1.5 hover:bg-slate-100 rounded-lg">
+                <button onClick={() => setEcPreview(null)} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi">
                   <X size={18} className="text-slate-500" />
                 </button>
               </div>
@@ -1140,9 +1239,106 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
                 </button>
               )}
             </div>
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </Modal>
+
+      {/* ═══════════ MODAL ARCHIVIA ESTRATTO CONTO (no import movimenti) ═══════════ */}
+      <Modal
+        open={!!ecArchive}
+        onClose={() => { if (!ecArchive?.busy) setEcArchive(null); }}
+        bare
+        ariaLabel="Archivia estratto conto"
+        containerClassName="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4"
+        panelClassName="bg-white rounded-2xl shadow-2xl max-w-lg w-full flex flex-col overflow-hidden"
+      >
+        {ecArchive && (
+          <>
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-emerald-50 rounded-lg"><Upload size={18} className="text-emerald-600" /></div>
+                <div>
+                  <h3 className="font-semibold text-slate-900 text-sm">Archivia estratto conto</h3>
+                  <p className="text-xs text-slate-500">Salva il file originale. Nessun movimento verrà importato.</p>
+                </div>
+              </div>
+              <button onClick={() => { if (!ecArchive.busy) setEcArchive(null); }} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi">
+                <X size={18} className="text-slate-500" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Conto di ripiego</label>
+                <select
+                  value={ecArchive.bankAccountId}
+                  onChange={e => setEcArchive(prev => prev ? { ...prev, bankAccountId: e.target.value } : prev)}
+                  disabled={ecArchive.busy}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-emerald-200 focus:border-emerald-400"
+                >
+                  <option value="">— Seleziona conto —</option>
+                  {bankAccounts.map(ba => (
+                    <option key={ba.id} value={ba.id}>
+                      {ba.bank_name || 'Banca'}{ba.account_name ? ` — ${ba.account_name}` : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-slate-500 mt-1">I file con nome conto riconoscibile (Mugello, Intesa, BCC, MPS) vengono assegnati al conto giusto in automatico; gli altri (es. carte) finiscono su questo conto di ripiego.</p>
+                {bankAccounts.length === 0 && (
+                  <p className="text-[11px] text-amber-600 mt-1">Nessun conto attivo trovato. Crea il conto in Banche prima di archiviare.</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">File o .zip (PDF, XLS, XLSX, CSV, ZIP)</label>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.xls,.xlsx,.csv,.zip"
+                  disabled={ecArchive.busy}
+                  onChange={e => setEcArchive(prev => prev ? { ...prev, files: Array.from(e.target.files || []) } : prev)}
+                  className="w-full text-sm text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-emerald-50 file:text-emerald-700 file:text-xs file:font-semibold hover:file:bg-emerald-100"
+                />
+                <div className="mt-2">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">…oppure collega un'intera cartella</label>
+                  <input
+                    type="file"
+                    // @ts-expect-error attributi non standard per selezionare una cartella
+                    webkitdirectory=""
+                    directory=""
+                    multiple
+                    disabled={ecArchive.busy}
+                    onChange={e => setEcArchive(prev => prev ? { ...prev, files: Array.from(e.target.files || []) } : prev)}
+                    className="w-full text-sm text-slate-600 file:mr-3 file:px-3 file:py-1.5 file:rounded-lg file:border-0 file:bg-slate-100 file:text-slate-700 file:text-xs file:font-semibold hover:file:bg-slate-200"
+                  />
+                </div>
+                {ecArchive.files.length > 0 && (
+                  <p className="text-[11px] text-slate-500 mt-1">{ecArchive.files.length} elemento/i selezionato/i.</p>
+                )}
+                <p className="text-[11px] text-slate-500 mt-1">Cartella o <span className="font-medium">.zip</span>: vengono presi solo i documenti EC (PDF/XLS/XLSX/CSV), saltando manifest e file di report. Il nome della cartella resta nel documento archiviato; lo .zip non viene salvato.</p>
+              </div>
+              <div className="flex items-start gap-2 text-[11px] text-slate-500 bg-slate-50 rounded-lg p-2.5">
+                <AlertCircle size={14} className="text-slate-400 shrink-0 mt-0.5" />
+                <span>Questa azione archivia solo i documenti (bucket <code>bank-statements</code>). I movimenti restano quelli già presenti: non vengono né creati né duplicati.</span>
+              </div>
+            </div>
+            <div className="px-5 py-3 border-t border-slate-100 bg-slate-50 flex items-center justify-end gap-2 shrink-0">
+              <button
+                onClick={() => { if (!ecArchive.busy) setEcArchive(null); }}
+                disabled={ecArchive.busy}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white rounded-lg hover:bg-slate-50 border border-slate-200 disabled:opacity-50"
+              >
+                Annulla
+              </button>
+              <button
+                onClick={archiveEcFiles}
+                disabled={ecArchive.busy || ecArchive.files.length === 0 || !ecArchive.bankAccountId}
+                className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                {ecArchive.busy ? (<><RefreshCw size={13} className="animate-spin" /> Archiviazione…</>) : (<><Upload size={13} /> Archivia</>)}
+              </button>
+            </div>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }
@@ -1246,7 +1442,7 @@ function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, set
               className="w-full pl-9 pr-8 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             />
             {search && (
-              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+              <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" title="Cancella ricerca">
                 <X size={14} />
               </button>
             )}
@@ -1286,7 +1482,7 @@ function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, set
               <p className="text-slate-500 font-medium">Nessun documento in conservazione</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full">
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
@@ -1350,7 +1546,7 @@ function ConservazioneTab({ docs, stats, loading, filter, setFilter, search, set
                           )}
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition">
+                          <div className="flex items-center justify-end gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
                             {status === 'expired' && doc.retention_status !== 'extended' && (
                               <button
                                 onClick={() => updateStatus(doc.id, doc._source, 'extended')}

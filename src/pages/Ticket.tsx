@@ -9,11 +9,14 @@
 //   ("Prendi in carico", "Risolvi", "Riapri", "Chiudi").
 //
 // AutoFix:
-// - Un task scheduled Cowork legge i ticket aperti ogni ora, applica
-//   fix banali al codice e chiude il ticket lasciando un commento
-//   semplice per Sabrina + note_fix tecniche per Patrizio.
-// - Vedi `system_deploy_config` (Supabase) per la configurazione di
-//   deploy del task scheduled.
+// - Il cron `ticket-autofix-hourly` (pg_cron, :07 di ogni ora — vedi
+//   migration 156) passa alla edge function ticket-resolve-now i ticket
+//   aperti che non hanno ancora un commento AI: max 3 per giro.
+// - La function apre una PR se sa correggere e lascia sempre un commento
+//   semplice per Sabrina + note_fix tecniche per Patrizio. Il commento AI
+//   e' anche cio' che impedisce al cron di ripassare sullo stesso ticket.
+// - Il countdown mostrato qui sotto (AutoFixCountdown) deve restare
+//   allineato al minuto del cron.
 //
 // Pattern NZ:
 // - Niente alert/confirm nativi: tutte le conferme via Modal custom.
@@ -28,7 +31,9 @@ import {
   MessageSquare, Paperclip, Plus, RefreshCw, Send, Sparkles, Square, Trash2, Upload, X,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { getCurrentTenant } from '../lib/tenants'
 import { useToast } from '../components/Toast'
+import { Modal } from '../components/ui/Modal'
 import { useAuth } from '../hooks/useAuth'
 import { errorMessage } from '../types/business'
 import {
@@ -137,10 +142,16 @@ function ConfirmModal({
   confirmLabel = 'Conferma', cancelLabel = 'Annulla',
   destructive, onConfirm, onCancel,
 }: ConfirmModalProps) {
-  if (!open) return null
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+    <Modal
+      open={open}
+      onClose={onCancel}
+      bare
+      ariaLabel={title}
+      closeOnBackdrop={false}
+      containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+      panelClassName="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
+    >
         <h3 className="text-lg font-semibold text-slate-900 mb-2">{title}</h3>
         <p className="text-sm text-slate-600 mb-6">{message}</p>
         <div className="flex justify-end gap-2">
@@ -161,8 +172,7 @@ function ConfirmModal({
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -425,8 +435,8 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
             failures.push(f.name)
             continue
           }
-          const { data: pub } = supabase.storage.from('media').getPublicUrl(path)
-          uploaded.push({ url: pub.publicUrl, name: f.name, size: f.size, type: f.type })
+          // Bucket privato: salviamo il PATH; l'URL firmato si genera alla visualizzazione.
+          uploaded.push({ path, name: f.name, size: f.size, type: f.type })
         }
         if (uploaded.length > 0) {
           const { data: updated } = await supabase
@@ -456,8 +466,17 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full my-8">
+    <Modal
+      open={open}
+      onClose={onClose}
+      bare
+      ariaLabel="Nuova segnalazione"
+      closeOnBackdrop={false}
+      // items-start: con items-center un form più alto del viewport rendeva
+      // la testata irraggiungibile (il contenuto centrato sborda sopra e sotto)
+      containerClassName="fixed inset-0 z-50 flex items-start justify-center bg-slate-900/50 p-4 overflow-y-auto"
+      panelClassName="bg-white rounded-xl shadow-2xl max-w-2xl w-full my-8"
+    >
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
           <h3 className="text-lg font-semibold text-slate-900">Nuova segnalazione</h3>
           <button
@@ -588,8 +607,7 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
             {submitting ? 'Salvataggio…' : 'Apri segnalazione'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -658,6 +676,13 @@ export function TicketList({
     if (initialStato) setFiltroStato(initialStato)
   }, [initialStato])
 
+  // Sicurezza bulk (audit 2026-07-19): al cambio di un filtro la selezione viene
+  // azzerata, altrimenti le azioni bulk (inclusa Cancella, irreversibile)
+  // agirebbero anche su ticket selezionati prima e non piu' visibili in tabella.
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [filtroStato, filtroTipo, filtroModulo])
+
   const stats = useMemo(() => {
     const s = { aperti: 0, in_corso: 0, risolti: 0, chiusi: 0, bug: 0, funzioni: 0, totali: tickets.length }
     for (const t of tickets) {
@@ -682,6 +707,14 @@ export function TicketList({
       return true
     })
   }, [tickets, filtroStato, filtroTipo, filtroModulo])
+
+  // Seconda barriera: alle azioni bulk arrivano SOLO gli id selezionati e ancora
+  // visibili coi filtri correnti (intersezione), mai selezioni "fantasma"
+  // sopravvissute a un reload della lista.
+  const selectedVisibleIds = useMemo(
+    () => filtered.filter(t => selectedIds.has(t.id)).map(t => t.id),
+    [filtered, selectedIds],
+  )
 
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => {
@@ -779,8 +812,8 @@ export function TicketList({
         </div>
       </div>
 
-      {/* Bulk action bar (solo admin con selezione attiva) */}
-      {adminMode && selectedIds.size > 0 && renderAdminBulkBar?.(Array.from(selectedIds), clearSelection)}
+      {/* Bulk action bar (solo admin con selezione attiva e visibile) */}
+      {adminMode && selectedVisibleIds.length > 0 && renderAdminBulkBar?.(selectedVisibleIds, clearSelection)}
 
       {/* Tabella */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -795,7 +828,7 @@ export function TicketList({
             Nessun ticket corrisponde ai filtri.
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wide">
                 <tr>
@@ -807,7 +840,7 @@ export function TicketList({
                         aria-label="Seleziona tutti"
                         className="p-0.5 text-slate-500 hover:text-slate-900"
                       >
-                        {selectedIds.size === filtered.length && filtered.length > 0
+                        {selectedVisibleIds.length === filtered.length && filtered.length > 0
                           ? <CheckSquare className="w-4 h-4 text-blue-600" />
                           : <Square className="w-4 h-4" />}
                       </button>
@@ -1023,6 +1056,27 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
     return []
   }, [ticket.allegati, ticket.screenshot_url])
 
+  // Bucket 'media' PRIVATO: per ogni allegato genero un URL firmato (valido 1h) al
+  // momento della visualizzazione. Allegati nuovi → firmati dal `path`; vecchi
+  // allegati con solo URL pubblico → ricavo il path (dopo '/media/') e firmo comunque.
+  const [signedUrls, setSignedUrls] = useState<Record<number, string>>({})
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      const out: Record<number, string> = {}
+      await Promise.all(allegatiVisualizzati.map(async (att, idx) => {
+        let path = att.path ?? null
+        if (!path && att.url) { const i = att.url.indexOf('/media/'); if (i >= 0) path = att.url.slice(i + 7) }
+        if (!path) { if (att.url) out[idx] = att.url; return }
+        const { data } = await supabase.storage.from('media').createSignedUrl(path, 3600)
+        if (data?.signedUrl) out[idx] = data.signedUrl
+        else if (att.url) out[idx] = att.url
+      }))
+      if (alive) setSignedUrls(out)
+    })()
+    return () => { alive = false }
+  }, [allegatiVisualizzati])
+
   const autoreLabel: string =
     (profile?.full_name as string | undefined) ??
     (session?.user?.email as string | undefined) ??
@@ -1064,12 +1118,14 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
         testo,
         creato_il: new Date().toISOString(),
       }
-      const nuoviCommenti = [...(ticket.commenti ?? []), commento]
+      // Append atomico lato DB (RPC, migration 111): evita il lost update del
+      // vecchio read-modify-write dell'intero array jsonb, che sovrascriveva i
+      // commenti aggiunti nel frattempo da altri utenti o dall'AutoFix.
       const { data, error } = await supabase
-        .from('tickets' as never)
-        .update({ commenti: nuoviCommenti } as never)
-        .eq('id', ticket.id)
-        .select('*')
+        .rpc('append_ticket_comment' as never, {
+          p_ticket_id: ticket.id,
+          p_commento: commento,
+        } as never)
         .single()
       if (error || !data) throw new Error(errorMessage(error, 'Salvataggio commento fallito'))
 
@@ -1081,7 +1137,7 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
     } finally {
       setBusy(false)
     }
-  }, [autoreLabel, nuovoCommento, onUpdated, ticket.commenti, ticket.id, toast])
+  }, [autoreLabel, nuovoCommento, onUpdated, ticket.id, toast])
 
   // Calcola se ultimo commento AI e' < 60s fa: in tal caso bottone disabled
   // (protezione click duplicati come fa anche l'edge function lato server)
@@ -1111,7 +1167,9 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
         toast({ type: 'error', message: 'Sessione scaduta, ricarica la pagina' })
         return
       }
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+      // URL del tenant attivo via tenants.ts: la env non suffissata puo'
+      // mancare sui site Made/Zago (che usano VITE_SUPABASE_URL_MADE/_ZAGO).
+      const supabaseUrl = getCurrentTenant().supabaseUrl
       const resp = await fetch(`${supabaseUrl}/functions/v1/ticket-resolve-now`, {
         method: 'POST',
         headers: {
@@ -1162,10 +1220,28 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
     }
   }, [ticket.id, onUpdated, toast, aiOnCooldown, lastAiCommentAgeSec])
 
-  // Admin-only: cancella ticket (solo per ticket di prova o aperti per errore)
+  // Admin-only: cancella ticket (solo per ticket di prova o aperti per errore).
+  // Rimuove PRIMA gli allegati dallo storage per non lasciare file orfani nel
+  // bucket 'media' (prima venivano abbandonati a ogni cancellazione), poi la riga.
   const cancellaTicket = useCallback(async () => {
     setBusy(true)
     try {
+      // Path degli allegati: nuovo campo `path`, oppure ricavato dai vecchi URL
+      // pubblici (parte dopo '/media/'), inclusa la deprecata screenshot_url.
+      const paths: string[] = []
+      for (const att of (ticket.allegati || [])) {
+        let p = att.path ?? null
+        if (!p && att.url) { const i = att.url.indexOf('/media/'); if (i >= 0) p = att.url.slice(i + 7) }
+        if (p) paths.push(p)
+      }
+      if (ticket.screenshot_url) { const i = ticket.screenshot_url.indexOf('/media/'); if (i >= 0) paths.push(ticket.screenshot_url.slice(i + 7)) }
+      if (paths.length > 0) {
+        const { error: rmErr } = await supabase.storage.from('media').remove(paths)
+        // Best-effort: se la pulizia storage fallisce non blocco la cancellazione
+        // del ticket (l'intento dell'utente), ma lo segnalo nei log.
+        if (rmErr) console.warn('[ticket] pulizia allegati storage:', rmErr.message)
+      }
+
       const { error } = await supabase
         .from('tickets' as never)
         .delete()
@@ -1178,7 +1254,7 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
       toast({ type: 'error', message: errorMessage(e, 'Cancellazione fallita') })
       setBusy(false)
     }
-  }, [ticket.id, onBack, onDeleted, toast])
+  }, [ticket.id, ticket.allegati, ticket.screenshot_url, onBack, onDeleted, toast])
 
   const azioniDisponibili = useMemo(() => {
     const actions: Array<{ label: string; stato: TicketStato; primary?: boolean; destructive?: boolean }> = []
@@ -1327,20 +1403,24 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                 {allegatiVisualizzati.map((att, idx) => {
                   const isImage = att.type.startsWith('image/')
+                  const src = signedUrls[idx]
                   if (isImage) {
                     return (
                       <button
-                        key={`${att.url}-${idx}`}
+                        key={`att-${idx}`}
                         type="button"
-                        onClick={() => setLightboxUrl(att.url)}
-                        className="block group relative aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200"
+                        disabled={!src}
+                        onClick={() => src && setLightboxUrl(src)}
+                        className="block group relative aspect-video bg-slate-100 rounded-lg overflow-hidden border border-slate-200 disabled:cursor-default"
                         title={att.name}
                       >
-                        <img
-                          src={att.url}
-                          alt={att.name}
-                          className="w-full h-full object-cover"
-                        />
+                        {src ? (
+                          <img src={src} alt={att.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <div className="w-5 h-5 border-2 border-slate-300 border-t-slate-500 rounded-full animate-spin" />
+                          </div>
+                        )}
                         <div className="absolute inset-0 flex items-center justify-center bg-slate-900/0 group-hover:bg-slate-900/30 transition-colors">
                           <Eye className="w-5 h-5 text-white opacity-0 group-hover:opacity-100" />
                         </div>
@@ -1349,11 +1429,11 @@ function TicketDetail({ ticket, onBack, onUpdated, onDeleted }: TicketDetailProp
                   }
                   return (
                     <a
-                      key={`${att.url}-${idx}`}
-                      href={att.url}
+                      key={`att-${idx}`}
+                      href={src || undefined}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 text-sm text-slate-700"
+                      className={`flex items-center gap-2 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 ${src ? 'hover:bg-slate-100' : 'opacity-50 pointer-events-none'}`}
                       title={att.name}
                     >
                       <FileText className="w-5 h-5 text-slate-400 shrink-0" />
@@ -1559,8 +1639,10 @@ export default function TicketPage() {
 // scroll interno: il main del Layout gestisce lo scroll.
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {children}
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+        {children}
+      </div>
     </div>
   )
 }

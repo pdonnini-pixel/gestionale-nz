@@ -6,16 +6,17 @@
 //
 // Fonte unica: public.sync_runs (stessa del pallino SyncStatusBadge) → coerenza.
 
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { Fragment, useEffect, useMemo, useState, useCallback } from 'react'
 import PageHeader from '../components/PageHeader'
 import Tooltip from '../components/Tooltip'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import {
-  RefreshCw, Filter, X, Inbox, Landmark, FileText, Store, Receipt, AlertCircle,
+  RefreshCw, Filter, X, Inbox, Landmark, FileText, FileUp, Store, Receipt, AlertCircle,
+  ChevronRight, ChevronDown,
 } from 'lucide-react'
 import {
-  type SyncFeed, type SyncRun, SYNC_FEEDS, SYNC_FEED_ORDER,
+  type SyncFeed, type SyncRun, type SyncRunDetail, SYNC_FEEDS, SYNC_FEED_ORDER,
   computeSyncState, SYNC_TONE_CLASSES, SYNC_STATUS_LABEL, SYNC_STATUS_TONE,
   SYNC_ORIGIN_LABEL, fmtDateTime,
 } from '../lib/syncFeeds'
@@ -23,6 +24,7 @@ import {
 const FEED_ICON: Record<SyncFeed, typeof Inbox> = {
   banche: Landmark,
   fatture_passive: FileText,
+  fatture_attive: FileUp,
   corrispettivi: Store,
   cassetto_fiscale: Receipt,
 }
@@ -37,6 +39,160 @@ const fmtPeriod = (from: string | null, to: string | null): string => {
   return `${f} → ${t}`
 }
 
+const fmtEur = (n: number | null): string => {
+  if (n == null) return '—'
+  return n.toLocaleString('it-IT', { style: 'currency', currency: 'EUR' })
+}
+
+const fmtDate = (iso: string | null): string =>
+  iso ? new Date(iso).toLocaleDateString('it-IT') : '—'
+
+// Singolo movimento bancario scaricato in una run (per l'espansione banche).
+interface RunMovement {
+  id: string
+  transaction_date: string
+  amount: number
+  description: string | null
+  currency: string | null
+  bank_account_id: string | null
+}
+
+// Sotto-tabella "cosa è stato scaricato" per una run espansa.
+function RunDetails({ feed, details, movements, movementsTotal, bankNames, loading, showErrors }: {
+  feed: SyncFeed
+  details: SyncRunDetail[] | undefined
+  movements: RunMovement[] | undefined
+  movementsTotal: number
+  bankNames: Record<string, string>
+  loading: boolean
+  showErrors: boolean
+}) {
+  // stato apri/chiudi per ciascuna banca (default: aperta se ha movimenti)
+  const [openBanks, setOpenBanks] = useState<Record<string, boolean>>({})
+
+  if (loading) {
+    return <div className="px-6 py-4 text-sm text-slate-400">Caricamento dettaglio…</div>
+  }
+  if (!details || details.length === 0) {
+    return (
+      <div className="px-6 py-4 text-sm text-slate-400">
+        Nessun dettaglio registrato per questa sincronizzazione.
+      </div>
+    )
+  }
+
+  // fatture_passive, cassetto_fiscale e fatture_attive hanno lo stesso dettaglio
+  // (una riga per fattura scaricata: numero, controparte, data, importo). Per le
+  // attive la controparte è il CLIENTE (destinatario), per le altre il fornitore.
+  if (feed === 'fatture_passive' || feed === 'cassetto_fiscale' || feed === 'fatture_attive') {
+    const counterpartyHeader = feed === 'fatture_attive' ? 'Cliente' : 'Fornitore'
+    return (
+      <div className="px-6 py-3 overflow-x-auto scroll-shadow-x">
+        <table className="w-full min-w-[480px] text-xs">
+          <thead>
+            <tr className="text-left text-slate-400 border-b border-slate-200">
+              <th className="py-1.5 pr-4 font-medium">Numero</th>
+              <th className="py-1.5 pr-4 font-medium">{counterpartyHeader}</th>
+              <th className="py-1.5 pr-4 font-medium">Data</th>
+              <th className="py-1.5 pr-4 font-medium text-right">Importo</th>
+            </tr>
+          </thead>
+          <tbody>
+            {details.map((d) => (
+              <tr key={d.id} className="border-b border-slate-100 last:border-0">
+                <td className="py-1.5 pr-4 text-slate-700 whitespace-nowrap">{d.label}</td>
+                <td className="py-1.5 pr-4 text-slate-600">{d.counterparty ?? '—'}</td>
+                <td className="py-1.5 pr-4 text-slate-500 whitespace-nowrap">{fmtDate(d.doc_date)}</td>
+                <td className="py-1.5 pr-4 text-slate-700 text-right tabular-nums whitespace-nowrap">{fmtEur(d.amount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    )
+  }
+
+  // banche: ogni banca con i SUOI movimenti raggruppati sotto, così a colpo
+  // d'occhio si vede da quale banca proviene ciascun movimento.
+  const movesByBank: Record<string, RunMovement[]> = {}
+  for (const m of movements ?? []) {
+    const b = (m.bank_account_id && bankNames[m.bank_account_id]) || 'Altra banca'
+    ;(movesByBank[b] ||= []).push(m)
+  }
+  const detailLabels = new Set(details.map((d) => d.label))
+  const extraBanks = Object.keys(movesByBank).filter((b) => !detailLabels.has(b))
+
+  const bankBlock = (key: string, name: string, summary: string, moves: RunMovement[], error?: string | null) => {
+    const isOpen = openBanks[key] ?? (moves.length > 0)
+    return (
+      <div key={key} className="rounded-lg border border-slate-200 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setOpenBanks((p) => ({ ...p, [key]: !isOpen }))}
+          className="w-full flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100 transition"
+        >
+          <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+            {isOpen
+              ? <ChevronDown size={14} className="shrink-0 text-slate-400" />
+              : <ChevronRight size={14} className="shrink-0 text-slate-400" />}
+            {name}
+          </span>
+          <span className="text-xs text-slate-500 tabular-nums">{summary}</span>
+        </button>
+        {isOpen && (
+          <>
+            {showErrors && error && (
+              <p className="px-3 py-1.5 text-xs text-red-700 border-b border-slate-100">{error}</p>
+            )}
+            {moves.length > 0 ? (
+              <div className="overflow-x-auto scroll-shadow-x">
+              <table className="w-full min-w-[480px] text-xs">
+                <thead>
+                  <tr className="text-left text-slate-400 border-b border-slate-100">
+                    <th className="py-1.5 px-3 font-medium">Data</th>
+                    <th className="py-1.5 px-3 font-medium">Descrizione</th>
+                    <th className="py-1.5 px-3 font-medium text-right">Importo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {moves.map((m) => (
+                    <tr key={m.id} className="border-b border-slate-50 last:border-0">
+                      <td className="py-1.5 px-3 text-slate-500 whitespace-nowrap">{fmtDate(m.transaction_date)}</td>
+                      <td className="py-1.5 px-3 text-slate-600 max-w-[560px] truncate">{m.description ?? '—'}</td>
+                      <td className={`py-1.5 px-3 text-right tabular-nums whitespace-nowrap ${m.amount < 0 ? 'text-red-600' : 'text-slate-700'}`}>{fmtEur(m.amount)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+            ) : (
+              <p className="px-3 py-2 text-xs text-slate-400">Nessun movimento nuovo in questa sincronizzazione.</p>
+            )}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="px-6 py-3 space-y-3">
+      {details.map((d) => {
+        const parts = [
+          `${d.items_count} ${d.items_count === 1 ? 'movimento' : 'movimenti'}`,
+          d.extra?.accounts ? `${d.extra.accounts} ${d.extra.accounts === 1 ? 'conto' : 'conti'}` : null,
+          d.amount != null ? `saldo ${fmtEur(d.amount)}` : null,
+        ].filter(Boolean).join(' · ')
+        return bankBlock(d.id, d.label, parts, movesByBank[d.label] ?? [], d.error_message)
+      })}
+      {extraBanks.map((b) =>
+        bankBlock(b, b, `${movesByBank[b].length} ${movesByBank[b].length === 1 ? 'movimento' : 'movimenti'}`, movesByBank[b]))}
+      {movements && movements.length < movementsTotal && (
+        <p className="text-xs text-slate-400">Mostrati i primi {movements.length} movimenti di {movementsTotal}.</p>
+      )}
+    </div>
+  )
+}
+
 export default function ReportSincronizzazioni() {
   const { profile } = useAuth()
   const showErrors = CONSULTANT_ROLES.includes(profile?.role ?? '')
@@ -44,6 +200,13 @@ export default function ReportSincronizzazioni() {
   const [runs, setRuns] = useState<SyncRun[]>([])
   const [latestByFeed, setLatestByFeed] = useState<Record<string, SyncRun>>({})
   const [loading, setLoading] = useState(true)
+
+  // riga espansa + dettaglio "cosa scarico" (lazy-load per run)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [detailsByRun, setDetailsByRun] = useState<Record<string, SyncRunDetail[]>>({})
+  const [movementsByRun, setMovementsByRun] = useState<Record<string, RunMovement[]>>({})
+  const [detailLoading, setDetailLoading] = useState<string | null>(null)
+  const [bankNames, setBankNames] = useState<Record<string, string>>({})
 
   // filtri
   const [feedFilter, setFeedFilter] = useState<SyncFeed | 'all'>('all')
@@ -79,10 +242,50 @@ export default function ReportSincronizzazioni() {
 
   useEffect(() => { load() }, [load])
 
+  // mappa id conto → nome banca (per la colonna Banca nell'elenco movimenti)
+  useEffect(() => {
+    (async () => {
+      const { data } = await (supabase
+        .from('bank_accounts')
+        .select('id, bank_name') as unknown as Promise<{ data: { id: string; bank_name: string | null }[] | null }>)
+      const map: Record<string, string> = {}
+      for (const b of data ?? []) { if (b.bank_name) map[b.id] = b.bank_name }
+      setBankNames(map)
+    })()
+  }, [])
+
+  // scarta la cache dei dettagli quando cambiano i filtri (le run cambiano)
+  useEffect(() => { setExpandedId(null); setDetailsByRun({}); setMovementsByRun({}) }, [feedFilter, dateFrom, dateTo])
+
+  const toggleExpand = useCallback(async (run: SyncRun) => {
+    if (expandedId === run.id) { setExpandedId(null); return }
+    setExpandedId(run.id)
+    if (detailsByRun[run.id]) return  // già in cache
+    setDetailLoading(run.id)
+    const { data } = await (supabase
+      .from('sync_run_details')
+      .select('id, sync_run_id, company_id, feed, detail_type, label, reference, counterparty, doc_date, items_count, amount, currency, error_message, extra, created_at')
+      .eq('sync_run_id', run.id)
+      .order('created_at', { ascending: true }) as unknown as Promise<{ data: SyncRunDetail[] | null }>)
+    setDetailsByRun((prev) => ({ ...prev, [run.id]: data ?? [] }))
+
+    // per le banche, carica anche l'elenco dei singoli movimenti scaricati
+    if (run.feed === 'banche') {
+      const { data: mv } = await (supabase
+        .from('bank_transactions')
+        .select('id, transaction_date, amount, description, currency, bank_account_id')
+        .eq('sync_run_id', run.id)
+        .order('transaction_date', { ascending: false })
+        .limit(500) as unknown as Promise<{ data: RunMovement[] | null }>)
+      setMovementsByRun((prev) => ({ ...prev, [run.id]: mv ?? [] }))
+    }
+    setDetailLoading(null)
+  }, [expandedId, detailsByRun])
+
   const hasFilters = feedFilter !== 'all' || !!dateFrom || !!dateTo
   const clearFilters = () => { setFeedFilter('all'); setDateFrom(''); setDateTo('') }
 
-  const colSpan = showErrors ? 7 : 6
+  const colSpan = showErrors ? 8 : 7
 
   const summaryCards = useMemo(() => SYNC_FEED_ORDER.map((feed) => {
     const last = latestByFeed[feed] ?? null
@@ -91,7 +294,8 @@ export default function ReportSincronizzazioni() {
   }), [latestByFeed])
 
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader
         title="Report Sincronizzazioni"
         subtitle="Stato e storico degli aggiornamenti automatici dei dati (banche, fatture, cassetto fiscale)"
@@ -158,10 +362,11 @@ export default function ReportSincronizzazioni() {
 
       {/* Tabella run */}
       <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold text-slate-500 border-b border-slate-200 bg-slate-50">
+                <th className="px-2 py-3 w-8" />
                 <th className="px-4 py-3">Data e ora</th>
                 <th className="px-4 py-3">Feed</th>
                 <th className="px-4 py-3">Origine</th>
@@ -184,32 +389,59 @@ export default function ReportSincronizzazioni() {
                 </td></tr>
               ) : runs.map((r) => {
                 const stTone = SYNC_TONE_CLASSES[SYNC_STATUS_TONE[r.status]]
+                const isOpen = expandedId === r.id
+                const canExpand = r.items_downloaded > 0
                 return (
-                  <tr key={r.id} className="border-b border-slate-100 hover:bg-slate-50/60">
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-700">{fmtDateTime(r.run_at)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-700">{SYNC_FEEDS[r.feed]?.label ?? r.feed}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-500">{SYNC_ORIGIN_LABEL[r.origine]}</td>
-                    <td className="px-4 py-3 whitespace-nowrap text-slate-500">{fmtPeriod(r.period_from, r.period_to)}</td>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${stTone.chip}`}>
-                        <span className={`w-1.5 h-1.5 rounded-full ${stTone.dot}`} />
-                        {SYNC_STATUS_LABEL[r.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums text-slate-700">{r.items_downloaded}</td>
-                    {showErrors && (
-                      <td className="px-4 py-3 max-w-[320px]">
-                        {r.error_message ? (
-                          <Tooltip content={r.error_message}>
-                            <span className="inline-flex items-center gap-1 text-xs text-red-700 truncate max-w-[300px]">
-                              <AlertCircle size={13} className="shrink-0" />
-                              <span className="truncate">{r.error_message}</span>
-                            </span>
-                          </Tooltip>
-                        ) : <span className="text-slate-300">—</span>}
+                  <Fragment key={r.id}>
+                    <tr
+                      onClick={() => canExpand && toggleExpand(r)}
+                      className={`border-b border-slate-100 ${canExpand ? 'cursor-pointer hover:bg-slate-50/60' : ''} ${isOpen ? 'bg-slate-50/60' : ''}`}
+                    >
+                      <td className="px-2 py-3 text-slate-400">
+                        {canExpand
+                          ? (isOpen ? <ChevronDown size={15} /> : <ChevronRight size={15} />)
+                          : null}
                       </td>
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-700">{fmtDateTime(r.run_at)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-700">{SYNC_FEEDS[r.feed]?.label ?? r.feed}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-500">{SYNC_ORIGIN_LABEL[r.origine]}</td>
+                      <td className="px-4 py-3 whitespace-nowrap text-slate-500">{fmtPeriod(r.period_from, r.period_to)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium border ${stTone.chip}`}>
+                          <span className={`w-1.5 h-1.5 rounded-full ${stTone.dot}`} />
+                          {SYNC_STATUS_LABEL[r.status]}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right tabular-nums text-slate-700">{r.items_downloaded}</td>
+                      {showErrors && (
+                        <td className="px-4 py-3 max-w-[320px]">
+                          {r.error_message ? (
+                            <Tooltip content={r.error_message}>
+                              <span className="inline-flex items-center gap-1 text-xs text-red-700 truncate max-w-[300px]">
+                                <AlertCircle size={13} className="shrink-0" />
+                                <span className="truncate">{r.error_message}</span>
+                              </span>
+                            </Tooltip>
+                          ) : <span className="text-slate-300">—</span>}
+                        </td>
+                      )}
+                    </tr>
+                    {isOpen && (
+                      <tr className="bg-slate-50/40">
+                        <td colSpan={colSpan} className="p-0 border-b border-slate-100">
+                          <RunDetails
+                            feed={r.feed}
+                            details={detailsByRun[r.id]}
+                            movements={movementsByRun[r.id]}
+                            movementsTotal={r.items_downloaded}
+                            bankNames={bankNames}
+                            loading={detailLoading === r.id}
+                            showErrors={showErrors}
+                          />
+                        </td>
+                      </tr>
                     )}
-                  </tr>
+                  </Fragment>
                 )
               })}
             </tbody>
@@ -220,6 +452,7 @@ export default function ReportSincronizzazioni() {
       <p className="text-xs text-slate-400">
         Una riga per esecuzione. Una run riuscita con 0 documenti significa che il sistema ha controllato ma non c’erano dati nuovi: è normale, non un errore.
       </p>
+      </div>
     </div>
   )
 }

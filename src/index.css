@@ -21,3 +21,49 @@ body {
   color: var(--color-text);
   margin: 0;
 }
+
+/* Mobile: iOS Safari zooma automaticamente la pagina quando un campo con
+   font < 16px riceve il focus. Quasi tutti i form dell'app usano text-sm
+   (14px): sotto il breakpoint md forziamo 16px su input/select/textarea
+   così lo zoom non scatta mai. Su desktop nulla cambia. */
+@media (max-width: 767px) {
+  input, select, textarea {
+    font-size: 16px;
+  }
+}
+
+/* Safe area iOS: padding sotto la bottom nav mobile per non finire sotto la
+   home indicator. La classe era già usata in Layout.tsx ma mai definita;
+   richiede viewport-fit=cover nel meta viewport (index.html). */
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* Indicatore di scroll orizzontale per le tabelle larghe (versione solo-CSS,
+   complementare al componente ui/TableScroll usato dove serve anche il
+   max-height): ombre sfumate ai bordi del contenitore overflow-x-auto,
+   visibili solo quando c'e' contenuto nascosto in quella direzione
+   (background-attachment: local/scroll — nessun JS). */
+.scroll-shadow-x {
+  background-image:
+    linear-gradient(to right, #fff, #fff),
+    linear-gradient(to left, #fff, #fff),
+    linear-gradient(to right, rgba(15, 23, 42, 0.14), rgba(255, 255, 255, 0)),
+    linear-gradient(to left, rgba(15, 23, 42, 0.14), rgba(255, 255, 255, 0));
+  background-position: left center, right center, left center, right center;
+  background-repeat: no-repeat;
+  background-size: 24px 100%, 24px 100%, 12px 100%, 12px 100%;
+  background-attachment: local, local, scroll, scroll;
+}
+
+/* Campi importo (euro): niente frecce su/giù e niente cambio con la rotella —
+   l'importo si modifica solo scrivendo. */
+input.no-spin::-webkit-outer-spin-button,
+input.no-spin::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input.no-spin {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

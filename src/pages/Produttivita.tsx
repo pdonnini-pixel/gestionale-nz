@@ -5,12 +5,24 @@ import {
 } from 'recharts';
 import { TrendingUp, Users, Euro, Target, AlertCircle, CheckCircle, Loader2, Award } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE } from '../components/ChartTheme';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { supabase } from '../lib/supabase';
+import { fetchAllPaged } from '../lib/fetchAllPaged';
+import { buildOutletCostCenterSet, isOutletCostCenter } from '../lib/outletCostCenters';
 import { useAuth } from '../hooks/useAuth';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { usePeriod } from '../hooks/usePeriod';
-import PageHelp from '../components/PageHelp';
+import { useAvailableYears } from '../hooks/useAvailableYears';
 import PageHeader from '../components/PageHeader';
+// Organico granitico: le teste vengono dai cedolini, non dall'anagrafica.
+import {
+  headcountCountByOutlet, lastGranitedPeriod, periodLabel,
+  type HeadcountCost, type HeadcountEmployee, type HeadcountAllocation,
+} from '../lib/headcount';
+import {
+  getOutletLifecycle, isOutletOpenInPeriod, outletLifecycleCaption, safeRatio, safePct,
+  OUTLET_LIFECYCLE_STYLE, type OutletLifecycleFields,
+} from '../lib/outletLifecycle';
 
 function fmt(n: number | null | undefined, dec = 0): string {
   // null/undefined/NaN → 'N/D' cosi' non compaiono 'NaN €' nella UI e la
@@ -20,23 +32,68 @@ function fmt(n: number | null | undefined, dec = 0): string {
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
+// Incidenza personale: null (ricavi 0) -> 'N/D' e badge neutro, mai 0%.
+function incidenzaBadge(v: number | null): string {
+  if (v == null) return 'bg-slate-100 text-slate-500';
+  if (v < 20) return 'bg-green-100 text-green-800';
+  if (v < 35) return 'bg-amber-100 text-amber-800';
+  return 'bg-red-100 text-red-800';
+}
+function fmtIncidenza(v: number | null): string {
+  return v == null ? 'N/D' : `${v.toFixed(1)}%`;
+}
+
+// Outlet «in apertura» per questa pagina: oggi non ha ancora aperto, oppure
+// nell'anno selezionato non era ancora aperto. I suoi costi restano visibili,
+// ma ROI/incidenza sono N/D e non entra in classifica, medie e raccomandazioni.
+function isInApertura(o: OutletLifecycleFields | undefined, year: number): boolean {
+  if (!o) return false;
+  const oggi = getOutletLifecycle(o);
+  return oggi === 'programmato' || (oggi !== 'chiuso' && !isOutletOpenInPeriod(o, year));
+}
+function aperturaCaption(o: OutletLifecycleFields, year: number): string {
+  return outletLifecycleCaption(o, getOutletLifecycle(o) === 'programmato' ? new Date() : new Date(year, 0, 1));
+}
+function AperturaBadge({ caption }: { caption: string | null }) {
+  if (!caption) return null;
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>{caption}</span>
+  );
+}
+
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const MEDAL = ['', '\u{1F947}', '\u{1F948}', '\u{1F949}'];
 
 export default function Produttivita() {
+  const isMobile = useIsMobile();
   const { profile } = useAuth();
   const labels = useCompanyLabels();
   // Anno sincronizzato col PeriodContext globale (selettore header).
-  const { year: globalYear } = usePeriod();
+  const { year: globalYear, setYear: setGlobalYear } = usePeriod();
+  const availableYears = useAvailableYears();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [year, setYear] = useState(globalYear || 2026);
-  useEffect(() => { if (globalYear) setYear(globalYear); }, [globalYear]);
+  // Anno dal selettore periodo globale (persiste in URL/localStorage — M54)
+  const year = globalYear;
+  const setYear = setGlobalYear;
   // TODO: tighten type — Supabase data
   const [rawEntries, setRawEntries] = useState<any[]>([]);
-  const [employees, setEmployees] = useState<any[]>([]);
-  const [allocations, setAllocations] = useState<any[]>([]);
-  const [outletMap, setOutletMap] = useState<Record<string, string>>({});
+  const [employees, setEmployees] = useState<HeadcountEmployee[]>([]);
+  const [allocations, setAllocations] = useState<HeadcountAllocation[]>([]);
+  const [payrollCosts, setPayrollCosts] = useState<HeadcountCost[]>([]);
+  // Piano dei conti: classificazione da DB (is_revenue / macro_group), MAI per
+  // prefisso di account_code. Il gruppo '63' è «Per servizi», non il personale.
+  const [revenueCodes, setRevenueCodes] = useState<Set<string>>(new Set());
+  const [costCodes, setCostCodes] = useState<Set<string>>(new Set());
+  const [personaleCodes, setPersonaleCodes] = useState<Set<string>>(new Set());
+  // Insieme dei cost_center che sono outlet reali (code+name), per escludere gli
+  // aggregati virtuali (costi non divisi, rettifiche, "all") da classifiche e medie.
+  const [outletSet, setOutletSet] = useState<Set<string>>(new Set());
+  // cost_center del budget -> nome outlet usato dalle allocazioni del personale.
+  const [outletNameByCostCenter, setOutletNameByCostCenter] = useState<Record<string, string>>({});
+  // Date di apertura/chiusura per cost_center (stesse chiavi del ponte sopra),
+  // per riconoscere gli outlet «in apertura» (src/lib/outletLifecycle.ts).
+  const [outletAnagByCostCenter, setOutletAnagByCostCenter] = useState<Record<string, OutletLifecycleFields>>({});
   const [simulazioneAttiva, setSimulazioneAttiva] = useState(false);
   const [moved, setMoved] = useState<{ from: string | null; to: string | null; count: number }>({ from: null, to: null, count: 1 });
 
@@ -48,57 +105,108 @@ export default function Produttivita() {
       try {
         const companyId = profile?.company_id;
 
-        // Fetch budget entries (with month for trend)
-        let budgetQuery = supabase
-          .from('budget_entries')
-          .select('cost_center, account_code, budget_amount, month')
-          .eq('year', year)
-          .range(0, 9999); // override default Supabase limit 1000
-        if (companyId) budgetQuery = budgetQuery.eq('company_id', companyId);
+        // Fetch budget entries (with month for trend). Paginato: .range(0,9999)
+        // NON aggira il cap PostgREST di 1000 righe -> oltre 1000 righe i dati
+        // venivano troncati senza errore (totali/margini sbagliati). Ora blocchi da 1000.
+        const budgetData = await fetchAllPaged(
+          (from, to) => {
+            let q = supabase
+              .from('budget_entries')
+              .select('id, cost_center, account_code, budget_amount, month')
+              .eq('year', year)
+              .order('id', { ascending: true });
+            if (companyId) q = q.eq('company_id', companyId);
+            return q.range(from, to);
+          },
+          'budget_entries',
+        );
 
-        // Fetch employees (outlet name risolto via outletMap: lo schema reale
-        // post-PR #150 non ha piu' outlet_name/cost_center, solo outlet_id).
+        // Anagrafica: serve solo per riconoscere gli amministratori e per
+        // deduplicare le persone. Il CONTEGGIO viene dai cedolini (vedi sotto).
         let empQuery = supabase
           .from('employees')
-          .select('id, outlet_id');
+          .select('id, role_description, codice_fiscale, fiscal_code, nome, cognome, first_name, last_name');
         if (companyId) empQuery = empQuery.eq('company_id', companyId);
 
-        // Fetch employee_outlet_allocations for per-outlet headcount.
-        // PR #150: outlet_code = NOME outlet, allocation_pct = percentuale.
+        // Allocazioni: dicono a quale outlet appartiene la persona.
+        // PR #150: outlet_code = NOME outlet.
         let allocQuery = supabase
           .from('employee_outlet_allocations')
           .select('employee_id, outlet_code, allocation_pct');
         if (companyId) allocQuery = allocQuery.eq('company_id', companyId);
 
-        // Mappa outlet_id -> nome per il fallback employees.
+        // Cedolini: sono loro a fare il numero di dipendenti del mese.
+        let costsQuery = supabase
+          .from('employee_costs')
+          .select('employee_id, year, month, netto, outlet_code')
+          .not('netto', 'is', null);
+        if (companyId) costsQuery = costsQuery.eq('company_id', companyId);
+
+        // Piano dei conti per la classificazione (niente prefissi).
+        let coaQuery = supabase
+          .from('chart_of_accounts')
+          .select('code, is_revenue, macro_group')
+          .eq('is_active', true);
+        if (companyId) coaQuery = coaQuery.eq('company_id', companyId);
+
+        // Outlet: code+name per riconoscere i cost_center reali, cost_center_key
+        // per legare il centro di costo del budget al nome usato dalle allocazioni.
         let outletsQuery = supabase
           .from('outlets')
-          .select('id, name');
+          .select('id, code, name, cost_center_key, opening_date, closing_date, is_active');
         if (companyId) outletsQuery = outletsQuery.eq('company_id', companyId);
 
-        const [budgetRes, empRes, allocRes, outletsRes] = await Promise.all([budgetQuery, empQuery, allocQuery, outletsQuery]);
+        const [empRes, allocRes, outletsRes, costsRes, coaRes] = await Promise.all([
+          empQuery, allocQuery, outletsQuery, costsQuery, coaQuery,
+        ]);
 
-        if (budgetRes.error) throw budgetRes.error;
         // Sprint 2 hotfix (29/05/2026 sera): rollback override budget_confronto.
         // Stesso bug di MarginiOutlet (override /12 esplodeva). Per ora budget_entries
         // come prima dello Sprint 2; il fix corretto richiede aggregato post-reduce.
-        setRawEntries(budgetRes.data || []);
+        setRawEntries(budgetData);
 
         // Employees may not exist as a table - graceful fallback
         if (!empRes.error && empRes.data) {
-          setEmployees(empRes.data);
+          setEmployees(empRes.data as unknown as HeadcountEmployee[]);
         }
 
         // Allocations may not exist
         if (!allocRes.error && allocRes.data) {
-          setAllocations(allocRes.data);
+          setAllocations(allocRes.data as unknown as HeadcountAllocation[]);
         }
 
-        // Outlet id -> name map (per fallback employees)
+        if (!costsRes.error && costsRes.data) {
+          setPayrollCosts(costsRes.data as unknown as HeadcountCost[]);
+        }
+
+        if (!coaRes.error && coaRes.data) {
+          const rows = coaRes.data as unknown as { code: string; is_revenue: boolean | null; macro_group: string | null }[];
+          setRevenueCodes(new Set(rows.filter(r => r.is_revenue === true).map(r => r.code)));
+          setCostCodes(new Set(rows.filter(r => r.is_revenue !== true).map(r => r.code)));
+          setPersonaleCodes(new Set(rows.filter(r => r.is_revenue !== true && r.macro_group === 'personale').map(r => r.code)));
+        }
+
+        // Set dei cost_center che sono outlet reali + ponte cost_center -> nome outlet
         if (!outletsRes.error && outletsRes.data) {
-          const map: Record<string, string> = {};
-          outletsRes.data.forEach((o: any) => { if (o.id) map[o.id] = o.name; });
-          setOutletMap(map);
+          const rows = outletsRes.data as unknown as { code?: string | null; name?: string | null; cost_center_key?: string | null; opening_date?: string | null; closing_date?: string | null; is_active?: boolean | null }[];
+          setOutletSet(buildOutletCostCenterSet(rows as { code?: string; name?: string }[]));
+          // budget_entries.cost_center è 'valdichiana' o 'sede_magazzino', le
+          // allocazioni usano il NOME ('VALDICHIANA', 'SEDE / MAGAZZINO'): senza
+          // questo ponte il conteggio dipendenti non trovava mai l'outlet e la
+          // pagina mostrava N/D ovunque.
+          const bridge: Record<string, string> = {};
+          const anag: Record<string, OutletLifecycleFields> = {};
+          rows.forEach(o => {
+            const name = (o.name || '').trim();
+            if (!name) return;
+            const fields: OutletLifecycleFields = { opening_date: o.opening_date ?? null, closing_date: o.closing_date ?? null, is_active: o.is_active ?? true };
+            [o.cost_center_key, o.code, o.name].forEach(k => {
+              const key = (k || '').trim().toLowerCase();
+              if (key) { bridge[key] = name; anag[key] = fields; }
+            });
+          });
+          setOutletNameByCostCenter(bridge);
+          setOutletAnagByCostCenter(anag);
         }
       } catch (err: unknown) {
         console.error('[Produttivita] fetch error:', err);
@@ -110,50 +218,53 @@ export default function Produttivita() {
     fetchData();
   }, [year, profile?.company_id]);
 
-  // Compute employee count per outlet from allocations (FTE-weighted) or employees table
-  const empCountByOutlet = useMemo<Record<string, number>>(() => {
-    const counts: Record<string, number> = {};
+  // ORGANICO GRANITICO: il numero di dipendenti di un outlet è chi ha il
+  // cedolino dell'ultimo mese caricato, non quante allocazioni esistono in
+  // anagrafica. Prima si contavano le allocazioni pesate per percentuale, che su
+  // Palmanova dava 7 dove i cedolini di marzo 2026 ne dicevano 4.
+  const granitedPeriod = useMemo(
+    () => lastGranitedPeriod(payrollCosts, year) || lastGranitedPeriod(payrollCosts),
+    [payrollCosts, year],
+  );
+  const headcountLabel = periodLabel(granitedPeriod);
+  const empCountByOutlet = useMemo<Record<string, number>>(
+    () => headcountCountByOutlet(payrollCosts, employees, allocations, granitedPeriod),
+    [payrollCosts, employees, allocations, granitedPeriod],
+  );
 
-    // Prefer allocations (FTE-weighted)
-    if (allocations.length > 0) {
-      allocations.forEach(a => {
-        const outlet = a.outlet_code || 'Sconosciuto';
-        const pct = parseFloat(a.allocation_pct) || 100;
-        counts[outlet] = (counts[outlet] || 0) + (pct / 100);
-      });
-    } else if (employees.length > 0) {
-      // Fallback to employee table (outlet name via outletMap)
-      employees.forEach(emp => {
-        const outlet = outletMap[emp.outlet_id] || 'Sconosciuto';
-        counts[outlet] = (counts[outlet] || 0) + 1;
-      });
-    }
-    // If no employee data at all, returns empty - will use fallback of 4
-
-    return counts;
-  }, [allocations, employees, outletMap]);
+  // Righe dei soli outlet REALI: esclude i cost_center virtuali (costi non divisi,
+  // rettifiche, sede/magazzino, "all") da classifiche, medie e raccomandazioni.
+  // Fail-safe: set vuoto (anagrafica non caricata) -> nessun filtro (mostra tutto).
+  const outletEntries = useMemo(() => {
+    if (outletSet.size === 0) return rawEntries;
+    return rawEntries.filter(r => isOutletCostCenter(r.cost_center, outletSet));
+  }, [rawEntries, outletSet]);
 
   // Compute per-outlet productivity metrics from budget_entries
   interface OutletAggregate { ricavi: number; costo_personale: number; costi_totali: number }
-  interface OutletBaseRow { nome: string; ricavi: number; costo_personale: number; costi_totali: number; dipendenti: number | null; colore: string }
+  interface OutletBaseRow { nome: string; ricavi: number; costo_personale: number; costi_totali: number; dipendenti: number | null; colore: string; inApertura: boolean; aperturaCaption: string | null }
   const outletBaseData = useMemo<OutletBaseRow[]>(() => {
-    if (!rawEntries.length) return [];
+    if (!outletEntries.length) return [];
 
     const byOutlet: Record<string, OutletAggregate> = {};
-    rawEntries.forEach(row => {
+    outletEntries.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto';
       if (!byOutlet[outlet]) byOutlet[outlet] = { ricavi: 0, costo_personale: 0, costi_totali: 0 };
 
       const code = (row.account_code || '').toString();
       const amount = parseFloat(row.budget_amount) || 0;
 
-      if (code.startsWith('5')) {
+      // Classificazione dal piano dei conti (chart_of_accounts), mai per
+      // prefisso: il gruppo 63 è «Per servizi», il personale è il macro_group
+      // 'personale' (conti 67xx). Sommare i 63 come personale sottostimava il
+      // costo di oltre un milione di euro sul budget 2026 di NZ.
+      if (revenueCodes.has(code)) {
         byOutlet[outlet].ricavi += amount;
       }
-      if (code.startsWith('63')) {
+      if (personaleCodes.has(code)) {
         byOutlet[outlet].costo_personale += amount;
       }
-      if (code.startsWith('6') || code.startsWith('7')) {
+      if (costCodes.has(code)) {
         byOutlet[outlet].costi_totali += amount;
       }
     });
@@ -161,26 +272,32 @@ export default function Produttivita() {
     const colors = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444'];
 
     return Object.entries(byOutlet)
-      .map(([nome, vals], idx) => ({
-        nome,
-        ricavi: vals.ricavi,
-        costo_personale: vals.costo_personale,
-        costi_totali: vals.costi_totali,
-        dipendenti: empCountByOutlet[nome] || null,
-        colore: colors[idx % colors.length],
-      }))
+      .map(([nome, vals], idx) => {
+        const anag = outletAnagByCostCenter[nome.trim().toLowerCase()];
+        const inApertura = isInApertura(anag, year);
+        return {
+          nome,
+          ricavi: vals.ricavi,
+          costo_personale: vals.costo_personale,
+          costi_totali: vals.costi_totali,
+          dipendenti: empCountByOutlet[outletNameByCostCenter[nome.trim().toLowerCase()] || nome] || null,
+          colore: colors[idx % colors.length],
+          inApertura,
+          aperturaCaption: inApertura && anag ? aperturaCaption(anag, year) : null,
+        };
+      })
       .sort((a, b) => b.ricavi - a.ricavi);
-  }, [rawEntries, empCountByOutlet]);
+  }, [outletEntries, empCountByOutlet, outletNameByCostCenter, outletAnagByCostCenter, year, revenueCodes, costCodes, personaleCodes]);
 
   // Monthly trend data for fatturato/dipendente per outlet
   type MonthRow = { mese: string } & Record<string, number | string>
   const monthlyTrendData = useMemo<MonthRow[]>(() => {
-    if (!rawEntries.length) return [];
+    if (!outletEntries.length) return [];
 
     // Group revenue by outlet and month
     const byOutletMonth: Record<string, number> = {};
-    const outletSet = new Set<string>();
-    rawEntries.forEach(row => {
+    const trendOutlets = new Set<string>();
+    outletEntries.forEach(row => {
       const outlet = row.cost_center || 'Sconosciuto';
       const month = parseInt(row.month) || 0;
       if (month < 1 || month > 12) return;
@@ -188,10 +305,10 @@ export default function Produttivita() {
       const code = (row.account_code || '').toString();
       const amount = parseFloat(row.budget_amount) || 0;
 
-      if (code.startsWith('5')) {
+      if (revenueCodes.has(code)) {
         const key = `${outlet}__${month}`;
         byOutletMonth[key] = (byOutletMonth[key] || 0) + amount;
-        outletSet.add(outlet);
+        trendOutlets.add(outlet);
       }
     });
 
@@ -200,10 +317,13 @@ export default function Produttivita() {
     for (let m = 1; m <= 12; m++) {
       const row: MonthRow = { mese: MONTHS[m - 1] };
       let hasData = false;
-      outletSet.forEach(outlet => {
+      trendOutlets.forEach(outlet => {
         const rev = byOutletMonth[`${outlet}__${m}`] || 0;
-        const dip = empCountByOutlet[outlet] || 4; // fallback
-        if (rev > 0) {
+        // Niente fallback inventato: senza dato dipendenti il valore resta assente
+        // (Recharts con connectNulls salta il punto), coerente con la 'N/D' del resto
+        // della pagina. Prima c'era un '|| 4' che inventava fatturato/dipendente.
+        const dip = empCountByOutlet[outletNameByCostCenter[outlet.trim().toLowerCase()] || outlet];
+        if (rev > 0 && dip && dip > 0) {
           row[outlet] = Math.round(rev / dip);
           hasData = true;
         }
@@ -211,7 +331,7 @@ export default function Produttivita() {
       if (hasData) months.push(row);
     }
     return months;
-  }, [rawEntries, empCountByOutlet]);
+  }, [outletEntries, empCountByOutlet, outletNameByCostCenter, revenueCodes]);
 
   // Calcolo metriche per ogni outlet (with simulation support)
   const metriche = useMemo(() => {
@@ -227,11 +347,15 @@ export default function Produttivita() {
       const ricavo_per_ora = ore_annuali != null ? outlet.ricavi / ore_annuali : null;
       const costo_per_ora = ore_annuali != null ? outlet.costo_personale / ore_annuali : null;
       const margine_per_ora = (ricavo_per_ora != null && costo_per_ora != null) ? ricavo_per_ora - costo_per_ora : null;
-      const roi = outlet.costo_personale > 0 ? outlet.ricavi / outlet.costo_personale : 0;
-      const incidenza_personale = outlet.ricavi > 0 ? (outlet.costo_personale / outlet.ricavi) * 100 : 0;
+      // null quando il denominatore è 0 (nessun costo personale / nessun
+      // ricavo): la UI mostra 'N/D', mai uno 0 inventato.
+      const roi = safeRatio(outlet.ricavi, outlet.costo_personale);
+      const incidenza_personale = safePct(outlet.costo_personale, outlet.ricavi);
 
       return {
         nome: outlet.nome,
+        inApertura: outlet.inApertura,
+        aperturaCaption: outlet.aperturaCaption,
         dipendenti: dip,
         ricavi: outlet.ricavi,
         costo_personale: outlet.costo_personale,
@@ -269,7 +393,7 @@ export default function Produttivita() {
         };
         const fr = base[fromIdx];
         fr.margine_per_ora = (fr.ricavo_per_ora ?? 0) - (fr.costo_per_ora ?? 0);
-        fr.roi = fr.costo_personale > 0 ? fr.ricavi / fr.costo_personale : 0;
+        fr.roi = safeRatio(fr.ricavi, fr.costo_personale);
 
         const newToDip = toDipCurrent + moved.count;
         const newToOre = newToDip * 40 * 52;
@@ -284,7 +408,7 @@ export default function Produttivita() {
         };
         const to = base[toIdx];
         to.margine_per_ora = (to.ricavo_per_ora ?? 0) - (to.costo_per_ora ?? 0);
-        to.roi = to.costo_personale > 0 ? to.ricavi / to.costo_personale : 0;
+        to.roi = safeRatio(to.ricavi, to.costo_personale);
       }
     }
 
@@ -295,15 +419,21 @@ export default function Produttivita() {
   // valorizzato (altrimenti null > null = false e il reduce si rompe).
   const kpi = useMemo(() => {
     if (!metriche.length) return null;
-    const valide = metriche.filter(m => m.ricavo_per_ora != null);
+    // Best/worst e medie: solo outlet aperti (quelli in apertura non hanno
+    // ancora una produttività da confrontare).
+    const aperti = metriche.filter(m => !m.inApertura);
+    const valide = aperti.filter(m => m.ricavo_per_ora != null);
     const best = valide.length > 0 ? valide.reduce((a, b) => (a.ricavo_per_ora ?? 0) > (b.ricavo_per_ora ?? 0) ? a : b) : metriche[0];
     const worst = valide.length > 0 ? valide.reduce((a, b) => (a.ricavo_per_ora ?? 0) < (b.ricavo_per_ora ?? 0) ? a : b) : metriche[0];
     // Media calcolata SOLO sulle metriche con dato valido (exclude null)
-    const metricheValide = metriche.filter(m => m.ricavo_per_ora != null);
+    const metricheValide = valide;
     const avg_ricavo_ora = metricheValide.length > 0
       ? metricheValide.reduce((sum, m) => sum + (m.ricavo_per_ora ?? 0), 0) / metricheValide.length
       : null;
-    const avg_roi = metriche.reduce((sum, m) => sum + m.roi, 0) / metriche.length;
+    const roiValidi = aperti.filter(m => m.roi != null);
+    const avg_roi: number | null = roiValidi.length > 0
+      ? roiValidi.reduce((sum, m) => sum + (m.roi ?? 0), 0) / roiValidi.length
+      : null;
     const totRicavi = metriche.reduce((sum, m) => sum + (m.ricavi || 0), 0);
     const totDipendenti = metriche.reduce((sum, m) => sum + (m.dipendenti || 0), 0);
     // null quando non ci sono dipendenti: il template mostra 'N/D' invece
@@ -312,24 +442,27 @@ export default function Produttivita() {
     return { best_produttivita: best, worst_produttivita: worst, avg_ricavo_ora, avg_roi, fatturato_medio_dip, totRicavi, totDipendenti };
   }, [metriche]);
 
-  // Ranked table data: per outlet with rank/medal
+  // Ranked table data: per outlet with rank/medal. Gli outlet in apertura
+  // restano in tabella (in coda) ma senza posizione in classifica.
   const rankedMetriche = useMemo(() => {
-    return metriche
-      .slice()
+    const aperti = metriche
+      .filter(m => !m.inApertura)
       .sort((a, b) => (b.ricavo_per_dip || 0) - (a.ricavo_per_dip || 0))
-      .map((m, idx) => ({ ...m, rank: idx + 1 }));
+      .map((m, idx) => ({ ...m, rank: (idx + 1) as number | null }));
+    const inApertura = metriche.filter(m => m.inApertura).map(m => ({ ...m, rank: null as number | null }));
+    return [...aperti, ...inApertura];
   }, [metriche]);
 
-  // Chart: incidenza personale per outlet
+  // Chart: incidenza personale per outlet (null in coda, senza valore)
   const incidenzaChart = useMemo(() => {
     return metriche
       .slice()
-      .sort((a, b) => a.incidenza_personale - b.incidenza_personale)
+      .sort((a, b) => (a.incidenza_personale ?? Infinity) - (b.incidenza_personale ?? Infinity))
       .map(m => ({
         nome: m.nome,
         Ricavi: Math.round(m.ricavi),
         'Costo Personale': Math.round(m.costo_personale),
-        'Incidenza %': parseFloat(m.incidenza_personale.toFixed(1)),
+        'Incidenza %': m.incidenza_personale == null ? null : parseFloat(m.incidenza_personale.toFixed(1)),
       }));
   }, [metriche]);
 
@@ -356,12 +489,16 @@ export default function Produttivita() {
     const recs = [];
 
     metriche.forEach(m => {
-      const rapporto = m.costo_personale > 0 ? m.ricavi / m.costo_personale : 999;
+      // Niente raccomandazioni per gli outlet in apertura o senza rapporto
+      // calcolabile (roi null): non è un negozio che rende poco, non ha
+      // ancora venduto.
+      if (m.inApertura || m.roi == null) return;
+      const rapporto = m.roi;
       if (rapporto < ottimal_ratio) {
         recs.push({
           outlet: m.nome,
           tipo: 'attenzione',
-          impact: `Incidenza personale ${m.incidenza_personale.toFixed(1)}% - rapporto ricavi/costo personale: ${rapporto.toFixed(2)}x (target: ${ottimal_ratio}x)`
+          impact: `Incidenza personale ${fmtIncidenza(m.incidenza_personale)} - rapporto ricavi/costo personale: ${rapporto.toFixed(2)}x (target: ${ottimal_ratio}x)`
         });
       }
     });
@@ -406,7 +543,6 @@ export default function Produttivita() {
             <p className="text-slate-600 text-lg">Nessun dato budget trovato per l'anno {year}</p>
           </div>
         </div>
-        <PageHelp page="produttivita" />
       </div>
     );
   }
@@ -425,7 +561,7 @@ export default function Produttivita() {
                 onChange={(e) => setYear(parseInt(e.target.value))}
                 className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
-                {[2024, 2025, 2026, 2027].map(y => (
+                {(availableYears.includes(year) ? availableYears : [year, ...availableYears]).map(y => (
                   <option key={y} value={y}>{y}</option>
                 ))}
               </select>
@@ -444,8 +580,15 @@ export default function Produttivita() {
                 </p>
                 <p className="text-blue-200 text-sm mt-2">
                   {kpi.fatturato_medio_dip != null
-                    ? `${fmt(kpi.totRicavi, 0)} € ricavi totali / ${fmt(kpi.totDipendenti, 1)} dipendenti (FTE)`
-                    : 'Nessun dipendente disponibile per il calcolo'}
+                    ? `${fmt(kpi.totRicavi, 0)} € ricavi totali / ${fmt(kpi.totDipendenti, 0)} dipendenti`
+                    : 'Nessun cedolino caricato: il numero di dipendenti non è disponibile'}
+                </p>
+                {/* Il dato dipendenti è granitico: viene dai cedolini di un mese
+                    preciso, e la card lo dichiara invece di lasciarlo implicito. */}
+                <p className="text-blue-200/80 text-xs mt-1">
+                  {granitedPeriod
+                    ? `Dipendenti in forza ai cedolini di ${headcountLabel}`
+                    : 'Nessun cedolino caricato: carica i netti dalla pagina Dipendenti'}
                 </p>
               </div>
               <div className="bg-white/20 rounded-xl p-4">
@@ -502,7 +645,7 @@ export default function Produttivita() {
             <Award className="w-5 h-5 text-amber-500" />
             Classifica Produttività per Outlet
           </h2>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
@@ -517,29 +660,28 @@ export default function Produttivita() {
               </thead>
               <tbody>
                 {rankedMetriche.map((m) => {
-                  const medal = m.rank <= 3 ? MEDAL[m.rank] : '';
+                  const medal = m.rank != null && m.rank <= 3 ? MEDAL[m.rank] : '';
                   const rowBg = m.rank === 1 ? 'bg-amber-50' : m.rank === 2 ? 'bg-slate-50' : m.rank === 3 ? 'bg-orange-50' : '';
                   return (
                     <tr key={m.nome} className={`border-b border-slate-100 ${rowBg}`}>
                       <td className="px-4 py-3 text-center text-lg">
-                        {medal || <span className="text-slate-400 text-sm">{m.rank}</span>}
+                        {medal || <span className="text-slate-400 text-sm">{m.rank ?? '—'}</span>}
                       </td>
-                      <td className="px-4 py-3 text-slate-900 font-medium">{m.nome}</td>
+                      <td className="px-4 py-3 text-slate-900 font-medium">
+                        <span className="flex items-center gap-2">{m.nome}<AperturaBadge caption={m.aperturaCaption} /></span>
+                      </td>
                       <td className="px-4 py-3 text-right text-slate-700">{fmt(m.ricavi, 0)} &euro;</td>
                       <td className="px-4 py-3 text-right text-slate-700">
-                        {fmt(m.dipendenti, m.has_employee_data ? 1 : 0)}
-                        {!m.has_employee_data && <span className="text-xs text-slate-400 ml-1">(stima)</span>}
+                        {/* Niente piu' '(stima)': quando il dato manca si mostra N/D,
+                            coerente con la colonna Ricavo/dipendente (audit A39) */}
+                        {m.has_employee_data ? fmt(m.dipendenti, 1) : <span className="text-slate-400 text-xs">N/D</span>}
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-900">
                         {m.ricavo_per_dip != null ? `${fmt(m.ricavo_per_dip, 0)} €` : <span className="text-slate-400 text-xs">N/D</span>}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
-                          m.incidenza_personale < 20 ? 'bg-green-100 text-green-800' :
-                          m.incidenza_personale < 35 ? 'bg-amber-100 text-amber-800' :
-                          'bg-red-100 text-red-800'
-                        }`}>
-                          {m.incidenza_personale.toFixed(1)}%
+                        <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${incidenzaBadge(m.incidenza_personale)}`}>
+                          {fmtIncidenza(m.incidenza_personale)}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-900">{fmt(m.roi, 2)}</td>
@@ -555,13 +697,17 @@ export default function Produttivita() {
         {monthlyTrendData.length > 0 && (
           <div className="rounded-2xl p-6 shadow-lg mb-8" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
             <h2 className="text-lg font-semibold text-slate-900 mb-4">Trend Mensile Fatturato/Dipendente</h2>
-            <ResponsiveContainer width="100%" height={350}>
+            {/* Su mobile la legenda (fino a 7 serie) va su pi\u00f9 righe: il
+                contenitore cresce cos\u00ec la legenda non mangia l'area del grafico */}
+            <ResponsiveContainer width="100%" height={isMobile ? 430 : 350}>
               <LineChart data={monthlyTrendData}>
                 <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="mese" {...AXIS_STYLE} />
-                <YAxis {...AXIS_STYLE} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
+                <XAxis dataKey="mese" {...AXIS_STYLE}
+                  interval={isMobile ? 1 : undefined}
+                  tick={{ ...AXIS_STYLE.tick, fontSize: isMobile ? 10 : AXIS_STYLE.tick.fontSize }} />
+                <YAxis {...AXIS_STYLE} width={isMobile ? 34 : 60} tickFormatter={(v) => `${Math.round(v / 1000)}k`} />
                 <Tooltip content={<GlassTooltip formatter={(value) => fmt(value, 0) + ' \u20ac'} />} />
-                <Legend />
+                <Legend wrapperStyle={isMobile ? { fontSize: 11 } : undefined} />
                 {outletNamesForTrend.map((name, idx) => (
                   <Line
                     key={name}
@@ -637,7 +783,7 @@ export default function Produttivita() {
         {/* Full Metrics Table */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
           <h2 className="text-lg font-semibold text-slate-900 mb-4">Confronto Metriche Completo</h2>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
@@ -654,24 +800,24 @@ export default function Produttivita() {
               <tbody>
                 {metriche
                   .slice()
-                  .sort((a, b) => (b.ricavo_per_ora ?? 0) - (a.ricavo_per_ora ?? 0))
-                  .map((m, idx) => {
-                    const isTop = idx === 0;
-                    const isBottom = idx === metriche.length - 1;
+                  // Outlet in apertura in coda, senza evidenza «peggiore»
+                  .sort((a, b) => Number(a.inApertura) - Number(b.inApertura) || (b.ricavo_per_ora ?? 0) - (a.ricavo_per_ora ?? 0))
+                  .map((m, idx, arr) => {
+                    const nAperti = arr.filter(r => !r.inApertura).length;
+                    const isTop = idx === 0 && !m.inApertura;
+                    const isBottom = !m.inApertura && nAperti > 1 && idx === nAperti - 1;
                     const rowClass = isTop ? 'bg-green-50' : isBottom ? 'bg-red-50' : '';
 
                     return (
                       <tr key={m.nome} className={`border-b border-slate-200 ${rowClass}`}>
-                        <td className="px-4 py-3 text-slate-900 font-medium">{m.nome}</td>
+                        <td className="px-4 py-3 text-slate-900 font-medium">
+                          <span className="flex items-center gap-2">{m.nome}<AperturaBadge caption={m.aperturaCaption} /></span>
+                        </td>
                         <td className="px-4 py-3 text-right text-slate-700">{fmt(m.ricavi, 0)} &euro;</td>
                         <td className="px-4 py-3 text-right text-slate-700">{fmt(m.costo_personale, 0)} &euro;</td>
                         <td className="px-4 py-3 text-right">
-                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${
-                            m.incidenza_personale < 20 ? 'bg-green-100 text-green-800' :
-                            m.incidenza_personale < 35 ? 'bg-amber-100 text-amber-800' :
-                            'bg-red-100 text-red-800'
-                          }`}>
-                            {m.incidenza_personale.toFixed(1)}%
+                          <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${incidenzaBadge(m.incidenza_personale)}`}>
+                            {fmtIncidenza(m.incidenza_personale)}
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-slate-900">
@@ -706,7 +852,7 @@ export default function Produttivita() {
 
           {simulazioneAttiva && (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-2">Da {labels.pointOfSale}</label>
                   <select
@@ -788,7 +934,6 @@ export default function Produttivita() {
           </div>
         </div>
       </div>
-      <PageHelp page="produttivita" />
     </div>
   );
 }

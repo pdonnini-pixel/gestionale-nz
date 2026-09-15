@@ -1,0 +1,2 @@
+-- Rollback 205: ripristinare daily_report_is_complete e daily_cash_report_tick dalla 204,
+-- poi: DROP FUNCTION IF EXISTS public.daily_report_outlets(uuid);

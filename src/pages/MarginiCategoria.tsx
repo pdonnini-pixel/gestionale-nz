@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, type ComponentProps } from 'react'
 import ExportMenu from '../components/ExportMenu'
 import PageHeader from '../components/PageHeader'
 import {
@@ -16,9 +16,12 @@ import {
   ChartGradients, ModernLegend, ModernPieLabel, fmtK, fmtEuro, BAR_RADIUS,
 } from '../components/ChartTheme'
 import { supabase } from '../lib/supabase'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { useAuth } from '../hooks/useAuth'
+import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
-import TextTooltip from '../components/Tooltip'
+import StatKpi from '../components/ui/StatKpi'
+import { getOutletLifecycle, monthsOpenInYear, outletLifecycleCaption, safePct, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle'
 
 // ═══ HELPERS ═══
 const fmt = (n: number | null | undefined): string => n == null ? '—' : new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(n)
@@ -37,14 +40,40 @@ export default function MarginiCategoria() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tab, setTab] = useState<'outlet' | 'costi' | 'trend'>('outlet')
-  const [period, setPeriod] = useState<'ytd' | 'last12' | 'custom'>('ytd')
-  const [year, setYear] = useState(new Date().getFullYear())
+  const [period, setPeriod] = useState<'ytd' | 'last12'>('ytd')
+  // Anno dal selettore periodo GLOBALE (?anno= in URL): stessa fonte delle altre
+  // pagine, sopravvive alla navigazione (audit M54 — prima year esisteva ma
+  // senza alcun controllo visibile: si vedeva solo l'anno corrente).
+  const { year, setYear } = usePeriod()
+  // Anni realmente presenti nei dati (niente liste fisse che invecchiano)
+  const [availableYears, setAvailableYears] = useState<number[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    async function loadYears() {
+      try {
+        const rows = await fetchAllPaged<{ year: number | null }>(
+          (from, to) => {
+            let q = supabase.from('budget_entries').select('year').order('year', { ascending: false })
+            if (profile?.company_id) q = q.eq('company_id', profile.company_id)
+            return q.range(from, to)
+          },
+          'budget_entries (anni margini)',
+        )
+        if (cancelled) return
+        const ys = Array.from(new Set(rows.map(r => Number(r.year)).filter(y => Number.isInteger(y) && y > 2000))).sort((a, b) => b - a)
+        setAvailableYears(ys.length ? ys : [new Date().getFullYear()])
+      } catch { if (!cancelled) setAvailableYears([new Date().getFullYear()]) }
+    }
+    void loadYears()
+    return () => { cancelled = true }
+  }, [profile?.company_id])
 
   // Raw data — Supabase data
-  type OutletLite = { id: string; name: string; code?: string | null; rent_monthly?: number | null; staff_budget_monthly?: number | null; condo_marketing_monthly?: number | null; admin_cost_monthly?: number | null; target_margin_pct?: number | null; target_cogs_pct?: number | null; is_active?: boolean | null }
+  type OutletLite = { id: string; name: string; code?: string | null; rent_monthly?: number | null; staff_budget_monthly?: number | null; condo_marketing_monthly?: number | null; admin_cost_monthly?: number | null; target_margin_pct?: number | null; target_cogs_pct?: number | null; is_active?: boolean | null; opening_date?: string | null; closing_date?: string | null }
   type RevenueRow = { outlet_id?: string | null; date?: string | null; gross_revenue?: number | null; net_revenue?: number | null; transactions_count?: number | null }
-  type PayableRow = { outlet_id?: string | null; invoice_date?: string | null; net_amount?: number | null; vat_amount?: number | null; gross_amount?: number | null; cost_category_id?: string | null; status?: string | null }
-  type CashRow = { outlet_id?: string | null; date?: string | null; type?: string | null; amount?: number | null; cost_category_id?: string | null }
+  type PayableRow = { outlet_id?: string | null; invoice_date?: string | null; net_amount?: number | null; vat_amount?: number | null; gross_amount?: number | null; cost_category_id?: string | null; status?: string | null; cash_movement_id?: string | null }
+  type CashRow = { id?: string | null; outlet_id?: string | null; date?: string | null; type?: string | null; amount?: number | null; cost_category_id?: string | null }
   type CostCategoryRow = { id: string; code?: string | null; name?: string | null; macro_group?: string | null; is_fixed?: boolean | null; sort_order?: number | null }
   type BudgetTemplateRow = { outlet_id?: string | null; cost_category_id?: string | null; budget_monthly?: number | null; budget_annual?: number | null; is_fixed?: boolean | null }
   const [outlets, setOutlets] = useState<OutletLite[]>([])
@@ -60,12 +89,10 @@ export default function MarginiCategoria() {
     if (period === 'ytd') {
       return { from: `${year}-01-01`, to: `${year}-12-31` }
     }
-    if (period === 'last12') {
-      const from = new Date(now)
-      from.setMonth(from.getMonth() - 12)
-      return { from: from.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) }
-    }
-    return { from: `${year}-01-01`, to: `${year}-12-31` }
+    // last12: ultimi 12 mesi rolling da oggi
+    const from = new Date(now)
+    from.setMonth(from.getMonth() - 12)
+    return { from: from.toISOString().slice(0, 10), to: now.toISOString().slice(0, 10) }
   }, [period, year])
 
   // ── Fetch all data ──
@@ -73,11 +100,17 @@ export default function MarginiCategoria() {
     setLoading(true)
     setError(null)
     try {
+      // Outlet del solo tenant attivo (come le altre query della pagina, via profile.company_id);
+      // le date di apertura/chiusura servono al ciclo di vita (badge «In apertura», budget pro-rata).
+      let outletsQuery = supabase.from('outlets')
+        .select('id, name, code, rent_monthly, staff_budget_monthly, condo_marketing_monthly, admin_cost_monthly, target_margin_pct, target_cogs_pct, is_active, opening_date, closing_date')
+        .eq('is_active', true)
+      if (profile?.company_id) outletsQuery = outletsQuery.eq('company_id', profile.company_id)
       const [outletRes, revenueRes, costsRes, bankRes, catRes, budgetRes] = await Promise.all([
-        supabase.from('outlets').select('id, name, code, rent_monthly, staff_budget_monthly, condo_marketing_monthly, admin_cost_monthly, target_margin_pct, target_cogs_pct, is_active').eq('is_active', true).order('name'),
+        outletsQuery.order('name'),
         supabase.from('daily_revenue').select('outlet_id, date, gross_revenue, net_revenue, transactions_count').gte('date', dateRange.from).lte('date', dateRange.to),
-        supabase.from('payables').select('outlet_id, invoice_date, net_amount, vat_amount, gross_amount, cost_category_id, status').gte('invoice_date', dateRange.from).lte('invoice_date', dateRange.to),
-        supabase.from('cash_movements').select('outlet_id, date, type, amount, cost_category_id').eq('type', 'uscita').gte('date', dateRange.from).lte('date', dateRange.to),
+        supabase.from('payables').select('outlet_id, invoice_date, net_amount, vat_amount, gross_amount, cost_category_id, status, cash_movement_id').gte('invoice_date', dateRange.from).lte('invoice_date', dateRange.to),
+        supabase.from('cash_movements').select('id, outlet_id, date, type, amount, cost_category_id').eq('type', 'uscita').gte('date', dateRange.from).lte('date', dateRange.to),
         supabase.from('cost_categories').select('id, code, name, macro_group, is_fixed, sort_order').order('sort_order'),
         supabase.from('outlet_cost_template').select('outlet_id, cost_category_id, budget_monthly, budget_annual, is_fixed'),
       ])
@@ -95,7 +128,7 @@ export default function MarginiCategoria() {
     } finally {
       setLoading(false)
     }
-  }, [dateRange])
+  }, [dateRange, profile?.company_id])
 
   useEffect(() => { fetchData() }, [fetchData])
 
@@ -116,10 +149,20 @@ export default function MarginiCategoria() {
     return map
   }, [revenue])
 
+  // Fatture ANNULLATE escluse dai costi: hanno gross_amount positivo ma non sono
+  // un costo reale (gonfiavano i costi e i margini). Le note di credito NON si
+  // escludono: sono gia' registrate con importo negativo e riducono correttamente
+  // il costo. Whitelist di stati "annullato" tollerante alle varianti tra tenant.
+  const CANCELLED_STATUSES = ['annullato', 'cancelled', 'stornato', 'annulled']
+  const activeCosts = useMemo(
+    () => costs.filter(c => !CANCELLED_STATUSES.includes(String(c.status || '').toLowerCase())),
+    [costs],
+  )
+
   // Costs per outlet (from payables)
   const costsByOutlet = useMemo(() => {
     const map: Record<string, CostAgg> = {}
-    costs.forEach(c => {
+    activeCosts.forEach(c => {
       const oid = c.outlet_id || '_company'
       if (!map[oid]) map[oid] = { total: 0, byCategory: {} }
       const amt = Number(c.gross_amount) || 0
@@ -128,12 +171,25 @@ export default function MarginiCategoria() {
       map[oid].byCategory[catId] = (map[oid].byCategory[catId] || 0) + amt
     })
     return map
+  }, [activeCosts])
+
+  // Movimenti banca gia' RICONCILIATI a una fattura fornitore: il loro importo
+  // e' gia' contato nei payables e non va sommato una seconda volta. Il set
+  // usa TUTTI i payables (anche annullati) per non ricontare eventuali storni.
+  const reconciledMovIds = useMemo(() => {
+    const set = new Set<string>()
+    costs.forEach(c => { if (c.cash_movement_id) set.add(String(c.cash_movement_id)) })
+    return set
   }, [costs])
 
-  // Bank costs per outlet (from cash_movements uscite)
+  // Uscite banca NON riconciliate a una fattura (stipendi, F24, commissioni…):
+  // sono la parte di costo che i payables non vedono. Dedup esplicito (audit
+  // A35): prima si prendeva max(payables, banca) e la parte non sovrapposta
+  // delle due fonti spariva dai costi totali.
   const bankCostsByOutlet = useMemo(() => {
     const map: Record<string, CostAgg> = {}
     bankCosts.forEach(m => {
+      if (m.id && reconciledMovIds.has(String(m.id))) return
       const oid = m.outlet_id || '_company'
       if (!map[oid]) map[oid] = { total: 0, byCategory: {} }
       const amt = Number(m.amount) || 0
@@ -142,41 +198,76 @@ export default function MarginiCategoria() {
       map[oid].byCategory[catId] = (map[oid].byCategory[catId] || 0) + amt
     })
     return map
-  }, [bankCosts])
+  }, [bankCosts, reconciledMovIds])
 
-  // Budget annuale per outlet
+  // Budget del PERIODO per outlet (pro-rata sui mesi selezionati).
+  // Prima il budget da template era sempre annuale (12 mesi) mentre i costi sono
+  // YTD (solo i mesi trascorsi): budgetVar risultava fortemente negativo per gran
+  // parte dell'anno anche con costi in linea. Ora entrambi i rami (template e
+  // fallback da anagrafica outlet) sono pro-ratati sugli stessi mesi del periodo.
   const budgetByOutlet = useMemo(() => {
-    const map: Record<string, number> = {}
+    // Mesi coperti dal periodo selezionato: ultimi 12m -> finestra rolling di 12
+    // mesi; YTD -> mesi trascorsi dell'anno.
+    const now = new Date()
+    const periodMonths: Array<{ y: number; m: number }> = period === 'last12'
+      ? Array.from({ length: 12 }, (_, i) => {
+        const d = new Date(now.getFullYear(), now.getMonth() - 11 + i, 1)
+        return { y: d.getFullYear(), m: d.getMonth() + 1 }
+      })
+      : Array.from({ length: now.getMonth() + 1 }, (_, i) => ({ y: year, m: i + 1 }))
+    // Mesi del periodo in cui l'outlet è effettivamente aperto (ciclo di vita):
+    // un outlet «in apertura» non riceve un budget inventato di personale/canone
+    // per i mesi in cui non esiste ancora; un outlet chiuso smette a closing_date.
+    const outletById: Record<string, OutletLite> = {}
+    outlets.forEach(o => { outletById[o.id] = o })
+    const monthsOpenFor = (o: OutletLite | undefined): number => {
+      if (!o) return periodMonths.length
+      const openByYear = new Map<number, number[]>()
+      return periodMonths.filter(({ y, m }) => {
+        if (!openByYear.has(y)) openByYear.set(y, monthsOpenInYear(o, y))
+        return (openByYear.get(y) ?? []).includes(m)
+      }).length
+    }
+    // 1) Budget MENSILE da template, sommato per outlet.
+    const monthlyByOutlet: Record<string, number> = {}
     budgets.forEach(b => {
       const id = b.outlet_id
       if (!id) return
-      if (!map[id]) map[id] = 0
-      map[id] += Number(b.budget_annual) || (Number(b.budget_monthly) || 0) * 12
+      const monthly = (Number(b.budget_annual) || 0) > 0
+        ? (Number(b.budget_annual) || 0) / 12
+        : (Number(b.budget_monthly) || 0)
+      monthlyByOutlet[id] = (monthlyByOutlet[id] || 0) + monthly
     })
-    // Also add from outlets table (rent, staff, etc.)
+    const map: Record<string, number> = {}
+    Object.entries(monthlyByOutlet).forEach(([id, monthly]) => {
+      map[id] = monthly * monthsOpenFor(outletById[id])
+    })
+    // 2) Fallback da anagrafica outlet (rent, staff, ecc.) se manca il template,
+    //    solo per i mesi in cui l'outlet è aperto.
     outlets.forEach(o => {
       const monthlyTotal = (Number(o.rent_monthly) || 0) + (Number(o.staff_budget_monthly) || 0) +
         (Number(o.condo_marketing_monthly) || 0) + (Number(o.admin_cost_monthly) || 0)
-      if (!map[o.id]) map[o.id] = 0
-      // Only add if no template budget exists
-      if (map[o.id] === 0 && monthlyTotal > 0) {
-        const months = period === 'last12' ? 12 : new Date().getMonth() + 1
-        map[o.id] = monthlyTotal * months
+      const openMonths = monthsOpenFor(o)
+      if (!map[o.id] && monthlyTotal > 0 && openMonths > 0) {
+        map[o.id] = monthlyTotal * openMonths
       }
     })
     return map
-  }, [budgets, outlets, period])
+  }, [budgets, outlets, period, year])
 
   // Outlet table data
   const outletData = useMemo(() => {
-    return outlets.map(o => {
+    const rows = outlets.map(o => {
       const rev = revenueByOutlet[o.id] || { gross: 0, net: 0, transactions: 0 }
       const payCosts = costsByOutlet[o.id]?.total || 0
       const bnkCosts = bankCostsByOutlet[o.id]?.total || 0
-      // Use the larger of the two cost sources to avoid double counting
-      const totalCosts = Math.max(payCosts, bnkCosts)
+      // Costi = fatture fornitori + uscite banca NON riconciliate a una fattura
+      // (bankCostsByOutlet e' gia' deduplicato a monte). Prima:
+      // max(payCosts, bnkCosts), che perdeva la parte non sovrapposta.
+      const totalCosts = payCosts + bnkCosts
       const margin = rev.gross - totalCosts
-      const marginPct = rev.gross > 0 ? (margin / rev.gross) * 100 : 0
+      // Senza ricavi (es. outlet in apertura) il margine % è «—», mai 0% o -∞.
+      const marginPct = safePct(margin, rev.gross)
       const budget = budgetByOutlet[o.id] || 0
       const budgetVar = budget > 0 ? ((totalCosts - budget) / budget) * 100 : null
       const targetMargin = Number(o.target_margin_pct) || 60
@@ -185,6 +276,9 @@ export default function MarginiCategoria() {
         id: o.id,
         name: o.name,
         code: o.code,
+        lifecycle: getOutletLifecycle(o),
+        opening_date: o.opening_date ?? null,
+        closing_date: o.closing_date ?? null,
         revenue: rev.gross,
         netRevenue: rev.net,
         transactions: rev.transactions,
@@ -195,10 +289,51 @@ export default function MarginiCategoria() {
         budget,
         budgetVar,
         targetMargin,
-        onTarget: marginPct >= targetMargin,
+        onTarget: marginPct != null && marginPct >= targetMargin,
+        synthetic: false,
         color: (OUTLET_COLORS as Record<string, { main?: string }>)[o.name]?.main || PALETTE[0],
       }
     }).sort((a, b) => b.revenue - a.revenue)
+
+    // Riga sintetica "Non assegnato" (audit A34): ricavi/costi con outlet_id
+    // nullo o di outlet non attivi prima erano ESCLUSI dai totali ma inclusi
+    // nella tab Struttura Costi — la stessa pagina mostrava due numeri diversi.
+    // Qui vengono resi visibili, cosi' KPI, tabella e breakdown quadrano.
+    const activeIds = new Set(outlets.map(o => o.id))
+    const extraKeys = new Set(
+      [...Object.keys(revenueByOutlet), ...Object.keys(costsByOutlet), ...Object.keys(bankCostsByOutlet)]
+        .filter(k => !activeIds.has(k)),
+    )
+    let exGross = 0, exNet = 0, exTx = 0, exCosts = 0
+    extraKeys.forEach(k => {
+      const rev = revenueByOutlet[k]
+      if (rev) { exGross += rev.gross; exNet += rev.net; exTx += rev.transactions }
+      exCosts += (costsByOutlet[k]?.total || 0) + (bankCostsByOutlet[k]?.total || 0)
+    })
+    if (exGross !== 0 || exCosts !== 0) {
+      rows.push({
+        id: '_unassigned',
+        name: 'Non assegnato',
+        code: null,
+        lifecycle: 'attivo' as const,
+        opening_date: null,
+        closing_date: null,
+        revenue: exGross,
+        netRevenue: exNet,
+        transactions: exTx,
+        avgTicket: exTx > 0 ? exGross / exTx : 0,
+        costs: exCosts,
+        margin: exGross - exCosts,
+        marginPct: safePct(exGross - exCosts, exGross),
+        budget: 0,
+        budgetVar: null,
+        targetMargin: 0,
+        onTarget: true,
+        synthetic: true,
+        color: '#94a3b8',
+      })
+    }
+    return rows
   }, [outlets, revenueByOutlet, costsByOutlet, bankCostsByOutlet, budgetByOutlet])
 
   // Totals
@@ -225,9 +360,8 @@ export default function MarginiCategoria() {
     costCategories.forEach(c => { catMap[c.id] = c })
 
     const groups: Record<string, GroupAgg> = {}
-    // Merge payables costs
-    Object.values(costsByOutlet).forEach(outlet => {
-      Object.entries(outlet.byCategory).forEach(([catId, amt]) => {
+    const merge = (byCategory: Record<string, number>) => {
+      Object.entries(byCategory).forEach(([catId, amt]) => {
         const cat = catMap[catId]
         const group = cat?.macro_group || 'altro'
         const name = cat?.name || 'Non categorizzato'
@@ -235,9 +369,13 @@ export default function MarginiCategoria() {
         groups[group].total += amt
         groups[group].items[name] = (groups[group].items[name] || 0) + amt
       })
-    })
+    }
+    // Stesse fonti dei costi totali (fatture + banca non riconciliata): prima
+    // il breakdown usava SOLO i payables e non tornava con il KPI Costi totali.
+    Object.values(costsByOutlet).forEach(o => merge(o.byCategory))
+    Object.values(bankCostsByOutlet).forEach(o => merge(o.byCategory))
     return Object.values(groups).sort((a, b) => b.total - a.total)
-  }, [costsByOutlet, costCategories])
+  }, [costsByOutlet, bankCostsByOutlet, costCategories])
 
   // Monthly trend
   type MonthAgg = { month: string; revenue: number; costs: number }
@@ -249,7 +387,7 @@ export default function MarginiCategoria() {
       if (!map[m]) map[m] = { month: m, revenue: 0, costs: 0 }
       map[m].revenue += Number(r.gross_revenue) || 0
     })
-    costs.forEach(c => {
+    activeCosts.forEach(c => {
       const m = c.invoice_date?.slice(0, 7)
       if (!m) return
       if (!map[m]) map[m] = { month: m, revenue: 0, costs: 0 }
@@ -263,25 +401,16 @@ export default function MarginiCategoria() {
         margin: m.revenue - m.costs,
         marginPct: m.revenue > 0 ? ((m.revenue - m.costs) / m.revenue) * 100 : 0,
       }))
-  }, [revenue, costs])
+  }, [revenue, activeCosts])
 
-  // Best / worst outlet
-  const bestOutlet = outletData.length ? outletData.reduce((a, b) => a.marginPct > b.marginPct ? a : b) : null
-  const worstOutlet = outletData.length ? outletData.reduce((a, b) => a.marginPct < b.marginPct ? a : b) : null
+  // Best / worst outlet — la riga sintetica "Non assegnato" non concorre, e
+  // nemmeno chi non ha ricavi (margine % nullo, es. outlet in apertura): non
+  // deve finire «peggior margine» solo perché non ha ancora aperto.
+  const realOutlets = outletData.filter(o => !o.synthetic && o.marginPct != null)
+  const bestOutlet = realOutlets.length ? realOutlets.reduce((a, b) => (a.marginPct ?? 0) > (b.marginPct ?? 0) ? a : b) : null
+  const worstOutlet = realOutlets.length ? realOutlets.reduce((a, b) => (a.marginPct ?? 0) < (b.marginPct ?? 0) ? a : b) : null
 
   // ── Export CSV ──
-  const handleExport = () => {
-    const header = 'Outlet;Ricavi;Costi;Margine;Margine%;Scontrini;Scontrino Medio;Budget;Var Budget%\n'
-    const rows = outletData.map(o =>
-      `${o.name};${o.revenue};${o.costs};${o.margin};${o.marginPct.toFixed(1)};${o.transactions};${o.avgTicket.toFixed(0)};${o.budget};${o.budgetVar?.toFixed(1) || ''}`
-    ).join('\n')
-    const blob = new Blob([header + rows], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `margini_outlet_${year}.csv`; a.click()
-    URL.revokeObjectURL(url)
-  }
-
   // ═══ RENDER ═══
   if (loading) {
     return (
@@ -312,6 +441,15 @@ export default function MarginiCategoria() {
         subtitle="Ricavi, costi e margini operativi per punto vendita"
         actions={
           <>
+            {period === 'ytd' && (
+              <select value={year} onChange={e => setYear(parseInt(e.target.value))}
+                aria-label="Anno"
+                className="px-2.5 py-1.5 border border-slate-200 rounded-lg text-xs bg-white text-slate-700">
+                {(availableYears.includes(year) ? availableYears : [year, ...availableYears]).map(y => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            )}
             <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1">
               {([
                 { key: 'ytd', label: `YTD ${year}` },
@@ -440,7 +578,7 @@ function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
 
       {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full">
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
@@ -462,6 +600,11 @@ function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full" style={{ background: o.color }} />
                       <span className="text-sm font-medium text-slate-900">{o.name}</span>
+                      {o.lifecycle === 'programmato' && (
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+                          {outletLifecycleCaption(o)}
+                        </span>
+                      )}
                     </div>
                   </td>
                   <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-700">{fmt(o.revenue)} €</td>
@@ -470,10 +613,14 @@ function OutletTab({ outletData, totals }: { outletData: any[]; totals: any }) {
                     {fmt(o.margin)} €
                   </td>
                   <td className="py-3 px-3 text-right">
-                    <span className={`inline-flex items-center gap-1 text-sm font-medium ${o.marginPct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                      {o.marginPct >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
-                      {fmtPct(o.marginPct)}
-                    </span>
+                    {o.marginPct == null ? (
+                      <span className="text-sm text-slate-400" title="Nessun ricavo nel periodo">—</span>
+                    ) : (
+                      <span className={`inline-flex items-center gap-1 text-sm font-medium ${o.marginPct >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                        {o.marginPct >= 0 ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
+                        {fmtPct(o.marginPct)}
+                      </span>
+                    )}
                   </td>
                   <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-600">{fmt(o.transactions)}</td>
                   <td className="py-3 px-3 text-sm text-right tabular-nums text-slate-600">{fmt(o.avgTicket)} €</td>
@@ -673,22 +820,5 @@ function groupLabel(macro: string | null): string {
   return (macro && labels[macro]) || macro || 'Altro'
 }
 
-function Kpi({ icon: Icon, label, value, sub, color }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color: string }) {
-  const colors: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-600', green: 'bg-emerald-50 text-emerald-600',
-    amber: 'bg-amber-50 text-amber-600', red: 'bg-red-50 text-red-600',
-    indigo: 'bg-indigo-50 text-indigo-600', purple: 'bg-purple-50 text-purple-600',
-  }
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg ${colors[color] || colors.indigo}`}><Icon size={18} /></div>
-        <div className="min-w-0">
-          <TextTooltip content={value === '' || value == null ? '' : String(value)}><div className="text-lg font-bold text-slate-900 truncate">{value}</div></TextTooltip>
-          <div className="text-xs text-slate-500">{label}</div>
-          {sub && <div className="text-xs text-slate-400">{sub}</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
+// Kpi locale sostituita dal componente condiviso ui/StatKpi (audit KpiCard duplicata)
+const Kpi = (props: Omit<ComponentProps<typeof StatKpi>, 'size'>) => <StatKpi {...props} size="sm" />

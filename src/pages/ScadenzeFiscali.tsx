@@ -6,6 +6,9 @@ import {
   ArrowRight, Eye, Landmark
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Modal } from '../components/ui/Modal'
+import TableScroll from '../components/ui/TableScroll'
+import { daysUntilLocal, todayYMD } from '../lib/dateLocal'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
 import PageHeader from '../components/PageHeader'
@@ -16,10 +19,9 @@ function fmt(n: number | null | undefined) {
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—'
-const daysUntil = (d: string | null | undefined) => {
-  if (!d) return null
-  return Math.round((new Date(d).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))
-}
+// Giorni a scadenza normalizzati a mezzanotte locale (una scadenza di oggi resta
+// 0 tutto il giorno, non "scaduta" dal pomeriggio). Vedi lib/dateLocal.
+const daysUntil = (d: string | null | undefined) => daysUntilLocal(d)
 
 /* ───── configs ───── */
 const TYPE_CONFIG = {
@@ -58,6 +60,70 @@ const STATUS_CONFIG = {
 // TODO: tighten type
 type Deadline = Record<string, unknown> & { id?: string }
 
+// Uscita bancaria candidata all'aggancio di una scadenza fiscale.
+type BankMov = {
+  id: string
+  transaction_date: string
+  amount: number
+  description: string | null
+  bank_account_id: string | null
+}
+
+/* ───── Scelta del movimento bancario ─────
+   Un F24 si paga per l'importo esatto: i candidati sono gia' filtrati al
+   centesimo, qui si sceglie solo QUALE addebito e' quello giusto (stessa
+   cifra puo' comparire su piu' conti o piu' date). */
+function ModalAggancioBanca({ dl, movs, bankNames, linking, onPick, onSkip, onClose }: {
+  dl: Deadline
+  movs: BankMov[]
+  bankNames: Record<string, string>
+  linking: boolean
+  onPick: (btId: string) => void
+  onSkip: () => void
+  onClose: () => void
+}) {
+  return (
+    <Modal open onClose={onClose} bare ariaLabel="Aggancia il movimento bancario"
+      panelClassName="bg-white rounded-2xl shadow-xl p-6 max-w-xl w-full mx-4 max-h-[90dvh] overflow-y-auto overscroll-contain space-y-4">
+      <div>
+        <h3 className="text-lg font-semibold text-slate-800">Quale addebito ha pagato questa scadenza?</h3>
+        <p className="text-sm text-slate-500 mt-1">
+          {String(dl.title || '')} · {fmt(Number(dl.amount || 0))} € · scade il {fmtDate(String(dl.due_date || ''))}
+        </p>
+      </div>
+
+      <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+        {movs.map(m => (
+          <button key={m.id} onClick={() => onPick(m.id)} disabled={linking}
+            className="w-full text-left p-3 hover:bg-emerald-50 transition disabled:opacity-50 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-slate-800">
+                {fmtDate(m.transaction_date)}
+                <span className="ml-2 text-slate-500 font-normal">
+                  {(m.bank_account_id && bankNames[m.bank_account_id]) || 'banca non indicata'}
+                </span>
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5 break-words line-clamp-2">{m.description || '—'}</div>
+            </div>
+            <div className="font-semibold text-slate-800 whitespace-nowrap">{fmt(Math.abs(Number(m.amount)))} €</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="flex items-center justify-between gap-2 pt-1">
+        <button onClick={onSkip} disabled={linking}
+          className="text-sm text-slate-500 hover:text-slate-700 underline underline-offset-2 disabled:opacity-50">
+          Nessuno di questi: segna solo come pagata
+        </button>
+        <button onClick={onClose} disabled={linking}
+          className="px-4 py-2 text-sm font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition disabled:opacity-50">
+          Annulla
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { isOpen: boolean; isEdit: boolean; deadline: Deadline | null; onClose: () => void; onSave: (form: Record<string, unknown>) => void; saving: boolean }) {
   const [form, setForm] = useState({
     deadline_type: 'f24', title: '', description: '', amount: '',
@@ -91,11 +157,19 @@ function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { 
     }
   }, [isOpen, isEdit, deadline])
 
+  // Chiusura con Escape (il modal prima non era chiudibile né con Esc né
+  // con tap sull'overlay: su mobile restava solo il bottone Annulla in fondo)
+  useEffect(() => {
+    if (!isOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [isOpen, onClose])
+
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto space-y-4">
+    <Modal open onClose={onClose} bare closeOnBackdrop={false} ariaLabel={isEdit ? 'Modifica Scadenza' : 'Nuova Scadenza Fiscale'} panelClassName="bg-white rounded-2xl shadow-xl p-6 max-w-lg w-full mx-4 max-h-[90dvh] overflow-y-auto overscroll-contain space-y-4">
         <h2 className="text-lg font-bold text-slate-900">
           {isEdit ? 'Modifica Scadenza' : 'Nuova Scadenza Fiscale'}
         </h2>
@@ -202,8 +276,7 @@ function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { 
             {saving ? 'Salvataggio...' : isEdit ? 'Salva modifiche' : 'Crea scadenza'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -224,19 +297,31 @@ export default function ScadenzeFiscali() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingDeadline, setEditingDeadline] = useState<Deadline | null>(null)
   const [saving, setSaving] = useState(false)
+  // Scelta del movimento bancario da agganciare quando si segna pagata una scadenza
+  const [bankPick, setBankPick] = useState<{ dl: Deadline; movs: BankMov[] } | null>(null)
+  const [linking, setLinking] = useState(false)
+  const [bankNames, setBankNames] = useState<Record<string, string>>({})
 
   const loadData = useCallback(async () => {
     if (!COMPANY_ID) return
     setLoading(true)
     try {
-      const { data, error } = await supabase
-        .from('fiscal_deadlines')
-        .select('*')
-        .eq('company_id', COMPANY_ID)
-        .order('due_date', { ascending: true })
+      const [{ data, error }, { data: banks }] = await Promise.all([
+        supabase
+          .from('fiscal_deadlines')
+          .select('*')
+          .eq('company_id', COMPANY_ID)
+          .order('due_date', { ascending: true }),
+        supabase.from('bank_accounts').select('id, bank_name').eq('company_id', COMPANY_ID),
+      ])
+      const bmap: Record<string, string> = {}
+      ;(banks as { id: string; bank_name: string | null }[] | null)?.forEach(b => { bmap[b.id] = b.bank_name || '—' })
+      setBankNames(bmap)
       if (!error) setDeadlines(data || [])
+      else toast({ type: 'error', message: 'Errore nel caricamento delle scadenze fiscali' })
     } catch (e) {
       console.error('Load fiscal deadlines error:', e)
+      toast({ type: 'error', message: 'Errore nel caricamento delle scadenze fiscali' })
     } finally {
       setLoading(false)
     }
@@ -326,29 +411,115 @@ export default function ScadenzeFiscali() {
     }
   }
 
-  // Quick mark as paid
-  // TODO: tighten type
-  const markPaid = async (dl: { id: string; amount?: number | null }) => {
+  // ── Segna pagata, agganciando il movimento bancario ────────────────────────
+  // Fino alla 165 le scadenze fiscali si chiudevano e basta: l'addebito restava
+  // in prima nota come movimento orfano, per sempre. Non sono spiccioli (39.063,80
+  // di sola IVA a luglio). Ora, prima di chiudere, si cerca l'uscita bancaria che
+  // corrisponde e la si aggancia con reconcile_fiscal_deadline.
+  const findBankMovements = async (dl: Deadline): Promise<BankMov[]> => {
+    const amount = Number(dl.amount || 0)
+    if (!COMPANY_ID || !amount) return []
+    const due = String(dl.due_date || todayYMD())
+    const shift = (days: number) => {
+      const d = new Date(due + 'T12:00:00')
+      d.setDate(d.getDate() + days)
+      return d.toISOString().slice(0, 10)
+    }
+    const { data, error } = await supabase
+      .from('bank_transactions')
+      .select('id, transaction_date, amount, description, bank_account_id')
+      .eq('company_id', COMPANY_ID)
+      .eq('is_reconciled', false)
+      .lt('amount', 0)
+      .gte('transaction_date', shift(-30))
+      .lte('transaction_date', shift(60))
+      .order('transaction_date', { ascending: false })
+      .limit(200)
+    if (error) return []
+    // Importo al centesimo: un F24 si paga per l'importo esatto, senza sconti.
+    return ((data || []) as unknown as BankMov[])
+      .filter(m => Math.abs(Math.abs(Number(m.amount)) - amount) <= 0.02)
+  }
+
+  // Chiusura senza aggancio: nessun movimento trovato, o l'utente ha scelto così.
+  const markPaidOnly = async (dl: Deadline, avvisa: boolean) => {
     try {
-      await supabase.from('fiscal_deadlines').update({
+      // supabase-js NON lancia: bisogna controllare `error`, altrimenti in caso di
+      // fallimento (rete/RLS) la lista si ricaricava senza avviso e l'utente
+      // credeva di aver segnato "pagato".
+      const { error } = await supabase.from('fiscal_deadlines').update({
         status: 'paid',
-        paid_date: new Date().toISOString().split('T')[0],
-        amount_paid: dl.amount || 0,
-      }).eq('id', dl.id)
+        paid_date: todayYMD(),
+        amount_paid: Number(dl.amount || 0),
+      }).eq('id', String(dl.id))
+      if (error) throw error
+      toast({
+        type: avvisa ? 'info' : 'success',
+        message: avvisa
+          ? 'Segnata come pagata. Nessun movimento bancario di pari importo trovato: resta da riconciliare.'
+          : 'Scadenza segnata come pagata',
+      })
       await loadData()
     } catch (e) {
       console.error('Mark paid error:', e)
+      toast({ type: 'error', message: 'Impossibile segnare come pagata: ' + (e instanceof Error ? e.message : '') })
     }
   }
 
-  // Delete
-  const handleDelete = async (id: string) => {
-    if (!confirm('Eliminare questa scadenza?')) return
+  const markPaid = async (dl: Deadline) => {
+    const movs = await findBankMovements(dl)
+    if (movs.length === 0) { await markPaidOnly(dl, true); return }
+    setBankPick({ dl, movs })
+  }
+
+  // Aggancio vero e proprio: chiude la scadenza E marca il movimento riconciliato,
+  // in una sola transazione lato DB. Reversibile con undo_reconcile_fiscal_deadline.
+  const linkMovement = async (dl: Deadline, btId: string) => {
+    setLinking(true)
     try {
-      await supabase.from('fiscal_deadlines').delete().eq('id', id)
+      const { data, error } = await supabase.rpc('reconcile_fiscal_deadline' as never, {
+        p_bt_id: btId, p_fiscal_id: String(dl.id),
+      } as never)
+      if (error) throw error
+      const res = data as { ok?: boolean; reason?: string } | null
+      if (!res?.ok) {
+        toast({
+          type: 'error',
+          message: res?.reason === 'stale'
+            ? 'Quel movimento risulta già riconciliato: ricarica e riprova.'
+            : res?.reason === 'already_linked'
+              ? 'Questa scadenza ha già un movimento agganciato.'
+              : 'Aggancio non riuscito.',
+        })
+        return
+      }
+      toast({ type: 'success', message: 'Scadenza pagata e movimento bancario agganciato' })
+      setBankPick(null)
       await loadData()
     } catch (e) {
-      console.error('Delete error:', e)
+      console.error('Link fiscal deadline error:', e)
+      toast({ type: 'error', message: 'Aggancio non riuscito: ' + (e instanceof Error ? e.message : '') })
+    } finally {
+      setLinking(false)
+    }
+  }
+
+  // Annulla (soft-delete): NO DATA LOSS. Invece di cancellare fisicamente la riga
+  // (fiscal_deadlines è tabella viva citata nella regola), si imposta status
+  // 'cancelled' — coerente con ScadenzarioSmart. La scadenza sparisce da "Da
+  // pagare" ma resta consultabile nello storico ("Tutti") come "Annullato".
+  const handleDelete = async (id: string) => {
+    if (!confirm('Annullare questa scadenza? Non verrà cancellata definitivamente: resterà nello storico con stato "Annullato".')) return
+    try {
+      const { error } = await supabase.from('fiscal_deadlines')
+        .update({ status: 'cancelled' })
+        .eq('id', id)
+      if (error) throw error
+      toast({ type: 'success', message: 'Scadenza annullata' })
+      await loadData()
+    } catch (e) {
+      console.error('Cancel error:', e)
+      toast({ type: 'error', message: 'Operazione non riuscita: ' + (e instanceof Error ? e.message : '') })
     }
   }
 
@@ -462,7 +633,79 @@ export default function ScadenzeFiscali() {
               Nessuna scadenza trovata. Crea una nuova scadenza per iniziare.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            <>
+            {/* Lista mobile a schede (sotto md): dati chiave + azioni con touch
+                target >=44px. La tabella completa resta invariata su desktop. */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filtered.map(dl => {
+                const days = daysUntil(dl.due_date)
+                const isOverdue = days !== null && days < 0 && dl.status !== 'paid'
+                const isUrgent = days !== null && days >= 0 && days <= 7 && dl.status !== 'paid'
+                const typeConfig = (TYPE_CONFIG as Record<string, { label: string; color: string; icon: typeof FileText }>)[dl.deadline_type] || TYPE_CONFIG.altro
+                const statusCfg = (STATUS_CONFIG as Record<string, { label: string; color: string }>)[dl.status] || STATUS_CONFIG.pending
+                const TypeIcon = typeConfig.icon
+                return (
+                  <div key={dl.id} className={`p-3 ${isOverdue ? 'bg-red-50/30' : isUrgent ? 'bg-amber-50/20' : ''}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${typeConfig.color}`}>
+                        <TypeIcon size={10} />
+                        {typeConfig.label}
+                      </span>
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusCfg.color}`}>
+                        {statusCfg.label}
+                      </span>
+                      {dl.bank_transaction_id && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-teal-50 text-teal-700 border border-teal-200"
+                          title="Pagamento agganciato al movimento bancario">
+                          <Landmark size={9} /> in banca
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm font-medium text-slate-800 mt-1.5 break-words">{dl.title}</div>
+                    {(dl.f24_code || dl.tax_period) && (
+                      <div className="text-xs text-slate-500 mt-0.5">
+                        {dl.f24_code ? `Cod. ${dl.f24_code}` : ''}
+                        {dl.f24_code && dl.tax_period ? ' · ' : ''}
+                        {dl.tax_period || ''}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2 mt-1.5">
+                      <div className="text-xs text-slate-600">
+                        Scade il <span className="font-medium">{fmtDate(dl.due_date)}</span>
+                        {dl.status !== 'paid' && days !== null && (
+                          <span className={`ml-1.5 font-medium ${days < 0 ? 'text-red-600' : days <= 7 ? 'text-amber-600' : 'text-slate-500'}`}>
+                            {days < 0 ? `${Math.abs(days)}gg fa` : days === 0 ? 'OGGI' : `tra ${days}gg`}
+                          </span>
+                        )}
+                        {dl.status === 'paid' && <span className="ml-1.5 text-emerald-500">✓</span>}
+                      </div>
+                      <div className="font-semibold text-slate-800 whitespace-nowrap">
+                        {dl.amount ? `${fmt(dl.amount)} €` : '—'}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2.5">
+                      {dl.status !== 'paid' && (
+                        <button onClick={() => markPaid(dl)}
+                          className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 text-xs font-medium bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition">
+                          <CheckCircle2 size={14} /> Pagato
+                        </button>
+                      )}
+                      <button onClick={() => { setEditingDeadline(dl); setModalOpen(true) }}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-3 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-slate-50 transition">
+                        <Edit2 size={14} /> Modifica
+                      </button>
+                      <button onClick={() => handleDelete(dl.id)}
+                        className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] text-slate-400 border border-slate-200 rounded-lg hover:text-red-600 hover:bg-red-50 transition"
+                        title="Annulla (resta nello storico)" aria-label="Annulla scadenza">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <TableScroll wrapperClassName="hidden md:block">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">
@@ -512,6 +755,12 @@ export default function ScadenzeFiscali() {
                           <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${statusCfg.color}`}>
                             {statusCfg.label}
                           </span>
+                          {dl.bank_transaction_id && (
+                            <span className="ml-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-teal-50 text-teal-700 border border-teal-200"
+                              title="Pagamento agganciato al movimento bancario">
+                              <Landmark size={9} /> in banca
+                            </span>
+                          )}
                         </td>
                         <td className="py-2.5 px-4 text-center">
                           {dl.status === 'paid' ? (
@@ -528,20 +777,20 @@ export default function ScadenzeFiscali() {
                           <div className="flex items-center gap-1 justify-center">
                             {dl.status !== 'paid' && (
                               <button onClick={() => markPaid(dl)}
-                                className="inline-flex items-center gap-0.5 px-2 py-1 text-[10px] font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition"
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium bg-emerald-600 text-white rounded-md hover:bg-emerald-700 transition"
                                 title="Segna come pagato">
-                                <CheckCircle2 size={10} /> Pagato
+                                <CheckCircle2 size={12} /> Pagato
                               </button>
                             )}
                             <button onClick={() => { setEditingDeadline(dl); setModalOpen(true) }}
-                              className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
+                              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition"
                               title="Modifica">
-                              <Edit2 size={12} />
+                              <Edit2 size={14} />
                             </button>
                             <button onClick={() => handleDelete(dl.id)}
-                              className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
-                              title="Elimina">
-                              <Trash2 size={12} />
+                              className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition"
+                              title="Annulla (resta nello storico)">
+                              <Trash2 size={14} />
                             </button>
                           </div>
                         </td>
@@ -550,7 +799,8 @@ export default function ScadenzeFiscali() {
                   })}
                 </tbody>
               </table>
-            </div>
+            </TableScroll>
+            </>
           )}
         </div>
       </div>
@@ -564,6 +814,18 @@ export default function ScadenzeFiscali() {
         onSave={handleSave}
         saving={saving}
       />
+
+      {bankPick && (
+        <ModalAggancioBanca
+          dl={bankPick.dl}
+          movs={bankPick.movs}
+          bankNames={bankNames}
+          linking={linking}
+          onPick={(btId) => linkMovement(bankPick.dl, btId)}
+          onSkip={() => { const d = bankPick.dl; setBankPick(null); markPaidOnly(d, false) }}
+          onClose={() => setBankPick(null)}
+        />
+      )}
       </div>
     </div>
   )

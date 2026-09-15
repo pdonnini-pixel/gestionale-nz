@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
 import { parseContract, extractTextFromDoc, extractTextFromDocx, extractTextFromPdf } from '../lib/contractParser'
+import { Modal } from './ui/Modal'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   Upload, FileText, Check, AlertCircle, RefreshCw,
@@ -231,6 +232,10 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
     setAnalyzing(true)
     setError(null)
     setFileName(file.name)
+    // Il contratto e' il documento da cui esce mezza anagrafica dell'outlet:
+    // viaggia insieme agli allegati (codice riservato) e finisce in archivio,
+    // invece di restare solo come nome senza file.
+    setUploadedFiles(prev => ({ ...prev, __CONTRATTO__: file }))
 
     try {
       let text = ''
@@ -331,15 +336,21 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <Modal
+      open
+      onClose={onCancel}
+      bare
+      closeOnBackdrop={false}
+      ariaLabel={`Crea ${labels.pointOfSaleLower} da contratto`}
+      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90dvh] flex flex-col"
+    >
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-100">
           <div>
             <h2 className="text-lg font-semibold text-slate-900">Crea {labels.pointOfSaleLower} da contratto</h2>
             <p className="text-xs text-slate-400 mt-0.5">Carica il contratto e i dati verranno estratti automaticamente</p>
           </div>
-          <button onClick={onCancel} className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
+          <button onClick={onCancel} title="Chiudi" className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
         </div>
 
         {/* Content */}
@@ -348,7 +359,7 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
           {error && (
             <div className="flex items-center gap-2 p-3 bg-red-50 text-red-700 rounded-lg text-sm">
               <AlertCircle size={16} /><span>{error}</span>
-              <button onClick={() => setError(null)} className="ml-auto"><X size={14} /></button>
+              <button onClick={() => setError(null)} title="Chiudi" className="ml-auto"><X size={14} /></button>
             </div>
           )}
 
@@ -437,7 +448,6 @@ export default function ContractUploader({ onDataExtracted, onCancel }: Contract
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

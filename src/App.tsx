@@ -7,9 +7,11 @@ import { lazy, Suspense, type ReactNode } from 'react'
 import { ToastProvider } from './components/Toast'
 import Layout from './components/Layout'
 import Login from './pages/Login'
-import Dashboard from './pages/Dashboard'
-
+import ResetPassword from './pages/ResetPassword'
 // Lazy-loaded pages — code splitting per ridurre il bundle iniziale
+// (Dashboard inclusa: importata eager trascinava recharts nel bundle
+// iniziale, pagato anche sulla pagina Login su rete mobile)
+const Dashboard = lazy(() => import('./pages/Dashboard'))
 const Scadenzario = lazy(() => import('./pages/ScadenzarioSmart'))
 const Banche = lazy(() => import('./pages/TesoreriaManuale'))
 const Outlet = lazy(() => import('./pages/Outlet'))
@@ -24,6 +26,7 @@ const CashFlow = lazy(() => import('./pages/CashflowProspettico'))
 const OpenToBuy = lazy(() => import('./pages/OpenToBuy'))
 const Produttivita = lazy(() => import('./pages/Produttivita'))
 const ScenarioPlanning = lazy(() => import('./pages/ScenarioPlanning'))
+const SimulazioneFabbisogno = lazy(() => import('./pages/SimulazioneFabbisogno'))
 const MarginiCategoria = lazy(() => import('./pages/MarginiCategoria'))
 const MarginiOutlet = lazy(() => import('./pages/MarginiOutlet'))
 const StoreManager = lazy(() => import('./pages/StoreManager'))
@@ -35,13 +38,23 @@ const Fatturazione = lazy(() => import('./pages/Fatturazione'))
 const AcubeFatturaForm = lazy(() => import('./pages/AcubeFatturaForm'))
 const ConvertitoreFattureXML = lazy(() => import('./pages/ConvertitoreFattureXML'))
 const ScadenzeFiscali = lazy(() => import('./pages/ScadenzeFiscali'))
+const LiquidazioneIva = lazy(() => import('./pages/LiquidazioneIva'))
 const StoricoDistinte = lazy(() => import('./pages/StoricoDistinte'))
 const AICategoriePage = lazy(() => import('./pages/AICategoriePage'))
 const SchedaContabileFornitore = lazy(() => import('./pages/SchedaContabileFornitore'))
+const RevisionePagamenti = lazy(() => import('./pages/RevisionePagamenti'))
 const Profilo = lazy(() => import('./pages/Profilo'))
 const Ticket = lazy(() => import('./pages/Ticket'))
 const TicketAdmin = lazy(() => import('./pages/TicketAdmin'))
 const ReportSincronizzazioni = lazy(() => import('./pages/ReportSincronizzazioni'))
+const ChiusuraCassa = lazy(() => import('./pages/ChiusuraCassa'))
+const IncassiGiornalieri = lazy(() => import('./pages/IncassiGiornalieri'))
+
+// Rotte raggiungibili dall'account di negozio (ruolo operatore_cassa): la
+// chiusura di cassa e il proprio profilo. Tutto il resto lo rimanda alla
+// chiusura. La difesa vera e' la RLS (migrazione 172): qui si evita solo di
+// mostrare pagine vuote a chi non deve usarle.
+const CASH_OPERATOR_PATHS = ['/chiusura-cassa', '/profilo']
 
 // Spinner per lazy loading
 function PageLoader() {
@@ -53,12 +66,42 @@ function PageLoader() {
 }
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
-  const { session, loading } = useAuth()
+  const { session, loading, profile, profileError, refreshProfile, signOut } = useAuth()
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="w-8 h-8 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+      </div>
+    )
+  }
+
+  // Sessione valida ma profilo non caricato (rete/RLS) dopo i retry: invece di
+  // lasciare l'app su uno spinner infinito (COMPANY_ID mancante -> ogni pagina
+  // resta in loading), mostriamo una schermata chiara con "Riprova".
+  if (session && profileError && !profile) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="bg-red-50 border border-red-200 rounded-xl p-6 max-w-md text-center">
+          <p className="text-red-800 font-semibold">Impossibile caricare il tuo profilo</p>
+          <p className="text-red-600 text-sm mt-1">
+            Può dipendere da una connessione instabile. Riprova; se il problema persiste, esci e rientra.
+          </p>
+          <div className="mt-4 flex gap-2 justify-center">
+            <button
+              onClick={() => refreshProfile()}
+              className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            >
+              Riprova
+            </button>
+            <button
+              onClick={() => signOut()}
+              className="px-4 py-2 rounded-lg bg-white border border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"
+            >
+              Esci
+            </button>
+          </div>
+        </div>
       </div>
     )
   }
@@ -89,6 +132,15 @@ function OnboardingGate({ children }: { children: ReactNode }) {
   return <>{children}</>
 }
 
+function CashOperatorGate({ children }: { children: ReactNode }) {
+  const { profile } = useAuth()
+  const location = useLocation()
+  if (profile?.role === 'operatore_cassa' && !CASH_OPERATOR_PATHS.some((p) => location.pathname.startsWith(p))) {
+    return <Navigate to="/chiusura-cassa" replace />
+  }
+  return <>{children}</>
+}
+
 function PublicRoute({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth()
   if (loading) return null
@@ -100,9 +152,14 @@ function AppRoutes() {
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
+        {/* Reset password: NON sotto PublicRoute — la sessione temporanea di recupero
+            verrebbe rimbalzata via. La pagina gestisce da sé i propri stati. */}
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
-        <Route element={<ProtectedRoute><OnboardingGate><Layout /></OnboardingGate></ProtectedRoute>}>
+        <Route element={<ProtectedRoute><OnboardingGate><CashOperatorGate><Layout /></CashOperatorGate></OnboardingGate></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
+          <Route path="chiusura-cassa" element={<ChiusuraCassa />} />
+          <Route path="incassi-giornalieri" element={<IncassiGiornalieri />} />
           <Route path="outlet" element={<Navigate to="/outlet/operativi" replace />} />
           <Route path="outlet/operativi" element={<Outlet />} />
           <Route path="outlet/valutazione" element={<Outlet />} />
@@ -118,6 +175,7 @@ function AppRoutes() {
           <Route path="stock" element={<StockSellthrough />} />
           <Route path="analytics-pos" element={<AnalyticsPOS />} />
           <Route path="cash-flow" element={<CashFlow />} />
+          <Route path="fabbisogno" element={<SimulazioneFabbisogno />} />
           <Route path="open-to-buy" element={<OpenToBuy />} />
           <Route path="produttivita" element={<Produttivita />} />
           <Route path="scenario" element={<ScenarioPlanning />} />
@@ -126,6 +184,7 @@ function AppRoutes() {
           <Route path="store-manager" element={<StoreManager />} />
           <Route path="import-hub" element={<ImportHub />} />
           <Route path="fornitori" element={<Fornitori />} />
+          <Route path="fornitori/revisione" element={<RevisionePagamenti />} />
           <Route path="fornitori/:supplierId/scheda-contabile" element={<SchedaContabileFornitore />} />
           {/* /allocazione-fornitori assorbita dal pannello "Gestione" in /fornitori */}
           <Route path="allocazione-fornitori" element={<Navigate to="/fornitori" replace />} />
@@ -135,6 +194,7 @@ function AppRoutes() {
           {/* /prima-nota → ora tab dentro Banche (TesoreriaManuale) */}
           <Route path="prima-nota" element={<Navigate to="/banche?tab=prima_nota" replace />} />
           <Route path="scadenze-fiscali" element={<ScadenzeFiscali />} />
+          <Route path="liquidazione-iva" element={<LiquidazioneIva />} />
           <Route path="archivio" element={<ArchivioDocumenti />} />
           <Route path="ai-categorie" element={<AICategoriePage />} />
           <Route path="impostazioni" element={<Impostazioni />} />

@@ -1,0 +1,18 @@
+-- ROLLBACK 20260911_215
+--
+-- La migration ha solo RIEMPITO campi vuoti (installment_total,
+-- installment_number, payment_method): nessun dato e' stato sovrascritto o
+-- cancellato, quindi non esiste uno stato "prima" da ricostruire riga per riga
+-- se non dal backup di sessione.
+--
+-- Per tornare allo stato precedente servono gli id coinvolti. Se serve davvero,
+-- rimettere a NULL solo cio' che la 215 ha scritto, riconoscibile da updated_at:
+--
+-- UPDATE public.payables
+-- SET installment_total = NULL, payment_method = NULL
+-- WHERE updated_at::date = DATE '2026-09-11'
+--   AND installment_total IS NOT NULL;
+--
+-- ATTENZIONE: la condizione su updated_at prende anche altre modifiche dello
+-- stesso giorno. Prima di eseguire, restringere con supplier_id / invoice_number
+-- e fare la SELECT di controllo.

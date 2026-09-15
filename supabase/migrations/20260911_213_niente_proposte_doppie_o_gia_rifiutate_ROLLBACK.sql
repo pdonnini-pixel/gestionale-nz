@@ -1,0 +1,9 @@
+-- ROLLBACK di 20260911_213 — toglie le tre guardie e torna al comportamento precedente:
+-- il motore riproporrà le coppie già rifiutate, creerà copie doppie della stessa proposta
+-- e genererà proposte anche sui movimenti della banca (rate di mutuo, prelievi, giroconti,
+-- commissioni POS). Le 280 proposte archiviate NON tornano indietro da sole:
+--   UPDATE public.reconciliation_log SET status='to_confirm'
+--    WHERE status='rejected' AND notes LIKE '%archiviata l''11/09/2026%';
+-- Lo stato precedente delle sole to_confirm è in _bkp_reconlog_proposte_20260911.
+-- Per ripristinare la funzione, riapplicare il corpo senza i tre blocchi di guardia
+-- (cercare 'movimento_della_banca', 'gia_rifiutata', 'gia_proposta' e toglierli).

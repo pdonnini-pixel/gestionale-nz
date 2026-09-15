@@ -25,6 +25,7 @@ import { useToast } from '../components/Toast';
 import PageHeader from '../components/PageHeader';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { PAYMENT_METHOD_LABELS as paymentMethodLabels } from '../lib/paymentMethods';
 import type { Row } from '../types/business';
 
 type Supplier = Row<'suppliers'>;
@@ -63,13 +64,6 @@ function worstStatus(statuses: string[]): string {
   if (statuses.includes('parziale')) return 'parziale';
   return 'pagato';
 }
-
-const paymentMethodLabels: Record<string, string> = {
-  bonifico_ordinario: 'Bonifico', bonifico_urgente: 'Bonifico urgente', bonifico_sepa: 'Bonifico SEPA',
-  riba_30: 'RiBa 30gg', riba_60: 'RiBa 60gg', riba_90: 'RiBa 90gg', riba_120: 'RiBa 120gg',
-  rid: 'RID', sdd_core: 'SDD Core', sdd_b2b: 'SDD B2B', carta_credito: 'Carta',
-  contanti: 'Contanti', compensazione: 'Compensazione', mav: 'MAV', altro: 'Altro',
-};
 
 type OpeningRow = { id: string; company_id: string; supplier_id: string; fiscal_year: number; opening_balance: number; as_of_date: string | null; note: string | null; source: string | null };
 
@@ -170,20 +164,29 @@ export default function SchedaContabileFornitore() {
       // net/vat non valorizzati (solo gross). I valori corretti stanno in
       // electronic_invoices. Costruiamo la mappa invoice_number → {net, vat}
       // per riempire lo split mancante in visualizzazione (non modifica il DB).
-      const numbers = [...new Set(allPayables.map(p => p.invoice_number).filter(Boolean))] as string[];
+      //
+      // AGGANCIO PER P.IVA: il numero fattura NON è univoco tra fornitori diversi
+      // (es. due fornitori con fattura n.4). Filtriamo electronic_invoices per la
+      // P.IVA del fornitore, altrimenti lo split rischia di prendere imponibile/IVA
+      // dalla fattura di UN ALTRO fornitore. Senza P.IVA non riempiamo lo split.
+      const supplierVat = sup.partita_iva || sup.vat_number || null;
       const splitMap: Record<string, { net: number; vat: number }> = {};
-      for (let i = 0; i < numbers.length; i += 200) {
-        const chunk = numbers.slice(i, i + 200);
-        const { data: eis } = await supabase
-          .from('electronic_invoices')
-          .select('invoice_number, net_amount, vat_amount')
-          .eq('company_id', COMPANY_ID)
-          .in('invoice_number', chunk);
-        (eis || []).forEach((e: { invoice_number: string | null; net_amount: number | null; vat_amount: number | null }) => {
-          if (e.invoice_number && (e.net_amount != null || e.vat_amount != null)) {
-            splitMap[e.invoice_number] = { net: Number(e.net_amount || 0), vat: Number(e.vat_amount || 0) };
-          }
-        });
+      if (supplierVat) {
+        const numbers = [...new Set(allPayables.map(p => p.invoice_number).filter(Boolean))] as string[];
+        for (let i = 0; i < numbers.length; i += 200) {
+          const chunk = numbers.slice(i, i + 200);
+          const { data: eis } = await supabase
+            .from('electronic_invoices')
+            .select('invoice_number, net_amount, vat_amount')
+            .eq('company_id', COMPANY_ID)
+            .eq('supplier_vat', supplierVat)
+            .in('invoice_number', chunk);
+          (eis || []).forEach((e: { invoice_number: string | null; net_amount: number | null; vat_amount: number | null }) => {
+            if (e.invoice_number && (e.net_amount != null || e.vat_amount != null)) {
+              splitMap[e.invoice_number] = { net: Number(e.net_amount || 0), vat: Number(e.vat_amount || 0) };
+            }
+          });
+        }
       }
       setEinvSplit(splitMap);
 
@@ -362,11 +365,14 @@ export default function SchedaContabileFornitore() {
       paymentDate: string | null;  // ultima data pagamento se status pagato
       paymentBankId: string | null;
       isPaid: boolean;
+      paidAmount: number;          // somma amount_paid delle SOLE rate pagate (non il totale fattura)
       tipoDoc: string | null;
       closedManually: boolean;       // true se almeno una rata e' stata chiusa a mano
       manualCloseReason: string | null;
       manualClosedAmount: number;    // importo complessivo chiuso a mano (totale o parziale)
       manualCloseDate: string | null;
+      isProvisional: boolean;        // true se il pagamento e' una RiBa chiusa in via provvisoria
+      ncConsumedAmount: number;      // NC: quota gia' usata in compensazione (amount_paid in negativo, migration 170)
     }
     const map = new Map<string, InvoiceAgg>();
     for (const p of filteredPayables) {
@@ -382,17 +388,26 @@ export default function SchedaContabileFornitore() {
           paymentDate: null,
           paymentBankId: null,
           isPaid: false,
+          paidAmount: 0,
           tipoDoc: (p as Payable & { tipo_documento?: string | null }).tipo_documento || null,
           closedManually: false,
           manualCloseReason: null,
           manualClosedAmount: 0,
           manualCloseDate: null,
+          isProvisional: false,
+          ncConsumedAmount: 0,
         };
         map.set(key, agg);
       }
       agg.grossTotal += Number(p.gross_amount || 0);
       agg.netTotal += Number(p.net_amount || 0);
       agg.vatTotal += Number(p.vat_amount || 0);
+      // Nota di credito usata (in tutto o in parte) in compensazione: la quota consumata
+      // sta in amount_paid con segno negativo (migration 170). Va in AVERE anche se la
+      // NC non e' chiusa: quel credito e' gia' stato speso su una fattura.
+      if (Number(p.gross_amount || 0) < 0 && Number(p.amount_paid || 0) < 0) {
+        agg.ncConsumedAmount += Math.abs(Number(p.amount_paid));
+      }
       const pManual = p as Payable & { closed_manually?: boolean | null; manual_close_reason?: string | null };
       if (pManual.closed_manually) {
         agg.closedManually = true;
@@ -403,12 +418,31 @@ export default function SchedaContabileFornitore() {
           agg.manualCloseDate = p.payment_date;
         }
       }
-      if (p.status === 'pagato' && p.payment_date) {
-        agg.isPaid = true;
-        if (!agg.paymentDate || p.payment_date > agg.paymentDate) {
+      // Un ACCONTO pagato e' un pagamento a tutti gli effetti e deve stare in
+      // partitario, anche se la fattura resta 'parziale' in attesa del saldo:
+      // quei soldi sono usciti dal conto e il debito verso il fornitore e' sceso.
+      // Prima si guardava solo status='pagato', quindi gli acconti sparivano e il
+      // saldo fornitore restava gonfiato (WOLF GROUP 218: 39.445,90 versati il 7/8
+      // che non comparivano da nessuna parte).
+      // Il fallback a gross_amount vale solo per le rate marcate 'pagato' senza
+      // amount_paid valorizzato (dati vecchi), non per i parziali.
+      const paidHere = Number(p.amount_paid ?? 0) > 0
+        ? Number(p.amount_paid)
+        : (p.status === 'pagato' ? Number(p.gross_amount ?? 0) : 0);
+      if (paidHere > 0) {
+        // 'isPaid' resta il flag di fattura SALDATA: un acconto non chiude niente.
+        if (p.status === 'pagato') agg.isPaid = true;
+        if ((p as Payable & { is_provisional_paid?: boolean | null }).is_provisional_paid) agg.isProvisional = true;
+        // Somma SOLO l'importo effettivamente pagato di questa rata (non il totale
+        // fattura): con fatture rateizzate, una sola rata pagata non chiude tutto.
+        agg.paidAmount += paidHere;
+        if (p.payment_date && (!agg.paymentDate || p.payment_date > agg.paymentDate)) {
           agg.paymentDate = p.payment_date;
           agg.paymentBankId = p.payment_bank_account_id || null;
         }
+        // Acconto senza data di pagamento registrata: la banca attesa resta comunque
+        // l'informazione migliore che abbiamo per descrivere la riga.
+        if (!agg.paymentBankId && p.payment_bank_account_id) agg.paymentBankId = p.payment_bank_account_id;
       }
     }
 
@@ -459,6 +493,25 @@ export default function SchedaContabileFornitore() {
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });
+        } else if (agg.ncConsumedAmount > 0.005) {
+          // NC NON chiusa ma gia' usata (compensazione parziale, oppure consumata del
+          // tutto senza flag di chiusura): scrittura in AVERE per la quota spesa, cosi'
+          // il saldo del fornitore non conta due volte quel credito. Il residuo resta
+          // in DARE come credito ancora disponibile.
+          const totale = Math.abs(agg.grossTotal);
+          const usata = Math.min(agg.ncConsumedAmount, totale);
+          const residuo = Math.max(0, totale - usata);
+          const parziale = residuo > 0.005;
+          movimenti.push({
+            data: agg.invoiceDate,
+            dataPagamento: agg.paymentDate,
+            numero: agg.invoiceNumber,
+            dare: 0,
+            avere: usata,
+            descrizione: `Nota di credito ${parziale ? 'usata in parte' : 'utilizzata'} in compensazione${parziale ? ` — credito residuo ${residuo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''} — rif. NC ${agg.invoiceNumber}`,
+            aliquotaIVA: '—',
+            tipo: 'pagamento',
+          });
         }
       } else {
         // Fattura ricevuta → riga AVERE (aumenta debito)
@@ -489,16 +542,30 @@ export default function SchedaContabileFornitore() {
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });
-        } else if (agg.isPaid && agg.paymentDate) {
-          // Pagamento normale con banca.
+        } else if (agg.paidAmount > 0) {
+          // Pagamento normale con banca. DARE = importo EFFETTIVAMENTE pagato
+          // (somma delle rate saldate), NON il totale fattura: con fatture rateizzate
+          // una sola rata pagata non deve chiudere l'intero importo -> il saldo del
+          // fornitore mostra correttamente il residuo delle rate ancora aperte.
+          // Nessun vincolo sulla data: un acconto registrato senza payment_date
+          // resta un'uscita reale e va comunque in partitario.
           const bankName = agg.paymentBankId ? (bankAccountById[agg.paymentBankId] || 'Banca non specificata') : 'Banca non specificata';
+          const isPartial = agg.paidAmount < Math.abs(agg.grossTotal) - 0.005;
+          // "Acconto" quando la fattura non e' saldata: e' il termine contabile
+          // esatto e dice all'operatrice che il residuo resta da pagare.
+          const voce = isPartial ? 'Acconto' : 'Pagamento';
+          // RiBa chiusa in via provvisoria: nessun movimento bancario, in attesa
+          // di distinta o riconciliazione. La riga resta tracciata nel partitario.
+          const descrizione = agg.isProvisional
+            ? `${voce} RiBa (provvisorio) — in attesa di distinta o movimento — rif. Fatt. ${agg.invoiceNumber}`
+            : `${voce} — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`;
           movimenti.push({
             data: agg.invoiceDate,           // data principale = emissione fattura
             dataPagamento: agg.paymentDate,  // mostrata sotto in piccolo
             numero: agg.invoiceNumber,
-            dare: agg.grossTotal,
+            dare: agg.paidAmount,
             avere: 0,
-            descrizione: `Pagamento — ${bankName} — rif. Fatt. ${agg.invoiceNumber}`,
+            descrizione,
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });
@@ -899,7 +966,7 @@ ${mode !== 'fatture' ? `      <h2>PARTITARIO — CONTO FORNITORE</h2>
             </div>
           )}
         </div>
-        <p className="text-[11px] text-slate-400 mt-2">Segno contabile: <b>negativo = debito</b> (quanto dobbiamo noi), positivo = credito a nostro favore.</p>
+        <p className="text-xs text-slate-500 mt-2">Segno contabile: <b>negativo = debito</b> (quanto dobbiamo noi), positivo = credito a nostro favore.</p>
       </div>
       )}
 
@@ -926,7 +993,7 @@ ${mode !== 'fatture' ? `      <h2>PARTITARIO — CONTO FORNITORE</h2>
         </div>
 
         {/* Table */}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-xs text-slate-500 uppercase">
@@ -961,7 +1028,7 @@ ${mode !== 'fatture' ? `      <h2>PARTITARIO — CONTO FORNITORE</h2>
                     <tr className={`border-b border-slate-50 hover:bg-slate-25 transition ${idx % 2 === 0 ? '' : 'bg-slate-25/50'}`}>
                       <td className="px-2 py-2">
                         {hasRate && (
-                          <button onClick={() => toggleExpand(f.invoice_number ?? '')} className="p-0.5 rounded hover:bg-slate-100 text-slate-400">
+                          <button onClick={() => toggleExpand(f.invoice_number ?? '')} title="Mostra/Nascondi rate" className="p-0.5 rounded hover:bg-slate-100 text-slate-400">
                             {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                           </button>
                         )}
@@ -1067,7 +1134,7 @@ ${mode !== 'fatture' ? `      <h2>PARTITARIO — CONTO FORNITORE</h2>
             </select>
           </div>
         </div>
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-slate-50 text-xs text-slate-500 uppercase">

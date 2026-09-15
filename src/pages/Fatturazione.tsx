@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, type ComponentProps } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
+import StatKpi from '../components/ui/StatKpi'
 import { useToast } from '../components/Toast'
 
 // Tab principale Fatturazione — persistito in URL come ?tab=
@@ -10,6 +10,7 @@ const VALID_FATTURAZIONE_TABS: FatturazioneTab[] = ['passive', 'active', 'corris
 import InvoiceViewer from '../components/InvoiceViewer'
 import StatusBadge from '../components/ui/StatusBadge'
 import { supabase } from '../lib/supabase'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { useCompany } from '../hooks/useCompany'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { getCurrentTenant } from '../lib/tenants'
@@ -19,6 +20,9 @@ import SortableTh from '../components/ui/SortableTh'
 import Tooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import PaymentAnomaliesPanel from '../components/PaymentAnomaliesPanel'
+import NotuleDuplicatePanel from '../components/NotuleDuplicatePanel'
+import { archiviaFile } from '../lib/archivioFile'
+import { useAuth } from '../hooks/useAuth'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
   CheckCircle, XCircle, Clock, AlertTriangle, Eye, Download, X,
@@ -51,6 +55,24 @@ const TIPO_DOC_LABEL: Record<string, string> = {
 const tipoDocLabel = (code?: string | null): string => {
   if (!code) return '—'
   return TIPO_DOC_LABEL[code.toUpperCase()] ?? code
+}
+
+// Etichetta CORTA per la colonna Tipo della tabella fatture passive.
+// Le descrizioni ufficiali dei documenti di integrazione/reverse charge sono
+// lunghissime ("Integrazione/autofattura acquisti estero servizi"): in una
+// cella su riga singola bastavano poche fatture TD16/TD17 per allargare la
+// colonna a ~360px e mandare l'intera tabella fuori schermo. In tabella si
+// mostra la versione breve, la descrizione completa resta nel tooltip.
+const TIPO_DOC_SHORT: Record<string, string> = {
+  TD01: 'Fattura', TD02: 'Acconto fatt.', TD03: 'Acconto parc.',
+  TD04: 'Nota credito', TD05: 'Nota debito', TD06: 'Parcella',
+  TD16: 'Reverse charge', TD17: 'Autofatt. estero', TD18: 'Acquisti UE',
+  TD19: 'Autofatt. art.17', TD24: 'Fatt. differita', TD25: 'Fatt. differita',
+  TD26: 'Cessione beni', TD27: 'Autoconsumo',
+}
+const tipoDocShort = (code?: string | null): string => {
+  if (!code) return '—'
+  return TIPO_DOC_SHORT[code.toUpperCase()] ?? tipoDocLabel(code)
 }
 
 const SDI_STATUS_CONFIG = {
@@ -87,30 +109,8 @@ function SdiStatusBadge({ status, configMap = SDI_STATUS_CONFIG as StatusConfigM
   )
 }
 
-type KpiColor = 'blue' | 'green' | 'red' | 'amber' | 'slate'
-function KpiCard({ icon: Icon, label, value, sub, color = 'blue' }: { icon: React.ComponentType<{ size?: number }>; label: string; value: string | number; sub?: string; color?: KpiColor }) {
-  const colorMap: Record<KpiColor, string> = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    red: 'bg-red-50 text-red-600',
-    amber: 'bg-amber-50 text-amber-600',
-    slate: 'bg-slate-50 text-slate-600',
-  }
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <div className="flex items-center gap-3">
-        <div className={`w-10 h-10 rounded-lg ${colorMap[color]} flex items-center justify-center`}>
-          <Icon size={20} />
-        </div>
-        <div>
-          <div className="text-2xl font-bold text-slate-900">{value}</div>
-          <div className="text-xs text-slate-500">{label}</div>
-          {sub && <div className="text-xs text-slate-400 mt-0.5">{sub}</div>}
-        </div>
-      </div>
-    </div>
-  )
-}
+// KpiCard locale sostituita dal componente condiviso ui/StatKpi
+const KpiCard = (props: Omit<ComponentProps<typeof StatKpi>, 'size'>) => <StatKpi {...props} size="lg" />
 
 // ─── callFunction helper (same pattern as useYapily) ────────────────────
 
@@ -216,6 +216,10 @@ function FatturePassive() {
   }
   const [invoices, setInvoices] = useState<InvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
+  // Errore di caricamento: distingue "archivio vuoto" da "errore di rete/RLS".
+  // Prima il catch faceva solo console.error e la tabella mostrava "Nessuna
+  // fattura trovata" -> su una pagina fiscale un errore sembrava 0 fatture reali.
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [searchTerm, setSearchTerm] = useState('')
   // Filtro anno: si allinea al filtro globale del PeriodContext (header
   // in alto). Quando l'utente cambia anno nell'header, qui si aggiorna
@@ -234,6 +238,7 @@ function FatturePassive() {
   useEffect(() => {
     if (globalYear) setYearFilter(String(globalYear))
   }, [globalYear])
+  const { profile } = useAuth()
   const [viewingXml, setViewingXml] = useState<string | null>(null) // XML content for InvoiceViewer
   const [uploading, setUploading] = useState(false)
   const [openingId, setOpeningId] = useState<string | null>(null) // id fattura in apertura (spinner occhio)
@@ -266,25 +271,35 @@ function FatturePassive() {
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
       // Lista da v_electronic_invoices_list: tutte le colonne TRANNE xml_content
       // (54 MB complessivi, causa del timeout 15s) + flag has_xml. L'XML si
       // carica lazy per-id solo al click "Visualizza" (vedi fetchXmlFor).
       // Niente .limit(500): la vista esclude xml_content (leggera), quindi
       // carichiamo l'intero set → KPI e conteggi coincidono col badge tab.
-      const { data, error } = await supabase
-        .from('v_electronic_invoices_list')
-        .select('*')
-        .order('invoice_date', { ascending: false })
-        .limit(10000)
-      if (error) throw error
-      setInvoices((data || []) as InvoiceRow[])
+      // Paginato: `.limit(10000)` NON aggira il cap PostgREST di 1000 righe -> oltre
+      // 1000 fatture l'elenco (e i KPI/badge) veniva troncato senza errore. Ordine
+      // stabile (data + id) per una paginazione affidabile.
+      const data = await fetchAllPaged<InvoiceRow>(
+        (from, to) => supabase
+          .from('v_electronic_invoices_list')
+          .select('*')
+          .order('invoice_date', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, to),
+        'v_electronic_invoices_list',
+      )
+      setInvoices(data as InvoiceRow[])
     } catch (err: unknown) {
       console.error('Errore caricamento fatture passive:', err)
+      const msg = err instanceof Error ? err.message : 'Errore di caricamento'
+      setLoadError(msg)
+      toast({ type: 'error', message: `Errore nel caricamento delle fatture: ${msg}` })
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
@@ -298,6 +313,18 @@ function FatturePassive() {
       if (!xmlContent.includes('FatturaElettronica')) {
         toast({ type: 'warning', message: 'Il file non sembra essere un XML FatturaPA valido.' })
         return
+      }
+      // L'XML originale finisce in archivio: prima restava solo il contenuto
+      // dentro la fattura, il file consegnato dallo SDI si perdeva.
+      if (profile?.company_id) {
+        const oggi = new Date()
+        const archiviato = await archiviaFile({
+          file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Fatturazione',
+          funzione: 'XML FatturaPA caricato a mano', bucket: 'invoices',
+          year: oggi.getFullYear(), month: oggi.getMonth() + 1,
+          referenceTable: 'electronic_invoices',
+        })
+        if (archiviato.errore) toast({ type: 'warning', message: `Fattura importata, ma il file XML non è finito in archivio (${archiviato.errore}).` })
       }
       const result = await callEdgeFunction('sdi-receive', 'POST', { xmlContent }) as { data?: { action?: string; invoice?: { invoice_number?: string } } }
       if (result.data) {
@@ -325,6 +352,15 @@ function FatturePassive() {
       try {
         const xmlText = await file.text()
         if (!xmlText.includes('FatturaElettronica')) { done++; errors++; continue }
+        if (profile?.company_id) {
+          const oggi = new Date()
+          await archiviaFile({
+            file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Fatturazione',
+            funzione: 'XML FatturaPA caricato in blocco', bucket: 'invoices',
+            year: oggi.getFullYear(), month: oggi.getMonth() + 1,
+            referenceTable: 'electronic_invoices',
+          })
+        }
 
         // Estrai numero fattura e P.IVA dal XML per match
         const parser = new DOMParser()
@@ -424,6 +460,10 @@ function FatturePassive() {
       {/* Segnalazioni: anomalie configurazione pagamento fornitore (badge rosso) */}
       <PaymentAnomaliesPanel />
 
+      {/* Segnalazioni: notule/proforma inserite a mano che potrebbero essere già
+          arrivate come fattura elettronica (possibile doppione da agganciare) */}
+      <NotuleDuplicatePanel />
+
       {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1 min-w-[200px]">
@@ -456,7 +496,7 @@ function FatturePassive() {
           Associa XML
           <input type="file" accept=".xml" multiple onChange={handleBulkXmlUpdate} className="hidden" />
         </label>
-        <button onClick={loadInvoices} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
+        <button onClick={loadInvoices} title="Ricarica" className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
@@ -473,7 +513,7 @@ function FatturePassive() {
               {xmlUpdateProgress.errors > 0 && ` — ${xmlUpdateProgress.errors} errori`}
             </span>
             {xmlUpdateProgress.finished && (
-              <button onClick={() => setXmlUpdateProgress(null)} className="text-amber-600 hover:text-amber-800">
+              <button onClick={() => setXmlUpdateProgress(null)} title="Chiudi" className="text-amber-600 hover:text-amber-800">
                 <X size={14} />
               </button>
             )}
@@ -481,6 +521,14 @@ function FatturePassive() {
         </div>
       )}
 
+
+      {/* Errore di caricamento (distinto dall'archivio vuoto) */}
+      {loadError && !loading && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+          <span className="text-red-800">Errore nel caricamento delle fatture: {loadError}. I dati mostrati potrebbero essere incompleti.</span>
+          <button onClick={loadInvoices} className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700">Riprova</button>
+        </div>
+      )}
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -490,18 +538,18 @@ function FatturePassive() {
             <button onClick={ftResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
           </div>
         )}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
                 <SortableTh sortKey="invoice_date" sortBy={ftSortBy} onSort={ftOnSort}>Data</SortableTh>
-                <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[120px]">Numero</SortableTh>
-                <SortableTh sortKey="supplier_name" sortBy={ftSortBy} onSort={ftOnSort} className="min-w-[200px]">Fornitore</SortableTh>
+                <SortableTh sortKey="invoice_number" sortBy={ftSortBy} onSort={ftOnSort}>Numero</SortableTh>
+                <SortableTh sortKey="supplier_name" sortBy={ftSortBy} onSort={ftOnSort}>Fornitore</SortableTh>
                 <SortableTh sortKey="tipo_documento" sortBy={ftSortBy} onSort={ftOnSort}>Tipo</SortableTh>
-                <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Imponibile</SortableTh>
-                <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">IVA</SortableTh>
-                <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right" className="min-w-[100px]">Totale</SortableTh>
-                <th className="text-center px-4 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
+                <SortableTh sortKey="net_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">Imponibile</SortableTh>
+                <SortableTh sortKey="vat_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">IVA</SortableTh>
+                <SortableTh sortKey="gross_amount" sortBy={ftSortBy} onSort={ftOnSort} align="right">Totale</SortableTh>
+                <th className="text-center px-2 py-3 font-medium text-slate-600 text-[11px] uppercase tracking-wider">Azioni</th>
               </tr>
             </thead>
             <tbody>
@@ -510,24 +558,31 @@ function FatturePassive() {
               ) : sortedFiltered.length === 0 ? (
                 <tr><td colSpan={8} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
               ) : sortedFiltered.map((inv, idx) => (
-                <tr key={inv.id} onClick={() => openFormatted(inv)} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
-                  <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
-                  <Tooltip content={inv.invoice_number || ''}>
-                    <td className="px-4 py-3 font-medium text-slate-900 truncate min-w-[120px] max-w-[180px]">{inv.invoice_number || '—'}</td>
-                  </Tooltip>
-                  <td className="px-4 py-3 min-w-[200px]">
-                    <Tooltip content={inv.supplier_name || ''}>
-                      <div className="font-medium text-slate-800 truncate max-w-[200px]">{inv.supplier_name || '—'}</div>
+                <tr key={inv.id} onClick={() => openFormatted(inv)} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') openFormatted(inv) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
+                  <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
+                  <td className="px-3 py-3 font-medium text-slate-900">
+                    {/* Il truncate va sul div interno: su un <td> con table-layout auto
+                        il browser allarga comunque la colonna al contenuto (numeri SDI
+                        lunghi tipo 120260000000628 sfondavano la tabella). */}
+                    <Tooltip content={inv.invoice_number || ''}>
+                      <div className="truncate max-w-[130px]">{inv.invoice_number || '—'}</div>
                     </Tooltip>
-                    {inv.supplier_vat && <div className="text-xs text-slate-400">P.IVA {inv.supplier_vat}</div>}
                   </td>
-                  <Tooltip content={inv.tipo_documento ? `Codice ${inv.tipo_documento}` : ''}>
-                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{tipoDocLabel(inv.tipo_documento)}</td>
-                  </Tooltip>
-                  <td className="px-4 py-3 text-right text-slate-700 min-w-[100px] whitespace-nowrap">{fmt(inv.net_amount)}</td>
-                  <td className="px-4 py-3 text-right text-slate-500 min-w-[100px] whitespace-nowrap">{fmt(inv.vat_amount)}</td>
-                  <td className="px-4 py-3 text-right font-semibold text-slate-900 min-w-[100px] whitespace-nowrap">{fmt(inv.gross_amount)}</td>
-                  <td className="px-4 py-3 text-center">
+                  <td className="px-3 py-3">
+                    <Tooltip content={inv.supplier_name || ''}>
+                      <div className="font-medium text-slate-800 truncate max-w-[180px]">{inv.supplier_name || '—'}</div>
+                    </Tooltip>
+                    {inv.supplier_vat && <div className="text-xs text-slate-400 whitespace-nowrap">P.IVA {inv.supplier_vat}</div>}
+                  </td>
+                  <td className="px-3 py-3 text-slate-600">
+                    <Tooltip content={inv.tipo_documento ? `${inv.tipo_documento} · ${tipoDocLabel(inv.tipo_documento)}` : ''}>
+                      <div className="truncate max-w-[120px]">{tipoDocShort(inv.tipo_documento)}</div>
+                    </Tooltip>
+                  </td>
+                  <td className="px-3 py-3 text-right text-slate-700 whitespace-nowrap">{fmt(inv.net_amount)}</td>
+                  <td className="px-3 py-3 text-right text-slate-500 whitespace-nowrap">{fmt(inv.vat_amount)}</td>
+                  <td className="px-3 py-3 text-right font-semibold text-slate-900 whitespace-nowrap">{fmt(inv.gross_amount)}</td>
+                  <td className="px-2 py-3 text-center">
                     <button
                       onClick={(e) => { e.stopPropagation(); openFormatted(inv) }}
                       disabled={openingId === inv.id}
@@ -587,6 +642,7 @@ function FattureAttive() {
   const { toast } = useToast()
   const [invoices, setInvoices] = useState<ActiveInvoiceRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [sending, setSending] = useState<string | null>(null) // invoiceId in corso di invio
   const [searchTerm, setSearchTerm] = useState('')
   const [periodFilter, setPeriodFilter] = useState('ALL') // 'ALL' o 'YYYY-MM'
@@ -596,20 +652,29 @@ function FattureAttive() {
 
   const loadInvoices = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
-      const { data, error } = await supabase
-        .from('active_invoices')
-        .select('*')
-        .order('invoice_date', { ascending: false })
-        .limit(500)
-      if (error) throw error
-      setInvoices((data || []) as ActiveInvoiceRow[])
+      // Paginato (no .limit(500)) + errore mostrato: prima un errore rete/RLS
+      // faceva vedere "Nessuna fattura attiva" come se non ce ne fossero.
+      const data = await fetchAllPaged<ActiveInvoiceRow>(
+        (from, to) => supabase
+          .from('active_invoices')
+          .select('*')
+          .order('invoice_date', { ascending: false })
+          .order('id', { ascending: false })
+          .range(from, to),
+        'active_invoices',
+      )
+      setInvoices(data as ActiveInvoiceRow[])
     } catch (err: unknown) {
       console.error('Errore caricamento fatture attive:', err)
+      const msg = err instanceof Error ? err.message : 'Errore di caricamento'
+      setLoadError(msg)
+      toast({ type: 'error', message: `Errore nel caricamento delle fatture: ${msg}` })
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [toast])
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
@@ -717,10 +782,18 @@ function FattureAttive() {
           <Send size={16} />
           Nuova via A-Cube
         </button>
-        <button onClick={loadInvoices} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
+        <button onClick={loadInvoices} title="Ricarica" className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
+
+      {/* Errore di caricamento (distinto dall'archivio vuoto) */}
+      {loadError && !loading && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+          <span className="text-red-800">Errore nel caricamento delle fatture: {loadError}. I dati mostrati potrebbero essere incompleti.</span>
+          <button onClick={loadInvoices} className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700">Riprova</button>
+        </div>
+      )}
 
       {/* Tabella */}
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -730,7 +803,7 @@ function FattureAttive() {
             <button onClick={faResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
           </div>
         )}
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -752,7 +825,7 @@ function FattureAttive() {
                   Nessuna fattura attiva. Crea la prima!
                 </td></tr>
               ) : sortedFiltered.map((inv, idx) => (
-                <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
+                <tr key={inv.id} onClick={() => { setSelectedInvoice(inv); setShowXml(false) }} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') { setSelectedInvoice(inv); setShowXml(false) } }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-4 py-3 text-slate-600">{fmtDate(inv.invoice_date)}</td>
                   <td className="px-4 py-3 font-medium text-slate-900">{inv.invoice_number}</td>
                   <td className="px-4 py-3">
@@ -806,7 +879,7 @@ function FattureAttive() {
                   <span className="text-xs text-slate-400 font-medium">{selectedInvoice.tipo_documento}</span>
                 </div>
               </div>
-              <button onClick={() => setSelectedInvoice(null)} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"><X size={20} /></button>
+              <button onClick={() => setSelectedInvoice(null)} title="Chiudi" className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition"><X size={20} /></button>
             </div>
 
             {/* Content */}
@@ -991,30 +1064,43 @@ function Corrispettivi() {
   const [corrispettiviLog, setCorrispettiviLog] = useState<RevenueRow[]>([])
   const [outlets, setOutlets] = useState<OutletLite[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [selectedOutlet, setSelectedOutlet] = useState('ALL')
   const [viewSource, setViewSource] = useState('pos') // 'pos' | 'ade'
 
   const loadData = useCallback(async () => {
     setLoading(true)
+    setLoadError(null)
     try {
-      // Limit alzato a 5000 per evitare troncamento (con 7 outlet x 365 gg
-      // si arriva a 2555 all'anno). Embed outlets(name) rimosso per evitare
-      // fallimento 400 se FK non definita: lookup client-side piu' robusto.
-      const [{ data: revenue }, { data: outs }, { data: corrLog }] = await Promise.all([
-        supabase.from('daily_revenue').select('*').order('date', { ascending: false }).limit(5000),
+      // Paginato: `.limit(5000)` NON aggira il cap PostgREST di 1000 righe. Con 7
+      // outlet x 365 gg si superano le 2555 righe/anno e, oltre le 1000, i
+      // corrispettivi venivano troncati senza errore (totali incompleti). Ora si
+      // scarica tutto in blocchi da 1000 (ordine stabile data + id).
+      // Embed outlets(name) rimosso per evitare 400 se FK non definita: lookup client.
+      const [revenue, { data: outs }, corrLog] = await Promise.all([
+        fetchAllPaged<RevenueRow>(
+          (from, to) => supabase.from('daily_revenue').select('*')
+            .order('date', { ascending: false }).order('id', { ascending: false }).range(from, to),
+          'daily_revenue',
+        ),
         supabase.from('outlets').select('id, name').order('name'),
-        supabase.from('corrispettivi_log').select('*').order('date', { ascending: false }).limit(5000),
+        fetchAllPaged<RevenueRow>(
+          (from, to) => supabase.from('corrispettivi_log').select('*')
+            .order('date', { ascending: false }).order('id', { ascending: false }).range(from, to),
+          'corrispettivi_log',
+        ),
       ])
       const outletMap = new Map<string, string>((outs || []).map(o => [o.id, o.name || '']))
       const enrich = (rows: RevenueRow[] | null): RevenueRow[] => (rows || []).map(r => ({
         ...r,
         outlets: { name: (r.outlet_id ? outletMap.get(r.outlet_id) : null) || r.outlet_name || 'Sconosciuto' },
       }))
-      setDailyRevenue(enrich(revenue as RevenueRow[] | null))
+      setDailyRevenue(enrich(revenue as RevenueRow[]))
       setOutlets((outs || []) as OutletLite[])
-      setCorrispettiviLog(enrich(corrLog as RevenueRow[] | null))
+      setCorrispettiviLog(enrich(corrLog as RevenueRow[]))
     } catch (err: unknown) {
       console.error('Errore caricamento corrispettivi:', err)
+      setLoadError(err instanceof Error ? err.message : 'Errore di caricamento')
     } finally {
       setLoading(false)
     }
@@ -1060,6 +1146,13 @@ function Corrispettivi() {
 
   return (
     <div className="space-y-4">
+      {/* Errore di caricamento (distinto dall'assenza di dati) */}
+      {loadError && !loading && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+          <span className="text-red-800">Errore nel caricamento dei corrispettivi: {loadError}. I totali potrebbero essere incompleti.</span>
+          <button onClick={loadData} className="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 text-white text-xs font-medium hover:bg-red-700">Riprova</button>
+        </div>
+      )}
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard icon={Store} label="Giorni registrati" value={stats.total} sub={`${new Set(dailyRevenue.map(r => r.outlet_id)).size} outlet`} color="blue" />
@@ -1086,7 +1179,7 @@ function Corrispettivi() {
           <option value="ALL">Tutti gli {labels.pointOfSalePluralLower}</option>
           {outlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
-        <button onClick={loadData} className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
+        <button onClick={loadData} title="Ricarica" className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
@@ -1094,7 +1187,7 @@ function Corrispettivi() {
       {/* Vista AdE: corrispettivi_log */}
       {viewSource === 'ade' && (
         <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -1153,7 +1246,7 @@ function Corrispettivi() {
 
       {/* Vista POS: tabella riepilogo mensile */}
       {viewSource === 'pos' && <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto scroll-shadow-x">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-slate-50 z-10">
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -1395,7 +1488,6 @@ export default function Fatturazione() {
       {activeTab === 'passive' && <FatturePassive key={`p-${syncKey}`} />}
       {activeTab === 'active' && <FattureAttive key={`a-${syncKey}`} />}
       {activeTab === 'corrispettivi' && <Corrispettivi key={`c-${syncKey}`} />}
-      <PageHelp page="fatturazione" />
       </div>
     </div>
   )

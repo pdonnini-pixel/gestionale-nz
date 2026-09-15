@@ -4,11 +4,13 @@
 // migration dedicata (vedi MIGRATION: create_tickets_and_deploy_config).
 //
 // Workflow: Sabrina/Veronica aprono un ticket dall'app con
-// titolo + (opz.) screenshot. Un task scheduled "AutoFix"
-// (vedi Cowork → Scheduled Tasks) legge i ticket aperti,
-// classifica per complessità, applica fix automatici al codice
-// e chiude il ticket lasciando un commento per l'utente +
-// note_fix tecniche per Patrizio.
+// titolo + (opz.) allegati. Il cron `ticket-autofix-hourly`
+// (pg_cron, :07 di ogni ora — vedi migration 156) passa i ticket
+// aperti e ancora senza risposta AI alla edge function
+// ticket-resolve-now, che analizza il file del modulo, apre una PR
+// se sa correggere e lascia un commento per l'utente + note_fix
+// tecniche per Patrizio. Stessa cosa a mano dal bottone
+// "Risolvi con AI" in /ticket/admin.
 // ─────────────────────────────────────────────────────────────
 
 export type TicketStato = 'aperto' | 'in_corso' | 'risolto' | 'chiuso'
@@ -24,7 +26,12 @@ export interface TicketCommento {
 }
 
 export interface TicketAllegato {
-  url: string
+  // Percorso nello storage (bucket privato 'media'), es. 'tickets/<id>/00_file.png'.
+  // I nuovi allegati salvano il path; l'URL firmato si genera al momento della
+  // visualizzazione. `url` resta per retrocompatibilità coi vecchi allegati
+  // (URL pubblico salvato quando il bucket era pubblico).
+  path?: string
+  url?: string
   name: string
   size: number
   type: string  // MIME, es. 'image/png', 'application/pdf'

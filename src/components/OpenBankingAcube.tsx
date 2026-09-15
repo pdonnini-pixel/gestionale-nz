@@ -12,9 +12,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Landmark, RefreshCw, Link2, Plus, Loader2, CheckCircle2, AlertCircle, Clock, ExternalLink, Settings } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Modal } from './ui/Modal'
 import { useToast } from './Toast'
 import { useAuth } from '../hooks/useAuth'
 import { useAcubeOB, AcubeStage } from '../hooks/useAcubeOB'
+import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 
 interface BusinessRegistry {
   uuid: string
@@ -73,6 +75,9 @@ export default function OpenBankingAcube() {
   const setStage = (_: AcubeStage) => { /* no-op, sandbox disabilitato */ }
   const [br, setBr] = useState<BusinessRegistry | null>(null)
   const [accounts, setAccounts] = useState<BankAccountRow[]>([])
+  // Impegni "in distinta" non ancora pagati, per conto → saldo previsionale
+  // affiancato al reale. Non tocca il saldo vero (vedi lib/committedBalance).
+  const [committed, setCommitted] = useState<CommittedByAccount>({})
   const [consents, setConsents] = useState<ConsentRow[]>([])
   const [loadingData, setLoadingData] = useState(false)
   const [pendingConnectUrl, setPendingConnectUrl] = useState<string | null>(null)
@@ -99,6 +104,14 @@ export default function OpenBankingAcube() {
         .not('acube_account_uuid', 'is', null)
         .order('account_name')
       setAccounts((accs as BankAccountRow[] | null) ?? [])
+
+      // Impegni distinta per il saldo previsionale (best-effort: non blocca la lista conti).
+      try {
+        setCommitted(await fetchCommittedByAccount(companyId))
+      } catch (e) {
+        console.warn('[OpenBankingAcube] impegni previsionali non caricati:', e)
+        setCommitted({})
+      }
 
       const brUuid = (brData as { uuid?: string } | null)?.uuid
       if (brUuid) {
@@ -176,9 +189,22 @@ export default function OpenBankingAcube() {
       const r = await acube.syncTransactions(stage, br.fiscal_id, companyId)
       toast({ type: 'success', message: `Aggiornati saldi e ${r.bank_inserted ?? 0} nuovi movimenti${r.duplicates ? ` (${r.duplicates} già presenti)` : ''}.` })
       // Registra il sync manuale in sync_runs così il badge "Dati aggiornati al…"
-      // si allinea alle card dei conti (il cron non è l'unica sorgente).
+      // si allinea alle card dei conti (il cron non è l'unica sorgente). Passa
+      // anche il dettaglio della banca (conti, movimenti, saldo) → traccia
+      // di "cosa scarico" visibile in Report Sincronizzazioni.
       try {
-        await supabase.rpc('log_bank_sync_run', { p_items: r.bank_inserted ?? 0 })
+        const accounts = r.accounts ?? []
+        const bankDetail = [{
+          label: br.business_name || br.fiscal_id,
+          reference: br.fiscal_id,
+          items: r.bank_inserted ?? 0,
+          balance: accounts.reduce((s, a) => s + (a.balance ?? 0), 0),
+          accounts: accounts.length,
+        }]
+        await supabase.rpc('log_bank_sync_run', {
+          p_items: r.bank_inserted ?? 0,
+          p_details: bankDetail,
+        })
         window.dispatchEvent(new CustomEvent('sync-runs-updated', { detail: { feed: 'banche' } }))
       } catch { /* il sync è già andato a buon fine: non bloccare */ }
       await loadData()
@@ -273,6 +299,7 @@ export default function OpenBankingAcube() {
               Spinge a destra (ml-auto) e mostra somma di tutti i saldi correnti. */}
           {accounts.length > 0 && (() => {
             const totale = accounts.reduce<number>((s, a) => s + (Number(a.current_balance) || 0), 0)
+            const totCommitted = accounts.reduce<number>((s, a) => s + (committed[a.id] || 0), 0)
             const currency = accounts[0]?.currency || 'EUR'
             return (
               <div className="ml-auto bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5 flex items-center gap-3">
@@ -281,6 +308,12 @@ export default function OpenBankingAcube() {
                   <div className="text-base font-bold text-emerald-900 tabular-nums leading-tight">
                     {fmt(totale, currency)}
                   </div>
+                  {/* Previsionale = reale − distinte da pagare. Il reale resta il numero grande. */}
+                  {totCommitted > 0 && (
+                    <div className="text-[10px] text-amber-700 tabular-nums leading-tight" title="Saldo previsionale = saldo reale − distinte (fornitori + F24) ancora da pagare">
+                      previsionale {fmt(totale - totCommitted, currency)}
+                    </div>
+                  )}
                 </div>
                 <div className="text-[10px] text-emerald-600 border-l border-emerald-300 pl-3">
                   {accounts.length} {accounts.length === 1 ? 'conto' : 'conti'}
@@ -319,8 +352,16 @@ export default function OpenBankingAcube() {
                     <div className="text-xs text-slate-500 truncate" title={a.account_name}>{a.account_name}</div>
                   ) : null}
                 </div>
-                <div className={`text-sm font-bold ${(a.current_balance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                  {fmt(a.current_balance, a.currency || 'EUR')}
+                <div className="text-right shrink-0">
+                  <div className={`text-sm font-bold ${(a.current_balance ?? 0) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {fmt(a.current_balance, a.currency || 'EUR')}
+                  </div>
+                  {/* Saldo previsionale: reale − impegni distinta ancora da pagare su questo conto. */}
+                  {(committed[a.id] || 0) > 0 && (
+                    <div className="text-[10px] text-amber-600 tabular-nums leading-tight" title="Saldo previsionale = saldo reale − distinte (fornitori + F24) ancora da pagare su questo conto">
+                      prev. {fmt((Number(a.current_balance) || 0) - (committed[a.id] || 0), a.currency || 'EUR')}
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="text-xs text-slate-400 flex items-center justify-between">
@@ -338,9 +379,14 @@ export default function OpenBankingAcube() {
       )}
 
       {/* Modal onboarding */}
-      {showOnboardModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => !acube.loading && setShowOnboardModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+      <Modal
+        open={showOnboardModal}
+        onClose={() => { if (!acube.loading) setShowOnboardModal(false) }}
+        bare
+        ariaLabel="Collega banca via A-Cube"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6"
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      >
             <h2 className="text-lg font-bold text-slate-900 mb-1">Collega banca via A-Cube</h2>
             <p className="text-xs text-slate-500 mb-4">
               Compila i dati dell'azienda. Successivamente si aprirà una pagina sicura A-Cube dove sceglierai la banca e darai il consenso PSD2.
@@ -352,7 +398,7 @@ export default function OpenBankingAcube() {
                   type="text"
                   value={onboardForm.fiscalId}
                   onChange={(e) => setOnboardForm((s) => ({ ...s, fiscalId: e.target.value }))}
-                  placeholder="07362100484"
+                  placeholder="es. 01234567890"
                   className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
                 />
               </div>
@@ -362,7 +408,7 @@ export default function OpenBankingAcube() {
                   type="text"
                   value={onboardForm.businessName}
                   onChange={(e) => setOnboardForm((s) => ({ ...s, businessName: e.target.value }))}
-                  placeholder="New Zago Srl"
+                  placeholder="Ragione sociale azienda"
                   className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 focus:border-blue-400"
                 />
               </div>
@@ -394,9 +440,7 @@ export default function OpenBankingAcube() {
                 Avvia consenso
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   )
 }

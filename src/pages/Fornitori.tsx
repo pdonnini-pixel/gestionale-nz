@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 // Tab Fornitori — persistito in URL come ?tab=
 type FornitoriTab = 'anagrafica' | 'analytics';
 const VALID_FORNITORI_TABS: FornitoriTab[] = ['anagrafica', 'analytics'];
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import {
@@ -25,77 +24,82 @@ import { useAuth } from '../hooks/useAuth';
 import { useTableSort } from '../hooks/useTableSort';
 import SortableTh from '../components/ui/SortableTh';
 import TextTooltip from '../components/Tooltip';
+import TableScroll from '../components/ui/TableScroll';
 import { useOutlets } from '../hooks/useOutlets';
 import { usePeriod } from '../hooks/usePeriod';
+import { isPayableClosed, payableOpenAmount, fetchDisposizioniMap, type DisposizioniMap, type PayableOpenInput } from '../lib/payableOpenAmount';
+// Stato EFFETTIVO ricalcolato dalla data di scadenza (oggi > due_date → 'scaduto'),
+// come fa lo Scadenzario: lo status salvato nel DB non viene aggiornato allo
+// scadere e resterebbe 'da_pagare' (GGZ: 3 fatture del 31/08 lette "a scadere"
+// qui e "scadute" nello Scadenzario).
+import { calculatePayableStatus } from './scadenzario/helpers';
 import SupplierAllocationEditor, { MODE_META, type AllocationMode } from '../components/SupplierAllocationEditor';
 import InvoiceViewer from '../components/InvoiceViewer';
-import PdfViewer from '../components/PdfViewer';
+// pdfjs-dist (~350KB gzip) caricata solo all'apertura di un allegato PDF
+const PdfViewer = lazy(() => import('../components/PdfViewer'));
+import { Modal } from '../components/ui/Modal';
+import StatKpi from '../components/ui/StatKpi';
 import { parseFatturaAllegati, downloadBytes, type FatturaAllegato } from '../lib/fatturaAllegati';
+import {
+  PAYMENT_METHOD_OPTIONS, PAYMENT_METHOD_LABELS as PAYMENT_LABEL,
+  DEFAULT_PAYMENT_METHOD, isBankRequired, normalizePaymentMethod,
+  isRiba, methodForPlan,
+} from '../lib/paymentMethods';
+import {
+  SCHEDULE_MODE_GROUPS, SCHEDULE_GROUP_TEXT, scheduleLabel, scheduleModeText,
+  findScheduleMode, planStatus, derivePlan, computeInstallments,
+} from '../lib/paymentSchedule';
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+
+// Data ISO -> gg/mm/aaaa (per l'anteprima delle scadenze).
+const fmtDateIt = (iso: string): string => {
+  if (!iso) return '—';
+  const d = new Date(iso + 'T00:00:00');
+  return isNaN(d.getTime()) ? '—' : d.toLocaleDateString('it-IT');
+};
 
 const EMPTY_FORM = {
   ragione_sociale: '', partita_iva: '', codice_fiscale: '', codice_sdi: '',
   pec: '', email: '', telefono: '', iban: '', indirizzo: '', citta: '',
   provincia: '', cap: '', category: '', payment_terms: 30,
   payment_method: 'bonifico_ordinario', cost_center: 'all', note: '',
-  // Piano rate scadenze (v2): usato per generare le scadenze delle fatture >= 31/07/2026
-  payment_base: '', prima_scadenza_gg: 30, numero_rate: 1, payment_bank_account_id: '',
+  // Piano rate scadenze (v2): usato per generare le scadenze delle fatture >= 31/07/2026.
+  // Default base = 'fine_mese' (regola standard: le scadenze sono a fine mese, incluse
+  // le rimesse dirette). L'operatrice puo' cambiarla in 'data_fattura' quando serve.
+  payment_base: 'fine_mese', prima_scadenza_gg: 30, numero_rate: 1, payment_bank_account_id: '',
+  // Utenza con addebito permanente (RID/SDD): i suoi addebiti senza fattura si chiudono
+  // automaticamente come "utenza" (categoria utenze), senza agganciarli a una fattura.
+  is_utility: false,
 };
-
-// Metodi per cui la banca di pagamento è OBBLIGATORIA (serve per lo storno nei cashflow)
-const BANK_REQUIRED_METHODS = new Set([
-  'riba_30', 'riba_60', 'riba_90', 'riba_120',
-  'rid', 'sdd_core', 'sdd_b2b', 'carta_credito', 'carta_debito',
-]);
-const isBankRequired = (method: string) => BANK_REQUIRED_METHODS.has(method);
-
-// v2 payment method enum options for dropdown
-const PAYMENT_METHOD_OPTIONS = [
-  { group: 'Bonifico', items: [
-    { value: 'bonifico_ordinario', label: 'Bonifico Ordinario' },
-    { value: 'bonifico_urgente', label: 'Bonifico Urgente' },
-    { value: 'bonifico_sepa', label: 'Bonifico SEPA' },
-  ]},
-  { group: 'RIBA', items: [
-    { value: 'riba_30', label: 'Ri.Ba. 30gg' },
-    { value: 'riba_60', label: 'Ri.Ba. 60gg' },
-    { value: 'riba_90', label: 'Ri.Ba. 90gg' },
-    { value: 'riba_120', label: 'Ri.Ba. 120gg' },
-  ]},
-  { group: 'RID / SDD', items: [
-    { value: 'rid', label: 'RID' },
-    { value: 'sdd_core', label: 'SDD Core' },
-    { value: 'sdd_b2b', label: 'SDD B2B' },
-  ]},
-  { group: 'Altro', items: [
-    { value: 'rimessa_diretta', label: 'Rimessa Diretta' },
-    { value: 'carta_credito', label: 'Carta di Credito' },
-    { value: 'carta_debito', label: 'Carta di Debito' },
-    { value: 'assegno', label: 'Assegno' },
-    { value: 'contanti', label: 'Contanti' },
-    { value: 'compensazione', label: 'Compensazione' },
-    { value: 'f24', label: 'F24' },
-    { value: 'mav', label: 'MAV' },
-    { value: 'rav', label: 'RAV' },
-    { value: 'bollettino_postale', label: 'Bollettino Postale' },
-    { value: 'altro', label: 'Altro' },
-  ]},
-];
-
-// Human-readable label for payment method enum
-const PAYMENT_LABEL: Record<string, string> = {};
-PAYMENT_METHOD_OPTIONS.forEach(g => g.items.forEach(i => { PAYMENT_LABEL[i.value] = i.label; }));
-// v1 fallbacks
-PAYMENT_LABEL.bonifico = 'Bonifico';
-PAYMENT_LABEL.riba = 'Ri.Ba.';
-PAYMENT_LABEL.rid = 'RID';
-PAYMENT_LABEL.carta = 'Carta';
 
 const CATEGORIES = [
   'Merci', 'Servizi', 'Affitti', 'Utenze', 'Marketing', 'Logistica',
-  'Consulenza', 'Manutenzione', 'IT', 'Personale', 'Beni ammortizzabili', 'Altro',
+  'Consulenza', 'Manutenzione', 'IT', 'Personale', 'Beni ammortizzabili',
+  'Carburante', 'Viaggi e trasferte', 'Pulizie',
+  'Materiale di consumo e cancelleria', 'Altro',
 ];
+
+// Etichetta leggibile della base/tipologia di calcolo scadenze
+const BASE_LABEL: Record<string, string> = {
+  data_fattura: 'Data fattura',
+  fine_mese: 'Fine mese',
+};
+
+// Campi che il sistema compila da solo leggendo la fattura elettronica del
+// fornitore (bridge A-Cube). Servono a distinguerli da quelli scritti a mano.
+const PROFILE_FIELD_LABEL: Record<string, string> = {
+  codice_fiscale: 'codice fiscale',
+  regime_fiscale: 'regime fiscale',
+  indirizzo: 'indirizzo',
+  cap: 'CAP',
+  citta: 'città',
+  provincia: 'provincia',
+  iban: 'IBAN',
+  piano_pagamento: 'modalità delle scadenze',
+  metodo_pagamento: 'metodo di pagamento',
+  categoria: 'categoria',
+};
 
 // Carica TUTTE le payables del tenant con colonne leggere (mai xml_content),
 // paginando a blocchi da 1000 per superare il cap righe di PostgREST. Gli
@@ -106,9 +110,17 @@ async function fetchAllPayables(companyId: string): Promise<Array<Record<string,
   const all: Array<Record<string, unknown> & { id: string }> = [];
   for (let guard = 0, from = 0; guard < 50; guard++, from += pageSize) {
     const { data, error } = await supabase.from('payables')
-      .select('id, supplier_id, invoice_number, invoice_date, due_date, gross_amount, amount_remaining, status, payment_method, cash_movement_id')
+      // amount_paid / closed_manually / payment_date servono a payableOpenAmount
+      // (stessa regola "aperta" dello Scadenzario: NC chiuse a mano e quote in
+      // distinta in sospeso escono dal "da pagare").
+      .select('id, supplier_id, invoice_number, invoice_date, due_date, gross_amount, amount_paid, amount_remaining, status, payment_method, cash_movement_id, closed_manually, payment_date, is_provisional_paid, is_auto_debit')
       .eq('company_id', companyId)
       .not('supplier_id', 'is', null)
+      // Righe NASCOSTE (is_placeholder: autofatture reverse charge TD16-19,
+      // doppioni rimossi, righe "CHIUSO DA GO-LIVE"): non sono debiti e la vista
+      // v_payables_operative dello Scadenzario gia' le esclude. Senza questo
+      // filtro Fornitori le contava come "da pagare" (es. MILANI 26/A, 1.220 €).
+      .or('is_placeholder.is.null,is_placeholder.eq.false')
       .order('invoice_date', { ascending: false })
       .range(from, from + pageSize - 1);
     if (error) { console.warn('payables load:', error.message); break; }
@@ -152,6 +164,10 @@ export default function Fornitori() {
   // per-fornitore e KPI calcolati lato client e filtrabili per anno. Volume
   // piccolo (~769 righe NZ); paginato per superare il cap 1000 di PostgREST.
   const [allPayables, setAllPayables] = useState<PayableRow[]>([]);
+  // Quote gia' disposte in distinta (payable_id → disposto/NC compensate): la
+  // parte "in sospeso" non e' piu' da pagare a mano e va tolta dal residuo,
+  // come fa lo Scadenzario. Best-effort: mappa vuota = residuo pieno.
+  const [disposizioni, setDisposizioni] = useState<DisposizioniMap>(new Map());
   // Modalità di divisione attiva per fornitore (supplier_id → AllocationMode).
   // Caricata con UNA query aggregata in loadData (no N+1) e aggiornata in
   // place quando si salva dal pannello Gestione.
@@ -161,6 +177,8 @@ export default function Fornitori() {
   // UI state
   const [search, setSearch] = useState('');
   const [filterCategory, setFilterCategory] = useState('all');
+  // Export Excel "fatture per categoria": true mentre la libreria xlsx si carica.
+  const [exportingCategorie, setExportingCategorie] = useState(false);
   const [filterStatus, setFilterStatus] = useState('all');
   // Filtro "Stato lavorazione": '' = Tutti | lavorare | nocat | nosplit | scaduto
   const [filterWork, setFilterWork] = useState('all');
@@ -200,6 +218,28 @@ export default function Fornitori() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  // Schede del modal fornitore: "Pagamenti" è quella che si apre in modifica,
+  // "Anagrafica" in creazione. Le altre restano a un clic di distanza.
+  type ModalTab = 'pagamenti' | 'anagrafica' | 'recapiti';
+  const [modalTab, setModalTab] = useState<ModalTab>('pagamenti');
+  // Anteprima scadenze nel modal: fattura di prova (default oggi) e importo
+  // fisso di 1.000 €, così la divisione in rate si legge a colpo d'occhio.
+  const PREVIEW_GROSS = 1000;
+  const [previewDate, setPreviewDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const formPlan = useMemo(() => ({
+    payment_base: form.payment_base,
+    prima_scadenza_gg: form.payment_base ? form.prima_scadenza_gg : null,
+    numero_rate: form.numero_rate,
+  }), [form.payment_base, form.prima_scadenza_gg, form.numero_rate]);
+  const formPlanDerived = useMemo(() => derivePlan(formPlan), [formPlan]);
+  const previewRate = useMemo(
+    () => computeInstallments(previewDate, formPlanDerived, PREVIEW_GROSS),
+    [previewDate, formPlanDerived],
+  );
+  // Piano che non corrisponde a nessuna modalità dell'elenco (es. 45/75 gg):
+  // il blocco "accordo fuori standard" si apre da solo per non nasconderlo.
+  const isPianoFuoriStandard = !!form.payment_base
+    && !findScheduleMode(form.payment_base, form.prima_scadenza_gg, form.numero_rate);
   const [saving, setSaving] = useState(false);
 
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null);
@@ -239,7 +279,7 @@ export default function Fornitori() {
       setLoading(false);
     }, 15000);
     try {
-      const [suppRes, payables, rulesRes] = await Promise.all([
+      const [suppRes, payables, rulesRes, dispMap] = await Promise.all([
         supabase.from('suppliers').select('*')
           .eq('company_id', COMPANY_ID)
           .or('is_deleted.is.null,is_deleted.eq.false')
@@ -255,6 +295,12 @@ export default function Fornitori() {
           .select('supplier_id, allocation_mode')
           .eq('company_id', COMPANY_ID)
           .eq('is_active', true),
+        // Disposizioni in distinta + NC compensate: per il "da pagare" al netto
+        // delle quote in sospeso (stessa fonte dello Scadenzario).
+        fetchDisposizioniMap(COMPANY_ID).catch((e: unknown) => {
+          console.warn('disposizioni load:', e instanceof Error ? e.message : e);
+          return new Map() as DisposizioniMap;
+        }),
       ]);
 
       if (suppRes.error) console.warn('suppliers load:', suppRes.error.message);
@@ -262,6 +308,7 @@ export default function Fornitori() {
 
       setSuppliers((suppRes.data || []) as unknown as SupplierRow[]);
       setAllPayables(payables);
+      setDisposizioni(dispMap);
       const ruleMap: Record<string, AllocationMode> = {};
       (rulesRes.data || []).forEach((r: Record<string, unknown>) => {
         const sid = r.supplier_id as string | null;
@@ -435,29 +482,41 @@ export default function Fornitori() {
   // Aggregati per-fornitore calcolati lato client dalle payables FILTRATE per
   // anno (invoice_date). Replica la logica del vecchio v_fornitori_kpi ma resa
   // anno-consapevole: al cambio anno fatturato/da pagare/scaduto si aggiornano.
-  interface SupplierStat { total: number; paid: number; pending: number; overdue: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number }
-  const CLOSED = ['pagato', 'annullato', 'bloccato'];
+  // "Da pagare" e "scaduto" usano payableOpenAmount (src/lib/payableOpenAmount):
+  // la stessa regola "aperta" dello Scadenzario, cosi' le due pagine tornano
+  // uguali (bug GGZ: NC chiusa a mano ancora scalata qui → −174,48 €).
+  // Il "da pagare" (pending, netto) si legge come formula in tre righe:
+  //   overdue (scaduto, lordo) + toCome (a scadere, lordo) − |openCredits| (NC da scalare)
+  // Le tre voci sono disgiunte e sommano esattamente a pending: ogni riga aperta
+  // finisce in una sola (scaduto / positiva non scaduta / nota di credito).
+  interface SupplierStat { total: number; paid: number; pending: number; overdue: number; toCome: number; openCredits: number; count: number; lastDate: string | null; grossTotal: number; methods: Set<string>; paidCount: number; reconciledCount: number }
+  const fmt0 = (n: number) => Math.abs(n).toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const openAmountOf = useCallback((p: PayableRow): number =>
+    payableOpenAmount(p as unknown as PayableOpenInput, disposizioni.get(p.id)), [disposizioni]);
   const supplierStats = useMemo<Record<string, SupplierStat>>(() => {
     const stats: Record<string, SupplierStat> = {};
     for (const p of allPayables) {
       if (yearOf(p.invoice_date) !== year) continue;
       const key = p.supplier_id as string | null;
       if (!key) continue;
-      const s = stats[key] || (stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set<string>(), paidCount: 0, reconciledCount: 0 });
+      const s = stats[key] || (stats[key] = { total: 0, paid: 0, pending: 0, overdue: 0, count: 0, lastDate: null, grossTotal: 0, methods: new Set<string>(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 });
       const gross = Number(p.gross_amount) || 0;
-      const remaining = Number(p.amount_remaining) || 0;
+      const open = openAmountOf(p); // 0 se chiusa; residuo − quota in distinta altrimenti
       const status = String(p.status || '');
+      const effStatus = calculatePayableStatus(p); // scaduto per data, come lo Scadenzario
       s.count++;
       s.grossTotal += gross;
       if (status === 'pagato') { s.paid += gross; s.paidCount++; if (p.cash_movement_id) s.reconciledCount++; }
-      if (status === 'scaduto') s.overdue += remaining;
-      if (!CLOSED.includes(status)) s.pending += remaining;
+      if (status === 'nota_credito' || gross < 0) { if (open < 0) s.openCredits += open; }
+      else if (effStatus === 'scaduto') s.overdue += open;
+      else if (open > 0) s.toCome += open;
+      s.pending += open;
       if (p.payment_method) s.methods.add(String(p.payment_method));
       const d = p.invoice_date ? String(p.invoice_date) : null;
       if (d && (!s.lastDate || d > s.lastDate)) s.lastDate = d;
     }
     return stats;
-  }, [allPayables, year]);
+  }, [allPayables, year, openAmountOf]);
 
   // Filtered & sorted suppliers
   const filteredSuppliers = useMemo(() => {
@@ -491,10 +550,15 @@ export default function Fornitori() {
         const hasCat = !!s.category;
         const hasDiv = !!ruleModeBySupplier[s.id];
         const overdue = (supplierStats[s.id]?.overdue || 0) > 0;
+        // Un fornitore senza modalità paga con la regola standard invece che
+        // con il suo accordo: è lavoro arretrato quanto una categoria mancante.
+        const piano = planStatus(s);
         switch (filterWork) {
-          case 'lavorare': return !hasCat || !hasDiv;
+          case 'lavorare': return !hasCat || !hasDiv || piano !== 'ok';
           case 'nocat':    return !hasCat;
           case 'nosplit':  return !hasDiv;
+          case 'nomod':    return piano === 'assente';
+          case 'modparz':  return piano === 'incompleto';
           case 'scaduto':  return overdue;
           default:         return true;
         }
@@ -524,32 +588,61 @@ export default function Fornitori() {
     return Array.from(set).sort((a, b) => b - a);
   }, [allPayables, year]);
 
+  // Etichetta banca per id (per dettaglio fornitore + export piano pagamento)
+  const bankLabelById = useMemo(() => {
+    const m: Record<string, string> = {};
+    bankAccounts.forEach(b => { m[b.id] = b.label; });
+    return m;
+  }, [bankAccounts]);
+
+  // Dati export: metodo/piano in forma leggibile, così Sabrina può verificare
+  // la modalità e la tipologia caricate su ogni fornitore (Excel/CSV).
+  const suppliersForExport = useMemo(() => filteredSuppliers.map(s => {
+    const metodoRaw = String(s.payment_method || s.default_payment_method || '');
+    const hasPiano = !!s.payment_base;
+    return {
+      ...s,
+      _metodo: PAYMENT_LABEL[metodoRaw] || metodoRaw || '—',
+      _modalita: planStatus(s) === 'ok'
+        ? scheduleLabel(s.payment_base as string | null, s.prima_scadenza_gg as number | null, s.numero_rate as number | null)
+        : planStatus(s) === 'assente' ? 'da impostare' : 'da completare',
+      _base: hasPiano ? (BASE_LABEL[String(s.payment_base)] || String(s.payment_base)) : '—',
+      _prima_gg: hasPiano && s.prima_scadenza_gg != null ? String(s.prima_scadenza_gg) : '',
+      _rate: hasPiano && s.numero_rate != null ? String(s.numero_rate) : '',
+      _banca: s.payment_bank_account_id ? (bankLabelById[String(s.payment_bank_account_id)] || '—') : '—',
+    };
+  }), [filteredSuppliers, bankLabelById]);
+
   // KPIs dell'anno selezionato — totali coerenti fra loro, dalle payables filtrate:
   // - totalFatturato: somma gross_amount POSITIVI (esclude note credito negative).
-  // - totalPending: amount_remaining di fatture non chiuse (escluse anche NC).
-  // - overdue: amount_remaining scaduto. - payCount: n. fatture dell'anno.
+  // - totalPending: importo aperto (payableOpenAmount) di fatture non chiuse, escluse NC.
+  // - overdue: importo aperto scaduto. - payCount: n. fatture dell'anno.
   const kpis = useMemo(() => {
     const active = suppliers.filter(s => s.is_active !== false).length;
-    let totalPending = 0, overdue = 0, totalFatturato = 0, totalCrediti = 0, payCount = 0;
+    let totalPending = 0, overdue = 0, totalFatturato = 0, totalCrediti = 0, payCount = 0, openCredits = 0;
     const suppliersWithPayables = new Set<string>();
     for (const p of allPayables) {
       if (yearOf(p.invoice_date) !== year) continue;
       const gross = Number(p.gross_amount) || 0;
-      const remaining = Number(p.amount_remaining) || 0;
+      const open = openAmountOf(p);
       const status = String(p.status || '');
       const isNC = status === 'nota_credito' || gross < 0;
       payCount++;
       if (p.supplier_id) suppliersWithPayables.add(p.supplier_id as string);
       if (!isNC && gross > 0) totalFatturato += gross;        // gross positivi, escluse NC
       if (isNC) totalCrediti += Math.abs(gross);              // abs note credito
-      if (status === 'scaduto') overdue += remaining;         // remaining scadute
-      if (!CLOSED.includes(status) && !isNC) totalPending += remaining; // remaining aperte escluse NC
+      if (calculatePayableStatus(p) === 'scaduto') overdue += open; // scaduto per data (come Scadenzario), netto distinte
+      if (isNC && open < 0) openCredits += open;              // NC ancora da scalare (negativo)
+      if (!isNC) totalPending += open;                        // aperto, escluse NC
     }
     // Copertura lavorazione (sul totale fornitori, non filtrato per anno)
     const withCategory = suppliers.filter(s => !!s.category).length;
     const withDivision = suppliers.filter(s => !!ruleModeBySupplier[s.id]).length;
-    return { active, total: suppliers.length, totalPending, overdue, totalFatturato, totalCrediti, payCount, withPayables: suppliersWithPayables.size, withCategory, withDivision };
-  }, [suppliers, allPayables, year, ruleModeBySupplier]);
+    // Quanti fornitori hanno davvero la loro modalità di pagamento: gli altri
+    // usano la regola standard, e le loro scadenze possono essere sbagliate.
+    const withPlan = suppliers.filter(s => planStatus(s) === 'ok').length;
+    return { active, total: suppliers.length, totalPending, overdue, openCredits, totalFatturato, totalCrediti, payCount, withPayables: suppliersWithPayables.size, withCategory, withDivision, withPlan };
+  }, [suppliers, allPayables, year, ruleModeBySupplier, openAmountOf]);
 
   // Charts data
   interface CatBucket { name: string; value: number; count: number }
@@ -581,6 +674,8 @@ export default function Fornitori() {
   function openNew() {
     setEditingId(null);
     setForm({ ...EMPTY_FORM });
+    // Fornitore nuovo: si parte dal nome, che è l'unico campo obbligatorio.
+    setModalTab('anagrafica');
     setShowModal(true);
   }
 
@@ -589,6 +684,8 @@ export default function Fornitori() {
     const str = (k: string) => (s[k] != null ? String(s[k]) : '')
     const num = (k: string, fallback: number) => (s[k] != null ? Number(s[k]) : fallback)
     setEditingId(supplier.id);
+    // In modifica si apre dove si lavora quasi sempre: le condizioni di pagamento.
+    setModalTab('pagamenti');
     setForm({
       ragione_sociale: str('ragione_sociale') || str('name'),
       partita_iva: str('partita_iva') || str('vat_number'),
@@ -604,19 +701,39 @@ export default function Fornitori() {
       cap: str('cap'),
       category: str('category'),
       payment_terms: num('payment_terms', num('default_payment_terms', 30)),
-      payment_method: str('payment_method') || str('default_payment_method') || 'bonifico_ordinario',
+      // Normalizza i valori legacy della colonna text (es. 'bonifico') verso l'enum
+      // valido: senza questo, aprire e salvare un fornitore storico scriverebbe un
+      // valore non-enum su default_payment_method e il salvataggio fallirebbe.
+      payment_method: normalizePaymentMethod(str('payment_method'))
+        || normalizePaymentMethod(str('default_payment_method'))
+        || DEFAULT_PAYMENT_METHOD,
       cost_center: str('cost_center') || 'all',
       note: str('note') || str('notes'),
       payment_base: str('payment_base'),
       prima_scadenza_gg: num('prima_scadenza_gg', 30),
       numero_rate: num('numero_rate', 1),
       payment_bank_account_id: str('payment_bank_account_id'),
+      is_utility: s['is_utility'] === true,
     });
     setShowModal(true);
   }
 
   async function handleSave() {
-    if (!form.ragione_sociale.trim()) { showToast('Ragione sociale obbligatoria', 'error'); return; }
+    // Se il campo che blocca sta in un'altra scheda, la si apre: altrimenti
+    // l'avviso parlerebbe di qualcosa che non è sullo schermo.
+    if (!form.ragione_sociale.trim()) {
+      setModalTab('anagrafica');
+      showToast('Ragione sociale obbligatoria', 'error');
+      return;
+    }
+    // Banca obbligatoria per metodi che escono da un conto specifico (RiBa/RID/SDD/carta):
+    // serve per lo storno nelle simulazioni di cashflow. Blocca al salvataggio invece di
+    // lasciar passare una config incompleta (che poi genererebbe l'anomalia 'banca_mancante').
+    if (isBankRequired(form.payment_method) && !form.payment_bank_account_id) {
+      setModalTab('pagamenti');
+      showToast(`Con metodo ${PAYMENT_LABEL[form.payment_method] || form.payment_method} la banca di pagamento è obbligatoria`, 'error');
+      return;
+    }
     setSaving(true);
 
     try {
@@ -638,18 +755,27 @@ export default function Fornitori() {
         provincia: form.provincia.trim() || null,
         cap: form.cap.trim() || null,
         category: form.category || null,
-        payment_terms: parseInt(String(form.payment_terms)) || 30,
-        default_payment_terms: parseInt(String(form.payment_terms)) || 30,
-        payment_method: form.payment_method || 'bonifico_ordinario',
-        default_payment_method: form.payment_method || 'bonifico_ordinario',
+        // payment_terms non si compila più a mano (era un doppione di
+        // "giorni alla prima scadenza" che nessun calcolo leggeva): si tiene
+        // allineato al piano, così la colonna storica smette di divergere.
+        payment_terms: form.payment_base ? (Number(form.prima_scadenza_gg) || 0) : (parseInt(String(form.payment_terms)) || 30),
+        default_payment_terms: form.payment_base ? (Number(form.prima_scadenza_gg) || 0) : (parseInt(String(form.payment_terms)) || 30),
+        // Per le Ri.Ba. il termine (riba_30/60/90/120) si ricava dalla prima
+        // scadenza del piano: i giorni si impostano in un punto solo.
+        payment_method: methodForPlan(form.payment_method, form.prima_scadenza_gg) || DEFAULT_PAYMENT_METHOD,
+        default_payment_method: methodForPlan(form.payment_method, form.prima_scadenza_gg) || DEFAULT_PAYMENT_METHOD,
         // Piano rate scadenze (v2)
         payment_base: form.payment_base || null,
-        prima_scadenza_gg: Number(form.prima_scadenza_gg) || null,
+        // Con base impostata lo 0 è un valore VALIDO (fine mese = ultimo giorno
+        // del mese della fattura, "fine mese data fattura"): non va confuso con
+        // "assente" (che diventerebbe null e farebbe scattare 'piano_incompleto').
+        prima_scadenza_gg: form.payment_base ? (Number(form.prima_scadenza_gg) || 0) : null,
         numero_rate: Number(form.numero_rate) || null,
         payment_bank_account_id: form.payment_bank_account_id || null,
         cost_center: form.cost_center || 'all',
         note: form.note.trim() || null,
         notes: form.note.trim() || null,
+        is_utility: !!form.is_utility,
         is_active: true,
         is_deleted: false,
         updated_at: new Date().toISOString(),
@@ -708,9 +834,433 @@ export default function Fornitori() {
     a.click();
   }
 
+  // Export Excel — dettaglio delle fatture che compongono ogni categoria.
+  // Il grafico "Spesa per categoria" mostra solo il totale: qui si scarica
+  // l'elenco delle fatture che formano quel totale, così il numero a video si
+  // può verificare riga per riga contro la contabilità.
+  // Perimetro identico al grafico: fatture dell'anno selezionato, con fornitore
+  // agganciato, importo lordo (le note di credito restano col segno meno).
+  // Un foglio per categoria + "Riepilogo" + "Tutte le fatture".
+  async function exportFattureCategorie() {
+    const supplierById = new Map(suppliers.map(s => [String(s.id), s]));
+    const statoLabel: Record<string, string> = {
+      pagato: 'Pagato', pagato_provvisorio: 'Pagato (provvisorio)', nota_credito: 'Nota di credito',
+      sospeso: 'Sospeso', rimandato: 'Rimandato', annullato: 'Annullato', parziale: 'Parziale',
+      addebito_automatico: 'Addebito automatico', scaduto: 'Scaduto', in_scadenza: 'In scadenza',
+      da_pagare: 'Da pagare',
+    };
+    const itDate = (d: string) => (d ? new Date(d).toLocaleDateString('it-IT') : '');
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+
+    const righe = allPayables
+      .filter(p => yearOf(p.invoice_date) === year && p.supplier_id && supplierById.has(String(p.supplier_id)))
+      .map(p => {
+        const s = supplierById.get(String(p.supplier_id)) as SupplierRow;
+        const stato = calculatePayableStatus(p);
+        return {
+          categoria: String(s.category || 'Non categorizzato'),
+          fornitore: getName(s),
+          piva: getVat(s),
+          numero: String(p.invoice_number || ''),
+          data: p.invoice_date ? String(p.invoice_date) : '',
+          scadenza: p.due_date ? String(p.due_date) : '',
+          totale: round2(Number(p.gross_amount) || 0),
+          daPagare: round2(openAmountOf(p)),
+          stato: statoLabel[stato] || stato,
+        };
+      })
+      .sort((a, b) => a.categoria.localeCompare(b.categoria, 'it') || (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+
+    if (righe.length === 0) {
+      showToast(`Nessuna fattura da esportare per il ${year}`, 'error');
+      return;
+    }
+
+    setExportingCategorie(true);
+    try {
+      // xlsx caricata on-demand: non deve pesare sull'apertura della pagina.
+      const XLSX = await import('xlsx');
+      const wb = XLSX.utils.book_new();
+
+      // Categorie in ordine di spesa decrescente, come il grafico.
+      const categorie = Array.from(new Set(righe.map(r => r.categoria)))
+        .map(cat => {
+          const list = righe.filter(r => r.categoria === cat);
+          return {
+            cat,
+            list,
+            totale: round2(list.reduce((s, r) => s + r.totale, 0)),
+            daPagare: round2(list.reduce((s, r) => s + r.daPagare, 0)),
+            fornitori: new Set(list.map(r => r.fornitore)).size,
+          };
+        })
+        .sort((a, b) => b.totale - a.totale);
+
+      // Foglio 1 — riepilogo che riconcilia con i totali a video.
+      const riepilogo: (string | number)[][] = [
+        [`Fatture fornitori per categoria — anno ${year}`],
+        [`Estratto il ${new Date().toLocaleString('it-IT')}`],
+        [],
+        ['Categoria', 'Fornitori con fatture', 'N. fatture', 'Totale fatture €', 'Ancora da pagare €'],
+        ...categorie.map(c => [c.cat, c.fornitori, c.list.length, c.totale, c.daPagare]),
+        [
+          'TOTALE', '', righe.length,
+          round2(righe.reduce((s, r) => s + r.totale, 0)),
+          round2(righe.reduce((s, r) => s + r.daPagare, 0)),
+        ],
+      ];
+      const wsRiep = XLSX.utils.aoa_to_sheet(riepilogo);
+      wsRiep['!cols'] = [{ wch: 28 }, { wch: 20 }, { wch: 12 }, { wch: 18 }, { wch: 18 }];
+      XLSX.utils.book_append_sheet(wb, wsRiep, 'Riepilogo');
+
+      // Un foglio per categoria. Nome foglio: max 31 caratteri, niente : \ / ? * [ ]
+      const usati = new Set<string>(['Riepilogo']);
+      const nomeFoglio = (cat: string) => {
+        const base = (cat.replace(/[:\\/?*[\]]/g, ' ').trim() || 'Categoria').slice(0, 31);
+        let nome = base;
+        for (let i = 2; usati.has(nome); i++) nome = `${base.slice(0, 28)} ${i}`;
+        usati.add(nome);
+        return nome;
+      };
+      const intestazione = ['Fornitore', 'P.IVA', 'N. fattura', 'Data fattura', 'Scadenza', 'Totale fattura €', 'Ancora da pagare €', 'Stato'];
+      const larghezze = [{ wch: 38 }, { wch: 14 }, { wch: 16 }, { wch: 13 }, { wch: 13 }, { wch: 17 }, { wch: 18 }, { wch: 20 }];
+      for (const c of categorie) {
+        const aoa: (string | number)[][] = [
+          [`Categoria: ${c.cat} — anno ${year}`],
+          [],
+          intestazione,
+          ...c.list.map(r => [r.fornitore, r.piva, r.numero, itDate(r.data), itDate(r.scadenza), r.totale, r.daPagare, r.stato]),
+          ['TOTALE', '', '', '', '', c.totale, c.daPagare, ''],
+        ];
+        const ws = XLSX.utils.aoa_to_sheet(aoa);
+        ws['!cols'] = larghezze;
+        XLSX.utils.book_append_sheet(wb, ws, nomeFoglio(c.cat));
+      }
+
+      // Ultimo foglio — tutte le fatture insieme, con la colonna categoria,
+      // per chi preferisce filtrare a mano invece di saltare fra i fogli.
+      const tutte: (string | number)[][] = [
+        ['Categoria', ...intestazione],
+        ...righe.map(r => [r.categoria, r.fornitore, r.piva, r.numero, itDate(r.data), itDate(r.scadenza), r.totale, r.daPagare, r.stato]),
+      ];
+      const wsTutte = XLSX.utils.aoa_to_sheet(tutte);
+      wsTutte['!cols'] = [{ wch: 24 }, ...larghezze];
+      XLSX.utils.book_append_sheet(wb, wsTutte, 'Tutte le fatture');
+
+      XLSX.writeFile(wb, `Fatture_per_categoria_${year}.xlsx`);
+      showToast(`Excel scaricato: ${righe.length} fatture in ${categorie.length} categorie`);
+    } catch (e) {
+      console.warn('export fatture per categoria:', e);
+      showToast('Export non riuscito, riprova', 'error');
+    } finally {
+      setExportingCategorie(false);
+    }
+  }
+
   // ─── HELPER: get supplier display name ────────────────────────
   const getName = (s: SupplierRow) => String(s.ragione_sociale || s.name || 'N/D');
   const getVat = (s: SupplierRow) => String(s.partita_iva || s.vat_number || '');
+
+  // ─── DETTAGLIO + PANNELLO GESTIONE ────────────────────────────
+  // Estratti in funzioni di render perché sono usati in DUE punti: nella riga
+  // espansa della tabella desktop e dentro le card della vista mobile.
+  const renderSupplierDetail = (s: SupplierRow) => {
+    const name = getName(s);
+    const vat = getVat(s);
+    const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 };
+    // Scadenze del fornitore dell'anno selezionato, derivate da
+    // allPayables (già ordinate per invoice_date desc) — coerenti
+    // con KPI e statistiche year-aware.
+    const supplierPays = allPayables.filter(p => p.supplier_id === s.id && yearOf(p.invoice_date) === year);
+    const avgAmount = supplierPays.length > 0
+      ? supplierPays.reduce((acc, p) => acc + (Number(p.gross_amount) || 0), 0) / supplierPays.length
+      : 0;
+    // Scadenze ancora DA PAGARE (esclude chiuse, note di credito, quote gia'
+    // in distinta e residui a zero: stessa regola dello Scadenzario), ordinate
+    // dalla piu' recente. Le scadute vanno in cima. Serve per il riquadro qui sotto.
+    const openPays = supplierPays
+      .filter(p => !isPayableClosed(p as unknown as PayableOpenInput) && String(p.status) !== 'nota_credito')
+      .filter(p => openAmountOf(p) > 0)
+      .sort((a, b) => {
+        const sa = calculatePayableStatus(a) === 'scaduto' ? 0 : 1;
+        const sb = calculatePayableStatus(b) === 'scaduto' ? 0 : 1;
+        if (sa !== sb) return sa - sb;
+        return new Date(String(b.due_date || '')).getTime() - new Date(String(a.due_date || '')).getTime();
+      });
+    return (
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        {/* Col 1: Anagrafica completa */}
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+            <Building2 size={14} className="text-indigo-500" /> Anagrafica
+          </h4>
+          <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
+            <Detail label="Ragione Sociale" value={name} />
+            <Detail label="P.IVA" value={vat} mono />
+            <Detail label="Cod. Fiscale" value={(s.codice_fiscale || s.fiscal_code) as string | null | undefined} mono />
+            <Detail label="Codice SDI" value={s.codice_sdi as string | null | undefined} mono />
+            <Detail label="PEC" value={s.pec as string | null | undefined} />
+            <Detail label="IBAN" value={s.iban as string | null | undefined} mono />
+            <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
+            <Detail label="Indirizzo" value={s.indirizzo as string | null | undefined} />
+            <Detail label="Città" value={[s.cap, s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ')} />
+            <Detail label="Email" value={s.email as string | null | undefined} />
+            <Detail label="Telefono" value={s.telefono as string | null | undefined} />
+            {/* Da dove arriva il dato: i campi letti dalla fattura elettronica
+                sono compilati dal sistema, quelli non elencati sono a mano. */}
+            {Boolean(s.profile_from_invoice_at) && (
+              <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-[11px] leading-snug text-slate-500">
+                Compilato leggendo la fattura del{' '}
+                {new Date(String(s.profile_from_invoice_at)).toLocaleDateString('it-IT')}
+                {((s.profile_from_invoice_fields as string[] | null) || []).length > 0 && (
+                  <>: {((s.profile_from_invoice_fields as string[] | null) || [])
+                    .map(f => PROFILE_FIELD_LABEL[f] || f).join(', ')}</>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        {/* Col 2: Condizioni & classificazione */}
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+            <CreditCard size={14} className="text-indigo-500" /> Condizioni
+          </h4>
+          <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
+            <Detail label="Metodo pag." value={PAYMENT_LABEL[String(s.payment_method || s.default_payment_method || '')] || (s.payment_method as string | null) || (s.default_payment_method as string | null) || '—'} />
+            {/* Una riga sola al posto di base + giorni + rate: l'etichetta della
+                modalità le contiene già tutte e tre ("30/60 gg DFFM"). */}
+            <Detail
+              label="Scadenze"
+              value={planStatus(s) === 'ok'
+                ? scheduleLabel(s.payment_base as string | null, s.prima_scadenza_gg as number | null, s.numero_rate as number | null)
+                : planStatus(s) === 'assente' ? 'da impostare' : 'da completare'}
+            />
+            <Detail label="Banca pag." value={s.payment_bank_account_id ? (bankLabelById[String(s.payment_bank_account_id)] || '—') : '—'} />
+            <Detail label="Categoria" value={s.category as string | null | undefined} />
+            <Detail label="Centro costo" value={s.cost_center === 'all' ? `Tutti gli ${labels.pointOfSalePluralLower}` : (s.cost_center as string | null | undefined)} />
+            <Detail label="Stato" value={s.is_active !== false ? '✓ Attivo' : '✗ Disattivato'} />
+            {(s.note || s.notes) ? (
+              <>
+                <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
+                <div className="text-xs text-slate-500 italic">{String(s.note || s.notes || '')}</div>
+              </>
+            ) : null}
+          </div>
+        </div>
+        {/* Col 3: Statistiche & ultime fatture */}
+        <div>
+          <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
+            <BarChart3 size={14} className="text-indigo-500" /> Statistiche
+          </h4>
+          <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
+            <Detail label="Tot. fatture" value={stats.count || 0} />
+            <Detail label="Tot. fatturato" value={stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
+            <Detail label="Già pagato" value={stats.paid > 0 ? `€ ${stats.paid.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
+            {stats.paidCount > 0 && (
+              <Detail label="Riconciliati" value={`${stats.reconciledCount}/${stats.paidCount} in banca`} />
+            )}
+            <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
+            {/* Formula del "da pagare": scaduto + a scadere − NC da scalare */}
+            {stats.overdue > 0 && (
+              <div className="flex">
+                <span className="text-red-500 w-28 shrink-0 text-xs font-medium">Scaduto</span>
+                <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            {stats.toCome > 0 && (
+              <div className="flex">
+                <span className="text-amber-600 w-28 shrink-0 text-xs font-medium">+ A scadere</span>
+                <span className="text-amber-600 text-xs font-semibold">€ {stats.toCome.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            {stats.openCredits < 0 && (
+              <div className="flex">
+                <span className="text-emerald-600 w-28 shrink-0 text-xs font-medium">− NC da scalare</span>
+                <span className="text-emerald-600 text-xs font-semibold">€ {Math.abs(stats.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
+            {avgAmount > 0 && (
+              <Detail label="Media fattura" value={`€ ${avgAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
+            )}
+            {stats.lastDate && (
+              <Detail label="Ultima fattura" value={new Date(stats.lastDate).toLocaleDateString('it-IT')} />
+            )}
+          </div>
+          {/* Scadenze ancora da pagare (max 5, scadute in cima) */}
+          {openPays.length > 0 && (
+            <div className="mt-3">
+              <h4 className="text-xs font-semibold text-slate-400 uppercase mb-1.5">Scadenze da pagare</h4>
+              <div className="space-y-1">
+                {openPays.slice(0, 5).map((pay, i) => (
+                  <div key={i} className="bg-white rounded border border-slate-200 px-2.5 py-1.5 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
+                      }`} />
+                      <TextTooltip content={String(pay.invoice_number || '')}>
+                        <span className="font-medium text-slate-700 truncate">{String(pay.invoice_number || '')}</span>
+                      </TextTooltip>
+                      <span className="text-slate-400">{pay.due_date ? new Date(String(pay.due_date)).toLocaleDateString('it-IT') : ''}</span>
+                    </div>
+                    <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.amount_remaining ?? pay.gross_amount) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+                  </div>
+                ))}
+                {openPays.length > 5 && (
+                  <div className="text-xs text-slate-400 text-center pt-0.5">+ altre {openPays.length - 5} da pagare</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderGestionePanel = (s: SupplierRow) => {
+    const name = getName(s);
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
+          <span className="inline-flex items-center px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-[11px] font-semibold border border-violet-200">Pannello Gestione</span>
+          <span className="font-medium text-slate-700">{name}</span>
+          <span>— categoria, divisione e fatture nello stesso punto</span>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-4">
+          {/* Blocco A — Categoria merceologica */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Tag size={15} className="text-violet-600" /> Categoria merceologica</h3>
+            <select
+              value={String(s.category || '')}
+              onChange={e => saveCategory(s.id, e.target.value)}
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+            >
+              <option value="">— scegli categoria —</option>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <p className="text-[11.5px] text-slate-400 mt-2 leading-relaxed">Salvataggio immediato sull'anagrafica fornitore. Alimenta il grafico "Spesa per categoria" del tab Analytics.</p>
+          </div>
+
+          {/* Blocco B — Divisione tra outlet */}
+          <div className="bg-white rounded-xl border border-slate-200 p-4">
+            <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Split size={15} className="text-violet-600" /> Divisione tra {labels.pointOfSalePluralLower}</h3>
+            {activeOutletCount >= 2 ? (
+              <SupplierAllocationEditor
+                supplierId={s.id}
+                onSaved={(m) => onAllocationSaved(s.id, m)}
+                onCancel={() => setGestioneId(null)}
+              />
+            ) : (
+              <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3 leading-relaxed">
+                La divisione tra {labels.pointOfSalePluralLower} è disponibile solo con almeno 2 {labels.pointOfSalePluralLower} attivi.
+                {activeOutletCount === 1 ? ` Questo tenant ne ha 1: tutti i costi sono attribuiti all'unica sede.` : ' Nessun outlet attivo configurato.'}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Blocco C — Fatture del fornitore */}
+        <div className="bg-white rounded-xl border border-slate-200 p-4">
+          <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+            <FileText size={15} className="text-violet-600" /> Fatture del fornitore
+            {!gestInvLoading && gestInvoices.length > 0 && (
+              <span className="font-normal text-slate-400">({Math.min(gestInvoices.length, showAllInvoices ? gestInvoices.length : 20)} di {gestInvoices.length})</span>
+            )}
+          </h3>
+          {gestInvLoading ? (
+            <div className="flex items-center gap-2 py-6 text-sm text-slate-400"><Loader2 size={16} className="animate-spin" /> Caricamento fatture…</div>
+          ) : gestInvoices.length === 0 ? (
+            <p className="text-sm text-slate-400 py-4 text-center">
+              {getVat(s) ? 'Nessuna fattura elettronica per questo fornitore.' : 'Fornitore senza P.IVA: impossibile agganciare le fatture elettroniche.'}
+            </p>
+          ) : (
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-[10.5px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
+                    <th className="py-1.5 px-2 font-semibold">Numero</th>
+                    <th className="py-1.5 px-2 font-semibold">Data</th>
+                    <th className="py-1.5 px-2 font-semibold text-right">Importo</th>
+                    <th className="py-1.5 px-2 font-semibold text-center">Tipo</th>
+                    <th className="py-1.5 px-2 font-semibold text-center">Stato</th>
+                    <th className="py-1.5 px-2 font-semibold text-center">Documento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(showAllInvoices ? gestInvoices : gestInvoices.slice(0, 20)).map(inv => {
+                    const amt = Number(inv.gross_amount) || 0;
+                    const st = inv.invoice_number ? gestPayStatus[inv.invoice_number] : undefined;
+                    const stInfo = st === 'pagato' ? { t: 'Pagata', c: 'bg-emerald-100 text-emerald-700' }
+                      : st === 'scaduto' ? { t: 'Scaduta', c: 'bg-red-100 text-red-700' }
+                      : st ? { t: 'In scadenza', c: 'bg-amber-100 text-amber-700' }
+                      : { t: '—', c: 'bg-slate-100 text-slate-400' };
+                    const allg = allegatiCache[inv.id];
+                    const known = allg !== undefined;
+                    const hasAttach = known && allg.length > 0;
+                    const busy = busyInvoiceId === inv.id;
+                    return (
+                      <tr key={inv.id} className="border-b border-slate-50 hover:bg-slate-50/60">
+                        <td className="py-1.5 px-2 font-mono text-xs text-slate-700">
+                          <TextTooltip content={String(inv.invoice_number || '')}>
+                            <span className="truncate inline-block max-w-[160px] align-bottom">{inv.invoice_number || '—'}</span>
+                          </TextTooltip>
+                        </td>
+                        <td className="py-1.5 px-2 text-slate-500 text-xs whitespace-nowrap">{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('it-IT') : '—'}</td>
+                        <td className={`py-1.5 px-2 text-right font-semibold whitespace-nowrap ${amt < 0 ? 'text-red-600' : 'text-slate-700'}`}>€ {amt.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="py-1.5 px-2 text-center"><span className="text-[10.5px] font-mono text-slate-500">{inv.tipo_documento || '—'}</span></td>
+                        <td className="py-1.5 px-2 text-center"><span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${stInfo.c}`}>{stInfo.t}</span></td>
+                        <td className="py-1.5 px-2">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              onClick={() => handleOpenInvoice(inv)}
+                              disabled={busy}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-md text-[11.5px] font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
+                              title="Apri la fattura elettronica formattata"
+                            >
+                              {busy ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} Apri
+                            </button>
+                            {(!known || hasAttach) ? (
+                              <button
+                                onClick={() => handleOpenPdf(inv)}
+                                disabled={busy}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 border border-violet-200 bg-violet-50 rounded-md text-[11.5px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
+                                title="Apri il PDF allegato alla fattura"
+                              >
+                                {busy ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />} PDF
+                              </button>
+                            ) : (
+                              // Nessun allegato: il bottone resta cliccabile a fini
+                              // informativi — spiega col toast (oltre al tooltip) che
+                              // l'assenza del PDF non è un errore. L'utente non deve
+                              // ricordarsi le spiegazioni: le dà il sistema nel dubbio.
+                              <TextTooltip content="Nessun PDF allegato a questa fattura">
+                                <button
+                                  onClick={() => showToast("Questo fornitore non ha allegato il PDF alla fattura elettronica. Non è un errore: puoi vedere la fattura con 'Apri'.", 'info')}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-100 rounded-md text-[11.5px] font-medium text-slate-300 hover:text-slate-500 hover:border-slate-200"
+                                >
+                                  <Paperclip size={12} /> PDF
+                                </button>
+                              </TextTooltip>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {gestInvoices.length > 20 && !showAllInvoices && (
+                <button onClick={() => setShowAllInvoices(true)} className="mt-2 text-xs font-medium text-violet-600 hover:text-violet-800">
+                  Mostra tutte ({gestInvoices.length})
+                </button>
+              )}
+              <p className="text-[11.5px] text-slate-400 mt-2 leading-relaxed">"Apri" mostra la fattura XML formattata (stampa/PDF, download XML). "PDF" apre l'eventuale allegato della fattura senza uscire dalla pagina.</p>
+            </TableScroll>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   // ─── RENDER ───────────────────────────────────────────────────
 
@@ -732,7 +1282,7 @@ export default function Fornitori() {
         actions={
           <>
             <ExportMenu
-              data={filteredSuppliers}
+              data={suppliersForExport}
               columns={[
                 { key: 'ragione_sociale', label: 'Ragione Sociale' },
                 { key: 'partita_iva', label: 'P.IVA' },
@@ -744,11 +1294,19 @@ export default function Fornitori() {
                 { key: 'iban', label: 'IBAN' },
                 { key: 'category', label: 'Categoria' },
                 { key: 'payment_terms', label: 'Termini Pag.' },
-                { key: 'payment_method', label: 'Metodo Pag.' },
+                { key: '_metodo', label: 'Metodo Pag.' },
+                { key: '_modalita', label: 'Modalità scadenze' },
+                { key: '_base', label: 'Base scadenze' },
+                { key: '_prima_gg', label: '1ª scad. (gg)' },
+                { key: '_rate', label: 'N° rate' },
+                { key: '_banca', label: 'Banca pag.' },
               ]}
               filename={`Fornitori_${new Date().toISOString().slice(0, 10)}`}
               title="Fornitori"
             />
+            <button onClick={() => navigate('/fornitori/revisione')} className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50 flex items-center gap-2 shadow-sm" title="Rivedi metodo, scadenze e banca di tutti i fornitori">
+              <SlidersHorizontal size={16} /> Revisione pagamenti
+            </button>
             <button onClick={openNew} className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 flex items-center gap-2 shadow-sm">
               <Plus size={16} /> Nuovo Fornitore
             </button>
@@ -772,11 +1330,14 @@ export default function Fornitori() {
       </div>
 
       {/* KPI CARDS — riga unica, nessun numero ripetuto */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
         <KpiCard icon={Building2} label="Fornitori" value={kpis.total} sub={`${kpis.active} attivi`} color="indigo" />
         <KpiCard icon={Tag} label="Con categoria" value={`${kpis.withCategory} / ${kpis.total}`} color="purple" />
         <KpiCard icon={Split} label="Con divisione" value={`${kpis.withDivision} / ${kpis.total}`} color="purple" />
-        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color={kpis.overdue > 0 ? 'red' : 'green'} />
+        <KpiCard icon={Calendar} label="Con modalità pag." value={`${kpis.withPlan} / ${kpis.total}`} color={kpis.withPlan < kpis.total ? 'amber' : 'green'} />
+        <KpiCard icon={AlertTriangle} label="Scaduto" value={`€ ${kpis.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          sub={kpis.openCredits < 0 ? `NC da scalare −${Math.abs(kpis.openCredits).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €` : undefined}
+          color={kpis.overdue > 0 ? 'red' : 'green'} />
         <KpiCard icon={FileText} label="Totale fatture" value={`€ ${kpis.totalFatturato.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} sub={`${kpis.payCount.toLocaleString('de-DE')} fatture`} color="blue" />
       </div>
 
@@ -821,9 +1382,11 @@ export default function Fornitori() {
             </select>
             <select value={filterWork} onChange={e => setFilterWork(e.target.value)} className="px-3 py-2.5 border border-indigo-200 bg-indigo-50/40 rounded-lg text-sm text-indigo-700">
               <option value="all">Stato: tutti</option>
-              <option value="lavorare">Da lavorare (senza cat. o divisione)</option>
+              <option value="lavorare">Da lavorare (senza cat., divisione o modalità)</option>
               <option value="nocat">Senza categoria</option>
               <option value="nosplit">Senza divisione</option>
+              <option value="nomod">Senza modalità di pagamento</option>
+              <option value="modparz">Piano scadenze da completare</option>
               <option value="scaduto">Con scaduto</option>
             </select>
             <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="px-3 py-2.5 border border-slate-200 rounded-lg text-sm text-slate-600">
@@ -841,8 +1404,8 @@ export default function Fornitori() {
                 <button onClick={suResetSort} className="ml-auto text-blue-600 hover:text-blue-800 font-medium">Reset</button>
               </div>
             )}
-            {/* Table */}
-            <div className="overflow-x-auto">
+            {/* Table (solo desktop: sotto md c'è la vista a schede) */}
+            <TableScroll wrapperClassName="hidden md:block">
             <table className="w-full text-sm min-w-[920px]">
               <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                 <tr>
@@ -850,7 +1413,7 @@ export default function Fornitori() {
                   <SortableTh sortKey="partita_iva" sortBy={suSortBy} onSort={suOnSort}>P.IVA</SortableTh>
                   <SortableTh sortKey="category" sortBy={suSortBy} onSort={suOnSort} align="center">Cat.</SortableTh>
                   <th className="px-3 py-2.5 text-center text-[11px] uppercase tracking-wider font-semibold text-indigo-600">Divisione</th>
-                  <SortableTh sortKey="payment_method" sortBy={suSortBy} onSort={suOnSort} align="center">Metodo</SortableTh>
+                  <SortableTh sortKey="payment_method" sortBy={suSortBy} onSort={suOnSort} align="center">Pagamento</SortableTh>
                   <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-slate-500">Fatturato</th>
                   <th className="px-3 py-2.5 text-right text-[11px] uppercase tracking-wider font-semibold text-slate-500">Da pagare</th>
                   <th className="px-3 py-2.5 text-center text-[11px] uppercase tracking-wider font-semibold text-slate-500">Banca</th>
@@ -882,7 +1445,7 @@ export default function Fornitori() {
                 {sortedSuppliers.map(s => {
                   const name = getName(s);
                   const vat = getVat(s);
-                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0 };
+                  const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 };
                   const isExpanded = expandedId === s.id;
                   const pm = s.payment_method || s.default_payment_method;
 
@@ -896,7 +1459,12 @@ export default function Fornitori() {
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-2">
                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.is_active !== false ? 'bg-emerald-400' : 'bg-slate-300'}`} />
-                            <div className="min-w-0">
+                            {/* max-w obbligatorio: dentro una cella di tabella (table-layout
+                                auto) il solo `truncate` non limita nulla — la colonna si allarga
+                                al testo intero e con le ragioni sociali lunghe (fino a 70 caratteri
+                                nei dati reali) la tabella sfondava lo schermo. Il nome completo
+                                resta nel tooltip. */}
+                            <div className="min-w-0 max-w-[220px]">
                               <TextTooltip content={name}>
                                 <div className="font-medium text-slate-800 truncate">{name}</div>
                               </TextTooltip>
@@ -928,10 +1496,20 @@ export default function Fornitori() {
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-center">
-                          {pm ? (
-                            <span className="text-xs text-slate-600">{PAYMENT_LABEL[String(pm)] || String(pm)}</span>
+                          <div className="text-xs text-slate-600">{pm ? (PAYMENT_LABEL[String(pm)] || String(pm)) : '—'}</div>
+                          {/* Seconda riga: la modalità delle scadenze. Se manca,
+                              badge ambra: quelle fatture stanno scadendo con la
+                              regola standard, non con l'accordo del fornitore. */}
+                          {planStatus(s) === 'ok' ? (
+                            <div className="text-[11px] text-slate-400">{scheduleLabel(s.payment_base as string | null, s.prima_scadenza_gg as number | null, s.numero_rate as number | null)}</div>
                           ) : (
-                            <span className="text-xs text-slate-300">—</span>
+                            <TextTooltip content={planStatus(s) === 'assente'
+                              ? 'Nessuna modalità impostata: le fatture scadono a 30 giorni fine mese, in una rata sola.'
+                              : 'Piano incompleto: manca il numero di giorni alla prima scadenza.'}>
+                              <span className="inline-block mt-0.5 px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[11px] font-medium">
+                                {planStatus(s) === 'assente' ? 'da impostare' : 'da completare'}
+                              </span>
+                            </TextTooltip>
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-right">
@@ -943,13 +1521,16 @@ export default function Fornitori() {
                           ) : <span className="text-xs text-slate-300">—</span>}
                         </td>
                         <td className="px-3 py-2.5 text-right">
-                          {stats.overdue > 0 ? (
+                          {(stats.overdue > 0 || stats.toCome > 0 || stats.openCredits < 0) ? (
                             <div>
-                              <div className="font-semibold text-red-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
-                              <div className="text-xs text-red-500">{stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 0 })} scaduto</div>
+                              {/* Netto da pagare, poi la formula che lo spiega (righe solo se ≠ 0) */}
+                              <div className={`font-semibold ${stats.overdue > 0 ? 'text-red-600' : 'text-amber-600'}`}>€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
+                              <div className="text-[11px] leading-tight tabular-nums text-slate-500 space-y-px">
+                                {stats.overdue > 0 && <div><span className="text-red-500">scaduto</span> {fmt0(stats.overdue)}</div>}
+                                {stats.toCome > 0 && <div><span className="text-amber-600">+ a scadere</span> {fmt0(stats.toCome)}</div>}
+                                {stats.openCredits < 0 && <div><span className="text-emerald-600">− NC</span> {fmt0(stats.openCredits)}</div>}
+                              </div>
                             </div>
-                          ) : stats.pending > 0 ? (
-                            <div className="font-medium text-amber-600">€ {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })}</div>
                           ) : stats.grossTotal > 0 ? (
                             <span className="text-xs text-emerald-500 font-medium">Saldato</span>
                           ) : <span className="text-xs text-slate-300">—</span>}
@@ -986,7 +1567,7 @@ export default function Fornitori() {
                             <button onClick={(e) => { e.stopPropagation(); handleDelete(s.id); }} className="p-1 rounded hover:bg-red-50 text-slate-400 hover:text-red-500 transition" title="Disattiva">
                               <Trash2 size={14} />
                             </button>
-                            {isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}
+                            <span title={isExpanded ? 'Nascondi dettaglio' : 'Mostra dettaglio'}>{isExpanded ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />}</span>
                             <button
                               onClick={(e) => { e.stopPropagation(); toggleGestione(s.id); }}
                               className={`p-1 rounded transition ${gestioneId === s.id ? 'bg-violet-600 text-white' : 'text-violet-500 hover:bg-violet-50 hover:text-violet-700'}`}
@@ -999,259 +1580,16 @@ export default function Fornitori() {
                       </tr>
 
                       {/* Expanded detail */}
-                      {isExpanded && (() => {
-                        // Scadenze del fornitore dell'anno selezionato, derivate da
-                        // allPayables (già ordinate per invoice_date desc) — coerenti
-                        // con KPI e statistiche year-aware.
-                        const supplierPays = allPayables.filter(p => p.supplier_id === s.id && yearOf(p.invoice_date) === year);
-                        const avgAmount = supplierPays.length > 0
-                          ? supplierPays.reduce((acc, p) => acc + (Number(p.gross_amount) || 0), 0) / supplierPays.length
-                          : 0;
-                        return (
+                      {isExpanded && (
                         <tr className="bg-slate-50/50">
-                          <td colSpan={9} className="px-4 py-4">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                              {/* Col 1: Anagrafica completa */}
-                              <div>
-                                <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
-                                  <Building2 size={14} className="text-indigo-500" /> Anagrafica
-                                </h4>
-                                <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
-                                  <Detail label="Ragione Sociale" value={name} />
-                                  <Detail label="P.IVA" value={vat} mono />
-                                  <Detail label="Cod. Fiscale" value={(s.codice_fiscale || s.fiscal_code) as string | null | undefined} mono />
-                                  <Detail label="Codice SDI" value={s.codice_sdi as string | null | undefined} mono />
-                                  <Detail label="PEC" value={s.pec as string | null | undefined} />
-                                  <Detail label="IBAN" value={s.iban as string | null | undefined} mono />
-                                  <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
-                                  <Detail label="Indirizzo" value={s.indirizzo as string | null | undefined} />
-                                  <Detail label="Città" value={[s.cap, s.citta, s.provincia ? `(${s.provincia})` : ''].filter(Boolean).join(' ')} />
-                                  <Detail label="Email" value={s.email as string | null | undefined} />
-                                  <Detail label="Telefono" value={s.telefono as string | null | undefined} />
-                                </div>
-                              </div>
-                              {/* Col 2: Condizioni & classificazione */}
-                              <div>
-                                <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
-                                  <CreditCard size={14} className="text-indigo-500" /> Condizioni
-                                </h4>
-                                <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
-                                  <Detail label="Termini pag." value={`${(s.payment_terms as number | null) || (s.default_payment_terms as number | null) || 30} giorni`} />
-                                  <Detail label="Metodo pag." value={PAYMENT_LABEL[String(s.payment_method || s.default_payment_method || '')] || (s.payment_method as string | null) || (s.default_payment_method as string | null) || '—'} />
-                                  <Detail label="Categoria" value={s.category as string | null | undefined} />
-                                  <Detail label="Centro costo" value={s.cost_center === 'all' ? `Tutti gli ${labels.pointOfSalePluralLower}` : (s.cost_center as string | null | undefined)} />
-                                  <Detail label="Stato" value={s.is_active !== false ? '✓ Attivo' : '✗ Disattivato'} />
-                                  {(s.note || s.notes) ? (
-                                    <>
-                                      <div className="border-t border-slate-100 pt-1.5 mt-1.5" />
-                                      <div className="text-xs text-slate-500 italic">{String(s.note || s.notes || '')}</div>
-                                    </>
-                                  ) : null}
-                                </div>
-                              </div>
-                              {/* Col 3: Statistiche & ultime fatture */}
-                              <div>
-                                <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2 flex items-center gap-1.5">
-                                  <BarChart3 size={14} className="text-indigo-500" /> Statistiche
-                                </h4>
-                                <div className="bg-white rounded-lg border border-slate-200 p-3 space-y-1.5 text-sm">
-                                  <Detail label="Tot. fatture" value={stats.count || 0} />
-                                  <Detail label="Tot. fatturato" value={stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
-                                  <Detail label="Già pagato" value={stats.paid > 0 ? `€ ${stats.paid.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
-                                  {stats.paidCount > 0 && (
-                                    <Detail label="Riconciliati" value={`${stats.reconciledCount}/${stats.paidCount} in banca`} />
-                                  )}
-                                  <Detail label="Da pagare" value={stats.pending > 0 ? `€ ${stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` : '—'} />
-                                  {stats.overdue > 0 && (
-                                    <div className="flex">
-                                      <span className="text-red-500 w-28 shrink-0 text-xs font-medium">Scaduto</span>
-                                      <span className="text-red-600 text-xs font-semibold">€ {stats.overdue.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
-                                    </div>
-                                  )}
-                                  {avgAmount > 0 && (
-                                    <Detail label="Media fattura" value={`€ ${avgAmount.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} />
-                                  )}
-                                  {stats.lastDate && (
-                                    <Detail label="Ultima fattura" value={new Date(stats.lastDate).toLocaleDateString('it-IT')} />
-                                  )}
-                                </div>
-                                {/* Ultime 5 scadenze */}
-                                {supplierPays.length > 0 && (
-                                  <div className="mt-3">
-                                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-1.5">Ultime scadenze</h4>
-                                    <div className="space-y-1">
-                                      {supplierPays.slice(0, 5).map((pay, i) => (
-                                        <div key={i} className="bg-white rounded border border-slate-200 px-2.5 py-1.5 flex items-center justify-between text-xs">
-                                          <div className="flex items-center gap-2 min-w-0">
-                                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                              pay.status === 'pagato' ? 'bg-emerald-400' : pay.status === 'scaduto' ? 'bg-red-400' : 'bg-amber-400'
-                                            }`} />
-                                            <TextTooltip content={String(pay.invoice_number || '')}>
-                                              <span className="font-medium text-slate-700 truncate">{String(pay.invoice_number || '')}</span>
-                                            </TextTooltip>
-                                            <span className="text-slate-400">{pay.due_date ? new Date(String(pay.due_date)).toLocaleDateString('it-IT') : ''}</span>
-                                          </div>
-                                          <span className="font-semibold text-slate-700 shrink-0 ml-2">€ {(Number(pay.gross_amount) || 0).toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
-                                        </div>
-                                      ))}
-                                      {supplierPays.length > 5 && (
-                                        <div className="text-xs text-slate-400 text-center pt-0.5">+ altre {supplierPays.length - 5} scadenze</div>
-                                      )}
-                                    </div>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
+                          <td colSpan={9} className="px-4 py-4">{renderSupplierDetail(s)}</td>
                         </tr>
-                        );
-                      })()}
+                      )}
 
                       {/* Pannello GESTIONE (categoria + divisione + fatture) */}
                       {gestioneId === s.id && (
                         <tr className="bg-violet-50/40">
-                          <td colSpan={9} className="px-4 py-4 border-t-2 border-violet-300">
-                            <div className="space-y-4">
-                              <div className="flex items-center gap-2 text-xs text-slate-500 flex-wrap">
-                                <span className="inline-flex items-center px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-[11px] font-semibold border border-violet-200">Pannello Gestione</span>
-                                <span className="font-medium text-slate-700">{name}</span>
-                                <span>— categoria, divisione e fatture nello stesso punto</span>
-                              </div>
-
-                              <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-4">
-                                {/* Blocco A — Categoria merceologica */}
-                                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                                  <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Tag size={15} className="text-violet-600" /> Categoria merceologica</h3>
-                                  <select
-                                    value={String(s.category || '')}
-                                    onChange={e => saveCategory(s.id, e.target.value)}
-                                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
-                                  >
-                                    <option value="">— scegli categoria —</option>
-                                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                                  </select>
-                                  <p className="text-[11.5px] text-slate-400 mt-2 leading-relaxed">Salvataggio immediato sull'anagrafica fornitore. Alimenta il grafico "Spesa per categoria" del tab Analytics.</p>
-                                </div>
-
-                                {/* Blocco B — Divisione tra outlet */}
-                                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                                  <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2"><Split size={15} className="text-violet-600" /> Divisione tra {labels.pointOfSalePluralLower}</h3>
-                                  {activeOutletCount >= 2 ? (
-                                    <SupplierAllocationEditor
-                                      supplierId={s.id}
-                                      onSaved={(m) => onAllocationSaved(s.id, m)}
-                                      onCancel={() => setGestioneId(null)}
-                                    />
-                                  ) : (
-                                    <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3 leading-relaxed">
-                                      La divisione tra {labels.pointOfSalePluralLower} è disponibile solo con almeno 2 {labels.pointOfSalePluralLower} attivi.
-                                      {activeOutletCount === 1 ? ` Questo tenant ne ha 1: tutti i costi sono attribuiti all'unica sede.` : ' Nessun outlet attivo configurato.'}
-                                    </p>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Blocco C — Fatture del fornitore */}
-                              <div className="bg-white rounded-xl border border-slate-200 p-4">
-                                <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-                                  <FileText size={15} className="text-violet-600" /> Fatture del fornitore
-                                  {!gestInvLoading && gestInvoices.length > 0 && (
-                                    <span className="font-normal text-slate-400">({Math.min(gestInvoices.length, showAllInvoices ? gestInvoices.length : 20)} di {gestInvoices.length})</span>
-                                  )}
-                                </h3>
-                                {gestInvLoading ? (
-                                  <div className="flex items-center gap-2 py-6 text-sm text-slate-400"><Loader2 size={16} className="animate-spin" /> Caricamento fatture…</div>
-                                ) : gestInvoices.length === 0 ? (
-                                  <p className="text-sm text-slate-400 py-4 text-center">
-                                    {getVat(s) ? 'Nessuna fattura elettronica per questo fornitore.' : 'Fornitore senza P.IVA: impossibile agganciare le fatture elettroniche.'}
-                                  </p>
-                                ) : (
-                                  <div className="overflow-x-auto">
-                                    <table className="w-full text-sm">
-                                      <thead>
-                                        <tr className="text-left text-[10.5px] uppercase tracking-wider text-slate-400 border-b border-slate-100">
-                                          <th className="py-1.5 px-2 font-semibold">Numero</th>
-                                          <th className="py-1.5 px-2 font-semibold">Data</th>
-                                          <th className="py-1.5 px-2 font-semibold text-right">Importo</th>
-                                          <th className="py-1.5 px-2 font-semibold text-center">Tipo</th>
-                                          <th className="py-1.5 px-2 font-semibold text-center">Stato</th>
-                                          <th className="py-1.5 px-2 font-semibold text-center">Documento</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody>
-                                        {(showAllInvoices ? gestInvoices : gestInvoices.slice(0, 20)).map(inv => {
-                                          const amt = Number(inv.gross_amount) || 0;
-                                          const st = inv.invoice_number ? gestPayStatus[inv.invoice_number] : undefined;
-                                          const stInfo = st === 'pagato' ? { t: 'Pagata', c: 'bg-emerald-100 text-emerald-700' }
-                                            : st === 'scaduto' ? { t: 'Scaduta', c: 'bg-red-100 text-red-700' }
-                                            : st ? { t: 'In scadenza', c: 'bg-amber-100 text-amber-700' }
-                                            : { t: '—', c: 'bg-slate-100 text-slate-400' };
-                                          const allg = allegatiCache[inv.id];
-                                          const known = allg !== undefined;
-                                          const hasAttach = known && allg.length > 0;
-                                          const busy = busyInvoiceId === inv.id;
-                                          return (
-                                            <tr key={inv.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                                              <td className="py-1.5 px-2 font-mono text-xs text-slate-700">
-                                                <TextTooltip content={String(inv.invoice_number || '')}>
-                                                  <span className="truncate inline-block max-w-[160px] align-bottom">{inv.invoice_number || '—'}</span>
-                                                </TextTooltip>
-                                              </td>
-                                              <td className="py-1.5 px-2 text-slate-500 text-xs whitespace-nowrap">{inv.invoice_date ? new Date(inv.invoice_date).toLocaleDateString('it-IT') : '—'}</td>
-                                              <td className={`py-1.5 px-2 text-right font-semibold whitespace-nowrap ${amt < 0 ? 'text-red-600' : 'text-slate-700'}`}>€ {amt.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                              <td className="py-1.5 px-2 text-center"><span className="text-[10.5px] font-mono text-slate-500">{inv.tipo_documento || '—'}</span></td>
-                                              <td className="py-1.5 px-2 text-center"><span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-medium ${stInfo.c}`}>{stInfo.t}</span></td>
-                                              <td className="py-1.5 px-2">
-                                                <div className="flex items-center justify-center gap-1.5">
-                                                  <button
-                                                    onClick={() => handleOpenInvoice(inv)}
-                                                    disabled={busy}
-                                                    className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-200 rounded-md text-[11.5px] font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
-                                                    title="Apri la fattura elettronica formattata"
-                                                  >
-                                                    {busy ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />} Apri
-                                                  </button>
-                                                  {(!known || hasAttach) ? (
-                                                    <button
-                                                      onClick={() => handleOpenPdf(inv)}
-                                                      disabled={busy}
-                                                      className="inline-flex items-center gap-1 px-2.5 py-1 border border-violet-200 bg-violet-50 rounded-md text-[11.5px] font-medium text-violet-700 hover:bg-violet-100 disabled:opacity-50"
-                                                      title="Apri il PDF allegato alla fattura"
-                                                    >
-                                                      {busy ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />} PDF
-                                                    </button>
-                                                  ) : (
-                                                    // Nessun allegato: il bottone resta cliccabile a fini
-                                                    // informativi — spiega col toast (oltre al tooltip) che
-                                                    // l'assenza del PDF non è un errore. L'utente non deve
-                                                    // ricordarsi le spiegazioni: le dà il sistema nel dubbio.
-                                                    <TextTooltip content="Nessun PDF allegato a questa fattura">
-                                                      <button
-                                                        onClick={() => showToast("Questo fornitore non ha allegato il PDF alla fattura elettronica. Non è un errore: puoi vedere la fattura con 'Apri'.", 'info')}
-                                                        className="inline-flex items-center gap-1 px-2.5 py-1 border border-slate-100 rounded-md text-[11.5px] font-medium text-slate-300 hover:text-slate-500 hover:border-slate-200"
-                                                      >
-                                                        <Paperclip size={12} /> PDF
-                                                      </button>
-                                                    </TextTooltip>
-                                                  )}
-                                                </div>
-                                              </td>
-                                            </tr>
-                                          );
-                                        })}
-                                      </tbody>
-                                    </table>
-                                    {gestInvoices.length > 20 && !showAllInvoices && (
-                                      <button onClick={() => setShowAllInvoices(true)} className="mt-2 text-xs font-medium text-violet-600 hover:text-violet-800">
-                                        Mostra tutte ({gestInvoices.length})
-                                      </button>
-                                    )}
-                                    <p className="text-[11.5px] text-slate-400 mt-2 leading-relaxed">"Apri" mostra la fattura XML formattata (stampa/PDF, download XML). "PDF" apre l'eventuale allegato della fattura senza uscire dalla pagina.</p>
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
+                          <td colSpan={9} className="px-4 py-4 border-t-2 border-violet-300">{renderGestionePanel(s)}</td>
                         </tr>
                       )}
                     </React.Fragment>
@@ -1261,6 +1599,119 @@ export default function Fornitori() {
             )}
               </tbody>
             </table>
+            </TableScroll>
+
+            {/* Vista mobile a schede (sotto md): dati chiave + azioni con touch
+                target >=44px. Dettaglio e pannello Gestione riusano le stesse
+                funzioni di render della tabella desktop. */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {sortedSuppliers.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Building2 className="mx-auto text-slate-300 mb-3" size={40} />
+                  <p className="text-slate-500 font-medium text-sm">Nessun fornitore trovato</p>
+                  <p className="text-slate-400 text-xs mt-1">
+                    {suppliers.length === 0
+                      ? 'Importa fatture XML dall\'Import Hub per creare fornitori automaticamente'
+                      : 'Prova a modificare i filtri di ricerca'}
+                  </p>
+                </div>
+              ) : sortedSuppliers.map(s => {
+                const name = getName(s);
+                const vat = getVat(s);
+                const stats = supplierStats[s.id] || { grossTotal: 0, overdue: 0, pending: 0, paid: 0, count: 0, lastDate: null, methods: new Set(), paidCount: 0, reconciledCount: 0, openCredits: 0, toCome: 0 };
+                const isExpanded = expandedId === s.id;
+                const pm = s.payment_method || s.default_payment_method;
+                return (
+                  <div key={s.id} className={`p-3 ${isExpanded ? 'bg-indigo-50/30' : ''}`}>
+                    <button onClick={() => setExpandedId(isExpanded ? null : s.id)} className="w-full text-left">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${s.is_active !== false ? 'bg-emerald-400' : 'bg-slate-300'}`} />
+                          <div className="min-w-0">
+                            <div className="font-medium text-slate-800 break-words">{name}</div>
+                            {vat && <div className="text-xs text-slate-500 font-mono">{vat}</div>}
+                          </div>
+                        </div>
+                        {isExpanded
+                          ? <ChevronUp size={16} className="text-slate-400 shrink-0 mt-1" />
+                          : <ChevronDown size={16} className="text-slate-400 shrink-0 mt-1" />}
+                      </div>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-1.5">
+                        {s.category ? (
+                          <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">{String(s.category)}</span>
+                        ) : null}
+                        {ruleModeBySupplier[s.id] ? (
+                          <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-xs font-medium">{MODE_META[ruleModeBySupplier[s.id]].label}</span>
+                        ) : activeOutletCount >= 2 ? (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">divisione da definire</span>
+                        ) : null}
+                        {pm ? <span className="text-xs text-slate-500">{PAYMENT_LABEL[String(pm)] || String(pm)}</span> : null}
+                        {planStatus(s) === 'ok' ? (
+                          <span className="text-xs text-slate-400">{scheduleLabel(s.payment_base as string | null, s.prima_scadenza_gg as number | null, s.numero_rate as number | null)}</span>
+                        ) : (
+                          <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">
+                            {planStatus(s) === 'assente' ? 'modalità da impostare' : 'modalità da completare'}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center justify-between gap-3 mt-2">
+                        <div className="text-xs text-slate-500">
+                          Fatturato{' '}
+                          <span className="font-medium text-slate-700">
+                            {stats.grossTotal > 0 ? `€ ${stats.grossTotal.toLocaleString('de-DE', { minimumFractionDigits: 0 })}` : '—'}
+                          </span>
+                          {stats.count > 0 && <span className="text-slate-400"> · {stats.count} fatt.</span>}
+                        </div>
+                        <div className="text-right text-sm">
+                          {(stats.overdue > 0 || stats.toCome > 0 || stats.openCredits < 0) ? (
+                            <span className={`font-semibold ${stats.overdue > 0 ? 'text-red-600' : 'text-amber-600'}`}>
+                              € {stats.pending.toLocaleString('de-DE', { minimumFractionDigits: 0 })} da pagare
+                              <span className="block text-[11px] font-medium leading-tight tabular-nums text-slate-500">
+                                {stats.overdue > 0 && <span className="block"><span className="text-red-500">scaduto</span> {fmt0(stats.overdue)}</span>}
+                                {stats.toCome > 0 && <span className="block"><span className="text-amber-600">+ a scadere</span> {fmt0(stats.toCome)}</span>}
+                                {stats.openCredits < 0 && <span className="block"><span className="text-emerald-600">− NC</span> {fmt0(stats.openCredits)}</span>}
+                              </span>
+                            </span>
+                          ) : stats.grossTotal > 0 ? (
+                            <span className="text-xs text-emerald-500 font-medium">Saldato</span>
+                          ) : null}
+                        </div>
+                      </div>
+                    </button>
+                    <div className="flex items-center gap-2 mt-2.5">
+                      <button
+                        onClick={() => navigate(`/fornitori/${(s as { slug?: string }).slug || s.id}/scheda-contabile`)}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-2 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition">
+                        <BookOpen size={14} /> Scheda
+                      </button>
+                      <button
+                        onClick={() => openEdit(s)}
+                        className="flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-2 text-xs font-medium border border-slate-200 text-slate-600 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 transition">
+                        <Edit3 size={14} /> Modifica
+                      </button>
+                      <button
+                        onClick={() => toggleGestione(s.id)}
+                        className={`flex-1 inline-flex items-center justify-center gap-1.5 min-h-[44px] px-2 text-xs font-medium rounded-lg transition ${
+                          gestioneId === s.id ? 'bg-violet-600 text-white border border-violet-600' : 'border border-violet-200 text-violet-600 hover:bg-violet-50'
+                        }`}>
+                        <SlidersHorizontal size={14} /> Gestione
+                      </button>
+                      <button
+                        onClick={() => handleDelete(s.id)}
+                        className="inline-flex items-center justify-center min-w-[44px] min-h-[44px] border border-slate-200 text-slate-400 rounded-lg hover:text-red-500 hover:bg-red-50 transition"
+                        title="Disattiva" aria-label="Disattiva fornitore">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <div className="mt-3 pt-3 border-t border-slate-200">{renderSupplierDetail(s)}</div>
+                    )}
+                    {gestioneId === s.id && (
+                      <div className="mt-3 pt-3 border-t-2 border-violet-300">{renderGestionePanel(s)}</div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Footer */}
@@ -1302,7 +1753,20 @@ export default function Fornitori() {
 
               {/* Spend by Category */}
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
-                <h3 className="text-sm font-semibold text-slate-700 mb-4">Spesa per categoria</h3>
+                <div className="flex items-start justify-between gap-3 mb-4">
+                  <h3 className="text-sm font-semibold text-slate-700">Spesa per categoria</h3>
+                  {/* Il grafico dà solo il totale: l'Excel apre il totale nelle
+                      singole fatture, un foglio per categoria. */}
+                  <button
+                    onClick={exportFattureCategorie}
+                    disabled={exportingCategorie}
+                    title="Scarica l'elenco delle fatture che compongono ogni categoria"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-60 whitespace-nowrap"
+                  >
+                    {exportingCategorie ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    Excel dettaglio fatture
+                  </button>
+                </div>
                 {/* Fix 12.1: empty state quando l'unica categoria e' "Non
                     categorizzato" (grafico con una sola fetta = inutile).
                     Suggeriamo all'utente di categorizzare i fornitori. */}
@@ -1353,7 +1817,7 @@ export default function Fornitori() {
               {/* Aging Analysis */}
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm lg:col-span-2">
                 <h3 className="text-sm font-semibold text-slate-700 mb-4">Analisi aging fornitori</h3>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scroll-shadow-x">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-white z-10">
                       <tr className="border-b border-slate-200">
@@ -1402,149 +1866,356 @@ export default function Fornitori() {
       )}
 
       {/* MODAL FORNITORE */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setShowModal(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between p-6 border-b">
-              <h2 className="text-lg font-bold text-slate-900">
-                {editingId ? 'Modifica Fornitore' : 'Nuovo Fornitore'}
-              </h2>
-              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100"><X size={20} /></button>
+      <Modal
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        bare
+        ariaLabel={editingId ? 'Modifica Fornitore' : 'Nuovo Fornitore'}
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+        panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90dvh] overflow-y-auto m-4"
+      >
+            {/* Testa del modal: nome del fornitore e stato, sempre visibili.
+                Le schede sotto separano il lavoro quotidiano (pagamenti) dai dati
+                che si toccano di rado (anagrafica, recapiti). */}
+            <div className="flex items-start justify-between gap-3 px-6 pt-5 pb-3">
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-slate-900 truncate">
+                  {editingId ? (form.ragione_sociale.trim() || 'Modifica Fornitore') : 'Nuovo Fornitore'}
+                </h2>
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                  <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium">
+                    {PAYMENT_LABEL[methodForPlan(form.payment_method, form.prima_scadenza_gg)] || 'Metodo da scegliere'}
+                  </span>
+                  {planStatus(formPlan) === 'ok' ? (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium">
+                      {scheduleLabel(form.payment_base, form.prima_scadenza_gg, form.numero_rate)}
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-[11px] font-medium">
+                      {planStatus(formPlan) === 'assente' ? 'modalità da impostare' : 'modalità da completare'}
+                    </span>
+                  )}
+                  {form.category && (
+                    <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 text-[11px] font-medium">{form.category}</span>
+                  )}
+                  {form.is_utility && (
+                    <span className="px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[11px] font-medium">utenza</span>
+                  )}
+                </div>
+              </div>
+              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-slate-100 shrink-0"><X size={20} /></button>
             </div>
+
+            <div className="px-6 border-b border-slate-200 flex gap-1" role="tablist" aria-label="Sezioni del fornitore">
+              {([
+                { id: 'pagamenti', label: 'Pagamenti', warn: planStatus(formPlan) !== 'ok' },
+                { id: 'anagrafica', label: 'Anagrafica', warn: !form.ragione_sociale.trim() },
+                { id: 'recapiti', label: 'Recapiti e note', warn: false },
+              ] as const).map(t => (
+                <button
+                  key={t.id}
+                  role="tab"
+                  aria-selected={modalTab === t.id}
+                  onClick={() => setModalTab(t.id)}
+                  className={`px-3 py-2.5 text-sm font-semibold border-b-2 -mb-px inline-flex items-center gap-1.5 ${
+                    modalTab === t.id ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-700'
+                  }`}
+                >
+                  {t.label}
+                  {t.warn && <span className="w-1.5 h-1.5 rounded-full bg-amber-500" aria-label="da completare" />}
+                </button>
+              ))}
+            </div>
+
             <div className="p-6 space-y-5">
-              {/* Row 1: Anagrafica */}
+              {modalTab === 'pagamenti' && (
+                <>
               <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Dati anagrafici</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <label className="text-xs font-medium text-slate-600">Ragione Sociale *</label>
-                    <input value={form.ragione_sociale} onChange={e => setForm(f => ({ ...f, ragione_sociale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="Es. ACME S.R.L." />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Partita IVA</label>
-                    <input value={form.partita_iva} onChange={e => setForm(f => ({ ...f, partita_iva: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="01234567890" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Codice Fiscale</label>
-                    <input value={form.codice_fiscale} onChange={e => setForm(f => ({ ...f, codice_fiscale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Codice SDI</label>
-                    <input value={form.codice_sdi} onChange={e => setForm(f => ({ ...f, codice_sdi: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="0000000" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">PEC</label>
-                    <input value={form.pec} onChange={e => setForm(f => ({ ...f, pec: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="pec@fornitore.it" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 2: Contatti */}
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Contatti & indirizzo</h3>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Come si paga</h3>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-slate-600">Email</label>
-                    <input value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Telefono</label>
-                    <input value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs font-medium text-slate-600">Indirizzo</label>
-                    <input value={form.indirizzo} onChange={e => setForm(f => ({ ...f, indirizzo: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Città</label>
-                    <input value={form.citta} onChange={e => setForm(f => ({ ...f, citta: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs font-medium text-slate-600">Provincia</label>
-                      <input value={form.provincia} onChange={e => setForm(f => ({ ...f, provincia: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={2} placeholder="FI" />
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-slate-600">CAP</label>
-                      <input value={form.cap} onChange={e => setForm(f => ({ ...f, cap: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={5} />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Row 3: Pagamento & Classificazione */}
-              <div>
-                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Condizioni & classificazione</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">IBAN</label>
-                    <input value={form.iban} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="IT..." />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Categoria</label>
-                    <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                      <option value="">Seleziona...</option>
-                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Termini pagamento (gg)</label>
-                    <input type="number" value={form.payment_terms} onChange={e => setForm(f => ({ ...f, payment_terms: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600">Metodo pagamento</label>
-                    <select value={form.payment_method} onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                    <label htmlFor="forn-metodo-pagamento" className="text-xs font-medium text-slate-600">Metodo di pagamento</label>
+                    <select
+                      id="forn-metodo-pagamento"
+                      // riba_60/90/120 puntano tutti alla voce unica "Ri.Ba.":
+                      // il termine lo decide la modalità, qui si sceglie solo
+                      // COME si paga.
+                      value={isRiba(form.payment_method) ? 'riba_30' : form.payment_method}
+                      onChange={e => setForm(f => ({ ...f, payment_method: e.target.value }))}
+                      className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
+                    >
                       {PAYMENT_METHOD_OPTIONS.map(g => (
                         <optgroup key={g.group} label={g.group}>
                           {g.items.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
                         </optgroup>
                       ))}
                     </select>
+                    {isRiba(form.payment_method) && (
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        Il termine della Ri.Ba. segue la modalità scelta qui sotto: verrà salvata come <b>{PAYMENT_LABEL[methodForPlan(form.payment_method, form.prima_scadenza_gg)]}</b>.
+                      </p>
+                    )}
                   </div>
-                  {/* ── PIANO RATE SCADENZE (v2) ─────────────────────────── */}
-                  <div className="col-span-2 mt-1 pt-3 border-t border-slate-200">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Calendar size={14} className="text-indigo-500" />
-                      <span className="text-xs font-semibold text-slate-700">Piano scadenze (fatture dal 31/07/2026)</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Base di calcolo</label>
-                        <select value={form.payment_base} onChange={e => setForm(f => ({ ...f, payment_base: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                          <option value="">— non impostata —</option>
-                          <option value="data_fattura">Data fattura (a giorni)</option>
-                          <option value="fine_mese">Fine mese (a mesi)</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Banca di pagamento{isBankRequired(form.payment_method) && <span className="text-rose-500"> *</span>}</label>
-                        <select value={form.payment_bank_account_id} onChange={e => setForm(f => ({ ...f, payment_bank_account_id: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                          <option value="">— nessuna —</option>
-                          {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">1ª scadenza (gg)</label>
-                        <input type="number" value={form.prima_scadenza_gg} onChange={e => setForm(f => ({ ...f, prima_scadenza_gg: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} step={30} />
-                      </div>
-                      <div>
-                        <label className="text-xs font-medium text-slate-600">Numero rate</label>
-                        <input type="number" value={form.numero_rate} onChange={e => setForm(f => ({ ...f, numero_rate: Number(e.target.value) || 1 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={1} max={12} />
-                      </div>
-                    </div>
+                  <div>
+                    <label htmlFor="forn-banca-addebito" className="text-xs font-medium text-slate-600">Banca di addebito{isBankRequired(form.payment_method) && <span className="text-rose-500"> *</span>}</label>
+                    <select id="forn-banca-addebito" value={form.payment_bank_account_id} onChange={e => setForm(f => ({ ...f, payment_bank_account_id: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                      <option value="">Nessuna</option>
+                      {bankAccounts.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
+                    </select>
+                    <p className="mt-1 text-[11px] text-slate-400">Il conto da cui esce il pagamento. Serve per prevedere le uscite di cassa.</p>
                     {isBankRequired(form.payment_method) && !form.payment_bank_account_id && (
-                      <div className="mt-2 flex items-center gap-1.5 text-xs text-rose-600">
-                        <AlertTriangle size={13} /> Con metodo {PAYMENT_LABEL[form.payment_method] || form.payment_method} la banca è obbligatoria (serve per il cashflow).
+                      <div className="mt-1.5 flex items-start gap-1.5 text-xs text-rose-600">
+                        <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+                        <span>Con {PAYMENT_LABEL[form.payment_method] || form.payment_method} serve la banca di addebito. Senza, il pagamento non entra nelle previsioni di cassa.</span>
                       </div>
                     )}
-                    <p className="mt-2 text-[11px] text-slate-400">Le rate successive sono +30gg (data fattura) o +1 mese (fine mese). Importo diviso equamente tra le rate.</p>
-                  </div>
-                  <div className="col-span-2">
-                    <label className="text-xs font-medium text-slate-600">Note</label>
-                    <textarea value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} rows={2} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
                 </div>
               </div>
+
+              <div>
+                <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3 flex items-center gap-1.5">
+                  <Calendar size={14} className="text-indigo-500" /> Quando scadono le fatture
+                </h3>
+
+                <div>
+                  <label htmlFor="forn-modalita-scadenze" className="text-xs font-medium text-slate-600">Modalità di pagamento</label>
+                  <select
+                    id="forn-modalita-scadenze"
+                    value={form.payment_base ? (findScheduleMode(form.payment_base, form.prima_scadenza_gg, form.numero_rate)?.label || '') : ''}
+                    onChange={e => {
+                      const m = SCHEDULE_MODE_GROUPS.flatMap(g => g.items).find(x => x.label === e.target.value);
+                      if (!m || !m.base || m.prima == null) return;
+                      setForm(f => ({ ...f, payment_base: m.base as string, prima_scadenza_gg: m.prima as number, numero_rate: m.rate as number }));
+                    }}
+                    className={`mt-1 w-full px-3 py-2 border rounded-lg text-sm ${planStatus(formPlan) === 'ok' ? 'border-slate-200' : 'border-amber-300 bg-amber-50'}`}
+                  >
+                    <option value="">
+                      {form.payment_base
+                        ? `Accordo fuori standard: ${scheduleLabel(form.payment_base, form.prima_scadenza_gg, form.numero_rate)}`
+                        : 'Non impostata (vale la regola standard)'}
+                    </option>
+                    {SCHEDULE_MODE_GROUPS.filter(g => g.group !== 'Personalizzata').map(g => (
+                      <optgroup key={g.group} label={SCHEDULE_GROUP_TEXT[g.group] || g.group}>
+                        {g.items.map(o => <option key={o.label} value={o.label}>{scheduleModeText(o)}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-[11px] text-slate-400">Decide quando scadono le fatture di questo fornitore. Se una fattura porta già le sue scadenze, valgono quelle.</p>
+                </div>
+
+                {/* Avviso: e' l'unico punto in cui ci si puo' accorgere che il
+                    fornitore sta usando la regola standard invece del suo accordo. */}
+                {planStatus(formPlan) !== 'ok' && (
+                  <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 flex items-start gap-2">
+                    <AlertTriangle size={14} className="text-amber-600 mt-0.5 shrink-0" />
+                    <div className="text-xs text-amber-800">
+                      {planStatus(formPlan) === 'assente' ? (
+                        <>
+                          <span className="font-medium">Modalità non impostata.</span> Per ora le fatture di questo fornitore
+                          scadono a 30 giorni fine mese, in una rata sola. Scegli la modalità giusta, oppure conferma quella standard.
+                          <button
+                            type="button"
+                            onClick={() => setForm(f => ({ ...f, payment_base: 'fine_mese', prima_scadenza_gg: 30, numero_rate: 1 }))}
+                            className="ml-2 px-2 py-0.5 bg-white border border-amber-300 rounded text-[11px] font-semibold text-amber-800 hover:bg-amber-100"
+                          >
+                            Usa la regola standard
+                          </button>
+                        </>
+                      ) : (
+                        <><span className="font-medium">Piano da completare:</span> manca il numero di giorni alla prima scadenza.
+                        Scegli una modalità qui sopra, oppure compila i campi in «Accordo fuori standard».</>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Anteprima con la STESSA logica delle scadenze vere
+                    (computeInstallments), cosi' la sigla diventa una data. */}
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <span className="text-xs font-semibold text-slate-700">Anteprima scadenze</span>
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                      Fattura di prova del
+                      <input type="date" value={previewDate} onChange={e => setPreviewDate(e.target.value)} className="px-2 py-1 border border-slate-200 rounded text-[11px] bg-white" />
+                    </label>
+                  </div>
+                  {previewRate.length === 1 ? (
+                    <p className="text-sm text-slate-700">
+                      Una fattura del <b>{fmtDateIt(previewDate)}</b> scade il <b>{fmtDateIt(previewRate[0].dueDate)}</b>.
+                    </p>
+                  ) : previewRate.length > 1 ? (
+                    <>
+                      <p className="text-sm text-slate-700">Una fattura del <b>{fmtDateIt(previewDate)}</b> da <b>1.000 €</b> si divide così:</p>
+                      <div className="mt-1.5 space-y-1">
+                        {previewRate.map((r, i) => (
+                          <div key={r.dueDate + i} className="flex items-center gap-3 text-xs">
+                            <span className="text-slate-400 w-14 shrink-0">{i + 1}ª rata</span>
+                            <span className="font-medium text-slate-700 w-24">{fmtDateIt(r.dueDate)}</span>
+                            <span className="text-slate-500">€ {r.amount.toLocaleString('de-DE', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </>
+                  ) : null}
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    Calcolo: {formPlanDerived.base === 'data_fattura' ? 'data della fattura' : 'fine mese'}, prima scadenza
+                    a {formPlanDerived.gg} giorni, {formPlanDerived.nRate > 1 ? `${formPlanDerived.nRate} rate` : 'rata unica'}.
+                  </p>
+                </div>
+                <p className="mt-1.5 text-[11px] text-slate-400">Vale per le fatture dal 31/07/2026 che non portano già una loro scadenza.</p>
+
+                {/* Accordi fuori standard: un clic in piu' per i pochi che ne
+                    hanno bisogno, invece di quattro campi per tutti. */}
+                <details className="mt-3 group" open={planStatus(formPlan) === 'incompleto' || isPianoFuoriStandard}>
+                  <summary className="cursor-pointer text-xs font-medium text-indigo-600 hover:text-indigo-700 list-none flex items-center gap-1.5">
+                    <ChevronDown size={14} className="group-open:rotate-180 transition" />
+                    Accordo fuori standard (per esempio 45 e 75 giorni, oppure 3 rate)
+                  </summary>
+                  <div className="mt-2 grid grid-cols-3 gap-3">
+                    <div>
+                      <label htmlFor="forn-base-di-calcolo" className="text-xs font-medium text-slate-600">Si conta da</label>
+                      <select id="forn-base-di-calcolo" value={form.payment_base} onChange={e => setForm(f => ({ ...f, payment_base: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                        <option value="">Non impostata</option>
+                        <option value="fine_mese">Fine mese</option>
+                        <option value="data_fattura">Data della fattura</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="forn-1a-scadenza-gg" className="text-xs font-medium text-slate-600">Giorni alla prima scadenza</label>
+                      <input id="forn-1a-scadenza-gg" type="number" value={form.prima_scadenza_gg} onChange={e => setForm(f => ({ ...f, prima_scadenza_gg: Number(e.target.value) || 0 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={0} max={365} />
+                    </div>
+                    <div>
+                      <label htmlFor="forn-numero-rate" className="text-xs font-medium text-slate-600">Numero di rate</label>
+                      <input id="forn-numero-rate" type="number" value={form.numero_rate} onChange={e => setForm(f => ({ ...f, numero_rate: Number(e.target.value) || 1 }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" min={1} max={12} />
+                    </div>
+                  </div>
+                  <p className="mt-1.5 text-[11px] text-slate-400">
+                    Ogni rata dopo la prima slitta di un mese. L'importo si divide in parti uguali.
+                    Con «Fine mese» e 0 giorni la scadenza cade l'ultimo giorno del mese della fattura.
+                  </p>
+                </details>
+              </div>
+
+              <div className="pt-1 border-t border-slate-200">
+                <div className="pt-3">
+                  <label className="flex items-start gap-2.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!form.is_utility}
+                        onChange={e => setForm(f => ({ ...f, is_utility: e.target.checked }))}
+                        className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span className="text-sm">
+                        <span className="font-medium text-slate-700">È un'utenza (addebito permanente RID/SDD)</span>
+                        <span className="block text-[11px] text-slate-400 mt-0.5">
+                          Es. HERA, Enel, Enegan, Acea. Gli addebiti in uscita a questo fornitore che non
+                          hanno una fattura agganciata si chiudono da soli come «utenza» (categoria utenze),
+                          senza restare in attesa di riconciliazione. Se una bolletta è caricata come fattura,
+                          resta la precedenza alla fattura.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+                </>
+              )}
+
+              {modalTab === 'anagrafica' && (
+                <>
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Chi è il fornitore</h3>
+                  <div className="grid grid-cols-2 gap-3">
+
+                  <div className="col-span-2">
+                    <label htmlFor="forn-ragione-sociale" className="text-xs font-medium text-slate-600">Ragione Sociale *</label>
+                    <input id="forn-ragione-sociale" value={form.ragione_sociale} onChange={e => setForm(f => ({ ...f, ragione_sociale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="Es. ACME S.R.L." />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-partita-iva" className="text-xs font-medium text-slate-600">Partita IVA</label>
+                    <input id="forn-partita-iva" value={form.partita_iva} onChange={e => setForm(f => ({ ...f, partita_iva: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="01234567890" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-codice-fiscale" className="text-xs font-medium text-slate-600">Codice Fiscale</label>
+                    <input id="forn-codice-fiscale" value={form.codice_fiscale} onChange={e => setForm(f => ({ ...f, codice_fiscale: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-codice-sdi" className="text-xs font-medium text-slate-600">Codice SDI</label>
+                    <input id="forn-codice-sdi" value={form.codice_sdi} onChange={e => setForm(f => ({ ...f, codice_sdi: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="0000000" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-pec" className="text-xs font-medium text-slate-600">PEC</label>
+                    <input id="forn-pec" value={form.pec} onChange={e => setForm(f => ({ ...f, pec: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="pec@fornitore.it" />
+                  </div>
+                    <div className="col-span-2">
+                    <label htmlFor="forn-iban" className="text-xs font-medium text-slate-600">IBAN del fornitore</label>
+                    <input id="forn-iban" value={form.iban} onChange={e => setForm(f => ({ ...f, iban: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" placeholder="IT..." />
+                  </div>
+                  </div>
+                  <p className="mt-2 text-[11px] text-slate-400">P.IVA, codice SDI e PEC arrivano dalle fatture elettroniche: di solito non serve toccarli.</p>
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Classificazione</h3>
+                  <div className="grid grid-cols-2 gap-3">
+<div className="col-span-2">
+                    <label htmlFor="forn-categoria" className="text-xs font-medium text-slate-600">Categoria</label>
+                    <select id="forn-categoria" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+                      <option value="">Seleziona...</option>
+                      {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  </div>
+                </div>
+                </>
+              )}
+
+              {modalTab === 'recapiti' && (
+                <>
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Contatti &amp; indirizzo</h3>
+                  <div className="grid grid-cols-2 gap-3">
+
+                  <div>
+                    <label htmlFor="forn-email" className="text-xs font-medium text-slate-600">Email</label>
+                    <input id="forn-email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-telefono" className="text-xs font-medium text-slate-600">Telefono</label>
+                    <input id="forn-telefono" value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div className="col-span-2">
+                    <label htmlFor="forn-indirizzo" className="text-xs font-medium text-slate-600">Indirizzo</label>
+                    <input id="forn-indirizzo" value={form.indirizzo} onChange={e => setForm(f => ({ ...f, indirizzo: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label htmlFor="forn-citta" className="text-xs font-medium text-slate-600">Città</label>
+                    <input id="forn-citta" value={form.citta} onChange={e => setForm(f => ({ ...f, citta: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label htmlFor="forn-provincia" className="text-xs font-medium text-slate-600">Provincia</label>
+                      <input id="forn-provincia" value={form.provincia} onChange={e => setForm(f => ({ ...f, provincia: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={2} placeholder="FI" />
+                    </div>
+                    <div>
+                      <label htmlFor="forn-cap" className="text-xs font-medium text-slate-600">CAP</label>
+                      <input id="forn-cap" value={form.cap} onChange={e => setForm(f => ({ ...f, cap: e.target.value }))} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" maxLength={5} />
+                    </div>
+                  </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-xs font-semibold text-slate-500 uppercase mb-3">Note</h3>
+                  <div className="grid grid-cols-2 gap-3">
+<div className="col-span-2">
+                    <label htmlFor="forn-note" className="text-xs font-medium text-slate-600">Note</label>
+                    <textarea id="forn-note" value={form.note} onChange={e => setForm(f => ({ ...f, note: e.target.value }))} rows={2} className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  </div>
+                </div>
+                </>
+              )}
             </div>
 
             <div className="flex justify-end gap-3 p-6 border-t bg-slate-50">
@@ -1556,27 +2227,30 @@ export default function Fornitori() {
                 {editingId ? 'Salva Modifiche' : 'Crea Fornitore'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* INVOICE VIEWER (XML fattura formattato) */}
       {viewerXml && <InvoiceViewer xmlContent={viewerXml} onClose={() => setViewerXml(null)} />}
 
       {/* PDF VIEWER (allegato PDF della fattura) in modal custom */}
-      {pdfModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setPdfModal(null)}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[85vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+      <Modal
+        open={!!pdfModal}
+        onClose={() => setPdfModal(null)}
+        bare
+        ariaLabel={pdfModal?.nome ?? 'Anteprima PDF'}
+        containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        panelClassName="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[85dvh] flex flex-col overflow-hidden"
+      >
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 shrink-0">
               <div className="flex items-center gap-2 min-w-0">
                 <Paperclip size={16} className="text-violet-600 shrink-0" />
-                <TextTooltip content={pdfModal.nome}>
-                  <span className="font-semibold text-slate-800 truncate">{pdfModal.nome}</span>
+                <TextTooltip content={pdfModal?.nome ?? ''}>
+                  <span className="font-semibold text-slate-800 truncate">{pdfModal?.nome}</span>
                 </TextTooltip>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
-                  onClick={() => downloadBytes(pdfModal.data, pdfModal.nome, 'application/pdf')}
+                  onClick={() => { if (pdfModal) downloadBytes(pdfModal.data, pdfModal.nome, 'application/pdf') }}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50"
                 >
                   <Download size={15} /> Scarica PDF
@@ -1585,11 +2259,11 @@ export default function Fornitori() {
               </div>
             </div>
             <div className="flex-1 min-h-0">
-              <PdfViewer pdfData={pdfViewerData} className="h-full" />
+              <Suspense fallback={<div className="p-4 text-center text-slate-500 text-sm">Caricamento anteprima…</div>}>
+                <PdfViewer pdfData={pdfViewerData} className="h-full" />
+              </Suspense>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* TOAST */}
       {toast && (
@@ -1602,7 +2276,6 @@ export default function Fornitori() {
           <span>{toast.msg}</span>
         </div>
       )}
-      <PageHelp page="fornitori" />
       </div>
     </div>
   );
@@ -1610,27 +2283,8 @@ export default function Fornitori() {
 
 // ─── SUB-COMPONENTS ─────────────────────────────────────────────
 
-function KpiCard({ icon: Icon, label, value, sub, color }: { icon: React.ElementType; label: string; value: string | number; sub?: string; color: string }) {
-  const colorMap: Record<string, string> = {
-    indigo: 'bg-indigo-50 text-indigo-600', blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-emerald-50 text-emerald-600', red: 'bg-red-50 text-red-600',
-    amber: 'bg-amber-50 text-amber-600', purple: 'bg-purple-50 text-purple-600',
-  };
-  const cls = colorMap[color] || colorMap.indigo;
-
-  return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-      <div className="flex items-center gap-3">
-        <div className={`p-2 rounded-lg ${cls}`}><Icon size={20} /></div>
-        <div>
-          <div className="text-xl font-bold text-slate-900">{value}</div>
-          <div className="text-xs text-slate-500">{label}</div>
-          {sub && <div className="text-xs text-slate-400">{sub}</div>}
-        </div>
-      </div>
-    </div>
-  );
-}
+// KpiCard locale sostituita dal componente condiviso ui/StatKpi
+const KpiCard = (props: Omit<React.ComponentProps<typeof StatKpi>, 'size'>) => <StatKpi {...props} size="md" />
 
 function Detail({ label, value, mono }: { label: string; value?: string | number | null; mono?: boolean }) {
   return (

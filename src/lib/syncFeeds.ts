@@ -10,7 +10,7 @@
 // Si misura l'ULTIMA RUN (riuscita o meno), non l'ultima fattura: una run ok con
 // items=0 (giorno senza documenti nuovi) è "Aggiornato", non un errore.
 
-export type SyncFeed = 'banche' | 'fatture_passive' | 'corrispettivi' | 'cassetto_fiscale'
+export type SyncFeed = 'banche' | 'fatture_passive' | 'fatture_attive' | 'corrispettivi' | 'cassetto_fiscale'
 export type SyncOrigin = 'auto_cron' | 'manuale'
 export type SyncRunStatus = 'ok' | 'parziale' | 'errore' | 'vuoto'
 
@@ -26,6 +26,27 @@ export interface SyncRun {
   error_message: string | null
   duration_ms: number | null
   run_at: string
+}
+
+// Dettaglio "cosa scarico" per singola fonte/documento di una run.
+//   banche          → una riga per banca (items_count = movimenti, amount = saldo)
+//   fatture_passive → una riga per fattura (counterparty = fornitore, amount = importo)
+export interface SyncRunDetail {
+  id: string
+  sync_run_id: string
+  company_id: string
+  feed: SyncFeed
+  detail_type: string
+  label: string
+  reference: string | null
+  counterparty: string | null
+  doc_date: string | null
+  items_count: number
+  amount: number | null
+  currency: string | null
+  error_message: string | null
+  extra: { accounts?: number } | null
+  created_at: string
 }
 
 interface FeedMeta {
@@ -53,6 +74,12 @@ export const SYNC_FEEDS: Record<SyncFeed, FeedMeta> = {
     blurb: 'Fatture dei fornitori ricevute via SDI (A-Cube). Aggiornamento automatico ogni 6 ore.',
     okMaxH: 12, warnMaxH: 24,
   },
+  fatture_attive: {
+    key: 'fatture_attive',
+    label: 'Fatture attive',
+    blurb: 'Fatture di vendita emesse verso i clienti, scaricate via SDI (A-Cube). Aggiornamento automatico ogni 6 ore.',
+    okMaxH: 12, warnMaxH: 24,
+  },
   corrispettivi: {
     key: 'corrispettivi',
     label: 'Corrispettivi',
@@ -67,7 +94,7 @@ export const SYNC_FEEDS: Record<SyncFeed, FeedMeta> = {
   },
 }
 
-export const SYNC_FEED_ORDER: SyncFeed[] = ['banche', 'fatture_passive', 'corrispettivi', 'cassetto_fiscale']
+export const SYNC_FEED_ORDER: SyncFeed[] = ['banche', 'fatture_passive', 'fatture_attive', 'corrispettivi', 'cassetto_fiscale']
 
 export type SyncTone = 'neutral' | 'amber' | 'red' | 'gray'
 

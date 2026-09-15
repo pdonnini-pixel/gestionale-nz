@@ -26,11 +26,17 @@ import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useToast } from '../components/Toast'
 import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
+import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
+import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
 import CellTooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
+import { Modal as UIModal } from '../components/ui/Modal'
+import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -136,8 +142,8 @@ function GlassTooltipContent({ active, payload, label }: { active?: boolean; pay
 }
 
 // CSV Parser utilities
-// ═══ IMPORT XLSX LIBRARY (SheetJS) ═══
-import * as XLSX from 'xlsx'
+// NB: xlsx (SheetJS) è caricata on-demand con import() dentro le funzioni che
+// la usano: import statico = ~140KB gzip pagati all'apertura pagina.
 
 function detectSeparator(text: string) {
   const firstLines = text.split('\n').slice(0, 5).join('\n')
@@ -278,8 +284,9 @@ function parseCSV(text: string) {
   return { headers, rows, separator, skippedRows: headerIdx }
 }
 
-// Parser per file Excel (XLSX/XLS) via SheetJS
-function parseExcelFile(arrayBuffer: ArrayBuffer) {
+// Parser per file Excel (XLSX/XLS) via SheetJS (caricata on-demand)
+async function parseExcelFile(arrayBuffer: ArrayBuffer) {
+  const XLSX = await import('xlsx')
   const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true })
   const sheetName = wb.SheetNames[0]
   const ws = wb.Sheets[sheetName]
@@ -444,46 +451,54 @@ function EmptyState({ icon: Icon, title, description, action }: { icon: React.Co
 }
 
 function Modal({ isOpen, onClose, title, children, maxWidth = 'max-w-lg' }: { isOpen: boolean; onClose: () => void; title: string; children: React.ReactNode; maxWidth?: string }) {
-  if (!isOpen) return null
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className={`bg-white rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-6 border-b border-slate-100">
-          <h2 className="text-lg font-bold text-slate-900">{title}</h2>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400">
-            <X size={18} />
-          </button>
-        </div>
-        <div className="p-6">{children}</div>
+    <UIModal
+      open={isOpen}
+      onClose={onClose}
+      bare
+      ariaLabel={title}
+      containerClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      panelClassName={`bg-white rounded-2xl shadow-xl w-full ${maxWidth} max-h-[90dvh] overflow-y-auto`}
+    >
+      <div className="flex items-center justify-between p-6 border-b border-slate-100">
+        <h2 className="text-lg font-bold text-slate-900">{title}</h2>
+        <button onClick={onClose} title="Chiudi" className="p-1.5 rounded-lg hover:bg-slate-100 transition text-slate-400">
+          <X size={18} />
+        </button>
       </div>
-    </div>
+      <div className="p-6">{children}</div>
+    </UIModal>
   )
 }
 
 function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, confirmLabel = 'Conferma', danger = false }: { isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; confirmLabel?: string; danger?: boolean }) {
-  if (!isOpen) return null
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
-        <div className="flex items-start gap-3 mb-4">
-          <div className={`p-2 rounded-lg ${danger ? 'bg-red-100' : 'bg-amber-100'}`}>
-            <AlertTriangle size={20} className={danger ? 'text-red-600' : 'text-amber-600'} />
-          </div>
-          <div>
-            <h3 className="font-semibold text-slate-900">{title}</h3>
-            <p className="text-sm text-slate-500 mt-1">{message}</p>
-          </div>
+    <UIModal
+      open={isOpen}
+      onClose={onClose}
+      bare
+      ariaLabel={title}
+      containerClassName="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+      panelClassName="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6"
+    >
+      <div className="flex items-start gap-3 mb-4">
+        <div className={`p-2 rounded-lg ${danger ? 'bg-red-100' : 'bg-amber-100'}`}>
+          <AlertTriangle size={20} className={danger ? 'text-red-600' : 'text-amber-600'} />
         </div>
-        <div className="flex gap-2 justify-end">
-          <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50">
-            Annulla
-          </button>
-          <button onClick={onConfirm} className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
-            {confirmLabel}
-          </button>
+        <div>
+          <h3 className="font-semibold text-slate-900">{title}</h3>
+          <p className="text-sm text-slate-500 mt-1">{message}</p>
         </div>
       </div>
-    </div>
+      <div className="flex gap-2 justify-end">
+        <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50">
+          Annulla
+        </button>
+        <button onClick={onConfirm} className={`px-4 py-2 text-sm font-medium text-white rounded-lg ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>
+          {confirmLabel}
+        </button>
+      </div>
+    </UIModal>
   )
 }
 
@@ -496,6 +511,7 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
         <button
           disabled={page <= 1}
           onClick={() => onPageChange(page - 1)}
+          title="Pagina precedente"
           className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ChevronLeft size={16} />
@@ -527,6 +543,7 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
         <button
           disabled={page >= totalPages}
           onClick={() => onPageChange(page + 1)}
+          title="Pagina successiva"
           className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <ChevronRight size={16} />
@@ -540,18 +557,33 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
 // ═══ TAB 1: PANORAMICA ═══
 // ═══════════════════════════════════════════════════════════════════
 
-type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null }
+type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null; is_active?: boolean | null }
 type TransactionT = Record<string, unknown> & { id: string; transaction_date?: string | null; amount?: number | null; type?: string | null; description?: string | null; bank_account_id?: string | null; reconciliation_status?: string | null; counterpart_name?: string | null; is_reconciled?: boolean | null; note?: string | null; reconciled_at?: string | null; reconciled_invoice_id?: string | null; category?: string | null }
 type PayableT = Record<string, unknown> & { id: string; due_date?: string | null; amount?: number | null; gross_amount?: number | null; amount_paid?: number | null; amount_remaining?: number | null; supplier_name?: string | null; invoice_number?: string | null; status?: string | null; suppliers?: { ragione_sociale?: string | null; name?: string | null; iban?: string | null } | null }
-function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; onNavigate: (tab: string) => void }) {
-  const totalBalance = useMemo(() =>
-    accounts.reduce<number>((sum, a) => sum + (Number(a.current_balance) || 0), 0),
+function TabPanoramica({ accounts, transactions, payables, committedByAccount, committedPayables, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; committedByAccount: CommittedByAccount; committedPayables: CommittedPayables; onNavigate: (tab: string) => void }) {
+  // Conta solo i conti attivi: un conto disattivato (es. doppione lasciato dal
+  // ri-collegamento A-Cube con lo stesso IBAN) NON deve gonfiare la cassa. Coerente
+  // con lo Scadenzario e le altre viste, che filtrano tutte is_active.
+  const activeAccounts = useMemo(() =>
+    accounts.filter(a => a.is_active !== false),
     [accounts]
   )
 
+  const totalBalance = useMemo(() =>
+    activeAccounts.reduce<number>((sum, a) => sum + (Number(a.current_balance) || 0), 0),
+    [activeAccounts]
+  )
+
+  // Totale impegni distinta ancora da pagare (fornitori + F24) sui conti attivi.
+  // Il saldo previsionale = reale − impegni. Non altera il saldo reale.
+  const totalCommitted = useMemo(() =>
+    activeAccounts.reduce<number>((sum, a) => sum + (committedByAccount[a.id] || 0), 0),
+    [activeAccounts, committedByAccount]
+  )
+
   const totalCreditLine = useMemo(() =>
-    accounts.reduce<number>((sum, a) => sum + (Number(a.credit_line) || 0), 0),
-    [accounts]
+    activeAccounts.reduce<number>((sum, a) => sum + (Number(a.credit_line) || 0), 0),
+    [activeAccounts]
   )
 
   const last30 = useMemo(() => {
@@ -602,18 +634,19 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
   )
 
   // Per-bank balances for mini cards
-  type BankSummaryT = { name: string; balance: number; count: number; accounts: AccountT[] }
+  type BankSummaryT = { name: string; balance: number; committed: number; count: number; accounts: AccountT[] }
   const bankSummary = useMemo<BankSummaryT[]>(() => {
     const banks: Record<string, BankSummaryT> = {}
-    accounts.forEach(a => {
+    activeAccounts.forEach(a => {
       const key = a.bank_name || 'Altro'
-      if (!banks[key]) banks[key] = { name: key, balance: 0, count: 0, accounts: [] }
+      if (!banks[key]) banks[key] = { name: key, balance: 0, committed: 0, count: 0, accounts: [] }
       banks[key].balance += Number(a.current_balance) || 0
+      banks[key].committed += committedByAccount[a.id] || 0
       banks[key].count++
       banks[key].accounts.push(a)
     })
     return Object.values(banks).sort((a, b) => b.balance - a.balance)
-  }, [accounts])
+  }, [activeAccounts, committedByAccount])
 
   return (
     <div className="space-y-6">
@@ -623,7 +656,9 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
           icon={Wallet}
           title="Posizione di cassa"
           value={`${fmt(totalBalance)} \u20AC`}
-          subtitle={`${accounts.length} conti attivi`}
+          subtitle={totalCommitted > 0
+            ? `previsionale ${fmt(totalBalance - totalCommitted)} \u20AC (\u2212 distinte)`
+            : `${activeAccounts.length} conti attivi`}
           color="blue"
           onClick={() => onNavigate('conti')}
         />
@@ -671,8 +706,16 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
                     <div className="font-semibold text-slate-900 text-sm">{bank.name}</div>
                     <div className="text-xs text-slate-400">{bank.count} cont{bank.count === 1 ? 'o' : 'i'}</div>
                   </div>
-                  <div className={`text-right font-bold ${bank.balance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
-                    {fmt(bank.balance)} &euro;
+                  <div className="text-right">
+                    <div className={`font-bold ${bank.balance >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
+                      {fmt(bank.balance)} &euro;
+                    </div>
+                    {/* Saldo previsionale = reale − distinte da pagare su questa banca. */}
+                    {bank.committed > 0 && (
+                      <div className="text-[11px] text-amber-600 tabular-nums" title="Saldo previsionale = saldo reale − distinte (fornitori + F24) ancora da pagare">
+                        prev. {fmt(bank.balance - bank.committed)} &euro;
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -736,16 +779,30 @@ function TabPanoramica({ accounts, transactions, payables, onNavigate }: { accou
               upcomingPayables.slice(0, 8).map(p => {
                 const days = daysUntil(p.due_date) ?? 99
                 const remaining = Number(p.gross_amount || p.amount_remaining || 0)
+                // Scadenza già impegnata in banca: nessuna azione da fare, l'uscita
+                // e' gia' disposta. Il badge la distingue da quelle da pagare a mano.
+                const committed = committedPayables[p.id]
                 return (
                   <div key={p.id} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50">
                     <div className={classNames(
                       'text-xs font-bold rounded-lg px-2 py-1 min-w-[48px] text-center',
-                      days <= 3 ? 'bg-red-100 text-red-700' : days <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
+                      committed ? 'bg-slate-100 text-slate-500'
+                        : days <= 3 ? 'bg-red-100 text-red-700' : days <= 7 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'
                     )}>
                       {days === 0 ? 'Oggi' : days === 1 ? 'Domani' : `${days}gg`}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <CellTooltip content={getSupplierName(p)}><div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div></CellTooltip>
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CellTooltip content={getSupplierName(p)}><div className="text-sm font-medium text-slate-900 truncate">{getSupplierName(p)}</div></CellTooltip>
+                        {committed && (
+                          <span
+                            title={COMMITTED_LABEL[committed].title}
+                            className="shrink-0 text-[10px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 bg-sky-50 text-sky-700 border border-sky-200"
+                          >
+                            {COMMITTED_LABEL[committed].label}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-slate-400" title={String(p.invoice_number || '')}>{String(p.invoice_number || '')} - Scadenza {fmtDate(p.due_date)}</div>
                     </div>
                     <div className="text-sm font-semibold text-slate-900 whitespace-nowrap">{fmt(remaining)} &euro;</div>
@@ -862,7 +919,7 @@ function AddAccountModal({ isOpen, onClose, onSave, editAccount }: { isOpen: boo
           <input type="text" value={form.iban} onChange={e => setForm({ ...form, iban: e.target.value.toUpperCase() })}
             className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="IT..." />
         </div>
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Tipo</label>
             <select value={form.account_type} onChange={e => setForm({ ...form, account_type: e.target.value })}
@@ -872,12 +929,12 @@ function AddAccountModal({ isOpen, onClose, onSave, editAccount }: { isOpen: boo
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Saldo attuale</label>
-            <input type="number" step="0.01" value={form.current_balance} onChange={e => setForm({ ...form, current_balance: parseFloat(e.target.value) || 0 })}
+            <input type="number" inputMode="decimal" step="0.01" value={form.current_balance} onChange={e => setForm({ ...form, current_balance: parseFloat(e.target.value) || 0 })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Fido</label>
-            <input type="number" step="0.01" value={form.credit_line} onChange={e => setForm({ ...form, credit_line: parseFloat(e.target.value) || 0 })}
+            <input type="number" inputMode="decimal" step="0.01" value={form.credit_line} onChange={e => setForm({ ...form, credit_line: parseFloat(e.target.value) || 0 })}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
         </div>
@@ -1016,11 +1073,11 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
     if (ext === 'xlsx' || ext === 'xls') {
       // Excel: leggi come ArrayBuffer e usa SheetJS
       const reader = new FileReader()
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         try {
           const buf = ev.target?.result
           if (!buf || typeof buf === 'string') return
-          const result = parseExcelFile(buf as ArrayBuffer)
+          const result = await parseExcelFile(buf as ArrayBuffer)
           setParsed(result)
           const map = autoMapColumns(result.headers)
           setColumnMap(map)
@@ -1112,6 +1169,21 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
     let stmt: { id: string } | null = null
     try {
       if (!file) return
+      // L'estratto conto finisce in archivio: se domani un saldo non torna, il
+      // file da riaprire c'e'. Se l'archiviazione fallisce si prosegue, ma si dice.
+      let documentId: string | null = null
+      {
+        const oggi = new Date()
+        const archiviato = await archiviaFile({
+          file, companyId, userId: null, modulo: 'Banche',
+          funzione: `Estratto conto · ${account.account_name || account.id}`,
+          bucket: 'bank-statements', year: oggi.getFullYear(), month: oggi.getMonth() + 1,
+          referenceTable: 'bank_statements',
+        })
+        documentId = archiviato.id
+        if (archiviato.errore) setParseError(avvisoArchiviazioneFallita(file.name, archiviato.errore))
+      }
+
       // Create bank_statement record
       const { data: stmtData, error: stmtErr } = await supabase.from('bank_statements').insert({
         company_id: companyId,
@@ -1120,10 +1192,12 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         file_type: fileType === 'xlsx' ? 'xlsx' : 'csv',
         transaction_count: parsed.rows.length,
         status: 'processing',
+        import_document_id: documentId,
       } as never).select().single()
 
       if (stmtErr) throw stmtErr
       stmt = stmtData as { id: string } | null
+      if (documentId && stmt?.id) await supabase.from('import_documents').update({ reference_id: stmt.id }).eq('id', documentId)
 
       // Parse all rows
       const transactions = parsed.rows.map((row: string[]) => {
@@ -1341,7 +1415,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
         <div className="space-y-4">
           <div className="bg-blue-50 rounded-lg p-3 text-sm text-blue-700">
             <Info size={14} className="inline mr-1" />
-            File: <strong>{file?.name}</strong> \u2014 {parsed.rows.length} righe, {parsed.headers.length} colonne (separatore: &quot;{parsed.separator === '\t' ? 'TAB' : parsed.separator}&quot;)
+            File: <strong>{file?.name}</strong> — {parsed.rows.length} righe, {parsed.headers.length} colonne (separatore: &quot;{parsed.separator === '\t' ? 'TAB' : parsed.separator}&quot;)
           </div>
           <p className="text-sm font-medium text-slate-700">Mappa le colonne:</p>
           <div className="grid grid-cols-2 gap-3">
@@ -1393,7 +1467,7 @@ function UploadStatementModal({ isOpen, onClose, account, companyId, onImported 
       {step === 'preview' && (
         <div className="space-y-4">
           <p className="text-sm font-medium text-slate-700">Anteprima prime 5 righe:</p>
-          <div className="overflow-x-auto border border-slate-200 rounded-lg">
+          <div className="overflow-x-auto scroll-shadow-x border border-slate-200 rounded-lg">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50">
@@ -1695,6 +1769,15 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
   const rangeStart = filtered.length === 0 ? 0 : (page - 1) * perPage + 1
   const rangeEnd = Math.min(page * perPage, filtered.length)
 
+  // Il range date corrisponde a un anno intero (`YYYY-01-01`..`YYYY-12-31`)?
+  // In tal caso la lista sta mostrando solo quell'anno: lo segnaliamo con un banner
+  // e un'azione per sganciare il filtro, perché è la causa n.1 di "mancano i movimenti".
+  const yearScope = useMemo<number | null>(() => {
+    const m = /^(\d{4})-01-01$/.exec(dateFrom)
+    if (m && dateTo === `${m[1]}-12-31`) return Number(m[1])
+    return null
+  }, [dateFrom, dateTo])
+
   const totalEntrate = useMemo(() => filtered.reduce<number>((s, t) => s + ((t.amount || 0) > 0 ? (t.amount || 0) : 0), 0), [filtered])
   const totalUscite = useMemo(() => filtered.reduce<number>((s, t) => s + ((t.amount || 0) < 0 ? Math.abs(t.amount || 0) : 0), 0), [filtered])
   const totalFiltered = useMemo(() => filtered.reduce<number>((s, t) => s + (t.amount || 0), 0), [filtered])
@@ -1721,15 +1804,19 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
     }
   }
 
-  // Reset di TUTTI i filtri ai valori di default (utile quando i numeri non tornano)
+  // Reset di TUTTI i filtri ai valori di default. Le date vengono AZZERATE (non
+  // ri-bloccate sull'anno selezionato): così "Pulisci filtri" mostra davvero tutti
+  // i movimenti di ogni anno. In passato il reset re-impostava l'anno corrente e
+  // nascondeva le entrate degli altri anni, dando l'impressione di dati mancanti.
   const handleResetFilters = () => {
     setSearchInput('')
     setSearch('')
     setFilterAccount('all')
     setFilterType('all')
     setFilterReconciled('all')
-    setDateFrom(`${year}-01-01`)
-    setDateTo(`${year}-12-31`)
+    setFilterCategory('all')
+    setDateFrom('')
+    setDateTo('')
     setPage(1)
   }
 
@@ -1858,7 +1945,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
           <button onClick={handleCerca} className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white">
             <Search size={14} /> Cerca
           </button>
-          <button onClick={handleResetFilters} title="Ripristina tutti i filtri al default (mese corrente, tutti i conti)" className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
+          <button onClick={handleResetFilters} title="Azzera tutti i filtri e mostra i movimenti di tutti gli anni" className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50">
             Pulisci filtri
           </button>
           <button onClick={handleExportPDF} className="flex items-center gap-1.5 px-3 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50" title="Esporta in PDF">
@@ -1871,6 +1958,23 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
             <Download size={14} /> Excel
           </button>
         </div>
+        {/* Banner scope-anno: la lista è ristretta a un solo anno (dal Period Selector
+            globale). È la causa più comune del "non vedo più i movimenti in entrata":
+            le entrate degli altri anni restano nascoste finché non si sgancia il filtro. */}
+        {yearScope != null && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs bg-blue-50 border border-blue-200 rounded-md px-3 py-2">
+            <Calendar size={14} className="text-blue-600 shrink-0" />
+            <span className="text-blue-800">
+              Stai vedendo <strong>solo i movimenti dell'anno {yearScope}</strong>. I movimenti degli altri anni (entrate incluse) sono nascosti dal filtro periodo.
+            </span>
+            <button
+              onClick={() => { setDateFrom(''); setDateTo(''); setPage(1) }}
+              className="ml-auto px-2.5 py-1 rounded-md bg-blue-600 text-white font-medium hover:bg-blue-700"
+            >
+              Mostra tutti gli anni
+            </button>
+          </div>
+        )}
         {/* Riga 1: riepilogo numeri (sempre dei filtri attivi) */}
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 mt-3 text-xs">
           <span className="text-slate-600"><strong className="text-slate-900">{filtered.length.toLocaleString('de-DE')}</strong> movimenti dal <strong>{fmtDate(dateFrom) || '—'}</strong> al <strong>{fmtDate(dateTo) || '—'}</strong></span>
@@ -1893,11 +1997,6 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
             </select>
           </div>
         </div>
-        {transactions.length >= 10000 && (
-          <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-            Stai vedendo i 10.000 movimenti più recenti. Restringi il periodo per non perdere dati storici.
-          </div>
-        )}
       </div>
 
       {/* Table */}
@@ -1909,7 +2008,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
               ? 'Tutti i movimenti nel periodo/filtro selezionato hanno già una categoria contabile.'
               : 'Importa un estratto conto o collega una banca per vedere i movimenti.'} />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-100">
@@ -1962,7 +2061,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
                             assigningId === t.id ? 'opacity-50 cursor-wait' : 'cursor-pointer'
                           )}
                         >
-                          <option value="">\u2014 Senza categoria \u2014</option>
+                          <option value="">— Senza categoria —</option>
                           {/* Slug legacy non in lista (es. "taxi"): mostralo comunque leggibile */}
                           {t.category && !BANK_CATEGORY_OPTIONS.some(o => o.value === t.category) && (
                             <option value={String(t.category)}>{bankCategoryLabel(t.category)}</option>
@@ -2140,7 +2239,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }:
           {filteredPayables.length === 0 ? (
             <EmptyState icon={Receipt} title="Nessuna fattura" description="Non ci sono fatture in attesa di pagamento." />
           ) : (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-100">
@@ -2215,7 +2314,7 @@ function TabPagamenti({ payables, accounts, companyId, onRefresh, preSelectId }:
                         <div className="text-xs text-slate-400" title={String(p.invoice_number || '')}>{String(p.invoice_number || '')}</div>
                       </div>
                       <div className="text-sm font-semibold text-slate-900 whitespace-nowrap ml-2">{fmt(remaining)} &euro;</div>
-                      <button onClick={() => toggleSelect(p.id)} className="ml-2 p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500">
+                      <button onClick={() => toggleSelect(p.id)} title="Rimuovi dalla distinta" className="ml-2 p-1 hover:bg-red-100 rounded text-slate-400 hover:text-red-500">
                         <X size={14} />
                       </button>
                     </div>
@@ -2551,6 +2650,295 @@ type TxT = TransactionT
 type PayT = PayableT
 type MatchT = { payable: PayT; score: number; percentDiff: number; remaining: number }
 
+// Categorie A-Cube che NON sono pagamenti a fornitori: non vanno mai riconciliate
+// a una fattura (commissioni bancarie, stipendi, imposte, finanziamenti, movimenti
+// finanziari, incassi). I movimenti senza categoria restano riconciliabili.
+const NON_RECONCILABLE_CATEGORIES = new Set(['fees', 'wages', 'taxes', 'loans', 'financials', 'income'])
+// Fallback sulla causale: alcune commissioni/spese bancarie arrivano da A-Cube SENZA
+// categoria (category null), quindi le riconosciamo anche dal testo. Il pattern è
+// ancorato all'inizio della causale: i pagamenti a fornitori iniziano con "Bonifico…",
+// "Pagamento…", "SDD…", mai con "Comm."/"Commissioni"/"Competenze"/"Imposta di bollo"/
+// "Canone"/"Spese tenuta conto" → così non si escludono per errore pagamenti reali.
+const FEE_DESC_RE = /^\s*(comm\.|commission|commissioni|competenze|imposta di bollo|bollo\b|canone\b|spese tenuta conto|spese e competenze)/i
+function isReconcilableTx(t: { category?: string | null; description?: string | null }): boolean {
+  const c = t.category ? String(t.category) : ''
+  if (NON_RECONCILABLE_CATEGORIES.has(c)) return false
+  if (FEE_DESC_RE.test(String(t.description || ''))) return false
+  // Roba della banca o giri interni (rate di mutuo, canoni del rapporto, prelievi,
+  // giroconti, commissioni POS, addebito dell'estratto carte): nessuna fattura
+  // dietro. Il filtro per categoria sopra non li prendeva, perché guarda le sigle
+  // A-Cube in inglese mentre sui dati veri la categoria è italiana o manca.
+  if (isBankOwnMovement(String(t.description || ''))) return false
+  return true
+}
+
+/* ────────────────────────────────────────
+   Riepilogo del giorno (controllo operativo)
+   Cosa è stato riconciliato in una data e le uscite ancora senza match
+   (escluse commissioni & simili). Sola lettura: legge reconciliation_log
+   e bank_transactions, non scrive nulla.
+   ──────────────────────────────────────── */
+type ReconLogRowR = {
+  id: string
+  bank_transaction_id?: string | null
+  performed_at?: string | null
+  applied_amount?: number | null
+  match_type?: string | null
+  bank_transactions?: { transaction_date?: string | null; amount?: number | null; description?: string | null; counterpart_name?: string | null } | null
+  payables?: { invoice_number?: string | null; supplier_name?: string | null; gross_amount?: number | null } | null
+}
+type PendingMovR = { id: string; transaction_date?: string | null; amount?: number | null; description?: string | null; counterpart_name?: string | null; bank_account_id?: string | null; category?: string | null }
+
+function RiepilogoGiornaliero({ companyId, accounts }: { companyId: string; accounts: AccountT[] }) {
+  const toISO = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const euro = (n: number) => new Intl.NumberFormat('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+  const [day, setDay] = useState<string>(() => toISO(new Date()))
+  const [windowDays, setWindowDays] = useState<number>(90)
+  const [reconRows, setReconRows] = useState<ReconLogRowR[]>([])
+  const [pending, setPending] = useState<PendingMovR[]>([])
+  const [pendingCount, setPendingCount] = useState(0)
+  const [pendingAmount, setPendingAmount] = useState(0)
+  const [loadingRecon, setLoadingRecon] = useState(false)
+  const [loadingPending, setLoadingPending] = useState(false)
+  const [showRecon, setShowRecon] = useState(true)
+  const [showPending, setShowPending] = useState(false)
+
+  const isToday = day === toISO(new Date())
+  const fmtD = (d?: string | null) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
+  const bankName = (id?: string | null) => {
+    const a = accounts.find(x => x.id === id)
+    return a ? (a.bank_name || a.account_name || '—') : '—'
+  }
+  const shiftDay = (delta: number) => {
+    const d = new Date(day + 'T00:00:00'); d.setDate(d.getDate() + delta)
+    if (toISO(d) > toISO(new Date())) return
+    setDay(toISO(d))
+  }
+  // Dedup per movimento: se lo stesso movimento ha più righe 'applied' (residui
+  // storici di un vecchio data-fix), va contato UNA sola volta.
+  const reconDistinct = useMemo(() => {
+    const seen = new Set<string>()
+    const out: ReconLogRowR[] = []
+    for (const r of reconRows) {
+      const k = r.bank_transaction_id || r.id
+      if (seen.has(k)) continue
+      seen.add(k)
+      out.push(r)
+    }
+    return out
+  }, [reconRows])
+  const reconTotal = useMemo(
+    () => reconDistinct.reduce((s, r) => s + Math.abs(Number(r.bank_transactions?.amount ?? r.applied_amount ?? r.payables?.gross_amount ?? 0)), 0),
+    [reconDistinct],
+  )
+
+  // Riconciliati nella data selezionata (audit reale: reconciliation_log applicati)
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+    const run = async () => {
+      setLoadingRecon(true)
+      try {
+        const start = `${day}T00:00:00`
+        const nd = new Date(day + 'T00:00:00'); nd.setDate(nd.getDate() + 1)
+        const end = `${toISO(nd)}T00:00:00`
+        // reconciliation_log ha status/bank_transaction_id/applied_amount ma i types sono stale → cast chainable
+        type LogChain = {
+          eq: (k: string, v: string) => LogChain
+          gte: (k: string, v: string) => LogChain
+          lt: (k: string, v: string) => LogChain
+          order: (k: string, o: { ascending: boolean }) => Promise<{ data: ReconLogRowR[] | null }>
+        }
+        const q = supabase
+          .from('reconciliation_log')
+          .select('id, bank_transaction_id, performed_at, applied_amount, match_type, bank_transactions(transaction_date, amount, description, counterpart_name), payables(invoice_number, supplier_name, gross_amount)') as unknown as LogChain
+        const { data } = await q
+          .eq('company_id', companyId).eq('status', 'applied')
+          .gte('performed_at', start).lt('performed_at', end)
+          .order('performed_at', { ascending: false })
+        if (!cancelled) setReconRows((data || []) as unknown as ReconLogRowR[])
+      } catch { if (!cancelled) setReconRows([]) }
+      finally { if (!cancelled) setLoadingRecon(false) }
+    }
+    run(); return () => { cancelled = true }
+  }, [companyId, day])
+
+  // Da riconciliare: uscite non abbinate (finestra recente, escluse commissioni & simili)
+  useEffect(() => {
+    if (!companyId) return
+    let cancelled = false
+    const run = async () => {
+      setLoadingPending(true)
+      try {
+        let q = (supabase
+          .from('bank_transactions')
+          .select('id, transaction_date, amount, description, counterpart_name, bank_account_id, category')
+          .eq('company_id', companyId)
+          .lt('amount', 0)
+          .or('is_reconciled.is.null,is_reconciled.eq.false')
+          .order('transaction_date', { ascending: false })
+          .limit(1000)) as unknown as { gte: (k: string, v: string) => unknown }
+        if (windowDays > 0) {
+          const fd = new Date(); fd.setDate(fd.getDate() - windowDays)
+          q = q.gte('transaction_date', toISO(fd)) as unknown as { gte: (k: string, v: string) => unknown }
+        }
+        const { data } = await (q as unknown as Promise<{ data: PendingMovR[] | null }>)
+        if (!cancelled) {
+          const rows = ((data || []) as PendingMovR[]).filter(isReconcilableTx)
+          setPending(rows.slice(0, 50))
+          setPendingCount(rows.length)
+          setPendingAmount(rows.reduce((s, r) => s + Math.abs(Number(r.amount) || 0), 0))
+        }
+      } catch { if (!cancelled) { setPending([]); setPendingCount(0); setPendingAmount(0) } }
+      finally { if (!cancelled) setLoadingPending(false) }
+    }
+    run(); return () => { cancelled = true }
+  }, [companyId, windowDays])
+
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+      <div className="flex items-center justify-between flex-wrap gap-3 px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+        <div className="flex items-center gap-2">
+          <Calendar size={16} className="text-blue-500" />
+          <span className="font-semibold text-slate-800 text-sm">Riepilogo del giorno</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button onClick={() => shiftDay(-1)} className="p-1.5 rounded-md border border-slate-200 hover:bg-white transition text-slate-500" title="Giorno precedente">
+            <ChevronLeft size={14} />
+          </button>
+          <input type="date" value={day} max={toISO(new Date())}
+            onChange={e => e.target.value && setDay(e.target.value)}
+            className="px-2 py-1 border border-slate-200 rounded-md text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white text-slate-700" />
+          <button onClick={() => shiftDay(1)} disabled={isToday} className="p-1.5 rounded-md border border-slate-200 hover:bg-white transition text-slate-500 disabled:opacity-30" title="Giorno successivo">
+            <ChevronRight size={14} />
+          </button>
+          {!isToday && (
+            <button onClick={() => setDay(toISO(new Date()))} className="px-2 py-1 rounded-md border border-slate-200 hover:bg-white transition text-xs text-blue-600 font-medium">Oggi</button>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-100">
+        <button onClick={() => setShowRecon(v => !v)} className="flex items-center justify-between gap-3 p-4 text-left hover:bg-emerald-50/30 transition">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600"><CheckCircle2 size={18} /></div>
+            <div>
+              <div className="text-xs text-slate-500">Riconciliati {isToday ? 'oggi' : `il ${fmtD(day)}`}</div>
+              <div className="text-lg font-bold text-slate-900">{loadingRecon ? '…' : reconDistinct.length} <span className="text-sm font-medium text-slate-400">pagamenti</span></div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm font-semibold text-emerald-600">{euro(reconTotal)} €</div>
+            {showRecon ? <ChevronUp size={14} className="text-slate-300 inline mt-1" /> : <ChevronDown size={14} className="text-slate-300 inline mt-1" />}
+          </div>
+        </button>
+
+        <button onClick={() => setShowPending(v => !v)} className="flex items-center justify-between gap-3 p-4 text-left hover:bg-amber-50/30 transition">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-amber-50 text-amber-600"><Clock size={18} /></div>
+            <div>
+              <div className="text-xs text-slate-500">Da riconciliare (uscite senza match)</div>
+              <div className="text-lg font-bold text-slate-900">{loadingPending ? '…' : pendingCount} <span className="text-sm font-medium text-slate-400">movimenti</span></div>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm font-semibold text-amber-600">{euro(pendingAmount)} €</div>
+            {showPending ? <ChevronUp size={14} className="text-slate-300 inline mt-1" /> : <ChevronDown size={14} className="text-slate-300 inline mt-1" />}
+          </div>
+        </button>
+      </div>
+
+      {showRecon && (
+        <div className="border-t border-slate-100">
+          {loadingRecon ? (
+            <div className="p-6 text-center text-slate-400 text-sm">Caricamento…</div>
+          ) : reconDistinct.length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-sm">Nessun pagamento riconciliato in questa data.</div>
+          ) : (
+            <div className="overflow-x-auto scroll-shadow-x">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 text-xs text-slate-500">
+                    <th className="py-2 px-4 text-left font-medium">Fornitore</th>
+                    <th className="py-2 px-4 text-left font-medium">Fattura</th>
+                    <th className="py-2 px-4 text-left font-medium">Movimento</th>
+                    <th className="py-2 px-4 text-right font-medium">Importo</th>
+                    <th className="py-2 px-4 text-center font-medium">Tipo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reconDistinct.map(r => (
+                    <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                      <td className="py-2 px-4 text-slate-800 max-w-[220px] truncate">{r.payables?.supplier_name || r.bank_transactions?.counterpart_name || '—'}</td>
+                      <td className="py-2 px-4 text-slate-500 text-xs">{r.payables?.invoice_number || '—'}</td>
+                      <td className="py-2 px-4 text-slate-500 text-xs">{fmtD(r.bank_transactions?.transaction_date)}</td>
+                      <td className="py-2 px-4 text-right font-medium text-slate-900 whitespace-nowrap">{euro(Math.abs(Number(r.bank_transactions?.amount ?? r.applied_amount ?? r.payables?.gross_amount ?? 0)))} €</td>
+                      <td className="py-2 px-4 text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${r.match_type === 'manual' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>{r.match_type === 'manual' ? 'a mano' : 'auto'}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showPending && (
+        <div className="border-t border-slate-100">
+          <div className="flex items-center justify-between gap-2 px-4 py-2 bg-amber-50/40 text-xs text-amber-800">
+            <span>Uscite non ancora abbinate a una fattura (commissioni e movimenti non-fornitore esclusi). Abbinale sotto in "Da riconciliare".</span>
+            <select value={windowDays} onChange={e => setWindowDays(Number(e.target.value))}
+              className="px-2 py-1 border border-amber-200 rounded-md text-xs bg-white text-slate-600 focus:outline-none">
+              <option value={30}>Ultimi 30 gg</option>
+              <option value={60}>Ultimi 60 gg</option>
+              <option value={90}>Ultimi 90 gg</option>
+              <option value={180}>Ultimi 6 mesi</option>
+              <option value={0}>Tutte</option>
+            </select>
+          </div>
+          {loadingPending ? (
+            <div className="p-6 text-center text-slate-400 text-sm">Caricamento…</div>
+          ) : pending.length === 0 ? (
+            <div className="p-6 text-center text-slate-400 text-sm">Nessuna uscita da riconciliare nel periodo scelto. Tutto abbinato 🎉</div>
+          ) : (
+            <>
+              <div className="overflow-x-auto scroll-shadow-x">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-xs text-slate-500">
+                      <th className="py-2 px-4 text-left font-medium">Data</th>
+                      <th className="py-2 px-4 text-left font-medium">Banca</th>
+                      <th className="py-2 px-4 text-left font-medium">Descrizione / Controparte</th>
+                      <th className="py-2 px-4 text-right font-medium">Importo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pending.map(m => (
+                      <tr key={m.id} className="border-b border-slate-50 hover:bg-slate-50/50 transition">
+                        <td className="py-2 px-4 text-slate-500 text-xs whitespace-nowrap">{fmtD(m.transaction_date)}</td>
+                        <td className="py-2 px-4 text-slate-500 text-xs max-w-[140px] truncate">{bankName(m.bank_account_id)}</td>
+                        <td className="py-2 px-4 text-slate-700 text-xs max-w-[280px] truncate">{m.counterpart_name || m.description || '—'}</td>
+                        <td className="py-2 px-4 text-right font-medium text-red-500 whitespace-nowrap">-{euro(Math.abs(Number(m.amount) || 0))} €</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {pendingCount > pending.length && (
+                <div className="px-4 py-2 text-center text-xs text-slate-400 border-t border-slate-100">
+                  Mostrati i {pending.length} più recenti di {pendingCount}. Restringi il periodo o abbinali sotto.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function TabRiconciliazione({ transactions, payables, accounts, companyId, onRefresh }: {
   transactions: TxT[]
   payables: PayT[]
@@ -2569,18 +2957,42 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
   // Suggerimenti riconciliazione (reconciliation_log) + vista riconciliati + annullo
   type LogRow = { id: string; bank_transaction_id: string | null; payable_id: string | null; confidence: number | null; status: string; applied_amount: number | null }
-  type SugRow = { log: LogRow; bt: TxT; payable: PayT; confidence: number }
+  type SugRow = { log: LogRow; bt: TxT; payable: PayT; confidence: number; chiusa?: boolean }
   const [viewMode, setViewMode] = useState<'da_riconciliare' | 'riconciliati'>('da_riconciliare')
   const [suggCollapsed, setSuggCollapsed] = useState(false)
   const [logRows, setLogRows] = useState<LogRow[]>([])
   const [selectedSug, setSelectedSug] = useState<Set<string>>(new Set())
+  // Selezione dei pagamenti raggruppati: si spuntano le righe e si conferma tutto
+  // in un colpo solo, come già si fa con gli abbinamenti suggeriti.
+  const [selectedGroup, setSelectedGroup] = useState<Set<string>>(new Set())
   const [summaryModal, setSummaryModal] = useState<{ rows: SugRow[] } | null>(null)
   const [undoModal, setUndoModal] = useState<{ logId: string; label: string; amount: number } | null>(null)
   const [processingSug, setProcessingSug] = useState(false)
+  const [dismissedVerify, setDismissedVerify] = useState<Set<string>>(new Set())
+  const [dismissedGroup, setDismissedGroup] = useState<Set<string>>(new Set())
+  // Note di credito COLLEGATE (pending) per fattura: servono a confrontare le distinte
+  // al NETTO della NC (regola R8). Le NC "vaganti" (payable a importo negativo) entrano
+  // invece direttamente come voci del gruppo.
+  const [pendingNc, setPendingNc] = useState<Map<string, number>>(new Map())
+  useEffect(() => {
+    let cancel = false
+    ;(async () => {
+      const { data } = await supabase
+        .from('payable_credit_note_links')
+        .select('payable_id, amount')
+        .eq('company_id', companyId)
+        .eq('status', 'pending')
+      if (cancel || !data) return
+      const m = new Map<string, number>()
+      for (const r of data) m.set(String(r.payable_id), (m.get(String(r.payable_id)) ?? 0) + Number(r.amount || 0))
+      setPendingNc(m)
+    })()
+    return () => { cancel = true }
+  }, [companyId])
 
   // Get unreconciled outgoing movements
   const unreconciledMovements = useMemo(() => {
-    let items = transactions.filter((t) => !t.is_reconciled && (Number(t.amount) || 0) < 0)
+    let items = transactions.filter((t) => !t.is_reconciled && (Number(t.amount) || 0) < 0 && isReconcilableTx(t))
     if (filterAccount !== 'all') items = items.filter((t) => t.bank_account_id === filterAccount)
     if (search) {
       const q = search.toLowerCase()
@@ -2592,6 +3004,15 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   // Unpaid payables for matching
   const unpaidPayables = useMemo(() =>
     payables.filter((p) => p.status === 'da_pagare' || p.status === 'in_scadenza' || p.status === 'scaduto' || p.status === 'parziale'),
+    [payables]
+  )
+  // Fatture GIÀ PAGATE ma senza movimento agganciato — chiuse a mano OPPURE segnate
+  // pagate all'import/go-live: vanno SEMPRE riverificate contro ogni movimento
+  // (regola Patrizio), perché il bonifico che le ha pagate è rimasto orfano. Una
+  // fattura senza bank_transaction_id è sempre abbinabile, a prescindere dallo stato.
+  // Escluse solo quelle già collegate a un bank_transaction_id.
+  const closedManualPayables = useMemo(() =>
+    payables.filter((p) => String(p.status) === 'pagato' && !(p as { bank_transaction_id?: string | null }).bank_transaction_id),
     [payables]
   )
 
@@ -2608,7 +3029,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     const mvAmt = selectedMovement ? Math.abs(Number(selectedMovement.amount) || 0) : null
     const tolerance: number = mvAmt ? mvAmt * 0.05 : 0
 
-    let list = unpaidPayables.slice()
+    // Include anche le fatture GIÀ PAGATE senza aggancio (chiuse a mano o pagate
+    // all'import): il loro bonifico è orfano e va abbinato — vanno trovate qui.
+    let list = unpaidPayables.concat(closedManualPayables)
 
     if (q.length >= 2) {
       list = list.filter((p) =>
@@ -2639,7 +3062,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     })
 
     return list.slice(0, 20)
-  }, [unpaidPayables, manualSearch, selectedMovement])
+  }, [unpaidPayables, closedManualPayables, manualSearch, selectedMovement])
 
   // Auto-match function: match by amount with 5% tolerance, produce confidence score
   const findMatches = useCallback((movement: TxT | null): MatchT[] => {
@@ -2769,9 +3192,23 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   }, [payables])
 
   const OPEN_STATUSES = ['da_pagare', 'in_scadenza', 'scaduto', 'parziale']
+  // Un suggerimento si mostra solo se: importo del movimento coincide col residuo
+  // della fattura (entro il 5%) E affidabilità >= 70%. Così spariscono gli
+  // abbinamenti assurdi (importo lontano, proposti solo per nome/data).
+  const SUGGEST_MIN_CONFIDENCE = 70
+  const SUGGEST_AMOUNT_TOLERANCE = 0.05
 
-  // Suggerimenti validi: log 'to_confirm' la cui fattura è ancora aperta e il
-  // cui movimento non è ancora riconciliato. Gli stantii vengono nascosti.
+  // Fattura chiusa a mano non ancora agganciata a un movimento: paid + closed_manually
+  // + nessun bank_transaction_id. Regola Patrizio: ogni movimento va SEMPRE verificato
+  // anche contro queste, non solo contro le aperte.
+  const isClosedManualUnlinked = (p: PayT): boolean =>
+    String(p.status) === 'pagato' && (p as { closed_manually?: boolean }).closed_manually === true
+    && !(p as { bank_transaction_id?: string | null }).bank_transaction_id
+
+  // Suggerimenti validi: log 'to_confirm' il cui movimento non è ancora riconciliato e
+  // la cui fattura è ancora aperta OPPURE è chiusa a mano senza aggancio bancario. Gli
+  // stantii/deboli vengono nascosti. Per le chiuse a mano l'importo si confronta col
+  // totale fattura (il residuo è 0 perché già pagata).
   const suggestions = useMemo<SugRow[]>(() => {
     const out: SugRow[] = []
     for (const log of logRows) {
@@ -2780,13 +3217,265 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       const bt = txById.get(log.bank_transaction_id)
       const payable = payById.get(log.payable_id)
       if (!bt || bt.is_reconciled) continue
-      if (!payable || !OPEN_STATUSES.includes(String(payable.status))) continue
-      const rem = payable.amount_remaining != null ? Number(payable.amount_remaining) : Number(payable.gross_amount || 0) - Number(payable.amount_paid || 0)
-      if (rem <= 0) continue
-      out.push({ log, bt, payable, confidence: Number(log.confidence) || 0 })
+      if (!payable) continue
+      const chiusa = isClosedManualUnlinked(payable)
+      const isOpen = OPEN_STATUSES.includes(String(payable.status))
+      if (!isOpen && !chiusa) continue
+      // base di confronto: residuo per le aperte, totale fattura per le chiuse a mano
+      const base = chiusa
+        ? Number(payable.gross_amount || 0)
+        : (payable.amount_remaining != null ? Number(payable.amount_remaining) : Number(payable.gross_amount || 0) - Number(payable.amount_paid || 0))
+      if (base <= 0) continue
+      const conf = Number(log.confidence) || 0
+      if (conf < SUGGEST_MIN_CONFIDENCE) continue
+      // importo del movimento deve coincidere con la base (entro tolleranza)
+      const mov = Math.abs(Number(bt.amount) || 0)
+      if (Math.abs(mov - base) / base > SUGGEST_AMOUNT_TOLERANCE) continue
+      out.push({ log, bt, payable, confidence: conf, chiusa })
     }
-    return out.sort((a, b) => b.confidence - a.confidence)
+    // Dedup: una stessa fattura non va proposta per più movimenti (costi ricorrenti
+    // a importo fisso). Ordino per affidabilità e tengo, per ogni fattura, solo la
+    // proposta migliore. Così spariscono i doppioni (es. NEXI/SPM stessa fattura ×N).
+    out.sort((a, b) => b.confidence - a.confidence)
+    const seenPayable = new Set<string>()
+    const deduped: SugRow[] = []
+    for (const s of out) {
+      const pid = String(s.payable.id)
+      if (seenPayable.has(pid)) continue
+      seenPayable.add(pid)
+      deduped.push(s)
+    }
+    return deduped
   }, [logRows, txById, payById])
+
+  // Helper puri di matching (estratti e testati in src/lib/reconcileMatch.ts):
+  // NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary (incl. pattern "*NOME"),
+  // sigWords, movementNet (scorporo commissioni R3), isRealTransfer.
+
+  // "Da verificare": abbina l'uscita alla fattura del BENEFICIARIO letto dalla
+  // causale (non per solo importo!). Serve almeno una parola significativa in
+  // comune tra beneficiario e fornitore, e importo entro il 5%. Così spariscono
+  // i falsi positivi da coincidenza di importo (bonifici a fondi/assicurazioni,
+  // beneficiari diversi con lo stesso importo). Copre i casi che il motore non ha
+  // proposto o ha messo sotto soglia. Conferma manuale, una per una.
+  const toVerify = useMemo<{ bt: TxT; payable: PayT; rem: number; beneficiario: string; chiusa: boolean }[]>(() => {
+    const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
+    const out: { bt: TxT; payable: PayT; rem: number; beneficiario: string; chiusa: boolean }[] = []
+    // Candidati: fatture aperte (confronto sul residuo) + fatture chiuse a mano senza
+    // movimento agganciato (confronto sul totale, perché il residuo è 0). Il flag
+    // `chiusa` distingue i due casi per l'aggancio e per l'etichetta in UI.
+    const candidates: { p: PayT; base: number; chiusa: boolean }[] = [
+      ...unpaidPayables.map((p) => ({ p, base: p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0), chiusa: false })),
+      ...closedManualPayables.map((p) => ({ p, base: Number(p.gross_amount || 0), chiusa: true })),
+    ]
+    for (const m of unreconciledMovements) {
+      if (highConfBtIds.has(String(m.id))) continue
+      if (dismissedVerify.has(String(m.id))) continue
+      const desc = String(m.description || '')
+      if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
+      const benef = extractBeneficiary(desc)
+      if (!benef || NON_SUPPLIER_BENEF_RE.test(benef)) continue   // niente beneficiario o non-fornitore
+      const benefWords = sigWords(benef)
+      if (benefWords.length === 0) continue
+      const mv = movementNet(m)
+      if (mv <= 0) continue
+      let best: PayT | null = null
+      let bestRem = 0
+      let bestClosed = false
+      let bestOverlap = 0
+      let bestDiff = Infinity
+      for (const c of candidates) {
+        if (c.base <= 0) continue
+        const diff = Math.abs(c.base - mv)
+        if (diff / c.base > 0.05) continue
+        const supWords = new Set(sigWords(getSupplierName(c.p)))
+        const overlap = benefWords.filter((w) => supWords.has(w)).length
+        if (overlap === 0) continue   // il NOME deve combaciare col beneficiario
+        if (overlap > bestOverlap || (overlap === bestOverlap && diff < bestDiff)) {
+          bestOverlap = overlap; bestDiff = diff; best = c.p; bestRem = c.base; bestClosed = c.chiusa
+        }
+      }
+      if (best) out.push({ bt: m, payable: best, rem: bestRem, beneficiario: benef, chiusa: bestClosed })
+    }
+    // Dedup: la stessa fattura non va proposta per più movimenti. Tengo, per ogni
+    // fattura, il movimento con l'importo più vicino (match migliore).
+    const bestByPayable = new Map<string, typeof out[number]>()
+    for (const o of out) {
+      const pid = String(o.payable.id)
+      const prev = bestByPayable.get(pid)
+      const diff = Math.abs(Math.abs(Number(o.bt.amount) || 0) - o.rem)
+      if (!prev || diff < Math.abs(Math.abs(Number(prev.bt.amount) || 0) - prev.rem)) bestByPayable.set(pid, o)
+    }
+    return Array.from(bestByPayable.values())
+      .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
+      .slice(0, 80)
+  }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, dismissedVerify])
+
+  // Pagamenti RAGGRUPPATI: un bonifico che paga N fatture dello STESSO fornitore
+  // (es. −466,95 = 155,65 + 311,30). Tre regole, tutte imparate su casi reali:
+  //  1) un bonifico = un fornitore, identificato per P.IVA (R6). Il 09/09/2026 il
+  //     motore proponeva di saldare con un bonifico ad AMAZON PAYMENTS EUROPE una
+  //     fattura di CNH INDUSTRIAL CAPITAL EUROPE: bastava la parola "EUROPE" in
+  //     comune. Ora i candidati si raggruppano per P.IVA e se quadra più di un
+  //     fornitore il caso è ambiguo e non si propone niente.
+  //  2) la somma deve tornare al CENTESIMO. Le commissioni MPS non stanno dentro
+  //     il bonifico: la banca le addebita con una riga a parte ("Commissioni su
+  //     bonifico tramite co…"), quindi uno scarto non è un arrotondamento, è un
+  //     gruppo sbagliato.
+  //  3) i numeri di fattura citati in causale ("SALDO FATTURA 60828-65166",
+  //     "SSF-IT662TPABEY-IT65OHAABE") valgono come prova: se più combinazioni
+  //     fanno la stessa cifra, vince quella che li contiene tutti.
+  // Conferma a mano: l'aggancio passa da reconcile_movement_group (atomico).
+  type GroupItem = { p: PayT; base: number; chiusa: boolean }
+  const toVerifyGroups = useMemo<{ bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[]>(() => {
+    const highConfBtIds = new Set(suggestions.map((s) => String(s.bt.id)))
+    // base al NETTO della NC collegata (pendingNc); le NC "vaganti" (base negativo)
+    // restano nel pool come voci che riducono la somma del gruppo (R8).
+    const nc = (p: PayT) => pendingNc.get(String(p.id)) ?? 0
+    const candidates: GroupItem[] = [
+      ...unpaidPayables.map((p) => ({ p, base: (p.amount_remaining != null ? Number(p.amount_remaining) : Number(p.gross_amount || 0) - Number(p.amount_paid || 0)) - nc(p), chiusa: false })),
+      ...closedManualPayables.map((p) => ({ p, base: Number(p.gross_amount || 0) - nc(p), chiusa: true })),
+    ].filter((c) => c.base !== 0)
+    const cents = (x: number) => Math.round(x * 100)
+
+    // Cerca il gruppo dentro le fatture di UN solo fornitore.
+    const comboFor = (pool: GroupItem[], targetCents: number, tokens: string[]): GroupItem[] | null => {
+      if (pool.length < 2) return null
+      const sol = findExactCombo(
+        pool.map((c) => ({ cents: cents(c.base), cited: invoiceCitedIn(String(c.p.invoice_number || ''), tokens) })),
+        targetCents,
+      )
+      return sol ? sol.map((i) => pool[i]) : null
+    }
+
+    const out: { bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[] = []
+    for (const m of unreconciledMovements) {
+      const id = String(m.id)
+      if (highConfBtIds.has(id) || dismissedGroup.has(id)) continue
+      const desc = String(m.description || '')
+      if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
+      // Netto: scorpora la commissione dichiarata in causale (flussi CBI).
+      const mv = movementNet(m)
+      if (mv <= 0) continue
+      const target = cents(mv)
+      const benef = extractBeneficiary(desc)
+      if (benef && NON_SUPPLIER_BENEF_RE.test(benef)) continue
+      const benefWords = benef ? sigWords(benef) : []
+      const tokens = invoiceTokens(desc)
+
+      // Pool di partenza: fatture che da sole non superano il movimento. Se la
+      // causale nomina il beneficiario, solo i fornitori che gli somigliano.
+      const pool0 = candidates.filter((c) => {
+        if (cents(c.base) > target) return false
+        if (benefWords.length === 0) return true
+        const supWords = new Set(sigWords(getSupplierName(c.p)))
+        return benefWords.some((w) => supWords.has(w))
+      })
+      if (pool0.length < 2) continue
+      // Senza beneficiario in causale il fornitore lo si deduce dal solo importo: allora
+      // il movimento deve almeno avere la struttura di un pagamento, altrimenti si finisce
+      // ad accostare fatture a un addebito che pagamento non è (FONDO DI GARANZIA MCC).
+      if (benefWords.length === 0 && !hasPaymentStructure(desc)) continue
+
+      // Un bonifico = un fornitore: si prova fornitore per fornitore (chiave P.IVA).
+      const bySup = new Map<string, GroupItem[]>()
+      for (const c of pool0) {
+        const k = supplierKeyOf(c.p as { supplier_vat?: string | null; supplier_name?: string | null })
+        const arr = bySup.get(k); if (arr) arr.push(c); else bySup.set(k, [c])
+      }
+      const hits: GroupItem[][] = []
+      for (const pool of bySup.values()) {
+        const combo = comboFor(pool, target, tokens)
+        if (combo) hits.push(combo)
+        if (hits.length > 1) break        // più fornitori quadrano: ambiguo, si lascia stare
+      }
+      if (hits.length !== 1) continue
+      const items = hits[0]
+      out.push({ bt: m, items, beneficiario: benef || getSupplierName(items[0].p), total: items.reduce((s, c) => s + c.base, 0) })
+    }
+    return out
+      .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
+      .slice(0, 40)
+  }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, dismissedGroup, pendingNc])
+
+  /**
+   * Importo del movimento. Sui flussi CBI la commissione è DENTRO l'importo e la
+   * causale la dichiara ("IMPORTO BONIFICI: 51,80 IMPORTO COMMISSIONI: 1,75"): il
+   * confronto con le fatture si fa sul netto, quindi il netto va scritto, altrimenti
+   * la riga sembra non quadrare (movimento 53,55 accanto a fatture per 51,80) e
+   * tocca aprire la causale per capire. Sui bonifici singoli non compare nulla: lì
+   * la commissione la banca la addebita con una riga a parte (0,70 / 0,75 €).
+   */
+  const MovementAmount = ({ bt }: { bt: TxT }) => {
+    const lordo = Math.abs(Number(bt.amount) || 0)
+    const netto = movementNet(bt)
+    const comm = lordo - netto
+    return (
+      <div className="text-right whitespace-nowrap">
+        <div className="text-sm font-semibold text-red-600">{fmt(bt.amount)} &euro;</div>
+        {comm > 0.005 && (
+          <div className="text-[10px] text-slate-400">netto {fmt(netto)} + {fmt(comm)} comm.</div>
+        )}
+      </div>
+    )
+  }
+
+  // Esegue UN gruppo e restituisce l'esito, senza toast: così la stessa funzione
+  // serve al pulsante della singola riga e alla conferma in blocco.
+  const reconcileGroupOnce = async (bt: TxT, payableIds: string[]): Promise<{ ok: boolean; motivo?: string }> => {
+    try {
+      const { data, error } = await supabase.rpc('reconcile_movement_group' as never, {
+        p_bt_id: String(bt.id), p_payable_ids: payableIds,
+      } as never)
+      if (error) throw error
+      const res = data as { ok?: boolean; reason?: string; scarto?: number } | null
+      if (res?.ok) return { ok: true }
+      const motivo = res?.reason === 'sum_mismatch'
+        ? `somma diversa dall'importo (scarto ${res.scarto} €)`
+        : res?.reason === 'mixed_suppliers' ? 'fatture di fornitori diversi'
+        : res?.reason === 'stale' ? 'movimento già riconciliato'
+        : 'una fattura non è più valida'
+      return { ok: false, motivo }
+    } catch (err: unknown) {
+      console.error('Reconcile group error:', err)
+      return { ok: false, motivo: (err as Error).message }
+    }
+  }
+
+  const handleReconcileGroup = async (bt: TxT, payableIds: string[]) => {
+    setReconciling(true)
+    const r = await reconcileGroupOnce(bt, payableIds)
+    setReconciling(false)
+    if (!r.ok) { toast({ type: 'warning', message: `Gruppo non abbinato: ${r.motivo}.` }); return }
+    toast({ type: 'success', message: `Gruppo confermato: ${payableIds.length} fatture abbinate a un unico movimento.` })
+    onRefresh()
+  }
+
+  const toggleGroup = (btId: string) => setSelectedGroup((prev) => {
+    const n = new Set(prev); n.has(btId) ? n.delete(btId) : n.add(btId); return n
+  })
+
+  // Conferma in blocco: un clic per N gruppi. I gruppi restano atomici uno per uno
+  // (ognuno passa dalla sua RPC tutto-o-niente), quindi se uno non è più valido gli
+  // altri vanno avanti lo stesso e alla fine si dice quanti e perché.
+  const runBatchGroupConfirm = async (
+    rows: { bt: TxT; items: { p: PayT }[] }[],
+  ) => {
+    setReconciling(true)
+    let okN = 0, fatture = 0
+    const falliti: string[] = []
+    for (const g of rows) {
+      const r = await reconcileGroupOnce(g.bt, g.items.map((it) => String(it.p.id)))
+      if (r.ok) { okN++; fatture += g.items.length }
+      else falliti.push(`${getSupplierName(g.items[0].p)} (${r.motivo})`)
+    }
+    setReconciling(false)
+    setSelectedGroup(new Set())
+    const parts = [`Confermati ${okN} gruppi, ${fatture} fatture abbinate`]
+    if (falliti.length > 0) parts.push(`non abbinati ${falliti.length}: ${falliti.slice(0, 3).join('; ')}${falliti.length > 3 ? '…' : ''}`)
+    toast({ type: falliti.length > 0 ? 'warning' : 'success', message: parts.join('. ') })
+    onRefresh()
+  }
 
   // Mappa bt riconciliato -> riga di log 'applied' con applied_amount (per l'annullo)
   const appliedLogByBt = useMemo(() => {
@@ -2894,7 +3583,25 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const toggleSug = (logId: string) => setSelectedSug(prev => {
     const n = new Set(prev); n.has(logId) ? n.delete(logId) : n.add(logId); return n
   })
+  /**
+   * "Da verificare" propone UNA fattura per movimento con tolleranza del 5%; i gruppi
+   * pretendono invece la somma esatta al centesimo. Quando entrambi vedono lo stesso
+   * movimento vince il gruppo, che è la lettura più forte, e la proposta singola sparisce.
+   * Prima era il contrario, e il caso reale è il bonifico ATENA del 05/06 da 572,65 €:
+   * la proposta singola lo accostava alla fattura da 550,00 (4,1% di scarto, dentro
+   * tolleranza) e con ciò nascondeva il gruppo giusto, 22,65 + 550,00 = 572,65 esatti,
+   * con tutti e due i numeri di fattura scritti in causale.
+   */
+  const toVerifyRows = useMemo(() => {
+    const conGruppo = new Set(toVerifyGroups.map((g) => String(g.bt.id)))
+    return toVerify.filter((v) => !conGruppo.has(String(v.bt.id)))
+  }, [toVerify, toVerifyGroups])
+
   const selectedSugRows = useMemo(() => suggestions.filter(s => selectedSug.has(s.log.id)), [suggestions, selectedSug])
+  const selectedGroupRows = useMemo(
+    () => toVerifyGroups.filter((g) => selectedGroup.has(String(g.bt.id))),
+    [toVerifyGroups, selectedGroup],
+  )
 
   const confidenceColor = (score: number) => {
     if (score >= 80) return 'bg-emerald-100 text-emerald-700'
@@ -2904,6 +3611,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
   return (
     <div className="space-y-6">
+      {/* Riepilogo del giorno (controllo operativo) */}
+      <RiepilogoGiornaliero companyId={companyId} accounts={accounts} />
+
       {/* Toggle vista: Da riconciliare / Riconciliati */}
       <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">
         <button onClick={() => setViewMode('da_riconciliare')}
@@ -2953,7 +3663,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                         {bt.reconciled_at ? ` • ric. ${fmtDate(bt.reconciled_at)}` : ''}
                       </div>
                     </div>
-                    <div className="text-sm font-semibold text-red-600 whitespace-nowrap">{fmt(bt.amount)} &euro;</div>
+                    <MovementAmount bt={bt} />
                     {appliedLog ? (
                       <button onClick={() => setUndoModal({ logId: appliedLog.id, label: payable ? getSupplierName(payable) : 'fattura', amount: Number(appliedLog.applied_amount) || 0 })}
                         disabled={processingSug}
@@ -3020,9 +3730,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                     <ArrowRight size={16} className="text-slate-300 flex-shrink-0" />
                     {/* Fattura proposta */}
                     <div className="flex-1 min-w-0">
-                      <CellTooltip content={getSupplierName(s.payable)}><div className="text-sm font-medium text-slate-800 truncate">{getSupplierName(s.payable)}</div></CellTooltip>
+                      <CellTooltip content={getSupplierName(s.payable)}><div className="text-sm font-medium text-slate-800 truncate flex items-center gap-1.5">{getSupplierName(s.payable)}{s.chiusa && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold whitespace-nowrap">chiusa a mano</span>}</div></CellTooltip>
                       <div className="text-xs text-slate-400 truncate">
-                        Fatt. {s.payable.invoice_number || '—'} {'•'} residuo {fmt(rem)} €
+                        Fatt. {s.payable.invoice_number || '—'} {'•'} {s.chiusa ? `importo ${fmt(Number(s.payable.gross_amount || 0))} €` : `residuo ${fmt(rem)} €`}
                       </div>
                     </div>
                     <span className={`text-xs px-1.5 py-0.5 rounded-full font-semibold ${confidenceColor(s.confidence)}`}>{Math.round(s.confidence)}%</span>
@@ -3041,6 +3751,116 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
               })}
             </div>
           )}
+        </div>
+      )}
+
+      {toVerifyRows.length > 0 && (
+        <div className="bg-white rounded-xl border border-blue-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-blue-50/60 border-b border-blue-100 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-800">
+              <Check size={16} /> Da verificare — beneficiario dalla causale ({toVerifyRows.length})
+            </div>
+            <span className="text-xs text-blue-600/80">Beneficiario del bonifico abbinato alla fattura del fornitore, incluse le fatture già chiuse a mano. Conferma tu, una per una.</span>
+          </div>
+          <div className="divide-y divide-slate-50 max-h-[460px] overflow-y-auto">
+            {toVerifyRows.map(({ bt, payable, rem, beneficiario, chiusa }) => {
+              const acct = accounts.find((a) => a.id === bt.bank_account_id)
+              return (
+                <div key={String(bt.id)} className="flex items-center gap-3 px-5 py-3 hover:bg-slate-50/60">
+                  <div className="flex-1 min-w-0">
+                    <CellTooltip content={String(bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{beneficiario ? `→ ${beneficiario}` : (bt.description || 'Movimento')}</div></CellTooltip>
+                    <div className="text-xs text-slate-400 truncate">
+                      {fmtDate(bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}
+                    </div>
+                  </div>
+                  <MovementAmount bt={bt} />
+                  <ArrowRight size={16} className="text-slate-300 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <CellTooltip content={getSupplierName(payable)}><div className="text-sm font-medium text-slate-800 truncate flex items-center gap-1.5">{getSupplierName(payable)}{chiusa && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold whitespace-nowrap">chiusa a mano</span>}</div></CellTooltip>
+                    <div className="text-xs text-slate-400 truncate">
+                      Fatt. {payable.invoice_number || '—'} {'•'} {chiusa ? 'importo' : 'residuo'} {fmt(rem)} €
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => handleReconcile(bt, payable)} disabled={reconciling}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition disabled:opacity-50">
+                      <Check size={12} /> Conferma
+                    </button>
+                    <button onClick={() => setDismissedVerify((prev) => new Set(prev).add(String(bt.id)))} disabled={reconciling}
+                      className="flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50">
+                      <X size={12} /> Nascondi
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {toVerifyGroups.length > 0 && (
+        <div className="bg-white rounded-xl border border-violet-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-violet-50/60 border-b border-violet-100 flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2 text-sm font-semibold text-violet-800">
+              <Check size={16} /> Pagamenti raggruppati — un bonifico, più fatture ({toVerifyGroups.length})
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-violet-600/80 hidden lg:inline">Spunta i gruppi giusti e confermali in un colpo solo.</span>
+              <button
+                onClick={() => setSelectedGroup(selectedGroupRows.length === toVerifyGroups.length
+                  ? new Set()
+                  : new Set(toVerifyGroups.map((g) => String(g.bt.id))))}
+                disabled={reconciling}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium border border-violet-200 text-violet-700 hover:bg-violet-50 transition disabled:opacity-40">
+                {selectedGroupRows.length === toVerifyGroups.length ? 'Deseleziona tutti' : 'Seleziona tutti'}
+              </button>
+              <button
+                onClick={() => runBatchGroupConfirm(selectedGroupRows)}
+                disabled={reconciling || selectedGroupRows.length === 0}
+                className="px-3 py-1.5 rounded-lg text-xs font-bold bg-violet-600 text-white hover:bg-violet-700 transition disabled:opacity-40 disabled:cursor-not-allowed">
+                {reconciling ? 'Conferma in corso…' : `Conferma selezionati (${selectedGroupRows.length})`}
+              </button>
+            </div>
+          </div>
+          <div className="divide-y divide-slate-50 max-h-[460px] overflow-y-auto">
+            {toVerifyGroups.map(({ bt, items, beneficiario, total }) => {
+              const acct = accounts.find((a) => a.id === bt.bank_account_id)
+              const ids = items.map((it) => String(it.p.id))
+              return (
+                <div key={String(bt.id)} className={`flex items-start gap-3 px-5 py-3 transition ${selectedGroup.has(String(bt.id)) ? 'bg-violet-50/50' : 'hover:bg-slate-50/60'}`}>
+                  <input type="checkbox" aria-label={`Seleziona il gruppo di ${beneficiario || 'questo movimento'}`}
+                    checked={selectedGroup.has(String(bt.id))} onChange={() => toggleGroup(String(bt.id))} disabled={reconciling}
+                    className="mt-1 w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 cursor-pointer" />
+                  <div className="flex-1 min-w-0">
+                    <CellTooltip content={String(bt.description || 'Movimento')}><div className="text-sm font-medium text-slate-900 truncate">{beneficiario ? `→ ${beneficiario}` : (bt.description || 'Movimento')}</div></CellTooltip>
+                    <div className="text-xs text-slate-400 truncate">{fmtDate(bt.transaction_date)} {acct ? `• ${acct.account_name || acct.bank_name}` : ''}</div>
+                  </div>
+                  <MovementAmount bt={bt} />
+                  <ArrowRight size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    {items.map((it) => (
+                      <div key={String(it.p.id)} className="text-xs text-slate-600 truncate flex items-center gap-1.5">
+                        <span className="text-slate-800 font-medium">Fatt. {it.p.invoice_number || '—'}</span>
+                        <span className="text-slate-400">{fmt(it.base)} €</span>
+                        {it.chiusa && <span className="text-[9px] px-1 py-0.5 rounded-full bg-violet-100 text-violet-700 font-semibold">chiusa a mano</span>}
+                      </div>
+                    ))}
+                    <div className="text-[11px] text-slate-400 mt-0.5">Totale {fmt(total)} € • {getSupplierName(items[0].p)}</div>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => handleReconcileGroup(bt, ids)} disabled={reconciling}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 transition disabled:opacity-50">
+                      <Check size={12} /> Conferma gruppo
+                    </button>
+                    <button onClick={() => setDismissedGroup((prev) => new Set(prev).add(String(bt.id)))} disabled={reconciling}
+                      className="flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50">
+                      <X size={12} /> Nascondi
+                    </button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
 
@@ -3234,7 +4054,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                             {fmt(p.gross_amount)} €
                           </div>
                           {isClose && (
-                            <div className="text-[9px] text-emerald-600 font-semibold uppercase">match importo</div>
+                            <div className="text-xs text-emerald-600 font-semibold uppercase">match importo</div>
                           )}
                         </div>
                       </button>
@@ -3265,11 +4085,12 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         const rows = summaryModal.rows
         const total = rows.reduce((s, r) => s + Math.abs(Number(r.bt.amount) || 0), 0)
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setSummaryModal(null)}>
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <UIModal open onClose={() => setSummaryModal(null)} bare ariaLabel="Conferma abbinamenti"
+            containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+            panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[85dvh] flex flex-col">
               <div className="flex items-center justify-between p-5 border-b border-slate-100">
                 <h3 className="text-lg font-semibold text-slate-900">Conferma abbinamenti</h3>
-                <button onClick={() => setSummaryModal(null)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
+                <button onClick={() => setSummaryModal(null)} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
               </div>
               <div className="p-5 space-y-3 overflow-hidden flex flex-col">
                 <div className="flex items-center justify-between text-sm">
@@ -3294,18 +4115,18 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
+          </UIModal>
         )
       })()}
 
       {/* Modal conferma annullo abbinamento */}
       {undoModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={() => setUndoModal(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+        <UIModal open onClose={() => setUndoModal(null)} bare ariaLabel="Annulla abbinamento"
+          containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          panelClassName="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4">
             <div className="flex items-center justify-between p-5 border-b border-slate-100">
               <h3 className="text-lg font-semibold text-slate-900">Annullare l'abbinamento?</h3>
-              <button onClick={() => setUndoModal(null)} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
+              <button onClick={() => setUndoModal(null)} title="Chiudi" className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
             </div>
             <div className="p-5 space-y-4">
               <p className="text-sm text-slate-700">La fattura <strong>{undoModal.label}</strong> tornerà aperta per <strong>{fmt(undoModal.amount)} €</strong> e il movimento tornerà fra quelli da riconciliare.</p>
@@ -3317,8 +4138,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </UIModal>
       )}
     </div>
   )
@@ -3361,6 +4181,12 @@ export default function TesoreriaManuale() {
   const [batches, setBatches] = useState<any[]>([])
   const [batchItems, setBatchItems] = useState<any[]>([])
   const [suggestCount, setSuggestCount] = useState(0)
+  // Impegni "in distinta" non ancora pagati, per conto → saldo previsionale
+  // affiancato al reale nella Panoramica. Non tocca il saldo vero.
+  const [committedByAccount, setCommittedByAccount] = useState<CommittedByAccount>({})
+  // Scadenze già impegnate in banca (effetto RI.BA presentato o bonifico disposto):
+  // servono solo a marcarle nella lista, per distinguerle da quelle da pagare a mano.
+  const [committedPayables, setCommittedPayables] = useState<CommittedPayables>({})
 
   const refresh = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -3394,22 +4220,53 @@ export default function TesoreriaManuale() {
     async function load() {
       setLoading(true)
       try {
-        const [acctRes, txRes, payRes, batchRes, itemsRes, sugRes] = await Promise.all([
+        const [acctRes, txAll, payRes, batchRes, itemsRes, sugRes] = await Promise.all([
           supabase.from('bank_accounts').select('*').eq('company_id', companyId).order('bank_name'),
-          supabase.from('bank_transactions').select('*').eq('company_id', companyId).order('transaction_date', { ascending: false }).limit(10000),
+          // Tutti i movimenti, paginati in blocchi da 1000: un semplice .limit()
+          // TRONCA SILENZIOSAMENTE oltre il cap PostgREST e faceva sparire i movimenti
+          // (es. entrate) più vecchi appena superate le ~10k righe. Ordine stabile
+          // (data + id univoco) per non perdere/duplicare righe al confine di pagina.
+          fetchAllPaged<TransactionT>(
+            (from, to) => supabase
+              .from('bank_transactions')
+              .select('*')
+              .eq('company_id', companyId)
+              .order('transaction_date', { ascending: false })
+              .order('id', { ascending: false })
+              .range(from, to),
+            'bank_transactions',
+          ),
           supabase.from('payables').select('*, suppliers(id, name, ragione_sociale, iban)').eq('company_id', companyId).order('due_date'),
           supabase.from('payment_batches').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
           supabase.from('payment_batch_items').select('*').eq('company_id', companyId).order('priority'),
-          (supabase.from('reconciliation_log') as any).select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'to_confirm'),
+          (supabase.from('reconciliation_log') as any).select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'to_confirm').gte('confidence', 70),
         ])
 
         if (!cancelled) {
           setAccounts(acctRes.data || [])
-          setTransactions(txRes.data || [])
-          setPayables(payRes.data || [])
+          setTransactions(txAll || [])
+          setPayables((payRes.data || []).filter((p) => !p.is_placeholder))
           setBatches(batchRes.data || [])
           setBatchItems(itemsRes.data || [])
           setSuggestCount(sugRes.count || 0)
+        }
+
+        // Impegni distinta per il saldo previsionale (best-effort: non blocca la pagina).
+        try {
+          const committed = await fetchCommittedByAccount(companyId)
+          if (!cancelled) setCommittedByAccount(committed)
+        } catch (e) {
+          console.warn('TesoreriaManuale committed load error:', e)
+          if (!cancelled) setCommittedByAccount({})
+        }
+
+        // Quali scadenze sono già in distinta (RI.BA o bonifico disposto).
+        try {
+          const marked = await fetchCommittedPayables(companyId)
+          if (!cancelled) setCommittedPayables(marked)
+        } catch (e) {
+          console.warn('TesoreriaManuale committed payables load error:', e)
+          if (!cancelled) setCommittedPayables({})
         }
       } catch (err: unknown) {
         console.error('TesoreriaManuale load error:', err)
@@ -3445,7 +4302,8 @@ export default function TesoreriaManuale() {
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-[1600px] mx-auto">
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       {/* Page header */}
       <div className="flex items-center justify-between">
         <div>
@@ -3470,9 +4328,15 @@ export default function TesoreriaManuale() {
             let badge = null
             let suggBadge = null
             if (tab.key === 'riconciliazione') {
-              const unrecCount = transactions.filter(t => !t.is_reconciled && (t.amount || 0) < 0).length
-              if (unrecCount > 0) badge = unrecCount
-              if (suggestCount > 0) suggBadge = suggestCount
+              // Un solo badge, quello azionabile: se ci sono abbinamenti già suggeriti
+              // dal sistema mostra quelli (da confermare); altrimenti il backlog di
+              // uscite da abbinare a mano, escluse commissioni & movimenti non-fornitore.
+              if (suggestCount > 0) {
+                suggBadge = suggestCount
+              } else {
+                const unrecCount = transactions.filter(t => !t.is_reconciled && (Number(t.amount) || 0) < 0 && isReconcilableTx(t)).length
+                if (unrecCount > 0) badge = unrecCount
+              }
             }
 
             return (
@@ -3506,7 +4370,7 @@ export default function TesoreriaManuale() {
 
       {/* Tab content */}
       {activeTab === 'panoramica' && (
-        <TabPanoramica accounts={accounts} transactions={transactions} payables={payables} onNavigate={handleNavigate} />
+        <TabPanoramica accounts={accounts} transactions={transactions} payables={payables} committedByAccount={committedByAccount} committedPayables={committedPayables} onNavigate={handleNavigate} />
       )}
       {activeTab === 'conti' && (
         <TabContiBancari accounts={accounts} companyId={companyId} onRefresh={refresh} />
@@ -3529,6 +4393,7 @@ export default function TesoreriaManuale() {
       {activeTab === 'finanziamenti' && (
         <FinanziamentiTab accounts={accounts} companyId={companyId} uploadedByName={[profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.email || null} />
       )}
+      </div>
     </div>
   )
 }

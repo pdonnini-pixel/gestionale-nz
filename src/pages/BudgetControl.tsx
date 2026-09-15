@@ -19,7 +19,6 @@ import { useRole } from '../hooks/useRole'
 import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useCompany } from '../hooks/useCompany'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import Tooltip from '../components/Tooltip'
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
@@ -30,10 +29,13 @@ import {
   Calculator, ChevronDown, ChevronUp,
   Store, Building2, Save, Trash2,
   AlertTriangle, CheckCircle2, TrendingUp, TrendingDown, Target,
-  BarChart3, Copy, Lock, Unlock, Info, RefreshCw, FileSpreadsheet, Zap
+  BarChart3, Copy, Lock, Unlock, Info, RefreshCw, FileSpreadsheet, Zap, Wallet
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { Modal } from '../components/ui/Modal'
 import { computeConfrontoDiff, type ConfrontoRow, type ExistingConfrontoRow, type ConfrontoDiff } from './budgetConfrontoDiff'
+import { keepLastByKey } from '../lib/upsertDedupe'
+import { proposeConsuntivo, monthDays as cashMonthDays, type ConsuntivoProposal } from '../lib/cashClosings'
 
 // Workflow approvazione preventivo per outlet x anno
 type WorkflowStatus = 'bozza' | 'approvato' | 'sbloccato'
@@ -182,8 +184,7 @@ function WorkflowBadge({ status, meta }: { status: WorkflowStatus; meta?: Workfl
 /* ─── Dialog conferma approvazione preventivo ──────────────── */
 function ApproveDialog({ outletLabel, year, onConfirm, onCancel, working }: { outletLabel: string; year: number; onConfirm: () => void; onCancel: () => void; working: boolean }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={working ? undefined : onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onCancel} bare ariaLabel="Approva preventivo" closeOnBackdrop={!working} panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2.5 rounded-full bg-emerald-50">
             <Lock size={22} className="text-emerald-600" />
@@ -206,8 +207,7 @@ function ApproveDialog({ outletLabel, year, onConfirm, onCancel, working }: { ou
             <Lock size={14} /> {working ? 'Approvazione...' : 'Approva preventivo'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -217,8 +217,7 @@ function UnlockDialog({ outletLabel, year, onConfirm, onCancel, working }: { out
   const trimmed = reason.trim()
   const valid = trimmed.length >= 5
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={working ? undefined : onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onCancel} bare ariaLabel="Sblocca preventivo" closeOnBackdrop={false} panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-2.5 rounded-full bg-amber-50">
             <Unlock size={22} className="text-amber-600" />
@@ -252,15 +251,13 @@ function UnlockDialog({ outletLabel, year, onConfirm, onCancel, working }: { out
             <Unlock size={14} /> {working ? 'Sblocco...' : 'Sblocca preventivo'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
 function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Svuota', destructive = true }: { title: string; message: string; onConfirm: () => void; onCancel: () => void; confirmLabel?: string; destructive?: boolean }) {
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onCancel}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onCancel} bare ariaLabel={title} panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
         <div className="flex items-center gap-3 mb-4">
           <div className={`p-2.5 rounded-full ${destructive ? 'bg-red-50' : 'bg-amber-50'}`}>
             <Trash2 size={22} className={destructive ? 'text-red-600' : 'text-amber-600'} />
@@ -276,8 +273,7 @@ function ConfirmDialog({ title, message, onConfirm, onCancel, confirmLabel = 'Sv
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }
 
@@ -852,10 +848,13 @@ export default function BudgetControl() {
     if (!CID) return
     setConsuntivoRefreshing(true)
     try {
-      const { data, error } = await supabase.rpc('refresh_budget_consuntivo', {
-        p_outlet_id: outletId,
-        p_year: year,
-      })
+      // p_outlet_id ha DEFAULT NULL nella funzione: quando non c'e' un outlet
+      // si omette l'argomento invece di passare null, che i tipi generati non
+      // ammettono (esprimono l'argomento come opzionale, non come nullable).
+      const { data, error } = await supabase.rpc(
+        'refresh_budget_consuntivo',
+        outletId == null ? { p_year: year } : { p_outlet_id: outletId, p_year: year },
+      )
       if (error) throw error
       const result = (data ?? {}) as {
         success?: boolean
@@ -1121,7 +1120,8 @@ export default function BudgetControl() {
           budget_amount: months[i], is_approved: false,
         }))
       }).flat()
-      const { error } = await supabase.from('budget_entries').upsert(entries as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
+      const { rows: uniqEntries } = keepLastByKey(entries as any[], (r: any) => `${r.company_id}|${r.account_code}|${r.cost_center}|${r.year}|${r.month}`)
+      const { error } = await supabase.from('budget_entries').upsert(uniqEntries as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
       if (error) throw error
 
       // NB: i RICAVI mensili (budget_confronto.rev_monthly/cons_monthly) NON vengono
@@ -1149,7 +1149,8 @@ export default function BudgetControl() {
       cost_center: outletCode, year, month: i + 1,
       budget_amount: months[i], is_approved: false,
     }))
-    const { error } = await supabase.from('budget_entries').upsert(rows as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
+    const { rows: uniqRows } = keepLastByKey(rows as any[], (r: any) => `${r.company_id}|${r.account_code}|${r.cost_center}|${r.year}|${r.month}`)
+    const { error } = await supabase.from('budget_entries').upsert(uniqRows as never, { onConflict: 'company_id,account_code,cost_center,year,month' })
     if (error) throw error
   }
 
@@ -1287,7 +1288,7 @@ export default function BudgetControl() {
       }
       if (diff.toUpsert.length > 0) {
         const { error: upErr } = await supabase.from('budget_confronto')
-          .upsert(diff.toUpsert as never, { onConflict: 'company_id,cost_center,account_code,year,month,entry_type' })
+          .upsert(keepLastByKey(diff.toUpsert as any[], (r: any) => `${r.company_id}|${r.cost_center}|${r.account_code}|${r.year}|${r.month}|${r.entry_type}`).rows as never, { onConflict: 'company_id,cost_center,account_code,year,month,entry_type' })
         if (upErr) throw upErr
       }
       show(`Confronto ${outletCode} salvato ✓ (${diff.toUpsert.length} agg., ${diff.toDeleteIds.length} rim.)`)
@@ -2166,7 +2167,7 @@ function CopyMonthPopover({ fromMonth, onCopy, onClose }: { fromMonth: number; o
       <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">
         Copia {MESI_SHORT[fromMonth]} in:
       </div>
-      <div className="grid grid-cols-4 gap-1 mb-2">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-1 mb-2">
         {MESI_SHORT.map((m, i) => (
           <button key={i} disabled={i === fromMonth}
             onClick={() => toggle(i)}
@@ -2333,10 +2334,12 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
         {/* Copy */}
         {hasValueToCopy ? (
           <div className="relative">
+            {/* p-2 -m-1.5: area di tocco ~28px senza spostare il layout
+                (prima il trigger era ~16px, quasi impossibile da centrare col dito) */}
             <button onClick={e => { e.stopPropagation(); setShowCopy(!showCopy) }}
               title="Copia in altri mesi"
-              className="p-0.5 rounded hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600 transition">
-              <Copy size={11} />
+              className="p-2 -m-1.5 rounded hover:bg-indigo-50 text-indigo-400 hover:text-indigo-600 transition">
+              <Copy size={12} />
             </button>
             {showCopy && <CopyMonthPopover fromMonth={mese} onCopy={handleCopy} onClose={() => setShowCopy(false)} />}
           </div>
@@ -3123,7 +3126,6 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
           </div>
         </div>
       </div>
-      <PageHelp page="budget" />
     </div>
   )
 }
@@ -3145,6 +3147,54 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
   const [mese, setMese] = useState<number>(new Date().getMonth()) // mese corrente di default
   const [matrix, setMatrix] = useState<Record<string, { prev: number; cons: number }>>({})
   const [loading, setLoading] = useState(true)
+  // Fase 4 specchietto incassi: proposta del consuntivo dalle chiusure di cassa confermate del mese.
+  // Nessuna scrittura automatica: l'utente accetta cella per cella (o tutte) e la scrittura passa
+  // dalla stessa saveCell (RPC save_budget_confronto_cell, stato granitico).
+  type Proposal = { vatRate: number; daysInMonth: number; byCode: Map<string, ConsuntivoProposal> }
+  const [proposal, setProposal] = useState<Proposal | null>(null)
+  const [proposing, setProposing] = useState(false)
+  const [proposalError, setProposalError] = useState<string | null>(null)
+  const [applied, setApplied] = useState<Record<string, 'ok' | 'saving' | 'error'>>({})
+  useEffect(() => { setProposal(null); setApplied({}); setProposalError(null) }, [mese, year])
+
+  const loadProposal = async () => {
+    setProposing(true); setProposalError(null)
+    try {
+      const days = cashMonthDays(year, mese + 1)
+      const [outRes, clRes, rsRes] = await Promise.all([
+        supabase.from('outlets').select('id, cost_center_key').eq('company_id', companyId),
+        supabase.from('outlet_daily_closings').select('outlet_id, total_receipts, is_closed_day')
+          .eq('company_id', companyId).gte('closing_date', days[0]).lte('closing_date', days[days.length - 1])
+          .in('status', ['confermata', 'verificata']),
+        supabase.from('daily_report_settings').select('budget_vat_rate').eq('company_id', companyId).maybeSingle(),
+      ])
+      if (outRes.error) throw outRes.error
+      if (clRes.error) throw clRes.error
+      const ccByOutlet = new Map<string, string>()
+      for (const o of (outRes.data ?? []) as Array<{ id: string; cost_center_key: string | null }>) if (o.cost_center_key) ccByOutlet.set(o.id, o.cost_center_key)
+      const vr = Number((rsRes.data as { budget_vat_rate?: number | string } | null)?.budget_vat_rate)
+      const vatRate = Number.isFinite(vr) ? vr : 22
+      const rows = ((clRes.data ?? []) as Array<{ outlet_id: string; total_receipts: number | string; is_closed_day: boolean }>)
+        .filter(c => ccByOutlet.has(c.outlet_id))
+        .map(c => ({ costCenter: ccByOutlet.get(c.outlet_id)!, total: Number(c.total_receipts) || 0, isClosedDay: !!c.is_closed_day }))
+      setProposal({ vatRate, daysInMonth: days.length, byCode: proposeConsuntivo(rows, vatRate, days.length) })
+    } catch (e) {
+      setProposalError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setProposing(false)
+    }
+  }
+
+  const applyProposal = async (o: OutletForRapido, net: number) => {
+    setApplied(a => ({ ...a, [o.code]: 'saving' }))
+    try {
+      setMatrix(prev => ({ ...prev, [o.code]: { ...(prev[o.code] || { prev: 0, cons: 0 }), cons: net } }))
+      await saveCell(o, 'cons', net)
+      setApplied(a => ({ ...a, [o.code]: 'ok' }))
+    } catch {
+      setApplied(a => ({ ...a, [o.code]: 'error' }))
+    }
+  }
 
   // Carica dati per il mese selezionato
   useEffect(() => {
@@ -3179,21 +3229,18 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
   // Save on blur per singola cella (entry_type rev_monthly o cons_monthly)
   const saveCell = async (outlet: OutletForRapido, kind: 'prev' | 'cons', value: number) => {
     const entryType = kind === 'prev' ? 'rev_monthly' : 'cons_monthly'
-    // DELETE riga esistente (idempotente), poi INSERT se valore non zero
-    await supabase.from('budget_confronto').delete()
-      .eq('company_id', companyId).eq('cost_center', outlet.code)
-      .eq('account_code', outlet.accountCode).eq('year', year)
-      .eq('month', mese + 1).eq('entry_type', entryType)
-    if (value !== 0) {
-      const { error } = await supabase.from('budget_confronto').insert({
-        company_id: companyId, cost_center: outlet.code, account_code: outlet.accountCode,
-        year, month: mese + 1, entry_type: entryType, amount: value,
-        // riga Consuntivo = granitico (mese chiuso reale); riga Preventivo = preventivo
-        stato: kind === 'cons' ? 'granitico' : 'preventivo',
-        updated_at: new Date().toISOString(),
-      } as never)
-      if (error) throw error
-    }
+    // Salvataggio ATOMICO (migration 107): valore 0 → cancella, altrimenti upsert
+    // sull'indice unico, in un'unica transazione lato DB. Prima era DELETE-poi-INSERT
+    // sciolto (una cella poteva restare cancellata se l'INSERT falliva).
+    // riga Consuntivo = granitico (mese chiuso reale); riga Preventivo = preventivo.
+    const { error } = await (supabase.rpc as unknown as (n: string, a: Record<string, unknown>) => Promise<{ error: { message: string } | null }>)(
+      'save_budget_confronto_cell', {
+        p_cost_center: outlet.code, p_account_code: outlet.accountCode,
+        p_year: year, p_month: mese + 1, p_entry_type: entryType,
+        p_amount: value, p_stato: kind === 'cons' ? 'granitico' : 'preventivo',
+      }
+    )
+    if (error) throw error
   }
 
   const totalePrev = outlets.reduce((s, o) => s + (matrix[o.code]?.prev || 0), 0)
@@ -3235,7 +3282,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
         {loading ? (
           <div className="p-8 text-center text-slate-400 text-sm">Caricamento…</div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead className="bg-slate-50/50 border-b border-slate-100">
                 <tr>
@@ -3278,6 +3325,11 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
                   <td className="py-3 px-4 text-sm font-semibold text-emerald-700 bg-emerald-50/40">
                     <div className="flex items-center gap-1.5"><Unlock size={12} />Consuntivo</div>
                     <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-semibold uppercase tracking-wide bg-emerald-100 text-emerald-700">Granitico</span>
+                    <button type="button" onClick={() => void loadProposal()} disabled={proposing}
+                      title="Somma le chiusure di cassa confermate del mese (Incassi giornalieri) e propone il consuntivo netto IVA: niente viene scritto finché non accetti"
+                      className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 hover:text-emerald-900 disabled:opacity-60 whitespace-nowrap">
+                      <Wallet size={12} />{proposing ? 'Calcolo…' : 'Proponi da chiusure cassa'}
+                    </button>
                   </td>
                   {outlets.map(o => (
                     <td key={o.code} className="py-2 px-3">
@@ -3299,6 +3351,85 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
           </div>
         )}
       </div>
+
+      {proposalError && (
+        <div className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">Proposta non disponibile: {proposalError}</div>
+      )}
+      {proposal && (() => {
+        const fmt = (n: number) => n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        const rows = outlets.map(o => ({ o, p: proposal.byCode.get(o.code) ?? null }))
+        const withData = rows.filter(r => r.p && r.p.gross > 0)
+        const totGross = withData.reduce((s, r) => s + (r.p?.gross ?? 0), 0)
+        const totNet = withData.reduce((s, r) => s + (r.p?.net ?? 0), 0)
+        const applyAll = async () => { for (const r of withData) if (r.p) await applyProposal(r.o, r.p.net) }
+        return (
+          <div className="bg-white border border-emerald-200 rounded-xl overflow-hidden" data-testid="proposta-consuntivo">
+            <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100 flex flex-wrap items-center gap-3">
+              <Wallet size={16} className="text-emerald-700" />
+              <div className="text-sm font-semibold text-emerald-900">Proposta dalle chiusure di cassa — {MESI_NOMI[mese]} {year}</div>
+              <div className="text-xs text-emerald-800">Chiusure confermate in Incassi giornalieri, scorporo IVA {proposal.vatRate.toLocaleString('it-IT')} % (Impostazioni → Report incassi serale)</div>
+              {withData.length > 0 && (
+                <button type="button" onClick={() => void applyAll()} className="ml-auto text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700">Usa tutti ({withData.length})</button>
+              )}
+            </div>
+            {withData.length === 0 ? (
+              <div className="px-5 py-4 text-sm text-slate-500">Nessuna chiusura confermata in questo mese: le cassiere le inseriscono da Chiusura cassa e chi amministra le vede in Incassi giornalieri.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                    <tr>
+                      <th className="text-left py-2 px-4">Punto vendita</th>
+                      <th className="text-right py-2 px-3">Giornate chiuse</th>
+                      <th className="text-right py-2 px-3">Corrispettivi lordi</th>
+                      <th className="text-right py-2 px-3">Consuntivo proposto (netto IVA)</th>
+                      <th className="text-right py-2 px-3">Consuntivo attuale</th>
+                      <th className="py-2 px-3" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(({ o, p }) => {
+                      const cur = matrix[o.code]?.cons || 0
+                      const st = applied[o.code]
+                      const same = p ? Math.abs(cur - p.net) < 0.005 : false
+                      return (
+                        <tr key={o.code} className="border-b border-slate-100">
+                          <td className="py-2 px-4 font-medium text-slate-700">{o.label.split('(')[0].trim()}</td>
+                          <td className={`py-2 px-3 text-right tabular-nums ${p && !p.complete ? 'text-amber-700' : 'text-slate-600'}`} title={p && p.closedDays > 0 ? `${p.closedDays} giorni di negozio chiuso` : undefined}>
+                            {p ? `${p.daysCovered}/${p.daysInMonth}` : `0/${proposal.daysInMonth}`}{p && !p.complete && ' ⚠'}
+                          </td>
+                          <td className="py-2 px-3 text-right tabular-nums text-slate-600">{p ? fmt(p.gross) : '—'}</td>
+                          <td className="py-2 px-3 text-right tabular-nums font-semibold text-emerald-700">{p && p.gross > 0 ? fmt(p.net) : '—'}</td>
+                          <td className={`py-2 px-3 text-right tabular-nums ${p && p.gross > 0 && !same ? 'text-amber-700' : 'text-slate-600'}`}>{fmt(cur)}</td>
+                          <td className="py-2 px-3 text-right whitespace-nowrap">
+                            {p && p.gross > 0 && (
+                              same ? <span className="text-xs text-emerald-700">✓ già uguale</span>
+                              : st === 'saving' ? <span className="text-xs text-slate-500">salvo…</span>
+                              : st === 'error' ? <span className="text-xs text-red-700">errore, riprova</span>
+                              : <button type="button" onClick={() => void applyProposal(o, p.net)} className="text-xs px-2.5 py-1 rounded-md border border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 font-medium">Usa</button>
+                            )}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot className="bg-slate-50 font-semibold">
+                    <tr>
+                      <td className="py-2 px-4 text-slate-700">Totale</td>
+                      <td />
+                      <td className="py-2 px-3 text-right tabular-nums text-slate-700">{fmt(totGross)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-emerald-700">{fmt(totNet)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-slate-700">{fmt(totaleCons)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+                <div className="px-4 py-2 text-[11px] text-slate-500">⚠ = mese non ancora coperto per intero: la proposta è parziale. «Usa» scrive il valore nella riga Consuntivo (granitico) come se lo avessi digitato.</div>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {outlets.some(o => phRevByCenterMonth?.[o.code]?.[mese]) && (
         <PlaceholderLegend className="px-2" />

@@ -6,12 +6,13 @@ import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import NotificationBell from './NotificationBell'
 import HelpPanel from './HelpPanel'
 import GlobalSearch from './GlobalSearch'
+import TruncationTooltip from './TruncationTooltip'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
 import { getCurrentTenant } from '../lib/tenants'
 import {
   Menu, Search, ChevronRight,
-  LayoutDashboard, Store, Receipt, User,
+  LayoutDashboard, Store, Receipt, User, Wallet,
   UserCircle, Settings, LogOut, Building2
 } from 'lucide-react'
 
@@ -31,8 +32,9 @@ function TenantBadge() {
       <Building2 size={14} className="opacity-90 shrink-0" />
       <span className="opacity-90">Tenant attivo:</span>
       <span className="font-bold tracking-wide truncate" title={tenant.displayName}>{tenant.displayName}</span>
-      <span className="ml-auto opacity-80 hidden md:inline truncate">
-        Per cambiare tenant, apri una nuova tab.
+      <span className="ml-auto opacity-80 truncate">
+        <span className="hidden md:inline">Per cambiare tenant, apri una nuova tab.</span>
+        <span className="md:hidden">Cambio tenant: nuova tab</span>
       </span>
     </div>
   )
@@ -93,15 +95,25 @@ function Breadcrumb() {
 
 // ─── BOTTOM NAV (Mobile) ──────────────────────────────────────
 function BottomNav() {
+  // Terminologia del tenant (es. "Outlet" su NZ, altro su Made/Zago)
+  const labels = useCompanyLabels()
+  const { profile } = useAuth()
+  // L'account di negozio (operatore_cassa) ha due sole voci: chiusura e profilo.
+  const items = profile?.role === 'operatore_cassa'
+    ? [
+        { to: '/chiusura-cassa', icon: Wallet, label: 'Chiusura cassa', end: false },
+        { to: '/profilo', icon: User, label: 'Profilo', end: false },
+      ]
+    : [
+        { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
+        { to: '/outlet', icon: Store, label: labels.pointOfSale, end: false },
+        { to: '/scadenzario', icon: Receipt, label: 'Scadenze', end: false },
+        { to: '/profilo', icon: User, label: 'Profilo', end: false },
+      ]
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 safe-area-pb">
       <div className="flex items-center justify-around h-14">
-        {[
-          { to: '/', icon: LayoutDashboard, label: 'Home', end: true },
-          { to: '/outlet', icon: Store, label: 'Outlet' },
-          { to: '/scadenzario', icon: Receipt, label: 'Scadenze' },
-          { to: '/impostazioni', icon: User, label: 'Profilo' },
-        ].map(item => (
+        {items.map(item => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -228,12 +240,20 @@ export default function Layout() {
   const location = useLocation()
   const { profile } = useAuth()
   const isViewer = profile?.role === 'viewer'
-  // Lo Scadenzario è un flusso "giorno-1" su un singolo elenco di scadenze:
-  // il selettore anni globale non filtra la lista (le scadenze derivano dalle
-  // loro date, non dall'anno selezionato) e ingannava l'utente. Nascosto SOLO
-  // qui; resta attivo su tutte le altre pagine.
+  // Account di negozio: niente ricerca globale ne' campanella (la RLS gli
+  // nasconde comunque fornitori, fatture, movimenti e avvisi aziendali).
+  const isCashOperator = profile?.role === 'operatore_cassa'
+  // Il selettore anno/periodo globale va mostrato SOLO dove ha davvero effetto.
+  // Su queste pagine cambiare anno non filtra nulla (non consumano usePeriod):
+  // mostrarlo ingannava l'utente (stesso problema gia' risolto per lo Scadenzario).
+  // Lo nascondiamo qui; resta attivo sulle pagine che filtrano per periodo.
   const path = '/' + location.pathname.split('/').filter(Boolean).join('/')
-  const hidePeriodSelector = path === '/scadenzario'
+  const NO_PERIOD_PATHS = new Set([
+    '/scadenzario', '/scadenze-fiscali', '/impostazioni', '/archivio',
+    '/import-hub', '/storico-distinte', '/report-sincronizzazioni',
+    '/profilo', '/ai-categorie', '/chiusura-cassa', '/incassi-giornalieri',
+  ])
+  const hidePeriodSelector = NO_PERIOD_PATHS.has(path) || path.startsWith('/ticket')
   const [mobileOpen, setMobileOpen] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   // Badge sidebar: numero ticket dell'autore con aggiornamenti non visti.
@@ -304,23 +324,33 @@ export default function Layout() {
   }, [])
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    // h-dvh (non h-screen/100vh): con lo scroll solo interno la barra URL dei
+    // browser mobile non si ritrae mai e 100vh lascerebbe gli ultimi ~50-80px
+    // di ogni pagina coperti e irraggiungibili. dvh segue il viewport reale.
+    <div className="flex h-dvh overflow-hidden">
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} badges={{ 'ticket-unseen': ticketUnseen, 'fatt-anomalie': fattAnomalie }} />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Tenant badge (banda colorata) */}
-        <TenantBadge />
+        {/* L'account di negozio non cambia tenant: la fascia tecnica gli toglie solo spazio sul telefono. */}
+        {!isCashOperator && <TenantBadge />}
 
         {/* Top bar */}
-        <header className="h-12 shrink-0 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-4 gap-2">
+        {/* Sul telefono dell'account di negozio la barra in alto resterebbe vuota (niente menu, ricerca,
+            campanella): la nascondiamo e restano titolo pagina, contenuto e barra in basso. */}
+        <header className={`h-12 shrink-0 bg-white border-b border-slate-200 items-center justify-between px-3 sm:px-4 gap-2 ${isCashOperator ? 'hidden md:flex' : 'flex'}`}>
           {/* Left: hamburger (mobile) + breadcrumb */}
           <div className="flex items-center gap-2 min-w-0">
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden shrink-0"
-            >
-              <Menu size={20} />
-            </button>
+            {/* Per l'account di negozio bastano le due voci in basso: niente menu laterale sul telefono. */}
+            {!isCashOperator && (
+              <button
+                onClick={() => setMobileOpen(true)}
+                className="p-2.5 rounded-lg hover:bg-slate-100 text-slate-500 md:hidden shrink-0"
+                title="Apri menu"
+              >
+                <Menu size={20} />
+              </button>
+            )}
             <Breadcrumb />
           </div>
 
@@ -329,14 +359,16 @@ export default function Layout() {
 
           {/* Right: search + notifications + avatar */}
           <div className="flex items-center gap-1.5 shrink-0">
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition"
-              title="Cerca (\u2318K)"
-            >
-              <Search size={18} />
-            </button>
-            <NotificationBell />
+            {!isCashOperator && (
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition"
+                title="Cerca (\u2318K)"
+              >
+                <Search size={18} />
+              </button>
+            )}
+            {!isCashOperator && <NotificationBell />}
             <ProfileMenu />
           </div>
         </header>
@@ -360,6 +392,9 @@ export default function Layout() {
 
       {/* Global search overlay */}
       <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/* Tooltip globale automatico su ogni testo troncato ("scrittura interrotta") */}
+      <TruncationTooltip />
     </div>
   )
 }

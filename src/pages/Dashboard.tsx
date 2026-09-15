@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
-import PageHelp from '../components/PageHelp'
 import PageHeader from '../components/PageHeader'
 import { usePeriod } from '../hooks/usePeriod'
 import { supabase } from '../lib/supabase'
@@ -18,6 +17,7 @@ import {
 import FinancialTooltip from '../components/FinancialTooltip'
 import DataFreshness from '../components/DataFreshness'
 import { formatOutletName } from '../lib/formatters'
+import { getOutletLifecycle, outletLifecycleCaption, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle'
 
 /* ═══════════════════════════════════════
    HELPERS
@@ -80,7 +80,7 @@ function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue', trend, li
         {helpTerm ? <FinancialTooltip term={helpTerm}>{title}</FinancialTooltip> : title}
       </div>
       {subtitle && <div className="text-[11px] text-slate-400 mt-1">{subtitle}</div>}
-      <div className="flex items-center gap-1 text-[11px] text-blue-500 mt-2 font-medium opacity-0 group-hover:opacity-100 transition">
+      <div className="flex items-center gap-1 text-[11px] text-blue-500 mt-2 font-medium opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
         Dettaglio <ChevronRight size={11} />
       </div>
     </div>
@@ -146,6 +146,11 @@ export default function Dashboard() {
 
   // State
   const [loading, setLoading] = useState(true)
+  // Segnala che almeno una query del cruscotto è fallita: prima gli errori erano
+  // ingoiati (catch vuoto) e le card mostravano "0" come fosse un dato reale, su
+  // un cruscotto direzionale. Ora un banner avvisa che i numeri sono incompleti.
+  const [dataError, setDataError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const [ricavi, setRicavi] = useState(0)
   const [ricaviPrevYear, setRicaviPrevYear] = useState(0)
   const [utile, setUtile] = useState(0)
@@ -179,6 +184,7 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         setLoading(true)
+        setDataError(false)
         // Reset esplicito al cambio anno: senza questo, se la query del
         // nuovo anno non trova dati, gli state mantengono il valore
         // dell'anno precedente e si vede lo stesso ricavo su piu' anni.
@@ -300,275 +306,316 @@ export default function Dashboard() {
               setTotalCosti(invData.reduce((s, r) => s + Number(r.gross_amount || 0), 0))
               setDataSource('fatture')
             }
-          } catch (e) {}
+          } catch (e) { setDataError(true) }
         }
 
-        // 2. Previous year for trend
-        let prevRicavi = 0
-        try {
-          const { data: dashPrev } = await supabase
-            .from('v_executive_dashboard')
-            .select('total_revenue')
-            .eq('company_id', COMPANY_ID)
-            .eq('year', YEAR - 1)
-            .maybeSingle()
-          prevRicavi = dashPrev?.total_revenue || 0
-        } catch (e) {}
-        if (!prevRicavi) {
-          const { data: bsPrev } = await supabase
-            .from('balance_sheet_data')
-            .select('amount')
-            .eq('company_id', COMPANY_ID)
-            .eq('year', YEAR - 1)
-            .eq('period_type', 'annuale')
-            .eq('section', 'conto_economico')
-            .eq('account_code', 'ricavi_vendite')
-            .maybeSingle()
-          prevRicavi = bsPrev?.amount || 0
-        }
-        setRicaviPrevYear(prevRicavi)
+        // I blocchi 2-9 sono indipendenti tra loro: partono tutti insieme e si
+        // attende il completamento in fondo con Promise.all. Prima erano await in
+        // serie: 8-10 round trip di rete in cascata = 1,5-3s di spinner in piu'
+        // su mobile a ogni apertura. I dati mostrati non cambiano.
+        const pPrevYear = (async () => {
+          // 2. Previous year for trend
+          let prevRicavi = 0
+          try {
+            const { data: dashPrev } = await supabase
+              .from('v_executive_dashboard')
+              .select('total_revenue')
+              .eq('company_id', COMPANY_ID)
+              .eq('year', YEAR - 1)
+              .maybeSingle()
+            prevRicavi = dashPrev?.total_revenue || 0
+          } catch (e) { setDataError(true) }
+          if (!prevRicavi) {
+            const { data: bsPrev } = await supabase
+              .from('balance_sheet_data')
+              .select('amount')
+              .eq('company_id', COMPANY_ID)
+              .eq('year', YEAR - 1)
+              .eq('period_type', 'annuale')
+              .eq('section', 'conto_economico')
+              .eq('account_code', 'ricavi_vendite')
+              .maybeSingle()
+            prevRicavi = bsPrev?.amount || 0
+          }
+          setRicaviPrevYear(prevRicavi)
+        })()
 
-        // 3. Ranking outlet — metriche da budget_confronto (consuntivo "granitico"
-        //    di Lilian) classificate via chart_of_accounts.is_revenue, per
-        //    cost_center role='outlet'. Niente hardcoded: codici ricavo, outlet e
-        //    cost center arrivano tutti dal DB. Per ogni outlet:
-        //      ricavi (cons_ytd) = Σ amount cons_monthly su conti is_revenue
-        //      ult_mese          = max(mese) con cons_monthly != 0 (derivato dai dati)
-        //      budget_ytd        = Σ amount rev_monthly sui mesi <= ult_mese
-        //      budget_anno       = Σ amount rev_monthly su tutti i mesi
-        //      vs_budget_pct     = cons_ytd / budget_ytd * 100 (null se budget_ytd 0)
-        //      pct_gruppo        = cons_ytd / Σ cons_ytd di tutti gli outlet
-        try {
-          const [{ data: outletsList }, { data: ccRows }, { data: coaRows }] = await Promise.all([
-            supabase.from('outlets').select('id, name, code, is_active').eq('company_id', COMPANY_ID),
-            supabase.from('cost_centers').select('code, role, is_active').eq('company_id', COMPANY_ID),
-            supabase.from('chart_of_accounts').select('code').eq('company_id', COMPANY_ID).eq('is_active', true).eq('is_revenue', true),
-          ])
+        const pRanking = (async () => {
+          // 3. Ranking outlet — metriche da budget_confronto (consuntivo "granitico"
+          //    di Lilian) classificate via chart_of_accounts.is_revenue, per
+          //    cost_center role='outlet'. Niente hardcoded: codici ricavo, outlet e
+          //    cost center arrivano tutti dal DB. Per ogni outlet:
+          //      ricavi (cons_ytd) = Σ amount cons_monthly su conti is_revenue
+          //      ult_mese          = max(mese) con cons_monthly != 0 (derivato dai dati)
+          //      budget_ytd        = Σ amount rev_monthly sui mesi <= ult_mese
+          //      budget_anno       = Σ amount rev_monthly su tutti i mesi
+          //      vs_budget_pct     = cons_ytd / budget_ytd * 100 (null se budget_ytd 0)
+          //      pct_gruppo        = cons_ytd / Σ cons_ytd di tutti gli outlet
+          try {
+            const [{ data: outletsList }, { data: ccRows }, { data: coaRows }] = await Promise.all([
+              supabase.from('outlets').select('id, name, code, is_active, opening_date, closing_date').eq('company_id', COMPANY_ID),
+              supabase.from('cost_centers').select('code, role, is_active').eq('company_id', COMPANY_ID),
+              supabase.from('chart_of_accounts').select('code').eq('company_id', COMPANY_ID).eq('is_active', true).eq('is_revenue', true),
+            ])
 
-          const activeOutlets = (outletsList || []).filter(o => o.is_active !== false)
-          const revenueCodes = new Set((coaRows || []).map(c => c.code))
-          const outletCcSet = new Set(
-            ((ccRows || []) as Array<{ code?: string | null; role?: string | null; is_active?: boolean | null }>)
-              .filter(c => c.role === 'outlet' && c.is_active !== false)
-              .map(c => String(c.code || '').toLowerCase())
-              .filter(Boolean)
-          )
+            const activeOutlets = (outletsList || []).filter(o => o.is_active !== false)
+            const revenueCodes = new Set((coaRows || []).map(c => c.code))
+            const outletCcSet = new Set(
+              ((ccRows || []) as Array<{ code?: string | null; role?: string | null; is_active?: boolean | null }>)
+                .filter(c => c.role === 'outlet' && c.is_active !== false)
+                .map(c => String(c.code || '').toLowerCase())
+                .filter(Boolean)
+            )
 
-          // budget_confronto: consuntivo (cons_monthly) + preventivo (rev_monthly)
-          // mensile, solo conti is_revenue. Mai sommare i due entry_type insieme.
-          const { data: bcRows } = await supabase
-            .from('budget_confronto')
-            .select('cost_center, account_code, month, amount, entry_type')
-            .eq('company_id', COMPANY_ID)
-            .eq('year', YEAR)
-            .in('entry_type', ['cons_monthly', 'rev_monthly'])
-            .range(0, 9999)
-
-          type MonthMap = { cons: Record<number, number>; rev: Record<number, number> }
-          const byCc: Record<string, MonthMap> = {}
-          ;((bcRows || []) as Array<{ cost_center?: string | null; account_code?: string | null; month?: number | null; amount?: number | null; entry_type?: string | null }>).forEach(r => {
-            const cc = String(r.cost_center || '').toLowerCase()
-            if (!cc) return
-            if (outletCcSet.size > 0 && !outletCcSet.has(cc)) return
-            if (!r.account_code || !revenueCodes.has(r.account_code)) return
-            const m = r.month ?? 0
-            if (m < 1) return
-            const amt = Number(r.amount) || 0
-            if (!byCc[cc]) byCc[cc] = { cons: {}, rev: {} }
-            if (r.entry_type === 'cons_monthly') byCc[cc].cons[m] = (byCc[cc].cons[m] || 0) + amt
-            else if (r.entry_type === 'rev_monthly') byCc[cc].rev[m] = (byCc[cc].rev[m] || 0) + amt
-          })
-
-          // Fallback (anni/tenant senza budget_confronto, es. annate chiuse):
-          // ricavo da budget_entries sui conti is_revenue. In questa modalità non
-          // c'è split consuntivo/preventivo → vs Budget resta "—".
-          const hasConfronto = Object.keys(byCc).length > 0
-          const entriesByCc: Record<string, number> = {}
-          if (!hasConfronto) {
-            const { data: beRows } = await supabase
-              .from('budget_entries')
-              .select('cost_center, account_code, budget_amount')
+            // budget_confronto: consuntivo (cons_monthly) + preventivo (rev_monthly)
+            // mensile, solo conti is_revenue. Mai sommare i due entry_type insieme.
+            const { data: bcRows } = await supabase
+              .from('budget_confronto')
+              .select('cost_center, account_code, month, amount, entry_type')
               .eq('company_id', COMPANY_ID)
               .eq('year', YEAR)
+              .in('entry_type', ['cons_monthly', 'rev_monthly'])
               .range(0, 9999)
-            ;((beRows || []) as Array<{ cost_center?: string | null; account_code?: string | null; budget_amount?: number | null }>).forEach(r => {
+
+            type MonthMap = { cons: Record<number, number>; rev: Record<number, number> }
+            const byCc: Record<string, MonthMap> = {}
+            ;((bcRows || []) as Array<{ cost_center?: string | null; account_code?: string | null; month?: number | null; amount?: number | null; entry_type?: string | null }>).forEach(r => {
               const cc = String(r.cost_center || '').toLowerCase()
               if (!cc) return
               if (outletCcSet.size > 0 && !outletCcSet.has(cc)) return
               if (!r.account_code || !revenueCodes.has(r.account_code)) return
-              entriesByCc[cc] = (entriesByCc[cc] || 0) + (Number(r.budget_amount) || 0)
+              const m = r.month ?? 0
+              if (m < 1) return
+              const amt = Number(r.amount) || 0
+              if (!byCc[cc]) byCc[cc] = { cons: {}, rev: {} }
+              if (r.entry_type === 'cons_monthly') byCc[cc].cons[m] = (byCc[cc].cons[m] || 0) + amt
+              else if (r.entry_type === 'rev_monthly') byCc[cc].rev[m] = (byCc[cc].rev[m] || 0) + amt
             })
-          }
 
-          // Una riga per ogni outlet anagrafico (anche a 0): mai outlet "fantasma",
-          // mai crash, mai divisione per 0.
-          const rows = activeOutlets.map(o => {
-            const nameKey = String(o.name || '').toLowerCase()
-            const codeKey = String(o.code || '').toLowerCase()
-            const mm = byCc[nameKey] || byCc[codeKey] || { cons: {}, rev: {} }
-            const consYtd = Object.values(mm.cons).reduce((s, v) => s + v, 0)
-            const consMonths = Object.entries(mm.cons).filter(([, v]) => v !== 0).map(([k]) => Number(k))
-            const ultMese = consMonths.length ? Math.max(...consMonths) : 0
-            const budgetYtd = ultMese > 0
-              ? Object.entries(mm.rev).reduce((s, [k, v]) => (Number(k) <= ultMese ? s + v : s), 0)
-              : 0
-            const budgetAnno = Object.values(mm.rev).reduce((s, v) => s + v, 0)
-            const fallbackRev = hasConfronto ? 0 : (entriesByCc[nameKey] ?? entriesByCc[codeKey] ?? 0)
-            return {
-              id: o.id,
-              name: o.name || o.code || '?',
-              ricavi: consYtd || fallbackRev,
-              ult_mese: ultMese,
-              budget_ytd: budgetYtd,
-              budget_anno: budgetAnno || fallbackRev,
-              vs_budget_pct: budgetYtd > 0 ? (consYtd / budgetYtd * 100) : null,
+            // Fallback (anni/tenant senza budget_confronto, es. annate chiuse):
+            // ricavo da budget_entries sui conti is_revenue. In questa modalità non
+            // c'è split consuntivo/preventivo → vs Budget resta "—".
+            const hasConfronto = Object.keys(byCc).length > 0
+            const entriesByCc: Record<string, number> = {}
+            if (!hasConfronto) {
+              const { data: beRows } = await supabase
+                .from('budget_entries')
+                .select('cost_center, account_code, budget_amount')
+                .eq('company_id', COMPANY_ID)
+                .eq('year', YEAR)
+                .range(0, 9999)
+              ;((beRows || []) as Array<{ cost_center?: string | null; account_code?: string | null; budget_amount?: number | null }>).forEach(r => {
+                const cc = String(r.cost_center || '').toLowerCase()
+                if (!cc) return
+                if (outletCcSet.size > 0 && !outletCcSet.has(cc)) return
+                if (!r.account_code || !revenueCodes.has(r.account_code)) return
+                entriesByCc[cc] = (entriesByCc[cc] || 0) + (Number(r.budget_amount) || 0)
+              })
             }
-          })
 
-          const totaleCons = rows.reduce((s, r) => s + r.ricavi, 0)
-          rows.sort((a, b) => (b.ricavi - a.ricavi) || a.name.localeCompare(b.name))
-
-          if (rows.some(r => r.ricavi !== 0 || r.budget_anno !== 0)) {
-            setOutletsData(rows.map((o, i) => ({
-              ...o,
-              pct_gruppo: totaleCons > 0 ? (o.ricavi / totaleCons * 100) : null,
-              colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
-            })))
-          }
-        } catch (e) { console.warn('Outlet ranking error:', e) }
-
-        // 4. Cash position
-        try {
-          const { data: cashData } = await supabase
-            .from('v_cash_position')
-            .select('current_balance, last_updated_at')
-            .eq('company_id', COMPANY_ID)
-          // last_updated_at non è ancora nei tipi generati della vista -> cast esplicito
-          const cashRows = (cashData || []) as unknown as Array<{ current_balance?: number | null; last_updated_at?: string | null }>
-          setLiquidita(cashRows.reduce((s, c) => s + (c.current_balance || 0), 0))
-          const maxTs = cashRows.reduce<string | null>((m, c) => {
-            const ts = c.last_updated_at
-            return ts && (!m || ts > m) ? ts : m
-          }, null)
-          setLiquiditaUpdatedAt(maxTs)
-        } catch (e) {}
-
-        // 5. Loans
-        try {
-          const { data: loansData } = await supabase
-            .from('v_loans_overview')
-            .select('total_amount')
-            .eq('company_id', COMPANY_ID)
-          setDebtiFin((loansData || []).reduce((s, l) => s + (l.total_amount || 0), 0))
-        } catch (e) {}
-
-        // 6. Cash flow daily (last 30 days) — sparkline
-        try {
-          const thirtyDaysAgo = new Date()
-          thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-          const fromDate = thirtyDaysAgo.toISOString().split('T')[0]
-
-          const { data: cmData } = await supabase
-            .from('cash_movements')
-            .select('date, type, amount')
-            .eq('company_id', COMPANY_ID)
-            .gte('date', fromDate)
-            .order('date', { ascending: true })
-
-          if (cmData && cmData.length > 0) {
-            interface DayRow { date: string; entrate: number; uscite: number; netto: number; label?: string }
-            const dayMap: Record<string, DayRow> = {}
-            let totE = 0, totU = 0
-            cmData.forEach(row => {
-              const dk = row.date
-              if (!dayMap[dk]) dayMap[dk] = { date: dk, entrate: 0, uscite: 0, netto: 0 }
-              const abs = Math.abs(Number(row.amount) || 0)
-              if (row.type === 'entrata') {
-                dayMap[dk].entrate += abs
-                totE += abs
-              } else {
-                dayMap[dk].uscite += abs
-                totU += abs
+            // Una riga per ogni outlet anagrafico (anche a 0): mai outlet "fantasma",
+            // mai crash, mai divisione per 0.
+            const rows = activeOutlets.map(o => {
+              const nameKey = String(o.name || '').toLowerCase()
+              const codeKey = String(o.code || '').toLowerCase()
+              const mm = byCc[nameKey] || byCc[codeKey] || { cons: {}, rev: {} }
+              const consYtd = Object.values(mm.cons).reduce((s, v) => s + v, 0)
+              const consMonths = Object.entries(mm.cons).filter(([, v]) => v !== 0).map(([k]) => Number(k))
+              const ultMese = consMonths.length ? Math.max(...consMonths) : 0
+              const budgetYtd = ultMese > 0
+                ? Object.entries(mm.rev).reduce((s, [k, v]) => (Number(k) <= ultMese ? s + v : s), 0)
+                : 0
+              const budgetAnno = Object.values(mm.rev).reduce((s, v) => s + v, 0)
+              const fallbackRev = hasConfronto ? 0 : (entriesByCc[nameKey] ?? entriesByCc[codeKey] ?? 0)
+              // Ciclo di vita: un outlet «in apertura» (opening_date futura) ha già
+              // costi ma nessun ricavo — non è un outlet che vende male. Resta in
+              // classifica, in fondo, con il badge «In apertura dal …».
+              const lifecycle = getOutletLifecycle(o)
+              return {
+                id: o.id,
+                name: o.name || o.code || '?',
+                ricavi: consYtd || fallbackRev,
+                ult_mese: ultMese,
+                budget_ytd: budgetYtd,
+                budget_anno: budgetAnno || fallbackRev,
+                vs_budget_pct: budgetYtd > 0 ? (consYtd / budgetYtd * 100) : null,
+                lifecycle,
+                opening_date: o.opening_date ?? null,
+                closing_date: o.closing_date ?? null,
               }
             })
-            // Compute running netto
-            const daily = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date))
-            let running = 0
-            daily.forEach(d => {
-              running += d.entrate - d.uscite
-              d.netto = running
-              d.label = new Date(d.date).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })
-            })
-            setCashFlowDaily(daily)
-            setCashFlowTotals({ entrate: totE, uscite: totU })
-          }
-        } catch (e) {}
 
-        // 7. Scadenze count
-        try {
-          const today = new Date().toISOString().split('T')[0]
-          const in7days = new Date()
-          in7days.setDate(in7days.getDate() + 7)
-          const in7str = in7days.toISOString().split('T')[0]
+            const totaleCons = rows.reduce((s, r) => s + r.ricavi, 0)
+            // Ordine: outlet in apertura sempre in fondo, poi per ricavi decrescenti.
+            rows.sort((a, b) =>
+              (Number(a.lifecycle === 'programmato') - Number(b.lifecycle === 'programmato')) ||
+              (b.ricavi - a.ricavi) || a.name.localeCompare(b.name))
 
-          const [scadRes, prossRes] = await Promise.all([
-            supabase.from('payables').select('id', { count: 'exact' })
-              .eq('company_id', COMPANY_ID).eq('status', 'scaduto'),
-            supabase.from('payables').select('id', { count: 'exact' })
-              .eq('company_id', COMPANY_ID).eq('status', 'in_scadenza'),
-          ])
-          setScaduteCount(scadRes.count || 0)
-          setProssimeCount(prossRes.count || 0)
-        } catch (e) {}
-
-        // 8. Movimenti bancari senza categoria contabile (campo reale 'category').
-        // NB: nella vista cash_movements le colonne cost_category_id/ai_category_id sono
-        // SEMPRE NULL (non sono dati reali) -> la vecchia query contava TUTTI i movimenti.
-        // Si conta il campo reale 'category' IS NULL.
-        try {
-          const { count } = await supabase
-            .from('cash_movements')
-            .select('id', { count: 'exact' })
-            .eq('company_id', COMPANY_ID)
-            .is('category', null)
-          setUncategorizedMov(count || 0)
-        } catch (e) {}
-
-        // 9. Daily revenue (most recent record per outlet) for ranking
-        try {
-          const { data: drData } = await supabase
-            .from('daily_revenue')
-            .select('outlet_id, gross_revenue, date, outlets(name)')
-            .eq('company_id', COMPANY_ID)
-            .order('date', { ascending: false })
-
-          // Keep only the most recent record per outlet
-          type DailyRow = { outlet_id: string | null; gross_revenue: number | null; date: string | null; outlets: { name: string } | null }
-          const latestByOutlet: Record<string, DailyRow> = {}
-          ;((drData || []) as unknown as DailyRow[]).forEach(r => {
-            if (!r.outlet_id) return
-            if (!latestByOutlet[r.outlet_id]) {
-              latestByOutlet[r.outlet_id] = r
+            if (rows.some(r => r.ricavi !== 0 || r.budget_anno !== 0)) {
+              setOutletsData(rows.map((o, i) => ({
+                ...o,
+                pct_gruppo: totaleCons > 0 ? (o.ricavi / totaleCons * 100) : null,
+                colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
+              })))
             }
-          })
+          } catch (e) { console.warn('Outlet ranking error:', e) }
+        })()
 
-          setDailyRevenue(Object.values(latestByOutlet).map(r => ({
-            outlet: r.outlets?.name || '?',
-            revenue: Number(r.gross_revenue) || 0,
-            date: r.date ?? '',
-          })))
-        } catch (e) {}
+        const pCash = (async () => {
+          // 4. Cash position
+          try {
+            const { data: cashData, error: cashErr } = await supabase
+              .from('v_cash_position')
+              .select('current_balance, last_updated_at')
+              .eq('company_id', COMPANY_ID)
+            // Se la query fallisce (rete/RLS/vista mancante) NON mostrare 0 come
+            // fosse liquidità reale: segnala l'errore e non azzerare la card.
+            if (cashErr) throw cashErr
+            // last_updated_at non è ancora nei tipi generati della vista -> cast esplicito
+            const cashRows = (cashData || []) as unknown as Array<{ current_balance?: number | null; last_updated_at?: string | null }>
+            setLiquidita(cashRows.reduce((s, c) => s + (c.current_balance || 0), 0))
+            const maxTs = cashRows.reduce<string | null>((m, c) => {
+              const ts = c.last_updated_at
+              return ts && (!m || ts > m) ? ts : m
+            }, null)
+            setLiquiditaUpdatedAt(maxTs)
+          } catch (e) { console.warn('v_cash_position:', (e as Error).message); setDataError(true) }
+        })()
+
+        const pLoans = (async () => {
+          // 5. Loans
+          try {
+            const { data: loansData, error: loansErr } = await supabase
+              .from('v_loans_overview')
+              .select('total_amount')
+              .eq('company_id', COMPANY_ID)
+            if (loansErr) throw loansErr
+            setDebtiFin((loansData || []).reduce((s, l) => s + (l.total_amount || 0), 0))
+          } catch (e) { console.warn('v_loans_overview:', (e as Error).message); setDataError(true) }
+        })()
+
+        const pCashFlow = (async () => {
+          // 6. Cash flow daily (last 30 days) — sparkline
+          try {
+            const thirtyDaysAgo = new Date()
+            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
+            const fromDate = thirtyDaysAgo.toISOString().split('T')[0]
+
+            const { data: cmData } = await supabase
+              .from('cash_movements')
+              .select('date, type, amount')
+              .eq('company_id', COMPANY_ID)
+              .gte('date', fromDate)
+              .order('date', { ascending: true })
+
+            if (cmData && cmData.length > 0) {
+              interface DayRow { date: string; entrate: number; uscite: number; netto: number; label?: string }
+              const dayMap: Record<string, DayRow> = {}
+              let totE = 0, totU = 0
+              cmData.forEach(row => {
+                const dk = row.date
+                // cash_movements e' una vista: nei tipi generati ogni colonna e'
+                // nullable, data compresa. Un movimento senza data non ha una
+                // casella nel grafico giornaliero, quindi si salta.
+                if (!dk) return
+                if (!dayMap[dk]) dayMap[dk] = { date: dk, entrate: 0, uscite: 0, netto: 0 }
+                const abs = Math.abs(Number(row.amount) || 0)
+                if (row.type === 'entrata') {
+                  dayMap[dk].entrate += abs
+                  totE += abs
+                } else {
+                  dayMap[dk].uscite += abs
+                  totU += abs
+                }
+              })
+              // Compute running netto
+              const daily = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date))
+              let running = 0
+              daily.forEach(d => {
+                running += d.entrate - d.uscite
+                d.netto = running
+                d.label = new Date(d.date).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })
+              })
+              setCashFlowDaily(daily)
+              setCashFlowTotals({ entrate: totE, uscite: totU })
+            }
+          } catch (e) { setDataError(true) }
+        })()
+
+        const pScadenze = (async () => {
+          // 7. Scadenze count
+          try {
+            const today = new Date().toISOString().split('T')[0]
+            const in7days = new Date()
+            in7days.setDate(in7days.getDate() + 7)
+            const in7str = in7days.toISOString().split('T')[0]
+
+            const [scadRes, prossRes] = await Promise.all([
+              supabase.from('payables').select('id', { count: 'exact' })
+                .eq('company_id', COMPANY_ID).eq('status', 'scaduto'),
+              supabase.from('payables').select('id', { count: 'exact' })
+                .eq('company_id', COMPANY_ID).eq('status', 'in_scadenza'),
+            ])
+            setScaduteCount(scadRes.count || 0)
+            setProssimeCount(prossRes.count || 0)
+          } catch (e) { setDataError(true) }
+        })()
+
+        const pUncat = (async () => {
+          // 8. Movimenti bancari senza categoria contabile (campo reale 'category').
+          // NB: nella vista cash_movements le colonne cost_category_id/ai_category_id sono
+          // SEMPRE NULL (non sono dati reali) -> la vecchia query contava TUTTI i movimenti.
+          // Si conta il campo reale 'category' IS NULL.
+          try {
+            const { count } = await supabase
+              .from('cash_movements')
+              .select('id', { count: 'exact' })
+              .eq('company_id', COMPANY_ID)
+              .is('category', null)
+            setUncategorizedMov(count || 0)
+          } catch (e) { setDataError(true) }
+        })()
+
+        const pDailyRev = (async () => {
+          // 9. Daily revenue (most recent record per outlet) for ranking
+          try {
+            const { data: drData } = await supabase
+              .from('daily_revenue')
+              .select('outlet_id, gross_revenue, date, outlets(name)')
+              .eq('company_id', COMPANY_ID)
+              .order('date', { ascending: false })
+
+            // Keep only the most recent record per outlet
+            type DailyRow = { outlet_id: string | null; gross_revenue: number | null; date: string | null; outlets: { name: string } | null }
+            const latestByOutlet: Record<string, DailyRow> = {}
+            ;((drData || []) as unknown as DailyRow[]).forEach(r => {
+              if (!r.outlet_id) return
+              if (!latestByOutlet[r.outlet_id]) {
+                latestByOutlet[r.outlet_id] = r
+              }
+            })
+
+            setDailyRevenue(Object.values(latestByOutlet).map(r => ({
+              outlet: r.outlets?.name || '?',
+              revenue: Number(r.gross_revenue) || 0,
+              date: r.date ?? '',
+            })))
+          } catch (e) { setDataError(true) }
+        })()
+
+        await Promise.all([pPrevYear, pRanking, pCash, pLoans, pCashFlow, pScadenze, pUncat, pDailyRev])
 
         setLastUpdate(new Date())
         setLoading(false)
       } catch (err: unknown) {
         console.error('Dashboard fetch error:', err)
+        setDataError(true)
         setLoading(false)
       }
     }
 
     fetchData()
-  }, [COMPANY_ID, year, quarter])
+  }, [COMPANY_ID, year, quarter, reloadKey])
 
   // Derived
   const deltaRicaviPct = ricaviPrevYear > 0 ? ((ricavi - ricaviPrevYear) / ricaviPrevYear * 100) : 0
@@ -682,6 +729,22 @@ export default function Dashboard() {
         subtitle={`Cruscotto direzionale — ${periodRange.label}${dataSource === 'bilancio' ? ' · Dati da bilancio importato' : ''}`}
         actions={lastUpdate ? <DataFreshness lastUpdate={lastUpdate} source="Dati" /> : undefined}
       />
+
+      {/* Avviso dati incompleti: una o più query del cruscotto sono fallite. Meglio
+          dirlo che mostrare "0" come se fosse un dato reale (decisioni sbagliate). */}
+      {dataError && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
+          <span className="text-amber-800">
+            Attenzione: alcuni dati potrebbero non essere stati caricati (connessione instabile o servizio momentaneamente non disponibile). I numeri mostrati potrebbero essere incompleti.
+          </span>
+          <button
+            onClick={() => setReloadKey(k => k + 1)}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700"
+          >
+            Ricarica
+          </button>
+        </div>
+      )}
 
       {/* ─── 4 KPI PRINCIPALI ─── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
@@ -889,6 +952,11 @@ export default function Dashboard() {
                           <div className="flex items-center gap-2">
                             <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
                             <span className="font-medium text-slate-900">{formatOutletName(o.name)}</span>
+                            {o.lifecycle === 'programmato' && (
+                              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+                                {outletLifecycleCaption(o)}
+                              </span>
+                            )}
                           </div>
                           {/* Mini bar */}
                           <div className="mt-1 h-1 bg-slate-100 rounded-full overflow-hidden w-32">
@@ -902,7 +970,7 @@ export default function Dashboard() {
                         </td>
                         <td className="py-2.5 px-4 text-right text-slate-600">{o.budget_anno ? `${fmt(o.budget_anno)} €` : '—'}</td>
                         <td className="py-2.5 px-4">
-                          <Link to={outletHref(o)} className="opacity-0 group-hover:opacity-100 transition">
+                          <Link to={outletHref(o)} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition" title="Vedi dettaglio">
                             <ChevronRight size={14} className="text-slate-400" />
                           </Link>
                         </td>
@@ -938,7 +1006,13 @@ export default function Dashboard() {
                   <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-slate-900 truncate" title={formatOutletName(o.name)}>{formatOutletName(o.name)}</div>
-                    <div className="text-xs text-slate-400">Ricavi YTD {fmt(o.ricavi)} €</div>
+                    {o.lifecycle === 'programmato' ? (
+                      <span className={`inline-block mt-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+                        {outletLifecycleCaption(o)}
+                      </span>
+                    ) : (
+                      <div className="text-xs text-slate-400">Ricavi YTD {fmt(o.ricavi)} €</div>
+                    )}
                   </div>
                   <div className="text-right shrink-0">
                     <div className="text-xs text-slate-400">vs Budget</div>
@@ -967,7 +1041,6 @@ export default function Dashboard() {
           </>
         )}
       </div>
-      <PageHelp page="dashboard" />
       </div>
     </div>
   )

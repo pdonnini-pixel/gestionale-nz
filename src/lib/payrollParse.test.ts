@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseInfinityNetti, parseInfinityNettiPages, parseInfinityNettiItems, matchOutletName, parseItNum, parseProspettoPaghe, contrAziendaOutlet, type ParserOutlet } from './payrollParse'
+import { parseInfinityNetti, parseInfinityNettiPages, parseInfinityNettiItems, matchOutletName, parseItNum, parseProspettoPaghe, contrAziendaOutlet, tabulatoNetti, type ParserOutlet } from './payrollParse'
 
 const OUTLETS: ParserOutlet[] = [
   { name: 'VALDICHIANA', cost_center_key: 'valdichiana' },
@@ -22,6 +22,72 @@ describe('matchOutletName', () => {
   it('mappa la filiale all_outlet a runtime', () => {
     expect(matchOutletName('VALDICHIANA VILLAGE', OUTLETS)).toBe('VALDICHIANA')
     expect(matchOutletName('BARBERINO', OUTLETS)).toBe('BARBERINO')
+  })
+
+  it('senza alias, una filiale che non somiglia a niente resta senza outlet', () => {
+    expect(matchOutletName('LOC PIAN DI RONA - REGGELLO', OUTLETS)).toBe('')
+  })
+
+  it('con alias configurato, la stessa filiale trova il suo outlet (caso reale NZ giugno 2026)', () => {
+    // Nel file di giugno la sede compare con DUE nomi: «MATASSINO - FIGLINE E
+    // INCISA VALDARNO», che si aggancia via mall_name, e «LOC PIAN DI RONA -
+    // REGGELLO», che nessun campo anagrafico descrive.
+    const conAlias: ParserOutlet[] = OUTLETS.map((o) =>
+      o.name === 'SEDE / MAGAZZINO' ? { ...o, payroll_filiali: ['PIAN DI RONA'] } : o)
+    expect(matchOutletName('LOC PIAN DI RONA - REGGELLO', conAlias)).toBe('SEDE / MAGAZZINO')
+    expect(matchOutletName('MATASSINO - FIGLINE E INCISA VALDARNO', conAlias)).toBe('SEDE / MAGAZZINO')
+    // l'alias non ruba le filiali degli altri
+    expect(matchOutletName('BARBERINO OUTLET', conAlias)).toBe('BARBERINO')
+    expect(matchOutletName('VALDICHIANA VILLAGE', conAlias)).toBe('VALDICHIANA')
+  })
+
+  it('un alias vuoto o nullo non cambia niente', () => {
+    const vuoti: ParserOutlet[] = OUTLETS.map((o) => ({ ...o, payroll_filiali: [] }))
+    expect(matchOutletName('VALDICHIANA VILLAGE', vuoti)).toBe('VALDICHIANA')
+    expect(matchOutletName('LOC PIAN DI RONA - REGGELLO', vuoti)).toBe('')
+  })
+})
+
+describe('parseProspettoPaghe — tipi di cedolino coperti dal file', () => {
+  // Il consulente stampa DUE prospetti per lo stesso mese: uno col solo cedolino
+  // normale e uno che parte dall'aggiuntivo e arriva al normale, cioe' il mese
+  // intero (caso reale NZ giugno 2026: Valdichiana 9.910,50 di netti nel primo,
+  // 16.824,50 nel secondo, che comprende la quattordicesima).
+  const testa = (periodo: string) => [
+    'Prospetto riepilogativo elaborazione paghe',
+    `Periodo di elaborazione: ${periodo}`,
+    'Ripartizione: Filiale: 0000000001 VALDICHIANA VILLAGE',
+    'NUMERO DIPENDENTI 8',
+    '1 Retribuzioni Lorde 9.356,67',
+    'Totale retribuzioni 11.184,06',
+  ]
+
+  it('la stampa corta copre il solo cedolino normale', () => {
+    const r = parseProspettoPaghe(testa('Dal Giugno 2026 Norm. - Al Giugno 2026 Norm.'), OUTLETS)
+    expect(r.isProspetto).toBe(true)
+    expect(r.tipiCedolino).toEqual(['Norm.'])
+    expect(r.soloNormale).toBe(true)
+    expect(r.months).toEqual([{ year: 2026, month: 6 }])
+  })
+
+  it('la stampa completa parte dall_aggiuntivo e arriva al normale', () => {
+    const r = parseProspettoPaghe(testa('Dal Giugno 2026 Agg.1 - Al Giugno 2026 Norm.'), OUTLETS)
+    expect(r.tipiCedolino).toEqual(['Agg.1', 'Norm.'])
+    expect(r.soloNormale).toBe(false)
+    expect(r.months).toEqual([{ year: 2026, month: 6 }])
+  })
+})
+
+describe('tabulatoNetti — riconosce il documento sbagliato', () => {
+  it('distingue elenco netti, netti negativi e altri report', () => {
+    expect(tabulatoNetti('Elenco netti | Luglio 2026 Tipo cedolino Norm. | 071041 NEW ZAGO SRL')).toBe('elenco')
+    expect(tabulatoNetti('Netti negativi | Luglio 2026 | 0000091 BRINI CAMILLA -110,73')).toBe('negativi')
+    // il grassetto dei PDF Infinity raddoppia le lettere
+    expect(tabulatoNetti('EElleennccoo nneettttii')).toBe('elenco')
+    expect(tabulatoNetti('NNeettttii nneeggaattiivvii')).toBe('negativi')
+    // gli altri report non vengono scambiati per tabulati dei netti
+    expect(tabulatoNetti('Statistica costo orario')).toBeNull()
+    expect(tabulatoNetti('Prospetto riepilogativo elaborazione paghe')).toBeNull()
   })
 })
 
@@ -132,6 +198,16 @@ describe('parseInfinityNettiPages — abbinamento per colonna (ordine di stream)
     expect(rows.reduce((s, r) => s + (r.netto || 0), 0)).toBeCloseTo(6913.00, 2)
   })
 
+  it('pagina di seguito senza «Filiale:» → righe ereditate, non piu\' scartate', () => {
+    const p1 = 'Filiale: 0000000009 - SEDE / MAGAZZINO ; Cod. dip. Cognome e nome Importo '
+      + '0000001 0000064 GALLO MASSIMO CENI LORENZO 5.000,00 1.448,00'
+    const p2 = '0000084 PASQUALETTI ALESSANDRO 467,81 Totale di ripartizione 6.915,81 Nr dipendenti 1'
+    const { rows } = parseInfinityNettiPages([p1, p2], OUTLETS)
+    expect(rows.length).toBe(3)
+    expect(rows.every((r) => r.outlet === 'SEDE / MAGAZZINO')).toBe(true)
+    expect(rows.map((r) => r.matricola)).toContain('0000084')
+  })
+
   it('filiale che non quadra → righe marcate warn', () => {
     const bad = 'Filiale: 0000000001 - VALDICHIANA VILLAGE ; 0000003 0000004 ROSSI MARIO VERDI ANNA 1.000,00 2.000,00 Totale di ripartizione 9.999,99 Nr dipendenti 2'
     const { rows } = parseInfinityNettiPages([bad], OUTLETS)
@@ -203,6 +279,41 @@ describe('parseInfinityNettiItems — righe per asse X (PDF ruotato)', () => {
     expect(rows.length).toBe(1)
     expect(rows[0]).toMatchObject({ matricola: '0000051', cognome: 'PIANTONI', nome: 'ROSITA FRANCESC', netto: 1417 })
     expect(rows[0].nome).not.toMatch(/IT53|BANCO|BPM|LOMBARDIA/)
+    expect(rows.some((r) => r.warn)).toBe(false)
+  })
+
+  it('filiale su DUE pagine: la seconda non ripete «Filiale:» → outlet ereditato, nessun warn', () => {
+    // Caso reale maggio 2026 NZ: SEDE / MAGAZZINO ha 6 persone, il PDF le spezza
+    // su due pagine e la seconda non ristampa l'intestazione. Prima le ultime due
+    // finivano senza punto vendita e la loro scheda usciva «da definire».
+    const pag1: PI[] = [
+      { str: 'Filiale: 0000000009 - SEDE / MAGAZZINO ;', x: 300, y: 400 },
+      ...person(280, '0000001', 'GALLO MASSIMO', '5.000,00'),
+      ...person(250, '0000064', 'CENI LORENZO', '1.448,00'),
+    ]
+    const pag2: PI[] = [
+      ...person(280, '0000084', 'PASQUALETTI ALESSANDRO', '467,81'),
+      { str: 'Totale di ripartizione', x: 50, y: 55 }, { str: '6.915,81', x: 50, y: 206 }, { str: 'Nr dipendenti 3', x: 50, y: 250 },
+    ]
+    const { rows, fileTotal } = parseInfinityNettiItems([pag1, pag2], OUTLETS)
+    expect(rows.length).toBe(3)
+    expect(rows.every((r) => r.outlet === 'SEDE / MAGAZZINO')).toBe(true)
+    expect(rows.some((r) => r.warn)).toBe(false)
+    expect(fileTotal).toBeCloseTo(6915.81, 2)
+  })
+
+  it('nuova filiale dopo una senza totale: le righe restano, ognuna col suo outlet', () => {
+    const pag1: PI[] = [
+      { str: 'Filiale: 0000000001 - VALDICHIANA VILLAGE ;', x: 300, y: 400 },
+      ...person(280, '0000003', 'FELICI SILVIA', '2.399,00'),
+    ]
+    const pag2: PI[] = [
+      { str: 'Filiale: 0000000002 - BARBERINO ;', x: 300, y: 400 },
+      ...person(280, '0000004', 'GERMANI MARIA', '1.356,00'),
+      { str: 'Totale di ripartizione', x: 50, y: 55 }, { str: '1.356,00', x: 50, y: 206 }, { str: 'Nr dipendenti 1', x: 50, y: 250 },
+    ]
+    const { rows } = parseInfinityNettiItems([pag1, pag2], OUTLETS)
+    expect(rows.map((r) => r.outlet)).toEqual(['VALDICHIANA', 'BARBERINO'])
     expect(rows.some((r) => r.warn)).toBe(false)
   })
 

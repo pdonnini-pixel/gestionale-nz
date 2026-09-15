@@ -10,7 +10,7 @@ import {
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
   Menu, X, ChevronsLeft, ChevronsRight,
-  MessageSquare, Shield, RefreshCw, ClipboardList,
+  MessageSquare, Shield, RefreshCw, ClipboardList, Wallet, Receipt, Percent, Scale,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -70,6 +70,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       items: [
         { to: '/banche', icon: Landmark, label: 'Banche', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/cash-flow', icon: TrendingUp, label: 'Cashflow', roles: ['super_advisor', 'ceo', 'cfo'] },
+        { to: '/fabbisogno', icon: Scale, label: 'Fabbisogno', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/conto-economico', icon: BarChart3, label: 'Conto Economico', roles: ['super_advisor', 'ceo', 'cfo'] },
       ],
     },
@@ -80,6 +81,10 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         { to: '/outlet', icon: Store, label: posSingular, roles: ['super_advisor', 'ceo', 'coo'] },
         { to: '/confronto-outlet', icon: GitCompare, label: `Confronto ${posPlural}`, roles: ['super_advisor', 'ceo', 'cfo'], minOutlets: 2 },
         { to: '/budget', icon: Target, label: 'Budget & Controllo', roles: ['super_advisor', 'ceo', 'cfo'] },
+        // Specchietto incassi: la cassiera (operatore_cassa) vede SOLO la chiusura;
+        // chi amministra vede il riepilogo mensile e configura i canali.
+        { to: '/chiusura-cassa', icon: Wallet, label: 'Chiusura cassa', roles: ['super_advisor', 'contabile', 'operatore_cassa'] },
+        { to: '/incassi-giornalieri', icon: Receipt, label: 'Incassi giornalieri', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       ],
     },
     {
@@ -90,13 +95,14 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         { to: '/fatturazione', icon: FileText, label: 'Fatturazione', badgeKey: 'fatt-anomalie', roles: ['super_advisor', 'cfo', 'contabile'] },
         { to: '/scadenzario', icon: CalendarClock, label: 'Scadenzario', badgeKey: 'scadenzario', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
         { to: '/storico-distinte', icon: ClipboardList, label: 'Storico Distinte', roles: ['super_advisor', 'cfo', 'contabile'] },
+        { to: '/liquidazione-iva', icon: Percent, label: 'Liquidazione IVA', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
       ],
     },
     {
       key: 'risorse',
       label: 'Risorse',
       items: [
-        { to: '/dipendenti', icon: UserCheck, label: 'Dipendenti', roles: ['super_advisor', 'coo'] },
+        { to: '/dipendenti', icon: UserCheck, label: 'Dipendenti', roles: ['super_advisor', 'coo', 'contabile'] },
       ],
     },
     {
@@ -147,15 +153,19 @@ export function buildBreadcrumbMap(
     '/': { section: 'Cruscotto', page: 'Dashboard' },
     '/banche': { section: 'Finanza', page: 'Banche' },
     '/cash-flow': { section: 'Finanza', page: 'Cashflow' },
+    '/fabbisogno': { section: 'Finanza', page: 'Fabbisogno' },
     '/conto-economico': { section: 'Finanza', page: 'Conto Economico' },
     '/outlet': { section: sectionPos, page: posSingular },
     '/confronto-outlet': { section: sectionPos, page: `Confronto ${posPlural}` },
     '/budget': { section: sectionPos, page: 'Budget & Controllo' },
+    '/chiusura-cassa': { section: sectionPos, page: 'Chiusura cassa' },
+    '/incassi-giornalieri': { section: sectionPos, page: 'Incassi giornalieri' },
     '/fornitori': { section: 'Ciclo Passivo', page: 'Fornitori' },
     '/fatturazione': { section: 'Ciclo Passivo', page: 'Fatturazione' },
     '/scadenzario': { section: 'Ciclo Passivo', page: 'Scadenzario' },
     '/scadenze-fiscali': { section: 'Ciclo Passivo', page: 'Scadenze Fiscali / Interni' },
     '/storico-distinte': { section: 'Ciclo Passivo', page: 'Storico Distinte' },
+    '/liquidazione-iva': { section: 'Ciclo Passivo', page: 'Liquidazione IVA' },
     '/dipendenti': { section: 'Risorse', page: 'Dipendenti' },
     '/ai-categorie': { section: 'AI & Analytics', page: 'AI Categorie' },
     '/margini': { section: 'AI & Analytics', page: `Margini ${posPlural}` },
@@ -211,12 +221,37 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
   const location = useLocation()
   const role = profile?.role || 'ceo'
 
+  // Escape chiude il drawer mobile (prima si chiudeva solo col tap sull'overlay)
+  useEffect(() => {
+    if (!mobileOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMobileOpen(false) }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [mobileOpen, setMobileOpen])
+
+  // Back di Android: all'apertura del drawer si pusha uno stato nello history,
+  // così il tasto indietro chiude il drawer invece di cambiare pagina. Se il
+  // drawer si chiude in altro modo (overlay, X, Escape) lo stato pushato viene
+  // consumato con history.back(); dopo una navigazione interna lo stato in cima
+  // non è più il nostro e non si tocca nulla.
+  useEffect(() => {
+    if (!mobileOpen) return
+    window.history.pushState({ ...(window.history.state || {}), sidebarDrawer: true }, '')
+    const onPop = () => setMobileOpen(false)
+    window.addEventListener('popstate', onPop)
+    return () => {
+      window.removeEventListener('popstate', onPop)
+      if ((window.history.state as { sidebarDrawer?: boolean } | null)?.sidebarDrawer) window.history.back()
+    }
+  }, [mobileOpen, setMobileOpen])
+
   const roleLabels: Record<string, string> = {
     super_advisor: 'Super Advisor',
     ceo: 'CEO', cfo: 'CFO', coo: 'COO',
     contabile: 'Contabile',
     budget_approver: 'Approvatore Budget',
     viewer: 'Sola lettura',
+    operatore_cassa: 'Operatore cassa',
   }
 
   // Ruolo 'viewer' (sola lettura): vede le pagine dati, nessuna scrittura.
@@ -224,7 +259,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
   // qui decidiamo solo cosa mostrare nel menu. Escluse: Impostazioni, Import
   // Hub, Archivio, AI Categorie, Divisione Fornitori, Admin Segnalazioni.
   const VIEWER_ROUTES = new Set<string>([
-    '/', '/banche', '/cash-flow', '/conto-economico', '/outlet',
+    '/', '/banche', '/cash-flow', '/fabbisogno', '/conto-economico', '/outlet',
     '/confronto-outlet', '/budget', '/fornitori', '/fatturazione',
     '/scadenzario', '/margini', '/produttivita', '/scenario',
     '/dipendenti', '/ticket',
@@ -435,6 +470,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
           </div>
           <button
             onClick={() => setMobileOpen(false)}
+            title="Chiudi menu"
             className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition shrink-0 md:hidden"
           >
             <X size={18} />
@@ -451,6 +487,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
             <div key={section.key}>
               <button
                 onClick={() => toggleSection(section.key)}
+                aria-expanded={isOpen}
                 className={`flex items-center justify-between w-full px-3 py-2 mt-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition ${
                   hasActiveItem
                     ? 'text-slate-300 hover:text-white'
@@ -515,9 +552,9 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
       </aside>
 
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 md:hidden">
+        <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Menu di navigazione">
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileOpen(false)} />
-          <aside className="absolute left-0 top-0 bottom-0 w-72 bg-slate-900 text-white flex flex-col shadow-2xl">
+          <aside className="absolute left-0 top-0 bottom-0 w-72 bg-slate-900 text-white flex flex-col shadow-2xl overscroll-contain">
             {expandedContent}
           </aside>
         </div>

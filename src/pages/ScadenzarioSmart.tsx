@@ -1,21 +1,17 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
 import { useToast } from '../components/Toast';
-
-// Tab principale ScadenzarioSmart — persistito in URL come ?section=
-type ScadenzarioSection = 'situazione' | 'scadenze' | 'ricorrenti';
-const VALID_SCADENZARIO_SECTIONS: ScadenzarioSection[] = ['situazione', 'scadenze', 'ricorrenti'];
+import { creditNoteResidual } from '../lib/payableOpenAmount';
 import {
   Calendar, TrendingUp, TrendingDown, Filter, AlertCircle, Clock,
   DollarSign, BarChart3, Eye, EyeOff, ChevronDown, CheckCircle2,
-  AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download,
+  AlertTriangle, Clock3, Plus, Edit2, Trash2, Save, X, Download, Upload, Link2,
   CheckSquare, Square, Settings, Send, Ban, Wallet, Repeat,
   ChevronRight, ChevronLeft, Landmark, Building2, Search, RefreshCw,
-  List, CalendarDays, Receipt
+  List, CalendarDays, Receipt, Loader2, RotateCcw
 } from 'lucide-react';
 import CostiRicorrenti from '../components/CostiRicorrenti';
 import ExportMenu from '../components/ExportMenu';
-import StatusBadge from '../components/ui/StatusBadge';
 import SortableTh from '../components/ui/SortableTh';
 import InvoiceViewer from '../components/InvoiceViewer';
 import { UiTooltip } from '../components/Tooltip';
@@ -26,196 +22,34 @@ import {
 } from 'recharts';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
+import { todayYMD } from '../lib/dateLocal';
+import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance';
 import { useAuth } from '../hooks/useAuth';
+import RibaDistintaModal from '../components/RibaDistintaModal';
+import RibaCreditNotesModal from '../components/RibaCreditNotesModal';
+// Spezzatura (ondata 9): helper/config, UI condivisa e modali dello Scadenzario
+// vivono in src/pages/scadenzario/ — estrazione senza cambi funzionali.
+import {
+  type ScadenzarioSection, VALID_SCADENZARIO_SECTIONS,
+  calculatePayableStatus, fmt, fmtDate,
+  statusConfig, paymentMethodLabels, paymentGroups,
+  ESTIMATE_HORIZON_MONTHS, ESTIMATE_MATCH_TOLERANCE_PCT, ESTIMATE_MATCH_TOLERANCE_ABS,
+  RECURRENCE_STEP_MONTHS, normSupplier, categorizeIncome,
+} from './scadenzario/helpers';
+import { StatusPill, Modal } from './scadenzario/SharedUI';
+import { EditScheduleModal, InvoiceModal, SupplierModal, type InvoiceFormState } from './scadenzario/modals';
+import { SituazioneTab } from './scadenzario/SituazioneTab';
+import { ScadenzeCharts } from './scadenzario/ScadenzeCharts';
+import { BulkPaymentBar } from './scadenzario/BulkPaymentBar';
+import { SupplierDetailModal } from './scadenzario/SupplierDetailModal';
+import { CategoryManagerModal, type SupLite } from './scadenzario/CategoryManagerModal';
 
-// Utility functions
-/**
- * Calcola lo stato di una payable in base alle sue date.
- * Stati terminali (pagato, nota_credito, sospeso, rimandato, annullato,
- * parziale) rispettati. Altrimenti deduce da due_date:
- *   - oggi > due_date  -> 'scaduto'
- *   - 0..30 giorni     -> 'in_scadenza' (allineato al filtro 'Prossimi 30gg')
- *   - oltre 30 giorni  -> 'da_pagare'
- */
-// TODO: tighten type
-function calculatePayableStatus(p: any): string {
-  const TERMINAL = new Set(['pagato', 'nota_credito', 'sospeso', 'rimandato', 'annullato', 'parziale']);
-  if (p.status && TERMINAL.has(p.status)) return p.status;
-  if (p.payment_date) return 'pagato';
-  if (!p.due_date) return p.status || 'da_pagare';
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const due = new Date(p.due_date);
-  due.setHours(0, 0, 0, 0);
-  const days = Math.ceil((due.getTime() - today.getTime()) / 86400000);
-  if (days < 0) return 'scaduto';
-  if (days <= 30) return 'in_scadenza';
-  return 'da_pagare';
-}
-
-/**
- * Formattatore importi unico per tutto lo Scadenzario.
- * Sempre formato italiano "1.234,56" con simbolo o senza, due decimali.
- * Usato per Fix 5.3 (formato numeri inconsistente).
- */
-function formatCurrency(n: number | null | undefined): string {
-  if (n == null || isNaN(Number(n))) return '—';
-  return new Intl.NumberFormat('de-DE', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(Number(n)) + ' €';
-}
-
-function fmt(n: number | null | undefined): string {
-  if (n == null) return '—'
-  // Parsing robusto. Supabase puo' ritornare gross_amount come:
-  //   - number (1234.56) -> ok
-  //   - string '1234.56' -> Number() funziona
-  //   - string '1.234,56' (formato IT) -> Number() ritorna NaN, parse a mano
-  // useGrouping: 'always' forza il separatore migliaia anche per browser
-  // che lo omettono per default su numeri 4 cifre.
-  let num
-  if (typeof n === 'number') {
-    num = n
-  } else {
-    const s = String(n).trim()
-    // Se contiene sia '.' che ',' assumo formato italiano: '.' migliaia, ',' decimali
-    if (s.includes(',') && s.includes('.')) {
-      num = parseFloat(s.replace(/\./g, '').replace(',', '.'))
-    } else if (s.includes(',') && !s.includes('.')) {
-      num = parseFloat(s.replace(',', '.'))
-    } else {
-      num = parseFloat(s)
-    }
-  }
-  if (!isFinite(num)) return '—'
-  return new Intl.NumberFormat('de-DE', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-    useGrouping: true,
-  }).format(num)
-}
-
-function fmtDate(d: string | null | undefined): string {
-  if (!d) return '—'
-  return new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
-}
-
-// Status config
-const statusConfig = {
-  scaduto: { label: 'Scaduto', bg: 'bg-red-100 text-red-700' },
-  in_scadenza: { label: 'In scadenza', bg: 'bg-amber-100 text-amber-700' },
-  da_pagare: { label: 'Da pagare', bg: 'bg-blue-100 text-blue-700' },
-  parziale: { label: 'Parziale', bg: 'bg-orange-100 text-orange-700' },
-  sospeso: { label: 'Sospeso', bg: 'bg-slate-100 text-slate-600' },
-  rimandato: { label: 'Rimandato', bg: 'bg-purple-100 text-purple-700' },
-  pagato: { label: 'Pagato', bg: 'bg-emerald-100 text-emerald-700' },
-  annullato: { label: 'Annullato', bg: 'bg-gray-100 text-gray-500' },
-  contestato: { label: 'Contestato', bg: 'bg-purple-100 text-purple-700' },
-  nota_credito: { label: 'Nota Credito', bg: 'bg-emerald-100 text-emerald-700' },
-};
-
-// Payment method labels
-const paymentMethodLabels = {
-  bonifico_ordinario: 'Bonifico ordinario',
-  bonifico_urgente: 'Bonifico urgente',
-  bonifico_sepa: 'Bonifico SEPA',
-  bonifico: 'Bonifico',
-  riba_30: 'RiBa 30 gg',
-  riba_60: 'RiBa 60 gg',
-  riba_90: 'RiBa 90 gg',
-  riba_120: 'RiBa 120 gg',
-  riba: 'RiBa',
-  rid: 'RID',
-  sdd_core: 'SDD Core',
-  sdd_b2b: 'SDD B2B',
-  rimessa_diretta: 'Rimessa diretta',
-  carta_credito: 'Carta di credito',
-  carta_debito: 'Carta di debito',
-  carta: 'Carta',
-  assegno: 'Assegno',
-  contanti: 'Contanti',
-  compensazione: 'Compensazione',
-  f24: 'F24',
-  mav: 'MAV',
-  rav: 'RAV',
-  bollettino_postale: 'Bollettino postale',
-  altro: 'Altro',
-};
-
-// Payment groups for filtering
-const paymentGroups = [
-  { label: 'Bonifici', key: 'bonifici', methods: ['bonifico_ordinario', 'bonifico_urgente', 'bonifico_sepa', 'bonifico'] },
-  { label: 'RiBa', key: 'riba', methods: ['riba_30', 'riba_60', 'riba_90', 'riba_120', 'riba'] },
-  { label: 'Addebito diretto', key: 'addebito', methods: ['rid', 'sdd_core', 'sdd_b2b'] },
-  { label: 'Altro', key: 'altro', methods: ['rimessa_diretta', 'carta_credito', 'carta_debito', 'carta', 'assegno', 'contanti', 'compensazione', 'f24', 'mav', 'rav', 'bollettino_postale', 'altro'] },
-];
-
-// Pseudo-metodi usati SOLO per raggruppare i filtri ('Bonifico'/'RiBa'/'Carta'):
-// NON esistono nell'enum payment_method del DB, quindi non devono mai finire in un
-// INSERT su payables (Postgres 22P02 → la scadenza non si salva). Mappa alias →
-// valore enum reale; usata sia per normalizzare prima dell'INSERT sia per
-// nasconderli dal menù di creazione (restano validi per il filtro).
-const PAYMENT_METHOD_ALIAS: Record<string, string> = { bonifico: 'bonifico_ordinario', riba: 'riba_30', carta: 'carta_credito' };
-const toDbPaymentMethod = (m?: string | null): string => PAYMENT_METHOD_ALIAS[m || ''] || m || 'bonifico_ordinario';
-
-const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
-
-// ── SCADENZE-STIMA da ricorrenza (on-the-fly) ─────────────────────────────
-// Orizzonte mobile e tolleranza di riconciliazione: definiti UNA volta qui,
-// niente valori sparsi. La finestra parte sempre dal mese corrente (mobile:
-// si sposta da sola a ogni apertura, nessun job schedulato necessario).
-const ESTIMATE_HORIZON_MONTHS = 12;
-// Tolleranza importo per considerare una stima "coperta" da una fattura reale
-// (stesso fornitore + stesso mese). ±8% oppure ±€20, il maggiore: copre IVA/
-// arrotondamenti senza abbinare importi palesemente diversi.
-const ESTIMATE_MATCH_TOLERANCE_PCT = 0.08;
-const ESTIMATE_MATCH_TOLERANCE_ABS = 20;
-// Passo in mesi per frequenza ricorrenza (allineato a recurring_costs.frequency
-// e alla tab Ricorrenze / cashflow).
-const RECURRENCE_STEP_MONTHS: Record<string, number> = {
-  monthly: 1, bimonthly: 2, quarterly: 3, semiannual: 6, annual: 12,
-};
-// Normalizza un nome fornitore per il match (case/spazi).
-function normSupplier(s: string | null | undefined): string {
-  return (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
-}
-
-// Categorizzazione automatica degli INCASSI dalla descrizione del movimento.
-// Solo etichetta categoriale (chip), NON un numero: niente verde sugli importi.
-// Per rispettare la convenzione "niente verde" evito classi emerald: Accredito/
-// Incasso/Giroconto/Altro su slate, gli altri su tinte non-verdi.
-function categorizeIncome(desc: string | null | undefined): { tipo: string; cls: string } {
-  const d = (desc || '').toLowerCase();
-  if (d.includes('p.o.s.') || /\bpos\b/.test(d)) return { tipo: 'POS', cls: 'bg-violet-50 text-violet-700' };
-  if (d.includes('bonifico') && (d.includes('favore') || d.includes('ordinante'))) return { tipo: 'Bonifico', cls: 'bg-blue-50 text-blue-700' };
-  if (d.includes('versamento') && d.includes('contant')) return { tipo: 'Contanti', cls: 'bg-amber-50 text-amber-700' };
-  if (d.includes('accredito')) return { tipo: 'Accredito', cls: 'bg-slate-100 text-slate-600' };
-  if (d.includes('incass')) return { tipo: 'Incasso', cls: 'bg-slate-100 text-slate-600' };
-  if (d.includes('giroconto')) return { tipo: 'Giroconto', cls: 'bg-slate-100 text-slate-600' };
-  return { tipo: 'Altro', cls: 'bg-slate-100 text-slate-600' };
-}
-
-// Status pill component — delegates to shared StatusBadge
-function StatusPill({ status }: { status: string | null | undefined }) {
-  return <StatusBadge status={status || ''} size="sm" />
-}
-
-// Modal component
-function Modal({ open, onClose, title, children, wide }: { open: boolean; onClose: () => void; title: string; children: React.ReactNode; wide?: boolean }) {
-  if (!open) return null
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className={`bg-white rounded-2xl shadow-2xl w-full ${wide ? 'max-w-2xl' : 'max-w-lg'} mx-4 max-h-[90vh] overflow-y-auto`} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between p-5 border-b border-slate-100">
-          <h3 className="text-lg font-semibold text-slate-900">{title}</h3>
-          <button onClick={onClose} className="p-1 rounded-lg hover:bg-slate-100 text-slate-400"><X size={20} /></button>
-        </div>
-        <div className="p-5">{children}</div>
-      </div>
-    </div>
-  )
-}
+// Categorie di nominativo che identificano una scadenza FISCALE/INTERNA creata da
+// "Aggiungi scadenza" (il "tipo" scelto nel modale: Fiscale / Interno). Un payable
+// con questa categoria vive nella tabella payables ma va mostrato sotto il filtro
+// "Fiscali / Interni", non tra i Fornitori. Allineato a supplierTypeOptions in
+// scadenzario/modals.tsx.
+const FISCAL_INTERNAL_CATEGORIES = new Set(['fiscale', 'interno']);
 
 // Main component
 const ScadenzarioSmart = () => {
@@ -257,6 +91,17 @@ const ScadenzarioSmart = () => {
     last_action_type?: string | null
     last_action_note?: string | null
     last_action_date?: string | null
+    last_action_by?: string | null
+    // Realtà del pagamento (dalla vista v_payables_operative, migration 143)
+    payment_source?: string | null           // 'movimento' | 'manuale' | 'storico' | null
+    payment_real_bank_name?: string | null   // banca reale del movimento riconciliato
+    payment_movement_date?: string | null    // data del movimento bancario reale
+    payment_movement_amount?: number | null
+    payment_movement_description?: string | null
+    payment_planned_bank_name?: string | null // banca "prevista" (solo etichetta)
+    bank_transaction_id?: string | null
+    closed_manually?: boolean | null
+    manual_close_reason?: string | null
     cash_movement_id?: string | null
     cost_category_id?: string | null
     verified?: boolean | null
@@ -277,6 +122,17 @@ const ScadenzarioSmart = () => {
     iban?: string | null
     macro_group?: string | null
     sort_order?: number | null
+    // Disposizione (distinta) — derivati in fetchData:
+    // - disposizione_amount_pending: quota già disposta in distinta e NON ancora
+    //   riscontrata in banca (acconto/saldo "in sospeso").
+    // - residuo_aperto: parte della fattura ANCORA da disporre (= residuo − quota
+    //   in sospeso). Con un acconto parziale resta > 0 e la fattura va mostrata
+    //   fra le APERTE con questo importo.
+    // - is_partial_distinta: true se c'è una disposizione parziale (acconto) con
+    //   residuo ancora aperto. Guida la classificazione (non nasconderla) e il badge.
+    disposizione_amount_pending?: number | null
+    residuo_aperto?: number | null
+    is_partial_distinta?: boolean | null
     [key: string]: unknown
   }
   // section persistita in URL come ?section=… (default 'scadenze')
@@ -292,7 +148,13 @@ const ScadenzarioSmart = () => {
   };
   const [loading, setLoading] = useState(true);
   const [payables, setPayables] = useState<AnyRow[]>([]);
+  // NC già impegnate in una distinta (link 'pending'): escluse dalle opzioni di
+  // compensazione così non si scalano due volte (acconto + residuo stessa fattura).
+  const [pendingLinkedNcIds, setPendingLinkedNcIds] = useState<Set<string>>(new Set());
   const [fiscalDeadlines, setFiscalDeadlines] = useState<AnyRow[]>([]);
+  // Fiscali caricate almeno una volta (anche se zero): il ripristino della bozza
+  // aspetta questo flag così le scadenze fiscali selezionate NON vengono scartate.
+  const [fiscalLoaded, setFiscalLoaded] = useState(false);
   // Asse TIPO unificato (sostituisce sourceFilter + i sotto-tab Sibill).
   // '' = tutte le scadenze (default) | 'fornitori' | 'fiscali' | 'incassi'.
   // 'incassi' commuta sulla tabella dedicata dei movimenti in entrata.
@@ -317,6 +179,11 @@ const ScadenzarioSmart = () => {
   const [incomeBankFilter, setIncomeBankFilter] = useState('all');
   const [suppliers, setSuppliers] = useState<AnyRow[]>([]);
   const [bankAccounts, setBankAccounts] = useState<AnyRow[]>([]);
+  // Impegni "in distinta" già disposti ma non ancora pagati, per conto: servono a
+  // partire dal SALDO PREVISIONALE (reale − impegni) invece che dal saldo pieno,
+  // così i saldi mostrati mentre si crea una nuova distinta non ignorano le
+  // distinte precedenti. Non tocca il saldo reale (vedi lib/committedBalance).
+  const [committedByAccount, setCommittedByAccount] = useState<CommittedByAccount>({});
   const [cashPosition, setCashPosition] = useState(0);
 
   const [viewMode, setViewMode] = useState('timeline');
@@ -346,11 +213,22 @@ const ScadenzarioSmart = () => {
   type ConfirmBank = { bankName: string; iban: string; saldoIniziale: number; totalePagamenti: number; pagamenti: ConfirmPayment[]; saldoFinale?: number }
   // Item grezzo da salvare in distinta SOLO alla conferma esplicita (no side-effect).
   // ncIds: note di credito compensate su questa fattura — alla conferma vengono chiuse in AVERE.
-  type DistintaItem = { payableId: string; bankId: string; amount: number; status: string; note: string; ncIds?: string[] }
+  type DistintaItem = { payableId: string; bankId: string; amount: number; status: string; note: string; ncIds?: string[]; isFiscal?: boolean }
   type ConfirmResult = { results: ConfirmPayment[]; banks: ConfirmBank[]; totaleComplessivo: number; emailBody: string; emailSubject: string; items: DistintaItem[] } | null
   const [confirmResult, setConfirmResult] = useState<ConfirmResult>(null);
   // La distinta è stata effettivamente salvata? (gate per "Conferma distinta")
   const [distintaSaved, setDistintaSaved] = useState(false);
+  // Chiusura anteprima con distinta NON confermata: chiede conferma invece di
+  // perdere in silenzio il lavoro (l'email inviata non salva la distinta: serve
+  // il passo 2 "Conferma distinta"). Evita la trappola del toast verde d'invio.
+  const [confirmDiscardDistinta, setConfirmDiscardDistinta] = useState(false);
+  // GATE EMAIL: "Conferma distinta" si sblocca SOLO dopo che la mail è partita.
+  //  - emailSent: invio server (Edge Function Resend) andato a buon fine → verificabile.
+  //  - emailManualConfirmed: via di fuga se il server non è disponibile (l'operatrice
+  //    ha inviato a mano da Gmail e lo dichiara con la spunta).
+  const [emailSent, setEmailSent] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [emailManualConfirmed, setEmailManualConfirmed] = useState(false);
   // Modale "Rimuovi dalla distinta" (conferma)
   const [removeDistintaModal, setRemoveDistintaModal] = useState<{ payableId: string; invoiceNumber: string } | null>(null);
   const [selectedMethodGroup, setSelectedMethodGroup] = useState<any>(null);
@@ -365,6 +243,9 @@ const ScadenzarioSmart = () => {
   const [recurringCosts, setRecurringCosts] = useState<AnyRow[]>([]);
   const [categoryDropdownId, setCategoryDropdownId] = useState<any>(null);
   const [categorySearch, setCategorySearch] = useState('');
+  // Pannello "Gestione categorie di costo" (crea/modifica cost_categories,
+  // vede i fornitori collegati). Scrittura riservata a super_advisor (RLS).
+  const [showCategoryManager, setShowCategoryManager] = useState(false);
   const [statusDropdownId, setStatusDropdownId] = useState<any>(null);
   // Inline edit dell'importo: click su cella importo → input numerico
   const [inlineEditAmountId, setInlineEditAmountId] = useState<string | null>(null);
@@ -380,6 +261,19 @@ const ScadenzarioSmart = () => {
   const [manualCloseDate, setManualCloseDate] = useState<string>('');
   const [manualCloseReason, setManualCloseReason] = useState<string>('');
   const [manualCloseAmount, setManualCloseAmount] = useState<string>(''); // importo da chiudere (totale o parziale)
+  // Modale "Riapri" — riapertura di una scadenza chiusa per errore (a mano o
+  // riconciliata male dal sistema). Riporta la fattura allo stato aperto e, se
+  // era agganciata a un movimento bancario, lo libera per il riabbinamento.
+  const [reopenModal, setReopenModal] = useState<{ open: boolean; payable: AnyRow | null }>({ open: false, payable: null });
+  const [reopenReason, setReopenReason] = useState<string>('');
+  // Modale "Compensa con nota di credito" — fattura ↔ NC dello stesso fornitore,
+  // totale o PARZIALE, senza movimento bancario (RPC compensate_payable_with_credit_note,
+  // migration 170). Si apre sia da una fattura (scegli la NC) sia da una NC (scegli la fattura).
+  const [ncCompModal, setNcCompModal] = useState<{ open: boolean; source: AnyRow | null }>({ open: false, source: null });
+  const [ncCompTargetId, setNcCompTargetId] = useState<string>('');
+  const [ncCompAmount, setNcCompAmount] = useState<string>('');
+  const [ncCompDate, setNcCompDate] = useState<string>('');
+  const [ncCompReason, setNcCompReason] = useState<string>('');
 
   // Selection helpers
   // Banca di default alla selezione: se la fattura ha gia' un conto di pagamento
@@ -399,11 +293,22 @@ const ScadenzarioSmart = () => {
       next.delete(id);
       delete nextPlan[id];
     } else {
+      const residuo0 = rowOpenAmount(payable);
+      // Niente residuo da disporre (fattura interamente in sospeso/saldata): non la
+      // selezioniamo e lo spieghiamo (per modificarla → "Rimuovi dalla distinta").
+      if (residuo0 <= 0.005) {
+        toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} è già interamente in distinta: non c'è residuo da disporre. Per modificarla usa "Rimuovi dalla distinta".` });
+        return;
+      }
       next.add(id);
-      const residuo0 = Number(payable.amount_remaining) || 0;
-      nextPlan[id] = { bankId: defaultBankIdFor(payable), type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
-      if (payable.disposizione_date && payable.status !== 'pagato' && payable.status !== 'annullato') {
-        toast({ type: 'warning', message: `Fattura ${payable.invoice_number || ''} è già in distinta dal ${new Date(payable.disposizione_date as string).toLocaleDateString('it-IT')}: non verrà aggiunta di nuovo.` });
+      // Se la fattura ha già una disposizione pregressa (acconto), il residuo è un pagamento
+      // a sé: la banca NON è pre-caricata (la sceglie l'operatrice, può essere diversa) e
+      // l'importo di default è il residuo aperto. Per il resto vale il default consueto.
+      const hasPriorDisp = Boolean(payable.disposizione_date);
+      const bank0 = hasPriorDisp ? '' : defaultBankIdFor(payable);
+      nextPlan[id] = { bankId: bank0, type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
+      if (hasPriorDisp) {
+        toast({ type: 'info', message: `Fattura ${payable.invoice_number || ''}: stai disponendo il residuo di ${fmt(residuo0)} €. Scegli la banca.` });
       }
     }
     setSelectedIds(next);
@@ -411,7 +316,13 @@ const ScadenzarioSmart = () => {
   };
 
   const toggleSelectAll = () => {
-    const nonPaid = filteredPayables.filter(p => p.status !== 'pagato' && (Number(p.gross_amount) || 0) >= 0);
+    // Selezionabili = non pagate, non NC, e non già disposte PER INTERO (le parziali con
+    // residuo restano selezionabili per disporne il residuo).
+    const nonPaid = filteredPayables.filter(p => {
+      if (p.status === 'pagato' || (Number(p.gross_amount) || 0) < 0) return false;
+      if (rowOpenAmount(p) <= 0.005) return false; // niente residuo da disporre
+      return true;
+    });
     if (selectedIds.size === nonPaid.length) {
       setSelectedIds(new Set());
       setPaymentPlan({});
@@ -421,8 +332,9 @@ const ScadenzarioSmart = () => {
       nonPaid.forEach(p => {
         if (!p.id) return;
         next.add(p.id);
-        const residuo0 = Number(p.amount_remaining) || 0;
-        nextPlan[p.id] = paymentPlan[p.id] || { bankId: defaultBankIdFor(p), type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
+        const residuo0 = rowOpenAmount(p);
+        const bank0 = Boolean(p.disposizione_date) ? '' : defaultBankIdFor(p);
+        nextPlan[p.id] = paymentPlan[p.id] || { bankId: bank0, type: 'saldo', amount: residuo0, baseAmount: residuo0, note: '', ncIds: [] };
       });
       setSelectedIds(next);
       setPaymentPlan(nextPlan);
@@ -436,23 +348,104 @@ const ScadenzarioSmart = () => {
     }));
   };
 
-  // Importo (valore assoluto) di una nota di credito
-  const ncAmountOf = (nc: AnyRow): number => Math.abs(Number(nc.gross_amount) || 0);
+  // Credito RESIDUO (valore assoluto) di una nota di credito: quanto si puo' ancora
+  // scalare. Una NC usata in parte (compensazione parziale, migration 170) ha
+  // amount_paid negativo e amount_remaining = credito ancora disponibile: qui e in
+  // distinta si scala SOLO quello, non piu' il lordo.
+  const ncAmountOf = (nc: AnyRow): number => creditNoteResidual(nc);
+
+  // Importo "aperto" della riga nel contesto Aperte/scadenzario. Per una
+  // disposizione PARZIALE (acconto) è il residuo ANCORA da disporre (la
+  // differenza da pagare che resta); per tutto il resto è il residuo pieno.
+  // Unica fonte per cella importo e per tutti i subtotali, così riga e totali
+  // non divergono quando un acconto è già in distinta.
+  const rowOpenAmount = (p: AnyRow): number => {
+    const ra = p.residuo_aperto;
+    // residuo_aperto è calcolato in fetchData per ogni payable (= residuo − quota in
+    // sospeso); per stime/fiscali (che non ce l'hanno) si usa il residuo pieno.
+    return (ra === null || ra === undefined) ? (Number(p.amount_remaining ?? p.gross_amount) || 0) : Number(ra);
+  };
+
+  // Elenco NC APERTE (disponibili da scalare), memoizzato UNA volta sui payables.
+  // NC = payable con importo negativo o status 'nota_credito', non ancora chiusa a mano
+  //      E non ancora consumata (deve avere ancora credito residuo da scalare).
+  // Escludi le NC gia' consumate: una NC usata risulta 'pagato'/'annullato' oppure con
+  // residuo azzerato (>= 0). Una NC ancora disponibile ha residuo negativo (credito da
+  // scalare). Fonte unica per il chip "Scala note di credito" (riga selezionata) E per il
+  // badge "a colpo d'occhio" sulle fatture: cosi' le due viste non possono divergere.
+  const openCreditNotes = useMemo(() => payables.filter(x => {
+    const g = Number(x.gross_amount) || 0;
+    const isNC = x.status === 'nota_credito' || g < 0;
+    if (!isNC || x.closed_manually) return false;
+    if (x.status === 'pagato' || x.status === 'annullato') return false;
+    // NC già impegnata in una distinta (link 'pending'): non più disponibile da scalare.
+    if (x.id && pendingLinkedNcIds.has(x.id)) return false;
+    const rem = Number(x.amount_remaining);
+    if (Number.isFinite(rem) && rem > -0.005) return false;
+    return true;
+  }), [payables, pendingLinkedNcIds]);
 
   // Note di credito APERTE dello stesso fornitore di `payable`, compensabili in distinta.
-  // NC = payable con importo negativo o status 'nota_credito', non ancora chiusa a mano.
   // Aggancio fornitore per supplier_id o per P.IVA (come da regola PAYMENT_PLAN_NOTES).
   const openCreditNotesFor = (payable: AnyRow): AnyRow[] => {
     const sid = payable.supplier_id ? String(payable.supplier_id) : '';
     const svat = payable.supplier_vat ? String(payable.supplier_vat) : '';
-    return payables.filter(x => {
-      const g = Number(x.gross_amount) || 0;
-      const isNC = x.status === 'nota_credito' || g < 0;
-      if (!isNC || x.closed_manually) return false;
+    if (!sid && !svat) return [];
+    return openCreditNotes.filter(x => {
       const sameById = sid && String(x.supplier_id || '') === sid;
       const sameByVat = svat && String(x.supplier_vat || '') === svat;
       return Boolean(sameById || sameByVat);
     });
+  };
+
+  // ── Compensa con nota di credito (fattura ↔ NC, totale o parziale) ──────────
+  const isNcRow = (p: AnyRow): boolean => p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0;
+  // Fatture APERTE (con residuo) dello stesso fornitore, indicizzate per supplier_id e
+  // per P.IVA (regola PAYMENT_PLAN_NOTES: l'aggancio fornitore vale anche per P.IVA).
+  const openInvoicesBySupplier = useMemo(() => {
+    const byId = new Map<string, AnyRow[]>();
+    const byVat = new Map<string, AnyRow[]>();
+    for (const x of payables) {
+      if (!x.id || x._isFiscal || isNcRow(x)) continue;
+      if (['pagato', 'annullato', 'bloccato'].includes(String(x.status || ''))) continue;
+      if ((Number(x.amount_remaining ?? x.gross_amount) || 0) <= 0.005) continue;
+      if (x.supplier_id) { const k = String(x.supplier_id); byId.set(k, [...(byId.get(k) || []), x]); }
+      if (x.supplier_vat) { const k = String(x.supplier_vat); byVat.set(k, [...(byVat.get(k) || []), x]); }
+    }
+    return { byId, byVat };
+  }, [payables]);
+  const openInvoicesFor = (nc: AnyRow): AnyRow[] => {
+    const a = nc.supplier_id ? (openInvoicesBySupplier.byId.get(String(nc.supplier_id)) || []) : [];
+    const b = nc.supplier_vat ? (openInvoicesBySupplier.byVat.get(String(nc.supplier_vat)) || []) : [];
+    const seen = new Set<string>();
+    const out: AnyRow[] = [];
+    for (const x of [...a, ...b]) { if (x.id && !seen.has(x.id)) { seen.add(x.id); out.push(x); } }
+    return out.sort((x, y) => String(x.due_date || '').localeCompare(String(y.due_date || '')));
+  };
+  // Controparti compensabili di una riga: NC aperte (con credito residuo) se e' una
+  // fattura aperta; fatture aperte se e' una NC con credito residuo. Vuoto altrimenti.
+  const ncCompCandidates = (p: AnyRow): AnyRow[] => {
+    if (!p.id || p._isFiscal) return [];
+    if (isNcRow(p)) return creditNoteResidual(p) > 0.005 ? openInvoicesFor(p) : [];
+    if (['pagato', 'annullato', 'bloccato'].includes(String(p.status || ''))) return [];
+    if ((Number(p.amount_remaining ?? p.gross_amount) || 0) <= 0.005) return [];
+    return openCreditNotesFor(p);
+  };
+  // Massimo compensabile tra fattura e NC = min(residuo fattura, credito residuo NC).
+  const ncCompMaxAmount = (a: AnyRow, b: AnyRow): number => {
+    const inv = isNcRow(a) ? b : a;
+    const nc = isNcRow(a) ? a : b;
+    const invRes = Math.max(0, Number(inv.amount_remaining ?? inv.gross_amount) || 0);
+    return +Math.min(invRes, creditNoteResidual(nc)).toFixed(2);
+  };
+  const openNcCompModal = (p: AnyRow) => {
+    setStatusDropdownId(null);
+    const first = ncCompCandidates(p)[0];
+    setNcCompModal({ open: true, source: p });
+    setNcCompTargetId(first?.id || '');
+    setNcCompDate(todayYMD());
+    setNcCompReason('');
+    setNcCompAmount(first ? String(ncCompMaxAmount(p, first).toFixed(2)) : '');
   };
 
   // Ricalcola l'importo NETTO del piano dopo una modifica (type/baseAmount/ncIds):
@@ -461,7 +454,9 @@ const ScadenzarioSmart = () => {
     setPaymentPlan(prev => {
       const cur = { ...prev[pid], ...patch } as PlanEntry;
       const payable = payables.find(p => p.id === pid);
-      const residuo = Number(payable?.amount_remaining) || 0;
+      // Residuo su cui si calcola l'acconto/saldo = quota ANCORA aperta (per una fattura
+      // con acconto già in distinta è il residuo, non l'intero lordo).
+      const residuo = payable ? rowOpenAmount(payable) : 0;
       const base = cur.type === 'saldo' ? residuo : Math.min(Number(cur.baseAmount) || 0, residuo);
       const ncTot = (cur.ncIds || []).reduce((s, nid) => {
         const nc = payables.find(p => p.id === nid);
@@ -496,11 +491,13 @@ const ScadenzarioSmart = () => {
   }
   const pcnlTable = (): PcnlBuilder => (supabase.from as unknown as (t: string) => PcnlBuilder)('payable_credit_note_links');
 
-  // Riepilogo NC compensate su una fattura (per causale/note distinta)
-  const ncBreakdown = (plan: PlanEntry): { num: string; amt: number }[] =>
+  // Riepilogo NC compensate su una fattura (per causale/note distinta).
+  // Include SEMPRE la data di emissione della NC (regola Patrizio: numero + data +
+  // importo insieme ovunque compaia una nota di credito).
+  const ncBreakdown = (plan: PlanEntry): { num: string; date: string | null; amt: number }[] =>
     (plan.ncIds || [])
-      .map(nid => { const nc = payables.find(p => p.id === nid); return nc ? { num: nc.invoice_number || 'NC', amt: ncAmountOf(nc) } : null; })
-      .filter(Boolean) as { num: string; amt: number }[];
+      .map(nid => { const nc = payables.find(p => p.id === nid); return nc ? { num: nc.invoice_number || 'NC', date: (nc.invoice_date as string | null) || null, amt: ncAmountOf(nc) } : null; })
+      .filter(Boolean) as { num: string; date: string | null; amt: number }[];
 
   // Date range
   const getDynamicDateRange = () => {
@@ -513,8 +510,36 @@ const ScadenzarioSmart = () => {
 
   const [dateRange, setDateRange] = useState(getDynamicDateRange());
 
-  // Bank balances
+  // Saldo PREVISIONALE di partenza per conto = saldo reale − distinte già disposte
+  // ma non ancora pagate su quel conto. È la base da cui si sottrae la selezione
+  // corrente: così i saldi mostrati in fase di distinta non ignorano gli impegni
+  // già presi. Il saldo reale (bank_accounts.current_balance) non viene toccato.
+  const bankBaseBalances = useMemo<Record<string, number>>(() => {
+    const base: Record<string, number> = {};
+    bankAccounts.forEach(ba => {
+      if (ba.id) base[ba.id] = (Number(ba.current_balance) || 0) - (committedByAccount[ba.id] || 0);
+    });
+    return base;
+  }, [bankAccounts, committedByAccount]);
+
+  // Bank balances: previsionale di partenza − spesa della selezione corrente.
+  // È un'INFORMAZIONE (quanto resta se pago anche tutto ciò che ho già disposto),
+  // non il limite di spesa: il limite vero è il saldo reale (vedi bankRealBalances).
   const bankBalances = useMemo<Record<string, number>>(() => {
+    const balances: Record<string, number> = { ...bankBaseBalances };
+    Object.values(paymentPlan).forEach(plan => {
+      if (plan.bankId && balances[plan.bankId] !== undefined) {
+        balances[plan.bankId] -= (plan.amount || 0);
+      }
+    });
+    return balances;
+  }, [bankBaseBalances, paymentPlan]);
+
+  // Residuo sul saldo REALE (soldi davvero sul conto − spesa della selezione),
+  // senza sottrarre le distinte già disposte. È la disponibilità effettiva:
+  // l'operatrice deve poter usare il 100% del saldo reale anche quando il
+  // previsionale è già impegnato da distinte precedenti.
+  const bankRealBalances = useMemo<Record<string, number>>(() => {
     const balances: Record<string, number> = {};
     bankAccounts.forEach(ba => { if (ba.id) balances[ba.id] = Number(ba.current_balance) || 0; });
     Object.values(paymentPlan).forEach(plan => {
@@ -548,13 +573,22 @@ const ScadenzarioSmart = () => {
   useEffect(() => {
     if (!DRAFT_KEY || draftReady.current) return;
     if (!payables || payables.length === 0) return;
+    // Aspetto anche il caricamento delle scadenze fiscali: se ripristinassi prima,
+    // gli id `fiscal_…` non troverebbero corrispondenza e verrebbero scartati.
+    if (!fiscalLoaded) return;
     draftReady.current = true;
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (!raw) return;
       const draft = JSON.parse(raw) as { ids?: string[]; plan?: Record<string, PlanEntry> };
-      // Tieni solo le fatture ancora presenti e non pagate/annullate.
+      // Tieni solo le righe ancora presenti e non già pagate. Valido su ENTRAMBE le
+      // sorgenti (fatture fornitori + scadenze fiscali) così fiscali e note di credito
+      // (queste ultime vivono nel piano della fattura) restano in bozza a uscita/rientro.
       const validIds = (draft.ids || []).filter(id => {
+        if (id.startsWith('fiscal_')) {
+          const fd = fiscalDeadlines.find(f => `fiscal_${f.id}` === id);
+          return fd && fd.status !== 'paid' && fd.status !== 'cancelled';
+        }
         const p = payables.find(x => x.id === id);
         return p && p.status !== 'pagato' && p.status !== 'annullato';
       });
@@ -563,10 +597,10 @@ const ScadenzarioSmart = () => {
       validIds.forEach(id => { if (draft.plan && draft.plan[id]) plan[id] = draft.plan[id]; });
       setSelectedIds(new Set(validIds));
       setPaymentPlan(plan);
-      toast({ type: 'info', message: `Bozza distinta ripristinata: ${validIds.length} fattur${validIds.length === 1 ? 'a' : 'e'} in lavorazione.` });
+      toast({ type: 'info', message: `Bozza distinta ripristinata: ${validIds.length} scadenz${validIds.length === 1 ? 'a' : 'e'} in lavorazione.` });
     } catch { /* bozza illeggibile: ignora */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [DRAFT_KEY, payables]);
+  }, [DRAFT_KEY, payables, fiscalLoaded, fiscalDeadlines]);
 
   // Salvataggio automatico a ogni modifica (dopo il primo ripristino). Selezione vuota → pulisce.
   useEffect(() => {
@@ -580,20 +614,52 @@ const ScadenzarioSmart = () => {
     } catch { /* quota o storage non disponibile: ignora */ }
   }, [DRAFT_KEY, selectedIds, paymentPlan]);
 
-  // Saldo insufficiente: controlla SOLO le banche effettivamente in uso nei pagamenti
-  // selezionati (non tutti i conti del tenant). Se un conto X è negativo ma non lo stai
-  // usando per pagare, non deve bloccare l'operazione.
-  const hasNegativeBalance = useMemo(() => {
-    const usedBankIds = new Set<string>();
+  // Banche effettivamente in uso nei pagamenti selezionati (non tutti i conti del
+  // tenant): un conto che non stai usando non deve pesare su avvisi e conferme.
+  const usedBankIds = useMemo<string[]>(() => {
+    const ids = new Set<string>();
     for (const id of selectedIds) {
       const plan = paymentPlan[id];
-      if (plan?.bankId) usedBankIds.add(plan.bankId);
+      if (plan?.bankId) ids.add(plan.bankId);
     }
-    for (const bid of usedBankIds) {
-      if ((bankBalances[bid] ?? 0) < 0) return true;
+    return Array.from(ids);
+  }, [selectedIds, paymentPlan]);
+
+  // Sforo del solo PREVISIONALE: stai usando soldi già impegnati in distinte
+  // precedenti, ma sul conto ci sono ancora. Avviso ambra, nessun blocco.
+  const overCommittedBankIds = useMemo<string[]>(() => (
+    usedBankIds.filter(bid => (bankBalances[bid] ?? 0) < 0 && (bankRealBalances[bid] ?? 0) >= 0)
+  ), [usedBankIds, bankBalances, bankRealBalances]);
+
+  // Sforo del saldo REALE: qui i soldi sul conto non bastano. Nemmeno questo
+  // blocca (fidi, incassi in arrivo), ma serve una conferma esplicita.
+  const overRealBankIds = useMemo<string[]>(() => (
+    usedBankIds.filter(bid => (bankRealBalances[bid] ?? 0) < 0)
+  ), [usedBankIds, bankRealBalances]);
+
+  // Nessun blocco duro sui saldi: si chiede conferma e si procede se l'operatrice
+  // conferma. Due livelli, perché sono due cose diverse:
+  //  - oltre il PREVISIONALE: i soldi sul conto ci sono, ma sono già impegnati da
+  //    distinte precedenti (quelle in Storico Distinte). Va detto chiaramente.
+  //  - oltre il SALDO REALE: sul conto i soldi non bastano proprio.
+  const confirmOverdraftIfNeeded = useCallback(async () => {
+    const nomeBanca = (bid: string) => bankAccounts.find(b => String(b.id) === String(bid))?.bank_name || 'Banca';
+    if (overRealBankIds.length > 0) {
+      const dettaglio = overRealBankIds.map(bid => `${nomeBanca(bid)}: ${fmt(bankRealBalances[bid] ?? 0)} €`).join(' · ');
+      return await askConfirm(
+        `Con questa distinta superi il SALDO REALE su ${overRealBankIds.length === 1 ? 'una banca' : `${overRealBankIds.length} banche`} (${dettaglio}). Sul conto i soldi non bastano: procedo lo stesso?`
+      );
     }
-    return false;
-  }, [bankBalances, selectedIds, paymentPlan]);
+    if (overCommittedBankIds.length > 0) {
+      const dettaglio = overCommittedBankIds.map(bid => (
+        `${nomeBanca(bid)}: ${fmt(committedByAccount[bid] || 0)} € già in distinta, resterebbero ${fmt(bankRealBalances[bid] ?? 0)} € reali`
+      )).join(' · ');
+      return await askConfirm(
+        `Stai impegnando soldi già destinati a distinte precedenti (${dettaglio}). Sul conto i soldi ci sono, ma quelle distinte restano da pagare: procedo?`
+      );
+    }
+    return true;
+  }, [overRealBankIds, overCommittedBankIds, bankAccounts, bankRealBalances, committedByAccount, askConfirm]);
 
   const selectedTotal = useMemo(() => {
     return Array.from(selectedIds).reduce((sum, id) => {
@@ -670,7 +736,7 @@ const ScadenzarioSmart = () => {
       const payablesRaw = await fetchAllPaged(
         (from, to) => supabase
           .from('payables')
-          .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id, closed_manually, manual_close_reason')
+          .select('id, cash_movement_id, cost_category_id, verified, payment_date, payment_bank_account_id, installment_number, installment_total, recurring_cost_id, closed_manually, manual_close_reason, is_provisional_paid, provisional_paid_at')
           .eq('company_id', COMPANY_ID!)
           .order('id', { ascending: true })
           .range(from, to),
@@ -690,6 +756,8 @@ const ScadenzarioSmart = () => {
           recurring_cost_id: (p as { recurring_cost_id?: string | null }).recurring_cost_id ?? null,
           closed_manually: (p as { closed_manually?: boolean | null }).closed_manually ?? false,
           manual_close_reason: (p as { manual_close_reason?: string | null }).manual_close_reason ?? null,
+          is_provisional_paid: (p as { is_provisional_paid?: boolean | null }).is_provisional_paid ?? false,
+          provisional_paid_at: (p as { provisional_paid_at?: string | null }).provisional_paid_at ?? null,
         };
       });
 
@@ -712,7 +780,9 @@ const ScadenzarioSmart = () => {
         .select('code, label, role, sort_order')
         .eq('company_id', COMPANY_ID!)
         .order('sort_order', { ascending: true });
-      setCostCenters(centersData || []);
+      // I tipi generati non conoscono la colonna 'role' su cost_centers (types
+      // stale): il cast evita il falso SelectQueryError senza toccare la query.
+      setCostCenters((centersData || []) as unknown as AnyRow[]);
 
       // Ricorrenze attive: alimentano le scadenze-stima on-the-fly. Solo lettura.
       const { data: recurringData } = await supabase
@@ -739,10 +809,17 @@ const ScadenzarioSmart = () => {
       if (movementIds.length > 0) {
         // Filtro per azienda invece di .in(movementIds): la lista cresce con i payables
         // riconciliati e l'URL .in(...) rischia il 400 oltre i ~25KB. Bounded per azienda.
-        const { data: movs } = await supabase
-          .from('cash_movements')
-          .select('id, bank_account_id')
-          .eq('company_id', COMPANY_ID!);
+        // Paginato: oltre 1000 movimenti la mappa era parziale e la colonna CONTO
+        // mostrava una banca mancante/errata (cash_movements cresce a ogni import EC).
+        const movs = await fetchAllPaged(
+          (from, to) => supabase
+            .from('cash_movements')
+            .select('id, bank_account_id')
+            .eq('company_id', COMPANY_ID!)
+            .order('id', { ascending: true })
+            .range(from, to),
+          'cash_movements bank map',
+        );
         (movs || []).forEach(m => {
           if (m.bank_account_id) cashMovBankMap.set(m.id, m.bank_account_id);
         });
@@ -751,24 +828,85 @@ const ScadenzarioSmart = () => {
       // Ultima disposizione (distinta) per payable -> badge "In distinta".
       // L'azione 'disposizione' viene scritta da confirmPayments al momento della
       // creazione della distinta; la fattura resta aperta finche' non riconciliata.
-      const dispMap = new Map<string, { date: string | null; bankId: string | null }>();
+      const dispMap = new Map<string, { date: string | null; bankId: string | null; amount: number }>();
       {
         // Filtro per azienda via embedded join (payables!inner) invece di .in(payableIds):
         // con molti payables (>~700) l'URL .in(...) superava i ~25KB e Supabase rispondeva
         // 400. Il join filtrato e' bounded e indipendente dalla crescita dei dati.
-        const { data: dispActions } = await supabase
-          .from('payable_actions')
-          .select('payable_id, bank_account_id, performed_at, payables!inner(company_id)')
-          .eq('action_type', 'disposizione')
-          .eq('payables.company_id', COMPANY_ID!)
-          .order('performed_at', { ascending: false });
+        // Paginato: oltre 1000 disposizioni il badge "In distinta" spariva per
+        // alcune fatture. Ordine stabile (performed_at desc + payable_id) per non
+        // perdere/duplicare righe al confine tra le pagine.
+        const dispActions = await fetchAllPaged(
+          (from, to) => supabase
+            .from('payable_actions')
+            .select('payable_id, bank_account_id, amount, performed_at, payables!inner(company_id)')
+            .eq('action_type', 'disposizione')
+            .eq('payables.company_id', COMPANY_ID!)
+            .order('performed_at', { ascending: false })
+            .order('payable_id', { ascending: true })
+            .range(from, to),
+          'payable_actions disposizione',
+        );
         (dispActions || []).forEach(a => {
           // La riga include la chiave nidificata `payables` (solo per il filtro): ignorata.
-          if (a.payable_id && !dispMap.has(a.payable_id)) {
-            dispMap.set(a.payable_id, { date: a.performed_at, bankId: a.bank_account_id || null });
+          // `amount` = importo NETTO disposto in banca (al netto delle NC compensate).
+          // Una fattura può avere PIÙ disposizioni (acconto + residuo): la data/banca
+          // del badge è quella dell'ultima (ordine desc → prima vista), l'importo è la
+          // SOMMA di tutte le disposizioni aperte (quanto della fattura è già in distinta).
+          if (!a.payable_id) return;
+          const prev = dispMap.get(a.payable_id);
+          if (!prev) {
+            dispMap.set(a.payable_id, { date: a.performed_at, bankId: a.bank_account_id || null, amount: Number(a.amount) || 0 });
+          } else {
+            prev.amount += Number(a.amount) || 0;
           }
         });
       }
+
+      // NC IN DISTINTA: una nota di credito scalata su una fattura in fase di pagamento
+      // resta registrata nel legame 'pending' di payable_credit_note_links (Passo 2), ma
+      // NON riceve una propria azione 'disposizione'. Senza questo blocco la NC resterebbe
+      // "aperta" nello scadenzario invece di stare collegata alla distinta in attesa di
+      // riconciliazione. Qui la NC EREDITA data/banca della disposizione della fattura
+      // collegata, così compare nella sezione "In sospeso" accanto alla fattura e sparisce
+      // dalle "Aperte"; si chiude con la fattura alla riconciliazione. Best-effort: se la
+      // migration 090 non e' applicata (tabella assente) l'errore viene ignorato.
+      const ncDispMap = new Map<string, { date: string | null; bankId: string | null }>();
+      // NC che fanno parte del "disposto" di una fattura, per calcolare il LORDO disposto
+      // (netto bancario + NC). Si contano sia i link 'pending' (compensazione ancora da
+      // riscontrare) sia quelli 'applied' (NC già consumata alla chiusura dell'acconto):
+      // entrambi concorrono al totale settlato e vanno sommati al netto per far quadrare
+      // il disposto con amount_paid. NB: escludiamo solo i 'cancelled' (annullati).
+      const ncSettledByPayable = new Map<string, number>();
+      const linkedNc = new Set<string>();
+      try {
+        type PcnlRow = { payable_id: string | null; credit_note_payable_id: string | null; amount: number | null; status: string | null };
+        type PcnlSelect = {
+          select: (cols: string) => {
+            eq: (c: string, v: unknown) => Promise<{ data: PcnlRow[] | null }>
+          }
+        };
+        const pcnlSel = (supabase.from as unknown as (t: string) => PcnlSelect)('payable_credit_note_links');
+        const { data: ncLinks } = await pcnlSel
+          .select('payable_id, credit_note_payable_id, amount, status')
+          .eq('company_id', COMPANY_ID!);
+        (ncLinks || []).forEach(l => {
+          const st = l.status;
+          if (st !== 'pending' && st !== 'applied') return; // ignora i cancelled
+          if (l.payable_id) {
+            ncSettledByPayable.set(l.payable_id, (ncSettledByPayable.get(l.payable_id) || 0) + (Math.abs(Number(l.amount)) || 0));
+          }
+          if (st !== 'pending') return;
+          const ncId = l.credit_note_payable_id;
+          // NC ancora 'pending' (impegnata in una distinta non riscontrata): esclusa dalle
+          // opzioni di compensazione, così non la si scala due volte (acconto + residuo).
+          if (ncId) linkedNc.add(ncId);
+          if (!ncId || ncDispMap.has(ncId)) return;
+          const disp = l.payable_id ? dispMap.get(l.payable_id) : null;
+          if (disp?.date) ncDispMap.set(ncId, disp);
+        });
+      } catch { /* tabella assente o errore non bloccante */ }
+      setPendingLinkedNcIds(linkedNc);
 
       const enrichedPayables: AnyRow[] = (viewData || []).map(row => {
         const extra = ((row.id && payablesExtraMap[row.id]) || {}) as AnyRow;
@@ -785,9 +923,22 @@ const ScadenzarioSmart = () => {
           payment_method: row.payment_method,
           payment_date: (extra.payment_date as string | null) ?? null,
           payment_bank_account_id: (extra.payment_bank_account_id as string | null) ?? null,
-          // Nome banca per la colonna CONTO. Provo prima il banca diretta,
-          // poi via cash_movement (per riconciliazioni automatiche).
+          // REALTÀ DEL PAGAMENTO (dalla vista, migration 143): come/quando/da dove
+          // è stata pagata davvero. La colonna CONTO le usa per non spacciare più la
+          // banca "prevista" per quella reale del movimento.
+          payment_source: (row.payment_source as string | null) ?? null,
+          payment_real_bank_name: (row.payment_real_bank_name as string | null) ?? null,
+          payment_movement_date: (row.payment_movement_date as string | null) ?? null,
+          payment_movement_amount: (row.payment_movement_amount as number | null) ?? null,
+          payment_movement_description: (row.payment_movement_description as string | null) ?? null,
+          payment_planned_bank_name: (row.payment_planned_bank_name as string | null) ?? null,
+          bank_transaction_id: (row.bank_transaction_id as string | null) ?? null,
+          // Nome banca per la colonna CONTO / ordinamento. Priorità alla REALTÀ del
+          // movimento: (1) banca reale del movimento riconciliato, poi i fallback
+          // storici (2) banca diretta payment_bank_account_id, (3) via cash_movement.
           payment_bank_name: (() => {
+            const real = (row.payment_real_bank_name as string | null) || null;
+            if (real) return real;
             const direct = extra.payment_bank_account_id ? bankNameById.get(String(extra.payment_bank_account_id)) : null;
             if (direct) return direct;
             const viaCM = extra.cash_movement_id ? cashMovBankMap.get(String(extra.cash_movement_id)) : null;
@@ -812,6 +963,7 @@ const ScadenzarioSmart = () => {
           last_action_type: row.last_action_type,
           last_action_note: row.last_action_note,
           last_action_date: row.last_action_date,
+          last_action_by: (row.last_action_by as string | null) ?? null,
           cash_movement_id: (extra.cash_movement_id as string | null) ?? null,
           cost_category_id: (extra.cost_category_id as string | null) ?? null,
           verified: Boolean(extra.verified),
@@ -820,12 +972,40 @@ const ScadenzarioSmart = () => {
           recurring_cost_id: (extra.recurring_cost_id as string | null) ?? null,
           closed_manually: Boolean(extra.closed_manually),
           manual_close_reason: (extra.manual_close_reason as string | null) ?? null,
-          disposizione_date: row.id ? (dispMap.get(row.id)?.date ?? null) : null,
+          // RiBa chiusa in via provvisoria alla scadenza: guida il badge
+          // 'Pagato (provvisorio)' in calculatePayableStatus.
+          is_provisional_paid: Boolean(extra.is_provisional_paid),
+          provisional_paid_at: (extra.provisional_paid_at as string | null) ?? null,
+          // Addebito automatico carta (MP08): guida il badge dedicato e il
+          // ricalcolo stato (mai 'scaduto') in calculatePayableStatus.
+          is_auto_debit: Boolean((row as { is_auto_debit?: boolean | null }).is_auto_debit),
+          disposizione_date: row.id ? (dispMap.get(row.id)?.date ?? ncDispMap.get(row.id)?.date ?? null) : null,
           disposizione_bank_name: (() => {
-            const b = row.id ? dispMap.get(row.id)?.bankId : null;
+            const b = row.id ? (dispMap.get(row.id)?.bankId ?? ncDispMap.get(row.id)?.bankId ?? null) : null;
             return b ? bankNameById.get(b) || null : null;
           })(),
         };
+        // ── Quanto della fattura è ancora "in sospeso" vs "aperto" ────────────
+        // La distinta NON marca la fattura pagata: la quota disposta è un'INTENZIONE
+        // finché il movimento non è riconciliato (o l'acconto chiuso a mano).
+        //   dispostoLordo = SOMMA netti disposti + NC collegate (pending E applied)
+        //   dispPending   = dispostoLordo − già pagato   (quota disposta NON ancora saldata)
+        //   residuoAperto = residuo fattura − dispPending (quota ANCORA da disporre)
+        // Includere anche le NC 'applied' fa quadrare il disposto con amount_paid dopo la
+        // chiusura dell'acconto (netto + NC), così dispPending torna a 0 e la fattura NON
+        // resta erroneamente nascosta: mostra il residuo fra le Aperte, pronto da disporre.
+        {
+          const disp = row.id ? dispMap.get(row.id) : undefined;
+          const _remaining = Number(baseRow.amount_remaining) || 0;
+          const _paid = Number(baseRow.amount_paid) || 0;
+          const _dispostoLordo = (disp ? disp.amount : 0) + (row.id ? (ncSettledByPayable.get(row.id) || 0) : 0);
+          const _dispPending = disp ? Math.max(0, +(_dispostoLordo - _paid).toFixed(2)) : 0;
+          const _residuoAperto = +(_remaining - _dispPending).toFixed(2);
+          baseRow.disposizione_amount_pending = _dispPending;
+          baseRow.residuo_aperto = _residuoAperto;
+          // ACCONTO in sospeso con residuo ancora aperto (guida il badge dedicato).
+          baseRow.is_partial_distinta = _dispPending > 0.005 && _residuoAperto > 0.005;
+        }
         // Fix 5.1: ricalcolo lo stato dalla data se non e' terminale
         baseRow.status = calculatePayableStatus(baseRow);
         return baseRow;
@@ -834,6 +1014,15 @@ const ScadenzarioSmart = () => {
       setPayables(enrichedPayables);
       setSuppliers((suppliersData || []) as AnyRow[]);
       setBankAccounts((accountsData || []) as AnyRow[]);
+
+      // Impegni distinta già disposti (non pagati) per il saldo previsionale.
+      // Best-effort: se fallisce, si ricade sul saldo reale pieno.
+      try {
+        setCommittedByAccount(await fetchCommittedByAccount(COMPANY_ID!));
+      } catch (e) {
+        console.warn('[scadenzario] impegni previsionali non caricati:', e);
+        setCommittedByAccount({});
+      }
 
       // Load fiscal deadlines for unified view
       try {
@@ -845,6 +1034,7 @@ const ScadenzarioSmart = () => {
           .order('due_date', { ascending: true });
         setFiscalDeadlines((fiscalData || []) as AnyRow[]);
       } catch (e: unknown) { console.warn('fiscal_deadlines not available:', (e as Error).message); }
+      finally { setFiscalLoaded(true); }
 
       const totalBalance = (accountsData || []).reduce((sum, acc) => sum + (Number(acc.current_balance) || 0), 0);
       setCashPosition(totalBalance);
@@ -866,6 +1056,48 @@ const ScadenzarioSmart = () => {
   }, [COMPANY_ID]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Ricarica solo le categorie (dopo crea/modifica dal pannello di gestione),
+  // senza rifare l'intero fetch pesante dello scadenzario.
+  const refreshCategories = useCallback(async () => {
+    if (!COMPANY_ID) return;
+    const { data } = await supabase
+      .from('cost_categories')
+      .select('*')
+      .eq('company_id', COMPANY_ID)
+      .order('sort_order', { ascending: true });
+    if (data) setCategories(data as unknown as AnyRow[]);
+  }, [COMPANY_ID]);
+
+  // Solo super_advisor può creare/modificare categorie (RLS cost_cat_write).
+  const canEditCategories = profile?.role === 'super_advisor';
+
+  // Numero di fatture (payables) che usano ciascuna categoria — per il pannello.
+  const payableCountByCat = useMemo(() => {
+    const m: Record<string, number> = {};
+    payables.forEach(p => {
+      const cid = p.cost_category_id;
+      if (cid) m[cid] = (m[cid] || 0) + 1;
+    });
+    return m;
+  }, [payables]);
+
+  // Spostamento fornitori tra categorie: la scrittura DB (suppliers.default_cost_category_id
+  // + riallineamento payables) avviene nel pannello; qui aggiorniamo lo stato IN MEMORIA
+  // così il pannello resta aperto (fetchData toglierebbe di mezzo tutta la pagina via `loading`).
+  const applySupplierMove = useCallback((movedSuppliers: SupLite[], targetCatId: string) => {
+    const ids = new Set(movedSuppliers.map(s => s.id).filter(Boolean) as string[]);
+    const vats = new Set(movedSuppliers.flatMap(s => [s.vat_number, s.partita_iva]).filter(Boolean) as string[]);
+    const names = new Set(movedSuppliers.flatMap(s => [s.ragione_sociale, s.name]).filter(Boolean) as string[]);
+    setSuppliers(prev => prev.map(s => (s.id && ids.has(s.id)) ? { ...s, default_cost_category_id: targetCatId } as AnyRow : s));
+    setPayables(prev => prev.map(p => {
+      const match = (p.supplier_id && ids.has(p.supplier_id))
+        || (p.supplier_vat && vats.has(p.supplier_vat))
+        || (p.suppliers?.ragione_sociale && names.has(p.suppliers.ragione_sociale))
+        || (p.suppliers?.name && names.has(p.suppliers.name));
+      return match ? { ...p, cost_category_id: targetCatId } : p;
+    }));
+  }, []);
 
   // Carica incassi reali lazy quando il tab Incassi viene aperto.
   // IMPORTANTE: le importazioni EC vanno in DUE tabelle diverse:
@@ -1099,92 +1331,50 @@ const ScadenzarioSmart = () => {
   //   - closeAmount === residuo (o undefined) → chiusura TOTALE: status='pagato'
   //   - closeAmount < residuo               → chiusura PARZIALE: status='parziale'
   const closePayableManually = async (payableId: string, closeDate: string, reason: string | null, closeAmount?: number): Promise<boolean> => {
-    const payable = payables.find(p => p.id === payableId);
-    const prevStatus = (payable?.status as string | null) ?? null;
-    const gross = Number(payable?.gross_amount ?? 0) || 0;
-    const prevPaid = Number(payable?.amount_paid ?? 0) || 0;
-    const remaining = Number(payable?.amount_remaining ?? (gross - prevPaid)) || 0;
-
-    // ───── NOTA DI CREDITO (gross < 0 o status nota_credito) ─────
-    // "Chiudere" una NC = usarla/compensarla: marco closed_manually + data, SENZA
-    // riclassificarla come pagata (resta NC ovunque). Nel partitario comparira'
-    // la riga di chiusura in AVERE che annulla il DARE della nota di credito.
-    const isNotaCredito = prevStatus === 'nota_credito' || gross < 0;
-    if (isNotaCredito) {
-      const ncAmount = Math.abs(gross);
-      const { error } = await supabase
-        .from('payables')
-        .update({
-          payment_date: closeDate,
-          closed_manually: true,
-          manual_close_reason: reason || null,
-          payment_bank_account_id: null,
-        } as never)
-        .eq('id', payableId);
-      if (error) {
-        toast({ type: 'error', message: `Errore chiusura nota di credito: ${error.message}` });
-        return false;
-      }
-      const dateLabelNC = new Date(closeDate).toLocaleDateString('it-IT');
-      await supabase.from('payable_actions').insert({
-        payable_id: payableId,
-        action_type: 'chiusura_manuale',
-        amount: ncAmount,
-        bank_account_id: null,
-        note: `Chiusura nota di credito a mano il ${dateLabelNC}${reason ? ` — ${reason}` : ''} (registrata in AVERE)`,
-        operator_name: operatorName,
-        performed_at: new Date().toISOString(),
-      } as never);
-      setPayables(prev => prev.map(p => p.id === payableId
-        ? { ...p, payment_date: closeDate, closed_manually: true, manual_close_reason: reason || null }
-        : p));
-      return true;
-    }
-
-    // Importo da chiudere: default = residuo. Clamp tra 0 (escluso) e residuo.
-    let amount = (closeAmount === undefined || !Number.isFinite(closeAmount)) ? remaining : closeAmount;
-    if (amount <= 0) { toast({ type: 'error', message: 'Importo di chiusura non valido' }); return false; }
-    if (amount > remaining + 0.005) amount = remaining;
-
-    const newPaid = prevPaid + amount;
-    const newRemaining = Math.max(0, remaining - amount);
-    const isFull = newRemaining <= 0.005;
-    const newStatus = isFull ? 'pagato' : 'parziale';
-
-    const { error } = await supabase
-      .from('payables')
-      .update({
-        status: newStatus,
-        payment_date: closeDate,
-        amount_paid: newPaid,
-        amount_remaining: newRemaining,
-        closed_manually: true,
-        manual_close_reason: reason || null,
-        payment_bank_account_id: null,
-      } as never)
-      .eq('id', payableId);
+    // Chiusura ATOMICA lato DB (audit A44). Prima si calcolava
+    //   amount_paid = amount_paid_LOCALE + importo
+    // con amount_paid_LOCALE preso dallo stato React (foto all'apertura pagina):
+    // con più operatrici in parallelo (o la riconciliazione bancaria) quel valore era
+    // STALE e il salvataggio CANCELLAVA il pagamento registrato nel frattempo da
+    // un'altra (lost update). Ora la RPC blocca la riga (SELECT ... FOR UPDATE), legge
+    // amount_paid FRESCO dal DB e incrementa in transazione. Gestisce anche le note di
+    // credito e scrive la riga di audit in payable_actions lato server.
+    // Cast: la RPC è nuova e non ancora nei tipi generati (database.ts).
+    const { data, error } = await supabase.rpc('close_payable_manually' as never, {
+      p_id: payableId,
+      p_close_date: closeDate,
+      p_reason: reason || null,
+      p_amount: (closeAmount === undefined || !Number.isFinite(closeAmount)) ? null : closeAmount,
+      p_operator: operatorName,
+    } as never);
     if (error) {
       toast({ type: 'error', message: `Errore chiusura manuale: ${error.message}` });
       return false;
     }
-
-    // Registrazione contabile in partitario (audit). Uso solo colonne stabili:
-    // tutta l'informazione (dicitura + data + parziale/totale) sta in note.
-    const dateLabel = new Date(closeDate).toLocaleDateString('it-IT');
-    const tipoChiusura = isFull ? '' : ' — PARZIALE';
-    await supabase.from('payable_actions').insert({
-      payable_id: payableId,
-      action_type: 'chiusura_manuale',
-      amount,
-      bank_account_id: null,
-      note: `Chiusa a mano il ${dateLabel}${tipoChiusura}${reason ? ` — ${reason}` : ''} (${prevStatus || '—'} → ${newStatus})`,
-      operator_name: operatorName,
-      performed_at: new Date().toISOString(),
-    } as never);
-
-    setPayables(prev => prev.map(p => p.id === payableId
-      ? { ...p, status: newStatus, payment_date: closeDate, amount_paid: newPaid, amount_remaining: newRemaining, closed_manually: true, manual_close_reason: reason || null, payment_bank_account_id: null, payment_bank_name: null }
-      : p));
+    // Valori AUTOREVOLI restituiti dal DB → aggiorno lo stato locale senza ricalcolare
+    // da un dato stale. La RPC restituisce una riga (RETURNS TABLE).
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      status?: string; amount_paid?: number; amount_remaining?: number;
+      payment_date?: string | null; closed_manually?: boolean; manual_close_reason?: string | null;
+    } | undefined;
+    if (row) {
+      setPayables(prev => prev.map(p => p.id === payableId
+        ? { ...p,
+            status: row.status ?? p.status,
+            amount_paid: row.amount_paid ?? p.amount_paid,
+            amount_remaining: row.amount_remaining ?? p.amount_remaining,
+            payment_date: row.payment_date ?? closeDate,
+            closed_manually: row.closed_manually ?? true,
+            manual_close_reason: row.manual_close_reason ?? (reason || null),
+            payment_bank_account_id: null,
+            payment_bank_name: null,
+            // Realtà pagamento: chiusura a mano. Allinea subito la colonna CONTO
+            // (operatore + data) senza attendere il refetch della vista.
+            payment_source: 'manuale',
+            payment_real_bank_name: null,
+            last_action_by: operatorName || p.last_action_by || null }
+        : p));
+    }
     return true;
   };
 
@@ -1193,11 +1383,11 @@ const ScadenzarioSmart = () => {
   const openManualCloseModal = (p: AnyRow) => {
     setStatusDropdownId(null);
     setManualCloseModal({ open: true, payable: p });
-    setManualCloseDate(new Date().toISOString().split('T')[0]);
+    setManualCloseDate(todayYMD());
     setManualCloseReason('');
     const gross = Number(p.gross_amount ?? 0) || 0;
     const isNC = p.status === 'nota_credito' || gross < 0;
-    const amount = isNC ? Math.abs(gross) : (Number(p.amount_remaining ?? gross) || 0);
+    const amount = isNC ? creditNoteResidual(p) : (Number(p.amount_remaining ?? gross) || 0);
     setManualCloseAmount(amount ? String(amount.toFixed(2)) : '');
   };
 
@@ -1206,7 +1396,7 @@ const ScadenzarioSmart = () => {
   // fattura si chiude piu' senza traccia contabile.
   const handleSetStatus = async (payableId: string, newStatus: string) => {
     if (newStatus === 'pagato') {
-      const today = new Date().toISOString().split('T')[0];
+      const today = todayYMD();
       await closePayableManually(payableId, today, null);
       setStatusDropdownId(null);
       return;
@@ -1260,6 +1450,156 @@ const ScadenzarioSmart = () => {
     }
   };
 
+  // Una scadenza e' "riapribile" quando risulta chiusa: pagata/parziale, chiusa a
+  // mano, chiusa in via provvisoria (RiBa) o agganciata a un movimento bancario.
+  // Le righe fiscali e quelle annullate non si riaprono da qui.
+  const isReopenable = (p: AnyRow): boolean => {
+    if (!p.id || p._isFiscal) return false;
+    if (p.status === 'annullato') return false;
+    const gross = Number(p.gross_amount ?? 0) || 0;
+    const isNC = p.status === 'nota_credito' || gross < 0;
+    // NC: chiusa a mano OPPURE con una quota gia' consumata in compensazione (amount_paid < 0).
+    if (isNC) return Boolean(p.closed_manually) || Math.abs(Number(p.amount_paid) || 0) > 0.005;
+    return p.status === 'pagato'
+      || p.status === 'parziale'
+      || Boolean(p.closed_manually)
+      || Boolean(p.is_provisional_paid)
+      || p.payment_source === 'movimento';
+  };
+
+  // Apre la modale di conferma riapertura.
+  const openReopenModal = (p: AnyRow) => {
+    setStatusDropdownId(null);
+    setReopenModal({ open: true, payable: p });
+    setReopenReason('');
+  };
+
+  // Handler: compensa fattura ↔ NC (RPC atomica compensate_payable_with_credit_note).
+  // Importo = min(residuo fattura, credito NC) di default, modificabile verso il basso:
+  // la fattura si chiude a mano (pagato o parziale), la NC consuma la quota e si chiude
+  // solo a credito zero. Nessun movimento bancario. Valori autorevoli dal DB.
+  const handleNcCompSubmit = async () => {
+    const src = ncCompModal.source;
+    if (!src?.id || !ncCompTargetId || !ncCompDate) return;
+    const target = payables.find(x => x.id === ncCompTargetId);
+    if (!target?.id) return;
+    const inv = isNcRow(src) ? target : src;
+    const nc = isNcRow(src) ? src : target;
+    const max = ncCompMaxAmount(inv, nc);
+    const parsed = parseFloat((ncCompAmount || '').replace(',', '.'));
+    const amount = Number.isFinite(parsed) ? +parsed.toFixed(2) : max;
+    if (!(amount > 0 && amount <= max + 0.005)) {
+      toast({ type: 'error', message: `Inserisci un importo tra 0 e ${fmt(max)} €` });
+      return;
+    }
+    setIsSaving(true);
+    // Cast: RPC nuova (migration 170), non ancora nei tipi generati (database.ts).
+    const { data, error } = await supabase.rpc('compensate_payable_with_credit_note' as never, {
+      p_payable_id: inv.id,
+      p_credit_note_id: nc.id,
+      p_amount: Math.min(amount, max),
+      p_date: ncCompDate,
+      p_reason: ncCompReason.trim() || null,
+      p_operator: operatorName,
+    } as never);
+    setIsSaving(false);
+    if (error) {
+      toast({ type: 'error', message: `Errore compensazione: ${error.message}` });
+      return;
+    }
+    type Side = {
+      id?: string; status?: string; amount_paid?: number; amount_remaining?: number;
+      payment_date?: string | null; closed_manually?: boolean; manual_close_reason?: string | null; residual?: number;
+    };
+    const res = (data || {}) as { amount?: number; invoice?: Side; credit_note?: Side };
+    const applySide = (row: AnyRow, side?: Side): AnyRow => !side ? row : ({
+      ...row,
+      status: side.status ?? row.status,
+      amount_paid: side.amount_paid ?? row.amount_paid,
+      amount_remaining: side.amount_remaining ?? row.amount_remaining,
+      residuo_aperto: side.amount_remaining ?? row.amount_remaining,
+      payment_date: side.payment_date ?? null,
+      closed_manually: side.closed_manually ?? row.closed_manually,
+      manual_close_reason: side.manual_close_reason ?? row.manual_close_reason,
+      payment_bank_account_id: null,
+      payment_bank_name: null,
+      payment_source: side.closed_manually ? 'manuale' : row.payment_source,
+      payment_real_bank_name: null,
+      last_action_by: operatorName || row.last_action_by || null,
+    });
+    setPayables(prev => prev.map(x => x.id === inv.id ? applySide(x, res.invoice) : (x.id === nc.id ? applySide(x, res.credit_note) : x)));
+    const residual = Number(res.credit_note?.residual ?? 0);
+    const invRem = Number(res.invoice?.amount_remaining ?? 0);
+    toast({ type: 'success', message: `Compensati ${fmt(Number(res.amount ?? amount))} € tra fattura ${inv.invoice_number || ''} e NC ${nc.invoice_number || ''}`
+      + (invRem > 0.005 ? ` — la fattura resta parziale per ${fmt(invRem)} €` : '')
+      + (residual > 0.005 ? ` — credito NC residuo ${fmt(residual)} €` : '') });
+    setNcCompModal({ open: false, source: null });
+    setNcCompTargetId(''); setNcCompAmount(''); setNcCompReason('');
+    // Ricarico la vista: residui "in sospeso", badge NC e totali dipendono dai link.
+    fetchData();
+  };
+
+  // Handler: riapre la scadenza chiusa (RPC atomica reopen_payable). Riporta la
+  // fattura ad aperta, libera l'eventuale movimento bancario e riapre le NC
+  // compensate. Registra la riga di audit in partitario.
+  const handleReopenSubmit = async () => {
+    const p = reopenModal.payable;
+    if (!p?.id) return;
+    setIsSaving(true);
+    // Cast: RPC nuova, non ancora nei tipi generati (database.ts).
+    const { data, error } = await supabase.rpc('reopen_payable' as never, {
+      p_id: p.id,
+      p_reason: reopenReason.trim() || null,
+      p_operator: operatorName,
+    } as never);
+    setIsSaving(false);
+    if (error) {
+      toast({ type: 'error', message: `Errore riapertura: ${error.message}` });
+      return;
+    }
+    const row = (Array.isArray(data) ? data[0] : data) as {
+      status?: string; amount_paid?: number; amount_remaining?: number;
+      payment_date?: string | null; closed_manually?: boolean;
+      undone_reconciliations?: number; reopened_credit_notes?: number; reopened?: boolean;
+    } | undefined;
+    if (row && row.reopened === false) {
+      toast({ type: 'info', message: 'La scadenza non risultava chiusa: niente da riaprire' });
+      setReopenModal({ open: false, payable: null });
+      setReopenReason('');
+      return;
+    }
+    if (row) {
+      setPayables(prev => prev.map(x => x.id === p.id
+        ? { ...x,
+            status: row.status ?? x.status,
+            amount_paid: row.amount_paid ?? 0,
+            amount_remaining: row.amount_remaining ?? x.amount_remaining,
+            payment_date: null,
+            closed_manually: row.closed_manually ?? false,
+            manual_close_reason: null,
+            is_provisional_paid: false,
+            provisional_paid_at: null,
+            payment_source: null,
+            payment_real_bank_name: null,
+            payment_movement_date: null,
+            last_action_by: operatorName || x.last_action_by || null }
+        : x));
+    }
+    const freed = Number(row?.undone_reconciliations ?? 0);
+    const ncs = Number(row?.reopened_credit_notes ?? 0);
+    const extra = [
+      freed > 0 ? `${freed} movimento/i liberato/i (da riabbinare)` : '',
+      ncs > 0 ? `${ncs} nota/e di credito riaperta/e` : '',
+    ].filter(Boolean).join(' · ');
+    const wasNC = p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0;
+    toast({ type: 'success', message: `${wasNC ? 'Nota di credito riaperta' : 'Fattura riaperta'}${extra ? ' — ' + extra : ''}` });
+    setReopenModal({ open: false, payable: null });
+    setReopenReason('');
+    // Le NC compensate (o le fatture compensate da questa NC) sono cambiate lato DB:
+    // ricarico la vista cosi' credito residuo, stati e badge tornano coerenti.
+    if (ncs > 0 || wasNC) fetchData();
+  };
+
   // Filter payables
   // Convert fiscal deadlines to payable-like objects for unified view
   const fiscalAsPayables = useMemo<AnyRow[]>(() => {
@@ -1275,6 +1615,14 @@ const ScadenzarioSmart = () => {
       amount_remaining: fd.status === 'paid' ? 0 : (Number(fd.amount) || 0),
       status: fd.status === 'paid' ? 'pagato' : fd.status === 'overdue' ? 'scaduto' : fd.status === 'upcoming' ? 'in_scadenza' : 'da_pagare',
       payment_method: (fd.payment_method as string | null) || 'f24',
+      // Disposizione (distinta) — speculare a payables: la scadenza fiscale può entrare
+      // in distinta come una fattura. Campi popolati alla "Conferma distinta".
+      disposizione_date: (fd.disposizione_date as string | null) ?? null,
+      disposizione_bank_name: (() => {
+        const bid = fd.disposizione_bank_account_id ? String(fd.disposizione_bank_account_id) : '';
+        return bid ? (bankAccounts.find(b => String(b.id) === bid)?.bank_name as string | undefined) || null : null;
+      })(),
+      payment_bank_account_id: (fd.disposizione_bank_account_id as string | null) ?? null,
       outlet_id: null,
       outlet_name: '',
       cost_center: 'fiscale',
@@ -1293,15 +1641,24 @@ const ScadenzarioSmart = () => {
       cost_category_id: null,
       verified: false,
     }));
-  }, [fiscalDeadlines]);
+  }, [fiscalDeadlines, bankAccounts]);
 
   const filteredPayables = useMemo(() => {
     // Combine sources based on TYPE filter (default '' = fornitori + fiscali).
     // 'incassi' usa una tabella dedicata (bank_transactions in entrata), quindi
     // qui resta sull'unione: il ramo incassi non legge questa lista.
+    // NB: un payable con nominativo classificato "Fiscale"/"Interno" (tipo scelto
+    // in "Aggiungi scadenza", es. una TARI pagata con F24) vive in `payables` ma è
+    // a tutti gli effetti una scadenza fiscale/interna: va mostrato sotto "Fiscali
+    // / Interni", non tra i Fornitori. Prima veniva classificato solo per tabella
+    // di provenienza, quindi una TARI/F24 creata a mano spariva dal filtro
+    // "Fiscali / Interni" (sembrava non creata). Classifico per categoria del
+    // nominativo, non solo per tabella.
+    const isFiscalePayable = (p: AnyRow) =>
+      FISCAL_INTERNAL_CATEGORIES.has(String(p.suppliers?.category || '').toLowerCase());
     let source: AnyRow[] = [];
-    if (typeFilter === 'fornitori') source = payables;
-    else if (typeFilter === 'fiscali') source = fiscalAsPayables;
+    if (typeFilter === 'fornitori') source = payables.filter(p => !isFiscalePayable(p));
+    else if (typeFilter === 'fiscali') source = [...payables.filter(isFiscalePayable), ...fiscalAsPayables];
     else source = [...payables, ...fiscalAsPayables];
 
     return source.filter((p) => {
@@ -1312,8 +1669,9 @@ const ScadenzarioSmart = () => {
       // Escludi annullati per default — visibili SOLO se utente filtra esplicitamente 'annullato'
       if (p.status === 'annullato' && selectedStatus !== 'annullato') return false;
 
-      // Stato speciale 'In distinta': scadenze disposte ma non ancora pagate/annullate.
-      if (selectedStatus === 'in_distinta' && !(p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato')) return false;
+      // Stato speciale 'In sospeso': scadenze con una quota disposta e non ancora
+      // riscontrata (pending > 0). Le disposizioni già saldate escono da questa vista.
+      if (selectedStatus === 'in_distinta' && !((Number(p.disposizione_amount_pending) || 0) > 0.005)) return false;
 
       // NB: esclusione delle pagate per default applicata in displayPayables
       // (sotto), NON qui — displayPayables è derivato DOPO questo useMemo, causa
@@ -1349,15 +1707,22 @@ const ScadenzarioSmart = () => {
 
   // KPIs
   const kpis = useMemo(() => {
-    const totalDuePending = filteredPayables
+    // Gli addebiti automatici a carta escono dal conto da soli il 20 del mese
+    // successivo: non c'e' niente da disporre e non devono gonfiare i totali di
+    // "quanto c'e' da pagare". Erano gia' tolti dalla lista (displayPayables) ma
+    // non da questi numeri, e il totale risultava piu' alto del dovuto.
+    // Restano visibili, con conteggio e importo, nel chip "In attesa carta".
+    const daDisporre = filteredPayables.filter((p) => p.status !== 'addebito_automatico');
+
+    const totalDuePending = daDisporre
       .filter((p) => p.status !== 'pagato' && p.due_date && new Date(p.due_date) <= today)
       .reduce((sum, p) => sum + (p.amount_remaining || 0), 0);
 
-    const totalOverdue = filteredPayables
+    const totalOverdue = daDisporre
       .filter((p) => p.status === 'scaduto')
       .reduce((sum, p) => sum + (p.amount_remaining || 0), 0);
 
-    const nextSevenDays = filteredPayables
+    const nextSevenDays = daDisporre
       .filter((p) => {
         if (!p.due_date) return false;
         const d = new Date(p.due_date);
@@ -1365,7 +1730,7 @@ const ScadenzarioSmart = () => {
       })
       .reduce((sum, p) => sum + (p.amount_remaining || 0), 0);
 
-    const totalToPay = filteredPayables
+    const totalToPay = daDisporre
       .filter((p) => p.status !== 'pagato')
       .reduce((sum, p) => sum + (p.amount_remaining || 0), 0);
 
@@ -1391,14 +1756,50 @@ const ScadenzarioSmart = () => {
   // Fatture IN SOSPESO = disposte in distinta, in attesa di riscontro bancario.
   // Conteggio/totale globali (indipendenti dal filtro attivo), per l'accesso rapido.
   const suspendedInfo = useMemo(() => {
-    const list = payables.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato');
+    // "In sospeso" = fatture con una quota DISPOSTA e non ancora riscontrata (pending > 0).
+    // Una volta che l'acconto è pagato/riconciliato la sua quota esce da qui (pending torna
+    // a 0) e resta solo l'eventuale residuo ancora da disporre, contato fra le Aperte.
+    const list = payables.filter(p => (Number(p.disposizione_amount_pending) || 0) > 0.005);
+    return { count: list.length, total: list.reduce((s, p) => s + (Number(p.disposizione_amount_pending) || 0), 0) };
+  }, [payables]);
+
+  // Addebiti automatici: carte (MP08 / categorie a carta, addebito il 20 del mese
+  // successivo) e addebiti diretti SDD/RID, che escono alla loro data per mandato.
+  // Nessuno dei due è un pagamento da disporre: tolti dalla lista attiva e dai
+  // totali, richiamabili col chip dedicato.
+  const autoDebitInfo = useMemo(() => {
+    const list = payables.filter(p => p.status === 'addebito_automatico');
     return { count: list.length, total: list.reduce((s, p) => s + (Number(p.amount_remaining) || 0), 0) };
   }, [payables]);
+
+  // RiBa chiuse in via provvisoria alla scadenza (in attesa di distinta o
+  // movimento bancario). Residuo = 0 (pagate), quindi il totale usa il lordo.
+  const provisionalInfo = useMemo(() => {
+    const list = payables.filter(p => p.status === 'pagato_provvisorio');
+    return { count: list.length, total: list.reduce((s, p) => s + (Number(p.gross_amount) || 0), 0) };
+  }, [payables]);
+  const canManageRiba = profile?.role === 'super_advisor' || profile?.role === 'contabile';
+  const [ribaDistintaOpen, setRibaDistintaOpen] = useState(false);
+  const [ribaNcOpen, setRibaNcOpen] = useState(false);
+
+  // Chiude in blocco lo STORICO RiBa gia' scaduto (due_date < 06/08/2026) in via
+  // provvisoria. L'automatico copre solo il futuro: questo e' il recupero manuale.
+  const handleCloseRibaBacklog = useCallback(async () => {
+    if (!confirm('Chiudo in via PROVVISORIA tutte le RiBa storiche gia\' scadute e ancora aperte?\n\nRestano riaperte automaticamente appena arriva una distinta o un movimento bancario. L\'operazione e\' reversibile.')) return;
+    const { data, error } = await supabase.rpc('rpc_riba_provisional_close_backlog' as never);
+    if (error) { toast({ type: 'error', message: 'Errore: ' + error.message }); return; }
+    const n = (data as { riba_provisional_closed?: number } | null)?.riba_provisional_closed ?? 0;
+    toast({ type: n > 0 ? 'success' : 'info', message: n > 0 ? `${n} scadenze RiBa chiuse in via provvisoria` : 'Nessuna RiBa storica da chiudere' });
+    fetchData();
+  }, [toast, fetchData]);
 
   // Totali per singolo metodo di pagamento (stessa base filtrata dei KPI)
   type MethodAgg = { key: string; label: string; total: number; count: number }
   const methodTotals = useMemo<MethodAgg[]>(() => {
-    const activePays = filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato');
+    // Come sopra: gli addebiti a carta non sono pagamenti da disporre, quindi
+    // non compaiono nel riepilogo per metodo (starebbero sotto "Carta di credito"
+    // facendo somma diversa dal totale da pagare).
+    const activePays = filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && p.status !== 'addebito_automatico');
     const map: Record<string, MethodAgg> = {};
     activePays.forEach(p => {
       const m = p.payment_method || 'altro';
@@ -1475,13 +1876,22 @@ const ScadenzarioSmart = () => {
     }
   }, [today, modals, fetchData, toast]);
 
-  type InvoiceData = { supplierId: string; newSupplierName?: string; supplierType?: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod?: string; frequency?: string; costCenter?: string; endDate?: string }
-  const handleCreateInvoice = useCallback(async (invoiceData: InvoiceData) => {
-    // Validazione minima (niente dialog nativi): nominativo + scadenza + importo.
+  const handleCreateInvoice = useCallback(async (invoiceData: InvoiceFormState) => {
+    // Validazione minima (niente dialog nativi): nominativo + scadenze + importo.
     const newName = (invoiceData.newSupplierName || '').trim();
     if (!invoiceData.supplierId && !newName) { toast({ type: 'warning', message: 'Indica un fornitore esistente o un nuovo nominativo.' }); return; }
-    if (!invoiceData.dueDate) { toast({ type: 'warning', message: 'Indica la data di scadenza pagamento.' }); return; }
+    // Le scadenze arrivano già calcolate dalle REGOLE INTERNE (piano del fornitore o
+    // default aziendale "a vista"), ma restano correggibili a mano: qui validiamo il minimo.
+    const rate = Array.isArray(invoiceData.rate) ? invoiceData.rate.filter(r => r && r.dueDate) : [];
+    if (rate.length === 0) { toast({ type: 'warning', message: 'Indica almeno una scadenza di pagamento.' }); return; }
     if (!(Number(invoiceData.grossAmount) > 0)) { toast({ type: 'warning', message: 'Indica un importo maggiore di zero.' }); return; }
+    // La somma delle rate deve quadrare col totale (tolleranza 1 cent).
+    const sumRate = rate.reduce((s, r) => s + (Number(r.amount) || 0), 0);
+    if (Math.abs(sumRate - Number(invoiceData.grossAmount)) > 0.01) {
+      toast({ type: 'warning', message: `La somma delle rate (€ ${sumRate.toFixed(2)}) non corrisponde all'importo totale (€ ${Number(invoiceData.grossAmount).toFixed(2)}).` });
+      return;
+    }
+    const firstDue = rate[0].dueDate;
     const isRecurring = !!invoiceData.frequency && invoiceData.frequency !== 'una_tantum';
     if (isRecurring && !invoiceData.costCenter) { toast({ type: 'warning', message: 'Per una scadenza ricorrente scegli il centro di costo / outlet.' }); return; }
     try {
@@ -1515,7 +1925,7 @@ const ScadenzarioSmart = () => {
       let recurringMsg = '';
       if (isRecurring) {
         const supplierName = effectiveName;
-        const dueDay = invoiceData.dueDate ? new Date(invoiceData.dueDate).getDate() : 1;
+        const dueDay = firstDue ? new Date(firstDue).getDate() : 1;
         const { data: recData, error: recErr } = await supabase.from('recurring_costs').insert([{
           company_id: COMPANY_ID,
           cost_center: invoiceData.costCenter,
@@ -1525,7 +1935,7 @@ const ScadenzarioSmart = () => {
           day_of_month: Math.min(28, Math.max(1, dueDay)),
           payment_method: invoiceData.paymentMethod || 'bonifico_ordinario',
           supplier_name: supplierName || null,
-          start_date: invoiceData.dueDate,
+          start_date: firstDue,
           end_date: invoiceData.endDate || null,
           is_active: true,
         } as never]).select('id');
@@ -1537,20 +1947,26 @@ const ScadenzarioSmart = () => {
         recurringMsg = ' — ricorrenza registrata in Ricorrenze';
       }
 
-      // 2) Crea la prima scadenza (payable), collegata alla ricorrenza se esiste.
-      const { error: payErr } = await supabase.from('payables').insert([{
+      // 2) Crea le scadenze: una payable per rata. Con rata unica lascio
+      //    installment_number/total a null (coerente con le fatture a rata singola
+      //    esistenti); la ricorrenza si collega solo alla prima rata (come il bridge A-Cube).
+      const nRate = rate.length;
+      const rows = rate.map((r, idx) => ({
         company_id: COMPANY_ID,
         supplier_id: supplierId,
         supplier_name: effectiveName || null,
         invoice_number: invoiceData.invoiceNumber,
         invoice_date: invoiceData.invoiceDate,
-        due_date: invoiceData.dueDate,
-        original_due_date: invoiceData.dueDate,
-        gross_amount: invoiceData.grossAmount,
-        amount_remaining: invoiceData.grossAmount,
-        payment_method: toDbPaymentMethod(invoiceData.paymentMethod),
-        recurring_cost_id: recurringId,
-      } as never]);
+        due_date: r.dueDate,
+        original_due_date: r.dueDate,
+        gross_amount: Number(r.amount) || 0,
+        amount_remaining: Number(r.amount) || 0,
+        payment_method: invoiceData.paymentMethod || 'bonifico',
+        installment_number: nRate > 1 ? idx + 1 : null,
+        installment_total: nRate > 1 ? nRate : null,
+        recurring_cost_id: idx === 0 ? recurringId : null,
+      }));
+      const { error: payErr } = await supabase.from('payables').insert(rows as never);
       if (payErr) {
         // Rollback ricorrenza per non lasciare orfani.
         if (recurringId) await supabase.from('recurring_costs').delete().eq('id', recurringId);
@@ -1559,7 +1975,7 @@ const ScadenzarioSmart = () => {
       }
 
       setModals(prev => ({ ...prev, invoice: { open: false, data: null } }));
-      toast({ type: 'success', message: 'Scadenza creata' + recurringMsg + '.' });
+      toast({ type: 'success', message: (rate.length > 1 ? `${rate.length} rate create` : 'Scadenza creata') + recurringMsg + '.' });
       fetchData();
     } catch (error) {
       console.error('Error creating scadenza:', error);
@@ -1567,9 +1983,14 @@ const ScadenzarioSmart = () => {
     }
   }, [COMPANY_ID, suppliers, toast]);
 
-  type SupplierData = { name: string; vat?: string; fiscal?: string; iban?: string; category?: string; paymentMethod?: string }
+  type SupplierData = {
+    name: string; vat?: string; fiscal?: string; iban?: string; category?: string; paymentMethod?: string
+    paymentTerms?: number; paymentBase?: string; primaScadenzaGg?: number; numeroRate?: number
+  }
   const handleCreateSupplier = useCallback(async (supplierData: SupplierData) => {
     try {
+      // Il piano scadenze scelto nel modal (modalita': 30/60, 30/60/90/120, 90/120 …)
+      // viene salvato subito: le fatture di questo fornitore nascono con le rate giuste.
       const { data } = await supabase.from('suppliers').insert([{
         company_id: COMPANY_ID,
         ragione_sociale: supplierData.name,
@@ -1579,6 +2000,10 @@ const ScadenzarioSmart = () => {
         iban: supplierData.iban,
         category: supplierData.category,
         payment_method: supplierData.paymentMethod || 'bonifico',
+        payment_terms: supplierData.paymentTerms ?? null,
+        payment_base: supplierData.paymentBase || null,
+        prima_scadenza_gg: supplierData.paymentBase ? (supplierData.primaScadenzaGg ?? 0) : null,
+        numero_rate: supplierData.paymentBase ? (supplierData.numeroRate || 1) : null,
         is_active: true,
       } as never]).select();
 
@@ -1736,7 +2161,10 @@ const ScadenzarioSmart = () => {
   // NESSUNA scrittura su DB qui: il salvataggio avviene solo con "Conferma distinta"
   // nel modale. Cosi' chiudere senza confermare non lascia righe "In distinta".
   const confirmPayments = async () => {
-    if (hasNegativeBalance || selectedIds.size === 0) return;
+    if (selectedIds.size === 0) return;
+    // Il previsionale non blocca mai. Oltre il saldo reale si chiede conferma
+    // (può essere voluto: fido, incassi in arrivo), non si vieta.
+    if (!(await confirmOverdraftIfNeeded())) return;
     setIsSaving(true);
     const results = [];
     const items: DistintaItem[] = [];
@@ -1745,17 +2173,21 @@ const ScadenzarioSmart = () => {
     try {
       for (const id of selectedIds) {
         const plan = paymentPlan[id];
-        const payable = payables.find(p => p.id === id);
+        // Le scadenze fiscali (id `fiscal_…`) stanno in una lista separata: cercale anche lì
+        // così entrano davvero in distinta (anteprima, email, Storico), non solo nella barra saldi.
+        const payable = payables.find(p => p.id === id) || fiscalAsPayables.find(p => p.id === id);
         if (!plan || !payable) continue;
+        const isFiscal = payable._isFiscal === true;
 
         const bank = bankAccounts.find(b => b.id === plan.bankId);
 
         // Tipo ACCONTO/SALDO (con eventuale rata) + note di credito compensate.
         const { label: tipoLabel } = distintaTipo(payable, plan);
         const ncList = ncBreakdown(plan);
-        // Causale NC per il bonifico (la scrive Sabrina): "al netto NC n.X (importo) e NC n.Y (importo)"
+        // Causale NC per il bonifico (la scrive Sabrina): "al netto NC n.X del gg/mm/aaaa (importo)"
+        // — con la data di emissione della nota di credito, sempre insieme a numero e importo.
         const ncNote = ncList.length
-          ? `al netto ${ncList.map(n => `NC n.${n.num} (${fmt(n.amt)})`).join(' e ')}`
+          ? `al netto ${ncList.map(n => `NC n.${n.num}${n.date ? ` del ${fmtDate(n.date)}` : ''} (${fmt(n.amt)})`).join(' e ')}`
           : '';
         const composedNote = [plan.note, ncNote].filter(Boolean).join(' — ');
 
@@ -1769,6 +2201,7 @@ const ScadenzarioSmart = () => {
           status: (payable.status as string) || 'da_pagare',
           note: `Distinta del ${dataStr} — ${bank?.bank_name || 'N/D'} — ${tipoLabel}${ncNote ? ` — ${ncNote}` : ''}`,
           ncIds: plan.ncIds && plan.ncIds.length ? [...plan.ncIds] : undefined,
+          isFiscal,
         });
 
         results.push({
@@ -1823,6 +2256,10 @@ const ScadenzarioSmart = () => {
 
       setConfirmResult({ results, banks, totaleComplessivo, emailBody, emailSubject, items } as unknown as NonNullable<ConfirmResult>);
       setDistintaSaved(false);
+      setConfirmDiscardDistinta(false);
+      // Nuova anteprima → il gate email riparte da zero: la mail va (ri)mandata.
+      setEmailSent(false);
+      setEmailManualConfirmed(false);
       setIsSaving(false);
       // NB: nessuna scrittura né fetchData qui — è solo l'anteprima.
     } catch (error) {
@@ -1832,28 +2269,38 @@ const ScadenzarioSmart = () => {
     }
   };
 
-  // "Conferma distinta": salva le disposizioni (azione esplicita). Dedup: non inserisce
-  // se la fattura è già in distinta (controllo applicativo + indice unique parziale lato DB).
+  // "Conferma distinta": salva le disposizioni (azione esplicita). Una fattura può avere
+  // PIÙ disposizioni (acconto + residuo): l'anti-doppione non è più l'unicità dell'indice
+  // ma una guardia sull'IMPORTO — la somma (già disposto + nuovo) non può superare il
+  // residuo della fattura. Così un secondo invio identico o un importo oltre il residuo
+  // viene saltato invece di sballare i conti.
   const confirmDistinta = async () => {
     if (!confirmResult || distintaSaved) return;
     const items = confirmResult.items || [];
     if (items.length === 0) return;
     setIsSaving(true);
     try {
-      const ids = items.map(i => i.payableId);
-      // Quali sono già in distinta? (batch piccolo = ids selezionati, nessun rischio URL)
-      const { data: existing } = await supabase
-        .from('payable_actions')
-        .select('payable_id, payables!inner(company_id)')
-        .eq('action_type', 'disposizione')
-        .eq('payables.company_id', COMPANY_ID!)
-        .in('payable_id', ids);
-      const already = new Set((existing || []).map(r => r.payable_id));
+      // Le fatture fornitori vanno in payable_actions; le scadenze fiscali (id `fiscal_…`)
+      // su fiscal_deadlines (payable_actions ha FK a payables). Split.
+      const payableItems = items.filter(it => !it.isFiscal);
+      const fiscalItems = items.filter(it => it.isFiscal);
+      // Guardia importo basata sulla quota PENDING corrente (già disposta e non ancora
+      // saldata) per fattura: le disposizioni già pagate sono riflesse in amount_remaining
+      // e NON vanno ricontate. pendingByPayable parte dal valore del payable in stato e si
+      // aggiorna man mano (più righe stessa fattura nella stessa distinta).
+      const pendingByPayable = new Map<string, number>();
 
       let inserted = 0, skipped = 0;
       const errors: string[] = [];
-      for (const it of items) {
-        if (already.has(it.payableId)) { skipped++; continue; }
+      for (const it of payableItems) {
+        // Guardia: (pending corrente + questo) non deve superare il residuo della fattura.
+        // Blocca i doppioni e le disposizioni oltre il dovuto (niente da disporre).
+        const pay = payables.find(p => p.id === it.payableId);
+        const remaining = Number(pay?.amount_remaining) || 0;
+        const pending = pendingByPayable.has(it.payableId)
+          ? (pendingByPayable.get(it.payableId) as number)
+          : (Number(pay?.disposizione_amount_pending) || 0);
+        if ((Number(it.amount) || 0) <= 0 || pending + (Number(it.amount) || 0) > remaining + 0.01) { skipped++; continue; }
         const { error: actErr } = await supabase.from('payable_actions').insert({
           payable_id: it.payableId,
           action_type: 'disposizione',
@@ -1864,13 +2311,33 @@ const ScadenzarioSmart = () => {
           note: it.note,
         } as never);
         if (actErr) {
-          // 23505 = violazione unique (indice parziale): già in distinta, non è un errore
-          if ((actErr as { code?: string }).code === '23505') { skipped++; continue; }
           errors.push(`${it.payableId}: ${actErr.message}`);
           continue;
         }
-        // Banca attesa per la riconciliazione (nessun altro campo della fattura toccato)
-        await supabase.from('payables').update({ payment_bank_account_id: it.bankId || null } as never).eq('id', it.payableId);
+        pendingByPayable.set(it.payableId, pending + (Number(it.amount) || 0));
+        // Banca attesa per la riconciliazione: la impostiamo solo la PRIMA volta (se assente),
+        // per non sovrascrivere la banca dell'acconto quando si dispone il residuo su un'altra banca.
+        await supabase.from('payables').update({ payment_bank_account_id: it.bankId || null } as never).eq('id', it.payableId).is('payment_bank_account_id', null);
+        inserted++;
+      }
+
+      // SCADENZE FISCALI: la disposizione si registra su fiscal_deadlines (colonne
+      // disposizione_*). UPDATE solo se non già in distinta (disposizione_date NULL) → dedup.
+      for (const it of fiscalItems) {
+        const realId = it.payableId.startsWith('fiscal_') ? it.payableId.substring('fiscal_'.length) : it.payableId;
+        const { data: updated, error: fErr } = await supabase
+          .from('fiscal_deadlines')
+          .update({
+            disposizione_date: new Date().toISOString(),
+            disposizione_bank_account_id: it.bankId || null,
+            disposizione_amount: it.amount,
+            disposizione_note: it.note,
+          } as never)
+          .eq('id', realId)
+          .is('disposizione_date', null)
+          .select('id');
+        if (fErr) { errors.push(`${it.payableId}: ${fErr.message}`); continue; }
+        if (!updated || (updated as unknown[]).length === 0) { skipped++; continue; } // già in distinta
         inserted++;
       }
 
@@ -1891,8 +2358,9 @@ const ScadenzarioSmart = () => {
             company_id: COMPANY_ID,
             payable_id: it.payableId,
             credit_note_payable_id: ncId,
-            amount: nc ? Math.abs(Number(nc.gross_amount) || 0) : 0,
+            amount: nc ? ncAmountOf(nc) : 0, // credito RESIDUO della NC, non il lordo
             status: 'pending',
+            origin: 'distinta',
           };
         }));
         if (links.length > 0) {
@@ -1918,6 +2386,12 @@ const ScadenzarioSmart = () => {
       setDistintaSaved(true);
       setSelectedIds(new Set());
       setPaymentPlan({});
+      // Chiudi subito il pop-up dopo la conferma: la distinta è salvata, non deve
+      // ripresentarsi. Azzero anche la bozza in localStorage così, tornando sulla
+      // pagina o ricaricando, l'anteprima non viene ricostruita/ripristinata.
+      setConfirmResult(null);
+      setDistintaSaved(false);
+      if (DRAFT_KEY) { try { localStorage.removeItem(DRAFT_KEY); } catch { /* storage non disponibile */ } }
       fetchData();
     } catch (error) {
       console.error('Error confirming distinta:', error);
@@ -1926,12 +2400,48 @@ const ScadenzarioSmart = () => {
     }
   };
 
+  // Chiusura effettiva dell'anteprima distinta (azzera stato + ricarica).
+  const closeDistintaPreview = () => {
+    setConfirmResult(null);
+    setDistintaSaved(false);
+    setConfirmDiscardDistinta(false);
+    fetchData();
+  };
+
+  // Chiusura RICHIESTA (X / Esc): se la distinta non è ancora stata confermata
+  // (passo 2), NON chiudere in silenzio — chiedi conferma, così l'anteprima non
+  // si perde per errore dopo aver solo inviato l'email (passo 1). Se è già
+  // confermata (o non c'è nulla da salvare), chiudi direttamente.
+  const requestCloseDistinta = () => {
+    if (confirmResult && !distintaSaved) {
+      setConfirmDiscardDistinta(true);
+      return;
+    }
+    closeDistintaPreview();
+  };
+
   // "Rimuovi dalla distinta": cancella la SINGOLA riga disposizione di quel payable e
   // riporta davvero allo stato precedente azzerando payment_bank_account_id (la banca
   // attesa scritta dalla conferma distinta). Guardia lato DB: NON tocca la banca se la
   // scadenza è pagata/parziale o ha già una payment_date (banca dei flussi reali).
   const removeFromDistinta = async (payableId: string) => {
     try {
+      // Scadenza fiscale: la disposizione è sulle colonne di fiscal_deadlines → le azzero.
+      if (payableId.startsWith('fiscal_')) {
+        const realId = payableId.substring('fiscal_'.length);
+        const { error: fErr } = await supabase
+          .from('fiscal_deadlines')
+          .update({ disposizione_date: null, disposizione_bank_account_id: null, disposizione_amount: null, disposizione_note: null } as never)
+          .eq('id', realId);
+        if (fErr) {
+          toast({ type: 'error', message: 'Errore rimozione dalla distinta: ' + fErr.message });
+          return;
+        }
+        toast({ type: 'success', message: 'Scadenza rimossa dalla distinta.' });
+        setRemoveDistintaModal(null);
+        fetchData();
+        return;
+      }
       // Passo 2: rimuovo anche i legami NC↔fattura ancora 'pending' (l'intenzione di
       // compensazione decade con la distinta). Best-effort: ignoro se la tabella non c'è.
       try {
@@ -1968,6 +2478,35 @@ const ScadenzarioSmart = () => {
     }
   };
 
+  // Invio LATO SERVER della mail-distinta (Edge Function Resend). È la via primaria:
+  // funziona anche per chi non ha Gmail loggato nel browser. Solo un invio riuscito
+  // sblocca "Conferma distinta" (gate verificabile). Se il server non è configurato/
+  // disponibile, l'errore è chiaro e restano le alternative (Gmail / Copia testo /
+  // spunta manuale).
+  const sendDistintaEmail = async () => {
+    if (!confirmResult || sendingEmail) return;
+    if (!emailRecipients || !emailRecipients.trim()) {
+      toast({ type: 'warning', message: 'Imposta prima l\'email dei destinatari.' });
+      return;
+    }
+    setSendingEmail(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-distinta-email', {
+        body: { subject: confirmResult.emailSubject, body: confirmResult.emailBody, to: emailRecipients },
+      });
+      const errMsg = (error as { message?: string } | null)?.message
+        || (data as { error?: string } | null)?.error;
+      if (error || errMsg) throw new Error(errMsg || 'Invio non riuscito');
+      setEmailSent(true);
+      toast({ type: 'success', message: `Email della distinta inviata a ${emailRecipients}.` });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      toast({ type: 'error', message: `Invio email non riuscito: ${msg}. Usa "Apri in Gmail"/"Copia testo" oppure spunta l'invio manuale.` });
+    } finally {
+      setSendingEmail(false);
+    }
+  };
+
   // Apertura in Gmail (le utenti usano Gmail dal browser): compose in NUOVA scheda.
   // mailto via location.href era un no-op silenzioso senza client di posta desktop.
   // Gmail ha un limite pratico ~8000 char sull'URL: se superato, niente apertura ->
@@ -1989,7 +2528,8 @@ const ScadenzarioSmart = () => {
   // chiama Edge Function acube-payment-send. Aggiorna payables come pagati e mostra
   // URL autorizzazione PSD2 da aprire sulla banca beneficiaria.
   const confirmPaymentsViaAcube = async () => {
-    if (hasNegativeBalance || selectedIds.size === 0) return;
+    if (selectedIds.size === 0) return;
+    if (!(await confirmOverdraftIfNeeded())) return;
 
     // Raggruppa per banca; valida che ogni banca abbia acube_account_uuid
     type AcubeGroup = { bank: AnyRow; items: Array<{ payableId: string; plan: typeof paymentPlan[string]; payable: AnyRow }> };
@@ -2027,7 +2567,7 @@ const ScadenzarioSmart = () => {
     if (!(await askConfirm(`Lanciare ${Array.from(groupsByBank.values()).reduce((n, g) => n + g.items.length, 0)} bonifico/i via A-Cube su ${groupsByBank.size} banca/banche?\n\nVerrà generata 1 distinta per banca. Si apriranno gli URL di autorizzazione PSD2 da firmare sulla banca.`))) return;
 
     setIsSaving(true);
-    const today_str = new Date().toISOString().split('T')[0];
+    const today_str = todayYMD();
     const allAuthorizeUrls: Array<{ batchNumber: string; bankName: string; url: string }> = [];
     const errors: string[] = [];
 
@@ -2159,9 +2699,9 @@ const ScadenzarioSmart = () => {
     return {
       tutte: filteredPayables.length,
       scadute: filteredPayables.filter(p => p.status === 'scaduto').length,
-      da_saldare: filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato').length,
+      da_saldare: filteredPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato' && p.status !== 'addebito_automatico').length,
       saldate: filteredPayables.filter(p => p.status === 'pagato').length,
-      in_distinta: filteredPayables.filter(p => !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato').length,
+      in_distinta: filteredPayables.filter(p => (Number(p.disposizione_amount_pending) || 0) > 0.005).length,
     };
   }, [filteredPayables, payables]);
 
@@ -2270,8 +2810,20 @@ const ScadenzarioSmart = () => {
       // e vanno tolte dalla lista attiva dello scadenzario. Si vedono solo nella vista
       // dedicata "In sospeso" (selectedStatus='in_distinta'). Lo stato DB resta invariato
       // (da_pagare/scaduto) così il motore di riconciliazione le aggancia comunque.
-      const isInDistinta = !!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato';
-      if (isInDistinta && selectedStatus !== 'in_distinta') return false;
+      // Si NASCONDE dalle Aperte SOLO quando è INTERAMENTE in sospeso: c'è una quota
+      // disposta e non ancora riscontrata (pending > 0) e NON resta residuo aperto.
+      // Con un acconto parziale (residuo > 0) la fattura resta fra le Aperte con il
+      // residuo; e appena l'acconto è saldato (pending = 0) torna comunque visibile
+      // col suo residuo — così non sparisce mai finché c'è qualcosa da pagare.
+      const isFullyInSospeso = (Number(p.disposizione_amount_pending) || 0) > 0.005 && (Number(p.residuo_aperto) || 0) <= 0.005;
+      if (isFullyInSospeso && selectedStatus !== 'in_distinta') return false;
+      // Addebiti automatici carta (MP08 / categorie a carta): tolti dalla lista
+      // attiva (non c'è nulla da disporre a mano). Restano nel saldo/cashflow e
+      // si vedono solo nel filtro dedicato "In attesa (carta)".
+      if (p.status === 'addebito_automatico' && selectedStatus !== 'addebito_automatico') return false;
+      // RiBa chiuse in via provvisoria alla scadenza: contano come pagate, tolte
+      // dalla lista attiva. Visibili solo col filtro dedicato 'pagato_provvisorio'.
+      if (p.status === 'pagato_provvisorio' && selectedStatus !== 'pagato_provvisorio') return false;
       // Pagate nascoste di default.
       if (p.status === 'pagato') return false;
       // NC CHIUSA a mano (registrata in partitario): esce dalle Aperte come una pagata,
@@ -2323,10 +2875,11 @@ const ScadenzarioSmart = () => {
     displayPayables.forEach((p) => {
       if (!p.due_date) return;
       const diff = Math.floor((today.getTime() - new Date(p.due_date).getTime()) / (1000 * 60 * 60 * 24));
-      if (diff <= 30) buckets['0-30'] += p.amount_remaining || 0;
-      else if (diff <= 60) buckets['31-60'] += p.amount_remaining || 0;
-      else if (diff <= 90) buckets['61-90'] += p.amount_remaining || 0;
-      else buckets['90+'] += p.amount_remaining || 0;
+      const openAmt = rowOpenAmount(p);
+      if (diff <= 30) buckets['0-30'] += openAmt;
+      else if (diff <= 60) buckets['31-60'] += openAmt;
+      else if (diff <= 90) buckets['61-90'] += openAmt;
+      else buckets['90+'] += openAmt;
     });
     return Object.entries(buckets).map(([range, value]) => ({
       range,
@@ -2344,7 +2897,7 @@ const ScadenzarioSmart = () => {
       groups[name].items.push(p);
       groups[name].total += p.gross_amount || 0;
       groups[name].paid += p.amount_paid || 0;
-      groups[name].remaining += p.amount_remaining || 0;
+      groups[name].remaining += rowOpenAmount(p);
     });
     return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
   }, [displayPayables]);
@@ -2360,7 +2913,7 @@ const ScadenzarioSmart = () => {
       groups[key].items.push(p);
       groups[key].total += p.gross_amount || 0;
       groups[key].paid += p.amount_paid || 0;
-      groups[key].remaining += p.amount_remaining || 0;
+      groups[key].remaining += rowOpenAmount(p);
     });
     return Object.entries(groups).sort((a, b) => a[0].localeCompare(b[0]));
   }, [displayPayables]);
@@ -2376,16 +2929,32 @@ const ScadenzarioSmart = () => {
 
   // Lista "appiattita" per il render: sezioni-mese (header) + righe, in ordine
   // cronologico (inclusi mesi passati con scaduto). I mesi derivano dai dati,
-  // niente anni/mesi hardcoded. Le righe seguono l'ordinamento attivo della
-  // tabella; 'N/D' (senza data) va in fondo. Se un mese è collassato, le sue
-  // righe non vengono emesse (resta solo l'header con subtotale e conteggio).
+  // niente anni/mesi hardcoded. 'N/D' (senza data) va in fondo. Se un mese è
+  // collassato, le sue righe non vengono emesse (resta solo l'header con
+  // subtotale e conteggio).
+  // Ordinamento DENTRO al mese: di default le righe sono raggruppate per
+  // FORNITORE in ordine alfabetico (aggregato). A parità di fornitore si
+  // ordina dalla fattura più vecchia: prima per DATA DI EMISSIONE fattura
+  // (invoice_date) crescente, poi per NUMERO FATTURA (ordinamento numerico
+  // naturale) crescente, infine per data di scadenza. Se l'utente attiva un
+  // ordinamento personalizzato dalle colonne (SortableTh), quello ha la
+  // precedenza e le righe seguono l'ordine globale della tabella.
   // Subtotale/conteggio del mese tengono SEPARATE le scadenze reali dalle
   // STIME (azzurre): il subtotale "da saldare" resta reale, le stime sono un
   // di-cui previsionale a parte. Niente somma reale+stima.
   type MonthRenderItem =
     | { kind: 'header'; key: string; label: string; count: number; subtotal: number; estimateCount: number; estimateSubtotal: number; collapsed: boolean }
     | { kind: 'row'; p: AnyRow };
+  // Nome fornitore normalizzato per l'ordinamento alfabetico (vuoto in fondo).
+  const supplierSortName = (p: AnyRow): string =>
+    ((p.suppliers?.ragione_sociale || p.suppliers?.name || '') as string).trim().toLowerCase() || '￿';
   const monthRenderItems = useMemo<MonthRenderItem[]>(() => {
+    // Il default della vista Mese è: scadenza più vecchia in cima (due_date asc,
+    // criterio unico). Solo in quel caso applichiamo l'aggregazione alfabetica
+    // per fornitore dentro ogni mese; con un sort personalizzato la rispettiamo.
+    const isDefaultSort = sortByPayables.length === 1
+      && sortByPayables[0].key === 'due_date'
+      && sortByPayables[0].dir === 'asc';
     const map = new Map<string, { key: string; label: string; items: AnyRow[]; subtotal: number; estimateCount: number; estimateSubtotal: number }>();
     sortedDisplayPayables.forEach(p => {
       const d = p.due_date ? new Date(p.due_date) : null;
@@ -2396,7 +2965,7 @@ const ScadenzarioSmart = () => {
       const g = map.get(key)!;
       g.items.push(p);
       if (p._isEstimate) { g.estimateCount += 1; g.estimateSubtotal += p.amount_remaining || 0; }
-      else g.subtotal += p.amount_remaining || 0;
+      else g.subtotal += rowOpenAmount(p);
     });
     const keys = Array.from(map.keys()).sort((a, b) => (a === 'N/D' ? 1 : b === 'N/D' ? -1 : a.localeCompare(b)));
     const out: MonthRenderItem[] = [];
@@ -2404,10 +2973,35 @@ const ScadenzarioSmart = () => {
       const g = map.get(k)!;
       const collapsed = collapsedMonths.has(k);
       out.push({ kind: 'header', key: k, label: g.label, count: g.items.length - g.estimateCount, subtotal: g.subtotal, estimateCount: g.estimateCount, estimateSubtotal: g.estimateSubtotal, collapsed });
-      if (!collapsed) g.items.forEach(p => out.push({ kind: 'row', p }));
+      if (!collapsed) {
+        // Con l'ordinamento di default: dentro il mese ordina per fornitore
+        // (alfabetico, aggregato); a parità di fornitore dalla fattura più
+        // vecchia (data emissione, poi numero fattura, poi scadenza).
+        const rows = isDefaultSort
+          ? [...g.items].sort((a, b) => {
+              const byName = supplierSortName(a).localeCompare(supplierSortName(b), 'it');
+              if (byName !== 0) return byName;
+              // Data di emissione fattura crescente (più vecchia in alto).
+              const ia = a.invoice_date ? new Date(a.invoice_date).getTime() : Infinity;
+              const ib = b.invoice_date ? new Date(b.invoice_date).getTime() : Infinity;
+              if (ia !== ib) return ia - ib;
+              // Numero fattura crescente, con ordinamento numerico naturale
+              // (es. "2" prima di "10"). I valori vuoti/"-" vanno in fondo.
+              const na = (a.invoice_number || '').trim() || '￿';
+              const nb = (b.invoice_number || '').trim() || '￿';
+              const byNum = na.localeCompare(nb, 'it', { numeric: true, sensitivity: 'base' });
+              if (byNum !== 0) return byNum;
+              // Ultimo criterio: data di scadenza crescente.
+              const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+              const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+              return da - db;
+            })
+          : g.items;
+        rows.forEach(p => out.push({ kind: 'row', p }));
+      }
     });
     return out;
-  }, [sortedDisplayPayables, collapsedMonths]);
+  }, [sortedDisplayPayables, collapsedMonths, sortByPayables]);
 
   // ===== INCASSI — stessa pipeline dei pagamenti, dataset bankIncomes =====
   // Filtri unificati: ricerca (descrizione/importo) + banca + periodo. Niente
@@ -2485,13 +3079,15 @@ const ScadenzarioSmart = () => {
     <div className="min-h-screen bg-white">
       {/* ===== TOP BAR — Logo + 4 Tab principali Sibill ===== */}
       <div className="border-b border-slate-200">
-        <div className="max-w-[1600px] mx-auto px-6 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-8">
+        {/* flex-wrap + gap ridotti: su 360-430px la barra si impila invece di
+            forzare lo scroll orizzontale dell'intera pagina. */}
+        <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <div className="flex items-center gap-3 sm:gap-8 min-w-0">
             <h1 className="text-base font-bold text-slate-800 tracking-tight">Scadenze</h1>
             {/* Tab principali: Situazione | Scadenzario | Ricorrenze.
                 La tab 'Regole (Coming soon)' è stata rimossa: niente elementi
                 morti cliccabili che confondono Sabrina/Veronica. */}
-            <div className="flex gap-1">
+            <div className="flex gap-1 overflow-x-auto">
               {([
                 { key: 'situazione', label: 'Situazione' },
                 { key: 'scadenze', label: 'Scadenzario' },
@@ -2500,7 +3096,7 @@ const ScadenzarioSmart = () => {
                 <button
                   key={t.key}
                   onClick={() => setSection(t.key)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition flex items-center gap-2 ${
+                  className={`shrink-0 px-3 sm:px-4 py-2 rounded-full text-sm font-medium transition flex items-center gap-2 ${
                     section === t.key
                       ? 'bg-slate-800 text-white'
                       : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700'
@@ -2545,97 +3141,22 @@ const ScadenzarioSmart = () => {
             />
             <button onClick={() => setModals({ ...modals, invoice: { open: true, data: null } })}
               className="flex items-center gap-1.5 px-3 py-2 text-xs rounded-lg bg-slate-800 text-white hover:bg-slate-700 transition font-medium">
-              <Plus size={13} /> Aggiungi scadenza
+              <Plus size={13} /> <span className="hidden sm:inline">Aggiungi scadenza</span><span className="sm:hidden">Aggiungi</span>
             </button>
           </div>
         </div>
       </div>
 
-      <div className="max-w-[1600px] mx-auto px-6 py-5 space-y-4">
+      <div className="max-w-[1600px] mx-auto px-3 sm:px-6 py-5 space-y-4">
 
       {/* ===== TAB SITUAZIONE — riepilogo come Sibill ===== */}
       {section === 'situazione' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-2 gap-6">
-            {/* DA PAGARE */}
-            <div className="bg-white border border-slate-200 rounded-xl p-6">
-              <div className="flex items-baseline justify-between mb-1">
-                <span className={`text-2xl font-bold ${kpis.totalToPay > 0 ? 'text-slate-800' : 'text-slate-400'}`}>{fmt(kpis.totalToPay)} €</span>
-                <span className="text-xs font-semibold text-red-500 uppercase tracking-wide">Da pagare</span>
-              </div>
-              <p className="text-xs text-slate-400 mb-4">Prossime {displayPayables.filter(p => p.status !== 'pagato').length} scadenze</p>
-              <div className="space-y-2">
-                {displayPayables.filter(p => p.status !== 'pagato' && p.status !== 'annullato').slice(0, 3).map(p => (
-                  <div key={p.id} className="flex items-center justify-between text-sm">
-                    <UiTooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><span className="text-slate-600 truncate max-w-[200px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</span></UiTooltip>
-                    <span className="font-medium text-slate-800">{fmt(p.amount_remaining || p.gross_amount)} €</span>
-                  </div>
-                ))}
-              </div>
-              {displayPayables.filter(p => p.status !== 'pagato').length > 3 && (
-                <button onClick={() => setSection('scadenze')} className="mt-4 text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1">
-                  Vedi tutte <ChevronRight size={12} />
-                </button>
-              )}
-            </div>
-            {/* DA INCASSARE — placeholder */}
-            <div className="bg-white border border-slate-200 rounded-xl p-6">
-              <div className="flex items-baseline justify-between mb-1">
-                <span className="text-2xl font-bold text-slate-400">0,00 €</span>
-                <span className="text-xs font-semibold text-blue-500 uppercase tracking-wide">Da incassare</span>
-              </div>
-              <p className="text-xs text-slate-400 mb-4">Nessuna scadenza in entrata</p>
-              <div className="flex flex-col items-center justify-center py-6 text-slate-300">
-                <CheckCircle2 size={32} className="mb-2" />
-                <span className="text-xs">Nessuna scadenza prevista. Ottimo lavoro!</span>
-              </div>
-            </div>
-          </div>
-          {/* Pagamenti ed incassi scaduti */}
-          <div>
-            <h3 className="text-sm font-semibold text-slate-700 mb-3">Pagamenti ed incassi scaduti</h3>
-            <div className="grid grid-cols-2 gap-6">
-              <div className="bg-white border border-slate-200 rounded-xl p-6">
-                <div className="flex items-baseline justify-between mb-1">
-                  <span className="text-2xl font-bold text-slate-800">{fmt(kpis.totalOverdue)} €</span>
-                  <span className="text-xs font-semibold text-red-500 uppercase tracking-wide">Pagamenti scaduti</span>
-                </div>
-              </div>
-              <div className="bg-white border border-slate-200 rounded-xl p-6">
-                <div className="flex items-baseline justify-between mb-1">
-                  <span className="text-2xl font-bold text-slate-400">0,00 €</span>
-                  <span className="text-xs font-semibold text-blue-500 uppercase tracking-wide">Incassi scaduti</span>
-                </div>
-              </div>
-            </div>
-          </div>
-          {/* KPI tesoreria */}
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
-            <h3 className="text-sm font-semibold text-slate-700 mb-3">Riepilogo banche</h3>
-            <div className="grid grid-cols-5 gap-4 text-center">
-              <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Saldo oggi</span>
-                <span className={`text-lg font-bold ${cashPosition >= 0 ? 'text-slate-800' : 'text-red-600'}`}>{fmt(cashPosition)} €</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Da pagare</span>
-                <span className="text-lg font-bold text-red-500">{fmt(kpis.totalToPay)} €</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Scaduto</span>
-                <span className="text-lg font-bold text-amber-600">{fmt(kpis.totalOverdue)} €</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Prossimi 7gg</span>
-                <span className="text-lg font-bold text-blue-600">{fmt(kpis.nextSevenDays)} €</span>
-              </div>
-              <div>
-                <span className="text-[10px] text-slate-400 uppercase block">Saldo proiettato</span>
-                <span className={`text-lg font-bold ${(cashPosition - kpis.totalToPay) >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmt(cashPosition - kpis.totalToPay)} €</span>
-              </div>
-            </div>
-          </div>
-        </div>
+        <SituazioneTab
+          kpis={kpis}
+          displayPayables={displayPayables}
+          cashPosition={cashPosition}
+          onGoToScadenze={() => setSection('scadenze')}
+        />
       )}
 
       {section === 'ricorrenti' ? (
@@ -2671,9 +3192,11 @@ const ScadenzarioSmart = () => {
               <option value="">Aperte</option>
               <option value="all">Tutti gli stati</option>
               <option value="scaduto">Scaduto</option>
+              <option value="addebito_automatico">Addebiti automatici (carta, SDD/RID)</option>
               <option value="in_scadenza">In scadenza</option>
               <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
+              <option value="pagato_provvisorio">Pagato (provvisorio — RiBa)</option>
               <option value="pagato">Pagato</option>
               <option value="in_distinta">In sospeso (in attesa di riscontro)</option>
               <option value="sospeso">Sospeso</option>
@@ -2689,6 +3212,57 @@ const ScadenzarioSmart = () => {
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'in_distinta' ? 'bg-amber-500 text-white border-amber-500' : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'}`}>
                 <Clock size={12} />
                 In sospeso: {suspendedInfo.count} ({fmt(suspendedInfo.total)} €)
+              </button>
+            )}
+            {/* Accesso rapido agli addebiti automatici: carte (MP08 / categorie a
+                carta) e addebiti diretti SDD/RID. Escono dal conto da soli, quindi
+                sono tolti dalla lista attiva e dai totali di quanto c'è da pagare;
+                questo pill li richiama (o torna alle Aperte se già attivo). */}
+            {autoDebitInfo.count > 0 && (
+              <button
+                onClick={() => setSelectedStatus(selectedStatus === 'addebito_automatico' ? '' : 'addebito_automatico')}
+                title="Scadenze che escono dal conto da sole: carte (addebito il 20 del mese successivo) e addebiti diretti SDD/RID (alla loro data). Non sono pagamenti da disporre; restano nel saldo finché non si riconciliano"
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'addebito_automatico' ? 'bg-indigo-500 text-white border-indigo-500' : 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'}`}>
+                <Clock size={12} />
+                Addebiti automatici: {autoDebitInfo.count} ({fmt(autoDebitInfo.total)} €)
+              </button>
+            )}
+            {/* Accesso rapido "RiBa provvisorie": pagate in automatico alla scadenza,
+                in attesa di distinta o riscontro bancario. Contano come pagate. */}
+            {provisionalInfo.count > 0 && (
+              <button
+                onClick={() => setSelectedStatus(selectedStatus === 'pagato_provvisorio' ? '' : 'pagato_provvisorio')}
+                title="RiBa chiuse in via provvisoria alla scadenza: in attesa di distinta o movimento bancario. Si confermano da sole quando arriva il riscontro."
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'pagato_provvisorio' ? 'bg-teal-500 text-white border-teal-500' : 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100'}`}>
+                <Clock size={12} />
+                RiBa provvisorie: {provisionalInfo.count} ({fmt(provisionalInfo.total)} €)
+              </button>
+            )}
+            {canManageRiba && (
+              <button
+                onClick={handleCloseRibaBacklog}
+                title="Chiude in via provvisoria lo storico RiBa gia' scaduto e ancora aperto (recupero manuale, reversibile). L'automatico copre solo le scadenze da oggi in poi."
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium bg-white text-slate-600 border-slate-200 hover:bg-slate-50">
+                <Clock size={12} />
+                Chiudi storico RiBa
+              </button>
+            )}
+            {canManageRiba && (
+              <button
+                onClick={() => setRibaDistintaOpen(true)}
+                title="Carica la distinta della banca (PDF/CSV/Excel): il sistema chiude le scadenze RiBa che coincidono AL CENTESIMO, il resto resta da verificare."
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100">
+                <Upload size={12} />
+                Carica distinta RiBa
+              </button>
+            )}
+            {canManageRiba && (
+              <button
+                onClick={() => setRibaNcOpen(true)}
+                title="Note di credito dei fornitori RiBa da abbinare a mano a una scadenza/pagamento (non si compensano in automatico)."
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100">
+                <Link2 size={12} />
+                NC RiBa da abbinare
               </button>
             )}
             <input type="date" value={dateRange.start} onChange={(e) => setDateRange({ ...dateRange, start: e.target.value })}
@@ -2883,7 +3457,7 @@ const ScadenzarioSmart = () => {
               const reals = displayPayables.filter(p => !p._isEstimate);
               const estimates = displayPayables.filter(p => p._isEstimate);
               const estTot = estimates.reduce((s, p) => s + (p.amount_remaining || 0), 0);
-              const total = displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0);
+              const total = displayPayables.reduce((s, p) => s + rowOpenAmount(p), 0);
               const count = reals.length + estimates.length;
               return (
                 <div className="flex flex-col">
@@ -2948,6 +3522,7 @@ const ScadenzarioSmart = () => {
             const dotColor = (p: AnyRow) => {
               if (p._isEstimate) return 'bg-sky-400'; // stima da ricorrenza
               if (p.status === 'scaduto') return 'bg-red-500';
+              if (p.status === 'addebito_automatico') return 'bg-indigo-500';
               if (p.status === 'in_scadenza') return 'bg-amber-500';
               if (p.status === 'pagato') return 'bg-emerald-500';
               return 'bg-blue-500'; // da_pagare, parziale, etc.
@@ -2971,11 +3546,13 @@ const ScadenzarioSmart = () => {
                 {/* Month navigation */}
                 <div className="flex items-center justify-between">
                   <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))}
+                    title="Mese precedente"
                     className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition">
                     <ChevronLeft size={18} />
                   </button>
                   <h3 className="text-sm font-semibold text-slate-800 capitalize">{monthLabel}</h3>
                   <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))}
+                    title="Mese successivo"
                     className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition">
                     <ChevronRight size={18} />
                   </button>
@@ -3030,6 +3607,7 @@ const ScadenzarioSmart = () => {
                 {/* Legend */}
                 <div className="flex items-center gap-4 text-xs text-slate-500">
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" /> Scaduto</div>
+                  <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500" /> Addebito automatico</div>
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" /> In scadenza</div>
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Pagato</div>
                   <div className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Da pagare</div>
@@ -3054,7 +3632,7 @@ const ScadenzarioSmart = () => {
                               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor(p)}`} />
                               <div>
                                 <UiTooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><div className="text-sm font-medium text-slate-800 truncate max-w-[280px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div></UiTooltip>
-                                <UiTooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'Nota di credito' : 'Fatt.'} {p.invoice_number || '—'} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></UiTooltip>
+                                <UiTooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'Nota di credito' : 'Fatt.'} {p.invoice_number || '—'}{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) && p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : ''} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></UiTooltip>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -3102,9 +3680,9 @@ const ScadenzarioSmart = () => {
             return (
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
-                  <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronLeft size={18} /></button>
+                  <button onClick={() => setCalendarMonth(new Date(year, month - 1, 1))} title="Mese precedente" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronLeft size={18} /></button>
                   <h3 className="text-sm font-semibold text-slate-800 capitalize">{monthLabel}</h3>
-                  <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronRight size={18} /></button>
+                  <button onClick={() => setCalendarMonth(new Date(year, month + 1, 1))} title="Mese successivo" className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition"><ChevronRight size={18} /></button>
                 </div>
                 <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                   <div className="grid grid-cols-7 border-b border-slate-100">
@@ -3210,7 +3788,7 @@ const ScadenzarioSmart = () => {
               </div>
             ) : (
               <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scroll-shadow-x">
                   <table className="w-full">
                     <thead className="sticky top-0 bg-white z-10">
                       <tr className="border-b border-slate-100 text-[11px] uppercase tracking-wider text-slate-500">
@@ -3302,6 +3880,15 @@ const ScadenzarioSmart = () => {
 
           {scadViewMode === 'lista' && viewMode === 'timeline' && typeFilter !== 'incassi' && displayPayables.length > 0 && (
             <div className="bg-white rounded-xl border border-slate-200/80 overflow-hidden">
+              <div className="flex items-center justify-end px-3 py-2 border-b border-slate-100">
+                <button
+                  onClick={() => setShowCategoryManager(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 border border-slate-200 hover:bg-slate-100 transition"
+                  title="Crea, modifica e vedi i fornitori collegati alle categorie di costo"
+                >
+                  <Settings size={13} /> Gestisci categorie
+                </button>
+              </div>
               <div className="overflow-x-auto">
                 {/* Bottone reset ordinamento (visibile solo se sort attivo
                     oltre al default) */}
@@ -3315,7 +3902,7 @@ const ScadenzarioSmart = () => {
                   <thead className="sticky top-0 bg-white z-10">
                     <tr className="border-b border-slate-100">
                       <th className="py-2.5 px-3 text-center w-10">
-                        <button onClick={toggleSelectAll} className="text-slate-300 hover:text-slate-600">
+                        <button onClick={toggleSelectAll} title="Seleziona/deseleziona tutte" className="text-slate-300 hover:text-slate-600">
                           {selectedIds.size > 0 ? <CheckSquare size={15} /> : <Square size={15} />}
                         </button>
                       </th>
@@ -3372,7 +3959,7 @@ const ScadenzarioSmart = () => {
                           <td className="py-2.5 px-3 text-right text-[13px] font-medium whitespace-nowrap text-sky-700">≈ {fmt(p.gross_amount)} €</td>
                           <td className="py-2.5 px-3 text-center">
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-100 text-[10px] text-sky-700 font-medium">Stima</span>
-                            {p._possibleMatch && (
+                            {Boolean(p._possibleMatch) && (
                               <UiTooltip content="Esiste una fattura reale per questo fornitore nel mese, ma con importo diverso: verifica se è la stessa. Nessuna azione automatica.">
                                 <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200"><AlertTriangle size={10} /> Possibile corrispondenza</span>
                               </UiTooltip>
@@ -3388,7 +3975,7 @@ const ScadenzarioSmart = () => {
                         <tr className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors group ${idx % 2 === 1 ? 'even:bg-slate-50/50' : ''}`}>
                           <td className="py-2.5 px-3 text-center">
                             {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && p.id && (
-                              <button onClick={() => p.id && toggleSelect(p.id, p)}>
+                              <button onClick={() => p.id && toggleSelect(p.id, p)} title="Seleziona per la distinta">
                                 {selectedIds.has(p.id) ? <CheckSquare size={15} className="text-slate-700" /> : <Square size={15} className="text-slate-300" />}
                               </button>
                             )}
@@ -3411,11 +3998,26 @@ const ScadenzarioSmart = () => {
                               const supplierLabel = (p.suppliers?.ragione_sociale || p.suppliers?.name || '').trim()
                               const note = (p.notes || '').trim()
                               const isNotaCredito = p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0
-                              const invoiceLabel = p.invoice_number && p.invoice_number !== '-' ? `${isNotaCredito ? 'Nota di credito' : 'Fattura'} • ${p.invoice_number}` : ''
+                              // Riga fattura in descrizione: numero + data emissione (se presente)
+                              // + scadenza naturale (original_due_date, se presente). La scadenza
+                              // naturale è la scadenza originale della fattura, distinta dalla
+                              // data mostrata nella colonna DATA (che può essere stata rinviata).
+                              const invoiceLabel = p.invoice_number && p.invoice_number !== '-'
+                                ? `${isNotaCredito ? 'Nota di credito' : 'Fattura'} • ${p.invoice_number}`
+                                  + (p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : '')
+                                  + (p.original_due_date ? ` · scad. naturale ${fmtDate(p.original_due_date as string)}` : '')
+                                : ''
                               // Fattura a rate (split dall'XML): badge dedicato "rata X/N", sempre
                               // visibile quando le rate sono >1, così tre righe della stessa fattura
                               // non sembrano un doppione.
                               const isRata = (Number(p.installment_total) || 0) > 1
+                              // NC disponibili del fornitore, mostrate "a colpo d'occhio" sulla riga
+                              // fattura (NON sulla riga NC stessa) e solo se la fattura e' ancora aperta:
+                              // cosi' si vede che ci sono note di credito da scalare senza dover prima
+                              // selezionare la fattura. Stessa fonte del chip "Scala note di credito".
+                              const availNc = (!isNotaCredito && p.status !== 'pagato' && p.status !== 'annullato')
+                                ? openCreditNotesFor(p) : []
+                              const availNcTot = availNc.reduce((s, nc) => s + ncAmountOf(nc), 0)
                               // Riga primaria: fornitore se presente, altrimenti la nota, altrimenti la fattura
                               const mainText = supplierLabel || note || (p.invoice_number && p.invoice_number !== '-' ? p.invoice_number : '') || 'N/A'
                               // Riga secondaria: SEMPRE il numero fattura/NC (così si sceglie
@@ -3439,8 +4041,15 @@ const ScadenzarioSmart = () => {
                                     </UiTooltip>
                                     {isRata && (
                                       <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-50 text-[10px] font-semibold text-indigo-700 border border-indigo-100">
-                                        rata {p.installment_number}/{p.installment_total}
+                                        rata {String(p.installment_number)}/{String(p.installment_total)}
                                       </span>
+                                    )}
+                                    {availNc.length > 0 && (
+                                      <UiTooltip content={`Note di credito disponibili da scalare su questo fornitore: ${availNc.map(n => `NC ${n.invoice_number || 's/n'}${n.invoice_date ? ` del ${fmtDate(n.invoice_date as string)}` : ''} −${fmt(ncAmountOf(n))} €`).join(' · ')}. Seleziona la fattura per scalarle.`}>
+                                        <span className="shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-emerald-50 text-[10px] font-semibold text-emerald-700 border border-emerald-200">
+                                          {availNc.length > 1 ? `${availNc.length} NC` : 'NC'} −{fmt(availNcTot)}
+                                        </span>
+                                      </UiTooltip>
                                     )}
                                   </div>
                                   {subText && (
@@ -3491,10 +4100,16 @@ const ScadenzarioSmart = () => {
                                 }`}
                                 title={p.status === 'pagato' ? 'Scadenza pagata' : 'Click per modificare importo'}
                               >
-                                {(p.amount_remaining ?? 0) > 0 && p.amount_remaining !== p.gross_amount
-                                  ? <><span className="text-slate-300 line-through text-[11px] mr-1">{fmt(p.gross_amount)}</span>{fmt(p.amount_remaining)} €</>
-                                  : (Number(p.gross_amount) || 0) === 0 ? <>Importo da definire</> : <>{fmt(p.gross_amount)} €</>
-                                }
+                                {(() => {
+                                  // Importo mostrato = quota ancora APERTA. Con un acconto
+                                  // parziale già in distinta è il residuo da pagare (differenza),
+                                  // non l'intero lordo: così la riga mostra ciò che resta davvero.
+                                  const openAmt = rowOpenAmount(p);
+                                  const gross = Number(p.gross_amount) || 0;
+                                  return openAmt > 0 && +openAmt.toFixed(2) !== +gross.toFixed(2)
+                                    ? <><span className="text-slate-500 line-through text-xs mr-1">{fmt(p.gross_amount)}</span>{fmt(openAmt)} €</>
+                                    : gross === 0 ? <>Importo da definire</> : <>{fmt(p.gross_amount)} €</>;
+                                })()}
                               </span>
                             )}
                           </td>
@@ -3503,14 +4118,36 @@ const ScadenzarioSmart = () => {
                             <button onClick={(e) => { e.stopPropagation(); setStatusDropdownId(statusDropdownId === p.id ? null : p.id); setCategoryDropdownId(null); }}>
                               <StatusPill status={p.status} />
                             </button>
-                            {!!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato' && (
-                              <UiTooltip content={`Disposta il ${new Date(p.disposizione_date as string).toLocaleDateString('it-IT')}${p.disposizione_bank_name ? ' da ' + p.disposizione_bank_name : ''} — in attesa di addebito e riconciliazione`}>
-                                <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200">
-                                  <Clock size={10} /> In distinta {new Date(p.disposizione_date as string).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })}
-                                </span>
-                              </UiTooltip>
+                            {(Number(p.disposizione_amount_pending) || 0) > 0.005 && (
+                              p.is_partial_distinta ? (
+                                // ACCONTO parziale: la fattura resta aperta col residuo; il badge
+                                // dice quanto è già in distinta e in attesa di riscontro bancario.
+                                <UiTooltip content={`Acconto di ${fmt(p.disposizione_amount_pending)} € disposto il ${new Date(p.disposizione_date as string).toLocaleDateString('it-IT')}${p.disposizione_bank_name ? ' da ' + p.disposizione_bank_name : ''} — in attesa di riscontro bancario. Residuo ancora da pagare: ${fmt(p.residuo_aperto)} €.`}>
+                                  <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200">
+                                    <Clock size={10} /> Acconto {fmt(p.disposizione_amount_pending)} € in distinta
+                                  </span>
+                                </UiTooltip>
+                              ) : (
+                                <UiTooltip content={`Disposta il ${new Date(p.disposizione_date as string).toLocaleDateString('it-IT')}${p.disposizione_bank_name ? ' da ' + p.disposizione_bank_name : ''} — in attesa di addebito e riconciliazione`}>
+                                  <span className="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200">
+                                    <Clock size={10} /> In distinta {new Date(p.disposizione_date as string).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' })}
+                                  </span>
+                                </UiTooltip>
+                              )
                             )}
-                            {Boolean(p.closed_manually) && (
+                            {/* Badge "Chiusa a mano" solo finché NON è arrivato il
+                                movimento bancario reale: se poi il bonifico viene
+                                riconciliato (payment_source='movimento'), la verità è
+                                il movimento (colonna Conto) e il badge sparisce, per
+                                non mostrare due messaggi in conflitto.
+                                E solo su una riga DAVVERO chiusa: il flag
+                                closed_manually può restare acceso su una scadenza
+                                riaperta con un UPDATE diretto, e il badge finirebbe
+                                per dare come pagata una riga che è fra le aperte
+                                (caso Spm Investigazioni 31, settembre 2026). */}
+                            {Boolean(p.closed_manually) && p.payment_source !== 'movimento'
+                              && (Number(p.amount_paid ?? 0) !== 0
+                                  || ['pagato', 'parziale', 'nota_credito'].includes(String(p.status ?? ''))) && (
                               <div className="mt-1">
                                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-50 text-[9px] text-violet-700 font-medium border border-violet-200"
                                   title={`Chiusa a mano${p.payment_date ? ' il ' + new Date(p.payment_date as string).toLocaleDateString('it-IT') : ''}${p.manual_close_reason ? ' — ' + String(p.manual_close_reason) : ''}`}>
@@ -3532,27 +4169,100 @@ const ScadenzarioSmart = () => {
                                   className="w-full text-left px-3 py-1.5 text-xs hover:bg-violet-50 text-violet-700 font-medium flex items-center gap-2">
                                   ✎ Chiudi a mano…
                                 </button>
+                                {ncCompCandidates(p).length > 0 && (
+                                  <button onClick={() => openNcCompModal(p)}
+                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-emerald-50 text-emerald-700 font-medium flex items-center gap-2">
+                                    <Link2 size={12} /> {isNcRow(p) ? 'Compensa su fattura…' : 'Compensa con nota di credito…'}
+                                  </button>
+                                )}
+                                {isReopenable(p) && (
+                                  <button onClick={() => openReopenModal(p)}
+                                    className="w-full text-left px-3 py-1.5 text-xs hover:bg-amber-50 text-amber-700 font-medium flex items-center gap-2">
+                                    <RotateCcw size={12} /> Riapri fattura…
+                                  </button>
+                                )}
                               </div>
                             )}
                           </td>
-                          {/* CONTO — banca su cui è stata saldata.
-                              3 stati visivi:
-                                a) banca nota -> pillola verde con nome
-                                b) pagata MA banca non tracciata -> badge ambra
-                                   'Off-system' (es. cash/altro non riconciliato)
-                                c) non pagata -> trattino */}
+                          {/* CONTO — REALTÀ del pagamento (non la banca "prevista").
+                              Guidato da payment_source (vista, migration 143):
+                                movimento -> banca REALE del movimento + data (verde)
+                                manuale   -> operatore che ha chiuso + data (viola)
+                                storico   -> registrata pagata, nessun movimento (slate)
+                                non pagata-> trattino
+                              La banca prevista non viene più spacciata per reale: se
+                              esiste, compare solo come "prevista" nel tooltip. */}
                           <td className="py-2.5 px-3 text-center">
-                            {p.payment_bank_name ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-[10px] text-emerald-700 font-medium border border-emerald-200" title={`Pagato su ${p.payment_bank_name}`}>
-                                <Landmark size={10} /> {p.payment_bank_name}
-                              </span>
-                            ) : p.status === 'pagato' ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-[10px] text-amber-700 font-medium border border-amber-200" title="Pagata ma senza banca tracciata in Supabase. Probabilmente saldata fuori dall'app o tramite riconciliazione legacy.">
-                                Off-system
-                              </span>
-                            ) : (
-                              <span className="text-[11px] text-slate-300">—</span>
-                            )}
+                            {(() => {
+                              const d2 = (s?: string | null) => s ? new Date(s).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit' }) : '';
+                              const dFull = (s?: string | null) => s ? new Date(s).toLocaleDateString('it-IT') : '';
+                              const src = p.payment_source as string | null;
+                              const viaDistinta = Boolean(p.disposizione_date) || p.last_action_type === 'disposizione';
+
+                              // 1) Riconciliata da un MOVIMENTO bancario reale
+                              if (src === 'movimento' && p.payment_real_bank_name) {
+                                const mDate = p.payment_movement_date || p.payment_date;
+                                const tip = `Pagato da movimento bancario${mDate ? ' del ' + dFull(mDate) : ''} su ${p.payment_real_bank_name}`
+                                  + (p.payment_movement_amount != null ? ` — ${fmt(Math.abs(Number(p.payment_movement_amount)))} €` : '')
+                                  + (p.payment_movement_description ? ` — ${p.payment_movement_description}` : '')
+                                  + (viaDistinta ? ' (via distinta / RI.BA)' : '');
+                                return (
+                                  <UiTooltip content={tip}>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-xs text-emerald-700 font-medium border border-emerald-200">
+                                      <Landmark size={10} /> {p.payment_real_bank_name}
+                                      {mDate ? <span className="text-emerald-500 font-normal">· {d2(mDate)}</span> : null}
+                                      {viaDistinta ? <span className="text-emerald-500 font-normal">· distinta</span> : null}
+                                    </span>
+                                  </UiTooltip>
+                                );
+                              }
+
+                              // 2) Chiusa a MANO da un operatore (nessun movimento tracciato)
+                              if (src === 'manuale') {
+                                const who = p.last_action_by || null;
+                                const when = p.payment_date || p.last_action_date;
+                                const tip = `Chiusa a mano${who ? ' da ' + who : ''}${when ? ' il ' + dFull(when) : ''}`
+                                  + (p.manual_close_reason ? ` — ${p.manual_close_reason}` : '')
+                                  + (p.payment_planned_bank_name ? ` — banca prevista: ${p.payment_planned_bank_name}` : '');
+                                return (
+                                  <UiTooltip content={tip}>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-violet-50 text-xs text-violet-700 font-medium border border-violet-200">
+                                      ✎ A mano{who ? <span className="font-normal">· {who}</span> : null}
+                                      {when ? <span className="text-violet-400 font-normal">· {d2(when)}</span> : null}
+                                    </span>
+                                  </UiTooltip>
+                                );
+                              }
+
+                              // 3) STORICO: risulta pagata ma senza traccia di movimento (import/pregresso)
+                              if (src === 'storico') {
+                                const when = p.payment_date;
+                                const tip = `Registrata come pagata${when ? ' il ' + dFull(when) : ''} — nessun movimento bancario tracciato (import/pregresso)`
+                                  + (p.payment_planned_bank_name ? ` — banca prevista: ${p.payment_planned_bank_name}` : '');
+                                return (
+                                  <UiTooltip content={tip}>
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 text-xs text-slate-500 font-medium border border-slate-200">
+                                      <CheckCircle2 size={10} /> Pagato{when ? <span className="text-slate-400 font-normal">· {d2(when)}</span> : null}
+                                    </span>
+                                  </UiTooltip>
+                                );
+                              }
+
+                              // 4) Fallback: pagata ma non classificata (raro)
+                              if (p.status === 'pagato') {
+                                return p.payment_bank_name ? (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-xs text-emerald-700 font-medium border border-emerald-200" title={`Pagato su ${p.payment_bank_name}`}>
+                                    <Landmark size={10} /> {p.payment_bank_name}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-xs text-amber-700 font-medium border border-amber-200" title="Pagata ma senza banca tracciata in Supabase. Probabilmente saldata fuori dall'app o tramite riconciliazione legacy.">
+                                    Off-system
+                                  </span>
+                                );
+                              }
+
+                              return <span className="text-xs text-slate-400">—</span>;
+                            })()}
                           </td>
                           {/* CATEGORIA — dropdown con ricerca Sibill */}
                           <td className="py-2.5 px-3 text-center relative">
@@ -3560,7 +4270,7 @@ const ScadenzarioSmart = () => {
                               const cat = categories.find(c => c.id === p.cost_category_id);
                               return (
                                 <button onClick={(e) => { e.stopPropagation(); setCategoryDropdownId(categoryDropdownId === p.id ? null : (p.id || null)); setCategorySearch(''); setStatusDropdownId(null); }}
-                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium border transition hover:shadow-sm"
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition hover:shadow-sm"
                                   style={cat ? { backgroundColor: String(cat.color) + '18', color: String(cat.color || ''), borderColor: String(cat.color) + '40' } : { backgroundColor: '#f8fafc', color: '#94a3b8', borderColor: '#e2e8f0' }}>
                                   {cat ? <><span className="w-2 h-2 rounded-full" style={{ backgroundColor: String(cat.color || '') }} />{String(cat.name || '')}</> : 'Non categorizzata'}
                                 </button>
@@ -3638,8 +4348,11 @@ const ScadenzarioSmart = () => {
                                   <Eye size={13} />
                                 </button>
                               )}
-                              {/* Rimuovi dalla distinta — solo se la scadenza è in distinta */}
-                              {!!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato' && (
+                              {/* Rimuovi dalla distinta — solo se la scadenza è in distinta. NON sulle
+                                  note di credito: la NC è collegata alla distinta tramite la fattura, quindi
+                                  si stacca rimuovendo la FATTURA (che elimina i legami NC 'pending'). */}
+                              {!!p.disposizione_date && p.status !== 'pagato' && p.status !== 'annullato'
+                                && !(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) && (
                                 <button onClick={() => p.id && setRemoveDistintaModal({ payableId: p.id, invoiceNumber: p.invoice_number || '' })}
                                   className="p-1 rounded text-amber-500 hover:text-amber-700 hover:bg-amber-50"
                                   title="Rimuovi dalla distinta">
@@ -3650,7 +4363,7 @@ const ScadenzarioSmart = () => {
                               {p.status !== 'pagato' && (
                                 <button onClick={() => setRinviaModal({ open: true, scheduleId: p.id || null, currentDueDate: p.due_date || null, invoiceNumber: p.invoice_number || null })}
                                   className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50"
-                                  title="Rimanda scadenza (+7/+15/+30gg o data custom)">
+                                  title="Rimanda scadenza (fine mese successivo o data scelta)">
                                   <Calendar size={12} />
                                 </button>
                               )}
@@ -3662,6 +4375,26 @@ const ScadenzarioSmart = () => {
                                     ? 'Chiudi a mano la nota di credito — registra in AVERE nel partitario'
                                     : 'Chiudi a mano (totale o parziale) — registra in partitario'}>
                                   <CheckCircle2 size={13} />
+                                </button>
+                              )}
+                              {/* Compensa con NC — fattura ↔ nota di credito dello stesso fornitore, totale o
+                                  parziale, senza movimento bancario (migration 170) */}
+                              {ncCompCandidates(p).length > 0 && (
+                                <button onClick={() => openNcCompModal(p)}
+                                  className="p-1 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                                  title={isNcRow(p)
+                                    ? 'Compensa la nota di credito su una fattura aperta del fornitore (totale o parziale)'
+                                    : 'Compensa con una nota di credito del fornitore (totale o parziale) — nessun movimento bancario'}>
+                                  <Link2 size={13} />
+                                </button>
+                              )}
+                              {/* Riapri — riporta ad aperta una scadenza chiusa per errore (a mano o
+                                  riconciliata male): libera l'eventuale movimento bancario per il riabbinamento */}
+                              {isReopenable(p) && (
+                                <button onClick={() => openReopenModal(p)}
+                                  className="p-1 rounded text-slate-400 hover:text-amber-600 hover:bg-amber-50"
+                                  title="Riapri fattura (chiusa per errore o riconciliata male)">
+                                  <RotateCcw size={13} />
                                 </button>
                               )}
                               <button onClick={() => setModals({ ...modals, editSchedule: { open: true, schedule: p } })}
@@ -3680,10 +4413,58 @@ const ScadenzarioSmart = () => {
                         {p.id && selectedIds.has(p.id) && paymentPlan[p.id] && (() => {
                           const pid = p.id;
                           const plan = paymentPlan[pid];
-                          const residuo = Number(p.amount_remaining) || 0;
+                          // Residuo su cui si imposta acconto/saldo = quota ancora aperta
+                          // (per una fattura con acconto già in distinta è il residuo).
+                          const residuo = rowOpenAmount(p);
                           const ncOpts = openCreditNotesFor(p);
+                          // PERIODO = mese di SCADENZA della fattura che si sta pagando, cioè il mese
+                          // sotto cui la fattura compare nello scadenzario (raggruppamento per due_date).
+                          // Le NC con scadenza nello STESSO mese (o precedente) fanno parte del periodo
+                          // che si sta saldando → verdi, in cima. Le NC con scadenza in un mese
+                          // SUCCESSIVO sono "quelle successive": ambra, scalabili comunque ma distinte a
+                          // colpo d'occhio. NB: sul chip resta mostrata la DATA DI EMISSIONE della NC;
+                          // il colore dipende dal periodo di scadenza (una fattura di febbraio con
+                          // scadenza a giugno si abbina alle NC che scadono a giugno, non a febbraio).
+                          const monthIdx = (d: unknown): number | null => {
+                            if (!d) return null;
+                            const dt = new Date(d as string);
+                            return Number.isNaN(dt.getTime()) ? null : dt.getFullYear() * 12 + dt.getMonth();
+                          };
+                          const invDueMonth = monthIdx(p.due_date);
+                          // "Successiva" = scadenza in un mese oltre quello della fattura pagata.
+                          const ncIsSuccessive = (nc: AnyRow): boolean => {
+                            const m = monthIdx(nc.due_date);
+                            return invDueMonth != null && m != null && m > invDueMonth;
+                          };
+                          // Ordine a 3 livelli richiesto: prima le NC di mesi PRECEDENTI alla fattura
+                          // (le più vecchie da smaltire), poi quelle del mese CORRENTE, infine le
+                          // SUCCESSIVE. Precedenti e correnti sono entrambe "da compensare ora" (verdi);
+                          // le successive restano ambra.
+                          const ncRank = (nc: AnyRow): number => {
+                            const m = monthIdx(nc.due_date);
+                            if (invDueMonth == null || m == null) return 1; // ignoto → tratta come corrente
+                            if (m < invDueMonth) return 0; // precedenti → in cima
+                            if (m > invDueMonth) return 2; // successive → in coda
+                            return 1;                       // mese corrente → in mezzo
+                          };
+                          const ncOptsSorted = [...ncOpts].sort((a, b) => {
+                            const ra = ncRank(a), rb = ncRank(b);
+                            if (ra !== rb) return ra - rb; // precedenti → correnti → successive
+                            const da = a.due_date ? new Date(a.due_date as string).getTime() : 0;
+                            const db = b.due_date ? new Date(b.due_date as string).getTime() : 0;
+                            if (da !== db) return da - db; // poi per scadenza crescente
+                            const ta = a.invoice_date ? new Date(a.invoice_date as string).getTime() : 0;
+                            const tb = b.invoice_date ? new Date(b.invoice_date as string).getTime() : 0;
+                            return ta - tb; // infine per data di emissione crescente
+                          });
+                          const ncHasSameMonth = ncOptsSorted.some(nc => !ncIsSuccessive(nc));
+                          const ncHasOtherMonth = ncOptsSorted.some(ncIsSuccessive);
                           const ncTot = (plan.ncIds || []).reduce((s, nid) => { const nc = payables.find(x => x.id === nid); return s + (nc ? ncAmountOf(nc) : 0); }, 0);
                           const baseAmt = plan.type === 'saldo' ? residuo : (Number(plan.baseAmount) || 0);
+                          // Residuo della FATTURA che resterà da pagare in un secondo momento
+                          // dopo questo acconto (residuo attuale − importo scelto). Con "Saldo"
+                          // vale 0 (la fattura si chiude). È l'importo "da saldare dopo" richiesto.
+                          const residuoDopo = +(residuo - baseAmt).toFixed(2);
                           const { tipo: tipoKind, label: tipoLabel } = distintaTipo(p, plan);
                           return (
                           <tr className="bg-slate-50 border-b border-slate-200">
@@ -3694,9 +4475,18 @@ const ScadenzarioSmart = () => {
                                   <select value={plan.bankId} onChange={e => updatePlan(pid, 'bankId', e.target.value)}
                                     className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-52">
                                     <option value="">Seleziona banca...</option>
-                                    {bankAccounts.map(ba => (
-                                      <option key={String(ba.id)} value={String(ba.id)}>{ba.bank_name} ({fmt(bankBalances[String(ba.id)] || 0)} €)</option>
-                                    ))}
+                                    {/* Mostro il residuo previsionale e, quando ci sono distinte
+                                        già disposte, anche la disponibilità REALE: il previsionale
+                                        informa, non limita la banca selezionabile. */}
+                                    {bankAccounts.map(ba => {
+                                      const bidStr = String(ba.id);
+                                      const prev = bankBalances[bidStr] ?? 0;
+                                      const reale = bankRealBalances[bidStr] ?? 0;
+                                      const label = Math.abs(reale - prev) > 0.005
+                                        ? `${ba.bank_name} (prev. ${fmt(prev)} € · reale ${fmt(reale)} €)`
+                                        : `${ba.bank_name} (${fmt(prev)} €)`;
+                                      return <option key={bidStr} value={bidStr}>{label}</option>;
+                                    })}
                                   </select>
                                 </div>
                                 <div>
@@ -3715,19 +4505,44 @@ const ScadenzarioSmart = () => {
                                 {plan.type === 'parziale' && (
                                   <div>
                                     <label className="text-xs font-medium text-slate-600 block mb-1">Acconto (lordo)</label>
-                                    <input type="number" step="0.01" value={plan.baseAmount ?? plan.amount}
-                                      onChange={e => recomputePlan(pid, { baseAmount: Math.min(Number(e.target.value) || 0, residuo) })}
-                                      className="px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-32" />
+                                    <div className="flex items-center gap-1.5">
+                                      {/* Importo scelto a mano dall'operatrice… */}
+                                      <input type="number" step="0.01" value={plan.baseAmount ?? plan.amount}
+                                        onChange={e => recomputePlan(pid, { baseAmount: Math.min(Number(e.target.value) || 0, residuo) })}
+                                        onWheel={e => e.currentTarget.blur()}
+                                        className="no-spin px-2 py-1.5 border border-slate-300 rounded-lg text-sm w-32" />
+                                      {/* …oppure 50% del residuo, calcolato in automatico. */}
+                                      <button type="button"
+                                        onClick={() => recomputePlan(pid, { baseAmount: +(residuo / 2).toFixed(2) })}
+                                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-100 text-amber-700 hover:bg-amber-200 border border-amber-200 whitespace-nowrap"
+                                        title={`Imposta l'acconto al 50% del residuo (${fmt(+(residuo / 2).toFixed(2))} €)`}>
+                                        50%
+                                      </button>
+                                    </div>
                                   </div>
                                 )}
-                                {/* Scala note di credito — NC aperte dello stesso fornitore. Selezionandole,
-                                    l'importo del bonifico scende del loro valore e la causale le cita. */}
-                                {ncOpts.length > 0 && (
+                                {/* Scala note di credito — NC aperte dello stesso fornitore, ordinate per
+                                    data: quelle dello STESSO periodo di scadenza della fattura in cima
+                                    (verdi), quelle con scadenza SUCCESSIVA in coda (ambra), comunque
+                                    scalabili. Selezionandole, l'importo del bonifico scende del loro
+                                    valore e la causale le cita. */}
+                                {ncOptsSorted.length > 0 && (
                                   <div className="min-w-48">
-                                    <label className="text-xs font-medium text-slate-600 block mb-1">Scala note di credito</label>
+                                    <label className="text-xs font-medium text-slate-600 block mb-1">
+                                      Scala note di credito
+                                      {ncHasSameMonth && ncHasOtherMonth && (
+                                        <span className="ml-1 font-normal text-slate-400">— verde: stesso periodo · ambra: scadenze successive</span>
+                                      )}
+                                    </label>
                                     <div className="flex flex-wrap gap-1">
-                                      {ncOpts.map(nc => {
+                                      {ncOptsSorted.map(nc => {
                                         const on = (plan.ncIds || []).includes(nc.id as string);
+                                        const successive = ncIsSuccessive(nc);
+                                        // Verde = stesso periodo di scadenza (compensazione del mese);
+                                        // ambra = scadenza successiva (scalabile comunque).
+                                        const cls = !successive
+                                          ? (on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100')
+                                          : (on ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-amber-700 border-amber-300 hover:bg-amber-50');
                                         return (
                                           <button key={String(nc.id)} type="button"
                                             onClick={() => {
@@ -3735,9 +4550,9 @@ const ScadenzarioSmart = () => {
                                               if (on) cur.delete(nc.id as string); else cur.add(nc.id as string);
                                               recomputePlan(pid, { ncIds: Array.from(cur) });
                                             }}
-                                            className={`px-2 py-1 rounded-md text-xs font-medium border ${on ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50'}`}
-                                            title={`Nota di credito ${nc.invoice_number || ''} — ${fmt(ncAmountOf(nc))} €`}>
-                                            {on ? '✓ ' : ''}NC {nc.invoice_number || 's/n'} −{fmt(ncAmountOf(nc))}
+                                            className={`px-2 py-1 rounded-md text-xs font-medium border ${cls}`}
+                                            title={`Nota di credito ${nc.invoice_number || ''}${nc.invoice_date ? ` del ${fmtDate(nc.invoice_date as string)}` : ''} — ${fmt(ncAmountOf(nc))} €${successive ? ' — scadenza successiva (scalabile comunque)' : ' — stesso periodo di scadenza della fattura'}`}>
+                                            {on ? '✓ ' : ''}NC {nc.invoice_number || 's/n'}{nc.invoice_date ? ` del ${fmtDate(nc.invoice_date as string)}` : ''} −{fmt(ncAmountOf(nc))}
                                           </button>
                                         );
                                       })}
@@ -3758,7 +4573,29 @@ const ScadenzarioSmart = () => {
                                 {ncTot > 0 && (
                                   <span className="text-slate-400">({fmt(baseAmt)} − NC {fmt(ncTot)})</span>
                                 )}
+                                {/* Importo residuo della fattura da saldare in un pagamento successivo.
+                                    Compare solo nei pagamenti parziali (con "Saldo" è 0). */}
+                                {residuoDopo > 0.005 && (
+                                  <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium">
+                                    Residuo da saldare dopo: <span className="font-bold text-slate-800">{fmt(residuoDopo)} €</span>
+                                  </span>
+                                )}
                               </div>
+                              {/* Dettaglio note di credito compensate: numero + DATA emissione + importo,
+                                  sempre insieme (regola: la NC si mostra ovunque con la sua data). */}
+                              {ncTot > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
+                                  {(plan.ncIds || []).map(nid => {
+                                    const nc = payables.find(x => x.id === nid);
+                                    if (!nc) return null;
+                                    return (
+                                      <span key={nid}>
+                                        NC {nc.invoice_number || 's/n'}{nc.invoice_date ? ` del ${fmtDate(nc.invoice_date as string)}` : ''} · −{fmt(ncAmountOf(nc))} €
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              )}
                             </td>
                           </tr>
                           );
@@ -3796,7 +4633,7 @@ const ScadenzarioSmart = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto scroll-shadow-x">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-slate-50 border-b border-slate-100 z-10">
                         <tr>
@@ -3812,7 +4649,7 @@ const ScadenzarioSmart = () => {
                           <tr key={p.id} className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 text-center">
                               {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && p.id && (
-                                <button onClick={() => p.id && toggleSelect(p.id, p)}>
+                                <button onClick={() => p.id && toggleSelect(p.id, p)} title="Seleziona per la distinta">
                                   {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                                 </button>
                               )}
@@ -3865,7 +4702,7 @@ const ScadenzarioSmart = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto scroll-shadow-x">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-slate-50 border-b border-slate-100 z-10">
                         <tr>
@@ -3881,7 +4718,7 @@ const ScadenzarioSmart = () => {
                           <tr key={p.id} className={`border-b border-slate-50 hover:bg-blue-50/50 transition-colors ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                             <td className="py-2 px-3 text-center">
                               {p.status !== 'pagato' && (p.gross_amount || 0) >= 0 && p.id && (
-                                <button onClick={() => p.id && toggleSelect(p.id, p)}>
+                                <button onClick={() => p.id && toggleSelect(p.id, p)} title="Seleziona per la distinta">
                                   {selectedIds.has(p.id) ? <CheckSquare size={16} /> : <Square size={16} />}
                                 </button>
                               )}
@@ -3911,138 +4748,35 @@ const ScadenzarioSmart = () => {
 
           {/* Charts View */}
           {scadViewMode === 'lista' && viewMode === 'charts' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="bg-white rounded-xl border border-slate-200 p-4">
-                <h3 className="font-medium text-slate-900 mb-1 text-sm">Proiezione Scadenze</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={monthlyData}>
-                    <CartesianGrid {...GRID_STYLE} strokeDasharray="3 3" />
-                    <XAxis dataKey="month" {...AXIS_STYLE} />
-                    <YAxis {...AXIS_STYLE} />
-                    <RechartsTooltip content={<GlassTooltip />} />
-                    <Bar dataKey="scadenze" fill="#6366f1" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 p-4">
-                <h3 className="font-medium text-slate-900 mb-1 text-sm">Categoria</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie data={categoryData} cx="50%" cy="50%" outerRadius={80} dataKey="value">
-                      {categoryData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={['#6366f1', '#ec4899', '#14b8a6', '#f59e0b', '#ef4444'][index % 5]} />
-                      ))}
-                    </Pie>
-                    <RechartsTooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 p-4">
-                <h3 className="font-medium text-slate-900 mb-1 text-sm">Aging</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={agingAnalysis}>
-                    <CartesianGrid {...GRID_STYLE} strokeDasharray="3 3" />
-                    <XAxis dataKey="range" {...AXIS_STYLE} />
-                    <YAxis {...AXIS_STYLE} />
-                    <RechartsTooltip content={<GlassTooltip />} />
-                    <Bar dataKey="value" fill="#ef4444" radius={[8, 8, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              <div className="bg-white rounded-xl border border-slate-200 p-4">
-                <h3 className="font-medium text-slate-900 mb-1 text-sm">Statistiche</h3>
-                <div className="space-y-3 text-sm">
-                  <div className="flex justify-between pb-2 border-b border-slate-200">
-                    <span className="text-slate-600">Fatture</span>
-                    <span className="font-bold">{displayPayables.length}</span>
-                  </div>
-                  <div className="flex justify-between pb-2 border-b border-slate-200">
-                    <span className="text-slate-600">Fornitori</span>
-                    <span className="font-bold">{new Set(displayPayables.map(p => p.suppliers?.ragione_sociale)).size}</span>
-                  </div>
-                  <div className="flex justify-between pb-2 border-b border-slate-200">
-                    <span className="text-slate-600">Importo Medio</span>
-                    <span className="font-bold">{fmt(displayPayables.length > 0 ? displayPayables.reduce((s, p) => s + (p.amount_remaining || 0), 0) / displayPayables.length : 0)} €</span>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <ScadenzeCharts
+              monthlyData={monthlyData}
+              categoryData={categoryData}
+              agingAnalysis={agingAnalysis}
+              displayPayables={displayPayables}
+            />
           )}
+
+          {/* Spazio in fondo alla lista: riserva l'altezza della barra fissa "Crea distinta"
+              così le ultime scadenze non restano coperte e si può scrollare fin sotto. */}
+          {selectedIds.size > 0 && <div aria-hidden className="h-56" />}
 
           {/* Floating Action Bar for Bulk Payments */}
-          {selectedIds.size > 0 && (
-            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-[min(92vw,880px)]">
-              <div className="bg-white border border-slate-200 rounded-xl shadow-lg px-6 py-4">
-                {/* Saldi progressivi per banca — SEMPRE visibili mentre si spuntano le fatture,
-                    così si tiene d'occhio quanto resta su ogni conto (saldo attuale → residuo stimato). */}
-                {Object.keys(bankSpending).length > 0 && (
-                  <div className="flex flex-wrap gap-x-5 gap-y-1.5 mb-3 pb-3 border-b border-slate-100">
-                    {Object.keys(bankSpending).map(bid => {
-                      const ba = bankAccounts.find(b => String(b.id) === String(bid));
-                      if (!ba) return null;
-                      const saldo0 = Number(ba.current_balance) || 0;
-                      const residuoStimato = bankBalances[bid] ?? saldo0;
-                      const neg = residuoStimato < 0;
-                      return (
-                        <div key={bid} className="flex items-center gap-1.5 text-xs">
-                          <Landmark size={13} className="text-slate-400" />
-                          <span className="font-medium text-slate-700">{ba.bank_name}</span>
-                          <span className="text-slate-400">{fmt(saldo0)} €</span>
-                          <ChevronRight size={12} className="text-slate-300" />
-                          <span className={neg ? 'font-bold text-red-600' : 'font-semibold text-emerald-600'}>{fmt(residuoStimato)} €</span>
-                          <span className="text-slate-400">(−{fmt(bankSpending[bid] || 0)})</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="flex items-center justify-between gap-8">
-                  <div className="flex items-center gap-4">
-                    <span className="text-sm font-medium text-slate-900">{selectedIds.size} fattura{selectedIds.size !== 1 ? 'e' : ''}</span>
-                    <span className="text-lg font-bold">{fmt(selectedTotal)} €</span>
-                    {hasNegativeBalance && <span className="text-sm font-medium text-red-600">Saldo insufficiente</span>}
-                    {!hasNegativeBalance && missingBankCount > 0 && (
-                      <span className="text-sm font-medium text-amber-600">
-                        {missingBankCount === 1 ? '1 fattura senza banca' : `${missingBankCount} fatture senza banca`}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex gap-3">
-                    <button onClick={() => { setSelectedIds(new Set()); setPaymentPlan({}); }}
-                      className="px-4 py-2 text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm font-medium">
-                      Annulla
-                    </button>
-                    {hasNegativeBalance && (
-                      <div className="flex items-center gap-1.5 px-3 py-2 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium">
-                        <AlertTriangle size={14} /> Saldo insufficiente su una o più banche
-                      </div>
-                    )}
-                    {!hasNegativeBalance && missingBankCount > 0 && (
-                      <div className="flex items-center gap-1.5 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-700 font-medium">
-                        <AlertTriangle size={14} /> Assegna una banca a ogni fattura selezionata
-                      </div>
-                    )}
-                    <button onClick={confirmPayments} disabled={isSaving || hasNegativeBalance || missingBankCount > 0}
-                      className="px-6 py-2 bg-emerald-600 text-white hover:bg-emerald-700 rounded-lg text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={missingBankCount > 0
-                        ? 'Assegna una banca a ogni fattura selezionata per abilitare la creazione della distinta.'
-                        : "Genera l'email-distinta di pagamento. La fattura resterà aperta finché il movimento bancario non verrà importato e riconciliato."}>
-                      {isSaving ? 'Elaborazione...' : 'Crea distinta'}
-                    </button>
-                    <button disabled
-                      className="px-6 py-2 bg-slate-200 text-slate-400 rounded-lg text-sm font-bold cursor-not-allowed flex items-center gap-1.5"
-                      title="In arrivo: bonifico SEPA diretto dal gestionale via A-Cube PSD2">
-                      <Wallet size={14} />
-                      Paga via A-Cube — Prossima feature
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+          <BulkPaymentBar
+            selectedCount={selectedIds.size}
+            selectedTotal={selectedTotal}
+            bankSpending={bankSpending}
+            bankBalances={bankBalances}
+            bankBaseBalances={bankBaseBalances}
+            bankRealBalances={bankRealBalances}
+            bankCommitted={committedByAccount}
+            bankAccounts={bankAccounts}
+            overCommittedCount={overCommittedBankIds.length}
+            overRealCount={overRealBankIds.length}
+            missingBankCount={missingBankCount}
+            isSaving={isSaving}
+            onClear={() => { setSelectedIds(new Set()); setPaymentPlan({}); }}
+            onConfirm={confirmPayments}
+          />
         </>
       ) : null}
       </div>{/* chiude content wrapper */}
@@ -4059,6 +4793,28 @@ const ScadenzarioSmart = () => {
           </div>
         </div>
       </Modal>
+
+      {/* Distinta RiBa: upload + riscontro al centesimo + conferma */}
+      {ribaDistintaOpen && COMPANY_ID && (
+        <RibaDistintaModal
+          open={ribaDistintaOpen}
+          onClose={() => setRibaDistintaOpen(false)}
+          companyId={COMPANY_ID}
+          bankAccounts={bankAccounts as unknown as { id: string; bank_name?: string | null; account_name?: string | null; iban?: string | null }[]}
+          suppliers={suppliers as unknown as { id: string; name?: string | null; partita_iva?: string | null; vat_number?: string | null }[]}
+          onDone={fetchData}
+        />
+      )}
+
+      {/* Note di credito RiBa da abbinare a mano (Fase 3) */}
+      {ribaNcOpen && COMPANY_ID && (
+        <RibaCreditNotesModal
+          open={ribaNcOpen}
+          onClose={() => setRibaNcOpen(false)}
+          companyId={COMPANY_ID}
+          onDone={fetchData}
+        />
+      )}
 
       {/* Email Config Modal */}
       {showEmailConfig && (
@@ -4079,43 +4835,28 @@ const ScadenzarioSmart = () => {
       )}
 
       {/* Supplier Detail Popup */}
-      {supplierDetail && (
-        <Modal open={true} onClose={() => setSupplierDetail(null)} title="Dettaglio Fornitore">
-          <div className="space-y-3">
-            <div>
-              <div className="text-xs text-slate-500 uppercase">Ragione Sociale</div>
-              <div className="text-base font-semibold text-slate-900">{supplierDetail.ragione_sociale || supplierDetail.name || '—'}</div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-xs text-slate-500 uppercase">P.IVA</div>
-                <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.partita_iva || '—'}</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500 uppercase">CF</div>
-                <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.codice_fiscale || '—'}</div>
-              </div>
-            </div>
-            <div>
-              <div className="text-xs text-slate-500 uppercase">IBAN</div>
-              <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.iban || '—'}</div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <div className="text-xs text-slate-500 uppercase">Email</div>
-                <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.email || '—'}</div>
-              </div>
-              <div>
-                <div className="text-xs text-slate-500 uppercase">Telefono</div>
-                <div className="text-sm text-slate-800 mt-0.5">{supplierDetail.telefono || '—'}</div>
-              </div>
-            </div>
-          </div>
-        </Modal>
-      )}
+      <SupplierDetailModal supplier={supplierDetail} onClose={() => setSupplierDetail(null)} />
 
-      {/* Rimanda Scadenza Modal — quick action +7/+15/+30gg o data custom */}
-      {rinviaModal.open && (
+      {/* Gestione categorie di costo: crea/modifica + fornitori collegati */}
+      <CategoryManagerModal
+        open={showCategoryManager}
+        onClose={() => setShowCategoryManager(false)}
+        companyId={COMPANY_ID}
+        categories={categories}
+        suppliers={suppliers}
+        payableCountByCat={payableCountByCat}
+        canEdit={canEditCategories}
+        onChanged={refreshCategories}
+        onMoved={applySupplierMove}
+      />
+
+      {/* Rimanda Scadenza Modal — default "fine mese successivo" o data scelta */}
+      {rinviaModal.open && (() => {
+        // Fine del mese successivo (rispetto a oggi): ultimo giorno di (mese corrente + 1).
+        const _now = new Date();
+        const _endNext = new Date(_now.getFullYear(), _now.getMonth() + 2, 0);
+        const endNextMonthStr = `${_endNext.getFullYear()}-${String(_endNext.getMonth() + 1).padStart(2, '0')}-${String(_endNext.getDate()).padStart(2, '0')}`;
+        return (
         <Modal open={true} onClose={() => { setRinviaModal({ open: false, scheduleId: null, currentDueDate: null, invoiceNumber: null }); setRinviaCustomDate(''); }}
           title={`Rimanda: ${rinviaModal.invoiceNumber || 'scadenza'}`}>
           <div className="space-y-4">
@@ -4123,26 +4864,16 @@ const ScadenzarioSmart = () => {
               Scadenza attuale: <span className="font-medium text-slate-900">{rinviaModal.currentDueDate ? new Date(rinviaModal.currentDueDate).toLocaleDateString('it-IT') : '—'}</span>
             </p>
             <div>
-              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Rimanda rapido</label>
-              <div className="grid grid-cols-3 gap-2">
-                {[7, 15, 30].map(days => {
-                  const newDate = new Date();
-                  newDate.setDate(newDate.getDate() + days);
-                  const newDateStr = newDate.toISOString().slice(0, 10);
-                  return (
-                    <button key={days}
-                      onClick={() => rinviaModal.scheduleId && handleRinviaSchedule(rinviaModal.scheduleId, newDateStr)}
-                      disabled={isSaving}
-                      className="px-3 py-2.5 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-lg text-sm font-medium border border-amber-200 transition disabled:opacity-50">
-                      +{days} giorni
-                      <div className="text-[10px] text-amber-600 font-normal mt-0.5">{newDate.toLocaleDateString('it-IT')}</div>
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                onClick={() => rinviaModal.scheduleId && handleRinviaSchedule(rinviaModal.scheduleId, endNextMonthStr)}
+                disabled={isSaving}
+                className="w-full px-4 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold border border-amber-500 transition disabled:opacity-50 flex items-center justify-between">
+                <span>Fine mese successivo</span>
+                <span className="font-medium text-amber-50">{_endNext.toLocaleDateString('it-IT')}</span>
+              </button>
             </div>
             <div>
-              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Oppure data custom</label>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Oppure scegli una data</label>
               <div className="flex gap-2">
                 <input type="date" value={rinviaCustomDate} onChange={(e) => setRinviaCustomDate(e.target.value)}
                   min={new Date().toISOString().slice(0, 10)}
@@ -4156,14 +4887,16 @@ const ScadenzarioSmart = () => {
             </div>
           </div>
         </Modal>
-      )}
+        );
+      })()}
 
       {/* Chiudi a mano Modal — chiusura contabile manuale (totale o parziale) con registrazione in partitario */}
       {manualCloseModal.open && (() => {
         const closeModal = () => { setManualCloseModal({ open: false, payable: null }); setManualCloseDate(''); setManualCloseReason(''); setManualCloseAmount(''); };
         const grossMC = Number(manualCloseModal.payable?.gross_amount ?? 0) || 0;
         const isNC = manualCloseModal.payable?.status === 'nota_credito' || grossMC < 0;
-        const ncAmount = Math.abs(grossMC);
+        // NC: si stralcia il credito RESIDUO (non ancora usato in compensazione), non il lordo.
+        const ncAmount = manualCloseModal.payable ? creditNoteResidual(manualCloseModal.payable) : Math.abs(grossMC);
         const remaining = Number(manualCloseModal.payable?.amount_remaining ?? manualCloseModal.payable?.gross_amount ?? 0) || 0;
         const parsed = parseFloat((manualCloseAmount || '').replace(',', '.'));
         const amount = Number.isFinite(parsed) ? parsed : remaining;
@@ -4182,7 +4915,7 @@ const ScadenzarioSmart = () => {
             </div>
             <p className="text-sm text-slate-600">
               {isNC
-                ? <>Importo nota di credito: <span className="font-medium text-slate-900">{fmt(ncAmount)} €</span></>
+                ? <>Nota di credito {manualCloseModal.payable?.invoice_number || ''}{manualCloseModal.payable?.invoice_date ? ` del ${fmtDate(manualCloseModal.payable.invoice_date as string)}` : ''} — credito residuo: <span className="font-medium text-slate-900">{fmt(ncAmount)} €</span></>
                 : <>Residuo da chiudere: <span className="font-medium text-slate-900">{fmt(remaining)} €</span></>}
             </p>
             {!isNC && (
@@ -4191,7 +4924,8 @@ const ScadenzarioSmart = () => {
                 <div className="flex gap-2">
                   <input type="number" step="0.01" min="0" max={remaining} value={manualCloseAmount}
                     onChange={(e) => setManualCloseAmount(e.target.value)}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500" />
+                    onWheel={e => e.currentTarget.blur()}
+                    className="no-spin flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500" />
                   <button type="button" onClick={() => setManualCloseAmount(String(remaining.toFixed(2)))}
                     className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 whitespace-nowrap">
                     Tutto il residuo
@@ -4223,6 +4957,145 @@ const ScadenzarioSmart = () => {
               <button onClick={handleManualCloseSubmit} disabled={isSaving || !manualCloseDate || invalid}
                 className="flex-1 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-medium disabled:opacity-50">
                 {isSaving ? 'Chiusura…' : (isNC ? 'Chiudi NC a mano' : (isPartial ? 'Chiudi parziale' : 'Chiudi a mano'))}
+              </button>
+            </div>
+          </div>
+        </Modal>
+        );
+      })()}
+
+      {/* Riapri Modal — riapre una scadenza chiusa per errore (a mano o riconciliata male) */}
+      {reopenModal.open && (() => {
+        const p = reopenModal.payable;
+        const closeModal = () => { setReopenModal({ open: false, payable: null }); setReopenReason(''); };
+        const grossR = Number(p?.gross_amount ?? 0) || 0;
+        const isNC = p?.status === 'nota_credito' || grossR < 0;
+        const viaMovimento = p?.payment_source === 'movimento';
+        const viaProvvisorio = Boolean(p?.is_provisional_paid);
+        return (
+        <Modal open={true} onClose={closeModal}
+          title={`Riapri: ${p?.invoice_number || (isNC ? 'NC' : 'fattura')}`}>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 text-xs text-amber-800">
+              {isNC
+                ? <>La nota di credito verrà <span className="font-semibold">riaperta</span>: torna al credito pieno e disponibile per l'abbinamento. Le fatture che erano state <span className="font-semibold">compensate</span> con questa NC tornano dovute per quella quota. Operazione reversibile.</>
+                : viaMovimento
+                ? <>La fattura verrà <span className="font-semibold">riportata ad aperta</span> e il <span className="font-semibold">movimento bancario</span> agganciato verrà <span className="font-semibold">liberato</span> (torna nella coda «da riconciliare»), così potrai riabbinarlo alla fattura giusta. Le eventuali note di credito compensate tornano disponibili. Nessun dato viene perso.</>
+                : viaProvvisorio
+                ? <>La fattura (chiusa in via <span className="font-semibold">provvisoria</span> RiBa) verrà <span className="font-semibold">riportata ad aperta</span>. Operazione reversibile.</>
+                : <>La fattura verrà <span className="font-semibold">riportata ad aperta</span>: si azzera il pagato e si toglie la chiusura a mano. Lo stato torna a «da pagare» / «scaduto» secondo la scadenza. Nessun movimento bancario è coinvolto.</>}
+            </div>
+            <p className="text-sm text-slate-600">
+              {isNC
+                ? <>Nota di credito {p?.invoice_number || ''} — importo: <span className="font-medium text-slate-900">{fmt(Math.abs(grossR))} €</span></>
+                : <>Importo fattura: <span className="font-medium text-slate-900">{fmt(grossR)} €</span>{p?.supplier_name ? <> — {String(p.supplier_name)}</> : null}</>}
+            </p>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Motivazione (opzionale)</label>
+              <input type="text" value={reopenReason} onChange={(e) => setReopenReason(e.target.value)}
+                placeholder="es. chiusa per errore, riconciliata sul bonifico sbagliato…"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-amber-500" />
+              <p className="text-[11px] text-slate-500 mt-1">Verrà registrata una riga «Riaperta a mano» nel partitario fornitore, con la tua firma e la data.</p>
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={closeModal}
+                className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+              <button onClick={handleReopenSubmit} disabled={isSaving}
+                className="flex-1 py-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2">
+                <RotateCcw size={14} /> {isSaving ? 'Riapertura…' : 'Riapri fattura'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+        );
+      })()}
+
+      {/* Compensa con nota di credito Modal — fattura ↔ NC stesso fornitore, totale o parziale, nessun movimento bancario */}
+      {ncCompModal.open && ncCompModal.source && (() => {
+        const src = ncCompModal.source;
+        const closeModal = () => { setNcCompModal({ open: false, source: null }); setNcCompTargetId(''); setNcCompAmount(''); setNcCompReason(''); };
+        const srcIsNc = isNcRow(src);
+        const cands = ncCompCandidates(src);
+        const target = cands.find(c => c.id === ncCompTargetId) || null;
+        const inv = srcIsNc ? target : src;
+        const nc = srcIsNc ? src : target;
+        const invRes = inv ? Math.max(0, Number(inv.amount_remaining ?? inv.gross_amount) || 0) : 0;
+        const ncRes = nc ? creditNoteResidual(nc) : 0;
+        const max = +Math.min(invRes, ncRes).toFixed(2);
+        const parsed = parseFloat((ncCompAmount || '').replace(',', '.'));
+        const amount = Number.isFinite(parsed) ? parsed : max;
+        const invalid = !target || !(amount > 0 && amount <= max + 0.005);
+        const invAfter = Math.max(0, +(invRes - amount).toFixed(2));
+        const ncAfter = Math.max(0, +(ncRes - amount).toFixed(2));
+        const label = (x: AnyRow) => `${x.invoice_number || 's/n'}${x.invoice_date ? ` del ${fmtDate(x.invoice_date as string)}` : ''}`;
+        return (
+        <Modal open={true} onClose={closeModal}
+          title={srcIsNc ? `Compensa NC ${src.invoice_number || ''} su una fattura` : `Compensa con nota di credito: ${src.invoice_number || 'fattura'}`}>
+          <div className="space-y-4">
+            <div className="rounded-lg bg-emerald-50 border border-emerald-200 px-3 py-2.5 text-xs text-emerald-800">
+              La fattura viene chiusa <span className="font-semibold">a fronte della nota di credito</span>, senza movimento bancario: totale se gli importi coincidono, altrimenti <span className="font-semibold">parziale</span>. Se la NC è più piccola, la fattura resta «parziale» per il resto; se è più grande, sulla NC resta un <span className="font-semibold">credito residuo</span> da usare su un'altra fattura. Tutto va nel partitario del fornitore ed è reversibile con «Riapri».
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">{srcIsNc ? 'Fattura da compensare' : 'Nota di credito da usare'}</label>
+              <select value={ncCompTargetId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setNcCompTargetId(id);
+                  const t = cands.find(c => c.id === id);
+                  if (t) setNcCompAmount(String(ncCompMaxAmount(src, t).toFixed(2)));
+                }}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500">
+                {cands.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {srcIsNc
+                      ? `Fatt. ${label(c)} — residuo ${fmt(Math.max(0, Number(c.amount_remaining ?? c.gross_amount) || 0))} €`
+                      : `NC ${label(c)} — credito ${fmt(creditNoteResidual(c))} €`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-sm text-slate-600">
+              Fattura {inv ? label(inv) : '—'}: residuo <span className="font-medium text-slate-900">{fmt(invRes)} €</span> · NC {nc ? label(nc) : '—'}: credito <span className="font-medium text-slate-900">{fmt(ncRes)} €</span>
+            </p>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Importo da compensare</label>
+              <div className="flex gap-2">
+                <input type="number" step="0.01" min="0" max={max} value={ncCompAmount}
+                  onChange={(e) => setNcCompAmount(e.target.value)}
+                  onWheel={e => e.currentTarget.blur()}
+                  className="no-spin flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+                <button type="button" onClick={() => setNcCompAmount(String(max.toFixed(2)))}
+                  className="px-3 py-2 rounded-lg border border-slate-200 text-xs font-medium text-slate-600 hover:bg-slate-50 whitespace-nowrap">
+                  Massimo
+                </button>
+              </div>
+              {invalid && ncCompAmount !== '' && (
+                <p className="text-[11px] text-red-600 mt-1">Inserisci un importo tra 0 e {fmt(max)} €.</p>
+              )}
+              {!invalid && (
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Dopo: fattura {invAfter > 0.005 ? `parziale, residuo ${fmt(invAfter)} €` : 'pagata (chiusa a mano)'} · NC {ncAfter > 0.005 ? `aperta, credito residuo ${fmt(ncAfter)} €` : 'chiusa (registrata in Avere)'}
+                </p>
+              )}
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Data di compensazione</label>
+              <input type="date" value={ncCompDate} onChange={(e) => setNcCompDate(e.target.value)}
+                max={todayYMD()}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-2 block uppercase tracking-wide">Motivazione (opzionale)</label>
+              <input type="text" value={ncCompReason} onChange={(e) => setNcCompReason(e.target.value)}
+                placeholder="es. storno totale, reso merce, accordo col fornitore…"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-emerald-500" />
+            </div>
+            <div className="flex gap-2 pt-1">
+              <button onClick={closeModal}
+                className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+              <button onClick={handleNcCompSubmit} disabled={isSaving || !ncCompDate || invalid}
+                className="flex-1 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2">
+                <Link2 size={14} /> {isSaving ? 'Compensazione…' : 'Compensa'}
               </button>
             </div>
           </div>
@@ -4288,8 +5161,33 @@ const ScadenzarioSmart = () => {
 
       {/* Confirm Result Modal */}
       {confirmResult && (
-        <Modal open={true} onClose={() => { setConfirmResult(null); setDistintaSaved(false); fetchData(); }} title={distintaSaved ? 'Distinta confermata' : 'Anteprima distinta'} wide>
+        <Modal open={true} onClose={requestCloseDistinta} title={distintaSaved ? 'Distinta confermata' : 'Anteprima distinta'} wide>
           <div className="space-y-4">
+            {/* Conferma chiusura: la distinta NON è ancora salvata (serve il passo 2).
+                Evita di perdere il lavoro chiudendo dopo aver solo inviato l'email. */}
+            {confirmDiscardDistinta && !distintaSaved && (
+              <div className="p-3 rounded-xl border border-rose-300 bg-rose-50">
+                <p className="text-sm font-semibold text-rose-800 flex items-center gap-2">
+                  <AlertTriangle size={18} /> La distinta non è ancora stata confermata
+                </p>
+                <p className="text-xs text-rose-700 mt-1">
+                  {emailSent
+                    ? 'L’email è stata inviata, ma la distinta si salva solo con il passo 2 "Conferma distinta". Se chiudi ora, questa distinta non verrà creata (le scadenze restano da pagare).'
+                    : 'Se chiudi ora perdi l’anteprima e la distinta non verrà creata (le scadenze restano da pagare).'}
+                </p>
+                <div className="flex gap-2 mt-3">
+                  <button onClick={() => setConfirmDiscardDistinta(false)}
+                    className="flex-1 py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 flex items-center justify-center gap-1.5">
+                    <CheckCircle2 size={15} /> Torna e conferma la distinta
+                  </button>
+                  <button onClick={closeDistintaPreview}
+                    className="py-2 px-4 rounded-lg border border-rose-300 text-rose-700 text-sm font-medium hover:bg-rose-100">
+                    Chiudi senza salvare
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Header riepilogo */}
             {distintaSaved ? (
               <div className="flex items-center justify-between p-3 bg-emerald-50 rounded-xl border border-emerald-200">
@@ -4301,17 +5199,11 @@ const ScadenzarioSmart = () => {
             ) : (
               <div className="flex items-center justify-between p-3 bg-amber-50 rounded-xl border border-amber-200">
                 <p className="text-sm font-semibold text-amber-800 flex items-center gap-2">
-                  <Clock size={18} /> Anteprima: {confirmResult.results.length} scadenze — premi "Conferma distinta" per salvarle
+                  <Clock size={18} /> Anteprima: {confirmResult.results.length} scadenze — invia la mail e poi premi "Conferma distinta"
                 </p>
                 <span className="text-lg font-bold text-amber-700">{fmt(confirmResult.totaleComplessivo)} €</span>
               </div>
             )}
-
-            {/* Conferma distinta (salvataggio esplicito) */}
-            <button onClick={confirmDistinta} disabled={isSaving || distintaSaved}
-              className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition ${distintaSaved ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50'}`}>
-              {distintaSaved ? <><CheckCircle2 size={16} /> Distinta confermata</> : (isSaving ? 'Salvataggio...' : <><CheckCircle2 size={16} /> Conferma distinta</>)}
-            </button>
 
             {/* Dettaglio per banca */}
             {confirmResult.banks.map((bank, bIdx) => {
@@ -4402,31 +5294,64 @@ const ScadenzarioSmart = () => {
               <span className="text-lg font-bold text-slate-900">{fmt(confirmResult.totaleComplessivo)} €</span>
             </div>
 
-            {/* Azioni email */}
-            <div className="border border-slate-200 rounded-xl overflow-hidden">
-              <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+            {/* Passo 1 — Invio email della distinta (obbligatorio prima di confermare) */}
+            <div className={`border rounded-xl overflow-hidden ${emailSent ? 'border-emerald-200' : 'border-indigo-200'}`}>
+              <div className={`px-4 py-3 border-b flex items-center justify-between ${emailSent ? 'bg-emerald-50 border-emerald-200' : 'bg-indigo-50 border-indigo-200'}`}>
                 <div className="flex items-center gap-2">
-                  <Send size={14} className="text-indigo-600" />
-                  <span className="text-sm font-semibold text-slate-700">Disposizione pagamenti via email</span>
+                  {emailSent ? <CheckCircle2 size={15} className="text-emerald-600" /> : <Send size={14} className="text-indigo-600" />}
+                  <span className={`text-sm font-semibold ${emailSent ? 'text-emerald-800' : 'text-indigo-800'}`}>
+                    {emailSent ? '1. Email inviata ai destinatari' : '1. Invia la distinta via email'}
+                  </span>
                 </div>
-                {emailRecipients && <span className="text-xs text-slate-500">A: {emailRecipients}</span>}
+                {emailRecipients && <span className="text-xs text-slate-500 truncate max-w-[45%]">A: {emailRecipients}</span>}
               </div>
               <div className="p-3">
                 <textarea readOnly value={confirmResult.emailBody} rows={8}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono bg-slate-50 mb-3" />
-                <div className="flex gap-2">
+                {/* Invio server: via primaria, funziona anche senza Gmail */}
+                <button onClick={sendDistintaEmail} disabled={sendingEmail || emailSent || distintaSaved || !emailRecipients}
+                  className={`w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition ${emailSent ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'}`}>
+                  {emailSent ? <><CheckCircle2 size={15} /> Email inviata</> : (sendingEmail ? <><Loader2 size={15} className="animate-spin" /> Invio in corso…</> : <><Send size={14} /> Invia email ai destinatari</>)}
+                </button>
+                {/* Alternative (fallback): Gmail nel browser / copia testo */}
+                <div className="flex gap-2 mt-2">
                   <button onClick={() => { navigator.clipboard.writeText(confirmResult.emailBody); toast({ type: 'success', message: 'Testo della distinta copiato.' }); }}
-                    className="flex-1 py-2.5 bg-slate-200 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-300 flex items-center justify-center gap-2">
-                    <Download size={14} /> Copia testo
+                    className="flex-1 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-200 flex items-center justify-center gap-2">
+                    <Download size={13} /> Copia testo
                   </button>
                   <button onClick={openDistintaGmail}
-                    className="flex-1 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 flex items-center justify-center gap-2">
-                    <Send size={14} /> Apri in Gmail
+                    className="flex-1 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-200 flex items-center justify-center gap-2">
+                    <Send size={13} /> Apri in Gmail
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-400 mt-2">Si apre Gmail in una nuova scheda con la distinta già compilata. In alternativa usa "Copia testo".</p>
+                {!emailSent && (
+                  <label className="mt-3 flex items-start gap-2 text-[11px] text-slate-500 cursor-pointer">
+                    <input type="checkbox" checked={emailManualConfirmed} onChange={e => setEmailManualConfirmed(e.target.checked)} className="mt-0.5" />
+                    <span>Solo se non riesci a inviare dal sistema: ho inviato la distinta a mano (es. da Gmail) e confermo di poter proseguire.</span>
+                  </label>
+                )}
+                <p className="text-[11px] text-slate-400 mt-2">L'invio parte dal server e raggiunge i destinatari anche senza Gmail. "Apri in Gmail"/"Copia testo" restano come alternativa.</p>
               </div>
             </div>
+
+            {/* Passo 2 — Conferma distinta (sbloccata solo dopo l'invio della mail) */}
+            {!distintaSaved && !(emailSent || emailManualConfirmed) && (
+              <p className="text-xs text-slate-500 -mb-1 flex items-center gap-1.5">
+                <Clock size={12} className="text-amber-500" /> Invia prima la distinta via email per poterla confermare.
+              </p>
+            )}
+            {/* Email partita ma distinta non ancora salvata: passaggio mancante ben visibile.
+                Il verde dell'invio email NON basta — serve premere Conferma distinta. */}
+            {!distintaSaved && (emailSent || emailManualConfirmed) && (
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-xs text-amber-800 font-medium flex items-center gap-2 -mb-1">
+                <AlertTriangle size={14} className="text-amber-600 shrink-0" />
+                Manca un solo passaggio: premi <span className="font-bold">"Conferma distinta"</span> qui sotto per salvarla. L’email inviata da sola non la crea.
+              </div>
+            )}
+            <button onClick={confirmDistinta} disabled={isSaving || distintaSaved || !(emailSent || emailManualConfirmed)}
+              className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition ${distintaSaved ? 'bg-emerald-100 text-emerald-700 cursor-default' : `bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 ${!distintaSaved && (emailSent || emailManualConfirmed) ? 'ring-2 ring-amber-400 ring-offset-2 animate-pulse' : ''}`}`}>
+              {distintaSaved ? <><CheckCircle2 size={16} /> Distinta confermata</> : (isSaving ? 'Salvataggio...' : <><CheckCircle2 size={16} /> 2. Conferma distinta</>)}
+            </button>
           </div>
         </Modal>
       )}
@@ -4455,316 +5380,6 @@ const ScadenzarioSmart = () => {
       {viewingXml && (
         <InvoiceViewer xmlContent={viewingXml} onClose={() => setViewingXml(null)} />
       )}
-    </div>
-  );
-};
-
-// Edit Schedule Modal Component
-type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string }
-type ScheduleLike = Record<string, unknown> & { id?: string; gross_amount?: number | null; due_date?: string | null; status?: string | null; invoice_number?: string | null }
-const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { schedule: ScheduleLike; onUpdate: (s: ScheduleLike) => void; onSave: (data: EditSchedulePayload) => void }) => {
-  const [formData, setFormData] = useState<EditSchedulePayload>({
-    id: schedule.id || '',
-    amount: schedule.gross_amount || 0,
-    due_date: schedule.due_date || '',
-    status: schedule.status || 'da_pagare',
-  });
-
-  return (
-    <div className="space-y-3">
-      <div>
-        <label className="text-sm font-medium text-slate-700 mb-1 block">Importo</label>
-        <input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: Number(e.target.value) })}
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-      </div>
-      <div>
-        <label className="text-sm font-medium text-slate-700 mb-1 block">Scadenza</label>
-        <input type="date" value={formData.due_date} onChange={e => setFormData({ ...formData, due_date: e.target.value })}
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-      </div>
-      <div>
-        <label className="text-sm font-medium text-slate-700 mb-1 block">Stato</label>
-        <select value={formData.status} onChange={e => setFormData({ ...formData, status: e.target.value })}
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
-          <option value="da_pagare">Da Pagare</option>
-          <option value="pagato">Pagato</option>
-          <option value="parziale">Parziale</option>
-        </select>
-      </div>
-      <div className="flex gap-3 pt-2">
-        <button onClick={() => onSave({ ...schedule, ...formData })} className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Salva</button>
-      </div>
-    </div>
-  );
-};
-
-// Invoice Modal Component
-type InvoiceFormState = { supplierId: string; newSupplierName: string; supplierType: string; invoiceNumber: string; invoiceDate: string; dueDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string; endDate: string }
-
-// Tipo del nominativo/scadenza. Diventa la `category` del fornitore quando si crea
-// un'anagrafica leggera al volo (nominativo non a sistema).
-const supplierTypeOptions: { value: string; label: string }[] = [
-  { value: 'fornitore', label: 'Fornitore' },
-  { value: 'fiscale', label: 'Fiscale' },
-  { value: 'interno', label: 'Interno' },
-  { value: 'altro', label: 'Altro' },
-];
-const supplierTypeValues = supplierTypeOptions.map(o => o.value);
-type CostCenterLite = { code?: string; label?: string | null; [k: string]: unknown }
-// Frequenze della scadenza ricorrente — allineate a recurring_costs.frequency
-// (stessi valori della tab Ricorrenze). 'una_tantum' = scadenza singola.
-const scadenzaFrequencyOptions: { value: string; label: string }[] = [
-  { value: 'una_tantum', label: 'Una tantum (non si ripete)' },
-  { value: 'monthly', label: 'Mensile' },
-  { value: 'bimonthly', label: 'Bimestrale' },
-  { value: 'quarterly', label: 'Trimestrale' },
-  { value: 'semiannual', label: 'Semestrale' },
-  { value: 'annual', label: 'Annuale' },
-];
-type SupplierLite = { id?: string; name?: string | null; ragione_sociale?: string | null; [k: string]: unknown }
-type PaymentGroup = { label: string; methods: string[] }
-const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabels, onSave, onClose }: { suppliers: SupplierLite[]; costCenters: CostCenterLite[]; paymentGroups: PaymentGroup[]; paymentMethodLabels: Record<string, string>; onSave: (data: InvoiceFormState) => void; onClose: () => void }) => {
-  const [formData, setFormData] = useState<InvoiceFormState>({
-    supplierId: '',
-    newSupplierName: '',
-    supplierType: 'fornitore',
-    invoiceNumber: '',
-    invoiceDate: new Date().toISOString().split('T')[0],
-    dueDate: '',
-    grossAmount: 0,
-    paymentMethod: 'bonifico_ordinario',
-    frequency: 'una_tantum',
-    costCenter: '',
-    endDate: '',
-  });
-
-  // Selettore fornitore con RICERCA (typeahead): NON mostra l'intera lista quando
-  // il campo è vuoto (ingestibile con centinaia di fornitori). Si digita almeno
-  // 2 lettere e compaiono le corrispondenze; se il nominativo non è a sistema, si
-  // può aggiungerlo al volo (anagrafica leggera con il "tipo" scelto).
-  const MIN_QUERY = 2;
-  const [supplierQuery, setSupplierQuery] = useState('');
-  const [supplierOpen, setSupplierOpen] = useState(false);
-  const selectedSupplier = suppliers.find(s => s.id === formData.supplierId);
-  const selectedSupplierLabel = formData.newSupplierName
-    ? formData.newSupplierName
-    : (selectedSupplier?.ragione_sociale || selectedSupplier?.name || '') as string;
-  const trimmedQuery = supplierQuery.trim();
-  const filteredSuppliers = (() => {
-    if (trimmedQuery.length < MIN_QUERY) return [];
-    const q = trimmedQuery.toLowerCase();
-    return suppliers
-      .filter(s => `${s.ragione_sociale || ''} ${s.name || ''}`.toLowerCase().includes(q))
-      .slice(0, 50);
-  })();
-  // Mostra l'azione "aggiungi nuovo" solo se non esiste già un nominativo con lo
-  // stesso nome esatto (case-insensitive).
-  const hasExactMatch = suppliers.some(s =>
-    `${s.ragione_sociale || s.name || ''}`.trim().toLowerCase() === trimmedQuery.toLowerCase()
-  );
-  const canAddNew = trimmedQuery.length >= MIN_QUERY && !hasExactMatch;
-
-  const isRecurring = formData.frequency !== 'una_tantum';
-
-  return (
-    <div className="space-y-3">
-      {/* FORNITORE / NOMINATIVO — combobox con ricerca + aggiunta al volo */}
-      <div className="relative">
-        <label className="block text-sm font-medium text-slate-700 mb-1">Nominativo *</label>
-        <div className="relative">
-          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-300" />
-          <input
-            type="text"
-            value={supplierOpen ? supplierQuery : selectedSupplierLabel}
-            onChange={e => { setSupplierQuery(e.target.value); setSupplierOpen(true); }}
-            onFocus={() => { setSupplierOpen(true); setSupplierQuery(''); }}
-            onBlur={() => setTimeout(() => setSupplierOpen(false), 150)}
-            placeholder="Digita per cercare o aggiungere un nominativo…"
-            className="w-full pl-8 pr-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-        </div>
-        {supplierOpen && (
-          <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-56 overflow-y-auto">
-            {trimmedQuery.length < MIN_QUERY ? (
-              <div className="px-3 py-2 text-xs text-slate-400">Digita almeno {MIN_QUERY} lettere per cercare…</div>
-            ) : (
-              <>
-                {filteredSuppliers.map(s => (
-                  <button key={s.id} type="button"
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={() => {
-                      const cat = String(s.category || '');
-                      setFormData({
-                        ...formData,
-                        supplierId: String(s.id),
-                        newSupplierName: '',
-                        supplierType: supplierTypeValues.includes(cat) ? cat : formData.supplierType,
-                      });
-                      setSupplierOpen(false); setSupplierQuery('');
-                    }}
-                    className={`w-full text-left px-3 py-1.5 text-sm hover:bg-slate-50 ${formData.supplierId === s.id ? 'bg-slate-50 font-medium' : ''}`}>
-                    {s.ragione_sociale || s.name}
-                  </button>
-                ))}
-                {filteredSuppliers.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-slate-400">Nessun nominativo a sistema</div>
-                )}
-                {canAddNew && (
-                  <button type="button"
-                    onMouseDown={e => e.preventDefault()}
-                    onClick={() => {
-                      setFormData({ ...formData, supplierId: '', newSupplierName: trimmedQuery });
-                      setSupplierOpen(false); setSupplierQuery('');
-                    }}
-                    className="w-full text-left px-3 py-2 text-sm border-t border-slate-100 bg-emerald-50/60 hover:bg-emerald-100 text-emerald-700 font-medium flex items-center gap-1.5">
-                    <Plus size={14} /> Usa «{trimmedQuery}» come nuovo nominativo
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        )}
-        {formData.newSupplierName && !supplierOpen && (
-          <p className="mt-1 text-[11px] text-emerald-600 font-medium">Nuovo nominativo — verrà creato come «{supplierTypeOptions.find(o => o.value === formData.supplierType)?.label}»</p>
-        )}
-      </div>
-      {/* TIPO — classifica il nominativo/scadenza (salvato come categoria) */}
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Tipo</label>
-        <div className="flex rounded-lg overflow-hidden border border-slate-300">
-          {supplierTypeOptions.map(o => (
-            <button key={o.value} type="button"
-              onClick={() => setFormData({ ...formData, supplierType: o.value })}
-              className={`flex-1 px-3 py-1.5 text-sm font-medium border-l first:border-l-0 border-slate-200 ${formData.supplierType === o.value ? 'bg-indigo-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Numero documento <span className="text-slate-400 font-normal">(opzionale)</span></label>
-        <input type="text" value={formData.invoiceNumber} onChange={e => setFormData({ ...formData, invoiceNumber: e.target.value })}
-          placeholder="Es. fattura, riferimento…"
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Data documento</label>
-          <input type="date" value={formData.invoiceDate} onChange={e => setFormData({ ...formData, invoiceDate: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Scadenza pagamento *</label>
-          <input type="date" value={formData.dueDate} onChange={e => setFormData({ ...formData, dueDate: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Importo *</label>
-        <input type="number" step="0.01" value={formData.grossAmount || ''} onChange={e => setFormData({ ...formData, grossAmount: Number(e.target.value) })}
-          placeholder="0,00"
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Metodo Pagamento</label>
-        <select value={formData.paymentMethod} onChange={e => setFormData({ ...formData, paymentMethod: e.target.value })}
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
-          {paymentGroups.map(g => (
-            <optgroup key={g.label} label={g.label}>
-              {/* Esclude i pseudo-metodi solo-filtro ('bonifico'/'riba'/'carta'): non
-                  sono nell'enum del DB e romperebbero il salvataggio se selezionati. */}
-              {g.methods.filter(m => !(m in PAYMENT_METHOD_ALIAS)).map(m => <option key={m} value={m}>{paymentMethodLabels[m]}</option>)}
-            </optgroup>
-          ))}
-        </select>
-      </div>
-      {/* PERIODICITÀ — ogni quanto si ripete il pagamento */}
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Periodicità</label>
-        <select value={formData.frequency} onChange={e => setFormData({ ...formData, frequency: e.target.value })}
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
-          {scadenzaFrequencyOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </select>
-      </div>
-      {/* Centro di costo + Fine periodicità: solo se ricorrente */}
-      {isRecurring && (
-        <div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Centro di costo / Outlet *</label>
-              <select value={formData.costCenter} onChange={e => setFormData({ ...formData, costCenter: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
-                <option value="">Seleziona centro di costo…</option>
-                {costCenters.map(c => <option key={String(c.code)} value={String(c.code)}>{c.label || c.code}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Fine periodicità <span className="text-slate-400 font-normal">(opzionale)</span></label>
-              <input type="date" value={formData.endDate} min={formData.dueDate || undefined}
-                onChange={e => setFormData({ ...formData, endDate: e.target.value })}
-                className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-            </div>
-          </div>
-          <p className="mt-1 text-[11px] text-slate-400">La prima scadenza viene creata ora; la ripetizione viene registrata tra le Ricorrenze e nel cashflow previsionale. Vuoto = nessuna fine (orizzonte mobile 12 mesi).</p>
-        </div>
-      )}
-      <div className="flex gap-3 pt-2">
-        <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
-        <button onClick={() => onSave(formData)} className="flex-1 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Crea scadenza</button>
-      </div>
-    </div>
-  );
-};
-
-// Supplier Modal Component
-type SupplierFormState = { name: string; vat: string; fiscal: string; iban: string; category: string; paymentMethod: string; paymentTerms: number }
-const SupplierModal = ({ onSave, onClose }: { onSave: (data: SupplierFormState) => void; onClose: () => void }) => {
-  const [formData, setFormData] = useState<SupplierFormState>({
-    name: '', vat: '', fiscal: '', iban: '', category: 'merce',
-    paymentMethod: 'bonifico_ordinario', paymentTerms: 30,
-  });
-
-  return (
-    <div className="space-y-3">
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">Ragione Sociale *</label>
-        <input type="text" value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} required
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">P.IVA</label>
-          <input type="text" value={formData.vat} onChange={e => setFormData({ ...formData, vat: e.target.value })} maxLength={16}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Codice Fiscale</label>
-          <input type="text" value={formData.fiscal} onChange={e => setFormData({ ...formData, fiscal: e.target.value })} maxLength={16}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-        </div>
-      </div>
-      <div>
-        <label className="block text-sm font-medium text-slate-700 mb-1">IBAN</label>
-        <input type="text" value={formData.iban} onChange={e => setFormData({ ...formData, iban: e.target.value })} maxLength={34}
-          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm font-mono focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Categoria</label>
-          <select value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
-            {['merce', 'servizi', 'utenze', 'affitti', 'stipendi', 'imposte', 'finanziamenti'].map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-slate-700 mb-1">Termini (gg)</label>
-          <input type="number" value={formData.paymentTerms} onChange={e => setFormData({ ...formData, paymentTerms: parseInt(e.target.value) })}
-            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
-        </div>
-      </div>
-      <div className="flex gap-3 pt-2">
-        <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
-        <button onClick={() => onSave(formData)} className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Crea Fornitore</button>
-      </div>
     </div>
   );
 };

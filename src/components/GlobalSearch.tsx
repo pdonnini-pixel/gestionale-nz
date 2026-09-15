@@ -74,6 +74,17 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [openProp])
 
+  // Escape chiude anche in modalita' controllata (open/onClose da Layout):
+  // prima il listener sopra veniva saltato e ESC non faceva nulla.
+  useEffect(() => {
+    if (openProp === undefined || !openProp) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') onClose?.()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [openProp, onClose])
+
   // Focus input when opened
   useEffect(() => {
     if (open) {
@@ -127,7 +138,10 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
         url: `/fornitori/${s.id}/scheda-contabile`,
       }))
       if (invoices.data?.length) res.invoices = invoices.data.map(i => ({ id: i.id, title: `${i.invoice_number || 'Fattura'}`, subtitle: `${i.supplier_name || ''} — €${Number(i.gross_amount || 0).toLocaleString('de-DE')}`, url: '/fatturazione' }))
-      if (movements.data?.length) res.movements = movements.data.map(m => ({ id: m.id, title: m.counterpart || m.description?.slice(0, 50) || '—', subtitle: `€${Number(m.amount || 0).toLocaleString('de-DE')} — ${m.date}`, url: '/banche', fullTitle: m.counterpart || m.description || '' }))
+      // cash_movements e' una vista: nei tipi generati ogni sua colonna e'
+      // nullable, id compreso. Un movimento senza id non e' un risultato
+      // utilizzabile (serve come chiave di lista), quindi si scarta.
+      if (movements.data?.length) res.movements = movements.data.flatMap(m => m.id == null ? [] : [{ id: m.id, title: m.counterpart || m.description?.slice(0, 50) || '—', subtitle: `€${Number(m.amount || 0).toLocaleString('de-DE')} — ${m.date}`, url: '/banche', fullTitle: m.counterpart || m.description || '' }])
       if (employees.data?.length) res.employees = employees.data.map(e => ({ id: e.id, title: `${e.first_name ?? ''} ${e.last_name ?? ''}`.trim(), subtitle: e.role, url: '/dipendenti' }))
     } catch (err: unknown) {
       console.warn('Search error:', err)
@@ -157,7 +171,9 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[15vh]" onClick={() => setOpen(false)}>
+    // dvh: con la tastiera aperta le unità vh statiche lasciavano i risultati
+    // coperti; dvh segue il viewport visibile
+    <div className="fixed inset-0 z-[60] flex items-start justify-center pt-[12dvh]" onClick={() => setOpen(false)}>
       <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
       <div className="relative w-full max-w-lg mx-4 bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Search input */}
@@ -176,7 +192,7 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
         </div>
 
         {/* Results */}
-        <div className="max-h-[50vh] overflow-y-auto">
+        <div className="max-h-[55dvh] overflow-y-auto">
           {query.length < 2 && (
             <div className="py-8 text-center text-sm text-slate-400">
               Digita almeno 2 caratteri per cercare

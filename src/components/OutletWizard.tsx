@@ -1,7 +1,9 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { Modal } from './ui/Modal'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useAuth } from '../hooks/useAuth'
+import { slugCostCenter } from '../lib/costCenterKey'
 import {
   X, ChevronRight, ChevronLeft, Check, AlertCircle,
   Store, MapPin, FileText, DollarSign, Shield, Save, Paperclip, Upload, Sparkles
@@ -24,6 +26,40 @@ function fmt(n: number | string | boolean | null | undefined): string {
 }
 
 type OutletForm = Record<string, string | number | boolean | null | undefined>
+
+/**
+ * Garantisce che esista il centro di costo con quel codice: se manca lo crea
+ * con ruolo `outlet` (o `hq` per una sede) e lo mette in coda all'ordinamento.
+ * Ritorna un messaggio d'errore, oppure null.
+ */
+async function ensureCostCenter(companyId: string, code: string, outletName: string, outletCode: string, outletType: string): Promise<string | null> {
+  const { data: existing, error: selErr } = await supabase
+    .from('cost_centers')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('code', code)
+    .limit(1)
+  if (selErr) return selErr.message
+  if (existing && existing.length > 0) return null
+  const { data: last } = await supabase
+    .from('cost_centers')
+    .select('sort_order')
+    .eq('company_id', companyId)
+    .lt('sort_order', 90) // 90+ sono i centri non operativi (spese da ripartire, rettifiche)
+    .order('sort_order', { ascending: false })
+    .limit(1)
+  const nextSort = ((last && last[0]?.sort_order) ?? 0) + 1
+  const role = ['sede', 'magazzino', 'warehouse', 'hq', 'ufficio'].includes(outletType.toLowerCase()) ? 'hq' : 'outlet'
+  const { error: insErr } = await supabase.from('cost_centers').insert({
+    company_id: companyId,
+    code,
+    label: outletCode ? `${outletName} (${outletCode})` : outletName,
+    role,
+    sort_order: nextSort,
+    is_active: true,
+  })
+  return insErr ? insErr.message : null
+}
 
 interface StepDef {
   id: string
@@ -119,6 +155,7 @@ function StepAnagrafica({ form, set }: { form: OutletForm; set: (k: string, v: u
             <option value="outlet">Outlet</option>
             <option value="retail">Retail</option>
             <option value="corner">Corner</option>
+            <option value="sede">Sede / magazzino (non vende, senza cassa)</option>
           </Select>
         </Field>
       </div>
@@ -138,16 +175,30 @@ function StepAnagrafica({ form, set }: { form: OutletForm; set: (k: string, v: u
 }
 
 // ====== STEP 2: UBICAZIONE ======
-function StepLocation({ form, set }: { form: OutletForm; set: (k: string, v: unknown) => void }) {
+type SupplierOption = { id: string; name: string }
+
+function StepLocation({ form, set, suppliers }: { form: OutletForm; set: (k: string, v: unknown) => void; suppliers: SupplierOption[] }) {
   return (
     <div className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Ubicazione e centro commerciale</h3>
       <Field label="Centro commerciale" required>
         <Input value={form.mall_name} onChange={v => set('mall_name', v)} placeholder="es. Centro Commerciale" />
       </Field>
-      <Field label="Societa concedente">
-        <Input value={form.concedente} onChange={v => set('concedente', v)} placeholder="es. Società di gestione" />
-      </Field>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="Societa concedente">
+          <Input value={form.concedente} onChange={v => set('concedente', v)} placeholder="es. Società di gestione" />
+        </Field>
+        <Field label="Fornitore concedente (anagrafica)" hint="Aggancia il concedente all'anagrafica fornitori: fatture, scadenze e contratto puntano allo stesso soggetto.">
+          <Select value={form.landlord_supplier_id} onChange={v => {
+            set('landlord_supplier_id', v)
+            const s = suppliers.find(x => x.id === v)
+            if (s && !form.concedente) set('concedente', s.name)
+          }}>
+            <option value="">— nessuno —</option>
+            {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </Select>
+        </Field>
+      </div>
       <Field label="Indirizzo">
         <Input value={form.address} onChange={v => set('address', v)} placeholder="Via Roma 1" />
       </Field>
@@ -193,6 +244,9 @@ function StepContratto({ form, set }: { form: OutletForm; set: (k: string, v: un
           <Input type="date" value={form.contract_end} onChange={v => set('contract_end', v)} />
         </Field>
       </div>
+      <Field label="Decorrenza canone" hint="Da questa data il Cashflow proietta l'affitto (di norma coincide con l'apertura). Vuota = dall'inizio contratto.">
+        <Input type="date" value={form.rent_start_date} onChange={v => set('rent_start_date', v)} />
+      </Field>
       <div className="grid grid-cols-2 gap-4">
         <Field label="Durata (mesi)">
           <Input type="number" value={form.contract_duration_months} onChange={v => set('contract_duration_months', v)} placeholder="96" />
@@ -278,8 +332,16 @@ function StepGaranzie({ form, set }: { form: OutletForm; set: (k: string, v: unk
       <h3 className="text-base font-semibold text-slate-900">Garanzie, depositi e target</h3>
 
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Fideiussione / deposito cauzionale (€)">
+        <Field label="Fideiussione / garanzia bancaria (€)">
           <Input type="number" value={form.deposit_guarantee} onChange={v => set('deposit_guarantee', v)} placeholder="58650" />
+        </Field>
+        <Field label="Scadenza fideiussione" hint="Alimenta gli alert della scheda outlet">
+          <Input type="date" value={form.guarantee_expiry} onChange={v => set('guarantee_expiry', v)} />
+        </Field>
+      </div>
+      <div className="grid grid-cols-2 gap-4">
+        <Field label="Caparra / acconto versato (€)" hint="Somma già uscita alla firma (es. caparra confirmatoria)">
+          <Input type="number" value={form.deposit_amount} onChange={v => set('deposit_amount', v)} placeholder="20000" />
         </Field>
         <Field label="Anticipo canone versato (€)">
           <Input type="number" value={form.advance_payment} onChange={v => set('advance_payment', v)} placeholder="20000" />
@@ -335,6 +397,7 @@ function StepRiepilogo({ form }: { form: OutletForm }) {
     { title: 'Contratto', items: [
       ['Apertura', form.opening_date], ['Confermata', form.opening_confirmed ? 'Si' : 'No'],
       ['Consegna', form.delivery_date], ['Decorrenza', form.contract_start],
+      ['Decorrenza canone', form.rent_start_date || '= inizio contratto'],
       ['Fine', form.contract_end], ['Durata', form.contract_duration_months ? `${form.contract_duration_months} mesi` : '—'],
       ['Giorni gratis', form.rent_free_days || '0'],
     ]},
@@ -348,6 +411,8 @@ function StepRiepilogo({ form }: { form: OutletForm }) {
     ]},
     { title: 'Garanzie e Target', items: [
       ['Fideiussione', form.deposit_guarantee ? `${fmt(form.deposit_guarantee)} €` : '—'],
+      ['Scadenza fideiussione', form.guarantee_expiry],
+      ['Caparra / acconto', form.deposit_amount ? `${fmt(form.deposit_amount)} €` : '—'],
       ['Anticipo', form.advance_payment ? `${fmt(form.advance_payment)} €` : '—'],
       ['Target margine', form.target_margin_pct ? `${form.target_margin_pct}%` : '60%'],
       ['Soglia recesso', form.exit_revenue_threshold ? `${fmt(form.exit_revenue_threshold)} €/anno` : '—'],
@@ -497,7 +562,8 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
     rent_annual: '', rent_monthly: '', rent_per_sqm: '', variable_rent_pct: '',
     rent_year2_annual: '', rent_year3_annual: '',
     condo_marketing_monthly: '', staff_budget_monthly: '',
-    deposit_guarantee: '', advance_payment: '', setup_cost: '',
+    deposit_guarantee: '', guarantee_expiry: '', deposit_amount: '', advance_payment: '', setup_cost: '',
+    rent_start_date: '', landlord_supplier_id: '', cost_center_key: '',
     target_margin_pct: '60', target_cogs_pct: '40',
     exit_revenue_threshold: '', min_revenue_period: '', notes: ''
   }
@@ -507,6 +573,25 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<OutletForm>(initialData ? { ...defaultForm, ...initialData } : defaultForm)
   const [wizardUploadedFiles, setWizardUploadedFiles] = useState<Record<string, File>>(initialUploadedFiles || {})
+
+  // Fornitori attivi dell'azienda: per agganciare il concedente all'anagrafica.
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([])
+  useEffect(() => {
+    const companyId = profile?.company_id
+    if (!companyId) return
+    let cancelled = false
+    supabase
+      .from('suppliers')
+      .select('id, name, ragione_sociale')
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .order('name')
+      .then(({ data }) => {
+        if (cancelled) return
+        setSuppliers((data || []).map(s => ({ id: String(s.id), name: String(s.ragione_sociale || s.name || '') })))
+      })
+    return () => { cancelled = true }
+  }, [profile?.company_id])
 
   const set = (k: string, v: unknown) => setForm(prev => ({ ...prev, [k]: v as OutletForm[string] }))
   const handleFileUpload = (code: string, file: File) => setWizardUploadedFiles(prev => ({ ...prev, [code]: file }))
@@ -531,6 +616,12 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
     const numOrNull = (v: unknown): number | null => v ? parseFloat(String(v)) : null
     const strOrNull = (v: unknown): string | null => v ? String(v) : null
 
+    // Chiave del centro di costo: è il filo che lega l'outlet a budget,
+    // personale, incassi e target giornalieri (cost_centers.code,
+    // budget_entries.cost_center, chart_of_accounts.outlet_link). Se non
+    // esiste ancora la ricavo dal nome, come fa la migration 062 (lower(name)).
+    const costCenterKey = strOrNull(form.cost_center_key) || slugCostCenter(String(form.name ?? ''))
+
     const payload = {
       company_id: companyId,
       name: String(form.name ?? ''), code: String(form.code ?? ''),
@@ -546,8 +637,14 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
       rent_per_sqm: numOrNull(form.rent_per_sqm), variable_rent_pct: numOrNull(form.variable_rent_pct),
       rent_year2_annual: numOrNull(form.rent_year2_annual), rent_year3_annual: numOrNull(form.rent_year3_annual),
       condo_marketing_monthly: numOrNull(form.condo_marketing_monthly), staff_budget_monthly: numOrNull(form.staff_budget_monthly),
-      deposit_guarantee: numOrNull(form.deposit_guarantee), deposit_amount: numOrNull(form.deposit_guarantee),
+      // Fideiussione e caparra sono due cose diverse: prima la caparra veniva
+      // sovrascritta con l'importo della garanzia.
+      deposit_guarantee: numOrNull(form.deposit_guarantee), guarantee_expiry: strOrNull(form.guarantee_expiry),
+      deposit_amount: numOrNull(form.deposit_amount),
       advance_payment: numOrNull(form.advance_payment), setup_cost: numOrNull(form.setup_cost),
+      rent_start_date: strOrNull(form.rent_start_date),
+      landlord_supplier_id: strOrNull(form.landlord_supplier_id),
+      cost_center_key: costCenterKey,
       target_margin_pct: numOrNull(form.target_margin_pct), target_cogs_pct: numOrNull(form.target_cogs_pct),
       min_revenue_target: numOrNull(form.exit_revenue_threshold), min_revenue_period: strOrNull(form.min_revenue_period),
       exit_revenue_threshold: numOrNull(form.exit_revenue_threshold),
@@ -576,6 +673,18 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
       return
     }
 
+    // Centro di costo gemello dell'outlet: senza questa riga il punto vendita
+    // non compare in Budget & Controllo, Confronto, Margini, Produttività,
+    // Personale (il wizard prima non lo creava mai).
+    if (costCenterKey) {
+      const ccErr = await ensureCostCenter(companyId, costCenterKey, String(form.name ?? ''), String(form.code ?? ''), String(form.outlet_type ?? 'outlet'))
+      if (ccErr) {
+        setError(`Outlet salvato, ma il centro di costo «${costCenterKey}» non è stato creato: ${ccErr}. Crealo da Impostazioni → Centri di costo.`)
+        setSaving(false)
+        return
+      }
+    }
+
     // Crea record allegati se presenti
     if (inserted && allegati && allegati.length > 0) {
       const defaultLabels: Record<string, string> = {
@@ -591,7 +700,9 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
       const uploadResults: Record<string, string> = {}
       for (const [code, file] of Object.entries(wizardUploadedFiles)) {
         const ext = file.name.split('.').pop() ?? ''
-        const filePath = `${storagePath}/allegato_${code.toLowerCase()}.${ext}`
+        const filePath = code === '__CONTRATTO__'
+          ? `${storagePath}/contratto.${ext}`
+          : `${storagePath}/allegato_${code.toLowerCase()}.${ext}`
         const { data: uploadData, error: uploadErr } = await supabase.storage
           .from('outlet-attachments')
           .upload(filePath, file, { upsert: true })
@@ -607,12 +718,13 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
           outlet_id: outletId,
           attachment_type: 'contratto',
           label: `Contratto di affitto — ${contractFileName || 'Documento'}`,
-          file_name: contractFileName || null,
+          file_name: contractFileName || wizardUploadedFiles.__CONTRATTO__?.name || null,
+          file_path: uploadResults.__CONTRATTO__ || null,
           is_required: true,
-          is_uploaded: false,
+          is_uploaded: !!uploadResults.__CONTRATTO__,
         },
         // Ogni allegato menzionato
-        ...allegati.map(a => {
+        ...allegati.filter(a => a.code !== '__CONTRATTO__').map(a => {
           const filePath = uploadResults[a.code]
           return {
             company_id: payload.company_id,
@@ -628,6 +740,27 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
       ]
 
       await supabase.from('outlet_attachments').insert(attachmentRows)
+
+      // Registro unico dei caricamenti: il contratto e gli allegati diventano
+      // riapribili anche dall'Archivio documenti, non solo dalla scheda outlet.
+      const oraIso = new Date().toISOString()
+      const righeArchivio = Object.entries(wizardUploadedFiles)
+        .filter(([code]) => !!uploadResults[code])
+        .map(([code, file]) => ({
+          company_id: payload.company_id,
+          file_name: file.name,
+          file_path: uploadResults[code],
+          file_size: file.size,
+          file_type: (file.name.split('.').pop() || '').toLowerCase(),
+          storage_bucket: 'outlet-attachments',
+          source: code === '__CONTRATTO__' ? 'Contratto di affitto' : `Allegato ${code}`,
+          modulo: 'Outlet',
+          funzione: code === '__CONTRATTO__' ? 'Contratto di affitto' : `Allegato ${code} del contratto`,
+          reference_table: 'outlets',
+          reference_id: outletId,
+          uploaded_at: oraIso,
+        }))
+      if (righeArchivio.length) await supabase.from('import_documents').insert(righeArchivio)
     }
 
     onSaved()
@@ -635,7 +768,7 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
 
   const baseSteps = [
     <StepAnagrafica form={form} set={set} />,
-    <StepLocation form={form} set={set} />,
+    <StepLocation form={form} set={set} suppliers={suppliers} />,
     <StepContratto form={form} set={set} />,
     <StepCanone form={form} set={set} />,
     <StepGaranzie form={form} set={set} />,
@@ -646,14 +779,20 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
     : [...baseSteps, <StepRiepilogo form={form} />]
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+    <Modal
+      open
+      onClose={onClose}
+      bare
+      closeOnBackdrop={false}
+      ariaLabel={editId ? `Modifica ${labels.pointOfSaleLower}` : `Nuovo ${labels.pointOfSaleLower}`}
+      panelClassName="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90dvh] flex flex-col"
+    >
         {/* Header */}
         <div className="flex items-center justify-between px-5 pt-5 pb-2">
           <h2 className="text-lg font-semibold text-slate-900">
             {editId ? `Modifica ${labels.pointOfSaleLower}` : initialData ? `Nuovo ${labels.pointOfSaleLower} da contratto` : `Nuovo ${labels.pointOfSaleLower}`}
           </h2>
-          <button onClick={onClose} className="p-1 hover:bg-slate-100 rounded-lg"><X size={20} /></button>
+          <button onClick={onClose} className="p-2.5 hover:bg-slate-100 rounded-lg" title="Chiudi"><X size={20} /></button>
         </div>
 
         {/* Step indicator */}
@@ -706,7 +845,6 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
             </button>
           )}
         </div>
-      </div>
-    </div>
+    </Modal>
   )
 }

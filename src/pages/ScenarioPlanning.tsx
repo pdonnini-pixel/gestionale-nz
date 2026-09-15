@@ -3,27 +3,55 @@ import { TrendingUp, AlertCircle, Target, Loader2, ToggleLeft, ToggleRight, Save
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
+import { fetchAllPaged } from '../lib/fetchAllPaged';
+import { buildOutletCostCenterSet, isOutletCostCenter } from '../lib/outletCostCenters';
 import { useAuth } from '../hooks/useAuth';
 import { usePeriod } from '../hooks/usePeriod';
+import { useAvailableYears } from '../hooks/useAvailableYears';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
+import {
+  getOutletLifecycle, isOutletOpenInPeriod, outletLifecycleCaption,
+  OUTLET_LIFECYCLE_STYLE, type OutletLifecycleFields,
+} from '../lib/outletLifecycle';
 
 function fmt(n: number, dec = 0) {
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n);
 }
 
+// Outlet «in apertura» per questa pagina: oggi non ha ancora aperto, oppure
+// nell'anno selezionato non era ancora aperto. I suoi costi restano nei totali
+// aziendali, ma non conta come punto vendita nelle medie per outlet.
+function isInApertura(o: OutletLifecycleFields | undefined, year: number): boolean {
+  if (!o) return false;
+  const oggi = getOutletLifecycle(o);
+  return oggi === 'programmato' || (oggi !== 'chiuso' && !isOutletOpenInPeriod(o, year));
+}
+function aperturaCaption(o: OutletLifecycleFields, year: number): string {
+  return outletLifecycleCaption(o, getOutletLifecycle(o) === 'programmato' ? new Date() : new Date(year, 0, 1));
+}
+
+type OutletAnagRow = { code: string | null; name: string | null; opening_date: string | null; closing_date: string | null; is_active: boolean | null };
+
 export default function ScenarioPlanning() {
   const { profile } = useAuth();
   const labels = useCompanyLabels();
   // Anno sincronizzato col PeriodContext globale (selettore header).
-  const { year: globalYear } = usePeriod();
+  const { year: globalYear, setYear: setGlobalYear } = usePeriod();
+  const availableYears = useAvailableYears();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [year, setYear] = useState(globalYear || 2026);
-  useEffect(() => { if (globalYear) setYear(globalYear); }, [globalYear]);
+  // Anno dal selettore periodo globale (persiste in URL/localStorage — M54)
+  const year = globalYear;
+  const setYear = setGlobalYear;
   // TODO: tighten type
   const [rawEntries, setRawEntries] = useState<any[]>([]);
+  // Cost_center che sono outlet reali (code+name): per contare i punti vendita e
+  // stimare i ricavi medi SENZA includere gli aggregati virtuali (costi non divisi,
+  // rettifiche, "all") che altrimenti gonfiano numOutlet e sottostimano la media.
+  const [outletSet, setOutletSet] = useState<Set<string>>(new Set());
+  // Anagrafica outlet con date di apertura/chiusura (src/lib/outletLifecycle.ts).
+  const [outletAnag, setOutletAnag] = useState<OutletAnagRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{ type: string; text: string } | null>(null);
 
@@ -40,17 +68,29 @@ export default function ScenarioPlanning() {
       setError(null);
       try {
         const companyId = profile?.company_id;
-        let query = supabase
-          .from('budget_entries')
-          .select('cost_center, account_code, budget_amount')
-          .eq('year', year)
-          .range(0, 9999); // override default Supabase limit 1000
+        // Paginato: .range(0,9999) NON aggira il cap PostgREST di 1000 righe -> oltre
+        // 1000 righe i totali del baseline venivano troncati senza errore.
+        const data = await fetchAllPaged(
+          (from, to) => {
+            let q = supabase
+              .from('budget_entries')
+              .select('id, cost_center, account_code, budget_amount')
+              .eq('year', year)
+              .order('id', { ascending: true });
+            if (companyId) q = q.eq('company_id', companyId);
+            return q.range(from, to);
+          },
+          'budget_entries',
+        );
+        setRawEntries(data);
 
-        if (companyId) query = query.eq('company_id', companyId);
-
-        const { data, error: fetchError } = await query;
-        if (fetchError) throw fetchError;
-        setRawEntries(data || []);
+        // Anagrafica outlet reali (attivi) per distinguere i cost_center virtuali.
+        let outletsQuery = supabase.from('outlets').select('code, name, opening_date, closing_date, is_active').eq('is_active', true);
+        if (companyId) outletsQuery = outletsQuery.eq('company_id', companyId);
+        const { data: outletsData } = await outletsQuery;
+        const outletRows = (outletsData || []) as OutletAnagRow[];
+        setOutletSet(buildOutletCostCenterSet(outletRows as { code?: string; name?: string }[]));
+        setOutletAnag(outletRows);
       } catch (err: unknown) {
         console.error('[ScenarioPlanning] fetch error:', err);
         setError((err as Error).message);
@@ -61,20 +101,55 @@ export default function ScenarioPlanning() {
     fetchData();
   }, [year, profile?.company_id]);
 
+  // Outlet in apertura per l'anno scelto: chiavi cost_center (code/name in
+  // minuscolo) -> etichetta «In apertura dal ...». Non contano come punti
+  // vendita nelle medie per outlet (i loro costi restano nei totali).
+  const inAperturaByCC = useMemo<Record<string, string>>(() => {
+    const out: Record<string, string> = {};
+    outletAnag.forEach(o => {
+      const fields: OutletLifecycleFields = { opening_date: o.opening_date, closing_date: o.closing_date, is_active: o.is_active ?? true };
+      if (!isInApertura(fields, year)) return;
+      const caption = aperturaCaption(fields, year);
+      [o.code, o.name].forEach(k => {
+        const key = (k || '').trim().toLowerCase();
+        if (key) out[key] = caption;
+      });
+    });
+    return out;
+  }, [outletAnag, year]);
+
   // Compute baseline totals
   const baseline = useMemo(() => {
+    // Totali AZIENDALI: includono TUTTI i cost_center (anche i virtuali 'all',
+    // 'sede_magazzino', 'rettifica_bilancio'), perche' sono costi/ricavi reali
+    // dell'azienda che devono quadrare con il conto economico. NON si escludono.
     let ricaviTotali = 0;
     let costiPersonale = 0;
     let costiTotali = 0;
-    let outletCount = new Set();
+    // Aggregati dei soli OUTLET REALI: servono per contare i punti vendita e stimare
+    // i ricavi medi per un nuovo outlet, senza inquinamento dei cost_center virtuali.
+    // Un cost_center conta come punto vendita solo se ha ricavi nell'anno
+    // oppure e' un outlet gia' aperto: un outlet in apertura con soli costi
+    // (canone, allestimento) prima gonfiava numOutlet e sgonfiava le medie.
+    const outletSeen = new Set<string>();
+    const ricaviByCC: Record<string, number> = {};
+    let ricaviOutletReali = 0;
+    // Fail-safe: se l'anagrafica outlet non e' caricata (set vuoto), si considera
+    // ogni cost_center come outlet (comportamento precedente) per non rompere la stima.
+    const hasOutletAnagrafica = outletSet.size > 0;
 
     rawEntries.forEach(row => {
       const code = (row.account_code || '').toString();
       const amount = parseFloat(row.budget_amount) || 0;
-      if (row.cost_center) outletCount.add(row.cost_center);
+      const isRealOutlet = hasOutletAnagrafica ? isOutletCostCenter(row.cost_center, outletSet) : !!row.cost_center;
+      if (row.cost_center && isRealOutlet) outletSeen.add(row.cost_center);
 
       if (code.startsWith('5')) {
         ricaviTotali += amount;
+        if (isRealOutlet) {
+          ricaviOutletReali += amount;
+          if (row.cost_center) ricaviByCC[row.cost_center] = (ricaviByCC[row.cost_center] || 0) + amount;
+        }
       }
       if (code.startsWith('63')) {
         costiPersonale += amount;
@@ -84,8 +159,17 @@ export default function ScenarioPlanning() {
       }
     });
 
-    const numOutlet = outletCount.size || 1;
-    const avgRicaviOutlet = ricaviTotali / numOutlet;
+    const outletInApertura: { cc: string; caption: string }[] = [];
+    let outletContati = 0;
+    outletSeen.forEach(cc => {
+      const caption = inAperturaByCC[cc.trim().toLowerCase()];
+      const hasRicavi = (ricaviByCC[cc] || 0) > 0;
+      if (caption && !hasRicavi) outletInApertura.push({ cc, caption });
+      else outletContati += 1;
+    });
+    const numOutlet = outletContati || 1;
+    // Media ricavi per outlet basata sui SOLI outlet reali (stima per nuovo outlet).
+    const avgRicaviOutlet = ricaviOutletReali / numOutlet;
     const avgCostiOutlet = costiTotali / numOutlet;
     const avgPersonaleOutlet = costiPersonale / numOutlet;
     const marginePercent = ricaviTotali > 0 ? ((ricaviTotali - costiTotali) / ricaviTotali) * 100 : 0;
@@ -95,13 +179,14 @@ export default function ScenarioPlanning() {
       costiPersonale,
       costiTotali,
       numOutlet,
+      outletInApertura,
       avgRicaviOutlet,
       avgCostiOutlet,
       avgPersonaleOutlet,
       utile: ricaviTotali - costiTotali,
       marginePercent,
     };
-  }, [rawEntries]);
+  }, [rawEntries, outletSet, inAperturaByCC]);
 
   // Compute scenario
   const scenario = useMemo(() => {
@@ -252,7 +337,7 @@ export default function ScenarioPlanning() {
                   onChange={(e) => setYear(parseInt(e.target.value))}
                   className="px-3 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
-                  {[2024, 2025, 2026, 2027].map(y => (
+                  {(availableYears.includes(year) ? availableYears : [year, ...availableYears]).map(y => (
                     <option key={y} value={y}>{y}</option>
                   ))}
                 </select>
@@ -301,6 +386,18 @@ export default function ScenarioPlanning() {
                     <span className="text-slate-600">{labels.pointOfSalePlural} attivi</span>
                     <span className="font-semibold text-slate-900">{baseline.numOutlet}</span>
                   </div>
+                  {/* Outlet non ancora aperti: costi nei totali, fuori dal conteggio e dalle medie. */}
+                  {baseline.outletInApertura.length > 0 && (
+                    <div className="text-xs text-slate-500 space-y-1">
+                      <div>Non contati nelle medie ({baseline.outletInApertura.length} in apertura):</div>
+                      {baseline.outletInApertura.map(o => (
+                        <div key={o.cc} className="flex items-center justify-between gap-2">
+                          <span className="text-slate-700 truncate">{o.cc}</span>
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>{o.caption}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-slate-600">Ricavi Totali</span>
                     <span className="font-semibold text-green-700">{fmt(baseline.ricaviTotali)} &euro;</span>
@@ -389,6 +486,7 @@ export default function ScenarioPlanning() {
                     </div>
                     <button
                       onClick={() => setNuovoOutlet(!nuovoOutlet)}
+                      title="Attiva/Disattiva simulazione"
                       className="flex items-center gap-2"
                     >
                       {nuovoOutlet ? (
@@ -438,7 +536,7 @@ export default function ScenarioPlanning() {
                   : 'bg-gradient-to-r from-red-50 to-orange-50 border-red-200'
               }`}>
                 <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide mb-4">Risultati Scenario in Tempo Reale</h3>
-                <div className="grid grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
                   <div>
                     <p className="text-xs text-slate-500 mb-1">Margine Previsto</p>
                     <p className={`text-2xl font-bold ${scenario.marginePercent >= 0 ? 'text-green-700' : 'text-red-700'}`}>
@@ -484,7 +582,7 @@ export default function ScenarioPlanning() {
               {/* Comparison Table: Scenario Attuale vs Simulato */}
               <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
                 <h2 className="text-lg font-semibold text-slate-900 mb-4">Confronto Scenario Attuale vs Simulato</h2>
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto scroll-shadow-x">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-slate-200 bg-slate-50">
@@ -660,7 +758,6 @@ export default function ScenarioPlanning() {
           </div>
         )}
       </div>
-      <PageHelp page="scenario-planning" />
     </div>
   );
 }

@@ -4,7 +4,6 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 // Tab ImportHub — persistito in URL come ?tab=
 type ImportHubTab = 'sources' | 'overview' | 'history';
 const VALID_IMPORT_HUB_TABS: ImportHubTab[] = ['sources', 'overview', 'history'];
-import PageHelp from '../components/PageHelp';
 import PageHeader from '../components/PageHeader';
 import TextTooltip from '../components/Tooltip';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
@@ -42,9 +41,9 @@ import {
 import { BarChart, Bar, PieChart as RechartsPieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
+import { Modal } from '../components/ui/Modal';
 import { useAuth } from '../hooks/useAuth';
 import { processImport, previewImport } from '../lib/parsers/importEngine';
-import { runAutoReconciliation, applyReconciliation } from '../lib/reconciliationEngine';
 
 // Storage bucket mapping for each import source
 type ImportSourceConfig = { name: string; description: string; formats: string; bucket: string; table: string; acceptedExt: string[]; requiresSelect?: string; category?: string; icon: string }
@@ -128,15 +127,16 @@ export default function ImportHub() {
   const COMPANY_ID = profile?.company_id;
   const navigate = useNavigate();
 
-  // ─── POST-IMPORT EC MATCH MODAL STATE ─────────────────────────
-  // Dopo un import EC mostra il riepilogo dei match automatici
-  // calcolati tra cash_movements (uscite) e payables (da_pagare)
-  type ReconciledMatch = { movement?: { id?: string; date?: string; amount?: number; description?: string }; payable?: { id?: string; supplier_name?: string; gross_amount?: number; due_date?: string; invoice_number?: string }; score?: number }
+  // ─── POST-IMPORT EC: ESITO RICONCILIAZIONE AUTOMATICA ─────────
+  // Dopo un import EC bancario, la riconciliazione server-side (rerun_reconciliation
+  // → try_match_bank_transaction) applica gli abbinamenti a importo esatto (score>=80)
+  // e mette gli incerti (50-79) in coda "da confermare" nel tab Riconciliazione.
+  // Il modale mostra l'ESITO REALE (non un'anteprima): quanti movimenti analizzati,
+  // quanti riconciliati in automatico, quanti restano da confermare a mano.
   type MatchModal = {
-    reconciled?: ReconciledMatch[]
-    suggested?: ReconciledMatch[]
-    unmatched?: Array<{ id?: string; description?: string; amount?: number; date?: string }>
-    stats?: { reconciled?: number; suggested?: number; unmatched?: number; reconciledAmount?: number; suggestedAmount?: number; unmatchedAmount?: number; total?: number; totalMovements?: number; skippedPOS?: number }
+    processed: number
+    appliedNow: number
+    toConfirmNow: number
     bankAccountId?: string | null
   } | null
   type ImportDoc = Record<string, unknown> & { id?: string; file_name?: string | null; file_path?: string | null; file_size?: number | null; source_type?: string | null; created_at?: string | null }
@@ -145,7 +145,6 @@ export default function ImportHub() {
   type Toast = { msg: string; type: string } | null
   const [matchModal, setMatchModal] = useState<MatchModal>(null);
   const [computingMatches, setComputingMatches] = useState(false);
-  const [applyingMatches, setApplyingMatches] = useState(false);
 
   // activeTab persistito in URL come ?tab=… (default 'sources')
   const [searchParams, setSearchParams] = useSearchParams();
@@ -167,6 +166,10 @@ export default function ImportHub() {
   const [previewFile, setPreviewFile] = useState<ImportDoc | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [importHistory, setImportHistory] = useState<ImportDoc[]>([]);
+  // Ricaricare un documento sovrascrive il precedente: in elenco si vede la
+  // versione corrente, non due file uguali senza sapere quale conta. Le versioni
+  // sostituite restano e si possono richiamare con l'interruttore.
+  const [mostraSostituiti, setMostraSostituiti] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [selectedBankAccount, setSelectedBankAccount] = useState<string | null>(null);
   const [selectedDocCategory, setSelectedDocCategory] = useState('contratto');
@@ -256,7 +259,8 @@ export default function ImportHub() {
   useEffect(() => {
     if (!COMPANY_ID) return;
     loadImportDocs();
-  }, [activeTab, selectedSource, COMPANY_ID]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, selectedSource, COMPANY_ID, mostraSostituiti]);
 
   async function loadImportDocs() {
     if (!COMPANY_ID) return;
@@ -276,22 +280,22 @@ export default function ImportHub() {
         setUploadedFiles(((data as ImportDoc[] | null) || []));
         setBatchSelected(new Set());
 
-        const { data: history } = await supabase
+        let qh = supabase
           .from('import_documents')
           .select('*')
           .eq('company_id', companyId)
-          .eq('source', selectedSource)
-          .order('uploaded_at', { ascending: false })
-          .limit(20);
+          .eq('source', selectedSource);
+        if (!mostraSostituiti) qh = qh.is('superseded_at', null);
+        const { data: history } = await qh.order('uploaded_at', { ascending: false }).limit(20);
         setImportHistory(((history as ImportDoc[] | null) || []));
       } else {
         // Load all recent imports for both overview and history tabs
-        const { data } = await supabase
+        let q = supabase
           .from('import_documents')
           .select('*')
-          .eq('company_id', companyId)
-          .order('uploaded_at', { ascending: false })
-          .limit(200);
+          .eq('company_id', companyId);
+        if (!mostraSostituiti) q = q.is('superseded_at', null);
+        const { data } = await q.order('uploaded_at', { ascending: false }).limit(200);
         setImportHistory(((data as ImportDoc[] | null) || []));
       }
     } catch (err: unknown) {
@@ -392,6 +396,11 @@ export default function ImportHub() {
     setUploading(true);
     setUploadProgress(0);
 
+    // Conteggio reale dei successi e dei fallimenti: prima il toast finale
+    // diceva sempre "${files.length} file caricati con successo" anche quando
+    // alcuni upload fallivano (file mai processati, l'utente non se ne accorgeva).
+    let okCount = 0;
+    const failedNames: string[] = [];
     try {
       for (let idx = 0; idx < files.length; idx++) {
         const file = files[idx];
@@ -406,6 +415,9 @@ export default function ImportHub() {
 
         if (storageErr) {
           console.error('Storage error:', storageErr);
+          // Feedback esplicito anche sul fallimento di storage (come già per l'insert).
+          showToast(`Errore caricamento ${file.name}: ${storageErr.message}`, 'error');
+          failedNames.push(file.name);
           setUploadProgress(((idx + 1) / files.length) * 100);
           continue;
         }
@@ -462,6 +474,7 @@ export default function ImportHub() {
         if (insertErr) {
           console.error(`Insert error for ${config.table}:`, insertErr);
           showToast(`Errore salvataggio ${file.name}: ${insertErr.message}`, 'error');
+          failedNames.push(file.name);
           setUploadProgress(((idx + 1) / files.length) * 100);
           continue; // Skip to next file — don't log incomplete upload
         }
@@ -479,12 +492,20 @@ export default function ImportHub() {
           } as never,
         ]);
 
+        okCount++;
         setUploadProgress(((idx + 1) / files.length) * 100);
       }
 
-      showToast(`${files.length} file caricati con successo${canProcess(sourceId) ? ' — premi "Processa" per importare i dati' : ''}`);
+      // Toast differenziato: successo pieno solo se TUTTI i file sono passati.
+      if (failedNames.length === 0) {
+        showToast(`${okCount} file caricati con successo${canProcess(sourceId) ? ' — premi "Processa" per importare i dati' : ''}`);
+      } else if (okCount > 0) {
+        showToast(`Caricati ${okCount} di ${files.length} file — ${failedNames.length} non riusciti: ${failedNames.join(', ')}`, 'error');
+      } else {
+        showToast(`Nessun file caricato — ${failedNames.length} falliti: ${failedNames.join(', ')}`, 'error');
+      }
       // Keep last file reference for immediate processing
-      if (files.length === 1 && canProcess(sourceId)) {
+      if (okCount === 1 && files.length === 1 && canProcess(sourceId)) {
         pendingFileRef.current = files[0];
       }
       await loadImportDocs();
@@ -561,7 +582,11 @@ export default function ImportHub() {
   // ─── PROCESSING FUNCTIONS ─────────────────────────────────────
 
   // Check if source type supports processing
-  const canProcess = (sourceId: string | null) => ['bank', 'invoices', 'pos_data', 'receipts', 'balance_sheet', 'payroll'].includes(sourceId || '');
+  // 'payroll' NON è elaborabile da qui (audit personale 2026-09-02, finding F1):
+  // il processore cancellava employee_costs del mese e reinseriva su colonne
+  // inesistenti. I cedolini si caricano dalla pagina Dipendenti → «Costi &
+  // cedolini»; qui il file viene solo archiviato.
+  const canProcess = (sourceId: string | null) => ['bank', 'invoices', 'pos_data', 'receipts', 'balance_sheet'].includes(sourceId || '');
 
   // Preview a file before processing
   async function handlePreview(_file: ImportDoc, fileRecord: ImportDoc) {
@@ -656,7 +681,7 @@ export default function ImportHub() {
         // Il modal mostra il riepilogo e permette di confermare i match sicuri.
         if (selectedSource === 'bank' && (result.imported || 0) > 0) {
           const bankAccountId = (selectedBankAccount || fileRecord.bank_account_id) as string | null;
-          await computeMatchesAfterBankImport(bankAccountId);
+          await runReconciliationAfterBankImport(bankAccountId);
         }
       } else {
         showToast(`Errori durante l'elaborazione`, 'error');
@@ -687,76 +712,51 @@ export default function ImportHub() {
     }
   }
 
-  // ─── POST-IMPORT EC: calcolo + applicazione match ─────────────
+  // ─── POST-IMPORT EC: riconciliazione automatica ───────────────
 
   /**
-   * Lancia la riconciliazione in DRY-RUN subito dopo l'import EC.
-   * Serve a mostrare in un modal quanti movimenti hanno trovato una
-   * controparte sicura (score >= 80, match automatico), quanti probabili
-   * (score 50-79, richiedono revisione manuale) e quanti senza match.
+   * Lancia la riconciliazione server-side subito dopo l'import EC e mostra l'ESITO REALE.
+   *
+   * `rerun_reconciliation` (RPC transazionale) scorre i movimenti in uscita non ancora
+   * riconciliati e per ognuno chiama `try_match_bank_transaction`:
+   *  - score >= 80 (importo esatto + fornitore) → applicato subito (fattura → pagato);
+   *  - score 50-79 → registrato come 'to_confirm', da confermare a mano nel tab
+   *    Riconciliazione (dove `reconcile_movement` gestisce correttamente acconti e note
+   *    di credito — il bonifico può essere NETTO, ≠ lordo fattura);
+   *  - le fatture con note di credito 'pending' sono ESCLUSE dall'auto-match (migration 090):
+   *    vanno sempre riconciliate a mano.
+   *
+   * Niente più falso "dry-run" né conferma client-side: tutta la logica passa dalle RPC.
+   * Per contare quanti abbinamenti sono stati applicati vs quanti restano da confermare,
+   * leggo le righe di reconciliation_log create da questo run (performed_at >= startedAt).
    */
-  async function computeMatchesAfterBankImport(bankAccountId: string | null) {
+  async function runReconciliationAfterBankImport(bankAccountId: string | null) {
     if (!COMPANY_ID) return;
     setComputingMatches(true);
+    const startedAt = new Date().toISOString();
     try {
-      type ReconciliationResult = { reconciled?: unknown[]; suggested?: unknown[]; unmatched?: unknown[]; stats?: NonNullable<MatchModal>['stats']; errors?: unknown[] }
-      const res = await (runAutoReconciliation as unknown as (companyId: string, bankAccountId: string | null, opts: Record<string, unknown>) => Promise<ReconciliationResult>)(COMPANY_ID, bankAccountId || null, {
-        dryRun: true,
-        performedBy: profile?.id || null,
-      });
-      setMatchModal({
-        bankAccountId: bankAccountId || null,
-        reconciled: (res.reconciled || []) as ReconciledMatch[],
-        suggested: (res.suggested || []) as ReconciledMatch[],
-        unmatched: (res.unmatched || []) as Array<{ id?: string; description?: string; amount?: number; date?: string }>,
-        stats: res.stats || {},
-      });
+      const { data: runData, error: runErr } = await (supabase.rpc as unknown as (name: string) => Promise<{ data: { processed?: number; matched?: number } | null; error: { message: string } | null }>)('rerun_reconciliation');
+      if (runErr) throw new Error(runErr.message);
+      const processed = runData?.processed ?? 0;
+
+      // Conta gli esiti di QUESTO run dal log (applied = auto-applicati, to_confirm = da rivedere)
+      let appliedNow = 0, toConfirmNow = 0;
+      const { data: logRows } = await supabase
+        .from('reconciliation_log')
+        .select('status')
+        .eq('company_id', COMPANY_ID)
+        .gte('performed_at', startedAt);
+      for (const r of (logRows as Array<{ status?: string }> | null) || []) {
+        if (r.status === 'applied') appliedNow++;
+        else if (r.status === 'to_confirm') toConfirmNow++;
+      }
+
+      setMatchModal({ bankAccountId: bankAccountId || null, processed, appliedNow, toConfirmNow });
     } catch (err: unknown) {
-      console.error('Errore calcolo match post-import:', err);
-      showToast('Errore nel calcolo match: ' + (err as Error).message, 'error');
+      console.error('Errore riconciliazione post-import:', err);
+      showToast('Errore nella riconciliazione automatica: ' + (err as Error).message, 'error');
     } finally {
       setComputingMatches(false);
-    }
-  }
-
-  /**
-   * Conferma TUTTI i match sicuri calcolati nel dry-run.
-   * Per ogni coppia movimento<->payable con score >= 80 esegue:
-   *  - payables.status = 'pagato' + payment_date
-   *  - cash_movements.is_reconciled = true
-   *  - log in reconciliation_log
-   */
-  async function handleConfirmSafeMatches() {
-    type ReconciledItem = { movement?: { id?: string }; payable?: { id?: string }; score?: number }
-    const reconciledList = (matchModal?.reconciled as ReconciledItem[] | undefined) || [];
-    if (!matchModal || reconciledList.length === 0) return;
-    setApplyingMatches(true);
-    let ok = 0;
-    const errs: unknown[] = [];
-    try {
-      for (const m of reconciledList) {
-        const movementId = m.movement?.id;
-        const payableId = m.payable?.id;
-        if (!movementId || !payableId) continue;
-        type ApplyResult = { success?: boolean; error?: unknown }
-        const res = await (applyReconciliation as unknown as (mId: string, pId: string, kind: string, msg: string, opts: Record<string, unknown>) => Promise<ApplyResult>)(movementId, payableId, 'auto_exact', `Conferma post-import EC (score ${m.score})`, {
-          performedBy: profile?.id || null,
-          companyId: COMPANY_ID,
-        });
-        if (res.success) ok++;
-        else errs.push(res.error);
-      }
-      if (errs.length === 0) {
-        showToast(`Confermati ${ok} match. Fatture marcate come pagate.`);
-      } else {
-        showToast(`Confermati ${ok} su ${reconciledList.length}. ${errs.length} errori.`, 'error');
-      }
-    } catch (err: unknown) {
-      console.error('Errore applicazione match:', err);
-      showToast('Errore applicazione match: ' + (err as Error).message, 'error');
-    } finally {
-      setApplyingMatches(false);
-      setMatchModal(null);
     }
   }
 
@@ -1102,6 +1102,14 @@ export default function ImportHub() {
               )}
 
               {selectedSource === 'payroll' && (
+                <div className="mb-4 p-4 bg-amber-50 rounded-lg border border-amber-200 text-sm text-amber-900">
+                  <strong>Qui i cedolini vengono solo archiviati.</strong> I netti che fanno l'organico
+                  del mese si caricano dalla pagina <a href="/dipendenti?view=costi" className="underline font-semibold">Dipendenti → «Costi &amp; cedolini»</a>:
+                  quel carico è ciò che rende granitico il numero di dipendenti per punto vendita.
+                </div>
+              )}
+
+              {selectedSource === 'payroll' && (
                 <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200 space-y-4">
                   <div>
                     <label className="block text-sm font-semibold text-gray-900 mb-2">Seleziona Mese e Anno</label>
@@ -1290,7 +1298,7 @@ export default function ImportHub() {
                       return (
                         <div key={String(f.id)} className={`flex items-center justify-between p-3 bg-white rounded-xl border group hover:border-indigo-200 transition ${isSelected ? 'border-indigo-300 bg-indigo-50/30' : 'border-slate-200'}`}>
                           <div className="flex items-center gap-3 min-w-0">
-                            <button onClick={() => f.id && toggleBatchSelect(f.id)} className="shrink-0 text-slate-400 hover:text-indigo-600">
+                            <button onClick={() => f.id && toggleBatchSelect(f.id)} className="shrink-0 text-slate-400 hover:text-indigo-600" title="Seleziona file">
                               {isSelected ? <CheckSquare size={18} className="text-indigo-600" /> : <Square size={18} />}
                             </button>
                             <div className={`p-2 rounded-lg ${isPdf ? 'bg-red-50' : 'bg-blue-50'}`}>
@@ -1383,7 +1391,7 @@ export default function ImportHub() {
                       {processResult.success ? `${processResult.processed} record importati con successo` : 'Errori durante l\'elaborazione'}
                     </span>
                   </div>
-                  <button onClick={() => setProcessResult(null)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                  <button onClick={() => setProcessResult(null)} className="text-slate-400 hover:text-slate-600" title="Chiudi"><X size={16} /></button>
                 </div>
                 {(processResult.errors?.length ?? 0) > 0 && (
                   <div className="mt-2 max-h-32 overflow-y-auto">
@@ -1434,12 +1442,12 @@ export default function ImportHub() {
                       </span>
                     )}
                   </div>
-                  <button onClick={() => setPreviewData(null)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
+                  <button onClick={() => setPreviewData(null)} className="text-slate-400 hover:text-slate-600" title="Chiudi"><X size={16} /></button>
                 </div>
 
                 {/* CSV Preview Table */}
                 {previewData.headers && (
-                  <div className="overflow-x-auto mb-3">
+                  <div className="overflow-x-auto scroll-shadow-x mb-3">
                     <table className="w-full text-xs border-collapse">
                       <thead>
                         <tr>
@@ -1509,7 +1517,17 @@ export default function ImportHub() {
         {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
-            <div className="overflow-x-auto">
+            <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-xs text-gray-500">
+                Ricaricando lo stesso documento per lo stesso periodo, il file nuovo <strong>sostituisce</strong> il precedente:
+                in elenco resta la versione che vale.
+              </div>
+              <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer shrink-0">
+                <input type="checkbox" checked={mostraSostituiti} onChange={(e) => setMostraSostituiti(e.target.checked)} />
+                Mostra anche le versioni sostituite
+              </label>
+            </div>
+            <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
@@ -1528,8 +1546,9 @@ export default function ImportHub() {
                     const isPdf = item.file_type === 'pdf';
                     const statusRaw = String(item.status || item.upload_status || 'unknown');
                     return (
-                      <tr key={String(item.id)} className="hover:bg-gray-50 transition-colors">
+                      <tr key={String(item.id)} className={`hover:bg-gray-50 transition-colors ${item.superseded_at ? 'opacity-60' : ''}`}>
                         <td className="px-6 py-4 text-sm text-gray-900">
+                          {item.superseded_at ? <span className="mr-2 text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">sostituito</span> : null}
                           {new Date(String(item.uploaded_at || item.created_at || '')).toLocaleString('it-IT')}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900 font-medium">{String(item.file_name || '')}</td>
@@ -1583,21 +1602,19 @@ export default function ImportHub() {
           Mostrato subito dopo l'import di un estratto conto bancario.
           Riepiloga quanti movimenti sono stati automaticamente abbinati
           a scadenze payables. */}
-      {(computingMatches || matchModal) && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden">
+      <Modal open={!!(computingMatches || matchModal)} onClose={() => setMatchModal(null)} bare closeOnBackdrop={false} ariaLabel="Riconciliazione automatica post-import" panelClassName="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90dvh] flex flex-col overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-blue-100 rounded-xl">
                   <Zap size={20} className="text-blue-600" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-bold text-slate-900">Match automatici post-import</h2>
+                  <h2 className="text-lg font-bold text-slate-900">Riconciliazione automatica post-import</h2>
                   <p className="text-xs text-slate-500">Abbinamento movimenti bancari ↔ scadenze fornitori</p>
                 </div>
               </div>
               {!computingMatches && (
-                <button onClick={() => setMatchModal(null)} className="p-1.5 hover:bg-slate-100 rounded-lg">
+                <button onClick={() => setMatchModal(null)} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi">
                   <X size={18} className="text-slate-500" />
                 </button>
               )}
@@ -1607,82 +1624,49 @@ export default function ImportHub() {
               {computingMatches ? (
                 <div className="text-center py-10">
                   <Loader2 size={40} className="animate-spin text-blue-600 mx-auto mb-4" />
-                  <p className="text-sm text-slate-600 font-medium">Calcolo match in corso...</p>
-                  <p className="text-xs text-slate-400 mt-1">Confronto i movimenti importati con le scadenze aperte</p>
+                  <p className="text-sm text-slate-600 font-medium">Riconciliazione in corso...</p>
+                  <p className="text-xs text-slate-400 mt-1">Abbino i movimenti importati con le scadenze aperte</p>
                 </div>
               ) : matchModal && (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Zap size={16} className="text-slate-500" />
+                        <span className="text-xs font-semibold text-slate-600 uppercase">Analizzati</span>
+                      </div>
+                      <div className="text-3xl font-bold text-slate-700">{matchModal.processed}</div>
+                      <p className="text-[11px] text-slate-500 mt-1">movimenti in uscita</p>
+                    </div>
                     <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
                       <div className="flex items-center gap-2 mb-2">
                         <CheckCircle size={16} className="text-emerald-600" />
-                        <span className="text-xs font-semibold text-emerald-700 uppercase">Match sicuri</span>
+                        <span className="text-xs font-semibold text-emerald-700 uppercase">Riconciliati</span>
                       </div>
-                      <div className="text-3xl font-bold text-emerald-800">{(matchModal.reconciled?.length ?? 0)}</div>
-                      <p className="text-[11px] text-emerald-600 mt-1">importo esatto + nome fornitore</p>
+                      <div className="text-3xl font-bold text-emerald-800">{matchModal.appliedNow}</div>
+                      <p className="text-[11px] text-emerald-600 mt-1">automatici (importo esatto)</p>
                     </div>
                     <div className="rounded-xl border border-amber-200 bg-amber-50/50 p-4">
                       <div className="flex items-center gap-2 mb-2">
                         <AlertCircle size={16} className="text-amber-600" />
-                        <span className="text-xs font-semibold text-amber-700 uppercase">Probabili</span>
+                        <span className="text-xs font-semibold text-amber-700 uppercase">Da confermare</span>
                       </div>
-                      <div className="text-3xl font-bold text-amber-800">{(matchModal.suggested?.length ?? 0)}</div>
-                      <p className="text-[11px] text-amber-600 mt-1">da verificare manualmente</p>
-                    </div>
-                    <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <XCircle size={16} className="text-slate-500" />
-                        <span className="text-xs font-semibold text-slate-600 uppercase">Senza match</span>
-                      </div>
-                      <div className="text-3xl font-bold text-slate-700">{(matchModal.unmatched?.length ?? 0)}</div>
-                      <p className="text-[11px] text-slate-500 mt-1">nessuna scadenza corrispondente</p>
+                      <div className="text-3xl font-bold text-amber-800">{matchModal.toConfirmNow}</div>
+                      <p className="text-[11px] text-amber-600 mt-1">nel tab Riconciliazione</p>
                     </div>
                   </div>
 
-                  {matchModal.stats?.totalMovements != null && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 text-xs text-slate-600 mb-5">
-                      Movimenti in uscita analizzati: <b className="text-slate-900">{matchModal.stats.totalMovements}</b>
-                      {(matchModal.stats.skippedPOS ?? 0) > 0 && <> · saltati (POS/commissioni): <b>{matchModal.stats.skippedPOS}</b></>}
-                    </div>
-                  )}
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-xs text-blue-800 leading-relaxed">
+                    Gli abbinamenti a <b>importo esatto</b> sono già stati applicati (la fattura risulta pagata).
+                    {matchModal.toConfirmNow > 0
+                      ? <> I <b>{matchModal.toConfirmNow}</b> incerti, gli acconti e i pagamenti al netto di note di credito vanno confermati a mano nel tab <b>Riconciliazione</b>, dove l'importo effettivo del bonifico viene gestito correttamente.</>
+                      : <> Non ci sono abbinamenti incerti da confermare.</>}
+                  </div>
 
-                  {(matchModal.reconciled?.length ?? 0) > 0 && (
-                    <div className="mb-4">
-                      <div className="text-xs font-semibold text-slate-600 uppercase mb-2">Anteprima match sicuri</div>
-                      <div className="border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-48 overflow-y-auto">
-                        {(matchModal.reconciled || []).slice(0, 8).map((m: ReconciledMatch & { details?: { movementAmount?: number }; payable?: { suppliers?: { ragione_sociale?: string; name?: string } } & ReconciledMatch['payable'] }, i: number) => (
-                          <div key={i} className="px-3 py-2 text-xs flex items-center justify-between">
-                            <div className="flex-1 min-w-0">
-                              <TextTooltip content={m.movement?.description || ''}>
-                                <div className="font-medium text-slate-800 truncate">
-                                  {m.movement?.description || '—'}
-                                </div>
-                              </TextTooltip>
-                              <div className="text-slate-500 mt-0.5">
-                                {m.movement?.date} · {m.payable?.suppliers?.ragione_sociale || m.payable?.suppliers?.name || 'Fornitore'} · Fatt. {m.payable?.invoice_number || '—'}
-                              </div>
-                            </div>
-                            <div className="ml-3 text-right shrink-0">
-                              <div className="font-semibold text-slate-900">
-                                {(m.details?.movementAmount || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-                              </div>
-                              <div className="text-[10px] text-emerald-600">score {m.score}</div>
-                            </div>
-                          </div>
-                        ))}
-                        {(matchModal.reconciled?.length ?? 0) > 8 && (
-                          <div className="px-3 py-2 text-xs text-slate-500 italic">
-                            ...e altri {(matchModal.reconciled?.length ?? 0) - 8} match
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-
-                  {(matchModal.reconciled?.length ?? 0) === 0 && (matchModal.suggested?.length ?? 0) === 0 && (matchModal.unmatched?.length ?? 0) === 0 && (
+                  {matchModal.processed === 0 && (
                     <div className="text-center py-8">
                       <FileWarning size={32} className="text-slate-300 mx-auto mb-3" />
-                      <p className="text-sm text-slate-500">Nessun movimento in uscita da analizzare.</p>
+                      <p className="text-sm text-slate-500">Nessun movimento in uscita da riconciliare.</p>
                     </div>
                   )}
                 </>
@@ -1697,55 +1681,40 @@ export default function ImportHub() {
                 >
                   Chiudi
                 </button>
-                <button
-                  onClick={goToReconciliation}
-                  className="px-4 py-2 text-sm font-medium text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 flex items-center gap-2"
-                >
-                  Vai alla Riconciliazione
-                </button>
-                {(matchModal.reconciled?.length ?? 0) > 0 && (
+                {matchModal.toConfirmNow > 0 && (
                   <button
-                    onClick={handleConfirmSafeMatches}
-                    disabled={applyingMatches}
-                    className="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                    onClick={goToReconciliation}
+                    className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 flex items-center gap-2"
                   >
-                    {applyingMatches ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle size={14} />}
-                    Conferma {(matchModal.reconciled?.length ?? 0)} match sicuri
+                    Vai alla Riconciliazione ({matchModal.toConfirmNow})
                   </button>
                 )}
               </div>
             )}
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* PDF Preview Modal */}
-      {previewFile && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={closePreview}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <Modal open={!!previewFile} onClose={closePreview} bare ariaLabel="Anteprima documento" panelClassName="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90dvh] flex flex-col overflow-hidden">
             <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 shrink-0">
               <div className="flex items-center gap-2">
                 <FileText size={18} className="text-red-500" />
-                <span className="font-semibold text-slate-900 text-sm">{previewFile.file_name}</span>
-                {previewFile.file_size && <span className="text-xs text-slate-400">{(previewFile.file_size / 1024).toFixed(0)} KB</span>}
+                <span className="font-semibold text-slate-900 text-sm">{previewFile?.file_name}</span>
+                {previewFile?.file_size && <span className="text-xs text-slate-400">{(previewFile.file_size / 1024).toFixed(0)} KB</span>}
               </div>
-              <button onClick={closePreview} className="p-1.5 hover:bg-slate-100 rounded-lg">
+              <button onClick={closePreview} className="p-1.5 hover:bg-slate-100 rounded-lg" title="Chiudi">
                 <X size={18} className="text-slate-500" />
               </button>
             </div>
             <div className="flex-1 overflow-hidden">
               {previewUrl ? (
-                <iframe src={previewUrl} className="w-full h-full min-h-[70vh]" title="Anteprima PDF" />
+                <iframe src={previewUrl} className="w-full h-full min-h-[70dvh]" title="Anteprima PDF" />
               ) : (
-                <div className="flex items-center justify-center h-[70vh]">
+                <div className="flex items-center justify-center h-[70dvh]">
                   <RefreshCw size={24} className="animate-spin text-blue-600" />
                 </div>
               )}
             </div>
-          </div>
-        </div>
-      )}
-      <PageHelp page="import-hub" />
+      </Modal>
       </div>
     </div>
   );

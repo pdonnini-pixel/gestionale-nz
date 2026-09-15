@@ -25,7 +25,6 @@ import { useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Clock, Download, MessageSquare, RefreshCw, Shield, Sparkles, Trash2, Upload, X, XCircle,
 } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import { useAuth } from '../hooks/useAuth'
@@ -35,6 +34,8 @@ import {
   TICKET_STATO_LABEL,
 } from '../types/ticket'
 import { TicketList } from './Ticket'
+import { Modal } from '../components/ui/Modal'
+import { archiviaFile } from '../lib/archivioFile'
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
@@ -181,6 +182,16 @@ export default function TicketAdminPage() {
             errors.push(`${ticketId.slice(0, 8)}: ${error.message}`)
             continue
           }
+          // La edge function risponde SEMPRE HTTP 200 e mette l'errore nel body
+          // ({ ok: false, error }), quindi `error` qui e' null anche quando e'
+          // fallita: senza questo ramo il motivo vero (es. file del modulo non
+          // piu' esistente su GitHub) finiva solo in console e l'utente vedeva
+          // un generico "1 errore".
+          if (data?.ok === false) {
+            failed++
+            errors.push(`${ticketId.slice(0, 8)}: ${data?.error ?? 'errore sconosciuto'}`)
+            continue
+          }
           if (data?.action === 'fix') fixed++
           else if (data?.action === 'cant_fix') cantFix++
           else { failed++; errors.push(`${ticketId.slice(0, 8)}: risposta inattesa`) }
@@ -193,9 +204,15 @@ export default function TicketAdminPage() {
       if (fixed > 0) parts.push(`${fixed} risolt${fixed === 1 ? 'o con PR' : 'i con PR'}`)
       if (cantFix > 0) parts.push(`${cantFix} non risolvibil${cantFix === 1 ? 'e' : 'i'} (commento AI)`)
       if (failed > 0) parts.push(`${failed} error${failed === 1 ? 'e' : 'i'}`)
+      // Il motivo del primo errore va nel toast, non solo in console: e' quasi
+      // sempre l'unica informazione utile per capire perche' il ticket non e'
+      // stato lavorato.
+      const dettaglio = errors.length > 0
+        ? ` — ${errors[0]}${errors.length > 1 ? ` (+${errors.length - 1})` : ''}`
+        : ''
       toast({
         type: failed > 0 ? 'warning' : 'success',
-        message: parts.join(', ') || 'Nessuna azione',
+        message: `${parts.join(', ') || 'Nessuna azione'}${dettaglio}`,
       })
       if (errors.length > 0) console.warn('[ticket-resolve-now] errori:', errors)
       clear()
@@ -212,14 +229,10 @@ export default function TicketAdminPage() {
     if (ids.length === 0) return
     setBusy(true)
     try {
-      // Per ogni ticket, leggi commenti correnti e aggiungi il commento admin
-      const { data: existing, error: readErr } = await supabase
-        .from('tickets' as never)
-        .select('id, commenti')
-        .in('id', ids)
-      if (readErr) throw readErr
-
-      const updates = (existing as unknown as Array<{ id: string; commenti: TicketCommento[] | null }>).map(t => {
+      // Commento admin per ogni ticket via RPC append_ticket_comment (migration
+      // 111): append atomico lato DB, niente piu' read-modify-write dell'intero
+      // array jsonb che perdeva i commenti concorrenti (audit 2026-07-19).
+      for (const id of ids) {
         const nuovoCommento: TicketCommento = {
           id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           autore: autoreAdminLabel,
@@ -227,24 +240,19 @@ export default function TicketAdminPage() {
           testo: `[Admin] Ticket chiuso senza lavorazione. Motivo: ${motivo.trim() || '(non specificato)'}`,
           creato_il: new Date().toISOString(),
         }
-        return {
-          id: t.id,
-          commenti: [...(t.commenti ?? []), nuovoCommento],
-        }
-      })
-
-      // Update riga-per-riga (Supabase non supporta update bulk con valori diversi per riga)
-      for (const u of updates) {
-        const { error: updErr } = await supabase
-          .from('tickets' as never)
-          .update({
-            stato: 'chiuso',
-            risolto_il: null,
-            commenti: u.commenti,
-          } as never)
-          .eq('id', u.id)
-        if (updErr) throw updErr
+        const { error: rpcErr } = await supabase
+          .rpc('append_ticket_comment' as never, { p_ticket_id: id, p_commento: nuovoCommento } as never)
+        if (rpcErr) throw rpcErr
       }
+
+      // Poi un unico update bulk dello stato. NON tocchiamo risolto_il:
+      // azzerarlo cancellava il timestamp storico di risoluzione dei ticket
+      // gia' risolti ("Chiudi" dal dettaglio lo conserva — audit, finding 25).
+      const { error: updErr } = await supabase
+        .from('tickets' as never)
+        .update({ stato: 'chiuso' } as never)
+        .in('id', ids)
+      if (updErr) throw updErr
 
       toast({ type: 'success', message: `${ids.length} ticket chius${ids.length === 1 ? 'o' : 'i'} senza lavorazione` })
       clear()
@@ -262,6 +270,25 @@ export default function TicketAdminPage() {
     if (ids.length === 0) return
     setBusy(true)
     try {
+      // Prima rimuovo gli allegati dallo storage dei ticket selezionati, per non
+      // lasciare file orfani nel bucket 'media' (prima la cancellazione in blocco
+      // li abbandonava tutti). Best-effort: non blocca la cancellazione.
+      const idSet = new Set(ids)
+      const paths: string[] = []
+      for (const t of tickets) {
+        if (!idSet.has(t.id)) continue
+        for (const att of (t.allegati || [])) {
+          let p = att.path ?? null
+          if (!p && att.url) { const i = att.url.indexOf('/media/'); if (i >= 0) p = att.url.slice(i + 7) }
+          if (p) paths.push(p)
+        }
+        if (t.screenshot_url) { const i = t.screenshot_url.indexOf('/media/'); if (i >= 0) paths.push(t.screenshot_url.slice(i + 7)) }
+      }
+      if (paths.length > 0) {
+        const { error: rmErr } = await supabase.storage.from('media').remove(paths)
+        if (rmErr) console.warn('[ticket-admin] pulizia allegati storage:', rmErr.message)
+      }
+
       const { error } = await supabase
         .from('tickets' as never)
         .delete()
@@ -286,11 +313,22 @@ export default function TicketAdminPage() {
   const VALID_TIPO = ['bug', 'funzione'] as const
 
   const handleImportFile = (file: File) => {
+    // Il foglio importato resta in archivio: senza, di un import massivo di
+    // ticket non restava nessuna traccia del file di partenza.
+    if (profile?.company_id) {
+      const oggi = new Date()
+      void archiviaFile({
+        file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Ticket',
+        funzione: 'Import ticket da foglio', bucket: 'general-documents',
+        year: oggi.getFullYear(), month: oggi.getMonth() + 1, referenceTable: 'tickets',
+      })
+    }
     const reader = new FileReader()
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
         const data = ev.target?.result
         if (!data || typeof data === 'string') return
+        const XLSX = await import('xlsx')
         const wb = XLSX.read(data, { type: 'array' })
         const sheet = wb.Sheets[wb.SheetNames[0]]
         const raw = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as Array<Record<string, unknown>>
@@ -511,13 +549,23 @@ export default function TicketAdminPage() {
             <button
               type="button"
               disabled={busy}
-              onClick={() => setConfirm({
-                title: 'Cancellare definitivamente?',
-                message: `Stai per CANCELLARE ${selectedIds.length} ticket. L'operazione e' irreversibile.`,
-                confirmLabel: 'Cancella',
-                destructive: true,
-                onConfirm: () => { setConfirm(null); void bulkDelete(selectedIds, clear) },
-              })}
+              onClick={() => {
+                // Audit 2026-07-19: nel modal di conferma elenchiamo QUALI ticket
+                // stanno per essere cancellati, non solo quanti — cosi' una
+                // selezione dimenticata si riconosce prima del danno.
+                const titoli = selectedIds
+                  .map(id => tickets.find(t => t.id === id)?.titolo)
+                  .filter((t): t is string => Boolean(t))
+                const anteprima = titoli.slice(0, 5).map(t => `«${t}»`).join(', ')
+                const extra = titoli.length > 5 ? ` e altri ${titoli.length - 5}` : ''
+                setConfirm({
+                  title: 'Cancellare definitivamente?',
+                  message: `Stai per CANCELLARE ${selectedIds.length} ticket: ${anteprima}${extra}. L'operazione e' irreversibile.`,
+                  confirmLabel: 'Cancella',
+                  destructive: true,
+                  onConfirm: () => { setConfirm(null); void bulkDelete(selectedIds, clear) },
+                })
+              }}
               className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 flex items-center gap-1"
             >
               <Trash2 className="w-3 h-3" /> Cancella
@@ -560,8 +608,15 @@ export default function TicketAdminPage() {
 
       {/* Modal import ticket batch (preview + conferma) */}
       {importModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 max-h-[85vh] flex flex-col">
+        <Modal
+          open
+          onClose={() => setImportModal(null)}
+          bare
+          ariaLabel="Importa ticket — anteprima"
+          closeOnBackdrop={false}
+          containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+          panelClassName="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 max-h-[85dvh] flex flex-col"
+        >
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
                 <Upload className="w-5 h-5 text-blue-600" />
@@ -633,14 +688,20 @@ export default function TicketAdminPage() {
                 Importa {importModal.rows.filter(r => !r._errors).length} ticket
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal chiudi senza lavorare */}
       {closeWithoutWorkModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+        <Modal
+          open
+          onClose={() => { setCloseWithoutWorkModal(null); setCloseMotivo('') }}
+          bare
+          ariaLabel="Chiudi senza lavorare"
+          closeOnBackdrop={false}
+          containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+          panelClassName="bg-white rounded-xl shadow-2xl max-w-md w-full p-6"
+        >
             <h3 className="text-lg font-semibold text-slate-900 mb-2 flex items-center gap-2">
               <XCircle className="w-5 h-5 text-orange-600" />
               Chiudi senza lavorare ({closeWithoutWorkModal.ids.length})
@@ -678,14 +739,14 @@ export default function TicketAdminPage() {
                 {busy ? 'Chiusura…' : 'Conferma chiusura'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Modal conferma generica (per Cancella) */}
       {confirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+        <Modal open onClose={() => setConfirm(null)} bare ariaLabel={confirm.title}
+          containerClassName="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 px-4"
+          panelClassName="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
             <h3 className="text-lg font-semibold text-slate-900 mb-2">{confirm.title}</h3>
             <p className="text-sm text-slate-600 mb-6">{confirm.message}</p>
             <div className="flex justify-end gap-2">
@@ -706,8 +767,7 @@ export default function TicketAdminPage() {
                 {confirm.confirmLabel ?? 'Conferma'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </PageShell>
   )
@@ -715,8 +775,10 @@ export default function TicketAdminPage() {
 
 function PageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      {children}
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+        {children}
+      </div>
     </div>
   )
 }

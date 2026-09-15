@@ -1,0 +1,1 @@
+-- Rollback NZ_ONLY 199: l'ordine precedente era Contanti 1, POS MPS 2, POS MPS Amex 3, Pay by link 4, POS BCC 4, Fatture 5, POS BCC Amex 5, Bonifico 6 (non necessario ripristinarlo).

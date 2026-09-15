@@ -5,6 +5,8 @@ import {
   AlertCircle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
+import { getCurrentTenant } from '../lib/tenants'
 import { useToast } from './Toast'
 import Tooltip from './Tooltip'
 
@@ -61,7 +63,10 @@ function fmt(n: number | null | undefined, dec = 2): string {
 const fmtDate = (d: string | null | undefined) => d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
 async function callEdgeFunction(fnName: string, method = 'GET', body: Record<string, unknown> | null = null, params: Record<string, string> | null = null): Promise<Record<string, unknown>> {
-  const baseUrl = import.meta.env.VITE_SUPABASE_URL || 'https://xfvfxsvqpnpvibgeqpqp.supabase.co'
+  // URL del tenant attivo via tenants.ts (hostname → env suffissate).
+  // Niente fallback hardcoded sul progetto NZ: su Made/Zago punterebbe
+  // le Edge Function al progetto sbagliato.
+  const baseUrl = getCurrentTenant().supabaseUrl
   let url = `${baseUrl}/functions/v1/${fnName}`
   if (params) {
     url += '?' + new URLSearchParams(params).toString()
@@ -115,19 +120,73 @@ function ConfidenceBadge({ confidence }: { confidence?: number | null }) {
 
 /* ───── method badge ───── */
 type MethodConfig = { label: string; color: string; icon: typeof Brain }
+// NB: lo schema di cash_movements.ai_method ammette solo keyword|pattern|learned|manual
+// (CHECK constraint). 'learned_rule' è tenuto come alias storico per compatibilità.
+const METHOD_CONFIG: Record<string, MethodConfig> = {
+  learned: { label: 'Regola appresa', color: 'bg-blue-50 text-blue-600', icon: Brain },
+  learned_rule: { label: 'Regola appresa', color: 'bg-blue-50 text-blue-600', icon: Brain },
+  keyword: { label: 'Keyword', color: 'bg-purple-50 text-purple-600', icon: Tag },
+  pattern: { label: 'Pattern', color: 'bg-cyan-50 text-cyan-600', icon: Zap },
+  manual: { label: 'Manuale', color: 'bg-slate-100 text-slate-600', icon: Check },
+}
 function MethodBadge({ method }: { method?: string }) {
-  const config: Record<string, MethodConfig> = {
-    learned_rule: { label: 'Regola appresa', color: 'bg-blue-50 text-blue-600', icon: Brain },
-    keyword: { label: 'Keyword', color: 'bg-purple-50 text-purple-600', icon: Tag },
-    pattern: { label: 'Pattern', color: 'bg-cyan-50 text-cyan-600', icon: Zap },
-    manual: { label: 'Manuale', color: 'bg-slate-100 text-slate-600', icon: Check },
-  }
-  const cfg = (method && config[method]) || { label: method || '?', color: 'bg-slate-100 text-slate-500', icon: Tag }
+  const cfg = (method && METHOD_CONFIG[method]) || { label: method || '?', color: 'bg-slate-100 text-slate-500', icon: Tag }
   const Icon = cfg.icon
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${cfg.color}`}>
       <Icon size={10} /> {cfg.label}
     </span>
+  )
+}
+
+/* ───── tooltip esteso su Descrizione ─────
+   Spiega, per ogni movimento, la logica del suggerimento IA e l'impatto a valle:
+   quali sezioni conteggiano il dato e perché. La regola chiave: solo la categoria
+   CONFERMATA (cost_category_id) entra nei report; il suggerimento IA (ai_category_id)
+   resta "in attesa" e non muove nessun numero finché non lo confermi. */
+const METHOD_MEANING: Record<string, string> = {
+  learned: 'regola appresa dalle conferme precedenti su movimenti simili',
+  learned_rule: 'regola appresa dalle conferme precedenti su movimenti simili',
+  keyword: 'parola chiave riconosciuta nella descrizione del movimento',
+  pattern: 'pattern ricorrente (stessa controparte o importo tipico)',
+  manual: 'categoria assegnata o confermata a mano da un operatore',
+}
+function confidenceMeaning(pct: number): string {
+  if (pct >= 85) return 'alta, confermabile anche in blocco'
+  if (pct >= 65) return 'media, conviene controllare prima di confermare'
+  return 'bassa, verifica con attenzione'
+}
+function DescriptionTooltipContent(
+  { m, catName, isConfirmed }: { m: CashMovement; catName: string | null; isConfirmed: boolean },
+) {
+  const pct = m.ai_confidence != null ? Math.round(m.ai_confidence * 100) : null
+  const stato = isConfirmed
+    ? 'Confermato'
+    : m.ai_category_id ? "Suggerito dall'IA — da verificare" : 'Non categorizzato'
+  // Impatto a valle: perché e dove conta questo dato.
+  const impatto = isConfirmed
+    ? 'Conteggiato nei report per categoria: Conto Economico (vista cassa), Margini per Categoria e Costi Ricorrenti.'
+    : m.ai_category_id
+      ? 'Il suggerimento NON è ancora conteggiato: entra nei report solo dopo la tua conferma.'
+      : 'Non entra in nessun report per categoria finché non gli assegni una categoria.'
+  return (
+    <div className="space-y-1.5">
+      <div className="font-semibold text-white break-words">{m.description || '—'}</div>
+      <div className="h-px bg-white/15" />
+      <div className="space-y-0.5 text-slate-200">
+        {m.counterpart && <div><span className="text-slate-400">Controparte:</span> {m.counterpart}</div>}
+        <div><span className="text-slate-400">Stato:</span> {stato}</div>
+        <div><span className="text-slate-400">Categoria:</span> {catName || 'nessuna'}</div>
+        {pct != null && (
+          <div><span className="text-slate-400">Confidenza:</span> {pct}% — {confidenceMeaning(pct)}</div>
+        )}
+        {m.ai_method && (
+          <div><span className="text-slate-400">Metodo:</span> {METHOD_MEANING[m.ai_method] || m.ai_method}</div>
+        )}
+      </div>
+      <div className="h-px bg-white/15" />
+      <div className="text-slate-200"><span className="text-slate-400">Impatto:</span> {impatto}</div>
+    </div>
   )
 }
 
@@ -165,13 +224,20 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
     try {
       // BUG-003 fix (PROMPT_TS_STRICT_COMPLETION Fase 2): allineato a schema
       // reale di ai_anomaly_log (is_resolved + created_at).
-      const [movRes, catRes, anomRes] = await Promise.all([
-        supabase
-          .from('cash_movements')
-          .select('id, date, description, counterpart, amount, type, cost_category_id, ai_category_id, ai_confidence, ai_method, ai_categorized_at, verified, bank_account_id')
-          .eq('company_id', companyId)
-          .order('date', { ascending: false })
-          .limit(500),
+      // cash_movements paginato: prima `.limit(500)` calcolava i KPI e i contatori
+      // dei tab solo sui 500 movimenti piu' recenti (il resto restava fuori senza
+      // avviso, e "Conferma tutti" agiva solo su quei 500). Ora l'intero dataset.
+      const [movData, catRes, anomRes] = await Promise.all([
+        fetchAllPaged<CashMovement>(
+          (from, to) => supabase
+            .from('cash_movements')
+            .select('id, date, description, counterpart, amount, type, cost_category_id, ai_category_id, ai_confidence, ai_method, ai_categorized_at, verified, bank_account_id')
+            .eq('company_id', companyId)
+            .order('date', { ascending: false })
+            .order('id', { ascending: false })
+            .range(from, to),
+          'cash_movements (AI categorie)',
+        ),
         supabase
           .from('cost_categories')
           .select('id, name')
@@ -185,12 +251,12 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
           .order('created_at', { ascending: false })
           .limit(50),
       ])
-      if (movRes.data) setMovements(movRes.data as unknown as CashMovement[])
+      setMovements(movData as unknown as CashMovement[])
       if (catRes.data) setCategories(catRes.data)
       if (anomRes.data) setAnomalies(anomRes.data as unknown as AnomalyEntry[])
 
       // Compute stats
-      const all = movRes.data || []
+      const all = movData || []
       const categorized = all.filter(m => m.cost_category_id || m.ai_category_id)
       const aiCat = all.filter(m => m.ai_category_id && !m.cost_category_id)
       const confirmed = all.filter(m => m.cost_category_id)
@@ -338,14 +404,32 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
 
     setBatchRunning(true)
     try {
+      // Stessa strada della conferma singola (confirmCategory): la edge function
+      // scrive lei su cash_movements, che e' una VISTA su bank_transactions +
+      // cash_movement_ai aggiornabile grazie al trigger INSTEAD OF UPDATE
+      // cash_movements_ai_upd. I tipi generati danno ogni vista in sola lettura
+      // (Update: never), quindi scrivere dal client obbligherebbe a forzarli.
+      // In piu' il metodo resta 'manual' (l'unico valore che il CHECK su
+      // ai_method ammette per una conferma dell'operatore) e le regole apprese
+      // vengono rinforzate, esattamente come confermando una riga alla volta.
+      let failed = 0
       for (const m of highConf) {
-        await supabase
-          .from('cash_movements')
-          .update({
-            cost_category_id: m.ai_category_id,
-            ai_method: 'auto_confirmed',
+        try {
+          await callEdgeFunction('ai-categorize', 'POST', {
+            mode: 'confirm',
+            movementId: m.id,
+            categoryId: m.ai_category_id,
+            confirmed: true,
           })
-          .eq('id', m.id)
+        } catch (e) {
+          // Una riga che fallisce non ferma le altre: la vecchia versione
+          // ignorava l'errore di ogni update, qui almeno lo si conta.
+          failed++
+          console.error('Batch confirm error su', m.id, e)
+        }
+      }
+      if (failed > 0) {
+        toast({ type: 'error', message: `${failed} conferme su ${highConf.length} non riuscite` })
       }
       await loadData()
     } catch (e) {
@@ -570,7 +654,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                 : 'Nessun movimento trovato.'}
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-white z-10">
                 <tr className="border-b border-slate-100 text-[11px] text-slate-400 uppercase tracking-wider">
@@ -599,7 +683,10 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                         {fmtDate(m.date)}
                       </td>
                       <td className="py-2.5 px-4 text-slate-800 max-w-[240px]">
-                        <Tooltip content={m.description || ''}>
+                        <Tooltip
+                          content={<DescriptionTooltipContent m={m} catName={catName} isConfirmed={isConfirmed} />}
+                          maxWidth={440}
+                        >
                           <span className="block truncate text-[13px]">
                             {m.description || '—'}
                           </span>
@@ -634,7 +721,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                             {catName}
                           </span>
                         ) : (
-                          <span className="text-xs text-slate-300">Non categorizzato</span>
+                          <span className="text-xs text-slate-500">Non categorizzato</span>
                         )}
                       </td>
                       <td className="py-2.5 px-4 text-center">
@@ -656,6 +743,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
                             <button
                               onClick={() => { setEditingId(null); setEditCategory('') }}
                               className="inline-flex items-center gap-0.5 px-2 py-1 text-[10px] font-medium text-slate-500 border border-slate-200 rounded-md hover:bg-slate-50 transition"
+                              title="Annulla"
                             >
                               <X size={10} />
                             </button>

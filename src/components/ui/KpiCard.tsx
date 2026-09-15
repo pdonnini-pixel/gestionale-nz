@@ -1,5 +1,6 @@
 import React from 'react'
 import { TrendingUp, TrendingDown, Minus, LucideIcon } from 'lucide-react'
+import Tooltip from '../Tooltip'
 
 const colorSchemes = {
   primary: {
@@ -87,8 +88,14 @@ export default function KpiCard({
       )}
 
       <div className="flex-1 min-w-0">
-        <p className="text-sm text-slate-500 truncate" title={title}>{title}</p>
-        <p className="text-2xl font-bold text-slate-900 truncate" title={String(value)}>{value}</p>
+        {/* Tooltip condiviso (funziona anche su touch) al posto del title
+            nativo, invisibile da smartphone */}
+        <Tooltip content={title}>
+          <p className="text-sm text-slate-500 truncate">{title}</p>
+        </Tooltip>
+        <Tooltip content={String(value)}>
+          <p className="text-2xl font-bold text-slate-900 truncate">{value}</p>
+        </Tooltip>
       </div>
 
       {trendValue && (

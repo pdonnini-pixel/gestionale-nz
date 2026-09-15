@@ -10,9 +10,11 @@ import {
 } from 'recharts';
 import { TrendingUp, TrendingDown, ShoppingCart, DollarSign, Package, Eye, Store } from 'lucide-react';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
+import { useIsMobile } from '../hooks/useIsMobile';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useOutlets } from '../hooks/useOutlets';
 import PageHeader from '../components/PageHeader';
+import { outletLifecycleCaption, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle';
 
 // Formato numero italiano
 function fmt(n: number, dec = 0): string {
@@ -222,14 +224,25 @@ function getPerformers(posData: POSData, outlets: OutletConfig[]) {
 
 export default function AnalyticsPOS() {
   const labels = useCompanyLabels();
+  const isMobile = useIsMobile();
   const { outlets: tenantOutlets, loading: outletsLoading } = useOutlets();
   const [selectedOutlet, setSelectedOutlet] = useState<string | null>(null);
 
   // Outlet derivati dagli outlet reali del tenant (non più cablati su NZ).
   // I dati POS restano simulati (nessuna sorgente cassa nel DB) ma per-tenant.
-  const outlets = useMemo(() => buildOutletsFromTenant(tenantOutlets), [tenantOutlets]);
+  // Gli outlet «in apertura» (opening_date futura) NON ricevono dati simulati:
+  // restano nel selettore ma mostrano l'avviso «nessun dato prima dell'apertura».
+  const outlets = useMemo(
+    () => buildOutletsFromTenant(tenantOutlets.filter(o => o.lifecycle !== 'programmato')),
+    [tenantOutlets],
+  );
+  const plannedOutlets = useMemo(() => tenantOutlets.filter(o => o.lifecycle === 'programmato'), [tenantOutlets]);
   // Empty state finché il tenant non ha almeno un outlet configurato.
-  const hasOutlets = outlets.length > 0;
+  const hasOutlets = tenantOutlets.length > 0;
+  const hasOperativeOutlets = outlets.length > 0;
+  // Selezione su un outlet in apertura: nessun dato da calcolare (posData non lo contiene).
+  const plannedSelected = plannedOutlets.find(o => o.id === selectedOutlet) ?? null;
+  const effectiveSelected = plannedSelected ? null : selectedOutlet;
   // viewMode persistito in URL come ?view=… (default 'annual')
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get('view');
@@ -244,12 +257,12 @@ export default function AnalyticsPOS() {
 
   const posData = useMemo(() => generatePOSData(outlets), [outlets]);
   const chartData = useMemo(() => buildChartData(posData), [posData]);
-  const kpis = useMemo(() => calculateKPIs(posData, selectedOutlet), [posData, selectedOutlet]);
-  const distribution = useMemo(() => calculateDistribution(posData, selectedOutlet), [posData, selectedOutlet]);
+  const kpis = useMemo(() => calculateKPIs(posData, effectiveSelected), [posData, effectiveSelected]);
+  const distribution = useMemo(() => calculateDistribution(posData, effectiveSelected), [posData, effectiveSelected]);
   const performers = useMemo(() => getPerformers(posData, outlets), [posData, outlets]);
 
-  const outletData = selectedOutlet
-    ? outlets.filter(o => o.id === selectedOutlet)
+  const outletData = effectiveSelected
+    ? outlets.filter(o => o.id === effectiveSelected)
     : outlets;
 
   // Table: outlet comparison
@@ -331,9 +344,9 @@ export default function AnalyticsPOS() {
               className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">Tutti gli {labels.pointOfSalePluralLower}</option>
-              {outlets.map(outlet => (
+              {tenantOutlets.map(outlet => (
                 <option key={outlet.id} value={outlet.id}>
-                  {outlet.label}
+                  {outlet.lifecycle === 'programmato' ? `${outlet.name} · ${outletLifecycleCaption(outlet)}` : outlet.name}
                 </option>
               ))}
             </select>
@@ -366,6 +379,19 @@ export default function AnalyticsPOS() {
           </div>
         </div>
 
+        {plannedSelected || !hasOperativeOutlets ? (
+          /* Outlet in apertura: nessun dato POS (nemmeno simulato) prima dell'apertura. */
+          <div className="bg-white rounded-2xl border border-blue-200 p-10 text-center">
+            <Store className="w-14 h-14 mx-auto mb-4 text-blue-300" />
+            <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full mb-3 ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
+              {outletLifecycleCaption(plannedSelected ?? plannedOutlets[0])}
+            </span>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              {outletLifecycleCaption(plannedSelected ?? plannedOutlets[0])}: nessun dato operativo prima dell'apertura.
+            </p>
+          </div>
+        ) : (
+        <>
         {/* KPI Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
@@ -464,8 +490,10 @@ export default function AnalyticsPOS() {
                   cx="50%"
                   cy="50%"
                   labelLine={false}
-                  label={({ name, value }) => `${name}: ${fmt(value)}`}
-                  outerRadius={100}
+                  // Su mobile le etichette esterne (nome + valore) escono dal
+                  // riquadro e vengono tagliate: al loro posto c'è la legenda sotto.
+                  label={isMobile ? false : ({ name, value }) => `${name}: ${fmt(value)}`}
+                  outerRadius={isMobile ? 80 : 100}
                   fill="#8884d8"
                   dataKey="value"
                   paddingAngle={3}
@@ -482,6 +510,7 @@ export default function AnalyticsPOS() {
                   ))}
                 </Pie>
                 <Tooltip content={<GlassTooltip formatter={(value) => fmt(value)} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
+                {isMobile && <Legend wrapperStyle={{ fontSize: 12 }} />}
               </PieChart>
             </ResponsiveContainer>
           </div>
@@ -519,10 +548,14 @@ export default function AnalyticsPOS() {
                 </linearGradient>
               </defs>
               <CartesianGrid {...GRID_STYLE} />
-              <XAxis dataKey="month_label" {...AXIS_STYLE} />
-              <YAxis {...AXIS_STYLE} />
+              {/* Su mobile 12 etichette mese x N outlet sono illeggibili: si
+                  mostra un tick su 2 con font ridotto e legenda più compatta */}
+              <XAxis dataKey="month_label" {...AXIS_STYLE}
+                interval={isMobile ? 1 : undefined}
+                tick={{ ...AXIS_STYLE.tick, fontSize: isMobile ? 10 : AXIS_STYLE.tick.fontSize }} />
+              <YAxis {...AXIS_STYLE} width={isMobile ? 34 : 60} />
               <Tooltip content={<GlassTooltip formatter={(value) => fmt(value)} />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
-              <Legend />
+              <Legend wrapperStyle={isMobile ? { fontSize: 11 } : undefined} />
               {outletData.map((outlet, idx) => {
                 const gradientId = `grad-scontrini-${idx + 1}`;
                 return (
@@ -543,7 +576,7 @@ export default function AnalyticsPOS() {
         {/* Table - Outlet Comparison */}
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
           <h3 className="text-lg font-bold text-slate-900 mb-6">Confronto {labels.pointOfSalePlural} - Metriche Annuali</h3>
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-200">
@@ -641,6 +674,8 @@ export default function AnalyticsPOS() {
             </div>
           </div>
         </div>
+        </>
+        )}
       </div>
     </div>
   );

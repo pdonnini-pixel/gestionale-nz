@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ClipboardList, ChevronDown, ChevronRight, Landmark, CheckCircle2, Clock, Loader2 } from 'lucide-react'
+import { ClipboardList, ChevronDown, ChevronRight, Landmark, CheckCircle2, Clock, Loader2, Trash2, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
+import { useToast } from '../components/Toast'
+import { Modal } from './scadenzario/SharedUI'
 import PageHeader from '../components/PageHeader'
 
 // Storico delle distinte di pagamento (disposizioni fornitori).
@@ -24,7 +26,12 @@ interface DispRow {
     status: string | null
     due_date: string | null
     payment_date: string | null
+    amount_paid: number | null
   } | null
+  // Riga di scadenza FISCALE (F24/interna): la disposizione sta su fiscal_deadlines,
+  // non su payable_actions → cancellare azzera le colonne disposizione_* di quella riga.
+  _isFiscal?: boolean
+  _fiscalId?: string
 }
 
 interface BankAgg { bankId: string; bankName: string; total: number; count: number; paidTotal: number; paidCount: number }
@@ -39,15 +46,99 @@ interface Distinta {
 const fmt = (n: number) =>
   new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n || 0)
 
-const isPaid = (s: string | null | undefined) => s === 'pagato'
+// Una riga di distinta è ESEGUITA quando l'importo che è stato disposto risulta
+// pagato, non quando l'intera fattura è saldata. Sono due cose diverse: un acconto
+// (es. WOLF GROUP 218, 39.445,90 disposti il 6/8 e usciti il 7/8 su una fattura da
+// 79.683,24) è una disposizione conclusa, mentre la fattura resta aperta per il
+// residuo. Guardando solo lo stato della fattura, la distinta restava aperta per
+// sempre per colpa di una riga che invece era finita.
+const isPaid = (r: DispRow) => {
+  const s = r.payables?.status
+  if (s === 'pagato') return true
+  const disposto = Number(r.amount ?? 0)
+  const pagato = Number(r.payables?.amount_paid ?? 0)
+  return disposto > 0 && pagato >= disposto - 0.005
+}
+
+// Disposizione eseguita su una fattura che resta aperta per il residuo: in tabella
+// si dice "Acconto" e non "Pagato", altrimenti sembra saldata l'intera fattura.
+const isAcconto = (r: DispRow) => isPaid(r) && r.payables?.status !== 'pagato'
+
+// Una scadenza è cancellabile dalla distinta finché il pagamento non è (nemmeno in
+// parte) avvenuto: nessuna data pagamento e stato non pagato/parziale/annullato.
+// "prima che venga pagata". Cancellare la disposizione riporta la fattura attiva
+// nello Scadenzario (operazione reversibile, come "Rimuovi dalla distinta").
+const canDeleteRow = (r: DispRow) => {
+  const s = r.payables?.status
+  return !r.payables?.payment_date && s !== 'pagato' && s !== 'parziale' && s !== 'annullato'
+}
+
+// Builder minimale per payable_credit_note_links (non è nei tipi generati).
+type PcnlDelete = { delete: () => { in: (c: string, v: string[]) => { eq: (c: string, v: string) => Promise<unknown> } } }
+const pcnl = () => (supabase.from as unknown as (t: string) => PcnlDelete)('payable_credit_note_links')
 
 export default function StoricoDistinte() {
   const { profile } = useAuth()
+  const { toast } = useToast()
   const COMPANY_ID = profile?.company_id
   const [rows, setRows] = useState<DispRow[]>([])
   const [bankNames, setBankNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState<Record<string, boolean>>({})
+  // Conferma cancellazione: scope 'day' (intera distinta) o 'row' (singola scadenza).
+  const [deleteTarget, setDeleteTarget] = useState<{ giorno: string; rows: DispRow[]; scope: 'day' | 'row' } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+
+  // Cancella le disposizioni (riporta le fatture attive nello Scadenzario). Agisce
+  // SOLO sulle righe ancora non pagate; le pagate restano intoccate.
+  const performDelete = async () => {
+    if (!deleteTarget || deleting) return
+    const targetRows = deleteTarget.rows.filter(canDeleteRow)
+    if (targetRows.length === 0) { setDeleteTarget(null); return }
+    setDeleting(true)
+    try {
+      // Fatture fornitori (payable_actions) vs scadenze fiscali (fiscal_deadlines): trattate a parte.
+      const normalRows = targetRows.filter(r => !r._isFiscal)
+      const fiscalRows = targetRows.filter(r => r._isFiscal)
+      const actionIds = normalRows.map(r => r.id)
+      const payableIds = [...new Set(normalRows.map(r => r.payables?.id).filter(Boolean) as string[])]
+      const fiscalIds = [...new Set(fiscalRows.map(r => r._fiscalId).filter(Boolean) as string[])]
+
+      if (actionIds.length) {
+        // 1) Rimuovo i legami NC↔fattura ancora 'pending' (l'intenzione di compensazione
+        //    decade con la distinta). Best-effort: ignoro se la tabella non c'è.
+        try { await pcnl().delete().in('payable_id', payableIds).eq('status', 'pending') } catch { /* tabella assente */ }
+
+        // 2) Cancello le righe 'disposizione' (la distinta), per id azione.
+        const { error: delErr } = await supabase.from('payable_actions').delete().in('id', actionIds)
+        if (delErr) { toast({ type: 'error', message: 'Errore cancellazione distinta: ' + delErr.message }); setDeleting(false); return }
+
+        // 3) Azzero la banca attesa solo sulle fatture ancora "aperte" (guardia lato query:
+        //    nessuna data pagamento, stato non pagato/parziale). Come "Rimuovi dalla distinta".
+        const { error: bankErr } = await supabase.from('payables')
+          .update({ payment_bank_account_id: null } as never)
+          .in('id', payableIds).is('payment_date', null).not('status', 'in', '("pagato","parziale")')
+        if (bankErr) console.warn('[storico-distinte] azzeramento banca attesa:', bankErr.message)
+      }
+
+      if (fiscalIds.length) {
+        // Scadenze fiscali: azzero le colonne disposizione_* (solo se non già pagate).
+        const { error: fErr } = await supabase.from('fiscal_deadlines')
+          .update({ disposizione_date: null, disposizione_bank_account_id: null, disposizione_amount: null, disposizione_note: null } as never)
+          .in('id', fiscalIds).neq('status', 'paid')
+        if (fErr) { toast({ type: 'error', message: 'Errore cancellazione distinta fiscale: ' + fErr.message }); setDeleting(false); return }
+      }
+
+      const removed = new Set(targetRows.map(r => r.id))
+      setRows(prev => prev.filter(r => !removed.has(r.id)))
+      toast({ type: 'success', message: targetRows.length === 1 ? 'Scadenza rimossa dalla distinta.' : `${targetRows.length} scadenze rimosse dalla distinta.` })
+      setDeleteTarget(null)
+    } catch (e) {
+      toast({ type: 'error', message: 'Errore cancellazione distinta: ' + (e instanceof Error ? e.message : String(e)) })
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   useEffect(() => {
     if (!COMPANY_ID) return
@@ -55,20 +146,50 @@ export default function StoricoDistinte() {
     ;(async () => {
       setLoading(true)
       try {
-        const [{ data: banks }, { data }] = await Promise.all([
+        const [{ data: banks }, { data }, { data: fiscal }] = await Promise.all([
           supabase.from('bank_accounts').select('id, bank_name').eq('company_id', COMPANY_ID),
           supabase
             .from('payable_actions')
-            .select('id, amount, bank_account_id, note, performed_at, operator_name, payables!inner(id, invoice_number, supplier_name, gross_amount, status, due_date, payment_date, company_id)')
+            .select('id, amount, bank_account_id, note, performed_at, operator_name, payables!inner(id, invoice_number, supplier_name, gross_amount, status, due_date, payment_date, amount_paid, company_id)')
             .eq('action_type', 'disposizione')
             .eq('payables.company_id', COMPANY_ID)
             .order('performed_at', { ascending: false }),
+          // Disposizioni delle scadenze fiscali (F24/interne): stanno su fiscal_deadlines.
+          supabase
+            .from('fiscal_deadlines')
+            .select('id, title, deadline_type, amount, amount_paid, status, due_date, paid_date, disposizione_date, disposizione_bank_account_id, disposizione_amount, disposizione_note')
+            .eq('company_id', COMPANY_ID)
+            .not('disposizione_date', 'is', null)
+            .order('disposizione_date', { ascending: false }),
         ])
         if (!active) return
         const bmap: Record<string, string> = {}
         ;(banks as { id: string; bank_name: string | null }[] | null)?.forEach(b => { bmap[b.id] = b.bank_name || '—' })
         setBankNames(bmap)
-        setRows(((data || []) as unknown as DispRow[]))
+        // Scadenze fiscali → stessa forma DispRow, così si raggruppano per giorno come le fatture.
+        const fiscalRows: DispRow[] = ((fiscal || []) as unknown as Record<string, unknown>[]).map(fd => ({
+          id: `fiscaldisp_${String(fd.id)}`,
+          amount: fd.disposizione_amount != null ? Number(fd.disposizione_amount) : (fd.amount != null ? Number(fd.amount) : null),
+          bank_account_id: (fd.disposizione_bank_account_id as string | null) ?? null,
+          note: (fd.disposizione_note as string | null) ?? null,
+          performed_at: String(fd.disposizione_date),
+          operator_name: null,
+          payables: {
+            id: `fiscal_${String(fd.id)}`,
+            invoice_number: (fd.title as string | null) || (fd.deadline_type as string | null) || '—',
+            supplier_name: `📋 ${((fd.deadline_type as string | null) || 'Fiscale').toUpperCase()}`,
+            gross_amount: fd.amount != null ? Number(fd.amount) : null,
+            status: fd.status === 'paid' ? 'pagato' : (fd.status as string | null) ?? null,
+            due_date: (fd.due_date as string | null) ?? null,
+            payment_date: (fd.paid_date as string | null) ?? null,
+            amount_paid: fd.amount_paid != null ? Number(fd.amount_paid) : null,
+          },
+          _isFiscal: true,
+          _fiscalId: String(fd.id),
+        }))
+        const merged = [...((data || []) as unknown as DispRow[]), ...fiscalRows]
+        merged.sort((a, b) => (a.performed_at < b.performed_at ? 1 : -1))
+        setRows(merged)
       } catch (e) {
         console.warn('[storico-distinte]', e)
       } finally {
@@ -92,7 +213,7 @@ export default function StoricoDistinte() {
       const bankMap = new Map<string, BankAgg>()
       for (const r of righe) {
         const amt = Number(r.amount ?? r.payables?.gross_amount ?? 0)
-        const paid = isPaid(r.payables?.status)
+        const paid = isPaid(r)
         totale += amt
         if (paid) totalePagato += amt
         const bid = r.bank_account_id || 'nd'
@@ -150,35 +271,63 @@ export default function StoricoDistinte() {
           <div className="space-y-4">
             {distinte.map(d => {
               const isOpen = open[d.giorno] ?? false
+              const deletableRows = d.righe.filter(canDeleteRow)
               return (
                 <div key={d.giorno} className="rounded-xl border border-slate-200 overflow-hidden">
-                  <button
-                    onClick={() => setOpen(o => ({ ...o, [d.giorno]: !isOpen }))}
-                    className="w-full flex flex-col md:flex-row md:items-center gap-3 px-4 py-3 text-left hover:bg-slate-50"
-                  >
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      {isOpen ? <ChevronDown size={18} className="text-slate-400 shrink-0" /> : <ChevronRight size={18} className="text-slate-400 shrink-0" />}
-                      <ClipboardList size={18} className="text-blue-500 shrink-0" />
-                      <div className="min-w-0">
-                        <div className="font-semibold text-slate-800 capitalize truncate">Distinta del {fmtGiorno(d.giorno)}</div>
-                        <div className="text-xs text-slate-400">{d.righe.length} scadenz{d.righe.length === 1 ? 'a' : 'e'}</div>
+                  <div className="w-full flex items-stretch">
+                    <button
+                      onClick={() => setOpen(o => ({ ...o, [d.giorno]: !isOpen }))}
+                      className="flex-1 min-w-0 px-4 py-3 text-left hover:bg-slate-50"
+                    >
+                      {/* Data e totali sulla PRIMA riga, chip banca sotto: con 4-5 banche dai
+                          nomi lunghi i chip stavano sulla stessa riga del titolo e lo
+                          schiacciavano fino a nasconderlo. Ora la data resta sempre leggibile. */}
+                      <div className="flex items-start gap-2">
+                        {isOpen ? <ChevronDown size={18} className="text-slate-400 shrink-0 mt-0.5" /> : <ChevronRight size={18} className="text-slate-400 shrink-0 mt-0.5" />}
+                        <ClipboardList size={18} className="text-blue-500 shrink-0 mt-0.5" />
+                        {/* Su schermo stretto il totale va SOTTO la data: affiancato le
+                            spezzava la riga parola per parola. */}
+                        <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-start sm:gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-slate-800 leading-snug">Distinta del {fmtGiorno(d.giorno)}</div>
+                            <div className="text-xs text-slate-400">{d.righe.length} scadenz{d.righe.length === 1 ? 'a' : 'e'}</div>
+                          </div>
+                          <div className="shrink-0 mt-1 sm:mt-0 sm:text-right">
+                            <div className="text-base font-bold text-slate-900">€ {fmt(d.totale)}</div>
+                            <div className="text-[11px] text-emerald-600">pagato € {fmt(d.totalePagato)}</div>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-                    {/* chip per banca */}
-                    <div className="flex flex-wrap gap-1.5">
-                      {d.banche.map(b => (
-                        <span key={b.bankId} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 text-[11px] text-slate-600">
-                          <Landmark size={11} className="text-slate-400" />
-                          <span className="font-medium">{b.bankName}</span>
-                          <span className="text-slate-500">€ {fmt(b.total)}</span>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-base font-bold text-slate-900">€ {fmt(d.totale)}</div>
-                      <div className="text-[11px] text-emerald-600">pagato € {fmt(d.totalePagato)}</div>
-                    </div>
-                  </button>
+                      {/* Chip per banca: riga propria, a capo libero. Quando la distinta è
+                          aperta si nascondono, perché sotto c'è già il dettaglio per banca. */}
+                      {!isOpen && (
+                        <div className="flex flex-wrap gap-1.5 mt-2 sm:pl-11">
+                          {d.banche.map(b => (
+                            <span
+                              key={b.bankId}
+                              title={`${b.bankName} — € ${fmt(b.total)}`}
+                              className="inline-flex items-center gap-1 max-w-full px-2 py-1 rounded-lg bg-slate-100 text-[11px] text-slate-600"
+                            >
+                              <Landmark size={11} className="text-slate-400 shrink-0" />
+                              <span className="font-medium truncate max-w-[180px] sm:max-w-[260px]">{b.bankName}</span>
+                              <span className="text-slate-500 shrink-0">€ {fmt(b.total)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                    {/* Elimina l'intera distinta: solo le scadenze non ancora pagate.
+                        Le pagate restano. Compare solo se c'è qualcosa da eliminare. */}
+                    {deletableRows.length > 0 && (
+                      <button
+                        onClick={() => setDeleteTarget({ giorno: d.giorno, rows: deletableRows, scope: 'day' })}
+                        title="Elimina la distinta (solo scadenze non ancora pagate)"
+                        className="shrink-0 px-3 flex items-center gap-1.5 text-rose-600 hover:bg-rose-50 border-l border-slate-100 text-xs font-medium"
+                      >
+                        <Trash2 size={15} /> <span className="hidden sm:inline">Elimina</span>
+                      </button>
+                    )}
+                  </div>
 
                   {isOpen && (
                     <div className="border-t border-slate-100">
@@ -201,7 +350,7 @@ export default function StoricoDistinte() {
                         ))}
                       </div>
                       {/* Lista fatture */}
-                      <div className="overflow-x-auto">
+                      <div className="overflow-x-auto scroll-shadow-x">
                         <table className="w-full text-sm">
                           <thead>
                             <tr className="text-left text-[11px] uppercase tracking-wider text-slate-500 border-b border-slate-100">
@@ -210,12 +359,14 @@ export default function StoricoDistinte() {
                               <th className="py-2 px-4 font-medium">Banca</th>
                               <th className="py-2 px-4 font-medium text-right">Importo</th>
                               <th className="py-2 px-4 font-medium text-center">Stato</th>
+                              <th className="py-2 px-4 font-medium text-center w-10"></th>
                             </tr>
                           </thead>
                           <tbody>
                             {d.righe.map(r => {
-                              const paid = isPaid(r.payables?.status)
+                              const paid = isPaid(r)
                               const amt = Number(r.amount ?? r.payables?.gross_amount ?? 0)
+                              const deletable = canDeleteRow(r)
                               return (
                                 <tr key={r.id} className="border-b border-slate-50 last:border-0">
                                   <td className="py-2 px-4 text-slate-800">{r.payables?.supplier_name || '—'}</td>
@@ -224,13 +375,25 @@ export default function StoricoDistinte() {
                                   <td className="py-2 px-4 text-right font-medium text-slate-800">€ {fmt(amt)}</td>
                                   <td className="py-2 px-4 text-center">
                                     {paid ? (
-                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 text-[11px] font-medium">
-                                        <CheckCircle2 size={11} /> Pagato
+                                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium ${isAcconto(r) ? 'bg-sky-100 text-sky-700' : 'bg-emerald-100 text-emerald-700'}`}
+                                        title={isAcconto(r) ? 'Acconto versato: la disposizione è conclusa, la fattura resta aperta per il residuo' : undefined}>
+                                        <CheckCircle2 size={11} /> {isAcconto(r) ? 'Acconto' : 'Pagato'}
                                       </span>
                                     ) : (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-100 text-amber-700 text-[11px] font-medium">
                                         <Clock size={11} /> In distinta
                                       </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-4 text-center">
+                                    {deletable && (
+                                      <button
+                                        onClick={() => setDeleteTarget({ giorno: d.giorno, rows: [r], scope: 'row' })}
+                                        title="Rimuovi questa scadenza dalla distinta"
+                                        className="p-1.5 rounded-lg text-rose-500 hover:bg-rose-50"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
                                     )}
                                   </td>
                                 </tr>
@@ -247,6 +410,32 @@ export default function StoricoDistinte() {
           </div>
         )}
       </div>
+
+      {/* Conferma cancellazione distinta / scadenza */}
+      {deleteTarget && (
+        <Modal open={true} onClose={() => { if (!deleting) setDeleteTarget(null) }} title={deleteTarget.scope === 'row' ? 'Rimuovere dalla distinta?' : 'Eliminare la distinta?'}>
+          <div className="space-y-4">
+            <div className="flex items-start gap-2 p-3 rounded-lg bg-amber-50 border border-amber-200">
+              <AlertTriangle size={18} className="text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-sm text-amber-800">
+                {deleteTarget.scope === 'row' ? (
+                  <>La scadenza <strong>{deleteTarget.rows[0]?.payables?.invoice_number || 'selezionata'}</strong> verrà tolta dalla distinta e tornerà attiva nello Scadenzario. Non viene cancellata nessuna fattura: solo la disposizione di pagamento.</>
+                ) : (
+                  <>Verranno tolte dalla distinta <strong>{deleteTarget.rows.filter(canDeleteRow).length} scadenz{deleteTarget.rows.filter(canDeleteRow).length === 1 ? 'a' : 'e'}</strong> non ancora pagat{deleteTarget.rows.filter(canDeleteRow).length === 1 ? 'a' : 'e'}, che torneranno attive nello Scadenzario. Le scadenze già pagate restano intoccate.</>
+                )}
+              </p>
+            </div>
+            <p className="text-xs text-slate-500">Puoi rifare la distinta in qualsiasi momento dallo Scadenzario. L'operazione è consentita solo finché il pagamento non è avvenuto.</p>
+            <div className="flex gap-3 pt-1">
+              <button onClick={() => setDeleteTarget(null)} disabled={deleting} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50 disabled:opacity-50">Annulla</button>
+              <button onClick={performDelete} disabled={deleting}
+                className="flex-1 py-2.5 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                {deleting ? <><Loader2 size={15} className="animate-spin" /> Elimino…</> : <><Trash2 size={15} /> {deleteTarget.scope === 'row' ? 'Rimuovi' : 'Elimina distinta'}</>}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   )
 }

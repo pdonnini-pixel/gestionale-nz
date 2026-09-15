@@ -8,7 +8,13 @@ export interface PreviewRow {
   warn?: boolean; // filiale che non quadra (somma netti ≠ totale di ripartizione)
 }
 export type ParsedImport = { rows: PreviewRow[]; fileTotal: number | null };
-export type ParserOutlet = { name: string; cost_center_key: string | null; mall_name?: string | null; city?: string | null };
+export type ParserOutlet = {
+  name: string; cost_center_key: string | null; mall_name?: string | null; city?: string | null;
+  // Nomi di filiale del software paghe non deducibili dall'anagrafica
+  // (migration 168). Es. la sede di NZ che nel file si chiama «LOC PIAN DI RONA
+  // - REGGELLO»: nessun campo anagrafico lo dice, quindi si configura a mano.
+  payroll_filiali?: string[] | null;
+};
 
 // Parsing numero italiano: "1.234,56" → 1234.56 ; gestisce anche "1234.56".
 export function parseItNum(v: unknown): number | null {
@@ -32,6 +38,11 @@ export function matchOutletName(text: string, outlets: ParserOutlet[]): string {
   const t = norm(text);
   if (!t) return '';
   const contains = (a: string, b: string) => a !== '' && b !== '' && (a === b || a.includes(b) || b.includes(a));
+  // 0) alias espliciti: vincono su tutto, perche' sono l'unica fonte quando il
+  // nome della filiale non ha niente a che vedere con l'anagrafica.
+  for (const o of outlets) {
+    if ((o.payroll_filiali || []).some((a) => contains(t, norm(a)))) return o.name;
+  }
   // 1) nome / mall_name / city (campi runtime dell'outlet — alias data-driven, no hardcoded)
   for (const o of outlets) {
     const cands = [o.name, o.mall_name, o.city].map(norm).filter(Boolean);
@@ -48,6 +59,17 @@ export function matchOutletName(text: string, outlets: ParserOutlet[]): string {
     if (firstWord && [o.name, o.mall_name, o.city].some((c) => norm(c).startsWith(firstWord))) return o.name;
   }
   return '';
+}
+
+// Riconosce i due tabulati dei NETTI dal titolo, per poter dire a chi li carica
+// nel posto sbagliato dove vanno. Tollerante ai caratteri raddoppiati del
+// grassetto PDF ("EElleennccoo"): ogni lettera una o due volte.
+const RE_ELENCO_NETTI = /e{1,2}l{1,2}e{1,2}n{1,2}c{1,2}o{1,2}\s+n{1,2}e{1,2}t{1,2}t{1,2}i{1,2}/i;
+const RE_NETTI_NEGATIVI = /n{1,2}e{1,2}t{1,2}t{1,2}i{1,2}\s+n{1,2}e{1,2}g{1,2}a{1,2}t{1,2}i{1,2}v{1,2}i{1,2}/i;
+export function tabulatoNetti(text: string): 'elenco' | 'negativi' | null {
+  if (RE_NETTI_NEGATIVI.test(text)) return 'negativi';
+  if (RE_ELENCO_NETTI.test(text)) return 'elenco';
+  return null;
 }
 
 export const FIELD_SYNS: Record<string, string[]> = {
@@ -121,10 +143,23 @@ const ROW_LABEL = /^(totale|totali|nr|n|di|del|della|ripartizione|aziendale|impo
 export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutlet[]): ParsedImport {
   const rows: PreviewRow[] = [];
   const TOL = 3;
+  // Una filiale puo' occupare PIU' pagine: l'intestazione "Filiale: …" viene
+  // stampata solo sulla prima, la seconda e' un seguito. Senza memoria, le
+  // persone della pagina di seguito restavano senza punto vendita (e la scheda
+  // usciva «da definire»). La filiale si trascina finche' non ne arriva un'altra.
+  let outlet = '';
+  // Righe della filiale in corso, in attesa del "Totale di ripartizione": il
+  // totale sta in fondo alla filiale, non in fondo alla pagina.
+  let pending: PreviewRow[] = [];
+  const flush = (warn: boolean) => {
+    if (warn) pending.forEach((r) => { r.warn = true; });
+    rows.push(...pending);
+    pending = [];
+  };
   for (const items of pages) {
     const fullText = items.map((i) => i.str).join(' ');
     const mf = fullText.match(/Filiale:\s*\d+\s*-\s*(.+?)\s*;/i);
-    const outlet = mf ? matchOutletName(mf[1], outlets) : '';
+    if (mf) { flush(false); outlet = matchOutletName(mf[1], outlets); }
 
     // raggruppa per X (riga)
     const groups: { x: number; items: PdfItem[] }[] = [];
@@ -173,11 +208,15 @@ export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutle
         if (nm) nrDip = parseInt(nm[1], 10);
       }
     }
-    const sum = pageRows.reduce<number>((s, r) => s + (r.netto || 0), 0);
-    const quadra = (totRip == null || Math.abs(sum - totRip) < 0.01) && (nrDip == null || nrDip === pageRows.length);
-    if (!quadra) pageRows.forEach((r) => { r.warn = true; });
-    rows.push(...pageRows);
+    pending.push(...pageRows);
+    // Il totale chiude la filiale: si verifica su TUTTE le sue righe (anche
+    // quelle arrivate dalla pagina precedente) e poi si scarica.
+    if (totRip != null || nrDip != null) {
+      const sum = pending.reduce<number>((s, r) => s + (r.netto || 0), 0);
+      flush(!((totRip == null || Math.abs(sum - totRip) < 0.01) && (nrDip == null || nrDip === pending.length)));
+    }
   }
+  flush(false); // filiale senza totale stampato: le righe restano, senza avviso
   const fileTotal = rows.reduce<number>((s, r) => s + (r.netto || 0), 0);
   return { rows, fileTotal: rows.length ? fileTotal : null };
 }
@@ -187,10 +226,14 @@ export function parseInfinityNettiItems(pages: PdfItem[][], outlets: ParserOutle
 // Validazione per filiale: somma(netti) == totale di ripartizione e N == Nr dipendenti.
 export function parseInfinityNettiPages(pages: string[], outlets: ParserOutlet[]): ParsedImport {
   const rows: PreviewRow[] = [];
+  // Come nella versione a item: la filiale si trascina sulle pagine di seguito,
+  // che non ripetono l'intestazione. Prima venivano scartate in blocco.
+  let outlet = '';
+  let seenFiliale = false;
   for (const page of pages) {
     const mf = page.match(/Filiale:\s*\d+\s*-\s*(.+?)\s*;/i);
-    if (!mf) continue;
-    const outlet = matchOutletName(mf[1], outlets);
+    if (mf) { outlet = matchOutletName(mf[1], outlets); seenFiliale = true; }
+    else if (!seenFiliale) continue; // copertina o pagina prima di ogni filiale
     // La validazione di filiale ignora tutto DA "Totale aziendale" in poi:
     // sull'ultima pagina ci sono due totali (ripartizione filiale + aziendale documento)
     // e l'aziendale non deve essere scambiato per il totale di filiale.
@@ -208,7 +251,7 @@ export function parseInfinityNettiPages(pages: string[], outlets: ParserOutlet[]
     const nrm = dd.match(/nr\s+dipendenti\s+(\d+)/i);
     const nrDip = nrm ? parseInt(nrm[1], 10) : null;
     const quadra = (totRip == null || Math.abs(sum - totRip) < 0.01) && (nrDip == null || nrDip === N);
-    const names = extractNames(work, mf[0], N);
+    const names = extractNames(work, mf ? mf[0] : null, N);
     for (let i = 0; i < N; i++) {
       const r = blankRow();
       r.matricola = mats[i];
@@ -379,6 +422,13 @@ export type ProspettoParsed = {
   isProspetto: boolean;
   rows: ProspettoOutletRow[];
   months: { year: number; month: number }[]; // periodi distinti trovati nel file
+  // Tipi di cedolino coperti dal file, letti dall'intestazione «Dal … - Al …».
+  // Il consulente manda DUE stampe per lo stesso mese: una col solo cedolino
+  // normale e una che parte dall'aggiuntivo e arriva al normale, cioe' il mese
+  // intero. Sono cumulative, non complementari: caricare la piu' corta DOPO
+  // quella completa toglierebbe la mensilita' aggiuntiva dal costo del mese.
+  tipiCedolino: string[];
+  soloNormale: boolean;
 };
 
 const MONTHS_IT: Record<string, number> = {
@@ -406,7 +456,10 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
   let ente: 'inps' | 'ebinter' | 'est' | 'gsep' | 'tfr' | null = null;
   let inInail = false;
 
+  // Tipi di cedolino nell'intestazione: «Dal Giugno 2026 Agg.1 - Al Giugno 2026 Norm.»
+  const tipiSet = new Set<string>();
   const setPeriod = (ln: string) => {
+    for (const m of ln.matchAll(/\d{4}\s+(Norm\.|Agg\.\d+|[A-Z][a-z]{2,}\.?\d*)(?=\s|$|-)/g)) tipiSet.add(m[1]);
     // "Dal Gennaio 2026 Norm. - Al Gennaio 2026 Norm." oppure "Dal Marzo 2026 Agg.1 - Al Marzo 2026 Norm."
     // il mese di competenza è quello del periodo (Dal/Al coincidono): prendo l'ultimo "<mese> <anno>".
     const all = [...ln.matchAll(/([A-Za-zàèéìòù]+)\s+(\d{4})/g)];
@@ -494,7 +547,11 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
     }
   }
 
-  return { isProspetto, rows: [...sections.values()], months };
+  const tipiCedolino = [...tipiSet];
+  // «solo normale» = il file copre un tipo solo ed e' quello ordinario: e' la
+  // stampa corta, quella che NON contiene le mensilita' aggiuntive del mese.
+  const soloNormale = tipiCedolino.length === 1 && /^norm/i.test(tipiCedolino[0]);
+  return { isProspetto, rows: [...sections.values()], months, tipiCedolino, soloNormale };
 }
 
 // ============================================================================

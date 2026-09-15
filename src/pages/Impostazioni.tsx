@@ -2,23 +2,25 @@ import { useState, useEffect, useCallback } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
   ChevronDown, ChevronUp, Check, AlertCircle, Search, Copy, Eye, EyeOff, Loader,
-  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send,
+  CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send, Mail, KeyRound,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useOutlets, isSellingOutlet } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
+import { slugCostCenter } from '../lib/costCenterKey'
 import PageHeader from '../components/PageHeader'
+import type { Database } from '../types/database'
 
 // Role-based permissions
 const ROLE_PERMISSIONS: Record<string, string[]> = {
-  super_advisor: ['company', 'users', 'costs', 'centri', 'sdi'],
+  super_advisor: ['company', 'users', 'costs', 'centri', 'sdi', 'report'],
   ceo: ['company', 'users', 'costs', 'centri', 'sdi'],
   cfo: ['company', 'costs', 'centri', 'sdi'],
   coo: ['company', 'costs', 'centri'],
-  contabile: ['costs', 'centri'],
-  store_manager: [],
-  operatrice: [],
+  contabile: ['costs', 'centri', 'report'],
+  operatore_cassa: [],
 }
 
 // Toast helper (shared via props)
@@ -43,8 +45,10 @@ const ROLE_OPTIONS = [
   { value: 'cfo', label: 'CFO', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'coo', label: 'COO', color: 'bg-amber-100 text-amber-700' },
   { value: 'contabile', label: 'Contabile', color: 'bg-slate-100 text-slate-700' },
-  { value: 'store_manager', label: 'Store Manager', color: 'bg-rose-100 text-rose-700' },
-  { value: 'operatrice', label: 'Operatrice', color: 'bg-sky-100 text-sky-700' },
+  // Account di negozio: un login per outlet, condiviso dal personale, che vede
+  // solo la Chiusura cassa del proprio punto vendita (RLS, migrazioni 172-173).
+  { value: 'operatore_cassa', label: 'Operatore cassa (negozio)', color: 'bg-sky-100 text-sky-700' },
+  { value: 'viewer', label: 'Sola lettura', color: 'bg-stone-100 text-stone-700' },
 ]
 
 const MACRO_GROUPS = [
@@ -269,7 +273,7 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   className="w-32 px-3 py-2 text-sm border border-slate-200 rounded-lg" />
                 <input value={s.quota} onChange={(e) => updateSocio(i, 'quota', e.target.value)} placeholder="Quota %"
                   className="w-24 px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-                <button onClick={() => removeSocio(i)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
+                <button onClick={() => removeSocio(i)} title="Rimuovi socio" className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg">
                   <Trash2 size={14} />
                 </button>
               </div>
@@ -336,96 +340,107 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // ==========================================
 function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const labels = useCompanyLabels()
+  const { outlets: tenantOutlets } = useOutlets()
   // TODO: tighten type — Supabase rows
   const [users, setUsers] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
-  const [costCenters, setCostCenters] = useState<any[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [search, setSearch] = useState('')
-  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] as string[] })
+  // outlet_id: per il ruolo operatore_cassa (un account per punto vendita) e'
+  // l'outlet su cui l'account puo' compilare la chiusura di cassa.
+  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Reimposta password: conferma inline, poi la nuova password viene mostrata
+  // UNA sola volta (non e' salvata in chiaro da nessuna parte).
+  const [confirmPassword, setConfirmPassword] = useState<string | null>(null)
+  const [newPassword, setNewPassword] = useState<{ userId: string; email: string; password: string } | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     loadUsers()
-    loadCostCenters()
   }, [])
 
+  // Chiamata alla funzione admin (unico punto che tocca i login reali).
+  const callAdmin = async (action: string, payload: Record<string, unknown> = {}) => {
+    const { data, error } = await supabase.functions.invoke('admin-manage-user', { body: { action, ...payload } })
+    if (error) {
+      // Estrai il messaggio applicativo se presente nel corpo della risposta
+      let msg = error.message
+      try { const ctx = (error as { context?: { body?: string } }).context; if (ctx?.body) { const j = JSON.parse(ctx.body); if (j?.error) msg = j.error } } catch { /* */ }
+      throw new Error(msg)
+    }
+    if (data && (data as { error?: string }).error) throw new Error((data as { error: string }).error)
+    return data
+  }
+
+  // Carica i VERI utenti (login) dell'azienda via funzione admin, mappandoli sulla
+  // struttura già usata dalla lista (nome/cognome/email/ruolo/is_active).
   const loadUsers = async () => {
     try {
       setLoading(true)
-      const { data, error } = await supabase
-        .from('app_users')
-        .select('*')
-        .eq('company_id', COMPANY_ID || '')
-        .order('nome', { ascending: true })
-
-      if (error) throw error
-      setUsers(data || [])
+      const res = await callAdmin('list') as { users?: Array<Record<string, unknown>> }
+      // Outlet assegnati (user_outlet_access): mostrati come etichette e usati
+      // per precompilare la modifica di un operatore di cassa.
+      const { data: access } = await supabase.from('user_outlet_access').select('user_id, outlet_id')
+      const accessByUser = new Map<string, string[]>()
+      for (const a of access ?? []) accessByUser.set(a.user_id, [...(accessByUser.get(a.user_id) ?? []), a.outlet_id])
+      const mapped = (res.users || []).map(u => ({
+        id: u.id,
+        nome: (u.first_name as string) || '',
+        cognome: (u.last_name as string) || '',
+        email: (u.email as string) || '',
+        ruolo: (u.role as string) || 'operatore_cassa',
+        is_active: u.active !== false,
+        last_sign_in_at: u.last_sign_in_at || null,
+        outlet_ids: accessByUser.get(u.id as string) ?? [],
+      }))
+      mapped.sort((a, b) => (a.nome + a.cognome).localeCompare(b.nome + b.cognome))
+      setUsers(mapped)
     } catch (err) {
-      showToast?.('Errore caricamento utenti', 'error')
+      showToast?.('Errore caricamento utenti: ' + (err as Error).message, 'error')
     } finally {
       setLoading(false)
     }
   }
 
-  const loadCostCenters = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('cost_centers')
-        .select('*')
-        .eq('company_id', COMPANY_ID || '')
-        .order('sort_order', { ascending: true })
-
-      if (error) throw error
-      setCostCenters(data || [])
-    } catch (err) {
-      showToast?.('Errore caricamento centri di costo', 'error')
-    }
-  }
-
   const resetForm = () => {
-    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatrice', is_active: true, outlet_access: ['all'] })
+    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
     setShowForm(false)
     setEditingId(null)
   }
 
-  const handleSave = async () => {
-    if (!form.nome.trim() || !form.cognome.trim() || !form.email.trim()) return
+  const isCashRole = form.ruolo === 'operatore_cassa'
 
+  // Nuovo utente = INVITO: crea il login e invia l'email per impostare la password.
+  // In modifica, cambia solo il ruolo (nome/email di un login esistente non si toccano qui).
+  // Per l'operatore di cassa l'outlet e' obbligatorio: la funzione admin lo
+  // scrive in user_outlet_access (can_write), da cui dipende la RLS della chiusura.
+  const handleSave = async () => {
     try {
       setSaving(true)
-      const payload = {
-        nome: form.nome,
-        cognome: form.cognome,
-        email: form.email,
-        ruolo: form.ruolo,
-        is_active: form.is_active,
-        outlet_access: form.outlet_access,
-        company_id: COMPANY_ID,
-      }
-
+      if (isCashRole && !form.outlet_id) { showToast?.(`Scegli il ${labels.pointOfSale.toLowerCase()} dell'account cassa`, 'error'); return }
+      const outletPayload = isCashRole ? { outlet_id: form.outlet_id } : {}
       if (editingId) {
-        const { error } = await supabase
-          .from('app_users')
-          .update(payload)
-          .eq('id', editingId)
-
-        if (error) throw error
+        await callAdmin('set_role', { user_id: editingId, role: form.ruolo, ...outletPayload })
+        showToast?.('Ruolo aggiornato')
       } else {
-        const { error } = await supabase
-          .from('app_users')
-          .insert([payload])
-
-        if (error) throw error
+        if (!form.email.trim()) { showToast?.('Email obbligatoria', 'error'); return }
+        await callAdmin('invite', {
+          email: form.email.trim(),
+          first_name: form.nome.trim(),
+          last_name: form.cognome.trim(),
+          role: form.ruolo,
+          redirectTo: `${window.location.origin}/reset-password`,
+          ...outletPayload,
+        })
+        showToast?.(`Invito inviato a ${form.email.trim()}`)
       }
-
       await loadUsers()
       resetForm()
-      showToast?.(editingId ? 'Utente aggiornato' : 'Utente creato')
     } catch (err) {
-      showToast?.('Errore salvataggio utente', 'error')
+      showToast?.('Errore: ' + (err as Error).message, 'error')
     } finally {
       setSaving(false)
     }
@@ -439,41 +454,64 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       email: u.email,
       ruolo: u.ruolo,
       is_active: u.is_active,
-      outlet_access: [...(u.outlet_access || ['all'])]
+      outlet_id: (u.outlet_ids as string[])[0] ?? '',
     })
     setEditingId(u.id)
     setShowForm(true)
   }
 
-  const handleDelete = async (id: string) => {
+  // Blocca/sblocca l'accesso (login) di un utente.
+  const handleToggleActive = async (id: string, active: boolean) => {
     try {
-      const { error } = await supabase
-        .from('app_users')
-        .delete()
-        .eq('id', id)
-
-      if (error) throw error
+      await callAdmin('set_active', { user_id: id, active })
       await loadUsers()
-      setConfirmDelete(null)
-      showToast?.('Utente eliminato')
+      showToast?.(active ? 'Accesso riattivato' : 'Accesso bloccato')
     } catch (err) {
-      showToast?.('Errore eliminazione utente', 'error')
+      showToast?.('Errore: ' + (err as Error).message, 'error')
     }
   }
 
-  const toggleOutlet = (outletCode: string) => {
-    setForm(prev => {
-      if (outletCode === 'all') return { ...prev, outlet_access: ['all'] }
-      let newOutlets = prev.outlet_access.filter(o => o !== 'all')
-      if (newOutlets.includes(outletCode)) {
-        newOutlets = newOutlets.filter(o => o !== outletCode)
-      } else {
-        newOutlets.push(outletCode)
-      }
-      if (newOutlets.length === 0) newOutlets = ['all']
-      return { ...prev, outlet_access: newOutlets }
-    })
+  // Genera e imposta una nuova password (lato server) e la mostra una volta:
+  // e' il modo per dare/rinnovare l'accesso agli account di negozio, che non
+  // usano l'email di reset.
+  const handleResetPassword = async (id: string, email: string) => {
+    try {
+      setSaving(true)
+      const res = await callAdmin('set_password', { user_id: id }) as { password?: string }
+      if (!res?.password) throw new Error('Nessuna password restituita')
+      setNewPassword({ userId: id, email, password: res.password })
+      setCopied(false)
+      setConfirmPassword(null)
+      showToast?.('Nuova password impostata: comunicala all\'utente')
+    } catch (err) {
+      showToast?.('Errore: ' + (err as Error).message, 'error')
+    } finally {
+      setSaving(false)
+    }
   }
+
+  const copyPassword = async () => {
+    if (!newPassword) return
+    try {
+      await navigator.clipboard.writeText(`Email: ${newPassword.email}\nPassword: ${newPassword.password}`)
+      setCopied(true)
+    } catch {
+      showToast?.('Copia non riuscita: seleziona e copia a mano', 'error')
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      await callAdmin('delete', { user_id: id })
+      await loadUsers()
+      setConfirmDelete(null)
+      showToast?.('Utente eliminato: accesso revocato')
+    } catch (err) {
+      showToast?.('Errore eliminazione: ' + (err as Error).message, 'error')
+    }
+  }
+
+  const outletName = (id: string) => tenantOutlets.find(o => o.id === id)?.name ?? '—'
 
   const filtered = users.filter(u => {
     const q = search.toLowerCase()
@@ -494,6 +532,17 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   return (
     <div className="px-5 py-4 space-y-4">
+      {/* Questa sezione gestisce i LOGIN reali: invitare crea un accesso e manda
+          l'email per impostare la password; bloccare/eliminare revoca l'accesso. */}
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2 text-xs text-blue-800">
+        <ShieldCheck size={16} className="mt-0.5 shrink-0" />
+        <span>
+          Qui gestisci gli <strong>accessi reali</strong> all'applicazione. <strong>Invita utente</strong> crea il login e
+          invia un'email per impostare la password; <strong>Nuova password</strong> (icona chiave) ne genera una e te la mostra
+          una sola volta, da comunicare tu all'utente (es. account di negozio); <strong>Blocca</strong> impedisce l'accesso
+          senza eliminare nulla; <strong>Elimina</strong> revoca definitivamente il login. Le azioni valgono solo per la tua azienda.
+        </span>
+      </div>
       {/* Toolbar */}
       <div className="flex items-center justify-between gap-3">
         <div className="relative flex-1 max-w-xs">
@@ -511,7 +560,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
         >
           <Plus size={16} />
-          Nuovo utente
+          Invita utente
         </button>
       </div>
 
@@ -519,26 +568,26 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       {showForm && (
         <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 space-y-4">
           <h4 className="text-sm font-semibold text-slate-800">
-            {editingId ? 'Modifica utente' : 'Nuovo utente'}
+            {editingId ? 'Modifica ruolo utente' : 'Invita nuovo utente'}
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Nome *</label>
-              <input value={form.nome} onChange={e => setForm(p => ({ ...p, nome: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Nome</label>
+              <input value={form.nome} onChange={e => setForm(p => ({ ...p, nome: e.target.value }))} disabled={!!editingId}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Cognome *</label>
-              <input value={form.cognome} onChange={e => setForm(p => ({ ...p, cognome: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Cognome</label>
+              <input value={form.cognome} onChange={e => setForm(p => ({ ...p, cognome: e.target.value }))} disabled={!!editingId}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Email *</label>
-              <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <label className="block text-xs font-medium text-slate-600 mb-1">Email {editingId ? '' : '*'}</label>
+              <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} disabled={!!editingId}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
             </div>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
               <select value={form.ruolo} onChange={e => setForm(p => ({ ...p, ruolo: e.target.value }))}
@@ -546,42 +595,67 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
               </select>
             </div>
-            <div className="flex items-end">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={form.is_active} onChange={e => setForm(p => ({ ...p, is_active: e.target.checked }))}
-                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                <span className="text-sm text-slate-700">Utente attivo</span>
-              </label>
-            </div>
+            {isCashRole && (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">{labels.pointOfSale} dell'account cassa *</label>
+                <select value={form.outlet_id} onChange={e => setForm(p => ({ ...p, outlet_id: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
+                  <option value="">Scegli…</option>
+                  {tenantOutlets.filter(isSellingOutlet).map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </div>
+            )}
           </div>
-          {/* Outlet assegnati */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-2">{labels.pointOfSalePlural} visibili</label>
-            <div className="flex flex-wrap gap-2">
-              {[{ code: 'all', label: 'Tutti gli outlet' }, ...costCenters].map(c => {
-                const selected = form.outlet_access.includes(c.code)
-                return (
-                  <button key={c.code}
-                    onClick={() => toggleOutlet(c.code)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition ${
-                      selected ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-300'
-                    }`}
-                  >
-                    {c.label}
-                  </button>
-                )
-              })}
-            </div>
-          </div>
+          {isCashRole && (
+            <p className="text-xs text-slate-500">
+              L'operatore di cassa entra e vede solo la <strong>Chiusura cassa</strong> del suo {labels.pointOfSale.toLowerCase()}: un accesso per negozio,
+              condiviso dal personale (es. cassa.valdichiana@…). Nessun altro dato aziendale è visibile a questo ruolo.
+            </p>
+          )}
+          {!editingId && (
+            <p className="text-xs text-slate-500">
+              All'utente arriverà un'email per impostare la propria password e accedere. Blocco/eliminazione si gestiscono poi dalla lista.
+            </p>
+          )}
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={resetForm} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">
               Annulla
             </button>
             <button onClick={handleSave}
-              disabled={!form.nome.trim() || !form.cognome.trim() || !form.email.trim() || saving}
+              disabled={saving || (!editingId && !form.email.trim())}
               className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 transition">
               {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
-              {editingId ? 'Aggiorna' : 'Aggiungi'}
+              {editingId ? 'Aggiorna ruolo' : 'Invia invito'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Nuova password generata: mostrata una sola volta */}
+      {newPassword && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2 text-sm text-emerald-900">
+              <KeyRound size={16} className="mt-0.5 shrink-0" />
+              <div>
+                <div className="font-semibold">Nuova password per {newPassword.email}</div>
+                <div className="text-xs text-emerald-800 mt-0.5">
+                  Copiala e comunicala all'utente adesso: <strong>non verrà più mostrata</strong>. La vecchia password non funziona più.
+                </div>
+              </div>
+            </div>
+            <button onClick={() => setNewPassword(null)} title="Chiudi" className="p-1.5 text-emerald-700 hover:bg-emerald-100 rounded-lg">
+              <X size={14} />
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="px-3 py-2 bg-white border border-emerald-200 rounded-lg text-base font-mono tracking-wider text-slate-900 select-all">
+              {newPassword.password}
+            </code>
+            <button onClick={copyPassword}
+              className="flex items-center gap-1.5 px-3 py-2 text-sm font-medium rounded-lg border border-emerald-300 text-emerald-800 hover:bg-emerald-100 transition">
+              {copied ? <Check size={14} /> : <Copy size={14} />}
+              {copied ? 'Copiato' : 'Copia email e password'}
             </button>
           </div>
         </div>
@@ -598,13 +672,13 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-sm text-slate-900">{u.nome} {u.cognome}</span>
-                  {!u.is_active && <span className="text-[10px] text-slate-400 uppercase tracking-wide">inattivo</span>}
+                  {!u.is_active && <span className="text-[10px] text-red-500 uppercase tracking-wide font-semibold">accesso bloccato</span>}
                 </div>
                 <div className="text-xs text-slate-400 truncate" title={u.email}>{u.email}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {u.outlet_access && u.outlet_access.map((o: string) => (
-                    <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">
-                      {getCentroLabel(o, costCenters)}
+                  {(u.outlet_ids as string[]).map((o: string) => (
+                    <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">
+                      {outletName(o)}
                     </span>
                   ))}
                 </div>
@@ -614,22 +688,48 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
               <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getRoleStyle(u.ruolo)}`}>
                 {getRoleLabel(u.ruolo)}
               </span>
-              <button onClick={() => handleEdit(u)}
-                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-0 group-hover:opacity-100">
-                <Pencil size={14} />
+              <button
+                onClick={() => handleToggleActive(u.id, !u.is_active)}
+                title={u.is_active ? 'Blocca accesso' : 'Sblocca accesso'}
+                className={`px-2.5 py-1 text-xs font-medium rounded-lg border transition ${
+                  u.is_active
+                    ? 'text-amber-700 border-amber-200 hover:bg-amber-50'
+                    : 'text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+                }`}>
+                {u.is_active ? 'Blocca' : 'Sblocca'}
               </button>
-              {confirmDelete === u.id ? (
+              {confirmPassword === u.id ? (
                 <div className="flex items-center gap-1">
-                  <button onClick={() => handleDelete(u.id)} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition">
-                    <Check size={14} />
+                  <button onClick={() => handleResetPassword(u.id, u.email)} disabled={saving} title="Conferma: genera una nuova password"
+                    className="px-2 py-1 text-xs font-medium text-emerald-700 border border-emerald-200 hover:bg-emerald-50 rounded-lg transition disabled:opacity-40">
+                    {saving ? <Loader size={14} className="animate-spin" /> : 'Genera'}
                   </button>
-                  <button onClick={() => setConfirmDelete(null)} className="p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg transition">
+                  <button onClick={() => setConfirmPassword(null)} title="Annulla" className="p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg transition">
                     <X size={14} />
                   </button>
                 </div>
               ) : (
-                <button onClick={() => setConfirmDelete(u.id)}
-                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition opacity-0 group-hover:opacity-100">
+                <button onClick={() => { setConfirmPassword(u.id); setConfirmDelete(null) }} title="Nuova password"
+                  className="p-1.5 text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition">
+                  <KeyRound size={14} />
+                </button>
+              )}
+              <button onClick={() => handleEdit(u)} title="Modifica ruolo"
+                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                <Pencil size={14} />
+              </button>
+              {confirmDelete === u.id ? (
+                <div className="flex items-center gap-1">
+                  <button onClick={() => handleDelete(u.id)} title="Conferma eliminazione" className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition">
+                    <Check size={14} />
+                  </button>
+                  <button onClick={() => setConfirmDelete(null)} title="Annulla" className="p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg transition">
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmDelete(u.id)} title="Elimina"
+                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
                   <Trash2 size={14} />
                 </button>
               )}
@@ -781,6 +881,31 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   const handleDelete = async (id: string) => {
     try {
+      // NO DATA LOSS: prima di cancellare fisicamente una voce del piano dei conti
+      // si contano i riferimenti. Se ce ne sono, si BLOCCA (l'eliminazione
+      // lascerebbe orfani: voci di budget con un account_code inesistente, voci
+      // figlie con parent_id pendente). L'utente puo' invece disattivarla.
+      const item = costs.find(c => c.id === id)
+      const code = item?.code || ''
+      const [childRes, beRes] = await Promise.all([
+        supabase.from('chart_of_accounts').select('id', { count: 'exact', head: true })
+          .eq('company_id', COMPANY_ID || '').eq('parent_id', id),
+        code
+          ? supabase.from('budget_entries').select('id', { count: 'exact', head: true })
+              .eq('company_id', COMPANY_ID || '').eq('account_code', code)
+          : Promise.resolve({ count: 0 }),
+      ])
+      const nChildren = childRes.count || 0
+      const nBudget = (beRes as { count: number | null }).count || 0
+      if (nChildren > 0 || nBudget > 0) {
+        const parts: string[] = []
+        if (nChildren > 0) parts.push(`${nChildren} voci figlie`)
+        if (nBudget > 0) parts.push(`${nBudget} righe di budget collegate`)
+        showToast?.(`Impossibile eliminare: ci sono ${parts.join(' e ')}. Rimuovi prima i collegamenti o disattiva la voce.`, 'error')
+        setConfirmDelete(null)
+        return
+      }
+
       const { error } = await supabase
         .from('chart_of_accounts')
         .delete()
@@ -979,8 +1104,8 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   </div>
                 </div>
                 {isOpen && (
-                  <div className="border-t border-slate-100">
-                    <table className="w-full text-sm">
+                  <div className="border-t border-slate-100 overflow-x-auto scroll-shadow-x">
+                    <table className="w-full min-w-[640px] text-sm">
                       <thead>
                         <tr className="bg-slate-50/80 text-xs text-slate-500 uppercase tracking-wide">
                           <th className="px-4 py-2 text-left font-medium">Codice</th>
@@ -1020,19 +1145,19 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                             <td className="px-4 py-2.5 text-xs text-slate-400 max-w-[150px] truncate" title={c.note || '—'}>{c.note || '—'}</td>
                             <td className="px-4 py-2.5 text-center">
                               <div className="flex justify-center gap-1">
-                                <button onClick={(e) => { e.stopPropagation(); handleEdit(c) }}
+                                <button onClick={(e) => { e.stopPropagation(); handleEdit(c) }} title="Modifica"
                                   className="p-1 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition opacity-0 group-hover/row:opacity-100">
                                   <Pencil size={13} />
                                 </button>
                                 {confirmDelete === c.id ? (
                                   <>
-                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(c.id) }}
+                                    <button onClick={(e) => { e.stopPropagation(); handleDelete(c.id) }} title="Conferma eliminazione"
                                       className="p-1 text-red-600 hover:bg-red-50 rounded transition"><Check size={13} /></button>
-                                    <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(null) }}
+                                    <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(null) }} title="Annulla"
                                       className="p-1 text-slate-400 hover:bg-slate-50 rounded transition"><X size={13} /></button>
                                   </>
                                 ) : (
-                                  <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(c.id) }}
+                                  <button onClick={(e) => { e.stopPropagation(); setConfirmDelete(c.id) }} title="Elimina"
                                     className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition opacity-0 group-hover/row:opacity-100">
                                     <Trash2 size={13} />
                                   </button>
@@ -1071,7 +1196,9 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [form, setForm] = useState({ code: '', label: '', color: 'bg-blue-600', sort_order: 0 })
+  // role: 'outlet' (punto vendita, entra in confronti e budget), 'hq' (sede),
+  // 'non_operational' (spese da ripartire, rettifiche).
+  const [form, setForm] = useState({ code: '', label: '', color: 'bg-blue-600', sort_order: 0, role: 'outlet' })
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
@@ -1103,7 +1230,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
   }
 
   const resetForm = () => {
-    setForm({ code: '', label: '', color: 'bg-blue-600', sort_order: centers.length })
+    setForm({ code: '', label: '', color: 'bg-blue-600', sort_order: centers.length, role: 'outlet' })
     setShowForm(false)
     setEditingId(null)
   }
@@ -1113,9 +1240,14 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
 
     try {
       setSaving(true)
+      // Il codice resta MINUSCOLO: è la chiave che lega il centro di costo a
+      // outlets.cost_center_key, budget_entries.cost_center e al conto ricavi
+      // (chart_of_accounts.outlet_link). Prima veniva forzato in maiuscolo e
+      // non combaciava con nulla.
       const payload = {
-        code: form.code.toUpperCase(),
+        code: slugCostCenter(form.code),
         label: form.label,
+        role: form.role,
         color: form.color,
         sort_order: form.sort_order,
         is_active: true,
@@ -1153,7 +1285,8 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
       code: c.code,
       label: c.label,
       color: c.color,
-      sort_order: c.sort_order
+      sort_order: c.sort_order,
+      role: (c.role as string) || 'outlet',
     })
     setEditingId(c.id)
     setShowForm(true)
@@ -1161,6 +1294,35 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
 
   const handleDelete = async (id: string) => {
     try {
+      // NO DATA LOSS: prima di cancellare un centro di costo si contano i
+      // riferimenti. Se ce ne sono si BLOCCA (l'eliminazione lascerebbe orfani:
+      // righe di budget con cost_center inesistente, voci di costo con quel
+      // centro tra i default, utenti con quel centro tra gli accessi).
+      const code = centers.find(c => c.id === id)?.code || ''
+      let nBudget = 0, nDefault = 0, nUsers = 0
+      if (code) {
+        const [beRes, coaRes, usrRes] = await Promise.all([
+          supabase.from('budget_entries').select('id', { count: 'exact', head: true })
+            .eq('company_id', COMPANY_ID || '').eq('cost_center', code),
+          supabase.from('chart_of_accounts').select('id', { count: 'exact', head: true })
+            .eq('company_id', COMPANY_ID || '').contains('default_centers', [code]),
+          supabase.from('app_users').select('id', { count: 'exact', head: true })
+            .eq('company_id', COMPANY_ID || '').contains('outlet_access', [code]),
+        ])
+        nBudget = beRes.count || 0
+        nDefault = coaRes.count || 0
+        nUsers = usrRes.count || 0
+      }
+      if (nBudget > 0 || nDefault > 0 || nUsers > 0) {
+        const parts: string[] = []
+        if (nBudget > 0) parts.push(`${nBudget} righe di budget`)
+        if (nDefault > 0) parts.push(`${nDefault} voci di costo`)
+        if (nUsers > 0) parts.push(`${nUsers} utenti`)
+        showToast?.(`Impossibile eliminare: il centro è collegato a ${parts.join(', ')}. Rimuovi prima i collegamenti.`, 'error')
+        setConfirmDelete(null)
+        return
+      }
+
       const { error } = await supabase
         .from('cost_centers')
         .delete()
@@ -1202,10 +1364,11 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
               <input
                 type="text"
                 value={form.code}
-                onChange={(e) => setForm(p => ({ ...p, code: e.target.value.toUpperCase() }))}
-                placeholder="ES: VDC"
+                onChange={(e) => setForm(p => ({ ...p, code: e.target.value.toLowerCase() }))}
+                placeholder="es. roma_soratte"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg font-mono"
               />
+              <p className="text-[11px] text-slate-400 mt-1">Minuscolo, come la chiave contabile dell'outlet (es. torino, sede_magazzino).</p>
             </div>
             <div className="md:col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">Etichetta *</label>
@@ -1217,6 +1380,18 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg"
               />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-600 mb-1">Ruolo</label>
+            <select
+              value={form.role}
+              onChange={(e) => setForm(p => ({ ...p, role: e.target.value }))}
+              className="w-full md:w-1/2 px-3 py-2 text-sm border border-slate-200 rounded-lg bg-white"
+            >
+              <option value="outlet">Punto vendita (entra in confronti, margini, budget)</option>
+              <option value="hq">Sede / magazzino</option>
+              <option value="non_operational">Non operativo (spese da ripartire, rettifiche)</option>
+            </select>
           </div>
           <div>
             <label className="block text-xs font-medium text-slate-600 mb-2">Colore</label>
@@ -1259,9 +1434,10 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
                 <div className="text-xs text-slate-400">{c.code}</div>
               </div>
             </div>
-            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition">
+            <div className="flex items-center gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
               <button
                 onClick={() => handleEdit(c)}
+                title="Modifica"
                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition"
               >
                 <Pencil size={14} />
@@ -1270,12 +1446,14 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
                 <>
                   <button
                     onClick={() => handleDelete(c.id)}
+                    title="Conferma eliminazione"
                     className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition"
                   >
                     <Check size={14} />
                   </button>
                   <button
                     onClick={() => setConfirmDelete(null)}
+                    title="Annulla"
                     className="p-1.5 text-slate-400 hover:bg-slate-50 rounded-lg transition"
                   >
                     <X size={14} />
@@ -1284,6 +1462,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
               ) : (
                 <button
                   onClick={() => setConfirmDelete(c.id)}
+                  title="Elimina"
                   className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
                 >
                   <Trash2 size={14} />
@@ -1327,25 +1506,6 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       showToast?.('Errore caricamento config SDI', 'error')
     } finally {
       setLoading(false)
-    }
-  }
-
-  const handleToggleEnvironment = async () => {
-    if (!config) return
-    const newEnv = config.environment === 'TEST' ? 'PRODUCTION' : 'TEST'
-    setSaving(true)
-    try {
-      const { error } = await supabase
-        .from('sdi_config')
-        .update({ environment: newEnv, updated_at: new Date().toISOString() })
-        .eq('id', config.id)
-      if (error) throw error
-      setConfig({ ...config, environment: newEnv })
-      showToast?.(`Ambiente SDI impostato su ${newEnv === 'PRODUCTION' ? 'Produzione' : 'Test'}`)
-    } catch (err: unknown) {
-      showToast?.('Errore aggiornamento: ' + (err instanceof Error ? err.message : ''), 'error')
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -1518,30 +1678,23 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         </div>
       </div>
 
-      {/* Toggle ambiente */}
+      {/* Ambiente (sola lettura). Il cambio ambiente è stato rimosso: le fatture
+          passano da A-Cube, non dal canale SDI diretto, quindi un toggle
+          TEST→PRODUZIONE con un click qui non deve poter cambiare nulla. */}
       <div className="border-t border-slate-100 pt-4">
         <div className="flex items-center justify-between">
           <div>
             <h4 className="text-sm font-medium text-slate-700">Ambiente</h4>
             <p className="text-xs text-slate-400 mt-0.5">
-              {config.environment === 'TEST'
-                ? 'In test le fatture vengono inviate all\'ambiente di validazione AdE.'
-                : 'In produzione le fatture vengono inviate al Sistema di Interscambio reale.'}
+              Le fatture attive vengono emesse tramite A-Cube. Questo canale SDI diretto
+              non è operativo: l'ambiente qui è solo informativo.
             </p>
           </div>
-          <button
-            onClick={handleToggleEnvironment}
-            disabled={saving}
-            className={`relative inline-flex h-8 w-[120px] items-center rounded-full transition-colors ${
-              config.environment === 'PRODUCTION' ? 'bg-green-500' : 'bg-amber-400'
-            }`}
-          >
-            <span className={`inline-block h-6 w-[56px] transform rounded-full bg-white shadow-sm transition-transform text-xs font-medium flex items-center justify-center ${
-              config.environment === 'PRODUCTION' ? 'translate-x-[60px]' : 'translate-x-1'
-            }`}>
-              {config.environment === 'PRODUCTION' ? 'PROD' : 'TEST'}
-            </span>
-          </button>
+          <span className={`inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold ${
+            config.environment === 'PRODUCTION' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
+          }`}>
+            {config.environment === 'PRODUCTION' ? 'Produzione' : 'Test'}
+          </span>
         </div>
       </div>
 
@@ -1580,10 +1733,281 @@ function SdiSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // ==========================================
 // PAGINA PRINCIPALE
 // ==========================================
+// ─── Report incassi serale (fase 2 specchietto incassi) ──────────────
+// Configura la mail serale inviata da daily-cash-report-send: quando parte
+// (ora fissa, oppure appena tutti i negozi hanno confermato con un'ora limite),
+// destinatari, sollecito ai negozi, integrazione per le chiusure in ritardo,
+// invio anche senza chiusure. Il motore e' il cron daily_cash_report_tick
+// (migration 176/204, ogni 15 minuti) piu' il trigger alla conferma (204).
+type ReportSettingsRow = Database['public']['Tables']['daily_report_settings']['Row']
+type ReportLogRow = Database['public']['Tables']['daily_report_log']['Row']
+
+const REPORT_STATUS_LABELS: Record<string, string> = { queued: 'In invio', sent: 'Inviato', failed: 'Non riuscito', skipped: 'Saltato' }
+const REPORT_KIND_LABELS: Record<string, string> = { report: 'Report serale', reminder: 'Sollecito ai negozi', test: 'Prova', followup: 'Integrazione' }
+const WA_STATUS_LABELS: Record<string, string> = { sent: 'inviato', partial: 'in parte', failed: 'non riuscito', skipped: 'saltato' }
+
+/** Numeri WhatsApp in formato internazionale (+39...); un numero italiano di cellulare senza prefisso riceve +39. */
+function parsePhones(raw: string): string[] {
+  const seen = new Set<string>()
+  return raw.split(/[\s,;]+/).map((x) => x.replace(/[.\-()]/g, '').trim()).map((x) => {
+    if (!x) return ''
+    if (x.startsWith('00')) return '+' + x.slice(2)
+    if (/^3\d{8,9}$/.test(x)) return '+39' + x
+    return x
+  }).filter((x) => {
+    if (!x || seen.has(x) || !/^\+\d{8,15}$/.test(x)) return false
+    seen.add(x); return true
+  })
+}
+
+function parseRecipients(raw: string): string[] {
+  const seen = new Set<string>()
+  return raw.split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => {
+    if (!x || seen.has(x) || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)) return false
+    seen.add(x); return true
+  })
+}
+
+function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  const { session } = useAuth()
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [logs, setLogs] = useState<ReportLogRow[]>([])
+  const [form, setForm] = useState({ enabled: false, sendMode: 'fixed' as 'fixed' | 'on_complete', sendTime: '21:30', followupEnabled: true, reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true, budgetVatRate: '22', waEnabled: false, waRecipients: '' })
+  const [testingWa, setTestingWa] = useState(false)
+  const [dirty, setDirty] = useState(false)
+
+  const load = useCallback(async () => {
+    if (!COMPANY_ID) return
+    setLoading(true)
+    const [sRes, lRes] = await Promise.all([
+      supabase.from('daily_report_settings').select('*').eq('company_id', COMPANY_ID).maybeSingle(),
+      supabase.from('daily_report_log').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }).limit(10),
+    ])
+    const s = sRes.data as ReportSettingsRow | null
+    if (s) {
+      setForm({
+        enabled: s.enabled, sendMode: s.send_mode === 'on_complete' ? 'on_complete' : 'fixed', sendTime: s.send_time.slice(0, 5),
+        followupEnabled: s.followup_enabled !== false,
+        reminderEnabled: !!s.reminder_time, reminderTime: (s.reminder_time ?? '20:30').slice(0, 5),
+        recipients: (s.recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
+        budgetVatRate: String(s.budget_vat_rate ?? 22),
+        waEnabled: s.whatsapp_enabled === true, waRecipients: (s.whatsapp_recipients ?? []).join('\n'),
+      })
+    }
+    setLogs((lRes.data ?? []) as ReportLogRow[])
+    setDirty(false)
+    setLoading(false)
+  }, [COMPANY_ID])
+
+  useEffect(() => { void load() }, [load])
+
+  const set = (patch: Partial<typeof form>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
+  const recipientsList = parseRecipients(form.recipients)
+  const invalidRecipients = form.recipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !recipientsList.includes(x.toLowerCase()))
+  const phonesList = parsePhones(form.waRecipients)
+  const invalidPhones = form.waRecipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && parsePhones(x).length === 0)
+
+  const save = async () => {
+    if (!COMPANY_ID) return
+    if (form.enabled && recipientsList.length === 0) { showToast('Serve almeno un indirizzo destinatario', 'error'); return }
+    if (form.waEnabled && phonesList.length === 0) { showToast('Serve almeno un numero WhatsApp (formato +39...)', 'error'); return }
+    if (form.reminderEnabled && form.reminderTime >= form.sendTime) { showToast(form.sendMode === 'on_complete' ? 'Il sollecito deve essere prima dell\'ora limite' : 'Il sollecito deve essere prima dell\'ora di invio', 'error'); return }
+    const vat = Number(String(form.budgetVatRate).replace(',', '.'))
+    if (!Number.isFinite(vat) || vat < 0 || vat > 100) { showToast('L\'aliquota IVA deve essere un numero fra 0 e 100', 'error'); return }
+    setSaving(true)
+    const { error } = await supabase.from('daily_report_settings').upsert({
+      company_id: COMPANY_ID,
+      enabled: form.enabled,
+      send_mode: form.sendMode,
+      send_time: form.sendTime,
+      followup_enabled: form.followupEnabled,
+      reminder_time: form.reminderEnabled ? form.reminderTime : null,
+      recipients: recipientsList,
+      send_on_empty: form.sendOnEmpty,
+      budget_vat_rate: vat,
+      whatsapp_enabled: form.waEnabled,
+      whatsapp_recipients: phonesList,
+      // Origine del sito corrente: serve ai link nella mail, senza valori hardcoded per tenant.
+      app_url: typeof window !== 'undefined' ? window.location.origin : null,
+      updated_at: new Date().toISOString(),
+      updated_by: session?.user?.id ?? null,
+    })
+    setSaving(false)
+    if (error) { showToast('Salvataggio non riuscito: ' + error.message, 'error'); return }
+    showToast(form.enabled
+      ? (form.sendMode === 'on_complete'
+        ? `Report attivo: parte appena tutti i negozi hanno confermato, al più tardi alle ${form.sendTime}, a ${recipientsList.length} destinatari`
+        : `Report attivo: ogni giorno alle ${form.sendTime} a ${recipientsList.length} destinatari`)
+      : 'Report serale disattivato')
+    await load()
+  }
+
+  const sendTest = async () => {
+    setTesting(true)
+    const { data, error } = await supabase.functions.invoke<{ data?: { recipients: string[] }; error?: string }>('daily-cash-report-send', { body: { kind: 'test' } })
+    setTesting(false)
+    if (error || !data?.data) { showToast('Prova non riuscita: ' + (error?.message ?? data?.error ?? 'errore'), 'error'); await load(); return }
+    showToast(`Mail di prova inviata a ${data.data.recipients.join(', ')}: controlla la casella (anche lo spam)`)
+    await load()
+  }
+
+  // Prova WhatsApp: manda il messaggio breve di oggi ai numeri configurati (niente mail).
+  const sendTestWa = async () => {
+    setTestingWa(true)
+    const { data, error } = await supabase.functions.invoke<{ data?: { whatsapp?: { status: string; recipients: string[]; error: string | null } }; error?: string }>('daily-cash-report-send', { body: { kind: 'test', channel: 'whatsapp' } })
+    setTestingWa(false)
+    const wa = data?.data?.whatsapp
+    if (error || !wa) { showToast('Prova WhatsApp non riuscita: ' + (error?.message ?? data?.error ?? 'errore'), 'error'); await load(); return }
+    if (wa.status === 'sent') showToast(`WhatsApp di prova inviato a ${wa.recipients.join(', ')}`)
+    else showToast(`WhatsApp inviato solo in parte: ${wa.error ?? ''}`, 'error')
+    await load()
+  }
+
+  const inp = 'w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500'
+
+  if (loading) return <div className="p-6 text-sm text-slate-500 flex items-center gap-2"><Loader size={16} className="animate-spin" />Caricamento…</div>
+
+  return (
+    <div className="p-6 space-y-5">
+      <p className="text-sm text-slate-600">
+        Ogni sera i destinatari ricevono una mail con le chiusure di cassa del giorno: una riga per punto vendita
+        (totale, contanti, POS, altri canali, spese e rimborsi, versamento, fondo cassa e differenza), i negozi che non hanno chiuso,
+        le anomalie da controllare, il progressivo del mese e il confronto con l'obiettivo: il budget ricavi del mese
+        dell'Inserimento rapido (Budget → Inserimento Rapido), portato al lordo dell'IVA e diviso per i giorni del mese,
+        dà l'obiettivo del giorno; la mail mostra lo scostamento +/- di ogni negozio, del giorno e del mese. L'ora è quella italiana, anche con l'ora legale.
+      </p>
+
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} className="w-5 h-5" />
+        <span className="text-sm font-semibold text-slate-900">Invia il report ogni sera</span>
+      </label>
+
+      <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+        <div className="text-xs font-semibold text-slate-600">Quando parte</div>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="radio" name="report-send-mode" checked={form.sendMode === 'on_complete'} onChange={() => set({ sendMode: 'on_complete' })} className="mt-1" />
+          <span className="text-sm text-slate-800">
+            <span className="font-medium">Appena tutti i punti vendita hanno confermato la chiusura</span>
+            <span className="block text-xs text-slate-500">Mail e WhatsApp partono da soli al momento dell'ultima conferma, che siano le 20:10 o le 23:05. Se all'ora limite manca ancora qualcuno, il report parte lo stesso con i negozi mancanti in evidenza.</span>
+          </span>
+        </label>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input type="radio" name="report-send-mode" checked={form.sendMode === 'fixed'} onChange={() => set({ sendMode: 'fixed' })} className="mt-1" />
+          <span className="text-sm text-slate-800">
+            <span className="font-medium">A un'ora fissa</span>
+            <span className="block text-xs text-slate-500">Il report fotografa la giornata a quell'ora: chi conferma dopo resta fuori (arriva con l'integrazione, se attiva).</span>
+          </span>
+        </label>
+        <div className="sm:w-1/2">
+          <label className="block text-xs font-medium text-slate-600 mb-1">{form.sendMode === 'on_complete' ? 'Ora limite (Italia)' : 'Ora di invio (Italia)'}</label>
+          <input type="time" value={form.sendTime} onChange={(e) => set({ sendTime: e.target.value })} className={inp} />
+        </div>
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" checked={form.followupEnabled} onChange={(e) => set({ followupEnabled: e.target.checked })} className="w-4 h-4" />
+          <span className="text-sm text-slate-700">Se una chiusura viene confermata dopo l'invio, manda un'integrazione (mail e WhatsApp) con quel negozio e i totali aggiornati</span>
+        </label>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-600 mb-1 cursor-pointer">
+            <input type="checkbox" checked={form.reminderEnabled} onChange={(e) => set({ reminderEnabled: e.target.checked })} />
+            Sollecito in-app ai negozi che non hanno ancora chiuso, alle
+          </label>
+          <input type="time" value={form.reminderTime} disabled={!form.reminderEnabled} onChange={(e) => set({ reminderTime: e.target.value })} className={`${inp} disabled:bg-slate-100`} />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium text-slate-600 mb-1">Destinatari (uno per riga o separati da virgola)</label>
+        <textarea value={form.recipients} onChange={(e) => set({ recipients: e.target.value })} rows={3} placeholder="nome@azienda.it" className={inp} />
+        <div className="text-xs mt-1 text-slate-500">
+          {recipientsList.length} indirizz{recipientsList.length === 1 ? 'o' : 'i'} valid{recipientsList.length === 1 ? 'o' : 'i'}
+          {invalidRecipients.length > 0 && <span className="text-red-600"> · non validi: {invalidRecipients.join(', ')}</span>}
+        </div>
+      </div>
+
+      <div className="sm:w-1/2">
+        <label className="block text-xs font-medium text-slate-600 mb-1">IVA per il confronto con il budget (%)</label>
+        <input type="number" min={0} max={100} step={0.1} value={form.budgetVatRate} onChange={(e) => set({ budgetVatRate: e.target.value })} className={inp} />
+        <div className="text-xs mt-1 text-slate-500">Il budget dell'Inserimento rapido è netto IVA, le chiusure di cassa sono lorde: l'obiettivo del giorno è budget mese × (1 + IVA) ÷ giorni del mese.</div>
+      </div>
+
+      <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 space-y-3">
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input type="checkbox" checked={form.waEnabled} onChange={(e) => set({ waEnabled: e.target.checked })} className="w-5 h-5" />
+          <span className="text-sm font-semibold text-slate-900">Invia anche su WhatsApp (versione breve)</span>
+        </label>
+        <p className="text-xs text-slate-600">
+          Insieme alla mail, un messaggio di poche righe: una voce per negozio con incasso e scostamento dall'obiettivo,
+          totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale (Twilio) con un modello approvato da Meta.
+        </p>
+        <div>
+          <label className="block text-xs font-medium text-slate-600 mb-1">Numeri WhatsApp (uno per riga, formato +39…)</label>
+          <textarea value={form.waRecipients} onChange={(e) => set({ waRecipients: e.target.value })} rows={3} placeholder="+39 333 1234567" className={inp} />
+          <div className="text-xs mt-1 text-slate-500">
+            {phonesList.length} numer{phonesList.length === 1 ? 'o' : 'i'} valid{phonesList.length === 1 ? 'o' : 'i'}
+            {invalidPhones.length > 0 && <span className="text-red-600"> · non validi: {invalidPhones.join(', ')}</span>}
+          </div>
+        </div>
+        <button onClick={() => void sendTestWa()} disabled={testingWa || dirty || phonesList.length === 0}
+          title={dirty ? 'Salva prima le modifiche' : 'Manda il messaggio di oggi ai numeri configurati'}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-emerald-300 text-emerald-800 text-sm font-medium disabled:opacity-50">
+          {testingWa ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}Prova WhatsApp
+        </button>
+      </div>
+
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={form.sendOnEmpty} onChange={(e) => set({ sendOnEmpty: e.target.checked })} className="w-4 h-4" />
+        <span className="text-sm text-slate-700">Invia anche nei giorni senza nessuna chiusura registrata (con i negozi mancanti in evidenza)</span>
+      </label>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <button onClick={() => void save()} disabled={saving || !dirty}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50">
+          {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}Salva
+        </button>
+        <button onClick={() => void sendTest()} disabled={testing || dirty}
+          title={dirty ? 'Salva prima le modifiche' : 'Manda la mail di oggi solo al tuo indirizzo'}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 text-slate-700 text-sm font-medium disabled:opacity-50">
+          {testing ? <Loader size={14} className="animate-spin" /> : <Send size={14} />}Invia una prova a me
+        </button>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold text-slate-600 mb-2">Ultimi invii</div>
+        {logs.length === 0 ? <p className="text-xs text-slate-400">Nessun invio ancora registrato.</p> : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead className="text-slate-500"><tr><th className="text-left py-1 pr-3">Giorno</th><th className="text-left py-1 pr-3">Tipo</th><th className="text-left py-1 pr-3">Esito</th><th className="text-left py-1 pr-3">Destinatari</th><th className="text-left py-1">Dettaglio</th></tr></thead>
+              <tbody>
+                {logs.map((l) => (
+                  <tr key={l.id} className="border-t border-slate-100">
+                    <td className="py-1 pr-3 whitespace-nowrap">{l.report_date.split('-').reverse().join('/')}{l.sent_at ? ` ${new Date(l.sent_at).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}` : ''}</td>
+                    <td className="py-1 pr-3">{REPORT_KIND_LABELS[l.kind] ?? l.kind}</td>
+                    <td className={`py-1 pr-3 font-medium ${l.status === 'sent' ? 'text-emerald-700' : l.status === 'failed' ? 'text-red-700' : 'text-slate-500'}`}>{REPORT_STATUS_LABELS[l.status] ?? l.status}{l.whatsapp_status ? ` · WhatsApp ${WA_STATUS_LABELS[l.whatsapp_status] ?? l.whatsapp_status}` : ''}</td>
+                    <td className="py-1 pr-3">{(l.recipients ?? []).join(', ')}</td>
+                    <td className="py-1 text-slate-500">{l.error ?? l.whatsapp_error ?? l.subject ?? ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function Impostazioni() {
-  const { profile } = useAuth()
+  const { profile, loading: authLoading } = useAuth()
   const COMPANY_ID = profile?.company_id
-  const userRole = profile?.role || 'super_advisor'
+  // Fail-safe: in assenza di un ruolo caricato NON si assume super_advisor (era un
+  // "fail-open" che dava tutti i permessi a un profilo non caricato). Default = nessun
+  // accesso; le sezioni compaiono solo per i ruoli davvero autorizzati.
+  const userRole = profile?.role || ''
   const allowedSections = ROLE_PERMISSIONS[userRole] || []
   const [toast, setToast] = useState<{ msg: string; type: string } | null>(null)
 
@@ -1598,6 +2022,7 @@ export default function Impostazioni() {
     { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: 'Catalogo costi con assegnazione a centri di costo e gerarchia conti/sottoconti', component: CostSection },
     { id: 'centri', icon: Shield, title: 'Centri di costo', subtitle: 'Punti vendita, sede, magazzino — entità di allocazione', component: CentriDiCostoSection },
     { id: 'sdi', icon: FileText, title: 'Fatturazione SDI', subtitle: 'Accreditamento, certificati e configurazione Sistema di Interscambio', component: SdiSection },
+    { id: 'report', icon: Mail, title: 'Report incassi serale', subtitle: 'Mail automatica ogni sera con le chiusure di cassa di tutti i punti vendita', component: ReportSection },
   ]
 
   const [openSection, setOpenSection] = useState<string | null>('company')
@@ -1607,7 +2032,14 @@ export default function Impostazioni() {
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader title="Impostazioni" subtitle="Configurazione azienda, utenti e struttura costi" />
 
-      {allowedSections.length === 0 && (
+      {authLoading && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 flex items-center gap-3">
+          <Loader size={20} className="text-slate-400 animate-spin shrink-0" />
+          <p className="text-sm text-slate-600">Verifica permessi in corso…</p>
+        </div>
+      )}
+
+      {!authLoading && allowedSections.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 flex items-center gap-3">
           <Lock size={20} className="text-amber-600 shrink-0" />
           <div>

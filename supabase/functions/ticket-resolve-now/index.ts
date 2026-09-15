@@ -3,8 +3,12 @@
 // Invocata dal bottone "Risolvi" admin in /ticket/admin per risolvere
 // istantaneamente un ticket via Claude API + GitHub API.
 //
+// Innesco: bottone admin (JWT super_advisor), oppure il cron orario
+// `ticket-autofix-hourly` (:07 di ogni ora) che passa il segreto condiviso
+// nell'header x-autofix-cron — vedi migration 156.
+//
 // Flusso:
-// 1. Auth super_advisor
+// 1. Auth super_advisor (o service_role, o segreto cron)
 // 2. Carica ticket dal DB
 // 3. Mappa modulo -> file path (es. "Banche" -> "frontend/src/pages/TesoreriaManuale.tsx")
 // 4. Scarica file via GitHub Contents API
@@ -48,9 +52,12 @@ const MODULE_TO_PATH: Record<string, string> = {
   "Confronto Outlet": "src/pages/ConfrontoOutlet.tsx",
   "Budget & Controllo": "src/pages/BudgetControl.tsx",
   "Fornitori": "src/pages/Fornitori.tsx",
-  "Divisione Fornitori": "src/pages/AllocazioneFornitori.tsx",
+  // La pagina AllocazioneFornitori e' stata assorbita dal pannello "Gestione"
+  // di /fornitori (App.tsx fa Navigate): il file non esiste piu' su main.
+  "Divisione Fornitori": "src/pages/Fornitori.tsx",
   "Fatturazione": "src/pages/Fatturazione.tsx",
-  "Scadenzario": "src/pages/Scadenzario.tsx",
+  // /scadenzario monta ScadenzarioSmart.tsx (Scadenzario.tsx non esiste piu')
+  "Scadenzario": "src/pages/ScadenzarioSmart.tsx",
   "Scadenze Fiscali": "src/pages/ScadenzeFiscali.tsx",
   "Dipendenti": "src/pages/Dipendenti.tsx",
   "AI Categorie": "src/pages/AICategoriePage.tsx",
@@ -308,7 +315,15 @@ Analizza il ticket e il file, poi chiama il tool submit_resolution.`;
 
   const result = toolUse.input;
   if (result.action === "fix" && !result.new_file_content) {
-    throw new Error("Claude: action=fix but no new_file_content");
+    // Risposta troncata a max_tokens: prima diventava un'eccezione, quindi
+    // nessun commento sul ticket e tre tentativi identici del cron. Ora
+    // degrada a cant_fix, cosi' l'utente legge cos'e' successo e il ticket
+    // non viene ripassato all'infinito.
+    return {
+      action: "cant_fix",
+      explanation_for_user: "Ho capito il problema, ma la correzione era troppo lunga da scrivere tutta in una volta: se ne deve occupare Patrizio.",
+      technical_notes: `Claude ha risposto action=fix senza new_file_content: risposta troncata a max_tokens su ${filePath} (${fileContent.length} caratteri).`,
+    };
   }
   return result;
 }
@@ -328,7 +343,21 @@ Deno.serve(async (req: Request) => {
     const token = authHeader.replace(/^Bearer\s+/i, "");
     if (!token) return jsonError(401, "Missing authorization");
     const isServiceRole = token === supabaseServiceKey;
-    if (!isServiceRole) {
+
+    // Innesco automatico (cron orario, migration 156): dal DB non abbiamo la
+    // service key, quindi pg_net chiama con la anon key come Bearer — che
+    // serve solo a passare il gateway verify_jwt — e si identifica con il
+    // segreto condiviso 'autofix_cron_secret' nell'header x-autofix-cron.
+    let isCron = false;
+    const cronHeader = req.headers.get("x-autofix-cron") ?? "";
+    if (cronHeader) {
+      const { data: cronSecret } = await supabase.rpc("get_autofix_cron_secret");
+      const expected = Array.isArray(cronSecret) ? String(cronSecret[0]?.secret ?? "") : "";
+      isCron = expected.length > 0 && cronHeader === expected;
+      if (!isCron) return jsonError(403, "Segreto x-autofix-cron non valido");
+    }
+
+    if (!isServiceRole && !isCron) {
       const { data: userData, error: userErr } = await supabase.auth.getUser(token);
       if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
       // Lettura ruolo da public.user_profiles (campo testo pulito) invece
@@ -396,6 +425,27 @@ Deno.serve(async (req: Request) => {
     // Scarica file dal main
     const { content: fileContent, sha: fileSha } = await getFileFromMain(ghToken, filePath);
 
+    // ─────────── Limite di riscrittura ───────────
+    // Il fix chiede a Claude il file INTERO riscritto, con max_tokens 16000
+    // (~50.000 caratteri di TSX). Sopra la soglia la risposta si tronca a
+    // meta': prima del 2026-09-02 questo si vedeva come 2 minuti di attesa
+    // e poi un errore muto ("action=fix but no new_file_content") su
+    // Fornitori.tsx (105 KB). Meglio dirlo subito e lasciare un commento
+    // utile invece di bruciare il tentativo.
+    const MAX_FILE_CHARS = 40000;
+    if (fileContent.length > MAX_FILE_CHARS) {
+      await appendCommentToTicket(supabase, ticket, {
+        autore: "AutoFix",
+        origine: "ai",
+        testo: `🤖 Non posso correggere automaticamente questa segnalazione: la pagina "${ticket.modulo}" e' troppo grande perche' io possa riscriverla per intero in una volta sola. Serve l'intervento di Patrizio.\n\n_Note tecniche: ${filePath} pesa ${Math.round(fileContent.length / 1000)} KB, oltre il limite di ${MAX_FILE_CHARS / 1000} KB per la riscrittura integrale (max_tokens 16000)._`,
+      });
+      return jsonOk({
+        ok: true,
+        action: "cant_fix",
+        message: `File troppo grande per la riscrittura automatica (${filePath}, ${Math.round(fileContent.length / 1000)} KB)`,
+      });
+    }
+
     // Chiama Claude
     const resolution = await callClaudeForResolution(anthropicKey, ticket, filePath, fileContent);
 
@@ -423,29 +473,24 @@ Deno.serve(async (req: Request) => {
 
     const pr = await createPullRequest(ghToken, prTitle, prBody, branchName, GITHUB_BASE_BRANCH);
 
-    // Aggiorna ticket: stato risolto + commenti + URL PR
-    const nuoviCommenti = [
-      ...(ticket.commenti ?? []),
-      {
-        id: `c_${Date.now()}_user`,
-        autore: "AutoFix",
-        origine: "ai",
-        testo: `🤖 ${resolution.explanation_for_user}\n\nIl fix è stato proposto in PR #${pr.number}. Sarà attivo dopo che Patrizio l'avrà revisionato e mergeato (di solito entro 24h).`,
-        creato_il: new Date().toISOString(),
-      },
-      {
-        id: `c_${Date.now()}_tech`,
-        autore: "AutoFix",
-        origine: "ai",
-        testo: `_[Note tecniche per Patrizio]_ ${resolution.technical_notes}\n\nPR: ${pr.html_url}\nBranch: ${branchName}\nFile toccato: \`${filePath}\``,
-        creato_il: new Date(Date.now() + 1).toISOString(),
-      },
-    ];
+    // Aggiorna ticket: commenti via RPC append atomico (migration 111) — la
+    // chiamata AI dura 10-60s, il vecchio read-modify-write dell'array jsonb
+    // (snapshot letto a inizio handler) cancellava i commenti scritti dagli
+    // utenti nel frattempo. Poi update dei soli campi di risoluzione.
+    await appendCommentToTicket(supabase, ticket, {
+      autore: "AutoFix",
+      origine: "ai",
+      testo: `🤖 ${resolution.explanation_for_user}\n\nIl fix è stato proposto in PR #${pr.number}. Sarà attivo dopo che Patrizio l'avrà revisionato e mergeato (di solito entro 24h).`,
+    });
+    await appendCommentToTicket(supabase, ticket, {
+      autore: "AutoFix",
+      origine: "ai",
+      testo: `_[Note tecniche per Patrizio]_ ${resolution.technical_notes}\n\nPR: ${pr.html_url}\nBranch: ${branchName}\nFile toccato: \`${filePath}\``,
+    });
 
     const { error: updErr } = await supabase.from("tickets").update({
       stato: "risolto",
       risolto_il: new Date().toISOString(),
-      commenti: nuoviCommenti,
       resolution_pr_url: pr.html_url,
       resolution_branch: branchName,
       note_fix: resolution.technical_notes,
@@ -465,14 +510,23 @@ Deno.serve(async (req: Request) => {
   }
 });
 
+// Append atomico via RPC append_ticket_comment (migration 111): niente piu'
+// read-modify-write dell'intero array jsonb, che perdeva i commenti scritti
+// da altri tra la lettura del ticket e questa scrittura. L'errore ora viene
+// propagato (prima era ingoiato: commento AI perso in silenzio).
 async function appendCommentToTicket(
   supabase: SupabaseClient, ticket: TicketRow, commento: { autore: string; origine: "ai" | "utente"; testo: string },
 ): Promise<void> {
-  const nuovi = [
-    ...(ticket.commenti ?? []),
-    { id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`, ...commento, creato_il: new Date().toISOString() },
-  ];
-  await supabase.from("tickets").update({ commenti: nuovi }).eq("id", ticket.id);
+  const payload = {
+    id: `c_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+    ...commento,
+    creato_il: new Date().toISOString(),
+  };
+  const { error } = await supabase.rpc("append_ticket_comment", {
+    p_ticket_id: ticket.id,
+    p_commento: payload,
+  });
+  if (error) throw new Error(`append_ticket_comment: ${error.message}`);
 }
 
 function jsonOk(p: unknown): Response {

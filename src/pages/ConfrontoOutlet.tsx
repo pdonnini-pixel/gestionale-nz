@@ -20,6 +20,7 @@ import {
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from 'recharts'
 import { GlassTooltip, ChartGradients, AXIS_STYLE, GRID_STYLE, BAR_RADIUS, ModernLegend, fmtEuro, fmtK } from '../components/ChartTheme'
+import { useIsMobile } from '../hooks/useIsMobile'
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark'
 import { formatOutletName, shortOutletName } from '../lib/formatters'
 import {
@@ -28,10 +29,48 @@ import {
   type OutletConfrontoMap, type Provenance, type ConfrontoRow,
   type CoaMeta, type CostCategory,
 } from '../lib/outletRevenue'
+// Organico granitico: stessa fonte della pagina Dipendenti (src/lib/headcount.ts).
+import {
+  headcountCountByOutlet, lastGranitedPeriod, periodLabel,
+  type HeadcountCost, type HeadcountEmployee, type HeadcountAllocation,
+} from '../lib/headcount'
+import {
+  getOutletLifecycle, isOutletOpenInPeriod, outletLifecycleCaption, safePct,
+  OUTLET_LIFECYCLE_STYLE, type OutletLifecycleFields,
+} from '../lib/outletLifecycle'
 
-function fmt(n: number | null | undefined, dec = 0): string {
+function fmt(n: number | null | undefined, dec = 2): string {
   if (n == null) return '—'
   return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
+}
+
+// Percentuale su ricavi: null (ricavi 0) -> «n/d», mai 0%.
+function fmtPctNd(n: number | null | undefined, suffix = '%', signed = false): string {
+  if (n == null) return 'n/d'
+  return `${signed && n > 0 ? '+' : ''}${n.toFixed(1)}${suffix}`
+}
+
+// Outlet «in apertura» per questa pagina: oggi non ha ancora aperto, oppure nel
+// periodo selezionato non era ancora aperto. I suoi costi restano visibili, ma
+// margine/incidenze sono n/d e non entra in benchmark, classifica, medie e
+// divisore della quota sede.
+function isInApertura(o: OutletLifecycleFields | undefined, year: number, months: number[] | null): boolean {
+  if (!o) return false
+  const oggi = getOutletLifecycle(o)
+  const from = months ? Math.min(...months) : 1
+  const to = months ? Math.max(...months) : 12
+  return oggi === 'programmato' || (oggi !== 'chiuso' && !isOutletOpenInPeriod(o, year, from, to))
+}
+function aperturaCaption(o: OutletLifecycleFields, year: number): string {
+  return outletLifecycleCaption(o, getOutletLifecycle(o) === 'programmato' ? new Date() : new Date(year, 0, 1))
+}
+function AperturaBadge({ caption }: { caption?: string | null }) {
+  if (!caption) return null
+  return (
+    <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`} title="Punto vendita non ancora aperto: costi reali, nessun ricavo">
+      {caption}
+    </span>
+  )
 }
 
 // Scostamento con segno contabile: '-X €' se negativo (rosso a cura del chiamante),
@@ -66,16 +105,18 @@ function KpiBadge({ label, value, sub, color = 'blue' }: { label: string; value:
 /* ═══════════════════════════════════════
    CARD OUTLET — Singola colonna confronto
    ═══════════════════════════════════════ */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type CalcMetricsT = any
-function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, onOpenBudget, showPlaceholder }: {
+function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, onOpenBudget, showPlaceholder, headcountLabel, aperturaCaption }: {
   name: string
   outletData: { color?: string | null }
-  calculatedMetrics: CalcMetricsT | null | undefined
+  calculatedMetrics: CalculatedMetrics | null | undefined
   ranking?: number | null
   onNavigate: () => void
   onOpenBudget: () => void
   showPlaceholder?: boolean
+  /** Mese da cui viene il conteggio dipendenti, per non lasciarlo implicito. */
+  headcountLabel?: string
+  /** «In apertura dal gg/mm/aaaa» se il punto vendita non è ancora aperto. */
+  aperturaCaption?: string | null
 }) {
   const [open, setOpen] = useState(false)
 
@@ -88,9 +129,12 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
               <Store size={18} style={{ color: '#9ca3af' }} />
               <div className="font-bold text-slate-900 text-sm">{shortOutletName(name)}</div>
             </div>
-            <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-500 border border-dashed border-slate-300">
-              Nessun dato
-            </span>
+            <div className="flex items-center gap-1.5">
+              <AperturaBadge caption={aperturaCaption} />
+              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-slate-100 text-slate-500 border border-dashed border-slate-300">
+                Nessun dato
+              </span>
+            </div>
           </div>
           <div className="text-xs text-slate-400 mt-0.5">{formatOutletName(name)}</div>
         </div>
@@ -136,6 +180,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
             </button>
           </div>
           <div className="flex items-center gap-1.5">
+            <AperturaBadge caption={aperturaCaption} />
             <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${prov.cls}`} title="Provenienza ricavi (budget_confronto)">
               {prov.label}
             </span>
@@ -170,7 +215,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
           {/* Badge dipendenti dell'outlet (stessa fonte del vecchio tile). */}
           <div
             className="shrink-0 flex flex-col items-center justify-center rounded-xl border-2 border-indigo-200 bg-indigo-50 text-indigo-700 px-3 py-1.5 min-w-[64px]"
-            title={`${personaleCount || 0} dipendenti assegnati`}
+            title={`${personaleCount || 0} dipendenti in forza secondo i cedolini${headcountLabel ? ` di ${headcountLabel}` : ''}`}
           >
             <Users size={16} />
             <span className="text-xl font-bold leading-none mt-0.5">{personaleCount || 0}</span>
@@ -217,22 +262,22 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
         <KpiBadge
           label={isVariance ? 'Δ Acquisto merci' : 'Acquisto merci'}
           value={`${isVariance && merci > 0 ? '+' : ''}${fmt(merci)} €`}
-          sub={`${isVariance && (ricavi ? merci / ricavi * 100 : 0) > 0 ? '+' : ''}${(ricavi ? merci / ricavi * 100 : 0).toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
+          sub={fmtPctNd(safePct(merci, ricavi), isVariance ? ' p.p.' : '% ricavi', isVariance)}
           color={isVariance ? (merci > 0 ? 'red' : merci < 0 ? 'green' : 'blue') : 'blue'} />
         <KpiBadge
           label={isVariance ? 'Δ Costo personale' : 'Costo personale'}
           value={`${isVariance && costoPersonale > 0 ? '+' : ''}${fmt(costoPersonale)} €`}
-          sub={`${isVariance && incidenzaPersonale > 0 ? '+' : ''}${incidenzaPersonale.toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
+          sub={fmtPctNd(incidenzaPersonale, isVariance ? ' p.p.' : '% ricavi', isVariance)}
           color={isVariance ? (costoPersonale > 0 ? 'red' : costoPersonale < 0 ? 'green' : 'amber') : 'amber'} />
         <KpiBadge
           label={isVariance ? 'Δ Costo locazioni' : 'Costo locazioni'}
           value={`${isVariance && affitto > 0 ? '+' : ''}${fmt(affitto)} €`}
-          sub={`${isVariance && incidenzaAffitto > 0 ? '+' : ''}${incidenzaAffitto.toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
+          sub={fmtPctNd(incidenzaAffitto, isVariance ? ' p.p.' : '% ricavi', isVariance)}
           color={isVariance ? (affitto > 0 ? 'red' : affitto < 0 ? 'green' : 'purple') : 'purple'} />
         <KpiBadge
           label={isVariance ? 'Δ Costo per servizi' : 'Costo per servizi'}
           value={`${isVariance && servizi > 0 ? '+' : ''}${fmt(servizi)} €`}
-          sub={`${isVariance && (ricavi ? servizi / ricavi * 100 : 0) > 0 ? '+' : ''}${(ricavi ? servizi / ricavi * 100 : 0).toFixed(1)}${isVariance ? ' p.p.' : '% ricavi'}`}
+          sub={fmtPctNd(safePct(servizi, ricavi), isVariance ? ' p.p.' : '% ricavi', isVariance)}
           color={isVariance ? (servizi > 0 ? 'red' : servizi < 0 ? 'green' : 'teal') : 'teal'} />
       </div>
 
@@ -244,7 +289,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
           <span className="text-xs font-medium text-slate-500">{isVariance ? 'Δ Margine' : 'Margine'}</span>
           <span className={`text-base font-bold ${margine >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
             {isVariance && margine > 0 ? '+' : ''}{fmt(margine)} €
-            <span className="text-xs font-medium ml-1">({isVariance && marginePct > 0 ? '+' : ''}{marginePct.toFixed(1)}{isVariance ? ' p.p.' : '%'})</span>
+            <span className="text-xs font-medium ml-1">({fmtPctNd(marginePct, isVariance ? ' p.p.' : '%', isVariance)})</span>
           </span>
         </div>
       </div>
@@ -297,11 +342,12 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
           {[
             // Ricavi in testa, poi UNA riga per categoria di costo nell'ordine di
             // bilancio (sort_order), classificate via chart_of_accounts.macro_group.
-            { label: `${RICAVI_SOURCE_LABEL}`, val: ricavi, pct: 100, bold: true },
+            { label: `${RICAVI_SOURCE_LABEL}`, val: ricavi, pct: 100 as number | null, bold: true },
             ...((costiCategorie || []) as CostCategory[]).map(c => ({
               label: c.ceSection ? `${c.ceSection} ${c.label}` : c.label,
               val: -c.value,
-              pct: -(c.value / (ricavi || 1) * 100),
+              // Senza ricavi l'incidenza non esiste (null -> nessuna %), niente «/1».
+              pct: ricavi > 0 ? -(c.value / ricavi * 100) : null,
               bold: false,
             })),
           ].map(r => (
@@ -320,7 +366,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
           <div className="flex items-center justify-between pt-2 border-t border-slate-200 font-semibold">
             <span className="text-slate-900">Margine outlet</span>
             <span className={isPositive ? 'text-slate-900' : 'text-red-600'}>
-              {fmt(margine)} € ({marginePct.toFixed(1)}%)
+              {fmt(margine)} € ({fmtPctNd(marginePct)})
             </span>
           </div>
           {/* Quota sede (pro-quota sul fatturato, netta dei ricavi sede) e
@@ -377,10 +423,12 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
 /* ═══════════════════════════════════════
    TABELLA BENCHMARK COMPARATIVA
    ═══════════════════════════════════════ */
+// Le percentuali su ricavi sono `number | null`: null quando i ricavi sono 0
+// (outlet in apertura, nessun preventivo) -> la UI mostra «n/d», mai 0%.
 type CalculatedMetrics = {
   ricavi: number
   margine: number
-  marginePct: number
+  marginePct: number | null
   costoPersonale: number
   affitto: number
   servizi: number
@@ -396,11 +444,11 @@ type CalculatedMetrics = {
   risultatoDopoImposte?: number
   personaleCount: number
   ricavoPerDip: number | null
-  incidenzaPersonale: number
-  incidenzaAffitto: number
-  breakeven: number
+  incidenzaPersonale: number | null
+  incidenzaAffitto: number | null
+  breakeven: number | null
   quotaSede: number
-  variance: { ricavi: number; margine: number; ricaviPct: number }
+  variance: { ricavi: number; margine: number; ricaviPct: number | null }
   approvalPct: number
   budgetRicavi: number
   actualRicavi: number
@@ -426,6 +474,10 @@ type OutletMetric = {
   calculatedMetrics: CalculatedMetrics | null
   // true se i budget_entries dell'outlet contengono righe segnaposto (clone non granito)
   hasPlaceholder?: boolean
+  // Punto vendita non ancora aperto nel periodo: costi reali, nessun ricavo.
+  // Escluso da benchmark, classifica, medie di catena e divisore quota sede.
+  inApertura?: boolean
+  aperturaCaption?: string | null
 }
 
 function TabellaBenchmark({ outletMetrics }: { outletMetrics: OutletMetric[] }) {
@@ -438,20 +490,22 @@ function TabellaBenchmark({ outletMetrics }: { outletMetrics: OutletMetric[] }) 
   const isVariance = rows[0]?.calculatedMetrics?.isVariance || false
 
   type MetricBest = 'max' | 'min' | null
-  type MetricRow = { label: string; key: string; fn: (r: typeof rows[number]) => number; best: MetricBest; pct?: boolean }
+  // fn ritorna null quando la metrica non è calcolabile (es. % su ricavi 0):
+  // la cella mostra «n/d» e il valore non concorre al migliore/peggiore.
+  type MetricRow = { label: string; key: string; fn: (r: typeof rows[number]) => number | null; best: MetricBest; pct?: boolean }
   // In variance le metriche di costo sono "delta": un delta positivo significa
   // costo aumentato (peggio), un delta negativo significa costo diminuito (meglio).
   // Per i ricavi/margini è il contrario: positivo è meglio.
   const metrics: MetricRow[] = [
     { label: isVariance ? 'Δ Ricavi' : 'Ricavi', key: 'ricavi', fn: r => r.calculatedMetrics.ricavi || 0, best: 'max' },
     { label: isVariance ? 'Δ Margine €' : 'Margine €', key: 'margine', fn: r => r.calculatedMetrics.margine || 0, best: 'max' },
-    { label: isVariance ? 'Δ Margine %' : 'Margine %', key: 'marginePct', fn: r => r.calculatedMetrics.marginePct || 0, best: 'max', pct: true },
+    { label: isVariance ? 'Δ Margine %' : 'Margine %', key: 'marginePct', fn: r => r.calculatedMetrics.marginePct, best: 'max', pct: true },
     { label: 'Dipendenti', key: 'ndip', fn: r => r.calculatedMetrics.personaleCount || 0, best: null },
-    { label: isVariance ? 'Δ €/Dipendente' : '€/Dipendente', key: 'ricPerDip', fn: r => r.calculatedMetrics.ricavoPerDip || 0, best: 'max' },
+    { label: isVariance ? 'Δ €/Dipendente' : '€/Dipendente', key: 'ricPerDip', fn: r => r.calculatedMetrics.ricavoPerDip, best: 'max' },
     { label: isVariance ? 'Δ Costo personale' : 'Costo personale', key: 'costoPers', fn: r => r.calculatedMetrics.costoPersonale || 0, best: 'min' },
     { label: isVariance ? 'Δ Affitto' : 'Affitto', key: 'affitto', fn: r => r.calculatedMetrics.affitto || 0, best: 'min' },
-    { label: isVariance ? 'Δ Inc. personale %' : 'Inc. personale %', key: 'incPers', fn: r => r.calculatedMetrics.incidenzaPersonale || 0, best: 'min', pct: true },
-    { label: isVariance ? 'Δ Inc. affitto %' : 'Inc. affitto %', key: 'incAff', fn: r => r.calculatedMetrics.incidenzaAffitto || 0, best: 'min', pct: true },
+    { label: isVariance ? 'Δ Inc. personale %' : 'Inc. personale %', key: 'incPers', fn: r => r.calculatedMetrics.incidenzaPersonale, best: 'min', pct: true },
+    { label: isVariance ? 'Δ Inc. affitto %' : 'Inc. affitto %', key: 'incAff', fn: r => r.calculatedMetrics.incidenzaAffitto, best: 'min', pct: true },
     // breakeven nascosto: incoerente col margine, da rivedere (metrica rimossa dal benchmark).
   ]
 
@@ -461,7 +515,7 @@ function TabellaBenchmark({ outletMetrics }: { outletMetrics: OutletMetric[] }) 
         <Target size={18} className="text-blue-600" />
         <h3 className="font-semibold text-slate-900">Benchmark comparativo</h3>
       </div>
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto scroll-shadow-x">
         <table className="w-full">
           <thead className="bg-slate-50">
             <tr className="text-xs text-slate-500 uppercase tracking-wider">
@@ -470,6 +524,9 @@ function TabellaBenchmark({ outletMetrics }: { outletMetrics: OutletMetric[] }) 
                 <th key={r.name} className="py-2.5 px-4 text-right font-medium whitespace-nowrap">
                   <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: r.outletData?.color || '#6366f1' }} />
                   {shortOutletName(r.name)}
+                  {r.aperturaCaption && (
+                    <div className="mt-1 normal-case tracking-normal"><AperturaBadge caption={r.aperturaCaption} /></div>
+                  )}
                 </th>
               ))}
             </tr>
@@ -477,13 +534,20 @@ function TabellaBenchmark({ outletMetrics }: { outletMetrics: OutletMetric[] }) 
           <tbody>
             {metrics.map(m => {
               const values = rows.map(r => m.fn(r))
-              const bestVal = m.best === 'max' ? Math.max(...values) : m.best === 'min' ? Math.min(...values) : null
+              // Migliore/peggiore: solo outlet aperti e valori calcolabili. Un
+              // outlet in apertura (affitto senza ricavi) non è «il migliore».
+              const candidates = values.filter((v, i): v is number => v != null && !rows[i].inApertura)
+              const bestVal = candidates.length === 0 ? null
+                : m.best === 'max' ? Math.max(...candidates) : m.best === 'min' ? Math.min(...candidates) : null
               return (
                 <tr key={m.key} className="border-t border-slate-50 hover:bg-slate-50/50">
                   <td className="py-2.5 px-4 text-sm font-medium text-slate-700 sticky left-0 bg-white z-10">{m.label}</td>
                   {rows.map((r, i) => {
                     const val = values[i]
-                    const isBest = bestVal !== null && Math.abs(val - bestVal) < 0.01
+                    if (val == null) {
+                      return <td key={r.name} className="py-2.5 px-4 text-sm text-right font-medium text-slate-400">n/d</td>
+                    }
+                    const isBest = bestVal !== null && !r.inApertura && Math.abs(val - bestVal) < 0.01
                     return (
                       <td key={r.name} className={`py-2.5 px-4 text-sm text-right font-medium ${
                         isBest ? 'text-emerald-600 font-bold' :
@@ -540,6 +604,7 @@ const PERIOD_OPTIONS = [
 ]
 
 export default function ConfrontoOutlet() {
+  const isMobile = useIsMobile()
   const { profile } = useAuth()
   const labels = useCompanyLabels()
   const navigate = useNavigate()
@@ -547,11 +612,19 @@ export default function ConfrontoOutlet() {
   const { year, quarter } = usePeriod()
   type CostCenterRow = { id?: string; code?: string; label?: string; name?: string; color?: string; sort_order?: number; is_active?: boolean }
   type BudgetEntryRow = { cost_center?: string | null; account_code?: string | null; account_name?: string | null; macro_group?: string | null; budget_amount?: number | null; actual_amount?: number | null; month?: number | null; is_approved?: boolean | null; is_placeholder?: boolean | null }
-  type EmployeeCostRow = { outlet_code?: string | null; employee_id?: string | null; month?: number | null; totale_allocato?: number | null }
+  // Righe di cedolino (employee_costs), la stessa fonte della pagina Dipendenti.
+  // Prima si leggeva la vista v_employee_costs_by_outlet, che incrocia i costi
+  // con le allocazioni di OGGI: il conteggio dei mesi passati cambiava quando
+  // qualcuno veniva spostato di negozio.
+  type EmployeeCostRow = { outlet_code?: string | null; employee_id?: string | null; year?: number | null; month?: number | null; netto?: number | null }
   type BalanceRow = Record<string, unknown>
   type EmpRow = { id: string; role_description?: string | null; is_active?: boolean | null; nome?: string | null; cognome?: string | null; first_name?: string | null; last_name?: string | null; codice_fiscale?: string | null; fiscal_code?: string | null }
   type AllocRow = { employee_id?: string | null; outlet_code?: string | null }
   const [outlets, setOutlets] = useState<CostCenterRow[]>([])
+  // Anagrafica outlets (date apertura/chiusura) per codice cost_center in
+  // minuscolo: aggancio per cost_center_key, in mancanza per nome/codice.
+  // Serve a riconoscere i punti vendita «in apertura» (src/lib/outletLifecycle.ts).
+  const [outletAnagByCC, setOutletAnagByCC] = useState<Record<string, OutletLifecycleFields>>({})
   const [budgetData, setBudgetData] = useState<BudgetEntryRow[]>([])
   const [employeeCosts, setEmployeeCosts] = useState<EmployeeCostRow[]>([])
   const [empList, setEmpList] = useState<EmpRow[]>([])
@@ -614,6 +687,27 @@ export default function ConfrontoOutlet() {
           .eq('is_active', true)
           .order('sort_order')
 
+        // Anagrafica outlets: gli outlet di questa pagina vengono da cost_centers,
+        // ma le date di apertura/chiusura stanno in `outlets`.
+        const { data: outletRows } = await supabase
+          .from('outlets')
+          .select('id, name, code, cost_center_key, opening_date, closing_date, is_active')
+          .eq('company_id', companyId)
+        type OutletAnagRow = { id: string; name: string | null; code: string | null; cost_center_key: string | null; opening_date: string | null; closing_date: string | null; is_active: boolean | null }
+        const anagByCC: Record<string, OutletLifecycleFields> = {}
+        const anagByKey: Record<string, OutletLifecycleFields> = {}
+        ;((outletRows || []) as OutletAnagRow[]).forEach(o => {
+          const fields: OutletLifecycleFields = { opening_date: o.opening_date, closing_date: o.closing_date, is_active: o.is_active ?? true }
+          const key = (o.cost_center_key || '').trim().toLowerCase()
+          if (key) anagByKey[key] = fields
+          ;[o.code, o.name].forEach(k => {
+            const kk = (k || '').trim().toLowerCase()
+            if (kk && !anagByCC[kk]) anagByCC[kk] = fields
+          })
+        })
+        // cost_center_key vince sul fallback nome/codice
+        Object.assign(anagByCC, anagByKey)
+
         const { data: budgetEntries } = await supabase
           .from('budget_entries')
           .select('*')
@@ -629,9 +723,11 @@ export default function ConfrontoOutlet() {
           .eq('year', year)
 
         const { data: empCosts } = await supabase
-          .from('v_employee_costs_by_outlet')
-          .select('*')
+          .from('employee_costs')
+          .select('employee_id, year, month, netto, outlet_code')
+          .eq('company_id', companyId)
           .eq('year', year)
+          .not('netto', 'is', null)
 
         // Anagrafica + allocazioni: per contare i dipendenti reali (anche solo-netto)
         // e per il fallback quando nel periodo non c'è alcun cedolino.
@@ -700,6 +796,7 @@ export default function ConfrontoOutlet() {
         })
 
         setOutlets((costCenters || []) as CostCenterRow[])
+        setOutletAnagByCC(anagByCC)
         setBudgetData((budgetEntries || []) as BudgetEntryRow[])
         setBalanceData((bsData || []) as BalanceRow[])
         setEmployeeCosts((empCosts || []) as EmployeeCostRow[])
@@ -732,7 +829,19 @@ export default function ConfrontoOutlet() {
     return rows.reduce((s, b) => s + (Number(b[field]) || 0), 0)
   }
 
+  // Outlet (cost_center) in apertura nel periodo scelto: codice -> etichetta.
+  const aperturaByCode = useMemo<Record<string, string>>(() => {
+    const out: Record<string, string> = {}
+    outlets.forEach(o => {
+      const code = (o.code || '').toLowerCase()
+      const anag = outletAnagByCC[code] || outletAnagByCC[(o.name || '').toLowerCase()]
+      if (code && anag && isInApertura(anag, year, selectedMonths)) out[code] = aperturaCaption(anag, year)
+    })
+    return out
+  }, [outlets, outletAnagByCC, year, selectedMonths])
+
   // Quota sede: calcola costi sede e ripartisci equamente tra outlet attivi
+  // (aperti nel periodo: un punto vendita in apertura non assorbe sede).
   const quotaSedePerOutlet = useMemo(() => {
     const sedeEntries = budgetData.filter(b => {
       const cc = (b.cost_center || '').toLowerCase()
@@ -741,9 +850,11 @@ export default function ConfrontoOutlet() {
     })
     const amountField: 'actual_amount' | 'budget_amount' = viewMode === 'actual' ? 'actual_amount' : 'budget_amount'
     const totalSede = sedeEntries.reduce((s, b) => s + Math.abs(Number(b[amountField]) || 0), 0)
-    const activeOutlets = outlets.filter(o => (o as { role?: string }).role === 'outlet').length
+    const activeOutlets = outlets.filter(o =>
+      (o as { role?: string }).role === 'outlet' && !aperturaByCode[(o.code || '').toLowerCase()]
+    ).length
     return activeOutlets > 0 ? totalSede / activeOutlets : 0
-  }, [budgetData, outlets, selectedMonths, viewMode])
+  }, [budgetData, outlets, selectedMonths, viewMode, aperturaByCode])
 
   // Netto sede da ripartire: costi − ricavi dei cost_center role='hq'
   // (budget_entries, period-aware), split via chart_of_accounts.is_revenue.
@@ -766,33 +877,43 @@ export default function ConfrontoOutlet() {
     () => new Set(empList.filter(e => /amministrat/i.test(e.role_description || '')).map(e => e.id)),
     [empList]
   )
-  // Chiave di dedup PERSONA: stessa persona con più matricole/employee_id = una sola.
-  // Preferisci il codice fiscale; altrimenti cognome+nome normalizzati.
-  const empById = useMemo(() => { const m: Record<string, EmpRow> = {}; empList.forEach(e => { m[e.id] = e }); return m }, [empList])
-  const personKey = (empId: string | null | undefined): string => {
-    if (!empId) return ''
-    const e = empById[empId]
-    if (!e) return empId
-    const cf = (e.codice_fiscale || e.fiscal_code || '').trim().toLowerCase()
-    if (cf) return `cf:${cf}`
-    const cog = (e.cognome || e.last_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
-    const nom = (e.nome || e.first_name || '').trim().toLowerCase().replace(/\s+/g, ' ')
-    const name = `${cog} ${nom}`.trim()
-    return name ? `nm:${name}` : `id:${empId}`
-  }
-  // Fallback anagrafica: PERSONE attive (non admin) allocate per outlet (chiave = cost_center code),
-  // deduplicate per persona. allocations.outlet_code = NOME outlet; cost_center.code = lower(name).
-  const activeNonAdminByCode = useMemo(() => {
-    const activeIds = new Set(empList.filter(e => e.is_active !== false && !adminIds.has(e.id)).map(e => e.id))
-    const m: Record<string, Set<string>> = {}
-    allocList.forEach(a => {
-      if (!a.employee_id || !a.outlet_code || !activeIds.has(a.employee_id)) return
-      const code = String(a.outlet_code).trim().toLowerCase()
-      ;(m[code] ||= new Set()).add(personKey(a.employee_id))
-    })
-    return m
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [empList, allocList, adminIds, empById])
+  // La dedup per persona (stesso codice fiscale, o cognome+nome) e l'esclusione
+  // degli amministratori vivono ora in src/lib/headcount.ts, condivise con la
+  // pagina Dipendenti. Qui non si duplica più la regola, e soprattutto è sparito
+  // il ripiego silenzioso sull'anagrafica quando il mese non ha cedolini.
+
+  // ── ORGANICO GRANITICO (fase 4) ────────────────────────────────────────────
+  // Il numero di dipendenti di un outlet viene dai cedolini, esattamente come
+  // nella pagina Dipendenti: stesso helper, stesse regole (amministratori
+  // esclusi, cessati contati nei mesi in cui erano pagati, persone deduplicate).
+  // Si usa l'ULTIMO MESE con cedolini dentro il periodo scelto; se il periodo non
+  // ne ha, si ripiega sull'ultimo mese granito dell'anno e lo si DICHIARA in
+  // pagina, invece di rimettere di nascosto in gioco l'anagrafica come prima.
+  const headcountPeriod = useMemo(() => {
+    const costs = employeeCosts as unknown as HeadcountCost[]
+    const inRange = selectedMonths
+      ? costs.filter(c => c.month != null && selectedMonths.includes(c.month))
+      : costs
+    return lastGranitedPeriod(inRange) || lastGranitedPeriod(costs)
+  }, [employeeCosts, selectedMonths])
+
+  const headcountInPeriodo = useMemo(() => {
+    if (!headcountPeriod || !selectedMonths) return true
+    return selectedMonths.includes(headcountPeriod.month)
+  }, [headcountPeriod, selectedMonths])
+
+  // Chiavi in minuscolo: qui gli outlet si confrontano per codice lowercase.
+  const headcountByCode = useMemo(() => {
+    const raw = headcountCountByOutlet(
+      employeeCosts as unknown as HeadcountCost[],
+      empList as unknown as HeadcountEmployee[],
+      allocList as unknown as HeadcountAllocation[],
+      headcountPeriod,
+    )
+    const out: Record<string, number> = {}
+    Object.entries(raw).forEach(([k, v]) => { out[k.trim().toLowerCase()] = v })
+    return out
+  }, [employeeCosts, empList, allocList, headcountPeriod])
 
   // Calculate metrics for each outlet (pre-sede)
   const outletMetricsBase = useMemo(() => {
@@ -858,8 +979,12 @@ export default function ConfrontoOutlet() {
       // Mostra l'outlet se ha righe budget_entries OPPURE dati overlay/ricavi Lilian.
       // Bug "manca Torino": un outlet con solo consuntivo spariva da card, tabella
       // benchmark, grafici e aggregati perche' qui si tornava sempre null.
+      // Punto vendita non ancora aperto nel periodo (badge «In apertura dal …»).
+      const aperturaLabel = aperturaByCode[outletCode] || null
+      const inApertura = aperturaLabel !== null
+
       if (!outletBudget.length && !hasOverlayData && !hasRevenue) {
-        return { name: outlet.label || '', outletData: outlet, calculatedMetrics: null } as OutletMetric
+        return { name: outlet.label || '', outletData: outlet, calculatedMetrics: null, inApertura, aperturaCaption: aperturaLabel } as OutletMetric
       }
 
       const hasConsForCodes = (codes: Set<string>): number | null => {
@@ -922,18 +1047,11 @@ export default function ConfrontoOutlet() {
             }
           : budget
 
-      // Organico = PERSONE distinte con cedolino nel MESE PIÙ RECENTE del periodo (non l'unione
-      // dei mesi → niente gonfiaggio), deduplicate per persona (stessa persona con più matricole
-      // = 1). View outlet_code = NOME outlet → confronto case-insensitive. Amministratori esclusi.
-      const empRows = employeeCosts
-        .filter(e => String(e.outlet_code || '').trim().toLowerCase() === outletCode)
-        .filter(e => selectedMonths ? (e.month != null && selectedMonths.includes(e.month)) : true)
-        .filter(e => e.employee_id && !adminIds.has(e.employee_id) && e.month != null)
-      const lastMonth = empRows.length ? Math.max(...empRows.map(e => e.month as number)) : null
-      const personeMese = new Set(empRows.filter(e => e.month === lastMonth).map(e => personKey(e.employee_id)))
-      // No-zero: se il mese più recente non ha cedolini, ripiega sull'anagrafica attiva allocata.
-      const personaleCount = personeMese.size > 0 ? personeMese.size : (activeNonAdminByCode[outletCode]?.size || 0)
-      const costoPersonaleFromDb = empRows.filter(e => e.month === lastMonth).reduce((sum, e) => sum + (e.totale_allocato || 0), 0)
+      // Organico dell'outlet: PERSONE con cedolino nel mese granito (vedi
+      // headcountByCode sopra). L'outlet della riga, quando c'è, è quello scritto
+      // dal carico dei cedolini: il passato non si riscrive.
+      const nomeOutlet = (outlet.name || outlet.label || outlet.code || '').trim().toLowerCase()
+      const personaleCount = headcountByCode[nomeOutlet] ?? headcountByCode[outletCode] ?? 0
 
       // Personale = B.9 dal piano dei conti (NON l'allocazione dipendenti, che
       // è un consuntivo a parte): così il preventivo mostra il dato di Lilian.
@@ -953,24 +1071,21 @@ export default function ConfrontoOutlet() {
       const margine = ricavi - costiTotali
       // In variance le percentuali sono "delta in punti percentuali"
       // (incidenza_actual - incidenza_budget); altrimenti calcolo classico.
-      let marginePct: number, incidenzaPersonale: number, incidenzaAffitto: number
+      // null quando i ricavi sono 0 (outlet in apertura, nessun preventivo):
+      // la percentuale non esiste e la UI mostra «n/d», mai 0%.
+      let marginePct: number | null, incidenzaPersonale: number | null, incidenzaAffitto: number | null
+      const deltaPp = (a: number | null, b: number | null): number | null => (a == null || b == null) ? null : a - b
       if (isVariance) {
         // Margine = ricavi − TUTTI i costi (macro), senza quota sede né override.
         const aMargine = actual.ricavi - actual.costiTotali
         const bMargine = budget.ricavi - budget.costiTotali
-        const aMargPct = actual.ricavi > 0 ? (aMargine / actual.ricavi * 100) : 0
-        const bMargPct = budget.ricavi > 0 ? (bMargine / budget.ricavi * 100) : 0
-        const aIncP = actual.ricavi > 0 ? (actual.costoPersonale / actual.ricavi * 100) : 0
-        const bIncP = budget.ricavi > 0 ? (budget.costoPersonale / budget.ricavi * 100) : 0
-        const aIncA = actual.ricavi > 0 ? (actual.affitto / actual.ricavi * 100) : 0
-        const bIncA = budget.ricavi > 0 ? (budget.affitto / budget.ricavi * 100) : 0
-        marginePct = aMargPct - bMargPct
-        incidenzaPersonale = aIncP - bIncP
-        incidenzaAffitto = aIncA - bIncA
+        marginePct = deltaPp(safePct(aMargine, actual.ricavi), safePct(bMargine, budget.ricavi))
+        incidenzaPersonale = deltaPp(safePct(actual.costoPersonale, actual.ricavi), safePct(budget.costoPersonale, budget.ricavi))
+        incidenzaAffitto = deltaPp(safePct(actual.affitto, actual.ricavi), safePct(budget.affitto, budget.ricavi))
       } else {
-        marginePct = ricavi > 0 ? (margine / ricavi * 100) : 0
-        incidenzaPersonale = ricavi > 0 ? (finalCostoPersonale / ricavi * 100) : 0
-        incidenzaAffitto = ricavi > 0 ? (affitto / ricavi * 100) : 0
+        marginePct = safePct(margine, ricavi)
+        incidenzaPersonale = safePct(finalCostoPersonale, ricavi)
+        incidenzaAffitto = safePct(affitto, ricavi)
       }
       // null = non calcolabile (0 dipendenti, indeterminato). La UI mostra
       // 'N/D'. Bug segnalato: con 0 dipendenti mostrava il totale ricavi.
@@ -980,12 +1095,16 @@ export default function ConfrontoOutlet() {
       // In variance il breakeven calcolato sui delta è privo di significato
       // (denominatore può essere negativo o piccolissimo). Lo mettiamo a 0,
       // la card lo nasconderà in modalità scostamento.
-      let breakeven: number
+      // Senza ricavi il break-even non si calcola (null): niente incidenza merci
+      // inventata al 50%.
+      let breakeven: number | null
       if (isVariance) {
         breakeven = 0
-      } else {
-        const incidenzaMerci = ricavi > 0 ? (merci / ricavi) : 0.5
+      } else if (ricavi > 0) {
+        const incidenzaMerci = merci / ricavi
         breakeven = incidenzaMerci < 1 ? costiFissi / (1 - incidenzaMerci) : 0
+      } else {
+        breakeven = null
       }
 
       // Varianza budget vs actual (banner sempre visibile sulla card,
@@ -993,7 +1112,7 @@ export default function ConfrontoOutlet() {
       const variance = {
         ricavi: actual.ricavi - budget.ricavi,
         margine: (actual.ricavi - actual.costiTotali) - (budget.ricavi - budget.costiTotali),
-        ricaviPct: budget.ricavi > 0 ? ((actual.ricavi - budget.ricavi) / budget.ricavi * 100) : 0,
+        ricaviPct: safePct(actual.ricavi - budget.ricavi, budget.ricavi),
       }
 
       // Tracking approvazione: check quanti mesi sono approvati
@@ -1005,6 +1124,8 @@ export default function ConfrontoOutlet() {
         name: outlet.label || '',
         outletData: outlet,
         hasPlaceholder: outletBudget.some(b => b.is_placeholder === true),
+        inApertura,
+        aperturaCaption: aperturaLabel,
         calculatedMetrics: {
           ricavi, margine, marginePct,
           costoPersonale: finalCostoPersonale,
@@ -1031,7 +1152,7 @@ export default function ConfrontoOutlet() {
       } as OutletMetric
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outlets, budgetData, balanceData, employeeCosts, adminIds, activeNonAdminByCode, empById, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta])
+  }, [outlets, budgetData, balanceData, employeeCosts, adminIds, headcountByCode, selectedMonths, viewMode, quotaSedePerOutlet, consOverlay, prevOverlay, revenueMap, coaByCode, macroMeta, aperturaByCode])
 
   // Quota sede pro-quota netta: il netto sede ripartito sugli outlet in
   // proporzione al fatturato preventivo (budgetRicavi). Aggiunge alla scheda
@@ -1058,9 +1179,9 @@ export default function ConfrontoOutlet() {
     return { ...o, calculatedMetrics: cm }
   }), [outletMetricsBase, nettoSede, fatturatoTot, imposteAnnualeAttiva, imposteTotal])
 
-  // Rankings
+  // Rankings (per fatturato): gli outlet in apertura non hanno posizione.
   const rankings = useMemo<Record<string, number>>(() => {
-    const withData = outletMetrics.filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null)
+    const withData = outletMetrics.filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null && !o.inApertura)
     const sorted = [...withData].sort((a, b) => b.calculatedMetrics.ricavi - a.calculatedMetrics.ricavi)
     const map: Record<string, number> = {}
     sorted.forEach((o, i) => { map[o.name] = i + 1 })
@@ -1094,9 +1215,10 @@ export default function ConfrontoOutlet() {
   const totPersonale = outletMetrics.reduce((s, o) => s + (o.calculatedMetrics?.costoPersonale || 0), 0)
   const totDipendenti = outletMetrics.reduce((s, o) => s + (o.calculatedMetrics?.personaleCount || 0), 0)
   const totAffitti = outletMetrics.reduce((s, o) => s + (o.calculatedMetrics?.affitto || 0), 0)
-  const avgRicavi = outletMetrics.filter(o => o.calculatedMetrics).length > 0
-    ? totRicavi / outletMetrics.filter(o => o.calculatedMetrics).length
-    : 0
+  // Medie di catena: solo outlet con dati e già aperti nel periodo (un punto
+  // vendita in apertura, con costi ma senza ricavi, sgonfierebbe la media).
+  const nOutletAperti = outletMetrics.filter(o => o.calculatedMetrics && !o.inApertura).length
+  const avgRicavi = nOutletAperti > 0 ? totRicavi / nOutletAperti : 0
   // I2 — scostamento di catena = somma degli scostamenti dei singoli outlet
   // (consuntivo − preventivo sui mesi presi). Coincide con la somma in card.
   const totScostamento = outletMetrics.reduce((s, o) => s + (o.calculatedMetrics?.scostamento || 0), 0)
@@ -1112,7 +1234,7 @@ export default function ConfrontoOutlet() {
       const m = o.calculatedMetrics
       csvRows.push([
         `"${formatOutletName(o.name)}"`,
-        m.ricavi.toFixed(2), m.margine.toFixed(2), m.marginePct.toFixed(1),
+        m.ricavi.toFixed(2), m.margine.toFixed(2), m.marginePct == null ? '' : m.marginePct.toFixed(1),
         m.personaleCount, (m.ricavoPerDip ?? 0).toFixed(2),
         m.costoPersonale.toFixed(2), m.affitto.toFixed(2),
         m.servizi.toFixed(2), m.merci.toFixed(2),
@@ -1126,7 +1248,7 @@ export default function ConfrontoOutlet() {
       csvRows.push('--- SCOSTAMENTO BUDGET vs CONSUNTIVO ---')
       rows.forEach(o => {
         const v = o.calculatedMetrics.variance
-        csvRows.push([`"${formatOutletName(o.name)}"`, `Ricavi: ${v.ricavi.toFixed(2)}`, `(${v.ricaviPct.toFixed(1)}%)`].join(';'))
+        csvRows.push([`"${formatOutletName(o.name)}"`, `Ricavi: ${v.ricavi.toFixed(2)}`, `(${v.ricaviPct == null ? 'n/d' : `${v.ricaviPct.toFixed(1)}%`})`].join(';'))
       })
     }
     const blob = new Blob(['\uFEFF' + csvRows.join('\n')], { type: 'text/csv;charset=utf-8' })
@@ -1209,10 +1331,11 @@ export default function ConfrontoOutlet() {
               .filter((o): o is OutletMetric & { calculatedMetrics: CalculatedMetrics } => o.calculatedMetrics !== null)
               .map(o => {
                 const m = o.calculatedMetrics;
+                // null (n/d) esce come cella vuota, non come 0
                 return {
                   outlet: formatOutletName(o.name), ricavi: m.ricavi, margine: m.margine,
                   margine_pct: m.marginePct, dipendenti: m.personaleCount,
-                  per_dipendente: m.ricavoPerDip ?? 0, costo_personale: m.costoPersonale,
+                  per_dipendente: m.ricavoPerDip, costo_personale: m.costoPersonale,
                   affitto: m.affitto, servizi: m.servizi, merci: m.merci,
                   quota_sede: m.quotaSede,
                 };
@@ -1258,9 +1381,16 @@ export default function ConfrontoOutlet() {
         </div>
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
           <div className="p-2.5 rounded-lg bg-amber-50 text-amber-600 inline-flex mb-3"><Users size={20} /></div>
-          <div className="text-2xl font-bold text-slate-900">{totDipendenti}</div>
+          <div className="text-2xl font-bold text-slate-900">{headcountPeriod ? totDipendenti : 'N/D'}</div>
           <div className="text-sm text-slate-500">Dipendenti {labels.pointOfSalePluralLower}</div>
-          <div className="text-xs text-slate-400">Media: {(totDipendenti / (outletMetrics.filter(o => o.calculatedMetrics).length || 1)).toFixed(1)} per {labels.pointOfSaleLower}</div>
+          {/* Il numero è granitico: viene dai cedolini di un mese preciso, e la
+              sede resta fuori perché questa pagina confronta i punti vendita. */}
+          <div className="text-xs text-slate-400">
+            {headcountPeriod
+              ? <>In forza ai cedolini di {periodLabel(headcountPeriod)}{!headcountInPeriodo && <span className="text-amber-600"> (fuori dal periodo scelto)</span>}. Sede esclusa.</>
+              : <>Nessun cedolino caricato: caricali dalla pagina Dipendenti.</>}
+          </div>
+          <div className="text-xs text-slate-400">Media: {(totDipendenti / (nOutletAperti || 1)).toFixed(1)} per {labels.pointOfSaleLower}</div>
         </div>
         <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
           <div className="p-2.5 rounded-lg bg-purple-50 text-purple-600 inline-flex mb-3"><DollarSign size={20} /></div>
@@ -1269,7 +1399,7 @@ export default function ConfrontoOutlet() {
           </div>
           <div className="text-sm text-slate-500">Ricavo per dipendente</div>
           <div className="text-xs text-slate-400">
-            {totDipendenti > 0 ? 'KPI produttività media' : 'Nessun dipendente assegnato agli outlet'}
+            {totDipendenti > 0 ? 'KPI produttività media' : 'Nessuna persona in forza nei cedolini caricati'}
           </div>
         </div>
       </div>
@@ -1291,7 +1421,14 @@ export default function ConfrontoOutlet() {
                   ))}
                 </defs>
                 <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="name" {...AXIS_STYLE} />
+                {/* Su mobile recharts nasconderebbe i tick che si sovrappongono:
+                    si forzano tutti, inclinati e più piccoli */}
+                <XAxis dataKey="name" {...AXIS_STYLE}
+                  interval={isMobile ? 0 : undefined}
+                  angle={isMobile ? -35 : 0}
+                  textAnchor={isMobile ? 'end' : 'middle'}
+                  height={isMobile ? 56 : 30}
+                  tick={{ ...AXIS_STYLE.tick, fontSize: isMobile ? 9 : AXIS_STYLE.tick.fontSize }} />
                 <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip content={<GlassTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
                 <Bar dataKey="ricavi" radius={[8, 8, 0, 0]} animationDuration={800}>
@@ -1318,7 +1455,14 @@ export default function ConfrontoOutlet() {
                   })}
                 </defs>
                 <CartesianGrid {...GRID_STYLE} />
-                <XAxis dataKey="name" {...AXIS_STYLE} />
+                {/* Su mobile recharts nasconderebbe i tick che si sovrappongono:
+                    si forzano tutti, inclinati e più piccoli */}
+                <XAxis dataKey="name" {...AXIS_STYLE}
+                  interval={isMobile ? 0 : undefined}
+                  angle={isMobile ? -35 : 0}
+                  textAnchor={isMobile ? 'end' : 'middle'}
+                  height={isMobile ? 56 : 30}
+                  tick={{ ...AXIS_STYLE.tick, fontSize: isMobile ? 9 : AXIS_STYLE.tick.fontSize }} />
                 <YAxis {...AXIS_STYLE} tickFormatter={v => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip content={<GlassTooltip />} cursor={{ fill: 'rgba(99,102,241,0.04)', radius: 8 }} />
                 <Bar dataKey="margine" radius={[8, 8, 0, 0]} animationDuration={800}>
@@ -1353,6 +1497,8 @@ export default function ConfrontoOutlet() {
               calculatedMetrics={o.calculatedMetrics}
               ranking={rankings[o.name]}
               showPlaceholder={viewMode !== 'actual' && !!o.hasPlaceholder}
+              headcountLabel={headcountPeriod ? periodLabel(headcountPeriod) : ''}
+              aperturaCaption={o.aperturaCaption}
               onNavigate={() => navigate(`/outlet?id=${o.outletData.id}`)}
               onOpenBudget={() => navigate(`/budget?tab=confronto&outlet=${encodeURIComponent(o.calculatedMetrics?.outletCode || o.outletData.code || '')}&anno=${year}`)}
             />

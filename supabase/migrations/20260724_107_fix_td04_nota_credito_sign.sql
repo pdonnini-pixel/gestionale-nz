@@ -1,0 +1,177 @@
+-- =====================================================================
+-- Migrazione 107 — FIX ALLA RADICE: TD04/TD08 (note di credito) col segno corretto
+-- =====================================================================
+--
+-- PROBLEMA
+-- Il trigger public.sync_acube_sdi_passive_to_payable() crea la scadenza da ogni
+-- fattura passiva ricevuta da A-Cube usando SEMPRE l'importo positivo (NEW.total_amount)
+-- e status 'da_pagare', SENZA guardare il tipo documento. Risultato: ogni NOTA DI CREDITO
+-- (TipoDocumento TD04, e la semplificata TD08) entra come FATTURA POSITIVA da pagare.
+-- Casi reali riscontrati (audit 27/07): GGZ 14725/14727, SERTEC, GRUPPO FB, UNICOOP,
+-- ARCO, ecc. — tutte NC importate col segno sbagliato.
+--
+-- FIX
+-- Se il documento è una nota di credito (TD04/TD08), il payable viene creato con importo
+-- NEGATIVO (-abs(total_amount)) e status 'nota_credito', in un'unica riga (le NC non si
+-- rateizzano). Per tutti gli altri documenti la logica resta IDENTICA a prima
+-- (rate da XML / piano fornitore / riga unica). La electronic_invoices resta con importo
+-- positivo, come già oggi (è il payable a portare il segno).
+--
+-- CARATTERE: additiva/non distruttiva (CREATE OR REPLACE della sola funzione; il trigger
+--   trg_sync_acube_sdi_passive resta invariato e la riusa). NON tocca i dati esistenti:
+--   i record già sbagliati vanno corretti a parte (vedi audit segno NC).
+--
+-- ⚠️ REGOLA #0 — PARITÀ TENANT: applicare A MANO e IDENTICA su NZ + Made + Zago.
+--   NZ = xfvfxsvqpnpvibgeqpqp | Made = wdgoebzvosspjqttitra | Zago = jxlwvzjreukscnswkbjx
+-- Rollback + verifiche in coda.
+-- =====================================================================
+
+BEGIN;
+
+CREATE OR REPLACE FUNCTION public.sync_acube_sdi_passive_to_payable()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public', 'pg_temp'
+AS $function$
+declare
+  v_company_id uuid; v_supplier_id uuid; v_electronic_invoice_id uuid; v_name text;
+  n int; sum_rate numeric; tol numeric; i int; v_dues date[]; v_amts numeric[]; v_mets text[];
+  v_net numeric; v_vat numeric; v_realxml text; v_xml text; v_due_fallback date;
+  v_pb text; v_prima int; v_nrate int; v_bank uuid; v_smethod text; rec record;
+  v_is_nc boolean;
+begin
+  if NEW.direction <> 'passive' then return NEW; end if;
+
+  select id into v_company_id from public.companies
+   where NEW.recipient_vat is not null
+     and regexp_replace(coalesce(vat_number,''),'\D','','g') = regexp_replace(NEW.recipient_vat,'\D','','g')
+   limit 1;
+  if v_company_id is null and (select count(*) from public.companies) = 1 then
+    select id into v_company_id from public.companies limit 1;
+  end if;
+  if v_company_id is null then
+    raise warning '[sync_acube_sdi_passive] company non risolta (recipient_vat=%, acube_uuid=%)', NEW.recipient_vat, NEW.acube_uuid;
+    return NEW;
+  end if;
+
+  v_realxml := ltrim(NEW.xml_content, chr(65279) || E' \t\r\n');
+  if v_realxml is null or left(v_realxml,1) <> '<' then v_realxml := null; end if;
+  v_name := NEW.sender_name;
+  if v_name is null or v_name ~ '^[0-9]+$' or v_name = NEW.sender_vat then
+    v_name := public._acube_extract_cedente_name(v_realxml, NULL);
+  end if;
+  if v_name is null or v_name ~ '^[0-9]+$' or v_name = NEW.sender_vat then
+    v_name := public._acube_cedente_name_json(NEW.payload, NEW.sender_vat);
+  end if;
+  select coalesce(sum((r->>'imponibile_importo')::numeric), 0), coalesce(sum((r->>'imposta')::numeric), 0)
+    into v_net, v_vat
+  from jsonb_array_elements(coalesce(NEW.payload->'fattura_elettronica_body', '[]'::jsonb)) body
+  cross join lateral jsonb_array_elements(coalesce(body #> '{dati_beni_servizi,dati_riepilogo}', '[]'::jsonb)) r;
+  if coalesce(v_net,0) = 0 and coalesce(v_vat,0) = 0 and coalesce(NEW.total_amount,0) <> 0 then
+    v_net := NEW.total_amount; v_vat := 0;
+  end if;
+  v_xml := coalesce(v_realxml, NEW.payload::text);
+  select array_agg(due_date order by installment), array_agg(amount order by installment),
+         array_agg(method order by installment), count(*), coalesce(sum(amount),0)
+    into v_dues, v_amts, v_mets, n, sum_rate
+  from public.fn_parse_invoice_payments(v_realxml) where due_date is not null and amount is not null;
+  if coalesce(n,0) = 0 then
+    select array_agg(due_date order by installment), array_agg(amount order by installment),
+           array_agg(method order by installment), count(*), coalesce(sum(amount),0)
+      into v_dues, v_amts, v_mets, n, sum_rate
+    from public.fn_parse_invoice_payments_json(NEW.payload) where due_date is not null and amount is not null;
+  end if;
+  v_due_fallback := NEW.invoice_date;
+
+  select id into v_supplier_id from public.suppliers
+  where company_id = v_company_id and (partita_iva = NEW.sender_vat or vat_number = NEW.sender_vat) limit 1;
+  if v_supplier_id is null then
+    insert into public.suppliers (id, company_id, name, ragione_sociale, vat_number, partita_iva, nazione, source, is_active, payment_terms, payment_method)
+    values (gen_random_uuid(), v_company_id, v_name, v_name, NEW.sender_vat, NEW.sender_vat, coalesce(NEW.sender_country,'IT'), 'acube_sdi', true, 30, 'bonifico_ordinario')
+    returning id into v_supplier_id;
+  end if;
+
+  select payment_base, prima_scadenza_gg, numero_rate, payment_bank_account_id, default_payment_method::text
+    into v_pb, v_prima, v_nrate, v_bank, v_smethod
+  from public.suppliers where id = v_supplier_id;
+
+  insert into public.electronic_invoices (id, company_id, invoice_number, invoice_date, supplier_name, supplier_vat,
+    net_amount, vat_amount, gross_amount, due_date, sdi_id, sdi_status, tipo_documento, source, xml_content, acube_uuid, codice_destinatario, created_at)
+  values (gen_random_uuid(), v_company_id, NEW.invoice_number, NEW.invoice_date, v_name, NEW.sender_vat,
+    v_net, v_vat, NEW.total_amount, coalesce(v_dues[1], v_due_fallback), NEW.sdi_file_id, public._acube_marking_to_sdi_status(NEW.marking), NEW.document_type, 'api_acube_sdi',
+    v_xml, NEW.acube_uuid, NEW.recipient_code, now())
+  on conflict (acube_uuid) do nothing returning id into v_electronic_invoice_id;
+  if v_electronic_invoice_id is null then
+    select id into v_electronic_invoice_id from public.electronic_invoices where acube_uuid = NEW.acube_uuid;
+  end if;
+
+  -- NOVITÀ 107: nota di credito → una riga NEGATIVA, status 'nota_credito', niente rate.
+  v_is_nc := upper(coalesce(NEW.document_type, '')) in ('TD04', 'TD08');
+
+  if v_is_nc then
+    insert into public.payables (id, company_id, supplier_id, invoice_number, invoice_date, due_date, original_due_date,
+      gross_amount, status, payment_method, payment_method_code, electronic_invoice_id, acube_uuid, supplier_name, supplier_vat, installment_number, installment_total, created_at)
+    values (gen_random_uuid(), v_company_id, v_supplier_id, NEW.invoice_number, NEW.invoice_date,
+      coalesce(v_dues[1], v_due_fallback), coalesce(v_dues[1], v_due_fallback),
+      -abs(NEW.total_amount), 'nota_credito'::payable_status, 'bonifico_ordinario'::payment_method, coalesce(v_mets[1], null),
+      v_electronic_invoice_id, NEW.acube_uuid, v_name, NEW.sender_vat, 1, 1, now())
+    on conflict do nothing;
+    return NEW;
+  end if;
+
+  tol := greatest(0.05, coalesce(NEW.total_amount,0)*0.001);
+  if coalesce(NEW.total_amount,0) > 0 and n is not null and n >= 2 and abs(sum_rate - NEW.total_amount) <= tol then
+    v_amts[n] := round(NEW.total_amount - (select coalesce(sum(a),0) from unnest(v_amts[1:n-1]) a), 2);
+    insert into public.payables (id, company_id, supplier_id, invoice_number, invoice_date, due_date, original_due_date,
+      gross_amount, status, payment_method, payment_method_code, electronic_invoice_id, acube_uuid, supplier_name, supplier_vat, installment_number, installment_total, created_at)
+    values (gen_random_uuid(), v_company_id, v_supplier_id, NEW.invoice_number, NEW.invoice_date, v_dues[1], v_dues[1],
+      v_amts[1], 'da_pagare'::payable_status, 'bonifico_ordinario'::payment_method, coalesce(v_mets[1], null), v_electronic_invoice_id, NEW.acube_uuid, v_name, NEW.sender_vat, 1, n, now())
+    on conflict do nothing;
+    for i in 2..n loop
+      insert into public.payables (id, company_id, supplier_id, invoice_number, invoice_date, due_date, original_due_date,
+        gross_amount, status, payment_method, payment_method_code, electronic_invoice_id, supplier_name, supplier_vat, installment_number, installment_total, created_at)
+      values (gen_random_uuid(), v_company_id, v_supplier_id, NEW.invoice_number, NEW.invoice_date, v_dues[i], v_dues[i],
+        v_amts[i], 'da_pagare'::payable_status, 'bonifico_ordinario'::payment_method, coalesce(v_mets[i], null), v_electronic_invoice_id, v_name, NEW.sender_vat, i, n, now())
+      on conflict do nothing;
+    end loop;
+  elsif NEW.invoice_date >= DATE '2026-07-31'
+        and v_pb is not null and v_nrate is not null and coalesce(NEW.total_amount,0) <> 0 then
+    for rec in
+      select rata, due_date, importo
+      from public.fn_supplier_installment_schedule(NEW.invoice_date, v_pb, v_prima, v_nrate, NEW.total_amount)
+    loop
+      insert into public.payables (id, company_id, supplier_id, invoice_number, invoice_date, due_date, original_due_date,
+        gross_amount, status, payment_method, payment_method_code, payment_bank_account_id, electronic_invoice_id,
+        acube_uuid, supplier_name, supplier_vat, installment_number, installment_total, notes, created_at)
+      values (gen_random_uuid(), v_company_id, v_supplier_id, NEW.invoice_number, NEW.invoice_date, rec.due_date, rec.due_date,
+        rec.importo, 'da_pagare'::payable_status,
+        coalesce(v_smethod::payment_method, 'bonifico_ordinario'::payment_method), null, v_bank, v_electronic_invoice_id,
+        case when rec.rata = 1 then NEW.acube_uuid else null end, v_name, NEW.sender_vat, rec.rata, v_nrate,
+        'Auto-generata da piano fornitore', now())
+      on conflict do nothing;
+    end loop;
+  else
+    insert into public.payables (id, company_id, supplier_id, invoice_number, invoice_date, due_date, original_due_date,
+      gross_amount, status, payment_method, payment_method_code, electronic_invoice_id, acube_uuid, supplier_name, supplier_vat, installment_number, installment_total, created_at)
+    values (gen_random_uuid(), v_company_id, v_supplier_id, NEW.invoice_number, NEW.invoice_date,
+      coalesce(v_dues[1], v_due_fallback), coalesce(v_dues[1], v_due_fallback),
+      NEW.total_amount, 'da_pagare'::payable_status, 'bonifico_ordinario'::payment_method, coalesce(v_mets[1], null), v_electronic_invoice_id, NEW.acube_uuid, v_name, NEW.sender_vat, 1, 1, now())
+    on conflict do nothing;
+  end if;
+  return NEW;
+end; $function$;
+
+COMMIT;
+
+-- =====================================================================
+-- ROLLBACK (a mano): ri-applicare la versione precedente della funzione
+--   (senza il blocco v_is_nc), cioè lo stato prima di questa migration.
+-- =====================================================================
+-- VERIFICHE
+-- 1) Prova su una TD04 futura: il payable deve nascere con gross_amount < 0 e status 'nota_credito'.
+-- 2) Audit residuo (dovrebbe essere vuoto dopo la correzione dati):
+--    SELECT p.supplier_name, p.invoice_number, ei.tipo_documento, p.gross_amount, p.status
+--    FROM payables p JOIN electronic_invoices ei ON ei.id = p.electronic_invoice_id
+--    WHERE ei.tipo_documento IN ('TD04','TD08') AND p.gross_amount > 0;
+-- =====================================================================

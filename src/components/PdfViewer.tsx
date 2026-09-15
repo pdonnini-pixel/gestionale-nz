@@ -176,6 +176,7 @@ export default function PdfViewer({ pdfData, url, className = '' }: PdfViewerPro
             onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
             disabled={currentPage <= 1}
             className="p-1.5 rounded-lg hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition"
+            title="Pagina precedente"
           >
             <ChevronLeft size={18} />
           </button>
@@ -186,6 +187,7 @@ export default function PdfViewer({ pdfData, url, className = '' }: PdfViewerPro
             onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
             disabled={currentPage >= totalPages}
             className="p-1.5 rounded-lg hover:bg-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition"
+            title="Pagina successiva"
           >
             <ChevronRight size={18} />
           </button>
@@ -195,6 +197,7 @@ export default function PdfViewer({ pdfData, url, className = '' }: PdfViewerPro
             onClick={() => setScale(s => Math.max(0.5, s - 0.2))}
             disabled={scale <= 0.5}
             className="p-1.5 rounded-lg hover:bg-slate-200 disabled:opacity-30 transition"
+            title="Riduci zoom"
           >
             <ZoomOut size={18} />
           </button>
@@ -205,6 +208,7 @@ export default function PdfViewer({ pdfData, url, className = '' }: PdfViewerPro
             onClick={() => setScale(s => Math.min(3, s + 0.2))}
             disabled={scale >= 3}
             className="p-1.5 rounded-lg hover:bg-slate-200 disabled:opacity-30 transition"
+            title="Aumenta zoom"
           >
             <ZoomIn size={18} />
           </button>
