@@ -7163,6 +7163,123 @@ export type Database = {
           },
         ]
       }
+      acquirer_contracts: {
+        Row: {
+          acquirer: string
+          company_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string | null
+          merchant_code: string
+          note: string | null
+          outlet_id: string | null
+          payment_contract: string | null
+          sdd_mandate: string | null
+          settlement_mode: string
+          terminal_code: string | null
+          updated_at: string
+          valid_from: string | null
+          valid_to: string | null
+        }
+        Insert: {
+          acquirer: string
+          company_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          merchant_code: string
+          note?: string | null
+          outlet_id?: string | null
+          payment_contract?: string | null
+          sdd_mandate?: string | null
+          settlement_mode?: string
+          terminal_code?: string | null
+          updated_at?: string
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Update: {
+          acquirer?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          merchant_code?: string
+          note?: string | null
+          outlet_id?: string | null
+          payment_contract?: string | null
+          sdd_mandate?: string | null
+          settlement_mode?: string
+          terminal_code?: string | null
+          updated_at?: string
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Relationships: []
+      }
+      acquirer_fees: {
+        Row: {
+          bank_transaction_id: string | null
+          company_id: string
+          contract_id: string
+          created_at: string
+          document_id: string | null
+          fee_amount: number
+          fixed_amount: number
+          gross_amount: number | null
+          id: string
+          note: string | null
+          outlet_id: string | null
+          period_month: number
+          period_year: number
+          settlement_mode: string
+          source: string
+          stamp_amount: number
+          updated_at: string
+        }
+        Insert: {
+          bank_transaction_id?: string | null
+          company_id: string
+          contract_id: string
+          created_at?: string
+          document_id?: string | null
+          fee_amount: number
+          fixed_amount?: number
+          gross_amount?: number | null
+          id?: string
+          note?: string | null
+          outlet_id?: string | null
+          period_month: number
+          period_year: number
+          settlement_mode: string
+          source?: string
+          stamp_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          bank_transaction_id?: string | null
+          company_id?: string
+          contract_id?: string
+          created_at?: string
+          document_id?: string | null
+          fee_amount?: number
+          fixed_amount?: number
+          gross_amount?: number | null
+          id?: string
+          note?: string | null
+          outlet_id?: string | null
+          period_month?: number
+          period_year?: number
+          settlement_mode?: string
+          source?: string
+          stamp_amount?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       acube_accounts: {
         Row: {
           account_id: string
@@ -20452,6 +20569,31 @@ export type Database = {
       }
     }
     Views: {
+      v_commissioni_incasso: {
+        Row: {
+          acquirer: string | null
+          aliquota_pct: number | null
+          bank_transaction_id: string | null
+          company_id: string | null
+          costo_totale: number | null
+          document_id: string | null
+          fee_amount: number | null
+          fixed_amount: number | null
+          gross_amount: number | null
+          merchant_code: string | null
+          outlet_code: string | null
+          outlet_id: string | null
+          outlet_name: string | null
+          payment_contract: string | null
+          period_month: number | null
+          period_year: number | null
+          periodo: string | null
+          settlement_mode: string | null
+          source: string | null
+          stamp_amount: number | null
+        }
+        Relationships: []
+      }
       cash_movements: {
         Row: {
           ai_categorized_at: string | null
