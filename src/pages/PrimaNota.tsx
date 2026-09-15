@@ -28,9 +28,16 @@
 // contante: versamenti e prelievi dal lato banca, fondo cassa, incassi, spese e
 // versamenti dichiarati dalle chiusure di cassa. Logica in
 // src/lib/primaNotaQuadratura.ts (testata).
+//
+// Quarta vista «Dipendenti» (richiesta di Patrizio, 15/09): per il mese la
+// lista con nome e cognome e il netto pagato, riconducibile alla disposizione
+// per emolumenti in banca (ID flusso CBI), così lo studio fa il collegamento.
+// Le buste paga vengono da employee_cost_slips (mese prima e mese del
+// pagamento), i flussi dai movimenti classificati «stipendi». Logica in
+// src/lib/primaNotaStipendi.ts (testata).
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale } from 'lucide-react'
+import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale, Users } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
@@ -52,6 +59,10 @@ import {
   quadraturaConti, quadraturaContante, saldiProgressivi, prevDay,
   type PnTxSnapshot, type PnClosingLite, type QuadraturaConto, type QuadraturaContante,
 } from '../lib/primaNotaQuadratura'
+import {
+  abbinaStipendi, buildStipendioRow, nomeDipendente, competenzaLabel, competenzeCandidate, STIPENDI_COLUMN_WIDTHS,
+  type PnSlip, type PnFlusso,
+} from '../lib/primaNotaStipendi'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
 import TableScroll from '../components/ui/TableScroll'
@@ -93,7 +104,7 @@ const sheetName = (name: string, used: Set<string>): string => {
   return n
 }
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
-type View = 'banca' | 'pagamenti' | 'incassi'
+type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti'
 
 const MONTHS = [
   { v: 1, l: 'Gennaio' }, { v: 2, l: 'Febbraio' }, { v: 3, l: 'Marzo' }, { v: 4, l: 'Aprile' },
@@ -174,6 +185,8 @@ export default function PrimaNota() {
   // Quadratura: movimenti di una finestra larga intorno al periodo (per i saldi della banca) e chiusure di cassa del periodo
   const [winRaw, setWinRaw] = useState<WinRow[]>([])
   const [closings, setClosings] = useState<PnClosingLite[]>([])
+  // Dipendenti: buste paga dei mesi candidati (mese prima e mese del pagamento)
+  const [slips, setSlips] = useState<PnSlip[]>([])
   const [outletFilter, setOutletFilter] = useState<string | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(false)
@@ -455,8 +468,37 @@ export default function PrimaNota() {
     }
   }, [companyId, dateStart, dateEnd, bankAccountId])
 
+  // Buste paga dei mesi che un pagamento del periodo può saldare: per ogni
+  // mese del periodo, il mese stesso e quello prima (a gennaio, dicembre
+  // dell'anno prima). Nome e cognome dall'anagrafica dipendenti.
+  const loadSlips = useCallback(async () => {
+    if (!companyId) return
+    try {
+      const months = month ? [month] : Array.from({ length: 12 }, (_, i) => i + 1)
+      const pairs = new Map<string, { year: number; month: number }>()
+      for (const mm of months) for (const c of competenzeCandidate(`${year}-${String(mm).padStart(2, '0')}-01`)) pairs.set(`${c.year}-${c.month}`, c)
+      const orExpr = [...pairs.values()].map(c => `and(year.eq.${c.year},month.eq.${c.month})`).join(',')
+      const { data, error: err } = await supabase
+        .from('employee_cost_slips')
+        .select('id, employee_id, year, month, tipo, netto, outlet_code, employees(cognome, nome, last_name, first_name)')
+        .eq('company_id', companyId)
+        .or(orExpr)
+        .limit(5000)
+      if (err) throw err
+      type SlipRow = { id: string; employee_id: string | null; year: number; month: number; tipo: string | null; netto: number | null; outlet_code: string | null; employees: { cognome: string | null; nome: string | null; last_name: string | null; first_name: string | null } | null }
+      setSlips(((data ?? []) as unknown as SlipRow[]).map(r => ({
+        id: r.id, employee_id: r.employee_id, year: r.year, month: r.month, tipo: r.tipo, netto: r.netto == null ? null : Number(r.netto), outlet_code: r.outlet_code,
+        cognome: r.employees?.cognome || r.employees?.last_name || null, nome: r.employees?.nome || r.employees?.first_name || null,
+      })))
+    } catch (e) {
+      console.error('[PrimaNota] buste paga:', e)
+      setSlips([])
+    }
+  }, [companyId, year, month])
+
   useEffect(() => { loadBankAccounts() }, [loadBankAccounts])
   useEffect(() => { loadQuadraturaData() }, [loadQuadraturaData])
+  useEffect(() => { loadSlips() }, [loadSlips])
   useEffect(() => { loadMovements() }, [loadMovements])
   useEffect(() => { loadPagamenti() }, [loadPagamenti])
   useEffect(() => { loadIncassiLookups(movements.filter(m => m.amount > 0).map(m => m.id)) }, [movements, loadIncassiLookups])
@@ -519,6 +561,17 @@ export default function PrimaNota() {
     [incassi, outletFilter],
   )
   const incassiRowsShown = useMemo(() => incassiShown.map(({ m, a }) => buildIncassoRow(m, a, incassiLk, fmtDate)), [incassiShown, incassiLk])
+
+  // Dipendenti ed emolumenti: le disposizioni «stipendi» del periodo abbinate
+  // alle buste paga, una riga per dipendente con il collegamento al flusso.
+  const stipendiFlussi = useMemo<PnFlusso[]>(
+    () => movements.filter(m => classifyMovement(m) === 'stipendi').map(m => ({ id: m.id, transaction_date: basisDate(m), amount: Number(m.amount), description: m.description, bank_account_id: m.bank_account_id })),
+    [movements, basisDate],
+  )
+  const stipendi = useMemo(() => abbinaStipendi(stipendiFlussi, slips), [stipendiFlussi, slips])
+  const bankNameOf = useCallback((id: string | null) => (id ? bankAccounts.find(b => b.id === id)?.bank_name ?? '—' : ''), [bankAccounts])
+  const stipendiRows = useMemo(() => stipendi.rows.map(r => buildStipendioRow(r, bankNameOf, fmtDate)), [stipendi, bankNameOf])
+  const movementById = useMemo(() => new Map(movements.map(m => [m.id, m])), [movements])
   const toggleOutlet = (id: string) => setOutletFilter(cur => (cur === id ? null : id))
   // Cambiando periodo, conto o vista il filtro a clic si azzera
   useEffect(() => { setKindFilter(null); setFonteFilter(null); setOutletFilter(null) }, [year, month, bankAccountId, view])
@@ -563,7 +616,7 @@ export default function PrimaNota() {
   const rows = useMemo(() => movements.map(m => ({ ...buildRow(m, fmtDate, contropartitaOf(m)), 'Saldo progressivo': saldoById.get(m.id) ?? '' })), [movements, saldoById, contropartitaOf])
 
   const exportCsv = () => {
-    const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : incassiRows
+    const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : stipendiRows
     if (src.length === 0) return
     const headers = Object.keys(src[0])
     const csvRows = [
@@ -578,7 +631,7 @@ export default function PrimaNota() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${view === 'banca' ? 'prima_nota' : view === 'pagamenti' ? 'pagamenti_fornitori' : 'incassi_outlet'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
+    a.download = `${view === 'banca' ? 'prima_nota' : view === 'pagamenti' ? 'pagamenti_fornitori' : view === 'incassi' ? 'incassi_outlet' : 'dipendenti_emolumenti'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -591,7 +644,7 @@ export default function PrimaNota() {
     const periodoLabel = month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`
     // Un foglio per conto, come un estratto conto: saldo iniziale, movimenti con
     // saldo progressivo, saldo finale calcolato e della banca, differenza.
-    const used = new Set<string>(['Tutti i movimenti', 'Pagamenti fornitori', 'Incassi per outlet', 'Riepilogo'])
+    const used = new Set<string>(['Tutti i movimenti', 'Pagamenti fornitori', 'Incassi per outlet', 'Dipendenti ed emolumenti', 'Riepilogo'])
     for (const q of quadratura) {
       const acc = bankAccounts.find(b => b.id === q.bank_account_id)
       const ms = movements.filter(m => m.bank_account_id === q.bank_account_id)
@@ -628,6 +681,20 @@ export default function PrimaNota() {
     const wsInc = XLSX.utils.json_to_sheet(incassiRows.length > 0 ? incassiRows : [{ Nota: 'Nessun incasso nel periodo' }])
     wsInc['!cols'] = INCASSI_COLUMN_WIDTHS.map(wch => ({ wch }))
     XLSX.utils.book_append_sheet(wb, wsInc, 'Incassi per outlet')
+    // Foglio Dipendenti ed emolumenti: una riga per busta paga con il netto e la disposizione che l'ha pagata; in coda i flussi senza buste
+    const wsDip = XLSX.utils.json_to_sheet(stipendiRows.length > 0 ? stipendiRows : [{ Nota: 'Nessuna busta paga né disposizione per emolumenti nel periodo' }])
+    wsDip['!cols'] = STIPENDI_COLUMN_WIDTHS.map(wch => ({ wch }))
+    if (stipendi.flussi_non_abbinati.length > 0) {
+      XLSX.utils.sheet_add_aoa(wsDip, [
+        [],
+        ['Disposizioni senza buste paga che le spieghino', 'Pagato il', 'Conto Banca', 'ID flusso', 'Pagamenti nel flusso', 'Importo flusso', 'Commissioni flusso', 'Causale'],
+        ...stipendi.flussi_non_abbinati.map(x => [
+          '', fmtDate(x.flusso.transaction_date), bankNameOf(x.flusso.bank_account_id), x.info.id_flusso ?? '', x.info.n_pagamenti ?? '',
+          x.info.importo_bonifici ?? Math.round(-x.flusso.amount * 100) / 100, x.info.commissioni ?? '', x.flusso.description ?? '',
+        ]),
+      ], { origin: -1 })
+    }
+    XLSX.utils.book_append_sheet(wb, wsDip, 'Dipendenti ed emolumenti')
     // Sheet riepilogo: totali del periodo + righe e importi per tipo di movimento
     const summaryData: Array<Array<string | number>> = [
       ['Periodo', `${periodoLabel} (per ${dateBasis === 'contabile' ? 'data contabile' : 'data operazione'})`],
@@ -648,6 +715,13 @@ export default function PrimaNota() {
       ['Incassi per outlet', 'Movimenti', 'POS', 'Amex', 'Versamenti contanti', 'Altri incassi', 'Totale'],
       ...byOutlet.map(o => [o.label, o.n, o.pos, o.amex, o.versamenti, o.altro, o.totale]),
       ['Totale incassi', incassi.length, incassiTot.pos, incassiTot.amex, incassiTot.versamenti, incassiTot.altro, incassiTot.totale],
+      [],
+      ['Dipendenti ed emolumenti', 'N.', 'Importo'],
+      ['Disposizioni per emolumenti nel periodo', stipendi.n_flussi, stipendi.totale_bonifici],
+      ['Commissioni sulle disposizioni', '', stipendi.totale_commissioni],
+      ['Buste paga abbinate a una disposizione', stipendi.n_buste_abbinate, stipendi.totale_netti_abbinati],
+      ['Buste paga del mese prima senza pagamento nel periodo', stipendi.n_buste_non_abbinate, ''],
+      ['Disposizioni senza buste che le spieghino', stipendi.flussi_non_abbinati.length, Math.round(stipendi.flussi_non_abbinati.reduce((s, x) => s + (x.info.importo_bonifici ?? -x.flusso.amount), 0) * 100) / 100],
       [],
       ['Quadratura con l\'estratto conto', `Saldo al ${quadPeriodo.giornoPrima}`, 'di cui letto dalla banca il', 'Entrate', 'Uscite', `Saldo al ${quadPeriodo.ultimoGiorno} calcolato`, `Saldo al ${quadPeriodo.ultimoGiorno} (banca)`, 'di cui letto dalla banca il', 'Differenza', 'Esito'],
       ...quadratura.map(q => [
@@ -740,7 +814,7 @@ export default function PrimaNota() {
           {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
         </button>
         <div className="flex-1" />
-        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : view === 'pagamenti' ? pagRows : incassiRows).length === 0}
+        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : stipendiRows).length === 0}
           className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg text-sm font-medium">
           <Download size={14} /> CSV
         </button>
@@ -763,6 +837,10 @@ export default function PrimaNota() {
         <button role="tab" aria-selected={view === 'incassi'} onClick={() => setView('incassi')}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'incassi' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
           <Store size={14} /> Incassi per outlet <span className="text-xs opacity-70">{incassi.length}</span>
+        </button>
+        <button role="tab" aria-selected={view === 'dipendenti'} onClick={() => setView('dipendenti')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'dipendenti' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+          <Users size={14} /> Dipendenti <span className="text-xs opacity-70">{stipendi.rows.length}</span>
         </button>
       </div>
 
@@ -1183,6 +1261,116 @@ export default function PrimaNota() {
                     <td className="px-3 py-2"><span className={`inline-block px-2 py-0.5 rounded text-xs whitespace-nowrap ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{ATTRIBUZIONE_LABELS[a.attribuzione]}</span></td>
                     <td className="px-3 py-2 text-slate-600 text-xs max-w-md">
                       <Tooltip content={r.Causale}><div className="truncate cursor-help">{r.Causale || '—'}</div></Tooltip>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </TableScroll>
+      </div>
+      </>)}
+
+      {view === 'dipendenti' && (<>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        <KpiBox label="Disposizioni per emolumenti" value={stipendi.n_flussi.toString()} color="slate" hint={`bonifici € ${fmt(stipendi.totale_bonifici)} · commissioni € ${fmt(stipendi.totale_commissioni)}`} />
+        <KpiBox label="Netti pagati" value={`€ ${fmt(stipendi.totale_netti_abbinati)}`} color="emerald" hint={`${stipendi.n_buste_abbinate} buste paga abbinate a una disposizione`} />
+        <KpiBox label="Buste paga nel foglio" value={stipendi.rows.length.toString()} color="slate" hint="una riga per dipendente, con la disposizione che l'ha pagato" />
+        <KpiBox label="Buste senza pagamento" value={stipendi.n_buste_non_abbinate.toString()} color={stipendi.n_buste_non_abbinate > 0 ? 'orange' : 'slate'}
+          hint={stipendi.n_buste_non_abbinate > 0 ? 'Netti del mese prima che nessuna disposizione del periodo paga: pagati altrove (contanti, altro conto, altro mese) o busta da controllare' : 'Ogni busta del mese prima ha il suo pagamento'} />
+        <KpiBox label="Disposizioni senza buste" value={stipendi.flussi_non_abbinati.length.toString()} color={stipendi.flussi_non_abbinati.length > 0 ? 'orange' : 'slate'}
+          hint={stipendi.flussi_non_abbinati.length > 0 ? 'Flussi che nessun gruppo di buste spiega al centesimo: buste non ancora importate in Costo del personale, o importo diverso' : 'Ogni disposizione è spiegata dalle buste paga'} />
+      </div>
+      {stipendi.flussi_non_abbinati.length > 0 && (
+        <div className="bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-4 text-sm text-orange-900">
+          <div className="font-medium mb-1">Disposizioni senza buste paga che le spieghino</div>
+          <ul className="text-xs space-y-0.5">
+            {stipendi.flussi_non_abbinati.map(x => (
+              <li key={x.flusso.id}>
+                {fmtDate(x.flusso.transaction_date)} · {bankNameOf(x.flusso.bank_account_id)} · flusso {x.info.id_flusso ?? '—'}{x.info.n_pagamenti != null && ` (${x.info.n_pagamenti} pagamenti)`} · bonifici <strong className="tabular-nums">{fmt(x.info.importo_bonifici ?? -x.flusso.amount)}</strong>
+                {x.info.commissioni != null && <> · commissioni {fmt(x.info.commissioni)}</>}
+              </li>
+            ))}
+          </ul>
+          <div className="text-xs mt-1">Se le buste del mese sono già importate in Costo del personale, l'importo del flusso non coincide con nessun gruppo di netti: da guardare con lo studio paghe.</div>
+        </div>
+      )}
+
+      {/* Dipendenti, mobile: una card per busta paga */}
+      <div className="md:hidden space-y-2">
+        {loading ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
+          </div>
+        ) : stipendi.rows.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            Nessuna busta paga né disposizione per emolumenti nel periodo selezionato
+          </div>
+        ) : stipendi.rows.map((r, i) => {
+          const x = stipendiRows[i]
+          return (
+            <div key={r.slip.id} className="bg-white rounded-xl border border-slate-200 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium text-slate-800">{x.Dipendente}</div>
+                <div className="text-lg font-bold tabular-nums text-slate-900">{x.Netto === '' ? '—' : `€ ${fmt(x.Netto)}`}</div>
+              </div>
+              <div className="text-xs text-slate-500 mt-0.5">{x.Outlet || '—'} · competenza {x.Competenza}</div>
+              <div className={`text-xs mt-1 ${r.flusso ? 'text-slate-600' : 'text-orange-800'}`}>
+                {r.flusso ? <>Pagato il {x['Pagato il']} · {x['Conto Banca']} · flusso {x['Disposizione (ID flusso)'] || '—'} ({x['Pagamenti nel flusso'] || '?'} pag., € {x['Importo flusso'] === '' ? '—' : fmt(x['Importo flusso'])})</> : x.Esito}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Dipendenti, desktop */}
+      <div className="hidden md:block bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <TableScroll className="max-h-[70vh] overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
+              <tr>
+                <th className="px-3 py-2 text-left">Dipendente</th>
+                <th className="px-3 py-2 text-left">Outlet</th>
+                <th className="px-3 py-2 text-left">Competenza</th>
+                <th className="px-3 py-2 text-right">Netto</th>
+                <th className="px-3 py-2 text-left">Pagato il</th>
+                <th className="px-3 py-2 text-left">Conto Banca</th>
+                <th className="px-3 py-2 text-left">Disposizione</th>
+                <th className="px-3 py-2 text-right">Importo flusso</th>
+                <th className="px-3 py-2 text-left">Esito</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                  <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
+                </td></tr>
+              ) : stipendi.rows.length === 0 ? (
+                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                  Nessuna busta paga né disposizione per emolumenti nel periodo selezionato
+                </td></tr>
+              ) : stipendi.rows.map((r, i) => {
+                const x = stipendiRows[i]
+                const mv = r.flusso ? movementById.get(r.flusso.id) : undefined
+                return (
+                  <tr key={r.slip.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                    <td className="px-3 py-2 text-slate-800 whitespace-nowrap">{nomeDipendente(r.slip)}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs">{x.Outlet || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs whitespace-nowrap">{competenzaLabel(r.slip)}</td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap">{x.Netto === '' ? '—' : `€ ${fmt(x.Netto)}`}</td>
+                    <td className="px-3 py-2 text-slate-700 whitespace-nowrap">{x['Pagato il'] || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs max-w-[160px]"><div className="truncate">{x['Conto Banca'] || '—'}</div></td>
+                    <td className="px-3 py-2 text-xs">
+                      {r.flusso ? (
+                        <Tooltip content={mv?.description ?? ''}>
+                          <span className="cursor-help font-mono text-slate-700">{x['Disposizione (ID flusso)'] || '—'}</span>
+                        </Tooltip>
+                      ) : '—'}
+                      {x['Pagamenti nel flusso'] !== '' && <span className="block text-slate-400">{x['Pagamenti nel flusso']} pagamenti{x['Commissioni flusso'] !== '' && `, comm. ${fmt(x['Commissioni flusso'])}`}</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{x['Importo flusso'] === '' ? '—' : fmt(x['Importo flusso'])}</td>
+                    <td className="px-3 py-2 text-xs">
+                      <span className={`inline-block px-2 py-0.5 rounded whitespace-nowrap ${r.flusso ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-100 text-orange-800'}`}>{x.Esito}</span>
                     </td>
                   </tr>
                 )
