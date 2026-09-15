@@ -7,7 +7,7 @@
 > Luglio serviva a chiudere il conto del contante: i versamenti dei primi giorni di agosto
 > portavano in banca il contante di fine luglio.
 
-Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [maggio](#maggio-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
+Indice: [agosto](#agosto-2026) · [luglio](#luglio-2026) · [il conto del contante](#il-conto-del-contante-si-chiude) · [giugno](#giugno-2026) · [maggio](#maggio-2026) · [aprile](#aprile-2026) · [il pay by link](#il-pay-by-link-passa-dal-pos)
 
 ---
 
@@ -344,3 +344,60 @@ stima.
 - Tre righe POS restano «differenza» per sola commissione oltre l'1,5 % su importi piccoli
   (Barberino 14/05 −1,71 %, Barberino 19/05 −1,63 %, Palmanova 11/05 −1,68 %): sono accrediti
   veri, non ammanchi.
+
+---
+
+## aprile 2026
+
+Migration `NZ_ONLY_20260915_229`. 203 giornate: 7 negozi per 29 giorni, perche' il 5 aprile
+(Pasqua) e' chiuso e non esiste nemmeno nel registro corrispettivi. Anche qui i corrispettivi
+coincidono con `daily_revenue` su tutte e 203 le giornate.
+
+| | |
+|---|---:|
+| Corrispettivi | 372.705,73 € |
+| Fatture | 833,89 € |
+| Contanti | 65.198,24 € |
+| Spese di cassa | 448,11 € |
+| Versamenti | 62.899,95 € |
+| Chiusure verificate dalla banca | 198 su 203 |
+
+**30 versamenti dichiarati, 28 trovati in banca.** I due che mancano non sono un limite del
+riscontro: sono un buco vero, ed e' la cosa piu' importante emersa in tutta la ricostruzione.
+
+### 4.870,25 € dichiarati e mai arrivati
+
+Il 28 aprile Palmanova dichiara un versamento di **1.995,00 €** e Valdichiana uno di
+**2.875,25 €**. In banca non esiste nessun accredito di quegli importi, in nessuna data. Non
+e' una questione di finestra temporale o di causale: la cassa continua dei due negozi non
+registra **alcun** versamento fra il 24 aprile e il 4 maggio, e l'estratto conto BCC di quei
+giorni c'e' ed e' pieno di altri movimenti. Le due chiusure restano a «mancante». Va chiesto
+ai negozi.
+
+### Cosa e' emerso, oltre a quello
+
+- **La colonna FATTURE e' un promemoria, non un mezzo di pagamento.** L'importo della fattura
+  viaggia dentro un canale: il 10/04 Barberino la incassa con l'Amex, il 12/04 Valdichiana con
+  il POS MPS. Il trigger la tratta gia' cosi' (`channels_total` esclude il tipo `fattura`), e
+  la regola resta corrispettivi + fatture = canali.
+- **Quattro versamenti di inizio aprile** sono in banca ma non negli specchietti: contante di
+  fine marzo (Palmanova 1.690,00 il 01/04, Valmontone 55,00 il 01/04, Torino 80,00 il 02/04,
+  Franciacorta 85,00 il 08/04, versato allo stesso ATM un minuto prima dei 1.210,00
+  dichiarati). Il versamento Barberino di 845,00 accreditato il 01/04 la cassa continua lo
+  data 31/03: e' di marzo e si agganciera' ricostruendo marzo.
+- **Brugnato 15/04 e 21/04**: la banca data i versamenti il giorno prima di quello dichiarato.
+  Terzo e quarto caso dopo Torino 17/06 e Franciacorta 14/05. Quattro casi su cinque mesi non
+  sono un'eccezione: la finestra all'indietro serve davvero.
+- **Valdichiana 18/04**: 79,90 di Amex finiscono nella colonna MPS, ma l'accredito del 20/04
+  vale 247,30 = 167,40 (17/04) + 79,90 e arriva sul terminale BCC, come tutto il resto della
+  giornata. Spostati sul canale giusto, e le due righe si chiudono da sole.
+- **Ricostruire a ritroso ripara il mese dopo, di nuovo.** Le due righe Amex di Franciacorta
+  del 01/05 e 03/05 erano rimaste «mancante» perche' l'accredito del 04/05 copriva anche
+  giornate di aprile che non esistevano. Caricato aprile, il riscontro le chiude: maggio passa
+  da 212 a **214** chiusure verificate senza toccare un dato.
+- Tre giornate non quadrano sullo specchietto e restano dichiarate: Barberino 12/04 (−43,35,
+  due scontrini pagati con carta, annullati e rimborsati in contanti), Torino 13/04 (−142,50),
+  Valmontone 10/04 (+254,30, colonna CONTANTI vuota).
+- **Palmanova 30/04** merita un'occhiata: 1.391,92 dichiarati sul POS contro 1.302,29
+  accreditati, −6,4 %. Le altre due righe in differenza (Barberino 14/04 −1,80 %, Valmontone
+  11/04 −1,65 %) sono commissione su importi piccoli; questa no.
