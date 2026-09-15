@@ -399,6 +399,7 @@ export default function SchedaContabileFornitore() {
       bankLinked: boolean;           // almeno una rata ha un movimento bancario agganciato
       bankMovementDate: string | null;   // data del movimento bancario (vince sulla data di chiusura a mano)
       bankMovementBankId: string | null; // conto del movimento bancario (vince sulla banca prevista)
+      ncConsumedAmount: number;      // NC: quota gia' usata in compensazione (amount_paid in negativo, migration 170)
     }
     const map = new Map<string, InvoiceAgg>();
     for (const p of filteredPayables) {
@@ -425,6 +426,7 @@ export default function SchedaContabileFornitore() {
           bankLinked: false,
           bankMovementDate: null,
           bankMovementBankId: null,
+          ncConsumedAmount: 0,
         };
         map.set(key, agg);
       }
@@ -441,6 +443,12 @@ export default function SchedaContabileFornitore() {
           agg.bankMovementDate = txDate;
           agg.bankMovementBankId = tx?.bankAccountId || p.payment_bank_account_id || null;
         }
+      }
+      // Nota di credito usata (in tutto o in parte) in compensazione: la quota consumata
+      // sta in amount_paid con segno negativo (migration 170). Va in AVERE anche se la
+      // NC non e' chiusa: quel credito e' gia' stato speso su una fattura.
+      if (Number(p.gross_amount || 0) < 0 && Number(p.amount_paid || 0) < 0) {
+        agg.ncConsumedAmount += Math.abs(Number(p.amount_paid));
       }
       const pManual = p as Payable & { closed_manually?: boolean | null; manual_close_reason?: string | null };
       if (pManual.closed_manually) {
@@ -524,6 +532,25 @@ export default function SchedaContabileFornitore() {
             dare: 0,
             avere: Math.abs(agg.grossTotal),
             descrizione: `Chiusura nota di credito — chiusa a mano il ${dataChiusuraNC}${agg.manualCloseReason ? ` — ${agg.manualCloseReason}` : ''} — rif. NC ${agg.invoiceNumber}`,
+            aliquotaIVA: '—',
+            tipo: 'pagamento',
+          });
+        } else if (agg.ncConsumedAmount > 0.005) {
+          // NC NON chiusa ma gia' usata (compensazione parziale, oppure consumata del
+          // tutto senza flag di chiusura): scrittura in AVERE per la quota spesa, cosi'
+          // il saldo del fornitore non conta due volte quel credito. Il residuo resta
+          // in DARE come credito ancora disponibile.
+          const totale = Math.abs(agg.grossTotal);
+          const usata = Math.min(agg.ncConsumedAmount, totale);
+          const residuo = Math.max(0, totale - usata);
+          const parziale = residuo > 0.005;
+          movimenti.push({
+            data: agg.invoiceDate,
+            dataPagamento: agg.paymentDate,
+            numero: agg.invoiceNumber,
+            dare: 0,
+            avere: usata,
+            descrizione: `Nota di credito ${parziale ? 'usata in parte' : 'utilizzata'} in compensazione${parziale ? ` — credito residuo ${residuo.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : ''} — rif. NC ${agg.invoiceNumber}`,
             aliquotaIVA: '—',
             tipo: 'pagamento',
           });

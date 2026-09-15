@@ -1,0 +1,1 @@
+-- ROLLBACK di 20260910_199: ripristinare il corpo della migration 20260910_198.

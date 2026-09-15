@@ -1,0 +1,256 @@
+import { describe, it, expect } from 'vitest'
+import {
+  parseItAmount, parseDotAmount, toIsoDate, detectIssuer, parseNumiaLines, parseMpsLines, parseTascaAoa, parseTascaLines,
+  parseGenericLines, parseCardStatementLines, periodOf, sourceLabelOf, matchStatementDebit, matchRicariche, matchPayables,
+  buildCartaRow, totaliCarta, type CardLine,
+} from './cartaEstratto'
+
+// Righe come le ricostruisce extractPdfLines (pdf.js, righe per geometria)
+// dagli estratti veri di maggio 2026 di NZ.
+const NUMIA_5388 = [
+  'Servizio Clienti - H24', 'dall’Italia e dall’estero + 39 (06) 80.80.800', 'Denominazione', 'NEW ZAGO S.R.L.', 'Azienda:',
+  'Carta Numero: 5582 **** **** 5388', 'Nominativo: GALLO MASSIMO',
+  'DATA ACQUISTO DATA REGISTR. DESCRIZIONE DELLE OPERAZIONI IMPORTO IN EURO',
+  '29/04/2026 30/04/2026 VAIMO S.P.A-VALMONTON. VALMONTONE ITA 10,70',
+  '06/05/2026 07/05/2026 BAR QUOTIDIANO CAMPI BISENZI ITA 34,80',
+  '13/05/2026 14/05/2026 GRUPPO NEGOZI SRL VALMONTONE ITA 7,20',
+  '14/05/2026 15/05/2026 I PIACERI DELLA PASTA BRUGNATO ITA 15,20',
+  '18/05/2026 19/05/2026 BAR QUOTIDIANO CAMPI BISENZI ITA 35,00',
+  '18/05/2026 19/05/2026 SISSI PRATO ITA 201,30',
+  'TOTALE OPERAZIONI 304,20',
+  'Imposta di bollo assolta in modo virtuale - Autorizz. Agenzia delle Entrate', 'Numia S.p.A.',
+]
+const NUMIA_3145 = [
+  'Carta Numero: 5582 **** **** 3145', 'Nominativo: GALLO MASSIMO',
+  'DATA ACQUISTO DATA REGISTR. DESCRIZIONE DELLE OPERAZIONI IMPORTO IN EURO',
+  '02/05/2026 04/05/2026 Indeed IEI26-01391760 Dublin IRL 367,32',
+  '08/05/2026 11/05/2026 TRENITALIA - LEFRECCE ROMA ITA 12,40',
+  '09/05/2026 11/05/2026 ITALOTRENO ROMA ITA 222,90',
+  '14/05/2026 15/05/2026 HOTEL ROMANO TORINO ITA 206,50',
+  '15/05/2026 18/05/2026 TRENITALIA - LEFRECCE ROMA ITA 172,30',
+  '16/05/2026 18/05/2026 ITALOTRENO ROMA ITA 75,80',
+  '18/05/2026 19/05/2026 WWW.URBANTREND.IT PALMANOVA ITA 130,00',
+  '22/05/2026 25/05/2026 HOTEL LA FONTE ROMANO DI LOM ITA 76,50',
+  'TOTALE OPERAZIONI 1.263,72',
+]
+const MPS = [
+  'Carta Montepaschi', 'Siena, 31 maggio 2026 NEW ZAGO S.R.L.',
+  'QUESTO MESE HA SPESO Euro 50,00', 'QUESTO MESE LE SARANNO ADDEBITATI Euro 50,00', 'In data 15 giugno 2026',
+  'RIEPILOGO DEI SUOI MOVIMENTI', 'Data Descrizione Importo in Euro',
+  '30/04/26 Debito residuo al mese precedente 0,00', 'Totale spese con carte a saldo 50,00', 'TOTALE ADDEBITO SUL SUO C/C 50,00', 'Debito residuo al 31/05/2026 0,00',
+  'TITOLARE', 'GALLO MASSIMO CARTA MONTEPASCHI NUMERO **** **** **** 6820 A SALDO SCADENZA 05/28',
+  'DETTAGLIO DEI SUOI MOVIMENTI', 'Data Descrizione Importo in Euro Importo in altre valute Cambio',
+  '30/05/26 Quota Annua 50,00',
+  '12/05/26 AMAZON EU LUXEMBOURG 1.234,56 1.300,00 USD 1,0530',
+  'TOTALE SPESE 1.284,56',
+  'NUMERI UTILI',
+]
+
+describe('numeri e date', () => {
+  it('importi italiani e a punto', () => {
+    expect(parseItAmount('1.263,72')).toBe(1263.72)
+    expect(parseItAmount('-29,99')).toBe(-29.99)
+    expect(parseItAmount('12.20')).toBeNull()
+    expect(parseDotAmount('-111.23')).toBe(-111.23)
+    expect(parseDotAmount('1,300.00')).toBe(1300)
+    expect(parseDotAmount('12,20')).toBeNull()
+  })
+  it('date dd/mm/yyyy e dd/mm/yy', () => {
+    expect(toIsoDate('29/04/2026')).toBe('2026-04-29')
+    expect(toIsoDate('30/05/26')).toBe('2026-05-30')
+    expect(toIsoDate('30/06/2026 20:19:25')).toBe('2026-06-30')
+    expect(toIsoDate('x')).toBeNull()
+  })
+})
+
+describe('riconoscimento del documento', () => {
+  it('dal testo, non dal nome del file', () => {
+    expect(detectIssuer(NUMIA_5388)).toBe('numia')
+    expect(detectIssuer(MPS)).toBe('mps')
+    expect(detectIssuer(['MASSIMO GALLO 522675******0580 Prepaid Business MC 0.00 EUR EUR 133.68', 'Lista Movimenti'])).toBe('tasca')
+    expect(detectIssuer(['boh'])).toBe('generico')
+  })
+})
+
+describe('CartaBCC / Numia', () => {
+  it('legge carta, titolare, righe e totale; spese negative, totale che quadra', () => {
+    const s = parseNumiaLines(NUMIA_5388)
+    expect(s.issuer).toBe('numia')
+    expect(s.cards).toEqual([{ card_last4: '5388', holder: 'GALLO MASSIMO', total_declared: -304.2 }])
+    expect(s.lines).toHaveLength(6)
+    expect(s.lines[0]).toEqual({ card_last4: '5388', purchase_date: '2026-04-29', posting_date: '2026-04-30', description: 'VAIMO S.P.A-VALMONTON. VALMONTONE ITA', amount: -10.7, fee: 0, currency: 'EUR', original_amount: null })
+    expect(s.total_declared).toBe(-304.2)
+    expect(s.total_computed).toBe(-304.2)
+    expect(s.period).toEqual({ year: 2026, month: 5 })
+    expect(s.warnings).toEqual([])
+  })
+  it('due carte nello stesso PDF: ogni riga con la sua carta, totale sommato', () => {
+    const s = parseNumiaLines([...NUMIA_5388, ...NUMIA_3145])
+    expect(s.cards.map(c => c.card_last4)).toEqual(['5388', '3145'])
+    expect(s.lines.filter(l => l.card_last4 === '3145')).toHaveLength(8)
+    expect(s.total_declared).toBe(-1567.92)
+    expect(s.total_computed).toBe(-1567.92)
+    expect(s.warnings).toEqual([])
+  })
+  it('storno con segno meno diventa un accredito', () => {
+    const s = parseNumiaLines(['Carta Numero: 5582 **** **** 3145', '22/06/2026 25/06/2026 ADOBE *ADOBE DUBLIN IRL 29,99', '23/06/2026 26/06/2026 ADOBE *ADOBE DUBLIN IRL -29,99', 'TOTALE OPERAZIONI 0,00'])
+    expect(s.lines.map(l => l.amount)).toEqual([-29.99, 29.99])
+    expect(s.warnings).toEqual([])
+  })
+  it('totale che non torna: avviso', () => {
+    const s = parseNumiaLines(['Carta Numero: 5582 **** **** 3145', '22/06/2026 25/06/2026 ADOBE DUBLIN IRL 29,99', 'TOTALE OPERAZIONI 59,98'])
+    expect(s.warnings.some(w => w.includes('non coincide'))).toBe(true)
+  })
+})
+
+describe('Carta Montepaschi', () => {
+  it('solo il dettaglio, non il riepilogo; data di addebito; valuta estera', () => {
+    const s = parseMpsLines(MPS)
+    expect(s.issuer).toBe('mps')
+    expect(s.cards).toEqual([{ card_last4: '6820', holder: 'GALLO MASSIMO', total_declared: -1284.56 }])
+    expect(s.lines).toHaveLength(2)
+    expect(s.lines[0]).toMatchObject({ purchase_date: '2026-05-30', description: 'Quota Annua', amount: -50, currency: 'EUR' })
+    expect(s.lines[1]).toMatchObject({ purchase_date: '2026-05-12', description: 'AMAZON EU LUXEMBOURG', amount: -1234.56, currency: 'USD', original_amount: 1300 })
+    expect(s.debit_date).toBe('2026-06-15')
+    expect(s.total_declared).toBe(-1284.56)
+    expect(s.warnings).toEqual([])
+  })
+})
+
+describe('Prepagata Tasca', () => {
+  const HEADER = ['NR CARTA', 'TITOLARE', 'DATA REGISTR.', 'DATA ACQUISTO', 'DESCRIZIONE DELLE OPERAZIONI', 'IMPORTO IN EURO', 'IMPORTO IN VALUTA ORIGINALE', 'VALUTA ORIGINALE', 'COMMISSIONI']
+  const AOA = [
+    ['Movimenti'], HEADER,
+    ['522675******0580', 'MASSIMO GALLO', '30/06/2026', '30/06/2026 20:19:25', 'RICARICA DA HB BANCA COLLOCATRICE', '500,00', '500,00', 'EUR', '-1,00'],
+    ['522675******0580', 'MASSIMO GALLO', '01/07/2026', '30/06/2026 13:19:16', 'BLUGEST SRL GALLICANO NEL ITA SF_FPR 4108/26', '-92,80', '-92,80', 'EUR', ''],
+    ['522675******0580', 'MASSIMO GALLO', '25/06/2026', '24/06/2026 15:24:26', 'Q8 - CANTAGALLO OVEST CASALECCHIO D ITA SF2026/FE3934/5300', -109.2, -109.2, 'EUR', null],
+    [], ['Autorizzazioni'], HEADER,
+    ['522675******0580', 'MASSIMO GALLO', '02/07/2026', '02/07/2026 09:00:00', 'AUTORIZZAZIONE PENDENTE', '-10,00', '-10,00', 'EUR', ''],
+  ]
+  it('Excel del portale: solo i movimenti, ricarica positiva con commissione, spese negative', () => {
+    const s = parseTascaAoa(AOA)
+    expect(s.issuer).toBe('tasca')
+    expect(s.cards).toEqual([{ card_last4: '0580', holder: 'MASSIMO GALLO', total_declared: null }])
+    expect(s.lines).toHaveLength(3)
+    expect(s.lines[0]).toEqual({ card_last4: '0580', purchase_date: '2026-06-30', posting_date: '2026-06-30', description: 'RICARICA DA HB BANCA COLLOCATRICE', amount: 500, fee: -1, currency: 'EUR', original_amount: 500 })
+    expect(s.lines[1]).toMatchObject({ purchase_date: '2026-06-30', posting_date: '2026-07-01', amount: -92.8, fee: 0 })
+    expect(s.lines[2]).toMatchObject({ purchase_date: '2026-06-24', amount: -109.2 })
+    expect(s.total_computed).toBe(297)
+    expect(s.period).toEqual({ year: 2026, month: 6 })
+  })
+  it('PDF «Lista Movimenti»: importi a punto, totale dichiarato, autorizzazioni escluse', () => {
+    const s = parseTascaLines([
+      'Intestatario Numero Carta Tipo Carta Plafond Disponibilità',
+      'MASSIMO GALLO 522675******0580 Prepaid Business MC 0.00 EUR EUR 133.68',
+      'Lista Movimenti',
+      'Data acquisto Data registrazione Descrizione operazioni Importo Importo originale EURO Commissioni Valuta',
+      '28/07/2026 13:04:54 29/07/2026 SALERNI FALIERA & C. S PIETRASANTA ITA -12.00 -12.00 0.00 EUR',
+      '21/07/2026 08:21:49 21/07/2026 RICARICA DA HB BANCA COLLOCATRICE 500.00 500.00 -1.00 EUR',
+      'Totale Movimenti 487.00',
+      'Lista Autorizzazioni',
+      '30/07/2026 10:00:00 30/07/2026 PENDENTE ITA -5.00 -5.00 0.00 EUR',
+    ])
+    expect(s.cards).toEqual([{ card_last4: '0580', holder: 'MASSIMO GALLO', total_declared: 487 }])
+    expect(s.lines).toHaveLength(2)
+    expect(s.lines[0]).toMatchObject({ purchase_date: '2026-07-28', posting_date: '2026-07-29', description: 'SALERNI FALIERA & C. S PIETRASANTA ITA', amount: -12, fee: 0 })
+    expect(s.lines[1]).toMatchObject({ amount: 500, fee: -1 })
+    expect(s.total_computed).toBe(487)
+    expect(s.warnings).toEqual([])
+  })
+})
+
+describe('generico e selezione automatica', () => {
+  it('parseCardStatementLines sceglie il lettore giusto', () => {
+    expect(parseCardStatementLines(NUMIA_3145).lines).toHaveLength(8)
+    expect(parseCardStatementLines(MPS).lines).toHaveLength(2)
+  })
+  it('generico: righe data descrizione importo, spese negative, con avviso', () => {
+    const s = parseGenericLines(['01/08/2026 QUALCOSA 12,50', 'testo', '02/08/2026 03/08/2026 ALTRO 1,000.00'])
+    expect(s.lines.map(l => l.amount)).toEqual([-12.5, -1000])
+    expect(s.lines[1].posting_date).toBe('2026-08-03')
+    expect(s.warnings[0]).toContain('formato non riconosciuto')
+  })
+  it('periodo = mese piu\' frequente delle registrazioni; etichette fonte', () => {
+    const mk = (d: string): CardLine => ({ card_last4: null, purchase_date: d, posting_date: null, description: '', amount: -1, fee: 0, currency: 'EUR', original_amount: null })
+    expect(periodOf([mk('2026-07-30'), mk('2026-08-02'), mk('2026-08-10')])).toEqual({ year: 2026, month: 8 })
+    expect(periodOf([])).toBeNull()
+    expect(sourceLabelOf('numia', '5388')).toBe('Carta credito BCC *5388')
+    expect(sourceLabelOf('tasca', '0580')).toBe('Carta prepagata Tasca *0580')
+    expect(sourceLabelOf('mps', null)).toBe('Carta credito MPS')
+  })
+})
+
+describe('quadratura con la banca', () => {
+  const movs = [
+    { id: 'a', transaction_date: '2026-06-25', amount: -1571.21, description: 'Carta del Credito Cooperativo ******283 CCP DIRECT ISSUING' },
+    { id: 'b', transaction_date: '2026-06-15', amount: -50, description: 'ADDEBITO SDD A FAVORE BANCA MONTE DEI PASCHI' },
+    { id: 'c', transaction_date: '2026-06-22', amount: -500, description: 'Ricarica carta prepagata TASCA' },
+    { id: 'd', transaction_date: '2026-07-01', amount: -500, description: 'Ricarica carta prepagata TASCA' },
+  ]
+  it('carta di credito: addebito unico con lo stesso importo, il piu\' vicino alla data annunciata', () => {
+    const r = matchStatementDebit({ total_declared: -50, total_computed: -50, period: { year: 2026, month: 5 }, debit_date: '2026-06-15' }, movs)
+    expect(r.movement?.id).toBe('b')
+    expect(r.differenza).toBe(0)
+    const none = matchStatementDebit({ total_declared: -304.2, total_computed: -304.2, period: { year: 2026, month: 5 }, debit_date: null }, movs)
+    expect(none.movement).toBeNull()
+    expect(none.differenza).toBe(-304.2)
+  })
+  it('BCC addebita le due carte in un movimento solo piu\' 3,29 di commissioni (maggio 2026: 304,20 + 1.263,72 → 1.571,21 il 25/06)', () => {
+    const r = matchStatementDebit({ total_declared: -1567.92, total_computed: -1567.92, period: { year: 2026, month: 5 }, debit_date: null }, movs)
+    expect(r.movement?.id).toBe('a')
+    expect(r.differenza).toBe(3.29)
+    // troppo distante dal totale: non e' lui
+    expect(matchStatementDebit({ total_declared: -1500, total_computed: -1500, period: { year: 2026, month: 5 }, debit_date: null }, movs).movement).toBeNull()
+  })
+  it('prepagata: ogni ricarica trova il suo addebito entro 3 giorni, una volta sola', () => {
+    const lines: CardLine[] = [
+      { card_last4: '0580', purchase_date: '2026-06-22', posting_date: '2026-06-22', description: 'RICARICA DA HB BANCA COLLOCATRICE', amount: 500, fee: -1, currency: 'EUR', original_amount: 500 },
+      { card_last4: '0580', purchase_date: '2026-06-30', posting_date: '2026-06-30', description: 'RICARICA DA HB BANCA COLLOCATRICE', amount: 500, fee: -1, currency: 'EUR', original_amount: 500 },
+      { card_last4: '0580', purchase_date: '2026-06-24', posting_date: null, description: 'Q8', amount: -109.2, fee: 0, currency: 'EUR', original_amount: null },
+    ]
+    const m = matchRicariche(lines, movs)
+    expect(m.get(0)?.id).toBe('c')
+    expect(m.get(1)?.id).toBe('d')
+    expect(m.has(2)).toBe(false)
+  })
+})
+
+describe('aggancio alle fatture pagate con carta (dati NZ luglio 2026)', () => {
+  const pay = [
+    { id: 'p1', payment_date: '2026-07-01', invoice_date: '2026-07-01', gross_amount: 92.8, supplier_name: 'BLUGEST S.R.L.', invoice_number: 'FPR 4108/26' },
+    { id: 'p2', payment_date: '2026-07-01', invoice_date: '2026-07-01', gross_amount: 26, supplier_name: 'C.C.S. DI CANONICI GIOVANNI & C. S.N.C.', invoice_number: '2026/C/4877' },
+    { id: 'p3', payment_date: '2026-07-16', invoice_date: '2026-07-16', gross_amount: 26, supplier_name: 'C.C.S. DI CANONICI GIOVANNI & C. S.N.C.', invoice_number: '2026/C/5324' },
+    { id: 'p4', payment_date: '2026-07-20', invoice_date: '2026-06-17', gross_amount: 80, supplier_name: 'ALTOMUGELLO SRL', invoice_number: '1636' },
+  ]
+  const L = (d: string, desc: string, amt: number): CardLine => ({ card_last4: '0580', purchase_date: d, posting_date: null, description: desc, amount: amt, fee: 0, currency: 'EUR', original_amount: null })
+  it('stesso importo, numero fattura in descrizione o data vicina; ogni fattura una volta', () => {
+    const lines = [
+      L('2026-06-30', 'BLUGEST SRL GALLICANO NEL ITA SF_FPR 4108/26', -92.8),
+      L('2026-07-01', 'STAZIONE BEYFIN C.C.S. REGGELLO ITA', -26),
+      L('2026-07-15', 'STAZIONE BEYFIN C.C.S. REGGELLO ITA', -26),
+      L('2026-06-17', 'HOTEL BARBERINO BARBERINO DI ITA', -80),
+      L('2026-07-21', 'RICARICA DA HB BANCA', 500),
+      L('2026-07-05', 'SCONOSCIUTO', -1.5),
+    ]
+    const m = matchPayables(lines, pay)
+    expect(m.get(0)?.id).toBe('p1')
+    expect(m.get(1)?.id).toBe('p2')
+    expect(m.get(2)?.id).toBe('p3')
+    expect(m.get(3)?.id).toBe('p4')
+    expect(m.has(4)).toBe(false)
+    expect(m.has(5)).toBe(false)
+  })
+})
+
+describe('righe export e totali', () => {
+  it('buildCartaRow e totaliCarta', () => {
+    const fmt = (d: string) => d.split('-').reverse().join('/')
+    const l: CardLine = { card_last4: '5388', purchase_date: '2026-05-18', posting_date: '2026-05-19', description: 'SISSI PRATO ITA', amount: -201.3, fee: 0, currency: 'EUR', original_amount: null }
+    expect(buildCartaRow('Carta credito BCC *5388', l, { id: 'p', payment_date: '2026-05-18', invoice_date: null, gross_amount: 201.3, supplier_name: 'SISSI', invoice_number: '12' }, 'addebito 25/06/2026', fmt)).toEqual({
+      Carta: 'Carta credito BCC *5388', 'Data acquisto': '18/05/2026', 'Data registrazione': '19/05/2026', Descrizione: 'SISSI PRATO ITA', Importo: -201.3, Commissioni: '', Valuta: 'EUR',
+      Fornitore: 'SISSI', Fattura: '12', 'Pagata il': '18/05/2026', 'Riscontro banca': 'addebito 25/06/2026',
+    })
+    const t = totaliCarta([l, { ...l, amount: 500, fee: -1 }])
+    expect(t).toEqual({ spese: 201.3, accrediti: 500, commissioni: -1, netto: 297.7, n: 2 })
+  })
+})

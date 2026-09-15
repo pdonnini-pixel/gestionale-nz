@@ -1,0 +1,6 @@
+-- ROLLBACK di 20260910_200: ripristinare fn_auto_categorize_payable senza il ramo righe
+-- (corpo originale in supabase/migrations, versione precedente), poi:
+--   DROP FUNCTION IF EXISTS public.rpc_categorize_from_lines_backlog(boolean);
+--   DROP FUNCTION IF EXISTS public.fn_categorize_from_lines(uuid, text);
+--   DROP FUNCTION IF EXISTS public.fn_invoice_lines_text(text);
+-- Le categorie assegnate restano: per rimuoverle usare _bkp_categorie_da_righe_20260910.

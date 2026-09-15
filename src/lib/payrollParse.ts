@@ -422,6 +422,13 @@ export type ProspettoParsed = {
   isProspetto: boolean;
   rows: ProspettoOutletRow[];
   months: { year: number; month: number }[]; // periodi distinti trovati nel file
+  // Tipi di cedolino coperti dal file, letti dall'intestazione «Dal … - Al …».
+  // Il consulente manda DUE stampe per lo stesso mese: una col solo cedolino
+  // normale e una che parte dall'aggiuntivo e arriva al normale, cioe' il mese
+  // intero. Sono cumulative, non complementari: caricare la piu' corta DOPO
+  // quella completa toglierebbe la mensilita' aggiuntiva dal costo del mese.
+  tipiCedolino: string[];
+  soloNormale: boolean;
 };
 
 const MONTHS_IT: Record<string, number> = {
@@ -449,7 +456,10 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
   let ente: 'inps' | 'ebinter' | 'est' | 'gsep' | 'tfr' | null = null;
   let inInail = false;
 
+  // Tipi di cedolino nell'intestazione: «Dal Giugno 2026 Agg.1 - Al Giugno 2026 Norm.»
+  const tipiSet = new Set<string>();
   const setPeriod = (ln: string) => {
+    for (const m of ln.matchAll(/\d{4}\s+(Norm\.|Agg\.\d+|[A-Z][a-z]{2,}\.?\d*)(?=\s|$|-)/g)) tipiSet.add(m[1]);
     // "Dal Gennaio 2026 Norm. - Al Gennaio 2026 Norm." oppure "Dal Marzo 2026 Agg.1 - Al Marzo 2026 Norm."
     // il mese di competenza è quello del periodo (Dal/Al coincidono): prendo l'ultimo "<mese> <anno>".
     const all = [...ln.matchAll(/([A-Za-zàèéìòù]+)\s+(\d{4})/g)];
@@ -537,7 +547,11 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
     }
   }
 
-  return { isProspetto, rows: [...sections.values()], months };
+  const tipiCedolino = [...tipiSet];
+  // «solo normale» = il file copre un tipo solo ed e' quello ordinario: e' la
+  // stampa corta, quella che NON contiene le mensilita' aggiuntive del mese.
+  const soloNormale = tipiCedolino.length === 1 && /^norm/i.test(tipiCedolino[0]);
+  return { isProspetto, rows: [...sections.values()], months, tipiCedolino, soloNormale };
 }
 
 // ============================================================================
