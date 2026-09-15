@@ -70,7 +70,7 @@ import {
   type PnTxSnapshot, type PnClosingLite, type QuadraturaConto, type QuadraturaContante,
 } from '../lib/primaNotaQuadratura'
 import {
-  abbinaStipendi, buildStipendioRow, nomeDipendente, competenzaLabel, competenzeCandidate, STIPENDI_COLUMN_WIDTHS,
+  abbinaStipendi, buildStipendioRow, nomeDipendente, competenzaLabel, competenzeCandidate, STIPENDI_COLUMN_WIDTHS, addebitoBanca,
   type PnSlip, type PnFlusso,
 } from '../lib/primaNotaStipendi'
 import {
@@ -972,14 +972,14 @@ export default function PrimaNota() {
     if (stipendi.flussi_non_abbinati.length > 0) {
       XLSX.utils.sheet_add_aoa(wsDip, [
         [],
-        ['Disposizioni senza buste paga che le spieghino', 'Pagato il', 'Conto Banca', 'ID flusso', 'Bonifici nel flusso (banca)', 'Importo flusso', 'Commissioni flusso', 'Causale'],
+        ['Disposizioni senza buste paga che le spieghino', 'Pagato il', 'Conto Banca', 'ID flusso', 'Bonifici nel flusso (banca)', 'Importo flusso', 'Commissioni flusso', 'Addebito in banca', 'Causale'],
         ...stipendi.flussi_non_abbinati.map(x => [
           '', fmtDate(x.flusso.transaction_date), bankNameOf(x.flusso.bank_account_id), x.info.id_flusso ?? '', x.info.n_pagamenti ?? '',
-          x.info.importo_bonifici ?? Math.round(-x.flusso.amount * 100) / 100, x.info.commissioni ?? '', x.flusso.description ?? '',
+          x.info.importo_bonifici ?? Math.round(-x.flusso.amount * 100) / 100, x.info.commissioni ?? '', addebitoBanca(x.flusso, x.info), x.flusso.description ?? '',
         ]),
       ], { origin: -1 })
     }
-    formatEuro(wsDip as XlsxSheet, ['Netto', 'Importo flusso', 'Commissioni flusso'], XLSX.utils)
+    formatEuro(wsDip as XlsxSheet, ['Netto', 'Importo flusso', 'Commissioni flusso', 'Addebito in banca'], XLSX.utils)
     XLSX.utils.book_append_sheet(wb, wsDip, 'Dipendenti ed emolumenti')
     // Un foglio per carta, come per i conti: intestazione, righe, totale letto e dichiarato, addebito in banca, differenza
     carte.forEach((c, ci) => {
@@ -1712,16 +1712,17 @@ export default function PrimaNota() {
                 <th className="px-3 py-2 text-left">Conto Banca</th>
                 <th className="px-3 py-2 text-left">Disposizione</th>
                 <th className="px-3 py-2 text-right">Importo flusso</th>
+                <th className="px-3 py-2 text-right">Addebito in banca</th>
                 <th className="px-3 py-2 text-left">Esito</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">
                   <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
                 </td></tr>
               ) : stipendi.rows.length === 0 ? (
-                <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-400">
+                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">
                   Nessuna busta paga né disposizione per emolumenti nel periodo selezionato
                 </td></tr>
               ) : stipendi.rows.map((r, i) => {
@@ -1744,6 +1745,7 @@ export default function PrimaNota() {
                       {x['Bonifici nel flusso (banca)'] !== '' && <span className={`block ${x['Bonifici nel flusso (banca)'] !== x['Buste nel flusso'] ? 'text-orange-700' : 'text-slate-400'}`}>{x['Bonifici nel flusso (banca)']} bonifici per {x['Buste nel flusso']} buste{x['Commissioni flusso'] !== '' && `, comm. ${fmt(x['Commissioni flusso'])}`}</span>}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap text-slate-700">{x['Importo flusso'] === '' ? '—' : fmt(x['Importo flusso'])}</td>
+                    <td className="px-3 py-2 text-right tabular-nums whitespace-nowrap font-medium text-slate-900">{x['Addebito in banca'] === '' ? '—' : fmt(x['Addebito in banca'])}</td>
                     <td className="px-3 py-2 text-xs">
                       <span className={`inline-block px-2 py-0.5 rounded whitespace-nowrap ${r.flusso ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-100 text-orange-800'}`}>{x.Esito}</span>
                     </td>
