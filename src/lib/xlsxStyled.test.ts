@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { Workbook } from 'exceljs'
-import { addStyledSheet, firstTableRange, moneyColumns, tableRows, EURO_FMT, type StyledRow } from './xlsxStyled'
+import { addStyledSheet, firstTableRange, moneyColumns, tableRows, wrappedLines, textRowHeight, EURO_FMT, type StyledRow } from './xlsxStyled'
 
 const rows: StyledRow[] = [
   { kind: 'title', cells: ['Estratto conto BCC'] },
@@ -70,5 +70,19 @@ describe('addStyledSheet: grafica letta dal file generato', () => {
     expect(t[1].kind).toBe('data')
     expect(t[2]).toEqual({ kind: 'warn', cells: ['', 5] })
     expect(tableRows([])).toEqual([])
+  })
+})
+
+describe('righe di testo a capo: altezza scritta nel file', () => {
+  it('stima le righe dalla larghezza della colonna e scrive l\'altezza', async () => {
+    expect(wrappedLines('corto', 40)).toBe(1)
+    expect(wrappedLines('a'.repeat(100), 40)).toBe(3)
+    expect(wrappedLines('riga uno\nriga due', 40)).toBe(2)
+    expect(textRowHeight(['Etichetta', 'x'.repeat(250)], [30, 120])).toBe(30)
+    const back = await roundTrip({ name: 'Guida', rows: [{ kind: 'text', cells: ['Etichetta', 'y'.repeat(300)] }], widths: [30, 120], filter: false })
+    const row = back.getWorksheet('Guida')!.getRow(1)
+    expect(row.height).toBe(45)
+    expect(row.getCell(2).alignment?.wrapText).toBe(true)
+    expect(row.getCell(1).font?.bold).toBe(true)
   })
 })

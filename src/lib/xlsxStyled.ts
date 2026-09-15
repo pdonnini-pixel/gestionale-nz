@@ -82,6 +82,21 @@ export function moneyColumns(rows: StyledRow[], moneyHeaders: string[]): Set<num
   return cols
 }
 
+/** Righe di testo necessarie per una cella a capo automatico, stimate dalla larghezza della colonna (caratteri). */
+export function wrappedLines(text: string, width: number): number {
+  const perLine = Math.max(8, Math.floor(width * 1.05))
+  return text.split('\n').reduce((n, para) => n + Math.max(1, Math.ceil(para.length / perLine)), 0)
+}
+
+const LINE_PT = 15
+
+/** Altezza (punti) di una riga di testo a capo: la cella più lunga decide. */
+export function textRowHeight(cells: CellValue[], widths: number[]): number {
+  let lines = 1
+  cells.forEach((c, i) => { if (c != null && c !== '') lines = Math.max(lines, wrappedLines(String(c), widths[i] ?? 10)) })
+  return LINE_PT * lines
+}
+
 export function addStyledSheet(wb: Workbook, spec: SheetSpec): Worksheet {
   const ws = wb.addWorksheet(spec.name, spec.tabColor ? { properties: { tabColor: { argb: 'FF' + spec.tabColor } } } : undefined)
   ws.columns = spec.widths.map(w => ({ width: w }))
@@ -167,6 +182,10 @@ export function addStyledSheet(wb: Workbook, spec: SheetSpec): Worksheet {
           cell.alignment = al
           if (i === 0 && r.cells.length > 1) cell.font = { bold: true }
         })
+        // Altezza esplicita: Excel per Windows e per Mac, Numbers e Fogli Google
+        // non adattano tutti allo stesso modo le righe a capo automatico; con
+        // l'altezza scritta nel file il testo si legge per intero ovunque.
+        row.height = textRowHeight(r.cells, spec.widths)
         break
       case 'blank':
         break
