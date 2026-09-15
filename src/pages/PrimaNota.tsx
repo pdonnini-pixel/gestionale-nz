@@ -14,9 +14,15 @@
 // data del movimento, imponibile/IVA, metodo, categoria e conto CE. È il foglio
 // che serve allo studio per chiudere le partite fornitori. Logica in
 // src/lib/primaNotaPagamenti.ts (testata).
+//
+// Terza vista «Incassi per outlet» (passo C): le entrate (POS, Amex, versamenti
+// di contante, altri incassi) attribuite al punto vendita dall'abbinamento con
+// la chiusura di cassa, dal codice terminale in causale (outlet_payment_channels)
+// o dalla parola chiave del versamento. Logica in src/lib/primaNotaIncassi.ts
+// (testata, copia fedele delle funzioni SQL del riscontro chiusure ↔ banca).
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
-import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt } from 'lucide-react'
+import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
@@ -29,6 +35,11 @@ import {
   buildPagamentoRow, fonteOf, includePagamento, sortPagamenti, summarizePagamenti, importoPagato, metodoLabel, rataOf,
   FONTE_LABELS, PAGAMENTI_COLUMN_WIDTHS, type PnPagamento, type PnLookups, type PagamentoFonte,
 } from '../lib/primaNotaPagamenti'
+import {
+  attribuisciIncasso, buildIncassoRow, summarizeByOutlet, outletLabel,
+  INCASSI_COLUMN_WIDTHS, SENZA_OUTLET,
+  type IncassiLookups, type IncassoKind, type Attribuzione,
+} from '../lib/primaNotaIncassi'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
 import TableScroll from '../components/ui/TableScroll'
@@ -53,7 +64,7 @@ type MovementRaw = {
 }
 type Movement = MovementRaw & PnMovement
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
-type View = 'banca' | 'pagamenti'
+type View = 'banca' | 'pagamenti' | 'incassi'
 
 const MONTHS = [
   { v: 1, l: 'Gennaio' }, { v: 2, l: 'Febbraio' }, { v: 3, l: 'Marzo' }, { v: 4, l: 'Aprile' },
@@ -89,6 +100,19 @@ const FONTE_BADGE: Record<PagamentoFonte, string> = {
   senza_riscontro: 'bg-red-100 text-red-700',
 }
 
+const INCASSO_BADGE: Record<IncassoKind, string> = {
+  pos: 'bg-emerald-100 text-emerald-700',
+  amex: 'bg-sky-100 text-sky-700',
+  versamento: 'bg-amber-100 text-amber-800',
+  altro: 'bg-slate-100 text-slate-600',
+}
+const ATTRIBUZIONE_BADGE: Record<Attribuzione, string> = {
+  chiusura: 'bg-emerald-50 text-emerald-700',
+  terminale: 'bg-slate-100 text-slate-600',
+  parola_chiave: 'bg-slate-100 text-slate-600',
+  da_attribuire: 'bg-orange-100 text-orange-800',
+}
+
 // PostgREST IN() ha un limite di URL (~16KB): si spacchetta in blocchi da 200 UUID.
 const chunk = <T,>(xs: T[], size = 200): T[][] => {
   const out: T[][] = []
@@ -111,6 +135,9 @@ export default function PrimaNota() {
   // SUBITO alle righe da sistemare, non a un numero da interpretare.
   const [kindFilter, setKindFilter] = useState<MovementKind | null>(null)
   const [fonteFilter, setFonteFilter] = useState<PagamentoFonte[] | null>(null)
+  // Incassi per outlet: dizionari (canali, outlet, abbinamenti chiusure) e filtro a clic per outlet
+  const [incassiLk, setIncassiLk] = useState<IncassiLookups>({ channels: [], outlets: new Map(), closingMatches: new Map(), bankAccounts: new Map() })
+  const [outletFilter, setOutletFilter] = useState<string | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -269,9 +296,42 @@ export default function PrimaNota() {
     }
   }, [companyId, year, month])
 
+  // Dizionari per gli incassi (passo C): canali con codice terminale e parola
+  // chiave, outlet, conti e gli abbinamenti già fatti dal riscontro notturno
+  // chiusure ↔ banca per i movimenti del periodo. Le entrate stesse sono già
+  // in `movements`: qui si carica solo ciò che serve ad attribuirle.
+  const loadIncassiLookups = useCallback(async (movementIds: string[]) => {
+    if (!companyId) return
+    try {
+      const [chRes, outRes, accRes, matchResults] = await Promise.all([
+        supabase.from('outlet_payment_channels').select('id, outlet_id, kind, label, terminal_code, bank_account_id, is_active').eq('company_id', companyId),
+        supabase.from('outlets').select('id, code, name').eq('company_id', companyId),
+        supabase.from('bank_accounts').select('id, bank_name, iban').eq('company_id', companyId),
+        Promise.all(chunk(movementIds).map(ids => supabase
+          .from('closing_bank_matches')
+          .select('bank_transaction_id, match_type, reference_date, outlet_daily_closings!inner(outlet_id, closing_date)')
+          .in('bank_transaction_id', ids))),
+      ])
+      const lk: IncassiLookups = { channels: [], outlets: new Map(), closingMatches: new Map(), bankAccounts: new Map() }
+      lk.channels = (chRes.data ?? []).map(c => ({ id: c.id, outlet_id: c.outlet_id, kind: c.kind, label: c.label, terminal_code: c.terminal_code, bank_account_id: c.bank_account_id, is_active: c.is_active }))
+      for (const o of outRes.data ?? []) lk.outlets.set(o.id, { code: o.code, name: o.name })
+      for (const a of accRes.data ?? []) lk.bankAccounts.set(a.id, { bank_name: a.bank_name, iban: a.iban })
+      type MatchRow = { bank_transaction_id: string; match_type: string; reference_date: string | null; outlet_daily_closings: { outlet_id: string; closing_date: string } | null }
+      for (const m of matchResults.flatMap(r => (r.data ?? []) as unknown as MatchRow[])) {
+        const c = m.outlet_daily_closings
+        if (!c) continue
+        lk.closingMatches.set(m.bank_transaction_id, { outlet_id: c.outlet_id, closing_date: m.reference_date ?? c.closing_date, match_type: m.match_type })
+      }
+      setIncassiLk(lk)
+    } catch (e) {
+      console.error('[PrimaNota] incassi:', e)
+    }
+  }, [companyId])
+
   useEffect(() => { loadBankAccounts() }, [loadBankAccounts])
   useEffect(() => { loadMovements() }, [loadMovements])
   useEffect(() => { loadPagamenti() }, [loadPagamenti])
+  useEffect(() => { loadIncassiLookups(movements.filter(m => m.amount > 0).map(m => m.id)) }, [movements, loadIncassiLookups])
 
   // Fatture pagate visibili con il filtro conto corrente
   const pagamentiVisibili = useMemo(
@@ -299,8 +359,29 @@ export default function PrimaNota() {
   const pagRowsShown = useMemo(() => pagamentiShown.map(p => buildPagamentoRow(p, lookups, fmtDate)), [pagamentiShown, lookups])
   const toggleKind = (k: MovementKind) => setKindFilter(cur => (cur === k ? null : k))
   const toggleFonte = (fs: PagamentoFonte[]) => setFonteFilter(cur => (cur && cur.join() === fs.join() ? null : fs))
+
+  // Incassi per outlet: le entrate del periodo (giroconti esclusi: non sono
+  // incassi) attribuite al punto vendita. Stessa fonte della vista banca.
+  const incassi = useMemo(
+    () => movements
+      .filter(m => m.amount > 0 && classifyMovement(m) !== 'giroconto')
+      .map(m => ({ m, a: attribuisciIncasso(m, incassiLk) })),
+    [movements, incassiLk],
+  )
+  const incassiRows = useMemo(() => incassi.map(({ m, a }) => buildIncassoRow(m, a, incassiLk, fmtDate)), [incassi, incassiLk])
+  const byOutlet = useMemo(() => summarizeByOutlet(incassi, incassiLk), [incassi, incassiLk])
+  const incassiTot = useMemo(() => {
+    const sum = (k: IncassoKind | null) => Math.round(incassi.filter(x => k === null || x.a.kind === k).reduce((s, x) => s + x.m.amount, 0) * 100) / 100
+    return { totale: sum(null), pos: sum('pos'), amex: sum('amex'), versamenti: sum('versamento'), altro: sum('altro'), daAttribuire: incassi.filter(x => !x.a.outlet_id).length }
+  }, [incassi])
+  const incassiShown = useMemo(
+    () => outletFilter ? incassi.filter(x => (outletFilter === SENZA_OUTLET ? !x.a.outlet_id : x.a.outlet_id === outletFilter)) : incassi,
+    [incassi, outletFilter],
+  )
+  const incassiRowsShown = useMemo(() => incassiShown.map(({ m, a }) => buildIncassoRow(m, a, incassiLk, fmtDate)), [incassiShown, incassiLk])
+  const toggleOutlet = (id: string) => setOutletFilter(cur => (cur === id ? null : id))
   // Cambiando periodo, conto o vista il filtro a clic si azzera
-  useEffect(() => { setKindFilter(null); setFonteFilter(null) }, [year, month, bankAccountId, view])
+  useEffect(() => { setKindFilter(null); setFonteFilter(null); setOutletFilter(null) }, [year, month, bankAccountId, view])
 
   const totals = useMemo(() => {
     const dare = movements.filter(m => m.amount > 0).reduce((s, m) => s + m.amount, 0)
@@ -315,7 +396,7 @@ export default function PrimaNota() {
   const rows = useMemo(() => movements.map(m => buildRow(m, fmtDate)), [movements])
 
   const exportCsv = () => {
-    const src: Array<Record<string, unknown>> = view === 'banca' ? rows : pagRows
+    const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : incassiRows
     if (src.length === 0) return
     const headers = Object.keys(src[0])
     const csvRows = [
@@ -330,7 +411,7 @@ export default function PrimaNota() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${view === 'banca' ? 'prima_nota' : 'pagamenti_fornitori'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
+    a.download = `${view === 'banca' ? 'prima_nota' : view === 'pagamenti' ? 'pagamenti_fornitori' : 'incassi_outlet'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -347,6 +428,10 @@ export default function PrimaNota() {
     const wsPag = XLSX.utils.json_to_sheet(pagRows.length > 0 ? pagRows : [{ Nota: 'Nessuna fattura pagata nel periodo' }])
     wsPag['!cols'] = PAGAMENTI_COLUMN_WIDTHS.map(wch => ({ wch }))
     XLSX.utils.book_append_sheet(wb, wsPag, 'Pagamenti fornitori')
+    // Foglio Incassi per outlet: una riga per entrata, con outlet, canale e come è stato attribuito
+    const wsInc = XLSX.utils.json_to_sheet(incassiRows.length > 0 ? incassiRows : [{ Nota: 'Nessun incasso nel periodo' }])
+    wsInc['!cols'] = INCASSI_COLUMN_WIDTHS.map(wch => ({ wch }))
+    XLSX.utils.book_append_sheet(wb, wsInc, 'Incassi per outlet')
     // Sheet riepilogo: totali del periodo + righe e importi per tipo di movimento
     const summaryData: Array<Array<string | number>> = [
       ['Periodo', month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`],
@@ -363,9 +448,13 @@ export default function PrimaNota() {
       ['Pagamenti fornitori (per fonte)', 'Fatture', 'Importo pagato'],
       ...pagByFonte.map(f => [f.label, f.n, f.importo]),
       ['Totale fatture pagate', pagamentiVisibili.length, Math.round(pagTotale * 100) / 100],
+      [],
+      ['Incassi per outlet', 'Movimenti', 'POS', 'Amex', 'Versamenti contanti', 'Altri incassi', 'Totale'],
+      ...byOutlet.map(o => [o.label, o.n, o.pos, o.amex, o.versamenti, o.altro, o.totale]),
+      ['Totale incassi', incassi.length, incassiTot.pos, incassiTot.amex, incassiTot.versamenti, incassiTot.altro, incassiTot.totale],
     ]
     const wsSummary = XLSX.utils.aoa_to_sheet(summaryData)
-    wsSummary['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 14 }, { wch: 14 }]
+    wsSummary['!cols'] = [{ wch: 30 }, { wch: 25 }, { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 14 }, { wch: 14 }]
     XLSX.utils.book_append_sheet(wb, wsSummary, 'Riepilogo')
     XLSX.writeFile(wb, `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.xlsx`)
   }
@@ -421,7 +510,7 @@ export default function PrimaNota() {
           {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
         </button>
         <div className="flex-1" />
-        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : pagRows).length === 0}
+        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : view === 'pagamenti' ? pagRows : incassiRows).length === 0}
           className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg text-sm font-medium">
           <Download size={14} /> CSV
         </button>
@@ -440,6 +529,10 @@ export default function PrimaNota() {
         <button role="tab" aria-selected={view === 'pagamenti'} onClick={() => setView('pagamenti')}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'pagamenti' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
           <Receipt size={14} /> Pagamenti fornitori <span className="text-xs opacity-70">{pagamentiVisibili.length}</span>
+        </button>
+        <button role="tab" aria-selected={view === 'incassi'} onClick={() => setView('incassi')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'incassi' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
+          <Store size={14} /> Incassi per outlet <span className="text-xs opacity-70">{incassi.length}</span>
         </button>
       </div>
 
@@ -517,6 +610,70 @@ export default function PrimaNota() {
           <button type="button" onClick={() => setFonteFilter(null)} className="shrink-0 px-2 py-1 rounded bg-white border border-orange-200 hover:bg-orange-100 text-xs font-medium">Togli filtro</button>
         </div>
       )}
+
+      {view === 'incassi' && (<>
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+        <KpiBox label="Incassi in banca" value={`€ ${fmt(incassiTot.totale)}`} color="emerald" hint={`${incassi.length} movimenti in entrata`} />
+        <KpiBox label="POS e Amex" value={`€ ${fmt(incassiTot.pos + incassiTot.amex)}`} color="emerald" />
+        <KpiBox label="Versamenti contanti" value={`€ ${fmt(incassiTot.versamenti)}`} color="slate" />
+        <KpiBox label="Altri incassi" value={`€ ${fmt(incassiTot.altro)}`} color="slate" hint="Bonifici di clienti, rimborsi: senza outlet" />
+        <KpiBox label="Da attribuire" value={incassiTot.daAttribuire.toString()} color={incassiTot.daAttribuire > 0 ? 'orange' : 'slate'}
+          hint={incassiTot.daAttribuire > 0 ? 'Clicca per vedere le entrate senza outlet: POS con terminale non censito o versamenti senza parola chiave si sistemano in Incassi giornalieri → Canali' : 'Ogni entrata ha il suo outlet'}
+          active={outletFilter === SENZA_OUTLET} onClick={incassiTot.daAttribuire > 0 ? () => toggleOutlet(SENZA_OUTLET) : undefined} />
+      </div>
+      {/* Riepilogo per outlet: stesso contenuto della sezione Incassi del foglio Riepilogo */}
+      {byOutlet.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-200 mb-4 overflow-hidden">
+          <TableScroll>
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 uppercase text-slate-600">
+                <tr>
+                  <th className="px-3 py-2 text-left">Outlet</th>
+                  <th className="px-3 py-2 text-right">Mov.</th>
+                  <th className="px-3 py-2 text-right">POS</th>
+                  <th className="px-3 py-2 text-right">Amex</th>
+                  <th className="px-3 py-2 text-right">Versamenti</th>
+                  <th className="px-3 py-2 text-right">Altro</th>
+                  <th className="px-3 py-2 text-right">Totale</th>
+                </tr>
+              </thead>
+              <tbody>
+                {byOutlet.map(o => {
+                  const key = o.outlet_id ?? SENZA_OUTLET
+                  const active = outletFilter === key
+                  return (
+                    <tr key={key} className={`border-t border-slate-100 ${active ? 'bg-slate-100' : 'hover:bg-slate-50/50'}`}>
+                      <td className="px-3 py-1.5">
+                        <button type="button" onClick={() => toggleOutlet(key)} aria-pressed={active} title={active ? 'Togli il filtro' : `Mostra solo: ${o.label}`}
+                          className={`inline-block px-1.5 py-0.5 rounded font-medium hover:bg-slate-200 ${o.outlet_id ? 'text-slate-800' : 'bg-orange-100 text-orange-800'} ${active ? 'ring-2 ring-slate-900' : ''}`}>
+                          {o.label}
+                        </button>
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-500">{o.n}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{o.pos ? fmt(o.pos) : '—'}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{o.amex ? fmt(o.amex) : '—'}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{o.versamenti ? fmt(o.versamenti) : '—'}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums">{o.altro ? fmt(o.altro) : '—'}</td>
+                      <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-emerald-700">{fmt(o.totale)}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </TableScroll>
+        </div>
+      )}
+      {outletFilter && (
+        <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-4 text-sm text-orange-900">
+          <span>
+            Filtro attivo: <strong>{outletFilter === SENZA_OUTLET ? 'Da attribuire' : outletLabel(outletFilter, incassiLk)}</strong> · {incassiShown.length} entrate su {incassi.length}.
+            {outletFilter === SENZA_OUTLET && ' Un accredito POS senza outlet ha un codice terminale non censito nei canali dell\'outlet; un versamento senza outlet non contiene la parola chiave del canale Contanti. Si sistemano in Incassi giornalieri → Canali. I bonifici di clienti restano senza outlet.'}
+            {' '}Gli export restano completi.
+          </span>
+          <button type="button" onClick={() => setOutletFilter(null)} className="shrink-0 px-2 py-1 rounded bg-white border border-orange-200 hover:bg-orange-100 text-xs font-medium">Togli filtro</button>
+        </div>
+      )}
+      </>)}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-700 mb-4">
@@ -626,6 +783,94 @@ export default function PrimaNota() {
                       <Tooltip content={r.Categoria ? `${r.Categoria}${r['Conto CE'] ? ` · conto ${r['Conto CE']}` : ''}${r.Outlet ? ` · ${r.Outlet}` : ''}` : ''}>
                         <div className="truncate cursor-help">{r.Categoria || '—'}{r['Conto CE'] && <span className="text-slate-400"> {r['Conto CE']}</span>}</div>
                       </Tooltip>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </TableScroll>
+      </div>
+      </>)}
+
+      {view === 'incassi' && (<>
+      {/* Incassi, mobile: una card per entrata */}
+      <div className="md:hidden space-y-2">
+        {loading ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
+          </div>
+        ) : incassiShown.length === 0 ? (
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">
+            {outletFilter ? 'Nessuna entrata con questo filtro' : 'Nessun incasso nel periodo selezionato'}
+          </div>
+        ) : incassiShown.map(({ m, a }, i) => {
+          const r = incassiRowsShown[i]
+          return (
+            <div key={m.id} className="bg-white rounded-xl border border-slate-200 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs text-slate-500">
+                  {r.Data}{r['Data riferimento'] && <span className="text-slate-400"> · vendite del {r['Data riferimento']}</span>}
+                  <span className="mx-1 text-slate-300">·</span>{r['Conto Banca'] || '—'}
+                </div>
+                <span className={`shrink-0 inline-block px-2 py-0.5 rounded text-xs font-medium ${INCASSO_BADGE[a.kind]}`}>{r.Tipo}</span>
+              </div>
+              <div className="text-lg font-bold mt-1 text-emerald-700">€ {fmt(r.Importo)}</div>
+              <div className={`text-sm font-medium mt-0.5 ${a.outlet_id ? 'text-slate-800' : 'text-orange-800'}`}>
+                {r.Outlet || 'Da attribuire'}{r.Canale && <span className="text-slate-500 font-normal"> · {r.Canale}</span>}
+              </div>
+              <div className="text-xs text-slate-600 mt-0.5 break-words">{r.Causale}</div>
+              <div className="flex items-center gap-2 mt-1.5 flex-wrap text-xs">
+                <span className={`inline-block px-1.5 py-0.5 rounded ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{r.Attribuzione}</span>
+                {r.Terminale && <span className="font-mono text-slate-500">term. {r.Terminale}</span>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Incassi, desktop */}
+      <div className="hidden md:block bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <TableScroll className="max-h-[70vh] overflow-y-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
+              <tr>
+                <th className="px-3 py-2 text-left">Data</th>
+                <th className="px-3 py-2 text-left">Conto Banca</th>
+                <th className="px-3 py-2 text-left">Outlet</th>
+                <th className="px-3 py-2 text-center">Tipo</th>
+                <th className="px-3 py-2 text-right">Importo</th>
+                <th className="px-3 py-2 text-left">Attribuzione</th>
+                <th className="px-3 py-2 text-left">Causale</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400">
+                  <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
+                </td></tr>
+              ) : incassiShown.length === 0 ? (
+                <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400">
+                  {outletFilter ? 'Nessuna entrata con questo filtro' : 'Nessun incasso nel periodo selezionato'}
+                </td></tr>
+              ) : incassiShown.map(({ m, a }, i) => {
+                const r = incassiRowsShown[i]
+                return (
+                  <tr key={m.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                    <td className="px-3 py-2 text-slate-700 whitespace-nowrap">
+                      {r.Data}{r['Data riferimento'] && <span className="block text-xs text-slate-400">vendite del {r['Data riferimento']}</span>}
+                    </td>
+                    <td className="px-3 py-2 text-slate-600 text-xs max-w-[160px]">
+                      <Tooltip content={r.IBAN ? `${r['Conto Banca']} · ${r.IBAN}` : ''}><div className="truncate cursor-help">{r['Conto Banca'] || '—'}</div></Tooltip>
+                    </td>
+                    <td className={`px-3 py-2 ${a.outlet_id ? 'text-slate-800' : 'text-orange-800'}`}>
+                      {r.Outlet || 'Da attribuire'}{r.Canale && <span className="block text-xs text-slate-400">{r.Canale}{r.Terminale ? ` · ${r.Terminale}` : ''}</span>}
+                    </td>
+                    <td className="px-3 py-2 text-center"><span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${INCASSO_BADGE[a.kind]}`}>{r.Tipo}</span></td>
+                    <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap text-emerald-700">+ € {fmt(r.Importo)}</td>
+                    <td className="px-3 py-2"><span className={`inline-block px-2 py-0.5 rounded text-xs whitespace-nowrap ${ATTRIBUZIONE_BADGE[a.attribuzione]}`}>{r.Attribuzione}</span></td>
+                    <td className="px-3 py-2 text-slate-600 text-xs max-w-md">
+                      <Tooltip content={r.Causale}><div className="truncate cursor-help">{r.Causale || '—'}</div></Tooltip>
                     </td>
                   </tr>
                 )
