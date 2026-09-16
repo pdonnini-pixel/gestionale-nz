@@ -592,10 +592,11 @@ contanti, carte e altro.
 1. ~~**4.870,25 € dichiarati e mai arrivati in banca**~~ **RISOLTO**: i due versamenti sono
    sull'estratto conto MPS di aprile, accreditati il 04/05 con valuta 29/04. Il denaro c'e', a
    perderlo era l'importazione. Vedi «i 4.870,25 € ci sono: era l'importazione a perderli».
-2. **Palmanova 30/04**: 1.391,92 dichiarati sul POS contro 1.302,29 accreditati, −6,4 %. Tutte le
-   altre righe in differenza sono commissione sotto il 2 % su importi piccoli; questa no.
-3. **Palmanova 10/01**: −435,46 € fra corrispettivi e mezzi di pagamento, la giornata non quadrata
-   piu' grossa di tutto il recupero.
+2. ~~**Palmanova 30/04**: 1.391,92 contro 1.302,29, −6,4 %~~ **RISOLTO**: mancava un accredito POS
+   da 79,33 €, perso alla stessa cucitura fra import. Ora 1.381,62 contro 1.391,92, −0,74 %.
+3. ~~**Palmanova 10/01**: −435,46 €~~ **RISOLTO**: la banca ha accreditato 3.883,30 di circuiti
+   internazionali **e** 435,46 di PagoBancomat sullo stesso terminale; lo specchietto ha scritto
+   solo il primo. Il denaro c'e', manca una riga nel foglio del negozio.
 
 ### Le tre migliorie per il motore di riscontro
 
@@ -758,3 +759,90 @@ centesimo, e quella verifica aveva reso l'ipotesi «l'import ha perso qualcosa»
 credibile. Era invece quella giusta. **Tre mesi esatti non dimostrano che il quarto lo sia**: la
 cucitura fra due import e' un evento raro per costruzione, quindi va cercata dove sta, cioe' ai
 confini, e non si trova campionando i mesi pieni.
+
+## il controllo esteso: tutti gli estratti conto di Drive, gennaio-agosto
+
+Su Drive, in `ARCHIVIO EC NEW ZAGO`, c'e' una cartella per mese da gennaio a settembre con gli
+estratti conto di tutti e quattro i conti correnti (MPS, BCC Figline, BCC Mugello, Intesa), in
+`.xls`/`.xlsx` oltre che in PDF. Settembre non ha ancora i conti correnti, il mese non e' chiuso.
+
+### MPS, otto mesi su otto
+
+| Mese | Finestra estratto | Entrate estratto | Entrate DB | Righe mancanti |
+|---|---|---|---|---|
+| gennaio | 02/01-04/02 | 439 / 442.395,62 € | 439 / 442.395,62 € | 0 |
+| febbraio | 02/02-04/03 | 418 / 322.635,19 € | 418 / 322.635,19 € | 0 |
+| marzo | 02/03-03/04 | 425 / 281.302,37 € | 425 / 281.302,37 € | 0 |
+| aprile | 01/04-04/05 | 473 / 467.384,05 € | 471 | **2** (i versamenti) |
+| maggio | 04/05-04/06 | 511 / 446.130,62 € | 510 | **1** (il POS Palmanova) |
+| giugno | 01/06-03/07 | 517 / 452.400,50 € | 517 | 0 |
+| luglio | 01/07-31/07 | 496 / 467.956,13 € | 496 / 467.956,13 € | 0 |
+| agosto | 03/08-03/09 | 546 / 387.827,66 € | 546 | 0 |
+
+Gennaio, febbraio, marzo e luglio coincidono al centesimo senza alcun aggiustamento. Giugno e
+agosto coincidono dopo aver tolto gli effetti di bordo (movimenti che il DB data prima o dopo la
+finestra del file), e il confronto importo per importo su una finestra allargata non trova
+nemmeno una riga mancante. Aprile e maggio sono i tre movimenti gia' recuperati con le migration
+`234` e `235`, **tutti e tre sulla stessa cucitura fra l'import di aprile e quello di maggio**.
+
+Sui versamenti il conto e' esatto: **82 versamenti su 82** fra marzo, luglio e agosto, e a maggio
+e giugno 53 su 53 con ogni importo appaiato uno a uno.
+
+### BCC Figline
+
+Confronto diretto su quattro mesi, entrate e uscite:
+
+| Mese | Entrate estratto | Entrate DB | Uscite estratto | Uscite DB |
+|---|---|---|---|---|
+| gennaio | 103 / 98.507,41 € | 103 / 98.507,41 € | 94 / -103.635,27 € | 94 / -103.635,27 € |
+| febbraio | 107 / 71.216,99 € | 107 / 71.216,99 € | 92 / -47.188,53 € | 92 / -47.188,53 € |
+| marzo | 75 / 35.289,95 € | 75 / 35.289,95 € | 81 / -105.142,53 € | 84 / -105.332,73 € |
+| agosto | 119 / 54.892,26 € | 119 / 54.892,26 € | 71 / -94.709,54 € | 71 / -94.709,54 € |
+
+Le entrate tornano al centesimo tutte e quattro le volte. L'unico scarto e' su tre uscite di
+marzo per 190,20 €, movimenti che il DB data a marzo e la banca contabilizza ad aprile.
+
+### Il conto BCC che sembra interrotto, e non lo e'
+
+In `bank_accounts` c'e' un conto BCC Valdarno (IBAN `...016980`) il cui flusso si ferma il
+**30 aprile 2026**. Non e' un buco: le sue righe portano il riferimento `0002/007/221949`, cioe'
+il conto **Banco Fiorentino Mugello** (`IT77Y...221949`), che nel database parte dal **6 maggio**.
+E' lo stesso conto, riagganciato sotto un'altra anagrafica. L'estratto BCC Mugello di maggio lo
+conferma: il primo movimento del mese e' del 6 maggio, fra il 1 e il 5 non c'e' niente da
+prendere. Il passaggio non ha perso nulla.
+
+### Il controllo che copre tutto il resto
+
+Gli estratti di BCC Mugello e Intesa mese per mese non sono stati letti tutti. Al loro posto vale
+un controllo che copre **tutti i conti e tutti e nove i mesi insieme**: ogni riga di ogni chiusura
+di cassa viene appaiata a un movimento bancario, quindi un movimento che manca in banca si vede
+come riga a «mancante». Su **tutto il 2026** le righe a «mancante» sono **due**, tutte e due di
+Palmanova a gennaio, e nessuna delle due e' un movimento perso:
+
+- **10/01, Amex 164,52 €.** A gennaio l'Amex di Palmanova veniva accreditato su **BCC**, non su
+  MPS: l'estratto BCC ha un accredito Amex di 314,62 € il 15/01 «per incassi 12.01.2026» sul
+  terminale `...00005`. Lo specchietto lo ha scritto sulla riga «POS MPS Amex» e il motore lo
+  cerca sul conto sbagliato. I soldi ci sono, e sono di piu' di quelli dichiarati.
+- **15/01, POS BCC 631,09 €.** In banca non c'e' nessun accredito BCC con riferimento 15.01 su
+  quel terminale. Su **MPS**, terminale `...00007`, per lo stesso giorno ci sono 273,97 + 352,96 =
+  **626,93 €**, cioe' 631,09 meno lo 0,66 % di commissione. Quel giorno l'incasso e' passato dal
+  terminale MPS e lo specchietto lo ha attribuito al BCC.
+
+### E l'ultima delle tre anomalie cade anche lei
+
+Palmanova 10/01, la giornata non quadrata piu' grossa del recupero, **-435,46 €**. L'estratto BCC
+per il riferimento 10.01.26 sul terminale `...00005` porta due accrediti: 3.883,30 € di circuiti
+internazionali e **435,46 €** di PagoBancomat. Lo specchietto ha scritto solo il primo. Non manca
+un movimento in banca: manca una riga nello specchietto del negozio, ed e' esattamente lo
+squilibrio della giornata.
+
+### Dove siamo
+
+Delle tre cose da guardare non ne resta nessuna: i 4.870,25 € erano un difetto di importazione,
+il -6,4 % di Palmanova del 30/04 era il POS da 79,33 € perso alla stessa cucitura, il -435,46 €
+del 10/01 e' una riga dimenticata nello specchietto con il denaro regolarmente in banca.
+
+Quello che non e' stato riscontrato riga per riga resta: BCC Figline di maggio, giugno e luglio,
+BCC Mugello da gennaio ad aprile e da giugno ad agosto, Intesa da marzo ad agosto. Su quei conti
+e quei mesi vale il controllo sulle chiusure, che non segnala niente; un confronto diretto con la
+carta resta piu' forte e si puo' fare quando serve, i file sono tutti su Drive.
