@@ -390,6 +390,10 @@ Le due chiusure restano a «mancante». Per chiudere la questione: guardare l'ho
 28 al 30 aprile cercando una voce «VERS. CONTANTI C. CONTINUA», e chiedere ai due negozi la nota
 cassa di quella settimana con lo scontrino della cassetta.
 
+Quel limite e' stato poi misurato: vedi «il riscontro sugli estratti conto in archivio» in fondo.
+Su marzo, luglio e agosto il flusso importato coincide con l'estratto conto ufficiale riga per
+riga sul lato entrate, versamenti compresi. L'estratto di aprile pero' in archivio non c'e'.
+
 ### Cosa e' emerso, oltre a quello
 
 - **La colonna FATTURE e' un promemoria, non un mezzo di pagamento.** L'importo della fattura
@@ -610,3 +614,82 @@ Ne e' emersa una quarta. Il motore riconosce il negozio del versamento dalla cau
 dallo sportello abituale: Franciacorta e' «ATM 01030-2121». Il 24/02 il negozio ha versato
 all'ATM 4715 e il movimento e' diventato invisibile. Un versamento a un solo negozio compatibile
 per importo, data e conto andrebbe proposto lo stesso, magari da confermare a mano.
+
+## il riscontro sugli estratti conto in archivio
+
+Fin qui ogni verifica e' stata fatta sul flusso importato in `bank_transactions`, cioe' su quello
+che A-Cube scarica dalla banca. Restava la domanda vera: quel flusso e' completo? Per rispondere
+servono gli estratti conto ufficiali, e in `bank-statements` ce ne sono tre di conto corrente.
+
+Cosa c'e' in archivio, per i conti correnti: **MPS marzo** (02/03-03/04), **MPS luglio**
+(01/07-31/07) e **MPS agosto** (03/08-03/09), piu' le versioni BCC Figline, Mugello e Intesa dello
+stesso luglio e dello stesso agosto. Per le carte c'e' molto di piu': la prepagata TASCA da
+febbraio a luglio, le carte di credito BCC-Numia e MPS da gennaio a giugno. **Di conto corrente
+aprile non c'e'.** Nessuno dei file era mai stato letto: tutte le righe di `bank_statements`
+hanno `transaction_count = 0`.
+
+### Come si leggono senza far passare la password di qui
+
+Patrizio ha creato un utente Auth di sola lettura e ha messo email e password nel Vault. Il login
+si fa dentro Postgres con l'estensione `http`: la query pesca le credenziali da
+`vault.decrypted_secrets`, chiama `/auth/v1/token`, e con il token crea una signed URL valida
+un'ora per il singolo file. Nella sessione passa solo quella URL. Nessuna chiave di servizio,
+nessuna password scritta da nessuna parte. I `.xls` MPS sono in formato legacy: LibreOffice non
+li apre, `xlrd` si'.
+
+### Marzo, luglio, agosto: i tre confronti
+
+| Mese | Entrate estratto | Entrate DB | Versamenti estratto | Versamenti DB |
+|---|---|---|---|---|
+| marzo | 425 / 281.302,37 € | 425 / 281.302,37 € | 27 / 39.891,50 € | 27 / 39.891,50 € |
+| luglio | 496 / 467.956,13 € | 496 / 467.956,13 € | 27 / 75.394,70 € | 27 / 75.394,70 € |
+| agosto | 546 / 387.827,66 € | 546 / 390.335,81 € | 28 / 65.440,50 € | 29 / 68.001,15 € |
+
+Marzo e luglio coincidono al centesimo senza aggiustamenti. Agosto sembra non tornare, e invece
+torna: le due differenze sono l'una il versamento in cassa continua di **2.560,65 €** che il DB
+data al 2 settembre e che la banca contabilizza dopo la chiusura del file, l'altra un accredito
+Amex di **52,50 €** che l'estratto mette il 3 agosto e il DB il 2, cioe' fuori finestra dalla
+parte opposta. Fatti i due conti, 390.335,81 - 2.560,65 + 52,50 = **387.827,66 €**, l'importo
+dell'estratto esatto.
+
+### La regola delle date, che vale per tutti e tre i mesi
+
+Il flusso e il documento datano lo stesso movimento in modo diverso, e sempre nello stesso verso:
+**il flusso segna il giorno in cui la cosa succede, la banca il giorno in cui la contabilizza.**
+
+- Gli accrediti POS del fine settimana: nel DB restano di sabato e domenica, sull'estratto
+  compaiono tutti il lunedi'. Ad agosto sono 17 movimenti su sette weekend, e si ricompongono
+  esatti giorno per giorno.
+- I versamenti in cassa continua: il DB li data al giorno del versamento, la banca due giorni
+  dopo. Ad agosto succede cinque volte, e ogni volta l'importo e' identico.
+- Le competenze trimestrali: il flusso le data al 30/06 e al 31/03, la banca le addebita nei
+  giorni successivi.
+- Il canone del conto: primo del mese nel DB, meta' mese sull'estratto.
+
+Una volta capita questa, di tutte le differenze apparenti non ne resta nessuna.
+
+### L'unico buco vero: 118,00 € il 6 e 7 luglio
+
+Il primo passaggio su luglio aveva contato **14 movimenti in uscita mancanti per 408,20 €**. Era
+un conto sbagliato: dieci di quei quattordici ci sono, datati 30/06 invece che 06-07/07 per la
+regola qui sopra. Se ne accorge solo chi allarga la finestra di ricerca oltre il mese.
+
+Quelli che mancano davvero sono **quattro, per 118,00 €**, e hanno una cosa in comune: la causale
+`(34) DISPOSIZIONI DI GIRO CONTO (STESSA BANCA)`, e i due conti d'appoggio 91000,04 e 94000,53.
+Sono i bolli e gli oneri addebitati su quei due conti e girati sul principale: due da 29,40, uno
+da 36,60, uno da 22,60. Gli stessi addebiti degli altri cinque conti, che arrivano con causale 18
+o 19, il flusso li prende tutti. E non e' una regola generale sulla causale 34: il giroconto da
+58.650,00 del 31 marzo, stessa causale, nel DB c'e'. Al 31/03 il flusso porta perfino l'imposta
+di bollo e le competenze del conto 94000,53, quelle che a giugno perde.
+
+### Cosa cambia per i 4.870,25 € di aprile
+
+Niente, e questo e' il punto. L'estratto conto di aprile in archivio non c'e', quindi la carta non
+si puo' guardare da qui. Cambia pero' il peso della prova indiretta: su tre mesi controllati
+riga per riga, **il lato entrate del flusso e' risultato esatto tutte e tre le volte**, versamenti
+compresi, 82 su 82. Le uniche perdite accertate stanno sulle uscite, e sono quattro addebiti
+interni di pochi euro. Un versamento in cassa continua da 1.995,00 e uno da 2.875,25 che spariscono
+in importazione, dopo questo riscontro, sono un'ipotesi molto piu' debole di prima.
+
+Per chiuderla del tutto basta poco: l'estratto conto MPS di aprile, caricato in archivio come gli
+altri. Dieci minuti di lettura e si sa.
