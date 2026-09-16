@@ -600,7 +600,10 @@ export const nettoCarta = (lines: Array<{ amount: number; fee: number }>): numbe
 
 /** Righe in ordine cronologico (data acquisto, poi riga) con il saldo progressivo della prepagata. */
 export function conSaldoProgressivo<T extends { amount: number; fee: number; purchase_date: string }>(lines: T[], saldoIniziale: number): Array<{ line: T; index: number; saldo: number }> {
-  const idx = lines.map((line, index) => ({ line, index })).sort((a, b) => a.line.purchase_date.localeCompare(b.line.purchase_date) || a.index - b.index)
+  // Stesso giorno: prima le ricariche (importo positivo), poi le spese. Una
+  // prepagata non va sotto zero: la ricarica del 27/08 precede le spese del
+  // 27/08 anche se il portale le stampa dopo.
+  const idx = lines.map((line, index) => ({ line, index })).sort((a, b) => a.line.purchase_date.localeCompare(b.line.purchase_date) || (b.line.amount > 0 ? 1 : 0) - (a.line.amount > 0 ? 1 : 0) || a.index - b.index)
   let saldo = saldoIniziale
   return idx.map(({ line, index }) => { saldo = r2(saldo + line.amount + line.fee); return { line, index, saldo } })
 }

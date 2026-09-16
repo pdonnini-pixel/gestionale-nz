@@ -731,11 +731,20 @@ export default function PrimaNota() {
       return m
     })
   }, [carte, cardPayables, cardTx])
+  // Testo della colonna «Riscontro banca», uguale a video, nel CSV e nell'Excel.
+  // Verde: riscontro trovato. Arancione: qualcosa che doveva esserci e manca
+  // (ricarica senza addebito). Grigio: niente da cercare o non ancora dovuto
+  // (spesa sulla prepagata, estratto di carta di credito in attesa dell'addebito).
   const riscontroOf = useCallback((ci: number, li: number): string => {
     const c = carte[ci]; const l = c.lines[li]
-    if (c.isPrepagata) { const r = c.ricariche.get(li); return l.amount > 0 && /RICARICA/i.test(l.description) ? (r ? `addebito in banca il ${fmtDate(r.transaction_date)}` : 'ricarica non trovata in banca') : '' }
-    return c.debit.movement ? `estratto addebitato il ${fmtDate(c.debit.movement.transaction_date)}` : 'addebito estratto non trovato'
+    if (c.isPrepagata) {
+      const r = c.ricariche.get(li)
+      if (l.amount > 0 && /RICARICA/i.test(l.description)) return r ? `addebito in banca il ${fmtDate(r.transaction_date)}` : 'ricarica non trovata in banca'
+      return l.amount > 0 ? 'storno sulla carta: non passa dal conto' : 'spesa sulla carta: non passa dal conto'
+    }
+    return c.debit.movement ? `estratto addebitato il ${fmtDate(c.debit.movement.transaction_date)}` : 'in attesa dell\'addebito: la banca addebita l\'estratto intero, di solito il 25 del mese dopo'
   }, [carte])
+  const riscontroClass = (risc: string): string => /^(addebito in banca|estratto addebitato|in banca il)/.test(risc) ? 'bg-emerald-50 text-emerald-700' : /non trovat/.test(risc) ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-600'
   // Carte di DEBITO: i pagamenti POS del periodo, raggruppati per conto e carta
   // (letti dalla causale della banca). Ogni riga e' gia' un movimento del conto:
   // il riscontro e' il movimento stesso, non c'e' un addebito cumulativo da cercare.
@@ -1711,7 +1720,7 @@ export default function PrimaNota() {
                 ? <span className={`text-xs px-2 py-0.5 rounded ${c.ricariche.size === c.nRicariche ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-100 text-orange-800'}`}>ricariche in banca {c.ricariche.size}/{c.nRicariche}</span>
                 : c.debit.movement
                   ? <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">addebito in banca {fmtDate(c.debit.movement.transaction_date)} {fmt(c.debit.movement.amount)}{c.debit.n > 1 && ` (${c.debit.n} estratti)`}{Math.abs(c.debit.differenza) >= 0.005 && ` · commissioni ${fmt(c.debit.differenza)}`}</span>
-                  : <span className="text-xs px-2 py-0.5 rounded bg-orange-100 text-orange-800">addebito non ancora in banca</span>)}
+                  : <span className="text-xs px-2 py-0.5 rounded bg-slate-100 text-slate-600">addebito dell'estratto non ancora in banca: la BCC addebita le carte in un movimento solo, di solito il 25 del mese dopo</span>)}
               <span className="flex-1" />
               {c.lines.length === 0 && (c.stmt.file_path
                 ? <button type="button" onClick={() => readCardFromArchive(c.stmt)} disabled={cardParsing} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 disabled:opacity-50"><Upload size={12} /> Leggi le righe dal file archiviato</button>
@@ -1749,7 +1758,7 @@ export default function PrimaNota() {
                           <td className={`px-3 py-1.5 text-right tabular-nums whitespace-nowrap font-medium ${l.amount < 0 ? 'text-red-700' : 'text-emerald-700'}`}>{fmt(l.amount)}</td>
                           <td className="px-3 py-1.5 text-right tabular-nums text-xs text-slate-500">{l.fee ? fmt(l.fee) : ''}</td>
                           <td className="px-3 py-1.5 text-xs">{p ? <span className="text-slate-700">{p.supplier_name ?? '—'}<span className="block text-slate-400">fatt. {p.invoice_number ?? '?'}{p.payment_date ? ` · pagata il ${fmtDate(p.payment_date)}` : ''}</span></span> : l.amount < 0 ? <span className="text-slate-400">nessuna fattura con carta per questo importo</span> : ''}</td>
-                          <td className="px-3 py-1.5 text-xs">{risc && <span className={`inline-block px-1.5 py-0.5 rounded ${/non /.test(risc) ? 'bg-orange-100 text-orange-800' : 'bg-emerald-50 text-emerald-700'}`}>{risc}</span>}</td>
+                          <td className="px-3 py-1.5 text-xs">{risc && <span className={`inline-block px-1.5 py-0.5 rounded ${riscontroClass(risc)}`}>{risc}</span>}</td>
                           {c.isPrepagata && c.saldo && <td className={`px-3 py-1.5 text-right tabular-nums whitespace-nowrap font-medium ${saldo != null && saldo < 0 ? 'text-red-700' : 'text-slate-900'}`}>{saldo == null ? '' : fmt(saldo)}</td>}
                         </tr>
                       )
