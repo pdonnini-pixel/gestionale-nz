@@ -245,6 +245,8 @@ export async function fetchCommissioni(companyId: string, anno: number): Promise
 export type ContrattoAcquirer = {
   id: string;
   outlet_id: string | null;
+  /** Sigla del punto vendita (VDC, PLM, ...): serve a dare un nome ai documenti. */
+  outlet_code: string | null;
   acquirer: string;
   merchant_code: string;
   payment_contract: string | null;
@@ -254,14 +256,56 @@ export type ContrattoAcquirer = {
 };
 
 export async function fetchContratti(companyId: string): Promise<ContrattoAcquirer[]> {
-  const { data, error } = await supabase
-    .from('acquirer_contracts')
-    .select('id, outlet_id, acquirer, merchant_code, payment_contract, settlement_mode, label, is_active')
-    .eq('company_id', companyId)
-    .order('acquirer')
-    .order('merchant_code');
-  if (error) throw error;
-  return (data ?? []) as ContrattoAcquirer[];
+  const [contratti, outlets] = await Promise.all([
+    supabase
+      .from('acquirer_contracts')
+      .select('id, outlet_id, acquirer, merchant_code, payment_contract, settlement_mode, label, is_active')
+      .eq('company_id', companyId)
+      .order('acquirer')
+      .order('merchant_code'),
+    supabase.from('outlets').select('id, code').eq('company_id', companyId),
+  ]);
+  if (contratti.error) throw contratti.error;
+  // La sigla dell'outlet arriva da una lettura a parte: serve solo a dare un
+  // nome leggibile ai documenti, e non vale la pena legarla a una relazione.
+  const sigla = new Map((outlets.data ?? []).map(o => [o.id as string, (o.code as string | null) ?? null]));
+  return ((contratti.data ?? []) as Omit<ContrattoAcquirer, 'outlet_code'>[]).map(c => ({
+    ...c,
+    outlet_code: c.outlet_id ? (sigla.get(c.outlet_id) ?? null) : null,
+  }));
+}
+
+// --- Nomi dei documenti in archivio -----------------------------------------
+// I file arrivano chiamati «Estratto conto Marzo 2026 (6).pdf»: il (6) non dice
+// di chi sia, e fra sette punti vendita nessuno ritrova piu' niente. Prima di
+// archiviare il documento viene rinominato con quello che il parser ha letto
+// dentro: chi, quando, di quale acquirer.
+
+/** `nexi_VDC_2026-03.pdf`, `amex_2025-12.pdf`. */
+export function nomeDocumento(p: {
+  acquirer: 'amex' | 'nexi';
+  anno: number;
+  mese: number;
+  /** Sigla outlet se nota, altrimenti il codice del punto vendita. */
+  chi?: string | null;
+  estensione?: string;
+}): string {
+  const periodo = `${p.anno}-${String(p.mese).padStart(2, '0')}`;
+  const chi = (p.chi || '').trim().replace(/[^a-zA-Z0-9-]/g, '');
+  const ext = (p.estensione || 'pdf').toLowerCase();
+  return [p.acquirer, chi || null, periodo].filter(Boolean).join('_') + '.' + ext;
+}
+
+/**
+ * Etichetta della funzione nel registro dei caricamenti. Deve distinguere il
+ * singolo documento, non l'intera scheda: e' la chiave con cui un ricarico
+ * dello stesso estratto marca come sostituito quello di prima, senza toccare
+ * gli estratti degli altri punti vendita dello stesso mese.
+ */
+export function funzioneArchivio(acquirer: 'amex' | 'nexi', chi?: string | null): string {
+  const nome = acquirer === 'amex' ? 'Amex' : 'Nexi';
+  const suffisso = (chi || '').trim();
+  return `Commissioni di incasso · ${nome}${suffisso ? ` ${suffisso}` : ''}`;
 }
 
 /** Totali per outlet, per la tabella della scheda. */
