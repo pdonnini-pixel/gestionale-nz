@@ -32,6 +32,7 @@ const CHANNELS: PnChannel[] = [
   ch({ id: 'plm-cash', outlet_id: 'PLM', kind: 'contanti', label: 'Contanti', terminal_code: 'PALMANOVA' }),
   ch({ id: 'trn-cash', outlet_id: 'TRN', kind: 'contanti', label: 'Contanti', terminal_code: 'ATM 9750' }),
   ch({ id: 'brb-cash', outlet_id: 'BRB', kind: 'contanti', label: 'Contanti', terminal_code: 'cassa contin' }),
+  ch({ id: 'brb-bon', outlet_id: 'BRB', kind: 'bonifico', label: 'Bonifico' }),
 ]
 
 const LK: IncassiLookups = {
@@ -156,6 +157,15 @@ describe('attribuisciIncasso', () => {
     const a = attribuisciIncasso(mov(BONIFICO_IN, 58), LK)
     expect(a.kind).toBe('bonifico')
     expect(a.outlet_id).toBeNull()
+  })
+  it('bonifico in entrata riscontrato dalla riga «Bonifico» della chiusura (06/08/2026, Barberino 140 = 82 + 58)', () => {
+    const lk: IncassiLookups = { ...LK, closingMatches: new Map([['tx-bon', { outlet_id: 'BRB', closing_date: '2026-08-06', match_type: 'bonifico' }]]) }
+    const a = attribuisciIncasso({ ...mov(BONIFICO_IN, 58), id: 'tx-bon' }, lk)
+    expect(a.kind).toBe('bonifico')
+    expect(a.outlet_id).toBe('BRB')
+    expect(a.channel?.id).toBe('brb-bon')
+    expect(a.attribuzione).toBe('chiusura')
+    expect(a.ref_date).toBe('2026-08-06')
   })
   it('un abbinamento con la chiusura di cassa vince su tutto', () => {
     const lk: IncassiLookups = { ...LK, closingMatches: new Map([['tx-1', { outlet_id: 'TRN', closing_date: '2026-09-02', match_type: 'pos' }]]) }

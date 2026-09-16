@@ -1471,7 +1471,7 @@ export default function PrimaNota() {
         <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-4 text-sm text-orange-900">
           <span>
             Filtro attivo: <strong>{outletFilter === SENZA_OUTLET ? 'Da attribuire' : outletLabel(outletFilter, incassiLk)}</strong> · {incassiShown.length} entrate su {incassi.length}.
-            {outletFilter === SENZA_OUTLET && ' Un accredito POS senza outlet ha un codice terminale non censito nei canali dell\'outlet; un versamento senza outlet non contiene la parola chiave del canale Contanti. Si sistemano in Incassi giornalieri → Canali. I bonifici di clienti restano senza outlet.'}
+            {outletFilter === SENZA_OUTLET && ' Un accredito POS senza outlet ha un codice terminale non censito nei canali dell\'outlet; un versamento senza outlet non contiene la parola chiave del canale Contanti. Si sistemano in Incassi giornalieri → Canali. Un bonifico di cliente prende l\'outlet dalla riga «Bonifico» della chiusura di cassa: se manca, il negozio non l\'ha registrato nella chiusura.'}
             {' '}Gli export restano completi.
           </span>
           <button type="button" onClick={() => setOutletFilter(null)} className="shrink-0 px-2 py-1 rounded bg-white border border-orange-200 hover:bg-orange-100 text-xs font-medium">Togli filtro</button>
