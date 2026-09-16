@@ -104,19 +104,26 @@ export function parseNumiaLines(lines: string[]): CardStatementParsed {
   const out: CardLine[] = []
   const warnings: string[] = []
   let cur: CardSection | null = null
+  // «Carta Numero:» senza numero sulla stessa riga: pdf.js a volte spezza
+  // l'etichetta dal numero («5582 **** **** 3145» sulla riga dopo).
+  let attesaNumero = false
   const ROW = /^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})$/
+  const MASKED = /^\d{4}[\s*]+\*{4}[\s*]+(\d{4})$/
+  const openCard = (last4: string | null): CardSection => { const c: CardSection = { card_last4: last4, holder: null, total_declared: null }; cards.push(c); return c }
   for (const raw of lines) {
     const l = raw.trim()
     let m: RegExpExecArray | null
-    if ((m = /Carta Numero:\s*(.+)$/i.exec(l))) {
-      cur = { card_last4: last4Of(m[1]), holder: null, total_declared: null }
-      cards.push(cur)
+    if ((m = /Carta Numero:\s*(.*)$/i.exec(l))) {
+      const last4 = last4Of(m[1])
+      if (last4) { cur = openCard(last4); attesaNumero = false } else attesaNumero = true
       continue
     }
+    if (attesaNumero && (m = MASKED.exec(l))) { cur = openCard(m[1]); attesaNumero = false; continue }
     if ((m = /Nominativo:\s*(.+)$/i.exec(l))) { if (cur) cur.holder = m[1].trim(); continue }
     if ((m = /TOTALE OPERAZIONI\s+(-?[\d.]+,\d{2})/i.exec(l))) {
       const v = parseItAmount(m[1])
-      if (cur && v != null) cur.total_declared = r2(-v)
+      if (!cur) cur = openCard(null)
+      if (v != null) cur.total_declared = r2(-v)
       continue
     }
     if ((m = ROW.exec(l))) {
@@ -125,7 +132,7 @@ export function parseNumiaLines(lines: string[]): CardStatementParsed {
       out.push({ card_last4: cur?.card_last4 ?? null, purchase_date: toIsoDate(m[1])!, posting_date: toIsoDate(m[2]), description: m[3].trim(), amount: r2(-v), fee: 0, currency: 'EUR', original_amount: null })
     }
   }
-  if (cards.length === 0) warnings.push('numero di carta non trovato nel documento')
+  if (!cards.some(c => c.card_last4)) warnings.push('numero di carta non trovato nel documento')
   return finish('numia', cards, out, null, warnings)
 }
 
@@ -332,17 +339,23 @@ function finish(issuer: CardIssuer, cards: CardSection[], lines: CardLine[], deb
   return { issuer, cards, lines, total_declared: declared, total_computed: computed, debit_date, period: periodOf(lines), available_balance, warnings }
 }
 
-/** Mese piu' frequente fra le date di registrazione (o di acquisto). */
+/**
+ * Mese dell'estratto: quello dell'ULTIMA data di acquisto. Un estratto
+ * mensile chiude nel suo mese: nessun acquisto puo' essere posteriore, mentre
+ * puo' aprirsi con le ultime operazioni del mese prima (la CartaBCC chiude
+ * intorno al 27: l'estratto di agosto 2026 della *3145 aveva tre righe del
+ * 29/07 e due di agosto, e «il mese piu' frequente» lo mandava a luglio).
+ * Si guarda l'acquisto e non la registrazione perche' il portale Tasca
+ * esporta per data di acquisto (un acquisto del 30/06 registrato l'1/07 sta
+ * nell'estratto di giugno).
+ */
 export function periodOf(lines: CardLine[]): { year: number; month: number } | null {
-  const count = new Map<string, number>()
+  let last: string | null = null
   for (const l of lines) {
-    const d = l.posting_date ?? l.purchase_date
-    const k = d.slice(0, 7)
-    count.set(k, (count.get(k) ?? 0) + 1)
+    const k = l.purchase_date.slice(0, 7)
+    if (last == null || k > last) last = k
   }
-  let best: string | null = null
-  for (const [k, n] of count) if (best == null || n > (count.get(best) ?? 0) || (n === count.get(best) && k > best)) best = k
-  return best ? { year: Number(best.slice(0, 4)), month: Number(best.slice(5, 7)) } : null
+  return last ? { year: Number(last.slice(0, 4)), month: Number(last.slice(5, 7)) } : null
 }
 
 export const ISSUER_LABELS: Record<CardIssuer, string> = { numia: 'Carta di credito CartaBCC (Numia)', mps: 'Carta Montepaschi', tasca: 'Carta prepagata Tasca', generico: 'Carta (formato generico)' }
