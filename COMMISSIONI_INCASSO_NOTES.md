@@ -127,27 +127,45 @@ undici centesimi di punto su un milione di transato fanno mille euro l'anno.
 
 ### il riscontro con la banca, mese per mese
 Confronto fra quanto i documenti dicono che verra' addebitato (commissioni al lordo piu'
-le voci fisse) e quanto la banca ha davvero addebitato il mese dopo:
+le voci fisse) e quanto la banca ha davvero addebitato il mese dopo. Aggiornato dopo
+l'arrivo del Nexi di dicembre 2025:
 
 | addebito in banca | atteso dai documenti | trovato | scarto |
 |---|---|---|---|
-| marzo | 506,94 | 506,94 | **0,00** |
-| giugno, luglio, settembre | | | +2,00 (un bollo) |
-| maggio | 470,48 | 449,98 | -20,50 |
+| gennaio | 738,31 | 738,31 | **0,00** |
 | febbraio | 778,32 | 923,50 | +145,18 |
+| marzo | 506,94 | 506,94 | **0,00** |
 | aprile | 380,72 | 630,82 | +250,10 |
+| maggio | 470,48 | 472,48 | +2,00 |
+| giugno | 632,33 | 634,33 | +2,00 |
+| luglio | 543,65 | 545,65 | +2,00 |
 | agosto | 778,97 | 960,31 | +181,34 |
-| gennaio | 60,25 | 738,31 | +678,06 |
+| settembre | 618,90 | 620,90 | +2,00 |
 
-I tre scarti grossi hanno un nome. Febbraio, aprile e agosto portano gli addebiti da
+Gennaio chiude al centesimo: i 678,06 che restavano inspiegati erano esattamente
+l'addebito dell'estratto Nexi di dicembre 2025 (651,06 di commissioni di Valdichiana,
+che e' al lordo, piu' 15,00 di acquiring e 12,00 di bollo sui sei punti vendita).
+
+Gli altri scarti hanno un nome. Febbraio, aprile e agosto portano gli addebiti da
 **25,62 euro per terminale** (5 il 13/02, 5 piu' 122,00 il 21/04, 7 il 12/08): e' il canone
 dei POS, trimestrale, che non sta nell'estratto conto commissioni perche' e' un servizio a
-parte. Gennaio e' l'estratto Nexi di **dicembre 2025**, l'unico documento che ancora manca.
+parte. Il **+2,00 ricorrente** e' il bollo dell'estratto Amex, che si applica quando il
+totale supera la soglia: non e' registrato sulle righe amex di `acquirer_fees`, dove
+`stamp_amount` e' zero. Due euro al mese, da sistemare quando si tocchera' il parser Amex.
 
-### documenti che mancano ancora
-- **Nexi dicembre 2025**, sette punti vendita: spiegherebbe i 678,06 addebitati a gennaio.
-- **Amex settembre 2026**, che esce a fine mese: serve per chiudere le tre giornate di
-  riscontro rimaste aperte (BRG 10/09, FRC 12/09, FRC 13/09).
+### documenti: non ne manca piu' nessuno
+Sabrina ha mandato anche i sei estratti Nexi di dicembre 2025 (Torino non era ancora
+aperto). Da **dicembre 2025 ad agosto 2026 ogni riga viene da un documento**: zero stime,
+zero righe ricavate dalla banca. Dicembre 2025 vale 2.109,43 euro di commissioni su
+278.485,64 di transato, 0,757%.
+
+Accordo preso con Sabrina il 16/09: a ogni fine mese manda lei, senza che glieli si
+chieda, i sette estratti Nexi (uno per punto vendita) piu' l'unico Amex. Vanno scaricati
+dal portale, non stampati e scansionati: la scansione e' una fotografia della pagina e il
+gestionale non ci legge dentro i numeri.
+
+Resta in attesa solo l'**Amex di settembre 2026**, che esce a fine mese e serve a chiudere
+le tre giornate di riscontro aperte (BRG 10/09, FRC 12/09, FRC 13/09).
 
 ---
 
