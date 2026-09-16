@@ -14,6 +14,7 @@
 // (reconcileMatch.ts), così le due pagine dicono la stessa cosa.
 
 import { extractBeneficiary } from './reconcileMatch'
+import { RE_POS_DEBITO } from './cartaEstratto'
 
 export type PnPayable = {
   invoice_number: string | null
@@ -58,6 +59,7 @@ export type MovementKind =
   | 'pos'
   | 'versamento'
   | 'carta'
+  | 'carta_debito'
   | 'finanziamento'
   | 'spese_banca'
   | 'giroconto'
@@ -72,6 +74,7 @@ export const KIND_LABELS: Record<MovementKind, string> = {
   pos: 'Incasso POS',
   versamento: 'Versamento contanti',
   carta: 'Carta di credito',
+  carta_debito: 'Carta di debito (POS)',
   finanziamento: 'Finanziamento',
   spese_banca: 'Spese e commissioni bancarie',
   giroconto: 'Giroconto / prelievo',
@@ -130,6 +133,8 @@ export function classifyMovement(m: PnMovement): MovementKind {
   if (RE_FINANZIAMENTO.test(d)) return 'finanziamento'
   if (RE_GIROCONTO.test(d)) return 'giroconto'
   if (RE_CARTA.test(d)) return 'carta'
+  // Pagamento POS con la carta di debito: esce direttamente dal conto, non da un estratto.
+  if (m.amount < 0 && RE_POS_DEBITO.test(d)) return 'carta_debito'
   if (RE_SDD_SERVIZI.test(d)) return 'spese_banca'
   if (m.amount > 0 && RE_POS.test(d)) return 'pos'
   if (m.amount > 0 && RE_VERSAMENTO.test(d)) return 'versamento'
