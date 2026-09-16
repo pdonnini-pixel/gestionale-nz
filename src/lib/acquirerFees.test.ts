@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAmexStatement, parseNexiStatement, tipoEstratto, importoIt, totaliPerOutlet, type CommissioneRiga } from './acquirerFees';
+import { parseAmexStatement, parseNexiStatement, tipoEstratto, importoIt, totaliPerOutlet, nomeDocumento, funzioneArchivio, type CommissioneRiga } from './acquirerFees';
 
 // Righe prese dagli estratti conto veri di New Zago (agosto e luglio 2026),
 // ridotte ma non riscritte: i numeri sono quelli dei documenti.
@@ -173,5 +173,27 @@ describe('totaliPerOutlet', () => {
     const t = totaliPerOutlet([riga('VDC', 1, 695.79, null, 'lordo')]);
     expect(t[0].aliquota).toBeNull();
     expect(t[0].totale).toBe(695.79);
+  });
+});
+
+describe('nomeDocumento e funzioneArchivio', () => {
+  it('da' + "'" + ' al file un nome che dice chi, quando e di chi', () => {
+    expect(nomeDocumento({ acquirer: 'nexi', anno: 2026, mese: 3, chi: 'VDC' })).toBe('nexi_VDC_2026-03.pdf');
+    expect(nomeDocumento({ acquirer: 'amex', anno: 2025, mese: 12 })).toBe('amex_2025-12.pdf');
+  });
+
+  it('ripiega sul codice del punto vendita se la sigla non c\'e\'', () => {
+    expect(nomeDocumento({ acquirer: 'nexi', anno: 2026, mese: 8, chi: 'LN0005475974' }))
+      .toBe('nexi_LN0005475974_2026-08.pdf');
+  });
+
+  it('non lascia passare caratteri che romperebbero il path', () => {
+    expect(nomeDocumento({ acquirer: 'nexi', anno: 2026, mese: 1, chi: 'V DC/../x' })).toBe('nexi_VDCx_2026-01.pdf');
+  });
+
+  it('distingue la funzione per punto vendita, cosi\' il ricarico sostituisce solo il suo', () => {
+    expect(funzioneArchivio('nexi', 'VDC')).toBe('Commissioni di incasso · Nexi VDC');
+    expect(funzioneArchivio('nexi', 'PLM')).not.toBe(funzioneArchivio('nexi', 'VDC'));
+    expect(funzioneArchivio('amex')).toBe('Commissioni di incasso · Amex');
   });
 });

@@ -9,9 +9,11 @@
 //               il ricavo registrato e' piu' basso del vero. Senza l'estratto
 //               conto quel costo non e' conoscibile.
 //
-// Da qui si caricano gli estratti Amex e Nexi: il file finisce su Storage
-// (archiviaFile -> import_documents) e i numeri in acquirer_fees, con il
-// documento agganciato alla riga.
+// Da qui si caricano gli estratti Amex e Nexi, anche dentro uno zip: gli
+// archivi vengono aperti nel browser, ogni PDF viene riconosciuto dal suo
+// contenuto (acquirer, punto vendita, mese), rinominato di conseguenza e messo
+// su Storage (archiviaFile -> import_documents); i numeri finiscono in
+// acquirer_fees con il documento agganciato alla riga.
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Percent, Upload, Loader2, AlertTriangle, CheckCircle2, FileText, RefreshCw } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -19,11 +21,13 @@ import { useCompany } from '../hooks/useCompany'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
 import { extractPdfLines } from '../lib/pdfText'
-import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile'
+import { archiviaFile, sostituisciPrecedenti, avvisoArchiviazioneFallita } from '../lib/archivioFile'
+import { espandiZip } from '../lib/zipFiles'
 import TableScroll from '../components/ui/TableScroll'
 import {
   fetchCommissioni, fetchContratti, totaliPerOutlet,
   parseAmexStatement, parseNexiStatement, tipoEstratto,
+  nomeDocumento, funzioneArchivio,
   type CommissioneRiga, type ContrattoAcquirer,
 } from '../lib/acquirerFees'
 
@@ -79,18 +83,24 @@ export default function CommissioniIncasso() {
 
   // --- Caricamento estratti -------------------------------------------------
 
-  const importa = useCallback(async (files: FileList) => {
+  const importa = useCallback(async (scelti: FileList) => {
     if (!companyId) return
     setCaricamento(true)
     const nuovi: Esito[] = []
     try {
-      for (const file of Array.from(files)) {
+      // Gli estratti arrivano quasi sempre in un archivio unico: si apre qui,
+      // cosi' nessuno deve estrarlo a mano prima di trascinarlo.
+      const { files, problemi } = await espandiZip(Array.from(scelti), { estensioni: ['pdf'] })
+      for (const p of problemi) nuovi.push({ file: p.zip, ok: false, testo: p.testo })
+
+      for (const { file, daZip } of files) {
+        const etichettaFile = daZip ? `${daZip} › ${file.name}` : file.name
         try {
           const lines = await extractPdfLines(file)
           const tipo = tipoEstratto(lines)
           if (!tipo) {
             // I PDF che sono solo immagine (scansioni) non hanno testo da leggere.
-            nuovi.push({ file: file.name, ok: false, testo: lines.length < 5
+            nuovi.push({ file: etichettaFile, ok: false, testo: lines.length < 5
               ? 'nessun testo nel PDF: sembra una scansione, serve il documento originale'
               : 'non sembra un estratto conto Amex o Nexi' })
             continue
@@ -112,20 +122,34 @@ export default function CommissioniIncasso() {
               })()
 
           if (!letture || !letture.voci.length) {
-            nuovi.push({ file: file.name, ok: false, testo: 'documento riconosciuto ma non leggibile' })
+            nuovi.push({ file: etichettaFile, ok: false, testo: 'documento riconosciuto ma non leggibile' })
             continue
           }
+
+          // Chi e' il documento lo dice il suo contenuto, non il nome del file:
+          // l'Amex copre tutti i punti vendita, il Nexi ne riguarda uno solo.
+          const contrattiDelFile = letture.voci
+            .map(v => contratti.find(c => c.merchant_code === v.code))
+            .filter((c): c is ContrattoAcquirer => !!c)
+          const chi = tipo === 'nexi'
+            ? (contrattiDelFile[0]?.outlet_code || letture.voci[0].code)
+            : null
+          const nomeNuovo = nomeDocumento({ acquirer: tipo, anno: letture.anno, mese: letture.mese, chi })
+          const funzione = funzioneArchivio(tipo, chi)
+          const rinominato = file.name === nomeNuovo ? file : new File([file], nomeNuovo, { type: file.type || 'application/pdf' })
 
           // Il file va in archivio prima dei numeri: se Storage non risponde i
           // dati si salvano lo stesso e l'avviso lo dice (regola di archivioFile).
           const archiviato = await archiviaFile({
-            file, companyId, userId: profile?.id ?? null, modulo: 'Banche',
-            funzione: 'Commissioni di incasso',
+            file: rinominato, companyId, userId: profile?.id ?? null, modulo: 'Banche',
+            funzione,
             year: letture.anno, month: letture.mese,
             referenceTable: 'acquirer_fees',
-            note: letture.etichetta,
+            note: `${letture.etichetta}${daZip ? ` (da ${daZip})` : ''} — file originale: ${file.name}`,
           })
           if (archiviato.errore) toast({ type: 'warning', message: avvisoArchiviazioneFallita(file.name, archiviato.errore) })
+          // Ricaricare lo stesso estratto sostituisce il precedente, non lo affianca.
+          else await sostituisciPrecedenti({ companyId, funzione, year: letture.anno, month: letture.mese, nuovoId: archiviato.id })
 
           const senzaContratto: string[] = []
           for (const v of letture.voci) {
@@ -151,18 +175,21 @@ export default function CommissioniIncasso() {
           }
 
           const scritte = letture.voci.length - senzaContratto.length
+          const dove = `archiviato come ${nomeNuovo}`
+          const periodo = `${MESI_BREVI[letture.mese - 1]} ${letture.anno}`
           nuovi.push({
-            file: file.name, ok: scritte > 0,
+            file: etichettaFile, ok: scritte > 0,
             testo: senzaContratto.length
-              ? `${MESI_BREVI[letture.mese - 1]} ${letture.anno}: ${scritte} punti vendita aggiornati. Codici non censiti: ${senzaContratto.join(', ')}`
-              : `${MESI_BREVI[letture.mese - 1]} ${letture.anno}: ${scritte} ${scritte === 1 ? 'punto vendita aggiornato' : 'punti vendita aggiornati'}`,
+              ? `${periodo}: ${scritte} punti vendita aggiornati, ${dove}. Codici non censiti: ${senzaContratto.join(', ')}`
+              : `${periodo}: ${scritte} ${scritte === 1 ? 'punto vendita aggiornato' : 'punti vendita aggiornati'}, ${dove}`,
           })
         } catch (e) {
-          nuovi.push({ file: file.name, ok: false, testo: (e as Error).message })
+          nuovi.push({ file: etichettaFile, ok: false, testo: (e as Error).message })
         }
       }
       setEsiti(nuovi)
       if (nuovi.some(n => n.ok)) { toast({ type: 'success', message: 'Estratti caricati' }); await carica() }
+      else if (nuovi.length) toast({ type: 'warning', message: 'Nessun estratto riconosciuto' })
     } finally {
       setCaricamento(false)
       if (inputFile.current) inputFile.current.value = ''
@@ -214,7 +241,7 @@ export default function CommissioniIncasso() {
           <input
             ref={inputFile}
             type="file"
-            accept="application/pdf"
+            accept="application/pdf,.zip,application/zip,application/x-zip-compressed"
             multiple
             className="hidden"
             onChange={e => { if (e.target.files?.length) void importa(e.target.files) }}
