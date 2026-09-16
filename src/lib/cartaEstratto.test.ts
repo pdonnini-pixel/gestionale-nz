@@ -172,7 +172,7 @@ describe('generico e selezione automatica', () => {
     expect(s.lines[1].posting_date).toBe('2026-08-03')
     expect(s.warnings[0]).toContain('formato non riconosciuto')
   })
-  it('periodo = mese piu\' frequente delle registrazioni; etichette fonte', () => {
+  it('periodo = mese dell\'ultimo acquisto; etichette fonte', () => {
     const mk = (d: string): CardLine => ({ card_last4: null, purchase_date: d, posting_date: null, description: '', amount: -1, fee: 0, currency: 'EUR', original_amount: null })
     expect(periodOf([mk('2026-07-30'), mk('2026-08-02'), mk('2026-08-10')])).toEqual({ year: 2026, month: 8 })
     expect(periodOf([])).toBeNull()
@@ -355,5 +355,36 @@ describe('saldo della prepagata: catena degli estratti ancorata alla Disponibili
     ]
     expect(nettoCarta(lines)).toBe(267.9)
     expect(conSaldoProgressivo(lines, 133.68).map(x => [x.index, x.saldo])).toEqual([[1, 432.68], [2, 413.98], [0, 401.58]])
+  })
+})
+
+describe('CartaBCC / Numia: PDF di agosto 2026 (numero di carta sulla riga dopo, righe di fine luglio)', () => {
+  const AGO_3145 = [
+    'Denominazione', 'NEW ZAGO S.R.L.', 'Azienda:', 'Carta Numero:', '5582 **** **** 3145', 'Nominativo: GALLO MASSIMO',
+    'DATA ACQUISTO DATA REGISTR. DESCRIZIONE DELLE OPERAZIONI IMPORTO IN EURO',
+    '29/07/2026 30/07/2026 Indeed IEI26-02262414 Dublin IRL 515,01',
+    '29/07/2026 30/07/2026 HABITA 79 POMPEI FOH POMPEI ITA 8,00',
+    '29/07/2026 30/07/2026 HOTEL BARBERINO BARBERINO DI ITA 80,00',
+    '02/08/2026 03/08/2026 Indeed IEI26-02380427 Dublin IRL 32,31',
+    '20/08/2026 21/08/2026 Adobe Systems Software Saggart, Dubl IRL 6,71',
+    'TOTALE OPERAZIONI 642,03',
+  ]
+  it('legge il numero di carta spezzato su due righe e attribuisce il totale', () => {
+    const s = parseNumiaLines(AGO_3145)
+    expect(s.cards.map(c => c.card_last4)).toEqual(['3145'])
+    expect(s.lines.every(l => l.card_last4 === '3145')).toBe(true)
+    expect(s.total_declared).toBe(-642.03)
+    expect(s.total_computed).toBe(-642.03)
+    expect(s.warnings).toEqual([])
+  })
+  it('il mese dell\'estratto e\' quello dell\'ultimo acquisto, non il piu\' frequente (e non la registrazione)', () => {
+    expect(parseNumiaLines(AGO_3145).period).toEqual({ year: 2026, month: 8 })
+    // Tasca: acquisto del 30/06 registrato l'1/07 resta in giugno
+    expect(periodOf([{ card_last4: null, purchase_date: '2026-06-30', posting_date: '2026-07-01', description: 'x', amount: -1, fee: 0, currency: 'EUR', original_amount: null }])).toEqual({ year: 2026, month: 6 })
+  })
+  it('senza numero di carta il totale resta attribuito a una sezione implicita e l\'avviso lo dice', () => {
+    const s = parseNumiaLines(['04/08/2026 05/08/2026 PASTICCERIA PRATO ITA 46,60', 'TOTALE OPERAZIONI 46,60'])
+    expect(s.total_declared).toBe(-46.6)
+    expect(s.warnings).toContain('numero di carta non trovato nel documento')
   })
 })

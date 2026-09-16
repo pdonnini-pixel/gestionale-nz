@@ -126,6 +126,10 @@ type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti' | 'carte'
 type CardStmt = { id: string; filename: string; file_type: string; source_label: string | null; card_last4: string | null; statement_total: number | null; closing_balance: number | null; settled_bank_transaction_id: string | null; period_year: number | null; period_month: number | null; transaction_count: number | null; file_path: string | null }
 type CardTx = CardLine & { id: string; statement_id: string; row_no: number; payable_id: string | null }
 type CardImportItem = { file: File | null; fileName: string; parsed: CardStatementParsed; existing: CardStmt | null; existingLines: number; label: string }
+/** Righe da salvare: documento con operazioni e nessuna riga gia' presente per quell'estratto. */
+const importable = (it: CardImportItem): boolean => it.parsed.lines.length > 0 && it.existingLines === 0
+/** Estratto gia' presente con le righe ma senza documento in Archivio: il file si allega, le righe restano. */
+const importNeedsAttach = (it: CardImportItem): boolean => it.existingLines > 0 && !!it.existing && !it.existing.file_path && !!it.file
 const r2 = (n: number): number => Math.round(n * 100) / 100
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 /** Movimenti bancari che possono saldare o ricaricare una carta (addebito estratto, SDD carta, ricarica prepagata). */
@@ -150,6 +154,7 @@ const KIND_BADGE: Record<MovementKind, string> = {
   versamento: 'bg-emerald-50 text-emerald-700',
   carta: 'bg-sky-100 text-sky-700',
   carta_debito: 'bg-sky-50 text-sky-700',
+  ricarica_prepagata: 'bg-indigo-100 text-indigo-700',
   finanziamento: 'bg-slate-200 text-slate-700',
   spese_banca: 'bg-slate-100 text-slate-600',
   giroconto: 'bg-slate-100 text-slate-600',
@@ -223,6 +228,9 @@ export default function PrimaNota() {
   const [cardImport, setCardImport] = useState<{ items: CardImportItem[]; busy: boolean } | null>(null)
   const [cardParsing, setCardParsing] = useState(false)
   const cardFileRef = useRef<HTMLInputElement>(null)
+  // «Allega il PDF»: estratto gia' presente con le righe ma senza file in Archivio
+  const attachFileRef = useRef<HTMLInputElement>(null)
+  const attachTarget = useRef<CardStmt | null>(null)
   const { toast } = useToast()
   const [outletFilter, setOutletFilter] = useState<string | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
@@ -801,6 +809,30 @@ export default function PrimaNota() {
       if (cardFileRef.current) cardFileRef.current.value = ''
     }
   }
+  // Estratto presente (righe e saldi) ma senza PDF in Archivio: si allega il
+  // file senza toccare le righe. Archivia in bank-statements e aggancia
+  // import_document_id e file_url all'estratto.
+  const archiveAndLink = async (st: CardStmt, file: File) => {
+    if (!companyId) throw new Error('azienda non selezionata')
+    const arch = await archiviaFile({ file, companyId, userId: null, modulo: 'Banche', funzione: `Estratto carta · ${st.source_label ?? st.filename}`, bucket: 'bank-statements', year: st.period_year, month: st.period_month, referenceTable: 'bank_statements' })
+    if (arch.errore) throw new Error(arch.errore)
+    const { error } = await supabase.from('bank_statements').update({ filename: file.name, import_document_id: arch.id, file_url: arch.path }).eq('id', st.id)
+    if (error) throw error
+  }
+  const attachCardFile = async (st: CardStmt, file: File) => {
+    if (!companyId) return
+    setCardParsing(true)
+    try {
+      await archiveAndLink(st, file)
+      toast({ type: 'success', message: `${file.name} allegato a ${st.source_label ?? st.filename}` })
+      await loadCarte()
+    } catch (e) {
+      toast({ type: 'error', message: `Allegato non salvato: ${e instanceof Error ? e.message : String(e)}` })
+    } finally {
+      setCardParsing(false)
+      if (attachFileRef.current) attachFileRef.current.value = ''
+    }
+  }
   const readCardFromArchive = async (st: CardStmt) => {
     if (!st.file_path) return
     setCardParsing(true)
@@ -818,9 +850,16 @@ export default function PrimaNota() {
     if (!cardImport || !companyId) return
     setCardImport(c => (c ? { ...c, busy: true } : c))
     let ok = 0
+    let allegati = 0
     const errs: string[] = []
     for (const it of cardImport.items) {
-      if (it.parsed.lines.length === 0 || it.existingLines > 0) continue
+      // Estratto gia' presente con le righe ma senza documento in Archivio:
+      // le righe non si toccano, il file si allega all'estratto.
+      if (importNeedsAttach(it)) {
+        try { await archiveAndLink(it.existing!, it.file!); allegati++ } catch (e) { errs.push(`${it.fileName}: ${e instanceof Error ? e.message : String(e)}`) }
+        continue
+      }
+      if (!importable(it)) continue
       try {
         const period = it.parsed.period
         const last4 = it.parsed.cards[0]?.card_last4 ?? it.existing?.card_last4 ?? null
@@ -857,8 +896,9 @@ export default function PrimaNota() {
       }
     }
     setCardImport(null)
-    if (errs.length > 0) toast({ type: 'error', message: `${ok} estratti importati, ${errs.length} falliti: ${errs.join('; ')}`, duration: 12000 })
-    else toast({ type: 'success', message: `${ok} estratti carta importati` })
+    const esito = `${ok} estratti carta importati${allegati > 0 ? `, ${allegati} file allegati a estratti già presenti` : ''}`
+    if (errs.length > 0) toast({ type: 'error', message: `${esito}, ${errs.length} falliti: ${errs.join('; ')}`, duration: 12000 })
+    else toast({ type: 'success', message: esito })
     loadCarte()
   }
   const toggleOutlet = (id: string) => setOutletFilter(cur => (cur === id ? null : id))
@@ -939,7 +979,18 @@ export default function PrimaNota() {
     // i nomi degli altri fogli) e si inserisce in testa.
     const used = new Set<string>(['Guida', 'Incassi per outlet', 'Dipendenti ed emolumenti'])
     const nomiConti: string[] = []
+    const contoSheetByAcc = new Map<string, string>()
+    // I nomi dei fogli carta si riservano subito: il foglio del conto rimanda
+    // al foglio della prepagata sotto ogni ricarica.
+    const nomiCartePre = carte.map(c => (c.lines.length > 0 ? sheetName(c.label, used) : null))
     const nomiCarte: string[] = []
+    // Ricarica in banca → estratto della prepagata che la contiene (foglio, mese, spese e saldo)
+    const ricaricaInfo = new Map<string, { foglio: string; mese: string; spese: number; nSpese: number; saldo: PrepaidBalance | null }>()
+    carte.forEach((c, ci) => {
+      if (!c.isPrepagata) return
+      const mese = c.period ? `${MONTHS.find(x => x.v === c.period!.month)?.l ?? ''} ${c.period.year}` : periodoLabel
+      for (const mov of c.ricariche.values()) ricaricaInfo.set(mov.id, { foglio: nomiCartePre[ci] ?? c.label, mese, spese: c.tot.spese, nSpese: c.lines.filter(l => l.amount < 0).length, saldo: c.saldo })
+    })
     // Un foglio per conto, come un estratto conto: saldo iniziale, movimenti con
     // saldo progressivo, saldo finale calcolato e della banca, differenza.
     for (const q of quadratura) {
@@ -962,6 +1013,15 @@ export default function PrimaNota() {
           // fattura con il suo importo nella colonna «Di cui fattura», cosi' lo studio
           // verifica ogni fattura e ogni importo; la somma delle righe e' l'uscita, e
           // l'eventuale resto (commissioni, acconto, nota di credito) ha la sua riga.
+          // Ricarica della prepagata: sotto, il rimando al foglio della carta dove
+          // quei soldi sono spesi, con il saldo della carta a fine mese. Senza
+          // estratto importato, la riga ambra dice cosa manca.
+          if (classifyMovement(m) === 'ricarica_prepagata') {
+            const info = ricaricaInfo.get(m.id)
+            out.push(info
+              ? { kind: 'sub', cells: ['', '', '↳ ricarica prepagata', `vedi foglio «${info.foglio}»`, '', '', `Non è una spesa: i soldi passano dal conto alla carta. Come sono stati spesi lo dice il foglio «${info.foglio}», riga per riga: ${info.nSpese} spese per ${fmt(info.spese)} nel mese di ${info.mese}, con questa ricarica fra le entrate della carta.${info.saldo ? ` Saldo della carta a fine ${info.mese}: ${fmt(info.saldo.saldo_finale)} (iniziale ${fmt(info.saldo.saldo_iniziale)}).` : ''}`, '', '', '', '', ''] }
+              : { kind: 'warn', cells: ['', '', '↳ ricarica prepagata', 'estratto della carta non importato', '', '', 'Non è una spesa: i soldi passano dal conto alla carta. Per vedere come sono stati spesi serve l\'estratto della prepagata di questo mese: Banche → Prima Nota → Carte → «Importa estratto carta».', '', '', '', '', ''] })
+          }
           if (m.payables.length > 1) {
             let somma = 0
             for (const p of m.payables) {
@@ -982,6 +1042,7 @@ export default function PrimaNota() {
       ]
       const name = sheetName(acc?.bank_name ?? 'Conto', used)
       nomiConti.push(name)
+      if (acc) contoSheetByAcc.set(acc.id, name)
       addStyledSheet(wb, { name, rows: srows, widths: [30, 14, 26, 35, 16, 8, 60, 18, 14, 14, 14, 14], moneyHeaders: ['Entrate', 'Uscite', 'Saldo', 'Di cui fattura'], tabColor: '1F3864' })
     }
     // Su richiesta di Patrizio (15/09) i fogli «Tutti i movimenti», «Pagamenti
@@ -1028,6 +1089,11 @@ export default function PrimaNota() {
         { kind: 'meta', cells: ['Carta', c.stmt.card_last4 ? `**** ${c.stmt.card_last4}` : ''] },
         { kind: 'meta', cells: ['Periodo', c.stmt.period_year && c.stmt.period_month ? `${MONTHS.find(m => m.v === c.stmt.period_month)?.l} ${c.stmt.period_year}` : periodoLabel] },
         { kind: 'meta', cells: ['File', c.stmt.filename] },
+        ...(c.isPrepagata ? [{ kind: 'meta' as const, cells: ['Come si riconcilia', (() => {
+          const fogli = Array.from(new Set(Array.from(c.ricariche.values()).map(mov => contoSheetByAcc.get(movementById.get(mov.id)?.bank_account_id ?? '') ?? '').filter(Boolean)))
+          const dove = fogli.length > 0 ? `nel foglio «${fogli.join('», «')}»` : 'nel foglio del conto'
+          return `Le RICARICHE (righe positive) sono le uscite «Ricarica carta prepagata» ${dove}: non sono spese, sono soldi passati dal conto alla carta. Le SPESE (righe negative) sono i pagamenti fatti con la carta, con la fattura accanto quando c'è. Controllo: saldo iniziale + ricariche − spese − commissioni = saldo finale.`
+        })()] }] : []),
         { kind: 'blank', cells: [] },
         { kind: 'header', cells: ['Data acquisto', 'Data registrazione', 'Descrizione', 'Importo', 'Commissioni', 'Valuta', 'Fornitore', 'Fattura', 'Pagata il', 'Riscontro banca', ...(c.isPrepagata && c.saldo ? ['Saldo'] : [])] },
         ...(c.isPrepagata && c.saldo ? [{ kind: 'open' as const, cells: ['Saldo iniziale', c.saldo.ancoraggio === 'documento' ? 'disponibilità del documento meno il netto del mese' : c.saldo.ancoraggio === 'catena' ? 'saldo finale del mese precedente (catena degli estratti)' : 'da zero: nessun estratto dichiara la disponibilità', '', '', '', '', '', '', '', '', c.saldo.saldo_iniziale] }] : []),
@@ -1056,7 +1122,7 @@ export default function PrimaNota() {
             { kind: (c.debit.movement ? 'ok' : 'warn') as StyledRow['kind'], cells: ['Differenza (commissioni della banca)', c.debit.movement ? (Math.abs(c.debit.differenza) < 0.005 ? 'quadra' : `quadra: l'addebito copre ${c.debit.n} estratti piu' ${fmt(c.debit.differenza)} di commissioni`) : 'addebito non trovato', '', c.debit.movement ? c.debit.differenza : ''] },
           ]),
       ]
-      const name = sheetName(c.label, used)
+      const name = nomiCartePre[ci] ?? sheetName(c.label, used)
       nomiCarte.push(name)
       addStyledSheet(wb, { name, rows: crows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 12, 30, 12], moneyHeaders: ['Importo', 'Commissioni', 'Saldo'], tabColor: 'C55A11' })
     })
@@ -1621,6 +1687,7 @@ export default function PrimaNota() {
       </div>
       <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex flex-wrap items-center gap-3 text-sm">
         <input ref={cardFileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" multiple className="hidden" onChange={e => onCardFiles(e.target.files)} />
+        <input ref={attachFileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; const st = attachTarget.current; if (f && st) void attachCardFile(st, f) }} />
         <button type="button" onClick={() => cardFileRef.current?.click()} disabled={cardParsing}
           className="inline-flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
           {cardParsing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Importa estratto carta
@@ -1649,6 +1716,11 @@ export default function PrimaNota() {
               {c.lines.length === 0 && (c.stmt.file_path
                 ? <button type="button" onClick={() => readCardFromArchive(c.stmt)} disabled={cardParsing} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 disabled:opacity-50"><Upload size={12} /> Leggi le righe dal file archiviato</button>
                 : <span className="text-xs text-orange-800">file archiviato non trovato: importa di nuovo il documento</span>)}
+              {c.lines.length > 0 && !c.stmt.file_path && (
+                <Tooltip content="Le righe ci sono ma il documento non è in Archivio: allega il PDF (o l'Excel) di questo estratto. Le righe non vengono toccate.">
+                  <button type="button" onClick={() => { attachTarget.current = c.stmt; attachFileRef.current?.click() }} disabled={cardParsing} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-orange-300 bg-orange-50 text-orange-900 text-xs font-medium hover:bg-orange-100 disabled:opacity-50"><Upload size={12} /> Allega il PDF</button>
+                </Tooltip>
+              )}
             </div>
             {c.lines.length > 0 && (
               <TableScroll>
@@ -1753,7 +1825,8 @@ export default function PrimaNota() {
                 {it.parsed.warnings.map((w, k) => <div key={k} className="text-xs text-orange-800 mt-1">⚠ {w}</div>)}
                 <div className="text-xs mt-1">
                   {it.parsed.lines.length === 0 ? <span className="text-red-700">niente da importare</span>
-                    : it.existingLines > 0 ? <span className="text-orange-800">già importato in «{it.label}» con {it.existingLines} righe: questo file viene saltato (le righe esistenti non si toccano)</span>
+                    : importNeedsAttach(it) ? <span className="text-emerald-700">già importato in «{it.label}» con {it.existingLines} righe ma senza documento in Archivio: le righe restano, questo file viene allegato all'estratto</span>
+                    : it.existingLines > 0 ? <span className="text-orange-800">già importato in «{it.label}» con {it.existingLines} righe e già in Archivio: questo file viene saltato (niente da fare)</span>
                     : it.existing ? <span className="text-emerald-700">aggiorna «{it.label}» già in Archivio senza righe: le {it.parsed.lines.length} operazioni vengono salvate</span>
                     : <span className="text-emerald-700">nuovo estratto «{it.label}»: il file va in Archivio e le {it.parsed.lines.length} operazioni vengono salvate</span>}
                 </div>
@@ -1762,9 +1835,13 @@ export default function PrimaNota() {
             <div className="text-xs text-slate-500">Ogni spesa viene agganciata alla fattura dello Scadenzario pagata con carta con lo stesso importo (entro 10 giorni); per le carte di credito si cerca in banca l'addebito con lo stesso totale.</div>
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={() => setCardImport(null)} disabled={cardImport.busy} className="px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-50">Annulla</button>
-              <button type="button" onClick={saveCardImport} disabled={cardImport.busy || !cardImport.items.some(it => it.parsed.lines.length > 0 && it.existingLines === 0)}
+              <button type="button" onClick={saveCardImport} disabled={cardImport.busy || !cardImport.items.some(it => importable(it) || importNeedsAttach(it))}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
-                {cardImport.busy && <Loader2 size={14} className="animate-spin" />} Importa {cardImport.items.filter(it => it.parsed.lines.length > 0 && it.existingLines === 0).length} estratti
+                {cardImport.busy && <Loader2 size={14} className="animate-spin" />} {(() => {
+                  const n = cardImport.items.filter(importable).length
+                  const a = cardImport.items.filter(importNeedsAttach).length
+                  return n === 0 && a > 0 ? `Allega ${a} file` : a > 0 ? `Importa ${n} estratti e allega ${a} file` : `Importa ${n} estratti`
+                })()}
               </button>
             </div>
           </div>
