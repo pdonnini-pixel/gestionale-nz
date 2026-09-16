@@ -10,11 +10,26 @@
 --   * 08/07/2026, 158,00: bonifico del 23/06 (15 giorni prima);
 --   * 31/08/2026, 25,90: bonifico del 07/07 (55 giorni prima, registrato
 --     nella chiusura di fine mese).
--- Il negozio registra il bonifico quando lo vede, anche molto dopo: la
--- finestra diventa 60 giorni prima e 15 dopo, e si provano anche le terne.
--- Il bonifico piu' vicino alla chiusura vince sempre; stesso importo esatto.
+-- Il negozio registra il bonifico quando lo vede, anche molto dopo. Ma un
+-- abbinamento a 55 giorni solo perche' l'importo torna sarebbe un azzardo:
+-- fino a 20 giorni prima (e 15 dopo) basta l'importo esatto; oltre, fino a
+-- 60 giorni prima, serve anche che il NOME dell'ordinante compaia nella nota
+-- della chiusura (il 31/08 la nota dice proprio «bonifico di Mattia Sestini
+-- non scontrinato a luglio»). Si provano anche le terne. Il bonifico piu'
+-- vicino alla chiusura vince sempre.
 -- Additiva e idempotente. Tenant: NZ, Made, Zago.
 -- =====================================================================
+-- Il nome dell'ordinante («ORD: Mattia Sestini BIC: …») compare nella nota
+-- della chiusura? Basta una parola di almeno 4 lettere del nome.
+CREATE OR REPLACE FUNCTION public.cash_bank_ordinante_in_nota(p_descr text, p_note text)
+RETURNS boolean LANGUAGE sql IMMUTABLE AS $$
+  SELECT COALESCE(p_note, '') <> ''
+     AND EXISTS (
+       SELECT 1
+         FROM regexp_split_to_table(COALESCE(substring(COALESCE(p_descr, '') from 'ORD:\s*([^:]*?)\s+(?:BIC|IND|INF)\s*:'), ''), '[\s,.]+') w
+        WHERE length(w) >= 4 AND p_note ILIKE '%' || w || '%');
+$$;
+
 CREATE OR REPLACE FUNCTION public.match_customer_transfers_with_closings(
   p_company_id uuid DEFAULT NULL,
   p_from       date DEFAULT current_date - 90,
@@ -31,7 +46,7 @@ DECLARE
   v_n   integer := 0;
 BEGIN
   FOR r IN
-    SELECT l.id AS line_id, l.closing_id, round(l.amount, 2) AS amount, c.company_id, c.closing_date
+    SELECT l.id AS line_id, l.closing_id, round(l.amount, 2) AS amount, c.company_id, c.closing_date, c.notes
       FROM public.outlet_daily_closing_lines l
       JOIN public.outlet_payment_channels ch ON ch.id = l.channel_id
       JOIN public.outlet_daily_closings c ON c.id = l.closing_id
@@ -54,6 +69,7 @@ BEGIN
        WHERE bt.company_id = r.company_id
          AND bt.amount > 0 AND bt.amount <= r.amount + p_tolerance
          AND bt.transaction_date BETWEEN r.closing_date - 60 AND r.closing_date + 15
+         AND (bt.transaction_date >= r.closing_date - 20 OR public.cash_bank_ordinante_in_nota(bt.description, r.notes))
          AND COALESCE(bt.status, 'booked') IN ('posted', 'booked')
          AND public.cash_bank_is_customer_transfer(bt.description)
          AND NOT EXISTS (SELECT 1 FROM public.closing_bank_matches m WHERE m.bank_transaction_id = bt.id)
@@ -73,6 +89,7 @@ BEGIN
          WHERE bt.company_id = r.company_id
            AND bt.amount > 0 AND bt.amount < r.amount
            AND bt.transaction_date BETWEEN r.closing_date - 60 AND r.closing_date + 15
+           AND (bt.transaction_date >= r.closing_date - 20 OR public.cash_bank_ordinante_in_nota(bt.description, r.notes))
            AND COALESCE(bt.status, 'booked') IN ('posted', 'booked')
            AND public.cash_bank_is_customer_transfer(bt.description)
            AND NOT EXISTS (SELECT 1 FROM public.closing_bank_matches m WHERE m.bank_transaction_id = bt.id)
@@ -93,6 +110,7 @@ BEGIN
          WHERE bt.company_id = r.company_id
            AND bt.amount > 0 AND bt.amount < r.amount
            AND bt.transaction_date BETWEEN r.closing_date - 60 AND r.closing_date + 15
+           AND (bt.transaction_date >= r.closing_date - 20 OR public.cash_bank_ordinante_in_nota(bt.description, r.notes))
            AND COALESCE(bt.status, 'booked') IN ('posted', 'booked')
            AND public.cash_bank_is_customer_transfer(bt.description)
            AND NOT EXISTS (SELECT 1 FROM public.closing_bank_matches m WHERE m.bank_transaction_id = bt.id)
