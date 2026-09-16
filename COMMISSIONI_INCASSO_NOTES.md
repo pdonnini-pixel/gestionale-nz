@@ -100,32 +100,54 @@ per gli altri sei.
 
 ## 4. costo reale per outlet e mese (euro)
 
-D = letto dal documento, B = ricavato dall'addebito SDD in banca, `-` = documento non disponibile.
+Aggiornato al **16/09/2026**, quando Sabrina ha mandato i 22 estratti Nexi che mancavano
+(gennaio, febbraio, marzo e agosto) piu' l'Amex di dicembre 2025. Erano documenti nativi,
+non scansioni: letti riga per riga. Il 2026 da gennaio ad agosto e' **completo**, Nexi e
+Amex insieme, nessun mese stimato.
 
-| outlet | gen | feb | mar | apr | mag | giu | lug | totale |
-|---|---|---|---|---|---|---|---|---|
-| VDC | 696 B | 432 B | 295 B | 353 D | 487 D | 405 D | 597 D | 3.264 |
-| PLM | 305 D | - | - | 246 D | 276 D | 301 D | 474 D | 1.602 |
-| TRN | - | - | - | 299 D | 365 D | 389 D | 431 D | 1.483 |
-| VLM | - | 169 D | - | 268 D | 378 D | 255 D | 462 D | 1.531 |
-| FRC | - | 319 D | - | 323 D | 366 D | 335 D | 407 D | 1.750 |
-| BRB | - | - | - | 252 D | 271 D | 271 D | 392 D | 1.186 |
-| BRG | - | 79 D | - | 113 D | 123 D | 122 D | 230 D | 668 |
-| **totale** | 1.001 | 999 | 295 | 1.853 | 2.265 | 2.079 | 2.992 | **11.484** |
+Commissioni per outlet (Nexi + Amex, euro):
 
-Aliquota media per outlet sui mesi documentati: VDC 0,764%, PLM 0,837%, TRN 0,772%,
-VLM 0,746%, FRC 0,762%, BRB 0,773%, BRG 0,752%.
+| outlet | gen | feb | mar | apr | mag | giu | lug | ago | totale | transato | aliquota |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| VDC | 709 | 437 | 302 | 368 | 495 | 420 | 625 | 494 | **3.848** | 506.324 | 0,760% |
+| FRC | 551 | 330 | 256 | 331 | 400 | 359 | 425 | 393 | **3.046** | 393.326 | 0,774% |
+| VLM | 385 | 190 | 117 | 289 | 407 | 277 | 493 | 262 | **2.419** | 313.688 | 0,771% |
+| PLM | 309 | 210 | 157 | 252 | 285 | 310 | 485 | 386 | **2.394** | 281.171 | 0,851% |
+| BRB | 369 | 229 | 137 | 264 | 281 | 286 | 406 | 330 | **2.303** | 295.000 | 0,781% |
+| TRN | - | - | 85 | 315 | 381 | 403 | 463 | 311 | **1.959** | 249.084 | 0,786% |
+| BRG | 163 | 84 | 72 | 121 | 131 | 130 | 245 | 296 | **1.243** | 160.093 | 0,776% |
+| **totale** | 2.486 | 1.479 | 1.126 | 1.939 | 2.380 | 2.186 | 3.143 | 2.473 | **17.212** | 2.198.685 | **0,783%** |
 
-Nei mesi pieni (aprile-luglio) il costo Nexi viaggia intorno a **2.000-3.000 euro al mese**,
-di cui solo la quota di Valdichiana passa dal conto corrente. Aggiungendo Amex
-(circa 115 euro al mese) e i terminali BCC/Numia (ancora da quantificare), il costo annuo
-dell'incasso elettronico è nell'ordine dei **30.000 euro**, oggi quasi tutto invisibile.
+Piu' 248,50 di voci fisse (acquiring 2,50 al mese per contratto, bollo 2,00). Di questi
+17.212 euro, **12.750 sono trattenuti alla fonte** e non passano mai dal conto corrente:
+li vede solo chi confronta il dichiarato di cassa con l'accreditato.
 
-### documenti mancanti
-Marzo per tutti e 7, gennaio per 6, febbraio per 3: i PDF su Drive esistono ma sono
-**scansioni senza testo** (2,3-2,7 MB), non leggibili senza OCR. Per Valdichiana il dato è
-stato recuperato dall'addebito SDD; per gli altri quei mesi restano scoperti finché non
-arrivano i documenti nativi o non si applica un OCR.
+Palmanova e' il punto vendita piu' caro (0,851%), Valdichiana il piu' economico (0,760%):
+undici centesimi di punto su un milione di transato fanno mille euro l'anno.
+
+### il riscontro con la banca, mese per mese
+Confronto fra quanto i documenti dicono che verra' addebitato (commissioni al lordo piu'
+le voci fisse) e quanto la banca ha davvero addebitato il mese dopo:
+
+| addebito in banca | atteso dai documenti | trovato | scarto |
+|---|---|---|---|
+| marzo | 506,94 | 506,94 | **0,00** |
+| giugno, luglio, settembre | | | +2,00 (un bollo) |
+| maggio | 470,48 | 449,98 | -20,50 |
+| febbraio | 778,32 | 923,50 | +145,18 |
+| aprile | 380,72 | 630,82 | +250,10 |
+| agosto | 778,97 | 960,31 | +181,34 |
+| gennaio | 60,25 | 738,31 | +678,06 |
+
+I tre scarti grossi hanno un nome. Febbraio, aprile e agosto portano gli addebiti da
+**25,62 euro per terminale** (5 il 13/02, 5 piu' 122,00 il 21/04, 7 il 12/08): e' il canone
+dei POS, trimestrale, che non sta nell'estratto conto commissioni perche' e' un servizio a
+parte. Gennaio e' l'estratto Nexi di **dicembre 2025**, l'unico documento che ancora manca.
+
+### documenti che mancano ancora
+- **Nexi dicembre 2025**, sette punti vendita: spiegherebbe i 678,06 addebitati a gennaio.
+- **Amex settembre 2026**, che esce a fine mese: serve per chiudere le tre giornate di
+  riscontro rimaste aperte (BRG 10/09, FRC 12/09, FRC 13/09).
 
 ---
 
@@ -236,7 +258,7 @@ alla riga sbagliata.
 
 ## 8. riferimenti
 
-- Dati estratti: `docs/commissioni_incasso_2026.csv`
+- Dati estratti, riga per riga: `docs/commissioni_incasso.csv` (export da `acquirer_fees`)
 - Prima nota e export: `AUDIT_PRIMA_NOTA_COMMERCIALISTA_2026-09-14.md`
 - Riscontro cassa/banca: `supabase/migrations/20260907_195_*`, `NZ_ONLY_20260907_198_*`,
   corretti da `20260915_224_*` e `NZ_ONLY_20260915_225_*`
