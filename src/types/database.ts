@@ -20607,6 +20607,7 @@ export type Database = {
           iva_debito_corrispettivi: number
           iva_debito_fatture_attive: number
           iva_riporto_precedente: number
+          iva_taxfree: number
           month: number
           note: string | null
           registro_chiuso_il: string | null
@@ -20628,6 +20629,7 @@ export type Database = {
           iva_debito_corrispettivi?: number
           iva_debito_fatture_attive?: number
           iva_riporto_precedente?: number
+          iva_taxfree?: number
           month: number
           note?: string | null
           registro_chiuso_il?: string | null
@@ -20649,6 +20651,7 @@ export type Database = {
           iva_debito_corrispettivi?: number
           iva_debito_fatture_attive?: number
           iva_riporto_precedente?: number
+          iva_taxfree?: number
           month?: number
           note?: string | null
           registro_chiuso_il?: string | null

@@ -17,6 +17,7 @@ function comp(year: number, month: number, over: Partial<IvaComponentiMese> = {}
 }
 
 const settings: IvaSettings = { salesVatRate: 22, startYear: 2026, startMonth: 8, openingCredit: 0 }
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
 const today = new Date(2026, 8, 7) // 7 settembre 2026
 
 const componenti: IvaComponentiMese[] = [
@@ -118,6 +119,31 @@ describe('buildLiquidazioni', () => {
     expect(rows[0].importo).toBe(-12906.49)
     expect(rows[0].note).toBe('dal commercialista')
     expect(rows[1].riportoPrecedente).toBe(12906.49)
+  })
+
+  it('tax free (Global Blue): il confermato lo sottrae, i mesi dopo usano la media dei confermati', () => {
+    const rows = buildLiquidazioni({
+      componenti, settings, toYear: 2026, toMonth: 10, today,
+      confermati: [
+        // luglio: prima della partenza, ma e' un numero vero del registro e conta nella media
+        { year: 2026, month: 7, corrispettivi_netti: 465330, iva_debito_corrispettivi: 102372.6, iva_debito_fatture_attive: 942, iva_credito: 63958.94, iva_taxfree: 258.65 },
+        { year: 2026, month: 8, corrispettivi_netti: 364015.83, iva_debito_corrispettivi: 80083.48, iva_debito_fatture_attive: 93.51, iva_credito: 55172.13, iva_taxfree: 588.78 },
+      ],
+    })
+    const ago = rows[0]
+    expect(ago.ivaTaxFree).toBe(588.78)
+    expect(ago.ivaTaxFreeStimato).toBe(false)
+    expect(ago.importo).toBe(24416.08) // 80083.48 + 93.51 − 55172.13 − 588.78
+    const set = rows[1]
+    expect(set.ivaTaxFree).toBe(423.72) // media di 258.65 e 588.78
+    expect(set.ivaTaxFreeStimato).toBe(true)
+    expect(set.importo).toBe(round2(set.ivaDebitoCorrispettivi + set.ivaFattureAttive - set.ivaCredito - 423.72 - set.riportoPrecedente))
+  })
+
+  it('senza mesi confermati con tax free la voce resta a zero e non e\' segnata come stima', () => {
+    const rows = buildLiquidazioni({ componenti, settings, toYear: 2026, toMonth: 9, today })
+    expect(rows[0].ivaTaxFree).toBe(0)
+    expect(rows[0].ivaTaxFreeStimato).toBe(false)
   })
 
   it('un mese pagato usa l importo versato come risultato', () => {

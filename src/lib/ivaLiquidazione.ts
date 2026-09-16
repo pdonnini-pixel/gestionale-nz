@@ -14,8 +14,13 @@
  *     altrimenti va nel mese di ricezione; meno le note di credito; le
  *     integrazioni reverse charge sono neutre
  *
+ *   - IVA recuperata sul tax free (note di variazione Global Blue, migration
+ *     224): non passa dallo SDI, la si legge dall'estratto conto Global Blue
+ *     alla conferma del mese; per gli altri mesi vale la media dei mesi
+ *     confermati
+ *
  * Formula del mese M:
- *   importo = IVA corrispettivi + IVA fatture attive − IVA credito − riporto(M−1)
+ *   importo = IVA corrispettivi + IVA fatture attive − IVA credito − IVA tax free − riporto(M−1)
  *   importo > 0 → F24 entro il 16 del mese dopo (codice 60MM)
  *   importo < 0 → credito riportato al mese successivo
  *
@@ -63,6 +68,9 @@ export interface IvaMeseConfermato {
    *  sulla formula. I componenti restano come traccia. */
   importo_manuale?: boolean | null
   note?: string | null
+  /** IVA a credito delle note di variazione tax free (Global Blue) del mese:
+   *  arriva dall'estratto conto Global Blue, non dallo SDI. */
+  iva_taxfree?: number | null
   /** Giorno in cui il registro acquisti del mese è stato chiuso (YYYY-MM-DD):
    *  da lì in poi le fatture del mese arrivate via SDI vanno nel mese dopo.
    *  Lo usa la vista, non questa catena; qui serve solo a mostrarlo. */
@@ -95,6 +103,9 @@ export interface IvaLiquidazioneRow {
   ivaFattureAttive: number
   ivaCredito: number
   ivaCreditoStimato: boolean
+  /** IVA recuperata sul tax free (Global Blue): letta alla conferma, altrimenti media dei mesi confermati. */
+  ivaTaxFree: number
+  ivaTaxFreeStimato: boolean
   /** Il totale è stato scritto a mano invece che calcolato dai componenti. */
   importoManuale: boolean
   ivaIntegrazioni: number
@@ -227,6 +238,21 @@ export function buildLiquidazioni(p: BuildLiquidazioniParams): IvaLiquidazioneRo
   }
   const mediaCredito = mediaCreditoRecente()
 
+  // Tax free (Global Blue): il gestionale non ha la fonte, quindi per i mesi
+  // non confermati vale la media degli ultimi 3 mesi confermati (prima di
+  // quello in corso) che hanno un valore. Si guardano anche i mesi prima della
+  // partenza: sono numeri veri del registro, non stime.
+  const mediaTaxFree = (): number => {
+    const vals = (p.confermati || [])
+      .filter(c => cmpYM(c.year, c.month, tY, tM) < 0 && (Number(c.iva_taxfree) || 0) > 0)
+      .sort((a, b) => cmpYM(b.year, b.month, a.year, a.month))
+      .slice(0, 3)
+      .map(c => Number(c.iva_taxfree) || 0)
+    if (vals.length === 0) return 0
+    return round2(vals.reduce((a, b) => a + b, 0) / vals.length)
+  }
+  const taxFreeStima = mediaTaxFree()
+
   const rows: IvaLiquidazioneRow[] = []
   let prevImporto = -Math.abs(Number(p.settings.openingCredit) || 0) // credito iniziale = "importo negativo" del mese prima
   let y = p.settings.startYear; let m = p.settings.startMonth
@@ -277,12 +303,14 @@ export function buildLiquidazioni(p: BuildLiquidazioniParams): IvaLiquidazioneRo
     }
 
     const ivaDeb = cf ? Number(cf.iva_debito_corrispettivi) || 0 : round2(corr * rate / 100)
+    const taxFree = cf ? round2(Number(cf.iva_taxfree) || 0) : taxFreeStima
+    const taxFreeStimato = !cf && taxFreeStima > 0
     const riporto = prevImporto < 0 ? round2(-prevImporto) : 0
     // Il totale scritto a mano vince su tutto: è il numero che il
     // commercialista ha comunicato, non il risultato di una formula nostra.
     let importo = cf && cf.importo_manuale
       ? round2(Number(cf.importo) || 0)
-      : round2(ivaDeb + ivaAtt - ivaCred - riporto)
+      : round2(ivaDeb + ivaAtt - ivaCred - taxFree - riporto)
     let stato: StatoLiquidazione = cf ? 'confermata' : rel < 0 ? 'stima' : rel === 0 ? 'in_corso' : 'futura'
     if (pg && !cf) {
       // Versamento riscontrato: e' lui il risultato del mese, la stima resta solo informativa.
@@ -300,6 +328,8 @@ export function buildLiquidazioni(p: BuildLiquidazioniParams): IvaLiquidazioneRo
       ivaFattureAttive: round2(ivaAtt),
       ivaCredito: round2(ivaCred),
       ivaCreditoStimato: credStim,
+      ivaTaxFree: taxFree,
+      ivaTaxFreeStimato: taxFreeStimato,
       importoManuale: Boolean(cf?.importo_manuale),
       ivaIntegrazioni: round2(Number(c.iva_integrazioni) || 0),
       nFatturePassive: Number(c.n_fatture_passive) || 0,
