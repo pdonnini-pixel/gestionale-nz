@@ -495,36 +495,41 @@ nota da dove viene.
 
 ## febbraio 2026
 
-Migration `NZ_ONLY_20260915_232`. 139 chiusure su **cinque** punti vendita invece che sei:
-Torino non esiste ancora, e **Franciacorta manca** (vedi sotto). I corrispettivi dei cinque
-negozi caricati coincidono con `daily_revenue` su tutte e 139 le giornate.
+Migration `NZ_ONLY_20260915_232` per cinque negozi e `NZ_ONLY_20260916_233` per Franciacorta.
+167 chiusure sui sei punti vendita attivi (Torino apre a marzo). I corrispettivi coincidono con
+`daily_revenue` su tutte e 167 le giornate.
 
 | | |
 |---|---:|
-| Corrispettivi (5 negozi) | 250.945,62 € |
-| Fatture | 164,64 € |
-| Contanti | 50.609,40 € |
-| Spese di cassa | 514,09 € |
-| Versamenti | 51.032,15 € |
-| Chiusure verificate dalla banca | 135 su 139 |
+| Corrispettivi | 306.664,01 € |
+| Fatture | 276,72 € |
+| Contanti | 60.641,69 € |
+| Spese di cassa | 552,09 € |
+| Versamenti | 59.132,15 € |
+| Chiusure verificate dalla banca | 163 su 167 |
 
-**22 versamenti dichiarati, 22 trovati in banca, nessuna differenza e nessun aggancio manuale
-dentro il mese.**
+**26 versamenti dichiarati, 26 trovati in banca, nessuna differenza.**
 
-### Franciacorta febbraio resta fuori, e il motivo e' banale
+### Franciacorta e' arrivato dopo, e ha portato due casi nuovi
 
-Lo specchietto di Franciacorta di febbraio e' l'unico file dell'intero recupero salvato in
-**.xls**, il vecchio formato binario di Excel. Il connettore Drive legge gli .xlsx e gli .ods, ma
-quel formato no. Mancano **28 giornate per 55.718,39 €** di corrispettivi, che il registro
-conosce gia': manca solo la ripartizione fra contanti, POS e versamenti.
+Lo specchietto di Franciacorta di febbraio era l'unico file dell'intero recupero salvato in
+**.xls**, il vecchio formato binario di Excel, che il connettore Drive non legge. Patrizio lo ha
+risalvato come Foglio Google e le 28 giornate sono entrate con la `233`.
 
-Si sblocca in trenta secondi: aprire il file su Drive con Fogli Google e fare
-**File → Scarica → Microsoft Excel (.xlsx)**, oppure **File → Salva come Fogli Google**. Poi
-basta una migration gemella della 232 per quelle 28 giornate.
+Quel foglio ha molte celle vuote e le colonne si leggono per posizione, quindi prima di caricarlo
+sono stati confrontati **tutti e dieci i totali di colonna** con la riga «Totali» del foglio.
+Coincidono tutti. È il controllo che serviva, perche' bastava sbagliare di una casella per
+scambiare i contanti con i versamenti.
 
-Una cosa di quel mese si e' comunque recuperata senza il foglio: il **versamento di chiusura
-febbraio, 1.895,00 €**, versato all'ATM il 04/03. Lo dice l'estratto conto, con la causale
-scritta per esteso, ed e' gia' sulla chiusura del 04/03.
+- **24/02, 1.575,00**: in banca c'e', ma versato allo sportello **ATM 01030-4715** invece del
+  solito 2121 di Franciacorta. Il motore riconosce il negozio dalla causale e quello sportello
+  non lo conosce.
+- **25/02, 2.145,00**: in banca il **18 febbraio**, sette giorni prima della giornata su cui il
+  negozio lo dichiara. Quinto caso di versamento anteriore alla chiusura dichiarata.
+- Il **versamento di chiusura febbraio, 1.895,00 €**, esce dalla cassa il 04/03 e resta sulla
+  chiusura del 04/03, dove la `232` lo aveva gia' messo leggendolo dall'estratto conto prima
+  ancora di avere il foglio.
+- Due giornate non quadrano per arrotondamento: 14/02 (−0,17) e 28/02 (−0,54).
 
 ### Cosa e' emerso
 
@@ -549,7 +554,7 @@ scritta per esteso, ed e' gia' sulla chiusura del 04/03.
 | mese | chiusure | verificate | non quadrate | corrispettivi | versamenti |
 |---|---:|---:|---:|---:|---:|
 | gennaio | 179 | 174 | 7 | 501.525,44 € | 86.420,10 € |
-| febbraio | 139 | 135 | 4 | 250.945,62 € | 51.032,15 € |
+| febbraio | 167 | 163 | 6 | 306.664,01 € | 59.132,15 € |
 | marzo | 191 | 185 | 9 | 215.851,71 € | 44.726,70 € |
 | aprile | 203 | 198 | 3 | 372.705,73 € | 62.899,95 € |
 | maggio | 217 | 214 | 1 | 418.533,52 € | 61.852,80 € |
@@ -558,8 +563,9 @@ scritta per esteso, ed e' gia' sulla chiusura del 04/03.
 | agosto | 217 | 213 | 8 | 444.099,25 € | 73.000,50 € |
 | settembre (al 14) | 98 | 96 | 1 | 156.247,60 € | 31.170,50 € |
 
-**1.671 chiusure, 1.623 verificate dalla banca.** Restano fuori le 28 giornate di Franciacorta di
-febbraio, per il formato del file.
+**1.699 chiusure, 1.651 verificate dalla banca.** Nove mesi interi, nessuna giornata mancante:
+in tutto il 2026 non resta una sola riga del registro corrispettivi senza la ripartizione fra
+contanti, carte e altro.
 
 ### Le tre cose da guardare
 
@@ -579,6 +585,12 @@ Sono le stesse di luglio e agosto, ma ora con i numeri di nove mesi dietro.
    volte: Franciacorta 13/01 e 20/01 e 08/04, Brugnato ad agosto, Torino 17/06, Valmontone 04/05.
 2. **Finestra all'indietro per i versamenti.** Il motore cerca solo in avanti, da `closing_date` a
    +6 giorni. Quando il negozio versa e poi attribuisce la giornata dopo, il movimento e'
-   anteriore e non viene mai trovato: Torino 17/06, Franciacorta 14/05, Brugnato 15/04 e 21/04.
-   Quattro casi su nove mesi non sono un'eccezione.
+   anteriore e non viene mai trovato: Torino 17/06, Franciacorta 14/05 e 25/02, Brugnato 15/04 e
+   21/04. Cinque casi su nove mesi non sono un'eccezione, e quello del 25/02 e' di sette giorni:
+   una finestra di due non basterebbe.
 3. **Dare al pay by link il terminale del POS** (fatto, migration `226`).
+
+Ne e' emersa una quarta. Il motore riconosce il negozio del versamento dalla causale, e quindi
+dallo sportello abituale: Franciacorta e' «ATM 01030-2121». Il 24/02 il negozio ha versato
+all'ATM 4715 e il movimento e' diventato invisibile. Un versamento a un solo negozio compatibile
+per importo, data e conto andrebbe proposto lo stesso, magari da confermare a mano.
