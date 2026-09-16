@@ -61,7 +61,7 @@ import {
   buildPagamentoRow, fonteOf, includePagamento, sortPagamenti, summarizePagamenti, importoPagato, metodoLabel, rataOf,
   FONTE_LABELS, type PnPagamento, type PnLookups, type PagamentoFonte,
 } from '../lib/primaNotaPagamenti'
-import {
+import { isIncassoKind,
   attribuisciIncasso, buildIncassoRow, summarizeByOutlet, outletLabel,
   ATTRIBUZIONE_LABELS, INCASSI_COLUMN_WIDTHS, SENZA_OUTLET,
   type IncassiLookups, type IncassoKind, type Attribuzione,
@@ -74,7 +74,7 @@ import {
   abbinaStipendi, buildStipendioRow, nomeDipendente, competenzaLabel, competenzeCandidate, STIPENDI_COLUMN_WIDTHS, addebitoBanca,
   type PnSlip, type PnFlusso,
 } from '../lib/primaNotaStipendi'
-import {
+import { prepaidBalances, nettoCarta, conSaldoProgressivo, type PrepaidBalance, debitCardsFromMovements, debitCardLabel, bankShortName,
   parseCardStatementLines, parseTascaAoa, matchStatementDebit, matchRicariche, matchPayables, buildCartaRow, totaliCarta, sourceLabelOf,
   ISSUER_LABELS, CARTE_COLUMN_WIDTHS, type CardStatementParsed, type CardLine, type PayableLite, type BankMovLite, type AoaCell,
 } from '../lib/cartaEstratto'
@@ -123,7 +123,7 @@ const sheetName = (name: string, used: Set<string>): string => {
 }
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
 type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti' | 'carte'
-type CardStmt = { id: string; filename: string; file_type: string; source_label: string | null; card_last4: string | null; statement_total: number | null; settled_bank_transaction_id: string | null; period_year: number | null; period_month: number | null; transaction_count: number | null; file_path: string | null }
+type CardStmt = { id: string; filename: string; file_type: string; source_label: string | null; card_last4: string | null; statement_total: number | null; closing_balance: number | null; settled_bank_transaction_id: string | null; period_year: number | null; period_month: number | null; transaction_count: number | null; file_path: string | null }
 type CardTx = CardLine & { id: string; statement_id: string; row_no: number; payable_id: string | null }
 type CardImportItem = { file: File | null; fileName: string; parsed: CardStatementParsed; existing: CardStmt | null; existingLines: number; label: string }
 const r2 = (n: number): number => Math.round(n * 100) / 100
@@ -149,6 +149,7 @@ const KIND_BADGE: Record<MovementKind, string> = {
   pos: 'bg-emerald-100 text-emerald-700',
   versamento: 'bg-emerald-50 text-emerald-700',
   carta: 'bg-sky-100 text-sky-700',
+  carta_debito: 'bg-sky-50 text-sky-700',
   finanziamento: 'bg-slate-200 text-slate-700',
   spese_banca: 'bg-slate-100 text-slate-600',
   giroconto: 'bg-slate-100 text-slate-600',
@@ -217,6 +218,8 @@ export default function PrimaNota() {
   const [cardTx, setCardTx] = useState<CardTx[]>([])
   const [cardPayables, setCardPayables] = useState<PayableLite[]>([])
   const [cardBankMovs, setCardBankMovs] = useState<BankMovLite[]>([])
+  /** Prepagata: saldo iniziale e finale di OGNI estratto della carta (tutti i mesi, non solo il periodo), per statement id. */
+  const [prepaidChain, setPrepaidChain] = useState<Map<string, PrepaidBalance>>(new Map())
   const [cardImport, setCardImport] = useState<{ items: CardImportItem[]; busy: boolean } | null>(null)
   const [cardParsing, setCardParsing] = useState(false)
   const cardFileRef = useRef<HTMLInputElement>(null)
@@ -530,9 +533,9 @@ export default function PrimaNota() {
     }
   }, [companyId, year, month])
 
-  type PayRow = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number | string; invoice_number: string | null; suppliers: { ragione_sociale: string | null; name: string | null } | null }
-  const payLite = (rows: PayRow[]): PayableLite[] => rows.map(p => ({ id: p.id, payment_date: p.payment_date, invoice_date: p.invoice_date, gross_amount: Number(p.gross_amount), invoice_number: p.invoice_number, supplier_name: p.suppliers?.ragione_sociale ?? p.suppliers?.name ?? null }))
-  const PAY_SELECT = 'id, payment_date, invoice_date, gross_amount, invoice_number, suppliers(ragione_sociale, name)'
+  type PayRow = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number | string; invoice_number: string | null; payment_method: string | null; suppliers: { ragione_sociale: string | null; name: string | null } | null }
+  const payLite = (rows: PayRow[]): PayableLite[] => rows.map(p => ({ id: p.id, payment_date: p.payment_date, invoice_date: p.invoice_date, gross_amount: Number(p.gross_amount), invoice_number: p.invoice_number, payment_method: p.payment_method, supplier_name: p.suppliers?.ragione_sociale ?? p.suppliers?.name ?? null }))
+  const PAY_SELECT = 'id, payment_date, invoice_date, gross_amount, invoice_number, payment_method, suppliers(ragione_sociale, name)'
   const loadCardPayables = useCallback(async (from: string, to: string): Promise<PayableLite[]> => {
     if (!companyId) return []
     const { data } = await supabase.from('payables').select(PAY_SELECT).eq('company_id', companyId)
@@ -553,7 +556,7 @@ export default function PrimaNota() {
     if (!companyId) return
     try {
       let q = supabase.from('bank_statements')
-        .select('id, filename, file_type, source_label, card_last4, statement_total, settled_bank_transaction_id, period_year, period_month, transaction_count, file_url')
+        .select('id, filename, file_type, source_label, card_last4, statement_total, closing_balance, settled_bank_transaction_id, period_year, period_month, transaction_count, file_url')
         .eq('company_id', companyId).eq('doc_kind', 'carta').eq('period_year', year)
       if (month) q = q.eq('period_month', month)
       const { data: st, error: e1 } = await q.order('source_label').order('period_month').limit(500)
@@ -571,7 +574,7 @@ export default function PrimaNota() {
       if (txRes.error) throw txRes.error
       const pathByName = new Map<string, string>()
       for (const i of (impRes.data ?? []) as Array<{ file_name: string | null; file_path: string | null }>) if (i.file_name && i.file_path) pathByName.set(i.file_name, i.file_path)
-      setCardStmts(stmts.map(x => ({ ...x, statement_total: x.statement_total == null ? null : Number(x.statement_total), file_path: x.file_url ?? pathByName.get(x.filename) ?? null })))
+      setCardStmts(stmts.map(x => ({ ...x, statement_total: x.statement_total == null ? null : Number(x.statement_total), closing_balance: x.closing_balance == null ? null : Number(x.closing_balance), file_path: x.file_url ?? pathByName.get(x.filename) ?? null })))
       const tx = ((txRes.data ?? []) as unknown as CardTx[]).map(t => ({ ...t, amount: Number(t.amount), fee: Number(t.fee), original_amount: t.original_amount == null ? null : Number(t.original_amount) }))
       setCardTx(tx)
       // Fatture agganciate all'import ma fuori dalla finestra: si caricano per id
@@ -583,6 +586,20 @@ export default function PrimaNota() {
       }
       setCardPayables([...pays, ...extra])
       setCardBankMovs(movs)
+      // Prepagata: il saldo di un mese dipende da tutti gli estratti precedenti
+      // (e dalla Disponibilita' del PDF che fa da ancora), quindi si leggono
+      // TUTTI gli estratti della carta prepagata, non solo quelli del periodo.
+      const { data: allPre } = await supabase.from('bank_statements').select('id, period_year, period_month, closing_balance')
+        .eq('company_id', companyId).eq('doc_kind', 'carta').ilike('source_label', '%prepagat%').limit(500)
+      const preIds = ((allPre ?? []) as Array<{ id: string }>).map(x => x.id)
+      const preTx = preIds.length > 0
+        ? (await Promise.all(chunk(preIds).map(idsChunk => supabase.from('card_transactions').select('statement_id, amount, fee').in('statement_id', idsChunk).limit(10000)))).flatMap(r => (r.data ?? []) as Array<{ statement_id: string; amount: number | string; fee: number | string }>)
+        : []
+      const nettoById = new Map<string, number>()
+      for (const id of preIds) nettoById.set(id, nettoCarta(preTx.filter(t => t.statement_id === id).map(t => ({ amount: Number(t.amount), fee: Number(t.fee) }))))
+      setPrepaidChain(prepaidBalances(((allPre ?? []) as Array<{ id: string; period_year: number | null; period_month: number | null; closing_balance: number | string | null }>)
+        .filter(x => (preTx.some(t => t.statement_id === x.id) || x.closing_balance != null))
+        .map(x => ({ key: x.id, period: x.period_year && x.period_month ? { year: x.period_year, month: x.period_month } : null, netto: nettoById.get(x.id) ?? 0, available_balance: x.closing_balance == null ? null : Number(x.closing_balance) }))))
     } catch (e) {
       console.error('[PrimaNota] carte:', e)
       setCardStmts([]); setCardTx([])
@@ -628,7 +645,7 @@ export default function PrimaNota() {
   // incassi) attribuite al punto vendita. Stessa fonte della vista banca.
   const incassi = useMemo(
     () => movements
-      .filter(m => m.amount > 0 && classifyMovement(m) !== 'giroconto')
+      .filter(m => m.amount > 0 && isIncassoKind(classifyMovement(m)))
       .map(m => ({ m, a: attribuisciIncasso(m, incassiLk) })),
     [movements, incassiLk],
   )
@@ -682,7 +699,8 @@ export default function PrimaNota() {
       const groupKey = `${(st.source_label ?? st.filename).replace(/\s*\*\d{4}$/, '')}|${period ? `${period.year}-${period.month}` : st.id}`
       const ricariche = isPrepagata ? matchRicariche(lines, cardBankMovs) : new Map<number, BankMovLite>()
       const nRicariche = lines.filter(l => l.amount > 0 && /RICARICA/i.test(l.description)).length
-      return { stmt: st, lines, tot, computed, isPrepagata, period, groupKey, ricariche, nRicariche, label: st.source_label ?? st.filename }
+      const saldo = isPrepagata ? prepaidChain.get(st.id) ?? null : null
+      return { stmt: st, lines, tot, computed, isPrepagata, period, groupKey, ricariche, nRicariche, saldo, label: st.source_label ?? st.filename }
     })
     const groups = new Map<string, typeof base>()
     for (const c of base) if (!c.isPrepagata && c.lines.length > 0) groups.set(c.groupKey, [...(groups.get(c.groupKey) ?? []), c])
@@ -695,7 +713,7 @@ export default function PrimaNota() {
       debitByGroup.set(k, { ...d, n: g.length })
     }
     return base.map(c => ({ ...c, debit: debitByGroup.get(c.groupKey) ?? { movement: null, differenza: 0, n: 1 } }))
-  }, [cardStmts, cardTx, cardBankMovs])
+  }, [cardStmts, cardTx, cardBankMovs, prepaidChain])
   const cartePay = useMemo(() => {
     const byId = new Map(cardPayables.map(p => [p.id, p]))
     const stored = new Set(cardTx.map(t => t.payable_id).filter(Boolean) as string[])
@@ -710,13 +728,30 @@ export default function PrimaNota() {
     if (c.isPrepagata) { const r = c.ricariche.get(li); return l.amount > 0 && /RICARICA/i.test(l.description) ? (r ? `addebito in banca il ${fmtDate(r.transaction_date)}` : 'ricarica non trovata in banca') : '' }
     return c.debit.movement ? `estratto addebitato il ${fmtDate(c.debit.movement.transaction_date)}` : 'addebito estratto non trovato'
   }, [carte])
-  const carteRows = useMemo(() => carte.flatMap((c, ci) => c.lines.map((l, li) => buildCartaRow(c.label, l, cartePay[ci].get(li), riscontroOf(ci, li), fmtDate))), [carte, cartePay, riscontroOf])
+  // Carte di DEBITO: i pagamenti POS del periodo, raggruppati per conto e carta
+  // (letti dalla causale della banca). Ogni riga e' gia' un movimento del conto:
+  // il riscontro e' il movimento stesso, non c'e' un addebito cumulativo da cercare.
+  const carteDebito = useMemo(() => debitCardsFromMovements(movements).map(g => {
+    const acc = bankAccounts.find(b => b.id === g.bank_account_id)
+    return { ...g, label: debitCardLabel(acc?.bank_name, g.card), bankName: acc?.bank_name ?? '—', iban: acc?.iban ?? '', tot: totaliCarta(g.lines) }
+  }), [movements, bankAccounts])
+  const carteDebitoPay = useMemo(() => {
+    const pool = cardPayables.filter(p => p.payment_method === 'carta_debito')
+    return carteDebito.map(g => matchPayables(g.lines, pool))
+  }, [carteDebito, cardPayables])
+  const riscontroDebito = useCallback((bankName: string, l: { posting_date: string | null; purchase_date: string }): string => `in banca il ${fmtDate(l.posting_date ?? l.purchase_date)} (${bankShortName(bankName)})`, [])
+  const carteRows = useMemo(() => [
+    ...carte.flatMap((c, ci) => (c.isPrepagata && c.saldo ? conSaldoProgressivo(c.lines, c.saldo.saldo_iniziale).map(x => buildCartaRow(c.label, x.line, cartePay[ci].get(x.index), riscontroOf(ci, x.index), fmtDate, x.saldo)) : c.lines.map((l, li) => buildCartaRow(c.label, l, cartePay[ci].get(li), riscontroOf(ci, li), fmtDate)))),
+    ...carteDebito.flatMap((g, gi) => g.lines.map((l, li) => buildCartaRow(g.label, l, carteDebitoPay[gi].get(li), riscontroDebito(g.bankName, l), fmtDate))),
+  ], [carte, cartePay, riscontroOf, carteDebito, carteDebitoPay, riscontroDebito])
   const carteTot = useMemo(() => ({
     n: carte.length, spese: r2(carte.reduce((a, c) => a + c.tot.spese, 0)), accrediti: r2(carte.reduce((a, c) => a + c.tot.accrediti, 0)),
     righe: cardTx.length, senzaRighe: carte.filter(c => c.lines.length === 0).length,
     addebitiTrovati: carte.filter(c => !c.isPrepagata && c.lines.length > 0 && c.debit.movement).length, addebitiAttesi: carte.filter(c => !c.isPrepagata && c.lines.length > 0).length,
     fattureAgganciate: cartePay.reduce((a, m) => a + m.size, 0), speseN: cardTx.filter(t => t.amount < 0).length,
-  }), [carte, cartePay, cardTx])
+    saldoPrepagata: (() => { const pre = carte.filter(c => c.isPrepagata && c.saldo).sort((a, b) => ((a.period?.year ?? 0) - (b.period?.year ?? 0)) || ((a.period?.month ?? 0) - (b.period?.month ?? 0))); return pre.length > 0 ? pre[pre.length - 1].saldo!.saldo_finale : null })(),
+    debitoCarte: carteDebito.length, debitoN: carteDebito.reduce((a, g) => a + g.lines.length, 0), debitoSpese: r2(carteDebito.reduce((a, g) => a + g.tot.spese, 0)), debitoFatture: carteDebitoPay.reduce((a, m) => a + m.size, 0),
+  }), [carte, cartePay, cardTx, carteDebito, carteDebitoPay])
 
   // Import: legge il file (PDF via pdf.js, Excel via SheetJS) e propone l'anteprima
   const parseCardFile = useCallback(async (file: File): Promise<CardStatementParsed> => {
@@ -799,12 +834,12 @@ export default function PrimaNota() {
           const { data: ins, error: iErr } = await supabase.from('bank_statements').insert({
             company_id: companyId, bank_account_id: null, filename: it.file.name, file_type: ext === 'pdf' ? 'pdf' : ext === 'csv' ? 'csv' : 'xlsx', status: 'completed',
             doc_kind: 'carta', source_label: it.label, period_year: period?.year ?? null, period_month: period?.month ?? null,
-            card_last4: last4, statement_total: total, transaction_count: it.parsed.lines.length, import_document_id: arch.id, file_url: arch.path,
+            card_last4: last4, statement_total: total, transaction_count: it.parsed.lines.length, import_document_id: arch.id, file_url: arch.path, closing_balance: it.parsed.available_balance,
           }).select('id').single()
           if (iErr) throw iErr
           stmtId = ins.id
         } else {
-          const { error: uErr } = await supabase.from('bank_statements').update({ card_last4: last4, statement_total: total, transaction_count: it.parsed.lines.length }).eq('id', stmtId)
+          const { error: uErr } = await supabase.from('bank_statements').update({ card_last4: last4, statement_total: total, transaction_count: it.parsed.lines.length, closing_balance: it.parsed.available_balance }).eq('id', stmtId)
           if (uErr) throw uErr
         }
         const pStart = period ? `${period.year}-${pad2(period.month)}-01` : dateStart
@@ -994,15 +1029,28 @@ export default function PrimaNota() {
         { kind: 'meta', cells: ['Periodo', c.stmt.period_year && c.stmt.period_month ? `${MONTHS.find(m => m.v === c.stmt.period_month)?.l} ${c.stmt.period_year}` : periodoLabel] },
         { kind: 'meta', cells: ['File', c.stmt.filename] },
         { kind: 'blank', cells: [] },
-        { kind: 'header', cells: ['Data acquisto', 'Data registrazione', 'Descrizione', 'Importo', 'Commissioni', 'Valuta', 'Fornitore', 'Fattura', 'Pagata il', 'Riscontro banca'] },
-        ...c.lines.map((l, li): StyledRow => {
-          const r = buildCartaRow(c.label, l, pm.get(li), riscontroOf(ci, li), fmtDate)
-          return { kind: 'data', cells: [r['Data acquisto'], r['Data registrazione'], r.Descrizione, r.Importo, r.Commissioni, r.Valuta, r.Fornitore, r.Fattura, r['Pagata il'], r['Riscontro banca']] }
-        }),
+        { kind: 'header', cells: ['Data acquisto', 'Data registrazione', 'Descrizione', 'Importo', 'Commissioni', 'Valuta', 'Fornitore', 'Fattura', 'Pagata il', 'Riscontro banca', ...(c.isPrepagata && c.saldo ? ['Saldo'] : [])] },
+        ...(c.isPrepagata && c.saldo ? [{ kind: 'open' as const, cells: ['Saldo iniziale', c.saldo.ancoraggio === 'documento' ? 'disponibilità del documento meno il netto del mese' : c.saldo.ancoraggio === 'catena' ? 'saldo finale del mese precedente (catena degli estratti)' : 'da zero: nessun estratto dichiara la disponibilità', '', '', '', '', '', '', '', '', c.saldo.saldo_iniziale] }] : []),
+        ...(c.isPrepagata && c.saldo
+          ? conSaldoProgressivo(c.lines, c.saldo.saldo_iniziale).map((x): StyledRow => {
+            const r = buildCartaRow(c.label, x.line, pm.get(x.index), riscontroOf(ci, x.index), fmtDate, x.saldo)
+            return { kind: 'data', cells: [r['Data acquisto'], r['Data registrazione'], r.Descrizione, r.Importo, r.Commissioni, r.Valuta, r.Fornitore, r.Fattura, r['Pagata il'], r['Riscontro banca'], r.Saldo] }
+          })
+          : c.lines.map((l, li): StyledRow => {
+            const r = buildCartaRow(c.label, l, pm.get(li), riscontroOf(ci, li), fmtDate)
+            return { kind: 'data', cells: [r['Data acquisto'], r['Data registrazione'], r.Descrizione, r.Importo, r.Commissioni, r.Valuta, r.Fornitore, r.Fattura, r['Pagata il'], r['Riscontro banca']] }
+          })),
         { kind: 'close', cells: ['Totale operazioni (righe lette)', `${c.lines.length} operazioni: spese ${fmt(c.tot.spese)}, accrediti ${fmt(c.tot.accrediti)}, commissioni ${fmt(c.tot.commissioni)}`, '', c.computed] },
         { kind: 'close', cells: ['Totale dichiarato dal documento', '', '', c.stmt.statement_total ?? 'n.d.'] },
         ...(c.isPrepagata
-          ? [{ kind: (c.ricariche.size === c.nRicariche ? 'ok' : 'warn') as StyledRow['kind'], cells: ['Ricariche ritrovate in banca', `${c.ricariche.size} su ${c.nRicariche}`, '', ''] }]
+          ? [
+            { kind: (c.ricariche.size === c.nRicariche ? 'ok' : 'warn') as StyledRow['kind'], cells: ['Ricariche ritrovate in banca', `${c.ricariche.size} su ${c.nRicariche}`, '', ''] },
+            ...(c.saldo ? [
+              { kind: 'close' as const, cells: ['Saldo finale calcolato', 'saldo iniziale + ricariche − spese − commissioni', '', '', '', '', '', '', '', '', c.saldo.saldo_finale] },
+              { kind: (c.saldo.ancoraggio === 'da_zero' ? 'warn' : 'ok') as StyledRow['kind'], cells: ['Ancoraggio del saldo', c.saldo.ancoraggio === 'documento' ? `confermato: è la Disponibilità stampata sul PDF di questo mese (${fmt(c.stmt.closing_balance ?? 0)})` : c.saldo.ancoraggio === 'catena' ? 'ricostruito a catena dal primo PDF con la Disponibilità' : 'da zero al primo estratto: importa un PDF del portale con la Disponibilità per ancorare il saldo', '', ''] },
+              ...(c.stmt.closing_balance != null && c.saldo.ancoraggio !== 'documento' ? [{ kind: 'warn' as const, cells: ['Disponibilità stampata sul documento', `${fmt(c.stmt.closing_balance)} alla data di stampa del PDF: se diversa dal saldo finale, il PDF è stato stampato dopo altri movimenti`, '', ''] }] : []),
+            ] : []),
+          ]
           : [
             { kind: (c.debit.movement ? 'close' : 'warn') as StyledRow['kind'], cells: ['Addebito in banca', c.debit.movement ? `${fmtDate(c.debit.movement.transaction_date)}: ${c.debit.movement.description ?? ''}` : 'non trovato', '', c.debit.movement?.amount ?? ''] },
             { kind: (c.debit.movement ? 'ok' : 'warn') as StyledRow['kind'], cells: ['Differenza (commissioni della banca)', c.debit.movement ? (Math.abs(c.debit.differenza) < 0.005 ? 'quadra' : `quadra: l'addebito copre ${c.debit.n} estratti piu' ${fmt(c.debit.differenza)} di commissioni`) : 'addebito non trovato', '', c.debit.movement ? c.debit.differenza : ''] },
@@ -1010,10 +1058,35 @@ export default function PrimaNota() {
       ]
       const name = sheetName(c.label, used)
       nomiCarte.push(name)
-      addStyledSheet(wb, { name, rows: crows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 12, 30], moneyHeaders: ['Importo', 'Commissioni'], tabColor: 'C55A11' })
+      addStyledSheet(wb, { name, rows: crows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 12, 30, 12], moneyHeaders: ['Importo', 'Commissioni', 'Saldo'], tabColor: 'C55A11' })
+    })
+    // Un foglio per carta di DEBITO: i pagamenti POS del periodo letti dai
+    // movimenti del conto, stessa struttura degli estratti; niente addebito
+    // cumulativo perche' ogni riga e' gia' in banca.
+    const nomiCarteDebito: string[] = []
+    carteDebito.forEach((g, gi) => {
+      const pm = carteDebitoPay[gi]
+      const drows: StyledRow[] = [
+        { kind: 'title', cells: [g.label] },
+        { kind: 'meta', cells: ['Conto', g.bankName] },
+        { kind: 'meta', cells: ['IBAN', g.iban] },
+        { kind: 'meta', cells: ['Periodo', periodoLabel] },
+        { kind: 'meta', cells: ['Fonte', 'pagamenti POS presenti fra i movimenti del conto: ogni riga è già sull\'estratto conto, con la stessa data e lo stesso importo'] },
+        { kind: 'blank', cells: [] },
+        { kind: 'header', cells: ['Data acquisto', 'Data contabile', 'Esercente', 'Importo', 'Commissioni', 'Valuta', 'Fornitore', 'Fattura', 'Pagata il', 'Riscontro banca'] },
+        ...g.lines.map((l, li): StyledRow => {
+          const r = buildCartaRow(g.label, l, pm.get(li), riscontroDebito(g.bankName, l), fmtDate)
+          return { kind: 'data', cells: [r['Data acquisto'], r['Data registrazione'], r.Descrizione, r.Importo, r.Commissioni, r.Valuta, r.Fornitore, r.Fattura, r['Pagata il'], r['Riscontro banca']] }
+        }),
+        { kind: 'close', cells: ['Totale pagamenti POS', `${g.lines.length} operazioni: spese ${fmt(g.tot.spese)}${g.tot.commissioni !== 0 ? `, commissioni ${fmt(g.tot.commissioni)}` : ''}`, '', r2(-g.tot.spese)] },
+        { kind: 'ok', cells: ['Riscontro', `tutte le ${g.lines.length} righe sono movimenti del conto ${bankShortName(g.bankName)}: nessun addebito cumulativo da cercare`, '', ''] },
+      ]
+      const name = sheetName(g.label, used)
+      nomiCarteDebito.push(name)
+      addStyledSheet(wb, { name, rows: drows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 12, 34], moneyHeaders: ['Importo', 'Commissioni'], tabColor: 'ED7D31' })
     })
     // Foglio Guida in testa: cosa c'è in ogni foglio e come si cerca
-    addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, flussiSenzaBuste: stipendi.flussi_non_abbinati.length }), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
+    addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, carteDebito: nomiCarteDebito, flussiSenzaBuste: stipendi.flussi_non_abbinati.length }), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
     await downloadWorkbook(wb, `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.xlsx`)
   }
 
@@ -1538,12 +1611,13 @@ export default function PrimaNota() {
       </>)}
 
       {view === 'carte' && (<>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
         <KpiBox label="Estratti carta nel periodo" value={carteTot.n.toString()} color="slate" hint={carteTot.senzaRighe > 0 ? `${carteTot.senzaRighe} archiviati senza righe: leggili dal file` : carteTot.n > 0 ? 'tutti con le righe importate' : 'importa il PDF o l\'Excel dell\'estratto'} />
         <KpiBox label="Spese con carta" value={`€ ${fmt(carteTot.spese)}`} color="red" hint={`${carteTot.speseN} operazioni`} />
-        <KpiBox label="Ricariche e storni" value={`€ ${fmt(carteTot.accrediti)}`} color="emerald" />
+        <KpiBox label="Ricariche e storni" value={`€ ${fmt(carteTot.accrediti)}`} color="emerald" hint={carteTot.saldoPrepagata != null ? `saldo prepagata a fine periodo: € ${fmt(carteTot.saldoPrepagata)}` : undefined} />
         <KpiBox label="Addebiti trovati in banca" value={`${carteTot.addebitiTrovati} / ${carteTot.addebitiAttesi}`} color={carteTot.addebitiAttesi > 0 && carteTot.addebitiTrovati < carteTot.addebitiAttesi ? 'orange' : 'slate'} hint="carte di credito: l'addebito unico dell'estratto sul conto" />
         <KpiBox label="Fatture agganciate" value={`${carteTot.fattureAgganciate} / ${carteTot.speseN}`} color="slate" hint="spese che pagano una fattura dello Scadenzario (carta)" />
+        <KpiBox label="Carte di debito (POS)" value={`€ ${fmt(carteTot.debitoSpese)}`} color="slate" hint={carteTot.debitoN > 0 ? `${carteTot.debitoN} pagamenti su ${carteTot.debitoCarte} cart${carteTot.debitoCarte === 1 ? 'a' : 'e'}, ${carteTot.debitoFatture} fatture agganciate` : 'nessun pagamento POS nel periodo'} />
       </div>
       <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex flex-wrap items-center gap-3 text-sm">
         <input ref={cardFileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" multiple className="hidden" onChange={e => onCardFiles(e.target.files)} />
@@ -1554,8 +1628,8 @@ export default function PrimaNota() {
         <span className="text-slate-600">PDF di CartaBCC (Numia) e Carta Montepaschi, Excel o PDF della prepagata Tasca. La carta, il mese e le righe si leggono dal documento; il file finisce in Archivio.</span>
       </div>
 
-      {carte.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">Nessun estratto carta per il periodo selezionato</div>
+      {carte.length === 0 && carteDebito.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">Nessun estratto carta né pagamento con carta di debito per il periodo selezionato</div>
       ) : carte.map((c, ci) => {
         const pm = cartePay[ci]
         return (
@@ -1565,6 +1639,7 @@ export default function PrimaNota() {
               <span className="text-xs text-slate-500">{c.stmt.period_year && c.stmt.period_month ? `${MONTHS.find(m => m.v === c.stmt.period_month)?.l} ${c.stmt.period_year}` : ''} · <Tooltip content={c.stmt.filename}><span className="cursor-help">{c.stmt.filename.split('/').pop()}</span></Tooltip></span>
               <span className="text-xs text-slate-600">{c.lines.length} operazioni · spese <strong className="tabular-nums text-red-700">{fmt(c.tot.spese)}</strong>{c.tot.accrediti > 0 && <> · accrediti <strong className="tabular-nums text-emerald-700">{fmt(c.tot.accrediti)}</strong></>}{c.tot.commissioni !== 0 && <> · commissioni <strong className="tabular-nums">{fmt(c.tot.commissioni)}</strong></>}</span>
               {c.stmt.statement_total != null && <span className="text-xs text-slate-600">dichiarato <strong className="tabular-nums">{fmt(c.stmt.statement_total)}</strong>{Math.abs(c.stmt.statement_total - c.computed) > 0.005 && <span className="text-red-700"> (letto {fmt(c.computed)})</span>}</span>}
+              {c.isPrepagata && c.saldo && <span className="text-xs text-slate-700">saldo iniziale <strong className="tabular-nums">{fmt(c.saldo.saldo_iniziale)}</strong> → finale <strong className="tabular-nums">{fmt(c.saldo.saldo_finale)}</strong> <Tooltip content={c.saldo.ancoraggio === 'documento' ? `Saldo finale = Disponibilità stampata sul PDF di questo mese (${fmt(c.stmt.closing_balance ?? 0)}); il saldo iniziale è finale meno il netto del mese.` : c.saldo.ancoraggio === 'catena' ? 'Saldo ricostruito concatenando gli estratti a partire dal primo PDF con la Disponibilità.' : 'Nessun estratto dichiara la Disponibilità: la catena parte da zero al primo estratto. Importa un PDF del portale per ancorare il saldo.'}><span className={`cursor-help px-1.5 py-0.5 rounded ${c.saldo.ancoraggio === 'da_zero' ? 'bg-orange-100 text-orange-800' : 'bg-slate-100 text-slate-600'}`}>{c.saldo.ancoraggio === 'documento' ? 'dal documento' : c.saldo.ancoraggio === 'catena' ? 'a catena' : 'da zero'}</span></Tooltip></span>}
               {c.lines.length > 0 && (c.isPrepagata
                 ? <span className={`text-xs px-2 py-0.5 rounded ${c.ricariche.size === c.nRicariche ? 'bg-emerald-50 text-emerald-700' : 'bg-orange-100 text-orange-800'}`}>ricariche in banca {c.ricariche.size}/{c.nRicariche}</span>
                 : c.debit.movement
@@ -1587,10 +1662,11 @@ export default function PrimaNota() {
                       <th className="px-3 py-2 text-right">Comm.</th>
                       <th className="px-3 py-2 text-left">Fattura pagata</th>
                       <th className="px-3 py-2 text-left">Riscontro banca</th>
+                      {c.isPrepagata && c.saldo && <th className="px-3 py-2 text-right">Saldo</th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {c.lines.map((l, li) => {
+                    {(c.isPrepagata && c.saldo ? conSaldoProgressivo(c.lines, c.saldo.saldo_iniziale) : c.lines.map((line, index) => ({ line, index, saldo: null as number | null }))).map(({ line: l, index: li, saldo }) => {
                       const p = pm.get(li)
                       const risc = riscontroOf(ci, li)
                       return (
@@ -1602,6 +1678,7 @@ export default function PrimaNota() {
                           <td className="px-3 py-1.5 text-right tabular-nums text-xs text-slate-500">{l.fee ? fmt(l.fee) : ''}</td>
                           <td className="px-3 py-1.5 text-xs">{p ? <span className="text-slate-700">{p.supplier_name ?? '—'}<span className="block text-slate-400">fatt. {p.invoice_number ?? '?'}{p.payment_date ? ` · pagata il ${fmtDate(p.payment_date)}` : ''}</span></span> : l.amount < 0 ? <span className="text-slate-400">nessuna fattura con carta per questo importo</span> : ''}</td>
                           <td className="px-3 py-1.5 text-xs">{risc && <span className={`inline-block px-1.5 py-0.5 rounded ${/non /.test(risc) ? 'bg-orange-100 text-orange-800' : 'bg-emerald-50 text-emerald-700'}`}>{risc}</span>}</td>
+                          {c.isPrepagata && c.saldo && <td className={`px-3 py-1.5 text-right tabular-nums whitespace-nowrap font-medium ${saldo != null && saldo < 0 ? 'text-red-700' : 'text-slate-900'}`}>{saldo == null ? '' : fmt(saldo)}</td>}
                         </tr>
                       )
                     })}
@@ -1609,6 +1686,51 @@ export default function PrimaNota() {
                 </table>
               </TableScroll>
             )}
+          </div>
+        )
+      })}
+
+      {carteDebito.map((g, gi) => {
+        const pm = carteDebitoPay[gi]
+        return (
+          <div key={g.key} className="bg-white rounded-xl border border-slate-200 mb-4 overflow-hidden">
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span className="font-semibold text-slate-800 inline-flex items-center gap-1.5"><CreditCard size={14} /> {g.label}</span>
+              <span className="text-xs text-slate-500">conto {g.bankName}{g.iban && <> · <span className="font-mono">{g.iban}</span></>}</span>
+              <span className="text-xs text-slate-600">{g.lines.length} pagamenti POS · spese <strong className="tabular-nums text-red-700">{fmt(g.tot.spese)}</strong>{g.tot.commissioni !== 0 && <> · commissioni <strong className="tabular-nums">{fmt(g.tot.commissioni)}</strong></>}</span>
+              <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">ogni riga è già un movimento del conto</span>
+            </div>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead className="bg-white text-xs uppercase text-slate-600">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Data acquisto</th>
+                    <th className="px-3 py-2 text-left">In banca</th>
+                    <th className="px-3 py-2 text-left">Esercente</th>
+                    <th className="px-3 py-2 text-right">Importo</th>
+                    <th className="px-3 py-2 text-right">Comm.</th>
+                    <th className="px-3 py-2 text-left">Fattura pagata</th>
+                    <th className="px-3 py-2 text-left">Riscontro banca</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.lines.map((l, li) => {
+                    const p = pm.get(li)
+                    return (
+                      <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                        <td className="px-3 py-1.5 whitespace-nowrap text-slate-700">{fmtDate(l.purchase_date)}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap text-xs text-slate-500">{l.posting_date ? fmtDate(l.posting_date) : '—'}</td>
+                        <td className="px-3 py-1.5 text-slate-700 text-xs max-w-md"><Tooltip content={l.description}><div className="truncate cursor-help">{l.description}</div></Tooltip>{l.original_amount != null && Math.abs(l.original_amount) !== Math.abs(l.amount) && <span className="text-slate-400">{fmt(l.original_amount)} in divisa</span>}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap font-medium text-red-700">{fmt(l.amount)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-xs text-slate-500">{l.fee ? fmt(l.fee) : ''}</td>
+                        <td className="px-3 py-1.5 text-xs">{p ? <span className="text-slate-700">{p.supplier_name ?? '—'}<span className="block text-slate-400">fatt. {p.invoice_number ?? '?'}{p.payment_date ? ` · pagata il ${fmtDate(p.payment_date)}` : ''}</span></span> : <span className="text-slate-400">nessuna fattura con carta di debito per questo importo</span>}</td>
+                        <td className="px-3 py-1.5 text-xs"><span className="inline-block px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">{riscontroDebito(g.bankName, l)}</span></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </TableScroll>
           </div>
         )
       })}

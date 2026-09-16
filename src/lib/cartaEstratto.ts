@@ -50,6 +50,8 @@ export type CardStatementParsed = {
   debit_date: string | null
   /** Mese dell'estratto: quello piu' frequente fra le date di registrazione. */
   period: { year: number; month: number } | null
+  /** Prepagata: «Disponibilita'» stampata sul PDF, cioe' il saldo della carta alla data di stampa del documento. */
+  available_balance: number | null
   warnings: string[]
 }
 
@@ -228,39 +230,75 @@ export function parseTascaAoa(rows: Cell[][]): CardStatementParsed {
   return finish('tasca', [...cardsMap.values()], out, null, warnings)
 }
 
-/** Prepagata Tasca, PDF «Lista Movimenti»: importi a punto decimale, «Totale Movimenti x». */
+/**
+ * Prepagata Tasca, PDF «Lista Movimenti»: importi a punto decimale, «Totale
+ * Movimenti x», «Disponibilita' x EUR» (saldo alla stampa). Il portale spezza
+ * ogni movimento su due o tre righe: «data acquisto data registrazione inizio
+ * descrizione», poi «importo importo commissioni EUR» (a volte con il resto
+ * della descrizione davanti), poi «hh:mm:ss resto della descrizione». Si legge
+ * a blocchi: un blocco parte da una riga con le due date e finisce alla
+ * successiva; gli importi arrivano su una riga qualsiasi del blocco.
+ */
 export function parseTascaLines(lines: string[]): CardStatementParsed {
   const out: CardLine[] = []
   const warnings: string[] = []
   const cards: CardSection[] = []
   let total: number | null = null
+  let available: number | null = null
   let inAuth = false
-  const ROW = /^(\d{2}\/\d{2}\/\d{4})(?:\s+\d{2}:\d{2}:\d{2})?\s+(\d{2}\/\d{2}\/\d{4})(?:\s+\d{2}:\d{2}:\d{2})?\s+(.+?)\s+(-?\d+\.\d{2})\s+(-?\d+\.\d{2})\s+(-?\d+\.\d{2})\s+([A-Z]{3})$/
+  const DATES = /^(\d{2}\/\d{2}\/\d{4})(?:\s+\d{2}:\d{2}:\d{2})?\s+(\d{2}\/\d{2}\/\d{4})(?:\s+\d{2}:\d{2}:\d{2})?(?:\s+(.*))?$/
+  const AMOUNTS = /^(.*?)\s*(-?\d+\.\d{2})\s+(-?\d+\.\d{2})\s+(-?\d+\.\d{2})\s+([A-Z]{3})$/
+  const TIME = /^\d{2}:\d{2}:\d{2}(?:\s+(.*))?$/
+  const NOISE = /^(Pag\.|Per le eventuali|Ove l'informazione|NOTA:|e' precisata|Data |registrazione|Lista )/i
+  type Pending = { purchase: string; posting: string | null; desc: string[]; amount: number | null; orig: number | null; fee: number; cur: string }
+  let cur: Pending | null = null
+  const flush = () => {
+    if (cur && cur.amount != null) {
+      out.push({ card_last4: cards[0]?.card_last4 ?? null, purchase_date: toIsoDate(cur.purchase)!, posting_date: toIsoDate(cur.posting), description: cur.desc.join(' ').replace(/\s+/g, ' ').trim(), amount: r2(cur.amount), fee: r2(cur.fee), currency: cur.cur, original_amount: cur.orig })
+    }
+    cur = null
+  }
+  const takeAmounts = (p: Pending, a: RegExpExecArray) => {
+    const amount = parseDotAmount(a[2]); if (amount == null) return
+    if (a[1]) p.desc.push(a[1])
+    p.amount = amount; p.orig = parseDotAmount(a[3]); p.fee = parseDotAmount(a[4]) ?? 0; p.cur = a[5]
+  }
   for (const raw of lines) {
     const l = raw.trim().replace(/\s+/g, ' ')
     let m: RegExpExecArray | null
-    if (/Lista Autorizzazioni/i.test(l)) { inAuth = true; continue }
-    if (/Lista Movimenti/i.test(l)) { inAuth = false; continue }
-    if ((m = /Totale Movimenti\s+(-?\d+\.\d{2})/i.exec(l))) { total = parseDotAmount(m[1]); continue }
+    if (/Lista Autorizzazioni/i.test(l)) { flush(); inAuth = true; continue }
+    if (/Lista Movimenti/i.test(l)) { flush(); inAuth = false; continue }
+    if ((m = /Totale Movimenti\s+(-?\d+\.\d{2})/i.exec(l))) { flush(); total = parseDotAmount(m[1]); continue }
+    if ((m = /Disponibilit[aà]\s+(-?\d+\.\d{2})\s*EUR/i.exec(l))) { available = parseDotAmount(m[1]); continue }
     const withHolder = /^([A-Z' ]+?)\s+(\d{6}\*+\d{4})\s+Prepaid/i.exec(l)
-    if (withHolder || (m = /(\d{6}\*+\d{4})\s+(Prepaid|Business|MC|Mastercard)/i.exec(l))) {
+    if (withHolder || (m = /(\d{6}\*+\d{4})\s+(Prepaid|Business|MC|Mastercard)/i.exec(l)) || (m = /Numero Carta\s+(\d{6}\*+\d{4})/i.exec(l))) {
       const num = withHolder ? withHolder[2] : m![1]
       const holder = withHolder ? withHolder[1].trim() : null
       const l4 = last4Of(num)
       if (l4 && !cards.some(c => c.card_last4 === l4)) cards.push({ card_last4: l4, holder, total_declared: null })
       continue
     }
+    if ((m = /^Intestatario\s+(.+)$/i.exec(l)) && cards.length === 0) { cards.push({ card_last4: null, holder: m[1].trim(), total_declared: null }); continue }
     if (inAuth) continue
-    if ((m = ROW.exec(l))) {
-      const amount = parseDotAmount(m[4]); const orig = parseDotAmount(m[5]); const fee = parseDotAmount(m[6]) ?? 0
-      if (amount == null) continue
-      // Prima data = acquisto (con orario), seconda = registrazione
-      out.push({ card_last4: cards[0]?.card_last4 ?? null, purchase_date: toIsoDate(m[1])!, posting_date: toIsoDate(m[2]), description: m[3].trim(), amount: r2(amount), fee: r2(fee), currency: m[7], original_amount: orig })
+    if ((m = DATES.exec(l))) {
+      flush()
+      cur = { purchase: m[1], posting: m[2], desc: [], amount: null, orig: null, fee: 0, cur: 'EUR' }
+      const rest = m[3]
+      if (rest) { const a = AMOUNTS.exec(rest); if (a) takeAmounts(cur, a); else cur.desc.push(rest) }
+      continue
     }
+    if (!cur) continue
+    if (cur.amount == null && (m = AMOUNTS.exec(l))) { takeAmounts(cur, m); continue }
+    if ((m = TIME.exec(l))) { if (m[1]) cur.desc.push(m[1]); continue }
+    if (!NOISE.test(l)) cur.desc.push(l)
   }
+  flush()
+  // Intestazione «Intestatario … / Numero Carta …» su righe separate: unisce titolare e carta
+  if (cards.length > 1 && cards[0].card_last4 == null && cards[1].card_last4) { cards[1].holder = cards[1].holder ?? cards[0].holder; cards.shift() }
+  for (const l of out) if (!l.card_last4) l.card_last4 = cards[0]?.card_last4 ?? null
   if (cards.length > 0 && total != null) cards[0].total_declared = r2(total)
   if (out.length === 0) warnings.push('nessuna riga «data acquisto, data registrazione, descrizione, importo» riconosciuta: per la prepagata conviene l\'export Excel del portale')
-  return finish('tasca', cards, out, null, warnings)
+  return finish('tasca', cards, out, null, warnings, available)
 }
 
 /** Ultima spiaggia: qualsiasi riga «data [data] descrizione importo» (formato italiano o a punto). */
@@ -286,12 +324,12 @@ export function parseCardStatementLines(lines: string[]): CardStatementParsed {
   return parseGenericLines(lines)
 }
 
-function finish(issuer: CardIssuer, cards: CardSection[], lines: CardLine[], debit_date: string | null, warnings: string[]): CardStatementParsed {
+function finish(issuer: CardIssuer, cards: CardSection[], lines: CardLine[], debit_date: string | null, warnings: string[], available_balance: number | null = null): CardStatementParsed {
   const declared = cards.some(c => c.total_declared != null) ? r2(cards.reduce((s, c) => s + (c.total_declared ?? 0), 0)) : null
   const computed = r2(lines.reduce((s, l) => s + l.amount + l.fee, 0))
   if (declared != null && Math.abs(declared - computed) > 0.005) warnings.push(`il totale dichiarato dal documento (${declared.toFixed(2)}) non coincide con la somma delle righe lette (${computed.toFixed(2)})`)
   if (lines.length === 0) warnings.push('nessuna operazione letta')
-  return { issuer, cards, lines, total_declared: declared, total_computed: computed, debit_date, period: periodOf(lines), warnings }
+  return { issuer, cards, lines, total_declared: declared, total_computed: computed, debit_date, period: periodOf(lines), available_balance, warnings }
 }
 
 /** Mese piu' frequente fra le date di registrazione (o di acquisto). */
@@ -366,7 +404,7 @@ export function matchRicariche(lines: CardLine[], movements: BankMovLite[]): Map
 
 // ── Aggancio alle fatture pagate con carta ─────────────────────────────
 
-export type PayableLite = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number; supplier_name: string | null; invoice_number: string | null }
+export type PayableLite = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number; supplier_name: string | null; invoice_number: string | null; payment_method?: string | null }
 
 const tokens = (s: string | null): string[] => (s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').split(' ').filter(t => t.length >= 3 && !/^(SRL|SPA|SNC|SAS|SRLS|DI|DEL|DELLA|THE|AND|ITA|IRL)$/.test(t))
 
@@ -412,9 +450,11 @@ export type CartaExportRow = {
   Fattura: string
   'Pagata il': string
   'Riscontro banca': string
+  /** Prepagata: saldo della carta dopo la riga (righe in ordine cronologico); vuoto per le carte di credito. */
+  Saldo: number | ''
 }
 
-export function buildCartaRow(cardLabel: string, l: CardLine, payable: PayableLite | undefined, riscontro: string, fmtDate: (d: string) => string): CartaExportRow {
+export function buildCartaRow(cardLabel: string, l: CardLine, payable: PayableLite | undefined, riscontro: string, fmtDate: (d: string) => string, saldo: number | null = null): CartaExportRow {
   return {
     Carta: cardLabel,
     'Data acquisto': fmtDate(l.purchase_date),
@@ -427,10 +467,11 @@ export function buildCartaRow(cardLabel: string, l: CardLine, payable: PayableLi
     Fattura: payable?.invoice_number ?? '',
     'Pagata il': payable?.payment_date ? fmtDate(payable.payment_date) : '',
     'Riscontro banca': riscontro,
+    Saldo: saldo ?? '',
   }
 }
 
-export const CARTE_COLUMN_WIDTHS = [26, 13, 15, 50, 12, 11, 7, 30, 18, 12, 30]
+export const CARTE_COLUMN_WIDTHS = [26, 13, 15, 50, 12, 11, 7, 30, 18, 12, 30, 12]
 
 /** Totali di un estratto: spese, accrediti (ricariche/storni), commissioni, netto. */
 export function totaliCarta(lines: CardLine[]): { spese: number; accrediti: number; commissioni: number; netto: number; n: number } {
@@ -438,4 +479,115 @@ export function totaliCarta(lines: CardLine[]): { spese: number; accrediti: numb
   const accrediti = r2(lines.filter(l => l.amount > 0).reduce((s, l) => s + l.amount, 0))
   const commissioni = r2(lines.reduce((s, l) => s + l.fee, 0))
   return { spese, accrediti, commissioni, netto: r2(accrediti - spese + commissioni), n: lines.length }
+}
+
+// ---------------------------------------------------------------------------
+// Carte di DEBITO: non hanno un estratto a parte, ogni pagamento POS e' un
+// movimento del conto corrente. La causale della banca porta la carta, la data
+// di acquisto e l'esercente: da li' si ricostruisce un «estratto» per carta con
+// la stessa struttura di quelli delle carte di credito (riga per operazione,
+// fattura pagata, riscontro), senza addebito cumulativo da cercare.
+//   BCC: «Operazione POS Eurozona Del 17.02.26 17:36 Carta *453 COSTO DEL NOLEGGIO FIRENZE IT»
+//   MPS: «PAGAMENTO TRAMITE POS PAG.POS MASTERCARD DATA 28/01/26 ORA 10.31 LOC.REGGELLO ESERCENTE : STAZIONE BEYFIN C.C.S. IMP.IN DIV.ORIG -129.30 COM. E. 0.00 N.CARTA: 98957552»
+//   MPS: «Causale: PAG.POS MASTERCARD - Descrizione: DATA 14/05/26 ORA 00.00 LOC.TORINO ESERCENTE : SCANNABUE IMP.IN DIV.ORIG -53.00 COM. E. 0.00 N.CARTA: 99899952»
+export const RE_POS_DEBITO = /OPERAZIONE POS|PAG\.?\s*POS|PAGAMENTO TRAMITE POS/i
+
+export type DebitPos = {
+  /** Identificativo della carta come lo scrive la banca (ultime cifre BCC «453», numero MPS «99899952»). */
+  card: string
+  purchase_date: string
+  merchant: string
+  place: string | null
+  fee: number
+  original_amount: number | null
+}
+
+const ymd = (d: string, m: string, y: string): string => `${y.length === 2 ? '20' + y : y}-${m}-${d}`
+
+/** Legge carta, data di acquisto ed esercente dalla causale di un pagamento POS; null se non e' un POS riconoscibile. */
+export function parseDebitPos(description: string | null | undefined, fallbackDate: string): DebitPos | null {
+  const d = (description ?? '').replace(/\s+/g, ' ').trim()
+  if (!RE_POS_DEBITO.test(d)) return null
+  const bcc = /Operazione POS(?: Eurozona| Estero)? Del (\d{2})\.(\d{2})\.(\d{2,4})(?: \d{2}:\d{2})? Carta \*(\d+)\s*(.*)$/i.exec(d)
+  if (bcc) return { card: bcc[4], purchase_date: ymd(bcc[1], bcc[2], bcc[3]), merchant: bcc[5].trim() || 'POS', place: null, fee: 0, original_amount: null }
+  const card = /N\.\s*CARTA:?\s*(\d+)/i.exec(d)?.[1]
+  if (!card) return null
+  const dt = /DATA (\d{2})\/(\d{2})\/(\d{2,4})/i.exec(d)
+  const loc = /LOC\.\s*(.+?)\s+ESERCENTE/i.exec(d)?.[1]?.trim() ?? null
+  const merchant = /ESERCENTE\s*:\s*(.+?)\s+IMP\.IN DIV\.ORIG/i.exec(d)?.[1]?.trim() ?? /ESERCENTE\s*:\s*(.+?)(?:\s+COM\.|\s+N\.\s*CARTA|$)/i.exec(d)?.[1]?.trim() ?? 'POS'
+  const orig = parseDotAmount(/IMP\.IN DIV\.ORIG\s*(-?[\d.,]+)/i.exec(d)?.[1] ?? null)
+  const fee = parseDotAmount(/COM\.\s*E\.\s*(-?[\d.,]+)/i.exec(d)?.[1] ?? null) ?? 0
+  return { card, purchase_date: dt ? ymd(dt[1], dt[2], dt[3]) : fallbackDate, merchant, place: loc, fee: -Math.abs(fee), original_amount: orig }
+}
+
+export type DebitMovLite = { id: string; bank_account_id: string | null; transaction_date: string; posting_date?: string | null; amount: number; description: string | null }
+export type DebitCardGroup = { key: string; bank_account_id: string | null; card: string; lines: Array<CardLine & { id: string }> }
+
+/** Raggruppa i pagamenti POS del periodo per conto e carta; ogni riga e' un movimento del conto. */
+export function debitCardsFromMovements(movs: DebitMovLite[]): DebitCardGroup[] {
+  const groups = new Map<string, DebitCardGroup>()
+  for (const m of movs) {
+    if (m.amount >= 0) continue
+    const pos = parseDebitPos(m.description, m.transaction_date)
+    if (!pos) continue
+    const key = `${m.bank_account_id ?? ''}|${pos.card}`
+    const g = groups.get(key) ?? { key, bank_account_id: m.bank_account_id, card: pos.card, lines: [] }
+    g.lines.push({
+      id: m.id, card_last4: pos.card.slice(-4), purchase_date: pos.purchase_date, posting_date: m.posting_date ?? m.transaction_date,
+      description: pos.place ? `${pos.merchant} (${pos.place})` : pos.merchant, amount: r2(Number(m.amount)), fee: pos.fee, currency: 'EUR', original_amount: pos.original_amount,
+    })
+    groups.set(key, g)
+  }
+  for (const g of groups.values()) g.lines.sort((a, b) => a.purchase_date.localeCompare(b.purchase_date) || a.id.localeCompare(b.id))
+  return [...groups.values()].sort((a, b) => a.key.localeCompare(b.key))
+}
+
+/** Nome breve della banca per le etichette («BCC Valdarno», «MPS», «Intesa Sanpaolo»). */
+export function bankShortName(name: string | null | undefined): string {
+  const base = (name ?? '').split(' - ')[0].trim()
+  return base.split(/\s+/).slice(0, 2).join(' ') || 'Banca'
+}
+
+export const debitCardLabel = (bankName: string | null | undefined, card: string): string =>
+  `Carta di debito ${bankShortName(bankName)} ${card.length <= 4 ? '*' + card : 'n. ' + card}`
+
+// ── Saldo della prepagata ──────────────────────────────────────────────
+// La Tasca non ha un estratto con saldo iniziale e finale: il portale da'
+// solo i movimenti e, nel PDF, la «Disponibilita'» alla data di stampa. Il
+// saldo di ogni mese si ricostruisce concatenando gli estratti: si parte dal
+// primo estratto che dichiara una disponibilita' (stampato di norma appena
+// chiuso il mese, quindi = saldo a fine mese) e si va avanti e indietro
+// sommando o togliendo il netto di ogni mese. Senza nessuna disponibilita'
+// si parte da zero al primo estratto e lo si dice.
+
+export type PrepaidStmtLite = { key: string; period: { year: number; month: number } | null; netto: number; available_balance: number | null }
+export type PrepaidBalance = { saldo_iniziale: number; saldo_finale: number; ancoraggio: 'documento' | 'catena' | 'da_zero'; anchor_key: string | null }
+
+export function prepaidBalances(stmts: PrepaidStmtLite[]): Map<string, PrepaidBalance> {
+  const out = new Map<string, PrepaidBalance>()
+  const dated = stmts.filter(s => s.period).sort((a, b) => (a.period!.year - b.period!.year) || (a.period!.month - b.period!.month))
+  if (dated.length === 0) return out
+  const ai = dated.findIndex(s => s.available_balance != null)
+  if (ai < 0) {
+    let saldo = 0
+    for (const s of dated) { out.set(s.key, { saldo_iniziale: saldo, saldo_finale: r2(saldo + s.netto), ancoraggio: 'da_zero', anchor_key: null }); saldo = r2(saldo + s.netto) }
+    return out
+  }
+  const anchor = dated[ai]
+  out.set(anchor.key, { saldo_iniziale: r2(anchor.available_balance! - anchor.netto), saldo_finale: r2(anchor.available_balance!), ancoraggio: 'documento', anchor_key: anchor.key })
+  let saldo = r2(anchor.available_balance!)
+  for (let i = ai + 1; i < dated.length; i++) { const s = dated[i]; out.set(s.key, { saldo_iniziale: saldo, saldo_finale: r2(saldo + s.netto), ancoraggio: 'catena', anchor_key: anchor.key }); saldo = r2(saldo + s.netto) }
+  saldo = out.get(anchor.key)!.saldo_iniziale
+  for (let i = ai - 1; i >= 0; i--) { const s = dated[i]; out.set(s.key, { saldo_iniziale: r2(saldo - s.netto), saldo_finale: saldo, ancoraggio: 'catena', anchor_key: anchor.key }); saldo = r2(saldo - s.netto) }
+  return out
+}
+
+/** Netto di un estratto: ricariche e storni meno spese, commissioni comprese (le commissioni sono negative). */
+export const nettoCarta = (lines: Array<{ amount: number; fee: number }>): number => r2(lines.reduce((s, l) => s + l.amount + l.fee, 0))
+
+/** Righe in ordine cronologico (data acquisto, poi riga) con il saldo progressivo della prepagata. */
+export function conSaldoProgressivo<T extends { amount: number; fee: number; purchase_date: string }>(lines: T[], saldoIniziale: number): Array<{ line: T; index: number; saldo: number }> {
+  const idx = lines.map((line, index) => ({ line, index })).sort((a, b) => a.line.purchase_date.localeCompare(b.line.purchase_date) || a.index - b.index)
+  let saldo = saldoIniziale
+  return idx.map(({ line, index }) => { saldo = r2(saldo + line.amount + line.fee); return { line, index, saldo } })
 }

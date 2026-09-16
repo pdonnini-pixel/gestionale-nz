@@ -80,7 +80,7 @@ export default function LiquidazioneIva() {
 
   // Conferma mese: form inline
   const [confirmKey, setConfirmKey] = useState<string | null>(null)
-  const [cForm, setCForm] = useState({ corr: '', ivaAtt: '', ivaCred: '', tot: '', note: '', chiuso: '' })
+  const [cForm, setCForm] = useState({ corr: '', ivaAtt: '', ivaCred: '', taxfree: '', tot: '', note: '', chiuso: '' })
   const [busyKey, setBusyKey] = useState<string | null>(null)
   const [removeArm, setRemoveArm] = useState<string | null>(null)
 
@@ -129,6 +129,7 @@ export default function LiquidazioneIva() {
         importo: Number(r.importo ?? 0),
         importo_manuale: Boolean(r.importo_manuale),
         note: r.note,
+        iva_taxfree: Number(r.iva_taxfree ?? 0),
         registro_chiuso_il: r.registro_chiuso_il ?? null,
       })))
       setFiscalRows((fisc.data || []) as FiscalIvaRow[])
@@ -217,6 +218,7 @@ export default function LiquidazioneIva() {
     setConfirmKey(r.key)
     setCForm({
       corr: String(r.corrispettiviNetti), ivaAtt: String(r.ivaFattureAttive), ivaCred: String(r.ivaCredito),
+      taxfree: String(r.ivaTaxFree),
       tot: r.importoManuale ? String(r.importo) : '',
       note: r.note || '',
       // Chiusura del registro: quella già salvata, altrimenti oggi (confermare un mese lo chiude)
@@ -227,19 +229,20 @@ export default function LiquidazioneIva() {
   const saveConfirm = async (r: IvaLiquidazioneRow) => {
     if (!COMPANY_ID) return
     const corr = parseNum(cForm.corr); const ivaAtt = parseNum(cForm.ivaAtt); const ivaCred = parseNum(cForm.ivaCred)
+    const taxFree = Math.abs(parseNum(cForm.taxfree))
     const ivaDeb = round2(corr * effSettings.salesVatRate / 100)
     // Se il commercialista ha dato solo il totale, quello vince: i componenti
     // restano accanto come traccia, senza doverli falsare per far tornare la somma.
     const totManuale = cForm.tot.trim() !== ''
     const importo = totManuale
       ? round2(parseNum(cForm.tot))
-      : round2(ivaDeb + ivaAtt - ivaCred - r.riportoPrecedente)
+      : round2(ivaDeb + ivaAtt - ivaCred - taxFree - r.riportoPrecedente)
     setBusyKey(r.key)
     try {
       const { error } = await supabase.from('vat_settlements').upsert({
         company_id: COMPANY_ID, year: r.year, month: r.month,
         corrispettivi_netti: corr, iva_debito_corrispettivi: ivaDeb, iva_debito_fatture_attive: ivaAtt,
-        iva_credito: ivaCred, iva_riporto_precedente: r.riportoPrecedente, importo,
+        iva_credito: ivaCred, iva_taxfree: taxFree, iva_riporto_precedente: r.riportoPrecedente, importo,
         importo_manuale: totManuale,
         fonte_corrispettivi: 'manuale', note: cForm.note.trim() || null,
         registro_chiuso_il: /^\d{4}-\d{2}-\d{2}$/.test(cForm.chiuso) ? cForm.chiuso : todayYMD(),
@@ -472,7 +475,12 @@ export default function LiquidazioneIva() {
                       </td>
                       <td className="px-3 py-2 text-right">
                         {isConfirm ? (
-                          <input value={cForm.ivaCred} onChange={e => setCForm({ ...cForm, ivaCred: e.target.value })} className={inputCls} inputMode="decimal" aria-label="IVA acquisti" />
+                          <>
+                            <input value={cForm.ivaCred} onChange={e => setCForm({ ...cForm, ivaCred: e.target.value })} className={inputCls} inputMode="decimal" aria-label="IVA acquisti" />
+                            <label className="block text-[11px] text-slate-500 mt-1" title="IVA recuperata sulle note di variazione tax free (estratto conto Global Blue): non arriva via SDI">tax free (Global Blue)
+                              <input value={cForm.taxfree} onChange={e => setCForm({ ...cForm, taxfree: e.target.value })} className={inputCls + ' mt-0.5'} inputMode="decimal" aria-label="IVA tax free Global Blue" />
+                            </label>
+                          </>
                         ) : (
                           <>
                             <div className="tabular-nums text-slate-900">{r.ivaCreditoStimato ? '≈ ' : ''}{fmt(r.ivaCredito)}</div>
@@ -481,6 +489,11 @@ export default function LiquidazioneIva() {
                                 ? 'media dei mesi chiusi'
                                 : `${r.nFatturePassive} fatture ricevute${r.nNoteCredito ? `, ${r.nNoteCredito} NC` : ''}${r.ivaIntegrazioni ? ` · RC neutro ${fmt(r.ivaIntegrazioni)}` : ''}`}
                             </div>
+                            {r.ivaTaxFree > 0 && (
+                              <div className="text-[11px] text-emerald-700 tabular-nums" title={r.ivaTaxFreeStimato ? 'Stima: media dei mesi confermati. Il valore vero si legge dall\'estratto conto Global Blue alla conferma del mese.' : 'IVA recuperata sulle note di variazione tax free (Global Blue)'}>
+                                + tax free {r.ivaTaxFreeStimato ? '≈ ' : ''}{fmt(r.ivaTaxFree)}
+                              </div>
+                            )}
                           </>
                         )}
                       </td>
@@ -571,7 +584,7 @@ export default function LiquidazioneIva() {
 
         <div className="text-xs text-slate-500 space-y-1">
           <p><span className="font-semibold text-slate-700">Corrispettivi netti</span>: chiusure di cassa confermate quando ci sono (mese in corso: chiusure fino a oggi più preventivo per i giorni restanti), altrimenti il consuntivo e poi il preventivo di Budget &amp; Controllo. Sono imponibili: l'IVA vendite è corrispettivi × aliquota.</p>
-          <p><span className="font-semibold text-slate-700">IVA acquisti</span>: fatture passive per competenza, come nel registro del commercialista: una fattura del mese resta nel mese se arriva via SDI entro la chiusura del registro di quel mese (la data «registro chiuso il» salvata con la conferma; per i mesi non confermati il giorno {cutoffDay} del mese successivo, parametro), altrimenti va nel mese in cui arriva; meno le note di credito. Le integrazioni reverse charge (TD16/17/18/19) sono neutre e non entrano. Per i mesi futuri si usa la media dei mesi chiusi (≈). Tutta l'IVA è considerata detraibile.</p>
+          <p><span className="font-semibold text-slate-700">IVA acquisti</span>: fatture passive per competenza, come nel registro del commercialista: una fattura del mese resta nel mese se arriva via SDI entro la chiusura del registro di quel mese (la data «registro chiuso il» salvata con la conferma; per i mesi non confermati il giorno {cutoffDay} del mese successivo, parametro), altrimenti va nel mese in cui arriva; meno le note di credito. Le integrazioni reverse charge (TD16/17/18/19) sono neutre e non entrano. Per i mesi futuri si usa la media dei mesi chiusi (≈). Tutta l'IVA è considerata detraibile. <span className="font-semibold text-slate-700">Tax free</span>: l'IVA recuperata sulle note di variazione Global Blue (rimborsi ai turisti extra UE) non arriva via SDI: si scrive alla conferma del mese leggendola dall'estratto conto Global Blue, per gli altri mesi vale la media dei mesi confermati (≈). Riduce la liquidazione come l'IVA acquisti.</p>
           <p><span className="font-semibold text-slate-700">Riporto</span>: se un mese chiude a credito, il credito riduce la liquidazione del mese dopo. Un mese confermato usa i numeri inseriti a mano; un mese pagato usa l'importo versato registrato in Scadenze Fiscali.</p>
           <p><span className="font-semibold text-slate-700">Scadenza</span>: il 16 del mese successivo (20 agosto per luglio, giorno lavorativo successivo se cade nel weekend), codice tributo 60 + mese. «Crea scadenza» la scrive in Scadenze Fiscali: da lì entra in Scadenzario e Cashflow Prospettico.</p>
         </div>

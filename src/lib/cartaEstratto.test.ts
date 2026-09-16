@@ -3,6 +3,8 @@ import {
   parseItAmount, parseDotAmount, toIsoDate, detectIssuer, parseNumiaLines, parseMpsLines, parseTascaAoa, parseTascaLines,
   parseGenericLines, parseCardStatementLines, periodOf, sourceLabelOf, matchStatementDebit, matchRicariche, matchPayables,
   buildCartaRow, totaliCarta, type CardLine,
+  parseDebitPos, debitCardsFromMovements, bankShortName, debitCardLabel, RE_POS_DEBITO,
+  prepaidBalances, nettoCarta, conSaldoProgressivo,
 } from './cartaEstratto'
 
 // Righe come le ricostruisce extractPdfLines (pdf.js, righe per geometria)
@@ -248,9 +250,110 @@ describe('righe export e totali', () => {
     const l: CardLine = { card_last4: '5388', purchase_date: '2026-05-18', posting_date: '2026-05-19', description: 'SISSI PRATO ITA', amount: -201.3, fee: 0, currency: 'EUR', original_amount: null }
     expect(buildCartaRow('Carta credito BCC *5388', l, { id: 'p', payment_date: '2026-05-18', invoice_date: null, gross_amount: 201.3, supplier_name: 'SISSI', invoice_number: '12' }, 'addebito 25/06/2026', fmt)).toEqual({
       Carta: 'Carta credito BCC *5388', 'Data acquisto': '18/05/2026', 'Data registrazione': '19/05/2026', Descrizione: 'SISSI PRATO ITA', Importo: -201.3, Commissioni: '', Valuta: 'EUR',
-      Fornitore: 'SISSI', Fattura: '12', 'Pagata il': '18/05/2026', 'Riscontro banca': 'addebito 25/06/2026',
+      Fornitore: 'SISSI', Fattura: '12', 'Pagata il': '18/05/2026', 'Riscontro banca': 'addebito 25/06/2026', Saldo: '',
     })
     const t = totaliCarta([l, { ...l, amount: 500, fee: -1 }])
     expect(t).toEqual({ spese: 201.3, accrediti: 500, commissioni: -1, netto: 297.7, n: 2 })
+  })
+})
+
+describe('carte di debito: pagamenti POS letti dalle causali del conto', () => {
+  const bcc = 'Operazione POS Eurozona Del 17.02.26 17:36 Carta *453 COSTO DEL NOLEGGIO FIRENZE IT'
+  const mps1 = 'PAGAMENTO TRAMITE POS PAG.POS MASTERCARD DATA 28/01/26 ORA 10.31 LOC.BOARA-ROV.N. ESERCENTE : ASPIT INCISA REGGELLO- IMP.IN DIV.ORIG -18.20 COM. E. 0.00 N.CARTA: 98957552'
+  const mps2 = 'Causale: PAG.POS MASTERCARD - Descrizione: DATA 14/05/26 ORA 00.00 LOC.TORINO ESERCENTE : SCANNABUE IMP.IN DIV.ORIG -53.00 COM. E. 0.00 N.CARTA: 99899952'
+  it('BCC: data di acquisto, ultime cifre della carta ed esercente', () => {
+    expect(parseDebitPos(bcc, '2026-02-18')).toEqual({ card: '453', purchase_date: '2026-02-17', merchant: 'COSTO DEL NOLEGGIO FIRENZE IT', place: null, fee: 0, original_amount: null })
+  })
+  it('MPS, entrambi i formati: numero carta, data, localita, esercente, importo in divisa e commissioni', () => {
+    expect(parseDebitPos(mps1, '2026-01-30')).toEqual({ card: '98957552', purchase_date: '2026-01-28', merchant: 'ASPIT INCISA REGGELLO-', place: 'BOARA-ROV.N.', fee: -0, original_amount: -18.2 })
+    expect(parseDebitPos(mps2, '2026-05-15')).toEqual({ card: '99899952', purchase_date: '2026-05-14', merchant: 'SCANNABUE', place: 'TORINO', fee: -0, original_amount: -53 })
+  })
+  it('non e\' un POS: commissioni PagoBancomat, incassi POS, ricariche, bonifici', () => {
+    expect(parseDebitPos('Commissioni PagoBancomat 618108700001 CIRCUITO PAGOBANCOMAT', '2026-08-01')).toBeNull()
+    expect(parseDebitPos('Incassi PagoBancomat 30.08.26 - 618108700003 VICOLO', '2026-08-30')).toBeNull()
+    expect(parseDebitPos('Ricarica carta prepagata TASCA da CARTA : 5226*********580', '2026-08-30')).toBeNull()
+    expect(RE_POS_DEBITO.test('BONIFICO PER ORDINE/CONTO')).toBe(false)
+  })
+  it('raggruppa per conto e carta, ordina per data di acquisto, ignora le entrate', () => {
+    const groups = debitCardsFromMovements([
+      { id: 'b2', bank_account_id: 'bcc', transaction_date: '2026-02-24', posting_date: '2026-02-24', amount: -50, description: 'Operazione POS Eurozona Del 23.02.26 10:00 Carta *453 FERRAMENTA SOLDI SAS FIGLINE E INC IT' },
+      { id: 'b1', bank_account_id: 'bcc', transaction_date: '2026-02-18', posting_date: null, amount: -1200, description: bcc },
+      { id: 'm1', bank_account_id: 'mps', transaction_date: '2026-01-30', posting_date: '2026-01-30', amount: -18.2, description: mps1 },
+      { id: 'x', bank_account_id: 'bcc', transaction_date: '2026-02-18', posting_date: null, amount: 300, description: 'Incassi PagoBancomat 18.02.26 - 618108700003 VICOLO' },
+      { id: 'y', bank_account_id: 'bcc', transaction_date: '2026-02-18', posting_date: null, amount: -7, description: 'Causale: CANONE RAPPORTO PACKAGE' },
+    ])
+    expect(groups.map(g => [g.key, g.card, g.lines.map(l => l.id)])).toEqual([['bcc|453', '453', ['b1', 'b2']], ['mps|98957552', '98957552', ['m1']]])
+    const l = groups[0].lines[0]
+    expect(l).toMatchObject({ id: 'b1', card_last4: '453', purchase_date: '2026-02-17', posting_date: '2026-02-18', description: 'COSTO DEL NOLEGGIO FIRENZE IT', amount: -1200, currency: 'EUR' })
+    expect(groups[1].lines[0].description).toBe('ASPIT INCISA REGGELLO- (BOARA-ROV.N.)')
+  })
+  it('etichette: nome breve della banca e carta', () => {
+    expect(bankShortName('MPS - Banca Monte dei Paschi di Siena Small Business / Corporate')).toBe('MPS')
+    expect(bankShortName('BCC Valdarno Fiorentino Banca di Cascia')).toBe('BCC Valdarno')
+    expect(debitCardLabel('BCC Valdarno Fiorentino Banca di Cascia', '453')).toBe('Carta di debito BCC Valdarno *453')
+    expect(debitCardLabel('MPS - Banca Monte dei Paschi', '99899952')).toBe('Carta di debito MPS n. 99899952')
+  })
+})
+
+describe('prepagata Tasca, PDF «Lista Movimenti» del portale: movimenti spezzati su piu\' righe', () => {
+  const lines = [
+    'Intestatario MASSIMO GALLO', 'Numero Carta 522675******0580', 'Tipo Carta Prepaid Business MC', 'Plafond 0.00 EUR', 'Disponibilità 133.68 EUR',
+    'Lista Movimenti', 'Data Importo Importo', 'Data acquisto Descrizione operazioni Commissioni Valuta', 'registrazione originale EURO',
+    '28/07/2026 29/07/2026 SALERNI FALIERA & C. S', '-12.00 -12.00 0.00 EUR', '13:04:54 PIETRASANTA ITA',
+    '21/07/2026 22/07/2026', 'ALICE PIZZA VALMONTONE ITA -20.03 -20.03 0.00 EUR', '12:59:43',
+    '21/07/2026 21/07/2026 RICARICA DA HB BANCA', '500.00 500.00 -1.00 EUR', '08:21:49 COLLOCATRICE',
+    'Totale Movimenti -477.91 EUR', 'Lista Autorizzazioni', 'Pag. 1 di 2', 'Totale Autorizzazioni 0.00 EUR',
+  ]
+  const p = parseTascaLines(lines)
+  it('ricompone i blocchi: date, descrizione su piu\' righe, importi e commissioni', () => {
+    expect(p.lines.map(l => [l.purchase_date, l.posting_date, l.amount, l.fee, l.description])).toEqual([
+      ['2026-07-28', '2026-07-29', -12, 0, 'SALERNI FALIERA & C. S PIETRASANTA ITA'],
+      ['2026-07-21', '2026-07-22', -20.03, 0, 'ALICE PIZZA VALMONTONE ITA'],
+      ['2026-07-21', '2026-07-21', 500, -1, 'RICARICA DA HB BANCA COLLOCATRICE'],
+    ])
+    expect(p.cards).toEqual([{ card_last4: '0580', holder: 'MASSIMO GALLO', total_declared: -477.91 }])
+    expect(p.lines.every(l => l.card_last4 === '0580')).toBe(true)
+    expect(p.available_balance).toBe(133.68)
+    expect(p.period).toEqual({ year: 2026, month: 7 })
+    expect(p.total_computed).toBe(466.97)
+  })
+  it('il formato vecchio su una riga sola si legge ancora', () => {
+    const q = parseTascaLines(['MASSIMO GALLO 522675******0580 Prepaid Business MC', 'Lista Movimenti', '04/08/2026 15:23:14 04/08/2026 RICARICA DA HB BANCA COLLOCATRICE 300.00 300.00 -1.00 EUR', 'Totale Movimenti 299.00 EUR'])
+    expect(q.lines).toHaveLength(1)
+    expect(q.lines[0]).toMatchObject({ purchase_date: '2026-08-04', amount: 300, fee: -1, description: 'RICARICA DA HB BANCA COLLOCATRICE', card_last4: '0580' })
+    expect(q.available_balance).toBeNull()
+  })
+})
+
+describe('saldo della prepagata: catena degli estratti ancorata alla Disponibilita\' del PDF', () => {
+  // Numeri reali NZ 2026: netto per mese; luglio stampato il 03/08 con Disponibilita' 133.68
+  const stmts = [
+    { key: 'feb', period: { year: 2026, month: 2 }, netto: 1706.5, available_balance: null },
+    { key: 'mar', period: { year: 2026, month: 3 }, netto: -1605.9, available_balance: null },
+    { key: 'apr', period: { year: 2026, month: 4 }, netto: -3.81, available_balance: null },
+    { key: 'mag', period: { year: 2026, month: 5 }, netto: 79.42, available_balance: null },
+    { key: 'giu', period: { year: 2026, month: 6 }, netto: 435.38, available_balance: null },
+    { key: 'lug', period: { year: 2026, month: 7 }, netto: -477.91, available_balance: 133.68 },
+    { key: 'ago', period: { year: 2026, month: 8 }, netto: -17.46, available_balance: 82.69 },
+  ]
+  it('dal primo documento con la disponibilita\' ricostruisce avanti e indietro: febbraio parte da 0,00, agosto chiude a 116,22', () => {
+    const b = prepaidBalances(stmts)
+    expect(b.get('lug')).toEqual({ saldo_iniziale: 611.59, saldo_finale: 133.68, ancoraggio: 'documento', anchor_key: 'lug' })
+    expect(b.get('ago')).toEqual({ saldo_iniziale: 133.68, saldo_finale: 116.22, ancoraggio: 'catena', anchor_key: 'lug' })
+    expect(b.get('giu')).toEqual({ saldo_iniziale: 176.21, saldo_finale: 611.59, ancoraggio: 'catena', anchor_key: 'lug' })
+    expect(b.get('feb')).toEqual({ saldo_iniziale: 0, saldo_finale: 1706.5, ancoraggio: 'catena', anchor_key: 'lug' })
+  })
+  it('senza nessuna disponibilita\' parte da zero al primo estratto e lo dichiara', () => {
+    const b = prepaidBalances(stmts.map(s => ({ ...s, available_balance: null })))
+    expect(b.get('feb')).toEqual({ saldo_iniziale: 0, saldo_finale: 1706.5, ancoraggio: 'da_zero', anchor_key: null })
+    expect(b.get('ago')?.saldo_finale).toBe(116.22)
+    expect(prepaidBalances([]).size).toBe(0)
+  })
+  it('netto e saldo progressivo in ordine cronologico', () => {
+    const lines = [
+      { purchase_date: '2026-08-27', amount: -12.4, fee: 0 }, { purchase_date: '2026-08-04', amount: 300, fee: -1 }, { purchase_date: '2026-08-04', amount: -18.7, fee: 0 },
+    ]
+    expect(nettoCarta(lines)).toBe(267.9)
+    expect(conSaldoProgressivo(lines, 133.68).map(x => [x.index, x.saldo])).toEqual([[1, 432.68], [2, 413.98], [0, 401.58]])
   })
 })

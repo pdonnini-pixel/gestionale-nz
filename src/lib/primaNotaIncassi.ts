@@ -17,6 +17,8 @@
 // prima nota e il riscontro delle chiusure dicono la stessa cosa. Su agosto
 // 2026 NZ: 585 accrediti POS e 35 versamenti, tutti attribuiti.
 
+import type { MovementKind } from './primaNotaExport'
+
 export type PnChannel = {
   id: string
   outlet_id: string
@@ -128,7 +130,16 @@ export function normCode(code: string | null | undefined): string | null {
   return digits.slice(-5).padStart(5, '0')
 }
 
-/** Natura dell'entrata, letta dalla causale. Un giroconto non è un incasso: lo esclude chi chiama. */
+/**
+ * Un'entrata e' un incasso solo se non e' un giroconto ne' un rimborso: la
+ * restituzione di un fornitore (Mian, soldi bonificati in eccesso) o la
+ * liquidazione transattiva di un corriere (BRT) non sono acquisti di clienti e
+ * non vanno attribuite a un outlet. Restano nel foglio del conto come
+ * «Rimborso / restituzione».
+ */
+export const isIncassoKind = (kind: MovementKind): boolean => kind !== 'giroconto' && kind !== 'rimborso'
+
+/** Natura dell'entrata, letta dalla causale. Giroconti e rimborsi non sono incassi: li esclude chi chiama (isIncassoKind). */
 export function incassoKindOf(m: PnIncassoMovement): IncassoKind {
   const c = circuitOf(m.description)
   if (c === 'amex') return 'amex'

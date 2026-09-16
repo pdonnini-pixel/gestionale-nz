@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  terminalCodeOf, circuitOf, refDateOf, isDeposit, normCode, incassoKindOf, depositKeywordMatches,
+  terminalCodeOf, circuitOf, refDateOf, isDeposit, normCode, incassoKindOf, depositKeywordMatches, isIncassoKind,
   attribuisciIncasso, buildIncassoRow, summarizeByOutlet, causalePulita, SENZA_OUTLET,
   type IncassiLookups, type PnChannel, type PnIncassoMovement,
 } from './primaNotaIncassi'
@@ -207,5 +207,15 @@ describe('riga export e riepilogo', () => {
     expect(s[2]).toMatchObject({ n: 1, pos: 100, totale: 100 })
     expect(s[3]).toMatchObject({ outlet_id: null, n: 2, altro: 58, versamenti: 10, totale: 68 })
     expect(SENZA_OUTLET).toBeTruthy()
+  })
+})
+
+describe('isIncassoKind: cosa entra in Incassi per outlet', () => {
+  it('giroconti e rimborsi (Mian: restituzione, BRT: liquidazione transattiva) restano fuori; il resto entra', () => {
+    expect(isIncassoKind('rimborso')).toBe(false)
+    expect(isIncassoKind('giroconto')).toBe(false)
+    expect(isIncassoKind('pos')).toBe(true)
+    expect(isIncassoKind('incasso_cliente')).toBe(true)
+    expect(isIncassoKind('da_chiarire')).toBe(true)
   })
 })
