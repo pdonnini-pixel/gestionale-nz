@@ -61,7 +61,7 @@ import {
   buildPagamentoRow, fonteOf, includePagamento, sortPagamenti, summarizePagamenti, importoPagato, metodoLabel, rataOf,
   FONTE_LABELS, type PnPagamento, type PnLookups, type PagamentoFonte,
 } from '../lib/primaNotaPagamenti'
-import {
+import { isIncassoKind,
   attribuisciIncasso, buildIncassoRow, summarizeByOutlet, outletLabel,
   ATTRIBUZIONE_LABELS, INCASSI_COLUMN_WIDTHS, SENZA_OUTLET,
   type IncassiLookups, type IncassoKind, type Attribuzione,
@@ -74,7 +74,7 @@ import {
   abbinaStipendi, buildStipendioRow, nomeDipendente, competenzaLabel, competenzeCandidate, STIPENDI_COLUMN_WIDTHS, addebitoBanca,
   type PnSlip, type PnFlusso,
 } from '../lib/primaNotaStipendi'
-import {
+import { debitCardsFromMovements, debitCardLabel, bankShortName,
   parseCardStatementLines, parseTascaAoa, matchStatementDebit, matchRicariche, matchPayables, buildCartaRow, totaliCarta, sourceLabelOf,
   ISSUER_LABELS, CARTE_COLUMN_WIDTHS, type CardStatementParsed, type CardLine, type PayableLite, type BankMovLite, type AoaCell,
 } from '../lib/cartaEstratto'
@@ -149,6 +149,7 @@ const KIND_BADGE: Record<MovementKind, string> = {
   pos: 'bg-emerald-100 text-emerald-700',
   versamento: 'bg-emerald-50 text-emerald-700',
   carta: 'bg-sky-100 text-sky-700',
+  carta_debito: 'bg-sky-50 text-sky-700',
   finanziamento: 'bg-slate-200 text-slate-700',
   spese_banca: 'bg-slate-100 text-slate-600',
   giroconto: 'bg-slate-100 text-slate-600',
@@ -530,9 +531,9 @@ export default function PrimaNota() {
     }
   }, [companyId, year, month])
 
-  type PayRow = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number | string; invoice_number: string | null; suppliers: { ragione_sociale: string | null; name: string | null } | null }
-  const payLite = (rows: PayRow[]): PayableLite[] => rows.map(p => ({ id: p.id, payment_date: p.payment_date, invoice_date: p.invoice_date, gross_amount: Number(p.gross_amount), invoice_number: p.invoice_number, supplier_name: p.suppliers?.ragione_sociale ?? p.suppliers?.name ?? null }))
-  const PAY_SELECT = 'id, payment_date, invoice_date, gross_amount, invoice_number, suppliers(ragione_sociale, name)'
+  type PayRow = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number | string; invoice_number: string | null; payment_method: string | null; suppliers: { ragione_sociale: string | null; name: string | null } | null }
+  const payLite = (rows: PayRow[]): PayableLite[] => rows.map(p => ({ id: p.id, payment_date: p.payment_date, invoice_date: p.invoice_date, gross_amount: Number(p.gross_amount), invoice_number: p.invoice_number, payment_method: p.payment_method, supplier_name: p.suppliers?.ragione_sociale ?? p.suppliers?.name ?? null }))
+  const PAY_SELECT = 'id, payment_date, invoice_date, gross_amount, invoice_number, payment_method, suppliers(ragione_sociale, name)'
   const loadCardPayables = useCallback(async (from: string, to: string): Promise<PayableLite[]> => {
     if (!companyId) return []
     const { data } = await supabase.from('payables').select(PAY_SELECT).eq('company_id', companyId)
@@ -628,7 +629,7 @@ export default function PrimaNota() {
   // incassi) attribuite al punto vendita. Stessa fonte della vista banca.
   const incassi = useMemo(
     () => movements
-      .filter(m => m.amount > 0 && classifyMovement(m) !== 'giroconto')
+      .filter(m => m.amount > 0 && isIncassoKind(classifyMovement(m)))
       .map(m => ({ m, a: attribuisciIncasso(m, incassiLk) })),
     [movements, incassiLk],
   )
@@ -710,13 +711,29 @@ export default function PrimaNota() {
     if (c.isPrepagata) { const r = c.ricariche.get(li); return l.amount > 0 && /RICARICA/i.test(l.description) ? (r ? `addebito in banca il ${fmtDate(r.transaction_date)}` : 'ricarica non trovata in banca') : '' }
     return c.debit.movement ? `estratto addebitato il ${fmtDate(c.debit.movement.transaction_date)}` : 'addebito estratto non trovato'
   }, [carte])
-  const carteRows = useMemo(() => carte.flatMap((c, ci) => c.lines.map((l, li) => buildCartaRow(c.label, l, cartePay[ci].get(li), riscontroOf(ci, li), fmtDate))), [carte, cartePay, riscontroOf])
+  // Carte di DEBITO: i pagamenti POS del periodo, raggruppati per conto e carta
+  // (letti dalla causale della banca). Ogni riga e' gia' un movimento del conto:
+  // il riscontro e' il movimento stesso, non c'e' un addebito cumulativo da cercare.
+  const carteDebito = useMemo(() => debitCardsFromMovements(movements).map(g => {
+    const acc = bankAccounts.find(b => b.id === g.bank_account_id)
+    return { ...g, label: debitCardLabel(acc?.bank_name, g.card), bankName: acc?.bank_name ?? '—', iban: acc?.iban ?? '', tot: totaliCarta(g.lines) }
+  }), [movements, bankAccounts])
+  const carteDebitoPay = useMemo(() => {
+    const pool = cardPayables.filter(p => p.payment_method === 'carta_debito')
+    return carteDebito.map(g => matchPayables(g.lines, pool))
+  }, [carteDebito, cardPayables])
+  const riscontroDebito = useCallback((bankName: string, l: { posting_date: string | null; purchase_date: string }): string => `in banca il ${fmtDate(l.posting_date ?? l.purchase_date)} (${bankShortName(bankName)})`, [])
+  const carteRows = useMemo(() => [
+    ...carte.flatMap((c, ci) => c.lines.map((l, li) => buildCartaRow(c.label, l, cartePay[ci].get(li), riscontroOf(ci, li), fmtDate))),
+    ...carteDebito.flatMap((g, gi) => g.lines.map((l, li) => buildCartaRow(g.label, l, carteDebitoPay[gi].get(li), riscontroDebito(g.bankName, l), fmtDate))),
+  ], [carte, cartePay, riscontroOf, carteDebito, carteDebitoPay, riscontroDebito])
   const carteTot = useMemo(() => ({
     n: carte.length, spese: r2(carte.reduce((a, c) => a + c.tot.spese, 0)), accrediti: r2(carte.reduce((a, c) => a + c.tot.accrediti, 0)),
     righe: cardTx.length, senzaRighe: carte.filter(c => c.lines.length === 0).length,
     addebitiTrovati: carte.filter(c => !c.isPrepagata && c.lines.length > 0 && c.debit.movement).length, addebitiAttesi: carte.filter(c => !c.isPrepagata && c.lines.length > 0).length,
     fattureAgganciate: cartePay.reduce((a, m) => a + m.size, 0), speseN: cardTx.filter(t => t.amount < 0).length,
-  }), [carte, cartePay, cardTx])
+    debitoCarte: carteDebito.length, debitoN: carteDebito.reduce((a, g) => a + g.lines.length, 0), debitoSpese: r2(carteDebito.reduce((a, g) => a + g.tot.spese, 0)), debitoFatture: carteDebitoPay.reduce((a, m) => a + m.size, 0),
+  }), [carte, cartePay, cardTx, carteDebito, carteDebitoPay])
 
   // Import: legge il file (PDF via pdf.js, Excel via SheetJS) e propone l'anteprima
   const parseCardFile = useCallback(async (file: File): Promise<CardStatementParsed> => {
@@ -1012,8 +1029,33 @@ export default function PrimaNota() {
       nomiCarte.push(name)
       addStyledSheet(wb, { name, rows: crows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 12, 30], moneyHeaders: ['Importo', 'Commissioni'], tabColor: 'C55A11' })
     })
+    // Un foglio per carta di DEBITO: i pagamenti POS del periodo letti dai
+    // movimenti del conto, stessa struttura degli estratti; niente addebito
+    // cumulativo perche' ogni riga e' gia' in banca.
+    const nomiCarteDebito: string[] = []
+    carteDebito.forEach((g, gi) => {
+      const pm = carteDebitoPay[gi]
+      const drows: StyledRow[] = [
+        { kind: 'title', cells: [g.label] },
+        { kind: 'meta', cells: ['Conto', g.bankName] },
+        { kind: 'meta', cells: ['IBAN', g.iban] },
+        { kind: 'meta', cells: ['Periodo', periodoLabel] },
+        { kind: 'meta', cells: ['Fonte', 'pagamenti POS presenti fra i movimenti del conto: ogni riga è già sull\'estratto conto, con la stessa data e lo stesso importo'] },
+        { kind: 'blank', cells: [] },
+        { kind: 'header', cells: ['Data acquisto', 'Data contabile', 'Esercente', 'Importo', 'Commissioni', 'Valuta', 'Fornitore', 'Fattura', 'Pagata il', 'Riscontro banca'] },
+        ...g.lines.map((l, li): StyledRow => {
+          const r = buildCartaRow(g.label, l, pm.get(li), riscontroDebito(g.bankName, l), fmtDate)
+          return { kind: 'data', cells: [r['Data acquisto'], r['Data registrazione'], r.Descrizione, r.Importo, r.Commissioni, r.Valuta, r.Fornitore, r.Fattura, r['Pagata il'], r['Riscontro banca']] }
+        }),
+        { kind: 'close', cells: ['Totale pagamenti POS', `${g.lines.length} operazioni: spese ${fmt(g.tot.spese)}${g.tot.commissioni !== 0 ? `, commissioni ${fmt(g.tot.commissioni)}` : ''}`, '', r2(-g.tot.spese)] },
+        { kind: 'ok', cells: ['Riscontro', `tutte le ${g.lines.length} righe sono movimenti del conto ${bankShortName(g.bankName)}: nessun addebito cumulativo da cercare`, '', ''] },
+      ]
+      const name = sheetName(g.label, used)
+      nomiCarteDebito.push(name)
+      addStyledSheet(wb, { name, rows: drows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 12, 34], moneyHeaders: ['Importo', 'Commissioni'], tabColor: 'ED7D31' })
+    })
     // Foglio Guida in testa: cosa c'è in ogni foglio e come si cerca
-    addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, flussiSenzaBuste: stipendi.flussi_non_abbinati.length }), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
+    addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, carteDebito: nomiCarteDebito, flussiSenzaBuste: stipendi.flussi_non_abbinati.length }), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
     await downloadWorkbook(wb, `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.xlsx`)
   }
 
@@ -1538,12 +1580,13 @@ export default function PrimaNota() {
       </>)}
 
       {view === 'carte' && (<>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
         <KpiBox label="Estratti carta nel periodo" value={carteTot.n.toString()} color="slate" hint={carteTot.senzaRighe > 0 ? `${carteTot.senzaRighe} archiviati senza righe: leggili dal file` : carteTot.n > 0 ? 'tutti con le righe importate' : 'importa il PDF o l\'Excel dell\'estratto'} />
         <KpiBox label="Spese con carta" value={`€ ${fmt(carteTot.spese)}`} color="red" hint={`${carteTot.speseN} operazioni`} />
         <KpiBox label="Ricariche e storni" value={`€ ${fmt(carteTot.accrediti)}`} color="emerald" />
         <KpiBox label="Addebiti trovati in banca" value={`${carteTot.addebitiTrovati} / ${carteTot.addebitiAttesi}`} color={carteTot.addebitiAttesi > 0 && carteTot.addebitiTrovati < carteTot.addebitiAttesi ? 'orange' : 'slate'} hint="carte di credito: l'addebito unico dell'estratto sul conto" />
         <KpiBox label="Fatture agganciate" value={`${carteTot.fattureAgganciate} / ${carteTot.speseN}`} color="slate" hint="spese che pagano una fattura dello Scadenzario (carta)" />
+        <KpiBox label="Carte di debito (POS)" value={`€ ${fmt(carteTot.debitoSpese)}`} color="slate" hint={carteTot.debitoN > 0 ? `${carteTot.debitoN} pagamenti su ${carteTot.debitoCarte} cart${carteTot.debitoCarte === 1 ? 'a' : 'e'}, ${carteTot.debitoFatture} fatture agganciate` : 'nessun pagamento POS nel periodo'} />
       </div>
       <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex flex-wrap items-center gap-3 text-sm">
         <input ref={cardFileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" multiple className="hidden" onChange={e => onCardFiles(e.target.files)} />
@@ -1554,8 +1597,8 @@ export default function PrimaNota() {
         <span className="text-slate-600">PDF di CartaBCC (Numia) e Carta Montepaschi, Excel o PDF della prepagata Tasca. La carta, il mese e le righe si leggono dal documento; il file finisce in Archivio.</span>
       </div>
 
-      {carte.length === 0 ? (
-        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">Nessun estratto carta per il periodo selezionato</div>
+      {carte.length === 0 && carteDebito.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-slate-500 text-sm">Nessun estratto carta né pagamento con carta di debito per il periodo selezionato</div>
       ) : carte.map((c, ci) => {
         const pm = cartePay[ci]
         return (
@@ -1609,6 +1652,51 @@ export default function PrimaNota() {
                 </table>
               </TableScroll>
             )}
+          </div>
+        )
+      })}
+
+      {carteDebito.map((g, gi) => {
+        const pm = carteDebitoPay[gi]
+        return (
+          <div key={g.key} className="bg-white rounded-xl border border-slate-200 mb-4 overflow-hidden">
+            <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+              <span className="font-semibold text-slate-800 inline-flex items-center gap-1.5"><CreditCard size={14} /> {g.label}</span>
+              <span className="text-xs text-slate-500">conto {g.bankName}{g.iban && <> · <span className="font-mono">{g.iban}</span></>}</span>
+              <span className="text-xs text-slate-600">{g.lines.length} pagamenti POS · spese <strong className="tabular-nums text-red-700">{fmt(g.tot.spese)}</strong>{g.tot.commissioni !== 0 && <> · commissioni <strong className="tabular-nums">{fmt(g.tot.commissioni)}</strong></>}</span>
+              <span className="text-xs px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">ogni riga è già un movimento del conto</span>
+            </div>
+            <TableScroll>
+              <table className="w-full text-sm">
+                <thead className="bg-white text-xs uppercase text-slate-600">
+                  <tr>
+                    <th className="px-3 py-2 text-left">Data acquisto</th>
+                    <th className="px-3 py-2 text-left">In banca</th>
+                    <th className="px-3 py-2 text-left">Esercente</th>
+                    <th className="px-3 py-2 text-right">Importo</th>
+                    <th className="px-3 py-2 text-right">Comm.</th>
+                    <th className="px-3 py-2 text-left">Fattura pagata</th>
+                    <th className="px-3 py-2 text-left">Riscontro banca</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.lines.map((l, li) => {
+                    const p = pm.get(li)
+                    return (
+                      <tr key={l.id} className="border-t border-slate-100 hover:bg-slate-50/50">
+                        <td className="px-3 py-1.5 whitespace-nowrap text-slate-700">{fmtDate(l.purchase_date)}</td>
+                        <td className="px-3 py-1.5 whitespace-nowrap text-xs text-slate-500">{l.posting_date ? fmtDate(l.posting_date) : '—'}</td>
+                        <td className="px-3 py-1.5 text-slate-700 text-xs max-w-md"><Tooltip content={l.description}><div className="truncate cursor-help">{l.description}</div></Tooltip>{l.original_amount != null && Math.abs(l.original_amount) !== Math.abs(l.amount) && <span className="text-slate-400">{fmt(l.original_amount)} in divisa</span>}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums whitespace-nowrap font-medium text-red-700">{fmt(l.amount)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-xs text-slate-500">{l.fee ? fmt(l.fee) : ''}</td>
+                        <td className="px-3 py-1.5 text-xs">{p ? <span className="text-slate-700">{p.supplier_name ?? '—'}<span className="block text-slate-400">fatt. {p.invoice_number ?? '?'}{p.payment_date ? ` · pagata il ${fmtDate(p.payment_date)}` : ''}</span></span> : <span className="text-slate-400">nessuna fattura con carta di debito per questo importo</span>}</td>
+                        <td className="px-3 py-1.5 text-xs"><span className="inline-block px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">{riscontroDebito(g.bankName, l)}</span></td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </TableScroll>
           </div>
         )
       })}

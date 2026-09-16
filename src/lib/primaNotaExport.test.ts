@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   classifyMovement, counterpartOf, pivaOf, causaleOf, buildRow, summarizeByKind, outletCodeFromNote,
-  isRiba, ribaCountOf, tipoMovimentoOf,
+  isRiba, ribaCountOf, tipoMovimentoOf, KIND_LABELS,
   invoicesTotalOf, type PnMovement, type PnPayable,
 } from './primaNotaExport'
 
@@ -107,6 +107,19 @@ describe('contropartita, P.IVA e causale con TUTTE le fatture del movimento', ()
     expect(isRiba(bonifico.payables[0])).toBe(false)
     expect(tipoMovimentoOf(bonifico)).toBe('Pagamento fornitore')
     expect(causaleOf(bonifico)).toBe('Fatt. 1')
+  })
+  it('pagamento POS con la carta di debito: tipo dedicato, anche con etichetta «carte» della banca; gli incassi POS restano incassi', () => {
+    expect(classifyMovement(mv({ amount: -1200, category: 'carte', description: 'Operazione POS Eurozona Del 17.02.26 17:36 Carta *453 COSTO DEL NOLEGGIO FIRENZE IT' }))).toBe('carta_debito')
+    expect(classifyMovement(mv({ amount: -53, description: 'Causale: PAG.POS MASTERCARD - Descrizione: DATA 14/05/26 ORA 00.00 LOC.TORINO ESERCENTE : SCANNABUE IMP.IN DIV.ORIG -53.00 COM. E. 0.00 N.CARTA: 99899952' }))).toBe('carta_debito')
+    expect(KIND_LABELS.carta_debito).toBe('Carta di debito (POS)')
+    expect(classifyMovement(mv({ amount: 150, description: 'Incassi PagoBancomat 30.08.26 - 618108700003 VICOLO' }))).toBe('pos')
+    expect(classifyMovement(mv({ amount: -1571.21, description: 'Carta del Credito Cooperativo CCP DIRECT ISSUING' }))).toBe('carta')
+  })
+  it('restituzione di un fornitore e liquidazione transattiva di un corriere sono rimborsi, non incassi', () => {
+    const mian = mv({ amount: 450, category: 'rimborsi_fornitori', description: 'Causale: BONIFICO PER ORDINE/CONTO - Descrizione: BON. SEPA 0306926532128407484017740177IT DEL 27.08.26 ORD: MIAN SRL BIC: BCITITMMXXX RI: RESTITUZIONE SOLDI CAUS: CASH' })
+    const brt = mv({ amount: 6.2, description: 'Causale: BONIFICO PER ORDINE/CONTO - Descrizione: BON. SEPA 1101262380309856 DEL 27.08.26 ORD: BRT SPA BIC: UNCRITMMXXX RI: LIQUIDAZIONE TRANSATTIVA: Anomalia 116/1944 15/07/26. CAUS: OTHR' })
+    expect(classifyMovement(mian)).toBe('rimborso')
+    expect(classifyMovement(brt)).toBe('rimborso')
   })
   it('un solo fornitore con più fatture: nome, P.IVA e tutti i numeri', () => {
     const m = mv({ amount: -466.95, description: 'Bonifico *DX SRL SALDO FATTURA 60828-65166', payables: [pay('60828', 'DX SRL', '11111111111', 155.65), pay('65166', 'DX SRL', '11111111111', 311.3)] })

@@ -366,7 +366,7 @@ export function matchRicariche(lines: CardLine[], movements: BankMovLite[]): Map
 
 // ── Aggancio alle fatture pagate con carta ─────────────────────────────
 
-export type PayableLite = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number; supplier_name: string | null; invoice_number: string | null }
+export type PayableLite = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number; supplier_name: string | null; invoice_number: string | null; payment_method?: string | null }
 
 const tokens = (s: string | null): string[] => (s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').split(' ').filter(t => t.length >= 3 && !/^(SRL|SPA|SNC|SAS|SRLS|DI|DEL|DELLA|THE|AND|ITA|IRL)$/.test(t))
 
@@ -439,3 +439,73 @@ export function totaliCarta(lines: CardLine[]): { spese: number; accrediti: numb
   const commissioni = r2(lines.reduce((s, l) => s + l.fee, 0))
   return { spese, accrediti, commissioni, netto: r2(accrediti - spese + commissioni), n: lines.length }
 }
+
+// ---------------------------------------------------------------------------
+// Carte di DEBITO: non hanno un estratto a parte, ogni pagamento POS e' un
+// movimento del conto corrente. La causale della banca porta la carta, la data
+// di acquisto e l'esercente: da li' si ricostruisce un «estratto» per carta con
+// la stessa struttura di quelli delle carte di credito (riga per operazione,
+// fattura pagata, riscontro), senza addebito cumulativo da cercare.
+//   BCC: «Operazione POS Eurozona Del 17.02.26 17:36 Carta *453 COSTO DEL NOLEGGIO FIRENZE IT»
+//   MPS: «PAGAMENTO TRAMITE POS PAG.POS MASTERCARD DATA 28/01/26 ORA 10.31 LOC.REGGELLO ESERCENTE : STAZIONE BEYFIN C.C.S. IMP.IN DIV.ORIG -129.30 COM. E. 0.00 N.CARTA: 98957552»
+//   MPS: «Causale: PAG.POS MASTERCARD - Descrizione: DATA 14/05/26 ORA 00.00 LOC.TORINO ESERCENTE : SCANNABUE IMP.IN DIV.ORIG -53.00 COM. E. 0.00 N.CARTA: 99899952»
+export const RE_POS_DEBITO = /OPERAZIONE POS|PAG\.?\s*POS|PAGAMENTO TRAMITE POS/i
+
+export type DebitPos = {
+  /** Identificativo della carta come lo scrive la banca (ultime cifre BCC «453», numero MPS «99899952»). */
+  card: string
+  purchase_date: string
+  merchant: string
+  place: string | null
+  fee: number
+  original_amount: number | null
+}
+
+const ymd = (d: string, m: string, y: string): string => `${y.length === 2 ? '20' + y : y}-${m}-${d}`
+
+/** Legge carta, data di acquisto ed esercente dalla causale di un pagamento POS; null se non e' un POS riconoscibile. */
+export function parseDebitPos(description: string | null | undefined, fallbackDate: string): DebitPos | null {
+  const d = (description ?? '').replace(/\s+/g, ' ').trim()
+  if (!RE_POS_DEBITO.test(d)) return null
+  const bcc = /Operazione POS(?: Eurozona| Estero)? Del (\d{2})\.(\d{2})\.(\d{2,4})(?: \d{2}:\d{2})? Carta \*(\d+)\s*(.*)$/i.exec(d)
+  if (bcc) return { card: bcc[4], purchase_date: ymd(bcc[1], bcc[2], bcc[3]), merchant: bcc[5].trim() || 'POS', place: null, fee: 0, original_amount: null }
+  const card = /N\.\s*CARTA:?\s*(\d+)/i.exec(d)?.[1]
+  if (!card) return null
+  const dt = /DATA (\d{2})\/(\d{2})\/(\d{2,4})/i.exec(d)
+  const loc = /LOC\.\s*(.+?)\s+ESERCENTE/i.exec(d)?.[1]?.trim() ?? null
+  const merchant = /ESERCENTE\s*:\s*(.+?)\s+IMP\.IN DIV\.ORIG/i.exec(d)?.[1]?.trim() ?? /ESERCENTE\s*:\s*(.+?)(?:\s+COM\.|\s+N\.\s*CARTA|$)/i.exec(d)?.[1]?.trim() ?? 'POS'
+  const orig = parseDotAmount(/IMP\.IN DIV\.ORIG\s*(-?[\d.,]+)/i.exec(d)?.[1] ?? null)
+  const fee = parseDotAmount(/COM\.\s*E\.\s*(-?[\d.,]+)/i.exec(d)?.[1] ?? null) ?? 0
+  return { card, purchase_date: dt ? ymd(dt[1], dt[2], dt[3]) : fallbackDate, merchant, place: loc, fee: -Math.abs(fee), original_amount: orig }
+}
+
+export type DebitMovLite = { id: string; bank_account_id: string | null; transaction_date: string; posting_date?: string | null; amount: number; description: string | null }
+export type DebitCardGroup = { key: string; bank_account_id: string | null; card: string; lines: Array<CardLine & { id: string }> }
+
+/** Raggruppa i pagamenti POS del periodo per conto e carta; ogni riga e' un movimento del conto. */
+export function debitCardsFromMovements(movs: DebitMovLite[]): DebitCardGroup[] {
+  const groups = new Map<string, DebitCardGroup>()
+  for (const m of movs) {
+    if (m.amount >= 0) continue
+    const pos = parseDebitPos(m.description, m.transaction_date)
+    if (!pos) continue
+    const key = `${m.bank_account_id ?? ''}|${pos.card}`
+    const g = groups.get(key) ?? { key, bank_account_id: m.bank_account_id, card: pos.card, lines: [] }
+    g.lines.push({
+      id: m.id, card_last4: pos.card.slice(-4), purchase_date: pos.purchase_date, posting_date: m.posting_date ?? m.transaction_date,
+      description: pos.place ? `${pos.merchant} (${pos.place})` : pos.merchant, amount: r2(Number(m.amount)), fee: pos.fee, currency: 'EUR', original_amount: pos.original_amount,
+    })
+    groups.set(key, g)
+  }
+  for (const g of groups.values()) g.lines.sort((a, b) => a.purchase_date.localeCompare(b.purchase_date) || a.id.localeCompare(b.id))
+  return [...groups.values()].sort((a, b) => a.key.localeCompare(b.key))
+}
+
+/** Nome breve della banca per le etichette («BCC Valdarno», «MPS», «Intesa Sanpaolo»). */
+export function bankShortName(name: string | null | undefined): string {
+  const base = (name ?? '').split(' - ')[0].trim()
+  return base.split(/\s+/).slice(0, 2).join(' ') || 'Banca'
+}
+
+export const debitCardLabel = (bankName: string | null | undefined, card: string): string =>
+  `Carta di debito ${bankShortName(bankName)} ${card.length <= 4 ? '*' + card : 'n. ' + card}`

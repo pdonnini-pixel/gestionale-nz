@@ -10,8 +10,10 @@ export type GuidaInput = {
   dataUsata: string
   /** Nomi dei fogli per conto, nell'ordine in cui compaiono. */
   conti: string[]
-  /** Nomi dei fogli per carta, nell'ordine in cui compaiono. */
+  /** Nomi dei fogli per carta (estratti di credito e prepagata), nell'ordine in cui compaiono. */
   carte: string[]
+  /** Nomi dei fogli per carta di debito (pagamenti POS dal conto). */
+  carteDebito: string[]
   /** Quante disposizioni stipendi senza buste sono elencate in coda al foglio Dipendenti. */
   flussiSenzaBuste: number
 }
@@ -33,7 +35,8 @@ export function buildGuidaRows(g: GuidaInput): StyledRow[] {
     t('Fogli per conto', `${g.conti.length === 0 ? 'Nessun conto nel periodo.' : g.conti.join(' · ')}. Un foglio per ogni conto corrente, impaginato come un estratto conto: saldo iniziale, movimenti con saldo progressivo, saldo finale calcolato e saldo della banca.`),
     t('Incassi per outlet', 'Le entrate in banca del periodo (POS, Amex, versamenti di contante, bonifici di clienti) attribuite al punto vendita.'),
     t('Dipendenti ed emolumenti', `Una riga per busta paga con il netto e la disposizione bancaria che l'ha pagata.${g.flussiSenzaBuste > 0 ? ` In coda, ${g.flussiSenzaBuste} disposizion${g.flussiSenzaBuste === 1 ? 'e' : 'i'} senza buste che le spieghino.` : ''}`),
-    t('Fogli per carta', g.carte.length === 0 ? 'Nessun estratto carta importato per il periodo.' : `${g.carte.join(' · ')}. Un foglio per ogni estratto conto carta, riga per riga, con la fattura pagata e il riscontro in banca.`),
+    t('Fogli per carta', g.carte.length === 0 ? 'Nessun estratto carta importato per il periodo.' : `${g.carte.join(' · ')}. Un foglio per ogni estratto conto carta (credito e prepagata), riga per riga, con la fattura pagata e il riscontro in banca.`),
+    t('Fogli per carta di debito', g.carteDebito.length === 0 ? 'Nessun pagamento con carta di debito nel periodo.' : `${g.carteDebito.join(' · ')}. Un foglio per ogni carta di debito con i pagamenti POS del periodo, letti dai movimenti del conto: stessa struttura degli estratti, ma ogni riga è già in banca.`),
     b(),
     s('Legenda dei colori'),
     t('Intestazione blu', 'Riga dei titoli di colonna. È bloccata: resta visibile scorrendo. Ha il filtro automatico: clicca la freccetta per filtrare o ordinare.'),
@@ -47,7 +50,7 @@ export function buildGuidaRows(g: GuidaInput): StyledRow[] {
     t('Intestazione', 'Banca, IBAN e periodo, con la data usata (contabile o operazione).'),
     t('Saldo iniziale', 'Saldo del conto al giorno prima del periodo. Nella seconda colonna: il saldo letto dalla banca allo scarico e le rettifiche applicate.'),
     t('Data operazione / Data contabile', 'La data in cui il movimento è avvenuto e quella stampata dalla banca sull\'estratto. Di solito coincidono.'),
-    t('Tipo movimento', 'Che cos\'è la riga: Pagamento fornitore (con «(RiBa)» se le fatture sono a ricevuta bancaria), F24 / imposte, Stipendi, Incasso POS, Versamento contanti, Carta di credito, Finanziamento, Spese e commissioni bancarie, Giroconto / prelievo, Incasso cliente, Rimborso, Da chiarire.'),
+    t('Tipo movimento', 'Che cos\'è la riga: Pagamento fornitore (con «(RiBa)» se le fatture sono a ricevuta bancaria), F24 / imposte, Stipendi, Incasso POS, Versamento contanti, Carta di credito, Carta di debito (POS), Finanziamento, Spese e commissioni bancarie, Giroconto / prelievo, Incasso cliente, Rimborso, Da chiarire.'),
     t('Contropartita e P.IVA', 'Il fornitore (o «N fornitori (M fatture)» se sono più d\'uno), l\'outlet per incassi e versamenti, l\'ordinante per i bonifici in entrata.'),
     t('N. fatture e Causale', 'Quante fatture salda il movimento e i loro numeri. Per gli F24: titolo, codice tributo e periodo. Altrimenti la causale della banca, riportata per intero così come arriva. Le RiBa: «RiBa · Fatt. …».'),
     t('Causali corte', 'Alcune causali delle BCC arrivano dalla banca già tagliate a 34 caratteri (per esempio «Commissioni su bonifico tramite co»): non è un taglio del gestionale, il testo completo esiste solo sull\'estratto conto della banca.'),
@@ -62,7 +65,7 @@ export function buildGuidaRows(g: GuidaInput): StyledRow[] {
     t('Solo un tipo di movimento', 'Filtro sulla colonna Tipo movimento (per esempio Stipendi, F24 / imposte, Incasso POS).'),
     b(),
     s('Incassi per outlet'),
-    t('Cosa trovi', 'Data operazione, data di riferimento (il giorno di vendita), conto, outlet, canale, tipo (POS, Amex, Versamento contanti, Altro incasso), terminale, importo, causale.'),
+    t('Cosa trovi', 'Data operazione, data di riferimento (il giorno di vendita), conto, outlet, canale, tipo (POS, Amex, Versamento contanti, Bonifico cliente, Altro incasso), terminale, importo, causale. Non ci sono giroconti né rimborsi: la restituzione di un fornitore o la liquidazione transattiva di un corriere non è un incasso, e sta solo nel foglio del conto come «Rimborso / restituzione».'),
     t('Come si cerca', 'Filtro sulla colonna Outlet per vedere gli incassi di un solo negozio; filtro su Tipo per separare POS, Amex e versamenti. Un outlet vuoto significa che l\'accredito non è stato attribuito.'),
     b(),
     s('Dipendenti ed emolumenti'),
@@ -71,6 +74,10 @@ export function buildGuidaRows(g: GuidaInput): StyledRow[] {
     t('Il gruppo di dipendenti', 'Filtro sulla colonna «Disposizione (ID flusso)»: le righe con lo stesso ID sono le buste pagate da quella disposizione. La somma dei loro netti è l\'importo del flusso.'),
     t('Esito', '«abbinata alla disposizione» quando i netti spiegano il flusso al centesimo. Se la banca conta più bonifici delle buste, un netto è stato pagato in più bonifici e l\'esito lo dice. «nessun pagamento trovato» (riga ambra) se nel periodo non c\'è una disposizione che copra quella busta.'),
     t('Disposizioni senza buste', 'In coda al foglio: i flussi stipendi usciti dalla banca che nessun gruppo di buste spiega (buste non ancora caricate o importo diverso). Da guardare con lo studio paghe.'),
+    b(),
+    s('Fogli per carta di debito'),
+    t('Cosa trovi', 'Intestazione con carta, conto e periodo; poi una riga per pagamento POS: data di acquisto (dalla causale), data contabile, esercente, importo, commissioni, fornitore e fattura dello Scadenzario pagata con carta di debito, data di pagamento, riscontro in banca (la data del movimento sul conto).'),
+    t('Come si legge', 'La carta di debito non ha un estratto a parte: ogni pagamento esce subito dal conto, quindi lo trovi anche nel foglio del conto come «Carta di debito (POS)», con la stessa data e lo stesso importo. Il totale in fondo è la somma dei pagamenti del periodo.'),
     b(),
     s('Fogli per carta'),
     t('Cosa trovi', 'Intestazione con carta, periodo e file; poi una riga per operazione: data di acquisto e registrazione, descrizione, importo (spese negative, storni e ricariche positive), commissioni, valuta, fornitore e fattura dello Scadenzario pagata con quella riga, data di pagamento, riscontro in banca.'),

@@ -3,6 +3,7 @@ import {
   parseItAmount, parseDotAmount, toIsoDate, detectIssuer, parseNumiaLines, parseMpsLines, parseTascaAoa, parseTascaLines,
   parseGenericLines, parseCardStatementLines, periodOf, sourceLabelOf, matchStatementDebit, matchRicariche, matchPayables,
   buildCartaRow, totaliCarta, type CardLine,
+  parseDebitPos, debitCardsFromMovements, bankShortName, debitCardLabel, RE_POS_DEBITO,
 } from './cartaEstratto'
 
 // Righe come le ricostruisce extractPdfLines (pdf.js, righe per geometria)
@@ -252,5 +253,43 @@ describe('righe export e totali', () => {
     })
     const t = totaliCarta([l, { ...l, amount: 500, fee: -1 }])
     expect(t).toEqual({ spese: 201.3, accrediti: 500, commissioni: -1, netto: 297.7, n: 2 })
+  })
+})
+
+describe('carte di debito: pagamenti POS letti dalle causali del conto', () => {
+  const bcc = 'Operazione POS Eurozona Del 17.02.26 17:36 Carta *453 COSTO DEL NOLEGGIO FIRENZE IT'
+  const mps1 = 'PAGAMENTO TRAMITE POS PAG.POS MASTERCARD DATA 28/01/26 ORA 10.31 LOC.BOARA-ROV.N. ESERCENTE : ASPIT INCISA REGGELLO- IMP.IN DIV.ORIG -18.20 COM. E. 0.00 N.CARTA: 98957552'
+  const mps2 = 'Causale: PAG.POS MASTERCARD - Descrizione: DATA 14/05/26 ORA 00.00 LOC.TORINO ESERCENTE : SCANNABUE IMP.IN DIV.ORIG -53.00 COM. E. 0.00 N.CARTA: 99899952'
+  it('BCC: data di acquisto, ultime cifre della carta ed esercente', () => {
+    expect(parseDebitPos(bcc, '2026-02-18')).toEqual({ card: '453', purchase_date: '2026-02-17', merchant: 'COSTO DEL NOLEGGIO FIRENZE IT', place: null, fee: 0, original_amount: null })
+  })
+  it('MPS, entrambi i formati: numero carta, data, localita, esercente, importo in divisa e commissioni', () => {
+    expect(parseDebitPos(mps1, '2026-01-30')).toEqual({ card: '98957552', purchase_date: '2026-01-28', merchant: 'ASPIT INCISA REGGELLO-', place: 'BOARA-ROV.N.', fee: -0, original_amount: -18.2 })
+    expect(parseDebitPos(mps2, '2026-05-15')).toEqual({ card: '99899952', purchase_date: '2026-05-14', merchant: 'SCANNABUE', place: 'TORINO', fee: -0, original_amount: -53 })
+  })
+  it('non e\' un POS: commissioni PagoBancomat, incassi POS, ricariche, bonifici', () => {
+    expect(parseDebitPos('Commissioni PagoBancomat 618108700001 CIRCUITO PAGOBANCOMAT', '2026-08-01')).toBeNull()
+    expect(parseDebitPos('Incassi PagoBancomat 30.08.26 - 618108700003 VICOLO', '2026-08-30')).toBeNull()
+    expect(parseDebitPos('Ricarica carta prepagata TASCA da CARTA : 5226*********580', '2026-08-30')).toBeNull()
+    expect(RE_POS_DEBITO.test('BONIFICO PER ORDINE/CONTO')).toBe(false)
+  })
+  it('raggruppa per conto e carta, ordina per data di acquisto, ignora le entrate', () => {
+    const groups = debitCardsFromMovements([
+      { id: 'b2', bank_account_id: 'bcc', transaction_date: '2026-02-24', posting_date: '2026-02-24', amount: -50, description: 'Operazione POS Eurozona Del 23.02.26 10:00 Carta *453 FERRAMENTA SOLDI SAS FIGLINE E INC IT' },
+      { id: 'b1', bank_account_id: 'bcc', transaction_date: '2026-02-18', posting_date: null, amount: -1200, description: bcc },
+      { id: 'm1', bank_account_id: 'mps', transaction_date: '2026-01-30', posting_date: '2026-01-30', amount: -18.2, description: mps1 },
+      { id: 'x', bank_account_id: 'bcc', transaction_date: '2026-02-18', posting_date: null, amount: 300, description: 'Incassi PagoBancomat 18.02.26 - 618108700003 VICOLO' },
+      { id: 'y', bank_account_id: 'bcc', transaction_date: '2026-02-18', posting_date: null, amount: -7, description: 'Causale: CANONE RAPPORTO PACKAGE' },
+    ])
+    expect(groups.map(g => [g.key, g.card, g.lines.map(l => l.id)])).toEqual([['bcc|453', '453', ['b1', 'b2']], ['mps|98957552', '98957552', ['m1']]])
+    const l = groups[0].lines[0]
+    expect(l).toMatchObject({ id: 'b1', card_last4: '453', purchase_date: '2026-02-17', posting_date: '2026-02-18', description: 'COSTO DEL NOLEGGIO FIRENZE IT', amount: -1200, currency: 'EUR' })
+    expect(groups[1].lines[0].description).toBe('ASPIT INCISA REGGELLO- (BOARA-ROV.N.)')
+  })
+  it('etichette: nome breve della banca e carta', () => {
+    expect(bankShortName('MPS - Banca Monte dei Paschi di Siena Small Business / Corporate')).toBe('MPS')
+    expect(bankShortName('BCC Valdarno Fiorentino Banca di Cascia')).toBe('BCC Valdarno')
+    expect(debitCardLabel('BCC Valdarno Fiorentino Banca di Cascia', '453')).toBe('Carta di debito BCC Valdarno *453')
+    expect(debitCardLabel('MPS - Banca Monte dei Paschi', '99899952')).toBe('Carta di debito MPS n. 99899952')
   })
 })
