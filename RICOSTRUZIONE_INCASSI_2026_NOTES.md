@@ -589,9 +589,9 @@ contanti, carte e altro.
 
 ### Le tre cose da guardare
 
-1. **4.870,25 € dichiarati e mai arrivati in banca**: Palmanova 1.995,00 e Valdichiana 2.875,25,
-   entrambi sul 28 aprile. Non e' una questione di finestra temporale: la cassa continua dei due
-   negozi non registra nessun versamento fra il 24 aprile e il 4 maggio.
+1. ~~**4.870,25 € dichiarati e mai arrivati in banca**~~ **RISOLTO**: i due versamenti sono
+   sull'estratto conto MPS di aprile, accreditati il 04/05 con valuta 29/04. Il denaro c'e', a
+   perderlo era l'importazione. Vedi «i 4.870,25 € ci sono: era l'importazione a perderli».
 2. **Palmanova 30/04**: 1.391,92 dichiarati sul POS contro 1.302,29 accreditati, −6,4 %. Tutte le
    altre righe in differenza sono commissione sotto il 2 % su importi piccoli; questa no.
 3. **Palmanova 10/01**: −435,46 € fra corrispettivi e mezzi di pagamento, la giornata non quadrata
@@ -684,12 +684,77 @@ di bollo e le competenze del conto 94000,53, quelle che a giugno perde.
 
 ### Cosa cambia per i 4.870,25 € di aprile
 
-Niente, e questo e' il punto. L'estratto conto di aprile in archivio non c'e', quindi la carta non
-si puo' guardare da qui. Cambia pero' il peso della prova indiretta: su tre mesi controllati
-riga per riga, **il lato entrate del flusso e' risultato esatto tutte e tre le volte**, versamenti
-compresi, 82 su 82. Le uniche perdite accertate stanno sulle uscite, e sono quattro addebiti
-interni di pochi euro. Un versamento in cassa continua da 1.995,00 e uno da 2.875,25 che spariscono
-in importazione, dopo questo riscontro, sono un'ipotesi molto piu' debole di prima.
+L'estratto conto di aprile in `bank-statements` non c'e'. E' pero' su Drive, nella cartella dei
+documenti bancari, e da li' la risposta arriva in dieci minuti.
 
-Per chiuderla del tutto basta poco: l'estratto conto MPS di aprile, caricato in archivio come gli
-altri. Dieci minuti di lettura e si sa.
+## i 4.870,25 € ci sono: era l'importazione a perderli
+
+L'estratto conto MPS di aprile non era in archivio, ma era su Drive. Letto quello, la storia
+cambia del tutto.
+
+**I due versamenti esistono, e la banca li ha accreditati.** Sono sull'estratto, tutti e due
+contabilizzati il **4 maggio** con valuta 29 aprile:
+
+| Negozio | Importo | Data versamento | Valuta | Contabile |
+|---|---|---|---|---|
+| Palmanova (CC PALMANOVA) | 1.995,00 € | 28-04-26 | 29/04 | 04/05 |
+| Valdichiana (CC FOIANO DELLA CHIANA) | 2.875,25 € | 29-04-26 | 29/04 | 04/05 |
+
+Nel database non esiste nessuna riga con quegli importi, in nessuna data, su nessun conto. Il
+denaro e' arrivato in banca. A perderlo e' stata l'importazione.
+
+### Il confronto completo: 473 movimenti, due mancano, e sono quei due
+
+L'estratto copre dal 01/04 al 04/05 e porta 473 entrate per 467.384,05 €. Confrontando importo
+per importo con `bank_transactions` su una finestra piu' larga (20/03-12/05, cosi' che gli
+slittamenti di data non producano falsi allarmi), gli importi che nel database hanno meno righe
+dell'estratto sono **due soli**: 1.995,00 e 2.875,25. Tutto il resto, POS, Amex, bonifici, gli
+altri 24 versamenti, c'e'.
+
+### Perche' li ha persi: una cucitura fra due import
+
+I due movimenti hanno una caratteristica che nessun altro dell'estratto ha: **valuta in un mese,
+contabile nel mese dopo**, e a cinque giorni di distanza. Gli altri sedici movimenti retrodatati
+di aprile lo sono di due giorni e restano dentro lo stesso mese; ci sono tutti.
+
+Le date di import lo confermano. Maggio e' stato caricato per primo, il **21/05**; aprile e'
+arrivato dopo, in backfill, il **15/06**. Il `sync_runs` delle banche parte dal 26/05, quindi
+quei caricamenti non hanno nemmeno lasciato un log. Due finestre, una cucitura in mezzo: la
+corsa di maggio ha chiesto i movimenti dal primo maggio in poi e per valuta questi due sono del
+29 aprile, la corsa di aprile ha chiesto fino al 30 aprile e per data contabile questi due sono
+del 4 maggio. Nessuna delle due li ha visti.
+
+### La stessa cucitura, sull'altro conto, ha duplicato
+
+Su BCC Valdarno il problema si presenta rovesciato. I movimenti con valuta e data contabile in
+giorni diversi sono entrati **due volte**, una per ciascuna data: 22 righe in piu' per
+**3.487,64 €**, tutte fra il 19 marzo e il 30 aprile, tutte in uscita (ricariche TASCA, POS
+carta aziendale, bolli, bollettini). Sulle entrate zero duplicati, quindi POS e versamenti, cioe'
+tutto cio' che serve alle chiusure di cassa, restano puliti.
+
+Per riconoscerle: stesso conto, stesso importo, stessa descrizione, stessa valuta, due date
+contabili diverse a pochi giorni. Attenzione a un caso: le due ricariche TASCA da 200,00 del
+16-17 aprile sono **vere tutte e due** (l'estratto le riporta entrambe), e nel database sono
+diventate quattro. Li' le righe di troppo sono due, non tre.
+
+### Cosa va fatto
+
+1. **Inserire i due versamenti mancanti** in `bank_transactions` (MPS, 04/05/2026, valuta
+   29/04), poi rilanciare `match_cash_closings_with_bank`: le due chiusure del 28/04 di Palmanova
+   e Valdichiana passano da «mancante» a verificate, e il buco di cassa piu' grosso di tutta la
+   ricostruzione si chiude da se'.
+2. **Togliere le 22 righe duplicate** su BCC (operazione di cancellazione su dati vivi: serve il
+   via libera esplicito, con il SELECT di backup salvato prima).
+3. **Sistemare l'importazione**, che e' la causa vera: una corsa di sincronizzazione deve
+   delimitare la finestra con **un solo criterio di data** e deve sovrapporsi di qualche giorno
+   con la corsa precedente, cosi' che un movimento a cavallo di due mesi non possa sfuggire a
+   entrambe ne' entrare in tutte e due.
+
+### La lezione, che vale oltre questo caso
+
+Per quattro mesi il sistema ha mostrato un ammanco di cassa di 4.870,25 € e ha lasciato due
+chiusure a «mancante». Il flusso bancario, controllato su marzo, luglio e agosto, tornava al
+centesimo, e quella verifica aveva reso l'ipotesi «l'import ha perso qualcosa» sempre meno
+credibile. Era invece quella giusta. **Tre mesi esatti non dimostrano che il quarto lo sia**: la
+cucitura fra due import e' un evento raro per costruzione, quindi va cercata dove sta, cioe' ai
+confini, e non si trova campionando i mesi pieni.
