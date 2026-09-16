@@ -60,6 +60,7 @@ export type MovementKind =
   | 'versamento'
   | 'carta'
   | 'carta_debito'
+  | 'ricarica_prepagata'
   | 'finanziamento'
   | 'spese_banca'
   | 'giroconto'
@@ -75,6 +76,7 @@ export const KIND_LABELS: Record<MovementKind, string> = {
   versamento: 'Versamento contanti',
   carta: 'Carta di credito',
   carta_debito: 'Carta di debito (POS)',
+  ricarica_prepagata: 'Ricarica carta prepagata',
   finanziamento: 'Finanziamento',
   spese_banca: 'Spese e commissioni bancarie',
   giroconto: 'Giroconto / prelievo',
@@ -92,6 +94,10 @@ const RE_F24 = /\bF24\b|\bI24\b|DELEGA UNIFICATA|DELEGHE MOD|IMPOSTE,?\s*TASSE|I
 const RE_STIPENDI = /EMOLUMENT|STIPEND|SALARI\b/i
 const RE_POS = /INCASSO TRAMITE P\.?O\.?S|ACCREDITO POS|PAGOBANCOMAT|NUMIA|AMERICAN EXPRESS|ACCREDITO PER INCASSI/i
 const RE_VERSAMENTO = /VERS\.?\s*(CONTANT|SPORT)|VERSAMENTO (DA ATM|CONTANTE)|VERSAMENTO CONTANTE/i
+// Ricarica della carta PREPAGATA (Tasca): non e' una spesa ne' un estratto di
+// carta di credito, e' un passaggio di soldi dal conto alla carta. Le spese
+// fatte con quei soldi stanno nell'estratto della prepagata, non in banca.
+export const RE_RICARICA_PREPAGATA = /RICARICA\s+(?:CARTA\s+)?PREPAGATA|PREPAGATA\s+TASCA|RICARICA\b.*\bTASCA\b/i
 const RE_CARTA = /CARTA DEL CREDITO COOPERATIVO|RICARICA CARTA|ADD\.?\s*DIRETTO CARTA|ADDEBITO DIRETTO CARTA|POSIZIONE CARTA|ESTRATTO CONTO CARTA|CARTA DI CREDITO/i
 const RE_FINANZIAMENTO = /RATA DI MUTUO|RIMBORSO FINANZ|RATA FINANZ|MUTUO/i
 const RE_SPESE_BANCA = /COMMISSION|COMM\.|COMM\/SPESE|CANONE RAPPORTO|CANONE SET DI BASE|CANONE HOME BANKING|CANONE MENSILE|FIDEJUSSION|FIDEIUSSION|FONDO DI GARANZIA|A FAVORE NEXI PAYMENTS|A FAVORE GLOBAL BLUE|SPESE TENUTA|BOLL[OI]\b|IMPOSTA DI BOLLO|COMPETENZE/i
@@ -132,6 +138,7 @@ export function classifyMovement(m: PnMovement): MovementKind {
   if (RE_STIPENDI.test(d)) return 'stipendi'
   if (RE_FINANZIAMENTO.test(d)) return 'finanziamento'
   if (RE_GIROCONTO.test(d)) return 'giroconto'
+  if (RE_RICARICA_PREPAGATA.test(d)) return 'ricarica_prepagata'
   if (RE_CARTA.test(d)) return 'carta'
   // Pagamento POS con la carta di debito: esce direttamente dal conto, non da un estratto.
   if (m.amount < 0 && RE_POS_DEBITO.test(d)) return 'carta_debito'
@@ -165,8 +172,16 @@ const distinctSuppliers = (ps: PnPayable[]): Array<{ name: string; vat: string }
   return Array.from(seen.values())
 }
 
+/** Nome della carta prepagata dalla causale della ricarica («… PREPAGATA TASCA …» → «Carta prepagata Tasca»). */
+export function prepaidCardNameOf(description: string | null | undefined): string {
+  const m = /PREPAGATA\s+([A-Z][A-Z0-9]*)/i.exec(String(description ?? ''))
+  const nome = m ? m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase() : ''
+  return nome ? `Carta prepagata ${nome}` : 'Carta prepagata'
+}
+
 export function counterpartOf(m: PnMovement): string {
   const sups = distinctSuppliers(m.payables)
+  if (sups.length === 0 && RE_RICARICA_PREPAGATA.test(String(m.description || ''))) return prepaidCardNameOf(m.description)
   if (sups.length === 1) return sups[0].name
   if (sups.length > 1) return `${sups.length} fornitori (${m.payables.length} fatture)`
   if (m.supplier?.name) return m.supplier.name

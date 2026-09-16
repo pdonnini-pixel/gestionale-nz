@@ -49,7 +49,11 @@ describe('classifyMovement: tipo di movimento dalla causale, dall\'aggancio e da
   })
   it('carte: estratto carta cooperativa e ricariche prepagata', () => {
     expect(classifyMovement(mv({ amount: -2415.8, description: 'Carta del Credito Cooperativo ******************283 CCP DIRECT ISSUING' }))).toBe('carta')
-    expect(classifyMovement(mv({ amount: -300, description: 'Ricarica carta prepagata TASCA da CARTA : 5226*********580 Ricariche d' }))).toBe('carta')
+    // La ricarica della prepagata non e' una carta di credito: e' un passaggio di soldi dal conto alla carta
+    const ric = mv({ amount: -300, description: 'Ricarica carta prepagata TASCA da CARTA : 5226*********580 Ricariche d' })
+    expect(classifyMovement(ric)).toBe('ricarica_prepagata')
+    expect(counterpartOf(ric)).toBe('Carta prepagata Tasca')
+    expect(classifyMovement(mv({ amount: -500, description: 'Causale: RICARICA CARTA PREPAGATA - Descrizione: RICARICA TASCA 0580' }))).toBe('ricarica_prepagata')
     expect(classifyMovement(mv({ amount: -16.9, description: 'Causale: ADD.DIRETTO CARTA CREDITO - Descrizione: ADDEBITO SDD N. 648302 A FAVORE NEXI', category: 'commissioni_incasso' }))).toBe('carta')
     // commissioni sul bonifico: la parola «bonifico» non le trasforma in un pagamento da chiarire
     expect(classifyMovement(mv({ amount: -0.75, description: 'Commissioni su bonifico tramite co', category: 'spese_banca' }))).toBe('spese_banca')

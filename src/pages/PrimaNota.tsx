@@ -150,6 +150,7 @@ const KIND_BADGE: Record<MovementKind, string> = {
   versamento: 'bg-emerald-50 text-emerald-700',
   carta: 'bg-sky-100 text-sky-700',
   carta_debito: 'bg-sky-50 text-sky-700',
+  ricarica_prepagata: 'bg-indigo-100 text-indigo-700',
   finanziamento: 'bg-slate-200 text-slate-700',
   spese_banca: 'bg-slate-100 text-slate-600',
   giroconto: 'bg-slate-100 text-slate-600',
@@ -939,7 +940,18 @@ export default function PrimaNota() {
     // i nomi degli altri fogli) e si inserisce in testa.
     const used = new Set<string>(['Guida', 'Incassi per outlet', 'Dipendenti ed emolumenti'])
     const nomiConti: string[] = []
+    const contoSheetByAcc = new Map<string, string>()
+    // I nomi dei fogli carta si riservano subito: il foglio del conto rimanda
+    // al foglio della prepagata sotto ogni ricarica.
+    const nomiCartePre = carte.map(c => (c.lines.length > 0 ? sheetName(c.label, used) : null))
     const nomiCarte: string[] = []
+    // Ricarica in banca → estratto della prepagata che la contiene (foglio, mese, spese e saldo)
+    const ricaricaInfo = new Map<string, { foglio: string; mese: string; spese: number; nSpese: number; saldo: PrepaidBalance | null }>()
+    carte.forEach((c, ci) => {
+      if (!c.isPrepagata) return
+      const mese = c.period ? `${MONTHS.find(x => x.v === c.period!.month)?.l ?? ''} ${c.period.year}` : periodoLabel
+      for (const mov of c.ricariche.values()) ricaricaInfo.set(mov.id, { foglio: nomiCartePre[ci] ?? c.label, mese, spese: c.tot.spese, nSpese: c.lines.filter(l => l.amount < 0).length, saldo: c.saldo })
+    })
     // Un foglio per conto, come un estratto conto: saldo iniziale, movimenti con
     // saldo progressivo, saldo finale calcolato e della banca, differenza.
     for (const q of quadratura) {
@@ -962,6 +974,15 @@ export default function PrimaNota() {
           // fattura con il suo importo nella colonna «Di cui fattura», cosi' lo studio
           // verifica ogni fattura e ogni importo; la somma delle righe e' l'uscita, e
           // l'eventuale resto (commissioni, acconto, nota di credito) ha la sua riga.
+          // Ricarica della prepagata: sotto, il rimando al foglio della carta dove
+          // quei soldi sono spesi, con il saldo della carta a fine mese. Senza
+          // estratto importato, la riga ambra dice cosa manca.
+          if (classifyMovement(m) === 'ricarica_prepagata') {
+            const info = ricaricaInfo.get(m.id)
+            out.push(info
+              ? { kind: 'sub', cells: ['', '', '↳ ricarica prepagata', `vedi foglio «${info.foglio}»`, '', '', `Non è una spesa: i soldi passano dal conto alla carta. Come sono stati spesi lo dice il foglio «${info.foglio}», riga per riga: ${info.nSpese} spese per ${fmt(info.spese)} nel mese di ${info.mese}, con questa ricarica fra le entrate della carta.${info.saldo ? ` Saldo della carta a fine ${info.mese}: ${fmt(info.saldo.saldo_finale)} (iniziale ${fmt(info.saldo.saldo_iniziale)}).` : ''}`, '', '', '', '', ''] }
+              : { kind: 'warn', cells: ['', '', '↳ ricarica prepagata', 'estratto della carta non importato', '', '', 'Non è una spesa: i soldi passano dal conto alla carta. Per vedere come sono stati spesi serve l\'estratto della prepagata di questo mese: Banche → Prima Nota → Carte → «Importa estratto carta».', '', '', '', '', ''] })
+          }
           if (m.payables.length > 1) {
             let somma = 0
             for (const p of m.payables) {
@@ -982,6 +1003,7 @@ export default function PrimaNota() {
       ]
       const name = sheetName(acc?.bank_name ?? 'Conto', used)
       nomiConti.push(name)
+      if (acc) contoSheetByAcc.set(acc.id, name)
       addStyledSheet(wb, { name, rows: srows, widths: [30, 14, 26, 35, 16, 8, 60, 18, 14, 14, 14, 14], moneyHeaders: ['Entrate', 'Uscite', 'Saldo', 'Di cui fattura'], tabColor: '1F3864' })
     }
     // Su richiesta di Patrizio (15/09) i fogli «Tutti i movimenti», «Pagamenti
@@ -1028,6 +1050,11 @@ export default function PrimaNota() {
         { kind: 'meta', cells: ['Carta', c.stmt.card_last4 ? `**** ${c.stmt.card_last4}` : ''] },
         { kind: 'meta', cells: ['Periodo', c.stmt.period_year && c.stmt.period_month ? `${MONTHS.find(m => m.v === c.stmt.period_month)?.l} ${c.stmt.period_year}` : periodoLabel] },
         { kind: 'meta', cells: ['File', c.stmt.filename] },
+        ...(c.isPrepagata ? [{ kind: 'meta' as const, cells: ['Come si riconcilia', (() => {
+          const fogli = Array.from(new Set(Array.from(c.ricariche.values()).map(mov => contoSheetByAcc.get(movementById.get(mov.id)?.bank_account_id ?? '') ?? '').filter(Boolean)))
+          const dove = fogli.length > 0 ? `nel foglio «${fogli.join('», «')}»` : 'nel foglio del conto'
+          return `Le RICARICHE (righe positive) sono le uscite «Ricarica carta prepagata» ${dove}: non sono spese, sono soldi passati dal conto alla carta. Le SPESE (righe negative) sono i pagamenti fatti con la carta, con la fattura accanto quando c'è. Controllo: saldo iniziale + ricariche − spese − commissioni = saldo finale.`
+        })()] }] : []),
         { kind: 'blank', cells: [] },
         { kind: 'header', cells: ['Data acquisto', 'Data registrazione', 'Descrizione', 'Importo', 'Commissioni', 'Valuta', 'Fornitore', 'Fattura', 'Pagata il', 'Riscontro banca', ...(c.isPrepagata && c.saldo ? ['Saldo'] : [])] },
         ...(c.isPrepagata && c.saldo ? [{ kind: 'open' as const, cells: ['Saldo iniziale', c.saldo.ancoraggio === 'documento' ? 'disponibilità del documento meno il netto del mese' : c.saldo.ancoraggio === 'catena' ? 'saldo finale del mese precedente (catena degli estratti)' : 'da zero: nessun estratto dichiara la disponibilità', '', '', '', '', '', '', '', '', c.saldo.saldo_iniziale] }] : []),
@@ -1056,7 +1083,7 @@ export default function PrimaNota() {
             { kind: (c.debit.movement ? 'ok' : 'warn') as StyledRow['kind'], cells: ['Differenza (commissioni della banca)', c.debit.movement ? (Math.abs(c.debit.differenza) < 0.005 ? 'quadra' : `quadra: l'addebito copre ${c.debit.n} estratti piu' ${fmt(c.debit.differenza)} di commissioni`) : 'addebito non trovato', '', c.debit.movement ? c.debit.differenza : ''] },
           ]),
       ]
-      const name = sheetName(c.label, used)
+      const name = nomiCartePre[ci] ?? sheetName(c.label, used)
       nomiCarte.push(name)
       addStyledSheet(wb, { name, rows: crows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 12, 30, 12], moneyHeaders: ['Importo', 'Commissioni', 'Saldo'], tabColor: 'C55A11' })
     })
