@@ -846,3 +846,71 @@ Quello che non e' stato riscontrato riga per riga resta: BCC Figline di maggio, 
 BCC Mugello da gennaio ad aprile e da giugno ad agosto, Intesa da marzo ad agosto. Su quei conti
 e quei mesi vale il controllo sulle chiusure, che non segnala niente; un confronto diretto con la
 carta resta piu' forte e si puo' fare quando serve, i file sono tutti su Drive.
+
+## la causa vera: l'hash di deduplica scambiava due movimenti per uno
+
+Cercando come mai l'import avesse perso quei movimenti e' venuto fuori che di difetti ce n'erano
+due, non uno, e il secondo e' peggiore del primo perche' colpisce ancora oggi.
+
+### Quello che A-Cube aveva scaricato e il database ha buttato via
+
+In `acube_transactions`, la tabella di appoggio dove finisce tutto quello che il flusso scarica,
+**i due accrediti POS da 79,33 del 04/05 ci sono tutti e due**. In `bank_transactions` ne era
+arrivato uno solo. Non e' la banca, non e' A-Cube: e' il ponte fra le due tabelle.
+
+L'hash che protegge `bank_transactions` dai doppioni si costruisce su
+**(conto, data, importo, primi 40 caratteri della descrizione)**. Quaranta caratteri non bastano:
+un accredito POS di MPS comincia con `Causale: INCASSO TRAMITE P.O.S. - Descriz` e il codice del
+terminale compare solo oltre il sessantesimo. Due negozi che incassano la stessa cifra lo stesso
+giorno producono percio' la stessa chiave, e il secondo urta l'indice UNIQUE e viene scartato
+come se fosse un doppione. Nel caso del 04/05: Palmanova e Barberino, 79,33 tutti e due.
+
+Il cron ha smesso di sbagliare il 23/07 con la migration `098`, che ha aggiunto all'hash il
+**numero d'occorrenza**. L'edge function `acube-ob-tx-sync`, quella dietro il pulsante «Aggiorna
+movimenti», era rimasta indietro e sbagliava ancora.
+
+### Quanto ha perso, contato sui dati
+
+Confrontando `acube_transactions` con `bank_transactions` riga per riga, i movimenti scaricati e
+mai arrivati sono **sei**: l'accredito POS da 79,33 del 04/05 e **cinque addebiti SEPA da 4,50
+del 07/05** (22,50 €), dove di sei addebiti identici ne era passato uno. Su Made e su Zago il
+conto e' zero. Recuperati tutti con la migration `236`, applicata a tutti e tre i tenant.
+
+### Cosa e' stato corretto
+
+1. **L'hash con il numero d'occorrenza anche nell'edge function** (`canonicalBankHashOcc`),
+   identico a `bank_tx_canonical_hash_occ` che usa il cron. L'occorrenza si numera dentro il
+   batch ordinando per `transactionId`, esattamente come la `row_number()` del cron: cosi' la
+   funzione resta idempotente, perche' rilanciata sugli stessi movimenti ricalcola gli stessi
+   hash, che urtano l'indice e non inseriscono niente.
+2. **Il ponte verso `bank_transactions` non sta piu' dietro il controllo dello staging.** Prima,
+   se un movimento era gia' in `acube_transactions`, la funzione passava oltre senza nemmeno
+   provare a portarlo in banca: un movimento scaricato una volta e perso a valle restava perso
+   per sempre. Ora ci riprova a ogni giro, e l'indice UNIQUE garantisce che non nascano doppioni.
+   E' questo che rende il sistema capace di ripararsi da solo.
+3. **La finestra di sincronizzazione non puo' piu' chiudersi sul presente.** Il filtro lavora su
+   `madeOn`, la data dell'operazione, ma la banca pubblica un movimento anche giorni dopo: il
+   versamento del 29/04 e' comparso il 04/05. Se una corsa parte da dove aveva chiuso la
+   precedente, quei movimenti non li vede nessuna delle due. Ora l'inizio della finestra non si
+   avvicina a oggi piu' di **dieci giorni** (`MIN_OVERLAP_DAYS`), quindi ogni corsa rilegge la
+   coda di quella prima. Un backfill con una data vecchia non ne risente.
+
+Deploy fatto su **NZ, Made e Zago**, stesso bundle (`sha256 338b166a…`) su tutti e tre, e il
+codice in produzione riletto e confrontato con quello del repository.
+
+### Il controllo che resta buono nel tempo
+
+Questa query dice, in qualsiasi momento, se il ponte sta perdendo qualcosa. Deve tornare zero
+righe:
+
+```sql
+WITH acu AS (
+  SELECT made_on::date d, amount, LEFT(COALESCE(description,''),40) d40, count(*) n
+    FROM public.acube_transactions GROUP BY 1,2,3),
+bt AS (
+  SELECT transaction_date d, amount, LEFT(COALESCE(description,''),40) d40, count(*) n
+    FROM public.bank_transactions GROUP BY 1,2,3)
+SELECT acu.d, acu.amount, acu.n AS in_acube, COALESCE(bt.n,0) AS in_banca
+  FROM acu LEFT JOIN bt USING (d, amount, d40)
+ WHERE acu.n > COALESCE(bt.n,0);
+```

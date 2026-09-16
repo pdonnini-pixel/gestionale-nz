@@ -75,14 +75,35 @@ function dedupHash(accountUuid: string, txid: string, madeOn: string, amount: nu
   return `${accountUuid}|${txid}|${madeOn}|${amount.toFixed(2)}`;
 }
 
-// Hash canonical per bank_transactions (deve essere IDENTICO a public.bank_transaction_canonical_hash
-// in Postgres - migration 051). Indipendente da txid (A-Cube lo ribatte tra paginate) e da source
-// (uniforme per edge function + cron RPC). MD5 esadecimale.
-function canonicalBankHash(bankAccountId: string, date: string, amount: number, description: string): string {
+// Hash canonical per bank_transactions. Deve essere IDENTICO a
+// public.bank_tx_canonical_hash_occ in Postgres, che e' quello che usa il cron RPC
+// acube_ob_sync_all_production: stessa chiave piu' il numero d'occorrenza.
+//
+// Perche' l'occorrenza. La chiave e' (conto, data, importo, primi 40 caratteri della
+// descrizione), e 40 caratteri non bastano a distinguere due movimenti veri: negli accrediti
+// POS di MPS il codice del terminale compare oltre il sessantesimo carattere, quindi due
+// negozi che incassano la stessa cifra lo stesso giorno producono la stessa chiave. Senza
+// numero d'occorrenza il secondo movimento urta l'indice UNIQUE e viene buttato via come se
+// fosse un doppione. E' successo davvero: il 04/05/2026 l'accredito POS di Palmanova da 79,33
+// e quello di Barberino, identici nell'importo, sono diventati uno solo; e il 07/05 cinque
+// addebiti SEPA da 4,50 su sei sono spariti allo stesso modo.
+//
+// L'occorrenza si numera DENTRO il batch, ordinando per transactionId, esattamente come fa
+// il cron RPC. Cosi' la funzione resta idempotente: rilanciata sugli stessi movimenti
+// ricalcola gli stessi hash, che urtano l'indice e non inseriscono nulla.
+function canonicalBankHashOcc(
+  bankAccountId: string, date: string, amount: number, description: string, occ: number,
+): string {
   const amountStr = amount.toFixed(2); // FM999999990.00 in PG, 2 decimali sempre
   const descTrunc = (description || "").slice(0, 40);
-  const input = `${bankAccountId}|${date}|${amountStr}|${descTrunc}`;
+  const input = `${bankAccountId}|${date}|${amountStr}|${descTrunc}|${occ}`;
   return createHash("md5").update(input).digest("hex");
+}
+
+// Chiave di raggruppamento per il conteggio delle occorrenze: le stesse quattro componenti
+// su cui la PARTITION BY del cron RPC raggruppa.
+function occKey(bankAccountId: string, date: string, amount: number, description: string): string {
+  return `${bankAccountId}|${date}|${amount.toFixed(2)}|${(description || "").slice(0, 40)}`;
 }
 
 Deno.serve(async (req: Request) => {
@@ -116,7 +137,16 @@ Deno.serve(async (req: Request) => {
     let companyId: string = (body.companyId ?? "").toString().trim();
     const accountUuidFilter: string | null = body.accountUuid ?? null;
     const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    const since: string = body.since ?? sixtyDaysAgo;
+    // La finestra si chiude su madeOn, cioe' la data dell'operazione, ma la banca pubblica un
+    // movimento anche giorni dopo: il versamento in cassa continua del 29/04/2026 e' comparso
+    // il 04/05. Se una corsa parte da dove aveva chiuso la precedente, quei movimenti non li
+    // vede piu' nessuna delle due. Percio' l'inizio della finestra non puo' mai avvicinarsi a
+    // oggi piu' di MIN_OVERLAP_DAYS: ogni corsa rilegge la coda della precedente.
+    const MIN_OVERLAP_DAYS = 10;
+    const latestAllowedSince = new Date(Date.now() - MIN_OVERLAP_DAYS * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const sinceRequested: string = body.since ?? sixtyDaysAgo;
+    const since: string = sinceRequested > latestAllowedSince ? latestAllowedSince : sinceRequested;
     // Isolamento tenant: un utente non può scrivere movimenti su un'azienda diversa
     // dalla propria. Il company_id viene SEMPRE dal profilo del chiamante; il body è
     // solo indicativo. I job service-role (cron) restano fidati col companyId passato.
@@ -177,6 +207,14 @@ Deno.serve(async (req: Request) => {
     let bankIns = 0;
     let dups = 0;
 
+    // Ordine deterministico per transactionId: e' lo stesso ORDER BY della row_number()
+    // nel cron RPC, e serve perche' due esecuzioni sullo stesso batch assegnino a ogni
+    // movimento lo stesso numero d'occorrenza, quindi lo stesso hash.
+    txs.sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
+      String(a.id ?? a.uuid ?? a.transactionId ?? "").localeCompare(
+        String(b.id ?? b.uuid ?? b.transactionId ?? "")));
+    const occSeen = new Map<string, number>();
+
     for (const t of txs) {
       const txid: string = t.id ?? t.uuid ?? t.transactionId;
       if (!txid) continue;
@@ -192,10 +230,13 @@ Deno.serve(async (req: Request) => {
       const status: string = (t.status ?? "BOOKED").toString().toUpperCase();
       const hash = dedupHash(accountUuid, txid, madeOn, amount);
 
+      // Se il movimento e' gia' in staging si salta l'insert in acube_transactions, ma NON si
+      // salta il bridge verso bank_transactions: un movimento scaricato una volta e finito
+      // nel nulla a valle (com'e' successo con le collisioni di hash) deve poter essere
+      // recuperato al giro dopo, invece di restare perso per sempre.
       const { data: ex } = await supabase.from("acube_transactions").select("id").eq("dedup_hash", hash).maybeSingle();
-      if (ex) { dups++; continue; }
 
-      const { error: ae } = await supabase.from("acube_transactions").insert({
+      const { error: ae } = ex ? { error: null } : await supabase.from("acube_transactions").insert({
         acube_transaction_id: txid,
         acube_account_uuid: accountUuid,
         dedup_hash: hash,
@@ -221,14 +262,19 @@ Deno.serve(async (req: Request) => {
         extra: t,
       });
       if (ae) continue;
-      acubeIns++;
+      if (ex) dups++; else acubeIns++;
 
       // Bridge: insert in bank_transactions se esiste bank_account corrispondente.
-      // Usa canonical hash (migration 051): indipendente da txid che A-Cube ribatte tra paginate,
-      // identico al hash di cron RPC acube_ob_sync_all_production, protetto da UNIQUE INDEX.
+      // Usa l'hash con numero d'occorrenza: indipendente da txid (A-Cube lo ribatte tra
+      // paginate), identico a quello del cron RPC acube_ob_sync_all_production, protetto
+      // da UNIQUE INDEX e capace di distinguere due movimenti veri che condividono conto,
+      // data, importo e i primi 40 caratteri della descrizione.
       const bankAccountId = acubeToBankId.get(accountUuid);
       if (!bankAccountId) continue;
-      const bankHash = canonicalBankHash(bankAccountId, madeOn, amount, description);
+      const key = occKey(bankAccountId, madeOn, amount, description);
+      const occ = (occSeen.get(key) ?? 0) + 1;
+      occSeen.set(key, occ);
+      const bankHash = canonicalBankHashOcc(bankAccountId, madeOn, amount, description, occ);
       const { error: be } = await supabase.from("bank_transactions").insert({
         company_id: companyId,
         bank_account_id: bankAccountId,
