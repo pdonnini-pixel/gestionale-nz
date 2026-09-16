@@ -126,6 +126,10 @@ type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti' | 'carte'
 type CardStmt = { id: string; filename: string; file_type: string; source_label: string | null; card_last4: string | null; statement_total: number | null; closing_balance: number | null; settled_bank_transaction_id: string | null; period_year: number | null; period_month: number | null; transaction_count: number | null; file_path: string | null }
 type CardTx = CardLine & { id: string; statement_id: string; row_no: number; payable_id: string | null }
 type CardImportItem = { file: File | null; fileName: string; parsed: CardStatementParsed; existing: CardStmt | null; existingLines: number; label: string }
+/** Righe da salvare: documento con operazioni e nessuna riga gia' presente per quell'estratto. */
+const importable = (it: CardImportItem): boolean => it.parsed.lines.length > 0 && it.existingLines === 0
+/** Estratto gia' presente con le righe ma senza documento in Archivio: il file si allega, le righe restano. */
+const importNeedsAttach = (it: CardImportItem): boolean => it.existingLines > 0 && !!it.existing && !it.existing.file_path && !!it.file
 const r2 = (n: number): number => Math.round(n * 100) / 100
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 /** Movimenti bancari che possono saldare o ricaricare una carta (addebito estratto, SDD carta, ricarica prepagata). */
@@ -808,14 +812,18 @@ export default function PrimaNota() {
   // Estratto presente (righe e saldi) ma senza PDF in Archivio: si allega il
   // file senza toccare le righe. Archivia in bank-statements e aggancia
   // import_document_id e file_url all'estratto.
+  const archiveAndLink = async (st: CardStmt, file: File) => {
+    if (!companyId) throw new Error('azienda non selezionata')
+    const arch = await archiviaFile({ file, companyId, userId: null, modulo: 'Banche', funzione: `Estratto carta · ${st.source_label ?? st.filename}`, bucket: 'bank-statements', year: st.period_year, month: st.period_month, referenceTable: 'bank_statements' })
+    if (arch.errore) throw new Error(arch.errore)
+    const { error } = await supabase.from('bank_statements').update({ filename: file.name, import_document_id: arch.id, file_url: arch.path }).eq('id', st.id)
+    if (error) throw error
+  }
   const attachCardFile = async (st: CardStmt, file: File) => {
     if (!companyId) return
     setCardParsing(true)
     try {
-      const arch = await archiviaFile({ file, companyId, userId: null, modulo: 'Banche', funzione: `Estratto carta · ${st.source_label ?? st.filename}`, bucket: 'bank-statements', year: st.period_year, month: st.period_month, referenceTable: 'bank_statements' })
-      if (arch.errore) throw new Error(arch.errore)
-      const { error } = await supabase.from('bank_statements').update({ filename: file.name, import_document_id: arch.id, file_url: arch.path }).eq('id', st.id)
-      if (error) throw error
+      await archiveAndLink(st, file)
       toast({ type: 'success', message: `${file.name} allegato a ${st.source_label ?? st.filename}` })
       await loadCarte()
     } catch (e) {
@@ -842,9 +850,16 @@ export default function PrimaNota() {
     if (!cardImport || !companyId) return
     setCardImport(c => (c ? { ...c, busy: true } : c))
     let ok = 0
+    let allegati = 0
     const errs: string[] = []
     for (const it of cardImport.items) {
-      if (it.parsed.lines.length === 0 || it.existingLines > 0) continue
+      // Estratto gia' presente con le righe ma senza documento in Archivio:
+      // le righe non si toccano, il file si allega all'estratto.
+      if (importNeedsAttach(it)) {
+        try { await archiveAndLink(it.existing!, it.file!); allegati++ } catch (e) { errs.push(`${it.fileName}: ${e instanceof Error ? e.message : String(e)}`) }
+        continue
+      }
+      if (!importable(it)) continue
       try {
         const period = it.parsed.period
         const last4 = it.parsed.cards[0]?.card_last4 ?? it.existing?.card_last4 ?? null
@@ -881,8 +896,9 @@ export default function PrimaNota() {
       }
     }
     setCardImport(null)
-    if (errs.length > 0) toast({ type: 'error', message: `${ok} estratti importati, ${errs.length} falliti: ${errs.join('; ')}`, duration: 12000 })
-    else toast({ type: 'success', message: `${ok} estratti carta importati` })
+    const esito = `${ok} estratti carta importati${allegati > 0 ? `, ${allegati} file allegati a estratti già presenti` : ''}`
+    if (errs.length > 0) toast({ type: 'error', message: `${esito}, ${errs.length} falliti: ${errs.join('; ')}`, duration: 12000 })
+    else toast({ type: 'success', message: esito })
     loadCarte()
   }
   const toggleOutlet = (id: string) => setOutletFilter(cur => (cur === id ? null : id))
@@ -1809,7 +1825,8 @@ export default function PrimaNota() {
                 {it.parsed.warnings.map((w, k) => <div key={k} className="text-xs text-orange-800 mt-1">⚠ {w}</div>)}
                 <div className="text-xs mt-1">
                   {it.parsed.lines.length === 0 ? <span className="text-red-700">niente da importare</span>
-                    : it.existingLines > 0 ? <span className="text-orange-800">già importato in «{it.label}» con {it.existingLines} righe: questo file viene saltato (le righe esistenti non si toccano)</span>
+                    : importNeedsAttach(it) ? <span className="text-emerald-700">già importato in «{it.label}» con {it.existingLines} righe ma senza documento in Archivio: le righe restano, questo file viene allegato all'estratto</span>
+                    : it.existingLines > 0 ? <span className="text-orange-800">già importato in «{it.label}» con {it.existingLines} righe e già in Archivio: questo file viene saltato (niente da fare)</span>
                     : it.existing ? <span className="text-emerald-700">aggiorna «{it.label}» già in Archivio senza righe: le {it.parsed.lines.length} operazioni vengono salvate</span>
                     : <span className="text-emerald-700">nuovo estratto «{it.label}»: il file va in Archivio e le {it.parsed.lines.length} operazioni vengono salvate</span>}
                 </div>
@@ -1818,9 +1835,13 @@ export default function PrimaNota() {
             <div className="text-xs text-slate-500">Ogni spesa viene agganciata alla fattura dello Scadenzario pagata con carta con lo stesso importo (entro 10 giorni); per le carte di credito si cerca in banca l'addebito con lo stesso totale.</div>
             <div className="flex justify-end gap-2 pt-1">
               <button type="button" onClick={() => setCardImport(null)} disabled={cardImport.busy} className="px-3 py-2 rounded-lg border border-slate-200 text-sm hover:bg-slate-50 disabled:opacity-50">Annulla</button>
-              <button type="button" onClick={saveCardImport} disabled={cardImport.busy || !cardImport.items.some(it => it.parsed.lines.length > 0 && it.existingLines === 0)}
+              <button type="button" onClick={saveCardImport} disabled={cardImport.busy || !cardImport.items.some(it => importable(it) || importNeedsAttach(it))}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium disabled:opacity-50">
-                {cardImport.busy && <Loader2 size={14} className="animate-spin" />} Importa {cardImport.items.filter(it => it.parsed.lines.length > 0 && it.existingLines === 0).length} estratti
+                {cardImport.busy && <Loader2 size={14} className="animate-spin" />} {(() => {
+                  const n = cardImport.items.filter(importable).length
+                  const a = cardImport.items.filter(importNeedsAttach).length
+                  return n === 0 && a > 0 ? `Allega ${a} file` : a > 0 ? `Importa ${n} estratti e allega ${a} file` : `Importa ${n} estratti`
+                })()}
               </button>
             </div>
           </div>
