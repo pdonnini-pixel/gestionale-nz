@@ -914,3 +914,78 @@ SELECT acu.d, acu.amount, acu.n AS in_acube, COALESCE(bt.n,0) AS in_banca
   FROM acu LEFT JOIN bt USING (d, amount, d40)
  WHERE acu.n > COALESCE(bt.n,0);
 ```
+
+---
+
+## Le giornate a zero che la ricostruzione saltava (16/09/2026)
+
+Patrizio guarda la griglia di aprile e si ferma su domenica 5: un trattino per tutti e sette i
+negozi. «Non e' possibile». Aveva ragione a non accettarlo, e il controllo ha tirato fuori un
+difetto della ricostruzione stessa.
+
+### Il difetto
+
+Le migration da `223` a `233` **saltavano le righe degli specchietti che valevano zero**. La
+prova e' secca: su 1.706 chiusure caricate, nessuna aveva incasso zero. Non e' una coincidenza,
+e' un filtro. Sedici giornate esistevano sul foglio del negozio e non nel gestionale, e in
+griglia un trattino non si distingue da un dato mai inserito.
+
+### Come si e' arrivati al fondo
+
+Il primo controllo cercava gli accrediti col formato `P.O.S. 087-00009 ... DATA RIF.:09.02.26`
+e tornava pulito. Era cieco: **dal 2 maggio MPS ha cambiato tracciato** in
+`COD.SIA:6181087-00002 ... DATA RIF.: 01.05.26`, col terminale in un altro punto e uno spazio
+in piu'. Il controllo vedeva solo gennaio-aprile e taceva sul resto dell'anno. Il riscontro del
+gestionale invece non ne ha risentito: maggio 280 righe accreditate, giugno 259, agosto 288.
+Il cambio di formato ha ingannato la query di verifica, non il sistema. Non e' un caso che cada
+il 2 maggio: e' la stessa cucitura dove erano spariti i movimenti recuperati dalla `234`.
+
+Rifatto il controllo su entrambi i formati, il 2026 non ha **un solo caso** di terminale che
+vende senza la chiusura corrispondente. Restavano due giorni con zero incassi ovunque
+(1 gennaio e 5 aprile) e tre giornate singole.
+
+### Cosa dicevano davvero gli specchietti
+
+Aperti su Drive, riga per riga:
+
+| Negozio, giorno | Sul foglio |
+|---|---|
+| Brugnato 10/02 e 19/03 | `0,00 €` |
+| Barberino 01/01 e 06/01 | ` - € ` |
+| Brugnato e Barberino 05/04 | **CHIUSO** (Barberino con refuso, «CHUSO») |
+| Valmontone 05/04 | ` - € ` |
+| Franciacorta 05/04 | riga senza importi |
+
+Brugnato distingue da solo le due cose: «CHIUSO» quando e' chiuso, `0,00` quando apre e non
+vende. Quindi il 10 febbraio e il 19 marzo era aperto.
+
+### La conferma di Sabrina (16/09/2026)
+
+Verificato sui **registri corrispettivi dell'Agenzia delle Entrate** e sul registro che manda
+il negozio:
+
+- Brugnato 10/02 e 19/03: nessun incasso, **giornate lavorative**;
+- Barberino 06/01: chiuso, e' la Befana.
+
+### Cosa e' stato scritto
+
+Migration `NZ_ONLY_20260916_237`, sedici giornate, **zero euro di differenza**: 14 marcate
+`is_closed_day` (1 gennaio su sei negozi, Barberino il 6 gennaio, 5 aprile su tutti e sette) e
+2 come giornate lavorative a zero (Brugnato 10/02 e 19/03). Il frontend le gestiva gia': mostra
+«chiuso», scrive «Negozio chiuso» come stato e tiene la giornata fuori dal conto del mese.
+
+Gli incassi mensili dopo la migration sono identici al centesimo a quelli di prima.
+
+### Il controllo di copertura
+
+In fondo alla `237` c'e' la query che dice se una giornata manca. Guarda ogni negozio dalla sua
+prima chiusura in poi, cosi' non segnala i mesi in cui non aveva ancora aperto (Torino prima del
+26/03). Oggi torna **zero righe**.
+
+### Cosa resta da fare
+
+In griglia una giornata di chiusura e una chiusura mai compilata si vedono uguali, un trattino.
+Ora il dato per distinguerle c'e' su tutte le giornate note, ma il campo `is_closed_day` nella
+prassi dei negozi non viene compilato: quando e' chiuso, semplicemente non si scrive niente.
+La strada seria non e' colorare il trattino, e' ricavarlo dalla banca: nessun accredito da
+nessun terminale quel giorno significa chiuso, e la pagina puo' scriverlo da sola.
