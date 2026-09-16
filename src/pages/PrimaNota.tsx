@@ -224,6 +224,9 @@ export default function PrimaNota() {
   const [cardImport, setCardImport] = useState<{ items: CardImportItem[]; busy: boolean } | null>(null)
   const [cardParsing, setCardParsing] = useState(false)
   const cardFileRef = useRef<HTMLInputElement>(null)
+  // «Allega il PDF»: estratto gia' presente con le righe ma senza file in Archivio
+  const attachFileRef = useRef<HTMLInputElement>(null)
+  const attachTarget = useRef<CardStmt | null>(null)
   const { toast } = useToast()
   const [outletFilter, setOutletFilter] = useState<string | null>(null)
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([])
@@ -800,6 +803,26 @@ export default function PrimaNota() {
     } finally {
       setCardParsing(false)
       if (cardFileRef.current) cardFileRef.current.value = ''
+    }
+  }
+  // Estratto presente (righe e saldi) ma senza PDF in Archivio: si allega il
+  // file senza toccare le righe. Archivia in bank-statements e aggancia
+  // import_document_id e file_url all'estratto.
+  const attachCardFile = async (st: CardStmt, file: File) => {
+    if (!companyId) return
+    setCardParsing(true)
+    try {
+      const arch = await archiviaFile({ file, companyId, userId: null, modulo: 'Banche', funzione: `Estratto carta · ${st.source_label ?? st.filename}`, bucket: 'bank-statements', year: st.period_year, month: st.period_month, referenceTable: 'bank_statements' })
+      if (arch.errore) throw new Error(arch.errore)
+      const { error } = await supabase.from('bank_statements').update({ filename: file.name, import_document_id: arch.id, file_url: arch.path }).eq('id', st.id)
+      if (error) throw error
+      toast({ type: 'success', message: `${file.name} allegato a ${st.source_label ?? st.filename}` })
+      await loadCarte()
+    } catch (e) {
+      toast({ type: 'error', message: `Allegato non salvato: ${e instanceof Error ? e.message : String(e)}` })
+    } finally {
+      setCardParsing(false)
+      if (attachFileRef.current) attachFileRef.current.value = ''
     }
   }
   const readCardFromArchive = async (st: CardStmt) => {
@@ -1648,6 +1671,7 @@ export default function PrimaNota() {
       </div>
       <div className="bg-white rounded-xl border border-slate-200 p-3 mb-4 flex flex-wrap items-center gap-3 text-sm">
         <input ref={cardFileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" multiple className="hidden" onChange={e => onCardFiles(e.target.files)} />
+        <input ref={attachFileRef} type="file" accept=".pdf,.xlsx,.xls,.csv" className="hidden" onChange={e => { const f = e.target.files?.[0]; const st = attachTarget.current; if (f && st) void attachCardFile(st, f) }} />
         <button type="button" onClick={() => cardFileRef.current?.click()} disabled={cardParsing}
           className="inline-flex items-center gap-2 px-3 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
           {cardParsing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Importa estratto carta
@@ -1676,6 +1700,11 @@ export default function PrimaNota() {
               {c.lines.length === 0 && (c.stmt.file_path
                 ? <button type="button" onClick={() => readCardFromArchive(c.stmt)} disabled={cardParsing} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 disabled:opacity-50"><Upload size={12} /> Leggi le righe dal file archiviato</button>
                 : <span className="text-xs text-orange-800">file archiviato non trovato: importa di nuovo il documento</span>)}
+              {c.lines.length > 0 && !c.stmt.file_path && (
+                <Tooltip content="Le righe ci sono ma il documento non è in Archivio: allega il PDF (o l'Excel) di questo estratto. Le righe non vengono toccate.">
+                  <button type="button" onClick={() => { attachTarget.current = c.stmt; attachFileRef.current?.click() }} disabled={cardParsing} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-orange-300 bg-orange-50 text-orange-900 text-xs font-medium hover:bg-orange-100 disabled:opacity-50"><Upload size={12} /> Allega il PDF</button>
+                </Tooltip>
+              )}
             </div>
             {c.lines.length > 0 && (
               <TableScroll>
