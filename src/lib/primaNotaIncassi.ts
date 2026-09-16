@@ -194,7 +194,9 @@ export function attribuisciIncasso(m: PnIncassoMovement, lk: IncassiLookups): In
   const matched = lk.closingMatches.get(m.id)
   if (matched) {
     // Il canale serve solo per l'etichetta: si cerca fra quelli dell'outlet abbinato
-    const wantKind = kind === 'amex' ? 'pos_amex' : kind === 'pos' ? 'pos' : 'contanti'
+    // (dal 16/09/2026 il riscontro notturno abbina anche i bonifici dei clienti
+    // alla riga «Bonifico» della chiusura, migration 238).
+    const wantKind = kind === 'amex' ? 'pos_amex' : kind === 'pos' ? 'pos' : kind === 'bonifico' ? 'bonifico' : 'contanti'
     const channel = active.find(c => c.outlet_id === matched.outlet_id && c.kind === wantKind && (wantKind === 'contanti' || normCode(c.terminal_code) === code))
       ?? active.find(c => c.outlet_id === matched.outlet_id && c.kind === wantKind) ?? null
     return { kind, outlet_id: matched.outlet_id, channel, attribuzione: 'chiusura', terminal_code: code, ref_date: matched.closing_date || ref_date }
