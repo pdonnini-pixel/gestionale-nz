@@ -222,6 +222,15 @@ const ScadenzarioSmart = () => {
   // Item grezzo da salvare in distinta SOLO alla conferma esplicita (no side-effect).
   // ncIds: note di credito compensate su questa fattura — alla conferma vengono chiuse in AVERE.
   type DistintaItem = { payableId: string; bankId: string; amount: number; status: string; note: string; ncIds?: string[]; isFiscal?: boolean }
+
+  // Etichetta del tipo di scadenza fiscale (allineata a Scadenze Fiscali): serve a
+  // riconoscere a colpo d'occhio cosa e' una riga da 33 mila (ritenute? IVA? IRAP?)
+  // senza dover leggere un titolo troncato.
+  const FISCAL_TYPE_LABELS: Record<string, string> = {
+    f24: 'F24', iva_periodica: 'IVA', iva_annuale: 'IVA annuale', inps: 'INPS', irpef: 'IRPEF', irap: 'IRAP', ires: 'IRES',
+    ritenute_acconto: 'Ritenute', contributi_inail: 'INAIL', diritto_camerale: 'CCIAA', imu: 'IMU', tari: 'TARI', bollo_auto: 'Bollo',
+  }
+  const fiscalTypeLabel = (t: string | null | undefined) => FISCAL_TYPE_LABELS[t || ''] || (t ? t.replace(/_/g, ' ').toUpperCase() : 'Fiscale')
   type ConfirmResult = { results: ConfirmPayment[]; banks: ConfirmBank[]; totaleComplessivo: number; emailBody: string; emailSubject: string; items: DistintaItem[] } | null
   const [confirmResult, setConfirmResult] = useState<ConfirmResult>(null);
   // La distinta è stata effettivamente salvata? (gate per "Conferma distinta")
@@ -1642,6 +1651,9 @@ const ScadenzarioSmart = () => {
     return fiscalDeadlines.map((fd): AnyRow => ({
       id: `fiscal_${fd.id}`,
       _isFiscal: true,
+      _fiscalType: (fd.deadline_type as string | null) || null,
+      _fiscalCode: (fd.f24_code as string | null) || null,
+      _fiscalPeriod: (fd.tax_period as string | null) || null,
       invoice_number: (fd.title as string | null) || (fd.deadline_type as string | null),
       invoice_date: (fd.created_at as string | null),
       due_date: (fd.due_date as string | null),
@@ -4038,7 +4050,18 @@ const ScadenzarioSmart = () => {
                               // + scadenza naturale (original_due_date, se presente). La scadenza
                               // naturale è la scadenza originale della fattura, distinta dalla
                               // data mostrata nella colonna DATA (che può essere stata rinviata).
-                              const invoiceLabel = p.invoice_number && p.invoice_number !== '-'
+                              // Scadenza fiscale (F24, IVA, IRAP...): non e' una fattura. Titolo per
+                              // esteso, etichetta del tipo e, sotto, codice tributo e periodo.
+                              const isFiscalRow = p._isFiscal === true
+                              const fiscalLabel = isFiscalRow ? fiscalTypeLabel(p._fiscalType as string | null) : ''
+                              const fiscalSub = isFiscalRow
+                                ? ['Scadenza fiscale',
+                                   p._fiscalCode ? `tributo ${String(p._fiscalCode)}` : '',
+                                   p._fiscalPeriod ? `periodo ${String(p._fiscalPeriod)}` : ''].filter(Boolean).join(' · ')
+                                : ''
+                              const invoiceLabel = isFiscalRow
+                                ? fiscalSub
+                                : p.invoice_number && p.invoice_number !== '-'
                                 ? `${isNotaCredito ? 'Nota di credito' : 'Fattura'} • ${p.invoice_number}`
                                   + (p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : '')
                                   + (p.original_due_date ? ` · scad. naturale ${fmtDate(p.original_due_date as string)}` : '')
@@ -4070,8 +4093,13 @@ const ScadenzarioSmart = () => {
                                   setSupplierDetail(sup || { ragione_sociale: p.suppliers?.ragione_sociale || p.suppliers?.name || 'N/A' });
                                 }} className="text-left">
                                   <div className="flex items-center gap-1.5">
+                                    {isFiscalRow && (
+                                      <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-50 text-[10px] font-semibold text-indigo-700 border border-indigo-100" title="Tipo di scadenza fiscale">
+                                        {fiscalLabel}
+                                      </span>
+                                    )}
                                     <UiTooltip content={mainText}>
-                                      <div className={`text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate ${isRata ? 'max-w-[150px]' : 'max-w-[220px]'}`}>
+                                      <div className={`text-[13px] text-slate-800 hover:text-blue-600 font-medium truncate ${isRata ? 'max-w-[150px]' : isFiscalRow ? 'max-w-[420px]' : 'max-w-[220px]'}`}>
                                         {mainText}
                                       </div>
                                     </UiTooltip>
@@ -4090,7 +4118,7 @@ const ScadenzarioSmart = () => {
                                   </div>
                                   {subText && (
                                     <UiTooltip content={subTooltip}>
-                                      <div className="text-[10px] text-slate-400 mt-0.5 truncate max-w-[220px]">
+                                      <div className={`text-[10px] text-slate-400 mt-0.5 truncate ${isFiscalRow ? 'max-w-[420px]' : 'max-w-[220px]'}`}>
                                         {subText}
                                       </div>
                                     </UiTooltip>
