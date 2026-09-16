@@ -1,0 +1,4 @@
+-- ROLLBACK 239: riapplicare la funzione match_customer_transfers_with_closings
+-- della 238 (finestra -10/+3, solo coppie). I match gia' scritti restano:
+-- toglierli sarebbe una DELETE su dati vivi (REGOLA NO DATA LOSS).
+-- Vedi supabase/migrations/20260916_238_riscontro_bonifici_clienti.sql, sezione 3.
