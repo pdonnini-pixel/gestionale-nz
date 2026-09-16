@@ -369,10 +369,26 @@ riscontro: sono un buco vero, ed e' la cosa piu' importante emersa in tutta la r
 
 Il 28 aprile Palmanova dichiara un versamento di **1.995,00 €** e Valdichiana uno di
 **2.875,25 €**. In banca non esiste nessun accredito di quegli importi, in nessuna data. Non
-e' una questione di finestra temporale o di causale: la cassa continua dei due negozi non
-registra **alcun** versamento fra il 24 aprile e il 4 maggio, e l'estratto conto BCC di quei
-giorni c'e' ed e' pieno di altri movimenti. Le due chiusure restano a «mancante». Va chiesto
-ai negozi.
+e' una questione di finestra temporale o di causale.
+
+Il controllo va fatto su **MPS**, non su BCC: tutti i versamenti in cassa continua arrivano li',
+su BCC ci sono solo gli accrediti POS. Sull'estratto conto MPS quella finestra non ha buchi, ogni
+giorno lavorativo dal 20 aprile all'8 maggio ha movimenti. Elencando tutte le entrate fra il 27
+aprile e il 6 maggio tolti gli accrediti POS, cioe' tutto il contante che entra, non c'e' nessun
+1.995,00 e nessun 2.875,25, e nessuna combinazione che li contenga. Le due cassette continue di
+Palmanova e Foiano fanno un salto netto: ultimo movimento il 24 aprile, poi il 4 maggio. I
+quattro accrediti successivi (930,00, 417,65, 1.745,00, 2.616,20) sono tutti piu' piccoli, quindi
+non possono nemmeno averli assorbiti.
+
+Il limite del controllo: si guarda il flusso importato in `bank_transactions`, non la carta. Se un
+singolo movimento non fosse mai stato importato non si vedrebbe. Contro questa ipotesi giocano la
+continuita' giorno per giorno dell'estratto conto e il fatto che su 58 versamenti dichiarati fra
+aprile e maggio ne sono stati ritrovati 56: mancano esattamente quei due, tutti e due in cassa
+continua, tutti e due dichiarati lo stesso giorno.
+
+Le due chiusure restano a «mancante». Per chiudere la questione: guardare l'home banking MPS dal
+28 al 30 aprile cercando una voce «VERS. CONTANTI C. CONTINUA», e chiedere ai due negozi la nota
+cassa di quella settimana con lo scontrino della cassetta.
 
 ### Cosa e' emerso, oltre a quello
 
