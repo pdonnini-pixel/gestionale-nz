@@ -356,6 +356,16 @@ describe('saldo della prepagata: catena degli estratti ancorata alla Disponibili
     expect(nettoCarta(lines)).toBe(267.9)
     expect(conSaldoProgressivo(lines, 133.68).map(x => [x.index, x.saldo])).toEqual([[1, 432.68], [2, 413.98], [0, 401.58]])
   })
+  it('stesso giorno: la ricarica precede le spese, il saldo non va sotto zero (Tasca 27/08/2026)', () => {
+    const lines = [
+      { purchase_date: '2026-08-27', amount: -12.4, fee: 0 }, { purchase_date: '2026-08-27', amount: -90.03, fee: 0 },
+      { purchase_date: '2026-08-27', amount: 100, fee: -1 }, { purchase_date: '2026-08-27', amount: 100, fee: -1 },
+    ]
+    const out = conSaldoProgressivo(lines, 20.65)
+    expect(out.map(x => x.index)).toEqual([2, 3, 0, 1])
+    expect(out.map(x => x.saldo)).toEqual([119.65, 218.65, 206.25, 116.22])
+    expect(out.every(x => x.saldo >= 0)).toBe(true)
+  })
 })
 
 describe('CartaBCC / Numia: PDF di agosto 2026 (numero di carta sulla riga dopo, righe di fine luglio)', () => {
