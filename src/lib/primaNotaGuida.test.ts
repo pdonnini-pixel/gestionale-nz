@@ -10,6 +10,8 @@ describe('buildGuidaRows: il foglio Guida spiega ogni foglio e come si cerca', (
     expect(text).toContain('Carta di debito MPS n. 99899952')
     expect(text).toContain('non è un incasso')
     expect(text).toContain('Ricarica carta prepagata')
+    expect(text).toContain('Codici negozi')
+    expect(text).toContain('punto vendita cod.')
     expect(text).toContain('↳ ricarica prepagata')
     expect(text).toContain('saldo iniziale + ricariche − spese − commissioni')
     expect(text).toContain('1 disposizione senza buste')
