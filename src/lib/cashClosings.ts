@@ -295,6 +295,55 @@ export function computeQuadrature(q: QuadratureInput): QuadratureResult {
   return { channelsTotal, invoicesTotal, totalCollected, receiptsDifference, cashLine, cashFloatExpected, cashDeclaredTotal, cashDifference }
 }
 
+/**
+ * Dati obbligatori che mancano alla conferma della chiusura.
+ *
+ * Nati dal caso di Brugnato del 16/09/2026: la chiusura è stata confermata con
+ * il fondo cassa (punto 4) vuoto, la giornata è rimasta senza quadratura e la
+ * mattina dopo è servita una riapertura. Fondo contato e contanti da versare
+ * sono le due cose che solo chi è in negozio può sapere: senza, la sera dopo
+ * il gestionale non sa da dove ripartire.
+ *
+ * Il punto 5 si può soddisfare anche con la spunta «in cassa non c'è altro
+ * oltre al fondo», che scrive 0: non è una scorciatoia, è la stessa
+ * informazione detta in un gesto solo.
+ */
+export type ClosingBlockField = 'fondo' | 'da_versare'
+
+export interface ClosingBlocker {
+  field: ClosingBlockField
+  /** Titolo del blocco nella pagina, come lo legge l'operatrice. */
+  title: string
+  /** Cosa deve fare, in una riga. */
+  what: string
+}
+
+export interface ClosingBlockersInput {
+  isClosedDay: boolean
+  cashFloatDeclared: number | null
+  cashPendingDeclared: number | null
+}
+
+export function closingBlockers(i: ClosingBlockersInput): ClosingBlocker[] {
+  if (i.isClosedDay) return []
+  const out: ClosingBlocker[] = []
+  if (i.cashFloatDeclared == null) {
+    out.push({
+      field: 'fondo',
+      title: '4. Fondo cassa contato stasera',
+      what: 'Conta il fondo che resta in cassa per domani e scrivilo. È il fondo fisso, senza gli incassi da versare.',
+    })
+  }
+  if (i.cashPendingDeclared == null) {
+    out.push({
+      field: 'da_versare',
+      title: '5. Contanti ancora da versare, contati stasera',
+      what: 'Conta i contanti che aspettano il prossimo versamento e scrivili. Se in cassa non c\'è altro oltre al fondo, spunta la casella: vale come zero.',
+    })
+  }
+  return out
+}
+
 /** Data locale in formato ISO (YYYY-MM-DD), senza sorprese di fuso orario. */
 export function toIsoDate(d: Date): string {
   const y = d.getFullYear()
