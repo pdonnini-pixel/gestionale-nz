@@ -242,6 +242,22 @@ describe('aggancio alle fatture pagate con carta (dati NZ luglio 2026)', () => {
     expect(m.has(4)).toBe(false)
     expect(m.has(5)).toBe(false)
   })
+  it('il nome del fornitore non aggancia una fattura di mesi dopo', () => {
+    // Stesso fornitore, stesso importo, due volte nell'anno: il biglietto di
+    // marzo non e' la fattura di luglio (133 giorni), e resta senza fattura.
+    const treni = [
+      { id: 't1', payment_date: '2026-08-25', invoice_date: '2026-07-16', gross_amount: 24.8, supplier_name: 'Trenitalia S.p.A.', invoice_number: '2026/9001977886' },
+    ]
+    const m = matchPayables([L('2026-03-05', 'TRENITALIA - LEFRECCE ROMA ITA', -24.8)], treni)
+    expect(m.has(0)).toBe(false)
+    const m2 = matchPayables([L('2026-07-16', 'TRENITALIA - LEFRECCE ROMA ITA', -24.8)], treni)
+    expect(m2.get(0)?.id).toBe('t1')
+  })
+  it('il numero di fattura nella descrizione vale anche a due mesi', () => {
+    const f = [{ id: 'f1', payment_date: '2026-08-25', invoice_date: '2026-06-17', gross_amount: 92.8, supplier_name: 'BLUGEST S.R.L.', invoice_number: 'FPR 4108/26' }]
+    const m = matchPayables([L('2026-06-15', 'BLUGEST SRL GALLICANO ITA SF_FPR 4108/26', -92.8)], f)
+    expect(m.get(0)?.id).toBe('f1')
+  })
 })
 
 describe('righe export e totali', () => {
