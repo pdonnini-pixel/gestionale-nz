@@ -40,6 +40,7 @@ import {
   parseAmount, formatAmount, formatEuro, computeQuadrature, todayIso, addDaysIso, monthDays,
   formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount,
   eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type DeviationLine,
+  closingBlockers, type ClosingBlocker, type ClosingBlockField,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
@@ -135,6 +136,10 @@ export default function ChiusuraCassa() {
   const [readingIds, setReadingIds] = useState<Set<string>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
   const pendingTarget = useRef<PhotoTarget | null>(null)
+  // Dati obbligatori mancanti alla conferma: avviso al centro + salto al blocco giusto.
+  const [blockers, setBlockers] = useState<ClosingBlocker[] | null>(null)
+  const fondoRef = useRef<HTMLElement>(null)
+  const daVersareRef = useRef<HTMLElement>(null)
 
   const readOnly = !!closing && closing.status !== 'bozza'
   const editable = canWrite && !readOnly
@@ -244,6 +249,23 @@ export default function ChiusuraCassa() {
   }), [form, channels, prevFloat, prevPending, expensesTotal, refundsTotal])
 
   const needsNote = quad.receiptsDifference !== 0 || (quad.cashDifference != null && quad.cashDifference !== 0)
+
+  // Punti 4 e 5: senza questi due numeri la giornata non quadra e la sera dopo
+  // il gestionale non sa da dove ripartire. La conferma si ferma finché mancano.
+  const missingData = useMemo(() => closingBlockers({
+    isClosedDay: form.isClosedDay,
+    cashFloatDeclared: parseAmount(form.cashFloatDeclared),
+    cashPendingDeclared: parseAmount(form.cashPendingDeclared),
+  }), [form.isClosedDay, form.cashFloatDeclared, form.cashPendingDeclared])
+  const missesFondo = missingData.some((b) => b.field === 'fondo')
+  const missesDaVersare = missingData.some((b) => b.field === 'da_versare')
+  /** Spunta del punto 5: «in cassa non c'è altro oltre al fondo» vale zero da versare. */
+  const noPendingCash = parseAmount(form.cashPendingDeclared) === 0
+  const goToBlock = (field: ClosingBlockField) => {
+    setBlockers(null)
+    const el = field === 'fondo' ? fondoRef.current : daVersareRef.current
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
 
   // Scostamento serale rispetto all'obiettivo (budget del mese distribuito per giorno
   // della settimana, migration 203): giorno, settimana a oggi, mese a oggi.
@@ -375,6 +397,7 @@ export default function ChiusuraCassa() {
   }
 
   const confirm = async (force = false) => {
+    if (missingData.length > 0) { setBlockers(missingData); return }
     if (!form.isClosedDay && totalPhotos.length === 0) {
       toast({ type: 'warning', message: 'Serve la foto dello scontrino di chiusura: è l\'unica obbligatoria.' })
       return
@@ -722,6 +745,8 @@ export default function ChiusuraCassa() {
   const labelCls = 'block text-sm font-medium text-slate-700 mb-1'
   const okCls = 'text-emerald-700 bg-emerald-50 border-emerald-200'
   const koCls = 'text-red-700 bg-red-50 border-red-200'
+  /** Campo obbligatorio ancora vuoto: bordo rosso, così si vede prima di premere Conferma. */
+  const reqCls = (missing: boolean) => (missing ? inputCls.replace('border-slate-300', 'border-red-400 ring-2 ring-red-100') : inputCls)
 
   return (
     <div className="p-4 sm:p-6 max-w-xl mx-auto pb-28">
@@ -882,8 +907,8 @@ export default function ChiusuraCassa() {
               </section>
 
               {/* 4. Fondo cassa */}
-              <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
-                <h2 className="font-semibold text-slate-900">4. Fondo cassa contato stasera</h2>
+              <section ref={fondoRef} className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-4">
+                <h2 className="font-semibold text-slate-900">4. Fondo cassa contato stasera{!readOnly && <span className="ml-2 text-xs font-normal text-red-600">obbligatorio</span>}</h2>
                 {prevFloat == null && (
                   <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
                     <p className="text-xs text-slate-700">È la prima chiusura di questo punto vendita: il gestionale non sa quanto contante c'era in cassa stamattina. Compila la partenza una volta sola.</p>
@@ -908,18 +933,30 @@ export default function ChiusuraCassa() {
                 )}
                 <div>
                   <label className={labelCls}>Fondo cassa contato stasera</label>
-                  <input inputMode="decimal" value={form.cashFloatDeclared} disabled={!editable} onChange={(e) => update({ cashFloatDeclared: e.target.value })} placeholder="0,00" className={inputCls} />
+                  <input inputMode="decimal" value={form.cashFloatDeclared} disabled={!editable} onChange={(e) => update({ cashFloatDeclared: e.target.value })} placeholder="0,00" className={reqCls(missesFondo && !readOnly)} />
                   <p className="text-xs text-slate-500 mt-1">Il fondo fisso che resta in cassa per domani, senza gli incassi da versare.</p>
+                  {missesFondo && !readOnly && <p className="text-xs text-red-600 mt-1">Conta il fondo e scrivilo: senza questo numero non puoi confermare la chiusura.</p>}
                 </div>
               </section>
 
               {/* 5. Contanti da versare */}
-              <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
-                <h2 className="font-semibold text-slate-900">5. Contanti ancora da versare, contati stasera</h2>
+              <section ref={daVersareRef} className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
+                <h2 className="font-semibold text-slate-900">5. Contanti ancora da versare, contati stasera{!readOnly && <span className="ml-2 text-xs font-normal text-red-600">obbligatorio</span>}</h2>
                 <div>
-                  <input inputMode="decimal" value={form.cashPendingDeclared} disabled={!editable} onChange={(e) => update({ cashPendingDeclared: e.target.value })} placeholder="0,00" className={inputCls} />
+                  <input inputMode="decimal" value={form.cashPendingDeclared} disabled={!editable || noPendingCash} onChange={(e) => update({ cashPendingDeclared: e.target.value })} placeholder="0,00" className={reqCls(missesDaVersare && !readOnly)} />
                   <p className="text-xs text-slate-500 mt-1">Gli incassi in contanti (di oggi e dei giorni scorsi) che aspettano il prossimo versamento. Dopo un versamento, qui resta solo quello che non hai portato in banca.</p>
+                  {missesDaVersare && !readOnly && <p className="text-xs text-red-600 mt-1">Scrivi quanto c'è da versare, oppure spunta la casella qui sotto se in cassa non c'è altro oltre al fondo.</p>}
                 </div>
+                {!readOnly && (
+                  <label className="flex items-start gap-3 rounded-lg border border-slate-200 px-3 py-2 cursor-pointer hover:bg-slate-50">
+                    <input type="checkbox" checked={noPendingCash} disabled={!editable}
+                      onChange={(e) => update({ cashPendingDeclared: e.target.checked ? formatAmount(0) : '' })} className="mt-0.5 w-5 h-5" />
+                    <span className="text-sm text-slate-800">
+                      <span className="font-medium">Oggi in cassa non c'è altro oltre al fondo</span>
+                      <span className="block text-xs text-slate-600 mt-0.5">Nessun contante da versare: il punto 5 vale 0,00 € e la chiusura si può confermare.</span>
+                    </span>
+                  </label>
+                )}
                 {quad.cashFloatExpected != null ? (
                   <div className={`rounded-lg border px-3 py-2 text-sm space-y-1 ${quad.cashDifference === 0 ? okCls : quad.cashDifference == null ? 'text-slate-600 bg-slate-50 border-slate-200' : koCls}`}>
                     <div className="flex items-center justify-between">
@@ -1030,6 +1067,27 @@ export default function ChiusuraCassa() {
           <button onClick={() => navigate(`/incassi-giornalieri?outlet=${outletId}&date=${dateIso}`)} className="text-sm text-blue-600 underline inline-flex items-center gap-1"><Store size={14} />Vai agli incassi giornalieri</button>
         </div>
       )}
+
+      {/* Dati obbligatori mancanti: avviso al centro, con il salto al punto da compilare */}
+      <Modal open={blockers != null} onClose={() => setBlockers(null)} title="Manca un dato per chiudere">
+        <p className="text-sm text-slate-600 mb-3">
+          Prima di confermare servono questi numeri: puoi contarli solo tu che sei in negozio. Senza, la giornata non quadra e domani sera il gestionale non sa da quanto contante ripartire.
+        </p>
+        <ul className="space-y-2 mb-4">
+          {(blockers ?? []).map((b) => (
+            <li key={b.field} className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+              <p className="text-sm font-semibold text-slate-900">{b.title}</p>
+              <p className="text-sm text-slate-700 mt-0.5">{b.what}</p>
+            </li>
+          ))}
+        </ul>
+        <div className="flex justify-end">
+          <button onClick={() => goToBlock((blockers ?? [])[0]?.field ?? 'fondo')}
+            className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
+            <ChevronRight size={16} />Portami al {(blockers ?? [])[0]?.field === 'da_versare' ? 'punto 5' : 'punto 4'}
+          </button>
+        </div>
+      </Modal>
 
       {/* Avviso foto facoltative mancanti */}
       <Modal open={missingPhotos != null} onClose={() => setMissingPhotos(null)} title="Mancano alcune foto">

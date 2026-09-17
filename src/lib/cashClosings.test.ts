@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -285,5 +285,37 @@ describe('eveningDeviation', () => {
     expect(deviationBand(131, 100, 0.3)).toBe('sopra')
     expect(deviationBand(70, 100, 0.3)).toBe('in_linea')
     expect(deviationBand(50, 0, 0.3)).toBeNull()
+  })
+})
+
+describe('closingBlockers', () => {
+  const full = { isClosedDay: false, cashFloatDeclared: 501.2, cashPendingDeclared: 963.95 }
+
+  it('non blocca quando fondo e da versare sono scritti', () => {
+    expect(closingBlockers(full)).toEqual([])
+  })
+
+  it('blocca sul fondo cassa quando il punto 4 è vuoto (caso Brugnato 16/09/2026)', () => {
+    const b = closingBlockers({ ...full, cashFloatDeclared: null })
+    expect(b.map((x) => x.field)).toEqual(['fondo'])
+    expect(b[0].title).toContain('4.')
+  })
+
+  it('blocca sui contanti da versare quando il punto 5 è vuoto', () => {
+    const b = closingBlockers({ ...full, cashPendingDeclared: null })
+    expect(b.map((x) => x.field)).toEqual(['da_versare'])
+  })
+
+  it('lo zero della spunta «non c\'è altro in cassa» sblocca il punto 5', () => {
+    expect(closingBlockers({ ...full, cashPendingDeclared: 0 })).toEqual([])
+  })
+
+  it('elenca tutti e due i punti quando mancano entrambi', () => {
+    expect(closingBlockers({ isClosedDay: false, cashFloatDeclared: null, cashPendingDeclared: null }).map((x) => x.field))
+      .toEqual(['fondo', 'da_versare'])
+  })
+
+  it('il giorno di chiusura del negozio non chiede niente', () => {
+    expect(closingBlockers({ isClosedDay: true, cashFloatDeclared: null, cashPendingDeclared: null })).toEqual([])
   })
 })
