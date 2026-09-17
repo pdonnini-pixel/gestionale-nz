@@ -426,6 +426,14 @@ const tokens = (s: string | null): string[] => (s ?? '').toUpperCase().replace(/
  * con lo stesso importo, entro 10 giorni fra data di acquisto e data di
  * pagamento (o data fattura). A parita' vince chi ha il numero di fattura o
  * un pezzo del nome del fornitore nella descrizione. Ogni fattura una volta.
+ *
+ * Il nome del fornitore e il numero di fattura allargano la finestra, non la
+ * tolgono: lo stesso importo dallo stesso fornitore ricorre (un biglietto
+ * Trenitalia da 24,80 a marzo e un altro identico a luglio), e senza un
+ * limite di distanza la spesa di marzo si prenderebbe la fattura di luglio.
+ * Il numero di fattura nella descrizione e' una prova forte e arriva a
+ * quattro mesi; il solo nome si ferma a 45 giorni, che coprono la fattura
+ * riepilogativa di fine mese pagata con l'addebito dell'estratto.
  */
 export function matchPayables(lines: CardLine[], payables: PayableLite[]): Map<number, PayableLite> {
   const used = new Set<string>()
@@ -442,7 +450,7 @@ export function matchPayables(lines: CardLine[], payables: PayableLite[]): Map<n
         const nameHit = tokens(p.supplier_name).some(t => desc.includes(t))
         return { p, dist, score: (numHit ? 2 : 0) + (nameHit ? 1 : 0) }
       })
-      .filter(c => c.dist <= 10 || c.score > 0)
+      .filter(c => c.dist <= (c.score >= 2 ? 120 : c.score > 0 ? 45 : 10))
       .sort((a, b) => b.score - a.score || a.dist - b.dist)
     if (cands.length > 0) { used.add(cands[0].p.id); out.set(i, cands[0].p) }
   })
