@@ -57,6 +57,7 @@ import {
   type PnPayable, type PnFiscalDeadline, type PnMovement, type MovementKind,
 } from '../lib/primaNotaExport'
 import type { StyledRow } from '../lib/xlsxStyled'
+import { buildCodiciRows, buildCodiciSheet, CODICI_WIDTHS, type PnContratto } from '../lib/primaNotaCodici'
 import {
   buildPagamentoRow, fonteOf, includePagamento, sortPagamenti, summarizePagamenti, importoPagato, metodoLabel, rataOf,
   FONTE_LABELS, type PnPagamento, type PnLookups, type PagamentoFonte,
@@ -213,6 +214,8 @@ export default function PrimaNota() {
   const [fonteFilter, setFonteFilter] = useState<PagamentoFonte[] | null>(null)
   // Incassi per outlet: dizionari (canali, outlet, abbinamenti chiusure) e filtro a clic per outlet
   const [incassiLk, setIncassiLk] = useState<IncassiLookups>({ channels: [], outlets: new Map(), closingMatches: new Map(), bankAccounts: new Map() })
+  // Contratti Nexi e Amex (codice punto vendita, contratto, codice esercente): foglio «Codici negozi» dell'Excel
+  const [contratti, setContratti] = useState<PnContratto[]>([])
   // Quadratura: movimenti di una finestra larga intorno al periodo (per i saldi della banca) e chiusure di cassa del periodo
   const [winRaw, setWinRaw] = useState<WinRow[]>([])
   const [closings, setClosings] = useState<PnClosingLite[]>([])
@@ -452,6 +455,8 @@ export default function PrimaNota() {
         lk.closingMatches.set(m.bank_transaction_id, { outlet_id: c.outlet_id, closing_date: m.reference_date ?? c.closing_date, match_type: m.match_type })
       }
       setIncassiLk(lk)
+      const { data: ctr } = await supabase.from('acquirer_contracts').select('outlet_id, acquirer, merchant_code, payment_contract, settlement_mode, is_active').eq('company_id', companyId).limit(500)
+      setContratti(((ctr ?? []) as PnContratto[]))
     } catch (e) {
       console.error('[PrimaNota] incassi:', e)
     }
@@ -986,7 +991,7 @@ export default function PrimaNota() {
     const dataUsata = dateBasis === 'contabile' ? 'data contabile (banca)' : 'data operazione'
     // Il foglio Guida è il primo del file: si costruisce alla fine (deve sapere
     // i nomi degli altri fogli) e si inserisce in testa.
-    const used = new Set<string>(['Guida', 'Incassi per outlet', 'Dipendenti ed emolumenti'])
+    const used = new Set<string>(['Guida', 'Incassi per outlet', 'Codici negozi', 'Dipendenti ed emolumenti'])
     const nomiConti: string[] = []
     const contoSheetByAcc = new Map<string, string>()
     // I nomi dei fogli carta si riservano subito: il foglio del conto rimanda
@@ -1068,6 +1073,13 @@ export default function PrimaNota() {
         ...(incassiRows.length > 0 ? tableRows(incassiRows, r => (r.Outlet ? 'data' : 'warn')) : [{ kind: 'text' as const, cells: ['Nessun incasso nel periodo'] }]),
       ],
       widths: INCASSI_COLUMN_WIDTHS, moneyHeaders: ['Importo'],
+    })
+    // Foglio Codici negozi: per ogni punto vendita i codici con cui compare su
+    // estratti Nexi e Amex e negli accrediti in banca (Monica, 17/09/2026).
+    addStyledSheet(wb, {
+      name: 'Codici negozi', tabColor: '548235', filter: false,
+      rows: buildCodiciSheet(buildCodiciRows(incassiLk.outlets, incassiLk.channels, contratti, bankNameOf), periodoLabel),
+      widths: CODICI_WIDTHS,
     })
     // Foglio Dipendenti ed emolumenti: una riga per busta paga con il netto e la disposizione che l'ha pagata; in coda i flussi senza buste
     const dipRows: StyledRow[] = [
