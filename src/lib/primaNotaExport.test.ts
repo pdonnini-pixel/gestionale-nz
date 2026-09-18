@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import {
   classifyMovement, counterpartOf, pivaOf, causaleOf, buildRow, summarizeByKind, outletCodeFromNote,
   isRiba, ribaCountOf, tipoMovimentoOf, KIND_LABELS,
-  invoicesTotalOf, type PnMovement, type PnPayable,
+  invoicesTotalOf, nomeFileExport, type PnMovement, type PnPayable,
 } from './primaNotaExport'
 
 const mv = (over: Partial<PnMovement> & { amount: number; description: string }): PnMovement => ({
@@ -201,5 +201,26 @@ describe('buildRow e riepilogo', () => {
       { kind: 'pos', label: 'Incasso POS', n: 2, entrate: 150, uscite: 0 },
       { kind: 'spese_banca', label: 'Spese e commissioni bancarie', n: 1, entrate: 0, uscite: 7 },
     ])
+  })
+})
+
+describe('nome del file scaricato', () => {
+  const oggi = new Date(2026, 8, 18) // 18 settembre 2026
+
+  it('azienda, contenuto, periodo e data di esportazione all\'italiana', () => {
+    expect(nomeFileExport('New Zago', 'Prima nota', 'Agosto 2026', oggi, 'xlsx'))
+      .toBe('New Zago Prima nota Agosto 2026 - esportato il 18-09-2026.xlsx')
+  })
+
+  it('giorno e mese sempre a due cifre', () => {
+    expect(nomeFileExport('Made Retail', 'Incassi per outlet', 'Anno 2026', new Date(2026, 0, 5), 'csv'))
+      .toBe('Made Retail Incassi per outlet Anno 2026 - esportato il 05-01-2026.csv')
+  })
+
+  it('senza azienda non lascia il nome monco, e i caratteri vietati spariscono', () => {
+    expect(nomeFileExport(null, 'Prima nota', 'Agosto 2026', oggi, 'xlsx'))
+      .toBe('Azienda Prima nota Agosto 2026 - esportato il 18-09-2026.xlsx')
+    expect(nomeFileExport('Zago / Vicolo', 'Prima nota', 'Agosto 2026', oggi, 'xlsx'))
+      .toBe('Zago Vicolo Prima nota Agosto 2026 - esportato il 18-09-2026.xlsx')
   })
 })

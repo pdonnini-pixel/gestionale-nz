@@ -53,7 +53,7 @@ import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
 import {
   buildRow, classifyMovement, counterpartOf, causaleOf, pivaOf, invoiceCountOf, invoicesTotalOf,
-  summarizeByKind, KIND_LABELS, isRiba, ribaCountOf, tipoMovimentoOf,
+  summarizeByKind, KIND_LABELS, isRiba, ribaCountOf, tipoMovimentoOf, nomeFileExport,
   type PnPayable, type PnFiscalDeadline, type PnMovement, type MovementKind,
 } from '../lib/primaNotaExport'
 import type { StyledRow } from '../lib/xlsxStyled'
@@ -991,10 +991,13 @@ export default function PrimaNota() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${view === 'banca' ? 'prima_nota' : view === 'pagamenti' ? 'pagamenti_fornitori' : view === 'incassi' ? 'incassi_outlet' : view === 'dipendenti' ? 'dipendenti_emolumenti' : 'carte'}_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.csv`
+    a.download = nomeFile(view === 'banca' ? 'Prima nota' : view === 'pagamenti' ? 'Pagamenti fornitori' : view === 'incassi' ? 'Incassi per outlet' : view === 'dipendenti' ? 'Dipendenti ed emolumenti' : 'Carte', 'csv')
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  const nomeFile = (cosa: string, ext: string): string =>
+    nomeFileExport(company?.name, cosa, month ? `${MONTHS.find(m => m.v === month)?.l ?? ''} ${year}` : `Anno ${year}`, new Date(), ext)
 
   const exportXlsx = async () => {
     if (rows.length === 0) return
@@ -1086,6 +1089,11 @@ export default function PrimaNota() {
       rows: [
         { kind: 'title', cells: ['Incassi per outlet'] },
         { kind: 'meta', cells: ['Periodo', periodoLabel] },
+        // Le righe sono raggruppate per conto, come i fogli degli estratti: la
+        // prima riga e' il primo incasso del PRIMO CONTO, non del mese (il
+        // Banco Fiorentino raccoglie solo i versamenti di contante, che
+        // cominciano piu' tardi). Detto qui per non farlo scoprire a chi legge.
+        { kind: 'meta', cells: ['Ordine', 'per conto, e dentro ogni conto per data: la prima riga non e\u0027 il primo giorno del mese, ma il primo incasso di quel conto'] },
         { kind: 'blank', cells: [] },
         ...(incassiRows.length > 0 ? tableRows(incassiRows, r => (r.Outlet ? 'data' : 'warn')) : [{ kind: 'text' as const, cells: ['Nessun incasso nel periodo'] }]),
       ],
@@ -1191,7 +1199,7 @@ export default function PrimaNota() {
     })
     // Foglio Guida in testa: cosa c'è in ogni foglio e come si cerca
     addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, carteDebito: nomiCarteDebito, flussiSenzaBuste: stipendi.flussi_non_abbinati.length }), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
-    await downloadWorkbook(wb, `prima_nota_${year}${month ? '-' + String(month).padStart(2, '0') : ''}.xlsx`)
+    await downloadWorkbook(wb, nomeFile('Prima nota', 'xlsx'))
   }
 
   const KindBadge = ({ m }: { m: Movement }) => {

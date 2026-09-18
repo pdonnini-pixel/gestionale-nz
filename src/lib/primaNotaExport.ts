@@ -338,3 +338,18 @@ export function summarizeByKind(ms: PnMovement[]): Array<{ kind: MovementKind; l
       return { kind: k, label: KIND_LABELS[k], n: v.n, entrate: Math.round(v.entrate * 100) / 100, uscite: Math.round(v.uscite * 100) / 100 }
     })
 }
+
+/**
+ * Nome del file scaricato dalla Prima Nota: azienda, cosa contiene, periodo e
+ * giorno di esportazione in formato italiano (18-09-2026). L'azienda arriva dal
+ * tenant attivo, mai scritta nel codice. Sabrina ne archivia uno al mese e li
+ * gira allo studio: senza l'azienda e la data si confondono nella cartella.
+ * I caratteri che un file system non accetta (barra compresa, per questo la
+ * data va con i trattini) diventano spazi.
+ */
+export function nomeFileExport(azienda: string | null | undefined, cosa: string, periodo: string, oggi: Date, ext: string): string {
+  const due = (n: number) => String(n).padStart(2, '0')
+  const esportato = `${due(oggi.getDate())}-${due(oggi.getMonth() + 1)}-${oggi.getFullYear()}`
+  const nome = `${(azienda ?? '').trim() || 'Azienda'} ${cosa} ${periodo} - esportato il ${esportato}`
+  return `${nome.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()}.${ext}`
+}
