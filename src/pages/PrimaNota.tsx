@@ -241,6 +241,12 @@ export default function PrimaNota() {
   const [error, setError] = useState<string | null>(null)
 
   const companyId = company?.id
+  // Messaggio dell'area che non si e' caricata: il banner lo mostra e i pulsanti
+  // CSV/Excel restano spenti finche' non si ricarica.
+  const msgErrore = (area: string, e: unknown): string => {
+    const m = e instanceof Error ? e.message : e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : String(e)
+    return `${area}: ${m}`
+  }
   const dateStart = month ? `${year}-${String(month).padStart(2, '0')}-01` : `${year}-01-01`
   // Ultimo giorno del mese in LOCALE (lastDayOfMonthYMD): `.toISOString()` lo spostava a UTC.
   const dateEnd = month ? lastDayOfMonthYMD(year, month) : `${year}-12-31`
@@ -368,6 +374,12 @@ export default function PrimaNota() {
       else if (e && typeof e === 'object' && 'message' in e) msg = String((e as { message: unknown }).message)
       else { try { msg = JSON.stringify(e) } catch { msg = String(e) } }
       setError(msg)
+      // I movimenti del periodo precedente NON restano a video: erano ancora in
+      // memoria quando il 18/09/2026 la Prima Nota di agosto e' stata scaricata
+      // dopo un caricamento fallito, e il file per la commercialista e' uscito
+      // con i soli movimenti dal 17 in poi (la finestra di settembre) sotto
+      // un'intestazione che diceva «dal 01/08 al 31/08».
+      setRawMovements([])
     } finally {
       setLoading(false)
     }
@@ -423,6 +435,7 @@ export default function PrimaNota() {
     } catch (e) {
       console.error('[PrimaNota] pagamenti:', e)
       setPagamenti([])
+      setError(msgErrore('pagamenti', e))
     } finally {
       setLoadingPag(false)
     }
@@ -459,6 +472,7 @@ export default function PrimaNota() {
       setContratti(((ctr ?? []) as PnContratto[]))
     } catch (e) {
       console.error('[PrimaNota] incassi:', e)
+      setError(msgErrore('incassi', e))
     }
   }, [companyId])
 
@@ -515,6 +529,7 @@ export default function PrimaNota() {
     } catch (e) {
       console.error('[PrimaNota] quadratura:', e)
       setWinRaw([]); setClosings([])
+      setError(msgErrore('quadratura', e))
     }
   }, [companyId, dateStart, dateEnd, bankAccountId])
 
@@ -543,6 +558,7 @@ export default function PrimaNota() {
     } catch (e) {
       console.error('[PrimaNota] buste paga:', e)
       setSlips([])
+      setError(msgErrore('buste paga', e))
     }
   }, [companyId, year, month])
 
@@ -616,6 +632,7 @@ export default function PrimaNota() {
     } catch (e) {
       console.error('[PrimaNota] carte:', e)
       setCardStmts([]); setCardTx([])
+      setError(msgErrore('carte', e))
     }
   }, [companyId, year, month, dateStart, dateEnd, loadCardPayables, loadCardBankMovs])
 
@@ -1236,14 +1253,22 @@ export default function PrimaNota() {
           {loading ? <Loader2 size={16} className="animate-spin" /> : <RefreshCw size={16} />}
         </button>
         <div className="flex-1" />
-        <button onClick={exportCsv} disabled={(view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : view === 'dipendenti' ? stipendiRows : carteRows).length === 0}
-          className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg text-sm font-medium">
-          <Download size={14} /> CSV
-        </button>
-        <button onClick={exportXlsx} disabled={rows.length === 0 && pagRows.length === 0}
-          className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
-          <FileSpreadsheet size={14} /> Excel
-        </button>
+        {/* Si scarica solo quello che e' stato letto per intero: mentre i dati
+            arrivano, o se un'area non si e' caricata, i pulsanti restano spenti
+            e dicono perche'. Un file parziale con l'intestazione del periodo
+            giusto e' peggio di nessun file: finisce dalla commercialista. */}
+        <Tooltip content={loading || loadingPag ? 'Attendi: i movimenti del periodo si stanno ancora caricando' : error ? `Non si scarica: ${error}. Ricarica con il pulsante qui accanto.` : 'Scarica la vista aperta'}>
+          <button onClick={exportCsv} disabled={loading || loadingPag || !!error || (view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : view === 'dipendenti' ? stipendiRows : carteRows).length === 0}
+            className="inline-flex items-center gap-2 px-3 py-2 bg-slate-100 hover:bg-slate-200 disabled:opacity-50 rounded-lg text-sm font-medium">
+            <Download size={14} /> CSV
+          </button>
+        </Tooltip>
+        <Tooltip content={loading || loadingPag ? 'Attendi: i movimenti del periodo si stanno ancora caricando' : error ? `Non si scarica: ${error}. Ricarica con il pulsante qui accanto.` : 'Scarica tutto il periodo in un file Excel'}>
+          <button onClick={exportXlsx} disabled={loading || loadingPag || !!error || (rows.length === 0 && pagRows.length === 0)}
+            className="inline-flex items-center gap-2 px-3 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium">
+            <FileSpreadsheet size={14} /> Excel
+          </button>
+        </Tooltip>
       </div>
 
       {/* Vista: movimenti banca (una riga per movimento) o pagamenti fornitori (una riga per fattura) */}

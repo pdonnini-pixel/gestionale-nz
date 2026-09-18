@@ -29,8 +29,13 @@ export async function fetchAllPaged<T = Record<string, unknown>>(
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await makeQuery(from, from + PAGE_SIZE - 1)
     if (error) {
+      // Un blocco che fallisce a meta' strada (rete, timeout, sessione scaduta)
+      // lasciava tornare le pagine gia' prese: chi chiama non se ne accorgeva e
+      // si ritrovava meta' estratto conto creduto intero. E' successo il
+      // 18/09/2026 con la Prima Nota di agosto per la commercialista. Ora
+      // l'errore esce, e chi chiama mostra «errore» invece di numeri falsi.
       console.error(`[fetchAllPaged] ${label}:`, error?.message)
-      break
+      throw new Error(`${label}: lettura interrotta dopo ${acc.length} righe (${error?.message ?? 'errore sconosciuto'})`)
     }
     const batch = (data || []) as T[]
     acc.push(...batch)
