@@ -172,3 +172,64 @@ idea:
   dell'extension. In più pg_net ha un background worker, che un drop-e-ricrea
   lascia in stato incerto finché non riparte. Sconsigliato: rischio reale a
   fronte di zero beneficio di sicurezza.
+
+---
+
+## 2026-09-18 — Il ruolo «Sola lettura» non era in sola lettura
+
+Emerso preparando l'accesso di Denise (consulente, ruolo `viewer` sui 3 tenant
+da luglio, mai entrata). Il ruolo era sola lettura solo nell'interfaccia: la
+fascia gialla in `Layout.tsx` e il menu filtrato da `VIEWER_ROUTES` in
+`Sidebar.tsx`. Il commento nel codice diceva «viewer non è in nessuna write
+policy»: non era vero.
+
+### 1. Scritture aperte al viewer su 13 tabelle sensibili
+
+Le policy sono per lo più `FOR ALL` permissive che filtrano per azienda e non
+guardano il ruolo. Tabelle interessate: `bank_transactions`, `bank_statements`,
+`card_transactions`, `payment_batches`, `payment_batch_items`, `riba_distinte`,
+`riba_distinta_lines`, `manual_balance_entries`, `cash_must_pay`,
+`supplier_allocation_rules`, `supplier_allocation_details`,
+`supplier_opening_balances`, `app_config`.
+
+Dal browser non ci si arrivava (i pulsanti non vengono renderizzati). Con una
+`PATCH`, una `POST` o una `DELETE` dirette su `/rest/v1/<tabella>` e il JWT del
+viewer, sì. Un consulente con l'accesso «guarda e basta» poteva cancellare un
+movimento bancario.
+
+**Fix** — migration `20260918_240_viewer_readonly_blocco_scritture.sql`: policy
+`RESTRICTIVE` su `INSERT` / `UPDATE` / `DELETE` per ogni tabella `public` con
+RLS attiva, come già fa `cash_operator_block` per l'operatore di cassa. Una
+policy restrittiva si somma alle altre, quindi non allarga nulla e non tocca la
+`SELECT`. Il viewer conserva la scrittura su `tickets`, `help_chat_sessions`,
+`help_chat_messages`, `notifications`, `notification_preferences` e
+`user_profiles`; la `DELETE` è chiusa ovunque.
+
+Copertura: NZ 237 tabelle, Made e Zago 133. Verificato con login reale del
+viewer: legge tutto, `PATCH` e `DELETE` tornano zero righe, `POST` risponde
+`42501`. Contabile invariato.
+
+### 2. Tabelle di backup di settembre di nuovo senza RLS
+
+Stessa falla chiusa il 02/09 con la migration 152, riaperta dai backup creati
+durante gli interventi sul ciclo passivo: 11 tabelle su NZ (`_bkp_*` del 9-11
+settembre più `backup_176_agganci_ante_fattura`), nate da
+`CREATE TABLE ... AS SELECT`, senza RLS e con i grant di default a `anon` e
+`authenticated` (SELECT, INSERT, UPDATE, DELETE, TRUNCATE). La anon key sta nel
+bundle JS del sito, quindi erano leggibili e scrivibili da chiunque. Contenuto:
+copie di payables e bank_transactions, cioè IBAN, P.IVA e importi. Made e Zago
+erano puliti.
+
+**Fix** — migration `20260918_241_rls_enable_backup_tables_nuove.sql`: come la
+152, `ENABLE ROW LEVEL SECURITY` senza policy, con un loop dinamico su tutte le
+tabelle `public` senza RLS (sui tenant puliti non fa nulla). Nessuna riga
+toccata; `service_role` e `postgres` hanno `BYPASSRLS` e continuano a leggere i
+backup. Il codice applicativo non le interroga: compaiono solo in
+`src/types/database.ts`, che è generato.
+
+Verifica: `GET /rest/v1/_bkp_wolf_saldo_20260911` con la sola anon key ora
+risponde `[]`. Tabelle `public` senza RLS: 0 su tutti e 3 i tenant.
+
+**Da ricordare**: ogni backup fatto con `CREATE TABLE ... AS SELECT` nello
+schema `public` nasce esposto. O si crea la tabella già con
+`ENABLE ROW LEVEL SECURITY`, o si rilancia la 241, che è ripetibile.
