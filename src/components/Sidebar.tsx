@@ -255,14 +255,19 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
   }
 
   // Ruolo 'viewer' (sola lettura): vede le pagine dati, nessuna scrittura.
-  // La sicurezza vera è lato DB (RLS: viewer non è in nessuna write policy);
-  // qui decidiamo solo cosa mostrare nel menu. Escluse: Impostazioni, Import
-  // Hub, Archivio, AI Categorie, Divisione Fornitori, Admin Segnalazioni.
+  // La sicurezza vera è lato DB: la migration 20260918_240 mette una policy
+  // RESTRICTIVE su INSERT/UPDATE/DELETE di ogni tabella con RLS attiva, quindi
+  // al viewer la scrittura è negata anche chiamando l'API direttamente. Qui
+  // decidiamo solo cosa mostrare nel menu. Restano escluse le pagine che
+  // esistono per scrivere o per amministrare: Impostazioni, Import Hub, AI
+  // Categorie, Chiusura cassa, Report Sincronizzazioni, Admin Segnalazioni.
   const VIEWER_ROUTES = new Set<string>([
     '/', '/banche', '/cash-flow', '/fabbisogno', '/conto-economico', '/outlet',
     '/confronto-outlet', '/budget', '/fornitori', '/fatturazione',
     '/scadenzario', '/margini', '/produttivita', '/scenario',
     '/dipendenti', '/ticket',
+    // Consultazione pura: leggere il documento o il riepilogo, senza toccarlo.
+    '/archivio', '/storico-distinte', '/liquidazione-iva', '/incassi-giornalieri',
   ])
 
   // Outlet count del tenant attivo: serve per nascondere voci che hanno

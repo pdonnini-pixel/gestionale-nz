@@ -1,0 +1,10 @@
+-- ROLLBACK di 20260918_241_rls_enable_backup_tables_nuove.sql
+--
+-- Riapre le tabelle di backup all'accesso via API con la anon key. Da usare
+-- solo se una lavorazione ha davvero bisogno di leggerle dal client: la strada
+-- giusta resta leggerle da SQL o da una Edge Function (service_role bypassa la
+-- RLS e non ha mai smesso di vederle).
+--
+-- Elenca qui a mano le tabelle da riaprire, una per riga, per non disattivare
+-- la RLS su tabelle vive per sbaglio:
+--   ALTER TABLE public.<tabella_di_backup> DISABLE ROW LEVEL SECURITY;
