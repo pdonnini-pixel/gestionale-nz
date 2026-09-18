@@ -2788,7 +2788,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Utenti",
-        "body": "In questa sezione gestisci gli accessi reali al gestionale: \"Invita utente\" crea il login e invia un'email per impostare la password; l'icona della chiave (\"Nuova password\") genera una password nuova e te la mostra una sola volta, da comunicare tu all'utente; \"Blocca\" impedisce l'accesso senza cancellare nulla; \"Elimina\" revoca il login. Ogni utente ha un'etichetta colorata con il ruolo (Super Advisor, CEO, CFO, COO, Contabile, Operatore cassa, Sola lettura). Il ruolo \"Operatore cassa (negozio)\" è l'account di un punto vendita, condiviso dal personale: entra e vede solo la pagina Chiusura cassa del proprio negozio, nessun altro dato aziendale.",
+        "body": "In questa sezione gestisci gli accessi reali al gestionale: \"Invita utente\" crea il login e invia un'email per impostare la password; l'icona della chiave (\"Nuova password\") genera una password nuova e te la mostra una sola volta, da comunicare tu all'utente; \"Blocca\" impedisce l'accesso senza cancellare nulla; \"Elimina\" revoca il login. Ogni utente ha un'etichetta colorata con il ruolo (Super Advisor, CEO, CFO, COO, Contabile, Operatore cassa, Sola lettura). Il ruolo \"Operatore cassa (negozio)\" è l'account di un punto vendita, condiviso dal personale: entra e vede solo la pagina Chiusura cassa del proprio negozio, nessun altro dato aziendale. Il ruolo \"Sola lettura\" è l'accesso da consulente: apre le pagine dei dati (dashboard, banche, cashflow, conto economico, punti vendita, budget, fornitori, fatturazione, scadenzario, storico distinte, liquidazione IVA, archivio documenti, incassi giornalieri, margini, produttività, scenario, dipendenti) e può aprire una segnalazione, ma non scrive nulla: il divieto è imposto dal database, quindi vale anche fuori dalle pagine del gestionale. Restano fuori dal suo menu le pagine che servono a scrivere o ad amministrare: Impostazioni, Import Hub, AI Categorie, Chiusura cassa, Report Sincronizzazioni e Admin Segnalazioni.",
         "steps": [
           "Clicca \"Invita utente\" per aprire il modulo",
           "Inserisci nome, cognome ed email (obbligatoria) e scegli il ruolo",
@@ -2878,6 +2878,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Come faccio a togliere l'accesso a un utente che non lavora più con noi?",
         "a": "Puoi eliminarlo dalla sezione Utenti con l'icona del cestino, oppure modificarlo e disattivare la spunta \"Utente attivo\" se preferisci mantenere lo storico senza dargli accesso."
+      },
+      {
+        "q": "Cosa vede e cosa può fare un utente \"Sola lettura\"?",
+        "a": "È l'accesso pensato per un consulente esterno o per chi deve solo guardare i numeri. Vede le pagine dei dati (dashboard, banche, cashflow, conto economico, punti vendita, budget, fornitori, fatturazione, scadenzario, storico distinte, liquidazione IVA, archivio documenti, incassi giornalieri, margini, produttività, scenario, dipendenti), esporta e stampa, e può aprire una segnalazione. Non può salvare, modificare né cancellare niente: in alto vede sempre la fascia gialla \"Modalità sola lettura\" e il divieto è applicato dal database, quindi resta valido anche per chiamate fatte fuori dalle pagine del gestionale. Nel suo menu non compaiono Impostazioni, Import Hub, AI Categorie, Chiusura cassa, Report Sincronizzazioni e Admin Segnalazioni."
       }
     ]
   },
