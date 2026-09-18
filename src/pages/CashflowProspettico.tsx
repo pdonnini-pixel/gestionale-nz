@@ -39,6 +39,7 @@ import TextTooltip from '../components/Tooltip';
 import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark';
 import { Modal } from '../components/ui/Modal';
 import { isOutletOpenInPeriod, isOutletOpenOn } from '../lib/outletLifecycle';
+import { rentCoveredCostCenters, outletsWithOwnRent } from '../lib/cashflowRent';
 
 const MONTHS = ['Gen', 'Feb', 'Mar', 'Apr', 'Mag', 'Giu', 'Lug', 'Ago', 'Set', 'Ott', 'Nov', 'Dic'];
 const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab'];
@@ -314,6 +315,10 @@ export default function CashflowProspettico() {
   const [rawPayables, setRawPayables] = useState<AnyRow[]>([]);
   const [rawDailyRevenue, setRawDailyRevenue] = useState<AnyRow[]>([]);
   const [rawOutlets, setRawOutlets] = useState<AnyRow[]>([]);
+  // Sottoinsieme di rawOutlets: quelli il cui canone NON arriva già da un costo
+  // ricorrente di locazione (vedi src/lib/cashflowRent.ts). rawOutlets resta la
+  // lista intera, perché serve a tradurre gli id in codici e nomi.
+  const [rawRentOutlets, setRawRentOutlets] = useState<AnyRow[]>([]);
   const [rawRecurringCosts, setRawRecurringCosts] = useState<AnyRow[]>([]);
   const [rawLoans, setRawLoans] = useState<AnyRow[]>([]);
   const [rawFiscal, setRawFiscal] = useState<AnyRow[]>([]); // E — scadenze fiscali (fiscal_deadlines)
@@ -404,7 +409,8 @@ export default function CashflowProspettico() {
         { data: payablesScadenze },
         { data: dailyRevenueData },
         { data: budgetEntriesData },
-        { data: chartAccountsData }
+        { data: chartAccountsData },
+        { data: rentCategoriesData }
       ] = await Promise.all([
         supabase
           .from('recurring_costs')
@@ -427,7 +433,7 @@ export default function CashflowProspettico() {
           .eq('is_active', true),
         supabase
           .from('outlets')
-          .select('id, code, name, rent_monthly, rent_start_date, contract_start, opening_date, closing_date')
+          .select('id, code, name, cost_center_key, rent_monthly, rent_start_date, contract_start, opening_date, closing_date')
           .eq('company_id', companyId)
           .eq('is_active', true),
         supabase
@@ -458,7 +464,16 @@ export default function CashflowProspettico() {
         supabase
           .from('chart_of_accounts')
           .select('*')
+          .eq('company_id', companyId),
+        // Categorie di canone: servono a capire quali costi ricorrenti SONO
+        // l'affitto di un centro di costo, per non sommarlo anche dalla scheda
+        // outlet (src/lib/cashflowRent.ts). Le spese condominiali e di
+        // marketing stanno nello stesso macro gruppo ma non sono il canone.
+        supabase
+          .from('cost_categories')
+          .select('id, code')
           .eq('company_id', companyId)
+          .eq('code', 'LOC_OUTLET')
       ]);
 
       // Mappa di classificazione conti: code -> { is_revenue, is_cash }. is_cash default true.
@@ -479,6 +494,14 @@ export default function CashflowProspettico() {
       // Cast: rent_start_date (migration outlet in apertura) non è ancora nei tipi DB generati.
       const outletRows = ((outletsData || []) as unknown as AnyRow[]);
       setRawOutlets(outletRows);
+      // Canone di scheda o costo ricorrente di locazione: mai tutti e due, o
+      // l'affitto esce di cassa due volte (era il caso di Roma Soratte).
+      const rentCategoryIds = new Set(((rentCategoriesData || []) as { id?: unknown }[])
+        .map(c => String(c.id ?? ''))
+        .filter(Boolean));
+      const coveredCostCenters = rentCoveredCostCenters(recurringCosts || [], rentCategoryIds);
+      const rentOutletRows = outletsWithOwnRent(outletRows, coveredCostCenters);
+      setRawRentOutlets(rentOutletRows);
       setRawRecurringCosts(recurringCosts || []);
       setRawLoans(loansData || []);
       setRawBudgetConfronto(budgetConfrontoData || []);
@@ -543,7 +566,7 @@ export default function CashflowProspettico() {
       // opening_date) e fino a closing_date: un outlet in apertura a novembre
       // non pesa sul cashflow da gennaio.
       const monthlyRent: number[] = Array.from({ length: 12 }, (_, m) =>
-        outletRows.reduce((sum, outlet) => {
+        rentOutletRows.reduce((sum, outlet) => {
           if (filteredOutlet && outlet.code !== filteredOutlet) return sum;
           if (!isRentActiveInMonth(outlet, year, m)) return sum;
           return sum + (Number(outlet.rent_monthly) || 0);
@@ -849,7 +872,7 @@ export default function CashflowProspettico() {
 
     // Canone giornaliero (canone mensile / 30) dei soli outlet il cui canone
     // decorre in quel giorno (rent_start_date/contract_start/opening_date → closing_date).
-    const rentOutlets = rawOutlets.filter(outlet => !filteredOutlet || outlet.code === filteredOutlet);
+    const rentOutlets = rawRentOutlets.filter(outlet => !filteredOutlet || outlet.code === filteredOutlet);
     const dailyRentOn = (day: Date): number =>
       rentOutlets.reduce((sum, outlet) => isRentActiveOn(outlet, day) ? sum + (Number(outlet.rent_monthly) || 0) / 30 : sum, 0);
 
@@ -1018,7 +1041,7 @@ export default function CashflowProspettico() {
     }
 
     return days;
-  }, [viewMode, rawDailyRevenue, rawPayables, rawFiscal, estimateVoices, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
+  }, [viewMode, rawDailyRevenue, rawPayables, rawFiscal, estimateVoices, rawOutlets, rawRentOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
 
   // ===== WEEKLY VIEW COMPUTATION =====
   const weeklyData = useMemo(() => {
@@ -1037,7 +1060,7 @@ export default function CashflowProspettico() {
     });
 
     // Canone giornaliero dei soli outlet con canone in corso quel giorno (vedi vista giornaliera).
-    const rentOutlets = rawOutlets.filter(outlet => !filteredOutlet || outlet.code === filteredOutlet);
+    const rentOutlets = rawRentOutlets.filter(outlet => !filteredOutlet || outlet.code === filteredOutlet);
     const dailyRentOn = (day: Date): number =>
       rentOutlets.reduce((sum, outlet) => isRentActiveOn(outlet, day) ? sum + (Number(outlet.rent_monthly) || 0) / 30 : sum, 0);
 
@@ -1221,7 +1244,7 @@ export default function CashflowProspettico() {
     }
 
     return weeks;
-  }, [viewMode, rawDailyRevenue, rawPayables, rawFiscal, estimateVoices, rawOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
+  }, [viewMode, rawDailyRevenue, rawPayables, rawFiscal, estimateVoices, rawOutlets, rawRentOutlets, rawRecurringCosts, rawLoans, rawBudgetConfronto, rawBudgetEntries, coaCashMap, initialBalance, selectedOutlet, scenario]);
 
   // Force daily computation for weekly view by making dailyData not depend on viewMode for weekly
   // Actually, weeklyData computes independently. Let's fix the dependency:
@@ -1368,7 +1391,7 @@ export default function CashflowProspettico() {
       });
       // Canoni reali per outlet (Modello A: niente stima costi-a-budget).
       // Un canone non ancora decorso (o cessato) in questo mese non compare.
-      rawOutlets.forEach(o => {
+      rawRentOutlets.forEach(o => {
         if (!isRentActiveInMonth(o, year, monthIdx)) return;
         if (!filteredOutlet || o.code === filteredOutlet) {
           const rent = Number(o.rent_monthly) || 0;

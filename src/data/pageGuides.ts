@@ -1573,6 +1573,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Canone dei punti vendita e decorrenza",
         "body": "Il canone di ogni punto vendita entra nelle uscite solo dalla data di decorrenza del canone impostata nella scheda outlet (in mancanza, dalla data di inizio contratto o di apertura) e fino all'eventuale chiusura. Un negozio che apre a novembre non pesa sul cashflow dei mesi precedenti; caparra, costi iniziali e altre uscite prima dell'apertura si vedono perché sono nello Scadenzario come scadenze o previsioni."
+      },
+      {
+        "heading": "Un canone scritto in due posti conta una volta sola",
+        "body": "L'affitto può essere scritto in due punti del gestionale: il canone mensile nella scheda del punto vendita, che qui alimenta la voce \"Canoni\", e un costo ricorrente in Scadenzario → Ricorrenze, che alimenta la voce \"Ricorrenti\". Quando lo stesso centro di costo ha un costo ricorrente attivo di categoria \"Locazione outlet\", il cashflow prende solo quello e lascia da parte il canone della scheda, così l'affitto non esce di cassa due volte. La ricorrenza ha la precedenza perché è la più vicina alla cassa: porta l'importo lordo che si paga davvero e nello Scadenzario si azzera da sola quando arriva la fattura del locatore. Il canone della scheda outlet resta dov'è e continua a valere per la scheda del punto vendita e per i margini. Le spese condominiali e di marketing non c'entrano: hanno una categoria diversa e vengono sempre sommate."
       }
     ],
     "faq": [

@@ -59,7 +59,8 @@ la locazione: senza, il contratto si risolve di diritto (art. XIII).
    articoli che contano, **storico dei canoni** (6.000 → 30.000 → 38.400 annui) e **nove scadenze**
    contrattuali, dalla rivalutazione del 2028 alla proroga del 2038.
 4. **Costo ricorrente** di 3.050 € lordi al mese, dal 05/07/2026, centro di costo `sede_magazzino`,
-   categoria Locazione outlet: lo vedono Scadenzario (Ricorrenze) e Cashflow Prospettico.
+   categoria Locazione outlet: lo vedono Scadenzario (Ricorrenze) e Cashflow Prospettico. Il canone
+   netto di 2.500 € sta anche nella scheda outlet (migration 239), senza doppio conteggio: vedi sotto.
 5. **Checklist dei sei documenti** del fascicolo sulla scheda outlet, tab Documenti, pronta a
    ricevere i file: contratto, ricevuta di registrazione, planimetria, APE, copia conforme notarile,
    polizza RC. Compaiono anche in Archivio documenti, sezione «Contratti e outlet».
@@ -69,29 +70,41 @@ la locazione: senza, il contratto si risolve di diritto (art. XIII).
 I **file PDF non sono stati caricati**: lo Storage vuole una sessione utente, che la sandbox non ha.
 Si caricano dalla scheda outlet in trenta secondi, vedi sotto.
 
-## Perché il canone sta nelle ricorrenze e non in `rent_monthly`
+## Il canone è scritto in due posti e conta una volta sola
 
-Il Cashflow Prospettico somma due voci che non si parlano: `uscite_canoni`, presa da
-`outlets.rent_monthly`, e `uscite_ricorrenti`, presa da `recurring_costs`. Non c'è alcun confronto
-fra le due, quindi valorizzarle entrambe per lo stesso canone lo conta due volte.
+Il Cashflow Prospettico aveva due fonti per l'affitto, nate in momenti diversi e cieche l'una
+all'altra: `uscite_canoni`, presa da `outlets.rent_monthly`, e `uscite_ricorrenti`, presa da
+`recurring_costs`. Un canone scritto in tutti e due i posti usciva di cassa due volte.
 
-Qui il canone è finito nelle ricorrenze, e `rent_monthly` di SED è rimasto vuoto, per due ragioni:
+Dal 18/09/2026 la regola sta nel codice, in `src/lib/cashflowRent.ts`: quando un centro di costo ha
+un costo ricorrente attivo di categoria **Locazione outlet** (`LOC_OUTLET`), il cashflow prende
+quello e lascia da parte il canone della scheda. La ricorrenza vince perché è la più vicina alla
+cassa: porta l'importo lordo che si paga davvero, e nello Scadenzario si azzera da sola quando
+arriva la fattura del locatore (copertura per fornitore e mese entro l'8%, `ESTIMATE_MATCH_TOLERANCE_PCT`).
+Il campo della scheda resta dov'è e continua a servire alla scheda outlet e ai margini di categoria,
+che ragionano di costo netto e non di cassa. Le spese condominiali e di marketing (`COND_MKT`) non
+c'entrano: hanno una categoria diversa e vengono sempre sommate.
 
-- lo Scadenzario **copre da solo** la stima quando arriva la fattura vera dello stesso fornitore
-  nello stesso mese, entro l'8% di scostamento (`ESTIMATE_MATCH_TOLERANCE_PCT`). Per questo
-  l'importo è il **lordo** 3.050 e non il netto 2.500: la fattura di Alfatecno vale 3.050 €, e con
-  il netto la stima sarebbe rimasta visibile accanto alla fattura, con la scritta «possibile
-  corrispondenza». Anche il cashflow ragiona di cassa, quindi il lordo è l'importo giusto;
-- il canone del magazzino arriva regolarmente via SDI, quindi nei mesi passati è già un costo reale:
-  la ricorrenza serve solo a coprire i mesi futuri.
+La deduplica è applicata in tutti e quattro i punti in cui la pagina usa il canone: il totale
+mensile, la vista giornaliera, quella settimanale e il dettaglio delle uscite. Sette test in
+`src/lib/cashflowRent.test.ts`.
 
-### Segnalazione aperta: Roma Soratte conta il canone due volte
+**L'importo della ricorrenza del magazzino è il lordo 3.050 e non il netto 2.500**, perché la
+fattura di Alfatecno vale 3.050 €: col netto la stima resterebbe visibile accanto alla fattura come
+«possibile corrispondenza». Anche il cashflow ragiona di cassa. Nella scheda outlet, invece, il
+canone è il netto 2.500, come per tutti gli altri punti vendita (migration 239).
 
-Stessa meccanica, esito opposto: l'outlet RSO ha `rent_monthly` = 6.533,33 **e** un costo ricorrente
-da 6.533,33 attivo dal 05/11/2026. Da novembre il Cashflow mostrerà 13.066,66 € di canone al mese
-invece di 6.533,33. Non è stato toccato niente: sono dati inseriti apposta con la migration 220 e la
-decisione su quale delle due voci tenere è di Patrizio. Le stesse due voci esistono anche per spese
-di gestione e promozione (1.715 e 1.551,67), con lo stesso effetto.
+### Roma Soratte, il caso che ha fatto trovare il difetto
+
+RSO aveva `rent_monthly` 6.533,33 **e** un costo ricorrente di pari importo attivo dal 05/11/2026:
+da novembre il Cashflow avrebbe mostrato 13.066,66 € di canone al mese. Nessun dato è stato toccato:
+con la regola nuova il canone arriva dalla ricorrenza e vale 6.533,33, mentre gestione (1.715) e
+promozione (1.551,67) continuano a sommarsi, per un totale di 9.800 € al mese, esattamente quanto
+dice il contratto con Westi.
+
+Fotografia al 18/09/2026, verificata sul DB vivo: LOC_OUTLET ricorrente esiste solo su RSO e SED;
+gli altri sette punti vendita hanno solo il canone di scheda e non cambiano di una virgola. Su Made
+e Zago non ci sono né canoni di scheda né ricorrenze, quindi per loro non cambia niente.
 
 ## Da chiarire col commercialista
 
