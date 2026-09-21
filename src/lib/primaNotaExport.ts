@@ -108,6 +108,10 @@ const RE_SDD_SERVIZI = /A FAVORE NEXI PAYMENTS|A FAVORE GLOBAL BLUE/i
 // agganciato a una fattura resta «da chiarire», non diventa «spese bancarie»
 // solo perché la causale cita le commissioni scorporate (IMPORTO COMMISSIONI).
 const RE_TRANSFER = /IMPORTO BONIFICI|DISPOSIZIONE|BONIFICO|BEU INTERN BANK/i
+// La disposizione di pagamento CBI porta l'importo dei bonifici scorporato dalle
+// commissioni: e' un pagamento, mai una spesa bancaria, per quanto dica l'etichetta.
+// Diverso da «Commissioni su bonifico», che e' l'addebito della sola commissione.
+const RE_DISPOSIZIONE_CBI = /IMPORTO BONIFICI/i
 // Bonifico in ENTRATA da un cliente privato per un acquisto in negozio o online
 // (corrispettivo pagato con bonifico): "BON. IST./SEPA ... ORD: NOME ... RI: Acquisto merce".
 const RE_BONIFICO_IN = /\bBON\.\s*(IST|SEPA)\b|BONIFICO/i
@@ -147,6 +151,12 @@ export function classifyMovement(m: PnMovement): MovementKind {
   if (m.amount > 0 && RE_VERSAMENTO.test(d)) return 'versamento'
   if (RE_SPESE_BANCA.test(d) && !RE_TRANSFER.test(d)) return 'spese_banca'
   const byCat = m.category ? CATEGORY_KIND[m.category] : undefined
+  // L'etichetta `category` scritta in banca dati non vince sulla struttura del
+  // movimento. Su otto flussi CBI di giugno e luglio 2026 (126.036,89 EUR, il
+  // piu' grande da 56.031,89) e' rimasta 'spese_banca', scritta da una chiusura
+  // automatica poi corretta e mai ripulita: senza questo controllo un bonifico a
+  // fornitore uscirebbe in Prima Nota sotto «Spese e commissioni bancarie».
+  if (byCat === 'spese_banca' && RE_DISPOSIZIONE_CBI.test(d)) return 'da_chiarire'
   if (byCat) return byCat
   // Entrate senza etichetta: un bonifico di un privato per un acquisto è un
   // corrispettivo pagato con bonifico; un rimborso o una restituzione è tale.
