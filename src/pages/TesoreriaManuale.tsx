@@ -34,6 +34,7 @@ import PrimaNota from './PrimaNota'
 import CommissioniIncasso from './CommissioniIncasso'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
+import EstrattiContoImport from '../components/EstrattiContoImport'
 import CellTooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import { Modal as UIModal } from '../components/ui/Modal'
@@ -3615,6 +3616,10 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     <div className="space-y-6">
       {/* Riepilogo del giorno (controllo operativo) */}
       <RiepilogoGiornaliero companyId={companyId} accounts={accounts} />
+
+      {/* Causali estese dall'estratto conto: la banca manda i bonifici senza il
+          nome di chi incassa, nel file dell'estratto conto quel nome c'e'. */}
+      <EstrattiContoImport companyId={companyId} onRefresh={onRefresh} />
 
       {/* Toggle vista: Da riconciliare / Riconciliati */}
       <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 shadow-sm">

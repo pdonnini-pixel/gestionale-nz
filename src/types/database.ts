@@ -9676,6 +9676,9 @@ export type Database = {
           running_balance: number | null
           source: string | null
           statement_id: string | null
+          statement_description: string | null
+          statement_enriched_at: string | null
+          statement_source: string | null
           status: string | null
           supplier_id: string | null
           sync_run_id: string | null
@@ -9715,6 +9718,9 @@ export type Database = {
           running_balance?: number | null
           source?: string | null
           statement_id?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_source?: string | null
           status?: string | null
           supplier_id?: string | null
           sync_run_id?: string | null
@@ -9754,6 +9760,9 @@ export type Database = {
           running_balance?: number | null
           source?: string | null
           statement_id?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_source?: string | null
           status?: string | null
           supplier_id?: string | null
           sync_run_id?: string | null
@@ -22397,6 +22406,11 @@ export type Database = {
       close_incoming_movements: { Args: { p_dry_run?: boolean }; Returns: Json }
       close_non_supplier_movements: { Args: never; Returns: Json }
       close_paid_fiscal_deadlines: { Args: never; Returns: Json }
+      clean_bank_category_conflicts: { Args: never; Returns: Json }
+      apply_statement_enrichment: {
+        Args: { p_rows: Json; p_source?: string | null }
+        Returns: Json
+      }
       close_payable_manually: {
         Args: {
           p_amount?: number
