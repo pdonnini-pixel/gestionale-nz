@@ -57,6 +57,13 @@ describe('classifyMovement: tipo di movimento dalla causale, dall\'aggancio e da
     expect(classifyMovement(mv({ amount: -16.9, description: 'Causale: ADD.DIRETTO CARTA CREDITO - Descrizione: ADDEBITO SDD N. 648302 A FAVORE NEXI', category: 'commissioni_incasso' }))).toBe('carta')
     // commissioni sul bonifico: la parola «bonifico» non le trasforma in un pagamento da chiarire
     expect(classifyMovement(mv({ amount: -0.75, description: 'Commissioni su bonifico tramite co', category: 'spese_banca' }))).toBe('spese_banca')
+    // Flusso CBI con l'etichetta sbagliata in banca dati: e' un bonifico vero
+    // (13/07/2026, 56.031,89 + 1,75 di commissioni), non una spesa bancaria.
+    expect(classifyMovement(mv({ amount: -56033.64, category: 'spese_banca', description: 'Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 135688081 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 56.031,89 IMPORTO COMMISSIONI: 1,75 ORD.ORIG:' }))).toBe('da_chiarire')
+    // Con la fattura agganciata resta un pagamento fornitore, etichetta o meno.
+    expect(classifyMovement(mv({ amount: -56033.64, category: 'spese_banca', description: 'Causale: DISPOSIZIONE - Descrizione: IMPORTO BONIFICI: 56.031,89 IMPORTO COMMISSIONI: 1,75', payables: [pay('7', 'B', '01234567890')] }))).toBe('fornitore')
+    // L'SDD di servizi bancari citato in causale resta una spesa.
+    expect(classifyMovement(mv({ amount: -13.5, description: 'Bonifico A FAVORE NEXI PAYMENTS', category: 'spese_banca' }))).toBe('spese_banca')
     expect(classifyMovement(mv({ amount: -13.5, description: 'SDD Core - Richiesta Incasso SEPA 50129 AMERICAN EXPRESS PAYMENTS EUSL', category: 'commissioni_incasso' }))).toBe('spese_banca')
   })
   it('rata di finanziamento, fideiussione, canoni, commissioni, Nexi e Global Blue', () => {
