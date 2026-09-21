@@ -295,3 +295,60 @@ vincolo.
 non si aggiorna a mano e si azzera da sé quando si toglie l'aggancio bancario.
 Spiega anche perché, contando le scadenze riconciliate, «con cassa» e «con
 banca» danno sempre lo stesso numero.
+
+---
+
+## Il controllo del 21/09: il fix ha tenuto, e un'idea sbagliata scartata in tempo
+
+Ottavo giro consecutivo pulito: otto esecuzioni dal 14 al 21 settembre, tutte
+riuscite, fra 116 e 130 secondi.
+
+**Il vincolo rimesso dalla 218 regge.** L'aggancio di Spm Investigazioni 31, che
+era tornato cinque volte, in sette notti non si è più ripresentato: zero
+riagganci, la scadenza è ancora sganciata e stato, data di pagamento e chiusura
+manuale sono intatti. Era il vero test della patch, ed è passato.
+
+Settimana tranquilla anche per volume: quattro agganci applicati e una proposta
+da confermare. Tre agganci hanno il beneficiario o il numero di fattura scritto
+in causale — UnipolTech (SDD con il numero 913280757 in chiaro), Lignano Banda
+Larga («A FAVORE LIGNANO BANDA LARGA»), FUTURA IMMOBILIARE («a favore di: FUTURA
+IMMOBILIARE S.R.L SALDO FATTURA 45»). Il quarto vale una riga.
+
+### Il Comune pagato via pagoPA
+
+Bonifico di 80,00 € del 16/09, causale «Bonifico da Voi disposto a favore di:
+Servizio elettronico di pagamento per i cittadini 1789565». Il beneficiario non
+è il fornitore: è pagoPA, cioè l'intermediario. Di per sé non conferma niente.
+
+Il motore l'ha attaccato ai diritti di segreteria del COMUNE DI SANT'ORESTE
+usando il ramo della distinta, e ha fatto bene: nella finestra ci sono **undici**
+scadenze da 80,00 €, quasi tutte di ALTOMUGELLO, ma **una sola risulta disposta
+su quella banca in quelle date**, ed è quella del Comune. Il secondo ramo del
+criterio serve esattamente a questo, e qui ha rotto una parità a undici.
+
+### L'idea sbagliata: mettere gli F24 fra i movimenti da ignorare
+
+La proposta lasciata da confermare è FAMILY CENTER 825/2026 su un movimento con
+causale «Imposte e Tasse: Delega Unificata», cioè un F24. Un F24 non paga una
+fattura fornitore: la tentazione era aggiungere quelle causali a
+`fn_bank_own_movement`, insieme a rate di mutuo e canoni, e togliere il rumore
+alla radice.
+
+Misurato prima di farlo, e per fortuna. In 90 giorni i movimenti F24 hanno
+generato **sette** righe di log su 915 totali. Sei sono proposte `auto_fuzzy`
+mai applicate: il gate dell'identità le ferma già da solo. La settima è
+`applied`, ma è un aggancio **manuale** del 03/09 ed è semanticamente giusto:
+**Tari Valdichiana, fattura 9841 da 700,00 €, pagata con F24 il 07/08**. La TARI
+si paga proprio così.
+
+Quindi mettere gli F24 fra i movimenti della banca avrebbe tolto sei proposte
+innocue e in cambio avrebbe reso impossibile agganciare la TARI, l'IMU e ogni
+altro tributo che nel gestionale esiste come fattura di un fornitore vero —
+anche a mano. Il rumore resta, ed è il prezzo giusto.
+
+**La regola che se ne ricava**: prima di allargare la lista dei movimenti da
+ignorare, contare quante proposte genera davvero quella causale e guardare se
+fra quelle c'è un aggancio legittimo. Una lista di esclusione è facile da
+allungare e difficile da accorciare, perché quando toglie un caso buono non lo
+segnala: semplicemente quel movimento non si aggancia più, e nessuno se ne
+accorge.
