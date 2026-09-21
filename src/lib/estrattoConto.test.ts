@@ -82,7 +82,9 @@ describe('foglio Excel della banca', () => {
       ['13/07/2026', 'DISPOSIZIONE DI BONIFICO', -56031.89, 'A FAVORE GGZ SRL'],
     ]
     const p = parseEcAoa(aoa)
-    expect(p.rows[0].description).toBe('DISPOSIZIONE DI BONIFICO A FAVORE GGZ SRL')
+    // Le colonne in piu' vanno davanti: su MPS il beneficiario sta nella
+    // colonna «Causale», che precede la «Descrizione operazioni».
+    expect(p.rows[0].description).toBe('A FAVORE GGZ SRL DISPOSIZIONE DI BONIFICO')
   })
 
   it('senza intestazione riconoscibile lo dice, invece di inventare righe', () => {
@@ -175,5 +177,59 @@ describe('abbinamento con i movimenti che abbiamo', () => {
       { date: '2026-07-13', value_date: null, amount: -999.99, description: 'RIGA CHE NON ABBIAMO' },
     ], movimenti)
     expect(riepilogoEc(m)).toMatchObject({ righe: 2, nuovi: 1, senza_movimento: 1, con_beneficiario: 1 })
+  })
+})
+
+// Righe vere dell'estratto conto MPS di giugno 2026 (colonne Data, Valuta,
+// Dare, Avere, vuota, Causale, Descrizione operazioni), lette dal file della
+// banca: sono i tre bonifici da 10.001,75 partiti il 1 giugno, che per importo
+// e data sono indistinguibili e si separano solo con l'ID del flusso CBI.
+describe('estratto conto MPS, tracciato vero', () => {
+  const INTESTAZIONE = ['Data', 'Valuta', 'Dare', 'Avere', '', 'Causale', 'Descrizione operazioni']
+  const riga = (giorno: string, importo: number, causale: string, flusso: string, bonifici: string): unknown[] => ([
+    new Date(`${giorno}T00:00:00.000Z`), new Date(`${giorno}T00:00:00.000Z`), importo, '', '',
+    causale,
+    `DISPOSIZIONE FILIALE DISPONENTE 2430 ID FLUSSO CBI: ${flusso} NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: ${bonifici} IMPORTO COMMISSIONI: 1,75 ORD.ORIG: Rif Banca: 0260001012300012`,
+  ])
+  const AOA: unknown[][] = [
+    INTESTAZIONE,
+    riga('2026-06-01', -10001.75, '(26) VOSTRA DISPOSIZIONE A FAVORE DI GRUPPO FB CF_22', '134342051', '10.000,00'),
+    riga('2026-06-01', -10001.75, '(26) VOSTRA DISPOSIZIONE A FAVORE DI DISTRIBUZIONE 93 SF_11-NC35-69-132', '134342443', '10.000,00'),
+    riga('2026-06-01', -10001.75, '(26) VOSTRA DISPOSIZIONE A FAVORE DI A MIAN SF_1769-1760-CF_1757', '134334515', '10.000,00'),
+    riga('2026-06-22', -32522.75, '(26) VOSTRA DISPOSIZIONE A FAVORE DI A FRANKIE RETAIL HOLDCO saldo fattura B01826001265-\r\nB01826001266+spese', '135012707', '32.521,00'),
+  ]
+
+  it('legge importo negativo, causale col beneficiario e flusso CBI', () => {
+    const p = parseEcAoa(AOA)
+    expect(p.rows).toHaveLength(4)
+    expect(p.rows[0].amount).toBe(-10001.75)
+    expect(p.rows[0].description).toContain('GRUPPO FB')
+    expect(p.rows[0].flusso_cbi).toBe('134342051')
+    expect(p.rows[3].amount).toBe(-32522.75)
+    expect(p.rows[3].description).toContain('FRANKIE RETAIL HOLDCO')
+  })
+
+  it('tre bonifici uguali lo stesso giorno: il flusso CBI li separa, uno per uno', () => {
+    const movimenti = [
+      mov({ id: 'fb', transaction_date: '2026-06-01', amount: -10001.75, description: 'Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 134342051 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 10.000,00 IMPORTO COMMISSIONI: 1,75 ORD.ORIG:' }),
+      mov({ id: 'd93', transaction_date: '2026-06-01', amount: -10001.75, description: 'Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 134342443 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 10.000,00 IMPORTO COMMISSIONI: 1,75 ORD.ORIG:' }),
+      mov({ id: 'mian', transaction_date: '2026-06-01', amount: -10001.75, description: 'Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 134334515 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 10.000,00 IMPORTO COMMISSIONI: 1,75 ORD.ORIG:' }),
+    ]
+    const m = matchEcRows(parseEcAoa(AOA).rows, movimenti)
+    expect(m[0].movement?.id).toBe('fb')
+    expect(m[1].movement?.id).toBe('d93')
+    expect(m[2].movement?.id).toBe('mian')
+    expect(m.slice(0, 3).every((x) => x.esito === 'nuovo')).toBe(true)
+    // La quarta riga non ha un movimento in elenco: nessun aggancio inventato.
+    expect(m[3].esito).toBe('senza_movimento')
+  })
+
+  it('senza flusso CBI si torna a importo e data, e l\'ambiguita\' resta ambiguita\'', () => {
+    const senzaFlusso = [
+      mov({ id: 'x', transaction_date: '2026-06-01', amount: -10001.75, description: 'DISPOSIZIONE' }),
+      mov({ id: 'y', transaction_date: '2026-06-01', amount: -10001.75, description: 'DISPOSIZIONE' }),
+    ]
+    const m = matchEcRows(parseEcAoa(AOA).rows.slice(0, 1), senzaFlusso)
+    expect(m[0].esito).toBe('ambiguo')
   })
 })

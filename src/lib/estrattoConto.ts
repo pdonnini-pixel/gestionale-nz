@@ -33,6 +33,8 @@ export type EcRow = {
   amount: number
   /** Causale per esteso, come la scrive la banca */
   description: string
+  /** ID del flusso CBI, quando la riga e' una disposizione di pagamento */
+  flusso_cbi: string | null
 }
 
 export type EcParsed = {
@@ -92,6 +94,13 @@ export function parseAmountCell(v: unknown): number | null {
 
 const pad = (n: number): string => String(n).padStart(2, '0')
 
+// La disposizione CBI porta un identificativo univoco del flusso, che la banca
+// scrive sia nell'estratto conto sia nel movimento dell'open banking. Dove c'e',
+// l'abbinamento e' certo e non serve indovinare per importo e data: e' cosi' che
+// si distinguono tre bonifici da 10.001,75 partiti lo stesso giorno.
+export const flussoCbiDi = (testo: string | null | undefined): string | null =>
+  /ID FLUSSO CBI:\s*(\d+)/i.exec(String(testo || ''))?.[1] ?? null
+
 /** Data da cella Excel (Date, seriale o testo) o da testo «gg/mm/aaaa». Null se non e' una data. */
 export function parseDateCell(v: unknown): string | null {
   if (v == null || v === '') return null
@@ -124,7 +133,9 @@ export function parseDateCell(v: unknown): string | null {
 // combacia, quindi le varianti piu' specifiche stanno prima.
 const H_DATA = ['data contabile', 'data contab', 'data operazione', 'data movimento', 'data mov', 'data reg', 'data registrazione', 'data']
 const H_VALUTA = ['data valuta', 'valuta']
-const H_DESCR = ['descrizione operazione', 'descrizione estesa', 'descrizione', 'causale', 'causale abi', 'operazione', 'dettagli', 'note']
+// «Descrizione operazioni» prima di «Causale»: su MPS sono due colonne distinte,
+// e la causale (che porta il beneficiario) viene messa in testa al testo finale.
+const H_DESCR = ['descrizione operazioni', 'descrizione operazione', 'descrizione estesa', 'descrizione', 'causale', 'causale abi', 'operazione', 'dettagli', 'note']
 const H_IMPORTO = ['importo in euro', 'importo euro', 'importo eur', 'importo']
 const H_DARE = ['dare', 'uscite', 'uscita', 'addebiti', 'addebito']
 const H_AVERE = ['avere', 'entrate', 'entrata', 'accrediti', 'accredito']
@@ -196,11 +207,12 @@ export function parseEcAoa(aoa: unknown[][]): EcParsed {
     }
     if (amount == null || amount === 0) continue
 
-    // La descrizione puo' essere spezzata su piu' colonne accanto a quella
-    // riconosciuta (capita sugli export MPS): si concatenano le celle di testo
-    // che non sono ne' date ne' importi.
+    // Su MPS il nome di chi incassa sta nella colonna «Causale», non nella
+    // «Descrizione operazioni» (che porta il flusso CBI e gli importi): per
+    // questo le celle di testo si concatenano tutte, con la causale davanti.
+    // Le altre colonne di testo entrano comunque, perche' le banche spezzano
+    // volentieri la causale su piu' celle.
     const pezzi: string[] = []
-    if (cols.descrizione >= 0) pezzi.push(norm(r[cols.descrizione]))
     for (let c = 0; c < r.length; c++) {
       if (c === cols.data || c === cols.valuta || c === cols.importo || c === cols.dare || c === cols.avere || c === cols.descrizione) continue
       const cell = r[c]
@@ -210,10 +222,17 @@ export function parseEcAoa(aoa: unknown[][]): EcParsed {
       if (parseAmountCell(t) != null || parseDateCell(t) != null) continue
       pezzi.push(t)
     }
+    if (cols.descrizione >= 0) pezzi.push(norm(r[cols.descrizione]))
     const description = norm(pezzi.filter(Boolean).join(' '))
     if (!description) continue
 
-    rows.push({ date, value_date: cols.valuta >= 0 ? parseDateCell(r[cols.valuta]) : null, amount, description })
+    rows.push({
+      date,
+      value_date: cols.valuta >= 0 ? parseDateCell(r[cols.valuta]) : null,
+      amount,
+      description,
+      flusso_cbi: flussoCbiDi(description),
+    })
   }
 
   if (rows.length === 0) warnings.push('Intestazione trovata, ma sotto non c\'e\' nessuna riga leggibile (data + importo + causale).')
@@ -239,7 +258,7 @@ export function parseEcLines(lines: string[]): EcParsed {
     const amount = parseAmountCell(m[4])
     const description = norm(m[3])
     if (!date || amount == null || amount === 0 || description.length < 3) continue
-    rows.push({ date, value_date: m[2] ? parseDateCell(m[2]) : null, amount, description })
+    rows.push({ date, value_date: m[2] ? parseDateCell(m[2]) : null, amount, description, flusso_cbi: flussoCbiDi(description) })
   }
   if (rows.length === 0) warnings.push('Nel PDF non ho riconosciuto nessuna riga «data · causale · importo».')
   return { rows, columns: null, warnings }
@@ -275,8 +294,19 @@ export function matchEcRows(
   const usati = new Set<string>()
   const out: EcMatch[] = []
 
+  // Indice dei movimenti per flusso CBI: e' l'aggancio certo, si prova per primo.
+  const perFlusso = new Map<string, EcMovement[]>()
+  for (const m of movimenti) {
+    const f = flussoCbiDi(m.description)
+    if (!f) continue
+    const lista = perFlusso.get(f)
+    if (lista) lista.push(m)
+    else perFlusso.set(f, [m])
+  }
+
   for (const row of rows) {
-    const candidati = movimenti.filter((m) => {
+    const daFlusso = row.flusso_cbi ? (perFlusso.get(row.flusso_cbi) ?? []).filter((m) => !usati.has(m.id)) : []
+    const candidati = daFlusso.length === 1 ? daFlusso : movimenti.filter((m) => {
       if (usati.has(m.id)) return false
       const stessoImporto = Math.abs(r2(m.amount) - row.amount) < 0.005 || Math.abs(r2(m.amount) + row.amount) < 0.005
       return stessoImporto && giorni(m.transaction_date, row.date) <= tol
