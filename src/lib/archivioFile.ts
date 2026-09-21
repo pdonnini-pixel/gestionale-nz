@@ -53,6 +53,53 @@ const cartellaPeriodo = (year?: number | null, month?: number | null) => {
   return month ? `${year}/${String(month).padStart(2, '0')}` : `${year}`;
 };
 
+const MESI_IT: Record<string, number> = {
+  gennaio: 1, febbraio: 2, marzo: 3, aprile: 4, maggio: 5, giugno: 6,
+  luglio: 7, agosto: 8, settembre: 9, ottobre: 10, novembre: 11, dicembre: 12,
+};
+
+/**
+ * Periodo ricavato dal NOME del file.
+ *
+ * Un documento archiviato senza periodo si ritrova solo scorrendo l'elenco a
+ * occhio: non esce cercando «agosto» e non si aggancia al mese a cui si
+ * riferisce. Il periodo pero' quasi sempre e' gia' scritto nel nome che arriva
+ * dal software paghe o dalla banca, quindi non ha senso chiederlo a chi carica.
+ *
+ * Riconosce, in quest'ordine: 20260918, 062026, «giugno 2026», 2026-06, 2026.
+ * Quando non c'e' niente di riconoscibile torna null, senza inventare.
+ */
+export function periodoDalNomeFile(nome: string): { year: number; month: number | null } | null {
+  const n = (nome || '').replace(/\.[a-z0-9]+$/i, '');
+  const annoValido = (y: number) => y >= 2000 && y <= 2099;
+
+  // 20260918 — data compatta, anno davanti
+  const ymd = n.match(/(?<![0-9])(20[0-9]{2})(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])(?![0-9])/);
+  if (ymd) return { year: +ymd[1], month: +ymd[2] };
+
+  // 062026 — mese e anno attaccati, come «Dal 062026 Cedolino aggiuntivo 1»
+  const my = n.match(/(?<![0-9])(0[1-9]|1[0-2])(20[0-9]{2})(?![0-9])/);
+  if (my) return { year: +my[2], month: +my[1] };
+
+  // «giugno 2026», «LUGLIO_2026»
+  const nomeMese = n.match(new RegExp(`(${Object.keys(MESI_IT).join('|')})[\\s._-]*((?:20)[0-9]{2})`, 'i'));
+  if (nomeMese && annoValido(+nomeMese[2])) return { year: +nomeMese[2], month: MESI_IT[nomeMese[1].toLowerCase()] };
+
+  // 2026-06, 2026_06, 2026.06
+  const ym = n.match(/(?<![0-9])(20[0-9]{2})[._-](0[1-9]|1[0-2])(?![0-9])/);
+  if (ym) return { year: +ym[1], month: +ym[2] };
+
+  // 06-2026, 06_2026, 06.2026
+  const mYSep = n.match(/(?<![0-9])(0[1-9]|1[0-2])[._-](20[0-9]{2})(?![0-9])/);
+  if (mYSep) return { year: +mYSep[2], month: +mYSep[1] };
+
+  // solo l'anno
+  const soloAnno = n.match(/(?<![0-9])(20[0-9]{2})(?![0-9])/);
+  if (soloAnno) return { year: +soloAnno[1], month: null };
+
+  return null;
+}
+
 /**
  * Mette il file in archivio e lo registra. Non lancia mai: in caso di problema
  * torna `errore` valorizzato, e sta al chiamante dirlo all'utente.

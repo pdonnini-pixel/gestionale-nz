@@ -43,6 +43,7 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { Modal } from '../components/ui/Modal';
 import { useAuth } from '../hooks/useAuth';
+import { periodoDalNomeFile, type ModuloArchivio } from '../lib/archivioFile';
 import { processImport, previewImport } from '../lib/parsers/importEngine';
 
 // Storage bucket mapping for each import source
@@ -121,6 +122,29 @@ const IMPORT_SOURCE_CONFIG: Record<ImportSourceId, ImportSourceConfig> = {
   },
 };
 
+// Ogni fonte dell'Hub appartiene a un modulo del gestionale: senza questa riga
+// il documento finisce in archivio senza casa e si ritrova solo a occhio.
+// «general_docs» e' l'unica che non si puo' dedurre, perche' ci passa di tutto:
+// li' il modulo lo sceglie chi carica.
+const MODULO_PER_FONTE: Record<Exclude<ImportSourceId, 'general_docs'>, ModuloArchivio> = {
+  bank: 'Banche',
+  invoices: 'Fatturazione',
+  payroll: 'Personale',
+  balance_sheet: 'Bilancio',
+  pos_data: 'Outlet',
+  receipts: 'Outlet',
+};
+
+const AREE_DOCUMENTI_GENERALI: { value: ModuloArchivio | ''; label: string }[] = [
+  { value: '', label: 'Nessuna area (documento generale)' },
+  { value: 'Personale', label: 'Personale' },
+  { value: 'Banche', label: 'Banche' },
+  { value: 'Fatturazione', label: 'Fatturazione' },
+  { value: 'Scadenzario', label: 'Scadenzario' },
+  { value: 'Outlet', label: 'Outlet' },
+  { value: 'Bilancio', label: 'Bilancio' },
+];
+
 export default function ImportHub() {
   const { profile } = useAuth();
   const labels = useCompanyLabels();
@@ -173,6 +197,7 @@ export default function ImportHub() {
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [selectedBankAccount, setSelectedBankAccount] = useState<string | null>(null);
   const [selectedDocCategory, setSelectedDocCategory] = useState('contratto');
+  const [selectedDocArea, setSelectedDocArea] = useState<ModuloArchivio | ''>('');
   const [selectedMonthYear, setSelectedMonthYear] = useState('');
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   const [selectedOutlet, setSelectedOutlet] = useState('');
@@ -479,8 +504,30 @@ export default function ImportHub() {
           continue; // Skip to next file — don't log incomplete upload
         }
 
-        // Also log to import_documents for history
-        // import_documents schema: file_type, source (not source_type, not status)
+        // Registro dei caricamenti. Va compilato con TUTTO quello che il sistema
+        // gia' sa: bucket, modulo, funzione, periodo e autore. Prima restavano
+        // vuoti e il documento non usciva ne' cercando per area ne' per mese.
+        // Il periodo: prima quello scelto a mano nella schermata, poi quello
+        // scritto nel nome del file, che nei tabulati paghe e banca c'e' quasi
+        // sempre. Se non si ricava, resta vuoto: meglio niente che un mese finto.
+        const daNome = periodoDalNomeFile(file.name);
+        const periodo = (() => {
+          if (sourceId === 'payroll' && selectedMonthYear) {
+            const [m, y] = selectedMonthYear.split('-');
+            return { year: parseInt(y, 10), month: parseInt(m, 10) };
+          }
+          if (sourceId === 'balance_sheet') {
+            return { year: Number(selectedYear) || new Date().getFullYear(), month: null as number | null };
+          }
+          return daNome ? { year: daNome.year, month: daNome.month } : { year: null as number | null, month: null as number | null };
+        })();
+        const modulo = sourceId === 'general_docs'
+          ? (selectedDocArea || null)
+          : MODULO_PER_FONTE[sourceId as Exclude<ImportSourceId, 'general_docs'>];
+        const funzione = sourceId === 'general_docs'
+          ? `Documenti generali · ${selectedDocCategory}`
+          : config.name;
+
         await supabase.from('import_documents').insert([
           {
             company_id: COMPANY_ID,
@@ -489,6 +536,13 @@ export default function ImportHub() {
             file_size: file.size,
             file_type: fileExt,
             source: sourceId,
+            storage_bucket: config.bucket,
+            modulo,
+            funzione,
+            year: periodo.year,
+            month: periodo.month,
+            uploaded_by: profile?.id ?? null,
+            uploaded_at: new Date().toISOString(),
           } as never,
         ]);
 
@@ -1183,6 +1237,21 @@ export default function ImportHub() {
                     <option value="comunicazione">Comunicazione</option>
                     <option value="altro">Altro</option>
                   </select>
+
+                  <label className="block text-sm font-semibold text-gray-900 mt-4 mb-2">Area del gestionale</label>
+                  <select
+                    value={selectedDocArea}
+                    onChange={(e) => setSelectedDocArea(e.target.value as ModuloArchivio | '')}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    {AREE_DOCUMENTI_GENERALI.map((a) => (
+                      <option key={a.value || 'nessuna'} value={a.value}>{a.label}</option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-600 mt-2">
+                    Serve a ritrovare il documento insieme agli altri della stessa area. Il periodo invece
+                    lo legge il sistema dal nome del file, quando c'è scritto.
+                  </p>
                 </div>
               )}
 
