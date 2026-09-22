@@ -23,6 +23,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  CalendarClock,
 } from 'lucide-react';
 import {
   BarChart,
@@ -60,6 +61,8 @@ import {
 } from '../lib/headcount';
 
 const PdfViewer = lazy(() => import('../components/PdfViewer'));
+// L'import dei ratei tira dentro pdfjs: si carica solo aprendo la scheda.
+const RateiFerieImport = lazy(() => import('../components/RateiFerieImport'));
 
 // ============================================================================
 // TYPES
@@ -83,8 +86,8 @@ interface OutletRow {
 }
 
 // Vista persistita in URL come ?view=
-type PersonaleView = 'panoramica' | 'per_outlet' | 'organico' | 'costi' | 'lordi';
-const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'organico', 'costi', 'lordi'];
+type PersonaleView = 'panoramica' | 'per_outlet' | 'organico' | 'costi' | 'lordi' | 'ferie';
+const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'organico', 'costi', 'lordi', 'ferie'];
 
 const MONTHS = [
   { num: 1, label: 'Gennaio' }, { num: 2, label: 'Febbraio' }, { num: 3, label: 'Marzo' },
@@ -976,6 +979,7 @@ export default function Dipendenti() {
           { k: 'organico', label: 'Organico', icon: Users },
           { k: 'costi', label: 'Costi & cedolini', icon: FileText },
           { k: 'lordi', label: 'Costo lordo', icon: Percent },
+          { k: 'ferie', label: 'Ferie e permessi', icon: CalendarClock },
         ] as { k: PersonaleView; label: string; icon: any }[]).map((t) => {
           const Icon = t.icon;
           return (
@@ -1152,6 +1156,12 @@ export default function Dipendenti() {
               month={selectedMonth}
               monthLabel={monthLabel}
             />
+          )}
+
+          {view === 'ferie' && (
+            <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
+              <RateiFerieImport companyId={COMPANY_ID} userId={USER_ID} />
+            </Suspense>
           )}
         </>
       )}
