@@ -67,6 +67,10 @@ function PageLoader() {
 
 function ProtectedRoute({ children }: { children: ReactNode }) {
   const { session, loading, profile, profileError, refreshProfile, signOut } = useAuth()
+  // Chi arriva da un link diretto (per esempio /dipendenti?view=ferie) senza
+  // sessione finiva sul login e poi in Dashboard: la pagina che voleva si
+  // perdeva. Qui la si porta dietro e PublicRoute ce lo riporta.
+  const location = useLocation()
 
   if (loading) {
     return (
@@ -106,7 +110,9 @@ function ProtectedRoute({ children }: { children: ReactNode }) {
     )
   }
 
-  return session ? <>{children}</> : <Navigate to="/login" replace />
+  return session
+    ? <>{children}</>
+    : <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />
 }
 
 /**
@@ -143,8 +149,14 @@ function CashOperatorGate({ children }: { children: ReactNode }) {
 
 function PublicRoute({ children }: { children: ReactNode }) {
   const { session, loading } = useAuth()
+  const location = useLocation()
   if (loading) return null
-  return session ? <Navigate to="/" replace /> : <>{children}</>
+  if (!session) return <>{children}</>
+  // Solo percorsi interni: uno "from" arrivato da fuori non deve poter
+  // spedire l'utente altrove dopo il login.
+  const from = (location.state as { from?: string } | null)?.from
+  const dest = from && from.startsWith('/') && !from.startsWith('//') ? from : '/'
+  return <Navigate to={dest} replace />
 }
 
 function AppRoutes() {

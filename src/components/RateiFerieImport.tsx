@@ -14,13 +14,13 @@
 // presenta solo per le righe che il documento non basta a decidere.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, CheckCircle2, AlertTriangle, Upload, FileText, RefreshCw, Users } from 'lucide-react';
+import { CalendarClock, CheckCircle2, AlertTriangle, Upload, FileText, RefreshCw, Users, Search, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile';
 import {
   parseRatei, isTabulatoRatei, abbinaDipendente, oreSettimanaliDaRateo, oreGiornataDaRateo,
-  VOCI, type RateiParsed, type RateoRow, type Abbinamento, type DipendenteRif,
+  normNome, VOCI, type RateiParsed, type RateoRow, type Abbinamento, type DipendenteRif,
 } from '../lib/rateiParse';
 
 type Props = { companyId?: string; userId?: string | null };
@@ -56,6 +56,96 @@ const MESI = ['', 'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
 const ore = (n: number | null | undefined) =>
   n == null ? '—' : `${n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} h`;
 
+
+/**
+ * Scelta della persona con ricerca.
+ *
+ * Un elenco di sessanta nomi in ordine di database non si legge: qui si
+ * digita un pezzo di cognome (o la matricola) e restano le righe che
+ * corrispondono, in ordine alfabetico. Serve solo per gli abbinamenti che il
+ * documento non basta a decidere.
+ */
+function SceltaPersona({ dipendenti, valore, onScegli }: {
+  dipendenti: DipendenteRif[];
+  valore: string | null;
+  onScegli: (id: string | null) => void;
+}) {
+  const [aperto, setAperto] = useState(false);
+  const [q, setQ] = useState('');
+  const scelto = dipendenti.find((d) => d.id === valore) ?? null;
+
+  const filtrati = useMemo(() => {
+    const t = normNome(q);
+    const num = q.replace(/\D/g, '');
+    return dipendenti.filter((d) => {
+      if (!t && !num) return true;
+      const nome = normNome(`${d.cognome ?? ''} ${d.nome ?? ''}`);
+      return (t && nome.includes(t)) || (num && (d.matricola ?? '').includes(num));
+    });
+  }, [q, dipendenti]);
+
+  const etichetta = (d: DipendenteRif) =>
+    `${[d.cognome, d.nome].filter(Boolean).join(' ')}${d.matricola ? ` · ${d.matricola}` : ''}`;
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => { setAperto((v) => !v); setQ(''); }}
+        className={`text-sm rounded-lg px-2.5 py-1.5 bg-white text-left w-full max-w-[240px] border ${scelto ? 'border-slate-300 text-slate-800' : 'border-amber-300 text-slate-500'}`}
+      >
+        {scelto ? etichetta(scelto) : 'Scegli la persona…'}
+      </button>
+
+      {aperto && (
+        <>
+          <div className="fixed inset-0 z-20" onClick={() => setAperto(false)} />
+          <div className="absolute z-30 mt-1 w-[280px] bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
+            <div className="flex items-center gap-2 px-2.5 py-2 border-b border-slate-100">
+              <Search size={14} className="text-slate-400 shrink-0" />
+              <input
+                autoFocus
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Escape') setAperto(false); }}
+                placeholder="Cognome o matricola"
+                className="w-full text-sm outline-none"
+              />
+              {q && <button type="button" onClick={() => setQ('')} className="text-slate-400 hover:text-slate-600"><X size={14} /></button>}
+            </div>
+            <div className="max-h-64 overflow-y-auto">
+              {filtrati.length === 0 && (
+                <div className="px-3 py-3 text-sm text-slate-400">Nessuno con questo nome.</div>
+              )}
+              {filtrati.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => { onScegli(d.id); setAperto(false); }}
+                  className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${d.id === valore ? 'bg-blue-50 font-medium' : ''}`}
+                >
+                  {[d.cognome, d.nome].filter(Boolean).join(' ')}
+                  <span className="text-slate-400"> · {d.matricola ?? 'senza matricola'}</span>
+                  {!d.isActive && <span className="text-rose-600"> · cessata</span>}
+                </button>
+              ))}
+            </div>
+            {scelto && (
+              <button
+                type="button"
+                onClick={() => { onScegli(null); setAperto(false); }}
+                className="w-full text-left px-3 py-2 text-xs text-slate-500 border-t border-slate-100 hover:bg-slate-50"
+              >
+                Togli la scelta
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function RateiFerieImport({ companyId, userId }: Props) {
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -89,16 +179,22 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
         .from('employees')
         .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active')
         .eq('company_id', companyId);
-      setDipendenti(((data as Record<string, unknown>[]) ?? []).map((d) => ({
+      const righe = ((data as Record<string, unknown>[]) ?? []).map((d) => ({
         id: String(d.id),
         matricola: (d.matricola as string) ?? null,
         nome: (d.nome as string) ?? (d.first_name as string) ?? null,
         cognome: (d.cognome as string) ?? (d.last_name as string) ?? null,
         dataAssunzione: (d.data_assunzione as string) ?? (d.hire_date as string) ?? null,
         isActive: d.is_active !== false,
-      })));
+      }));
+      // In ordine alfabetico: l'ordine del database non dice niente a nessuno.
+      righe.sort((a, b) =>
+        `${a.cognome ?? ''} ${a.nome ?? ''}`.localeCompare(`${b.cognome ?? ''} ${b.nome ?? ''}`, 'it'));
+      setDipendenti(righe);
     })();
   }, [companyId]);
+
+  const [trascina, setTrascina] = useState(false);
 
   const onFile = async (f: File | null) => {
     if (!f) return;
@@ -256,18 +352,30 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="bg-white border border-slate-200 rounded-xl p-5">
+      <div
+        onDragOver={(e) => { e.preventDefault(); if (!trascina) setTrascina(true); }}
+        onDragLeave={(e) => { e.preventDefault(); setTrascina(false); }}
+        onDrop={(e) => {
+          e.preventDefault(); setTrascina(false);
+          const f = e.dataTransfer.files?.[0];
+          if (f) void onFile(f);
+        }}
+        className={`border rounded-xl p-5 transition-colors ${trascina ? 'bg-blue-50 border-blue-400 border-dashed' : 'bg-white border-slate-200'}`}
+      >
         <div className="flex items-start gap-3 flex-wrap">
           <div className="flex-1 min-w-[260px]">
             <h3 className="font-semibold text-slate-800 flex items-center gap-2">
               <CalendarClock size={17} className="text-blue-600" /> Ratei di ferie e permessi
             </h3>
             <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-              Carica la stampa «Situazione ratei di ferie e permessi» che lo studio paghe pubblica ogni
-              mese. Da lì il gestionale prende il residuo di ferie, permessi ex festività e ROL di ogni
-              persona, e l'orario settimanale del contratto. I numeri non vengono ricalcolati: sono quelli
-              delle paghe.
+              Trascina qui la stampa «Situazione ratei di ferie e permessi» che lo studio paghe pubblica
+              ogni mese, oppure usa il pulsante. Da lì il gestionale prende il residuo di ferie, permessi
+              ex festività e ROL di ogni persona, e l'orario settimanale del contratto. I numeri non
+              vengono ricalcolati: sono quelli delle paghe.
             </p>
+            {trascina && (
+              <p className="text-sm text-blue-700 font-medium mt-2">Lascia il file per leggerlo.</p>
+            )}
           </div>
           <button
             onClick={() => fileRef.current?.click()}
@@ -374,18 +482,11 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
                       <td className="px-4 py-2.5">
                         {daFare ? (
                           <div>
-                            <select
-                              value={scelto ?? ''}
-                              onChange={(e) => setPersone((prev) => prev.map((x) => x.chiave === p.chiave ? { ...x, scelta: e.target.value || null } : x))}
-                              className="text-sm border border-amber-300 rounded-lg px-2 py-1 bg-white max-w-[220px]"
-                            >
-                              <option value="">Scegli la persona…</option>
-                              {dipendenti.map((d) => (
-                                <option key={d.id} value={d.id}>
-                                  {[d.cognome, d.nome].filter(Boolean).join(' ')}{d.matricola ? ` · ${d.matricola}` : ''}{d.isActive ? '' : ' (cessata)'}
-                                </option>
-                              ))}
-                            </select>
+                            <SceltaPersona
+                              dipendenti={dipendenti}
+                              valore={scelto}
+                              onScegli={(id) => setPersone((prev) => prev.map((x) => x.chiave === p.chiave ? { ...x, scelta: id } : x))}
+                            />
                             <div className="text-xs text-amber-700 mt-1 max-w-[260px]">{p.abbinamento.nota}</div>
                           </div>
                         ) : (
@@ -428,8 +529,10 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
           <FileText size={15} className="text-slate-400" /> Tabulati importati
         </div>
         {storico.length === 0 ? (
-          <div className="px-5 py-6 text-sm text-slate-400">
-            Nessun tabulato importato. Finché non ce n'è uno, il gestionale non sa quante ferie ha ciascuno.
+          <div className="px-5 py-6 text-sm text-slate-500">
+            Nessun tabulato importato: finché non ce n'è uno, il gestionale non sa quante ferie ha
+            ciascuno. L'elenco si popola quando carichi un tabulato e premi <strong>Salva i ratei</strong>:
+            caricare il file e guardare l'anteprima non salva niente.
           </div>
         ) : (
           <table className="w-full text-sm">
