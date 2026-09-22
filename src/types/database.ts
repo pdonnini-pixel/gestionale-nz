@@ -11502,6 +11502,7 @@ export type Database = {
           enabled: boolean
           recipients: string[]
           reminder_time: string | null
+          reopen_recipients: string[]
           followup_enabled: boolean
           send_mode: string
           send_on_empty: boolean
@@ -11519,6 +11520,7 @@ export type Database = {
           enabled?: boolean
           recipients?: string[]
           reminder_time?: string | null
+          reopen_recipients?: string[]
           followup_enabled?: boolean
           send_mode?: string
           send_on_empty?: boolean
@@ -11536,6 +11538,7 @@ export type Database = {
           enabled?: boolean
           recipients?: string[]
           reminder_time?: string | null
+          reopen_recipients?: string[]
           followup_enabled?: boolean
           send_mode?: string
           send_on_empty?: boolean

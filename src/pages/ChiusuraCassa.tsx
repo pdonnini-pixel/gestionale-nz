@@ -40,7 +40,7 @@ import {
   parseAmount, formatAmount, formatEuro, computeQuadrature, todayIso, addDaysIso, monthDays,
   formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount,
   eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type DeviationLine,
-  closingBlockers, type ClosingBlocker, type ClosingBlockField,
+  closingBlockers, pendingLooksLikeExpected, type ClosingBlocker, type ClosingBlockField,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
@@ -138,6 +138,9 @@ export default function ChiusuraCassa() {
   const pendingTarget = useRef<PhotoTarget | null>(null)
   // Dati obbligatori mancanti alla conferma: avviso al centro + salto al blocco giusto.
   const [blockers, setBlockers] = useState<ClosingBlocker[] | null>(null)
+  // Punto 5 che sembra il contante atteso: avviso al centro, una volta sola.
+  const [pendingWarn, setPendingWarn] = useState<number | null>(null)
+  const [pendingAccepted, setPendingAccepted] = useState(false)
   const fondoRef = useRef<HTMLElement>(null)
   const daVersareRef = useRef<HTMLElement>(null)
 
@@ -261,6 +264,13 @@ export default function ChiusuraCassa() {
   const missesDaVersare = missingData.some((b) => b.field === 'da_versare')
   /** Spunta del punto 5: «in cassa non c'è altro oltre al fondo» vale zero da versare. */
   const noPendingCash = parseAmount(form.cashPendingDeclared) === 0
+  // Valore da proporre quando nel punto 5 è finito il contante atteso totale.
+  const pendingHint = useMemo(() => pendingLooksLikeExpected({
+    cashFloatExpected: quad.cashFloatExpected,
+    cashFloatDeclared: parseAmount(form.cashFloatDeclared),
+    cashPendingDeclared: parseAmount(form.cashPendingDeclared),
+  }), [quad.cashFloatExpected, form.cashFloatDeclared, form.cashPendingDeclared])
+  const fixPending = (v: number) => { update({ cashPendingDeclared: formatAmount(v) }); setPendingWarn(null) }
   const goToBlock = (field: ClosingBlockField) => {
     setBlockers(null)
     const el = field === 'fondo' ? fondoRef.current : daVersareRef.current
@@ -283,7 +293,7 @@ export default function ChiusuraCassa() {
     setForm((f) => (f.cashFloatOpening === v ? f : { ...f, cashFloatOpening: v }))
     setDirty(true)
   }, [derivedOpening])
-  useEffect(() => { setAllCashNow('') }, [outletId, dateIso])
+  useEffect(() => { setAllCashNow(''); setPendingAccepted(false); setPendingWarn(null) }, [outletId, dateIso])
 
   const update = (patch: Partial<FormState>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
   const updateAmount = (channelId: string, v: string) => { setForm((f) => ({ ...f, amounts: { ...f.amounts, [channelId]: v } })); setDirty(true) }
@@ -396,8 +406,9 @@ export default function ChiusuraCassa() {
     return out
   }
 
-  const confirm = async (force = false) => {
+  const confirm = async (force = false, pendingOk = false) => {
     if (missingData.length > 0) { setBlockers(missingData); return }
+    if (!pendingOk && !pendingAccepted && pendingHint != null) { setPendingWarn(pendingHint); return }
     if (!form.isClosedDay && totalPhotos.length === 0) {
       toast({ type: 'warning', message: 'Serve la foto dello scontrino di chiusura: è l\'unica obbligatoria.' })
       return
@@ -461,12 +472,32 @@ export default function ChiusuraCassa() {
     }
   }
 
+  /**
+   * Richiesta di riapertura. La manda la edge function, che crea l'avviso in-app
+   * (stessa funzione SQL di prima) e avvisa l'amministrazione per mail: il
+   * 21/09/2026 la richiesta di Valmontone era rimasta nella sola campanella e
+   * nessuno l'aveva vista. Se la function non risponde si ricade sulla RPC, così
+   * la richiesta parte comunque.
+   */
   const requestReopen = async () => {
     if (!closing) return
-    const { error } = await supabase.rpc('request_cash_closing_reopen', { p_closing_id: closing.id, p_reason: reopenReason || undefined })
-    if (error) { toast({ type: 'error', message: error.message }); return }
+    const reason = reopenReason || undefined
+    const { data, error } = await supabase.functions.invoke<{ data?: { mail?: string }; error?: string }>(
+      'cash-closing-reopen-request', { body: { closing_id: closing.id, reason: reopenReason || '' } })
+    if (error || !data?.data) {
+      const { error: rpcErr } = await supabase.rpc('request_cash_closing_reopen', { p_closing_id: closing.id, p_reason: reason })
+      if (rpcErr) { toast({ type: 'error', message: rpcErr.message }); return }
+      setReopenOpen(false); setReopenReason('')
+      toast({ type: 'success', message: 'Richiesta inviata: chi amministra la vedrà negli avvisi del gestionale' })
+      return
+    }
     setReopenOpen(false); setReopenReason('')
-    toast({ type: 'success', message: 'Richiesta inviata: chi amministra riceverà un avviso' })
+    toast({
+      type: 'success',
+      message: data.data.mail === 'sent'
+        ? 'Richiesta inviata: l\'amministrazione l\'ha ricevuta per mail e negli avvisi'
+        : 'Richiesta inviata: chi amministra la vedrà negli avvisi del gestionale',
+    })
   }
 
   // ─── Foto ─────────────────────────────────────────────────────────────
@@ -957,6 +988,18 @@ export default function ChiusuraCassa() {
                     </span>
                   </label>
                 )}
+                {pendingHint != null && !readOnly && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 space-y-2">
+                    <p className="text-sm text-amber-900">
+                      <strong>Controlla il punto 5.</strong> Hai scritto {formatEuro(parseAmount(form.cashPendingDeclared))}, che è il contante <em>atteso in tutta la cassa</em> (fondo compreso).
+                      I contanti ancora da versare, tolto il fondo di {formatEuro(parseAmount(form.cashFloatDeclared))}, sono <strong>{formatEuro(pendingHint)}</strong>.
+                    </p>
+                    <button type="button" onClick={() => fixPending(pendingHint)}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold">
+                      <Check size={14} />Scrivi {formatEuro(pendingHint)}
+                    </button>
+                  </div>
+                )}
                 {quad.cashFloatExpected != null ? (
                   <div className={`rounded-lg border px-3 py-2 text-sm space-y-1 ${quad.cashDifference === 0 ? okCls : quad.cashDifference == null ? 'text-slate-600 bg-slate-50 border-slate-200' : koCls}`}>
                     <div className="flex items-center justify-between">
@@ -1068,6 +1111,23 @@ export default function ChiusuraCassa() {
         </div>
       )}
 
+      {/* Punto 5 che sembra il contante atteso: avviso al centro prima di confermare */}
+      <Modal open={pendingWarn != null} onClose={() => setPendingWarn(null)} title="Controlla i contanti da versare">
+        <p className="text-sm text-slate-700 mb-3">
+          Nel punto 5 hai scritto <strong>{formatEuro(parseAmount(form.cashPendingDeclared))}</strong>, che è il contante atteso in tutta la cassa, fondo compreso.
+          I contanti che restano da versare, tolto il fondo di {formatEuro(parseAmount(form.cashFloatDeclared))}, sono <strong>{formatEuro(pendingWarn)}</strong>.
+        </p>
+        <p className="text-sm text-slate-600 mb-4">Se in cassa hai contato davvero quella cifra lascia pure com'è: il contante lo vedi solo tu.</p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={() => { setPendingAccepted(true); setPendingWarn(null); void confirm(false, true) }}
+            className="px-4 py-3 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium">Ho contato così, conferma</button>
+          <button onClick={() => pendingWarn != null && fixPending(pendingWarn)}
+            className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
+            <Check size={16} />Correggi in {formatEuro(pendingWarn)}
+          </button>
+        </div>
+      </Modal>
+
       {/* Dati obbligatori mancanti: avviso al centro, con il salto al punto da compilare */}
       <Modal open={blockers != null} onClose={() => setBlockers(null)} title="Manca un dato per chiudere">
         <p className="text-sm text-slate-600 mb-3">
@@ -1097,7 +1157,7 @@ export default function ChiusuraCassa() {
         </ul>
         <div className="flex justify-end gap-2">
           <button onClick={() => setMissingPhotos(null)} className="px-4 py-2 text-sm border border-slate-300 rounded-lg inline-flex items-center gap-1"><Camera size={14} />Torna a fotografare</button>
-          <button onClick={() => void confirm(true)} className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium inline-flex items-center gap-1"><Check size={14} />Conferma comunque</button>
+          <button onClick={() => void confirm(true, true)} className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium inline-flex items-center gap-1"><Check size={14} />Conferma comunque</button>
         </div>
       </Modal>
 
