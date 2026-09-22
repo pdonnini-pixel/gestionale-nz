@@ -136,7 +136,7 @@ export default function EstrattiContoImport({ companyId, onRefresh }: Props) {
     setScrittura(true)
     try {
       const { data: esito, error } = await supabase.rpc('apply_statement_enrichment', {
-        p_rows: daScrivere as never, p_source: nomeFile,
+        p_rows: daScrivere as never, p_source: nomeFile ?? undefined,
       })
       if (error) throw error
       const scritte = Number((esito as { causali_scritte?: number } | null)?.causali_scritte ?? 0)

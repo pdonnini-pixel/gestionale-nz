@@ -350,6 +350,168 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_amex_commissioni_20260904: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number | null
+          balance_after: number | null
+          bank_account_id: string | null
+          bkp_at: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string | null
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_id: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string | null
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_auto_debit_fix_20260910: {
+        Row: {
+          auto_debit_prima: boolean | null
+          due_date_prima: string | null
+          gross_amount: number | null
+          id: string | null
+          invoice_date: string | null
+          invoice_number: string | null
+          metodo_prima: string | null
+          salvato_il: string | null
+          status_prima: string | null
+          supplier_name: string | null
+        }
+        Insert: {
+          auto_debit_prima?: boolean | null
+          due_date_prima?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          metodo_prima?: string | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Update: {
+          auto_debit_prima?: boolean | null
+          due_date_prima?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          metodo_prima?: string | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Relationships: []
+      }
       _bkp_carte_luglio_20260903: {
         Row: {
           account_id: string | null
@@ -641,6 +803,57 @@ export type Database = {
           verified?: boolean | null
           verified_at?: string | null
           verified_by?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_cash_card_prov_20260909: {
+        Row: {
+          amount_paid: number | null
+          amount_remaining: number | null
+          company_id: string | null
+          due_date: string | null
+          gross_amount: number | null
+          id: string | null
+          invoice_number: string | null
+          is_provisional_paid: boolean | null
+          metodo: string | null
+          payment_date: string | null
+          provisional_paid_at: string | null
+          salvato_il: string | null
+          status_prima: string | null
+          supplier_name: string | null
+        }
+        Insert: {
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          company_id?: string | null
+          due_date?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_number?: string | null
+          is_provisional_paid?: boolean | null
+          metodo?: string | null
+          payment_date?: string | null
+          provisional_paid_at?: string | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Update: {
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          company_id?: string | null
+          due_date?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_number?: string | null
+          is_provisional_paid?: boolean | null
+          metodo?: string | null
+          payment_date?: string | null
+          provisional_paid_at?: string | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
         }
         Relationships: []
       }
@@ -1145,6 +1358,48 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_contanti_subito_20260910: {
+        Row: {
+          amount_paid_prima: number | null
+          due_date: string | null
+          gross_amount: number | null
+          id: string | null
+          invoice_date: string | null
+          invoice_number: string | null
+          payment_date_prima: string | null
+          prov_prima: boolean | null
+          salvato_il: string | null
+          status_prima: string | null
+          supplier_name: string | null
+        }
+        Insert: {
+          amount_paid_prima?: number | null
+          due_date?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          payment_date_prima?: string | null
+          prov_prima?: boolean | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Update: {
+          amount_paid_prima?: number | null
+          due_date?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          payment_date_prima?: string | null
+          prov_prima?: boolean | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Relationships: []
+      }
       _bkp_doppioni_20260904: {
         Row: {
           acube_uuid: string | null
@@ -1313,6 +1568,24 @@ export type Database = {
           verified_at?: string | null
           verified_by?: string | null
           withholding_amount?: number | null
+        }
+        Relationships: []
+      }
+      _bkp_doppioni_mugello_20260904: {
+        Row: {
+          bkp_at: string | null
+          riga: Json | null
+          tab: string | null
+        }
+        Insert: {
+          bkp_at?: string | null
+          riga?: Json | null
+          tab?: string | null
+        }
+        Update: {
+          bkp_at?: string | null
+          riga?: Json | null
+          tab?: string | null
         }
         Relationships: []
       }
@@ -1664,6 +1937,252 @@ export type Database = {
           score_date?: number | null
           score_name?: number | null
           status?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_effetti_bt_2025_20260904: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number | null
+          balance_after: number | null
+          bank_account_id: string | null
+          bkp_at: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string | null
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_id: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string | null
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_effetti_bt_20260904: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number | null
+          balance_after: number | null
+          bank_account_id: string | null
+          bkp_at: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string | null
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_id: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string | null
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
         }
         Relationships: []
       }
@@ -2336,6 +2855,210 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_intesa_doppioni_20260904: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number | null
+          balance_after: number | null
+          bank_account_id: string | null
+          bkp_at: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string | null
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_id: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string | null
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_locatori_sdd_20260910: {
+        Row: {
+          backup_at: string | null
+          id: string | null
+          invoice_number: string | null
+          metodo: string | null
+          name: string | null
+          origine: string | null
+          payable_id: string | null
+          ragione_sociale: string | null
+        }
+        Insert: {
+          backup_at?: string | null
+          id?: string | null
+          invoice_number?: string | null
+          metodo?: string | null
+          name?: string | null
+          origine?: string | null
+          payable_id?: string | null
+          ragione_sociale?: string | null
+        }
+        Update: {
+          backup_at?: string | null
+          id?: string | null
+          invoice_number?: string | null
+          metodo?: string | null
+          name?: string | null
+          origine?: string | null
+          payable_id?: string | null
+          ragione_sociale?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_match_cbi_20260910: {
+        Row: {
+          amount_paid_prima: number | null
+          bank_tx_prima: string | null
+          bt_id: string | null
+          closed_manually_prima: boolean | null
+          d: string | null
+          gross_amount: number | null
+          invoice_number: string | null
+          netto: number | null
+          payable_id: string | null
+          payment_date_prima: string | null
+          salvato_il: string | null
+          status_prima: string | null
+          supplier_name: string | null
+        }
+        Insert: {
+          amount_paid_prima?: number | null
+          bank_tx_prima?: string | null
+          bt_id?: string | null
+          closed_manually_prima?: boolean | null
+          d?: string | null
+          gross_amount?: number | null
+          invoice_number?: string | null
+          netto?: number | null
+          payable_id?: string | null
+          payment_date_prima?: string | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Update: {
+          amount_paid_prima?: number | null
+          bank_tx_prima?: string | null
+          bt_id?: string | null
+          closed_manually_prima?: boolean | null
+          d?: string | null
+          gross_amount?: number | null
+          invoice_number?: string | null
+          netto?: number | null
+          payable_id?: string | null
+          payment_date_prima?: string | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Relationships: []
+      }
       _bkp_merge_anagrafiche_20260903: {
         Row: {
           origine: string | null
@@ -2849,6 +3572,51 @@ export type Database = {
           verified_at?: string | null
           verified_by?: string | null
           withholding_amount?: number | null
+        }
+        Relationships: []
+      }
+      _bkp_mp01_contanti_20260910: {
+        Row: {
+          due_date: string | null
+          gross_amount: number | null
+          id: string | null
+          invoice_date: string | null
+          invoice_number: string | null
+          metodo_prima: string | null
+          payment_date_prima: string | null
+          payment_method_code: string | null
+          prov_prima: boolean | null
+          salvato_il: string | null
+          status_prima: string | null
+          supplier_name: string | null
+        }
+        Insert: {
+          due_date?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          metodo_prima?: string | null
+          payment_date_prima?: string | null
+          payment_method_code?: string | null
+          prov_prima?: boolean | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Update: {
+          due_date?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          metodo_prima?: string | null
+          payment_date_prima?: string | null
+          payment_method_code?: string | null
+          prov_prima?: boolean | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
         }
         Relationships: []
       }
@@ -4865,6 +5633,63 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_reconlog_proposte_20260911: {
+        Row: {
+          applied_amount: number | null
+          bank_transaction_id: string | null
+          company_id: string | null
+          confidence: number | null
+          confirmed_at: string | null
+          id: string | null
+          match_type: string | null
+          notes: string | null
+          payable_id: string | null
+          performed_at: string | null
+          performed_by: string | null
+          salvato_il: string | null
+          score_amount: number | null
+          score_date: number | null
+          score_name: number | null
+          status: string | null
+        }
+        Insert: {
+          applied_amount?: number | null
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          confidence?: number | null
+          confirmed_at?: string | null
+          id?: string | null
+          match_type?: string | null
+          notes?: string | null
+          payable_id?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          salvato_il?: string | null
+          score_amount?: number | null
+          score_date?: number | null
+          score_name?: number | null
+          status?: string | null
+        }
+        Update: {
+          applied_amount?: number | null
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          confidence?: number | null
+          confirmed_at?: string | null
+          id?: string | null
+          match_type?: string | null
+          notes?: string | null
+          payable_id?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          salvato_il?: string | null
+          score_amount?: number | null
+          score_date?: number | null
+          score_name?: number | null
+          status?: string | null
+        }
+        Relationships: []
+      }
       _bkp_reconlog_stale_20260803: {
         Row: {
           applied_amount: number | null
@@ -5261,6 +6086,108 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_riba_doppioni_20260904_d: {
+        Row: {
+          bank_account_id: string | null
+          company_id: string | null
+          confirmed_at: string | null
+          created_at: string | null
+          created_by: string | null
+          declared_total: number | null
+          file_name: string | null
+          file_path: string | null
+          id: string | null
+          line_count: number | null
+          matched_count: number | null
+          matched_total: number | null
+          note: string | null
+          source_kind: string | null
+          status: string | null
+        }
+        Insert: {
+          bank_account_id?: string | null
+          company_id?: string | null
+          confirmed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          declared_total?: number | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string | null
+          line_count?: number | null
+          matched_count?: number | null
+          matched_total?: number | null
+          note?: string | null
+          source_kind?: string | null
+          status?: string | null
+        }
+        Update: {
+          bank_account_id?: string | null
+          company_id?: string | null
+          confirmed_at?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          declared_total?: number | null
+          file_name?: string | null
+          file_path?: string | null
+          id?: string | null
+          line_count?: number | null
+          matched_count?: number | null
+          matched_total?: number | null
+          note?: string | null
+          source_kind?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_riba_doppioni_20260904_l: {
+        Row: {
+          company_id: string | null
+          created_at: string | null
+          distinta_id: string | null
+          id: string | null
+          match_status: string | null
+          matched_payable_id: string | null
+          matched_payable_ids: string[] | null
+          matched_supplier_id: string | null
+          raw_amount: number | null
+          raw_due_date: string | null
+          raw_invoice: string | null
+          raw_supplier: string | null
+          raw_vat: string | null
+        }
+        Insert: {
+          company_id?: string | null
+          created_at?: string | null
+          distinta_id?: string | null
+          id?: string | null
+          match_status?: string | null
+          matched_payable_id?: string | null
+          matched_payable_ids?: string[] | null
+          matched_supplier_id?: string | null
+          raw_amount?: number | null
+          raw_due_date?: string | null
+          raw_invoice?: string | null
+          raw_supplier?: string | null
+          raw_vat?: string | null
+        }
+        Update: {
+          company_id?: string | null
+          created_at?: string | null
+          distinta_id?: string | null
+          id?: string | null
+          match_status?: string | null
+          matched_payable_id?: string | null
+          matched_payable_ids?: string[] | null
+          matched_supplier_id?: string | null
+          raw_amount?: number | null
+          raw_due_date?: string | null
+          raw_invoice?: string | null
+          raw_supplier?: string | null
+          raw_vat?: string | null
+        }
+        Relationships: []
+      }
       _bkp_riba_effetti_31082026: {
         Row: {
           acube_uuid: string | null
@@ -5600,6 +6527,165 @@ export type Database = {
           verified?: boolean | null
           verified_at?: string | null
           verified_by?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_riletture_xml_20260910: {
+        Row: {
+          auto_prima: boolean | null
+          codice_prima: string | null
+          due_date: string | null
+          gross_amount: number | null
+          id: string | null
+          invoice_date: string | null
+          invoice_number: string | null
+          metodo_prima: string | null
+          payment_date_prima: string | null
+          prov_prima: boolean | null
+          salvato_il: string | null
+          status_prima: string | null
+          supplier_name: string | null
+        }
+        Insert: {
+          auto_prima?: boolean | null
+          codice_prima?: string | null
+          due_date?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          metodo_prima?: string | null
+          payment_date_prima?: string | null
+          prov_prima?: boolean | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Update: {
+          auto_prima?: boolean | null
+          codice_prima?: string | null
+          due_date?: string | null
+          gross_amount?: number | null
+          id?: string | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          metodo_prima?: string | null
+          payment_date_prima?: string | null
+          prov_prima?: boolean | null
+          salvato_il?: string | null
+          status_prima?: string | null
+          supplier_name?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_riscontro_sett_bt_20260915: {
+        Row: {
+          category: string | null
+          id: string | null
+          is_reconciled: boolean | null
+          note: string | null
+          reconciled_at: string | null
+        }
+        Insert: {
+          category?: string | null
+          id?: string | null
+          is_reconciled?: boolean | null
+          note?: string | null
+          reconciled_at?: string | null
+        }
+        Update: {
+          category?: string | null
+          id?: string | null
+          is_reconciled?: boolean | null
+          note?: string | null
+          reconciled_at?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_riscontro_sett_closings_20260915: {
+        Row: {
+          bank_verified_at: string | null
+          id: string | null
+          status: string | null
+        }
+        Insert: {
+          bank_verified_at?: string | null
+          id?: string | null
+          status?: string | null
+        }
+        Update: {
+          bank_verified_at?: string | null
+          id?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_riscontro_sett_lines_20260915: {
+        Row: {
+          amount: number | null
+          bank_amount: number | null
+          bank_matched_at: string | null
+          bank_status: string | null
+          channel_id: string | null
+          closing_id: string | null
+          id: string | null
+        }
+        Insert: {
+          amount?: number | null
+          bank_amount?: number | null
+          bank_matched_at?: string | null
+          bank_status?: string | null
+          channel_id?: string | null
+          closing_id?: string | null
+          id?: string | null
+        }
+        Update: {
+          amount?: number | null
+          bank_amount?: number | null
+          bank_matched_at?: string | null
+          bank_status?: string | null
+          channel_id?: string | null
+          closing_id?: string | null
+          id?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_riscontro_sett_matches_20260915: {
+        Row: {
+          amount: number | null
+          bank_transaction_id: string | null
+          closing_id: string | null
+          company_id: string | null
+          id: string | null
+          line_id: string | null
+          match_type: string | null
+          matched_at: string | null
+          note: string | null
+          reference_date: string | null
+        }
+        Insert: {
+          amount?: number | null
+          bank_transaction_id?: string | null
+          closing_id?: string | null
+          company_id?: string | null
+          id?: string | null
+          line_id?: string | null
+          match_type?: string | null
+          matched_at?: string | null
+          note?: string | null
+          reference_date?: string | null
+        }
+        Update: {
+          amount?: number | null
+          bank_transaction_id?: string | null
+          closing_id?: string | null
+          company_id?: string | null
+          id?: string | null
+          line_id?: string | null
+          match_type?: string | null
+          matched_at?: string | null
+          note?: string | null
+          reference_date?: string | null
         }
         Relationships: []
       }
@@ -6680,7 +7766,178 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_spunta_iva_orfana_20260911: {
+        Row: {
+          amount: number | null
+          company_id: string | null
+          created_at: string | null
+          created_by: string | null
+          fiscal_deadline_id: string | null
+          horizon_date: string | null
+          id: string | null
+          item_kind: string | null
+          item_ref: string | null
+          label: string | null
+          note: string | null
+          payable_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount?: number | null
+          company_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          fiscal_deadline_id?: string | null
+          horizon_date?: string | null
+          id?: string | null
+          item_kind?: string | null
+          item_ref?: string | null
+          label?: string | null
+          note?: string | null
+          payable_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount?: number | null
+          company_id?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          fiscal_deadline_id?: string | null
+          horizon_date?: string | null
+          id?: string | null
+          item_kind?: string | null
+          item_ref?: string | null
+          label?: string | null
+          note?: string | null
+          payable_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       _bkp_stipendi_20260904: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number | null
+          balance_after: number | null
+          bank_account_id: string | null
+          bkp_at: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string | null
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_id: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string | null
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_uscite_2025_20260905: {
         Row: {
           account_id: string | null
           acube_dedup_hash: string | null
@@ -6971,6 +8228,180 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_wolf_saldo_20260911: {
+        Row: {
+          acube_uuid: string | null
+          amount_paid: number | null
+          amount_remaining: number | null
+          bank_transaction_id: string | null
+          cash_movement_id: string | null
+          closed_manually: boolean | null
+          company_id: string | null
+          cost_category_id: string | null
+          created_at: string | null
+          due_date: string | null
+          electronic_invoice_id: string | null
+          gross_amount: number | null
+          iban: string | null
+          id: string | null
+          import_batch_id: string | null
+          installment_number: number | null
+          installment_total: number | null
+          invoice_date: string | null
+          invoice_number: string | null
+          is_auto_debit: boolean | null
+          is_forecast: boolean | null
+          is_placeholder: boolean | null
+          is_provisional_paid: boolean | null
+          manual_close_reason: string | null
+          net_amount: number | null
+          notes: string | null
+          original_due_date: string | null
+          outlet_id: string | null
+          parent_payable_id: string | null
+          payment_bank_account_id: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code: string | null
+          payment_method_label: string | null
+          postpone_count: number | null
+          postponed_to: string | null
+          previous_status: Database["public"]["Enums"]["payable_status"] | null
+          priority: number | null
+          provisional_paid_at: string | null
+          recurring_cost_id: string | null
+          resolved_by: string | null
+          resolved_date: string | null
+          salvato_il: string | null
+          status: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          suspend_date: string | null
+          suspend_reason: string | null
+          updated_at: string | null
+          vat_amount: number | null
+          verified: boolean | null
+          verified_at: string | null
+          verified_by: string | null
+          withholding_amount: number | null
+        }
+        Insert: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          salvato_il?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Update: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          salvato_il?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Relationships: []
+      }
       _golive_clones: {
         Row: {
           id: string | null
@@ -7036,6 +8467,287 @@ export type Database = {
           supplier_name?: string | null
         }
         Relationships: []
+      }
+      _stg_incassi_giugno_2026: {
+        Row: {
+          bcc: number | null
+          bccx: number | null
+          bonifico: number | null
+          contanti: number | null
+          fatture: number | null
+          giorno: string | null
+          incasso: number | null
+          mps: number | null
+          mpsx: number | null
+          nota: string | null
+          outlet: string | null
+          pbl: number | null
+          spese: number | null
+          spese_note: string | null
+          vers_note: string | null
+          versamento: number | null
+        }
+        Insert: {
+          bcc?: number | null
+          bccx?: number | null
+          bonifico?: number | null
+          contanti?: number | null
+          fatture?: number | null
+          giorno?: string | null
+          incasso?: number | null
+          mps?: number | null
+          mpsx?: number | null
+          nota?: string | null
+          outlet?: string | null
+          pbl?: number | null
+          spese?: number | null
+          spese_note?: string | null
+          vers_note?: string | null
+          versamento?: number | null
+        }
+        Update: {
+          bcc?: number | null
+          bccx?: number | null
+          bonifico?: number | null
+          contanti?: number | null
+          fatture?: number | null
+          giorno?: string | null
+          incasso?: number | null
+          mps?: number | null
+          mpsx?: number | null
+          nota?: string | null
+          outlet?: string | null
+          pbl?: number | null
+          spese?: number | null
+          spese_note?: string | null
+          vers_note?: string | null
+          versamento?: number | null
+        }
+        Relationships: []
+      }
+      acquirer_contracts: {
+        Row: {
+          acquirer: string
+          company_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          label: string | null
+          merchant_code: string
+          note: string | null
+          outlet_id: string | null
+          payment_contract: string | null
+          sdd_mandate: string | null
+          settlement_mode: string
+          terminal_code: string | null
+          updated_at: string
+          valid_from: string | null
+          valid_to: string | null
+        }
+        Insert: {
+          acquirer: string
+          company_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          merchant_code: string
+          note?: string | null
+          outlet_id?: string | null
+          payment_contract?: string | null
+          sdd_mandate?: string | null
+          settlement_mode?: string
+          terminal_code?: string | null
+          updated_at?: string
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Update: {
+          acquirer?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          label?: string | null
+          merchant_code?: string
+          note?: string | null
+          outlet_id?: string | null
+          payment_contract?: string | null
+          sdd_mandate?: string | null
+          settlement_mode?: string
+          terminal_code?: string | null
+          updated_at?: string
+          valid_from?: string | null
+          valid_to?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "acquirer_contracts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_contracts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_contracts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "acquirer_contracts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "acquirer_contracts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
+      acquirer_fees: {
+        Row: {
+          bank_transaction_id: string | null
+          company_id: string
+          contract_id: string
+          created_at: string
+          document_id: string | null
+          fee_amount: number
+          fixed_amount: number
+          gross_amount: number | null
+          id: string
+          note: string | null
+          outlet_id: string | null
+          period_month: number
+          period_year: number
+          settlement_mode: string
+          source: string
+          stamp_amount: number
+          updated_at: string
+        }
+        Insert: {
+          bank_transaction_id?: string | null
+          company_id: string
+          contract_id: string
+          created_at?: string
+          document_id?: string | null
+          fee_amount: number
+          fixed_amount?: number
+          gross_amount?: number | null
+          id?: string
+          note?: string | null
+          outlet_id?: string | null
+          period_month: number
+          period_year: number
+          settlement_mode: string
+          source?: string
+          stamp_amount?: number
+          updated_at?: string
+        }
+        Update: {
+          bank_transaction_id?: string | null
+          company_id?: string
+          contract_id?: string
+          created_at?: string
+          document_id?: string | null
+          fee_amount?: number
+          fixed_amount?: number
+          gross_amount?: number | null
+          id?: string
+          note?: string | null
+          outlet_id?: string | null
+          period_month?: number
+          period_year?: number
+          settlement_mode?: string
+          source?: string
+          stamp_amount?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "acquirer_fees_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "bank_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["bank_transaction_id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_contract_id_fkey"
+            columns: ["contract_id"]
+            isOneToOne: false
+            referencedRelation: "acquirer_contracts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "import_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       active_invoices: {
         Row: {
@@ -7162,123 +8874,6 @@ export type Database = {
             referencedColumns: ["outlet_id"]
           },
         ]
-      }
-      acquirer_contracts: {
-        Row: {
-          acquirer: string
-          company_id: string
-          created_at: string
-          id: string
-          is_active: boolean
-          label: string | null
-          merchant_code: string
-          note: string | null
-          outlet_id: string | null
-          payment_contract: string | null
-          sdd_mandate: string | null
-          settlement_mode: string
-          terminal_code: string | null
-          updated_at: string
-          valid_from: string | null
-          valid_to: string | null
-        }
-        Insert: {
-          acquirer: string
-          company_id: string
-          created_at?: string
-          id?: string
-          is_active?: boolean
-          label?: string | null
-          merchant_code: string
-          note?: string | null
-          outlet_id?: string | null
-          payment_contract?: string | null
-          sdd_mandate?: string | null
-          settlement_mode?: string
-          terminal_code?: string | null
-          updated_at?: string
-          valid_from?: string | null
-          valid_to?: string | null
-        }
-        Update: {
-          acquirer?: string
-          company_id?: string
-          created_at?: string
-          id?: string
-          is_active?: boolean
-          label?: string | null
-          merchant_code?: string
-          note?: string | null
-          outlet_id?: string | null
-          payment_contract?: string | null
-          sdd_mandate?: string | null
-          settlement_mode?: string
-          terminal_code?: string | null
-          updated_at?: string
-          valid_from?: string | null
-          valid_to?: string | null
-        }
-        Relationships: []
-      }
-      acquirer_fees: {
-        Row: {
-          bank_transaction_id: string | null
-          company_id: string
-          contract_id: string
-          created_at: string
-          document_id: string | null
-          fee_amount: number
-          fixed_amount: number
-          gross_amount: number | null
-          id: string
-          note: string | null
-          outlet_id: string | null
-          period_month: number
-          period_year: number
-          settlement_mode: string
-          source: string
-          stamp_amount: number
-          updated_at: string
-        }
-        Insert: {
-          bank_transaction_id?: string | null
-          company_id: string
-          contract_id: string
-          created_at?: string
-          document_id?: string | null
-          fee_amount: number
-          fixed_amount?: number
-          gross_amount?: number | null
-          id?: string
-          note?: string | null
-          outlet_id?: string | null
-          period_month: number
-          period_year: number
-          settlement_mode: string
-          source?: string
-          stamp_amount?: number
-          updated_at?: string
-        }
-        Update: {
-          bank_transaction_id?: string | null
-          company_id?: string
-          contract_id?: string
-          created_at?: string
-          document_id?: string | null
-          fee_amount?: number
-          fixed_amount?: number
-          gross_amount?: number | null
-          id?: string
-          note?: string | null
-          outlet_id?: string | null
-          period_month?: number
-          period_year?: number
-          settlement_mode?: string
-          source?: string
-          stamp_amount?: number
-          updated_at?: string
-        }
-        Relationships: []
       }
       acube_accounts: {
         Row: {
@@ -9642,6 +11237,27 @@ export type Database = {
             referencedRelation: "companies"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "bank_statements_settled_bank_transaction_id_fkey"
+            columns: ["settled_bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "bank_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statements_settled_bank_transaction_id_fkey"
+            columns: ["settled_bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["bank_transaction_id"]
+          },
+          {
+            foreignKeyName: "bank_statements_settled_bank_transaction_id_fkey"
+            columns: ["settled_bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["id"]
+          },
         ]
       }
       bank_transactions: {
@@ -9675,9 +11291,9 @@ export type Database = {
           reference: string | null
           running_balance: number | null
           source: string | null
-          statement_id: string | null
           statement_description: string | null
           statement_enriched_at: string | null
+          statement_id: string | null
           statement_source: string | null
           status: string | null
           supplier_id: string | null
@@ -9717,9 +11333,9 @@ export type Database = {
           reference?: string | null
           running_balance?: number | null
           source?: string | null
-          statement_id?: string | null
           statement_description?: string | null
           statement_enriched_at?: string | null
+          statement_id?: string | null
           statement_source?: string | null
           status?: string | null
           supplier_id?: string | null
@@ -9759,9 +11375,9 @@ export type Database = {
           reference?: string | null
           running_balance?: number | null
           source?: string | null
-          statement_id?: string | null
           statement_description?: string | null
           statement_enriched_at?: string | null
+          statement_id?: string | null
           statement_source?: string | null
           status?: string | null
           supplier_id?: string | null
@@ -9864,6 +11480,126 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      bank_transactions_bkp_20260916_dupes: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number
+          balance_after: number | null
+          bank_account_id: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_id: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount: number
+          balance_after?: number | null
+          bank_account_id?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date: string
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number
+          balance_after?: number | null
+          bank_account_id?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_id?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Relationships: []
       }
       budget_approval_log: {
         Row: {
@@ -10666,6 +12402,88 @@ export type Database = {
         }
         Relationships: []
       }
+      closing_bank_matches: {
+        Row: {
+          amount: number
+          bank_transaction_id: string
+          closing_id: string
+          company_id: string
+          id: string
+          line_id: string | null
+          match_type: string
+          matched_at: string
+          note: string | null
+          reference_date: string | null
+        }
+        Insert: {
+          amount: number
+          bank_transaction_id: string
+          closing_id: string
+          company_id: string
+          id?: string
+          line_id?: string | null
+          match_type: string
+          matched_at?: string
+          note?: string | null
+          reference_date?: string | null
+        }
+        Update: {
+          amount?: number
+          bank_transaction_id?: string
+          closing_id?: string
+          company_id?: string
+          id?: string
+          line_id?: string | null
+          match_type?: string
+          matched_at?: string
+          note?: string | null
+          reference_date?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "closing_bank_matches_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "bank_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_bank_matches_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["bank_transaction_id"]
+          },
+          {
+            foreignKeyName: "closing_bank_matches_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_bank_matches_closing_id_fkey"
+            columns: ["closing_id"]
+            isOneToOne: false
+            referencedRelation: "outlet_daily_closings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_bank_matches_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_bank_matches_line_id_fkey"
+            columns: ["line_id"]
+            isOneToOne: false
+            referencedRelation: "outlet_daily_closing_lines"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           created_at: string | null
@@ -11217,6 +13035,9 @@ export type Database = {
           color: string | null
           company_id: string
           created_at: string | null
+          default_payment_method:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
           id: string
           is_active: boolean | null
           is_fixed: boolean | null
@@ -11237,6 +13058,9 @@ export type Database = {
           color?: string | null
           company_id: string
           created_at?: string | null
+          default_payment_method?:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
           id?: string
           is_active?: boolean | null
           is_fixed?: boolean | null
@@ -11257,6 +13081,9 @@ export type Database = {
           color?: string | null
           company_id?: string
           created_at?: string | null
+          default_payment_method?:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
           id?: string
           is_active?: boolean | null
           is_fixed?: boolean | null
@@ -11494,99 +13321,6 @@ export type Database = {
           },
         ]
       }
-      daily_report_settings: {
-        Row: {
-          app_url: string | null
-          budget_vat_rate: number
-          company_id: string
-          enabled: boolean
-          recipients: string[]
-          reminder_time: string | null
-          followup_enabled: boolean
-          send_mode: string
-          send_on_empty: boolean
-          send_time: string
-          timezone: string
-          updated_at: string
-          updated_by: string | null
-          whatsapp_enabled: boolean
-          whatsapp_recipients: string[]
-        }
-        Insert: {
-          app_url?: string | null
-          budget_vat_rate?: number
-          company_id: string
-          enabled?: boolean
-          recipients?: string[]
-          reminder_time?: string | null
-          followup_enabled?: boolean
-          send_mode?: string
-          send_on_empty?: boolean
-          send_time?: string
-          timezone?: string
-          updated_at?: string
-          updated_by?: string | null
-          whatsapp_enabled?: boolean
-          whatsapp_recipients?: string[]
-        }
-        Update: {
-          app_url?: string | null
-          budget_vat_rate?: number
-          company_id?: string
-          enabled?: boolean
-          recipients?: string[]
-          reminder_time?: string | null
-          followup_enabled?: boolean
-          send_mode?: string
-          send_on_empty?: boolean
-          send_time?: string
-          timezone?: string
-          updated_at?: string
-          updated_by?: string | null
-          whatsapp_enabled?: boolean
-          whatsapp_recipients?: string[]
-        }
-        Relationships: []
-      }
-      closing_bank_matches: {
-        Row: {
-          amount: number
-          bank_transaction_id: string
-          closing_id: string
-          company_id: string
-          id: string
-          line_id: string | null
-          match_type: string
-          matched_at: string
-          note: string | null
-          reference_date: string | null
-        }
-        Insert: {
-          amount: number
-          bank_transaction_id: string
-          closing_id: string
-          company_id: string
-          id?: string
-          line_id?: string | null
-          match_type: string
-          matched_at?: string
-          note?: string | null
-          reference_date?: string | null
-        }
-        Update: {
-          amount?: number
-          bank_transaction_id?: string
-          closing_id?: string
-          company_id?: string
-          id?: string
-          line_id?: string | null
-          match_type?: string
-          matched_at?: string
-          note?: string | null
-          reference_date?: string | null
-        }
-        Relationships: []
-      }
       daily_report_log: {
         Row: {
           closing_id: string | null
@@ -11642,7 +13376,80 @@ export type Database = {
           whatsapp_error?: string | null
           whatsapp_status?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_log_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      daily_report_settings: {
+        Row: {
+          app_url: string | null
+          budget_vat_rate: number
+          company_id: string
+          enabled: boolean
+          followup_enabled: boolean
+          recipients: string[]
+          reminder_time: string | null
+          reopen_recipients: string[]
+          send_mode: string
+          send_on_empty: boolean
+          send_time: string
+          timezone: string
+          updated_at: string
+          updated_by: string | null
+          whatsapp_enabled: boolean
+          whatsapp_recipients: string[]
+        }
+        Insert: {
+          app_url?: string | null
+          budget_vat_rate?: number
+          company_id: string
+          enabled?: boolean
+          followup_enabled?: boolean
+          recipients?: string[]
+          reminder_time?: string | null
+          reopen_recipients?: string[]
+          send_mode?: string
+          send_on_empty?: boolean
+          send_time?: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          whatsapp_enabled?: boolean
+          whatsapp_recipients?: string[]
+        }
+        Update: {
+          app_url?: string | null
+          budget_vat_rate?: number
+          company_id?: string
+          enabled?: boolean
+          followup_enabled?: boolean
+          recipients?: string[]
+          reminder_time?: string | null
+          reopen_recipients?: string[]
+          send_mode?: string
+          send_on_empty?: boolean
+          send_time?: string
+          timezone?: string
+          updated_at?: string
+          updated_by?: string | null
+          whatsapp_enabled?: boolean
+          whatsapp_recipients?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "daily_report_settings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       daily_revenue: {
         Row: {
@@ -11945,7 +13752,6 @@ export type Database = {
           description: string | null
           due_date: string | null
           gross_amount: number | null
-          withholding_amount: number
           id: string
           import_batch_id: string | null
           invoice_date: string | null
@@ -11970,6 +13776,7 @@ export type Database = {
           tipo_documento: string | null
           updated_at: string | null
           vat_amount: number | null
+          withholding_amount: number
           xml_content: string | null
           xml_file_path: string | null
         }
@@ -11984,7 +13791,6 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           gross_amount?: number | null
-          withholding_amount?: number
           id?: string
           import_batch_id?: string | null
           invoice_date?: string | null
@@ -12009,6 +13815,7 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
+          withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
         }
@@ -12023,7 +13830,6 @@ export type Database = {
           description?: string | null
           due_date?: string | null
           gross_amount?: number | null
-          withholding_amount?: number
           id?: string
           import_batch_id?: string | null
           invoice_date?: string | null
@@ -12048,6 +13854,7 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
+          withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
         }
@@ -12760,6 +14567,9 @@ export type Database = {
           note: string | null
           notes: string | null
           ore_settimanali: number | null
+          ore_settimanali_paghe: number | null
+          ore_settimanali_paghe_at: string | null
+          ore_settimanali_paghe_import_id: string | null
           outlet_id: string | null
           part_time_pct: number | null
           proroghe: number | null
@@ -12802,6 +14612,9 @@ export type Database = {
           note?: string | null
           notes?: string | null
           ore_settimanali?: number | null
+          ore_settimanali_paghe?: number | null
+          ore_settimanali_paghe_at?: string | null
+          ore_settimanali_paghe_import_id?: string | null
           outlet_id?: string | null
           part_time_pct?: number | null
           proroghe?: number | null
@@ -12844,6 +14657,9 @@ export type Database = {
           note?: string | null
           notes?: string | null
           ore_settimanali?: number | null
+          ore_settimanali_paghe?: number | null
+          ore_settimanali_paghe_at?: string | null
+          ore_settimanali_paghe_import_id?: string | null
           outlet_id?: string | null
           part_time_pct?: number | null
           proroghe?: number | null
@@ -12863,6 +14679,20 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_ore_settimanali_paghe_import_id_fkey"
+            columns: ["ore_settimanali_paghe_import_id"]
+            isOneToOne: false
+            referencedRelation: "leave_accrual_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_ore_settimanali_paghe_import_id_fkey"
+            columns: ["ore_settimanali_paghe_import_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_balances"
+            referencedColumns: ["import_id"]
           },
           {
             foreignKeyName: "employees_outlet_id_fkey"
@@ -13587,6 +15417,232 @@ export type Database = {
         }
         Relationships: []
       }
+      leave_accrual_imports: {
+        Row: {
+          attivo: boolean
+          azienda_codice: string | null
+          azienda_nome: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          documento_id: string | null
+          file_name: string | null
+          id: string
+          note: string | null
+          periodo_anno: number
+          periodo_mese: number
+          persone: number
+          quadratura_ok: boolean | null
+          righe_agganciate: number
+          righe_lette: number
+          scarti: Json | null
+          sostituito_da: string | null
+          storage_bucket: string | null
+          storage_path: string | null
+          totali_ditta: Json | null
+        }
+        Insert: {
+          attivo?: boolean
+          azienda_codice?: string | null
+          azienda_nome?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          documento_id?: string | null
+          file_name?: string | null
+          id?: string
+          note?: string | null
+          periodo_anno: number
+          periodo_mese: number
+          persone?: number
+          quadratura_ok?: boolean | null
+          righe_agganciate?: number
+          righe_lette?: number
+          scarti?: Json | null
+          sostituito_da?: string | null
+          storage_bucket?: string | null
+          storage_path?: string | null
+          totali_ditta?: Json | null
+        }
+        Update: {
+          attivo?: boolean
+          azienda_codice?: string | null
+          azienda_nome?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          documento_id?: string | null
+          file_name?: string | null
+          id?: string
+          note?: string | null
+          periodo_anno?: number
+          periodo_mese?: number
+          persone?: number
+          quadratura_ok?: boolean | null
+          righe_agganciate?: number
+          righe_lette?: number
+          scarti?: Json | null
+          sostituito_da?: string | null
+          storage_bucket?: string | null
+          storage_path?: string | null
+          totali_ditta?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_accrual_imports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_imports_sostituito_da_fkey"
+            columns: ["sostituito_da"]
+            isOneToOne: false
+            referencedRelation: "leave_accrual_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_imports_sostituito_da_fkey"
+            columns: ["sostituito_da"]
+            isOneToOne: false
+            referencedRelation: "v_leave_balances"
+            referencedColumns: ["import_id"]
+          },
+        ]
+      }
+      leave_accrual_rows: {
+        Row: {
+          company_id: string
+          created_at: string
+          da_fruire: number | null
+          da_godere_anno: number | null
+          da_maturare: number | null
+          data_assunzione: string | null
+          data_cessazione: string | null
+          employee_id: string | null
+          goduto: number | null
+          goduto_prec: number | null
+          id: string
+          import_id: string
+          match_confermato_da: string | null
+          match_confermato_il: string | null
+          match_metodo: string | null
+          match_note: string | null
+          matricola: string | null
+          maturato: number | null
+          mesi: number | null
+          nominativo: string
+          non_indennizzabile: number | null
+          rateo_annuo: number | null
+          residuo: number | null
+          residuo_prec: number | null
+          saldo_corso: number | null
+          saldo_prec: number | null
+          unita: string | null
+          voce: string
+          voce_label: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          da_fruire?: number | null
+          da_godere_anno?: number | null
+          da_maturare?: number | null
+          data_assunzione?: string | null
+          data_cessazione?: string | null
+          employee_id?: string | null
+          goduto?: number | null
+          goduto_prec?: number | null
+          id?: string
+          import_id: string
+          match_confermato_da?: string | null
+          match_confermato_il?: string | null
+          match_metodo?: string | null
+          match_note?: string | null
+          matricola?: string | null
+          maturato?: number | null
+          mesi?: number | null
+          nominativo: string
+          non_indennizzabile?: number | null
+          rateo_annuo?: number | null
+          residuo?: number | null
+          residuo_prec?: number | null
+          saldo_corso?: number | null
+          saldo_prec?: number | null
+          unita?: string | null
+          voce: string
+          voce_label?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          da_fruire?: number | null
+          da_godere_anno?: number | null
+          da_maturare?: number | null
+          data_assunzione?: string | null
+          data_cessazione?: string | null
+          employee_id?: string | null
+          goduto?: number | null
+          goduto_prec?: number | null
+          id?: string
+          import_id?: string
+          match_confermato_da?: string | null
+          match_confermato_il?: string | null
+          match_metodo?: string | null
+          match_note?: string | null
+          matricola?: string | null
+          maturato?: number | null
+          mesi?: number | null
+          nominativo?: string
+          non_indennizzabile?: number | null
+          rateo_annuo?: number | null
+          residuo?: number | null
+          residuo_prec?: number | null
+          saldo_corso?: number | null
+          saldo_prec?: number | null
+          unita?: string | null
+          voce?: string
+          voce_label?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_accrual_rows_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_rows_import_id_fkey"
+            columns: ["import_id"]
+            isOneToOne: false
+            referencedRelation: "leave_accrual_imports"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_rows_import_id_fkey"
+            columns: ["import_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_balances"
+            referencedColumns: ["import_id"]
+          },
+        ]
+      }
       loan_tranches: {
         Row: {
           accrued_interest: number | null
@@ -13973,6 +16029,7 @@ export type Database = {
           company_id: string
           created_at: string | null
           dismissed: boolean | null
+          emailed_at: string | null
           expires_at: string | null
           id: string
           message: string
@@ -13991,6 +16048,7 @@ export type Database = {
           company_id: string
           created_at?: string | null
           dismissed?: boolean | null
+          emailed_at?: string | null
           expires_at?: string | null
           id?: string
           message: string
@@ -14009,6 +16067,7 @@ export type Database = {
           company_id?: string
           created_at?: string | null
           dismissed?: boolean | null
+          emailed_at?: string | null
           expires_at?: string | null
           id?: string
           message?: string
@@ -14567,9 +16626,6 @@ export type Database = {
         Row: {
           bank_verified_at: string | null
           cash_deposit: number
-          deposit_bank_amount: number | null
-          deposit_bank_status: string
-          deposit_bank_transaction_id: string | null
           cash_deposit_note: string | null
           cash_difference: number | null
           cash_expenses: number
@@ -14588,6 +16644,9 @@ export type Database = {
           created_at: string
           created_by: string | null
           customer_refunds: number
+          deposit_bank_amount: number | null
+          deposit_bank_status: string
+          deposit_bank_transaction_id: string | null
           id: string
           invoices_total: number
           is_closed_day: boolean
@@ -14604,9 +16663,6 @@ export type Database = {
         Insert: {
           bank_verified_at?: string | null
           cash_deposit?: number
-          deposit_bank_amount?: number | null
-          deposit_bank_status?: string
-          deposit_bank_transaction_id?: string | null
           cash_deposit_note?: string | null
           cash_difference?: number | null
           cash_expenses?: number
@@ -14625,6 +16681,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           customer_refunds?: number
+          deposit_bank_amount?: number | null
+          deposit_bank_status?: string
+          deposit_bank_transaction_id?: string | null
           id?: string
           invoices_total?: number
           is_closed_day?: boolean
@@ -14641,9 +16700,6 @@ export type Database = {
         Update: {
           bank_verified_at?: string | null
           cash_deposit?: number
-          deposit_bank_amount?: number | null
-          deposit_bank_status?: string
-          deposit_bank_transaction_id?: string | null
           cash_deposit_note?: string | null
           cash_difference?: number | null
           cash_expenses?: number
@@ -14662,6 +16718,9 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           customer_refunds?: number
+          deposit_bank_amount?: number | null
+          deposit_bank_status?: string
+          deposit_bank_transaction_id?: string | null
           id?: string
           invoices_total?: number
           is_closed_day?: boolean
@@ -14727,6 +16786,7 @@ export type Database = {
           outlet_id: string
           pos_terminal_id: string | null
           settlement_days: number
+          settlement_mode: string
           sort_order: number
           terminal_code: string | null
           updated_at: string
@@ -14744,6 +16804,7 @@ export type Database = {
           outlet_id: string
           pos_terminal_id?: string | null
           settlement_days?: number
+          settlement_mode?: string
           sort_order?: number
           terminal_code?: string | null
           updated_at?: string
@@ -14761,6 +16822,7 @@ export type Database = {
           outlet_id?: string
           pos_terminal_id?: string | null
           settlement_days?: number
+          settlement_mode?: string
           sort_order?: number
           terminal_code?: string | null
           updated_at?: string
@@ -14958,8 +17020,10 @@ export type Database = {
           email: string | null
           exit_clause_month: number | null
           exit_revenue_threshold: number | null
+          guarantee_expiry: string | null
           id: string
           is_active: boolean | null
+          landlord_supplier_id: string | null
           mall_manager: string | null
           mall_name: string | null
           min_revenue_period: string | null
@@ -14978,6 +17042,7 @@ export type Database = {
           rent_free_days: number | null
           rent_monthly: number | null
           rent_per_sqm: number | null
+          rent_start_date: string | null
           rent_year2_annual: number | null
           rent_year3_annual: number | null
           sell_sqm: number | null
@@ -14992,9 +17057,6 @@ export type Database = {
           unit_code: string | null
           updated_at: string | null
           variable_rent_pct: number | null
-          rent_start_date: string | null
-          guarantee_expiry: string | null
-          landlord_supplier_id: string | null
         }
         Insert: {
           address?: string | null
@@ -15021,8 +17083,10 @@ export type Database = {
           email?: string | null
           exit_clause_month?: number | null
           exit_revenue_threshold?: number | null
+          guarantee_expiry?: string | null
           id?: string
           is_active?: boolean | null
+          landlord_supplier_id?: string | null
           mall_manager?: string | null
           mall_name?: string | null
           min_revenue_period?: string | null
@@ -15041,6 +17105,7 @@ export type Database = {
           rent_free_days?: number | null
           rent_monthly?: number | null
           rent_per_sqm?: number | null
+          rent_start_date?: string | null
           rent_year2_annual?: number | null
           rent_year3_annual?: number | null
           sell_sqm?: number | null
@@ -15055,9 +17120,6 @@ export type Database = {
           unit_code?: string | null
           updated_at?: string | null
           variable_rent_pct?: number | null
-          rent_start_date?: string | null
-          guarantee_expiry?: string | null
-          landlord_supplier_id?: string | null
         }
         Update: {
           address?: string | null
@@ -15084,8 +17146,10 @@ export type Database = {
           email?: string | null
           exit_clause_month?: number | null
           exit_revenue_threshold?: number | null
+          guarantee_expiry?: string | null
           id?: string
           is_active?: boolean | null
+          landlord_supplier_id?: string | null
           mall_manager?: string | null
           mall_name?: string | null
           min_revenue_period?: string | null
@@ -15104,6 +17168,7 @@ export type Database = {
           rent_free_days?: number | null
           rent_monthly?: number | null
           rent_per_sqm?: number | null
+          rent_start_date?: string | null
           rent_year2_annual?: number | null
           rent_year3_annual?: number | null
           sell_sqm?: number | null
@@ -15118,9 +17183,6 @@ export type Database = {
           unit_code?: string | null
           updated_at?: string | null
           variable_rent_pct?: number | null
-          rent_start_date?: string | null
-          guarantee_expiry?: string | null
-          landlord_supplier_id?: string | null
         }
         Relationships: [
           {
@@ -15128,6 +17190,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlets_landlord_supplier_id_fkey"
+            columns: ["landlord_supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
             referencedColumns: ["id"]
           },
         ]
@@ -15498,7 +17567,6 @@ export type Database = {
           due_date: string
           electronic_invoice_id: string | null
           gross_amount: number
-          withholding_amount: number
           iban: string | null
           id: string
           import_batch_id: string | null
@@ -15540,6 +17608,7 @@ export type Database = {
           verified: boolean | null
           verified_at: string | null
           verified_by: string | null
+          withholding_amount: number
         }
         Insert: {
           acube_uuid?: string | null
@@ -15554,7 +17623,6 @@ export type Database = {
           due_date: string
           electronic_invoice_id?: string | null
           gross_amount: number
-          withholding_amount?: number
           iban?: string | null
           id?: string
           import_batch_id?: string | null
@@ -15596,6 +17664,7 @@ export type Database = {
           verified?: boolean | null
           verified_at?: string | null
           verified_by?: string | null
+          withholding_amount?: number
         }
         Update: {
           acube_uuid?: string | null
@@ -15610,7 +17679,6 @@ export type Database = {
           due_date?: string
           electronic_invoice_id?: string | null
           gross_amount?: number
-          withholding_amount?: number
           iban?: string | null
           id?: string
           import_batch_id?: string | null
@@ -15652,6 +17720,7 @@ export type Database = {
           verified?: boolean | null
           verified_at?: string | null
           verified_by?: string | null
+          withholding_amount?: number
         }
         Relationships: [
           {
@@ -15802,6 +17871,348 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payables_backup_carta_20260910: {
+        Row: {
+          acube_uuid: string | null
+          amount_paid: number | null
+          amount_remaining: number | null
+          bank_transaction_id: string | null
+          cash_movement_id: string | null
+          closed_manually: boolean | null
+          company_id: string | null
+          cost_category_id: string | null
+          created_at: string | null
+          due_date: string | null
+          electronic_invoice_id: string | null
+          gross_amount: number | null
+          iban: string | null
+          id: string | null
+          import_batch_id: string | null
+          installment_number: number | null
+          installment_total: number | null
+          invoice_date: string | null
+          invoice_number: string | null
+          is_auto_debit: boolean | null
+          is_forecast: boolean | null
+          is_placeholder: boolean | null
+          is_provisional_paid: boolean | null
+          manual_close_reason: string | null
+          net_amount: number | null
+          notes: string | null
+          original_due_date: string | null
+          outlet_id: string | null
+          parent_payable_id: string | null
+          payment_bank_account_id: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code: string | null
+          payment_method_label: string | null
+          postpone_count: number | null
+          postponed_to: string | null
+          previous_status: Database["public"]["Enums"]["payable_status"] | null
+          priority: number | null
+          provisional_paid_at: string | null
+          recurring_cost_id: string | null
+          resolved_by: string | null
+          resolved_date: string | null
+          status: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          suspend_date: string | null
+          suspend_reason: string | null
+          updated_at: string | null
+          vat_amount: number | null
+          verified: boolean | null
+          verified_at: string | null
+          verified_by: string | null
+          withholding_amount: number | null
+        }
+        Insert: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Update: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Relationships: []
+      }
+      payables_backup_riba_20260910: {
+        Row: {
+          acube_uuid: string | null
+          amount_paid: number | null
+          amount_remaining: number | null
+          bank_transaction_id: string | null
+          cash_movement_id: string | null
+          closed_manually: boolean | null
+          company_id: string | null
+          cost_category_id: string | null
+          created_at: string | null
+          due_date: string | null
+          electronic_invoice_id: string | null
+          gross_amount: number | null
+          iban: string | null
+          id: string | null
+          import_batch_id: string | null
+          installment_number: number | null
+          installment_total: number | null
+          invoice_date: string | null
+          invoice_number: string | null
+          is_auto_debit: boolean | null
+          is_forecast: boolean | null
+          is_placeholder: boolean | null
+          is_provisional_paid: boolean | null
+          manual_close_reason: string | null
+          net_amount: number | null
+          notes: string | null
+          original_due_date: string | null
+          outlet_id: string | null
+          parent_payable_id: string | null
+          payment_bank_account_id: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code: string | null
+          payment_method_label: string | null
+          postpone_count: number | null
+          postponed_to: string | null
+          previous_status: Database["public"]["Enums"]["payable_status"] | null
+          priority: number | null
+          provisional_paid_at: string | null
+          recurring_cost_id: string | null
+          resolved_by: string | null
+          resolved_date: string | null
+          status: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          suspend_date: string | null
+          suspend_reason: string | null
+          updated_at: string | null
+          vat_amount: number | null
+          verified: boolean | null
+          verified_at: string | null
+          verified_by: string | null
+          withholding_amount: number | null
+        }
+        Insert: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Update: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Relationships: []
       }
       payables_bak_ritenuta_20260903: {
         Row: {
@@ -19827,6 +22238,9 @@ export type Database = {
           payment_terms: number | null
           pec: string | null
           prima_scadenza_gg: number | null
+          profile_from_invoice_at: string | null
+          profile_from_invoice_fields: string[] | null
+          profile_from_invoice_id: string | null
           provincia: string | null
           ragione_sociale: string | null
           regime_fiscale: string | null
@@ -19872,6 +22286,9 @@ export type Database = {
           payment_terms?: number | null
           pec?: string | null
           prima_scadenza_gg?: number | null
+          profile_from_invoice_at?: string | null
+          profile_from_invoice_fields?: string[] | null
+          profile_from_invoice_id?: string | null
           provincia?: string | null
           ragione_sociale?: string | null
           regime_fiscale?: string | null
@@ -19917,6 +22334,9 @@ export type Database = {
           payment_terms?: number | null
           pec?: string | null
           prima_scadenza_gg?: number | null
+          profile_from_invoice_at?: string | null
+          profile_from_invoice_fields?: string[] | null
+          profile_from_invoice_id?: string | null
           provincia?: string | null
           ragione_sociale?: string | null
           regime_fiscale?: string | null
@@ -19955,7 +22375,315 @@ export type Database = {
             referencedRelation: "bank_accounts"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "suppliers_profile_from_invoice_id_fkey"
+            columns: ["profile_from_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "electronic_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "suppliers_profile_from_invoice_id_fkey"
+            columns: ["profile_from_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "v_electronic_invoices_list"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      suppliers_backup_metodo_20260910: {
+        Row: {
+          cap: string | null
+          category: string | null
+          citta: string | null
+          codice_fiscale: string | null
+          codice_sdi: string | null
+          company_id: string | null
+          comune: string | null
+          cost_center: string | null
+          created_at: string | null
+          default_cost_category_id: string | null
+          default_payment_method:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
+          default_payment_terms: number | null
+          email: string | null
+          fiscal_code: string | null
+          iban: string | null
+          id: string | null
+          indirizzo: string | null
+          is_active: boolean | null
+          is_deleted: boolean | null
+          is_utility: boolean | null
+          name: string | null
+          nazione: string | null
+          note: string | null
+          notes: string | null
+          numero_rate: number | null
+          paese: string | null
+          partita_iva: string | null
+          payment_bank_account_id: string | null
+          payment_base: string | null
+          payment_method: string | null
+          payment_terms: number | null
+          pec: string | null
+          prima_scadenza_gg: number | null
+          profile_from_invoice_at: string | null
+          profile_from_invoice_fields: string[] | null
+          profile_from_invoice_id: string | null
+          provincia: string | null
+          ragione_sociale: string | null
+          regime_fiscale: string | null
+          slug: string | null
+          source: string | null
+          telefono: string | null
+          updated_at: string | null
+          vat_number: string | null
+        }
+        Insert: {
+          cap?: string | null
+          category?: string | null
+          citta?: string | null
+          codice_fiscale?: string | null
+          codice_sdi?: string | null
+          company_id?: string | null
+          comune?: string | null
+          cost_center?: string | null
+          created_at?: string | null
+          default_cost_category_id?: string | null
+          default_payment_method?:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
+          default_payment_terms?: number | null
+          email?: string | null
+          fiscal_code?: string | null
+          iban?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          is_deleted?: boolean | null
+          is_utility?: boolean | null
+          name?: string | null
+          nazione?: string | null
+          note?: string | null
+          notes?: string | null
+          numero_rate?: number | null
+          paese?: string | null
+          partita_iva?: string | null
+          payment_bank_account_id?: string | null
+          payment_base?: string | null
+          payment_method?: string | null
+          payment_terms?: number | null
+          pec?: string | null
+          prima_scadenza_gg?: number | null
+          profile_from_invoice_at?: string | null
+          profile_from_invoice_fields?: string[] | null
+          profile_from_invoice_id?: string | null
+          provincia?: string | null
+          ragione_sociale?: string | null
+          regime_fiscale?: string | null
+          slug?: string | null
+          source?: string | null
+          telefono?: string | null
+          updated_at?: string | null
+          vat_number?: string | null
+        }
+        Update: {
+          cap?: string | null
+          category?: string | null
+          citta?: string | null
+          codice_fiscale?: string | null
+          codice_sdi?: string | null
+          company_id?: string | null
+          comune?: string | null
+          cost_center?: string | null
+          created_at?: string | null
+          default_cost_category_id?: string | null
+          default_payment_method?:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
+          default_payment_terms?: number | null
+          email?: string | null
+          fiscal_code?: string | null
+          iban?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          is_deleted?: boolean | null
+          is_utility?: boolean | null
+          name?: string | null
+          nazione?: string | null
+          note?: string | null
+          notes?: string | null
+          numero_rate?: number | null
+          paese?: string | null
+          partita_iva?: string | null
+          payment_bank_account_id?: string | null
+          payment_base?: string | null
+          payment_method?: string | null
+          payment_terms?: number | null
+          pec?: string | null
+          prima_scadenza_gg?: number | null
+          profile_from_invoice_at?: string | null
+          profile_from_invoice_fields?: string[] | null
+          profile_from_invoice_id?: string | null
+          provincia?: string | null
+          ragione_sociale?: string | null
+          regime_fiscale?: string | null
+          slug?: string | null
+          source?: string | null
+          telefono?: string | null
+          updated_at?: string | null
+          vat_number?: string | null
+        }
+        Relationships: []
+      }
+      suppliers_backup_profilo_20260910: {
+        Row: {
+          cap: string | null
+          category: string | null
+          citta: string | null
+          codice_fiscale: string | null
+          codice_sdi: string | null
+          company_id: string | null
+          comune: string | null
+          cost_center: string | null
+          created_at: string | null
+          default_cost_category_id: string | null
+          default_payment_method:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
+          default_payment_terms: number | null
+          email: string | null
+          fiscal_code: string | null
+          iban: string | null
+          id: string | null
+          indirizzo: string | null
+          is_active: boolean | null
+          is_deleted: boolean | null
+          is_utility: boolean | null
+          name: string | null
+          nazione: string | null
+          note: string | null
+          notes: string | null
+          numero_rate: number | null
+          paese: string | null
+          partita_iva: string | null
+          payment_bank_account_id: string | null
+          payment_base: string | null
+          payment_method: string | null
+          payment_terms: number | null
+          pec: string | null
+          prima_scadenza_gg: number | null
+          profile_from_invoice_at: string | null
+          profile_from_invoice_fields: string[] | null
+          profile_from_invoice_id: string | null
+          provincia: string | null
+          ragione_sociale: string | null
+          regime_fiscale: string | null
+          slug: string | null
+          source: string | null
+          telefono: string | null
+          updated_at: string | null
+          vat_number: string | null
+        }
+        Insert: {
+          cap?: string | null
+          category?: string | null
+          citta?: string | null
+          codice_fiscale?: string | null
+          codice_sdi?: string | null
+          company_id?: string | null
+          comune?: string | null
+          cost_center?: string | null
+          created_at?: string | null
+          default_cost_category_id?: string | null
+          default_payment_method?:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
+          default_payment_terms?: number | null
+          email?: string | null
+          fiscal_code?: string | null
+          iban?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          is_deleted?: boolean | null
+          is_utility?: boolean | null
+          name?: string | null
+          nazione?: string | null
+          note?: string | null
+          notes?: string | null
+          numero_rate?: number | null
+          paese?: string | null
+          partita_iva?: string | null
+          payment_bank_account_id?: string | null
+          payment_base?: string | null
+          payment_method?: string | null
+          payment_terms?: number | null
+          pec?: string | null
+          prima_scadenza_gg?: number | null
+          profile_from_invoice_at?: string | null
+          profile_from_invoice_fields?: string[] | null
+          profile_from_invoice_id?: string | null
+          provincia?: string | null
+          ragione_sociale?: string | null
+          regime_fiscale?: string | null
+          slug?: string | null
+          source?: string | null
+          telefono?: string | null
+          updated_at?: string | null
+          vat_number?: string | null
+        }
+        Update: {
+          cap?: string | null
+          category?: string | null
+          citta?: string | null
+          codice_fiscale?: string | null
+          codice_sdi?: string | null
+          company_id?: string | null
+          comune?: string | null
+          cost_center?: string | null
+          created_at?: string | null
+          default_cost_category_id?: string | null
+          default_payment_method?:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
+          default_payment_terms?: number | null
+          email?: string | null
+          fiscal_code?: string | null
+          iban?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          is_deleted?: boolean | null
+          is_utility?: boolean | null
+          name?: string | null
+          nazione?: string | null
+          note?: string | null
+          notes?: string | null
+          numero_rate?: number | null
+          paese?: string | null
+          partita_iva?: string | null
+          payment_bank_account_id?: string | null
+          payment_base?: string | null
+          payment_method?: string | null
+          payment_terms?: number | null
+          pec?: string | null
+          prima_scadenza_gg?: number | null
+          profile_from_invoice_at?: string | null
+          profile_from_invoice_fields?: string[] | null
+          profile_from_invoice_id?: string | null
+          provincia?: string | null
+          ragione_sociale?: string | null
+          regime_fiscale?: string | null
+          slug?: string | null
+          source?: string | null
+          telefono?: string | null
+          updated_at?: string | null
+          vat_number?: string | null
+        }
+        Relationships: []
       }
       suppliers_bkp_20260617_scad: {
         Row: {
@@ -20686,31 +23414,6 @@ export type Database = {
       }
     }
     Views: {
-      v_commissioni_incasso: {
-        Row: {
-          acquirer: string | null
-          aliquota_pct: number | null
-          bank_transaction_id: string | null
-          company_id: string | null
-          costo_totale: number | null
-          document_id: string | null
-          fee_amount: number | null
-          fixed_amount: number | null
-          gross_amount: number | null
-          merchant_code: string | null
-          outlet_code: string | null
-          outlet_id: string | null
-          outlet_name: string | null
-          payment_contract: string | null
-          period_month: number | null
-          period_year: number | null
-          periodo: string | null
-          settlement_mode: string | null
-          source: string | null
-          stamp_amount: number | null
-        }
-        Relationships: []
-      }
       cash_movements: {
         Row: {
           ai_categorized_at: string | null
@@ -21068,6 +23771,95 @@ export type Database = {
           },
         ]
       }
+      v_commissioni_incasso: {
+        Row: {
+          acquirer: string | null
+          aliquota_pct: number | null
+          bank_transaction_id: string | null
+          company_id: string | null
+          costo_totale: number | null
+          document_id: string | null
+          fee_amount: number | null
+          fixed_amount: number | null
+          gross_amount: number | null
+          merchant_code: string | null
+          outlet_code: string | null
+          outlet_id: string | null
+          outlet_name: string | null
+          payment_contract: string | null
+          period_month: number | null
+          period_year: number | null
+          periodo: string | null
+          settlement_mode: string | null
+          source: string | null
+          stamp_amount: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "acquirer_fees_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "bank_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["bank_transaction_id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "import_documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "acquirer_fees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
       v_contracts_expiring: {
         Row: {
           alert_level: string | null
@@ -21409,6 +24201,76 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "suppliers"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      v_iva_componenti_mensili: {
+        Row: {
+          chiusure_lordo: number | null
+          chiusure_netto: number | null
+          company_id: string | null
+          consuntivo_netto: number | null
+          giorni_chiusura: number | null
+          iva_fatture_attive: number | null
+          iva_fatture_passive: number | null
+          iva_integrazioni: number | null
+          iva_note_credito: number | null
+          month: number | null
+          n_fatture_attive: number | null
+          n_fatture_passive: number | null
+          n_integrazioni: number | null
+          n_note_credito: number | null
+          outlet_chiusura: number | null
+          preventivo_netto: number | null
+          year: number | null
+        }
+        Relationships: []
+      }
+      v_leave_balances: {
+        Row: {
+          company_id: string | null
+          da_fruire: number | null
+          da_maturare: number | null
+          data_cessazione: string | null
+          employee_id: string | null
+          goduto: number | null
+          import_id: string | null
+          maturato: number | null
+          non_indennizzabile: number | null
+          ore_giornata_dedotte: number | null
+          ore_settimanali_dedotte: number | null
+          periodo_anno: number | null
+          periodo_mese: number | null
+          rateo_annuo: number | null
+          residuo: number | null
+          residuo_prec: number | null
+          saldo_alla_data: string | null
+          saldo_corso: number | null
+          saldo_prec: number | null
+          voce: string | null
+          voce_label: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_accrual_rows_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
           },
         ]
       }
@@ -22254,28 +25116,6 @@ export type Database = {
           },
         ]
       }
-      v_iva_componenti_mensili: {
-        Row: {
-          chiusure_lordo: number | null
-          chiusure_netto: number | null
-          company_id: string | null
-          consuntivo_netto: number | null
-          giorni_chiusura: number | null
-          iva_fatture_attive: number | null
-          iva_fatture_passive: number | null
-          iva_integrazioni: number | null
-          iva_note_credito: number | null
-          month: number | null
-          n_fatture_attive: number | null
-          n_fatture_passive: number | null
-          n_integrazioni: number | null
-          n_note_credito: number | null
-          outlet_chiusura: number | null
-          preventivo_netto: number | null
-          year: number | null
-        }
-        Relationships: []
-      }
     }
     Functions: {
       _acube_cedente_name_json: {
@@ -22361,6 +25201,10 @@ export type Database = {
         Args: { p_close_date?: string; p_payable_id: string }
         Returns: number
       }
+      apply_statement_enrichment: {
+        Args: { p_rows: Json; p_source?: string }
+        Returns: Json
+      }
       approve_budget_outlet_year: {
         Args: { p_cost_center: string; p_year: number }
         Returns: number
@@ -22386,31 +25230,37 @@ export type Database = {
         Returns: string
       }
       bytea_to_text: { Args: { data: string }; Returns: string }
-      delete_cash_closing: { Args: { p_closing_id: string; p_reason?: string }; Returns: Json }
-      run_cash_bank_matching: { Args: { p_days?: number }; Returns: Json }
-      list_bank_terminal_codes: {
-        Args: { p_days?: number }
-        Returns: { code: string; circuit: string | null; bank_account_id: string | null; n: number; total: number; first_date: string; last_date: string; sample: string | null; mapped_channel_id: string | null }[]
-      }
-      cash_bank_monthly_summary: { Args: { p_year: number; p_month: number }; Returns: Json }
       can_write_cash_closing: {
         Args: { p_outlet_id: string }
         Returns: boolean
       }
+      cash_bank_circuit: { Args: { p_descr: string }; Returns: string }
+      cash_bank_is_customer_transfer: {
+        Args: { p_descr: string }
+        Returns: boolean
+      }
+      cash_bank_is_deposit: { Args: { p_descr: string }; Returns: boolean }
+      cash_bank_monthly_summary: {
+        Args: { p_month: number; p_year: number }
+        Returns: Json
+      }
+      cash_bank_norm_code: { Args: { p_code: string }; Returns: string }
+      cash_bank_ordinante_in_nota: {
+        Args: { p_descr: string; p_note: string }
+        Returns: boolean
+      }
+      cash_bank_ref_date: { Args: { p_descr: string }; Returns: string }
+      cash_bank_terminal_code: { Args: { p_descr: string }; Returns: string }
       cash_closing_storage_outlet: { Args: { p_name: string }; Returns: string }
       causale_has_named_beneficiary: {
         Args: { p_text: string }
         Returns: boolean
       }
       check_pixel_and_alert: { Args: never; Returns: string }
+      clean_bank_category_conflicts: { Args: never; Returns: Json }
       close_incoming_movements: { Args: { p_dry_run?: boolean }; Returns: Json }
       close_non_supplier_movements: { Args: never; Returns: Json }
       close_paid_fiscal_deadlines: { Args: never; Returns: Json }
-      clean_bank_category_conflicts: { Args: never; Returns: Json }
-      apply_statement_enrichment: {
-        Args: { p_rows: Json; p_source?: string | null }
-        Returns: Json
-      }
       close_payable_manually: {
         Args: {
           p_amount?: number
@@ -22463,9 +25313,48 @@ export type Database = {
         }
         Returns: number
       }
+      daily_cash_report_tick: {
+        Args: { p_anon_key: string; p_function_url: string }
+        Returns: Json
+      }
+      daily_report_dispatch: {
+        Args: {
+          p_closing_id?: string
+          p_company_id: string
+          p_date: string
+          p_kind: string
+          p_outlet_name?: string
+        }
+        Returns: string
+      }
+      daily_report_endpoint: { Args: never; Returns: Record<string, unknown> }
+      daily_report_is_complete: {
+        Args: { p_company_id: string; p_date: string }
+        Returns: boolean
+      }
+      daily_report_outlets: {
+        Args: { p_company_id: string }
+        Returns: {
+          name: string
+          outlet_id: string
+        }[]
+      }
+      delete_cash_closing: {
+        Args: { p_closing_id: string; p_reason?: string }
+        Returns: Json
+      }
       fn_backfill_payable_installments: {
         Args: { p_company: string }
         Returns: Json
+      }
+      fn_bank_own_movement: { Args: { p_descr: string }; Returns: boolean }
+      fn_cash_card_provisional_close: {
+        Args: { p_company_id?: string; p_include_backlog?: boolean }
+        Returns: number
+      }
+      fn_categorize_from_lines: {
+        Args: { p_company_id: string; p_xml: string }
+        Returns: string
       }
       fn_consolidate_duplicate_bank_accounts: {
         Args: never
@@ -22479,10 +25368,13 @@ export type Database = {
           out_refs_repointed: number
         }[]
       }
+      fn_invoice_cedente_profile: { Args: { p_doc: string }; Returns: Json }
+      fn_invoice_lines_text: { Args: { p_xml: string }; Returns: string }
       fn_invoice_withholding: {
         Args: { p_payload?: Json; p_xml: string }
         Returns: number
       }
+      fn_it_easter: { Args: { p_year: number }; Returns: string }
       fn_normalize_invoice_number: { Args: { p_num: string }; Returns: string }
       fn_parse_invoice_condizioni: { Args: { p_xml: string }; Returns: string }
       fn_parse_invoice_condizioni_json: {
@@ -22515,6 +25407,8 @@ export type Database = {
           descrizione: string
         }[]
       }
+      fn_revenue_day_type: { Args: { p_day: string }; Returns: string }
+      fn_revenue_season: { Args: { p_day: string }; Returns: string }
       fn_riba_provisional_close: {
         Args: { p_company_id?: string; p_include_backlog?: boolean }
         Returns: number
@@ -22541,6 +25435,16 @@ export type Database = {
           importo: number
           rata: number
         }[]
+      }
+      fn_supplier_profile_from_invoice: {
+        Args: {
+          p_company_id: string
+          p_doc: string
+          p_invoice_date: string
+          p_invoice_id?: string
+          p_supplier_id: string
+        }
+        Returns: string[]
       }
       get_acube_credentials: {
         Args: { p_stage: string }
@@ -22573,6 +25477,19 @@ export type Database = {
         Returns: Database["public"]["Enums"]["user_role"]
       }
       get_or_associate_tenant_company: { Args: never; Returns: string }
+      get_outlet_day_targets: {
+        Args: { p_company_id: string; p_from: string; p_to: string }
+        Returns: {
+          day: string
+          day_type: string
+          month_gross: number
+          outlet_id: string
+          season: string
+          target: number
+          weight: number
+          weight_source: string
+        }[]
+      }
       get_sdi_credentials: {
         Args: never
         Returns: {
@@ -22580,6 +25497,15 @@ export type Database = {
           client_key: string
           server_cert: string
           server_key: string
+        }[]
+      }
+      get_twilio_whatsapp_config: {
+        Args: never
+        Returns: {
+          account_sid: string
+          auth_token: string
+          content_sid: string
+          from_number: string
         }[]
       }
       get_unseen_ticket_updates_count: { Args: never; Returns: number }
@@ -22722,11 +25648,37 @@ export type Database = {
       }
       invoice_number_keys: { Args: { p_inv: string }; Returns: string[] }
       jwt_company_id: { Args: never; Returns: string }
+      leave_ore_settimanali_da_rateo: {
+        Args: { p_rateo_annuo: number }
+        Returns: number
+      }
+      list_bank_terminal_codes: {
+        Args: { p_days?: number }
+        Returns: {
+          bank_account_id: string
+          circuit: string
+          code: string
+          first_date: string
+          last_date: string
+          mapped_channel_id: string
+          n: number
+          sample: string
+          total: number
+        }[]
+      }
       log_bank_sync_run: {
         Args: { p_details?: Json; p_duration_ms?: number; p_items?: number }
         Returns: undefined
       }
       mark_ticket_seen: { Args: { p_ticket_id: string }; Returns: undefined }
+      match_cash_closings_with_bank: {
+        Args: { p_company_id?: string; p_days?: number; p_tolerance?: number }
+        Returns: Json
+      }
+      match_customer_transfers_with_closings: {
+        Args: { p_company_id?: string; p_from?: string; p_tolerance?: number }
+        Returns: number
+      }
       notify_invoices_without_xml: { Args: never; Returns: number }
       onboard_tenant: {
         Args: {
@@ -22745,19 +25697,6 @@ export type Database = {
           p_payable_id: string
         }
         Returns: boolean
-      }
-      get_outlet_day_targets: {
-        Args: { p_company_id: string; p_from: string; p_to: string }
-        Returns: {
-          outlet_id: string
-          day: string
-          day_type: string
-          season: string
-          weight: number
-          weight_source: string
-          month_gross: number | null
-          target: number | null
-        }[]
       }
       project_cash_closing_to_daily_revenue: {
         Args: { p_closing_id: string }
@@ -22804,6 +25743,7 @@ export type Database = {
       }
       rerun_amount_reconciliation: { Args: never; Returns: Json }
       rerun_bijective_reconciliation: { Args: never; Returns: Json }
+      rerun_cash_card_provisional_close: { Args: never; Returns: Json }
       rerun_distinta_reconciliation: { Args: never; Returns: Json }
       rerun_group_reconciliation: { Args: never; Returns: Json }
       rerun_reconciliation: { Args: never; Returns: Json }
@@ -22812,6 +25752,15 @@ export type Database = {
       rpc_apply_payment_proposal: { Args: { p_id: string }; Returns: boolean }
       rpc_automatch_riba_distinta: {
         Args: { p_distinta_id: string }
+        Returns: Json
+      }
+      rpc_backfill_supplier_profiles: {
+        Args: { p_max_invoices?: number }
+        Returns: Json
+      }
+      rpc_cash_card_provisional_close_backlog: { Args: never; Returns: Json }
+      rpc_categorize_from_lines_backlog: {
+        Args: { p_only_open?: boolean }
         Returns: Json
       }
       rpc_confirm_riba_distinta: {
@@ -22860,6 +25809,7 @@ export type Database = {
         Args: { p_credit_note_id: string }
         Returns: Json
       }
+      run_cash_bank_matching: { Args: { p_days?: number }; Returns: Json }
       run_daily_reconciliation: { Args: never; Returns: Json }
       save_balance_sheet: {
         Args: { p_records: Json; p_replace_sections?: string[] }
@@ -22894,6 +25844,7 @@ export type Database = {
         }
         Returns: number
       }
+      ticket_notify_endpoint: { Args: never; Returns: Record<string, unknown> }
       try_match_amount_bank_transaction: {
         Args: { p_bt_id: string }
         Returns: Json
@@ -23012,6 +25963,7 @@ export type Database = {
         | "budget_approver"
         | "viewer"
         | "operatore_cassa"
+        | "dipendente"
     }
     CompositeTypes: {
       http_header: {
@@ -23236,6 +26188,7 @@ export const Constants = {
         "budget_approver",
         "viewer",
         "operatore_cassa",
+        "dipendente",
       ],
     },
   },
