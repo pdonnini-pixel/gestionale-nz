@@ -1,0 +1,3 @@
+-- Rollback 247: la colonna resta (nessuna perdita di dati); per rimuoverla davvero
+-- serve la conferma esplicita, perché contiene indirizzi scritti dall'utente:
+-- ALTER TABLE public.daily_report_settings DROP COLUMN IF EXISTS reopen_recipients;

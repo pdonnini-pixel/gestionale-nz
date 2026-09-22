@@ -308,6 +308,32 @@ export function computeQuadrature(q: QuadratureInput): QuadratureResult {
  * oltre al fondo», che scrive 0: non è una scorciatoia, è la stessa
  * informazione detta in un gesto solo.
  */
+/**
+ * Punto 5 scritto male: nel campo «contanti da versare» è finito il contante
+ * ATTESO TOTALE in cassa (fondo + da versare) invece dei soli contanti che
+ * aspettano il versamento. È l'errore di Valmontone del 21/09/2026: atteso
+ * 748,85, fondo contato 500,25, e nel punto 5 748,85 invece di 248,60, con una
+ * finta eccedenza di 500,25 e una richiesta di riapertura il giorno dopo.
+ *
+ * Restituisce il valore giusto da proporre (atteso − fondo contato), oppure
+ * null se non è questo il caso. Non è un blocco: la cassiera può confermare
+ * lo stesso, perché il contante vero lo vede solo lei.
+ */
+export function pendingLooksLikeExpected(i: {
+  cashFloatExpected: number | null
+  cashFloatDeclared: number | null
+  cashPendingDeclared: number | null
+}): number | null {
+  const { cashFloatExpected: atteso, cashFloatDeclared: fondo, cashPendingDeclared: daVersare } = i
+  if (atteso == null || fondo == null || daVersare == null) return null
+  if (!(atteso > 0) || !(fondo > 0)) return null
+  // Il punto 5 coincide con l'atteso totale: è la firma dell'errore.
+  if (Math.abs(daVersare - atteso) >= 0.005) return null
+  const proposto = r2(atteso - fondo)
+  if (proposto < 0) return null
+  return Math.abs(proposto - daVersare) < 0.005 ? null : proposto
+}
+
 export type ClosingBlockField = 'fondo' | 'da_versare'
 
 export interface ClosingBlocker {

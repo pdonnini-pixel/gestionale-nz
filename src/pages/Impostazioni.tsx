@@ -1774,7 +1774,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [logs, setLogs] = useState<ReportLogRow[]>([])
-  const [form, setForm] = useState({ enabled: false, sendMode: 'fixed' as 'fixed' | 'on_complete', sendTime: '21:30', followupEnabled: true, reminderEnabled: false, reminderTime: '20:30', recipients: '', sendOnEmpty: true, budgetVatRate: '22', waEnabled: false, waRecipients: '' })
+  const [form, setForm] = useState({ enabled: false, sendMode: 'fixed' as 'fixed' | 'on_complete', sendTime: '21:30', followupEnabled: true, reminderEnabled: false, reminderTime: '20:30', recipients: '', reopenRecipients: '', sendOnEmpty: true, budgetVatRate: '22', waEnabled: false, waRecipients: '' })
   const [testingWa, setTestingWa] = useState(false)
   const [dirty, setDirty] = useState(false)
 
@@ -1791,7 +1791,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         enabled: s.enabled, sendMode: s.send_mode === 'on_complete' ? 'on_complete' : 'fixed', sendTime: s.send_time.slice(0, 5),
         followupEnabled: s.followup_enabled !== false,
         reminderEnabled: !!s.reminder_time, reminderTime: (s.reminder_time ?? '20:30').slice(0, 5),
-        recipients: (s.recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
+        recipients: (s.recipients ?? []).join('\n'), reopenRecipients: (s.reopen_recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
         budgetVatRate: String(s.budget_vat_rate ?? 22),
         waEnabled: s.whatsapp_enabled === true, waRecipients: (s.whatsapp_recipients ?? []).join('\n'),
       })
@@ -1806,6 +1806,8 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const set = (patch: Partial<typeof form>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
   const recipientsList = parseRecipients(form.recipients)
   const invalidRecipients = form.recipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !recipientsList.includes(x.toLowerCase()))
+  const reopenList = parseRecipients(form.reopenRecipients)
+  const invalidReopen = form.reopenRecipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !reopenList.includes(x.toLowerCase()))
   const phonesList = parsePhones(form.waRecipients)
   const invalidPhones = form.waRecipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && parsePhones(x).length === 0)
 
@@ -1825,6 +1827,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       followup_enabled: form.followupEnabled,
       reminder_time: form.reminderEnabled ? form.reminderTime : null,
       recipients: recipientsList,
+      reopen_recipients: reopenList,
       send_on_empty: form.sendOnEmpty,
       budget_vat_rate: vat,
       whatsapp_enabled: form.waEnabled,
@@ -1926,6 +1929,21 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         <div className="text-xs mt-1 text-slate-500">
           {recipientsList.length} indirizz{recipientsList.length === 1 ? 'o' : 'i'} valid{recipientsList.length === 1 ? 'o' : 'i'}
           {invalidRecipients.length > 0 && <span className="text-red-600"> · non validi: {invalidRecipients.join(', ')}</span>}
+        </div>
+      </div>
+
+      <div className="border border-slate-200 rounded-xl p-4 space-y-2">
+        <label className="block text-sm font-semibold text-slate-900">Richieste di riapertura dai negozi</label>
+        <p className="text-xs text-slate-600">
+          Quando un punto vendita chiede di riaprire una chiusura già confermata, la richiesta arriva negli avvisi del gestionale e a questi indirizzi,
+          con negozio, giorno, motivo e il link alla giornata. Se lasci vuoto si usano i destinatari del report qui sopra.
+        </p>
+        <textarea value={form.reopenRecipients} onChange={(e) => set({ reopenRecipients: e.target.value })} rows={2} placeholder="amministrazione@azienda.it" className={inp} />
+        <div className="text-xs text-slate-500">
+          {reopenList.length === 0
+            ? `Nessun indirizzo: la mail va ai ${recipientsList.length} destinatari del report`
+            : `${reopenList.length} indirizz${reopenList.length === 1 ? 'o' : 'i'} valid${reopenList.length === 1 ? 'o' : 'i'}`}
+          {invalidReopen.length > 0 && <span className="text-red-600"> · non validi: {invalidReopen.join(', ')}</span>}
         </div>
       </div>
 
