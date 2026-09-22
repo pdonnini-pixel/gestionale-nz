@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { righeSaldi, righeGiorni, righeRiepilogo, notaOrario, notaSaldi, nomeFoglio, nomeFileModulo, type ModuloFerie } from './ferieExport';
+import { righeSaldi, righeGiorni, righeRiepilogo, intestazioneGiorni, INTESTAZIONE_RIEPILOGO, valeIlRiepilogo, notaOrario, notaSaldi, nomeFoglio, nomeFileModulo, type ModuloFerie } from './ferieExport';
 import type { DisponibilitaVoce, GiornoRichiesto } from './ferieRichiesta';
 
 const saldo = (voce: DisponibilitaVoce['voce'], over: Partial<DisponibilitaVoce> = {}): DisponibilitaVoce => ({
@@ -54,14 +54,30 @@ describe('tabella dei saldi', () => {
 });
 
 describe('tabella dei giorni', () => {
-  it('senza giorni esce il modulo da compilare, con righe bianche', () => {
+  // Chi riceve il foglio non sa cosa sia una «voce» né un «tipo»: le
+  // intestazioni sono domande, e la prima riga è un esempio compilato.
+  it('il foglio da compilare fa domande, non nomi di campo', () => {
+    const i = intestazioneGiorni(modulo());
+    expect(i).toEqual(['Dal giorno', 'Al giorno', 'Ferie o permesso?', 'Tutto il giorno, mezza giornata o quante ore?', 'Note']);
+    expect(i.join(' ')).not.toMatch(/voce|tipo/i);
+  });
+
+  it('la prima riga è un esempio già compilato, poi righe bianche', () => {
     const r = righeGiorni(modulo());
-    expect(r).toHaveLength(12);
-    expect(r[0]).toEqual(['', '', '', '', '']);
+    expect(r[0][0]).toMatch(/^es\. /);
+    expect(r[0][2]).toBe('Ferie');
+    expect(r[0][3]).toBe('Tutto il giorno');
+    expect(r).toHaveLength(13);          // l'esempio più le dodici da riempire
+    expect(r[1]).toEqual(['', '', '', '', '']);
   });
 
   it('quante righe bianche lo decide chi stampa', () => {
-    expect(righeGiorni(modulo({ righeVuote: 20 }))).toHaveLength(20);
+    expect(righeGiorni(modulo({ righeVuote: 20 }))).toHaveLength(21);
+  });
+
+  it('la ricevuta ha le sue intestazioni, un giorno per riga', () => {
+    const m = modulo({ giorni: [giorno('2026-10-05')] });
+    expect(intestazioneGiorni(m)).toEqual(['Giorno', 'Ferie o permesso', 'Quanto', 'Ore', 'Note']);
   });
 
   it('con i giorni scelti li mette in ordine di data', () => {
@@ -70,15 +86,33 @@ describe('tabella dei giorni', () => {
     expect(r[1][0]).toContain('06/10/2026');
   });
 
-  it('scrive il tipo e la voce per esteso', () => {
+  it('dice quanto in italiano parlato, e le ore restano in colonna', () => {
+    const r = righeGiorni(modulo({ giorni: [giorno('2026-10-05')] }));
+    expect(r[0][1]).toBe('Ferie');
+    expect(r[0][2]).toBe('Tutto il giorno');
+    expect(r[0][3]).toBe('6,00 h');
+  });
+
+  it('le ore stanno nella loro colonna, non scritte due volte', () => {
     const r = righeGiorni(modulo({ giorni: [giorno('2026-10-05', { tipo: 'ore', ore: 2, voce: 'F03' })] }));
-    expect(r[0][1]).toBe('Permesso a ore');
-    expect(r[0][2]).toBe('ROL');
+    expect(r[0][1]).toBe('ROL');
+    expect(r[0][2]).toBe('Alcune ore');
     expect(r[0][3]).toBe('2,00 h');
   });
 });
 
 describe('riepilogo per periodi', () => {
+  it('nemmeno qui compaiono «voce» e «tipo»', () => {
+    expect(INTESTAZIONE_RIEPILOGO.join(' ')).not.toMatch(/voce|tipo/i);
+  });
+
+  it('si stampa solo quando accorcia davvero', () => {
+    const tre = ['2026-10-05', '2026-10-06', '2026-10-07'].map((d) => giorno(d));
+    expect(valeIlRiepilogo(modulo({ giorni: tre }))).toBe(true);      // tre giorni, una riga
+    const sparsi = ['2026-10-05', '2026-10-08', '2026-10-12'].map((d) => giorno(d));
+    expect(valeIlRiepilogo(modulo({ giorni: sparsi }))).toBe(false);  // tre righe uguali a prima
+    expect(valeIlRiepilogo(modulo({ giorni: [giorno('2026-10-05')] }))).toBe(false);
+  });
   it('unisce i giorni consecutivi in una riga sola', () => {
     const r = righeRiepilogo(modulo({
       giorni: [giorno('2026-10-05'), giorno('2026-10-06'), giorno('2026-10-07')],
@@ -126,6 +160,7 @@ describe('il modulo lo legge il dipendente', () => {
   const tuttoIlTesto = (m: ModuloFerie) => [
     notaOrario(m.dipendente),
     notaSaldi(m),
+    ...intestazioneGiorni(m),
     ...righeSaldi(m).flat(),
     ...righeGiorni(m).flat(),
     ...righeRiepilogo(m).flat(),

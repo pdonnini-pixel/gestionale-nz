@@ -23,7 +23,7 @@
 // pagina si apre anche solo per guardare i saldi.
 
 import {
-  ETICHETTE_VOCE, ETICHETTE_TIPO, ETICHETTE_VOCE_BREVI,
+  ETICHETTE_VOCE, ETICHETTE_VOCE_BREVI,
   formattaOre, formattaData, formattaDataLunga, giornateDaOre, totaliPerVoce,
   intervalli, type GiornoRichiesto, type DisponibilitaVoce, type VoceFerie,
 } from './ferieRichiesta';
@@ -101,25 +101,62 @@ export function righeSaldi(m: ModuloFerie): string[][] {
 }
 
 const INTESTAZIONE_SALDI = [
-  'Voce', 'Disponibili oggi', 'in giornate', 'Entro fine anno', 'Già in attesa', 'In questa richiesta',
+  '', 'Disponibili oggi', 'in giornate', 'Entro fine anno', 'Già chieste', 'In questa richiesta',
 ];
 
-const INTESTAZIONE_GIORNI = ['Data', 'Tipo', 'Voce', 'Ore', 'Nota'];
+/**
+ * Il foglio da compilare: intestazioni che sono domande, non nomi di campo.
+ * «Voce» e «Tipo» sono parole nostre, e chi riceve il foglio non sa cosa
+ * scriverci sotto. Le ore non si chiedono: le calcola il gestionale
+ * dall'orario della persona, e farle scrivere a mano sarebbe chiedere un
+ * conto che sappiamo fare noi.
+ */
+const INTESTAZIONE_DA_COMPILARE = [
+  'Dal giorno', 'Al giorno', 'Ferie o permesso?', 'Tutto il giorno, mezza giornata o quante ore?', 'Note',
+];
+
+/** L'esempio vale più di qualunque istruzione: si guarda e si capisce. */
+const RIGA_ESEMPIO = ['es. 03/08/2026', '09/08/2026', 'Ferie', 'Tutto il giorno', ''];
+
+/** La ricevuta di una richiesta già registrata: stessa lingua, un giorno per riga. */
+const INTESTAZIONE_GIORNI = ['Giorno', 'Ferie o permesso', 'Quanto', 'Ore', 'Note'];
+
+export const INTESTAZIONE_RIEPILOGO = ['Periodo', 'Ferie o permesso', 'Quanto', 'Giorni', 'Ore'];
+
+/** Come si dice a voce: «tutto il giorno», non «giornata intera». */
+const QUANTO: Record<string, string> = {
+  giornata: 'Tutto il giorno',
+  mezza_giornata: 'Mezza giornata',
+  ore: 'Alcune ore',
+};
+
+export function intestazioneGiorni(m: ModuloFerie): string[] {
+  return m.giorni.length ? INTESTAZIONE_GIORNI : INTESTAZIONE_DA_COMPILARE;
+}
 
 export function righeGiorni(m: ModuloFerie): string[][] {
   if (!m.giorni.length) {
     const n = m.righeVuote ?? RIGHE_VUOTE_DEFAULT;
-    return Array.from({ length: n }, () => ['', '', '', '', '']);
+    return [RIGA_ESEMPIO, ...Array.from({ length: n }, () => ['', '', '', '', ''])];
   }
   return [...m.giorni]
     .sort((a, b) => a.data.localeCompare(b.data))
     .map((g) => [
       formattaDataLunga(g.data),
-      ETICHETTE_TIPO[g.tipo],
       ETICHETTE_VOCE_BREVI[g.voce],
+      QUANTO[g.tipo],
       formattaOre(g.ore),
       g.nota ?? '',
     ]);
+}
+
+/**
+ * Il riepilogo per periodi si stampa solo quando accorcia davvero. Cinque
+ * giorni che diventano quattro righe non sono un riepilogo: sono la stessa
+ * tabella scritta due volte.
+ */
+export function valeIlRiepilogo(m: ModuloFerie): boolean {
+  return m.giorni.length >= 3 && intervalli(m.giorni).length <= m.giorni.length - 2;
 }
 
 /** Una riga di riepilogo per periodo continuo: «dal 3 al 9, ferie, 5 giorni». */
@@ -127,7 +164,7 @@ export function righeRiepilogo(m: ModuloFerie): string[][] {
   return intervalli(m.giorni).map((i) => [
     i.dal === i.al ? formattaData(i.dal) : `dal ${formattaData(i.dal)} al ${formattaData(i.al)}`,
     ETICHETTE_VOCE_BREVI[i.voce],
-    ETICHETTE_TIPO[i.tipo],
+    QUANTO[i.tipo],
     String(i.giorni),
     formattaOre(i.ore),
   ]);
@@ -138,8 +175,18 @@ export function righeRiepilogo(m: ModuloFerie): string[][] {
 // ─────────────────────────────────────────────────────────────────────
 
 export async function esportaModuloPdf(moduli: ModuloFerie | ModuloFerie[]): Promise<void> {
+  const doc = await costruisciPdf(moduli);
+  if (doc) doc.save(nomeFileModulo(moduli, 'pdf'));
+}
+
+/**
+ * Costruisce il documento senza salvarlo: cosi' lo stesso codice che finisce
+ * in mano alle persone si puo' generare anche fuori dal browser, per
+ * guardarlo prima di spedirlo.
+ */
+export async function costruisciPdf(moduli: ModuloFerie | ModuloFerie[]) {
   const elenco = Array.isArray(moduli) ? moduli : [moduli];
-  if (!elenco.length) return;
+  if (!elenco.length) return null;
 
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import('jspdf'),
@@ -199,15 +246,14 @@ export async function esportaModuloPdf(moduli: ModuloFerie | ModuloFerie[]): Pro
 
     autoTable(doc, {
       startY: finalY() + 26,
-      head: [INTESTAZIONE_GIORNI],
+      head: [intestazioneGiorni(m)],
       body: righeGiorni(m),
       theme: 'grid',
       styles: { fontSize: 8.5, cellPadding: vuoto ? 6 : 3.5, textColor: SCURO, minCellHeight: vuoto ? 18 : 0 },
       headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: 'bold' },
-      columnStyles: {
-        0: { cellWidth: 120 }, 1: { cellWidth: 100 }, 2: { cellWidth: 80 },
-        3: { cellWidth: 65, halign: 'right' }, 4: { cellWidth: 150 },
-      },
+      columnStyles: vuoto
+        ? { 0: { cellWidth: 72 }, 1: { cellWidth: 72 }, 2: { cellWidth: 96 }, 3: { cellWidth: 165 }, 4: { cellWidth: 110 } }
+        : { 0: { cellWidth: 110 }, 1: { cellWidth: 90 }, 2: { cellWidth: 95 }, 3: { cellWidth: 60, halign: 'right' }, 4: { cellWidth: 160 } },
       margin: { left: 40, right: 40 },
     });
 
@@ -215,16 +261,16 @@ export async function esportaModuloPdf(moduli: ModuloFerie | ModuloFerie[]): Pro
       doc.setFontSize(7.5);
       doc.setTextColor(...GRIGIO);
       doc.text(
-        'Tipo: giornata intera, mezza giornata oppure il numero di ore. Voce: ferie, ex festività o ROL. '
-        + 'Le ore non serve calcolarle: bastano la data e il tipo.',
+        'Per più giorni di fila basta una riga sola: primo e ultimo giorno. Per un giorno solo, scrivi la stessa data nelle due caselle, '
+        + 'oppure lascia vuota la seconda. Le ore non serve calcolarle: le conta l\'ufficio in base al tuo orario.',
         40, finalY() + 14, { maxWidth: 515 },
       );
     } else {
-      const riepilogo = righeRiepilogo(m);
+      const riepilogo = valeIlRiepilogo(m) ? righeRiepilogo(m) : [];
       if (riepilogo.length) {
         autoTable(doc, {
           startY: finalY() + 16,
-          head: [['Periodo', 'Voce', 'Tipo', 'Giorni', 'Ore']],
+          head: [INTESTAZIONE_RIEPILOGO],
           body: riepilogo,
           theme: 'grid',
           styles: { fontSize: 8.5, cellPadding: 3.5, textColor: SCURO },
@@ -254,7 +300,7 @@ export async function esportaModuloPdf(moduli: ModuloFerie | ModuloFerie[]): Pro
     doc.line(310, yFirme + 26, 540, yFirme + 26);
   });
 
-  doc.save(nomeFileModulo(Array.isArray(moduli) ? moduli : moduli, 'pdf'));
+  return doc;
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -286,18 +332,18 @@ export async function esportaModuloExcel(moduli: ModuloFerie | ModuloFerie[]): P
       ...righeSaldi(m),
       [notaSaldi(m)],
       [],
-      INTESTAZIONE_GIORNI,
+      intestazioneGiorni(m),
       ...righeGiorni(m),
     ];
 
     if (!vuoto) {
-      const riepilogo = righeRiepilogo(m);
+      const riepilogo = valeIlRiepilogo(m) ? righeRiepilogo(m) : [];
       if (riepilogo.length) {
-        aoa.push([], ['Periodo', 'Voce', 'Tipo', 'Giorni', 'Ore'], ...riepilogo);
+        aoa.push([], INTESTAZIONE_RIEPILOGO, ...riepilogo);
       }
     } else {
-      aoa.push([], ['Tipo: giornata intera, mezza giornata oppure il numero di ore. Voce: ferie, ex festività o ROL.'],
-                   ['Le ore non serve calcolarle: bastano la data e il tipo.']);
+      aoa.push([], ['Per più giorni di fila basta una riga sola: primo e ultimo giorno. Per un giorno solo, scrivi la stessa data nelle due caselle.'],
+                   ['Le ore non serve calcolarle: le conta l\'ufficio in base al tuo orario.']);
     }
 
     if (m.note) aoa.push([], ['Note', m.note]);
