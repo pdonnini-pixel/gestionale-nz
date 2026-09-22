@@ -14,13 +14,14 @@
 // presenta solo per le righe che il documento non basta a decidere.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, CheckCircle2, AlertTriangle, Upload, FileText, RefreshCw, Users, Search, X, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { CalendarClock, CheckCircle2, AlertTriangle, Upload, FileText, RefreshCw, Users, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import { archiviaFile, avvisoArchiviazioneFallita, urlFileArchiviato } from '../lib/archivioFile';
+import SceltaPersona from './SceltaPersona';
 import {
   parseRatei, isTabulatoRatei, abbinaDipendente, oreSettimanaliDaRateo, oreGiornataDaRateo,
-  normNome, VOCI, type RateiParsed, type RateoRow, type Abbinamento, type DipendenteRif,
+  VOCI, type RateiParsed, type RateoRow, type Abbinamento, type DipendenteRif,
 } from '../lib/rateiParse';
 
 type Props = { companyId?: string; userId?: string | null };
@@ -71,95 +72,6 @@ const MESI = ['', 'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
 const ore = (n: number | null | undefined) =>
   n == null ? '—' : `${n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} h`;
 
-
-/**
- * Scelta della persona con ricerca.
- *
- * Un elenco di sessanta nomi in ordine di database non si legge: qui si
- * digita un pezzo di cognome (o la matricola) e restano le righe che
- * corrispondono, in ordine alfabetico. Serve solo per gli abbinamenti che il
- * documento non basta a decidere.
- */
-function SceltaPersona({ dipendenti, valore, onScegli }: {
-  dipendenti: DipendenteRif[];
-  valore: string | null;
-  onScegli: (id: string | null) => void;
-}) {
-  const [aperto, setAperto] = useState(false);
-  const [q, setQ] = useState('');
-  const scelto = dipendenti.find((d) => d.id === valore) ?? null;
-
-  const filtrati = useMemo(() => {
-    const t = normNome(q);
-    const num = q.replace(/\D/g, '');
-    return dipendenti.filter((d) => {
-      if (!t && !num) return true;
-      const nome = normNome(`${d.cognome ?? ''} ${d.nome ?? ''}`);
-      return (t && nome.includes(t)) || (num && (d.matricola ?? '').includes(num));
-    });
-  }, [q, dipendenti]);
-
-  const etichetta = (d: DipendenteRif) =>
-    `${[d.cognome, d.nome].filter(Boolean).join(' ')}${d.matricola ? ` · ${d.matricola}` : ''}`;
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => { setAperto((v) => !v); setQ(''); }}
-        className={`text-sm rounded-lg px-2.5 py-1.5 bg-white text-left w-full max-w-[240px] border ${scelto ? 'border-slate-300 text-slate-800' : 'border-amber-300 text-slate-500'}`}
-      >
-        {scelto ? etichetta(scelto) : 'Scegli la persona…'}
-      </button>
-
-      {aperto && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setAperto(false)} />
-          <div className="absolute z-30 mt-1 w-[280px] bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-2.5 py-2 border-b border-slate-100">
-              <Search size={14} className="text-slate-400 shrink-0" />
-              <input
-                autoFocus
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Escape') setAperto(false); }}
-                placeholder="Cognome o matricola"
-                className="w-full text-sm outline-none"
-              />
-              {q && <button type="button" onClick={() => setQ('')} className="text-slate-400 hover:text-slate-600"><X size={14} /></button>}
-            </div>
-            <div className="max-h-64 overflow-y-auto">
-              {filtrati.length === 0 && (
-                <div className="px-3 py-3 text-sm text-slate-400">Nessuno con questo nome.</div>
-              )}
-              {filtrati.map((d) => (
-                <button
-                  key={d.id}
-                  type="button"
-                  onClick={() => { onScegli(d.id); setAperto(false); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${d.id === valore ? 'bg-blue-50 font-medium' : ''}`}
-                >
-                  {[d.cognome, d.nome].filter(Boolean).join(' ')}
-                  <span className="text-slate-400"> · {d.matricola ?? 'senza matricola'}</span>
-                  {!d.isActive && <span className="text-rose-600"> · cessata</span>}
-                </button>
-              ))}
-            </div>
-            {scelto && (
-              <button
-                type="button"
-                onClick={() => { onScegli(null); setAperto(false); }}
-                className="w-full text-left px-3 py-2 text-xs text-slate-500 border-t border-slate-100 hover:bg-slate-50"
-              >
-                Togli la scelta
-              </button>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
 
 export default function RateiFerieImport({ companyId, userId }: Props) {
   const { toast } = useToast();

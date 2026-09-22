@@ -15646,6 +15646,199 @@ export type Database = {
           },
         ]
       }
+      leave_request_days: {
+        Row: {
+          company_id: string
+          created_at: string
+          data: string
+          id: string
+          nota: string | null
+          ore: number
+          request_id: string
+          stato: string
+          tipo: string
+          voce: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          data: string
+          id?: string
+          nota?: string | null
+          ore: number
+          request_id: string
+          stato?: string
+          tipo: string
+          voce: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          data?: string
+          id?: string
+          nota?: string | null
+          ore?: number
+          request_id?: string
+          stato?: string
+          tipo?: string
+          voce?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_request_days_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_request_days_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "leave_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leave_request_events: {
+        Row: {
+          company_id: string
+          created_at: string
+          dettaglio: Json | null
+          evento: string
+          id: string
+          nota: string | null
+          request_id: string
+          stato_a: string | null
+          stato_da: string | null
+          utente_id: string | null
+          utente_nome: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          dettaglio?: Json | null
+          evento: string
+          id?: string
+          nota?: string | null
+          request_id: string
+          stato_a?: string | null
+          stato_da?: string | null
+          utente_id?: string | null
+          utente_nome?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          dettaglio?: Json | null
+          evento?: string
+          id?: string
+          nota?: string | null
+          request_id?: string
+          stato_a?: string | null
+          stato_da?: string | null
+          utente_id?: string | null
+          utente_nome?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_request_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_request_events_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "leave_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leave_requests: {
+        Row: {
+          company_id: string
+          compilata_da: string | null
+          compilata_da_nome: string | null
+          created_at: string
+          decisa_da: string | null
+          decisa_da_nome: string | null
+          decisa_il: string | null
+          employee_id: string
+          id: string
+          inviata_il: string | null
+          motivazione: string | null
+          note_dipendente: string | null
+          origine: string
+          outlet_code: string | null
+          stato: string
+          titolo: string | null
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          compilata_da?: string | null
+          compilata_da_nome?: string | null
+          created_at?: string
+          decisa_da?: string | null
+          decisa_da_nome?: string | null
+          decisa_il?: string | null
+          employee_id: string
+          id?: string
+          inviata_il?: string | null
+          motivazione?: string | null
+          note_dipendente?: string | null
+          origine?: string
+          outlet_code?: string | null
+          stato?: string
+          titolo?: string | null
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          compilata_da?: string | null
+          compilata_da_nome?: string | null
+          created_at?: string
+          decisa_da?: string | null
+          decisa_da_nome?: string | null
+          decisa_il?: string | null
+          employee_id?: string
+          id?: string
+          inviata_il?: string | null
+          motivazione?: string | null
+          note_dipendente?: string | null
+          origine?: string
+          outlet_code?: string | null
+          stato?: string
+          titolo?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_requests_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_requests_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_requests_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+        ]
+      }
       loan_tranches: {
         Row: {
           accrued_interest: number | null
@@ -24250,6 +24443,49 @@ export type Database = {
           saldo_alla_data: string | null
           saldo_corso: number | null
           saldo_prec: number | null
+          voce: string | null
+          voce_label: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_accrual_rows_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_accrual_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+        ]
+      }
+      v_leave_disponibilita: {
+        Row: {
+          company_id: string | null
+          da_fruire: number | null
+          da_fruire_disponibile: number | null
+          employee_id: string | null
+          ore_approvate: number | null
+          ore_giornata_dedotte: number | null
+          ore_in_attesa: number | null
+          ore_in_bozza: number | null
+          ore_settimanali_dedotte: number | null
+          periodo_anno: number | null
+          periodo_mese: number | null
+          residuo: number | null
+          residuo_disponibile: number | null
+          saldo_alla_data: string | null
           voce: string | null
           voce_label: string | null
         }
