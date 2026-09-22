@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -317,5 +317,26 @@ describe('closingBlockers', () => {
 
   it('il giorno di chiusura del negozio non chiede niente', () => {
     expect(closingBlockers({ isClosedDay: true, cashFloatDeclared: null, cashPendingDeclared: null })).toEqual([])
+  })
+})
+
+describe('pendingLooksLikeExpected', () => {
+  it('riconosce il contante atteso scritto nel punto 5 (Valmontone 21/09/2026)', () => {
+    expect(pendingLooksLikeExpected({ cashFloatExpected: 748.85, cashFloatDeclared: 500.25, cashPendingDeclared: 748.85 })).toBe(248.6)
+  })
+
+  it('tace quando il punto 5 è scritto bene', () => {
+    expect(pendingLooksLikeExpected({ cashFloatExpected: 748.85, cashFloatDeclared: 500.25, cashPendingDeclared: 248.6 })).toBeNull()
+  })
+
+  it('tace senza fondo contato o senza atteso', () => {
+    expect(pendingLooksLikeExpected({ cashFloatExpected: null, cashFloatDeclared: 500.25, cashPendingDeclared: 748.85 })).toBeNull()
+    expect(pendingLooksLikeExpected({ cashFloatExpected: 748.85, cashFloatDeclared: null, cashPendingDeclared: 748.85 })).toBeNull()
+    expect(pendingLooksLikeExpected({ cashFloatExpected: 748.85, cashFloatDeclared: 0, cashPendingDeclared: 748.85 })).toBeNull()
+  })
+
+  it('tace quando il negozio tiene in cassa solo il fondo e il resto è da versare', () => {
+    // atteso 500, fondo 500, punto 5 a 0: coincidenza innocua, niente avviso
+    expect(pendingLooksLikeExpected({ cashFloatExpected: 500, cashFloatDeclared: 500, cashPendingDeclared: 0 })).toBeNull()
   })
 })
