@@ -1,4 +1,4 @@
--- Rollback della migrazione 245 (piano ferie, fase 1: ratei dalle paghe).
+-- Rollback della migrazione 248 (piano ferie, fase 1: ratei dalle paghe).
 --
 -- ATTENZIONE: se sono gia' stati importati dei tabulati, le righe lette
 -- vengono perse. Prima di eseguirlo, salvare:

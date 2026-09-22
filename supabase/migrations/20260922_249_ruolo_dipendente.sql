@@ -1,6 +1,6 @@
 -- @no-transaction
 -- =====================================================================
--- Migrazione 246 — Ruolo 'dipendente' (accesso personale al piano ferie)
+-- Migrazione 249 — Ruolo 'dipendente' (accesso personale al piano ferie)
 -- =====================================================================
 -- PERCHE' ADESSO: il piano ferie porta dentro il gestionale una
 -- settantina di persone che oggi non hanno nessun accesso. Si passa da 13
@@ -41,7 +41,11 @@
 --
 -- NO DATA LOSS: solo enum e policy, nessun dato toccato.
 -- REGOLA #0: da applicare su NZ + Made + Zago.
--- Rollback: 20260922_246_ruolo_dipendente_ROLLBACK.sql
+-- Rollback: 20260922_249_ruolo_dipendente_ROLLBACK.sql
+-- Applicata su NZ, Made e Zago il 22/09/2026 in due passi, con i nomi
+-- 20260922_246_ruolo_dipendente (il valore enum) e 20260922_246b_dipendente_block
+-- (le policy): il valore di un enum non e' usabile nella stessa transazione in
+-- cui viene aggiunto. Rinumerata qui a 249 per la collisione con la 246 del 21/09.
 -- =====================================================================
 
 ALTER TYPE public.user_role ADD VALUE IF NOT EXISTS 'dipendente';

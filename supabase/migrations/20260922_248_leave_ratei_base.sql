@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migrazione 245 — Fase 1 del piano ferie: i ratei letti dalle paghe
+-- Migrazione 248 — Fase 1 del piano ferie: i ratei letti dalle paghe
 -- =====================================================================
 -- COSA MANCA OGGI: nel gestionale non esiste nessun dato di ferie e
 -- permessi. Zero tabelle, zero saldi. Il residuo di ogni persona vive
@@ -44,7 +44,10 @@
 -- NO DATA LOSS: solo CREATE TABLE / CREATE VIEW / ADD COLUMN. Nessuna
 -- riga esistente viene letta, modificata o cancellata.
 -- REGOLA #0: da applicare su NZ + Made + Zago.
--- Rollback: 20260922_245_leave_ratei_base_ROLLBACK.sql
+-- Rollback: 20260922_248_leave_ratei_base_ROLLBACK.sql
+-- Applicata su NZ, Made e Zago il 22/09/2026 con il nome
+-- 20260922_245_leave_ratei_base: rinumerata qui a 248 perche' la 245 e la
+-- 246 del 21/09 erano gia' prese. Il contenuto e' lo stesso, riga per riga.
 -- =====================================================================
 
 BEGIN;

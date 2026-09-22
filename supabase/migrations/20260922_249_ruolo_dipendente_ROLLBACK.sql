@@ -1,4 +1,4 @@
--- Rollback della migrazione 246 (ruolo 'dipendente').
+-- Rollback della migrazione 249 (ruolo 'dipendente').
 --
 -- Toglie le policy restrittive. Il VALORE dell'enum NON si puo' togliere
 -- in PostgreSQL: resta, e non fa danno finche' nessun profilo lo usa.
