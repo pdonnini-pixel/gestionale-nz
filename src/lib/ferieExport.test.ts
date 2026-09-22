@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { righeSaldi, righeGiorni, righeRiepilogo, nomeFoglio, nomeFileModulo, type ModuloFerie } from './ferieExport';
+import { righeSaldi, righeGiorni, righeRiepilogo, notaOrario, notaSaldi, nomeFoglio, nomeFileModulo, type ModuloFerie } from './ferieExport';
 import type { DisponibilitaVoce, GiornoRichiesto } from './ferieRichiesta';
 
 const saldo = (voce: DisponibilitaVoce['voce'], over: Partial<DisponibilitaVoce> = {}): DisponibilitaVoce => ({
@@ -29,7 +29,6 @@ const modulo = (over: Partial<ModuloFerie> = {}): ModuloFerie => ({
   },
   saldi: [saldo('F01'), saldo('F02', { residuo: 8, da_fruire: 8, residuo_disponibile: 8, da_fruire_disponibile: 8 })],
   giorni: [],
-  periodoTabulato: 'Agosto 2026',
   ...over,
 });
 
@@ -114,5 +113,48 @@ describe('nomi dei file e dei fogli', () => {
     const a = nomeFoglio('Rossi Maria', usati);
     const b = nomeFoglio('Rossi Maria', usati);
     expect(a).not.toBe(b);
+  });
+});
+
+describe('il modulo lo legge il dipendente', () => {
+  // Quello che sta dietro al numero (il tabulato delle paghe, i valori
+  // dedotti, il gestionale stesso) è roba nostra e resta a video, nella
+  // pagina dell'amministrazione. Sul foglio che va alla persona ci sono le
+  // sue ore e la data a cui sono aggiornate, punto.
+  const VIETATE = /paghe|tabulato|gestionale|dedott|da confermare|anagrafica|ripiego/i;
+
+  const tuttoIlTesto = (m: ModuloFerie) => [
+    notaOrario(m.dipendente),
+    notaSaldi(m),
+    ...righeSaldi(m).flat(),
+    ...righeGiorni(m).flat(),
+    ...righeRiepilogo(m).flat(),
+  ].join(' | ');
+
+  it('nessuna parola interna nel modulo da compilare', () => {
+    expect(tuttoIlTesto(modulo())).not.toMatch(VIETATE);
+  });
+
+  it('nessuna parola interna nel riepilogo di una richiesta', () => {
+    const m = modulo({ giorni: [giorno('2026-10-05'), giorno('2026-10-06')], stato: 'Inviata, in attesa di risposta' });
+    expect(tuttoIlTesto(m)).not.toMatch(VIETATE);
+  });
+
+  it('nemmeno quando l\'orario è di ripiego', () => {
+    const m = modulo({ dipendente: { ...modulo().dipendente, oreSettimanali: null, oreGiornata: 8, fonteOrario: 'ripiego' } });
+    expect(tuttoIlTesto(m)).not.toMatch(VIETATE);
+    expect(notaOrario(m.dipendente)).toBe('Orario settimanale da indicare');
+  });
+
+  it('l\'orario si legge come lo legge la persona: settimana e giornata', () => {
+    expect(notaOrario(modulo().dipendente)).toBe('30 ore a settimana · una giornata vale 6,00 h');
+  });
+
+  it('i saldi portano la data a cui sono aggiornati', () => {
+    expect(notaSaldi(modulo())).toBe('Ore disponibili aggiornate al 31/08/2026, al netto delle richieste già presentate.');
+  });
+
+  it('senza saldo non si inventa una data', () => {
+    expect(notaSaldi(modulo({ saldi: [] }))).toMatch(/non indicate/);
   });
 });

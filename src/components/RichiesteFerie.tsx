@@ -184,15 +184,18 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
     [anagrafica, personaId],
   );
 
-  const orario = useMemo(
-    () => oreGiornata(persona?.oreSettimanaliPaghe, persona?.oreSettimanaliAnagrafica),
-    [persona],
-  );
-
   const saldi = useMemo<DisponibilitaVoce[]>(
     () => (personaId ? disponibilita[personaId] ?? [] : []),
     [disponibilita, personaId],
   );
+
+  // La giornata: quella calcolata dal database sul rateo quando c'e' (stesso
+  // numero, un conto solo), altrimenti dall'orario settimanale diviso cinque.
+  const orario = useMemo(() => {
+    const daSaldo = saldi.find((s) => s.ore_giornata_dedotte)?.ore_giornata_dedotte ?? null;
+    if (daSaldo) return { ore: Number(daSaldo), fonte: 'paghe' as const };
+    return oreGiornata(persona?.oreSettimanaliPaghe, persona?.oreSettimanaliAnagrafica);
+  }, [saldi, persona]);
 
   const periodoTabulato = useMemo(() => {
     const r = saldi[0] as (DisponibilitaVoce & { periodo_anno?: number; periodo_mese?: number }) | undefined;
@@ -345,7 +348,6 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
   const moduloDi = useCallback((p: PersonaAnagrafica, giorni: GiornoRichiesto[], stato?: string): ModuloFerie => {
     const suoi = disponibilita[p.id] ?? [];
     const o = oreGiornata(p.oreSettimanaliPaghe, p.oreSettimanaliAnagrafica);
-    const primo = suoi[0] as (DisponibilitaVoce & { periodo_anno?: number; periodo_mese?: number }) | undefined;
     return {
       azienda,
       dipendente: {
@@ -361,8 +363,6 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
       titolo: titolo || null,
       note: note || null,
       stato: stato ? ETICHETTE_STATO[stato] ?? stato : null,
-      periodoTabulato: primo?.periodo_anno && primo?.periodo_mese
-        ? `${MESI[primo.periodo_mese]} ${primo.periodo_anno}` : null,
     };
   }, [azienda, disponibilita, titolo, note]);
 

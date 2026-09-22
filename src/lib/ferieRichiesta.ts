@@ -57,20 +57,31 @@ export const MESI = ['', 'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Gi
 
 export const GIORNI_BREVI = ['Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'] as const;
 
+export const GIORNI_LAVORATIVI_SETTIMANA = 5;
+
 /**
- * Ore di una giornata piena.
+ * Ore di una giornata piena, a partire dall'ORARIO SETTIMANALE.
  *
- * Primo, l'orario ricavato dal rateo delle paghe. Secondo, l'orario scritto
- * in anagrafica. Se tacciono tutti e due si usano 8 ore, ma il chiamante
- * riceve `dedotto: false` e lo dichiara: un valore di ripiego non e' una
- * scelta di nessuno.
+ * Entrambi gli argomenti sono ore a settimana, e si dividono per cinque:
+ * chi fa 28 ore ha una giornata da 5,60, non da 28. Se questa funzione
+ * ricevesse gia' la giornata il conto verrebbe moltiplicato per cinque, e
+ * ogni giorno di ferie ne mangerebbe cinque.
+ *
+ * Primo, l'orario che risulta dalle paghe. Secondo, quello scritto in
+ * anagrafica. Se tacciono tutti e due si usano 8 ore e il chiamante riceve
+ * `fonte: 'ripiego'`: un valore di ripiego non e' la scelta di nessuno, e
+ * va dichiarato dove lo si mostra.
  */
 export function oreGiornata(
-  orePaghe: number | null | undefined,
-  oreAnagrafica: number | null | undefined,
+  oreSettimanaliPaghe: number | null | undefined,
+  oreSettimanaliAnagrafica: number | null | undefined,
 ): { ore: number; fonte: 'paghe' | 'anagrafica' | 'ripiego' } {
-  if (orePaghe && orePaghe > 0) return { ore: round2(orePaghe), fonte: 'paghe' };
-  if (oreAnagrafica && oreAnagrafica > 0) return { ore: round2(oreAnagrafica / 5), fonte: 'anagrafica' };
+  if (oreSettimanaliPaghe && oreSettimanaliPaghe > 0) {
+    return { ore: round2(oreSettimanaliPaghe / GIORNI_LAVORATIVI_SETTIMANA), fonte: 'paghe' };
+  }
+  if (oreSettimanaliAnagrafica && oreSettimanaliAnagrafica > 0) {
+    return { ore: round2(oreSettimanaliAnagrafica / GIORNI_LAVORATIVI_SETTIMANA), fonte: 'anagrafica' };
+  }
   return { ore: 8, fonte: 'ripiego' };
 }
 

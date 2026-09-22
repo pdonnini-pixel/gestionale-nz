@@ -27,11 +27,25 @@ const giorno = (data: string, over: Partial<GiornoRichiesto> = {}): GiornoRichie
 });
 
 describe('ore di una giornata', () => {
-  it('prende l\'orario delle paghe quando c\'è', () => {
-    expect(oreGiornata(6, 40)).toEqual({ ore: 6, fonte: 'paghe' });
+  // Gli argomenti sono ORE A SETTIMANA, e vanno divisi per cinque. Il caso
+  // vero: Rosseti Veronica, 28 ore a settimana, giornata da 5,60. Scrivere
+  // «una giornata vale 28,00 h» faceva mangiare cinque giorni di ferie a
+  // ogni giorno chiesto.
+  it('divide per cinque l\'orario che risulta dalle paghe', () => {
+    expect(oreGiornata(28, 40)).toEqual({ ore: 5.6, fonte: 'paghe' });
+    expect(oreGiornata(40, 40)).toEqual({ ore: 8, fonte: 'paghe' });
+    expect(oreGiornata(30, 40)).toEqual({ ore: 6, fonte: 'paghe' });
   });
 
-  it('ripiega sull\'anagrafica dividendo per cinque', () => {
+  it('una giornata non è mai l\'orario settimanale', () => {
+    for (const settimanali of [8, 20, 24, 28, 30, 35, 40]) {
+      const { ore } = oreGiornata(settimanali, null);
+      expect(ore).toBeLessThan(settimanali);
+      expect(ore).toBe(Math.round((settimanali / 5) * 100) / 100);
+    }
+  });
+
+  it('ripiega sull\'anagrafica, sempre diviso cinque', () => {
     expect(oreGiornata(null, 35)).toEqual({ ore: 7, fonte: 'anagrafica' });
   });
 

@@ -64,6 +64,23 @@ precedente al 31/08.
 Scalano le richieste `inviata` (giorni `richiesto`) e quelle approvate (giorni `approvato`). Le
 **bozze non tolgono niente**: si vedono, e basta.
 
+## Cosa vede il dipendente, e cosa no
+
+Il modulo esportato (`src/lib/ferieExport.ts`) **lo legge la persona**. Quindi porta le sue ore, a che
+data sono aggiornate, e nient'altro: niente «tabulato delle paghe», niente «gestionale», niente valori
+dichiarati dedotti o da confermare. Da dove arriva il numero e come lo teniamo è roba interna e resta
+a video, nella pagina che usa l'amministrazione, dove invece serve.
+
+Il test `ferieExport.test.ts` fa fallire la build se una parola interna rientra in un modulo. Vale per
+tutto quello che uscirà verso i dipendenti, mail della fase 3 comprese.
+
+### Una giornata non è l'orario settimanale
+
+`oreGiornata()` riceve **ore a settimana** e divide per cinque. Chi fa 28 ore ha una giornata da 5,60.
+Il bug della prima stesura scriveva «una giornata vale 28,00 h»: ogni giorno di ferie ne avrebbe
+mangiati cinque. A video la giornata si prende da `v_leave_disponibilita.ore_giornata_dedotte` quando
+c'è, così il conto è uno solo e lo fa il database.
+
 ## Accessi
 
 Il ruolo `dipendente` esiste dalla migration 249 ed è blindato: una policy RESTRICTIVE `dipendente_block`

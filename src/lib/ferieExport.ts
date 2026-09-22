@@ -11,6 +11,14 @@
 //   - SENZA giorni: e' il foglio da compilare, con i saldi gia' stampati
 //     sopra, cosi' la persona sa quante ore ha prima di chiedere.
 //
+// QUESTO FOGLIO LO LEGGE IL DIPENDENTE. Quindi niente linguaggio interno:
+// non si nomina il tabulato delle paghe, non si dice che un dato e' dedotto
+// o da confermare, non si parla di "gestionale". La persona ha diritto di
+// sapere quante ore ha e a che data sono aggiornate; da dove arriva il
+// numero e come lo teniamo e' affare nostro e resta a video, nella pagina
+// che usa l'amministrazione. Il test ferieExport.test.ts controlla che
+// nessuna parola interna finisca in un modulo.
+//
 // xlsx e jspdf si caricano al click, non all'avvio: pesano, e questa
 // pagina si apre anche solo per guardare i saldi.
 
@@ -37,8 +45,6 @@ export type ModuloFerie = {
   titolo?: string | null;
   note?: string | null;
   stato?: string | null;
-  /** Periodo del tabulato da cui vengono i saldi, es. "Agosto 2026". */
-  periodoTabulato?: string | null;
   /** Righe bianche nel modulo da compilare a mano. */
   righeVuote?: number;
 };
@@ -48,12 +54,26 @@ const RIGHE_VUOTE_DEFAULT = 12;
 
 const oggi = () => new Date().toLocaleDateString('it-IT');
 
-const notaOrario = (d: DipendenteModulo): string =>
-  d.fonteOrario === 'paghe'
-    ? `Orario settimanale ${d.oreSettimanali ?? '—'} ore, ricavato dal tabulato delle paghe: una giornata vale ${formattaOre(d.oreGiornata)}.`
-    : d.fonteOrario === 'anagrafica'
-      ? `Orario settimanale ${d.oreSettimanali ?? '—'} ore da anagrafica (il tabulato delle paghe non riporta questa persona): una giornata vale ${formattaOre(d.oreGiornata)}.`
-      : `Orario settimanale non disponibile: la giornata è stata calcolata in ${formattaOre(d.oreGiornata)}, valore da confermare.`;
+/**
+ * L'orario, detto al diretto interessato: il suo contratto e quanto vale
+ * per lui una giornata. Da dove il numero arriva non lo riguarda, e quando
+ * non lo sappiamo non se ne inventa uno: si lascia da indicare.
+ */
+export const notaOrario = (d: DipendenteModulo): string =>
+  d.fonteOrario === 'ripiego'
+    ? 'Orario settimanale da indicare'
+    : `${d.oreSettimanali ?? '—'} ore a settimana · una giornata vale ${formattaOre(d.oreGiornata)}`;
+
+/**
+ * A che data sono aggiornate le ore. La data c'e' sempre quando c'e' un
+ * saldo, ed e' l'unica cosa che serve sapere a chi compila: il numero e'
+ * gia' al netto di quello che ha chiesto e non e' ancora stato conteggiato.
+ */
+export function notaSaldi(m: ModuloFerie): string {
+  const d = m.saldi.find((s) => s.saldo_alla_data)?.saldo_alla_data ?? null;
+  if (!d) return 'Ore disponibili non indicate: chiedile all\'amministrazione prima di compilare.';
+  return `Ore disponibili aggiornate al ${formattaData(d)}, al netto delle richieste già presentate.`;
+}
 
 export function nomeFileModulo(m: ModuloFerie | ModuloFerie[], estensione: 'pdf' | 'xlsx'): string {
   const data = new Date().toISOString().slice(0, 10);
@@ -175,12 +195,7 @@ export async function esportaModuloPdf(moduli: ModuloFerie | ModuloFerie[]): Pro
 
     doc.setFontSize(7.5);
     doc.setTextColor(...GRIGIO);
-    doc.text(
-      m.periodoTabulato
-        ? `Saldi dal tabulato delle paghe di ${m.periodoTabulato}, al netto di quanto già chiesto nel gestionale.`
-        : 'Saldi non disponibili: manca il tabulato delle paghe per questa persona.',
-      40, finalY() + 14, { maxWidth: 515 },
-    );
+    doc.text(notaSaldi(m), 40, finalY() + 14, { maxWidth: 515 });
 
     autoTable(doc, {
       startY: finalY() + 26,
@@ -201,7 +216,7 @@ export async function esportaModuloPdf(moduli: ModuloFerie | ModuloFerie[]): Pro
       doc.setTextColor(...GRIGIO);
       doc.text(
         'Tipo: giornata intera, mezza giornata oppure il numero di ore. Voce: ferie, ex festività o ROL. '
-        + 'Le ore le calcola il gestionale in base all\'orario indicato sopra.',
+        + 'Le ore non serve calcolarle: bastano la data e il tipo.',
         40, finalY() + 14, { maxWidth: 515 },
       );
     } else {
@@ -269,9 +284,7 @@ export async function esportaModuloExcel(moduli: ModuloFerie | ModuloFerie[]): P
       [],
       INTESTAZIONE_SALDI,
       ...righeSaldi(m),
-      [m.periodoTabulato
-        ? `Saldi dal tabulato delle paghe di ${m.periodoTabulato}, al netto di quanto già chiesto nel gestionale.`
-        : 'Saldi non disponibili: manca il tabulato delle paghe per questa persona.'],
+      [notaSaldi(m)],
       [],
       INTESTAZIONE_GIORNI,
       ...righeGiorni(m),
@@ -283,7 +296,8 @@ export async function esportaModuloExcel(moduli: ModuloFerie | ModuloFerie[]): P
         aoa.push([], ['Periodo', 'Voce', 'Tipo', 'Giorni', 'Ore'], ...riepilogo);
       }
     } else {
-      aoa.push([], ['Tipo: giornata intera, mezza giornata oppure il numero di ore. Voce: ferie, ex festività o ROL.']);
+      aoa.push([], ['Tipo: giornata intera, mezza giornata oppure il numero di ore. Voce: ferie, ex festività o ROL.'],
+                   ['Le ore non serve calcolarle: bastano la data e il tipo.']);
     }
 
     if (m.note) aoa.push([], ['Note', m.note]);
