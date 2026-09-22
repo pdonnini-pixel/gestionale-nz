@@ -38,10 +38,9 @@ function jsonOk(payload: unknown) {
   return new Response(JSON.stringify(payload), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
-const MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
 function dateIt(iso: string): string {
-  const [y, m, d] = iso.split("-").map(Number);
-  return `${d} ${MESI[m - 1]} ${y}`;
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}/${y}`;
 }
 function esc(s: unknown): string {
   return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -74,13 +73,30 @@ Deno.serve(async (req: Request) => {
     const reason = String(body.reason ?? "").slice(0, 500).trim();
     if (!/^[0-9a-f-]{36}$/i.test(closingId)) return jsonError(400, "closing_id mancante", "BAD_REQUEST");
 
+    // Prova: chi ha il segreto del cron (o il service role) manda solo la mail, senza
+    // creare una richiesta vera. Serve a vedere com'è fatta prima che serva davvero.
+    const cronHeader = req.headers.get("x-autofix-cron") ?? "";
+    let isTest = false;
+    if (body.kind === "test" && (token === supabaseServiceKey || cronHeader)) {
+      if (token !== supabaseServiceKey) {
+        const { data: cronSecret } = await admin.rpc("get_autofix_cron_secret");
+        const expected = Array.isArray(cronSecret) ? String((cronSecret[0] as { secret?: string } | undefined)?.secret ?? "") : "";
+        if (!(expected.length > 0 && cronHeader === expected)) return jsonError(403, "Segreto x-autofix-cron non valido", "FORBIDDEN");
+      }
+      isTest = true;
+    }
+
     // 1. La richiesta la fa l'utente: i controlli di permesso restano quelli della funzione SQL.
-    const asUser = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: `Bearer ${token}` } } });
-    const { data: userData } = await asUser.auth.getUser();
-    const user = userData?.user;
-    if (!user) return jsonError(401, "Invalid JWT");
-    const { error: rpcErr } = await asUser.rpc("request_cash_closing_reopen", { p_closing_id: closingId, p_reason: reason || undefined });
-    if (rpcErr) return jsonError(403, rpcErr.message, "FORBIDDEN");
+    let requester = "prova dall'amministrazione";
+    if (!isTest) {
+      const asUser = createClient(supabaseUrl, supabaseAnonKey, { global: { headers: { Authorization: `Bearer ${token}` } } });
+      const { data: userData } = await asUser.auth.getUser();
+      const user = userData?.user;
+      if (!user) return jsonError(401, "Invalid JWT");
+      requester = user.email ?? "utente del negozio";
+      const { error: rpcErr } = await asUser.rpc("request_cash_closing_reopen", { p_closing_id: closingId, p_reason: reason || undefined });
+      if (rpcErr) return jsonError(403, rpcErr.message, "FORBIDDEN");
+    }
 
     // 2. Mail all'amministrazione (il service role resta qui dentro).
     const { data: closing } = await admin.from("outlet_daily_closings")
@@ -94,7 +110,8 @@ Deno.serve(async (req: Request) => {
     ]);
     const configured = ((settings?.reopen_recipients as string[] | null) ?? []).filter(Boolean);
     const fallback = ((settings?.recipients as string[] | null) ?? []).filter(Boolean);
-    const recipients = configured.length > 0 ? configured : fallback;
+    const testTo = isTest && Array.isArray(body.to) ? (body.to as unknown[]).map(String).filter(Boolean) : null;
+    const recipients = testTo && testTo.length > 0 ? testTo : configured.length > 0 ? configured : fallback;
 
     const resendKey = Deno.env.get("RESEND_API_KEY");
     const from = Deno.env.get("DISTINTA_EMAIL_FROM");
@@ -107,43 +124,35 @@ Deno.serve(async (req: Request) => {
     const dateLabel = dateIt(String(closing.closing_date));
     const appUrl = (settings?.app_url as string | null) ?? null;
     const link = appUrl ? `${appUrl.replace(/\/$/, "")}/incassi-giornalieri?outlet=${closing.outlet_id}&date=${closing.closing_date}` : null;
-    const subject = `Riapertura chiusura cassa: ${outletName} del ${dateLabel}`;
+    // Testo asciutto: cosa chiede, chi, i numeri della cassa, il link.
+    const subject = `${isTest ? "[PROVA] " : ""}Riapertura chiusura ${outletName} del ${dateLabel}`;
     const righe = [
-      `Totale corrispettivi: ${eur(Number(closing.total_receipts))}`,
-      `Fondo cassa contato: ${eur(closing.cash_float_declared == null ? null : Number(closing.cash_float_declared))}`,
-      `Contanti da versare contati: ${eur(closing.cash_pending_declared == null ? null : Number(closing.cash_pending_declared))}`,
+      `Corrispettivi ${eur(Number(closing.total_receipts))}`,
+      `Fondo cassa ${eur(closing.cash_float_declared == null ? null : Number(closing.cash_float_declared))}`,
+      `Da versare ${eur(closing.cash_pending_declared == null ? null : Number(closing.cash_pending_declared))}`,
       closing.cash_difference != null && Math.abs(Number(closing.cash_difference)) >= 0.005
-        ? `Differenza di cassa: ${eur(Number(closing.cash_difference))}` : null,
+        ? `Differenza ${eur(Number(closing.cash_difference))}` : null,
     ].filter(Boolean) as string[];
 
     const text = [
-      `${outletName} chiede di riaprire la chiusura di cassa del ${dateLabel}.`,
+      isTest ? "PROVA: nessuna richiesta vera, è solo il messaggio che arriverà." : "",
+      `${outletName} chiede di riaprire la chiusura del ${dateLabel}.`,
+      reason ? `Motivo: «${reason}»` : "Motivo: non indicato.",
+      `Richiesta da: ${requester}`,
       "",
-      reason ? `Motivo scritto dal negozio: «${reason}»` : "Il negozio non ha scritto un motivo.",
-      closing.closed_by_name ? `Chiusura fatta da: ${closing.closed_by_name}` : "",
-      `Richiesta inviata da: ${user.email ?? "utente del negozio"}`,
+      ...righe,
       "",
-      "Come è adesso la giornata:",
-      ...righe.map((r) => `- ${r}`),
-      "",
-      "Per riaprirla: Incassi giornalieri, apri la giornata del punto vendita e usa «Riapri la chiusura». Possono farlo super advisor e contabile.",
-      link ? `\n${link}` : "",
-    ].join("\n");
+      link ? `Riapri qui: ${link}` : "Riapri da Incassi giornalieri.",
+    ].filter((r) => r !== "").join("\n");
 
-    const html = `<!doctype html><html lang="it"><body style="margin:0;padding:20px;background:#f8fafc;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
-<div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:20px">
-<h2 style="margin:0 0 6px;font-size:18px">Richiesta di riapertura: ${esc(outletName)}</h2>
-<p style="margin:0 0 14px;font-size:14px;color:#475569">Chiusura di cassa del <strong>${esc(dateLabel)}</strong></p>
-<p style="margin:0 0 14px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:14px">
-${reason ? `Motivo scritto dal negozio: <strong>«${esc(reason)}»</strong>` : "Il negozio non ha scritto un motivo."}</p>
-<p style="margin:0 0 6px;font-size:13px;color:#475569">Come è adesso la giornata:</p>
-<ul style="margin:0 0 14px;padding-left:18px;font-size:13px;line-height:1.6">${righe.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>
-<p style="margin:0 0 14px;font-size:13px;color:#475569">
-${closing.closed_by_name ? `Chiusura fatta da ${esc(closing.closed_by_name)}. ` : ""}Richiesta inviata da ${esc(user.email ?? "utente del negozio")}.</p>
-<p style="margin:0 0 14px;font-size:13px">Per riaprirla: Incassi giornalieri, apri la giornata del punto vendita e usa «Riapri la chiusura». Possono farlo super advisor e contabile.</p>
-${link ? `<p style="margin:0"><a href="${esc(link)}" style="display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:14px;font-weight:600">Apri la giornata</a></p>` : ""}
-<p style="margin:16px 0 0;font-size:11px;color:#94a3b8">Mail automatica del gestionale: l'ha generata la richiesta del negozio, non una persona.</p>
-</div></body></html>`;
+    const html = `<!doctype html><html lang="it"><body style="margin:0;padding:16px;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#0f172a">
+${isTest ? `<p style="margin:0 0 12px;color:#b45309"><strong>PROVA</strong>: nessuna richiesta vera, è solo il messaggio che arriverà.</p>` : ""}
+<p style="margin:0 0 4px"><strong>${esc(outletName)}</strong> chiede di riaprire la chiusura del <strong>${esc(dateLabel)}</strong>.</p>
+<p style="margin:0 0 4px">Motivo: ${reason ? `«${esc(reason)}»` : "non indicato."}</p>
+<p style="margin:0 0 12px">Richiesta da: ${esc(requester)}</p>
+<p style="margin:0 0 12px">${righe.map((r) => esc(r)).join("<br>")}</p>
+${link ? `<p style="margin:0"><a href="${esc(link)}">Riapri la giornata</a></p>` : `<p style="margin:0">Riapri da Incassi giornalieri.</p>`}
+</body></html>`;
 
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -156,7 +165,7 @@ ${link ? `<p style="margin:0"><a href="${esc(link)}" style="display:inline-block
       return jsonOk({ data: { ok: true, mail: "failed", error: `Resend ${r.status}`, recipients } });
     }
     console.log(`[cash-closing-reopen-request] closing=${closingId} outlet=${outletName} mail=sent to=${recipients.length}`);
-    return jsonOk({ data: { ok: true, mail: "sent", recipients } });
+    return jsonOk({ data: { ok: true, mail: "sent", recipients, test: isTest } });
   } catch (error) {
     console.error(`[cash-closing-reopen-request] Error:`, error);
     return jsonError(500, (error as Error).message);
