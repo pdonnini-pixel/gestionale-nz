@@ -14,10 +14,10 @@
 // presenta solo per le righe che il documento non basta a decidere.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, CheckCircle2, AlertTriangle, Upload, FileText, RefreshCw, Users, Search, X } from 'lucide-react';
+import { CalendarClock, CheckCircle2, AlertTriangle, Upload, FileText, RefreshCw, Users, Search, X, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
-import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile';
+import { archiviaFile, avvisoArchiviazioneFallita, urlFileArchiviato } from '../lib/archivioFile';
 import {
   parseRatei, isTabulatoRatei, abbinaDipendente, oreSettimanaliDaRateo, oreGiornataDaRateo,
   normNome, VOCI, type RateiParsed, type RateoRow, type Abbinamento, type DipendenteRif,
@@ -43,11 +43,26 @@ type ImportSalvato = {
   periodo_mese: number;
   azienda_nome: string | null;
   file_name: string | null;
+  storage_bucket: string | null;
+  storage_path: string | null;
   persone: number;
-  righe_lette: number;
-  righe_agganciate: number;
+  persone_agganciate: number;
   quadratura_ok: boolean | null;
   created_at: string;
+};
+
+/** Una riga salvata, come torna dal database quando si riapre un tabulato. */
+type RigaSalvata = {
+  nominativo: string;
+  matricola: string | null;
+  data_cessazione: string | null;
+  voce: string;
+  rateo_annuo: number | null;
+  residuo: number | null;
+  da_fruire: number | null;
+  employee_id: string | null;
+  match_metodo: string | null;
+  match_note: string | null;
 };
 
 const MESI = ['', 'Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno',
@@ -157,12 +172,15 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
   const [persone, setPersone] = useState<Persona[]>([]);
   const [dipendenti, setDipendenti] = useState<DipendenteRif[]>([]);
   const [storico, setStorico] = useState<ImportSalvato[]>([]);
+  const [apertoId, setApertoId] = useState<string | null>(null);
+  const [dettaglio, setDettaglio] = useState<RigaSalvata[]>([]);
+  const [caricaDettaglio, setCaricaDettaglio] = useState(false);
 
   const caricaStorico = useCallback(async () => {
     if (!companyId) return;
     const { data } = await supabase
       .from('leave_accrual_imports')
-      .select('id, periodo_anno, periodo_mese, azienda_nome, file_name, persone, righe_lette, righe_agganciate, quadratura_ok, created_at')
+      .select('id, periodo_anno, periodo_mese, azienda_nome, file_name, storage_bucket, storage_path, persone, persone_agganciate, quadratura_ok, created_at')
       .eq('company_id', companyId)
       .eq('attivo', true)
       .order('periodo_anno', { ascending: false })
@@ -242,6 +260,31 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
     () => persone.filter((p) => p.scelta || p.abbinamento.employeeId).length,
     [persone],
   );
+  // Le righe sono tre per persona (ferie, ex festivita, ROL): si contano a
+  // parte, altrimenti si finisce a confrontare persone con righe.
+  const righeAgganciate = useMemo(
+    () => persone.reduce((n, p) => n + ((p.scelta || p.abbinamento.employeeId) ? p.righe.length : 0), 0),
+    [persone],
+  );
+
+  /** Riapre un tabulato gia' salvato e mostra le persone che contiene. */
+  const apri = async (imp: ImportSalvato) => {
+    if (apertoId === imp.id) { setApertoId(null); setDettaglio([]); return; }
+    setApertoId(imp.id); setDettaglio([]); setCaricaDettaglio(true);
+    const { data } = await supabase
+      .from('leave_accrual_rows')
+      .select('nominativo, matricola, data_cessazione, voce, rateo_annuo, residuo, da_fruire, employee_id, match_metodo, match_note')
+      .eq('import_id', imp.id)
+      .order('nominativo');
+    setDettaglio((data as RigaSalvata[]) ?? []);
+    setCaricaDettaglio(false);
+  };
+
+  const apriDocumento = async (imp: ImportSalvato) => {
+    const url = await urlFileArchiviato(imp.storage_bucket, imp.storage_path);
+    if (url) window.open(url, '_blank', 'noopener');
+    else toast({ type: 'error', message: 'Il documento non si apre: non risulta in archivio.' });
+  };
 
   const salva = async () => {
     if (!companyId || !letto || !letto.periodo || !file) return;
@@ -274,7 +317,8 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
           documento_id: archiviato.id,
           persone: persone.length,
           righe_lette: letto.righe.length,
-          righe_agganciate: agganciate,
+          righe_agganciate: righeAgganciate,
+          persone_agganciate: agganciate,
           totali_ditta: letto.totaliDitta,
           quadratura_ok: letto.quadraturaOk,
           scarti: letto.quadratura,
@@ -535,34 +579,141 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
             caricare il file e guardare l'anteprima non salva niente.
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-slate-50 text-slate-500">
-              <tr className="text-left">
-                <th className="px-4 py-2 font-medium">Periodo</th>
-                <th className="px-4 py-2 font-medium">Azienda</th>
-                <th className="px-4 py-2 font-medium text-right">Persone</th>
-                <th className="px-4 py-2 font-medium text-right">Righe</th>
-                <th className="px-4 py-2 font-medium">Lettura</th>
-                <th className="px-4 py-2 font-medium">File</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {storico.map((s) => (
-                <tr key={s.id}>
-                  <td className="px-4 py-2.5 font-medium text-slate-800">{MESI[s.periodo_mese]} {s.periodo_anno}</td>
-                  <td className="px-4 py-2.5 text-slate-600">{s.azienda_nome ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{s.persone}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{s.righe_agganciate} / {s.righe_lette}</td>
-                  <td className="px-4 py-2.5">
-                    {s.quadratura_ok
-                      ? <span className="inline-flex items-center gap-1 text-emerald-700 text-xs"><CheckCircle2 size={13} /> quadra</span>
-                      : <span className="inline-flex items-center gap-1 text-amber-700 text-xs"><AlertTriangle size={13} /> da guardare</span>}
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-500 text-xs">{s.file_name ?? '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div className="divide-y divide-slate-100">
+            {storico.map((s) => {
+              const aperto = apertoId === s.id;
+              const senzaNome = s.persone - s.persone_agganciate;
+              return (
+                <div key={s.id}>
+                  <div className="px-5 py-4 flex flex-wrap items-start gap-x-6 gap-y-3">
+                    <button
+                      type="button"
+                      onClick={() => void apri(s)}
+                      className="flex items-start gap-2 text-left"
+                    >
+                      {aperto
+                        ? <ChevronDown size={16} className="text-slate-400 mt-1" />
+                        : <ChevronRight size={16} className="text-slate-400 mt-1" />}
+                      <span>
+                        <span className="font-semibold text-slate-800 block">
+                          {MESI[s.periodo_mese]} {s.periodo_anno}
+                        </span>
+                        <span className="text-xs text-slate-500">
+                          {s.azienda_nome ?? 'azienda non indicata'} · caricato il{' '}
+                          {new Date(s.created_at).toLocaleDateString('it-IT')}
+                        </span>
+                      </span>
+                    </button>
+
+                    <div className="text-sm text-slate-600">
+                      <strong className="text-slate-800">{s.persone} persone</strong>
+                      {senzaNome > 0
+                        ? <span className="text-amber-700">, di cui {senzaNome} da abbinare a un dipendente</span>
+                        : <span className="text-slate-500">, tutte riconosciute in anagrafica</span>}
+                    </div>
+
+                    <div className="text-sm">
+                      {s.quadratura_ok
+                        ? <span className="inline-flex items-center gap-1.5 text-emerald-700">
+                            <CheckCircle2 size={15} /> Letto per intero
+                          </span>
+                        : <span className="inline-flex items-center gap-1.5 text-amber-700">
+                            <AlertTriangle size={15} /> Da ricontrollare
+                          </span>}
+                      <div className="text-xs text-slate-500 mt-0.5 max-w-[320px]">
+                        {s.quadratura_ok
+                          ? 'I totali in fondo al documento delle paghe coincidono con la somma di quello che il gestionale ha letto.'
+                          : 'La somma di quello che il gestionale ha letto non coincide con i totali in fondo al documento: conviene ricaricarlo.'}
+                      </div>
+                    </div>
+
+                    <div className="ml-auto text-right">
+                      {s.storage_path ? (
+                        <button
+                          type="button"
+                          onClick={() => void apriDocumento(s)}
+                          className="inline-flex items-center gap-1.5 text-sm text-blue-700 hover:text-blue-800 font-medium"
+                        >
+                          <ExternalLink size={14} /> Apri il documento
+                        </button>
+                      ) : (
+                        <span className="text-sm text-amber-700">Documento non archiviato</span>
+                      )}
+                      <div className="text-xs text-slate-400 mt-0.5 max-w-[260px] truncate" title={s.file_name ?? ''}>
+                        {s.storage_path ? 'In Archivio, sezione Paghe e personale' : (s.file_name ?? '')}
+                      </div>
+                    </div>
+                  </div>
+
+                  {aperto && (
+                    <div className="px-5 pb-5">
+                      {caricaDettaglio ? (
+                        <div className="text-sm text-slate-400 py-4">Apertura…</div>
+                      ) : (
+                        <div className="border border-slate-200 rounded-lg overflow-x-auto">
+                          <table className="w-full text-sm">
+                            <thead className="bg-slate-50 text-slate-500">
+                              <tr className="text-left">
+                                <th className="px-4 py-2 font-medium">Persona</th>
+                                <th className="px-4 py-2 font-medium">Contratto</th>
+                                <th className="px-4 py-2 font-medium text-right">{VOCI.F01}</th>
+                                <th className="px-4 py-2 font-medium text-right">{VOCI.F02}</th>
+                                <th className="px-4 py-2 font-medium text-right">{VOCI.F03}</th>
+                                <th className="px-4 py-2 font-medium">In anagrafica</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {[...new Set(dettaglio.map((r) => `${r.matricola ?? ''}|${r.nominativo}`))].map((k) => {
+                                const righe = dettaglio.filter((r) => `${r.matricola ?? ''}|${r.nominativo}` === k);
+                                const f01 = righe.find((r) => r.voce === 'F01');
+                                const f02 = righe.find((r) => r.voce === 'F02');
+                                const f03 = righe.find((r) => r.voce === 'F03');
+                                const oreSett = oreSettimanaliDaRateo(f01?.rateo_annuo ?? null);
+                                const oreGg = oreGiornataDaRateo(f01?.rateo_annuo ?? null);
+                                const legata = righe.some((r) => r.employee_id);
+                                return (
+                                  <tr key={k} className={legata ? undefined : 'bg-amber-50/60'}>
+                                    <td className="px-4 py-2.5">
+                                      <div className="font-medium text-slate-800">{righe[0].nominativo}</div>
+                                      <div className="text-xs text-slate-400">
+                                        matricola {righe[0].matricola ?? '—'}
+                                        {righe[0].data_cessazione && (
+                                          <span className="text-rose-600 font-medium">
+                                            {' '}· cessata il {righe[0].data_cessazione.split('-').reverse().join('/')}
+                                          </span>
+                                        )}
+                                      </div>
+                                    </td>
+                                    <td className="px-4 py-2.5 text-slate-600">
+                                      {oreSett != null ? <>{oreSett} h/sett <span className="text-slate-400">· giornata {oreGg} h</span></> : '—'}
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right tabular-nums">
+                                      <span className={(f01?.residuo ?? 0) < 0 ? 'text-rose-600 font-medium' : ''}>{ore(f01?.residuo)}</span>
+                                    </td>
+                                    <td className="px-4 py-2.5 text-right tabular-nums">{ore(f02?.residuo)}</td>
+                                    <td className="px-4 py-2.5 text-right tabular-nums">{ore(f03?.residuo)}</td>
+                                    <td className="px-4 py-2.5 text-xs">
+                                      {legata
+                                        ? <span className="inline-flex items-center gap-1 text-emerald-700"><CheckCircle2 size={13} /> abbinata</span>
+                                        : <span className="text-amber-700">nessun dipendente abbinato: ricarica il tabulato e scegli la persona</span>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                          <div className="px-4 py-2.5 text-xs text-slate-500 bg-slate-50 border-t border-slate-100">
+                            Le ore sono quelle del documento delle paghe alla fine di {MESI[s.periodo_mese].toLowerCase()}: il
+                            gestionale non le ricalcola.
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

@@ -15432,6 +15432,7 @@ export type Database = {
           periodo_anno: number
           periodo_mese: number
           persone: number
+          persone_agganciate: number
           quadratura_ok: boolean | null
           righe_agganciate: number
           righe_lette: number
@@ -15455,6 +15456,7 @@ export type Database = {
           periodo_anno: number
           periodo_mese: number
           persone?: number
+          persone_agganciate?: number
           quadratura_ok?: boolean | null
           righe_agganciate?: number
           righe_lette?: number
@@ -15478,6 +15480,7 @@ export type Database = {
           periodo_anno?: number
           periodo_mese?: number
           persone?: number
+          persone_agganciate?: number
           quadratura_ok?: boolean | null
           righe_agganciate?: number
           righe_lette?: number
