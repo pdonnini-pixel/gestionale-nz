@@ -470,6 +470,17 @@ export function abbinaDipendente(
     if (perData.length === 1) {
       return { nominativo: riga.nominativo, matricola: riga.matricola, employeeId: perData[0].id, metodo: 'nome_e_assunzione', nota: 'Due persone con lo stesso nome: scelta quella con la stessa data di assunzione.', daConfermare: true };
     }
+    // Quasi sempre l'omonimia è un doppione in anagrafica, con una sola riga
+    // in forza: il tabulato delle paghe elenca chi lavora, quindi si propone
+    // quella, e la conferma resta a chi importa.
+    const attivi = candidati.filter((d) => d.isActive);
+    if (attivi.length === 1) {
+      return {
+        nominativo: riga.nominativo, matricola: riga.matricola, employeeId: attivi[0].id, metodo: 'nome',
+        nota: `Ci sono ${candidati.length} persone con questo nome in anagrafica, ma una sola in forza: proposta quella (matricola ${attivi[0].matricola ?? 'vuota'}). Da confermare.`,
+        daConfermare: true,
+      };
+    }
     return { nominativo: riga.nominativo, matricola: riga.matricola, employeeId: null, metodo: null, nota: `Ci sono ${candidati.length} persone con questo nome: va scelta a mano.`, daConfermare: true };
   }
 

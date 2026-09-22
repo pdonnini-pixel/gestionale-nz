@@ -222,8 +222,23 @@ describe('abbinaDipendente', () => {
     expect(m.daConfermare).toBe(true);
   });
 
-  it('omonimia senza data che distingue: non sceglie da solo', () => {
-    const m = abbinaDipendente({ nominativo: 'VERDI LUCA', matricola: null, dataAssunzione: null }, dipendenti);
+  it('omonimia con una sola persona in forza: propone quella, da confermare', () => {
+    // Il caso vero di agosto 2026: in anagrafica la stessa persona compare
+    // due volte, una attiva e una no.
+    const conDoppione: DipendenteRif[] = [
+      ...dipendenti,
+      { id: 'e', matricola: null, nome: 'ANNA', cognome: 'BIANCHI', dataAssunzione: null, isActive: false },
+    ];
+    const m = abbinaDipendente({ nominativo: 'BIANCHI ANNA', matricola: '0000097', dataAssunzione: null }, conDoppione);
+    expect(m.employeeId).toBe('b');
+    expect(m.daConfermare).toBe(true);
+    expect(m.nota).toMatch(/una sola in forza/);
+  });
+
+  it('omonimia fra due persone entrambe in forza: non sceglie da solo', () => {
+    const dueAttivi: DipendenteRif[] = dipendenti.map((d) =>
+      d.id === 'd' ? { ...d, isActive: true } : d);
+    const m = abbinaDipendente({ nominativo: 'VERDI LUCA', matricola: null, dataAssunzione: null }, dueAttivi);
     expect(m.employeeId).toBeNull();
     expect(m.nota).toMatch(/2 persone/);
   });
