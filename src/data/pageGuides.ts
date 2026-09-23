@@ -112,6 +112,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Clicca su 'Vai ai movimenti' nell'avviso: ti porta direttamente all'elenco dei movimenti bancari senza categoria, dove puoi assegnarla."
       },
       {
+        "q": "In basso è comparsa una striscia arancione che dice di ricaricare: cosa devo fare?",
+        "a": "Vuol dire che nel frattempo è stata pubblicata una versione nuova del gestionale e la pagina che hai aperta è quella di prima. Finisci quello che stavi facendo, salva, poi premi 'Ricarica': non perdi niente di ciò che hai già salvato. Se invece una schermata non si apre e al suo posto compare il riquadro 'C'è una versione nuova del gestionale', ricarica subito: quella schermata non può funzionare finché non lo fai."
+      },
+      {
         "q": "Cosa significa il banner giallo 'alcuni dati potrebbero non essere stati caricati'?",
         "a": "Vuol dire che, mentre la Dashboard caricava, almeno una delle richieste al sistema non è andata a buon fine (di solito per connessione instabile). In quel caso alcuni numeri potrebbero essere incompleti o mostrare 0 non reale: premi 'Ricarica' nel banner per riprovare. Prima questo tipo di errore era silenzioso e i valori a 0 sembravano dati veri."
       },

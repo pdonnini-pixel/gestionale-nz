@@ -5,6 +5,8 @@ import { PeriodProvider } from './hooks/usePeriod'
 import { useOnboardingStatus } from './hooks/useOnboardingStatus'
 import { lazy, Suspense, type ReactNode } from 'react'
 import { ToastProvider } from './components/Toast'
+import ConfinePagina from './components/ConfinePagina'
+import AvvisoNuovaVersione from './components/AvvisoNuovaVersione'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
@@ -160,7 +162,11 @@ function PublicRoute({ children }: { children: ReactNode }) {
 }
 
 function AppRoutes() {
+  // Il percorso azzera il paracadute: se a non aprirsi era una schermata sola,
+  // cambiando pagina il gestionale riparte senza ricaricare.
+  const { pathname } = useLocation()
   return (
+    <ConfinePagina resetKey={pathname}>
     <Suspense fallback={<PageLoader />}>
       <Routes>
         <Route path="/login" element={<PublicRoute><Login /></PublicRoute>} />
@@ -219,6 +225,7 @@ function AppRoutes() {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
+    </ConfinePagina>
   )
 }
 
@@ -230,6 +237,7 @@ export default function App() {
           <BrowserRouter>
             <PeriodProvider>
               <AppRoutes />
+              <AvvisoNuovaVersione />
             </PeriodProvider>
           </BrowserRouter>
         </CompanyProvider>

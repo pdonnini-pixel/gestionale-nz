@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "typecheck:watch": "tsc --noEmit --watch",
-    "test": "npx --yes vitest run"
+    "test": "npx --yes vitest run src"
   },
   "dependencies": {
     "@netlify/functions": "^5.2.0",
