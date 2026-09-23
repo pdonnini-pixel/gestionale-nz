@@ -44,19 +44,33 @@ describe('tabella dei saldi', () => {
     expect(righeSaldi(modulo()).map((x) => x[0])).toEqual(['Ferie', 'Permessi']);
   });
 
-  it('dice le ferie a giornate, non in ore', () => {
-    // 48 ore con una giornata da 6 fanno 8 giornate tonde.
-    expect(righeSaldi(modulo())[0][1]).toBe('8 giornate');
+  // Finche' non sappiamo quanti giorni a settimana lavora una persona, le
+  // giornate non si dicono: la «giornata» delle paghe e' l'orario settimanale
+  // diviso cinque, e su un part time corto non e' nessun giorno di negozio.
+  it('senza i giorni lavorati parla solo di ore', () => {
+    expect(righeSaldi(modulo())[0][1]).toBe('48 ore');
   });
 
-  it('non arrotonda mai per eccesso le giornate', () => {
-    // Il caso vero di Falchi: 8,65 h con una giornata da 1,60 fanno 5,4
-    // giornate. Cinque, non cinque e mezza: quella mezza non ce l'ha.
+  it('il caso vero di Falchi: ore, non cinque giornate inesistenti', () => {
+    // 8 ore a settimana. Le paghe le spalmano su cinque giorni e ne esce una
+    // «giornata» da 1 ora e 36 minuti: 5,4 di quelle. Ma se in negozio ci va
+    // un giorno solo, quelle 8,65 ore sono UN giorno, non cinque.
     const m = modulo({
       dipendente: { ...modulo().dipendente, oreSettimanali: 8, oreGiornata: 1.6 },
       saldi: [saldo('F01', { residuo: 8.65, residuo_disponibile: 8.65 })],
     });
-    expect(righeSaldi(m)[0][1]).toBe('5 giornate');
+    expect(righeSaldi(m)[0][1]).toBe('8 ore e 39 minuti');
+    expect(righeSaldi(m)[0][1]).not.toMatch(/giornat/);
+  });
+
+  it('con i giorni lavorati le giornate tornano vere', () => {
+    // Stessa persona, ma sappiamo che lavora un giorno a settimana: la sua
+    // giornata vale 8 ore, e 8,65 h sono una giornata, non cinque.
+    const m = modulo({
+      dipendente: { ...modulo().dipendente, oreSettimanali: 8, oreGiornata: 1.6, giorniSettimana: 1 },
+      saldi: [saldo('F01', { residuo: 8.65, residuo_disponibile: 8.65 })],
+    });
+    expect(righeSaldi(m)[0][1]).toBe('1 giornata');
   });
 
   it('somma le due borse di permessi e le dice in ore e minuti', () => {
@@ -77,7 +91,16 @@ describe('tabella dei saldi', () => {
 
   it('dice anche quanto toglie questa richiesta, nella stessa unità', () => {
     const r = righeSaldi(modulo({ giorni: [giorno('2026-10-05'), giorno('2026-10-06')] }));
-    expect(r[0][2]).toBe('2 giornate');
+    expect(r[0][2]).toBe('12 ore');
+  });
+
+  it('non promette giornate che nella settimana di quella persona non esistono', () => {
+    const m = modulo({
+      dipendente: { ...modulo().dipendente, oreSettimanali: 8, oreGiornata: 1.6 },
+      saldi: [saldo('F02', { residuo: 1.6, residuo_disponibile: 1.6 })],
+    });
+    expect(righeSaldi(m)[1][1]).toBe('1 ora e 36 minuti');
+    expect(righeSaldi(m).flat().join(' ')).not.toMatch(/giornata intera/);
   });
 
   it('nelle intestazioni non ci sono ore, scadenze né totali', () => {

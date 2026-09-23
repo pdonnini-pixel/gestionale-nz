@@ -24,7 +24,7 @@
 
 import {
   formattaOre, formattaData, formattaDataLunga, totaliPerVoce,
-  giornateInParole, permessiInParole,
+  giornateInParole, oreInParole,
   intervalli, type GiornoRichiesto, type DisponibilitaVoce, type VoceFerie,
 } from './ferieRichiesta';
 
@@ -35,6 +35,21 @@ export type DipendenteModulo = {
   oreSettimanali: number | null;
   oreGiornata: number;
   fonteOrario: 'paghe' | 'anagrafica' | 'ripiego';
+  /**
+   * Quanti giorni a settimana lavora DAVVERO questa persona.
+   *
+   * Finche' e' vuoto il modulo parla solo di ore, e non e' una pigrizia: le
+   * paghe spalmano l'orario su cinque giorni per fare i conti, quindi per chi
+   * fa 8 ore a settimana una «giornata» contabile dura 1 ora e 36 minuti. Se
+   * quella persona in negozio ci va un giorno solo e fa 8 ore di fila, quella
+   * giornata non esiste, e scriverle «hai 5 giornate di ferie» quando ne ha
+   * una e' una bugia.
+   *
+   * Il dato non sta ne' sul tabulato delle paghe ne' in anagrafica: lo sa chi
+   * fa i turni. Quando arrivera', qui si valorizza e le giornate tornano vere
+   * per tutti, part time compresi.
+   */
+  giorniSettimana?: number | null;
 };
 
 export type ModuloFerie = {
@@ -123,19 +138,19 @@ export function righeSaldi(m: ModuloFerie): string[][] {
   }, null);
   const chiestoPermessi = VOCI_PERMESSO.reduce((tot, voce) => tot + (chiesto[voce] ?? 0), 0);
   const chiestoFerie = chiesto.F01 ?? 0;
-  const giorno = m.dipendente.oreGiornata;
+
+  // Le giornate si dicono solo a chi sappiamo quanti giorni lavora. Per tutti
+  // gli altri si dicono le ore, che sono l'unico numero vero: la «giornata»
+  // delle paghe e' l'orario settimanale diviso cinque, e su un part time
+  // corto non corrisponde a nessun giorno di negozio.
+  const giorniVeri = m.dipendente.giorniSettimana;
+  const quanto = giorniVeri && giorniVeri > 0
+    ? (ore: number | null) => giornateInParole(ore, (m.dipendente.oreSettimanali ?? 0) / giorniVeri)
+    : (ore: number | null) => oreInParole(ore);
 
   return [
-    [
-      'Ferie',
-      giornateInParole(disponibileDi(m, 'F01'), giorno),
-      chiestoFerie ? giornateInParole(chiestoFerie, giorno) : '—',
-    ],
-    [
-      'Permessi',
-      permessiInParole(permessi, giorno),
-      chiestoPermessi ? permessiInParole(chiestoPermessi, giorno) : '—',
-    ],
+    ['Ferie', quanto(disponibileDi(m, 'F01')), chiestoFerie ? quanto(chiestoFerie) : '—'],
+    ['Permessi', quanto(permessi), chiestoPermessi ? quanto(chiestoPermessi) : '—'],
   ];
 }
 

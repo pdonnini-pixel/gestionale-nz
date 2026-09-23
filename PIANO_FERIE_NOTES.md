@@ -168,45 +168,43 @@ Il testo della mail segue la regola qui sotto: lo legge anche chi non lavora nel
 
 ## Come si parla a chi chiede le ferie (23/09/2026)
 
-**Il dipendente non ragiona in ore.** Ragiona a giornata, mezza giornata, o due ore di permesso.
-Patrizio, davanti al modulo di Falchi: «che senso ha parlare in modo tecnico con una commessa di un
-negozio di abbigliamento». Aveva ragione, e il difetto non erano i numeri (tutti e tre giusti, verificati)
-ma l'unita' di misura con cui erano scritti.
+**Il dipendente non ragiona in ore con la virgola.** Ragiona a giornata, mezza giornata, o due ore di
+permesso. Ma le giornate, oggi, **non si possono dire**, e questa e' la parte che abbiamo capito solo
+alla fine.
 
-Quindi il modulo che esce ha **due righe e due unita'**:
+### Perche' «5 giornate» era falso
 
-| | Quante ne hai |
-|---|---|
-| Ferie | 5 giornate |
-| Permessi | 1 ora e 36 minuti |
+Le paghe spalmano l'orario settimanale su cinque giorni per fare i conti. Per Falchi, 8 ore a
+settimana, ne esce una «giornata» contabile da **1 ora e 36 minuti**, e le sue 8,65 ore maturate fanno
+5,4 di quelle giornate.
 
-- **Ferie a giornate**, mai arrotondate per eccesso: 5,4 giornate si leggono «5 giornate», perche'
-  quella mezza non ce l'ha. La mezza si scrive solo quando c'e' davvero (`giornateInParole`).
-- **Permessi a ore e minuti**, con ex festivita' e ROL **sommati in una voce sola**: sono due borse che
-  distinguono le paghe, non chi chiede un'ora di permesso. Quale si scala lo decide l'ufficio, e la
-  decisione la prende comunque il referente (`oreInParole`).
-- **Quando le ore di permesso fanno giornate intere o mezze, il foglio lo dice**: «1 ora e 36 minuti,
-  cioe' una giornata intera» (`permessiInParole`). Le 4 ex festivita' sono giornate per contratto, e su
-  un part time corto una giornata vale poche ore: scritta solo in ore sembra uno spezzone da dentista
-  invece di un giorno libero. La frase si aggiunge solo quando il conto torna esatto, altrimenti
-  sarebbe una precisione finta.
-- Spariti dal foglio: le ore con la virgola, «una giornata vale 1,60 h», il totale maturabile, e i nomi
-  «Ex festivita'» e «ROL», che nella tabella dei giorni diventano «Permesso».
+Se pero' Falchi in negozio ci va **un giorno solo e fa 8 ore di fila**, quella giornata da 1 ora e 36
+non esiste: il suo giorno libero le costa 8 ore, e di giorni ne ha **uno**, non cinque. Scriverle «hai
+5 giornate di ferie» e' una bugia, e la stessa bugia valeva per la frase «1 ora e 36 minuti, cioe' una
+giornata intera» aggiunta e tolta lo stesso pomeriggio.
 
-**La pagina dell'amministrazione resta in ore**, con le tre voci separate: li' servono, ed e' l'unica
-unita' con cui i conti tornano quando le persone hanno orari diversi.
+Vale per chiunque **non** lavori cinque giorni a settimana, e a Valmontone e Brugnato sono parecchi.
 
-### Perche' la giornata e' l'orario settimanale diviso cinque
+### Quindi: ore parlate, e il posto dove mettere il dato che manca
 
-Non e' una convenzione nostra, ed e' scritta dentro il documento delle paghe. Il CCNL da' **26 giorni
-lavorativi** di ferie su base sei giorni (4,33 settimane) e **4 giornate** di ex festivita'. Il rateo
-annuo di ex festivita' del tabulato e' **0,8 x orario settimanale**, che e' esattamente
-**4 x (orario / 5)**: verificato su tutte e 39 le persone con orario reale, da 8 a 40 ore settimanali,
-il rapporto fa 0,8000 e le giornate fanno 4,000, senza una sola eccezione.
+Il modulo dice **ore e minuti in lettere**: «8 ore e 39 minuti», non «8,65 h». Due righe, Ferie e
+Permessi (ex festivita' e ROL sommati: sono due borse che distinguono le paghe, non chi chiede
+un'ora). Le ore sono l'unico numero vero, e restano vere per tutti.
 
-Da cui: ferie annue = 4,325 x orario settimanale = **21,6 giornate**, le stesse per un part time da 8
-ore e per un tempo pieno da 40. E' il principio del part time: stesso numero di giorni, ogni giorno
-vale le ore di quella persona.
+`DipendenteModulo.giorniSettimana` esiste gia' ed e' **vuoto per tutti**: e' il posto dove entrera' il
+numero di giorni lavorati a settimana. Quando ci sara', le giornate tornano da sole
+(`giornateInParole`, che resta con i suoi test) e saranno giornate vere. Il dato **non sta ne' sul
+tabulato delle paghe ne' in anagrafica**: lo sa chi fa i turni, cioe' Veronica col file presenze di
+People Smart. E' una colonna sola, un numero per persona.
+
+### La giornata contabile: da dove viene il diviso cinque
+
+Non e' una convenzione nostra ed e' dentro il documento. Il CCNL da' **26 giorni lavorativi** di ferie
+su base sei giorni (4,33 settimane) e **4 giornate** di ex festivita'. Il rateo annuo di ex festivita'
+del tabulato e' **0,8 x orario settimanale**, che e' esattamente **4 x (orario / 5)**: verificato su
+tutte e 39 le persone con orario reale, da 8 a 40 ore, il rapporto fa 0,8000 e le giornate 4,000,
+senza una eccezione. Serve per scalare i saldi, e per quello va benissimo. Non serve per dire a una
+persona quanti giorni puo' stare a casa.
 
 ### «Da maturare» guarda la fine del contratto, non dicembre
 
