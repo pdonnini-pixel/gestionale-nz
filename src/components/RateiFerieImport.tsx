@@ -14,13 +14,14 @@
 // presenta solo per le righe che il documento non basta a decidere.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarClock, CheckCircle2, AlertTriangle, Upload, FileText, RefreshCw, Users, Search, X, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
+import { CalendarClock, CheckCircle2, AlertTriangle, Upload, FileText, RefreshCw, Users, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import { archiviaFile, avvisoArchiviazioneFallita, urlFileArchiviato } from '../lib/archivioFile';
+import SceltaPersona from './SceltaPersona';
 import {
   parseRatei, isTabulatoRatei, abbinaDipendente, oreSettimanaliDaRateo, oreGiornataDaRateo,
-  normNome, VOCI, type RateiParsed, type RateoRow, type Abbinamento, type DipendenteRif,
+  eAChiamata, VOCI, type RateiParsed, type RateoRow, type Abbinamento, type DipendenteRif,
 } from '../lib/rateiParse';
 
 type Props = { companyId?: string; userId?: string | null };
@@ -72,95 +73,6 @@ const ore = (n: number | null | undefined) =>
   n == null ? '—' : `${n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} h`;
 
 
-/**
- * Scelta della persona con ricerca.
- *
- * Un elenco di sessanta nomi in ordine di database non si legge: qui si
- * digita un pezzo di cognome (o la matricola) e restano le righe che
- * corrispondono, in ordine alfabetico. Serve solo per gli abbinamenti che il
- * documento non basta a decidere.
- */
-function SceltaPersona({ dipendenti, valore, onScegli }: {
-  dipendenti: DipendenteRif[];
-  valore: string | null;
-  onScegli: (id: string | null) => void;
-}) {
-  const [aperto, setAperto] = useState(false);
-  const [q, setQ] = useState('');
-  const scelto = dipendenti.find((d) => d.id === valore) ?? null;
-
-  const filtrati = useMemo(() => {
-    const t = normNome(q);
-    const num = q.replace(/\D/g, '');
-    return dipendenti.filter((d) => {
-      if (!t && !num) return true;
-      const nome = normNome(`${d.cognome ?? ''} ${d.nome ?? ''}`);
-      return (t && nome.includes(t)) || (num && (d.matricola ?? '').includes(num));
-    });
-  }, [q, dipendenti]);
-
-  const etichetta = (d: DipendenteRif) =>
-    `${[d.cognome, d.nome].filter(Boolean).join(' ')}${d.matricola ? ` · ${d.matricola}` : ''}`;
-
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => { setAperto((v) => !v); setQ(''); }}
-        className={`text-sm rounded-lg px-2.5 py-1.5 bg-white text-left w-full max-w-[240px] border ${scelto ? 'border-slate-300 text-slate-800' : 'border-amber-300 text-slate-500'}`}
-      >
-        {scelto ? etichetta(scelto) : 'Scegli la persona…'}
-      </button>
-
-      {aperto && (
-        <>
-          <div className="fixed inset-0 z-20" onClick={() => setAperto(false)} />
-          <div className="absolute z-30 mt-1 w-[280px] bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden">
-            <div className="flex items-center gap-2 px-2.5 py-2 border-b border-slate-100">
-              <Search size={14} className="text-slate-400 shrink-0" />
-              <input
-                autoFocus
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Escape') setAperto(false); }}
-                placeholder="Cognome o matricola"
-                className="w-full text-sm outline-none"
-              />
-              {q && <button type="button" onClick={() => setQ('')} className="text-slate-400 hover:text-slate-600"><X size={14} /></button>}
-            </div>
-            <div className="max-h-64 overflow-y-auto">
-              {filtrati.length === 0 && (
-                <div className="px-3 py-3 text-sm text-slate-400">Nessuno con questo nome.</div>
-              )}
-              {filtrati.map((d) => (
-                <button
-                  key={d.id}
-                  type="button"
-                  onClick={() => { onScegli(d.id); setAperto(false); }}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-blue-50 ${d.id === valore ? 'bg-blue-50 font-medium' : ''}`}
-                >
-                  {[d.cognome, d.nome].filter(Boolean).join(' ')}
-                  <span className="text-slate-400"> · {d.matricola ?? 'senza matricola'}</span>
-                  {!d.isActive && <span className="text-rose-600"> · cessata</span>}
-                </button>
-              ))}
-            </div>
-            {scelto && (
-              <button
-                type="button"
-                onClick={() => { onScegli(null); setAperto(false); }}
-                className="w-full text-left px-3 py-2 text-xs text-slate-500 border-t border-slate-100 hover:bg-slate-50"
-              >
-                Togli la scelta
-              </button>
-            )}
-          </div>
-        </>
-      )}
-    </div>
-  );
-}
-
 export default function RateiFerieImport({ companyId, userId }: Props) {
   const { toast } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
@@ -195,7 +107,7 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
     void (async () => {
       const { data } = await supabase
         .from('employees')
-        .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active')
+        .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active, contratto_tipo')
         .eq('company_id', companyId);
       const righe = ((data as Record<string, unknown>[]) ?? []).map((d) => ({
         id: String(d.id),
@@ -204,6 +116,7 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
         cognome: (d.cognome as string) ?? (d.last_name as string) ?? null,
         dataAssunzione: (d.data_assunzione as string) ?? (d.hire_date as string) ?? null,
         isActive: d.is_active !== false,
+        contrattoTipo: (d.contratto_tipo as string) ?? null,
       }));
       // In ordine alfabetico: l'ordine del database non dice niente a nessuno.
       righe.sort((a, b) =>
@@ -255,6 +168,19 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
   const daConfermare = useMemo(
     () => persone.filter((p) => !p.scelta && (p.abbinamento.daConfermare || !p.abbinamento.employeeId)),
     [persone],
+  );
+
+  // Chi il documento dichiara cessato mentre in anagrafica risulta ancora
+  // in forza. Salvando viene allineato: il dato ce l'abbiamo, non serve
+  // chiederlo a nessuno.
+  const daCessare = useMemo(
+    () => persone.filter((p) => {
+      if (!p.dataCessazione) return false;
+      const id = p.scelta ?? p.abbinamento.employeeId;
+      if (!id) return false;
+      return dipendenti.find((d) => d.id === id)?.isActive !== false;
+    }),
+    [persone, dipendenti],
   );
   const agganciate = useMemo(
     () => persone.filter((p) => p.scelta || p.abbinamento.employeeId).length,
@@ -364,17 +290,41 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
       if (errRighe) throw errRighe;
 
       // Orario settimanale dal rateo: si scrive accanto a quello a mano,
-      // non al suo posto.
+      // non al suo posto. MAI per i contratti a chiamata: li' il rateo e'
+      // pieno per costruzione e l'orario che se ne ricava e' finto.
       for (const p of persone) {
         const employeeId = p.scelta ?? p.abbinamento.employeeId;
         const ferie = p.righe.find((r) => r.voce === 'F01');
         const oreSett = oreSettimanaliDaRateo(ferie?.rateoAnnuo ?? null);
-        if (!employeeId || oreSett == null) continue;
+        const chiamata = eAChiamata(dipendenti.find((d) => d.id === employeeId)?.contrattoTipo);
+        if (!employeeId || oreSett == null || chiamata) continue;
         await supabase.from('employees').update({
           ore_settimanali_paghe: oreSett,
           ore_settimanali_paghe_at: new Date().toISOString(),
           ore_settimanali_paghe_import_id: importId,
         }).eq('id', employeeId);
+      }
+
+      // Le cessazioni: il tabulato le porta scritte, e prima di oggi
+      // restavano dentro le righe importate senza arrivare all'anagrafica.
+      // Su agosto 2026 erano due, Bularca e Niccoli, e in anagrafica
+      // risultavano ancora in forza: le abbiamo sapute solo chiedendo allo
+      // studio una cosa che era gia' nel documento.
+      // Si scrive solo dove manca: una data messa a mano non si tocca.
+      let cessate = 0;
+      for (const p of persone) {
+        const employeeId = p.scelta ?? p.abbinamento.employeeId;
+        if (!employeeId || !p.dataCessazione) continue;
+        const { data } = await supabase.from('employees')
+          .update({
+            data_cessazione: p.dataCessazione,
+            termination_date: p.dataCessazione,
+            is_active: false,
+          })
+          .eq('id', employeeId)
+          .is('data_cessazione', null)
+          .select('id');
+        if (data?.length) cessate += 1;
       }
 
       if (vecchi?.length) {
@@ -383,7 +333,11 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
           .in('id', vecchi.map((v: { id: string }) => v.id));
       }
 
-      toast({ type: 'success', message: `Ratei di ${MESI[mese]} ${anno} importati: ${persone.length} persone, ${agganciate} agganciate.` });
+      toast({
+        type: 'success',
+        message: `Ratei di ${MESI[mese]} ${anno} importati: ${persone.length} persone, ${agganciate} agganciate.`
+          + (cessate ? ` ${cessate === 1 ? 'Una persona è stata segnata come cessata' : `${cessate} persone sono state segnate come cessate`}, come dice il documento.` : ''),
+      });
       setFile(null); setLetto(null); setPersone([]);
       if (fileRef.current) fileRef.current.value = '';
       void caricaStorico();
@@ -474,6 +428,23 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
                   </div>
                 </>}
           </div>
+
+          {daCessare.length > 0 && (
+            <div className="px-5 py-3 text-sm bg-rose-50 text-rose-900 flex items-start gap-2">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-rose-600" />
+              <div>
+                <strong>
+                  {daCessare.length === 1
+                    ? 'Una persona risulta cessata nel documento'
+                    : `${daCessare.length} persone risultano cessate nel documento`}
+                  , in anagrafica {daCessare.length === 1 ? 'è' : 'sono'} ancora in forza.
+                </strong>{' '}
+                Salvando {daCessare.length === 1 ? 'viene segnata cessata' : 'vengono segnate cessate'} con la data del documento:{' '}
+                {daCessare.map((p) => `${p.nominativo} (${p.dataCessazione?.split('-').reverse().join('/')})`).join(', ')}.
+                Restano in archivio con tutta la loro storia. Una data di cessazione già scritta a mano non viene toccata.
+              </div>
+            </div>
+          )}
 
           {daConfermare.length > 0 && (
             <div className="px-5 py-3 text-sm bg-blue-50 text-blue-900 flex items-start gap-2">

@@ -63,6 +63,9 @@ import {
 const PdfViewer = lazy(() => import('../components/PdfViewer'));
 // L'import dei ratei tira dentro pdfjs: si carica solo aprendo la scheda.
 const RateiFerieImport = lazy(() => import('../components/RateiFerieImport'));
+// Le richieste tirano dentro jspdf e xlsx: si caricano solo aprendo la scheda.
+const RichiesteFerie = lazy(() => import('../components/RichiesteFerie'));
+const ApprovazioniFerie = lazy(() => import('../components/ApprovazioniFerie'));
 
 // ============================================================================
 // TYPES
@@ -338,6 +341,18 @@ export default function Dipendenti() {
   const setView = (next: PersonaleView) => {
     const p = new URLSearchParams(searchParams);
     p.set('view', next);
+    setSearchParams(p);
+  };
+
+  // Dentro "Ferie e permessi": le richieste (tutti i giorni) o i saldi che
+  // arrivano dalle paghe (una volta al mese). Anche questa sta nell'URL, cosi'
+  // un link porta dove deve.
+  const ferieParam = searchParams.get('ferie');
+  const ferieTab: 'richieste' | 'approvazioni' | 'ratei' =
+    ferieParam === 'ratei' ? 'ratei' : ferieParam === 'approvazioni' ? 'approvazioni' : 'richieste';
+  const setFerieTab = (next: 'richieste' | 'approvazioni' | 'ratei') => {
+    const p = new URLSearchParams(searchParams);
+    p.set('ferie', next);
     setSearchParams(p);
   };
 
@@ -1159,9 +1174,31 @@ export default function Dipendenti() {
           )}
 
           {view === 'ferie' && (
-            <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
-              <RateiFerieImport companyId={COMPANY_ID} userId={USER_ID} />
-            </Suspense>
+            <>
+              {/* Due momenti diversi: i saldi arrivano dalle paghe una volta al
+                  mese, le richieste si registrano tutti i giorni. */}
+              <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5 w-fit mb-4">
+                {([
+                  { k: 'richieste' as const, label: 'Richieste' },
+                  { k: 'approvazioni' as const, label: 'Approvazioni' },
+                  { k: 'ratei' as const, label: 'Saldi dalle paghe' },
+                ]).map((t) => (
+                  <button
+                    key={t.k}
+                    type="button"
+                    onClick={() => setFerieTab(t.k)}
+                    className={`text-sm px-3 py-1.5 rounded-md ${ferieTab === t.k ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
+                {ferieTab === 'richieste' && <RichiesteFerie companyId={COMPANY_ID} userId={USER_ID} />}
+                {ferieTab === 'approvazioni' && <ApprovazioniFerie companyId={COMPANY_ID} userId={USER_ID} />}
+                {ferieTab === 'ratei' && <RateiFerieImport companyId={COMPANY_ID} userId={USER_ID} />}
+              </Suspense>
+            </>
           )}
         </>
       )}

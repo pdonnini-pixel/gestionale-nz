@@ -462,6 +462,7 @@ try {
 | `BLUEPRINT_GestionaleNZ_v2.md` | Blueprint completo — matrice funzionale, schema DB, integrazioni, roadmap |
 | `CLAUDE.md` | Questo file — prompt operativo |
 | `PAYMENT_PLAN_NOTES.md` | **Obbligatorio per il ciclo passivo** — regole piani pagamento, aggancio fornitore↔fattura per P.IVA, casi noti |
+| `PIANO_FERIE_NOTES.md` | **Obbligatorio per ferie e permessi** (tabelle `leave_*`, scheda Ferie di Dipendenti): i saldi si leggono dal tabulato delle paghe, il conto è in ore, come si evita il doppio conteggio |
 | `AZIONI_PATRIZIO_Parallele.md` | Piano azioni manuali per Patrizio (credenziali, accreditamenti) |
 | `MIGRATION_NOTES.md` | Dettagli migrazione JS→TS del frontend |
 | `BUDGET_WORKFLOW_NOTES.md` | Flusso budget/confronto |
