@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   oreGiornata, oreDelGiorno, giornateDaOre, totaliPerVoce, verificaRichiesta,
-  giornateInParole, oreInParole,
+  giornateInParole, oreInParole, permessiInParole,
   grigliaDelMese, eDomenica, festivitaItaliane, etichettaFestivita,
   formattaOre, formattaGiornate, formattaData, perMese, intervalli,
   type GiornoRichiesto, type DisponibilitaVoce,
@@ -267,5 +267,29 @@ describe('oreInParole', () => {
     for (const ore of [1.6, 7.25, 0.75, 13.33]) {
       expect(oreInParole(ore)).not.toMatch(/[,.]|\bh\b/);
     }
+  });
+});
+
+
+describe('permessiInParole', () => {
+  it.each([
+    // Falchi: 1,60 h con una giornata da 1,60 sono un giorno libero intero.
+    [1.6, 1.6, '1 ora e 36 minuti, cioè una giornata intera'],
+    [32, 8, '32 ore, cioè 4 giornate intere'],
+    [4, 8, '4 ore, cioè mezza giornata'],
+    [12, 8, '12 ore, cioè una giornata e mezza'],
+    [20, 8, '20 ore, cioè 2 giornate e mezza'],
+  ])('%s ore con giornata da %s: «%s»', (ore, giornata, atteso) => {
+    expect(permessiInParole(ore, giornata)).toBe(atteso);
+  });
+
+  it('non aggiunge niente quando le ore non fanno giornate tonde', () => {
+    expect(permessiInParole(2, 8)).toBe('2 ore');
+    expect(permessiInParole(4.1, 1.6)).toBe('4 ore e 6 minuti');
+  });
+
+  it('senza saldo o senza orario resta quello che era', () => {
+    expect(permessiInParole(null, 8)).toBe('—');
+    expect(permessiInParole(3, 0)).toBe('3 ore');
   });
 });

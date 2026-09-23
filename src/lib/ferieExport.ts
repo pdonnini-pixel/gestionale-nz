@@ -24,7 +24,7 @@
 
 import {
   formattaOre, formattaData, formattaDataLunga, totaliPerVoce,
-  giornateInParole, oreInParole,
+  giornateInParole, permessiInParole,
   intervalli, type GiornoRichiesto, type DisponibilitaVoce, type VoceFerie,
 } from './ferieRichiesta';
 
@@ -133,8 +133,8 @@ export function righeSaldi(m: ModuloFerie): string[][] {
     ],
     [
       'Permessi',
-      oreInParole(permessi),
-      chiestoPermessi ? oreInParole(chiestoPermessi) : '—',
+      permessiInParole(permessi, giorno),
+      chiestoPermessi ? permessiInParole(chiestoPermessi, giorno) : '—',
     ],
   ];
 }

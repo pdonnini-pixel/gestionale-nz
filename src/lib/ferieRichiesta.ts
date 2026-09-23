@@ -163,6 +163,30 @@ export function oreInParole(ore: number | null | undefined): string {
   return `${parteOre} e ${m === 1 ? '1 minuto' : `${m} minuti`}`;
 }
 
+/**
+ * I permessi si chiedono a ore, ma quando quelle ore fanno giornate intere
+ * (o mezze) va detto, altrimenti si perde il senso di quello che si ha.
+ * Caso vero: Falchi, 8 ore a settimana, ha 1,60 h di ex festivita'. Scritto
+ * «1 ora e 36 minuti» sembra uno spezzone da dentista; e' una giornata
+ * intera di permesso, perche' la sua giornata vale 1,60 h.
+ * La frase si aggiunge solo quando il conto torna esatto a giornate o
+ * mezze giornate: altrimenti sarebbe una precisione finta.
+ */
+export function permessiInParole(ore: number | null | undefined, oreGiornata: number): string {
+  const testo = oreInParole(ore);
+  if (ore == null || !Number.isFinite(ore) || ore <= 0 || !(oreGiornata > 0)) return testo;
+  const giornate = ore / oreGiornata;
+  const meta = Math.round(giornate * 2) / 2;
+  if (meta < 0.5 || Math.abs(giornate - meta) > 0.02) return testo;
+  const parte =
+    meta === 0.5 ? 'mezza giornata'
+      : meta === 1 ? 'una giornata intera'
+        : Number.isInteger(meta) ? `${meta} giornate intere`
+          : Math.floor(meta) === 1 ? 'una giornata e mezza'
+            : `${Math.floor(meta)} giornate e mezza`;
+  return `${testo}, cioè ${parte}`;
+}
+
 export function verificaRichiesta(
   giorni: GiornoRichiesto[],
   disponibilita: DisponibilitaVoce[],

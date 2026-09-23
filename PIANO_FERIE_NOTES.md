@@ -185,6 +185,11 @@ Quindi il modulo che esce ha **due righe e due unita'**:
 - **Permessi a ore e minuti**, con ex festivita' e ROL **sommati in una voce sola**: sono due borse che
   distinguono le paghe, non chi chiede un'ora di permesso. Quale si scala lo decide l'ufficio, e la
   decisione la prende comunque il referente (`oreInParole`).
+- **Quando le ore di permesso fanno giornate intere o mezze, il foglio lo dice**: «1 ora e 36 minuti,
+  cioe' una giornata intera» (`permessiInParole`). Le 4 ex festivita' sono giornate per contratto, e su
+  un part time corto una giornata vale poche ore: scritta solo in ore sembra uno spezzone da dentista
+  invece di un giorno libero. La frase si aggiunge solo quando il conto torna esatto, altrimenti
+  sarebbe una precisione finta.
 - Spariti dal foglio: le ore con la virgola, «una giornata vale 1,60 h», il totale maturabile, e i nomi
   «Ex festivita'» e «ROL», che nella tabella dei giorni diventano «Permesso».
 
