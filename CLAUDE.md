@@ -178,7 +178,10 @@ pagine effettivamente coinvolti.
 - La verifica pixel sul sito DEPLOYATO è **automatizzata**: il workflow
   `.github/workflows/pixel-check.yml` esegue un test Playwright
   (`tests/e2e/pixel-check.spec.ts`) sui **3 site** a ogni push su `main`, ogni
-  giorno e su richiesta. Fa login con l'utente di test e controlla: login ok,
+  giorno e su richiesta. Prima di partire **aspetta che il site serva proprio
+  quel commit** (`<meta name="app-commit">` scritto dal build): un 200 lo dà
+  anche la versione precedente, e un verde sul sito vecchio non vale niente.
+  Dettagli in `DEPLOY_VERSIONI_NOTES.md`. Fa login con l'utente di test e controlla: login ok,
   pagine chiave aperte senza **eccezioni JS non gestite**, nessuna risposta
   **5xx**, sessione non persa.
 - **Non è più compito di Patrizio** né della sandbox loggarsi a mano: la
@@ -462,6 +465,7 @@ try {
 | `BLUEPRINT_GestionaleNZ_v2.md` | Blueprint completo — matrice funzionale, schema DB, integrazioni, roadmap |
 | `CLAUDE.md` | Questo file — prompt operativo |
 | `PAYMENT_PLAN_NOTES.md` | **Obbligatorio per il ciclo passivo** — regole piani pagamento, aggancio fornitore↔fattura per P.IVA, casi noti |
+| `DEPLOY_VERSIONI_NOTES.md` | **Obbligatorio per pubblicazioni, pixel check e caricamento pagine**: cosa vede chi lavora mentre si pubblica, l'avviso «ricarica», il marker del commit in `index.html` |
 | `PIANO_FERIE_NOTES.md` | **Obbligatorio per ferie e permessi** (tabelle `leave_*`, scheda Ferie di Dipendenti): i saldi si leggono dal tabulato delle paghe, il conto è in ore, come si evita il doppio conteggio |
 | `AZIONI_PATRIZIO_Parallele.md` | Piano azioni manuali per Patrizio (credenziali, accreditamenti) |
 | `MIGRATION_NOTES.md` | Dettagli migrazione JS→TS del frontend |

@@ -23,8 +23,8 @@
 // pagina si apre anche solo per guardare i saldi.
 
 import {
-  ETICHETTE_VOCE, ETICHETTE_VOCE_BREVI,
-  formattaOre, formattaData, formattaDataLunga, giornateDaOre, totaliPerVoce,
+  formattaOre, formattaData, formattaDataLunga, totaliPerVoce,
+  giornateInParole, permessiInParole,
   intervalli, type GiornoRichiesto, type DisponibilitaVoce, type VoceFerie,
 } from './ferieRichiesta';
 
@@ -49,30 +49,41 @@ export type ModuloFerie = {
   righeVuote?: number;
 };
 
-const VOCI_ORDINE: VoceFerie[] = ['F01', 'F02', 'F03'];
 const RIGHE_VUOTE_DEFAULT = 12;
+
+/**
+ * Due parole, non tre codici. «Ex festivita'» e «ROL» sono i nomi che usano
+ * le paghe per distinguere due borse di permessi: chi compila il modulo
+ * chiede un permesso e basta, e quale delle due si scala lo decide l'ufficio.
+ */
+const ETICHETTA_PER_CHI_COMPILA: Record<VoceFerie, string> = {
+  F01: 'Ferie',
+  F02: 'Permesso',
+  F03: 'Permesso',
+};
 
 const oggi = () => new Date().toLocaleDateString('it-IT');
 
 /**
- * L'orario, detto al diretto interessato: il suo contratto e quanto vale
- * per lui una giornata. Da dove il numero arriva non lo riguarda, e quando
- * non lo sappiamo non se ne inventa uno: si lascia da indicare.
+ * L'orario del contratto, e basta. Quanto vale una giornata in ore e' il
+ * conto che fa il gestionale per scalare il saldo: a chi compila il modulo
+ * non serve saperlo, e vedersi scrivere «una giornata vale 1,60 h» confonde
+ * e allarma. Quando l'orario non lo sappiamo non se ne inventa uno.
  */
 export const notaOrario = (d: DipendenteModulo): string =>
-  d.fonteOrario === 'ripiego'
+  d.fonteOrario === 'ripiego' || d.oreSettimanali == null
     ? 'Orario settimanale da indicare'
-    : `${d.oreSettimanali ?? '—'} ore a settimana · una giornata vale ${formattaOre(d.oreGiornata)}`;
+    : `${d.oreSettimanali} ore a settimana`;
 
 /**
- * A che data sono aggiornate le ore. La data c'e' sempre quando c'e' un
- * saldo, ed e' l'unica cosa che serve sapere a chi compila: il numero e'
- * gia' al netto di quello che ha chiesto e non e' ancora stato conteggiato.
+ * A che data e' aggiornato il saldo. E' l'unica cosa che serve sapere a chi
+ * compila, insieme al fatto che il numero e' gia' al netto di quello che ha
+ * chiesto e non e' ancora stato conteggiato.
  */
 export function notaSaldi(m: ModuloFerie): string {
   const d = m.saldi.find((s) => s.saldo_alla_data)?.saldo_alla_data ?? null;
-  if (!d) return 'Ore disponibili non indicate: chiedile all\'amministrazione prima di compilare.';
-  return `Ore disponibili aggiornate al ${formattaData(d)}, al netto delle richieste già presentate.`;
+  if (!d) return 'Saldo non disponibile: chiedilo all\'amministrazione prima di compilare.';
+  return `Aggiornate al ${formattaData(d)}, al netto delle richieste che hai già presentato.`;
 }
 
 export function nomeFileModulo(m: ModuloFerie | ModuloFerie[], estensione: 'pdf' | 'xlsx'): string {
@@ -82,27 +93,53 @@ export function nomeFileModulo(m: ModuloFerie | ModuloFerie[], estensione: 'pdf'
   return `Richiesta_ferie_${nome}_${data}.${estensione}`;
 }
 
-/** Righe della tabella dei saldi, uguali in PDF e in Excel. */
+/** Le voci di permesso che il gestionale tiene separate. Per chi compila il
+ *  modulo sono una cosa sola: un permesso di qualche ora. Quale delle due si
+ *  scala lo decide l'ufficio, e comunque lo approva il referente. */
+const VOCI_PERMESSO: VoceFerie[] = ['F02', 'F03'];
+
+const disponibileDi = (m: ModuloFerie, voce: VoceFerie): number | null => {
+  const s = m.saldi.find((x) => x.voce === voce);
+  if (!s) return null;
+  return s.residuo_disponibile ?? s.residuo ?? null;
+};
+
+/**
+ * La tabella dei saldi: DUE righe e due unita' di misura, quelle che usa chi
+ * legge. Ferie a giornate, permessi a ore.
+ *
+ * Prima erano tre righe con i nomi delle voci delle paghe, le ore, le
+ * giornate col decimale, il totale a fine anno e le ore gia' chieste: sei
+ * colonne di contabilita' davanti a una commessa che deve solo sapere se
+ * puo' chiedere una settimana ad agosto. Quanto matura, quale voce si scala
+ * e cosa dice il contratto sono conti del gestionale, e la decisione la
+ * prende comunque il referente.
+ */
 export function righeSaldi(m: ModuloFerie): string[][] {
   const chiesto = totaliPerVoce(m.giorni);
-  return VOCI_ORDINE.map((voce) => {
-    const s = m.saldi.find((x) => x.voce === voce);
-    const disponibileOggi = s?.residuo_disponibile ?? s?.residuo ?? null;
-    const fineAnno = s?.da_fruire_disponibile ?? s?.da_fruire ?? null;
-    return [
-      ETICHETTE_VOCE[voce],
-      formattaOre(disponibileOggi),
-      disponibileOggi != null ? giornateDaOre(disponibileOggi, m.dipendente.oreGiornata).toLocaleString('it-IT', { maximumFractionDigits: 1 }) : '—',
-      formattaOre(fineAnno),
-      s?.ore_in_attesa ? formattaOre(s.ore_in_attesa) : '—',
-      chiesto[voce] ? formattaOre(chiesto[voce]) : '—',
-    ];
-  });
+  const permessi = VOCI_PERMESSO.reduce<number | null>((tot, voce) => {
+    const ore = disponibileDi(m, voce);
+    return ore == null ? tot : (tot ?? 0) + ore;
+  }, null);
+  const chiestoPermessi = VOCI_PERMESSO.reduce((tot, voce) => tot + (chiesto[voce] ?? 0), 0);
+  const chiestoFerie = chiesto.F01 ?? 0;
+  const giorno = m.dipendente.oreGiornata;
+
+  return [
+    [
+      'Ferie',
+      giornateInParole(disponibileDi(m, 'F01'), giorno),
+      chiestoFerie ? giornateInParole(chiestoFerie, giorno) : '—',
+    ],
+    [
+      'Permessi',
+      permessiInParole(permessi, giorno),
+      chiestoPermessi ? permessiInParole(chiestoPermessi, giorno) : '—',
+    ],
+  ];
 }
 
-const INTESTAZIONE_SALDI = [
-  '', 'Disponibili oggi', 'in giornate', 'Entro fine anno', 'Già chieste', 'In questa richiesta',
-];
+export const INTESTAZIONE_SALDI = ['', 'Quante ne hai', 'In questa richiesta'];
 
 /**
  * Il foglio da compilare: intestazioni che sono domande, non nomi di campo.
@@ -143,7 +180,7 @@ export function righeGiorni(m: ModuloFerie): string[][] {
     .sort((a, b) => a.data.localeCompare(b.data))
     .map((g) => [
       formattaDataLunga(g.data),
-      ETICHETTE_VOCE_BREVI[g.voce],
+      ETICHETTA_PER_CHI_COMPILA[g.voce],
       QUANTO[g.tipo],
       formattaOre(g.ore),
       g.nota ?? '',
@@ -163,7 +200,7 @@ export function valeIlRiepilogo(m: ModuloFerie): boolean {
 export function righeRiepilogo(m: ModuloFerie): string[][] {
   return intervalli(m.giorni).map((i) => [
     i.dal === i.al ? formattaData(i.dal) : `dal ${formattaData(i.dal)} al ${formattaData(i.al)}`,
-    ETICHETTE_VOCE_BREVI[i.voce],
+    ETICHETTA_PER_CHI_COMPILA[i.voce],
     QUANTO[i.tipo],
     String(i.giorni),
     formattaOre(i.ore),
@@ -234,8 +271,9 @@ export async function costruisciPdf(moduli: ModuloFerie | ModuloFerie[]) {
       styles: { fontSize: 8, cellPadding: 3, textColor: SCURO },
       headStyles: { fillColor: [241, 245, 249], textColor: [51, 65, 85], fontStyle: 'bold' },
       columnStyles: {
-        0: { cellWidth: 135 }, 1: { cellWidth: 78, halign: 'right' }, 2: { cellWidth: 60, halign: 'right' },
-        3: { cellWidth: 78, halign: 'right' }, 4: { cellWidth: 78, halign: 'right' }, 5: { cellWidth: 86, halign: 'right' },
+        0: { cellWidth: 135, fontStyle: 'bold' },
+        1: { cellWidth: 200 },
+        2: { cellWidth: 180 },
       },
       margin: { left: 40, right: 40 },
     });

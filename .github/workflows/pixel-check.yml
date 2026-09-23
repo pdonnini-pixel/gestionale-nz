@@ -12,6 +12,12 @@ on:
     - cron: '0 6 * * *' # ogni giorno alle 06:00 UTC
   workflow_dispatch:
 
+# Se arriva un push nuovo mentre la verifica gira, quella in corso si annulla:
+# aspetterebbe un commit che il sito non servira' mai piu'.
+concurrency:
+  group: pixel-check-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   pixel:
     runs-on: ubuntu-latest
@@ -33,15 +39,34 @@ jobs:
         with:
           node-version: 20
 
-      - name: Attendi che il site risponda 200
+      - name: Attendi che il site serva QUESTO commit
+        # Aspettare un HTTP 200 non bastava: anche la versione precedente
+        # risponde 200, quindi il controllo poteva girare sul sito vecchio e
+        # dire verde su codice che non era quello appena pubblicato. Ora si
+        # aspetta il commit vero, scritto in index.html dal build (vite.config,
+        # meta app-commit), e l'attesa ha un senso: e' il deploy di Netlify.
+        env:
+          ATTESO: ${{ github.sha }}
         run: |
-          echo "Attendo ${{ matrix.url }} ..."
-          for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w "%{http_code}" "${{ matrix.url }}") || true
-            if [ "$code" = "200" ]; then echo "Online ($code)"; exit 0; fi
-            echo "tentativo $i: HTTP $code — attendo 10s"; sleep 10
+          echo "Attendo che ${{ matrix.url }} serva $ATTESO ..."
+          servito=""
+          for i in $(seq 1 40); do
+            html=$(curl -s --max-time 20 "${{ matrix.url }}/?cache-bust=$RANDOM") || true
+            servito=$(printf '%s' "$html" \
+              | grep -o 'name="app-commit" content="[^"]*"' \
+              | head -1 | sed 's/.*content="//;s/"$//')
+            if [ "$servito" = "$ATTESO" ]; then
+              echo "Il site serve il commit atteso dopo $i tentativi."
+              exit 0
+            fi
+            echo "tentativo $i: servito='${servito:-nessun marker}' — attendo 15s"
+            sleep 15
           done
-          echo "Il site non ha risposto 200 in tempo utile"; exit 1
+          echo ""
+          echo "Il site non ha servito $ATTESO entro 10 minuti."
+          echo "Ultimo commit visto: '${servito:-nessun marker in index.html}'."
+          echo "Probabile causa: il deploy Netlify di questo tenant e' fallito o non e' partito."
+          exit 1
 
       - name: Installa Playwright
         working-directory: tests/e2e

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { righeSaldi, righeGiorni, righeRiepilogo, intestazioneGiorni, INTESTAZIONE_RIEPILOGO, valeIlRiepilogo, notaOrario, notaSaldi, nomeFoglio, nomeFileModulo, type ModuloFerie } from './ferieExport';
+import { righeSaldi, INTESTAZIONE_SALDI, righeGiorni, righeRiepilogo, intestazioneGiorni, INTESTAZIONE_RIEPILOGO, valeIlRiepilogo, notaOrario, notaSaldi, nomeFoglio, nomeFileModulo, type ModuloFerie } from './ferieExport';
 import type { DisponibilitaVoce, GiornoRichiesto } from './ferieRichiesta';
 
 const saldo = (voce: DisponibilitaVoce['voce'], over: Partial<DisponibilitaVoce> = {}): DisponibilitaVoce => ({
@@ -36,20 +36,52 @@ const giorno = (data: string, over: Partial<GiornoRichiesto> = {}): GiornoRichie
   data, voce: 'F01', tipo: 'giornata', ore: 6, ...over,
 });
 
+// Una commessa ragiona a giornata, mezza giornata o poche ore di permesso.
+// Le ore con la virgola, le tre voci delle paghe e il totale maturabile sono
+// contabilita' nostra: qui dentro non ci devono stare.
 describe('tabella dei saldi', () => {
-  it('ha sempre le tre voci, anche quelle senza saldo', () => {
-    const r = righeSaldi(modulo());
-    expect(r.map((x) => x[0])).toEqual(['Ferie', 'Permessi ex festività', 'Permessi ROL']);
-    expect(r[2][1]).toBe('—');            // ROL: nessun saldo, niente numeri inventati
+  it('ha due righe sole: ferie e permessi', () => {
+    expect(righeSaldi(modulo()).map((x) => x[0])).toEqual(['Ferie', 'Permessi']);
   });
 
-  it('converte in giornate con l\'orario della persona', () => {
-    expect(righeSaldi(modulo())[0][2]).toBe('8');   // 48 ore / 6 = 8 giornate
+  it('dice le ferie a giornate, non in ore', () => {
+    // 48 ore con una giornata da 6 fanno 8 giornate tonde.
+    expect(righeSaldi(modulo())[0][1]).toBe('8 giornate');
   });
 
-  it('mostra nell\'ultima colonna quanto chiede questa richiesta', () => {
+  it('non arrotonda mai per eccesso le giornate', () => {
+    // Il caso vero di Falchi: 8,65 h con una giornata da 1,60 fanno 5,4
+    // giornate. Cinque, non cinque e mezza: quella mezza non ce l'ha.
+    const m = modulo({
+      dipendente: { ...modulo().dipendente, oreSettimanali: 8, oreGiornata: 1.6 },
+      saldi: [saldo('F01', { residuo: 8.65, residuo_disponibile: 8.65 })],
+    });
+    expect(righeSaldi(m)[0][1]).toBe('5 giornate');
+  });
+
+  it('somma le due borse di permessi e le dice in ore e minuti', () => {
+    const m = modulo({
+      saldi: [
+        saldo('F01'),
+        saldo('F02', { residuo: 1.6, residuo_disponibile: 1.6 }),
+        saldo('F03', { residuo: 2.5, residuo_disponibile: 2.5 }),
+      ],
+    });
+    expect(righeSaldi(m)[1][1]).toBe('4 ore e 6 minuti');
+  });
+
+  it('senza saldo non inventa numeri', () => {
+    const m = modulo({ saldi: [saldo('F01')] });
+    expect(righeSaldi(m)[1][1]).toBe('—');
+  });
+
+  it('dice anche quanto toglie questa richiesta, nella stessa unità', () => {
     const r = righeSaldi(modulo({ giorni: [giorno('2026-10-05'), giorno('2026-10-06')] }));
-    expect(r[0][5]).toBe('12,00 h');
+    expect(r[0][2]).toBe('2 giornate');
+  });
+
+  it('nelle intestazioni non ci sono ore, scadenze né totali', () => {
+    expect(INTESTAZIONE_SALDI.join(' ')).not.toMatch(/ore|fine anno|maturab|scad/i);
   });
 });
 
@@ -95,7 +127,9 @@ describe('tabella dei giorni', () => {
 
   it('le ore stanno nella loro colonna, non scritte due volte', () => {
     const r = righeGiorni(modulo({ giorni: [giorno('2026-10-05', { tipo: 'ore', ore: 2, voce: 'F03' })] }));
-    expect(r[0][1]).toBe('ROL');
+    // Non «ROL»: per chi compila e' un permesso, e quale borsa si scala lo
+    // decide l'ufficio.
+    expect(r[0][1]).toBe('Permesso');
     expect(r[0][2]).toBe('Alcune ore');
     expect(r[0][3]).toBe('2,00 h');
   });
@@ -181,15 +215,19 @@ describe('il modulo lo legge il dipendente', () => {
     expect(notaOrario(m.dipendente)).toBe('Orario settimanale da indicare');
   });
 
-  it('l\'orario si legge come lo legge la persona: settimana e giornata', () => {
-    expect(notaOrario(modulo().dipendente)).toBe('30 ore a settimana · una giornata vale 6,00 h');
+  it('l\'orario dice la settimana del contratto, non quanto vale una giornata', () => {
+    // «una giornata vale 1,60 h» e' il conto che serve al gestionale per
+    // scalare il saldo. A chi compila confonde e non serve: lei chiede
+    // giornate, non ore.
+    expect(notaOrario(modulo().dipendente)).toBe('30 ore a settimana');
+    expect(notaOrario(modulo().dipendente)).not.toMatch(/giornata vale/);
   });
 
   it('i saldi portano la data a cui sono aggiornati', () => {
-    expect(notaSaldi(modulo())).toBe('Ore disponibili aggiornate al 31/08/2026, al netto delle richieste già presentate.');
+    expect(notaSaldi(modulo())).toBe('Aggiornate al 31/08/2026, al netto delle richieste che hai già presentato.');
   });
 
   it('senza saldo non si inventa una data', () => {
-    expect(notaSaldi(modulo({ saldi: [] }))).toMatch(/non indicate/);
+    expect(notaSaldi(modulo({ saldi: [] }))).toMatch(/non disponibile/);
   });
 });

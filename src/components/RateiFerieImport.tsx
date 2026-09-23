@@ -182,6 +182,23 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
     }),
     [persone, dipendenti],
   );
+  // Le matricole le allinea il gestionale, non lo studio. Francesca Signorini
+  // (23/09/2026): le sue sono automatiche, cronologiche e non modificabili, e
+  // sul prospetto dei ratei non puo' far uscire il codice fiscale, quindi
+  // l'unico appiglio comune resta il numero. La domanda era «non puoi
+  // allineare le tue alle mie?», e la risposta e' si': la matricola buona e'
+  // quella del documento, come per ogni altro dato che il documento porta.
+  // La nostra non si perde, resta in employee_matricole marcata non corrente.
+  const daAllineare = useMemo(
+    () => persone.filter((p) => {
+      const nuova = (p.matricola ?? '').trim();
+      if (!nuova) return false;
+      const id = p.scelta ?? p.abbinamento.employeeId;
+      if (!id) return false;
+      return (dipendenti.find((d) => d.id === id)?.matricola ?? '').trim() !== nuova;
+    }),
+    [persone, dipendenti],
+  );
   const agganciate = useMemo(
     () => persone.filter((p) => p.scelta || p.abbinamento.employeeId).length,
     [persone],
@@ -327,6 +344,47 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
         if (data?.length) cessate += 1;
       }
 
+      // Le matricole: quella del documento vince, perche' lo studio non puo'
+      // cambiare le sue e noi si'. La vecchia resta in employee_matricole,
+      // marcata non corrente, cosi' cedolini e importazioni gia' agganciati
+      // non perdono il filo.
+      let allineate = 0;
+      for (const p of persone) {
+        const employeeId = p.scelta ?? p.abbinamento.employeeId;
+        const nuova = (p.matricola ?? '').trim();
+        if (!employeeId || !nuova) continue;
+        const vecchia = (dipendenti.find((d) => d.id === employeeId)?.matricola ?? '').trim();
+        if (vecchia === nuova) continue;
+
+        if (vecchia) {
+          await supabase.from('employee_matricole')
+            .update({ is_current: false })
+            .eq('employee_id', employeeId).eq('matricola', vecchia);
+        }
+        const { error: errAnag } = await supabase.from('employees')
+          .update({ matricola: nuova }).eq('id', employeeId);
+        if (errAnag) continue;
+
+        // La matricola e' unica per azienda: se la riga c'e' gia' si marca
+        // corrente, non si duplica.
+        const { data: esiste } = await supabase.from('employee_matricole')
+          .select('id').eq('company_id', companyId).eq('matricola', nuova).maybeSingle();
+        if (esiste) {
+          await supabase.from('employee_matricole')
+            .update({ employee_id: employeeId, is_current: true })
+            .eq('id', (esiste as { id: string }).id);
+        } else {
+          await supabase.from('employee_matricole').insert({
+            company_id: companyId,
+            employee_id: employeeId,
+            matricola: nuova,
+            is_current: true,
+            note: `Matricola dello studio paghe, dal tabulato di ${MESI[mese]} ${anno}.`,
+          });
+        }
+        allineate += 1;
+      }
+
       if (vecchi?.length) {
         await supabase.from('leave_accrual_imports')
           .update({ attivo: false, sostituito_da: importId })
@@ -336,7 +394,8 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
       toast({
         type: 'success',
         message: `Ratei di ${MESI[mese]} ${anno} importati: ${persone.length} persone, ${agganciate} agganciate.`
-          + (cessate ? ` ${cessate === 1 ? 'Una persona è stata segnata come cessata' : `${cessate} persone sono state segnate come cessate`}, come dice il documento.` : ''),
+          + (cessate ? ` ${cessate === 1 ? 'Una persona è stata segnata come cessata' : `${cessate} persone sono state segnate come cessate`}, come dice il documento.` : '')
+          + (allineate ? ` ${allineate === 1 ? 'Una matricola è stata allineata' : `${allineate} matricole sono state allineate`} a quelle dello studio paghe.` : ''),
       });
       setFile(null); setLetto(null); setPersone([]);
       if (fileRef.current) fileRef.current.value = '';
@@ -442,6 +501,23 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
                 Salvando {daCessare.length === 1 ? 'viene segnata cessata' : 'vengono segnate cessate'} con la data del documento:{' '}
                 {daCessare.map((p) => `${p.nominativo} (${p.dataCessazione?.split('-').reverse().join('/')})`).join(', ')}.
                 Restano in archivio con tutta la loro storia. Una data di cessazione già scritta a mano non viene toccata.
+              </div>
+            </div>
+          )}
+
+          {daAllineare.length > 0 && (
+            <div className="px-5 py-3 text-sm bg-slate-50 text-slate-700 flex items-start gap-2">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-slate-500" />
+              <div>
+                <strong>
+                  {daAllineare.length === 1
+                    ? 'Una matricola non coincide con quella dello studio paghe'
+                    : `${daAllineare.length} matricole non coincidono con quelle dello studio paghe`}.
+                </strong>{' '}
+                Salvando {daAllineare.length === 1 ? 'viene allineata' : 'vengono allineate'} a quelle del documento:{' '}
+                {daAllineare.map((p) => `${p.nominativo} (${p.matricola})`).join(', ')}.
+                {' '}Lo studio le assegna in automatico e non può cambiarle, quindi l&rsquo;allineamento tocca a noi.
+                {' '}Le vecchie restano in archivio e i dati già agganciati non si perdono.
               </div>
             </div>
           )}

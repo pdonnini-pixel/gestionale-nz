@@ -123,6 +123,70 @@ export type Avviso = {
  * Attenzione: si puo' mandare, ma chi la manda deve sapere cosa sta facendo.
  * Nota: informazione, nessuna conseguenza.
  */
+/**
+ * LE FERIE SI DICONO A GIORNATE. Una commessa non ragiona in 8,65 ore:
+ * ragiona a giornata, mezza giornata, o poche ore di permesso. Le ore sono
+ * l'unita' con cui il gestionale fa i conti, non quella con cui si parla
+ * alle persone.
+ *
+ * Non si arrotonda mai per eccesso: chi ha 5,4 giornate legge «5 giornate»,
+ * non «5 e mezza», perche' la mezza in piu' non ce l'ha. La mezza si scrive
+ * solo quando c'e' davvero.
+ */
+export function giornateInParole(ore: number | null | undefined, oreGiornata: number): string {
+  if (ore == null || !Number.isFinite(ore) || !(oreGiornata > 0)) return '—';
+  if (ore < -0.001) return 'nessuna: ne hai già usate in anticipo';
+  const giornate = ore / oreGiornata;
+  if (giornate < 0.01) return 'nessuna';
+  if (giornate < 0.5 - 1e-9) return 'meno di mezza giornata';
+  const intere = Math.floor(giornate + 1e-9);
+  const mezza = giornate - intere >= 0.5 - 1e-9;
+  if (intere === 0) return 'mezza giornata';
+  const parte = intere === 1 ? '1 giornata' : `${intere} giornate`;
+  return mezza ? `${parte} e mezza` : parte;
+}
+
+/**
+ * I PERMESSI SI DICONO A ORE, e in ore e minuti: «1 ora e 36 minuti» si
+ * capisce, «1,60 h» no.
+ */
+export function oreInParole(ore: number | null | undefined): string {
+  if (ore == null || !Number.isFinite(ore)) return '—';
+  if (ore < -0.001) return 'nessuna: ne hai già usate in anticipo';
+  const minuti = Math.round(ore * 60);
+  if (minuti === 0) return 'nessuna';
+  const h = Math.floor(minuti / 60);
+  const m = minuti % 60;
+  if (h === 0) return m === 1 ? '1 minuto' : `${m} minuti`;
+  const parteOre = h === 1 ? '1 ora' : `${h} ore`;
+  if (m === 0) return parteOre;
+  return `${parteOre} e ${m === 1 ? '1 minuto' : `${m} minuti`}`;
+}
+
+/**
+ * I permessi si chiedono a ore, ma quando quelle ore fanno giornate intere
+ * (o mezze) va detto, altrimenti si perde il senso di quello che si ha.
+ * Caso vero: Falchi, 8 ore a settimana, ha 1,60 h di ex festivita'. Scritto
+ * «1 ora e 36 minuti» sembra uno spezzone da dentista; e' una giornata
+ * intera di permesso, perche' la sua giornata vale 1,60 h.
+ * La frase si aggiunge solo quando il conto torna esatto a giornate o
+ * mezze giornate: altrimenti sarebbe una precisione finta.
+ */
+export function permessiInParole(ore: number | null | undefined, oreGiornata: number): string {
+  const testo = oreInParole(ore);
+  if (ore == null || !Number.isFinite(ore) || ore <= 0 || !(oreGiornata > 0)) return testo;
+  const giornate = ore / oreGiornata;
+  const meta = Math.round(giornate * 2) / 2;
+  if (meta < 0.5 || Math.abs(giornate - meta) > 0.02) return testo;
+  const parte =
+    meta === 0.5 ? 'mezza giornata'
+      : meta === 1 ? 'una giornata intera'
+        : Number.isInteger(meta) ? `${meta} giornate intere`
+          : Math.floor(meta) === 1 ? 'una giornata e mezza'
+            : `${Math.floor(meta)} giornate e mezza`;
+  return `${testo}, cioè ${parte}`;
+}
+
 export function verificaRichiesta(
   giorni: GiornoRichiesto[],
   disponibilita: DisponibilitaVoce[],
@@ -154,13 +218,17 @@ export function verificaRichiesta(
     if (!chiesto) continue;
 
     const residuoOggi = d.residuo_disponibile ?? d.residuo ?? 0;
-    const finoAFineAnno = d.da_fruire_disponibile ?? d.da_fruire ?? residuoOggi;
+    // «Da fruire» sul tabulato e' residuo + quello che resta da maturare:
+    // verificato sulle 85 righe di NZ, coincide al centesimo. Non e' una
+    // scadenza: le ferie non scadono (Francesca Signorini, 23/09/2026), e
+    // infatti il messaggio non dice piu' «entro fine anno».
+    const totaleAnno = d.da_fruire_disponibile ?? d.da_fruire ?? residuoOggi;
 
-    if (chiesto > finoAFineAnno + 0.001) {
+    if (chiesto > totaleAnno + 0.001) {
       avvisi.push({
         gravita: 'blocco',
         voce: d.voce,
-        testo: `${ETICHETTE_VOCE[d.voce]}: chieste ${formattaOre(chiesto)}, ma entro fine anno ne saranno disponibili ${formattaOre(finoAFineAnno)}.`,
+        testo: `${ETICHETTE_VOCE[d.voce]}: chieste ${formattaOre(chiesto)}, ma anche con tutto l'anno maturato ne risultano ${formattaOre(totaleAnno)}.`,
       });
     } else if (chiesto > residuoOggi + 0.001) {
       avvisi.push({

@@ -21,13 +21,19 @@ Il coefficiente sta in due posti soli, e devono restare allineati:
 `public.leave_ore_settimanali_da_rateo`. È **dedotto**, non confermato dallo studio: l'interfaccia lo
 dichiara, e una conferma diversa si cambia lì.
 
+Il **principio** invece è confermato (Francesca Signorini, 23/09/2026): la maturazione «non cambia da
+livello a livello, ma dall'orario svolto dalla persona». Con un avvertimento che vale più della
+conferma: molti contratti **cambiano percentuale di part time in corso d'anno**, e allora il rateo
+annuo è una media e l'orario che se ne ricava non è quello di oggi. Quindi l'orario dedotto resta un
+ripiego: quando c'è quello vero in anagrafica, vince quello.
+
 ## Le tre voci
 
 | Codice | Voce | Nota |
 |---|---|---|
 | `F01` | Ferie | |
 | `F02` | Permessi ex festività | rateo = ore settimanali × 4,325 × 0,8 |
-| `F03` | Permessi ROL | solo dopo 24 mesi, coefficiente 0,7 |
+| `F03` | Permessi ROL | solo dopo 24 mesi (**confermato dallo studio**, 23/09/2026), coefficiente 0,7 |
 
 ## Fase 1 — i saldi (migration 248, 250)
 
@@ -70,7 +76,7 @@ chiedendo fuori una cosa che era gia' dentro. Ora il salvataggio dell'import all
 e l'anteprima dice prima chi sta per essere segnato cessato. Scrive **solo dove manca**: una data
 messa a mano non si tocca.
 
-### Le matricole non si possono allineare, e va bene cosi'
+### Le matricole si allineano, ma al contrario (23/09/2026)
 
 Francesca Signorini (studio paghe), 23/09/2026: le matricole sono **automatiche e cronologiche** in
 base alla data di assunzione, e lei non puo' modificarle. Un secondo rapporto di lavoro prende una
@@ -79,6 +85,32 @@ determinato part time dal 22/06. Sono questi i 5 nominativi su 42 che non tornav
 Conseguenza: l'aggancio per **nome + matricola o data di assunzione** non e' un ripiego, e' la sola
 strada possibile; `employee_matricole` tiene lo storico, cosi' i dati vecchi restano agganciati.
 Correzioni applicate con `NZ_ONLY_20260923_253_anagrafica_da_studio_paghe.sql` (solo NZ).
+
+**Poi la domanda e' tornata indietro**, nella terza mail dello stesso giorno: «sui prospetti dei ratei
+non ho modo di far scendere il codice fiscale. Tu non puoi allineare le tue matricole alle mie?».
+Si', e infatti e' l'unica direzione possibile: lei non puo' cambiare le sue, noi si'. Quindi il
+caricamento del tabulato **riscrive la matricola in anagrafica con quella del documento** quando sono
+diverse, l'anteprima dice prima quali cambiano, e la vecchia resta in `employee_matricole` marcata
+non corrente, cosi' cedolini e importazioni gia' agganciati non perdono il filo. E' la regola di
+sempre: se il dato sta nel documento, si legge e si scrive.
+
+L'aggancio per nome + data di assunzione **resta**, e serve al primo giro: finche' le matricole non
+sono allineate, e per chi ha avuto due rapporti, e' ancora l'unica strada.
+
+### Due colonne del tabulato non vanno guardate, e le ferie non scadono (23/09/2026)
+
+Francesca Signorini, studio paghe: «per le due colonne *non indennizzabili* e *da godere nell'anno* ti
+chiedo di non guardarle. Sono contatori interni del programma. **Le ferie non scadono.**»
+
+Nel codice: `nonIndennizzabile` e `daGodereAnno` si **leggono e si conservano** (stanno nel documento,
+buttarli sarebbe perdere un dato) ma non entrano in nessun calcolo e non si mostrano da nessuna parte.
+Il commento in `rateiParse.ts` lo dice, cosi' nessuno ricomincia a usarli.
+
+La colonna **«Da fruire» non e' una di quelle due**, ed e' quella che il gestionale usa. Misurata sulle
+85 righe vive di NZ: `da_fruire = residuo + da_maturare` su **85 righe su 85**, scarto medio 0,000. E'
+una somma, non una scadenza. Per questo l'etichetta e' passata da «Entro fine anno» a **«Totale a fine
+anno»**: la prima faceva credere a un termine ultimo che non esiste. Un test lo tiene fermo: nessun
+avviso puo' contenere «entro fine anno», «scadono» o «scadenza».
 
 ## Fase 2 — le richieste (migration 251)
 
@@ -134,6 +166,57 @@ Destinatari: i referenti attivi con email (filtrati per punto vendita quando ne 
 Segreti: `RESEND_API_KEY`, `DISTINTA_EMAIL_FROM`, gli stessi di `send-distinta-email`.
 Il testo della mail segue la regola qui sotto: lo legge anche chi non lavora nel gestionale.
 
+## Come si parla a chi chiede le ferie (23/09/2026)
+
+**Il dipendente non ragiona in ore.** Ragiona a giornata, mezza giornata, o due ore di permesso.
+Patrizio, davanti al modulo di Falchi: «che senso ha parlare in modo tecnico con una commessa di un
+negozio di abbigliamento». Aveva ragione, e il difetto non erano i numeri (tutti e tre giusti, verificati)
+ma l'unita' di misura con cui erano scritti.
+
+Quindi il modulo che esce ha **due righe e due unita'**:
+
+| | Quante ne hai |
+|---|---|
+| Ferie | 5 giornate |
+| Permessi | 1 ora e 36 minuti |
+
+- **Ferie a giornate**, mai arrotondate per eccesso: 5,4 giornate si leggono «5 giornate», perche'
+  quella mezza non ce l'ha. La mezza si scrive solo quando c'e' davvero (`giornateInParole`).
+- **Permessi a ore e minuti**, con ex festivita' e ROL **sommati in una voce sola**: sono due borse che
+  distinguono le paghe, non chi chiede un'ora di permesso. Quale si scala lo decide l'ufficio, e la
+  decisione la prende comunque il referente (`oreInParole`).
+- **Quando le ore di permesso fanno giornate intere o mezze, il foglio lo dice**: «1 ora e 36 minuti,
+  cioe' una giornata intera» (`permessiInParole`). Le 4 ex festivita' sono giornate per contratto, e su
+  un part time corto una giornata vale poche ore: scritta solo in ore sembra uno spezzone da dentista
+  invece di un giorno libero. La frase si aggiunge solo quando il conto torna esatto, altrimenti
+  sarebbe una precisione finta.
+- Spariti dal foglio: le ore con la virgola, «una giornata vale 1,60 h», il totale maturabile, e i nomi
+  «Ex festivita'» e «ROL», che nella tabella dei giorni diventano «Permesso».
+
+**La pagina dell'amministrazione resta in ore**, con le tre voci separate: li' servono, ed e' l'unica
+unita' con cui i conti tornano quando le persone hanno orari diversi.
+
+### Perche' la giornata e' l'orario settimanale diviso cinque
+
+Non e' una convenzione nostra, ed e' scritta dentro il documento delle paghe. Il CCNL da' **26 giorni
+lavorativi** di ferie su base sei giorni (4,33 settimane) e **4 giornate** di ex festivita'. Il rateo
+annuo di ex festivita' del tabulato e' **0,8 x orario settimanale**, che e' esattamente
+**4 x (orario / 5)**: verificato su tutte e 39 le persone con orario reale, da 8 a 40 ore settimanali,
+il rapporto fa 0,8000 e le giornate fanno 4,000, senza una sola eccezione.
+
+Da cui: ferie annue = 4,325 x orario settimanale = **21,6 giornate**, le stesse per un part time da 8
+ore e per un tempo pieno da 40. E' il principio del part time: stesso numero di giorni, ogni giorno
+vale le ore di quella persona.
+
+### «Da maturare» guarda la fine del contratto, non dicembre
+
+La colonna «Spett. Maturab» e' vuota su 12 righe di ferie su 42, e non e' un difetto di lettura: e'
+vuota per chi ha un determinato che scade entro meta' settembre, quindi non matura piu' un mese intero.
+Falchi scade il 05/09: 8,65 ore sono davvero tutto quello che avra'. Per i determinati che scadono il 23
+o il 30 settembre la colonna vale un mese. **Resta aperto**: l'etichetta «Totale a fine anno» sulla
+pagina dell'amministrazione e' imprecisa per i 25 determinati, perche' per loro il limite e' la scadenza
+del contratto e non dicembre.
+
 ## Cosa vede il dipendente, e cosa no
 
 Il modulo esportato (`src/lib/ferieExport.ts`) **lo legge la persona**. Quindi porta le sue ore, a che
@@ -163,8 +246,18 @@ persone) è ancora di Patrizio.
 
 1. **Tabulati di Made e Zago**: il lettore è verificato solo sul documento New Zago. Fino ad allora la
    parità tenant vale per lo schema, non per la lettura.
-2. **Accesso dei dipendenti**: il ruolo esiste ed e' blindato, ma nessuno lo usa ancora. Serve
+2. **L'elenco dipendenti completo dello studio**: quello in mano è aggiornato al **03/09/2026** e
+   nel frattempo ci sono cessazioni, proroghe, trasformazioni e assunzioni. Francesca sta preparando un
+   prospetto nuovo, ma deve unire a mano più stampe: non esiste una stampa sola con tutti i dati.
+   Finché non arriva, l'anagrafica va allineata dai documenti che arrivano uno per uno (lettere,
+   tabulato dei ratei), che è comunque la strada buona.
+3. **Accesso dei dipendenti**: il ruolo esiste ed e' blindato, ma nessuno lo usa ancora. Serve
    decidere come si danno gli accessi (una casella a testa, una per punto vendita, un link
    personale) e collegare l'utente alla sua scheda dipendente.
-3. **Fase 4**: il file di ritorno alle paghe con le ferie godute.
-4. **Coefficienti**: 4,325 / 0,8 / 0,7 restano dedotti finché lo studio non li conferma.
+4. ~~**Fase 4**: il file di ritorno alle paghe con le ferie godute.~~ **Non serve** (Francesca
+   Signorini, 23/09/2026): le assenze le riceve gia' ogni mese dal file presenze di **People Smart**
+   che prepara Veronica e che lei importa nel suo programma. «Non ho bisogno del piano ferie a parte.»
+   Il piano ferie resta quindi uno strumento **interno**, per decidere e per far quadrare i turni: a
+   valle non deve produrre niente per lo studio.
+5. **Coefficienti**: 4,325 / 0,8 / 0,7 restano dedotti finché lo studio non li conferma. Confermata
+   invece la **regola** dei ROL: si maturano solo dopo 24 mesi.
