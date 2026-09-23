@@ -16,7 +16,7 @@ import { test, expect } from '@playwright/test'
  *
  * Pagine chiave: aggiungere qui le rotte stabili da controllare.
  */
-const PAGES = ['/', '/scadenzario', '/fatturazione', '/banche', '/fornitori', '/report-sincronizzazioni', '/dipendenti', '/dipendenti?view=ferie', '/dipendenti?view=ferie&ferie=ratei', '/produttivita', '/incassi-giornalieri', '/chiusura-cassa', '/liquidazione-iva', '/fabbisogno', '/outlet/operativi', '/confronto-outlet', '/margini', '/margini-categoria', '/budget', '/cash-flow', '/scenario'] // '/' = dashboard; rotte chiave del ciclo passivo + banche + report sync + personale (organico granitico e le due schede ferie: richieste, che carica jspdf e xlsx, e saldi dalle paghe, che carica pdfjs) + specchietto incassi (admin + cassiera) + simulazione fabbisogno + pagine outlet/analitiche (devono reggere un outlet in apertura senza ricavi)
+const PAGES = ['/', '/scadenzario', '/fatturazione', '/banche', '/fornitori', '/report-sincronizzazioni', '/dipendenti', '/dipendenti?view=ferie', '/dipendenti?view=ferie&ferie=approvazioni', '/dipendenti?view=ferie&ferie=ratei', '/produttivita', '/incassi-giornalieri', '/chiusura-cassa', '/liquidazione-iva', '/fabbisogno', '/outlet/operativi', '/confronto-outlet', '/margini', '/margini-categoria', '/budget', '/cash-flow', '/scenario'] // '/' = dashboard; rotte chiave del ciclo passivo + banche + report sync + personale (organico granitico e le tre schede ferie: richieste (jspdf e xlsx), approvazioni e saldi dalle paghe (pdfjs)) + specchietto incassi (admin + cassiera) + simulazione fabbisogno + pagine outlet/analitiche (devono reggere un outlet in apertura senza ricavi)
 
 const EMAIL = process.env.TEST_USER_EMAIL
 const PASSWORD = process.env.TEST_USER_PASSWORD

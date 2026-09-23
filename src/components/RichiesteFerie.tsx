@@ -306,11 +306,29 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
       );
       if (errGiorni) throw errGiorni;
 
+      // L'avviso ai referenti e' un di piu': se la mail non e' configurata
+      // (o non parte) la richiesta resta registrata lo stesso, e in
+      // gestionale l'avviso c'e' comunque.
+      let mail: string | null = null;
+      if (nuovoStato === 'inviata' && requestId) {
+        try {
+          const { data } = await supabase.functions.invoke('leave-notify', {
+            body: { request_id: requestId, momento: 'richiesta' },
+          });
+          mail = (data as { data?: { mail?: string } } | null)?.data?.mail ?? null;
+        } catch {
+          mail = 'failed';
+        }
+      }
+
       toast({
         type: 'success',
         message: nuovoStato === 'bozza'
           ? 'Bozza salvata: resta qui finché non la mandi.'
-          : `Richiesta registrata: ${giorniScelti.length} ${giorniScelti.length === 1 ? 'giorno' : 'giorni'} per ${[persona.cognome, persona.nome].filter(Boolean).join(' ')}.`,
+          : `Richiesta registrata: ${giorniScelti.length} ${giorniScelti.length === 1 ? 'giorno' : 'giorni'} per ${[persona.cognome, persona.nome].filter(Boolean).join(' ')}.`
+            + (mail === 'sent' ? ' I referenti sono stati avvisati per mail.'
+              : mail === 'skipped' ? ' Nessuna mail: i referenti non hanno ancora un indirizzo.'
+                : mail === 'failed' ? ' La mail ai referenti non è partita: l\'avviso resta comunque nel gestionale.' : ''),
       });
       svuota();
       await carica();

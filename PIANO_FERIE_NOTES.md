@@ -64,6 +64,37 @@ precedente al 31/08.
 Scalano le richieste `inviata` (giorni `richiesto`) e quelle approvate (giorni `approvato`). Le
 **bozze non tolgono niente**: si vedono, e basta.
 
+## Fase 3 — chi decide, e come (migration 252)
+
+- `leave_approvers`: l'elenco dei referenti. **Non e' un ruolo**, ed e' la ragione per cui esiste:
+  sui dati veri di NZ i tre referenti nominati sono Sabrina (contabile), Denise (**viewer**, sola
+  lettura) e Massimo (**nessun account**). Legare l'approvazione al ruolo lasciava fuori due su tre.
+  Con `user_id` si decide in app; con la sola `email` si riceve soltanto l'avviso. `outlet_code`
+  vuoto vuol dire tutti i punti vendita.
+- `leave_settings`: destinatari fissi degli avvisi, per azienda. Nessun indirizzo nel codice, come
+  per il report di cassa.
+- `posso_decidere_ferie()`: vero per super_advisor / coo / contabile **oppure** per chi e' fra i
+  referenti attivi, qualunque sia il suo ruolo.
+- `leave_decidi(request_id, giorni_approvati[], motivazione)`: la decisione, anche parziale. I giorni
+  passati sono concessi, tutti gli altri respinti; l'elenco vuoto respinge tutto. Aggiorna i giorni,
+  la richiesta e la traccia **insieme**, e controlla i permessi in un posto solo.
+  Il motivo e' **obbligatorio** appena si toglie un giorno: un rifiuto senza motivo fa ricominciare
+  il giro da capo.
+- Avviso in-app su `notifications` (come la riapertura cassa) piu' la mail via `leave-notify`.
+  La mail e' il secondo canale: se non e' configurata, la decisione vale lo stesso.
+
+Verificato sul vivo di NZ in transazione annullata: due giorni su tre concessi danno
+`approvata_parziale`, il saldo cala di 12 h (solo i concessi), il rifiuto senza motivo viene
+bloccato e una cassiera che prova a decidere riceve «Non autorizzato». Zero righe scritte.
+
+### leave-notify (edge function)
+
+Manda ai referenti la mail quando una richiesta viene registrata e quando viene decisa.
+Destinatari: i referenti attivi con email (filtrati per punto vendita quando ne hanno uno) piu'
+`leave_settings.recipients`. Nessuno configurato → `mail: "skipped"` e nessuno perde niente.
+Segreti: `RESEND_API_KEY`, `DISTINTA_EMAIL_FROM`, gli stessi di `send-distinta-email`.
+Il testo della mail segue la regola qui sotto: lo legge anche chi non lavora nel gestionale.
+
 ## Cosa vede il dipendente, e cosa no
 
 Il modulo esportato (`src/lib/ferieExport.ts`) **lo legge la persona**. Quindi porta le sue ore, a che
@@ -84,15 +115,17 @@ c'è, così il conto è uno solo e lo fa il database.
 ## Accessi
 
 Il ruolo `dipendente` esiste dalla migration 249 ed è blindato: una policy RESTRICTIVE `dipendente_block`
-su ogni tabella RLS fuori da una whitelist minima. Nessun utente con quel ruolo esiste ancora, e le
-tabelle `leave_request*` portano lo stesso blocco: sarà la fase 3 ad aprire a ciascuno **le sue** righe,
-quando esisterà il collegamento fra utente e scheda dipendente.
+su ogni tabella RLS fuori da una whitelist minima. Nessun utente con quel ruolo esiste ancora, e tutte
+le tabelle `leave_*` portano lo stesso blocco: si aprirà a ciascuno **le sue** righe quando esisterà il
+collegamento fra utente e scheda dipendente, e quella decisione (come si danno gli accessi a cinquantasei
+persone) è ancora di Patrizio.
 
 ## Cosa manca
 
 1. **Tabulati di Made e Zago**: il lettore è verificato solo sul documento New Zago. Fino ad allora la
    parità tenant vale per lo schema, non per la lettura.
-2. **Fase 3**: approvazione (anche parziale) con motivazione, notifica al referente, accesso dei
-   dipendenti.
+2. **Accesso dei dipendenti**: il ruolo esiste ed e' blindato, ma nessuno lo usa ancora. Serve
+   decidere come si danno gli accessi (una casella a testa, una per punto vendita, un link
+   personale) e collegare l'utente alla sua scheda dipendente.
 3. **Fase 4**: il file di ritorno alle paghe con le ferie godute.
 4. **Coefficienti**: 4,325 / 0,8 / 0,7 restano dedotti finché lo studio non li conferma.

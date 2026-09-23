@@ -15646,6 +15646,53 @@ export type Database = {
           },
         ]
       }
+      leave_approvers: {
+        Row: {
+          attivo: boolean
+          company_id: string
+          created_at: string
+          created_by: string | null
+          email: string | null
+          id: string
+          nome: string
+          note: string | null
+          outlet_code: string | null
+          user_id: string | null
+        }
+        Insert: {
+          attivo?: boolean
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          id?: string
+          nome: string
+          note?: string | null
+          outlet_code?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          attivo?: boolean
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          email?: string | null
+          id?: string
+          nome?: string
+          note?: string | null
+          outlet_code?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_approvers_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       leave_request_days: {
         Row: {
           company_id: string
@@ -15836,6 +15883,41 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_employee_costs_by_outlet"
             referencedColumns: ["employee_id"]
+          },
+        ]
+      }
+      leave_settings: {
+        Row: {
+          app_url: string | null
+          avvisa_alla_decisione: boolean
+          avvisa_alla_richiesta: boolean
+          company_id: string
+          recipients: string[]
+          updated_at: string
+        }
+        Insert: {
+          app_url?: string | null
+          avvisa_alla_decisione?: boolean
+          avvisa_alla_richiesta?: boolean
+          company_id: string
+          recipients?: string[]
+          updated_at?: string
+        }
+        Update: {
+          app_url?: string | null
+          avvisa_alla_decisione?: boolean
+          avvisa_alla_richiesta?: boolean
+          company_id?: string
+          recipients?: string[]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_settings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -25887,6 +25969,14 @@ export type Database = {
       }
       invoice_number_keys: { Args: { p_inv: string }; Returns: string[] }
       jwt_company_id: { Args: never; Returns: string }
+      leave_decidi: {
+        Args: {
+          p_giorni_approvati?: string[]
+          p_motivazione?: string
+          p_request_id: string
+        }
+        Returns: string
+      }
       leave_ore_settimanali_da_rateo: {
         Args: { p_rateo_annuo: number }
         Returns: number
@@ -25937,6 +26027,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      posso_decidere_ferie: { Args: never; Returns: boolean }
       project_cash_closing_to_daily_revenue: {
         Args: { p_closing_id: string }
         Returns: undefined

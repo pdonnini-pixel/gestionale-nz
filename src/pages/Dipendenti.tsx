@@ -65,6 +65,7 @@ const PdfViewer = lazy(() => import('../components/PdfViewer'));
 const RateiFerieImport = lazy(() => import('../components/RateiFerieImport'));
 // Le richieste tirano dentro jspdf e xlsx: si caricano solo aprendo la scheda.
 const RichiesteFerie = lazy(() => import('../components/RichiesteFerie'));
+const ApprovazioniFerie = lazy(() => import('../components/ApprovazioniFerie'));
 
 // ============================================================================
 // TYPES
@@ -347,8 +348,9 @@ export default function Dipendenti() {
   // arrivano dalle paghe (una volta al mese). Anche questa sta nell'URL, cosi'
   // un link porta dove deve.
   const ferieParam = searchParams.get('ferie');
-  const ferieTab: 'richieste' | 'ratei' = ferieParam === 'ratei' ? 'ratei' : 'richieste';
-  const setFerieTab = (next: 'richieste' | 'ratei') => {
+  const ferieTab: 'richieste' | 'approvazioni' | 'ratei' =
+    ferieParam === 'ratei' ? 'ratei' : ferieParam === 'approvazioni' ? 'approvazioni' : 'richieste';
+  const setFerieTab = (next: 'richieste' | 'approvazioni' | 'ratei') => {
     const p = new URLSearchParams(searchParams);
     p.set('ferie', next);
     setSearchParams(p);
@@ -1178,6 +1180,7 @@ export default function Dipendenti() {
               <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5 w-fit mb-4">
                 {([
                   { k: 'richieste' as const, label: 'Richieste' },
+                  { k: 'approvazioni' as const, label: 'Approvazioni' },
                   { k: 'ratei' as const, label: 'Saldi dalle paghe' },
                 ]).map((t) => (
                   <button
@@ -1191,9 +1194,9 @@ export default function Dipendenti() {
                 ))}
               </div>
               <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
-                {ferieTab === 'richieste'
-                  ? <RichiesteFerie companyId={COMPANY_ID} userId={USER_ID} />
-                  : <RateiFerieImport companyId={COMPANY_ID} userId={USER_ID} />}
+                {ferieTab === 'richieste' && <RichiesteFerie companyId={COMPANY_ID} userId={USER_ID} />}
+                {ferieTab === 'approvazioni' && <ApprovazioniFerie companyId={COMPANY_ID} userId={USER_ID} />}
+                {ferieTab === 'ratei' && <RateiFerieImport companyId={COMPANY_ID} userId={USER_ID} />}
               </Suspense>
             </>
           )}
