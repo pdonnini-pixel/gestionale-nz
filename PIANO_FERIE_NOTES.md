@@ -41,6 +41,25 @@ dichiara, e una conferma diversa si cambia lì.
 - `persone` e `righe_lette` sono due conteggi **diversi**: mostrarne uno al posto dell'altro è stato
   un bug vero (la 250 lo ha corretto).
 
+### Le cessazioni le porta il documento (23/09/2026)
+
+Il tabulato scrive la data di cessazione accanto al nome. Fino al 23/09 il lettore la salvava in
+`leave_accrual_rows.data_cessazione` e nessuno la usava: Bularca (cessata il 30/06) e Niccoli
+(30/07) risultavano ancora in forza, e lo abbiamo scoperto **chiedendolo allo studio paghe**, cioe'
+chiedendo fuori una cosa che era gia' dentro. Ora il salvataggio dell'import allinea l'anagrafica,
+e l'anteprima dice prima chi sta per essere segnato cessato. Scrive **solo dove manca**: una data
+messa a mano non si tocca.
+
+### Le matricole non si possono allineare, e va bene cosi'
+
+Francesca Signorini (studio paghe), 23/09/2026: le matricole sono **automatiche e cronologiche** in
+base alla data di assunzione, e lei non puo' modificarle. Un secondo rapporto di lavoro prende una
+matricola nuova: Sestini era 0000087 col contratto a chiamata (03/06–19/06) e 0000092 col
+determinato part time dal 22/06. Sono questi i 5 nominativi su 42 che non tornavano per matricola.
+Conseguenza: l'aggancio per **nome + matricola o data di assunzione** non e' un ripiego, e' la sola
+strada possibile; `employee_matricole` tiene lo storico, cosi' i dati vecchi restano agganciati.
+Correzioni applicate con `NZ_ONLY_20260923_253_anagrafica_da_studio_paghe.sql` (solo NZ).
+
 ## Fase 2 — le richieste (migration 251)
 
 - `leave_requests` (la richiesta), `leave_request_days` (un giorno: data, voce, giornata/mezza/ore,

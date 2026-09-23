@@ -168,6 +168,19 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
     () => persone.filter((p) => !p.scelta && (p.abbinamento.daConfermare || !p.abbinamento.employeeId)),
     [persone],
   );
+
+  // Chi il documento dichiara cessato mentre in anagrafica risulta ancora
+  // in forza. Salvando viene allineato: il dato ce l'abbiamo, non serve
+  // chiederlo a nessuno.
+  const daCessare = useMemo(
+    () => persone.filter((p) => {
+      if (!p.dataCessazione) return false;
+      const id = p.scelta ?? p.abbinamento.employeeId;
+      if (!id) return false;
+      return dipendenti.find((d) => d.id === id)?.isActive !== false;
+    }),
+    [persone, dipendenti],
+  );
   const agganciate = useMemo(
     () => persone.filter((p) => p.scelta || p.abbinamento.employeeId).length,
     [persone],
@@ -289,13 +302,39 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
         }).eq('id', employeeId);
       }
 
+      // Le cessazioni: il tabulato le porta scritte, e prima di oggi
+      // restavano dentro le righe importate senza arrivare all'anagrafica.
+      // Su agosto 2026 erano due, Bularca e Niccoli, e in anagrafica
+      // risultavano ancora in forza: le abbiamo sapute solo chiedendo allo
+      // studio una cosa che era gia' nel documento.
+      // Si scrive solo dove manca: una data messa a mano non si tocca.
+      let cessate = 0;
+      for (const p of persone) {
+        const employeeId = p.scelta ?? p.abbinamento.employeeId;
+        if (!employeeId || !p.dataCessazione) continue;
+        const { data } = await supabase.from('employees')
+          .update({
+            data_cessazione: p.dataCessazione,
+            termination_date: p.dataCessazione,
+            is_active: false,
+          })
+          .eq('id', employeeId)
+          .is('data_cessazione', null)
+          .select('id');
+        if (data?.length) cessate += 1;
+      }
+
       if (vecchi?.length) {
         await supabase.from('leave_accrual_imports')
           .update({ attivo: false, sostituito_da: importId })
           .in('id', vecchi.map((v: { id: string }) => v.id));
       }
 
-      toast({ type: 'success', message: `Ratei di ${MESI[mese]} ${anno} importati: ${persone.length} persone, ${agganciate} agganciate.` });
+      toast({
+        type: 'success',
+        message: `Ratei di ${MESI[mese]} ${anno} importati: ${persone.length} persone, ${agganciate} agganciate.`
+          + (cessate ? ` ${cessate === 1 ? 'Una persona è stata segnata come cessata' : `${cessate} persone sono state segnate come cessate`}, come dice il documento.` : ''),
+      });
       setFile(null); setLetto(null); setPersone([]);
       if (fileRef.current) fileRef.current.value = '';
       void caricaStorico();
@@ -386,6 +425,23 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
                   </div>
                 </>}
           </div>
+
+          {daCessare.length > 0 && (
+            <div className="px-5 py-3 text-sm bg-rose-50 text-rose-900 flex items-start gap-2">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-rose-600" />
+              <div>
+                <strong>
+                  {daCessare.length === 1
+                    ? 'Una persona risulta cessata nel documento'
+                    : `${daCessare.length} persone risultano cessate nel documento`}
+                  , in anagrafica {daCessare.length === 1 ? 'è' : 'sono'} ancora in forza.
+                </strong>{' '}
+                Salvando {daCessare.length === 1 ? 'viene segnata cessata' : 'vengono segnate cessate'} con la data del documento:{' '}
+                {daCessare.map((p) => `${p.nominativo} (${p.dataCessazione?.split('-').reverse().join('/')})`).join(', ')}.
+                Restano in archivio con tutta la loro storia. Una data di cessazione già scritta a mano non viene toccata.
+              </div>
+            </div>
+          )}
 
           {daConfermare.length > 0 && (
             <div className="px-5 py-3 text-sm bg-blue-50 text-blue-900 flex items-start gap-2">
