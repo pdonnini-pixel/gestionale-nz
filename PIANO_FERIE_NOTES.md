@@ -166,6 +166,52 @@ Destinatari: i referenti attivi con email (filtrati per punto vendita quando ne 
 Segreti: `RESEND_API_KEY`, `DISTINTA_EMAIL_FROM`, gli stessi di `send-distinta-email`.
 Il testo della mail segue la regola qui sotto: lo legge anche chi non lavora nel gestionale.
 
+## Come si parla a chi chiede le ferie (23/09/2026)
+
+**Il dipendente non ragiona in ore.** Ragiona a giornata, mezza giornata, o due ore di permesso.
+Patrizio, davanti al modulo di Falchi: «che senso ha parlare in modo tecnico con una commessa di un
+negozio di abbigliamento». Aveva ragione, e il difetto non erano i numeri (tutti e tre giusti, verificati)
+ma l'unita' di misura con cui erano scritti.
+
+Quindi il modulo che esce ha **due righe e due unita'**:
+
+| | Quante ne hai |
+|---|---|
+| Ferie | 5 giornate |
+| Permessi | 1 ora e 36 minuti |
+
+- **Ferie a giornate**, mai arrotondate per eccesso: 5,4 giornate si leggono «5 giornate», perche'
+  quella mezza non ce l'ha. La mezza si scrive solo quando c'e' davvero (`giornateInParole`).
+- **Permessi a ore e minuti**, con ex festivita' e ROL **sommati in una voce sola**: sono due borse che
+  distinguono le paghe, non chi chiede un'ora di permesso. Quale si scala lo decide l'ufficio, e la
+  decisione la prende comunque il referente (`oreInParole`).
+- Spariti dal foglio: le ore con la virgola, «una giornata vale 1,60 h», il totale maturabile, e i nomi
+  «Ex festivita'» e «ROL», che nella tabella dei giorni diventano «Permesso».
+
+**La pagina dell'amministrazione resta in ore**, con le tre voci separate: li' servono, ed e' l'unica
+unita' con cui i conti tornano quando le persone hanno orari diversi.
+
+### Perche' la giornata e' l'orario settimanale diviso cinque
+
+Non e' una convenzione nostra, ed e' scritta dentro il documento delle paghe. Il CCNL da' **26 giorni
+lavorativi** di ferie su base sei giorni (4,33 settimane) e **4 giornate** di ex festivita'. Il rateo
+annuo di ex festivita' del tabulato e' **0,8 x orario settimanale**, che e' esattamente
+**4 x (orario / 5)**: verificato su tutte e 39 le persone con orario reale, da 8 a 40 ore settimanali,
+il rapporto fa 0,8000 e le giornate fanno 4,000, senza una sola eccezione.
+
+Da cui: ferie annue = 4,325 x orario settimanale = **21,6 giornate**, le stesse per un part time da 8
+ore e per un tempo pieno da 40. E' il principio del part time: stesso numero di giorni, ogni giorno
+vale le ore di quella persona.
+
+### «Da maturare» guarda la fine del contratto, non dicembre
+
+La colonna «Spett. Maturab» e' vuota su 12 righe di ferie su 42, e non e' un difetto di lettura: e'
+vuota per chi ha un determinato che scade entro meta' settembre, quindi non matura piu' un mese intero.
+Falchi scade il 05/09: 8,65 ore sono davvero tutto quello che avra'. Per i determinati che scadono il 23
+o il 30 settembre la colonna vale un mese. **Resta aperto**: l'etichetta «Totale a fine anno» sulla
+pagina dell'amministrazione e' imprecisa per i 25 determinati, perche' per loro il limite e' la scadenza
+del contratto e non dicembre.
+
 ## Cosa vede il dipendente, e cosa no
 
 Il modulo esportato (`src/lib/ferieExport.ts`) **lo legge la persona**. Quindi porta le sue ore, a che

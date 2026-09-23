@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   oreGiornata, oreDelGiorno, giornateDaOre, totaliPerVoce, verificaRichiesta,
+  giornateInParole, oreInParole,
   grigliaDelMese, eDomenica, festivitaItaliane, etichettaFestivita,
   formattaOre, formattaGiornate, formattaData, perMese, intervalli,
   type GiornoRichiesto, type DisponibilitaVoce,
@@ -204,5 +205,67 @@ describe('raggruppamenti per il modulo', () => {
   it('spezza quando salta un giorno', () => {
     const i = intervalli([giorno('2026-10-05'), giorno('2026-10-08')]);
     expect(i.map((x) => x.giorni)).toEqual([1, 1]);
+  });
+});
+
+
+// Come si dicono i saldi a chi li deve usare. Il ragionamento di una
+// commessa e' «una giornata, mezza giornata, o due ore di permesso»: le ore
+// con la virgola sono l'unita' con cui il gestionale fa i conti, non quella
+// con cui si parla alle persone.
+describe('giornateInParole', () => {
+  it.each([
+    [48, 6, '8 giornate'],
+    [8.65, 1.6, '5 giornate'],       // Falchi: 5,4 giornate, la mezza non ce l'ha
+    [9.0, 1.6, '5 giornate e mezza'], // 5,625: la mezza c'e'
+    [6, 6, '1 giornata'],
+    [3, 6, 'mezza giornata'],
+    [1, 6, 'meno di mezza giornata'],
+    [0, 6, 'nessuna'],
+  ])('%s ore con giornata da %s fanno «%s»', (ore, giornata, atteso) => {
+    expect(giornateInParole(ore, giornata)).toBe(atteso);
+  });
+
+  it('non arrotonda mai per eccesso', () => {
+    // Su sette orari veri: le giornate dette non superano mai quelle vere.
+    for (const oreSettimanali of [8, 18, 20, 24, 25, 30, 40]) {
+      const giornata = oreSettimanali / 5;
+      for (const ore of [1.3, 4.9, 8.65, 17.4, 52.2]) {
+        const detto = giornateInParole(ore, giornata);
+        const numero = detto.startsWith('meno') || detto === 'nessuna'
+          ? 0
+          : parseFloat(detto.replace(/[^0-9]/g, '') || '0') + (/e mezza/.test(detto) ? 0.5 : 0);
+        const vere = ore / giornata;
+        expect(numero).toBeLessThanOrEqual(vere + 1e-9);
+      }
+    }
+  });
+
+  it('un saldo negativo non diventa zero in silenzio', () => {
+    expect(giornateInParole(-4.18, 6)).toMatch(/in anticipo/);
+  });
+
+  it('senza saldo non inventa niente', () => {
+    expect(giornateInParole(null, 6)).toBe('—');
+    expect(giornateInParole(10, 0)).toBe('—');
+  });
+});
+
+describe('oreInParole', () => {
+  it.each([
+    [1.6, '1 ora e 36 minuti'],
+    [2, '2 ore'],
+    [1, '1 ora'],
+    [0.5, '30 minuti'],
+    [4.1, '4 ore e 6 minuti'],
+    [0, 'nessuna'],
+  ])('%s ore si leggono «%s»', (ore, atteso) => {
+    expect(oreInParole(ore)).toBe(atteso);
+  });
+
+  it('niente virgole e niente «h»', () => {
+    for (const ore of [1.6, 7.25, 0.75, 13.33]) {
+      expect(oreInParole(ore)).not.toMatch(/[,.]|\bh\b/);
+    }
   });
 });
