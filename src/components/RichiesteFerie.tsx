@@ -18,7 +18,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import SceltaPersona from './SceltaPersona';
-import type { DipendenteRif } from '../lib/rateiParse';
+import { eAChiamata, type DipendenteRif } from '../lib/rateiParse';
 import {
   ETICHETTE_VOCE, ETICHETTE_VOCE_BREVI, ETICHETTE_TIPO, MESI, GIORNI_BREVI,
   grigliaDelMese, eDomenica, etichettaFestivita, oreGiornata, oreDelGiorno,
@@ -113,7 +113,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
     try {
       const [emp, alloc, disp, req, days, comp] = await Promise.all([
         supabase.from('employees')
-          .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active, ore_settimanali, ore_settimanali_paghe')
+          .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active, contratto_tipo, ore_settimanali, ore_settimanali_paghe')
           .eq('company_id', companyId),
         supabase.from('employee_outlet_allocations')
           .select('employee_id, outlet_code, is_primary, allocation_pct')
@@ -146,6 +146,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
           cognome: (d.cognome as string) ?? (d.last_name as string) ?? null,
           dataAssunzione: (d.data_assunzione as string) ?? (d.hire_date as string) ?? null,
           isActive: d.is_active !== false,
+          contrattoTipo: (d.contratto_tipo as string) ?? null,
           oreSettimanaliPaghe: d.ore_settimanali_paghe != null ? Number(d.ore_settimanali_paghe) : null,
           oreSettimanaliAnagrafica: d.ore_settimanali != null ? Number(d.ore_settimanali) : null,
           outlet: principale?.outlet_code ?? null,
@@ -441,8 +442,24 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
         </div>
       </div>
 
+      {/* Contratto a chiamata: non ci sono ore da godere, e dirlo e' meglio
+          che mostrare tre riquadri vuoti. */}
+      {persona && eAChiamata(persona.contrattoTipo) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 sm:p-5 flex items-start gap-3">
+          <Info className="text-amber-600 shrink-0 mt-0.5" size={20} />
+          <div className="text-sm text-amber-900">
+            <strong>Contratto a chiamata: non ci sono ferie o permessi da chiedere.</strong>
+            <p className="mt-1">
+              Con questo tipo di contratto ferie e permessi vengono pagati ogni mese in busta paga,
+              quindi il conteggio si azzera e non resta niente da godere. Se serve un giorno di
+              assenza si concorda la disponibilità, non si scala un saldo.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Saldi */}
-      {persona && (
+      {persona && !eAChiamata(persona.contrattoTipo) && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           {VOCI_ORDINE.map((voce) => {
             const s = saldi.find((x) => x.voce === voce);
@@ -481,7 +498,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
       )}
 
       {/* Calendario */}
-      {persona && (
+      {persona && !eAChiamata(persona.contrattoTipo) && (
         <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5">

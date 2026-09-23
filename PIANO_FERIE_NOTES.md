@@ -41,6 +41,26 @@ dichiara, e una conferma diversa si cambia lì.
 - `persone` e `righe_lette` sono due conteggi **diversi**: mostrarne uno al posto dell'altro è stato
   un bug vero (la 250 lo ha corretto).
 
+### Il contratto a chiamata non ha ferie da godere (23/09/2026)
+
+Francesca Signorini, studio paghe: nel contratto a chiamata il programma **non puo' stimare la
+maturazione**, quindi fa maturare il rateo **per intero**, come un tempo pieno. E ferie e permessi
+sono **indennizzati mensilmente**: il conteggio si azzera ogni mese, non restano ore da godere, resta
+fuori solo il TFR.
+
+Due conseguenze nel codice, tutte e due gia' applicate:
+
+1. **L'orario non si ricava dal rateo.** Su Focardi il rateo era 168,00 e ne usciva un orario di
+   38,84 ore a settimana, da cui una giornata di ferie da 7,77 ore: numeri formalmente corretti e
+   completamente finti. `eAChiamata()` in `rateiParse.ts` e' il controllo, l'import salta la
+   deduzione, e `NZ_ONLY_20260923_254` ha ripulito il valore gia' scritto.
+2. **Niente saldi da chiedere.** Nella scheda Richieste, per chi e' a chiamata, al posto dei tre
+   riquadri compare la spiegazione e il calendario non si apre: offrire ore che non esistono sarebbe
+   peggio che non mostrare niente.
+
+Oggi riguarda una persona sola su 54 in forza, ma e' il genere di caso che fa sbagliare un conto
+senza che nessuno se ne accorga.
+
 ### Le cessazioni le porta il documento (23/09/2026)
 
 Il tabulato scrive la data di cessazione accanto al nome. Fino al 23/09 il lettore la salvava in

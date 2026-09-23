@@ -3,6 +3,7 @@ import type { PdfItem } from './pdfText';
 import {
   parseRatei, parseRateoNum, oreSettimanaliDaRateo, oreGiornataDaRateo,
   abbinaDipendente, normNome, isTabulatoRatei, type DipendenteRif,
+  eAChiamata,
 } from './rateiParse';
 
 // Il repository è pubblico: i nomi qui sono inventati. La GEOMETRIA invece
@@ -253,5 +254,27 @@ describe('abbinaDipendente', () => {
   it('normalizza accenti e apostrofi', () => {
     expect(normNome("D'ALESSANDRO  Nicolò")).toBe('DALESSANDRO NICOLO');
     expect(normNome('Busé Sara')).toBe('BUSE SARA');
+  });
+});
+
+describe('contratto a chiamata', () => {
+  // Il programma delle paghe fa maturare il rateo per intero, perché non
+  // può stimare la maturazione: 168,00 ore come un tempo pieno. Dividerlo
+  // per 4,325 darebbe 38,84 ore a settimana, che non sono le ore di
+  // nessuno. (Studio paghe, 23/09/2026.)
+  it('riconosce il contratto comunque sia scritto', () => {
+    expect(eAChiamata('a_chiamata')).toBe(true);
+    expect(eAChiamata('A CHIAMATA')).toBe(true);
+    expect(eAChiamata('a chiamata')).toBe(true);
+    expect(eAChiamata('determinato')).toBe(false);
+    expect(eAChiamata('indeterminato')).toBe(false);
+    expect(eAChiamata(null)).toBe(false);
+    expect(eAChiamata(undefined)).toBe(false);
+  });
+
+  it('il rateo pieno darebbe un orario che non esiste', () => {
+    // 168,00 è il rateo di Focardi sul tabulato di agosto: il conto
+    // formale torna, ma il numero non descrive nessun orario vero.
+    expect(oreSettimanaliDaRateo(168)).toBe(38.84);
   });
 });

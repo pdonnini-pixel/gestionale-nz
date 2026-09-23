@@ -21,7 +21,7 @@ import { archiviaFile, avvisoArchiviazioneFallita, urlFileArchiviato } from '../
 import SceltaPersona from './SceltaPersona';
 import {
   parseRatei, isTabulatoRatei, abbinaDipendente, oreSettimanaliDaRateo, oreGiornataDaRateo,
-  VOCI, type RateiParsed, type RateoRow, type Abbinamento, type DipendenteRif,
+  eAChiamata, VOCI, type RateiParsed, type RateoRow, type Abbinamento, type DipendenteRif,
 } from '../lib/rateiParse';
 
 type Props = { companyId?: string; userId?: string | null };
@@ -107,7 +107,7 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
     void (async () => {
       const { data } = await supabase
         .from('employees')
-        .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active')
+        .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active, contratto_tipo')
         .eq('company_id', companyId);
       const righe = ((data as Record<string, unknown>[]) ?? []).map((d) => ({
         id: String(d.id),
@@ -116,6 +116,7 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
         cognome: (d.cognome as string) ?? (d.last_name as string) ?? null,
         dataAssunzione: (d.data_assunzione as string) ?? (d.hire_date as string) ?? null,
         isActive: d.is_active !== false,
+        contrattoTipo: (d.contratto_tipo as string) ?? null,
       }));
       // In ordine alfabetico: l'ordine del database non dice niente a nessuno.
       righe.sort((a, b) =>
@@ -289,12 +290,14 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
       if (errRighe) throw errRighe;
 
       // Orario settimanale dal rateo: si scrive accanto a quello a mano,
-      // non al suo posto.
+      // non al suo posto. MAI per i contratti a chiamata: li' il rateo e'
+      // pieno per costruzione e l'orario che se ne ricava e' finto.
       for (const p of persone) {
         const employeeId = p.scelta ?? p.abbinamento.employeeId;
         const ferie = p.righe.find((r) => r.voce === 'F01');
         const oreSett = oreSettimanaliDaRateo(ferie?.rateoAnnuo ?? null);
-        if (!employeeId || oreSett == null) continue;
+        const chiamata = eAChiamata(dipendenti.find((d) => d.id === employeeId)?.contrattoTipo);
+        if (!employeeId || oreSett == null || chiamata) continue;
         await supabase.from('employees').update({
           ore_settimanali_paghe: oreSett,
           ore_settimanali_paghe_at: new Date().toISOString(),

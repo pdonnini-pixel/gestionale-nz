@@ -407,7 +407,19 @@ export type DipendenteRif = {
   cognome: string | null;
   dataAssunzione: string | null;
   isActive: boolean;
+  /** Serve per i contratti a chiamata, dove il rateo non dice l'orario. */
+  contrattoTipo?: string | null;
 };
+
+/**
+ * Nel contratto a chiamata il programma delle paghe non puo' stimare la
+ * maturazione, quindi fa maturare il rateo PER INTERO: 168,00 ore, come
+ * un tempo pieno. Dividerlo per 4,325 darebbe 38,84 ore a settimana, che
+ * non sono le ore di nessuno.
+ * (Francesca Signorini, studio paghe, 23/09/2026.)
+ */
+export const eAChiamata = (contratto: string | null | undefined): boolean =>
+  (contratto ?? '').toLowerCase().replace(/[^a-z]/g, '') === 'achiamata';
 
 export type Abbinamento = {
   nominativo: string;
