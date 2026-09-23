@@ -87,10 +87,23 @@ describe('verifica della richiesta', () => {
     expect(a.filter((x) => x.gravita !== 'nota')).toHaveLength(0);
   });
 
-  it('blocca oltre quello che maturerà entro fine anno', () => {
+  it('blocca oltre il totale che risulterà a fine anno', () => {
     const giorni = Array.from({ length: 13 }, (_, i) => giorno(`2026-10-${String(i + 5).padStart(2, '0')}`));
     const a = verificaRichiesta(giorni, [disp()], 6);
-    expect(a.some((x) => x.gravita === 'blocco' && /entro fine anno/.test(x.testo))).toBe(true);
+    const blocco = a.find((x) => x.gravita === 'blocco' && x.voce === 'F01');
+    expect(blocco).toBeTruthy();
+    expect(blocco!.testo).toMatch(/tutto l'anno maturato/);
+  });
+
+  // Le ferie NON scadono (Francesca Signorini, studio paghe, 23/09/2026).
+  // Il messaggio non deve quindi parlare di scadenze o di fine anno come
+  // termine ultimo: era «entro fine anno», e faceva credere il contrario.
+  it('non fa credere che le ferie scadano a fine anno', () => {
+    const giorni = Array.from({ length: 13 }, (_, i) => giorno(`2026-10-${String(i + 5).padStart(2, '0')}`));
+    const a = verificaRichiesta(giorni, [disp()], 6);
+    for (const avviso of a) {
+      expect(avviso.testo).not.toMatch(/entro fine anno|scadono|scadenza/i);
+    }
   });
 
   it('avvisa, senza bloccare, se supera solo il disponibile di oggi', () => {

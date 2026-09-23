@@ -154,13 +154,17 @@ export function verificaRichiesta(
     if (!chiesto) continue;
 
     const residuoOggi = d.residuo_disponibile ?? d.residuo ?? 0;
-    const finoAFineAnno = d.da_fruire_disponibile ?? d.da_fruire ?? residuoOggi;
+    // «Da fruire» sul tabulato e' residuo + quello che resta da maturare:
+    // verificato sulle 85 righe di NZ, coincide al centesimo. Non e' una
+    // scadenza: le ferie non scadono (Francesca Signorini, 23/09/2026), e
+    // infatti il messaggio non dice piu' «entro fine anno».
+    const totaleAnno = d.da_fruire_disponibile ?? d.da_fruire ?? residuoOggi;
 
-    if (chiesto > finoAFineAnno + 0.001) {
+    if (chiesto > totaleAnno + 0.001) {
       avvisi.push({
         gravita: 'blocco',
         voce: d.voce,
-        testo: `${ETICHETTE_VOCE[d.voce]}: chieste ${formattaOre(chiesto)}, ma entro fine anno ne saranno disponibili ${formattaOre(finoAFineAnno)}.`,
+        testo: `${ETICHETTE_VOCE[d.voce]}: chieste ${formattaOre(chiesto)}, ma anche con tutto l'anno maturato ne risultano ${formattaOre(totaleAnno)}.`,
       });
     } else if (chiesto > residuoOggi + 0.001) {
       avvisi.push({

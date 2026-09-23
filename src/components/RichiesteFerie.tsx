@@ -464,7 +464,8 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
           {VOCI_ORDINE.map((voce) => {
             const s = saldi.find((x) => x.voce === voce);
             const oggi = s?.residuo_disponibile ?? s?.residuo ?? null;
-            const fineAnno = s?.da_fruire_disponibile ?? s?.da_fruire ?? null;
+            // Totale a fine anno, non una scadenza: le ferie non scadono.
+            const totaleAnno = s?.da_fruire_disponibile ?? s?.da_fruire ?? null;
             const inQuesta = totali[voce];
             const dopo = oggi != null ? round2(oggi - inQuesta) : null;
             return (
@@ -477,7 +478,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
                       {formattaGiornate(oggi, orario.ore)} disponibili oggi
                     </div>
                     <div className="mt-2 space-y-0.5 text-xs text-slate-600">
-                      <div>Entro fine anno: {formattaOre(fineAnno)}</div>
+                      <div>Totale a fine anno: {formattaOre(totaleAnno)}</div>
                       {!!s.ore_in_attesa && <div className="text-amber-700">Già in attesa: {formattaOre(s.ore_in_attesa)}</div>}
                       {!!inQuesta && (
                         <div className={dopo != null && dopo < 0 ? 'text-rose-600 font-medium' : 'text-blue-700 font-medium'}>

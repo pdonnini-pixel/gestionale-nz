@@ -88,12 +88,13 @@ export function righeSaldi(m: ModuloFerie): string[][] {
   return VOCI_ORDINE.map((voce) => {
     const s = m.saldi.find((x) => x.voce === voce);
     const disponibileOggi = s?.residuo_disponibile ?? s?.residuo ?? null;
-    const fineAnno = s?.da_fruire_disponibile ?? s?.da_fruire ?? null;
+    // Non e' una scadenza: le ferie non scadono. E' il totale a fine anno.
+    const totaleAnno = s?.da_fruire_disponibile ?? s?.da_fruire ?? null;
     return [
       ETICHETTE_VOCE[voce],
       formattaOre(disponibileOggi),
       disponibileOggi != null ? giornateDaOre(disponibileOggi, m.dipendente.oreGiornata).toLocaleString('it-IT', { maximumFractionDigits: 1 }) : '—',
-      formattaOre(fineAnno),
+      formattaOre(totaleAnno),
       s?.ore_in_attesa ? formattaOre(s.ore_in_attesa) : '—',
       chiesto[voce] ? formattaOre(chiesto[voce]) : '—',
     ];
@@ -101,7 +102,7 @@ export function righeSaldi(m: ModuloFerie): string[][] {
 }
 
 const INTESTAZIONE_SALDI = [
-  '', 'Disponibili oggi', 'in giornate', 'Entro fine anno', 'Già chieste', 'In questa richiesta',
+  '', 'Disponibili oggi', 'in giornate', 'Totale a fine anno', 'Già chieste', 'In questa richiesta',
 ];
 
 /**

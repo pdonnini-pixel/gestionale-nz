@@ -71,7 +71,16 @@ export type RateoValori = {
   residuo: number | null;
   daMaturare: number | null;
   daFruire: number | null;
+  /**
+   * DUE CONTATORI INTERNI DEL PROGRAMMA DELLE PAGHE: si leggono e si
+   * conservano, ma NON si guardano e non entrano in nessun calcolo.
+   * Francesca Signorini (studio paghe), 23/09/2026: «ti chiedo di non
+   * guardarle, sono contatori interni del programma. Le ferie non scadono.»
+   * Restano salvati perche' stanno nel documento e buttarli sarebbe perdere
+   * un dato; usarli sarebbe peggio.
+   */
   nonIndennizzabile: number | null;
+  /** Vedi sopra: contatore interno, da non usare. */
   daGodereAnno: number | null;
 };
 
