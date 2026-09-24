@@ -232,6 +232,38 @@ o il 30 settembre la colonna vale un mese. **Resta aperto**: l'etichetta «Total
 pagina dell'amministrazione e' imprecisa per i 25 determinati, perche' per loro il limite e' la scadenza
 del contratto e non dicembre.
 
+## Le sovrapposizioni per punto vendita (migration 257, 24/09/2026)
+
+Chi sceglie le ferie e chi le approva devono vedere la stessa cosa, e devono vederla **prima** di
+decidere: chi altro di quel negozio è già fuori in quei giorni.
+
+La vista `v_leave_giorni_outlet` unisce `leave_request_days` + `leave_requests` + `employees` +
+`outlets` e restituisce una riga per persona-giorno-voce, con `confermato` a dire se la richiesta è
+già stata approvata o è ancora in attesa. `security_invoker = on`, come tutte le `v_*`.
+
+Due scelte che vanno lette insieme:
+
+- **Le bozze non ci sono.** La vista filtra `stato IN ('inviata','approvata','approvata_parziale','chiusa')`.
+  Una bozza non impegna ore nel saldo, quindi non può comparire come collega già via: sarebbe un
+  impedimento che nessuno ha ancora chiesto.
+- **Si dice chi è VIA, mai chi è PRESENTE.** Il gestionale conosce ferie e permessi registrati qui
+  dentro. Non conosce i turni, né malattie, maternità, infortuni, congedi. Scrivere «restano 2 persone
+  in negozio» sarebbe un numero falso scritto con sicurezza. Il componente lo dice a chiare lettere in
+  fondo al riquadro, e la FAQ della guida risponde alla domanda quando arriva.
+
+Il punto vendita è quello di `employees.outlet_id`. **Non** `employee_outlet_allocations`, che serve a
+ripartire i costi ed è vuota: leggendo da lì, l'interfaccia scriveva «Nessun punto vendita» su tutte e
+41 le persone. Chi in anagrafica non ha un outlet non può vedere i colleghi, e il riquadro lo dice
+invece di mostrare un elenco vuoto che sembrerebbe un «nessuno è via».
+
+Dove si vede, in `src/components/SovrapposizioniOutlet.tsx`, usato due volte:
+
+1. **In fase di richiesta** (`RichiesteFerie`): sul calendario, un numero arancione sul giorno conta
+   i colleghi già via, caricato per tutto il mese visibile in una query sola; sotto i giorni scelti,
+   il riquadro con i nomi, la voce e «da decidere» per le richieste ancora in attesa.
+2. **In fase di approvazione** (`ApprovazioniFerie`): lo stesso riquadro, in versione compatta, sotto
+   i giorni della richiesta aperta.
+
 ## Cosa vede il dipendente, e cosa no
 
 Il modulo esportato (`src/lib/ferieExport.ts`) **lo legge la persona**. Quindi porta le sue ore, a che

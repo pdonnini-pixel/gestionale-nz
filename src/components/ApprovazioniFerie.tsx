@@ -23,6 +23,7 @@ import {
   ETICHETTE_VOCE_BREVI, formattaOre, formattaData, formattaDataLunga,
   totaliPerVoce, type VoceFerie, type GiornoRichiesto,
 } from '../lib/ferieRichiesta';
+import SovrapposizioniOutlet from './SovrapposizioniOutlet';
 
 type Props = { companyId?: string; userId?: string | null };
 
@@ -42,6 +43,11 @@ type Richiesta = {
   decisa_da_nome: string | null;
   created_at: string;
   dipendente: string;
+  /** Il punto vendita della persona, dall'anagrafica: serve a mostrare chi
+   *  altro e' via negli stessi giorni. outlet_code sulla richiesta e' solo
+   *  un'etichetta scritta al momento dell'invio. */
+  outlet_id: string | null;
+  outlet_nome: string | null;
   giorni: GiornoConId[];
 };
 
@@ -120,19 +126,26 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
         supabase.from('leave_request_days')
           .select('id, request_id, data, voce, tipo, ore, nota, stato')
           .eq('company_id', companyId),
-        supabase.from('employees').select('id, nome, cognome, first_name, last_name').eq('company_id', companyId),
+        supabase.from('employees').select('id, nome, cognome, first_name, last_name, outlet_id').eq('company_id', companyId),
         supabase.from('leave_approvers').select('id, user_id, email, nome, outlet_code, attivo')
           .eq('company_id', companyId).order('nome'),
         supabase.from('user_profiles').select('id, first_name, last_name, email, role')
           .eq('company_id', companyId).eq('is_active', true),
-        supabase.from('outlets').select('name').eq('company_id', companyId).eq('is_active', true).order('name'),
+        supabase.from('outlets').select('id, name').eq('company_id', companyId).eq('is_active', true).order('name'),
       ]);
 
+      const nomiOutlet = new Map<string, string>();
+      for (const o of (out.data as { id: string; name: string }[]) ?? []) {
+        nomiOutlet.set(String(o.id), o.name);
+      }
+
       const nomi = new Map<string, string>();
+      const outletDi = new Map<string, string | null>();
       for (const e of (emp.data as Record<string, unknown>[]) ?? []) {
         const cognome = (e.cognome as string) ?? (e.last_name as string) ?? '';
         const nome = (e.nome as string) ?? (e.first_name as string) ?? '';
         nomi.set(String(e.id), `${cognome} ${nome}`.trim());
+        outletDi.set(String(e.id), (e.outlet_id as string) ?? null);
       }
 
       const perRichiesta = new Map<string, GiornoConId[]>();
@@ -141,11 +154,16 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
         perRichiesta.get(g.request_id)!.push({ ...g, ore: Number(g.ore) });
       }
 
-      setRichieste(((req.data as Omit<Richiesta, 'giorni' | 'dipendente'>[]) ?? []).map((r) => ({
-        ...r,
-        dipendente: nomi.get(r.employee_id) ?? 'Persona non trovata',
-        giorni: (perRichiesta.get(r.id) ?? []).sort((a, b) => a.data.localeCompare(b.data)),
-      })));
+      setRichieste(((req.data as Omit<Richiesta, 'giorni' | 'dipendente' | 'outlet_id' | 'outlet_nome'>[]) ?? []).map((r) => {
+        const outletId = outletDi.get(r.employee_id) ?? null;
+        return {
+          ...r,
+          dipendente: nomi.get(r.employee_id) ?? 'Persona non trovata',
+          outlet_id: outletId,
+          outlet_nome: outletId ? nomiOutlet.get(outletId) ?? null : null,
+          giorni: (perRichiesta.get(r.id) ?? []).sort((a, b) => a.data.localeCompare(b.data)),
+        };
+      }));
 
       setReferenti((appr.data as Referente[]) ?? []);
       setUtenti(((prof.data as Record<string, unknown>[]) ?? []).map((p) => ({
@@ -154,7 +172,7 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
         email: (p.email as string) ?? null,
         ruolo: String(p.role ?? ''),
       })).sort((a, b) => a.nome.localeCompare(b.nome, 'it')));
-      setOutlet(((out.data as { name: string }[]) ?? []).map((o) => o.name));
+      setOutlet(((out.data as { id: string; name: string }[]) ?? []).map((o) => o.name));
     } finally {
       setCaricamento(false);
     }
@@ -342,6 +360,17 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
                     <p className="text-xs text-slate-500">
                       Un clic su un giorno lo toglie o lo rimette. In verde quelli concessi.
                     </p>
+
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+                      <SovrapposizioniOutlet
+                        companyId={companyId ?? null}
+                        outletId={r.outlet_id}
+                        outletNome={r.outlet_nome ?? r.outlet_code}
+                        escludiEmployeeId={r.employee_id}
+                        giorni={r.giorni.map((g) => g.data)}
+                        compatto
+                      />
+                    </div>
 
                     {tolti > 0 && (
                       <div>
