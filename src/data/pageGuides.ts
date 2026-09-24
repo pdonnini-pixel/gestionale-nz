@@ -2680,7 +2680,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Stati di un mese",
-        "body": "\"Stima\": mese chiuso, calcolato dai dati disponibili. \"In corso\": il mese corrente, che cambia ogni giorno con le nuove chiusure e le fatture che arrivano; l'IVA acquisti non scende mai sotto la media dei mesi chiusi, perché le fatture arrivano fino all'ultimo giorno. \"Previsione\": mese futuro, corrispettivi dal preventivo e IVA acquisti pari alla media dei mesi chiusi (segnata con ≈). \"Confermata\": numeri definitivi inseriti a mano. \"Pagata\": in Scadenze Fiscali la scadenza IVA di quel mese risulta pagata; l'importo versato diventa il risultato del mese."
+        "body": "\"Stima\": mese chiuso, calcolato dai dati disponibili. \"In corso\": il mese corrente, che cambia ogni giorno con le nuove chiusure e le fatture che arrivano; l'IVA acquisti è una proiezione (segnata con ≈): le fatture ricevute finora più la media dei mesi chiusi per i giorni che restano, perché le fatture arrivano fino all'ultimo giorno. Sotto la cifra leggi quante fatture sono arrivate e quanto valgono. \"Previsione\": mese futuro, corrispettivi dal preventivo e IVA acquisti pari alla media dei mesi chiusi (segnata con ≈). \"Confermata\": numeri definitivi inseriti a mano. \"Pagata\": in Scadenze Fiscali la scadenza IVA di quel mese risulta pagata; l'importo versato diventa il risultato del mese."
       },
       {
         "heading": "Confermare un mese con i numeri definitivi",

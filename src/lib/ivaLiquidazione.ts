@@ -24,6 +24,11 @@
  *   importo > 0 → F24 entro il 16 del mese dopo (codice 60MM)
  *   importo < 0 → credito riportato al mese successivo
  *
+ * Mese IN CORSO: l'IVA acquisti e' una proiezione = ricevuto finora + media
+ * dei mesi chiusi in proporzione ai giorni che restano, cosi' il numero si
+ * muove ogni giorno con le fatture che entrano (prima era un pavimento fisso
+ * alla media, che restava fermo tutto il mese).
+ *
  * Un mese CONFERMATO (vat_settlements) sostituisce la stima con i numeri
  * definitivi; un mese PAGATO (fiscal_deadlines iva_periodica, status paid) usa
  * l'importo versato come risultato della catena.
@@ -103,6 +108,9 @@ export interface IvaLiquidazioneRow {
   ivaFattureAttive: number
   ivaCredito: number
   ivaCreditoStimato: boolean
+  /** IVA acquisti effettivamente ricevuta (fatture − NC) per il mese: e' la parte
+   *  misurata dentro `ivaCredito` quando questa e' una proiezione. */
+  ivaCreditoRicevuto: number
   /** IVA recuperata sul tax free (Global Blue): letta alla conferma, altrimenti media dei mesi confermati. */
   ivaTaxFree: number
   ivaTaxFreeStimato: boolean
@@ -269,6 +277,7 @@ export function buildLiquidazioni(p: BuildLiquidazioniParams): IvaLiquidazioneRo
     let ivaAtt = Number(c.iva_fatture_attive) || 0
     let ivaCred = 0
     let credStim = false
+    let ricevuto = 0
     let note: string | null = null
 
     if (cf) {
@@ -276,26 +285,31 @@ export function buildLiquidazioni(p: BuildLiquidazioniParams): IvaLiquidazioneRo
       corr = Number(cf.corrispettivi_netti) || 0
       ivaAtt = Number(cf.iva_debito_fatture_attive) || 0
       ivaCred = Number(cf.iva_credito) || 0
+      ricevuto = ivaCred
       note = cf.note ?? null
     } else if (rel < 0) {
       if (c.giorni_chiusura > 0) { fonte = 'chiusure'; corr = Number(c.chiusure_netto) }
       else if (Number(c.consuntivo_netto) > 0) { fonte = 'consuntivo'; corr = Number(c.consuntivo_netto) }
       else if (Number(c.preventivo_netto) > 0) { fonte = 'preventivo'; corr = Number(c.preventivo_netto) }
       ivaCred = creditoMese(y, m)
+      ricevuto = ivaCred
     } else if (rel === 0) {
       const base = Number(c.consuntivo_netto) > 0 ? Number(c.consuntivo_netto) : Number(c.preventivo_netto)
+      const dim = daysInMonth(y, m)
+      const restanti = Math.max(0, dim - tD)
       if (c.giorni_chiusura > 0) {
-        const dim = daysInMonth(y, m)
-        const restanti = Math.max(0, dim - tD)
         fonte = 'chiusure_parziali'
         corr = round2(Number(c.chiusure_netto) + base * (restanti / dim))
       } else if (Number(c.consuntivo_netto) > 0) { fonte = 'consuntivo'; corr = Number(c.consuntivo_netto) }
       else if (Number(c.preventivo_netto) > 0) { fonte = 'preventivo'; corr = Number(c.preventivo_netto) }
-      // IVA a credito del mese in corso: il ricevuto finora, ma mai meno della
-      // media recente (le fatture del mese arrivano fino all'ultimo giorno).
+      // IVA a credito del mese in corso: proiezione = ricevuto finora + media
+      // dei mesi chiusi per i giorni che restano. Le fatture arrivano fino
+      // all'ultimo giorno, quindi il ricevuto da solo sarebbe basso; la media
+      // da sola resterebbe ferma tutto il mese.
       const finora = creditoMese(y, m)
-      ivaCred = Math.max(finora, mediaCredito)
-      credStim = ivaCred !== finora
+      ricevuto = finora
+      ivaCred = round2(finora + mediaCredito * (restanti / dim))
+      credStim = restanti > 0 && mediaCredito > 0
     } else {
       if (Number(c.preventivo_netto) > 0) { fonte = 'preventivo'; corr = Number(c.preventivo_netto) }
       ivaCred = mediaCredito
@@ -328,6 +342,7 @@ export function buildLiquidazioni(p: BuildLiquidazioniParams): IvaLiquidazioneRo
       ivaFattureAttive: round2(ivaAtt),
       ivaCredito: round2(ivaCred),
       ivaCreditoStimato: credStim,
+      ivaCreditoRicevuto: round2(ricevuto),
       ivaTaxFree: taxFree,
       ivaTaxFreeStimato: taxFreeStimato,
       importoManuale: Boolean(cf?.importo_manuale),

@@ -72,16 +72,24 @@ describe('buildLiquidazioni', () => {
     expect(ago.f24Code).toBe('6008')
   })
 
-  it('settembre (in corso): chiusure fino a oggi + preventivo pro-rata; credito mai sotto la media recente', () => {
+  it('settembre (in corso): chiusure fino a oggi + preventivo pro-rata; IVA acquisti = ricevuto + media per i giorni che restano', () => {
     const rows = buildLiquidazioni({ componenti, settings, toYear: 2026, toMonth: 9, today })
     const set = rows[1]
     expect(set.fonteCorrispettivi).toBe('chiusure_parziali')
     // 40000 + 278685 × (30 − 7) / 30
     expect(set.corrispettiviNetti).toBe(253658.5)
     expect(set.stato).toBe('in_corso')
-    // media dei mesi chiusi con fatture DAL MESE DI PARTENZA (solo agosto: 41404.33) > ricevuto finora 25738.06
-    expect(set.ivaCredito).toBe(41404.33)
+    // ricevuto finora 25738.06 + media dei mesi chiusi DAL MESE DI PARTENZA (solo agosto: 41404.33) × 23/30
+    expect(set.ivaCreditoRicevuto).toBe(25738.06)
+    expect(set.ivaCredito).toBe(round2(25738.06 + 41404.33 * 23 / 30))
     expect(set.ivaCreditoStimato).toBe(true)
+  })
+
+  it('mese in corso all ultimo giorno: la proiezione coincide con il ricevuto e non e\' piu\' una stima', () => {
+    const rows = buildLiquidazioni({ componenti, settings, toYear: 2026, toMonth: 9, today: new Date(2026, 8, 30) })
+    const set = rows[1]
+    expect(set.ivaCredito).toBe(25738.06)
+    expect(set.ivaCreditoStimato).toBe(false)
   })
 
   it('ottobre (futuro): preventivo e credito medio, stato previsione', () => {
@@ -100,7 +108,8 @@ describe('buildLiquidazioni', () => {
     })
     expect(rows[0].importo).toBe(-8000) // 22000 − 30000
     expect(rows[1].riportoPrecedente).toBe(8000)
-    expect(rows[1].importo).toBe(22000 - 30000 - 8000) // credito medio = 30000 (unico mese chiuso con fatture)
+    // settembre in corso al 7: proiezione = 0 ricevuto + 30000 (unico mese chiuso con fatture) × 23/30
+    expect(rows[1].importo).toBe(round2(22000 - 30000 * 23 / 30 - 8000))
   })
 
   it('credito iniziale nelle impostazioni = riporto del primo mese', () => {
