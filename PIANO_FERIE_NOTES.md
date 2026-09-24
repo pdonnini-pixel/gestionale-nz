@@ -187,9 +187,14 @@ Vale per chiunque **non** lavori cinque giorni a settimana, e a Valmontone e Bru
 
 ### Quindi: ore parlate, e il posto dove mettere il dato che manca
 
-Il modulo dice **ore e minuti in lettere**: «8 ore e 39 minuti», non «8,65 h». Due righe, Ferie e
-Permessi (ex festivita' e ROL sommati: sono due borse che distinguono le paghe, non chi chiede
+Il modulo dice **ore, con i decimali e la parola per esteso**: «0,55 ore», «11,20 ore». Due righe,
+Ferie e Permessi (ex festivita' e ROL sommati: sono due borse che distinguono le paghe, non chi chiede
 un'ora). Le ore sono l'unico numero vero, e restano vere per tutti.
+
+**Niente minuti**, ed e' stato un errore averli messi: il tabulato ragiona in ore decimali (0,55000) e
+tradurle in «33 minuti» fa sparire il riferimento con il documento che la persona puo' avere in mano.
+Con «0,55 ore» si confronta riga per riga. Il caso che l'ha fatto vedere: Rosseti Veronica, 0,55 ore di
+ferie residue, che sul modulo si leggevano «33 minuti».
 
 `DipendenteModulo.giorniSettimana` esiste gia' ed e' **vuoto per tutti**: e' il posto dove entrera' il
 numero di giorni lavorati a settimana. Quando ci sara', le giornate tornano da sole
@@ -205,6 +210,18 @@ del tabulato e' **0,8 x orario settimanale**, che e' esattamente **4 x (orario /
 tutte e 39 le persone con orario reale, da 8 a 40 ore, il rapporto fa 0,8000 e le giornate 4,000,
 senza una eccezione. Serve per scalare i saldi, e per quello va benissimo. Non serve per dire a una
 persona quanti giorni puo' stare a casa.
+
+### Le due colonne da ignorare non le usiamo, verificato due volte
+
+Francesca: «non indennizzabili» e «da godere nell'anno» sono contatori interni, non si guardano. Nel
+codice `non_indennizzabile` e `da_godere_anno` si **leggono e si salvano** (stanno nel documento) ma
+non compaiono in nessun calcolo e in nessuna schermata: `grep` sul sorgente, l'unica occorrenza fuori
+dai tipi generati e' la riga che li scrive in `leave_accrual_rows`.
+
+La colonna che il gestionale usa e' **«Da fruire»**, che e' la terz'ultima, non una delle due finali.
+Riverificato sulla riga di Rosseti del tabulato di agosto: residuo 0,54999 + da maturare 40,36667 =
+**40,91666**, cioe' esattamente il «Da fruire» stampato. E' una somma. Il suo «Da god. nell'anno» vale
+33,15 e non lo tocca nessuno.
 
 ### «Da maturare» guarda la fine del contratto, non dicembre
 

@@ -147,21 +147,24 @@ export function giornateInParole(ore: number | null | undefined, oreGiornata: nu
 }
 
 /**
- * I PERMESSI SI DICONO A ORE, e in ore e minuti: «1 ora e 36 minuti» si
- * capisce, «1,60 h» no.
+ * LE ORE SI DICONO IN ORE, con i decimali, come le scrive lo studio paghe.
+ *
+ * I minuti sono stati un errore: il tabulato ragiona in ore decimali (0,55000)
+ * e tradurle in «33 minuti» fa sparire il riferimento con il documento che la
+ * persona puo' avere in mano. «0,55 ore» invece si confronta riga per riga.
+ * La parola «ore» per esteso, non la h, perche' il foglio lo legge chi in
+ * negozio ci lavora.
  */
 export function oreInParole(ore: number | null | undefined): string {
   if (ore == null || !Number.isFinite(ore)) return '—';
-  if (ore < -0.001) return 'nessuna: ne hai già usate in anticipo';
-  const minuti = Math.round(ore * 60);
-  if (minuti === 0) return 'nessuna';
-  const h = Math.floor(minuti / 60);
-  const m = minuti % 60;
-  if (h === 0) return m === 1 ? '1 minuto' : `${m} minuti`;
-  const parteOre = h === 1 ? '1 ora' : `${h} ore`;
-  if (m === 0) return parteOre;
-  return `${parteOre} e ${m === 1 ? '1 minuto' : `${m} minuti`}`;
+  if (ore < -0.001) return `${arrotonda2(ore)} ore: ne hai già usate in anticipo`;
+  if (Math.abs(ore) < 0.005) return 'nessuna';
+  if (Math.abs(ore - 1) < 0.005) return '1 ora';
+  return `${arrotonda2(ore)} ore`;
 }
+
+const arrotonda2 = (n: number): string =>
+  n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function verificaRichiesta(
   giorni: GiornoRichiesto[],

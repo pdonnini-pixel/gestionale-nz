@@ -251,22 +251,31 @@ describe('giornateInParole', () => {
   });
 });
 
+// Le ore si dicono in ore, con i decimali, come il tabulato delle paghe.
+// I minuti erano un errore: «33 minuti» non si ritrova sul documento che la
+// persona puo' avere in mano, «0,55 ore» si'.
 describe('oreInParole', () => {
   it.each([
-    [1.6, '1 ora e 36 minuti'],
-    [2, '2 ore'],
+    [0.55, '0,55 ore'],      // Rosseti, ferie residue sul tabulato di agosto
+    [11.2, '11,20 ore'],     // Rosseti, permessi
+    [8.65, '8,65 ore'],      // Falchi, ferie
+    [1.6, '1,60 ore'],
+    [2, '2,00 ore'],
     [1, '1 ora'],
-    [0.5, '30 minuti'],
-    [4.1, '4 ore e 6 minuti'],
     [0, 'nessuna'],
-  ])('%s ore si leggono «%s»', (ore, atteso) => {
+  ])('%s si legge «%s»', (ore, atteso) => {
     expect(oreInParole(ore)).toBe(atteso);
   });
 
-  it('niente virgole e niente «h»', () => {
-    for (const ore of [1.6, 7.25, 0.75, 13.33]) {
-      expect(oreInParole(ore)).not.toMatch(/[,.]|\bh\b/);
+  it('non parla mai di minuti', () => {
+    for (const ore of [0.55, 1.6, 7.25, 0.75, 13.33]) {
+      expect(oreInParole(ore)).not.toMatch(/minut/i);
     }
+  });
+
+  it('un saldo negativo si vede, non diventa zero', () => {
+    expect(oreInParole(-4.19)).toMatch(/in anticipo/);
+    expect(oreInParole(-4.19)).toMatch(/-4,19/);
   });
 });
 
