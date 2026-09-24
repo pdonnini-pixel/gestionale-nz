@@ -27,13 +27,20 @@ import {
   type VoceFerie, type TipoGiorno, type GiornoRichiesto, type DisponibilitaVoce, type Avviso,
 } from '../lib/ferieRichiesta';
 import { esportaModuloPdf, esportaModuloExcel, type ModuloFerie } from '../lib/ferieExport';
+import SovrapposizioniOutlet from './SovrapposizioniOutlet';
 
 type Props = { companyId?: string; userId?: string | null };
 
 type PersonaAnagrafica = DipendenteRif & {
   oreSettimanaliPaghe: number | null;
   oreSettimanaliAnagrafica: number | null;
-  outlet: string | null;
+  /** Il punto vendita dove lavora, dall'anagrafica. Le allocazioni servono
+   *  a ripartire i costi, non a dire dove sta una persona: leggerle qui
+   *  faceva comparire «Nessun punto vendita» su tutti, perche' quella
+   *  tabella e' vuota. */
+  outletId: string | null;
+  outletCode: string | null;
+  outletNome: string | null;
 };
 
 type RichiestaSalvata = {
@@ -111,13 +118,11 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
     if (!companyId) return;
     setCaricamento(true);
     try {
-      const [emp, alloc, disp, req, days, comp] = await Promise.all([
+      const [emp, outlets, disp, req, days, comp] = await Promise.all([
         supabase.from('employees')
-          .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active, contratto_tipo, ore_settimanali, ore_settimanali_paghe')
+          .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active, contratto_tipo, ore_settimanali, ore_settimanali_paghe, outlet_id')
           .eq('company_id', companyId),
-        supabase.from('employee_outlet_allocations')
-          .select('employee_id, outlet_code, is_primary, allocation_pct')
-          .eq('company_id', companyId),
+        supabase.from('outlets').select('id, code, name').eq('company_id', companyId),
         supabase.from('v_leave_disponibilita').select('*').eq('company_id', companyId),
         supabase.from('leave_requests')
           .select('id, employee_id, stato, titolo, note_dipendente, origine, outlet_code, inviata_il, created_at')
@@ -129,16 +134,14 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
         supabase.from('companies').select('name').eq('id', companyId).maybeSingle(),
       ]);
 
-      const perEmp = new Map<string, { outlet_code: string; is_primary: boolean | null; allocation_pct: number }[]>();
-      for (const a of (alloc.data as { employee_id: string; outlet_code: string; is_primary: boolean | null; allocation_pct: number }[]) ?? []) {
-        if (!perEmp.has(a.employee_id)) perEmp.set(a.employee_id, []);
-        perEmp.get(a.employee_id)!.push(a);
+      const perOutlet = new Map<string, { code: string | null; name: string | null }>();
+      for (const o of (outlets.data as { id: string; code: string | null; name: string | null }[]) ?? []) {
+        perOutlet.set(o.id, { code: o.code, name: o.name });
       }
 
       const persone: PersonaAnagrafica[] = ((emp.data as Record<string, unknown>[]) ?? []).map((d) => {
-        const allocazioni = perEmp.get(String(d.id)) ?? [];
-        const principale = allocazioni.find((x) => x.is_primary)
-          ?? [...allocazioni].sort((a, b) => Number(b.allocation_pct) - Number(a.allocation_pct))[0];
+        const outletId = d.outlet_id ? String(d.outlet_id) : null;
+        const o = outletId ? perOutlet.get(outletId) : undefined;
         return {
           id: String(d.id),
           matricola: (d.matricola as string) ?? null,
@@ -149,7 +152,9 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
           contrattoTipo: (d.contratto_tipo as string) ?? null,
           oreSettimanaliPaghe: d.ore_settimanali_paghe != null ? Number(d.ore_settimanali_paghe) : null,
           oreSettimanaliAnagrafica: d.ore_settimanali != null ? Number(d.ore_settimanali) : null,
-          outlet: principale?.outlet_code ?? null,
+          outletId,
+          outletCode: o?.code ?? null,
+          outletNome: o?.name ?? null,
         };
       }).sort((a, b) => `${a.cognome ?? ''} ${a.nome ?? ''}`.localeCompare(`${b.cognome ?? ''} ${b.nome ?? ''}`, 'it'));
 
@@ -220,6 +225,37 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
   // ── Calendario ─────────────────────────────────────────────────────
   const griglia = useMemo(() => grigliaDelMese(mese.anno, mese.mese), [mese]);
 
+  // Chi altro del punto vendita e' via nel mese che si sta guardando. Serve
+  // a colorare i giorni del calendario PRIMA di sceglierli: chi compila
+  // deve vedere subito dove c'e' gia' qualcuno fuori, non scoprirlo dopo.
+  const [colleghiVia, setColleghiVia] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    let vivo = true;
+    const outletId = persona?.outletId ?? null;
+    if (!companyId || !outletId || !griglia.giorni.length) { setColleghiVia({}); return; }
+    const dal = griglia.giorni[0];
+    const al = griglia.giorni[griglia.giorni.length - 1];
+    void (async () => {
+      const { data } = await supabase
+        .from('v_leave_giorni_outlet')
+        .select('data, employee_id')
+        .eq('company_id', companyId)
+        .eq('outlet_id', outletId)
+        .gte('data', dal)
+        .lte('data', al);
+      if (!vivo) return;
+      const perGiorno = new Map<string, Set<string>>();
+      for (const r of (data as { data: string; employee_id: string }[] ?? [])) {
+        if (r.employee_id === persona?.id) continue;
+        if (!perGiorno.has(r.data)) perGiorno.set(r.data, new Set());
+        perGiorno.get(r.data)!.add(r.employee_id);
+      }
+      setColleghiVia(Object.fromEntries([...perGiorno].map(([d, set]) => [d, set.size])));
+    })();
+    return () => { vivo = false; };
+  }, [companyId, persona?.outletId, persona?.id, griglia.giorni]);
+
   const spostaMese = (delta: number) => {
     setMese((m) => {
       const d = new Date(Date.UTC(m.anno, m.mese - 1 + delta, 1));
@@ -273,7 +309,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
           titolo: titolo || null,
           note_dipendente: note || null,
           origine,
-          outlet_code: persona.outlet,
+          outlet_code: persona.outletCode,
           inviata_il: nuovoStato === 'inviata' ? new Date().toISOString() : null,
         }).eq('id', requestId);
         if (error) throw error;
@@ -282,7 +318,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
         const { data, error } = await supabase.from('leave_requests').insert({
           company_id: companyId,
           employee_id: persona.id,
-          outlet_code: persona.outlet,
+          outlet_code: persona.outletCode,
           stato: nuovoStato,
           titolo: titolo || null,
           note_dipendente: note || null,
@@ -372,7 +408,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
       dipendente: {
         nominativo: [p.cognome, p.nome].filter(Boolean).join(' '),
         matricola: p.matricola,
-        outlet: p.outlet,
+        outlet: p.outletNome,
         oreSettimanali: p.oreSettimanaliPaghe ?? p.oreSettimanaliAnagrafica,
         oreGiornata: o.ore,
         fonteOrario: o.fonte,
@@ -430,7 +466,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
           />
           {persona && (
             <div className="text-sm text-slate-600 flex flex-wrap items-center gap-x-4 gap-y-1">
-              <span>{persona.outlet ?? 'Nessun punto vendita'}</span>
+              <span>{persona.outletNome ?? 'Nessun punto vendita'}</span>
               <span>
                 {orario.fonte === 'paghe' && `${persona.oreSettimanaliPaghe} ore a settimana (dalle paghe)`}
                 {orario.fonte === 'anagrafica' && `${persona.oreSettimanaliAnagrafica} ore a settimana (da anagrafica)`}
@@ -566,12 +602,17 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
               const festa = etichettaFestivita(data);
               const domenica = eDomenica(data);
               const ore = segnati.reduce((s, g) => s + g.ore, 0);
+              const via = colleghiVia[data] ?? 0;
+              const titoloGiorno = [
+                festa,
+                via ? `${via} ${via === 1 ? 'collega è già via' : 'colleghi sono già via'}` : null,
+              ].filter(Boolean).join(' · ') || undefined;
               return (
                 <button
                   key={data}
                   type="button"
                   onClick={() => clickGiorno(data)}
-                  title={festa ?? undefined}
+                  title={titoloGiorno}
                   className={[
                     'aspect-square sm:aspect-auto sm:min-h-[62px] rounded-lg border p-1 text-left transition-colors',
                     segnati.length
@@ -587,6 +628,12 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
                     </span>
                     {!!ore && <span className="text-[10px] text-blue-700">{ore.toLocaleString('it-IT')}h</span>}
                   </div>
+                  {!!via && (
+                    <div className="mt-0.5 flex items-center gap-1 text-[10px] leading-tight text-amber-700">
+                      <Users size={10} className="shrink-0" />
+                      {via}
+                    </div>
+                  )}
                   {!!segnati.length && (
                     <div className="mt-0.5 space-y-0.5">
                       {segnati.map((g) => (
@@ -607,6 +654,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
           <p className="mt-3 text-xs text-slate-500">
             Un clic segna il giorno con la voce e il tipo scelti qui sopra, un altro clic lo toglie.
             Le domeniche e le festività restano grigie: si possono segnare lo stesso, ma il gestionale avvisa.
+            Il numero arancione dice quanti colleghi dello stesso punto vendita sono già via quel giorno.
           </p>
         </div>
       )}
@@ -637,6 +685,16 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
                 </button>
               </span>
             ))}
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
+            <SovrapposizioniOutlet
+              companyId={companyId ?? null}
+              outletId={persona.outletId}
+              outletNome={persona.outletNome}
+              escludiEmployeeId={persona.id}
+              giorni={giorniScelti.map((g) => g.data)}
+            />
           </div>
 
           {!!avvisi.length && (

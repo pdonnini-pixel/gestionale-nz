@@ -24595,6 +24595,46 @@ export type Database = {
           },
         ]
       }
+      v_leave_giorni_outlet: {
+        Row: {
+          company_id: string | null
+          confermato: boolean | null
+          data: string | null
+          employee_id: string | null
+          nominativo: string | null
+          ore: number | null
+          outlet_id: string | null
+          outlet_nome: string | null
+          request_id: string | null
+          stato_giorno: string | null
+          stato_richiesta: string | null
+          tipo: string | null
+          voce: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leave_requests_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_requests_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       v_loans_overview: {
         Row: {
           company_id: string | null

@@ -48,7 +48,7 @@ describe('tabella dei saldi', () => {
   // giornate non si dicono: la «giornata» delle paghe e' l'orario settimanale
   // diviso cinque, e su un part time corto non e' nessun giorno di negozio.
   it('senza i giorni lavorati parla solo di ore', () => {
-    expect(righeSaldi(modulo())[0][1]).toBe('48 ore');
+    expect(righeSaldi(modulo())[0][1]).toBe('48,00 ore');
   });
 
   it('il caso vero di Falchi: ore, non cinque giornate inesistenti', () => {
@@ -59,7 +59,7 @@ describe('tabella dei saldi', () => {
       dipendente: { ...modulo().dipendente, oreSettimanali: 8, oreGiornata: 1.6 },
       saldi: [saldo('F01', { residuo: 8.65, residuo_disponibile: 8.65 })],
     });
-    expect(righeSaldi(m)[0][1]).toBe('8 ore e 39 minuti');
+    expect(righeSaldi(m)[0][1]).toBe('8,65 ore');
     expect(righeSaldi(m)[0][1]).not.toMatch(/giornat/);
   });
 
@@ -73,7 +73,7 @@ describe('tabella dei saldi', () => {
     expect(righeSaldi(m)[0][1]).toBe('1 giornata');
   });
 
-  it('somma le due borse di permessi e le dice in ore e minuti', () => {
+  it('somma le due borse di permessi e le dice in ore', () => {
     const m = modulo({
       saldi: [
         saldo('F01'),
@@ -81,7 +81,7 @@ describe('tabella dei saldi', () => {
         saldo('F03', { residuo: 2.5, residuo_disponibile: 2.5 }),
       ],
     });
-    expect(righeSaldi(m)[1][1]).toBe('4 ore e 6 minuti');
+    expect(righeSaldi(m)[1][1]).toBe('4,10 ore');
   });
 
   it('senza saldo non inventa numeri', () => {
@@ -91,7 +91,7 @@ describe('tabella dei saldi', () => {
 
   it('dice anche quanto toglie questa richiesta, nella stessa unità', () => {
     const r = righeSaldi(modulo({ giorni: [giorno('2026-10-05'), giorno('2026-10-06')] }));
-    expect(r[0][2]).toBe('12 ore');
+    expect(r[0][2]).toBe('12,00 ore');
   });
 
   it('non promette giornate che nella settimana di quella persona non esistono', () => {
@@ -99,7 +99,7 @@ describe('tabella dei saldi', () => {
       dipendente: { ...modulo().dipendente, oreSettimanali: 8, oreGiornata: 1.6 },
       saldi: [saldo('F02', { residuo: 1.6, residuo_disponibile: 1.6 })],
     });
-    expect(righeSaldi(m)[1][1]).toBe('1 ora e 36 minuti');
+    expect(righeSaldi(m)[1][1]).toBe('1,60 ore');
     expect(righeSaldi(m).flat().join(' ')).not.toMatch(/giornata intera/);
   });
 

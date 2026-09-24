@@ -187,9 +187,14 @@ Vale per chiunque **non** lavori cinque giorni a settimana, e a Valmontone e Bru
 
 ### Quindi: ore parlate, e il posto dove mettere il dato che manca
 
-Il modulo dice **ore e minuti in lettere**: «8 ore e 39 minuti», non «8,65 h». Due righe, Ferie e
-Permessi (ex festivita' e ROL sommati: sono due borse che distinguono le paghe, non chi chiede
+Il modulo dice **ore, con i decimali e la parola per esteso**: «0,55 ore», «11,20 ore». Due righe,
+Ferie e Permessi (ex festivita' e ROL sommati: sono due borse che distinguono le paghe, non chi chiede
 un'ora). Le ore sono l'unico numero vero, e restano vere per tutti.
+
+**Niente minuti**, ed e' stato un errore averli messi: il tabulato ragiona in ore decimali (0,55000) e
+tradurle in «33 minuti» fa sparire il riferimento con il documento che la persona puo' avere in mano.
+Con «0,55 ore» si confronta riga per riga. Il caso che l'ha fatto vedere: Rosseti Veronica, 0,55 ore di
+ferie residue, che sul modulo si leggevano «33 minuti».
 
 `DipendenteModulo.giorniSettimana` esiste gia' ed e' **vuoto per tutti**: e' il posto dove entrera' il
 numero di giorni lavorati a settimana. Quando ci sara', le giornate tornano da sole
@@ -206,6 +211,18 @@ tutte e 39 le persone con orario reale, da 8 a 40 ore, il rapporto fa 0,8000 e l
 senza una eccezione. Serve per scalare i saldi, e per quello va benissimo. Non serve per dire a una
 persona quanti giorni puo' stare a casa.
 
+### Le due colonne da ignorare non le usiamo, verificato due volte
+
+Francesca: «non indennizzabili» e «da godere nell'anno» sono contatori interni, non si guardano. Nel
+codice `non_indennizzabile` e `da_godere_anno` si **leggono e si salvano** (stanno nel documento) ma
+non compaiono in nessun calcolo e in nessuna schermata: `grep` sul sorgente, l'unica occorrenza fuori
+dai tipi generati e' la riga che li scrive in `leave_accrual_rows`.
+
+La colonna che il gestionale usa e' **«Da fruire»**, che e' la terz'ultima, non una delle due finali.
+Riverificato sulla riga di Rosseti del tabulato di agosto: residuo 0,54999 + da maturare 40,36667 =
+**40,91666**, cioe' esattamente il «Da fruire» stampato. E' una somma. Il suo «Da god. nell'anno» vale
+33,15 e non lo tocca nessuno.
+
 ### «Da maturare» guarda la fine del contratto, non dicembre
 
 La colonna «Spett. Maturab» e' vuota su 12 righe di ferie su 42, e non e' un difetto di lettura: e'
@@ -214,6 +231,38 @@ Falchi scade il 05/09: 8,65 ore sono davvero tutto quello che avra'. Per i deter
 o il 30 settembre la colonna vale un mese. **Resta aperto**: l'etichetta «Totale a fine anno» sulla
 pagina dell'amministrazione e' imprecisa per i 25 determinati, perche' per loro il limite e' la scadenza
 del contratto e non dicembre.
+
+## Le sovrapposizioni per punto vendita (migration 257, 24/09/2026)
+
+Chi sceglie le ferie e chi le approva devono vedere la stessa cosa, e devono vederla **prima** di
+decidere: chi altro di quel negozio è già fuori in quei giorni.
+
+La vista `v_leave_giorni_outlet` unisce `leave_request_days` + `leave_requests` + `employees` +
+`outlets` e restituisce una riga per persona-giorno-voce, con `confermato` a dire se la richiesta è
+già stata approvata o è ancora in attesa. `security_invoker = on`, come tutte le `v_*`.
+
+Due scelte che vanno lette insieme:
+
+- **Le bozze non ci sono.** La vista filtra `stato IN ('inviata','approvata','approvata_parziale','chiusa')`.
+  Una bozza non impegna ore nel saldo, quindi non può comparire come collega già via: sarebbe un
+  impedimento che nessuno ha ancora chiesto.
+- **Si dice chi è VIA, mai chi è PRESENTE.** Il gestionale conosce ferie e permessi registrati qui
+  dentro. Non conosce i turni, né malattie, maternità, infortuni, congedi. Scrivere «restano 2 persone
+  in negozio» sarebbe un numero falso scritto con sicurezza. Il componente lo dice a chiare lettere in
+  fondo al riquadro, e la FAQ della guida risponde alla domanda quando arriva.
+
+Il punto vendita è quello di `employees.outlet_id`. **Non** `employee_outlet_allocations`, che serve a
+ripartire i costi ed è vuota: leggendo da lì, l'interfaccia scriveva «Nessun punto vendita» su tutte e
+41 le persone. Chi in anagrafica non ha un outlet non può vedere i colleghi, e il riquadro lo dice
+invece di mostrare un elenco vuoto che sembrerebbe un «nessuno è via».
+
+Dove si vede, in `src/components/SovrapposizioniOutlet.tsx`, usato due volte:
+
+1. **In fase di richiesta** (`RichiesteFerie`): sul calendario, un numero arancione sul giorno conta
+   i colleghi già via, caricato per tutto il mese visibile in una query sola; sotto i giorni scelti,
+   il riquadro con i nomi, la voce e «da decidere» per le richieste ancora in attesa.
+2. **In fase di approvazione** (`ApprovazioniFerie`): lo stesso riquadro, in versione compatta, sotto
+   i giorni della richiesta aperta.
 
 ## Cosa vede il dipendente, e cosa no
 
