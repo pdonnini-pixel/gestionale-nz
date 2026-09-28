@@ -352,3 +352,81 @@ fra quelle c'è un aggancio legittimo. Una lista di esclusione è facile da
 allungare e difficile da accorciare, perché quando toglie un caso buono non lo
 segnala: semplicemente quel movimento non si aggancia più, e nessuno se ne
 accorge.
+
+---
+
+## Il controllo del 28/09: «abbinamento per data» che sceglieva la data peggiore
+
+Cron pulito per la terza settimana di fila: otto giri dal 21 al 28 settembre,
+tutti riusciti, fra 124 e 131 secondi. Diciannove agganci applicati e quattro
+proposte.
+
+Il vincolo della 218 continua a reggere: SPM 31 è sganciata da quattordici
+notti, zero riagganci, e su tutto NZ **nessuna** scadenza chiusa a mano ha più
+un movimento oltre i trenta giorni dalla data di pagamento dichiarata.
+
+Dei diciannove agganci, tredici portano il beneficiario in chiaro (gli SDD di
+ENEGAN, Enel, Hera, UnipolTech; il POS di GUTEN con l'esercente nella causale;
+il bonifico instant a MILANI, confermato anche dalla distinta). Sei sono su
+causale anonima, ma cinque di questi — GGZ e Frankie Retail — sono agganci
+fatti con l'estratto conto MPS alla mano, dove la banca scrive per esteso
+«VOSTRA DISPOSIZIONE GGZ SF_1375-1419-NC14» e «A FRANKIE RETAIL HOLDCO saldo
+fattura B01…»: prova documentale, non deduzione.
+
+Resta EPPI, e lì c'era un difetto vero.
+
+### Il difetto
+
+Movimento del 03/06/2026 da 3.050,00, causale anonima. EPPI ha **quattro**
+fatture aperte da 3.050,00 nella finestra. Il motore ha scelto quella scaduta
+il 06/02, a **117 giorni** dal movimento, quando ce n'era una a 27. E lo ha
+fatto scrivendo nel log «abbinamento per data — stesso fornitore/importo».
+
+Misurato prima di toccare niente: su **66** agganci passati da quel ramo negli
+ultimi 120 giorni, 20 avevano gemelle e **3** hanno scelto un candidato non
+ottimale per data. Oltre a EPPI: LA FAVORITA 331 (96 giorni invece di 35) e
+Colette 292/2026 (21 invece di 0, con una scadenza che cadeva esattamente il
+giorno del movimento).
+
+### La causa, che era a due righe di distanza
+
+Il tie-break sulla distanza **esisteva già**, ma chiuso dentro una condizione
+che lo restringeva a un caso solo: valeva soltanto se le due righe avevano lo
+stesso numero di fattura, cioè se erano rate dello stesso documento. Fra
+fatture DIVERSE dello stesso fornitore con lo stesso importo — il caso EPPI —
+non si applicava affatto, e vinceva la prima riga incontrata nel ciclo, cioè
+un ordine deciso dal piano di esecuzione.
+
+La 219 toglie la condizione sul numero di fattura: il confronto vale per
+qualunque coppia di candidati dello stesso fornitore. Il corpo interno non è
+stato toccato (prima la distanza minore, poi a pari distanza il numero di rata
+più basso).
+
+### Perché non è rischioso
+
+Il ramo agisce **solo a punteggio identico**. Un abbinamento vinto su identità
+certa — beneficiario in causale, numero di fattura citato, scadenza in distinta
+— ha punteggio più alto e vince nel ramo sopra, dove non si passa nemmeno di
+qui. Cambia soltanto quale, fra due righe che il motore giudica indistinguibili,
+risulti saldata: importo e fornitore restano gli stessi in ogni caso.
+
+### Il test, e una cosa che ha insegnato
+
+In transazione annullata: sganciata EPPI 8, riaperto il movimento, rilanciato il
+motore. Prima sceglieva la 8 a 117 giorni; ora sceglie la 16 a 56, che è la più
+vicina **fra quelle ancora libere** (la 20, a 27 giorni, è già agganciata a un
+altro movimento e il filtro `bank_transaction_id IS NULL` la esclude
+correttamente).
+
+E il tipo di match è sceso ad `auto_fuzzy`, punteggio 51: il motore **propone**
+invece di applicare. È il comportamento giusto su una causale anonima senza
+identità confermata, ed è un effetto collaterale benvenuto.
+
+### I tre agganci storici non sono stati toccati
+
+EPPI 8, LA FAVORITA 331 e Colette 292/2026 restano come sono. Tutte e tre le
+scadenze sono già pagate: importo e fornitore sono corretti, cambia solo quale
+gemella risulti saldata. Spostarli a mano significherebbe sostituire
+un'arbitrarietà con un'altra, senza una prova che dica quale sia quella giusta.
+Vale la lezione del 06/09: o si accetta il criterio, o si cambia il motore. Il
+motore è cambiato; il passato, senza prove nuove, si lascia dov'è.
