@@ -1738,3 +1738,24 @@ il lordo (riproporzionate); la ritenuta si ripartisce pro-quota.
 Backfill NZ: 8 fatture (Rubini, Impresa Valdarno, Marchetti, Signorini,
 Boschetti, Valia, Rocciola, Scandella), backup in
 `payables_bak_ritenuta_20260903`. Made e Zago: nessuna fattura con ritenuta.
+
+## Fatture senza ImportoTotaleDocumento (29/09/2026, migration 259)
+
+`<ImportoTotaleDocumento>` è facoltativo nella FatturaPA. Quando manca, lo staging
+`acube_sdi_invoices.total_amount` resta 0 e il bridge `sync_acube_sdi_passive_to_payable`
+lo copia in `electronic_invoices.gross_amount` e `payables.gross_amount`. Con lordo 0
+`update_payable_status` calcola residuo 0 e chiude la scadenza come «pagato»: la fattura
+sparisce dallo Scadenzario senza importo.
+
+Fix: trigger BEFORE INSERT `trg_acube_sdi_fill_missing_total` che, solo se il totale è
+nullo o zero, lo ricava dal riepilogo IVA (imponibile + imposta, prima dal payload JSON
+poi dall'XML) con `fn_acube_total_from_riepilogo`. Un totale dichiarato non si tocca mai.
+
+Casi NZ trovati (Made e Zago: nessuno), **non corretti** in attesa di decisione di Patrizio
+perché cambiando il lordo tornerebbero «scaduti» (sono pagamenti con carta MP08):
+IP Services 4077300000006518 (100,00), BLU SERVICE 4214700000010678 (100,13) e
+4214700000010679 (25,00).
+
+Fatture a zero **vere**, da non toccare: OMNITEKSTORE 6128/2026 (merce 134,02 + spedizione
+5,33 compensate dall'acconto della 5999/2026, che è in Scadenzario per 170,00), Estenergy
+412601042965 (nota di credito a zero), Fastweb 6638079479, C.A.E P. Ghetti 101380/1210.
