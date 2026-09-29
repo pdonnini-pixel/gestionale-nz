@@ -206,6 +206,15 @@ pagine effettivamente coinvolti.
 
 ---
 
+## 👥 REGOLA — Documenti dello studio paghe = dato vero (fissata da Patrizio il 29/09/2026)
+
+Ogni documento che arriva dallo studio paghe (contratti, proroghe, trasformazioni, modifiche d'orario, elenchi, tabulati) vale come **dato aggiornato e corretto** e **sostituisce** quello che c'è in anagrafica dipendenti, perché il dato vecchio può essere superato o sbagliato. Niente resta com'era "perché nessun documento lo smentisce": si ricontrolla ogni campo toccato dal documento (orario e `part_time_pct` = ore/40, `ore_settimanali`, tipo contratto, scadenza TD, proroghe usate/disponibili, durata e mesi disponibili, livello, qualifica, codice fiscale) e si allinea.
+- Ogni modifica lascia una **nota datata** con il documento di provenienza (colonna `note`), in coda alle precedenti.
+- I PDF si archiviano in `employee_documents` (bucket `employee-documents`, percorso `employee-documents/{employee_id}/{data}_{tipo}.pdf`) come **storico**: un documento nuovo si aggiunge, mai sostituisce. Si vedono nella scheda dipendente, riquadro «Documenti del rapporto».
+- Chi **manca** da una lista dello studio ma ha un contratto **non scaduto** resta attivo: la cessazione si registra solo con una data di fine vera.
+
+---
+
 ## 📬 Corrispondenza — chi è chi (regola fissata da Patrizio il 15/09/2026)
 
 - **Sabrina** (amministrazione New Zago) si scrive SEMPRE alla casella aziendale **newzago** (dominio dell'azienda, cercare «newzago» in Gmail), **mai** a un indirizzo `studiopoli`: la Sabrina dello Studio Poli è un'altra persona. È lei che manda a Monica il file mensile della Prima Nota.
