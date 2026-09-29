@@ -1,0 +1,7 @@
+-- ROLLBACK 259 — solo su Made e Zago, e solo se il bucket e' vuoto.
+-- Su NZ il bucket esisteva prima della 259: NON toccarlo.
+-- DROP POLICY IF EXISTS auth_read_employee_documents ON storage.objects;
+-- DROP POLICY IF EXISTS auth_write_employee_documents ON storage.objects;
+-- DROP POLICY IF EXISTS auth_del_employee_documents ON storage.objects;
+-- DELETE FROM storage.buckets WHERE id = 'employee-documents'
+--   AND NOT EXISTS (SELECT 1 FROM storage.objects WHERE bucket_id = 'employee-documents');

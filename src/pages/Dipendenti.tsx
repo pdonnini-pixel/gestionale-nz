@@ -1289,6 +1289,8 @@ export default function Dipendenti() {
           allocs={allocByEmp[schedaEmp.id] || []}
           outlets={outlets}
           companyId={COMPANY_ID}
+          docs={docsForEmp(schedaEmp.id).filter((d) => d.doc_type !== 'cedolino')}
+          onDocsChanged={reloadAll}
           onClose={() => setSchedaEmp(null)}
           onSaved={reloadAll}
           onEdit={() => { setEditingEmployee(schedaEmp); setSchedaEmp(null); setShowEmployeeForm(true); }}
@@ -1579,7 +1581,7 @@ function OrganicoTab(props: {
 
   const renderRow = (e: Employee) => {
     const allocs = allocByEmp[e.id] || [];
-    const docs = docsForEmp(e.id);
+    const docs = docsForEmp(e.id).filter((d) => d.doc_type === 'cedolino');
     const netto = nettoCell(e.id);
     const lordo = lordoCell(e.id);
     const cessato = e.is_active === false;
@@ -1755,7 +1757,7 @@ function CostiTab(props: {
                       <tbody>
                         {emps.map((e) => {
                           const c = costForMonth(e.id);
-                          const docs = docsForEmp(e.id).filter((d) => d.year === year);
+                          const docs = docsForEmp(e.id).filter((d) => d.doc_type === 'cedolino' && d.year === year);
                           return (
                             <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50">
                               <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
@@ -1938,9 +1940,9 @@ function Field({ label, children, full = false }: { label: string; children: Rea
 // ============================================================================
 // SCHEDA DIPENDENTE — netto mese per mese (14 mensilità; totale = somma, mai ×12)
 // ============================================================================
-function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, companyId, onClose, onSaved, onEdit }: {
+function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, companyId, docs, onDocsChanged, onClose, onSaved, onEdit }: {
   employee: Employee; year: number; costs: EmployeeCost[]; allocs: EmployeeOutletAllocation[]; outlets: OutletRow[];
-  companyId: string; onClose: () => void; onSaved: () => Promise<void>; onEdit: () => void;
+  companyId: string; docs: EmployeeDocument[]; onDocsChanged: () => Promise<void>; onClose: () => void; onSaved: () => Promise<void>; onEdit: () => void;
 }) {
   const { toast } = useToast();
   const emp = employee as any;
@@ -2030,7 +2032,10 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
         ) : (
           <div className="text-[11px] text-slate-400 mt-2">Contratto non a termine: nessuna scadenza/proroga (il blocco "Tempo determinato" compare solo per i contratti a tempo determinato).</div>
         )}
+        {(emp.note || employee.notes) && <div className="text-[11px] text-slate-500 mt-2 whitespace-pre-line">{emp.note || employee.notes}</div>}
       </div>
+
+      <DocumentiRapporto employeeId={employee.id} companyId={companyId} docs={docs} onChanged={onDocsChanged} />
 
       <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 leading-relaxed">
         Inserisci il <strong>netto del mese</strong> (così come arriva dalla busta paga). Ci sono <strong>14 mensilità</strong>: la <strong>13ª</strong> e la <strong>14ª</strong> vanno sommate nel netto del mese in cui vengono erogate (tipicamente dicembre e giugno). Il totale annuo è la <strong>somma dei mesi</strong>, mai mese×12. I valori inseriti qui a mano sono <strong>provvisori</strong>: l'import del mese (Elenco netti) li <strong>sovrascrive</strong> con il dato ufficiale.
@@ -2063,6 +2068,106 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
         <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva netti'}</button>
       </div>
     </Modal>
+  );
+}
+
+// ============================================================================
+// DOCUMENTI DEL RAPPORTO — contratti, proroghe, trasformazioni: storico, mai sovrascritto
+// ============================================================================
+const DOC_RAPPORTO_OPTS: { v: string; l: string }[] = [
+  { v: 'contratto', l: 'Contratto / lettera di assunzione' },
+  { v: 'impegnativa', l: 'Impegnativa di assunzione' },
+  { v: 'proroga', l: 'Proroga' },
+  { v: 'trasformazione', l: 'Trasformazione' },
+  { v: 'modifica_orario', l: 'Modifica orario' },
+  { v: 'cessazione', l: 'Cessazione / dimissioni' },
+  { v: 'altro', l: 'Altro documento' },
+];
+const docRapportoLabel = (v?: string | null) => DOC_RAPPORTO_OPTS.find((o) => o.v === v)?.l || v || 'Documento';
+const docInfo = (d: EmployeeDocument) => (d.extracted_data && typeof d.extracted_data === 'object' && !Array.isArray(d.extracted_data) ? d.extracted_data as Record<string, unknown> : {});
+const docDate = (d: EmployeeDocument) => String(docInfo(d).data_documento || d.uploaded_at || d.created_at || '').slice(0, 10);
+
+function DocumentiRapporto({ employeeId, companyId, docs, onChanged }: { employeeId: string; companyId: string; docs: EmployeeDocument[]; onChanged: () => Promise<void> }) {
+  const { toast } = useToast();
+  const [tipo, setTipo] = useState('contratto');
+  const [data, setData] = useState('');
+  const [descr, setDescr] = useState('');
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const ordinati = [...docs].sort((a, b) => docDate(b).localeCompare(docDate(a)));
+
+  const apri = async (d: EmployeeDocument) => {
+    if (!d.file_path) return;
+    // La finestra si apre subito (click dell'utente), poi riceve il file: evita il blocco popup.
+    const w = window.open('', '_blank');
+    const { data: blob, error } = await supabase.storage.from('employee-documents').download(d.file_path);
+    if (error || !blob) { w?.close(); toast({ type: 'error', message: 'Impossibile aprire il documento' }); return; }
+    const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+    if (w) w.location.href = url; else window.open(url, '_blank');
+  };
+
+  const carica = async (file: File) => {
+    if (!data) { toast({ type: 'error', message: 'Indica la data del documento' }); return; }
+    setBusy(true);
+    try {
+      const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
+      const path = `employee-documents/${employeeId}/${data}_${tipo}_${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from('employee-documents').upload(path, file);
+      if (upErr) throw upErr;
+      const [y, m] = data.split('-').map(Number);
+      const { error } = await supabase.from('employee_documents').insert([{
+        employee_id: employeeId, company_id: companyId, doc_type: tipo, year: y, month: m,
+        file_name: file.name, file_path: path, file_size: file.size, status: 'archiviato',
+        extracted_data: { data_documento: data, descrizione: descr.trim() || null },
+      }]);
+      if (error) throw error;
+      toast({ type: 'success', message: 'Documento archiviato' });
+      setDescr(''); setData('');
+      await onChanged();
+    } catch (err: any) {
+      toast({ type: 'error', message: 'Errore caricamento: ' + (err?.message || '') });
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  return (
+    <div className="mb-4 rounded-xl border border-slate-200 p-3">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Documenti del rapporto</div>
+      {ordinati.length === 0 ? (
+        <div className="text-xs text-slate-400 mb-2">Nessun documento archiviato.</div>
+      ) : (
+        <ul className="divide-y divide-slate-100 mb-3">
+          {ordinati.map((d) => {
+            const info = docInfo(d);
+            const dd = docDate(d);
+            return (
+              <li key={d.id} className="py-1.5 flex items-start justify-between gap-2 text-sm">
+                <div className="min-w-0">
+                  <div className="font-medium text-slate-700">{docRapportoLabel(d.doc_type)} <span className="text-slate-400 font-normal tabular-nums">· {dd ? new Date(dd).toLocaleDateString('it-IT') : '—'}</span></div>
+                  {info.descrizione ? <div className="text-xs text-slate-500">{String(info.descrizione)}</div> : null}
+                  <div className="text-[11px] text-slate-400 truncate">{d.file_name}</div>
+                </div>
+                {d.file_path && (
+                  <button onClick={() => apri(d)} className="shrink-0 p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Apri il PDF"><Eye size={15} /></button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="px-2 py-1.5 text-sm rounded-lg border border-slate-200">
+          {DOC_RAPPORTO_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+        </select>
+        <input type="date" value={data} onChange={(e) => setData(e.target.value)} className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" title="Data del documento" />
+        <input value={descr} onChange={(e) => setDescr(e.target.value)} placeholder="Descrizione (facoltativa)" className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" />
+      </div>
+      <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) carica(f); }} />
+      <button onClick={() => fileRef.current?.click()} disabled={busy} className="mt-2 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Upload size={13} /> {busy ? 'Caricamento…' : 'Carica documento'}</button>
+      <div className="text-[11px] text-slate-400 mt-1.5">I documenti restano come storico: uno nuovo si aggiunge, non sostituisce i precedenti.</div>
+    </div>
   );
 }
 

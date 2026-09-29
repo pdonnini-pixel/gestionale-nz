@@ -996,7 +996,17 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Scheda dipendente: i netti mese per mese",
-        "body": "Aprendo la scheda di una persona trovi i dati anagrafici e di contratto in sola lettura (con un pulsante \"Modifica\" per correggerli) e dodici caselle, una per mese, dove inserire il netto in busta paga. Il sistema tiene conto di 14 mensilità: la tredicesima va sommata al netto di dicembre e la quattordicesima al netto di giugno. Il totale annuo mostrato è semplicemente la somma dei mesi compilati, non una stima. Attenzione: i valori inseriti a mano qui sono provvisori — se in seguito importi l'elenco netti ufficiale dello stesso mese, quello sovrascrive il valore inserito manualmente."
+        "body": "Aprendo la scheda di una persona trovi i dati anagrafici e di contratto in sola lettura (con un pulsante \"Modifica\" per correggerli) e dodici caselle, una per mese, dove inserire il netto in busta paga. Il sistema tiene conto di 14 mensilità: la tredicesima va sommata al netto di dicembre e la quattordicesima al netto di giugno. Il totale annuo mostrato è semplicemente la somma dei mesi compilati, non una stima. Attenzione: i valori inseriti a mano qui sono provvisori — se in seguito importi l'elenco netti ufficiale dello stesso mese, quello sovrascrive il valore inserito manualmente. Sotto i dati di contratto compaiono le note datate, con la provenienza di ogni aggiornamento (per esempio «[29/09/2026] Full time 40 h dal 01/07/2026, lettera del 30/06/2026»). La percentuale di part time è l'orario settimanale diviso 40 ore: per chi è full time resta vuota."
+      },
+      {
+        "heading": "Documenti del rapporto (contratti, proroghe, trasformazioni)",
+        "body": "Nella scheda dipendente il riquadro «Documenti del rapporto» raccoglie lo storico dei documenti di lavoro della persona: lettera di assunzione, impegnativa, proroghe, trasformazioni (da part time a full time, da determinato a indeterminato), modifiche d'orario, cessazione. Sono in ordine di data, dal più recente, con tipo, data del documento e una breve descrizione; l'icona a forma di occhio apre il PDF in una nuova scheda del browser. Un documento nuovo si aggiunge sempre agli altri e non ne sostituisce nessuno: così resta la storia completa del rapporto. I cedolini non stanno qui: hanno il loro pulsante nella tabella dell'organico e nella vista «Costi & cedolini», e il numerino verde su quel pulsante conta solo i cedolini. Tutti i documenti compaiono anche in Archivio documenti, sezione «Paghe e personale». Quello che arriva dallo studio paghe vale come dato aggiornato: quando si archivia un documento, i dati della scheda (orario, scadenza, proroghe, livello) vanno allineati a quel documento.",
+        "steps": [
+          "Apri la scheda della persona cliccando sul nome.",
+          "Nel riquadro «Documenti del rapporto» scegli il tipo di documento e la data scritta sul documento; se vuoi, aggiungi una descrizione (per esempio «Proroga al 15/10/2026»).",
+          "Premi «Carica documento» e scegli il PDF: compare subito nell'elenco.",
+          "Se il documento cambia orario, scadenza o tipo di contratto, premi «Modifica» in alto e aggiorna i dati."
+        ]
       },
       {
         "heading": "Costi & cedolini",
