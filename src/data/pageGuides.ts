@@ -983,7 +983,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Organico — l'anagrafica dei dipendenti",
-        "body": "È l'elenco completo delle persone, raggruppate per sede. Puoi filtrare per stato (Attivi, Cessati, Tutti), per sede e cercare per nome. Da qui gestisci ogni dipendente con le icone azione sulla riga.",
+        "body": "È l'elenco delle persone in forza nel mese scelto, raggruppate per sede: chi è assunto dopo la fine del mese o è cessato prima del suo inizio non compare (per esempio una persona assunta il 1° ottobre si vede da ottobre in poi, non a settembre), e una riga grigia sopra l'elenco dice quante persone sono escluse per questo motivo. Per vederle basta cambiare mese. Puoi filtrare per stato (Attivi, Cessati, Tutti), per sede e cercare per nome. Da qui gestisci ogni dipendente con le icone azione sulla riga.",
         "steps": [
           "Per aggiungere un dipendente: clicca \"Dipendente\" e compila almeno cognome, nome e data di inizio contratto (obbligatori); puoi indicare anche matricola, codice fiscale, qualifica, livello, tipo di contratto e, se è a tempo determinato, scadenza e proroghe.",
           "Per modificare i dati di un dipendente: clicca l'icona a forma di matita sulla riga.",

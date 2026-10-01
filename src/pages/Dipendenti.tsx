@@ -1560,7 +1560,20 @@ function OrganicoTab(props: {
   uploadingEmployee: string | null;
 }) {
   const { employees, allocByEmp, nettoCell, lordoCell, isPaid, lordoAmministratori, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, onScheda, docsForEmp, uploadingEmployee } = props;
+  // In forza nel mese scelto: assunto entro la fine del mese e non cessato prima del suo inizio.
+  // Senza questo controllo una nuova assunta compariva anche nei mesi precedenti all'assunzione.
+  const meseInizio = `${year}-${mm}-01`;
+  const meseFine = `${year}-${mm}-31`; // confronto fra date ISO: il 31 copre ogni fine mese
+  const inForzaNelMese = (e: Employee) => {
+    const inizio = e.data_assunzione || e.hire_date;
+    const fine = e.data_cessazione || e.termination_date;
+    if (inizio && inizio > meseFine) return false;
+    if (fine && fine < meseInizio) return false;
+    return true;
+  };
+  const fuoriMese = employees.filter((e) => !inForzaNelMese(e)).length;
   const filtered = employees.filter((e) => {
+    if (!inForzaNelMese(e)) return false;
     const active = e.is_active !== false;
     if (status === 'attivi' && !active) return false;
     if (status === 'cessati' && active) return false;
@@ -1647,6 +1660,11 @@ function OrganicoTab(props: {
         </div>
       </div>
 
+      {fuoriMese > 0 && (
+        <div className="text-[11px] text-slate-400">
+          {fuoriMese === 1 ? '1 persona non era' : `${fuoriMese} persone non erano`} in forza a {mm}/{year} (assunte dopo o cessate prima) e non {fuoriMese === 1 ? 'è mostrata' : 'sono mostrate'}: cambia mese per vederle.
+        </div>
+      )}
       {orderedNames.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">Nessun dipendente.</div>
       ) : orderedNames.map((name) => {
