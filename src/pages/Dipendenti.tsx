@@ -140,8 +140,8 @@ const primaryOutlet = (allocs: EmployeeOutletAllocation[]): string => {
 };
 
 // Sezione collassabile per outlet (accordion). Default collassata.
-function OutletAccordion({ name, count, total, defaultOpen = false, children }: {
-  name: string; count: number; total: number | null; defaultOpen?: boolean; children: React.ReactNode;
+function OutletAccordion({ name, count, countNote, total, defaultOpen = false, children }: {
+  name: string; count: number; countNote?: string; total: number | null; defaultOpen?: boolean; children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const color = name === 'Senza sede' ? { main: '#94a3b8' } : getOutletColor(name);
@@ -152,7 +152,7 @@ function OutletAccordion({ name, count, total, defaultOpen = false, children }: 
           {open ? <ChevronDown size={16} className="text-slate-400 shrink-0" /> : <ChevronRight size={16} className="text-slate-400 shrink-0" />}
           <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: color.main }} />
           <span className="font-semibold text-slate-800 truncate">{name}</span>
-          <span className="text-xs font-normal text-slate-500 shrink-0">· {count} dipendenti</span>
+          <span className="text-xs font-normal text-slate-500 shrink-0">· {count} dipendenti{countNote ? ` · ${countNote}` : ''}</span>
         </span>
         <span className="text-sm shrink-0">{total == null ? <span className="text-slate-300">—</span> : <Money v={total} strong />}</span>
       </button>
@@ -1571,9 +1571,7 @@ function OrganicoTab(props: {
     if (fine && fine < meseInizio) return false;
     return true;
   };
-  const fuoriMese = employees.filter((e) => !inForzaNelMese(e)).length;
-  const filtered = employees.filter((e) => {
-    if (!inForzaNelMese(e)) return false;
+  const nelFiltro = employees.filter((e) => {
     const active = e.is_active !== false;
     if (status === 'attivi' && !active) return false;
     if (status === 'cessati' && active) return false;
@@ -1581,6 +1579,9 @@ function OrganicoTab(props: {
     if (outletFilter && !(allocByEmp[e.id] || []).some((a) => a.outlet_code === outletFilter)) return false;
     return true;
   });
+  // Il conteggio degli esclusi rispetta gli altri filtri (stato, sede, ricerca): conta solo chi si vedrebbe cambiando mese.
+  const fuoriMese = nelFiltro.filter((e) => !inForzaNelMese(e)).length;
+  const filtered = nelFiltro.filter(inForzaNelMese);
   const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleDateString('it-IT') : '');
   const STATUS: { k: 'attivi' | 'cessati' | 'tutti'; label: string }[] = [
     { k: 'attivi', label: 'Attivi' }, { k: 'cessati', label: 'Cessati' }, { k: 'tutti', label: 'Tutti' },
@@ -1672,7 +1673,7 @@ function OrganicoTab(props: {
         const paidEmps = emps.filter((e) => isPaid(e.id));
         const totMese = paidEmps.reduce((s, e) => s + (nettoCell(e.id) || 0), 0);
         return (
-          <OutletAccordion key={name} name={name} count={paidEmps.length} total={paidEmps.length ? totMese : null}>
+          <OutletAccordion key={name} name={name} count={emps.length} countNote={`${paidEmps.length} con cedolino ${mm}/${year}`} total={paidEmps.length ? totMese : null}>
             <div className="overflow-x-auto scroll-shadow-x">
               <table className="w-full text-sm">
                 <thead>
