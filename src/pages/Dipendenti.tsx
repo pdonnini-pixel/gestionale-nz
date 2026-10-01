@@ -357,10 +357,9 @@ export default function Dipendenti() {
   };
 
   const [selectedYear, setSelectedYear] = useState(globalYear);
-  // Il mese parte da quello di calendario, ma appena i cedolini sono caricati si
-  // sposta sull'ultimo mese granito dell'anno (a settembre non ha senso aprire su
-  // un mese vuoto). Il salto avviene una sola volta: se l'utente sceglie un mese,
-  // la sua scelta comanda.
+  // Il mese parte sempre da quello in corso (scelta di Patrizio, 01/10/2026): se i
+  // cedolini del mese non ci sono ancora, l'avviso in testa porta all'ultimo mese
+  // caricato con un clic. Se l'utente sceglie un mese, la sua scelta comanda.
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const monthTouched = useRef(false);
   const pickMonth = (m: number) => { monthTouched.current = true; setSelectedMonth(m); };
@@ -619,21 +618,12 @@ export default function Dipendenti() {
   const organicoAttivo = useMemo(() => companyHeadcount(costs, employees, period), [costs, employees, period]);
   // Ultimo mese con cedolini caricati: default del selettore e etichetta di fallback.
   const lastGranited = useMemo(() => lastGranitedPeriod(costs), [costs]);
-  const lastGranitedInYear = useMemo(() => lastGranitedPeriod(costs, selectedYear), [costs, selectedYear]);
   const meseGranito = paidEmpIds.size > 0;
 
   const headcountByOutlet = useMemo(
     () => headcountByOutletOf(costs, employees, allocations, period),
     [costs, employees, allocations, period]
   );
-
-  // Default granitico: al primo caricamento porta il selettore sull'ultimo mese
-  // con cedolini dell'anno scelto, così la pagina non si apre mai vuota.
-  useEffect(() => {
-    if (monthTouched.current || !lastGranitedInYear) return;
-    if (lastGranitedInYear.month !== selectedMonth) setSelectedMonth(lastGranitedInYear.month);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lastGranitedInYear]);
 
   const bcByOutlet = (o: OutletRow) => (o.cost_center_key ? bcByCenter[o.cost_center_key] || 0 : 0);
 

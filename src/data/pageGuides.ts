@@ -971,7 +971,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "sections": [
       {
         "heading": "Come è organizzata la pagina",
-        "body": "In alto trovi sei schede: Panoramica, Per outlet, Organico, Costi & cedolini, Costo lordo, Ferie e permessi (che dentro si divide in Richieste, Approvazioni e Saldi dalle paghe). In alto a destra puoi scegliere l'anno e il mese di riferimento: quasi tutti i numeri della pagina (netti, organico attivo) si riferiscono al mese selezionato. Il pulsante \"Dipendente\" in alto apre subito il modulo per aggiungere una persona nuova."
+        "body": "In alto trovi sei schede: Panoramica, Per outlet, Organico, Costi & cedolini, Costo lordo, Ferie e permessi (che dentro si divide in Richieste, Approvazioni e Saldi dalle paghe). In alto a destra puoi scegliere l'anno e il mese di riferimento: quasi tutti i numeri della pagina (netti, organico attivo) si riferiscono al mese selezionato. La pagina si apre sempre sul mese in corso; se i cedolini di quel mese non sono ancora caricati, un avviso giallo in testa lo dice e porta con un clic all'ultimo mese caricato. Il pulsante \"Dipendente\" in alto apre subito il modulo per aggiungere una persona nuova."
       },
       {
         "heading": "Panoramica",
