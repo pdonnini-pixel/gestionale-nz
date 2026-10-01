@@ -52,6 +52,7 @@ import {
 } from '../lib/payrollParse';
 import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
 import { archiviaFile, avvisoArchiviazioneFallita, sostituisciPrecedenti } from '../lib/archivioFile';
+import { parseElenco, confrontaElenco, notaAllineamento, valoriDaRiga, outletDaFiliale, dataDalNomeFile, badgeScadenza, type EsitoConfronto, type RigaElenco, type DipendenteConfronto } from '../lib/elencoDipendenti';
 import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
 import ExportMenu from '../components/ExportMenu';
 // Organico granitico: fonte unica del conteggio dipendenti (vedi src/lib/headcount.ts).
@@ -383,6 +384,7 @@ export default function Dipendenti() {
 
   // UI state
   const [showEmployeeForm, setShowEmployeeForm] = useState(false);
+  const [showElencoImport, setShowElencoImport] = useState(false);
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [showCostForm, setShowCostForm] = useState(false);
   const [editingCost, setEditingCost] = useState<EmployeeCost | null>(null);
@@ -1079,6 +1081,7 @@ export default function Dipendenti() {
               search={orgSearch}
               setSearch={setOrgSearch}
               onAdd={() => { setEditingEmployee(null); setShowEmployeeForm(true); }}
+              onImportElenco={() => setShowElencoImport(true)}
               onEdit={(e) => { setEditingEmployee(e); setShowEmployeeForm(true); }}
               onAlloc={openAllocEditor}
               onCedolino={triggerCedolino}
@@ -1269,6 +1272,17 @@ export default function Dipendenti() {
           </div>
           <style>{`.inp{width:100%;padding:0.5rem 0.75rem;font-size:0.875rem;border-radius:0.5rem;border:1px solid rgb(226 232 240)}`}</style>
         </Modal>
+      )}
+
+      {showElencoImport && (
+        <ElencoStudioModal
+          employees={employees}
+          outlets={outlets}
+          companyId={COMPANY_ID}
+          userId={USER_ID}
+          onClose={() => setShowElencoImport(false)}
+          onDone={reloadAll}
+        />
       )}
 
       {schedaEmp && (
@@ -1540,6 +1554,7 @@ function OrganicoTab(props: {
   outletFilter: string; setOutletFilter: (s: string) => void;
   search: string; setSearch: (s: string) => void;
   onAdd: () => void;
+  onImportElenco: () => void;
   onEdit: (e: Employee) => void;
   onAlloc: (id: string) => void;
   onCedolino: (id: string) => void;
@@ -1549,11 +1564,12 @@ function OrganicoTab(props: {
   docsForEmp: (id: string) => EmployeeDocument[];
   uploadingEmployee: string | null;
 }) {
-  const { employees, allocByEmp, nettoCell, lordoCell, isPaid, lordoAmministratori, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, onScheda, docsForEmp, uploadingEmployee } = props;
+  const { employees, allocByEmp, nettoCell, lordoCell, isPaid, lordoAmministratori, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onImportElenco, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, onScheda, docsForEmp, uploadingEmployee } = props;
   // In forza nel mese scelto: assunto entro la fine del mese e non cessato prima del suo inizio.
   // Senza questo controllo una nuova assunta compariva anche nei mesi precedenti all'assunzione.
   const meseInizio = `${year}-${mm}-01`;
   const meseFine = `${year}-${mm}-31`; // confronto fra date ISO: il 31 copre ogni fine mese
+  const oggiIso = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
   const inForzaNelMese = (e: Employee) => {
     const inizio = e.data_assunzione || e.hire_date;
     const fine = e.data_cessazione || e.termination_date;
@@ -1598,6 +1614,10 @@ function OrganicoTab(props: {
           <button onClick={() => onScheda(e)} className="font-semibold text-slate-800 hover:text-blue-700 hover:underline text-left" title="Apri scheda dipendente">{empName(e)}</button>
           {isAdminRole(e) && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
           {cessato && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">cessato</span>}
+          {!cessato && (() => {
+            const b = badgeScadenza((e as any).scadenza_td || null, e.contratto_tipo || null, meseInizio, meseFine, oggiIso);
+            return b ? <span className={`ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${b.tono === 'rosso' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`} title={b.tono === 'rosso' ? 'Il determinato risulta scaduto: verifica con lo studio se è stato prorogato o se il rapporto è cessato' : 'Il determinato scade in questo mese'}>{b.testo}</span> : null;
+          })()}
         </td>
         <td className="px-4 py-2.5 text-slate-500">
           <div>{e.contratto_tipo || e.contract_type || 'da definire'}</div>
@@ -1647,6 +1667,7 @@ function OrganicoTab(props: {
             {outlets.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
           </select>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cerca nome…" className="px-3 py-2 text-sm rounded-lg border border-slate-300 w-44" />
+          <button onClick={onImportElenco} className="px-3 py-2 rounded-lg text-sm font-medium text-blue-700 border border-blue-200 bg-white hover:bg-blue-50 flex items-center gap-1.5" title="Carica l'elenco dipendenti mandato dallo studio paghe e allinea l'anagrafica"><FileUp size={15} /> Elenco dello studio</button>
           <button onClick={onAdd} className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Plus size={15} /> Dipendente</button>
         </div>
       </div>
@@ -2075,6 +2096,172 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
       <div className="flex justify-end gap-2 mt-5">
         <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Chiudi</button>
         <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva netti'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ============================================================================
+// ELENCO DIPENDENTI DELLO STUDIO — confronto e allineamento mensile dell'anagrafica
+// ============================================================================
+function ElencoStudioModal({ employees, outlets, companyId, userId, onClose, onDone }: {
+  employees: Employee[]; outlets: OutletRow[]; companyId: string; userId: string | null | undefined;
+  onClose: () => void; onDone: () => Promise<void>;
+}) {
+  const { toast } = useToast();
+  const [file, setFile] = useState<File | null>(null);
+  const [dataElenco, setDataElenco] = useState('');
+  const [esito, setEsito] = useState<EsitoConfronto | null>(null);
+  const [errore, setErrore] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const oggi = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
+  const fmt = (d?: string | null) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '—');
+  const nomeOutlet = (r: RigaElenco) => outletDaFiliale(r.filiale, outlets)?.name || null;
+
+  const leggi = async (f: File) => {
+    setFile(f); setEsito(null); setErrore(null);
+    setDataElenco(dataDalNomeFile(f.name) || oggi);
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(await f.arrayBuffer(), { type: 'array', cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const matrix = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, raw: true }) as unknown[][];
+      const { righe, errore: err } = parseElenco(matrix);
+      if (err) { setErrore(err); return; }
+      setEsito(confrontaElenco(righe, employees as unknown as DipendenteConfronto[]));
+    } catch (e: any) {
+      setErrore('Non riesco a leggere il file: ' + (e?.message || ''));
+    }
+  };
+
+  const nModifiche = esito ? esito.nuovi.length + esito.nuoviRapporti.length + esito.aggiornati.length : 0;
+
+  // Il giorno prima di una data ISO (fine del vecchio rapporto).
+  const giornoPrima = (iso: string) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); };
+
+  const inserisci = async (r: RigaElenco, nota: string) => {
+    const outlet = outletDaFiliale(r.filiale, outlets);
+    const { data, error } = await supabase.from('employees').insert([{
+      ...valoriDaRiga(r), company_id: companyId, outlet_id: outlet?.id || null,
+      nome: r.nome, cognome: r.cognome, first_name: r.nome, last_name: r.cognome, is_active: true, note: nota,
+    }] as any).select('id').single();
+    if (error) throw error;
+    if (outlet && data?.id) {
+      const { error: aErr } = await supabase.from('employee_outlet_allocations').insert([{ employee_id: data.id, company_id: companyId, outlet_code: outlet.name, allocation_pct: 100 }]);
+      if (aErr) throw aErr;
+    }
+  };
+
+  const applica = async () => {
+    if (!esito || !file) return;
+    setBusy(true);
+    const errori: string[] = [];
+    const quando = `[${fmt(oggi)}]`;
+    const fonte = `elenco dipendenti dello studio paghe al ${fmt(dataElenco)}`;
+    for (const a of esito.aggiornati) {
+      const nota = notaAllineamento(oggi, dataElenco, a.differenze);
+      const { error } = await supabase.from('employees').update({ ...valoriDaRiga(a.riga), note: [(a.dip as any).note, nota].filter(Boolean).join(' ') } as any).eq('id', a.dip.id);
+      if (error) errori.push(`${a.riga.cognome}: ${error.message}`);
+    }
+    for (const n of esito.nuoviRapporti) {
+      const fine = giornoPrima(n.riga.assunzione as string);
+      const { error } = await supabase.from('employees').update({
+        is_active: false, data_cessazione: fine, termination_date: fine,
+        note: [(n.dip as any).note, `${quando} Rapporto chiuso al ${fmt(fine)}: dal ${fmt(n.riga.assunzione)} nuovo rapporto con matricola ${n.riga.matricola} (${fonte}).`].filter(Boolean).join(' '),
+      }).eq('id', n.dip.id);
+      if (error) { errori.push(`${n.riga.cognome}: ${error.message}`); continue; }
+      try { await inserisci(n.riga, `${quando} Nuovo rapporto dal ${fmt(n.riga.assunzione)} (${fonte}); il rapporto precedente, matricola ${n.dip.matricola}, è chiuso al ${fmt(fine)}.`); }
+      catch (e: any) { errori.push(`${n.riga.cognome}: ${e?.message || e}`); }
+    }
+    for (const r of esito.nuovi) {
+      try { await inserisci(r, `${quando} Inserita dall'${fonte}.`); }
+      catch (e: any) { errori.push(`${r.cognome}: ${e?.message || e}`); }
+    }
+    const [y, m] = dataElenco.split('-').map(Number);
+    const arch = await archiviaFile({ file, companyId, userId: userId || null, modulo: 'Personale', funzione: 'Elenco dipendenti dello studio paghe', bucket: 'employee-documents', year: y, month: m, referenceTable: 'employees', note: `${nModifiche} schede allineate` });
+    setBusy(false);
+    if (errori.length) toast({ type: 'error', message: `Allineamento con ${errori.length} errori: ${errori.slice(0, 3).join(' · ')}` });
+    else toast({ type: 'success', message: `Anagrafica allineata all'elenco: ${esito.aggiornati.length} aggiornate, ${esito.nuovi.length + esito.nuoviRapporti.length} nuove schede.${arch.errore ? ' Il file non è stato archiviato.' : ''}` });
+    await onDone();
+    onClose();
+  };
+
+  const Sezione = ({ titolo, n, children, tono = 'slate' }: { titolo: string; n: number; children: React.ReactNode; tono?: 'slate' | 'blue' | 'amber' }) => (
+    <div className={`rounded-xl border p-3 ${tono === 'blue' ? 'border-blue-200 bg-blue-50/40' : tono === 'amber' ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200'}`}>
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-600 mb-2">{titolo} · {n}</div>
+      {children}
+    </div>
+  );
+
+  return (
+    <Modal title="Elenco dipendenti dello studio" onClose={onClose} maxW="max-w-3xl">
+      <p className="text-sm text-slate-600 mb-3">
+        Carica l'elenco dipendenti che lo studio paghe manda ogni mese (Excel). Il gestionale lo confronta con l'anagrafica e mostra cosa cambia; niente viene scritto finché non premi «Applica». Il dato dello studio vale come corretto e sostituisce quello in anagrafica; ogni scheda toccata riceve una nota datata.
+      </p>
+      <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 text-sm cursor-pointer hover:bg-slate-50">
+        <FileUp size={15} /> {file ? file.name : 'Scegli il file dell\'elenco'}
+        <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) leggi(f); }} />
+      </label>
+      {file && (
+        <label className="ml-3 text-sm text-slate-600">Elenco al <input type="date" value={dataElenco} onChange={(e) => setDataElenco(e.target.value)} className="ml-1 px-2 py-1 rounded border border-slate-300 text-sm" /></label>
+      )}
+      {errore && <div className="mt-3 p-3 rounded-lg bg-red-50 border border-red-200 text-sm text-red-700">{errore}</div>}
+
+      {esito && (
+        <div className="mt-4 space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+          <div className="text-sm text-slate-700">
+            <strong>{esito.aggiornati.length}</strong> da aggiornare · <strong>{esito.nuovi.length}</strong> nuove · <strong>{esito.nuoviRapporti.length}</strong> nuovi rapporti · <strong>{esito.invariati}</strong> già allineate · <strong>{esito.mancanti.length}</strong> non presenti nell'elenco
+          </div>
+          {esito.nuovi.length > 0 && (
+            <Sezione titolo="Nuove assunzioni" n={esito.nuovi.length} tono="blue">
+              <ul className="text-sm space-y-1">
+                {esito.nuovi.map((r) => (
+                  <li key={r.matricola}><strong>{r.cognome} {r.nome}</strong> · matricola {r.matricola} · {r.tipo} dal {fmt(r.assunzione)}{r.scadenza ? ` al ${fmt(r.scadenza)}` : ''} · {r.partTimePct == null ? 'full time' : `${String(r.partTimePct).replace('.', ',')}%`} · {nomeOutlet(r) || <span className="text-amber-700">sede non riconosciuta ({r.filiale || '—'}): assegnala dopo</span>}</li>
+                ))}
+              </ul>
+            </Sezione>
+          )}
+          {esito.nuoviRapporti.length > 0 && (
+            <Sezione titolo="Nuovi rapporti (stessa persona, matricola nuova)" n={esito.nuoviRapporti.length} tono="blue">
+              <ul className="text-sm space-y-1">
+                {esito.nuoviRapporti.map((n) => (
+                  <li key={n.dip.id}><strong>{n.riga.cognome} {n.riga.nome}</strong>: chiude la matricola {n.dip.matricola} al {fmt(giornoPrima(n.riga.assunzione as string))} e apre la {n.riga.matricola} dal {fmt(n.riga.assunzione)} ({n.riga.tipo}{n.riga.scadenza ? ` al ${fmt(n.riga.scadenza)}` : ''})</li>
+                ))}
+              </ul>
+            </Sezione>
+          )}
+          {esito.aggiornati.length > 0 && (
+            <Sezione titolo="Da aggiornare" n={esito.aggiornati.length}>
+              <ul className="text-sm space-y-1.5">
+                {esito.aggiornati.map((a) => (
+                  <li key={a.dip.id}>
+                    <strong>{a.riga.cognome} {a.riga.nome}</strong>
+                    <span className="text-slate-600"> · {a.differenze.map((d) => `${d.label}: ${d.prima} → ${d.dopo}`).join(' · ')}</span>
+                  </li>
+                ))}
+              </ul>
+            </Sezione>
+          )}
+          {esito.mancanti.length > 0 && (
+            <Sezione titolo="In anagrafica ma non nell'elenco" n={esito.mancanti.length} tono="amber">
+              <p className="text-xs text-amber-800 mb-1.5">Non vengono toccati. Se il contratto è scaduto e non è stato rinnovato, registra la cessazione dalla riga del dipendente; altrimenti chiedi allo studio.</p>
+              <ul className="text-sm space-y-1">
+                {esito.mancanti.map((d) => (
+                  <li key={d.id}><strong>{d.cognome} {d.nome}</strong> · matricola {d.matricola || '—'} · {d.contratto_tipo || 'contratto non indicato'}{d.scadenza_td ? ` · scadenza ${fmt(d.scadenza_td)}${d.scadenza_td < oggi ? ' (scaduto)' : ''}` : ''}</li>
+                ))}
+              </ul>
+            </Sezione>
+          )}
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 mt-5">
+        <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Chiudi</button>
+        {esito && (
+          <button onClick={applica} disabled={busy || nModifiche === 0} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1.5">
+            <Save size={15} /> {busy ? 'Allineamento…' : nModifiche === 0 ? 'Niente da applicare' : `Applica ${nModifiche} modifiche`}
+          </button>
+        )}
       </div>
     </Modal>
   );
