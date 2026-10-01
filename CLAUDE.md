@@ -220,6 +220,7 @@ Ogni documento che arriva dallo studio paghe (contratti, proroghe, trasformazion
 - **Sabrina** (amministrazione New Zago) si scrive SEMPRE alla casella aziendale **newzago** (dominio dell'azienda, cercare «newzago» in Gmail), **mai** a un indirizzo `studiopoli`: la Sabrina dello Studio Poli è un'altra persona. È lei che manda a Monica il file mensile della Prima Nota.
 - **Monica** (Studio Poli, contabilità) riceve il file della Prima Nota da Sabrina; Patrizio e Lilian in copia le danno supporto.
 - **Lilian** (operativa New Zago): Patrizio le scrive di solito sulla sua Gmail personale; esiste anche la casella owlystic.
+- **Consulenza** = `consulenzafirenze@gmail.com`, la casella che Patrizio tiene in copia sulle comunicazioni societarie. **Quella casella arriva già sia a Patrizio sia a Lilian**: se una mail va a consulenza, NON aggiungere Patrizio né Lilian in copia, è una ripetizione inutile (regola fissata da Patrizio il 01/10/2026). Da non confondere con `ds.affarieconsulenze@gmail.com`, che è fra i destinatari del report incassi serale.
 - Bozze e mail: prepararle come bozze Gmail, mai inviare senza che Patrizio lo dica.
 
 ---
