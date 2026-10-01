@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -338,5 +338,29 @@ describe('pendingLooksLikeExpected', () => {
   it('tace quando il negozio tiene in cassa solo il fondo e il resto è da versare', () => {
     // atteso 500, fondo 500, punto 5 a 0: coincidenza innocua, niente avviso
     expect(pendingLooksLikeExpected({ cashFloatExpected: 500, cashFloatDeclared: 500, cashPendingDeclared: 0 })).toBeNull()
+  })
+})
+
+describe('totalMissingFromPhoto', () => {
+  it('propone il totale della foto quando il punto 1 è a zero (Franciacorta 30/09/2026)', () => {
+    expect(totalMissingFromPhoto({ isClosedDay: false, totalReceipts: 0, photoTotal: 2114.56 })).toBe(2114.56)
+  })
+
+  it('vale anche col campo ancora vuoto', () => {
+    expect(totalMissingFromPhoto({ isClosedDay: false, totalReceipts: null, photoTotal: 2114.56 })).toBe(2114.56)
+  })
+
+  it('tace quando il totale è scritto', () => {
+    expect(totalMissingFromPhoto({ isClosedDay: false, totalReceipts: 2114.56, photoTotal: 2114.56 })).toBeNull()
+    expect(totalMissingFromPhoto({ isClosedDay: false, totalReceipts: 1800, photoTotal: 2114.56 })).toBeNull()
+  })
+
+  it('tace senza foto letta o con foto a zero', () => {
+    expect(totalMissingFromPhoto({ isClosedDay: false, totalReceipts: 0, photoTotal: null })).toBeNull()
+    expect(totalMissingFromPhoto({ isClosedDay: false, totalReceipts: 0, photoTotal: 0 })).toBeNull()
+  })
+
+  it('il giorno di negozio chiuso non chiede niente', () => {
+    expect(totalMissingFromPhoto({ isClosedDay: true, totalReceipts: 0, photoTotal: 2114.56 })).toBeNull()
   })
 })

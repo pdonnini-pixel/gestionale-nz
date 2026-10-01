@@ -319,6 +319,29 @@ export function computeQuadrature(q: QuadratureInput): QuadratureResult {
  * null se non è questo il caso. Non è un blocco: la cassiera può confermare
  * lo stesso, perché il contante vero lo vede solo lei.
  */
+/**
+ * Totale corrispettivi lasciato a zero mentre la foto dello scontrino di
+ * chiusura dice un'altra cifra. È il caso di Franciacorta del 30/09/2026: foto
+ * letta alle 20:03 con 2.114,56 di vendite, chiusura confermata alle 20:08 con
+ * tutti i campi a zero, numeri scritti solo nella nota. Risultato: 2.114,56
+ * fuori dal mese e un finto ammanco di cassa di 2.139,36.
+ *
+ * Restituisce l'importo letto dalla foto, da proporre; null se non è il caso.
+ * Non blocca per sempre: la cassiera può confermare lo zero, perché la lettura
+ * automatica può sbagliare e il negozio può davvero non aver venduto nulla.
+ */
+export function totalMissingFromPhoto(i: {
+  isClosedDay: boolean
+  /** Totale scritto nel punto 1 (null se il campo è vuoto). */
+  totalReceipts: number | null
+  /** Totale letto dalla foto dello scontrino di chiusura. */
+  photoTotal: number | null
+}): number | null {
+  if (i.isClosedDay) return null
+  if (i.photoTotal == null || !(i.photoTotal > 0)) return null
+  return Math.abs(i.totalReceipts ?? 0) < 0.005 ? r2(i.photoTotal) : null
+}
+
 export function pendingLooksLikeExpected(i: {
   cashFloatExpected: number | null
   cashFloatDeclared: number | null

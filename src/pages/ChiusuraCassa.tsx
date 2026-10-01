@@ -40,7 +40,7 @@ import {
   parseAmount, formatAmount, formatEuro, computeQuadrature, todayIso, addDaysIso, monthDays,
   formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount,
   eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type DeviationLine,
-  closingBlockers, pendingLooksLikeExpected, type ClosingBlocker, type ClosingBlockField,
+  closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, type ClosingBlocker, type ClosingBlockField,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
@@ -141,6 +141,9 @@ export default function ChiusuraCassa() {
   // Punto 5 che sembra il contante atteso: avviso al centro, una volta sola.
   const [pendingWarn, setPendingWarn] = useState<number | null>(null)
   const [pendingAccepted, setPendingAccepted] = useState(false)
+  // Punto 1 a zero mentre la foto dello scontrino dice un'altra cifra.
+  const [totalWarn, setTotalWarn] = useState<number | null>(null)
+  const [totalAccepted, setTotalAccepted] = useState(false)
   const fondoRef = useRef<HTMLElement>(null)
   const daVersareRef = useRef<HTMLElement>(null)
 
@@ -271,6 +274,7 @@ export default function ChiusuraCassa() {
     cashPendingDeclared: parseAmount(form.cashPendingDeclared),
   }), [quad.cashFloatExpected, form.cashFloatDeclared, form.cashPendingDeclared])
   const fixPending = (v: number) => { update({ cashPendingDeclared: formatAmount(v) }); setPendingWarn(null) }
+  const fixTotal = (v: number) => { update({ total: formatAmount(v) }); setTotalWarn(null) }
   const goToBlock = (field: ClosingBlockField) => {
     setBlockers(null)
     const el = field === 'fondo' ? fondoRef.current : daVersareRef.current
@@ -293,7 +297,7 @@ export default function ChiusuraCassa() {
     setForm((f) => (f.cashFloatOpening === v ? f : { ...f, cashFloatOpening: v }))
     setDirty(true)
   }, [derivedOpening])
-  useEffect(() => { setAllCashNow(''); setPendingAccepted(false); setPendingWarn(null) }, [outletId, dateIso])
+  useEffect(() => { setAllCashNow(''); setPendingAccepted(false); setPendingWarn(null); setTotalAccepted(false); setTotalWarn(null) }, [outletId, dateIso])
 
   const update = (patch: Partial<FormState>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
   const updateAmount = (channelId: string, v: string) => { setForm((f) => ({ ...f, amounts: { ...f.amounts, [channelId]: v } })); setDirty(true) }
@@ -303,6 +307,17 @@ export default function ChiusuraCassa() {
   const photosFor = (t: AttachmentTarget, id?: string) => attachments.filter((a) =>
     a.target === t && (t === 'canale' ? a.line_id === id : t === 'spesa' ? a.expense_id === id : true))
   const totalPhotos = photosFor('totale')
+  /** Totale letto dalla foto dello scontrino di chiusura (l'ultima letta). */
+  const photoTotal = useMemo(() => {
+    const letti = totalPhotos
+      .filter((a) => ['letta', 'da_rivedere'].includes(a.extraction_status ?? ''))
+      .map((a) => extractedAmount(a.extracted))
+      .filter((v): v is number => v != null)
+    return letti.length > 0 ? letti[letti.length - 1] : null
+  }, [totalPhotos])
+  const totalHint = useMemo(() => totalMissingFromPhoto({
+    isClosedDay: form.isClosedDay, totalReceipts: parseAmount(form.total), photoTotal,
+  }), [form.isClosedDay, form.total, photoTotal])
 
   // ─── Persistenza ──────────────────────────────────────────────────────
   const closingPayload = () => ({
@@ -406,8 +421,9 @@ export default function ChiusuraCassa() {
     return out
   }
 
-  const confirm = async (force = false, pendingOk = false) => {
+  const confirm = async (force = false, pendingOk = false, totalOk = false) => {
     if (missingData.length > 0) { setBlockers(missingData); return }
+    if (!totalOk && !totalAccepted && totalHint != null) { setTotalWarn(totalHint); return }
     if (!pendingOk && !pendingAccepted && pendingHint != null) { setPendingWarn(pendingHint); return }
     if (!form.isClosedDay && totalPhotos.length === 0) {
       toast({ type: 'warning', message: 'Serve la foto dello scontrino di chiusura: è l\'unica obbligatoria.' })
@@ -840,8 +856,19 @@ export default function ChiusuraCassa() {
                 <p className="text-xs text-slate-500 -mt-2">Una sola foto: lo scontrino di chiusura del registratore con accanto le chiusure dei POS, come negli esempi. È obbligatoria. Il gestionale legge totale, contanti e chiusure POS e li propone nei campi vuoti: controllali sempre con lo scontrino in mano.</p>
                 <div>
                   <label className={labelCls}>Totale corrispettivi (dallo scontrino di chiusura)</label>
-                  <input inputMode="decimal" value={form.total} disabled={!editable} onChange={(e) => update({ total: e.target.value })} placeholder="0,00" className={`${inputCls} border-blue-300 bg-blue-50/40`} />
+                  <input inputMode="decimal" value={form.total} disabled={!editable} onChange={(e) => update({ total: e.target.value })} placeholder="0,00" className={totalHint != null && !readOnly ? `${inputCls} border-red-400 ring-2 ring-red-100` : `${inputCls} border-blue-300 bg-blue-50/40`} />
                   <PhotoStrip t={{ target: 'totale' }} required />
+                  {totalHint != null && !readOnly && (
+                    <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 space-y-2">
+                      <p className="text-sm text-amber-900">
+                        <strong>Manca il totale.</strong> Dalla foto dello scontrino risulta <strong>{formatEuro(totalHint)}</strong>, qui invece c'è zero.
+                      </p>
+                      <button type="button" onClick={() => fixTotal(totalHint)}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold">
+                        <Check size={14} />Scrivi {formatEuro(totalHint)}
+                      </button>
+                    </div>
+                  )}
                 </div>
                 {/* Fatture: si sommano ai corrispettivi (totale incassato), non ai mezzi di pagamento */}
                 {channels.filter((ch) => ch.kind === 'fattura').map((ch) => (
@@ -1111,6 +1138,24 @@ export default function ChiusuraCassa() {
         </div>
       )}
 
+      {/* Punto 1 a zero mentre la foto dice un'altra cifra: avviso al centro prima di confermare */}
+      <Modal open={totalWarn != null} onClose={() => setTotalWarn(null)} title="Manca il totale del giorno">
+        <p className="text-sm text-slate-700 mb-3">
+          Nel punto 1 il totale corrispettivi è <strong>0,00 €</strong>, ma dalla foto dello scontrino di chiusura risulta <strong>{formatEuro(totalWarn)}</strong>.
+        </p>
+        <p className="text-sm text-slate-600 mb-4">
+          Senza questo numero la giornata non entra negli incassi del mese e la cassa risulta non quadrare. Scrivere i numeri nelle note non basta: vanno nei campi.
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={() => { setTotalAccepted(true); setTotalWarn(null); void confirm(false, false, true) }}
+            className="px-4 py-3 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium">Oggi è davvero 0,00 €</button>
+          <button onClick={() => totalWarn != null && fixTotal(totalWarn)}
+            className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
+            <Check size={16} />Scrivi {formatEuro(totalWarn)}
+          </button>
+        </div>
+      </Modal>
+
       {/* Punto 5 che sembra il contante atteso: avviso al centro prima di confermare */}
       <Modal open={pendingWarn != null} onClose={() => setPendingWarn(null)} title="Controlla i contanti da versare">
         <p className="text-sm text-slate-700 mb-3">
@@ -1119,7 +1164,7 @@ export default function ChiusuraCassa() {
         </p>
         <p className="text-sm text-slate-600 mb-4">Se in cassa hai contato davvero quella cifra lascia pure com'è: il contante lo vedi solo tu.</p>
         <div className="flex flex-wrap justify-end gap-2">
-          <button onClick={() => { setPendingAccepted(true); setPendingWarn(null); void confirm(false, true) }}
+          <button onClick={() => { setPendingAccepted(true); setPendingWarn(null); void confirm(false, true, true) }}
             className="px-4 py-3 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium">Ho contato così, conferma</button>
           <button onClick={() => pendingWarn != null && fixPending(pendingWarn)}
             className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
@@ -1157,7 +1202,7 @@ export default function ChiusuraCassa() {
         </ul>
         <div className="flex justify-end gap-2">
           <button onClick={() => setMissingPhotos(null)} className="px-4 py-2 text-sm border border-slate-300 rounded-lg inline-flex items-center gap-1"><Camera size={14} />Torna a fotografare</button>
-          <button onClick={() => void confirm(true, true)} className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium inline-flex items-center gap-1"><Check size={14} />Conferma comunque</button>
+          <button onClick={() => void confirm(true, true, true)} className="px-4 py-2 text-sm rounded-lg bg-emerald-600 text-white font-medium inline-flex items-center gap-1"><Check size={14} />Conferma comunque</button>
         </div>
       </Modal>
 
