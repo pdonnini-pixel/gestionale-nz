@@ -1575,6 +1575,10 @@ function OrganicoTab(props: {
     const fine = e.data_cessazione || e.termination_date;
     if (inizio && inizio > meseFine) return false;
     if (fine && fine < meseInizio) return false;
+    // Un determinato scaduto prima del mese, senza proroga registrata, non è più in forza
+    // anche se la cessazione non è stata ancora segnata: compare solo fino al mese della scadenza.
+    const scad = (e as any).scadenza_td as string | null;
+    if (e.contratto_tipo === 'determinato' && scad && scad < meseInizio) return false;
     return true;
   };
   const nelFiltro = employees.filter((e) => {
@@ -1674,7 +1678,7 @@ function OrganicoTab(props: {
 
       {fuoriMese > 0 && (
         <div className="text-[11px] text-slate-400">
-          {fuoriMese === 1 ? '1 persona non era' : `${fuoriMese} persone non erano`} in forza a {mm}/{year} (assunte dopo o cessate prima) e non {fuoriMese === 1 ? 'è mostrata' : 'sono mostrate'}: cambia mese per vederle.
+          {fuoriMese === 1 ? '1 persona non era' : `${fuoriMese} persone non erano`} in forza a {mm}/{year} (assunte dopo, cessate prima o con il determinato già scaduto) e non {fuoriMese === 1 ? 'è mostrata' : 'sono mostrate'}: cambia mese per vederle.
         </div>
       )}
       {orderedNames.length === 0 ? (
