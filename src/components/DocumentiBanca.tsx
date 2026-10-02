@@ -15,9 +15,9 @@ import { useAuth } from '../hooks/useAuth'
 import { extractPdfLines } from '../lib/pdfText'
 import { archiviaFile, collegaFileArchiviato } from '../lib/archivioFile'
 import {
-  trovaConto, classificaDocumento, saldiDichiarati, periodoDelle, righePerDb, leggiEstratto,
+  trovaConto, contoDaiMovimenti, righeIntestazione, classificaDocumento, saldiDichiarati, periodoDelle, righePerDb, leggiEstratto,
   righeDaFoglio, fraseEsito, ETICHETTA_TIPO,
-  type ContoLite, type TipoDocumento, type EsitoApplicazione,
+  type ContoLite, type ContoTrovato, type TipoDocumento, type EsitoApplicazione,
 } from '../lib/documentiBanca'
 import ChatDocumentiBanca from './ChatDocumentiBanca'
 
@@ -140,16 +140,24 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
         parsed = leggiEstratto({ fogli })
       }
       const testo = righeTesto.join('\n')
-      const conto = trovaConto(testo, accounts)
-      const tipo = classificaDocumento({ testo, righe: righeTesto, conto, righeEstratto: parsed.rows.length })
+      const intestazione = righeIntestazione(righeTesto, parsed.rows)
+      let conto = trovaConto(intestazione.join('\n'), accounts)
+      const tipo = classificaDocumento({ testo, righe: righeTesto, conto, righeEstratto: parsed.rows.length, intestazione })
 
       if (tipo !== 'estratto_conto') {
         aggiorna(key, { stato: 'altro', tipo, messaggio: DOVE[tipo] })
         return
       }
-      const pronta: Voce = { ...voce, tipo, conto, hash, righe: righePerDb(parsed, dalPdf), saldi: saldiDichiarati(righeTesto) }
+      const righe = righePerDb(parsed, dalPdf)
       if (!conto) {
-        aggiorna(key, { ...pronta, stato: 'scegli_conto', messaggio: 'Nel file non c\'è l\'IBAN di un nostro conto: dimmi tu di quale conto è.' })
+        // Nessun IBAN nell'intestazione (gli Excel MPS e BCC non lo portano): il
+        // conto e' quello su cui il gestionale ritrova i movimenti del file.
+        const { data: trovati } = await supabase.rpc('fn_bank_doc_guess_account', { p_rows: righe as never })
+        conto = contoDaiMovimenti((trovati ?? []) as ContoTrovato[], accounts)
+      }
+      const pronta: Voce = { ...voce, tipo, conto, hash, righe, saldi: saldiDichiarati(intestazione) }
+      if (!conto) {
+        aggiorna(key, { ...pronta, stato: 'scegli_conto', messaggio: 'Nel file non c\'è l\'IBAN e i movimenti non bastano a capire il conto: dimmi tu di quale conto è.' })
         return
       }
       aggiorna(key, pronta)

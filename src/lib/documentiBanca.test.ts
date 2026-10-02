@@ -3,7 +3,8 @@
 import { describe, it, expect } from 'vitest'
 import {
   ibanNelTesto, trovaConto, classificaDocumento, saldiDichiarati, periodoDelle,
-  righePerDb, leggiEstratto, fraseEsito, normIban, type ContoLite,
+  righePerDb, leggiEstratto, fraseEsito, normIban, numeroConto, righeIntestazione,
+  contoDaiMovimenti, type ContoLite,
 } from './documentiBanca'
 
 const IBAN_A = 'IT60X0542811101000000123456'
@@ -32,7 +33,57 @@ describe('IBAN e conto', () => {
   })
 })
 
+describe('conto senza IBAN nel file', () => {
+  it('il numero del conto e\' la coda dell\'IBAN senza zeri davanti', () => {
+    expect(numeroConto(IBAN_A)).toBe('123456')
+    expect(numeroConto('IT02L1234512345000000000042')).toBeNull() // troppo corto: si confonderebbe
+    expect(numeroConto(null)).toBeNull()
+  })
+  it('riconosce il conto dal «Numero conto» dell\'intestazione (come il PDF Intesa)', () => {
+    const intest = ['Intestatario conto: Saldo contabile finale:', 'Numero conto: Saldo contabile iniziale:', '123456 6.361,36']
+    expect(trovaConto(intest.join('\n'), conti)?.id).toBe('a-ob')
+  })
+  it('senza l\'etichetta «numero conto» un numero uguale non basta', () => {
+    expect(trovaConto('Totale 123456 movimenti', conti)).toBeNull()
+  })
+  it('gli IBAN nelle causali sono dei beneficiari: non decidono il conto', () => {
+    const righe = ['Data contabile Data valuta Importo Descrizione', `-4280,98 Bonifico Iban beneficiario: ${IBAN_B} saldo fattura 524`]
+    const intest = righeIntestazione(righe, [{ description: `Bonifico Iban beneficiario: ${IBAN_B} saldo fattura 524` }])
+    expect(intest).toEqual(['Data contabile Data valuta Importo Descrizione'])
+    expect(trovaConto(intest.join('\n'), conti)).toBeNull()
+  })
+  it('dai movimenti: vince il conto che li ritrova quasi tutti', () => {
+    expect(contoDaiMovimenti([
+      { bank_account_id: 'b', righe_trovate: 190, righe: 190 },
+      { bank_account_id: 'a-ob', righe_trovate: 2, righe: 190 },
+    ], conti)?.id).toBe('b')
+  })
+  it('dai movimenti: se non c\'e\' un vincitore netto si chiede', () => {
+    expect(contoDaiMovimenti([
+      { bank_account_id: 'b', righe_trovate: 100, righe: 190 },
+      { bank_account_id: 'a-ob', righe_trovate: 90, righe: 190 },
+    ], conti)).toBeNull()
+    expect(contoDaiMovimenti([{ bank_account_id: 'b', righe_trovate: 50, righe: 190 }], conti)).toBeNull()
+    expect(contoDaiMovimenti([{ bank_account_id: 'b', righe_trovate: 2, righe: 2 }], conti)).toBeNull()
+    expect(contoDaiMovimenti([], conti)).toBeNull()
+  })
+})
+
 describe('che documento e\'', () => {
+  it('le parole nelle causali non cambiano il tipo: «carta prepagata» e «Nexi» dentro un estratto conto', () => {
+    const righe = [
+      'Data contabile Data valuta Importo Descrizione',
+      '-100 Ricarica carta prepagata da Home Banking',
+      '-12,50 Commissioni Nexi Payments POS',
+    ]
+    const intestazione = righeIntestazione(righe, [
+      { description: 'Ricarica carta prepagata da Home Banking' },
+      { description: 'Commissioni Nexi Payments POS' },
+    ])
+    const base = { testo: righe.join('\n'), righe, conto: null, righeEstratto: 2 }
+    expect(classificaDocumento(base)).not.toBe('estratto_conto')
+    expect(classificaDocumento({ ...base, intestazione })).toBe('estratto_conto')
+  })
   it('distinta di ritiro effetti MPS', () => {
     const righe = ['Distinta Di Ritiro Effetti Pagati', 'N° disposizioni: 1', 'Totale distinta: EUR 44.070,67']
     expect(classificaDocumento({ testo: righe.join('\n'), righe, conto: null, righeEstratto: 0 })).toBe('distinta_riba')

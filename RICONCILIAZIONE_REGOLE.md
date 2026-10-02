@@ -715,16 +715,51 @@ l'elenco Ri.Ba. MPS, che li porta, oppure una domanda in chat.
 
 Tutte restano valide contro le deduzioni del motore e cedono davanti a un documento della banca.
 
+**Come si confronta (provato il 02/10/2026 sugli estratti veri di agosto, migration 264 e 265):**
+- **Sulla data valuta.** L'open banking (A-Cube) salva in `transaction_date` la data valuta, non
+  la contabile. L'estratto si confronta e si corregge sulla valuta; la contabile va in
+  `booking_date`. Confrontando la contabile, MPS dava 27 «correzioni» e 2 inserimenti falsi.
+  Se il lettore non trova la valuta (succede col PDF), la data non si tocca: l'estratto
+  sovrascrive solo ciò che certifica.
+- **Movimenti intercambiabili.** Più movimenti uguali nello stesso giorno (sette commissioni da
+  3,00 € il 03/09 su BCC) sono la stessa cosa: se ne prende uno, non si fanno sette domande.
+- **Coda di 3 giorni.** I movimenti degli ultimi 3 giorni del periodo la banca li porta
+  nell'estratto successivo: non sono «assenti dall'estratto».
+- **Quadratura.** Una riga ambigua ha comunque il suo movimento nel gestionale e non sposta lo
+  scarto. Lo scarto conta solo i movimenti in più nel gestionale e le righe senza movimento.
+- **Causale.** Quella dell'estratto riempie `statement_description` solo se è vuota: dal PDF esce
+  a pezzi e non deve sostituire una causale estesa.
+
+**Di che conto è il file.** Gli Excel di MPS e BCC Figline non portano l'IBAN del conto, né i
+saldi; quello BCC porta solo gli IBAN dei beneficiari. Il PDF Intesa porta il «Numero conto», che è
+la coda dell'IBAN. In quest'ordine:
+1. IBAN scritto nell'intestazione (mai quelli nelle causali: sono dei beneficiari);
+2. «Numero conto» nell'intestazione, uguale alle ultime cifre dell'IBAN di un nostro conto;
+3. il conto su cui il gestionale ritrova i movimenti del file (`fn_bank_doc_guess_account`):
+   vale solo se è netto, almeno il 60% delle righe e il secondo conto non oltre un quinto. Su
+   agosto: BCC 190/190 contro 2, MPS 150/150 contro 0, Intesa 22/22;
+4. solo se tutte e tre tacciono si chiede a Sabrina.
+
+Anche il tipo di documento si legge solo dalle righe che non sono movimenti: «Ricarica carta
+prepagata» o «Nexi» dentro una causale facevano prendere l'Excel BCC per un estratto carta e
+quello MPS per un estratto commissioni.
+
+**Esito sui file veri (transazione annullata su NZ, nessun dato toccato):** MPS 614 righe, tutte
+confermate; BCC Figline 190 righe, tutte confermate; Intesa PDF 22 righe, tutte confermate. Zero
+correzioni, zero inserimenti, zero domande, scarto 0,00 sui due Excel. Il PDF Intesa non dà il
+segno degli importi: le righe si confermano, ma un movimento mancante non si inserisce (serve
+l'Excel) e la quadratura non si calcola.
+
 - **Stato (02/10/2026):** 🟡 IN PARTE.
   - ✅ **Estratti di conto corrente**: scheda Banche → Documenti banca (`src/components/DocumentiBanca.tsx`,
-    logica in `src/lib/documentiBanca.ts`), funzione `apply_bank_statement` (migration 263, tre tenant).
-    Conto dall'IBAN, archivio del file con impronta SHA-256, conferma/correzione/inserimento con
+    logica in `src/lib/documentiBanca.ts`), funzione `apply_bank_statement` (migration 263 e 264,
+    tre tenant) e `fn_bank_doc_guess_account` (265). Conto come sopra, archivio del file con
+    impronta SHA-256, conferma/correzione/inserimento con
     traccia in `document_corrections`, domanda per i movimenti che l'estratto non contiene,
     quadratura del periodo, ricaricamento senza effetti doppi, adozione della riga quando l'open
     banking porta lo stesso movimento (`trg_bank_tx_adopt_estratto`).
-  - ⚠️ **Saldi iniziale e finale**: il lettore cerca le righe «saldo iniziale/finale», ma non è
-    ancora stato provato sugli estratti veri delle quattro banche. Se non li trova la quadratura
-    del documento resta vuota e vale solo quella sul gestionale.
+  - ⚠️ **Saldi iniziale e finale**: letti dal PDF Intesa (6.361,36 e 4.027,98); gli Excel MPS e
+    BCC non li portano, quindi lì vale solo la quadratura sul gestionale. Mugello non ancora provato.
   - ⛔ **Carte, distinte RiBa, commissioni**: la scheda le riconosce e dice dove caricarle, ma
     non le applica ancora. L'aggancio all'addebito mensile delle carte resta salvato su 0
     estratti su 31.

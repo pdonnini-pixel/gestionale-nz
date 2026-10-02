@@ -1,0 +1,3 @@
+-- ROLLBACK della 265. Da eseguire a mano solo dopo aver tolto la chiamata dal frontend.
+-- (Rimozione della funzione di sola lettura: nessun dato coinvolto.)
+-- DROP FUNCTION IF EXISTS public.fn_bank_doc_guess_account(jsonb);

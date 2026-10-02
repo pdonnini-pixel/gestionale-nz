@@ -3,7 +3,8 @@
 //
 // Qui c'e' solo logica pura e testata: riconoscere che documento e' arrivato
 // (dal contenuto, non dal nome del file), a quale conto appartiene (dall'IBAN
-// scritto nel documento), quali saldi dichiara, e preparare le righe per la
+// nell'intestazione o, se manca, da dove stanno i suoi movimenti), quali saldi
+// dichiara, e preparare le righe per la
 // funzione del database `apply_bank_statement`, che le confronta coi movimenti
 // e applica la regola «l'estratto comanda».
 //
@@ -52,24 +53,83 @@ export function ibanNelTesto(testo: string): string[] {
 }
 
 /**
- * Il conto a cui appartiene il documento, dall'IBAN scritto dentro.
+ * Le righe del file che non sono movimenti: intestazione, riepiloghi, totali.
+ *
+ * L'IBAN del conto e le parole che dicono che documento e' (distinta, carta,
+ * commissioni) si cercano solo qui. Nelle causali dei movimenti ci sono gli IBAN
+ * dei beneficiari e parole come «Ricarica carta prepagata» o «Nexi»: provato sugli
+ * estratti veri di agosto 2026, l'Excel MPS veniva preso per un estratto
+ * commissioni e quello BCC per un estratto carta.
+ */
+export function righeIntestazione(righe: string[], movimenti: Array<{ description?: string | null }>): string[] {
+  const causali = [...new Set(movimenti.map((m) => norm(m.description)).filter((d) => d.length >= 6))]
+  if (causali.length === 0) return righe
+  return righe.filter((l) => {
+    const riga = norm(l)
+    return !causali.some((c) => riga.includes(c))
+  })
+}
+
+/**
+ * Il conto a cui appartiene il documento, dall'IBAN scritto nell'intestazione
+ * (vedi righeIntestazione: gli IBAN nelle causali sono dei beneficiari).
  *
  * Su NZ lo stesso IBAN compare su due righe di `bank_accounts` (una collegata
  * all'open banking, una rimasta dal primo caricamento): si preferisce quella
  * collegata, poi quella attiva. Se l'IBAN non c'e' o non corrisponde a nessun
- * conto torna null, e la pagina chiede di scegliere: non si indovina.
+ * conto torna null: allora si guarda dove stanno i movimenti (contoDaiMovimenti).
  */
 export function trovaConto(testo: string, conti: ContoLite[]): ContoLite | null {
   const ibans = ibanNelTesto(testo)
-  if (ibans.length === 0) return null
-  const candidati = conti.filter((c) => {
+  let candidati = ibans.length === 0 ? [] : conti.filter((c) => {
     const a = normIban(c.iban)
     const b = normIban(c.account_name)
     return ibans.some((i) => i === a || i === b)
   })
+  // Senza IBAN, il numero del conto: e' la coda dell'IBAN (le ultime 12 cifre,
+  // senza gli zeri davanti). Intesa lo stampa cosi': «Numero conto: 1000000…».
+  // Vale solo con l'etichetta nell'intestazione e almeno 6 cifre, per non
+  // scambiarlo con un numero qualunque.
+  if (candidati.length === 0 && RE_NUMERO_CONTO.test(testo)) {
+    const numeri = new Set(testo.match(/\d{6,12}/g) ?? [])
+    candidati = conti.filter((c) => {
+      const n = numeroConto(c.iban) ?? numeroConto(c.account_name)
+      return n !== null && numeri.has(n)
+    })
+  }
   if (candidati.length === 0) return null
   const punteggio = (c: ContoLite) => (c.acube_account_uuid ? 2 : 0) + (c.is_active === false ? 0 : 1)
   return [...candidati].sort((x, y) => punteggio(y) - punteggio(x))[0]
+}
+
+const RE_NUMERO_CONTO = /N(?:UMERO|\.|°)\s*(?:DI\s+)?CONTO|CONTO\s+N(?:UMERO|\.|°)/i
+
+/** Il numero del conto dentro un IBAN italiano: le ultime 12 cifre senza zeri davanti. */
+export function numeroConto(iban: string | null | undefined): string | null {
+  const i = normIban(iban)
+  if (!/^IT\d{2}[A-Z]\d{10}[0-9A-Z]{12}$/.test(i)) return null
+  const n = i.slice(-12).replace(/^0+/, '')
+  return /^\d{6,12}$/.test(n) ? n : null
+}
+
+/** Una riga di `fn_bank_doc_guess_account`: quante righe del file ritrova su quel conto. */
+export type ContoTrovato = { bank_account_id: string; righe_trovate: number; righe: number }
+
+/**
+ * Il conto di un estratto senza IBAN, da dove il gestionale ritrova i suoi
+ * movimenti (stesso importo, data entro 3 giorni). Si sceglie solo se il
+ * vincitore e' netto: almeno 3 righe e il 60% del file, e il secondo conto non
+ * oltre un quinto del primo. Sugli estratti veri di agosto: BCC 190/190 contro 2,
+ * MPS 150/150 contro 0. Altrimenti null, e si chiede a Sabrina.
+ */
+export function contoDaiMovimenti(trovati: ContoTrovato[], conti: ContoLite[]): ContoLite | null {
+  const ord = [...trovati].sort((a, b) => b.righe_trovate - a.righe_trovate)
+  const primo = ord[0]
+  if (!primo || primo.righe <= 0) return null
+  const secondo = ord[1]?.righe_trovate ?? 0
+  if (primo.righe_trovate < Math.max(3, Math.ceil(primo.righe * 0.6))) return null
+  if (secondo > primo.righe_trovate * 0.2) return null
+  return conti.find((c) => c.id === primo.bank_account_id) ?? null
 }
 
 // Distinte RiBa MPS: «Distinta Di Ritiro Effetti Pagati», «Effetti - Disposizioni».
@@ -87,12 +147,16 @@ export function classificaDocumento(p: {
   righe: string[]
   conto: ContoLite | null
   righeEstratto: number
+  /** Le righe che non sono movimenti (righeIntestazione). Se c'e', le parole si cercano solo qui. */
+  intestazione?: string[]
 }): TipoDocumento {
-  if (RE_DISTINTA.test(p.testo)) return 'distinta_riba'
-  if (tipoEstratto(p.righe)) return 'commissioni'
+  const righe = p.intestazione ?? p.righe
+  const testo = p.intestazione ? p.intestazione.join('\n') : p.testo
+  if (RE_DISTINTA.test(testo)) return 'distinta_riba'
+  if (tipoEstratto(righe)) return 'commissioni'
   if (p.conto && p.righeEstratto > 0) return 'estratto_conto'
-  if (detectIssuer(p.righe) !== 'generico') return 'estratto_carta'
-  if (/ESTRATTO\s+CONTO\s+CARTA|CARTA\s+DI\s+CREDITO|CARTA\s+PREPAGATA/i.test(p.testo) && !p.conto) return 'estratto_carta'
+  if (detectIssuer(righe) !== 'generico') return 'estratto_carta'
+  if (/ESTRATTO\s+CONTO\s+CARTA|CARTA\s+DI\s+CREDITO|CARTA\s+PREPAGATA/i.test(testo) && !p.conto) return 'estratto_carta'
   if (p.righeEstratto > 0) return 'estratto_conto'
   return 'sconosciuto'
 }

@@ -25850,6 +25850,14 @@ export type Database = {
         Returns: number
       }
       bank_movement_net: { Args: { p_descr: string }; Returns: number }
+      fn_bank_doc_guess_account: {
+        Args: { p_rows: Json }
+        Returns: {
+          bank_account_id: string
+          righe: number
+          righe_trovate: number
+        }[]
+      }
       bank_transaction_canonical_hash: {
         Args: {
           p_account_id: string
