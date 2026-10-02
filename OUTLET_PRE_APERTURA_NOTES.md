@@ -79,8 +79,8 @@ Generali); data di stipula stimata 28/10/2026; codice conto ricavi provvisorio.
 **Deciso il 14/09/2026**: banca di addebito SEPA per Westi = conto MPS
 (migration `NZ_ONLY_20260914_221`, applicata su NZ).
 
-**Decisioni che restano a Patrizio**: fornitori dei beni entro i 90.000 €,
-polizze (assicuratore, premi), banca della fideiussione, target di fatturato
+**Decisioni che restano a Patrizio**: ~~fornitori dei beni entro i 90.000 €~~
+(chiusa il 01/10/2026: Kenfoster, 89.998,98 €), polizze (assicuratore, premi), banca della fideiussione, target di fatturato
 anno 1/2/regime, `payroll_filiali` se il consulente paghe userà un nome diverso.
 
 ## Numeri di controllo del contratto
@@ -97,6 +97,46 @@ anno 1/2/regime, `payroll_filiali` se il consulente paghe userà un nome diverso
 | Fideiussione | 44.100 € fino al 5/5/2035 |
 | Caparra | 20.000 € (versata 11/09/2026) |
 | Primo anno pro rata (57 gg) | ≈ 12.243 € |
+
+## Documenti controfirmati da Westi (01/10/2026, `NZ_ONLY_20261001_261`)
+
+Arrivati 9 PDF siglati da Westi (Claudio Tierno) il 10/09/2026: preliminare,
+Allegato A, Allegato B (cespiti), Allegato B1 in due preventivi Kenfoster,
+bozza del contratto (All. C), Condizioni Generali, modello di garanzia
+bancaria, informativa privacy. Manca ancora il **Regolamento**.
+
+- **Contratto**: stessa bozza v5 con filigrana, testo identico a quello usato
+  il 14/09. Campi ancora vuoti: rappresentanti, catasto, APE, data apertura,
+  base dell'imposta di registro, repertorio.
+- **Condizioni Generali**: confermano le due ipotesi del 14/09. Gestione e
+  promozione in 12 rate mensili SEPA con fattura trimestrale anticipata
+  (1/1, 1/4, 1/7, 1/10), conguaglio con nota di credito o debito entro fine
+  febbraio. Obblighi nuovi: volume d'affari ogni lunedì entro le 12 (con
+  ingressi, articoli, scontrini), il 3 di ogni mese, per PEC entro il 20/07 e
+  il 31/01; contapersone a nostro carico prima dell'apertura. Penali 1.000
+  €/giorno (mensile, semestrale, annuale) e 500 €/giorno (settimanale).
+- **Beni (Allegato B1)**: preventivi Kenfoster Srl (P.IVA 04211030962) del
+  02/09/2026, intestati a Westi e accettati da New Zago: opere 25.395,66 +
+  impianti 64.603,32 = **89.998,98 € + IVA**, sotto il tetto di 90.000 €.
+  Li paga Westi: nessuna scadenza per New Zago. Decisione «fornitori dei beni»
+  chiusa.
+- **Garanzia bancaria**: modello vuoto (in testa «Allegato F»), importo e
+  durata vengono dal contratto art. 20.1. Banca ancora da scegliere.
+
+Nel DB: etichette e note dei 9 allegati, nuova riga `allegato_b1_impianti`
+(una riga tiene un file), 4 scadenze nuove (contapersone 4/11/2026, volume
+d'affari 31/01 e 20/07, conguaglio spese 28/02), note di outlet e contratto.
+**PDF**: caricati da Patrizio dalla scheda outlet → Allegati il 02/10/2026
+(9 su 9, dimensioni verificate contro gli originali; il Regolamento resta
+vuoto). Nella cartella dell'outlet resta una copia dell'informativa caricata
+per errore sulla riga della garanzia (`fideiussione_1790928017938.pdf`), non
+collegata a nessuna riga: va tolta dallo Storage via API, il DELETE SQL non è
+passato. Le note dei due costi ricorrenti (gestione e promozione) dicono
+ancora «IPOTIZZATA»: rilanciare la 261 per sistemarle.
+
+**Bucket** (`20261001_262`, 3 tenant): `outlet-attachments` ora è privato
+(su NZ era pubblico) e esiste anche su Made e Zago, dove mancava e i
+caricamenti dalla scheda fallivano.
 
 ## Cosa NON esiste ancora (fuori da questa PR)
 
