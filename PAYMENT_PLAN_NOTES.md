@@ -1810,3 +1810,11 @@ lotto B ora torna esatto al centesimo. Le cinque righe non presentate (SHINE 136
 riaperte e spostate al 31/10, con `original_due_date`, `postponed_to` e nota. Con la
 data al 31/10 il cron non le richiude prima di allora. Backup in
 `_bkp_riba_rinvii_02102026`. Resta aperta solo la domanda dei 30,00 sulla 4340/2.
+
+**Torino Fashion Village, NC 1380 (02/10/2026).** La nota di credito da −4.771,73 restava
+aperta, ma era già stata compensata nel bonifico del 24/07 con le fatture 1120, 1222 e
+1323: 33.184,00 − 4.771,73 = 28.412,27, addebito 28.414,02 con 1,75 di commissioni CBI.
+Chiusa sullo stesso movimento, con legame alla 1323 (`origin = 'compensazione'`), audit e
+riga di `reconciliation_log`. Backup in `_bkp_nc_tfv_1380_02102026`. Le fatture di un
+bonifico «al netto» sono agganciate dal motore, la nota di credito no: è il caso da cercare
+quando una NC di un locatore resta aperta da mesi.
