@@ -1759,3 +1759,46 @@ IP Services 4077300000006518 (100,00), BLU SERVICE 4214700000010678 (100,13) e
 Fatture a zero **vere**, da non toccare: OMNITEKSTORE 6128/2026 (merce 134,02 + spedizione
 5,33 compensate dall'acconto della 5999/2026, che è in Scadenzario per 170,00), Estenergy
 412601042965 (nota di credito a zero), Fastweb 6638079479, C.A.E P. Ghetti 101380/1210.
+
+## 02/10/2026 — Distinte RI.BA MPS al 30/09: chiusura definitiva, e cinque righe che la banca non ha presentato
+
+Patrizio manda lo ZIP con le dieci «Distinta Di Ritiro Effetti Pagati» del 30/09
+(36 disposizioni, 157.979,19 €). Dettaglio in `docs/riba_effetti_30092026.csv`,
+intervento in `supabase/migrations/NZ_ONLY_20261002_263_distinte_riba_30092026.sql`.
+
+**I conti tornano con la regola solita.** Quattro addebiti «EFFETTI RITIRATI» il
+30/09 per 157.993,59 €: la differenza è 14,40, cioè 0,40 × 36 effetti. I lotti
+(10 + 10 + 10 + 6) hanno una sola composizione possibile. Chiuse in definitivo
+113 righe di scadenzario con l'aggancio al movimento, caricate le 10 distinte.
+
+**Il cron era arrivato prima, e quasi sempre aveva ragione.** Alla mattina del
+02/10 quasi tutte le RiBa del 30/09 erano già «pagate in provvisorio». Il lavoro
+vero è stato il riscontro: 32 effetti su 36 tornano al centesimo così come sono.
+Mancavano solo le quattro REALCART 675-678, rimaste a `bonifico_ordinario` e
+quindi invisibili alla chiusura provvisoria: portate a `riba_90` come vuole
+l'anagrafica.
+
+**Quattro effetti non tornano al centesimo, e ognuno ha la sua ragione:**
+- GRUPPO F.B., «ACC FATT 4504-4605 MENO NC 4572-4604» = 1.056,52. A sistema la
+  NC 4572 vale −1.171,20 in un'unica rata; il netto torna solo se la banca ne
+  usa **un terzo** (390,40), come il fornitore fa già con la 4604. Registrata
+  la quota, credito residuo 780,80 sulla NC.
+- GRUPPO F.B., «ACC FATT N 4340 MENO NC 4336 E 4307» = 522,95 contro 552,95
+  attesi. **Trenta euro tondi che nessun documento spiega.** La rata 4340/2 resta
+  parziale con 30,00 aperti: da chiedere al fornitore, non da indovinare.
+- GRUPPO F.B. 3992 (1 centesimo) e MIAN (2 centesimi): arrotondamento delle rate.
+
+**Il punto che resta aperto: presentata o no.** Il cron chiude in provvisorio ogni
+RiBa alla scadenza. Ma cinque righe chiuse così **non compaiono in nessuna
+distinta**: SHINE 1369, 1381, 1410, 1418 rata 1 (5.735,42, le fatture di luglio
+che già l'11/09 non erano nell'elenco della banca) e GRUPPO F.B. 3657 rata 3
+(3.205,35, che con la NC 3797 rata 3 farebbe 290,44 netti). Per il documento
+della banca quei soldi non sono usciti il 30/09. Lasciate come sono in attesa
+della decisione di Patrizio, con backup già pronto.
+
+**Difetto di meccanismo da ricordare.** `rpc_riba_provisional_undo` riapre una
+RiBa provvisoria, ma la notte dopo `fn_riba_provisional_close` la richiude:
+cerca le righe aperte con `due_date <= oggi` e non guarda se qualcuno le ha
+riaperte apposta. Per tenere aperta una RiBa non presentata serve spostare la
+data oppure una guardia nella funzione (saltare chi ha un'azione
+`annulla_chiusura_provvisoria_riba`).

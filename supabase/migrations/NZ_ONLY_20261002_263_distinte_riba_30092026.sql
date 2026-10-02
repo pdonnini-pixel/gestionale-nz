@@ -1,0 +1,113 @@
+-- =============================================================================
+-- NZ_ONLY — Distinte RI.BA MPS scadenza 30/09/2026: chiusura definitiva degli
+--           effetti, carico documentale e riconciliazione dei 4 addebiti in c/c
+-- Applicato su NZ il 02/10/2026 via MCP. Dati NZ-specifici: non si replica su Made/Zago.
+-- =============================================================================
+--
+-- IL DOCUMENTO. Dieci PDF «Distinta Di Ritiro Effetti Pagati» dal portale MPS
+-- (ZIP ri_bapagate30092026), create il 30/09/2026 sul c/c 000000621460, stato
+-- «Ricevuta Banca»: 36 disposizioni per 157.979,19 EUR. Dettaglio riga per riga
+-- in docs/riba_effetti_30092026.csv.
+--
+--   supporto    disp.   totale      descrizione
+--   137841820     1        290,83   AXET FACILITY
+--   137841681     1        393,94   HUMATICS
+--   137840304     8      2.655,32   BRT + GLS
+--   137840037     6     35.065,50   REALCART, GLADIOTEX, SRT
+--   137839757     1        447,01   FALIERO GRAFICA
+--   137839561     1      4.859,45   MARF
+--   137839341    13     26.847,04   GRUPPO F.B.
+--   137837961     1     37.055,45   MIAN
+--   137836501     1     44.070,67   SHINE
+--   137837705     3      6.293,98   TANESINI
+--
+-- LA BANCA. Il 30/09 ci sono 4 addebiti «EFFETTI RITIRATI» per 157.993,59 EUR
+-- (10 + 10 + 10 + 6 effetti). Differenza 14,40 = 0,40 x 36 effetti di spese.
+-- La composizione dei lotti si ricava cercando i sottoinsiemi con quel numero
+-- di effetti che danno l'addebito al netto delle spese: soluzione UNICA.
+--   lotto A  6f1a6cd3  7.263,48  effetti 2-10, 36
+--   lotto B  f29ecc26 10.975,99  effetti 1, 11-14, 20-22, 25, 35
+--   lotto C  1a2ab3ea 35.513,96  effetti 15, 19, 23, 24, 26-31
+--   lotto D  37dd348b 104.240,16 effetti 16-18, 32-34
+--
+-- STATO PRIMA. Il cron notturno aveva gia' chiuso in PROVVISORIO quasi tutte le
+-- RiBa al 30/09, senza movimento. Mancavano le 4 REALCART 675-678, rimaste a
+-- bonifico_ordinario (fuori dalla logica RiBa: il modo piu' rapido per pagarle
+-- due volte). Nessuna distinta del 30/09 era a sistema.
+--
+-- COSA E' STATO SCRITTO (113 righe di scadenzario)
+--   1. 94 fatture/rate: pagate DEFINITIVE, payment_date 30/09, banca MPS,
+--      bank_transaction_id del lotto, is_provisional_paid = false. Le REALCART
+--      passano a riba_90 come da anagrafica.
+--   2. 18 note di credito citate nelle causali («MENO NC», SHINE 106-108,
+--      MIAN 114-120): chiuse (amount_paid = lordo) col movimento del lotto e
+--      collegate alla fattura principale (payable_credit_note_links, origin
+--      'distinta').
+--   3. NC GRUPPO F.B. 4572 (-1.171,20): usata per UN TERZO, 390,40. La causale
+--      «ACC FATT 4504-4605 MENO NC 4572-4604» vale 1.056,52 e torna al centesimo
+--      solo cosi': 1.170,38 + 312,32 - 35,78 - 390,40. Stesso trattamento a
+--      terzi gia' usato dal fornitore sulla 4604. Credito residuo 780,80.
+--   4. payable_actions (113) e reconciliation_log (112) per traccia.
+--   5. I 4 addebiti marcati riconciliati con nota di composizione e spese.
+--   6. riba_distinte (10) + riba_distinta_lines (36) con l'array dei payables.
+--
+-- SCARTI NOTI, scritti in nota sulla riga
+--   - GRUPPO F.B. 4340 rata 2: effetto 522,95 contro 552,95 attesi
+--     (866,57 - 157,66 - 155,96). Registrati 836,57: la rata resta PARZIALE con
+--     30,00 aperti, da chiarire con il fornitore. Nessun documento a sistema
+--     spiega i 30,00.
+--   - GRUPPO F.B. 3992 rata 3: addebitati 4.824,28 contro 4.824,29 (1 cent).
+--   - MIAN: netto a sistema 37.055,47 contro 37.055,45 (2 cent di rate).
+--
+-- NON TOCCATE, in attesa di decisione: righe chiuse in provvisorio dal cron ma
+-- ASSENTI dalle distinte (la banca non le ha presentate il 30/09):
+--   SHINE 1369/26, 1381/26, 1410/26, 1418/26 rata 1 (5.735,42)
+--   GRUPPO F.B. 3657 rata 3 (3.205,35), con la NC 3797 rata 3 (-2.914,91) aperta
+--
+-- Backup pre-modifica: public._bkp_riba_effetti_30092026 (119 righe payables:
+-- le 113 toccate + le 6 in attesa) e public._bkp_riba_bt_30092026 (4 movimenti).
+-- Rollback nel file _ROLLBACK a fianco.
+--
+-- VERIFICA (02/10/2026, dopo l'applicazione)
+--   addebiti 30/09 riconciliati   4       157.993,59 EUR
+--   righe agganciate ai 4 mov.  112       158.369,62 EUR pagati
+--        = 157.979,19 effetti + 390,40 quota NC 4572 (senza movimento) + 0,03 cent
+--   distinte caricate            10       157.979,19 EUR, 36 disposizioni
+--   RiBa al 30/09 ancora aperte   1       4340 r2 parziale (30,00)
+-- =============================================================================
+--
+-- NOTA. Le istruzioni sono state eseguite direttamente sul tenant NZ via MCP in
+-- un'unica transazione, dopo una prova identica in transazione annullata. Gli
+-- UUID sono quelli reali di NZ: il file NON e' rieseguibile altrove.
+--
+-- Struttura dello script eseguito (versione integrale nella sessione):
+--   _eff  36 effetti (supporto, fornitore, P.IVA, importo, causale, lotto)
+--   _lot  4 addebiti (A/B/C/D) con bank_transaction_id
+--   _m    113 coppie effetto -> payable (risolte per prefisso UUID su NZ)
+--   guardie: 113 righe distinte, nessuna gia' agganciata, 4 addebiti liberi,
+--            totale effetti 157.979,19
+--
+-- update public.payables p set amount_paid = p.gross_amount (836,57 per 4340 r2),
+--   payment_date = '2026-09-30', payment_bank_account_id = MPS,
+--   payment_method = riba se non lo era gia' (REALCART -> riba_90),
+--   bank_transaction_id = lotto, is_provisional_paid = false, notes = ... 
+--   where fatture (gross > 0);
+-- update public.payables p set amount_paid = p.gross_amount, status = 'pagato',
+--   payment_date = '2026-09-30', bank_transaction_id = lotto, notes = ...
+--   where note di credito (gross < 0) tranne 4572;
+-- update public.payables set amount_paid = -390.40, notes = ... where NC 4572;
+-- insert into payable_credit_note_links (..., origin = 'distinta');
+-- insert into payable_actions ('conferma_distinta_riba' / 'abbinamento_nc_riba');
+-- insert into reconciliation_log (match_type 'manual', status 'applied');
+-- update bank_transactions set is_reconciled = true, note = composizione lotto;
+-- insert into riba_distinte (10) / riba_distinta_lines (36, match_status 'confirmed');
+
+-- --- Query di verifica -------------------------------------------------------
+-- select count(*), sum(-amount) from bank_transactions where id in
+--   ('6f1a6cd3-4630-4390-8277-478e5848942a','f29ecc26-5517-44e4-be58-fefb89217780',
+--    '1a2ab3ea-3a30-4cd2-892d-213eb44b8f89','37dd348b-5528-4f57-ad39-15e65b8fed24')
+--   and is_reconciled;                                   -- 4 / 157.993,59
+-- select count(*), sum(amount_paid) from payables where bank_transaction_id in (<4 uuid>);
+--                                                        -- 112 / 158.369,62
+-- select count(*), sum(declared_total), sum(line_count) from riba_distinte
+--   where file_name like '%30/09/2026%';                 -- 10 / 157.979,19 / 36
