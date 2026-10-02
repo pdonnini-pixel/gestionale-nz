@@ -131,8 +131,10 @@ d'affari 31/01 e 20/07, conguaglio spese 28/02), note di outlet e contratto.
 vuoto). Nella cartella dell'outlet resta una copia dell'informativa caricata
 per errore sulla riga della garanzia (`fideiussione_1790928017938.pdf`), non
 collegata a nessuna riga: va tolta dallo Storage via API, il DELETE SQL non è
-passato. Le note dei due costi ricorrenti (gestione e promozione) dicono
-ancora «IPOTIZZATA»: rilanciare la 261 per sistemarle.
+passato. Le note dei due costi ricorrenti (gestione e promozione) sono
+allineate dal 02/10/2026 (cadenza confermata dalle Condizioni Generali);
+importi e frequenze invariati. Anteprima degli allegati verificata da
+Patrizio col bucket privato.
 
 **Bucket** (`20261001_262`, 3 tenant): `outlet-attachments` ora è privato
 (su NZ era pubblico) e esiste anche su Made e Zago, dove mancava e i

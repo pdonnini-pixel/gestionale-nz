@@ -25,9 +25,10 @@
 --
 -- Applicata su NZ il 01/10/2026 un'istruzione alla volta con execute_sql
 -- (apply_migration andava in timeout sul blocco intero): fatti i punti 1,
--- 3 e 4. Il punto 2 (note dei due costi ricorrenti) NON e' passato: la
--- scrittura su recurring_costs non arrivava al database. Rilanciare questo
--- file completa solo quello, il resto e' gia' presente e non si duplica.
+-- 3 e 4. Il punto 2 (note dei due costi ricorrenti) e' passato il
+-- 02/10/2026 con il testo breve qui sotto: la versione lunga della frase
+-- faceva andare in timeout il connettore. Rilanciare il file non duplica
+-- niente.
 -- =====================================================================
 BEGIN;
 
@@ -89,7 +90,7 @@ BEGIN
   UPDATE public.recurring_costs SET
     notes = replace(notes,
       '(art. 4 Condizioni Generali, non ancora ricevute). Cadenza mensile IPOTIZZATA come il canone.',
-      '(Condizioni Generali art. 4.4-4.5: 12 rate mensili anticipate SEPA, fattura trimestrale il 1/1, 1/4, 1/7, 1/10; conguaglio con nota di credito o debito entro fine febbraio). Cadenza confermata il 01/10/2026.'),
+      '(Condizioni Generali art. 4: 12 rate mensili, fattura trimestrale anticipata, conguaglio entro fine febbraio). Cadenza confermata il 01/10/2026.'),
     updated_at = now()
   WHERE company_id = v_company AND cost_center = 'roma_soratte'
     AND description LIKE 'Spese di gestione Roma Soratte%' AND notes LIKE '%IPOTIZZATA%';
@@ -97,7 +98,7 @@ BEGIN
   UPDATE public.recurring_costs SET
     notes = replace(notes,
       '(art. 6 Condizioni Generali). Cadenza mensile IPOTIZZATA come il canone.',
-      '(Condizioni Generali art. 6.3-6.4: 12 rate mensili anticipate SEPA, fattura trimestrale il 1/1, 1/4, 1/7, 1/10; conguaglio con nota di credito o debito entro fine febbraio). Cadenza confermata il 01/10/2026.'),
+      '(Condizioni Generali art. 6: 12 rate mensili, fattura trimestrale anticipata, conguaglio entro fine febbraio). Cadenza confermata il 01/10/2026.'),
     updated_at = now()
   WHERE company_id = v_company AND cost_center = 'roma_soratte'
     AND description LIKE 'Promozione outlet Roma Soratte%' AND notes LIKE '%IPOTIZZATA%';
