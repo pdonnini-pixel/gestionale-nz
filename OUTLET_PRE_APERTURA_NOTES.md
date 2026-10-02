@@ -126,10 +126,17 @@ bancaria, informativa privacy. Manca ancora il **Regolamento**.
 Nel DB: etichette e note dei 9 allegati, nuova riga `allegato_b1_impianti`
 (una riga tiene un file), 4 scadenze nuove (contapersone 4/11/2026, volume
 d'affari 31/01 e 20/07, conguaglio spese 28/02), note di outlet e contratto.
-**I PDF non sono ancora nello Storage** (`is_uploaded = false`): il
-caricamento automatico dalla sandbox è stato bloccato; si caricano dalla
-scheda outlet → Allegati. Le note dei due costi ricorrenti (gestione e
-promozione) dicono ancora «IPOTIZZATA»: rilanciare la 261 per sistemarle.
+**PDF**: caricati da Patrizio dalla scheda outlet → Allegati il 02/10/2026
+(9 su 9, dimensioni verificate contro gli originali; il Regolamento resta
+vuoto). Nella cartella dell'outlet resta una copia dell'informativa caricata
+per errore sulla riga della garanzia (`fideiussione_1790928017938.pdf`), non
+collegata a nessuna riga: va tolta dallo Storage via API, il DELETE SQL non è
+passato. Le note dei due costi ricorrenti (gestione e promozione) dicono
+ancora «IPOTIZZATA»: rilanciare la 261 per sistemarle.
+
+**Bucket** (`20261001_262`, 3 tenant): `outlet-attachments` ora è privato
+(su NZ era pubblico) e esiste anche su Made e Zago, dove mancava e i
+caricamenti dalla scheda fallivano.
 
 ## Cosa NON esiste ancora (fuori da questa PR)
 
