@@ -336,12 +336,35 @@ export default function Layout() {
     return () => { window.removeEventListener('fatt-anomalia-risolta', onResolved); clearInterval(t) }
   }, [])
 
+  // Domande aperte di Documenti banca (R28): il numerino su Banche dice a chi
+  // lavora la banca che c'e' qualcosa a cui rispondere, senza entrare a cercarlo.
+  const [bancheDomande, setBancheDomande] = useState(0)
+  useEffect(() => {
+    async function fetchDomande() {
+      try {
+        const { supabase } = await import('../lib/supabase')
+        const { count, error } = await supabase
+          .from('bank_document_questions')
+          .select('id', { count: 'exact', head: true })
+          .eq('status', 'aperta')
+        if (!error && typeof count === 'number') setBancheDomande(count)
+      } catch (e) {
+        console.warn('[banche-domande]', e)
+      }
+    }
+    void fetchDomande()
+    function onChange() { void fetchDomande() }
+    window.addEventListener('banche-domande-aggiornate', onChange)
+    const t = setInterval(fetchDomande, 60_000)
+    return () => { window.removeEventListener('banche-domande-aggiornate', onChange); clearInterval(t) }
+  }, [])
+
   return (
     // h-dvh (non h-screen/100vh): con lo scroll solo interno la barra URL dei
     // browser mobile non si ritrae mai e 100vh lascerebbe gli ultimi ~50-80px
     // di ogni pagina coperti e irraggiungibili. dvh segue il viewport reale.
     <div className="flex h-dvh overflow-hidden">
-      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} badges={{ 'ticket-unseen': ticketUnseen, 'fatt-anomalie': fattAnomalie }} />
+      <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} badges={{ 'ticket-unseen': ticketUnseen, 'fatt-anomalie': fattAnomalie, 'banche-domande': bancheDomande }} />
 
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Tenant badge (banda colorata) */}

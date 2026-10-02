@@ -715,13 +715,21 @@ l'elenco Ri.Ba. MPS, che li porta, oppure una domanda in chat.
 
 Tutte restano valide contro le deduzioni del motore e cedono davanti a un documento della banca.
 
-- **Stato:** ⛔ GAP. Regola fissata, implementazione da fare. Oggi mancano:
-  1. una porta d'ingresso unica (oggi sono quattro, con tre registri diversi);
-  2. il PDF dell'estratto conto agganciato (manca su tutte le 12 registrazioni di luglio-agosto);
-  3. la quadratura del saldo e l'inserimento delle righe mancanti in automatico;
-  4. le carte che scrivono l'esito: oggi il riscontro si vede a video e non si salva, e
-     l'aggancio all'addebito mensile è salvato su 0 estratti su 31;
-  5. la sovrascrittura tracciata delle chiusure a mano.
+- **Stato (02/10/2026):** 🟡 IN PARTE.
+  - ✅ **Estratti di conto corrente**: scheda Banche → Documenti banca (`src/components/DocumentiBanca.tsx`,
+    logica in `src/lib/documentiBanca.ts`), funzione `apply_bank_statement` (migration 263, tre tenant).
+    Conto dall'IBAN, archivio del file con impronta SHA-256, conferma/correzione/inserimento con
+    traccia in `document_corrections`, domanda per i movimenti che l'estratto non contiene,
+    quadratura del periodo, ricaricamento senza effetti doppi, adozione della riga quando l'open
+    banking porta lo stesso movimento (`trg_bank_tx_adopt_estratto`).
+  - ⚠️ **Saldi iniziale e finale**: il lettore cerca le righe «saldo iniziale/finale», ma non è
+    ancora stato provato sugli estratti veri delle quattro banche. Se non li trova la quadratura
+    del documento resta vuota e vale solo quella sul gestionale.
+  - ⛔ **Carte, distinte RiBa, commissioni**: la scheda le riconosce e dice dove caricarle, ma
+    non le applica ancora. L'aggancio all'addebito mensile delle carte resta salvato su 0
+    estratti su 31.
+  - ⛔ **Sovrascrittura delle chiusure a mano sulle scadenze** (carte e distinte che nominano
+    la fattura): da fare insieme alle carte e alle distinte.
 
 ---
 
@@ -786,4 +794,9 @@ riusa l'assistente AI che c'è già (edge function `help-chat`, chiave nel Vault
 `AI_CHAT_SUPPORT_NOTES.md`), con lo stato del caricamento come contesto. Edge function e
 migration vanno sui 3 tenant.
 
-- **Stato:** ⛔ GAP. Regola fissata, implementazione da fare.
+- **Stato (02/10/2026):** ✅ per gli estratti di conto corrente. Riquadro «Da chiarire» in
+  `src/components/ChatDocumentiBanca.tsx`, interpretazione delle risposte nella edge function
+  `bank-doc-chat` (tre tenant, modello `claude-opus-5-5` con risposta strutturata in una lista
+  chiusa di azioni: conferma, doppione, conto_sbagliato, non_so, chiarimento, informazione).
+  Nessuna azione cancella o sposta: doppioni e conti sbagliati vengono annotati sul movimento
+  per la conferma di Patrizio. Numerino delle domande aperte sulla voce Banche del menu.

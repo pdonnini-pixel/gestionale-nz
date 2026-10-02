@@ -18,8 +18,8 @@ import {
 import { useSearchParams } from 'react-router-dom'
 
 // Tab principale TesoreriaManuale — persistito in URL come ?tab=
-type TesoreriaTab = 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione' | 'prima_nota' | 'commissioni' | 'finanziamenti'
-const VALID_TESORERIA_TABS: TesoreriaTab[] = ['panoramica', 'conti', 'movimenti', 'riconciliazione', 'prima_nota', 'commissioni', 'finanziamenti']
+type TesoreriaTab = 'documenti' | 'panoramica' | 'conti' | 'movimenti' | 'riconciliazione' | 'prima_nota' | 'commissioni' | 'finanziamenti'
+const VALID_TESORERIA_TABS: TesoreriaTab[] = ['documenti', 'panoramica', 'conti', 'movimenti', 'riconciliazione', 'prima_nota', 'commissioni', 'finanziamenti']
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { usePeriod } from '../hooks/usePeriod'
@@ -35,6 +35,7 @@ import CommissioniIncasso from './CommissioniIncasso'
 import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
 import EstrattiContoImport from '../components/EstrattiContoImport'
+import DocumentiBanca from '../components/DocumentiBanca'
 import CellTooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import { Modal as UIModal } from '../components/ui/Modal'
@@ -47,6 +48,7 @@ import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile'
 const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4', '#ec4899', '#f97316']
 
 const TABS = [
+  { key: 'documenti', label: 'Documenti banca', icon: FileUp },
   { key: 'panoramica', label: 'Panoramica', icon: BarChart3 },
   { key: 'conti', label: 'Conti Bancari', icon: Building2 },
   { key: 'movimenti', label: 'Movimenti', icon: ArrowUpRight },
@@ -4376,6 +4378,9 @@ export default function TesoreriaManuale() {
       </div>
 
       {/* Tab content */}
+      {activeTab === 'documenti' && (
+        <DocumentiBanca companyId={companyId || null} accounts={accounts} onRefresh={refresh} />
+      )}
       {activeTab === 'panoramica' && (
         <TabPanoramica accounts={accounts} transactions={transactions} payables={payables} committedByAccount={committedByAccount} committedPayables={committedPayables} onNavigate={handleNavigate} />
       )}
