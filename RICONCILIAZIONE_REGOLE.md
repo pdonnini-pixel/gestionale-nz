@@ -772,7 +772,16 @@ una persona.
 (I numeri dell'esempio sono inventati per mostrare il tono: sul DB la distinta SHINE del 30/09
 torna già al centesimo, vedi R27.)
 
-**Dove e con cosa.** Nella stessa pagina in cui Sabrina carica i documenti. Tecnicamente si
+**Dove, rispetto a quello che Sabrina usa già.** Sabrina ha il ruolo `contabile`. Oggi i documenti
+della banca entrano da sei punti diversi: Banche → Riconciliazione (causali dall'estratto), Banche →
+Conti bancari (upload per conto), Banche → Prima Nota → Carte (estratti carta), Banche → Commissioni,
+Scadenzario («Carica distinta RiBa»), più Import Hub e Archivio Documenti. La sezione nuova è una
+scheda **«Documenti banca», la prima della pagina Banche**, che Sabrina apre già: zona di
+caricamento in alto, chat sotto. Le domande aperte si contano in un badge sulla voce Banche del
+menu, come fa Fatturazione con le anomalie. I vecchi punti di caricamento restano finché la scheda
+nuova non è verificata sui documenti veri, poi rimandano a lei.
+
+**Con cosa.** Tecnicamente si
 riusa l'assistente AI che c'è già (edge function `help-chat`, chiave nel Vault, vedi
 `AI_CHAT_SUPPORT_NOTES.md`), con lo stato del caricamento come contesto. Edge function e
 migration vanno sui 3 tenant.
