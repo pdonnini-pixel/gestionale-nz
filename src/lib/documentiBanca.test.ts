@@ -1,0 +1,152 @@
+// Test della porta unica dei documenti banca. IBAN e nomi sono inventati: il
+// repository e' pubblico e i conti veri non ci vanno.
+import { describe, it, expect } from 'vitest'
+import {
+  ibanNelTesto, trovaConto, classificaDocumento, saldiDichiarati, periodoDelle,
+  righePerDb, leggiEstratto, fraseEsito, normIban, numeroConto, righeIntestazione,
+  contoDaiMovimenti, type ContoLite,
+} from './documentiBanca'
+
+const IBAN_A = 'IT60X0542811101000000123456'
+const IBAN_B = 'IT02L1234512345123456789012'
+
+const conti: ContoLite[] = [
+  { id: 'a-vecchio', bank_name: 'Banca A', iban: IBAN_A, account_name: IBAN_A, account_type: 'account', acube_account_uuid: null },
+  { id: 'a-ob', bank_name: 'Banca A', iban: IBAN_A, account_name: IBAN_A, account_type: 'conto_corrente', acube_account_uuid: 'uuid-ob' },
+  { id: 'b', bank_name: 'Banca B', iban: null, account_name: IBAN_B, account_type: 'conto_corrente', acube_account_uuid: 'uuid-b' },
+]
+
+describe('IBAN e conto', () => {
+  it('trova l\'IBAN anche stampato a gruppi di quattro', () => {
+    expect(ibanNelTesto('Conto IT60 X054 2811 1010 0000 0123 456 intestato a ...')).toEqual([IBAN_A])
+    expect(normIban('it60 x054 2811 1010 0000 0123 456')).toBe(IBAN_A)
+  })
+  it('se lo stesso IBAN e\' su due righe, vince quella collegata all\'open banking', () => {
+    expect(trovaConto(`Estratto conto ${IBAN_A}`, conti)?.id).toBe('a-ob')
+  })
+  it('riconosce l\'IBAN scritto nel nome del conto', () => {
+    expect(trovaConto(`IBAN: ${IBAN_B}`, conti)?.id).toBe('b')
+  })
+  it('senza IBAN o con un IBAN che non e\' nostro non indovina', () => {
+    expect(trovaConto('Estratto conto di agosto', conti)).toBeNull()
+    expect(trovaConto('IT99Z9999999999999999999999', conti)).toBeNull()
+  })
+})
+
+describe('conto senza IBAN nel file', () => {
+  it('il numero del conto e\' la coda dell\'IBAN senza zeri davanti', () => {
+    expect(numeroConto(IBAN_A)).toBe('123456')
+    expect(numeroConto('IT02L1234512345000000000042')).toBeNull() // troppo corto: si confonderebbe
+    expect(numeroConto(null)).toBeNull()
+  })
+  it('riconosce il conto dal «Numero conto» dell\'intestazione (come il PDF Intesa)', () => {
+    const intest = ['Intestatario conto: Saldo contabile finale:', 'Numero conto: Saldo contabile iniziale:', '123456 6.361,36']
+    expect(trovaConto(intest.join('\n'), conti)?.id).toBe('a-ob')
+  })
+  it('senza l\'etichetta «numero conto» un numero uguale non basta', () => {
+    expect(trovaConto('Totale 123456 movimenti', conti)).toBeNull()
+  })
+  it('gli IBAN nelle causali sono dei beneficiari: non decidono il conto', () => {
+    const righe = ['Data contabile Data valuta Importo Descrizione', `-4280,98 Bonifico Iban beneficiario: ${IBAN_B} saldo fattura 524`]
+    const intest = righeIntestazione(righe, [{ description: `Bonifico Iban beneficiario: ${IBAN_B} saldo fattura 524` }])
+    expect(intest).toEqual(['Data contabile Data valuta Importo Descrizione'])
+    expect(trovaConto(intest.join('\n'), conti)).toBeNull()
+  })
+  it('dai movimenti: vince il conto che li ritrova quasi tutti', () => {
+    expect(contoDaiMovimenti([
+      { bank_account_id: 'b', righe_trovate: 190, righe: 190 },
+      { bank_account_id: 'a-ob', righe_trovate: 2, righe: 190 },
+    ], conti)?.id).toBe('b')
+  })
+  it('dai movimenti: se non c\'e\' un vincitore netto si chiede', () => {
+    expect(contoDaiMovimenti([
+      { bank_account_id: 'b', righe_trovate: 100, righe: 190 },
+      { bank_account_id: 'a-ob', righe_trovate: 90, righe: 190 },
+    ], conti)).toBeNull()
+    expect(contoDaiMovimenti([{ bank_account_id: 'b', righe_trovate: 50, righe: 190 }], conti)).toBeNull()
+    expect(contoDaiMovimenti([{ bank_account_id: 'b', righe_trovate: 2, righe: 2 }], conti)).toBeNull()
+    expect(contoDaiMovimenti([], conti)).toBeNull()
+  })
+})
+
+describe('che documento e\'', () => {
+  it('le parole nelle causali non cambiano il tipo: «carta prepagata» e «Nexi» dentro un estratto conto', () => {
+    const righe = [
+      'Data contabile Data valuta Importo Descrizione',
+      '-100 Ricarica carta prepagata da Home Banking',
+      '-12,50 Commissioni Nexi Payments POS',
+    ]
+    const intestazione = righeIntestazione(righe, [
+      { description: 'Ricarica carta prepagata da Home Banking' },
+      { description: 'Commissioni Nexi Payments POS' },
+    ])
+    const base = { testo: righe.join('\n'), righe, conto: null, righeEstratto: 2 }
+    expect(classificaDocumento(base)).not.toBe('estratto_conto')
+    expect(classificaDocumento({ ...base, intestazione })).toBe('estratto_conto')
+  })
+  it('distinta di ritiro effetti MPS', () => {
+    const righe = ['Distinta Di Ritiro Effetti Pagati', 'N° disposizioni: 1', 'Totale distinta: EUR 44.070,67']
+    expect(classificaDocumento({ testo: righe.join('\n'), righe, conto: null, righeEstratto: 0 })).toBe('distinta_riba')
+  })
+  it('estratto commissioni Amex', () => {
+    const righe = ['Estratto Conto Commissioni', 'Codice AX N. 1234567890']
+    expect(classificaDocumento({ testo: righe.join('\n'), righe, conto: null, righeEstratto: 0 })).toBe('commissioni')
+  })
+  it('estratto conto corrente: IBAN nostro e righe di movimenti', () => {
+    const righe = [`IBAN ${IBAN_A}`, '03/08/2026 03/08/2026 BONIFICO A FAVORE DI ROSSI SRL 1.200,00']
+    expect(classificaDocumento({ testo: righe.join('\n'), righe, conto: conti[1], righeEstratto: 1 })).toBe('estratto_conto')
+  })
+  it('estratto carta CartaBCC', () => {
+    const righe = ['CartaBCC Business', 'DATA ACQUISTO DATA REGISTR. DESCRIZIONE IMPORTO']
+    expect(classificaDocumento({ testo: righe.join('\n'), righe, conto: null, righeEstratto: 0 })).toBe('estratto_carta')
+  })
+  it('un estratto conto con la parola carta resta un estratto conto', () => {
+    const righe = [`IBAN ${IBAN_A}`, '25/08/2026 25/08/2026 ADDEBITO CARTA DI CREDITO 2.415,80']
+    expect(classificaDocumento({ testo: righe.join('\n'), righe, conto: conti[1], righeEstratto: 1 })).toBe('estratto_conto')
+  })
+  it('quello che non si riconosce non si forza', () => {
+    expect(classificaDocumento({ testo: 'Gentile cliente', righe: ['Gentile cliente'], conto: null, righeEstratto: 0 })).toBe('sconosciuto')
+  })
+})
+
+describe('saldi dichiarati', () => {
+  it('saldo iniziale e finale, anche col segno in coda', () => {
+    const r = saldiDichiarati(['SALDO INIZIALE AL 31/07/2026 12.345,67', 'movimenti...', 'SALDO FINALE AL 31/08/2026 1.234,50-'])
+    expect(r).toEqual({ iniziale: 12345.67, finale: -1234.5 })
+  })
+  it('se non c\'e\' scritto, niente numeri inventati', () => {
+    expect(saldiDichiarati(['03/08/2026 BONIFICO 100,00'])).toEqual({ iniziale: null, finale: null })
+  })
+})
+
+describe('periodo e righe per il database', () => {
+  it('il mese e\' quello con piu\' righe', () => {
+    expect(periodoDelle([{ date: '2026-07-31' }, { date: '2026-08-01' }, { date: '2026-08-20' }])).toEqual({ year: 2026, month: 8 })
+  })
+  it('dal PDF l\'importo va senza segno e segnato come non sicuro', () => {
+    const p = leggiEstratto({ righePdf: ['03/08/2026 03/08/2026 BONIFICO A FAVORE DI ROSSI SRL SALDO FATTURA 12 1.200,00'] })
+    const r = righePerDb(p, true)
+    expect(r).toHaveLength(1)
+    expect(r[0]).toMatchObject({ row_no: 1, date: '2026-08-03', amount: 1200, sign_known: false })
+  })
+  it('dall\'Excel il segno viene da dare/avere', () => {
+    const aoa = [
+      ['Data contabile', 'Data valuta', 'Descrizione', 'Dare', 'Avere'],
+      ['03/08/2026', '03/08/2026', 'BONIFICO A FAVORE DI ROSSI SRL', '1.200,00', ''],
+      ['04/08/2026', '04/08/2026', 'VERSAMENTO CONTANTI', '', '500,00'],
+    ]
+    const r = righePerDb(leggiEstratto({ fogli: [aoa] }), false)
+    expect(r.map((x) => [x.amount, x.sign_known])).toEqual([[-1200, true], [500, true]])
+  })
+})
+
+describe('esito in una frase', () => {
+  it('tutto a posto', () => {
+    expect(fraseEsito({ righe: 10, confermati: 10, corretti: 0, inseriti: 0, ambigui: 0, altro_conto: 0, non_inseriti: 0, domande_nuove: 0, quadratura: { scarto_gestionale: 0 } }))
+      .toBe('10 movimenti: 10 già a posto. Il periodo torna al centesimo.')
+  })
+  it('con correzioni e una domanda', () => {
+    expect(fraseEsito({ righe: 21, confermati: 19, corretti: 1, inseriti: 1, ambigui: 0, altro_conto: 0, non_inseriti: 0, domande_nuove: 1, quadratura: { scarto_gestionale: -297.27 } }))
+      .toBe('21 movimenti: 19 già a posto, 1 corretto come dice la banca, 1 aggiunto perché mancavano. Scarto sul periodo: -297,27 €. Una cosa da chiederti qui sotto.')
+  })
+})

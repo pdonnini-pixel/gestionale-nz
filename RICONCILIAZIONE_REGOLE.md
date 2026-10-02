@@ -3,7 +3,11 @@
 > Documento unico delle regole con cui il sistema abbina i **movimenti bancari in uscita**
 > alle **fatture fornitore**. Per ogni regola: **cosa dice**, **dove è applicata** (funzione /
 > migration / file), e **se è automatica** (sempre) o **manuale** (richiede conferma / non ancora
-> coperta). Aggiornato al 2026-09-04. ⚠️ Ogni regola vale su **NZ + Made + Zago**.
+> coperta). Aggiornato al 2026-10-02. ⚠️ Ogni regola vale su **NZ + Made + Zago**.
+>
+> **Dal 02/10/2026 sopra tutte le regole c'è la R27: il documento della banca comanda.**
+> Dove una regola più vecchia dice «la chiusura a mano non si tocca», vale finché un documento
+> bancario non la smentisce. Quando qualcosa non torna, si chiede a Sabrina in chat (R28).
 
 ## Legenda stato
 - ✅ **AUTO SEMPRE** — applicata dal motore a ogni movimento (trigger all'inserimento + cron notturno 05:45).
@@ -42,12 +46,15 @@ sempre anche contro le fatture **chiuse a mano** (e pagate) senza movimento agga
 bonifico che le ha pagate resta orfano e va collegato.
 - **Dove:** tutti i matcher includono `status='pagato' AND closed_manually` nel pool candidati (migr. 100/102/104).
 - **Stato:** ✅ AUTO SEMPRE. Aggancio a fattura chiusa a mano = **solo collegamento**, nessuna doppia scrittura.
+- **Eccezione (R27, 02/10/2026):** se l'aggancio viene da un **documento della banca** che nomina
+  quella fattura o quel fornitore, il documento vince sulla chiusura a mano e la corregge, con traccia.
+  Il «solo collegamento» resta quando l'aggancio è una deduzione del motore.
 
 ### R2 — Una fattura senza aggancio bancario è SEMPRE abbinabile
 Qualsiasi fattura con `bank_transaction_id` nullo è abbinabile, a prescindere dallo stato. Se è
 già pagata (chiusa a mano **o** segnata pagata all'import/go-live) → **solo aggancio**.
 - **Dove:** RPC di aggancio `reconcile_movement` / `reconcile_movement_group` (migr. 114) **E** i tre matcher automatici — granitico, a punteggio, biettivo (migr. **116**); pool frontend `closedManualPayables` allargato a tutte le `pagato` senza aggancio (TesoreriaManuale).
-- **Stato:** ✅ AUTO SEMPRE (dopo migr. 116) + 🟡 (ricerca manuale le mostra). Le fatture già pagate con movimento restano intoccabili (`stale`).
+- **Stato:** ✅ AUTO SEMPRE (dopo migr. 116) + 🟡 (ricerca manuale le mostra). Le fatture già pagate con movimento restano intoccabili (`stale`), salvo un documento della banca che dica altro (R27).
 - **Nota costi ricorrenti:** se c'è **una sola fattura** per **N addebiti mensili** dello stesso importo (es. canone San Mauro 3.714,57 ×5 mesi), solo **un** movimento si aggancia a quella fattura (quello che la cita in causale); gli altri mesi restano da riconciliare finché non esiste la fattura del mese.
 
 ### R3 — Scorporo delle COMMISSIONI: si confronta il NETTO
@@ -150,6 +157,10 @@ Ogni aggancio è annullabile (`undo_reconcile_movement`, riapre anche le NC). Le
 mano si **agganciano** al movimento senza riscrivere l'importo (restano pagate). Prima nota = solo
 movimenti bancari reali: la chiusura a mano non crea movimenti.
 - **Stato:** ✅ SEMPRE.
+- **Dal 02/10/2026 (R27):** «non riscrivere l'importo» vale contro le deduzioni del motore, non
+  contro un documento della banca. Le correzioni che vengono da un documento si fanno, salvando
+  prima lo stato precedente. Per togliere un aggancio fatto dal motore su una scadenza chiusa a
+  mano resta valida la procedura di `MOTORE_RICONCILIAZIONE_NOTE.md` (caso SPM 31).
 
 ### R12 — Parità tenant
 Ogni migration e regola va applicata su **NZ + Made + Zago** (3 project distinti), identici.
@@ -485,7 +496,8 @@ Chiesto da Patrizio il 10/09/2026: «sì verifica le CBI».
 - **Su una fattura già pagata l'aggancio è solo un collegamento:** importi, stato e data di
   pagamento non si toccano. Verificato sulle 20: `status` resta `pagato`, `payment_date` e
   `amount_paid` invariati, cambia solo `bank_transaction_id`. La chiusura piena resta ai casi in
-  cui la fattura è ancora aperta.
+  cui la fattura è ancora aperta. **Vale per l'aggancio del motore.** Se a dire data e importo è un
+  documento della banca, quelli del documento sovrascrivono (R27).
 - **Esito sul vivo:** 20 movimenti agganciati per 27.034 €, le uscite non riconciliate passano da
   316 a 296. Backup in `_bkp_match_cbi_20260910` (35 righe candidate con lo stato precedente).
 
@@ -613,3 +625,213 @@ Trovato l'11/09/2026 ripulendo il pannello su richiesta di Patrizio.
   rileggere e riaprire. Backup in `_bkp_reconlog_proposte_20260911`.
 - **Come leggere il pannello, d'ora in poi:** se una proposta compare, è viva. Prima non era
   vero, e il numero in cima non voleva dire niente.
+
+---
+
+### R27: Il documento della banca comanda su tutto
+Fissata da Patrizio il 02/10/2026: «chi comanda è l'estratto conto su tutto, perché di fatto è la
+banca che ha garantito il dato». Se per errore qualcosa è stato chiuso a mano e un estratto dice
+altro, l'estratto sovrascrive e la correzione si traccia.
+
+**Non nasce dal nulla.** È la regola che le sessioni precedenti applicavano già a mano:
+- R19: «il metodo in anagrafica è una dichiarazione, i movimenti bancari sono un fatto»;
+- carte, 03/09 (`PAYMENT_PLAN_NOTES.md`): «l'estratto conto delle carte è il documento che chiude
+  quelle scadenze, come la distinta MPS lo è per le RI.BA»;
+- controllo dei saldi, 04/09: il saldo è cumulativo, se torna con l'estratto non manca niente.
+  Così si sono trovati i 6 movimenti mancanti di Mugello (inseriti dall'estratto) e i 10 doppioni
+  di Intesa (tolti dopo conferma di Patrizio, con backup).
+
+**Gerarchia delle fonti, dalla più forte:**
+
+| livello | fonte | esempi |
+|---|---|---|
+| 1 | documento della banca | estratto conto corrente, estratto carta e prepagata, distinta RiBa in stato «Ricevuta Banca», elenco effetti e disposizioni MPS, estratto commissioni Nexi/Amex |
+| 2 | decisione di una persona | chiusura a mano, risposta di Sabrina in chat (R28) |
+| 3 | deduzione del motore | aggancio per importo, data, nome (R1-R26) |
+
+Una fonte più forte sovrascrive una più debole, mai il contrario. Fra due documenti della banca
+vale il più recente per data del documento; se si contraddicono si chiede in chat (R28).
+
+**Cosa sovrascrive il documento: tutto quello che dice, e solo quello.**
+- Un estratto conto certifica che il movimento esiste, la sua data, il suo importo, la causale
+  per esteso (beneficiario compreso).
+- Un estratto carta certifica la spesa, la data, l'esercente e l'addebito mensile.
+- Una distinta certifica fornitore (P.IVA), totale, data, conto di addebito e, quando li elenca,
+  i numeri di fattura.
+
+Il limite è quello che ha protetto SPM 31 (`MOTORE_RICONCILIAZIONE_NOTE.md`): un movimento
+attaccato per **solo importo** a una fattura chiusa a mano mesi dopo era una deduzione del
+motore, non un documento che parlava. Se il documento non nomina la fattura, la chiusura a mano
+resta com'è.
+
+**Come si sovrascrive.**
+- Prima si salva lo stato precedente (`payable_actions` con valori vecchi e nuovi, oppure
+  tabella di backup se la correzione tocca molte righe).
+- Si aggiunge in coda alle note una riga datata con il nome del file e cosa ha cambiato.
+- Nessuna cancellazione. Un movimento del gestionale che l'estratto non contiene si segnala in
+  chat (R28) e resta dov'è: il DELETE resta sotto la regola granitica no data loss, con backup
+  e conferma di Patrizio.
+
+**Cosa fa il sistema al caricamento, per tipo di documento.**
+- **Estratto conto corrente.** Quadra il saldo (iniziale più movimenti = finale). Cerca ogni riga:
+  se c'è, la conferma e scrive la causale estesa; se manca, la inserisce con provenienza
+  «estratto»; se importo o data sono diversi, corregge con quelli dell'estratto (decisione di
+  Patrizio del 02/10/2026). Poi fa ripartire il motore con le regole R1-R26.
+- **Estratto carta di credito.** Chiude le scadenze a carta per riscontro esatto, da provvisorie
+  (R15) a definitive, e le aggancia all'addebito cumulativo del mese. Un riscontro che non torna
+  non si forza. Il residuo dell'addebito non spiegato dalle righe si mostra (a luglio 53,29 €,
+  probabilmente il canone annuo).
+- **Prepagata.** Le spese chiudono le scadenze con la data della spesa e senza movimento bancario,
+  perché non passano dal conto. Le ricariche sono giroconti.
+- **Distinta RiBa, elenco effetti, export disposizioni MPS.** Verifica fornitore per P.IVA, totale,
+  data e conto. Se il documento elenca le fatture, corregge fattura per fattura. Se porta una riga
+  sola senza numeri e il totale non torna, non sceglie lui quali rate correggere: chiede in chat.
+- **Estratto commissioni Nexi/Amex.** Chiude gli addebiti per natura, uno per punto vendita.
+
+**Contanti: non cambia niente.** Le fatture pagate in contanti si chiudono subito in provvisorio
+con la data della fattura (R15, R17, R18) e non hanno movimento bancario. Gli incassi in contanti
+arrivano dalle chiusure di cassa dei negozi, e il versamento si abbina alla banca ogni mattina.
+Per i contanti Sabrina non carica niente: l'estratto conto conferma i versamenti.
+
+**Altre condizioni.**
+- **Si può ricaricare.** Lo stesso file, o un periodo che si sovrappone a uno già caricato, non
+  produce effetti doppi: una riga già vista si riconosce.
+- **Sempre in archivio.** Ogni file va in archivio agganciato a conto o carta e al mese, e ogni
+  movimento confermato porta il collegamento al documento da cui viene.
+
+**Caso di riferimento: distinta SHINE del 30/09/2026.** Documento MPS «Distinta di ritiro effetti
+pagati», supporto 137836501, una disposizione, SHINE SRL P.IVA 05363951210, 44.070,67 €, «SALDO FT
+GIUGNO», stato Ricevuta Banca. Nel gestionale 39 righe SHINE sono agganciate all'addebito «effetti
+ritirati» del 30/09 da 104.240,16 € e sommano 44.070,67 € al centesimo. L'addebito contiene 6
+effetti: le 63 righe agganciate fanno 104.237,78 €, i 2,38 € di differenza sono le spese per
+effetto. Esito atteso: «confermata dal documento», nessuna correzione. Se il totale non fosse
+tornato, la distinta da sola non direbbe quali rate correggere (non porta numeri di fattura): serve
+l'elenco Ri.Ba. MPS, che li porta, oppure una domanda in chat.
+
+**Regole più vecchie che cambiano per effetto di questa:**
+- R1, R2 e R23 («su una fattura già pagata l'aggancio è solo un collegamento»);
+- il vincolo dei 30 giorni dalla data di chiusura manuale (migration 192 e 218);
+- R11 («nessuna doppia scrittura»).
+
+Tutte restano valide contro le deduzioni del motore e cedono davanti a un documento della banca.
+
+**Come si confronta (provato il 02/10/2026 sugli estratti veri di agosto, migration 264 e 265):**
+- **Sulla data valuta.** L'open banking (A-Cube) salva in `transaction_date` la data valuta, non
+  la contabile. L'estratto si confronta e si corregge sulla valuta; la contabile va in
+  `booking_date`. Confrontando la contabile, MPS dava 27 «correzioni» e 2 inserimenti falsi.
+  Se il lettore non trova la valuta (succede col PDF), la data non si tocca: l'estratto
+  sovrascrive solo ciò che certifica.
+- **Movimenti intercambiabili.** Più movimenti uguali nello stesso giorno (sette commissioni da
+  3,00 € il 03/09 su BCC) sono la stessa cosa: se ne prende uno, non si fanno sette domande.
+- **Coda di 3 giorni.** I movimenti degli ultimi 3 giorni del periodo la banca li porta
+  nell'estratto successivo: non sono «assenti dall'estratto».
+- **Quadratura.** Una riga ambigua ha comunque il suo movimento nel gestionale e non sposta lo
+  scarto. Lo scarto conta solo i movimenti in più nel gestionale e le righe senza movimento.
+- **Causale.** Quella dell'estratto riempie `statement_description` solo se è vuota: dal PDF esce
+  a pezzi e non deve sostituire una causale estesa.
+
+**Di che conto è il file.** Gli Excel di MPS e BCC Figline non portano l'IBAN del conto, né i
+saldi; quello BCC porta solo gli IBAN dei beneficiari. Il PDF Intesa porta il «Numero conto», che è
+la coda dell'IBAN. In quest'ordine:
+1. IBAN scritto nell'intestazione (mai quelli nelle causali: sono dei beneficiari);
+2. «Numero conto» nell'intestazione, uguale alle ultime cifre dell'IBAN di un nostro conto;
+3. il conto su cui il gestionale ritrova i movimenti del file (`fn_bank_doc_guess_account`):
+   vale solo se è netto, almeno il 60% delle righe e il secondo conto non oltre un quinto. Su
+   agosto: BCC 190/190 contro 2, MPS 150/150 contro 0, Intesa 22/22;
+4. solo se tutte e tre tacciono si chiede a Sabrina.
+
+Anche il tipo di documento si legge solo dalle righe che non sono movimenti: «Ricarica carta
+prepagata» o «Nexi» dentro una causale facevano prendere l'Excel BCC per un estratto carta e
+quello MPS per un estratto commissioni.
+
+**Esito sui file veri (transazione annullata su NZ, nessun dato toccato):** MPS 614 righe, tutte
+confermate; BCC Figline 190 righe, tutte confermate; Intesa PDF 22 righe, tutte confermate. Zero
+correzioni, zero inserimenti, zero domande, scarto 0,00 sui due Excel. Il PDF Intesa non dà il
+segno degli importi: le righe si confermano, ma un movimento mancante non si inserisce (serve
+l'Excel) e la quadratura non si calcola.
+
+- **Stato (02/10/2026):** 🟡 IN PARTE.
+  - ✅ **Estratti di conto corrente**: scheda Banche → Documenti banca (`src/components/DocumentiBanca.tsx`,
+    logica in `src/lib/documentiBanca.ts`), funzione `apply_bank_statement` (migration 263 e 264,
+    tre tenant) e `fn_bank_doc_guess_account` (265). Conto come sopra, archivio del file con
+    impronta SHA-256, conferma/correzione/inserimento con
+    traccia in `document_corrections`, domanda per i movimenti che l'estratto non contiene,
+    quadratura del periodo, ricaricamento senza effetti doppi, adozione della riga quando l'open
+    banking porta lo stesso movimento (`trg_bank_tx_adopt_estratto`).
+  - ⚠️ **Saldi iniziale e finale**: letti dal PDF Intesa (6.361,36 e 4.027,98); gli Excel MPS e
+    BCC non li portano, quindi lì vale solo la quadratura sul gestionale. Mugello non ancora provato.
+  - ⛔ **Carte, distinte RiBa, commissioni**: la scheda le riconosce e dice dove caricarle, ma
+    non le applica ancora. L'aggancio all'addebito mensile delle carte resta salvato su 0
+    estratti su 31.
+  - ⛔ **Sovrascrittura delle chiusure a mano sulle scadenze** (carte e distinte che nominano
+    la fattura): da fare insieme alle carte e alle distinte.
+
+---
+
+### R28: Quando qualcosa non torna, il sistema lo chiede a Sabrina in chat
+Fissata da Patrizio il 02/10/2026. Niente elenchi da compilare né moduli: quando dopo un
+caricamento resta qualcosa che il sistema non sa decidere, glielo scrive come in una chat. Sabrina
+risponde a parole sue, il sistema capisce, fa e passa alla domanda successiva.
+
+**Come si svolge.**
+1. Il sistema scrive **una cosa alla volta**: cosa ha letto nel documento, cosa ha trovato nel
+   gestionale, cosa non torna, e la domanda. Con i numeri, senza sigle tecniche.
+2. Sabrina risponde scrivendo, come farebbe con una collega.
+3. Il sistema ripete in una riga cosa farà, lo fa con traccia (R27) e passa al punto successivo.
+4. Se la risposta non è chiara, fa **una** domanda di chiarimento. Non agisce al buio.
+
+**Cosa si chiede, e cosa no.** Vale la regola granitica di `CLAUDE.md`: prima la catena delle fonti
+(documento, regola di dominio, standard aziendale), e si chiede solo quello che non si può ricavare,
+serve a un calcolo o a un pagamento vero e solo una persona può sapere. Esempi legittimi:
+- un movimento del gestionale che l'estratto non contiene (doppione o errore della banca?);
+- una distinta senza numeri di fattura il cui totale non torna (quali rate ha pagato?);
+- un addebito carta con un residuo che nessuna riga spiega;
+- due fatture gemelle con lo stesso importo, quando nessun documento dice quale è stata pagata;
+- due documenti della banca che si contraddicono.
+
+**Il peso delle risposte.**
+- Una risposta di Sabrina vale come una decisione di una persona (livello 2 della R27): un
+  documento della banca arrivato dopo la sovrascrive.
+- Se Sabrina risponde allegando un file, quel file entra come documento (livello 1) e si rilegge.
+- Se dice che non lo sa, il punto resta aperto e si ripropone al caricamento successivo, non tutti
+  i giorni.
+- La chat non cancella mai niente. Le cancellazioni restano a Patrizio, con backup e conferma.
+
+**Traccia.** Domanda, risposta e azione si salvano insieme. Ogni dato toccato porta in nota «da
+risposta di Sabrina del gg/mm/aaaa», così si distingue cosa ha letto il sistema da cosa ha detto
+una persona.
+
+**Esempio di come deve suonare.**
+> «Nella distinta MPS del 30/09 SHINE risulta pagata per 44.070,67 €. Nel gestionale le rate SHINE
+> chiuse su quell'addebito fanno 41.500,00 €: mancano 2.570,67 €. La distinta non dice quali
+> fatture, dice solo "saldo fatture di giugno". Ce l'hai l'elenco effetti di MPS, o sai quali
+> fatture mancano?»
+>
+> Sabrina: «la 1286 e la 1257, tutte e tre le rate»
+>
+> «Chiudo le tre rate della 1286 e le tre della 1257 sull'addebito del 30/09, e scrivo che l'hai
+> indicato tu oggi. Totale 44.070,67, ora torna. Passo alla prossima: …»
+
+(I numeri dell'esempio sono inventati per mostrare il tono: sul DB la distinta SHINE del 30/09
+torna già al centesimo, vedi R27.)
+
+**Dove, rispetto a quello che Sabrina usa già.** Sabrina ha il ruolo `contabile`. Oggi i documenti
+della banca entrano da sei punti diversi: Banche → Riconciliazione (causali dall'estratto), Banche →
+Conti bancari (upload per conto), Banche → Prima Nota → Carte (estratti carta), Banche → Commissioni,
+Scadenzario («Carica distinta RiBa»), più Import Hub e Archivio Documenti. La sezione nuova è una
+scheda **«Documenti banca», la prima della pagina Banche**, che Sabrina apre già: zona di
+caricamento in alto, chat sotto. Le domande aperte si contano in un badge sulla voce Banche del
+menu, come fa Fatturazione con le anomalie. I vecchi punti di caricamento restano finché la scheda
+nuova non è verificata sui documenti veri, poi rimandano a lei.
+
+**Con cosa.** Tecnicamente si
+riusa l'assistente AI che c'è già (edge function `help-chat`, chiave nel Vault, vedi
+`AI_CHAT_SUPPORT_NOTES.md`), con lo stato del caricamento come contesto. Edge function e
+migration vanno sui 3 tenant.
+
+- **Stato (02/10/2026):** ✅ per gli estratti di conto corrente. Riquadro «Da chiarire» in
+  `src/components/ChatDocumentiBanca.tsx`, interpretazione delle risposte nella edge function
+  `bank-doc-chat` (tre tenant, modello `claude-opus-5-5` con risposta strutturata in una lista
+  chiusa di azioni: conferma, doppione, conto_sbagliato, non_so, chiarimento, informazione).
+  Nessuna azione cancella o sposta: doppioni e conti sbagliati vengono annotati sul movimento
+  per la conferma di Patrizio. Numerino delle domande aperte sulla voce Banche del menu.

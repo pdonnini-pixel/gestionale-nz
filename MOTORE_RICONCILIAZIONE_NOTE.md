@@ -153,6 +153,11 @@ ricade nel nuovo vincolo, ed è proprio quello di SPM.
 `bank_transaction_id`, si porta il log a `rejected` e si riapre il movimento,
 lasciando `status`, `payment_date` e `closed_manually` intatti.
 
+**Aggiornamento 02/10/2026 (R27 in `RICONCILIAZIONE_REGOLE.md`).** Questo vale quando l'aggancio è
+una deduzione del motore, come qui. Se invece è un documento della banca (estratto, distinta) a dire
+che quella scadenza è stata pagata in un altro giorno o con un altro importo, il documento comanda e
+sovrascrive la chiusura a mano, salvando prima lo stato precedente e scrivendolo in nota.
+
 ---
 
 ## Il giro dell'08/09: candidato non unico, ma disambiguato dalla distinta

@@ -11092,6 +11092,127 @@ export type Database = {
           },
         ]
       }
+      bank_document_messages: {
+        Row: {
+          action: Json | null
+          author: string
+          author_id: string | null
+          body: string
+          company_id: string
+          created_at: string
+          id: string
+          question_id: string
+        }
+        Insert: {
+          action?: Json | null
+          author: string
+          author_id?: string | null
+          body: string
+          company_id: string
+          created_at?: string
+          id?: string
+          question_id: string
+        }
+        Update: {
+          action?: Json | null
+          author?: string
+          author_id?: string | null
+          body?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          question_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_document_messages_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_document_messages_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "bank_document_questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bank_document_questions: {
+        Row: {
+          bank_transaction_id: string | null
+          company_id: string
+          context: Json | null
+          created_at: string
+          id: string
+          kind: string
+          question: string
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          statement_id: string | null
+          status: string
+          subject_key: string
+          updated_at: string
+        }
+        Insert: {
+          bank_transaction_id?: string | null
+          company_id: string
+          context?: Json | null
+          created_at?: string
+          id?: string
+          kind: string
+          question: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          statement_id?: string | null
+          status?: string
+          subject_key: string
+          updated_at?: string
+        }
+        Update: {
+          bank_transaction_id?: string | null
+          company_id?: string
+          context?: Json | null
+          created_at?: string
+          id?: string
+          kind?: string
+          question?: string
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          statement_id?: string | null
+          status?: string
+          subject_key?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_document_questions_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "bank_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_document_questions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_document_questions_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "bank_statements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bank_imports: {
         Row: {
           bank_account_id: string | null
@@ -11146,12 +11267,89 @@ export type Database = {
         }
         Relationships: []
       }
+      bank_statement_lines: {
+        Row: {
+          amount: number
+          bank_transaction_id: string | null
+          booking_date: string
+          company_id: string
+          created_at: string
+          description: string | null
+          flusso_cbi: string | null
+          id: string
+          note: string | null
+          outcome: string
+          row_no: number
+          sign_known: boolean
+          statement_id: string
+          value_date: string | null
+        }
+        Insert: {
+          amount: number
+          bank_transaction_id?: string | null
+          booking_date: string
+          company_id: string
+          created_at?: string
+          description?: string | null
+          flusso_cbi?: string | null
+          id?: string
+          note?: string | null
+          outcome: string
+          row_no: number
+          sign_known?: boolean
+          statement_id: string
+          value_date?: string | null
+        }
+        Update: {
+          amount?: number
+          bank_transaction_id?: string | null
+          booking_date?: string
+          company_id?: string
+          created_at?: string
+          description?: string | null
+          flusso_cbi?: string | null
+          id?: string
+          note?: string | null
+          outcome?: string
+          row_no?: number
+          sign_known?: boolean
+          statement_id?: string
+          value_date?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bank_statement_lines_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "bank_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "bank_statements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       bank_statements: {
         Row: {
+          applied_at: string | null
+          applied_summary: Json | null
+          balance_check: Json | null
           bank_account_id: string | null
           card_last4: string | null
           closing_balance: number | null
           company_id: string
+          content_hash: string | null
           created_at: string | null
           doc_kind: string | null
           error_message: string | null
@@ -11173,10 +11371,14 @@ export type Database = {
           uploaded_by: string | null
         }
         Insert: {
+          applied_at?: string | null
+          applied_summary?: Json | null
+          balance_check?: Json | null
           bank_account_id?: string | null
           card_last4?: string | null
           closing_balance?: number | null
           company_id: string
+          content_hash?: string | null
           created_at?: string | null
           doc_kind?: string | null
           error_message?: string | null
@@ -11198,10 +11400,14 @@ export type Database = {
           uploaded_by?: string | null
         }
         Update: {
+          applied_at?: string | null
+          applied_summary?: Json | null
+          balance_check?: Json | null
           bank_account_id?: string | null
           card_last4?: string | null
           closing_balance?: number | null
           company_id?: string
+          content_hash?: string | null
           created_at?: string | null
           doc_kind?: string | null
           error_message?: string | null
@@ -11291,6 +11497,7 @@ export type Database = {
           reference: string | null
           running_balance: number | null
           source: string | null
+          statement_confirmed_at: string | null
           statement_description: string | null
           statement_enriched_at: string | null
           statement_id: string | null
@@ -11333,6 +11540,7 @@ export type Database = {
           reference?: string | null
           running_balance?: number | null
           source?: string | null
+          statement_confirmed_at?: string | null
           statement_description?: string | null
           statement_enriched_at?: string | null
           statement_id?: string | null
@@ -11375,6 +11583,7 @@ export type Database = {
           reference?: string | null
           running_balance?: number | null
           source?: string | null
+          statement_confirmed_at?: string | null
           statement_description?: string | null
           statement_enriched_at?: string | null
           statement_id?: string | null
@@ -13552,6 +13761,66 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_outlet_card"
             referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
+      document_corrections: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          document_label: string | null
+          field: string
+          id: string
+          new_value: string | null
+          old_value: string | null
+          reason: string | null
+          statement_id: string | null
+          target_id: string
+          target_table: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          document_label?: string | null
+          field: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          reason?: string | null
+          statement_id?: string | null
+          target_id: string
+          target_table: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          document_label?: string | null
+          field?: string
+          id?: string
+          new_value?: string | null
+          old_value?: string | null
+          reason?: string | null
+          statement_id?: string | null
+          target_id?: string
+          target_table?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "document_corrections_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_corrections_statement_id_fkey"
+            columns: ["statement_id"]
+            isOneToOne: false
+            referencedRelation: "bank_statements"
+            referencedColumns: ["id"]
           },
         ]
       }
@@ -25562,6 +25831,16 @@ export type Database = {
         Args: { p_close_date?: string; p_payable_id: string }
         Returns: number
       }
+      apply_bank_statement: {
+        Args: {
+          p_closing?: number
+          p_edge_days?: number
+          p_opening?: number
+          p_rows: Json
+          p_statement_id: string
+        }
+        Returns: Json
+      }
       apply_statement_enrichment: {
         Args: { p_rows: Json; p_source?: string }
         Returns: Json
@@ -25571,6 +25850,14 @@ export type Database = {
         Returns: number
       }
       bank_movement_net: { Args: { p_descr: string }; Returns: number }
+      fn_bank_doc_guess_account: {
+        Args: { p_rows: Json }
+        Returns: {
+          bank_account_id: string
+          righe: number
+          righe_trovate: number
+        }[]
+      }
       bank_transaction_canonical_hash: {
         Args: {
           p_account_id: string
