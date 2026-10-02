@@ -1802,3 +1802,11 @@ cerca le righe aperte con `due_date <= oggi` e non guarda se qualcuno le ha
 riaperte apposta. Per tenere aperta una RiBa non presentata serve spostare la
 data oppure una guardia nella funzione (saltare chi ha un'azione
 `annulla_chiusura_provvisoria_riba`).
+
+**Aggiornamento stesso giorno, decisioni di Patrizio.** NC GRUPPO F.B. 4572 divisa in
+tre rate da 390,40 (30/09 chiusa con la distinta, 31/10, 30/11), come la 4604: il
+lotto B ora torna esatto al centesimo. Le cinque righe non presentate (SHINE 1369,
+1381, 1410, 1418 rata 1 e GRUPPO F.B. 3657 rata 3, con la NC 3797 rata 3) sono state
+riaperte e spostate al 31/10, con `original_due_date`, `postponed_to` e nota. Con la
+data al 31/10 il cron non le richiude prima di allora. Backup in
+`_bkp_riba_rinvii_02102026`. Resta aperta solo la domanda dei 30,00 sulla 4340/2.

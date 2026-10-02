@@ -111,3 +111,19 @@
 --                                                        -- 112 / 158.369,62
 -- select count(*), sum(declared_total), sum(line_count) from riba_distinte
 --   where file_name like '%30/09/2026%';                 -- 10 / 157.979,19 / 36
+
+-- =============================================================================
+-- SECONDO PASSAGGIO, 02/10/2026 (decisioni di Patrizio). Backup:
+-- public._bkp_riba_rinvii_02102026 (7 righe com'erano prima di questo passaggio).
+--   A) NC 4572 rata 1: gross -390,40 (netto -320,00, IVA -70,40), installment 1/3,
+--      pagata 30/09 con bank_transaction_id del lotto B (f29ecc26). Inserite le
+--      rate 2/3 (31/10, riba_90) e 3/3 (30/11, riba_120) da -390,40.
+--      reconciliation_log per la rata 1, nota del lotto B aggiornata (19 righe).
+--      Lotto B: righe agganciate = 10.971,99 = addebito meno spese, esatto.
+--   B) SHINE 1369/1381/1410/1418 rata 1, GRUPPO F.B. 3657 rata 3 e NC 3797 rata 3:
+--      chiusura provvisoria annullata (amount_paid 0, payment_date null),
+--      due_date = postponed_to = 31/10/2026, postpone_count + 1, nota e
+--      payable_actions ('annulla_chiusura_provvisoria_riba' / 'rinvio').
+-- Rollback: UPDATE payables da _bkp_riba_rinvii_02102026 sulle 7 righe e
+-- DELETE delle due rate 4572 create il 02/10 (installment 2 e 3).
+-- =============================================================================
