@@ -21570,6 +21570,9 @@ export type Database = {
       }
       riba_distinta_lines: {
         Row: {
+          note: string | null
+          raw_causale: string | null
+          row_no: number | null
           company_id: string
           created_at: string
           distinta_id: string
@@ -21585,6 +21588,9 @@ export type Database = {
           raw_vat: string | null
         }
         Insert: {
+          note?: string | null
+          raw_causale?: string | null
+          row_no?: number | null
           company_id: string
           created_at?: string
           distinta_id: string
@@ -21600,6 +21606,9 @@ export type Database = {
           raw_vat?: string | null
         }
         Update: {
+          note?: string | null
+          raw_causale?: string | null
+          row_no?: number | null
           company_id?: string
           created_at?: string
           distinta_id?: string
@@ -21654,6 +21663,14 @@ export type Database = {
       }
       riba_distinte: {
         Row: {
+          applied_at: string | null
+          applied_summary: Json | null
+          bank_stato: string | null
+          content_hash: string | null
+          conto_testo: string | null
+          doc_date: string | null
+          import_document_id: string | null
+          supporto: string | null
           bank_account_id: string | null
           company_id: string
           confirmed_at: string | null
@@ -21671,6 +21688,14 @@ export type Database = {
           status: string
         }
         Insert: {
+          applied_at?: string | null
+          applied_summary?: Json | null
+          bank_stato?: string | null
+          content_hash?: string | null
+          conto_testo?: string | null
+          doc_date?: string | null
+          import_document_id?: string | null
+          supporto?: string | null
           bank_account_id?: string | null
           company_id: string
           confirmed_at?: string | null
@@ -21688,6 +21713,14 @@ export type Database = {
           status?: string
         }
         Update: {
+          applied_at?: string | null
+          applied_summary?: Json | null
+          bank_stato?: string | null
+          content_hash?: string | null
+          conto_testo?: string | null
+          doc_date?: string | null
+          import_document_id?: string | null
+          supporto?: string | null
           bank_account_id?: string | null
           company_id?: string
           confirmed_at?: string | null
@@ -25850,6 +25883,14 @@ export type Database = {
         Returns: number
       }
       bank_movement_net: { Args: { p_descr: string }; Returns: number }
+      apply_card_statement: {
+        Args: { p_debit_date?: string; p_lines: Json; p_statement_id: string }
+        Returns: Json
+      }
+      apply_riba_distinta: {
+        Args: { p_conto?: string; p_distinta_id: string; p_lines: Json }
+        Returns: Json
+      }
       fn_bank_doc_guess_account: {
         Args: { p_rows: Json }
         Returns: {

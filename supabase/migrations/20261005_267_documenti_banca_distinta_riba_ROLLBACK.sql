@@ -1,0 +1,5 @@
+-- ROLLBACK della 267. Da eseguire a mano solo dopo aver tolto la chiamata dal
+-- frontend (DocumentiBanca.tsx). Le colonne aggiunte restano: toglierle perde i
+-- dati delle distinte caricate (regola granitica no data loss), quindi solo con
+-- backup e conferma di Patrizio.
+-- DROP FUNCTION IF EXISTS public.apply_riba_distinta(uuid, jsonb, text);

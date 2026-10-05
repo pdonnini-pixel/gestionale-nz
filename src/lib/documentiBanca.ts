@@ -12,7 +12,7 @@
 // arrivano righe di testo e celle.
 
 import { parseEcAoa, parseEcLines, parseAmountCell, type EcParsed, type EcRow } from './estrattoConto'
-import { detectIssuer } from './cartaEstratto'
+import { detectIssuer, parseCardStatementLines, parseTascaAoa, type CardStatementParsed } from './cartaEstratto'
 import { tipoEstratto } from './acquirerFees'
 import { extractBeneficiary } from './reconcileMatch'
 
@@ -154,8 +154,12 @@ export function classificaDocumento(p: {
   const testo = p.intestazione ? p.intestazione.join('\n') : p.testo
   if (RE_DISTINTA.test(testo)) return 'distinta_riba'
   if (tipoEstratto(righe)) return 'commissioni'
+  // Le firme forti di una carta vincono sul conto: l'estratto carta stampa spesso
+  // il conto di addebito. «Lista movimenti» (Tasca) no: la usa anche Intesa.
+  const emittente = detectIssuer(righe)
+  if (emittente === 'mps' || emittente === 'numia') return 'estratto_carta'
   if (p.conto && p.righeEstratto > 0) return 'estratto_conto'
-  if (detectIssuer(righe) !== 'generico') return 'estratto_carta'
+  if (emittente !== 'generico') return 'estratto_carta'
   if (/ESTRATTO\s+CONTO\s+CARTA|CARTA\s+DI\s+CREDITO|CARTA\s+PREPAGATA/i.test(testo) && !p.conto) return 'estratto_carta'
   if (p.righeEstratto > 0) return 'estratto_conto'
   return 'sconosciuto'
@@ -283,4 +287,242 @@ export function fraseEsito(e: EsitoApplicazione): string {
   else if (typeof scarto === 'number') frase += ` Scarto sul periodo: ${eur(scarto)}.`
   if (e.domande_nuove) frase += ` ${e.domande_nuove === 1 ? 'Una cosa da chiederti' : `${e.domande_nuove} cose da chiederti`} qui sotto.`
   return frase
+}
+
+// ── Estratti carta ─────────────────────────────────────────────────────────
+
+const formatData = (iso: string): string => { const [y, m, d] = String(iso).slice(0, 10).split('-'); return d && m && y ? `${d}/${m}/${y}` : String(iso) }
+
+/**
+ * Lettura di un estratto carta con i lettori di Prima nota (cartaEstratto):
+ * dal PDF il testo, dall'Excel (Tasca) il foglio che produce piu' righe.
+ */
+export function leggiCarta(p: { righePdf?: string[]; fogli?: unknown[][][] }): CardStatementParsed {
+  if (p.righePdf) return parseCardStatementLines(p.righePdf)
+  let migliore: CardStatementParsed | null = null
+  for (const aoa of p.fogli ?? []) {
+    const q = parseTascaAoa(aoa as Parameters<typeof parseTascaAoa>[0])
+    if (!migliore || q.lines.length > migliore.lines.length) migliore = q
+  }
+  return migliore ?? parseTascaAoa([])
+}
+
+/** Le righe della carta nel formato di `apply_card_statement`. */
+export function righeCartaPerDb(parsed: CardStatementParsed): Array<Record<string, unknown>> {
+  const last4 = parsed.cards[0]?.card_last4 ?? null
+  return parsed.lines.map((l, i) => ({
+    row_no: i + 1,
+    card_last4: l.card_last4 ?? last4,
+    purchase_date: l.purchase_date,
+    posting_date: l.posting_date,
+    description: l.description,
+    amount: l.amount,
+    fee: l.fee,
+    currency: l.currency,
+    original_amount: l.original_amount,
+  }))
+}
+
+export type EsitoCarta = {
+  righe: number
+  spese: number
+  abbinate_nuove: number
+  confermate: number
+  corrette: number
+  conflitti: number
+  domande_nuove: number
+  prepagata: boolean
+  addebito: { data: string; importo: number; spese_estratti: number; residuo: number; fatture_agganciate: number } | null
+}
+
+export function fraseEsitoCarta(e: EsitoCarta): string {
+  const pezzi: string[] = [`${e.spese} spese lette`]
+  const fatture = e.confermate + e.corrette
+  if (fatture > 0) pezzi.push(`${fatture} ${fatture === 1 ? 'fattura ritrovata' : 'fatture ritrovate'}${e.corrette > 0 ? ` (${e.corrette} sistemate come dice l'estratto)` : ''}`)
+  if (e.addebito) pezzi.push(`addebito sul conto del ${formatData(e.addebito.data)} di ${eur(e.addebito.importo)} agganciato`)
+  else if (!e.prepagata) pezzi.push('l\'addebito sul conto non è ancora arrivato: si aggancia al prossimo caricamento')
+  let frase = pezzi.join(', ') + '.'
+  if (e.domande_nuove > 0) frase += ` ${e.domande_nuove === 1 ? 'Una cosa da chiarire' : `${e.domande_nuove} cose da chiarire`} qui sotto.`
+  return frase
+}
+
+// ── Distinte RiBa MPS ──────────────────────────────────────────────────────
+
+export type DisposizioneRiba = {
+  row_no: number
+  beneficiario: string | null
+  vat: string | null
+  due_date: string
+  amount: number
+  causale: string
+  fatture: string[]
+  note_credito: string[]
+}
+
+export type DistintaRiba = {
+  supporto: string | null
+  dataCreazione: string | null
+  conto: string | null
+  stato: string | null
+  totale: number | null
+  nDichiarate: number | null
+  disposizioni: DisposizioneRiba[]
+}
+
+const itData = (s: string): string | null => {
+  const m = /^(\d{2})\/(\d{2})\/(\d{2}|\d{4})$/.exec(s.trim())
+  if (!m) return null
+  const y = m[3].length === 2 ? `20${m[3]}` : m[3]
+  return `${y}-${m[2]}-${m[1]}`
+}
+const itImporto = (s: string): number | null => {
+  const m = /(\d{1,3}(?:\.\d{3})*,\d{2})/.exec(s)
+  return m ? Number(m[1].replace(/\./g, '').replace(',', '.')) : null
+}
+
+/**
+ * I numeri di fattura e di nota di credito scritti nella causale di un effetto:
+ * «SALDO FATT N.3657 MENO NC 3797» → fatture [3657], note di credito [3797].
+ * Quello che viene dopo «NC» / «N.C.» / «NOTA CREDITO» sono note di credito.
+ * Si prendono solo numeri di almeno 2 cifre; date e anni («/26», «2026») no.
+ */
+export function numeriDallaCausale(causale: string): { fatture: string[]; noteCredito: string[] } {
+  // Le date («SCAD. 31/08/2026») non sono numeri di fattura.
+  const t = norm(causale).toUpperCase().replace(/\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b/g, ' ')
+  const i = t.search(/\b(?:N\.?\s?C\.?|NOTA\s+(?:DI\s+)?CREDITO|NOTE\s+(?:DI\s+)?CREDITO)\b/)
+  const prima = i >= 0 ? t.slice(0, i) : t
+  const dopo = i >= 0 ? t.slice(i) : ''
+  const numeri = (s: string): string[] => {
+    const out: string[] = []
+    // «882/26»: il numero e' la parte prima della barra; l'anno dopo la barra non conta.
+    for (const m of s.replace(/(\d+)\/\d{2,4}\b/g, '$1').matchAll(/\b0*(\d{2,})\b/g)) {
+      const n = m[1]
+      if (/^20\d{2}$/.test(n)) continue
+      if (!out.includes(n)) out.push(n)
+    }
+    return out
+  }
+  return { fatture: numeri(prima), noteCredito: numeri(dopo) }
+}
+
+/**
+ * La «Distinta di ritiro effetti pagati» di MPS (PasKey), dal testo del PDF.
+ *
+ * Ogni effetto e' un blocco: beneficiario, «cod.fiscale/P.iva creditore», la
+ * partita IVA, la riga «creazione scadenza stato importo», «Banca
+ * Domiciliataria» e la causale, che puo' andare a capo. Provata sulla distinta
+ * GRUPPO F.B. del 31/08/2026 (5 effetti, 19.546,51 €).
+ */
+export function leggiDistintaMps(righe: string[]): DistintaRiba | null {
+  const testo = righe.map(norm)
+  if (!testo.some((r) => /DISTINTA\s+DI\s+RITIRO\s+EFFETTI/i.test(r))) return null
+  const campo = (re: RegExp): string | null => {
+    for (const r of testo) { const m = re.exec(r); if (m) return norm(m[1]) }
+    return null
+  }
+  const out: DistintaRiba = {
+    supporto: campo(/Nome\s+supporto:\s*(\S+)/i),
+    dataCreazione: (() => { const d = campo(/Data\s+Creazione:\s*(\d{2}\/\d{2}\/\d{4})/i); return d ? itData(d) : null })(),
+    conto: campo(/Conto\s+Corrente:\s*([\d\s]{15,})/i),
+    stato: campo(/Stato\s+distinta:\s*(.+)$/i),
+    totale: (() => { const t = campo(/Totale\s+distinta:\s*(.+)$/i); return t ? itImporto(t) : null })(),
+    nDichiarate: (() => { const n = campo(/N.\s*disposizioni:\s*(\d+)/i); return n ? Number(n) : null })(),
+    disposizioni: [],
+  }
+
+  const RE_DATE = /(\d{2}\/\d{2}\/\d{2,4})\s+(\d{2}\/\d{2}\/\d{2,4})\b(.*)$/
+  const RE_PIVA = /(?:IT)?(\d{11})\b/
+  // Righe di pagina (intestazione della tabella, piede con l'indirizzo, data di stampa).
+  const scarta = (r: string) => /(https?:\/\/|^\d{2}\/\d{2}\/\d{2},\s*\d{2}:\d{2}|Creaz\.\s*Scad\.|DETTAGLIO DISPOSIZIONI|Distinta di Ritiro effetti)/i.test(r)
+  let blocco: string[] = []
+  const blocchi: string[][] = []
+  let precedente: string | null = null
+  for (const r of testo) {
+    if (!r || scarta(r)) continue
+    // Un blocco comincia dal beneficiario, la riga prima di «cod.fiscale/P.iva».
+    if (/cod\.?\s*fiscale\s*\/\s*P\.?\s*iva/i.test(r)) {
+      if (blocco.length > 0 && blocco[blocco.length - 1] === precedente) blocco.pop()
+      if (blocco.length > 0) blocchi.push(blocco)
+      blocco = precedente ? [precedente, r] : [r]
+      precedente = r
+      continue
+    }
+    if (blocco.length > 0) blocco.push(r)
+    precedente = r
+  }
+  if (blocco.length > 0) blocchi.push(blocco)
+
+  for (const b of blocchi) {
+    const piena = b.join(' ')
+    const iva = RE_PIVA.exec(piena.replace(/cod\.?\s*fiscale\s*\/\s*P\.?\s*iva\s*creditore:?/i, ' '))
+    let scad: string | null = null
+    let importo: number | null = null
+    let iDate = -1
+    for (let i = 0; i < b.length; i++) {
+      const m = RE_DATE.exec(b[i])
+      if (m) { scad = itData(m[2]); importo = itImporto(m[3]); iDate = i; break }
+    }
+    if (!scad || importo == null) continue
+    // La causale: dopo «Domiciliataria …» fino alla fine del blocco.
+    const iDom = b.findIndex((r) => /Domiciliataria/i.test(r))
+    const coda = (iDom >= 0 ? b.slice(iDom + 1) : b.slice(iDate + 1))
+      .filter((r) => !/^(-|Banca|Ricevu|ta)$/i.test(r))
+    const causale = norm(coda.join(' '))
+    const { fatture, noteCredito } = numeriDallaCausale(causale)
+    out.disposizioni.push({
+      row_no: out.disposizioni.length + 1,
+      beneficiario: norm(b[0]) || null,
+      vat: iva ? iva[1] : null,
+      due_date: scad,
+      amount: importo,
+      causale,
+      fatture,
+      note_credito: noteCredito,
+    })
+  }
+  return out
+}
+
+export type EsitoDistinta = {
+  disposizioni: number
+  totale: number
+  riconosciute: number
+  confermate: number
+  corrette: number
+  in_scadenza: number
+  ambigue: number
+  non_trovate: number
+  domande_nuove: number
+  addebito: { data: string; importo: number; rate_agganciate: number } | null
+}
+
+export function fraseEsitoDistinta(e: EsitoDistinta): string {
+  const pezzi: string[] = [`${e.disposizioni} ${e.disposizioni === 1 ? 'effetto' : 'effetti'} per ${eur(e.totale)}`]
+  if (e.confermate > 0) pezzi.push(`${e.confermate} già a posto`)
+  if (e.corrette > 0) pezzi.push(`${e.corrette} sistemati come dice la distinta`)
+  if (e.in_scadenza > 0) pezzi.push(`${e.in_scadenza} ancora da scadere: si chiudono alla scadenza, ricaricando la distinta`)
+  if (e.addebito) pezzi.push(`addebito del ${formatData(e.addebito.data)} di ${eur(e.addebito.importo)} agganciato`)
+  let frase = pezzi.join(', ') + '.'
+  if (e.domande_nuove > 0) frase += ` ${e.domande_nuove === 1 ? 'Una cosa da chiarire' : `${e.domande_nuove} cose da chiarire`} qui sotto.`
+  return frase
+}
+
+// ── Cosa non si carica qui ─────────────────────────────────────────────────
+
+/**
+ * Documenti che arrivano spesso ma che non sono della banca o non servono qui.
+ * Torna il messaggio da mostrare, o null se il documento va letto.
+ */
+export function motivoNonSupportato(p: { nome: string; righe: string[]; dalPdf: boolean }): string | null {
+  const testo = p.righe.join('\n')
+  if (p.dalPdf && norm(testo).length < 40) {
+    return 'Il PDF è una scansione (un\'immagine): non contiene testo da leggere. Scarica dalla banca il PDF o l\'Excel originale.'
+  }
+  if (/DISTINTA\s+(?:DI\s+)?VERSAMENTO/i.test(testo) || /DISTINTA\s+(?:DI\s+)?VERSAMENTO/i.test(p.nome)) {
+    return 'È una distinta di versamento contanti: non serve caricarla. I versamenti arrivano dalle chiusure di cassa e l\'estratto conto li conferma.'
+  }
+  if (/ANALISI\s+SCADENZE\s+ATTIVE/i.test(testo)) {
+    return 'È un prospetto del fornitore, non un documento della banca: non comanda sui pagamenti. Carica la distinta RiBa della banca.'
+  }
+  return null
 }
