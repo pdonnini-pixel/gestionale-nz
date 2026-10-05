@@ -435,3 +435,81 @@ gemella risulti saldata. Spostarli a mano significherebbe sostituire
 un'arbitrarietà con un'altra, senza una prova che dica quale sia quella giusta.
 Vale la lezione del 06/09: o si accetta il criterio, o si cambia il motore. Il
 motore è cambiato; il passato, senza prove nuove, si lascia dov'è.
+
+---
+
+## Il controllo del 05/10: la patch regge, e la metrica con cui l'ho misurata era sbagliata
+
+Quarta settimana pulita di fila sul cron: otto giri dal 28/09 al 05/10, tutti
+riusciti, fra 125 e 138 secondi.
+
+A prima vista il numero spaventa: **127 agganci applicati** contro i 19 della
+settimana scorsa. Guardandoli, 114 sono del **02/10**, `match_type = manual`, e
+113 di questi su movimenti RiBa: è il caricamento in blocco delle distinte del
+30/09, fatto da fuori. Gli agganci **del motore** sono **13**, in linea con le
+settimane precedenti.
+
+Tutti e tredici su causale parlante, col beneficiario scritto dalla banca. Sei
+hanno anche la prova della distinta. **Nessuno su causale anonima.**
+
+Il più istruttivo: GRAPHIC REPORT, fattura `FI0000250` scaduta il 30/04/**2025**,
+agganciata a un bonifico del 28/09/2026 — a 516 giorni di distanza, ben oltre la
+finestra. È corretto: la causale dice «SALDO FATTURA FI0000250», il numero è
+scritto in chiaro, e il motore ha scelto proprio quella e non la `FI0000083` che
+ha lo stesso identico importo di 341,60. Due gemelle perfette, disambiguate dal
+numero in causale. È il ramo dell'identità che funziona come deve.
+
+### La patch della 219 regge. La metrica no.
+
+Rifacendo il conteggio della settimana scorsa sulla settimana nuova, il risultato
+diceva «1 aggancio su 2 ha ancora scelto la più lontana». Era un **falso
+positivo della misura**.
+
+Il caso: ATENA SERVIZI, due bonifici da 230,00 **lo stesso giorno**, il 02/10,
+con cinque fatture candidate dello stesso importo. Il motore ha agganciato il
+primo bonifico alla scadenza del 30/09 (due giorni) e il secondo a quella del
+31/08 (trentadue giorni). Il secondo sembra «sbagliato» solo perché la più
+vicina era già stata presa dal primo. Verificato che fossero due movimenti
+distinti: riferimenti `0126100212716228` e `0126100212739580`, due id diversi,
+due fatture diverse. Il motore ha pagato due fatture con due bonifici, ed è
+esattamente quello che deve fare.
+
+**Il difetto era nella query, non nel codice**: contavo i candidati senza
+escludere quelli già agganciati ad altri movimenti. Quando più pagamenti dello
+stesso fornitore e importo cadono nello stesso giro, i candidati si consumano, e
+dal secondo in poi la distanza minima teorica non è più raggiungibile.
+
+### I numeri veri, corretti
+
+Rifatta la misura contando solo i candidati **liberi**
+(`bank_transaction_id IS NULL` oppure già quel movimento), su 130 giorni:
+
+| | come l'avevo misurato il 28/09 | misura corretta |
+|---|---|---|
+| agganci col ramo «per data» | 66 | 71 |
+| con gemelle | 20 | **4** |
+| scelte sbagliate | 3 | **2** |
+| sbagliate dopo la 219 | — | **0** |
+
+Quindi il problema era **più piccolo** di come l'ho raccontato, e la patch
+funziona: da quando è attiva, zero scelte sbagliate. Anche il caso EPPI della
+settimana scorsa era meno grave di come l'avevo descritto: non «117 giorni invece
+di 27», perché la fattura a 27 giorni era già agganciata altrove, ma 117 invece
+di 56. Il difetto c'era, solo più contenuto.
+
+**Regola per le prossime misure**: quando si conta quanto spesso il motore
+sceglie male fra candidati equivalenti, i candidati vanno filtrati per
+disponibilità. Un candidato già agganciato a un altro movimento non è un'opzione
+che il motore ha scartato: è un'opzione che non aveva.
+
+### Le RiBa del 30/09 si sono chiuse
+
+Chiude il filo aperto l'11/09, quando le tredici righe SHINE di giugno sono state
+portate dal 31/10 al 30/09 per seguire l'elenco della banca. I fatti hanno dato
+ragione a quella scelta: al 05/10 su quella data risultano pagate **21 righe su
+21** di TANESINI, **46 su 48** di SHINE, **16 su 18** di MIAN, **20 su 21** di
+GRUPPO FB, e tutte quelle di S.R.T., MARF, GLADIOTEX e faliero.
+
+I residui aperti sono quasi solo note di credito da compensare (SHINE −31,51 —
+le due fuori elenco già identificate a settembre; MIAN −219,60), più una riga
+GRUPPO FB da 866,57.
