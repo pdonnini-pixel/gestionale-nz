@@ -4,7 +4,8 @@ import { describe, it, expect } from 'vitest'
 import {
   ibanNelTesto, trovaConto, classificaDocumento, saldiDichiarati, periodoDelle,
   righePerDb, leggiEstratto, fraseEsito, normIban, numeroConto, righeIntestazione,
-  contoDaiMovimenti, type ContoLite,
+  contoDaiMovimenti, leggiDistintaMps, numeriDallaCausale, fraseEsitoDistinta, righeCartaPerDb,
+  fraseEsitoCarta, motivoNonSupportato, type ContoLite,
 } from './documentiBanca'
 
 const IBAN_A = 'IT60X0542811101000000123456'
@@ -148,5 +149,99 @@ describe('esito in una frase', () => {
   it('con correzioni e una domanda', () => {
     expect(fraseEsito({ righe: 21, confermati: 19, corretti: 1, inseriti: 1, ambigui: 0, altro_conto: 0, non_inseriti: 0, domande_nuove: 1, quadratura: { scarto_gestionale: -297.27 } }))
       .toBe('21 movimenti: 19 già a posto, 1 corretto come dice la banca, 1 aggiunto perché mancavano. Scarto sul periodo: -297,27 €. Una cosa da chiederti qui sotto.')
+  })
+})
+
+// ── Carte e distinte RiBa (05/10/2026) ──────────────────────────────────────
+// Le righe imitano il testo che pdf.js estrae dalla «Distinta di ritiro effetti
+// pagati» MPS vera; fornitore, partita IVA e importi sono inventati.
+const DISTINTA_MPS = [
+  '03/09/26, 14:02 Distinta di Ritiro effetti Pagati',
+  'Distinta Di Ritiro Effetti Pagati',
+  'N° disposizioni: 3',
+  'Nome supporto: 999000111',
+  'Data Creazione: 31/08/2026',
+  'Ordinante: AZIENDA PROVA S.R.L.',
+  'Conto Corrente: 01234 56789 000000123456',
+  'Stato distinta: Ricevuta Banca',
+  'Totale distinta: EUR 1.290,44',
+  'DETTAGLIO DISPOSIZIONI',
+  ' Creaz. Scad. Stato Dati Beneficiario Importo',
+  'FORNITORE ESEMPIO S.R.L.',
+  'cod.fiscale/P.iva creditore:',
+  'Ricevu',
+  '01234567890',
+  ' 31/08/26 31/08/26 ta 1.000,00',
+  '-',
+  'Banca',
+  'Domiciliataria: 01234 56789',
+  'SALDO FATT 2548',
+  'https://banca.example/home# 1/2',
+  '03/09/26, 14:02 Distinta di Ritiro effetti Pagati',
+  ' Creaz. Scad. Stato Dati Beneficiario Importo',
+  'FORNITORE ESEMPIO S.R.L.',
+  'cod.fiscale/P.iva creditore:',
+  'Ricevu 01234567890',
+  ' 31/08/26 31/08/26 ta - 290,44',
+  'Banca Domiciliataria: 01234 56789',
+  'SALDO FATT 3480 MENO NC N.3438',
+  'N.3439',
+]
+
+describe('distinta RiBa MPS', () => {
+  it('legge testata ed effetti, con la causale che va a capo', () => {
+    const d = leggiDistintaMps(DISTINTA_MPS)
+    expect(d).not.toBeNull()
+    expect(d!.supporto).toBe('999000111')
+    expect(d!.dataCreazione).toBe('2026-08-31')
+    expect(d!.stato).toBe('Ricevuta Banca')
+    expect(d!.totale).toBe(1290.44)
+    expect(d!.disposizioni).toHaveLength(2)
+    expect(d!.disposizioni[0]).toMatchObject({ beneficiario: 'FORNITORE ESEMPIO S.R.L.', vat: '01234567890', due_date: '2026-08-31', amount: 1000, fatture: ['2548'], note_credito: [] })
+    expect(d!.disposizioni[1]).toMatchObject({ amount: 290.44, causale: 'SALDO FATT 3480 MENO NC N.3438 N.3439', fatture: ['3480'], note_credito: ['3438', '3439'] })
+  })
+  it('un documento che non e\' la distinta MPS non si legge come tale', () => {
+    expect(leggiDistintaMps(['ANALISI SCADENZE ATTIVE', 'Totali 19.723,74'])).toBeNull()
+  })
+  it('numeri dalla causale: fatture prima di «NC», note di credito dopo, anni esclusi', () => {
+    expect(numeriDallaCausale('SALDO FATT N.3657 MENO NC 3797')).toEqual({ fatture: ['3657'], noteCredito: ['3797'] })
+    expect(numeriDallaCausale('SALDO FT 882/26 E 916/26')).toEqual({ fatture: ['882', '916'], noteCredito: [] })
+    expect(numeriDallaCausale('RI.BA SCAD. 31/08/2026')).toEqual({ fatture: [], noteCredito: [] })
+    expect(numeriDallaCausale('ACCONTO')).toEqual({ fatture: [], noteCredito: [] })
+  })
+  it('esito in una frase', () => {
+    expect(fraseEsitoDistinta({ disposizioni: 5, totale: 19546.51, riconosciute: 5, confermate: 4, corrette: 1, in_scadenza: 0, ambigue: 0, non_trovate: 0, domande_nuove: 0, addebito: null }))
+      .toBe('5 effetti per 19.546,51 €, 4 già a posto, 1 sistemati come dice la distinta.')
+  })
+})
+
+describe('estratti carta', () => {
+  it('righe nel formato del database, con le ultime cifre della carta', () => {
+    const r = righeCartaPerDb({
+      issuer: 'mps', cards: [{ card_last4: '1234', holder: 'X', total_declared: -50 }],
+      lines: [{ card_last4: null, purchase_date: '2026-05-30', posting_date: null, description: 'Quota Annua', amount: -50, fee: 0, currency: 'EUR', original_amount: null }],
+      total_declared: -50, total_computed: -50, debit_date: '2026-06-15', period: { year: 2026, month: 5 }, available_balance: null, warnings: [],
+    })
+    expect(r).toEqual([{ row_no: 1, card_last4: '1234', purchase_date: '2026-05-30', posting_date: null, description: 'Quota Annua', amount: -50, fee: 0, currency: 'EUR', original_amount: null }])
+  })
+  it('la firma «Carta Montepaschi» vince sul conto di addebito stampato', () => {
+    const righe = ['Carta Montepaschi', 'C/C addebito: *********214', `IBAN ${IBAN_A}`]
+    expect(classificaDocumento({ testo: righe.join('\n'), righe, conto: conti[1], righeEstratto: 1, intestazione: righe })).toBe('estratto_carta')
+  })
+  it('esito in una frase, anche senza addebito', () => {
+    const f = fraseEsitoCarta({ righe: 8, spese: 8, abbinate_nuove: 1, confermate: 2, corrette: 1, conflitti: 0, domande_nuove: 1, prepagata: false, addebito: null })
+    expect(f).toContain('8 spese lette')
+    expect(f).toContain('3 fatture ritrovate (1 sistemate come dice l\'estratto)')
+    expect(f).toContain('non è ancora arrivato')
+    expect(f).toContain('Una cosa da chiarire')
+  })
+})
+
+describe('cosa non si carica qui', () => {
+  it('scansione, distinta di versamento, prospetto del fornitore', () => {
+    expect(motivoNonSupportato({ nome: 'x.pdf', righe: [], dalPdf: true })).toMatch(/scansione/)
+    expect(motivoNonSupportato({ nome: 'DISTINTA VERSAMENTO NEGOZIO.pdf', righe: ['Versamento contanti presso la filiale numero 1 di prova'], dalPdf: true })).toMatch(/versamento contanti/)
+    expect(motivoNonSupportato({ nome: 'f.pdf', righe: ['ANALISI SCADENZE ATTIVE', 'Da data scadenza: 31/08/2026 fino al 31/08/2026'], dalPdf: true })).toMatch(/prospetto del fornitore/)
+    expect(motivoNonSupportato({ nome: 'ec.xls', righe: ['Data Valuta Dare Avere'], dalPdf: false })).toBeNull()
   })
 })

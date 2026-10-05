@@ -1,10 +1,10 @@
 // Documenti banca: la porta unica da cui si caricano gli estratti (R27, R28).
 //
 // Sabrina trascina i file. Per ognuno il gestionale capisce da solo che cos'e'
-// (dal contenuto) e di quale conto (dall'IBAN), lo archivia e lo applica:
-// l'estratto conto comanda, quindi conferma, corregge o aggiunge i movimenti
-// (funzione `apply_bank_statement`, lato database). Quello che non sa decidere
-// non lo indovina: lo chiede nella chat qui sotto.
+// (dal contenuto) e di quale conto, lo archivia e lo applica: il documento
+// della banca comanda. Estratto conto → `apply_bank_statement`, estratto carta →
+// `apply_card_statement`, distinta RiBa MPS → `apply_riba_distinta` (lato
+// database). Quello che non sa decidere non lo indovina: lo chiede nella chat.
 //
 // Logica pura e testata in src/lib/documentiBanca.ts: qui c'e' solo il contorno.
 
@@ -16,9 +16,12 @@ import { extractPdfLines } from '../lib/pdfText'
 import { archiviaFile, collegaFileArchiviato } from '../lib/archivioFile'
 import {
   trovaConto, contoDaiMovimenti, righeIntestazione, classificaDocumento, saldiDichiarati, periodoDelle, righePerDb, leggiEstratto,
-  righeDaFoglio, fraseEsito, ETICHETTA_TIPO,
+  righeDaFoglio, fraseEsito, ETICHETTA_TIPO, leggiCarta, righeCartaPerDb, fraseEsitoCarta,
+  leggiDistintaMps, fraseEsitoDistinta, motivoNonSupportato,
   type ContoLite, type ContoTrovato, type TipoDocumento, type EsitoApplicazione,
+  type EsitoCarta, type EsitoDistinta, type DistintaRiba,
 } from '../lib/documentiBanca'
+import { sourceLabelOf, type CardStatementParsed } from '../lib/cartaEstratto'
 import ChatDocumentiBanca from './ChatDocumentiBanca'
 
 type Props = { companyId: string | null; accounts: ContoLite[]; onRefresh?: () => void }
@@ -33,6 +36,8 @@ type Voce = {
   conto?: ContoLite | null
   messaggio?: string
   esito?: EsitoApplicazione
+  /** Esito gia' in parole (carte, distinte). */
+  frase?: string
   // dati letti, tenuti per applicare dopo la scelta del conto
   righe?: ReturnType<typeof righePerDb>
   saldi?: { iniziale: number | null; finale: number | null }
@@ -49,13 +54,14 @@ const nomeConto = (c: ContoLite): string => {
   return `${c.bank_name ?? 'Conto'}${iban ? ` …${iban.slice(-6)}` : ''}`
 }
 
-// Dove si completano, per ora, i documenti che non sono estratti di conto corrente.
+// Dove si caricano, per ora, i documenti che qui non si applicano.
 const DOVE: Partial<Record<TipoDocumento, string>> = {
-  estratto_carta: 'Gli estratti carta per ora si caricano in Banche → Prima nota → Carte.',
-  distinta_riba: 'Le distinte RiBa per ora si caricano in Scadenzario → «Carica distinta RiBa».',
-  commissioni: 'Gli estratti commissioni per ora si caricano in Banche → Commissioni.',
+  commissioni: 'Gli estratti commissioni Nexi/Amex per ora si caricano in Banche → Commissioni.',
   sconosciuto: 'Non ho riconosciuto il documento: non è stato toccato niente.',
 }
+
+// Lo stato della distinta che dice che la banca l'ha presa in carico.
+const RE_STATO_OK = /RICEVUT|ESEGUIT|PAGAT|ACCOLT|CONTABILIZZAT/i
 
 export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props) {
   const { session } = useAuth()
@@ -119,6 +125,119 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
     }
   }, [aggiorna, companyId, onRefresh, userId])
 
+  const applicaCarta = useCallback(async (v: Voce, carta: CardStatementParsed, hash: string) => {
+    if (!companyId) return
+    aggiorna(v.key, { stato: 'applicazione' })
+    try {
+      const periodo = carta.period
+      const last4 = carta.cards[0]?.card_last4 ?? null
+      const etichetta = sourceLabelOf(carta.issuer, last4)
+      const totale = carta.total_declared ?? carta.total_computed
+      // Lo stesso file, o lo stesso estratto (carta e mese) gia' caricato: si riusa.
+      let statementId: string | null = null
+      const { data: perHash } = await supabase.from('bank_statements')
+        .select('id').eq('company_id', companyId).eq('content_hash', hash).maybeSingle()
+      statementId = (perHash as { id: string } | null)?.id ?? null
+      if (!statementId && periodo && last4) {
+        const { data: perCarta } = await supabase.from('bank_statements')
+          .select('id').eq('company_id', companyId).eq('doc_kind', 'carta').eq('card_last4', last4)
+          .eq('period_year', periodo.year).eq('period_month', periodo.month).limit(1)
+        const vecchio = ((perCarta ?? []) as Array<{ id: string }>)[0]?.id ?? null
+        if (vecchio) {
+          // Estratto della stessa carta e mese gia' caricato da Prima nota con un altro
+          // file: le sue righe e i loro abbinamenti restano come sono (dati gia' presenti).
+          const { count } = await supabase.from('card_transactions').select('id', { count: 'exact', head: true }).eq('statement_id', vecchio)
+          if ((count ?? 0) > 0) {
+            aggiorna(v.key, { stato: 'altro', messaggio: `L'estratto ${etichetta} di ${String(periodo.month).padStart(2, '0')}/${periodo.year} era già stato caricato da Prima nota: per non toccare i dati già presenti non lo rielaboro.` })
+            return
+          }
+          statementId = vecchio
+          await supabase.from('bank_statements').update({ statement_total: totale, transaction_count: carta.lines.length, content_hash: hash }).eq('id', statementId)
+        }
+      }
+      if (!statementId) {
+        const arch = await archiviaFile({
+          file: v.file, companyId, userId, modulo: 'Banche', funzione: `Estratto carta · ${etichetta}`,
+          bucket: 'bank-statements', year: periodo?.year ?? null, month: periodo?.month ?? null, referenceTable: 'bank_statements',
+        })
+        if (arch.errore) throw new Error(`il file non è finito in archivio (${arch.errore})`)
+        const ext = (v.file.name.split('.').pop() ?? '').toLowerCase()
+        const { data: ins, error: iErr } = await supabase.from('bank_statements').insert({
+          company_id: companyId, bank_account_id: null, filename: v.file.name,
+          file_type: ext === 'pdf' ? 'pdf' : ext === 'csv' ? 'csv' : 'xlsx',
+          doc_kind: 'carta', status: 'processing', source_label: etichetta, card_last4: last4,
+          statement_total: totale, transaction_count: carta.lines.length, closing_balance: carta.available_balance,
+          period_year: periodo?.year ?? null, period_month: periodo?.month ?? null,
+          content_hash: hash, import_document_id: arch.id, file_url: arch.path, uploaded_by: userId,
+        }).select('id').single()
+        if (iErr) throw iErr
+        statementId = (ins as { id: string }).id
+        await collegaFileArchiviato(arch.id, 'bank_statements', statementId)
+      }
+      const { data: esito, error } = await supabase.rpc('apply_card_statement', {
+        p_statement_id: statementId,
+        p_lines: righeCartaPerDb(carta) as never,
+        p_debit_date: carta.debit_date ?? undefined,
+      })
+      if (error) throw error
+      aggiorna(v.key, { stato: 'fatto', frase: fraseEsitoCarta(esito as unknown as EsitoCarta) })
+      setChatKey((k) => k + 1)
+      onRefresh?.()
+    } catch (e) {
+      aggiorna(v.key, { stato: 'errore', messaggio: e instanceof Error ? e.message : String(e) })
+    }
+  }, [aggiorna, companyId, onRefresh, userId])
+
+  const applicaDistinta = useCallback(async (v: Voce, dist: DistintaRiba, hash: string, dalPdf: boolean) => {
+    if (!companyId) return
+    aggiorna(v.key, { stato: 'applicazione' })
+    try {
+      // La stessa distinta (stesso file o stesso numero di supporto) non si registra due volte.
+      let distintaId: string | null = null
+      const { data: perHash } = await supabase.from('riba_distinte')
+        .select('id').eq('company_id', companyId).eq('content_hash', hash).maybeSingle()
+      distintaId = (perHash as { id: string } | null)?.id ?? null
+      if (!distintaId && dist.supporto) {
+        const { data: perSupporto } = await supabase.from('riba_distinte')
+          .select('id').eq('company_id', companyId).eq('supporto', dist.supporto).maybeSingle()
+        distintaId = (perSupporto as { id: string } | null)?.id ?? null
+      }
+      if (!distintaId) {
+        const anno = dist.dataCreazione ? Number(dist.dataCreazione.slice(0, 4)) : null
+        const mese = dist.dataCreazione ? Number(dist.dataCreazione.slice(5, 7)) : null
+        const arch = await archiviaFile({
+          file: v.file, companyId, userId, modulo: 'Banche', funzione: `Distinta RiBa · ${dist.supporto ?? v.file.name}`,
+          bucket: 'bank-statements', year: anno, month: mese, referenceTable: 'riba_distinte',
+        })
+        if (arch.errore) throw new Error(`il file non è finito in archivio (${arch.errore})`)
+        const { data: ins, error: iErr } = await supabase.from('riba_distinte').insert({
+          company_id: companyId, file_name: v.file.name, file_path: arch.path, source_kind: dalPdf ? 'pdf' : 'xlsx',
+          status: 'bozza', content_hash: hash, supporto: dist.supporto, doc_date: dist.dataCreazione,
+          bank_stato: dist.stato, conto_testo: dist.conto, declared_total: dist.totale,
+          line_count: dist.disposizioni.length, created_by: userId, import_document_id: arch.id,
+        }).select('id').single()
+        if (iErr) throw iErr
+        distintaId = (ins as { id: string }).id
+        await collegaFileArchiviato(arch.id, 'riba_distinte', distintaId)
+      }
+      const { data: esito, error } = await supabase.rpc('apply_riba_distinta', {
+        p_distinta_id: distintaId,
+        p_lines: dist.disposizioni as never,
+        p_conto: dist.conto ?? undefined,
+      })
+      if (error) throw error
+      let frase = fraseEsitoDistinta(esito as unknown as EsitoDistinta)
+      if (dist.nDichiarate != null && dist.nDichiarate !== dist.disposizioni.length) {
+        frase += ` Attenzione: la distinta dichiara ${dist.nDichiarate} effetti e ne ho letti ${dist.disposizioni.length}.`
+      }
+      aggiorna(v.key, { stato: 'fatto', frase })
+      setChatKey((k) => k + 1)
+      onRefresh?.()
+    } catch (e) {
+      aggiorna(v.key, { stato: 'errore', messaggio: e instanceof Error ? e.message : String(e) })
+    }
+  }, [aggiorna, companyId, onRefresh, userId])
+
   const leggi = useCallback(async (file: File) => {
     const key = `${file.name}-${file.size}-${file.lastModified}-${Math.random().toString(36).slice(2, 7)}`
     const voce: Voce = { key, file, stato: 'lettura' }
@@ -129,21 +248,56 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       const dalPdf = /\.pdf$/i.test(file.name)
       let righeTesto: string[]
       let parsed
+      let fogli: unknown[][][] = []
       if (dalPdf) {
         righeTesto = await extractPdfLines(file)
         parsed = leggiEstratto({ righePdf: righeTesto })
       } else {
         const XLSX = await import('xlsx')
         const wb = XLSX.read(new Uint8Array(buf), { type: 'array', cellDates: true })
-        const fogli = wb.SheetNames.map((n: string) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) as unknown[][])
+        fogli = wb.SheetNames.map((n: string) => XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: null }) as unknown[][])
         righeTesto = fogli.flatMap(righeDaFoglio)
         parsed = leggiEstratto({ fogli })
+      }
+      // Scansioni, distinte di versamento, prospetti dei fornitori: non si leggono qui.
+      const nonQui = motivoNonSupportato({ nome: file.name, righe: righeTesto, dalPdf })
+      if (nonQui) {
+        aggiorna(key, { stato: 'altro', tipo: 'sconosciuto', messaggio: nonQui })
+        return
       }
       const testo = righeTesto.join('\n')
       const intestazione = righeIntestazione(righeTesto, parsed.rows)
       let conto = trovaConto(intestazione.join('\n'), accounts)
-      const tipo = classificaDocumento({ testo, righe: righeTesto, conto, righeEstratto: parsed.rows.length, intestazione })
+      let tipo = classificaDocumento({ testo, righe: righeTesto, conto, righeEstratto: parsed.rows.length, intestazione })
 
+      if (tipo === 'estratto_carta') {
+        const carta = leggiCarta(dalPdf ? { righePdf: righeTesto } : { fogli })
+        if (carta.lines.length > 0 && carta.issuer !== 'generico') {
+          aggiorna(key, { tipo })
+          await applicaCarta({ ...voce, tipo }, carta, hash)
+          return
+        }
+        if (carta.issuer === 'generico' && carta.lines.length > 0) {
+          aggiorna(key, { stato: 'altro', tipo, messaggio: 'Estratto carta di un emittente che non conosco: si leggono Carta Montepaschi, CartaBCC (Numia) e la prepagata Tasca. Non è stato toccato niente.' })
+          return
+        }
+        // Nessuna spesa letta ma righe da estratto conto («Lista movimenti» Intesa): e' un conto.
+        if (parsed.rows.length > 0) tipo = 'estratto_conto'
+      }
+      if (tipo === 'distinta_riba') {
+        const dist = leggiDistintaMps(righeTesto)
+        if (!dist || dist.disposizioni.length === 0) {
+          aggiorna(key, { stato: 'altro', tipo, messaggio: 'Di questa distinta non riesco a leggere gli effetti: si legge la «Distinta di ritiro effetti pagati» di MPS in PDF. Le altre per ora si caricano da Scadenzario → «Carica distinta RiBa».' })
+          return
+        }
+        if (dist.stato && !RE_STATO_OK.test(dist.stato)) {
+          aggiorna(key, { stato: 'altro', tipo, messaggio: `La distinta è nello stato «${dist.stato}»: si applica quando la banca l'ha ricevuta. Non è stato toccato niente.` })
+          return
+        }
+        aggiorna(key, { tipo })
+        await applicaDistinta({ ...voce, tipo }, dist, hash, dalPdf)
+        return
+      }
       if (tipo !== 'estratto_conto') {
         aggiorna(key, { stato: 'altro', tipo, messaggio: DOVE[tipo] })
         return
@@ -165,7 +319,7 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
     } catch (e) {
       aggiorna(key, { stato: 'errore', messaggio: `Non sono riuscito a leggere il file: ${e instanceof Error ? e.message : String(e)}` })
     }
-  }, [accounts, aggiorna, applica])
+  }, [accounts, aggiorna, applica, applicaCarta, applicaDistinta])
 
   const caricaFile = useCallback((lista: FileList | File[] | null) => {
     if (!lista) return
@@ -181,11 +335,11 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
         className={`bg-white rounded-xl border-2 border-dashed p-6 sm:p-8 text-center transition ${trascina ? 'border-blue-400 bg-blue-50' : 'border-slate-300'}`}
       >
         <FileUp size={28} className="mx-auto text-slate-400" />
-        <h3 className="mt-2 text-sm font-semibold text-slate-900">Carica gli estratti della banca</h3>
+        <h3 className="mt-2 text-sm font-semibold text-slate-900">Carica i documenti della banca</h3>
         <p className="mt-1 text-xs text-slate-500 max-w-xl mx-auto">
-          Trascina qui i file, anche più di uno e anche di mesi diversi (Excel o PDF).
-          Il gestionale capisce da solo di che conto sono, li archivia e controlla ogni movimento:
-          l&apos;estratto della banca comanda. Se qualcosa non torna te lo chiede qui sotto.
+          Trascina qui estratti conto, estratti carta e distinte RiBa, anche più file insieme e di mesi diversi (Excel o PDF).
+          Il gestionale capisce da solo che documento è e di che conto o carta, lo archivia e lo applica:
+          il documento della banca comanda. Se qualcosa non torna te lo chiede qui sotto.
         </p>
         <input
           ref={inputRef} type="file" multiple accept=".xls,.xlsx,.csv,.pdf" className="hidden"
@@ -198,6 +352,31 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
           <FileUp size={15} /> Scegli i file
         </button>
       </div>
+
+      <details className="bg-white rounded-xl border border-slate-200 px-4 py-3 text-sm">
+        <summary className="cursor-pointer font-medium text-slate-900">Cosa puoi caricare qui (e cosa no)</summary>
+        <div className="mt-3 grid gap-4 md:grid-cols-2 text-xs text-slate-600">
+          <div>
+            <div className="font-semibold text-emerald-800 mb-1">Si carica e si analizza</div>
+            <ul className="list-disc pl-4 space-y-1">
+              <li><b>Estratti conto corrente</b> in Excel o PDF (provati sugli estratti veri di MPS, BCC Figline e Intesa). Meglio l&apos;Excel: dal PDF non si legge se un movimento è un&apos;entrata o un&apos;uscita.</li>
+              <li><b>Estratti carta di credito</b> Carta Montepaschi e CartaBCC (Numia), in PDF: le spese confermano le fatture pagate con la carta e l&apos;addebito del mese si aggancia sul conto.</li>
+              <li><b>Prepagata Tasca</b>, in PDF o Excel: le spese chiudono le fatture alla data della spesa.</li>
+              <li><b>Distinta di ritiro effetti pagati</b> MPS (RiBa), in PDF: ogni effetto conferma o chiude le rate del fornitore indicate nella causale.</li>
+            </ul>
+          </div>
+          <div>
+            <div className="font-semibold text-slate-800 mb-1">Non si carica qui</div>
+            <ul className="list-disc pl-4 space-y-1">
+              <li><b>PDF scansionati</b> (fotografie o immagini): non hanno testo da leggere. Scarica dalla banca il PDF o l&apos;Excel originale.</li>
+              <li><b>Distinte di versamento contanti</b>: non servono, i versamenti arrivano dalle chiusure di cassa e l&apos;estratto conto li conferma.</li>
+              <li><b>Prospetti dei fornitori</b> (per esempio «Analisi scadenze» di un fornitore): non sono documenti della banca e non comandano sui pagamenti.</li>
+              <li><b>Estratti commissioni Nexi/Amex</b>: per ora si caricano in Banche → Commissioni.</li>
+              <li><b>Distinte RiBa diverse da quella MPS</b> e carte di altri emittenti: per ora non si leggono; il file non viene toccato e te lo dico.</li>
+            </ul>
+          </div>
+        </div>
+      </details>
 
       {voci.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
@@ -219,9 +398,9 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
                     <Loader2 size={14} className="animate-spin" /> {v.stato === 'lettura' ? 'Leggo il file…' : 'Controllo i movimenti…'}
                   </span>
                 )}
-                {v.stato === 'fatto' && v.esito && (
+                {v.stato === 'fatto' && (v.esito || v.frase) && (
                   <span className="inline-flex items-start gap-1.5 text-emerald-800">
-                    <Check size={15} className="mt-0.5 shrink-0" /> {fraseEsito(v.esito)}
+                    <Check size={15} className="mt-0.5 shrink-0" /> {v.frase ?? (v.esito ? fraseEsito(v.esito) : '')}
                   </span>
                 )}
                 {v.stato === 'altro' && (

@@ -760,11 +760,58 @@ l'Excel) e la quadratura non si calcola.
     banking porta lo stesso movimento (`trg_bank_tx_adopt_estratto`).
   - ⚠️ **Saldi iniziale e finale**: letti dal PDF Intesa (6.361,36 e 4.027,98); gli Excel MPS e
     BCC non li portano, quindi lì vale solo la quadratura sul gestionale. Mugello non ancora provato.
-  - ⛔ **Carte, distinte RiBa, commissioni**: la scheda le riconosce e dice dove caricarle, ma
-    non le applica ancora. L'aggancio all'addebito mensile delle carte resta salvato su 0
-    estratti su 31.
-  - ⛔ **Sovrascrittura delle chiusure a mano sulle scadenze** (carte e distinte che nominano
-    la fattura): da fare insieme alle carte e alle distinte.
+  - ✅ **Estratti carta** (05/10/2026, migration 266, `apply_card_statement`): Carta
+    Montepaschi e CartaBCC (Numia) in PDF, prepagata Tasca in PDF o Excel. Vedi «Estratto carta»
+    qui sotto.
+  - ✅ **Distinte RiBa MPS** (05/10/2026, migration 267, `apply_riba_distinta`): la «Distinta di
+    ritiro effetti pagati» in PDF. Vedi «Distinta RiBa» qui sotto.
+  - ✅ **Sovrascrittura delle chiusure a mano** per le fatture che carta e distinta nominano.
+  - ⛔ **Commissioni Nexi/Amex**: si caricano ancora in Banche → Commissioni.
+  - **Nessun dato vecchio toccato** (decisione di Patrizio del 05/10/2026): le funzioni
+    lavorano solo sui documenti caricati da Documenti banca. I 31 estratti carta e le 46
+    distinte gia' nel sistema restano come sono; riapplicarli e' una scelta a parte.
+
+**Estratto carta: come si applica (migration 266).**
+- **Spesa → fattura** solo con importo al centesimo **e** nome del fornitore nella descrizione,
+  fattura entro 45 giorni dalla spesa. Misurato su NZ: col solo importo una riga su due ha piu'
+  fatture candidate. Due fatture alla pari: la riga non si abbina.
+- La fattura abbinata si allinea al documento: pagata con la data della spesa, metodo carta,
+  non piu' provvisoria. Su NZ quasi tutte erano gia' «pagate» ma come bonifico (Trenitalia,
+  BELLA BIJOUX): l'estratto corregge metodo e data, con traccia.
+- Fattura gia' agganciata a un altro movimento del conto: non si tocca, si chiede (pagata due
+  volte?). Agganciata all'addebito della carta: e' lo stesso pagamento. Fattura collegata a
+  piu' righe da abbinamenti vecchi: non si tocca.
+- **Addebito mensile**: si cerca sul conto con la causale della carta e l'importo uguale alla
+  somma degli estratti dello stesso emittente e mese (le due carte BCC si addebitano insieme),
+  fino a 100 € in piu'. Uno solo, o niente. Le fatture abbinate si agganciano all'addebito.
+  Il residuo si chiede in chat **solo la prima volta**: lo stesso importo in un altro mese e' un
+  canone fisso (BCC 3,29 € tutti i mesi). Collaudo sui 31 estratti di NZ: 23 addebiti su 23.
+- **Prepagata**: le spese chiudono le fatture alla data della spesa, senza movimento. Le
+  ricariche restano giroconti.
+
+**Distinta RiBa MPS: come si applica (migration 267).**
+- Il lettore e' deterministico (niente intelligenza artificiale): supporto, data, conto, stato,
+  totale e per ogni effetto beneficiario, P.IVA, scadenza, importo e causale. Dalla causale i
+  numeri: prima di «NC» le fatture, dopo le note di credito; date e anni esclusi.
+- Si applica solo se la banca l'ha ricevuta (stato «Ricevuta Banca» o simile).
+- **Effetto → rate**: le rate del fornitore (per P.IVA) con quei numeri, una per numero, la cui
+  somma torna con l'importo entro 2 centesimi (arrotondamento delle rate). Vince la combinazione
+  con le scadenze piu' vicine; a parita', quella con piu' rate gia' agganciate a un movimento
+  (le fatture GRUPPO F.B. hanno piani rate doppi: la stessa rata due volte). Ancora pari: si
+  chiede. Senza numeri in causale: solo una rata unica con stessa scadenza e importo.
+- La rata riconosciuta si chiude alla scadenza dell'effetto, anche se chiusa a mano (R27); la
+  nota di credito risulta compensata e collegata alla fattura. Effetto con scadenza futura:
+  riconosciuto, si chiude ricaricando la distinta dopo la scadenza.
+- **Addebito «effetti ritirati»**: si aggancia solo se torna con il totale (fino a 1 € a
+  effetto). MPS spesso addebita piu' distinte insieme: allora non si forza.
+- Collaudo su NZ con la distinta vera GRUPPO F.B. del 31/08 (5 effetti, 19.546,51 €): 5 su 5
+  riconosciuti e gia' come dice il documento, nessuna correzione e nessuna domanda.
+
+**Cosa non si carica in Documenti banca** (la scheda lo dice da sola, senza toccare niente):
+PDF scansionati (sono immagini); distinte di versamento contanti (R15, R17, R18: i versamenti
+arrivano dalle chiusure di cassa); prospetti dei fornitori come l'«Analisi scadenze» di SHINE
+(non sono documenti della banca, quindi non comandano); estratti commissioni Nexi/Amex (per
+ora in Banche → Commissioni); distinte RiBa diverse da quella MPS e carte di altri emittenti.
 
 ---
 

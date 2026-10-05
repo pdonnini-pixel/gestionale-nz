@@ -1,0 +1,4 @@
+-- ROLLBACK della 266. Da eseguire a mano solo dopo aver tolto la chiamata dal
+-- frontend (DocumentiBanca.tsx). La funzione non ha dati propri: quello che ha
+-- scritto resta tracciato in document_corrections e payable_actions.
+-- DROP FUNCTION IF EXISTS public.apply_card_statement(uuid, jsonb, date);
