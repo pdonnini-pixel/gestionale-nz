@@ -20950,6 +20950,141 @@ export type Database = {
         }
         Relationships: []
       }
+      payroll_f24_checks: {
+        Row: {
+          atteso: number
+          bank_transaction_ids: string[]
+          company_id: string
+          esito: string
+          id: string
+          pagato: number | null
+          periodo: string
+          scadenza: string
+          updated_at: string
+        }
+        Insert: {
+          atteso: number
+          bank_transaction_ids?: string[]
+          company_id: string
+          esito: string
+          id?: string
+          pagato?: number | null
+          periodo: string
+          scadenza: string
+          updated_at?: string
+        }
+        Update: {
+          atteso?: number
+          bank_transaction_ids?: string[]
+          company_id?: string
+          esito?: string
+          id?: string
+          pagato?: number | null
+          periodo?: string
+          scadenza?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      payroll_f24_items: {
+        Row: {
+          batch_id: string
+          canale: string
+          codice: string | null
+          company_id: string
+          created_at: string
+          descrizione: string
+          filiale_code: string | null
+          id: string
+          import_id: string | null
+          importo: number
+          month: number
+          periodo: string
+          year: number
+        }
+        Insert: {
+          batch_id?: string
+          canale: string
+          codice?: string | null
+          company_id: string
+          created_at?: string
+          descrizione: string
+          filiale_code?: string | null
+          id?: string
+          import_id?: string | null
+          importo: number
+          month: number
+          periodo: string
+          year: number
+        }
+        Update: {
+          batch_id?: string
+          canale?: string
+          codice?: string | null
+          company_id?: string
+          created_at?: string
+          descrizione?: string
+          filiale_code?: string | null
+          id?: string
+          import_id?: string | null
+          importo?: number
+          month?: number
+          periodo?: string
+          year?: number
+        }
+        Relationships: []
+      }
+      payroll_payment_links: {
+        Row: {
+          bank_transaction_id: string
+          commissioni: number | null
+          company_id: string
+          created_at: string
+          id: string
+          id_flusso: string | null
+          importo_bonifici: number | null
+          month: number
+          n_bonifici: number | null
+          netto: number
+          outlet_code: string | null
+          slip_id: string
+          tipo: string | null
+          year: number
+        }
+        Insert: {
+          bank_transaction_id: string
+          commissioni?: number | null
+          company_id: string
+          created_at?: string
+          id?: string
+          id_flusso?: string | null
+          importo_bonifici?: number | null
+          month: number
+          n_bonifici?: number | null
+          netto: number
+          outlet_code?: string | null
+          slip_id: string
+          tipo?: string | null
+          year: number
+        }
+        Update: {
+          bank_transaction_id?: string
+          commissioni?: number | null
+          company_id?: string
+          created_at?: string
+          id?: string
+          id_flusso?: string | null
+          importo_bonifici?: number | null
+          month?: number
+          n_bonifici?: number | null
+          netto?: number
+          outlet_code?: string | null
+          slip_id?: string
+          tipo?: string | null
+          year?: number
+        }
+        Relationships: []
+      }
       personnel_gross_cost: {
         Row: {
           company_id: string
@@ -25885,6 +26020,11 @@ export type Database = {
       bank_movement_net: { Args: { p_descr: string }; Returns: number }
       apply_card_statement: {
         Args: { p_debit_date?: string; p_lines: Json; p_statement_id: string }
+        Returns: Json
+      }
+      payroll_sync_now: { Args: never; Returns: Json }
+      save_payroll_f24_items: {
+        Args: { p_import_id: string; p_items: Json; p_month: number; p_year: number }
         Returns: Json
       }
       apply_riba_distinta: {

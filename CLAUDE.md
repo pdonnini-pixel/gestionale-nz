@@ -476,6 +476,7 @@ try {
 | `CLAUDE.md` | Questo file — prompt operativo |
 | `PAYMENT_PLAN_NOTES.md` | **Obbligatorio per il ciclo passivo** — regole piani pagamento, aggancio fornitore↔fattura per P.IVA, casi noti |
 | `DEPLOY_VERSIONI_NOTES.md` | **Obbligatorio per pubblicazioni, pixel check e caricamento pagine**: cosa vede chi lavora mentre si pubblica, l'avviso «ricarica», il marker del commit in `index.html` |
+| `PAGHE_NOTES.md` | **Obbligatorio per i file dello studio paghe** (Dipendenti → Costi & cedolini / Costo lordo, tabelle `payroll_*`): zona unica di caricamento, stipendi pagati legati alle buste, F24 del personale dal Prospetto |
 | `PIANO_FERIE_NOTES.md` | **Obbligatorio per ferie e permessi** (tabelle `leave_*`, scheda Ferie di Dipendenti): i saldi si leggono dal tabulato delle paghe, il conto è in ore, come si evita il doppio conteggio |
 | `AZIONI_PATRIZIO_Parallele.md` | Piano azioni manuali per Patrizio (credenziali, accreditamenti) |
 | `MIGRATION_NOTES.md` | Dettagli migrazione JS→TS del frontend |

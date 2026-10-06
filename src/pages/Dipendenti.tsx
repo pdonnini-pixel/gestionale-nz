@@ -45,11 +45,13 @@ import { useCompany } from '../hooks/useCompany';
 import {
   parseItNum, norm,
   parseInfinityNettiItems, parsePdfLordi, parseSpreadsheet,
-  parseProspettoPaghe, contrAziendaOutlet, tabulatoNetti,
+  parseProspettoPaghe, contrAziendaOutlet, tabulatoNetti, totaliVersamenti,
   parseStatisticaCostoOrario, listStatisticaCompanies,
   LORDI_FIELDS, rowLordo, rowHasLordo,
-  type PreviewRow, type ParsedImport, type ProspettoOutletRow, type StatEmpMonth,
+  type PreviewRow, type ParsedImport, type ProspettoOutletRow, type StatEmpMonth, type ProspettoVersamento,
 } from '../lib/payrollParse';
+import CaricaFilePaghe, { type FileInArrivo } from '../components/CaricaFilePaghe';
+import PagamentiPaghe from '../components/PagamentiPaghe';
 import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
 import { archiviaFile, avvisoArchiviazioneFallita, sostituisciPrecedenti } from '../lib/archivioFile';
 import { parseElenco, confrontaElenco, notaAllineamento, valoriDaRiga, outletDaFiliale, dataDalNomeFile, badgeScadenza, type EsitoConfronto, type RigaElenco, type DipendenteConfronto } from '../lib/elencoDipendenti';
@@ -259,6 +261,9 @@ function Money({ v, className = '', strong = false }: { v: number | null | undef
 const isAdminRole = (e: Employee) =>
   /amministrat/i.test(e.role_description || '') || /amministrat/i.test((e as any).note || e.notes || '');
 
+// File della zona unica gia' aperti: tornando sulla scheda non si riaprono.
+const fileInArrivoAperti = new Set<number>();
+
 const empName = (e: Employee) =>
   `${e.cognome || e.last_name || ''} ${e.nome || e.first_name || ''}`.trim() || '—';
 
@@ -343,6 +348,14 @@ export default function Dipendenti() {
     const p = new URLSearchParams(searchParams);
     p.set('view', next);
     setSearchParams(p);
+  };
+
+  // File passato dalla zona «Carica i file dello studio paghe» alla scheda che lo
+  // sa leggere. nonce: lo stesso file ricaricato due volte riapre l'anteprima.
+  const [inArrivo, setInArrivo] = useState<FileInArrivo | null>(null);
+  const apriFilePaghe = (f: Omit<FileInArrivo, 'nonce'>) => {
+    setView(f.dest === 'netti' ? 'costi' : 'lordi');
+    setInArrivo({ ...f, nonce: Date.now() });
   };
 
   // Dentro "Ferie e permessi": le richieste (tutti i giorni) o i saldi che
@@ -978,6 +991,20 @@ export default function Dipendenti() {
         }
       />
 
+      {COMPANY_ID && (
+        <CaricaFilePaghe
+          companyId={COMPANY_ID}
+          userId={USER_ID}
+          onApri={apriFilePaghe}
+          onVai={(v) => {
+            const p = new URLSearchParams(searchParams);
+            p.set('view', v);
+            if (v === 'ferie') p.set('ferie', 'ratei');
+            setSearchParams(p);
+          }}
+        />
+      )}
+
       {/* Sub-tab pill */}
       <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
         {([
@@ -1119,8 +1146,17 @@ export default function Dipendenti() {
               uploadingEmployee={uploadingEmployee}
               importPanel={
                 <div className="space-y-5">
+                  {COMPANY_ID && (
+                    <PagamentiPaghe
+                      companyId={COMPANY_ID}
+                      year={selectedYear}
+                      month={selectedMonth}
+                      nomeDi={(id) => { const e = employees.find((x) => x.id === id); return e ? empName(e) : '—'; }}
+                    />
+                  )}
                   <ImportLane
                     mode="netto"
+                    inArrivo={inArrivo}
                     companyId={COMPANY_ID}
                     userId={USER_ID}
                     outlets={outlets}
@@ -1163,6 +1199,7 @@ export default function Dipendenti() {
               year={selectedYear}
               month={selectedMonth}
               monthLabel={monthLabel}
+              inArrivo={inArrivo}
             />
           )}
 
@@ -2072,7 +2109,7 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
       <DocumentiRapporto employeeId={employee.id} companyId={companyId} docs={docs} onChanged={onDocsChanged} />
 
       <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 leading-relaxed">
-        Inserisci il <strong>netto del mese</strong> (così come arriva dalla busta paga). Ci sono <strong>14 mensilità</strong>: la <strong>13ª</strong> e la <strong>14ª</strong> vanno sommate nel netto del mese in cui vengono erogate (tipicamente dicembre e giugno). Il totale annuo è la <strong>somma dei mesi</strong>, mai mese×12. I valori inseriti qui a mano sono <strong>provvisori</strong>: l'import del mese (Elenco netti) li <strong>sovrascrive</strong> con il dato ufficiale.
+        Inserisci il <strong>netto del mese</strong> (così come arriva dalla busta paga). Ci sono <strong>14 mensilità</strong>: quando arrivano dall'Elenco netti, la <strong>13ª</strong> e la <strong>14ª</strong> sono cedolini a parte e si sommano da sole al mese (dicembre e giugno); se scrivi tu il netto qui, mettici anche la mensilità aggiuntiva, perché il valore a mano sostituisce tutto il mese. Il totale annuo è la <strong>somma dei mesi</strong>, mai mese×12. I valori inseriti qui a mano sono <strong>provvisori</strong>: l'import del mese (Elenco netti) li <strong>sovrascrive</strong> con il dato ufficiale.
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -2443,9 +2480,12 @@ type SlipMese = {
 };
 
 // Una corsia di import: mode='netto' (busta paga) | 'lordi' (costo aziendale). Entrambe PDF + CSV/Excel.
-function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts, defaultYear, defaultMonth, onDone }: {
+function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts, defaultYear, defaultMonth, onDone, inArrivo }: {
   mode: 'netto' | 'lordi'; companyId: string; userId: string | null; outlets: OutletRow[]; employees: Employee[]; existingCosts: EmployeeCost[];
   defaultYear: number; defaultMonth: number; onDone: () => Promise<void>;
+  // Elenco netti consegnato dalla zona «Carica i file dello studio paghe», con
+  // mese e tipo di cedolino gia' letti dal file.
+  inArrivo?: FileInArrivo | null;
 }) {
   const isNetto = mode === 'netto';
   const { toast } = useToast();
@@ -2487,6 +2527,22 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   }, [companyId, impYear, impMonth]);
 
   useEffect(() => { void caricaRegistroECedolini(); }, [caricaRegistroECedolini]);
+
+  // File dalla zona unica: prima si impostano mese e cedolino letti dal file,
+  // poi (al render successivo, con quei valori) si legge il file. L'anteprima e
+  // la conferma restano quelle di sempre.
+  const laneRef = useRef<HTMLDivElement>(null);
+  const [inAttesa, setInAttesa] = useState<FileInArrivo | null>(null);
+  useEffect(() => {
+    if (!inArrivo || inArrivo.dest !== 'netti' || fileInArrivoAperti.has(inArrivo.nonce)) return;
+    fileInArrivoAperti.add(inArrivo.nonce);
+    if (inArrivo.year) setImpYear(inArrivo.year);
+    if (inArrivo.month) setImpMonth(inArrivo.month);
+    if (inArrivo.tipoCedolino) setTipoCedolino(inArrivo.tipoCedolino);
+    setInAttesa(inArrivo);
+    laneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inArrivo?.nonce]);
 
   // ATTENZIONE: retribuzione/contributi/inail/tfr/altri_costi hanno DEFAULT 0 a
   // database. Un carico di soli netti le riempie di zeri, quindi "il cedolino
@@ -2620,6 +2676,15 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     const file = e.dataTransfer.files?.[0];
     if (file) processFile(file);
   };
+  useEffect(() => {
+    if (!inAttesa) return;
+    if ((inAttesa.year && inAttesa.year !== impYear) || (inAttesa.month && inAttesa.month !== impMonth)
+      || (inAttesa.tipoCedolino && inAttesa.tipoCedolino !== tipoCedolino)) return;
+    const f = inAttesa.file;
+    setInAttesa(null);
+    void processFile(f);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inAttesa, impYear, impMonth, tipoCedolino]);
 
   // campi lordi effettivamente presenti nel file (per payload uniforme nel batch)
   const lordiPresent = useMemo(() => (rows ? LORDI_FIELDS.filter((f) => rows.some((r) => (r as any)[f.key] != null)) : []), [rows]);
@@ -2892,6 +2957,13 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       }
       reset();
       await caricaRegistroECedolini();
+      // Le buste appena salvate si agganciano subito alle disposizioni di
+      // emolumenti gia' arrivate in banca (migration 268). Se non riesce, ci
+      // pensa il giro automatico di ogni mattina.
+      if (isNetto) {
+        const { error: syncErr } = await supabase.rpc('payroll_sync_now');
+        if (syncErr) console.error('[Import netti] aggancio pagamenti rinviato', syncErr);
+      }
       await onDone();
     } catch (err: any) {
       toast({ type: 'error', message: 'Errore import: ' + readableDbError(err) });
@@ -2906,7 +2978,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     : <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-orange-600">costo</span>;
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <div ref={laneRef} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 scroll-mt-4">
       <div className="flex items-center gap-2 mb-1">
         <FileUp size={18} className={accent} />
         <h3 className="font-bold text-slate-800">{isNetto ? 'Import netti per dipendente' : 'Import costi lordi per dipendente'}</h3>
@@ -3568,8 +3640,10 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
   );
 }
 
-function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: {
+function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, inArrivo }: {
   companyId: string; userId: string | null; outlets: OutletRow[]; year: number; month: number; monthLabel: string;
+  // File consegnato dalla zona «Carica i file dello studio paghe»: si apre da solo in anteprima.
+  inArrivo?: FileInArrivo | null;
 }) {
   const { toast } = useToast();
   // I tipi generati di Supabase non includono ancora le tabelle nuove (migration 068):
@@ -3580,7 +3654,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
   const [loading, setLoading] = useState(true);
   const [dragOver, setDragOver] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [preview, setPreview] = useState<{ rows: ProspettoOutletRow[]; fileName: string; tipiCedolino: string[]; soloNormale: boolean } | null>(null);
+  const [preview, setPreview] = useState<{ rows: ProspettoOutletRow[]; fileName: string; tipiCedolino: string[]; soloNormale: boolean; versamenti: ProspettoVersamento[] } | null>(null);
   const [fileObj, setFileObj] = useState<File | null>(null);
   const [rateDraft, setRateDraft] = useState<Record<string, string>>({});
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -3641,13 +3715,22 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
           return;
         }
         setFileObj(file);
-        setPreview({ rows: parsed.rows, fileName: file.name, tipiCedolino: parsed.tipiCedolino, soloNormale: parsed.soloNormale });
+        setPreview({ rows: parsed.rows, fileName: file.name, tipiCedolino: parsed.tipiCedolino, soloNormale: parsed.soloNormale, versamenti: parsed.versamenti });
       } catch (e) {
         console.error(e);
         toast({ type: 'error', message: 'Impossibile leggere il PDF.' });
       }
     })();
   };
+
+  // Prospetto arrivato dalla zona unica: si apre l'anteprima come se l'avessero
+  // trascinato qui. La conferma resta a chi carica.
+  useEffect(() => {
+    if (inArrivo?.dest !== 'prospetto' || fileInArrivoAperti.has(inArrivo.nonce)) return;
+    fileInArrivoAperti.add(inArrivo.nonce);
+    onPick(inArrivo.file);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inArrivo?.nonce]);
 
   const confirmSave = async () => {
     if (!preview) return;
@@ -3723,8 +3806,26 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
         await sb.from('inail_rates').upsert(ratePayload, { onConflict: 'company_id,pat_label', ignoreDuplicates: true });
       }
 
+      // Voci di versamento (F24 e fondi) del riepilogo: servono al controllo
+      // delle deleghe F24 in banca. Un errore qui non annulla il costo lordo.
+      let notaF24 = '';
+      if (preview.versamenti.length && importId) {
+        const items = preview.versamenti.map((v) => ({
+          filiale_code: v.filialeCode, codice: v.codice, descrizione: v.descrizione,
+          canale: v.canale, periodo: v.periodo, importo: v.importo,
+        }));
+        const { error: f24Err } = await supabase.rpc('save_payroll_f24_items', {
+          p_import_id: importId, p_year: first.year, p_month: first.month, p_items: items,
+        });
+        if (f24Err) console.error('[Prospetto] voci F24 non salvate', f24Err);
+        else {
+          const f24 = totaliVersamenti(preview.versamenti).filter((t) => t.canale === 'f24');
+          if (f24.length) notaF24 = ` F24 del personale: ${f24.map((t) => `${eurFmt.format(t.importo)} € (periodo ${t.periodo.slice(5)}/${t.periodo.slice(0, 4)})`).join(', ')}.`;
+        }
+      }
+
       const monthsLbl = [...new Set(pr.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ');
-      toast({ type: 'success', message: `Salvati ${pr.length} outlet (${monthsLbl}). Totale retribuzioni ${eurFmt.format(fileTotal)} €.` });
+      toast({ type: 'success', message: `Salvati ${pr.length} outlet (${monthsLbl}). Totale retribuzioni ${eurFmt.format(fileTotal)} €.${notaF24}` });
       setPreview(null); setFileObj(null);
       await load();
     } catch (e: any) {
@@ -4096,6 +4197,15 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel }: 
             File: <strong>{preview.fileName}</strong> · {[...new Set(preview.rows.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ')} · {preview.rows.length} outlet
             {preview.tipiCedolino.length > 0 && <> · cedolini <strong>{preview.tipiCedolino.join(' + ')}</strong></>}. Controlla i valori prima di salvare.
           </div>
+          {preview.versamenti.length > 0 && (
+            <div className="mb-3 text-sm bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-slate-700">
+              <strong>Da versare secondo il prospetto:</strong>{' '}
+              {totaliVersamenti(preview.versamenti).map((t, i) => (
+                <span key={i}>{i > 0 && ' · '}{t.canale === 'f24' ? 'F24' : 'fondi pensione'} periodo {t.periodo.slice(5)}/{t.periodo.slice(0, 4)}: <strong>{eurFmt.format(t.importo)} €</strong></span>
+              ))}
+              . Il gestionale controlla da solo che le deleghe F24 in banca coprano questa cifra.
+            </div>
+          )}
           {/* Il consulente stampa DUE prospetti per lo stesso mese: uno col solo
               cedolino normale e uno che parte dall'aggiuntivo e arriva al normale,
               cioe' il mese intero. Sono cumulativi, e il salvataggio sostituisce il
