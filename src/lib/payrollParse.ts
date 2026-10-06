@@ -418,6 +418,19 @@ export type ProspettoOutletRow = {
   inailPat: ProspettoPat[];          // imponibili INAIL per PAT (tasso applicato a runtime)
   warn?: string;
 };
+// Una riga del «RIEPILOGO IMPORTI A DEBITO/CREDITO» del Prospetto: quanto va
+// versato, a chi e per quale periodo. INPS, EBINTER, Fondo EST, IRPEF e
+// addizionali si pagano con l'F24 del 16 del mese dopo il periodo; i fondi
+// pensione (es. «AZIMUT PREVIDENZA») si pagano a parte, al fondo.
+export type ProspettoVersamento = {
+  filialeCode: string;
+  codice: string | null;     // es. 9001, 9540, 5108; null per IRPEF e addizionali
+  descrizione: string;       // es. «I.N.P.S. Id. 1», «IRPEF Ant.»
+  canale: 'f24' | 'fondo';
+  periodo: string;           // 'YYYY-MM' del «Periodo versamento»
+  importo: number;           // puo' essere negativo (credito della filiale)
+};
+
 export type ProspettoParsed = {
   isProspetto: boolean;
   rows: ProspettoOutletRow[];
@@ -429,6 +442,8 @@ export type ProspettoParsed = {
   // quella completa toglierebbe la mensilita' aggiuntiva dal costo del mese.
   tipiCedolino: string[];
   soloNormale: boolean;
+  // Righe del riepilogo dei versamenti, filiale per filiale (vedi sopra).
+  versamenti: ProspettoVersamento[];
 };
 
 const MONTHS_IT: Record<string, number> = {
@@ -455,6 +470,11 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
   let cur: ProspettoOutletRow | null = null;
   let ente: 'inps' | 'ebinter' | 'est' | 'gsep' | 'tfr' | null = null;
   let inInail = false;
+  // Riepilogo dei versamenti: la voce (es. «9001 I.N.P.S. Id. 1 di cui del mese:
+  // …») sta su una riga e gli importi con «Periodo versamento» sulle righe dopo.
+  const versamenti: ProspettoVersamento[] = [];
+  let inRiep = false;
+  let voceRiep: string | null = null;
 
   // Tipi di cedolino nell'intestazione: «Dal Giugno 2026 Agg.1 - Al Giugno 2026 Norm.»
   const tipiSet = new Set<string>();
@@ -483,7 +503,8 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
     if (mf) {
       const code = mf[1];
       const name = mf[2].trim();
-      ente = null; inInail = false;
+      ente = null; inInail = false; inRiep = false;
+      if (!cur || cur.filialeCode !== code) voceRiep = null;
       if (cur && cur.filialeCode === code) continue; // header ripetuto su pagina di continuazione
       const existing = sections.get(code);
       if (existing) { cur = existing; continue; }
@@ -500,6 +521,17 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
       continue;
     }
     if (!cur) continue;
+
+    if (/RIEPILOGO IMPORTI A DEBITO/i.test(ln)) { inRiep = true; inInail = false; ente = null; continue; }
+    if (inRiep) {
+      if (/^(SEZIONE|NUMERO DIPENDENTI)/i.test(ln)) { inRiep = false; }
+      else {
+        const v = rigaVersamento(ln, voceRiep);
+        if (v.voce !== undefined) voceRiep = v.voce;
+        if (v.versamento) versamenti.push({ filialeCode: cur.filialeCode, ...v.versamento });
+        continue;
+      }
+    }
 
     const mnd = ln.match(/NUMERO DIPENDENTI\s+(\d+)/i);
     if (mnd) { cur.numeroDipendenti = parseInt(mnd[1], 10); continue; }
@@ -551,7 +583,123 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
   // «solo normale» = il file copre un tipo solo ed e' quello ordinario: e' la
   // stampa corta, quella che NON contiene le mensilita' aggiuntive del mese.
   const soloNormale = tipiCedolino.length === 1 && /^norm/i.test(tipiCedolino[0]);
-  return { isProspetto, rows: [...sections.values()], months, tipiCedolino, soloNormale };
+  return { isProspetto, rows: [...sections.values()], months, tipiCedolino, soloNormale, versamenti };
+}
+
+// Fondi pensione: si versano al fondo, non con l'F24.
+const RE_FONDO_PENSIONE = /PREVIDENZ|FONDO PENSIONE|PENSIONE COMPLEMENTARE|\bFON\.?TE\b|FONCHIM|COMETA/i;
+const RE_PERIODO_VERS = /Periodo versamento\s+(\d{2})\/(\d{4})/i;
+
+/**
+ * Legge una riga del riepilogo dei versamenti. Restituisce la voce corrente
+ * (se la riga ne apre una nuova) e il versamento (se la riga ha «Periodo
+ * versamento»). Righe di solo dettaglio («da 07/2026 2,49», «17 ADD.REGIONALE
+ * Ant.TOSCANA 91,54», «Totale netti») non producono niente: il totale della
+ * voce arriva sempre sulla riga col periodo.
+ */
+export function rigaVersamento(ln: string, voceCorrente: string | null): {
+  voce?: string | null;
+  versamento?: Omit<ProspettoVersamento, 'filialeCode'>;
+} {
+  const t = ln.replace(/\s+/g, ' ').trim();
+  if (!t || /^-+$/.test(t) || /^TOTALE COMPLESSIVO|^Totale netti/i.test(t)) return {};
+  // Intestazioni e piedi di pagina: non sono voci, e non devono diventarlo.
+  if (/^Paghe Infinity|^Prospetto riepilogativo|^Azienda:|^Progressivo ripartizione|\bPagina\s+\d+\s*\/\s*\d+/i.test(t)) return {};
+  const mp = t.match(RE_PERIODO_VERS);
+  const senzaPeriodo = t.replace(RE_PERIODO_VERS, ' ');
+  // Testo della voce: quel che resta togliendo importi e periodo. «di cui del
+  // mese: …» e' un dettaglio dell'INPS, non fa parte del nome.
+  const testo = senzaPeriodo.replace(RE_MONEY_ALL, ' ').replace(/di cui del mese:?.*$/i, ' ')
+    .replace(/\s+/g, ' ').trim();
+  // «I.N.P.S. Id. 1» ha lettere separate da punti: si contano le lettere, non le parole.
+  const haNome = (testo.match(/[A-Za-z]/g) ?? []).length >= 3 && !/^da \d{2}\/\d{4}$/i.test(testo);
+  if (!mp) {
+    // Riga di dettaglio di un'addizionale («17 ADD.REGIONALE …», «A461 ADD.COMUNALE …»):
+    // non e' una voce nuova, il totale arriva con «Totale addizionale …».
+    if (!haNome || /^[A-Z]?\d{2,4}\s+ADD\.?/i.test(testo)) return {};
+    return { voce: testo };
+  }
+  const importi = moneyAt(senzaPeriodo);
+  if (!importi.length) return {};
+  const nome = haNome ? testo : voceCorrente;
+  if (!nome) return {};
+  const codice = nome.match(/^(\d{3,4})\s+/)?.[1] ?? null;
+  const descrizione = nome.replace(/^\d{3,4}\s+/, '').trim();
+  return {
+    voce: haNome ? testo : undefined,
+    versamento: {
+      codice, descrizione,
+      canale: RE_FONDO_PENSIONE.test(nome) ? 'fondo' : 'f24',
+      periodo: `${mp[2]}-${mp[1]}`,
+      importo: importi[importi.length - 1],
+    },
+  };
+}
+
+/** Totale dei versamenti per canale e periodo (es. F24 di agosto da pagare il 16/09). */
+export function totaliVersamenti(v: ProspettoVersamento[]): { canale: 'f24' | 'fondo'; periodo: string; importo: number }[] {
+  const m = new Map<string, number>();
+  for (const x of v) m.set(`${x.canale}|${x.periodo}`, (m.get(`${x.canale}|${x.periodo}`) ?? 0) + x.importo);
+  return [...m.entries()].map(([k, imp]) => {
+    const [canale, periodo] = k.split('|') as ['f24' | 'fondo', string];
+    return { canale, periodo, importo: Math.round(imp * 100) / 100 };
+  }).sort((a, b) => a.periodo.localeCompare(b.periodo) || a.canale.localeCompare(b.canale));
+}
+
+// ============================================================================
+// Riconoscimento dei file dello studio paghe (zona unica di caricamento).
+// Ogni mese lo studio manda gli stessi documenti: Elenco netti, Netti negativi,
+// Prospetto riepilogativo; ogni tanto la Statistica costo orario e i ratei
+// ferie. Qui si capisce quale e', di che mese e (per i netti) di che cedolino,
+// leggendo il testo del PDF e, se serve, il nome del file.
+// ============================================================================
+
+export type FilePaghe = 'elenco_netti' | 'netti_negativi' | 'prospetto' | 'statistica' | 'ratei_ferie' | 'sconosciuto';
+export type FilePagheRiconosciuto = {
+  tipo: FilePaghe;
+  year: number | null;
+  month: number | null;
+  // Solo per l'Elenco netti: normale, tredicesima, quattordicesima, aggiuntivo.
+  tipoCedolino: string | null;
+};
+
+const RE_MESE_ANNO = /(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})/i;
+
+export function riconosciFilePaghe(fileName: string, text: string): FilePagheRiconosciuto {
+  const t = text.replace(/\s+/g, ' ');
+  const fn = fileName.replace(/#U00e0/gi, 'à');
+  let tipo: FilePaghe = 'sconosciuto';
+  const tab = tabulatoNetti(t) ?? tabulatoNetti(fn);
+  if (/Prospetto riepilogativo elaborazione paghe/i.test(t)) tipo = 'prospetto';
+  else if (tab === 'negativi') tipo = 'netti_negativi';
+  else if (tab === 'elenco') tipo = 'elenco_netti';
+  else if (/Statistica costo orario/i.test(t)) tipo = 'statistica';
+  else if (/ratei\s+ferie|ferie\s+e\s+permessi/i.test(t)) tipo = 'ratei_ferie';
+
+  // Mese: dal testo («Periodo di elaborazione: Agosto 2026», per il Prospetto
+  // l'ultimo mese di «Dal … - Al …»), altrimenti dal nome («di 08-2026», «Dal 082026»).
+  let year: number | null = null, month: number | null = null;
+  const tuttiMesi = [...t.matchAll(new RegExp(RE_MESE_ANNO.source, 'gi'))];
+  if (tuttiMesi.length) {
+    const ultimo = tipo === 'prospetto' ? tuttiMesi[Math.min(1, tuttiMesi.length - 1)] : tuttiMesi[0];
+    month = MONTHS_IT[ultimo[1].toLowerCase()]; year = Number(ultimo[2]);
+  } else {
+    const m = fn.match(/(?:^|\D)(0[1-9]|1[0-2])-?(20\d{2})(?:\D|$)/);
+    if (m) { month = Number(m[1]); year = Number(m[2]); }
+  }
+
+  let tipoCedolino: string | null = null;
+  if (tipo === 'elenco_netti') {
+    // «Mensilità aggiuntive automatiche» e' la 14ª a giugno e la 13ª a dicembre.
+    const tc = (t.match(/Tipo cedolino\s+(\S+)/i)?.[1] ?? '').toLowerCase();
+    const aggAuto = /aggiuntive automatiche/i.test(fn) || /aggiuntive automatiche/i.test(t);
+    if (aggAuto) tipoCedolino = month === 12 ? 'tredicesima' : month === 6 ? 'quattordicesima' : 'aggiuntivo';
+    else if (/tredicesima|13\s*[ªa°]/i.test(fn + ' ' + t)) tipoCedolino = 'tredicesima';
+    else if (/quattordicesima|14\s*[ªa°]/i.test(fn + ' ' + t)) tipoCedolino = 'quattordicesima';
+    else if (/^agg/.test(tc) || /cedolino aggiuntivo/i.test(fn)) tipoCedolino = 'aggiuntivo';
+    else tipoCedolino = 'normale';
+  }
+  return { tipo, year, month, tipoCedolino };
 }
 
 // ============================================================================

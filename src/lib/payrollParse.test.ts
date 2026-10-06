@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseInfinityNetti, parseInfinityNettiPages, parseInfinityNettiItems, matchOutletName, parseItNum, parseProspettoPaghe, contrAziendaOutlet, tabulatoNetti, type ParserOutlet } from './payrollParse'
+import { parseInfinityNetti, parseInfinityNettiPages, parseInfinityNettiItems, matchOutletName, parseItNum, parseProspettoPaghe, contrAziendaOutlet, tabulatoNetti, rigaVersamento, totaliVersamenti, riconosciFilePaghe, type ParserOutlet } from './payrollParse'
 
 const OUTLETS: ParserOutlet[] = [
   { name: 'VALDICHIANA', cost_center_key: 'valdichiana' },
@@ -463,5 +463,86 @@ describe('parseProspettoPaghe — Prospetto riepilogativo elaborazione paghe', (
     const { rows } = parseProspettoPaghe(lines, PROS_OUTLETS)
     expect(rows[0].outlet).toBe('')
     expect(rows[0].warn).toBeTruthy()
+  })
+})
+
+// Dati inventati, con la forma delle righe che pdfText ricostruisce dal Prospetto.
+describe('parseProspettoPaghe — riepilogo dei versamenti (F24 e fondi)', () => {
+  const righe = [
+    'Prospetto riepilogativo elaborazione paghe',
+    'Periodo di elaborazione: Dal Marzo 2030 Agg.1 - Al Marzo 2030 Norm.',
+    'Progressivo ripartizione n.2: Filiale: 0000000001 NEGOZIO UNO',
+    'NUMERO DIPENDENTI 3',
+    '1 Retribuzioni Lorde 5.000,00',
+    'Totale retribuzioni 5.100,00',
+    'RIEPILOGO IMPORTI A DEBITO/CREDITO (presenza di ripartizioni - dati parziali)',
+    'Totale netti 3.900,00',
+    '9001 I.N.P.S. Id. 1 di cui del mese: 1.500,00',
+    'da 02/2030 1,00',
+    '1.501,00 Periodo versamento 03/2030',
+    '2,00 Periodo versamento 04/2030',
+    '9540 EBINTER Ente Bilaterale Naz. Terziario Id. 1 8,00 Periodo versamento 03/2030',
+    'IRPEF Ant. 400,00 Periodo versamento 03/2030',
+    '17 ADD.REGIONALE Ant.REGIONE 50,00',
+    'Totale addizionale regionale Anticipata 50,00 Periodo versamento 03/2030',
+    'Paghe Infinity: 26.08.00 Pagina 1 / 2',
+    'Prospetto riepilogativo elaborazione paghe',
+    'Periodo di elaborazione: Dal Marzo 2030 Agg.1 - Al Marzo 2030 Norm.',
+    'Progressivo ripartizione n.2: Filiale: 0000000001 NEGOZIO UNO',
+    'RIEPILOGO IMPORTI A DEBITO/CREDITO (presenza di ripartizioni - dati parziali)',
+    '5108 FONDO ESEMPIO PREVIDENZA (trimestrale) Id. 1 90,00 Periodo versamento 04/2030',
+    'TOTALE COMPLESSIVO 5.951,00',
+    'Progressivo ripartizione n.2: Filiale: 0000000002 NEGOZIO DUE',
+    'NUMERO DIPENDENTI 2',
+    'RIEPILOGO IMPORTI A DEBITO/CREDITO (presenza di ripartizioni - dati parziali)',
+    'IRPEF Ant. -120,00 Periodo versamento 03/2030',
+  ]
+  const r = parseProspettoPaghe(righe, [])
+
+  it('legge le voci con il loro periodo, anche quelle che continuano a pagina 2', () => {
+    expect(r.versamenti.map((v) => [v.filialeCode.slice(-1), v.codice, v.canale, v.periodo, v.importo])).toEqual([
+      ['1', '9001', 'f24', '2030-03', 1501],
+      ['1', '9001', 'f24', '2030-04', 2],
+      ['1', '9540', 'f24', '2030-03', 8],
+      ['1', null, 'f24', '2030-03', 400],
+      ['1', null, 'f24', '2030-03', 50],
+      ['1', '5108', 'fondo', '2030-04', 90],
+      ['2', null, 'f24', '2030-03', -120],
+    ])
+  })
+
+  it('somma per canale e periodo, crediti compresi', () => {
+    expect(totaliVersamenti(r.versamenti)).toEqual([
+      { canale: 'f24', periodo: '2030-03', importo: 1839 },
+      { canale: 'f24', periodo: '2030-04', importo: 2 },
+      { canale: 'fondo', periodo: '2030-04', importo: 90 },
+    ])
+  })
+
+  it('non scambia il dettaglio delle addizionali o i piedi di pagina per voci', () => {
+    expect(rigaVersamento('17 ADD.REGIONALE Ant.REGIONE 50,00', null)).toEqual({})
+    expect(rigaVersamento('Paghe Infinity: 26.08.00 Pagina 1 / 2', '9001 I.N.P.S.')).toEqual({})
+    expect(rigaVersamento('da 02/2030 1,00', '9001 I.N.P.S.')).toEqual({})
+  })
+})
+
+describe('riconosciFilePaghe — la zona unica di caricamento', () => {
+  it('Elenco netti: mese e cedolino dal testo', () => {
+    expect(riconosciFilePaghe('qualsiasi.pdf', 'Elenco netti Marzo 2030 Tipo cedolino Norm. 000000 AZIENDA')).toEqual(
+      { tipo: 'elenco_netti', year: 2030, month: 3, tipoCedolino: 'normale' })
+  })
+  it('mensilità aggiuntive: a giugno la 14ª, a dicembre la 13ª', () => {
+    expect(riconosciFilePaghe('Elenco netti di 06-2030 Mensilità aggiuntive automatiche Filiale.pdf', 'Elenco netti Giugno 2030 Tipo cedolino Agg.A').tipoCedolino).toBe('quattordicesima')
+    expect(riconosciFilePaghe('Elenco netti di 12-2030 Mensilit#U00e0 aggiuntive automatiche Filiale.pdf', 'Elenco netti Dicembre 2030').tipoCedolino).toBe('tredicesima')
+  })
+  it('Netti negativi e Prospetto (mese dall\'ultimo «Al …»)', () => {
+    expect(riconosciFilePaghe('x.pdf', 'Netti negativi Marzo 2030 Tipo cedolino Norm.').tipo).toBe('netti_negativi')
+    expect(riconosciFilePaghe('x.pdf', 'Prospetto riepilogativo elaborazione paghe Periodo di elaborazione: Dal Febbraio 2030 Agg.1 - Al Marzo 2030 Norm.'))
+      .toEqual({ tipo: 'prospetto', year: 2030, month: 3, tipoCedolino: null })
+  })
+  it('senza testo (Excel) si guarda il nome del file', () => {
+    expect(riconosciFilePaghe('Elenco netti di 04-2030 Mensilità normale.xlsx', '')).toEqual(
+      { tipo: 'elenco_netti', year: 2030, month: 4, tipoCedolino: 'normale' })
+    expect(riconosciFilePaghe('foto.pdf', '').tipo).toBe('sconosciuto')
   })
 })
