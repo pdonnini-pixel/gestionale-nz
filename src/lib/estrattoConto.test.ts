@@ -38,6 +38,13 @@ describe('importi e date come li scrivono le banche', () => {
     expect(parseDateCell('2026-07-13')).toBe('2026-07-13')
     expect(parseDateCell(46216)).toBe('2026-07-13')
   })
+  it('date: la cella Date creata alla mezzanotte di Roma resta nel suo giorno (incidente 06/10/2026)', () => {
+    // Nel browser di Sabrina la libreria Excel crea il 01/09 come 31/08 22:00 UTC.
+    expect(parseDateCell(new Date('2026-09-01T00:00:00+02:00'))).toBe('2026-09-01')
+    expect(parseDateCell(new Date('2026-12-01T00:00:00+01:00'))).toBe('2026-12-01')
+    // e in un fuso a ovest (mezzanotte di New York) non scivola al giorno dopo
+    expect(parseDateCell(new Date('2026-09-01T00:00:00-04:00'))).toBe('2026-09-01')
+  })
   it('un importo non viene scambiato per una data seriale', () => {
     expect(parseDateCell(56031.89)).toBeNull()
     expect(parseDateCell(56031)).toBeNull()

@@ -105,7 +105,14 @@ export const flussoCbiDi = (testo: string | null | undefined): string | null =>
 export function parseDateCell(v: unknown): string | null {
   if (v == null || v === '') return null
   if (v instanceof Date && !Number.isNaN(v.getTime())) {
-    return `${v.getUTCFullYear()}-${pad(v.getUTCMonth() + 1)}-${pad(v.getUTCDate())}`
+    // La libreria Excel crea la data alla MEZZANOTTE DEL FUSO DEL BROWSER: a Roma
+    // il 01/09 diventa 31/08 22:00 UTC, e leggerla in UTC la spostava indietro di
+    // un giorno (incidente del 06/10/2026: 777 movimenti di settembre corretti
+    // al giorno prima). Mezzogiorno dopo la mezzanotte, in qualunque fuso entro
+    // ±12 ore, cade sempre nel giorno giusto, sia che la data arrivi a mezzanotte
+    // locale sia a mezzanotte UTC.
+    const d = new Date(v.getTime() + 12 * 3600 * 1000)
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`
   }
   if (typeof v === 'number') {
     // Seriale Excel: giorni dal 30/12/1899, quindi un intero. Fuori dall'intervallo
