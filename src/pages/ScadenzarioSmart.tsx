@@ -2983,11 +2983,11 @@ const ScadenzarioSmart = () => {
   // niente anni/mesi hardcoded. 'N/D' (senza data) va in fondo. Se un mese è
   // collassato, le sue righe non vengono emesse (resta solo l'header con
   // subtotale e conteggio).
-  // Ordinamento DENTRO al mese: di default le righe sono raggruppate per
-  // FORNITORE in ordine alfabetico (aggregato). A parità di fornitore si
-  // ordina dalla fattura più vecchia: prima per DATA DI EMISSIONE fattura
-  // (invoice_date) crescente, poi per NUMERO FATTURA (ordinamento numerico
-  // naturale) crescente, infine per data di scadenza. Se l'utente attiva un
+  // Ordinamento DENTRO al mese: di default per DATA DI SCADENZA crescente,
+  // dal primo all'ultimo giorno del mese (scelta di Patrizio del 07/10/2026:
+  // prima era alfabetico per fornitore e il mese non si leggeva in ordine di
+  // giorno). A parità di giorno: fornitore in ordine alfabetico, poi data di
+  // emissione fattura, poi numero fattura (numerico naturale). Se l'utente attiva un
   // ordinamento personalizzato dalle colonne (SortableTh), quello ha la
   // precedenza e le righe seguono l'ordine globale della tabella.
   // Subtotale/conteggio del mese tengono SEPARATE le scadenze reali dalle
@@ -3001,8 +3001,8 @@ const ScadenzarioSmart = () => {
     ((p.suppliers?.ragione_sociale || p.suppliers?.name || '') as string).trim().toLowerCase() || '￿';
   const monthRenderItems = useMemo<MonthRenderItem[]>(() => {
     // Il default della vista Mese è: scadenza più vecchia in cima (due_date asc,
-    // criterio unico). Solo in quel caso applichiamo l'aggregazione alfabetica
-    // per fornitore dentro ogni mese; con un sort personalizzato la rispettiamo.
+    // criterio unico). Solo in quel caso applichiamo i criteri di parità qui
+    // sotto dentro ogni mese; con un sort personalizzato lo rispettiamo.
     const isDefaultSort = sortByPayables.length === 1
       && sortByPayables[0].key === 'due_date'
       && sortByPayables[0].dir === 'asc';
@@ -3025,11 +3025,14 @@ const ScadenzarioSmart = () => {
       const collapsed = collapsedMonths.has(k);
       out.push({ kind: 'header', key: k, label: g.label, count: g.items.length - g.estimateCount, subtotal: g.subtotal, estimateCount: g.estimateCount, estimateSubtotal: g.estimateSubtotal, collapsed });
       if (!collapsed) {
-        // Con l'ordinamento di default: dentro il mese ordina per fornitore
-        // (alfabetico, aggregato); a parità di fornitore dalla fattura più
-        // vecchia (data emissione, poi numero fattura, poi scadenza).
+        // Con l'ordinamento di default: dentro il mese per data di scadenza
+        // (dall'1 al 31); a parità di giorno fornitore alfabetico, poi data
+        // emissione e numero fattura.
         const rows = isDefaultSort
           ? [...g.items].sort((a, b) => {
+              const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+              const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+              if (da !== db) return da - db;
               const byName = supplierSortName(a).localeCompare(supplierSortName(b), 'it');
               if (byName !== 0) return byName;
               // Data di emissione fattura crescente (più vecchia in alto).
@@ -3040,12 +3043,7 @@ const ScadenzarioSmart = () => {
               // (es. "2" prima di "10"). I valori vuoti/"-" vanno in fondo.
               const na = (a.invoice_number || '').trim() || '￿';
               const nb = (b.invoice_number || '').trim() || '￿';
-              const byNum = na.localeCompare(nb, 'it', { numeric: true, sensitivity: 'base' });
-              if (byNum !== 0) return byNum;
-              // Ultimo criterio: data di scadenza crescente.
-              const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
-              const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
-              return da - db;
+              return na.localeCompare(nb, 'it', { numeric: true, sensitivity: 'base' });
             })
           : g.items;
         rows.forEach(p => out.push({ kind: 'row', p }));
