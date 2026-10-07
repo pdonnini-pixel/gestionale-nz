@@ -222,12 +222,15 @@ export type RigaPerDb = {
  * confronta l'importo in valore assoluto e non inserisce righe senza segno.
  */
 export function righePerDb(parsed: EcParsed, dalPdf: boolean): RigaPerDb[] {
+  // Il segno si perde nei PDF a colonne dare/avere; alcuni PDF (BCC Relax Banking)
+  // lo portano scritto, e allora vale come in un Excel.
+  const conSegno = !dalPdf || parsed.segnoNoto === true
   return parsed.rows.map((r: EcRow, i: number) => ({
     row_no: i + 1,
     date: r.date,
     value_date: r.value_date,
-    amount: dalPdf ? Math.abs(r.amount) : r.amount,
-    sign_known: !dalPdf,
+    amount: conSegno ? r.amount : Math.abs(r.amount),
+    sign_known: conSegno,
     description: r.description,
     flusso_cbi: r.flusso_cbi,
     beneficiario: extractBeneficiary(r.description) || null,

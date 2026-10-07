@@ -309,7 +309,7 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
         const { data: trovati } = await supabase.rpc('fn_bank_doc_guess_account', { p_rows: righe as never })
         conto = contoDaiMovimenti((trovati ?? []) as ContoTrovato[], accounts)
       }
-      const pronta: Voce = { ...voce, tipo, conto, hash, righe, saldi: saldiDichiarati(intestazione) }
+      const pronta: Voce = { ...voce, tipo, conto, hash, righe, saldi: parsed.saldi ?? saldiDichiarati(intestazione) }
       if (!conto) {
         aggiorna(key, { ...pronta, stato: 'scegli_conto', messaggio: 'Nel file non c\'è l\'IBAN e i movimenti non bastano a capire il conto: dimmi tu di quale conto è.' })
         return
@@ -359,7 +359,7 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
           <div>
             <div className="font-semibold text-emerald-800 mb-1">Si carica e si analizza</div>
             <ul className="list-disc pl-4 space-y-1">
-              <li><b>Estratti conto corrente</b> in Excel o PDF (provati sugli estratti veri di MPS, BCC Figline e Intesa). Meglio l&apos;Excel: dal PDF non si legge se un movimento è un&apos;entrata o un&apos;uscita.</li>
+              <li><b>Estratti conto corrente</b> in Excel o PDF (provati sugli estratti veri di MPS, BCC Figline, BCC Mugello e Intesa). I PDF BCC («Relax Banking») valgono come l&apos;Excel: portano segno e saldi. Per gli altri PDF meglio l&apos;Excel, perché dal PDF non si legge se un movimento è un&apos;entrata o un&apos;uscita.</li>
               <li><b>Estratti carta di credito</b> Carta Montepaschi e CartaBCC (Numia), in PDF: le spese confermano le fatture pagate con la carta e l&apos;addebito del mese si aggancia sul conto.</li>
               <li><b>Prepagata Tasca</b>, in PDF o Excel: le spese chiudono le fatture alla data della spesa.</li>
               <li><b>Distinta di ritiro effetti pagati</b> MPS (RiBa), in PDF: ogni effetto conferma o chiude le rate del fornitore indicate nella causale.</li>
