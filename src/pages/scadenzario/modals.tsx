@@ -7,7 +7,7 @@ import { extractScadenzaFromPdf, ScadenzaExtractError, type ExtractedScadenza } 
 import { archiviaFile } from '../../lib/archivioFile';
 import { useAuth } from '../../hooks/useAuth';
 import { SCHEDULE_MODE_GROUPS, findScheduleMode, derivePlan, computeInstallments, scheduleModeText, SCHEDULE_GROUP_TEXT } from '../../lib/paymentSchedule';
-import { PAYMENT_METHOD_ALIAS } from './helpers';
+import { PAYMENT_METHOD_ALIAS, DOCUMENT_TYPE_OPTIONS, normalizeDocumentType } from './helpers';
 
 export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string }
 export type ScheduleLike = Record<string, unknown> & { id?: string; gross_amount?: number | null; due_date?: string | null; status?: string | null; invoice_number?: string | null }
@@ -55,7 +55,7 @@ export const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { s
 
 // Invoice Modal Component
 export type RataInput = { dueDate: string; amount: number }
-export type InvoiceFormState = { supplierId: string; newSupplierName: string; supplierType: string; invoiceNumber: string; invoiceDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string; endDate: string; rate: RataInput[] }
+export type InvoiceFormState = { supplierId: string; newSupplierName: string; supplierType: string; documentType: string; invoiceNumber: string; invoiceDate: string; grossAmount: number; paymentMethod: string; frequency: string; costCenter: string; endDate: string; rate: RataInput[] }
 
 // Tipo del nominativo/scadenza. Diventa la `category` del fornitore quando si crea
 // un'anagrafica leggera al volo (nominativo non a sistema).
@@ -91,6 +91,7 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
     supplierId: '',
     newSupplierName: '',
     supplierType: 'fornitore',
+    documentType: 'fattura',
     invoiceNumber: '',
     invoiceDate: new Date().toISOString().split('T')[0],
     grossAmount: 0,
@@ -212,6 +213,9 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
         next.newSupplierName = ext.supplierName;
         filled.push('nominativo (nuovo)');
       }
+      // Tipo documento: la lettura lo restituisce già (proforma, notula…);
+      // prima veniva scartato e ogni scadenza nasceva «fattura».
+      if (ext.documentType) { next.documentType = normalizeDocumentType(ext.documentType); filled.push('tipo documento'); }
       if (ext.invoiceNumber) { next.invoiceNumber = ext.invoiceNumber; filled.push('numero documento'); }
       if (ext.invoiceDate) { next.invoiceDate = ext.invoiceDate; filled.push('data documento'); }
       if (gross > 0) { next.grossAmount = gross; filled.push('importo'); }
@@ -380,6 +384,14 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
             </button>
           ))}
         </div>
+      </div>
+      {/* TIPO DOCUMENTO — fattura, proforma, notula… (precompilato dal PDF) */}
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Tipo documento</label>
+        <select value={formData.documentType} onChange={e => setFormData({ ...formData, documentType: e.target.value })}
+          className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+          {DOCUMENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
       </div>
       <div>
         <label className="block text-sm font-medium text-slate-700 mb-1">Numero documento <span className="text-slate-400 font-normal">(opzionale)</span></label>

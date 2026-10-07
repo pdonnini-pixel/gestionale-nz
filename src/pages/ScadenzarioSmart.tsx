@@ -35,6 +35,7 @@ import {
   statusConfig, paymentMethodLabels, paymentGroups, toDbPaymentMethod,
   ESTIMATE_HORIZON_MONTHS, ESTIMATE_MATCH_TOLERANCE_PCT, ESTIMATE_MATCH_TOLERANCE_ABS,
   RECURRENCE_STEP_MONTHS, normSupplier, categorizeIncome,
+  documentTypeLabel,
 } from './scadenzario/helpers';
 import { StatusPill, Modal } from './scadenzario/SharedUI';
 import { EditScheduleModal, InvoiceModal, SupplierModal, type InvoiceFormState } from './scadenzario/modals';
@@ -2004,6 +2005,8 @@ const ScadenzarioSmart = () => {
         supplier_id: supplierId,
         supplier_name: effectiveName || null,
         invoice_number: invoiceData.invoiceNumber,
+        // NULL = fattura (il default di sempre): si scrive solo se è altro.
+        document_type: invoiceData.documentType && invoiceData.documentType !== 'fattura' ? invoiceData.documentType : null,
         invoice_date: invoiceData.invoiceDate,
         due_date: r.dueDate,
         original_due_date: r.dueDate,
@@ -3680,7 +3683,7 @@ const ScadenzarioSmart = () => {
                               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor(p)}`} />
                               <div>
                                 <UiTooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><div className="text-sm font-medium text-slate-800 truncate max-w-[280px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div></UiTooltip>
-                                <UiTooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'Nota di credito' : 'Fatt.'} {p.invoice_number || '—'}{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) && p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : ''} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></UiTooltip>
+                                <UiTooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'Nota di credito' : documentTypeLabel(p.document_type as string | null)} {p.invoice_number || '—'}{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) && p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : ''} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></UiTooltip>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -4062,7 +4065,7 @@ const ScadenzarioSmart = () => {
                               const invoiceLabel = isFiscalRow
                                 ? fiscalSub
                                 : p.invoice_number && p.invoice_number !== '-'
-                                ? `${isNotaCredito ? 'Nota di credito' : 'Fattura'} • ${p.invoice_number}`
+                                ? `${isNotaCredito ? 'Nota di credito' : documentTypeLabel(p.document_type as string | null, 'long')} • ${p.invoice_number}`
                                   + (p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : '')
                                   + (p.original_due_date ? ` · scad. naturale ${fmtDate(p.original_due_date as string)}` : '')
                                 : ''
