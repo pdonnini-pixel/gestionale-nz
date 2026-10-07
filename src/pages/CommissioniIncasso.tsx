@@ -25,15 +25,17 @@ import { archiviaFile, sostituisciPrecedenti, avvisoArchiviazioneFallita } from 
 import { espandiZip } from '../lib/zipFiles'
 import TableScroll from '../components/ui/TableScroll'
 import {
-  fetchCommissioni, fetchContratti, totaliPerOutlet,
+  fetchCommissioni, fetchContratti, totaliPerOutlet, fetchRigheCaricate, ultimiCaricamenti, meseAtteso,
   parseAmexStatement, parseNexiStatement, tipoEstratto,
   nomeDocumento, funzioneArchivio,
-  type CommissioneRiga, type ContrattoAcquirer,
+  type CommissioneRiga, type ContrattoAcquirer, type RigaCaricata,
 } from '../lib/acquirerFees'
+import { formatEuro } from '../lib/cashClosings'
 
 const MESI_BREVI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic']
-const eur = (n: number | null | undefined) =>
-  n == null ? '—' : n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+const MESI_LUNGHI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
+// Importi sempre in euro: «1.234,56 €».
+const eur = formatEuro
 
 type Esito = { file: string; ok: boolean; testo: string }
 
@@ -49,15 +51,23 @@ export default function CommissioniIncasso() {
   const [loading, setLoading] = useState(false)
   const [caricamento, setCaricamento] = useState(false)
   const [esiti, setEsiti] = useState<Esito[]>([])
+  const [caricate, setCaricate] = useState<RigaCaricata[]>([])
+  const [trascina, setTrascina] = useState(false)
   const inputFile = useRef<HTMLInputElement>(null)
 
   const carica = useCallback(async () => {
     if (!companyId) return
     setLoading(true)
     try {
-      const [r, c] = await Promise.all([fetchCommissioni(companyId, anno), fetchContratti(companyId)])
+      // L'ultimo estratto caricato si cerca anche negli anni prima di quello
+      // scelto: a gennaio l'ultimo documento e' di dicembre.
+      const annoOggi = meseAtteso().anno
+      const [r, c, u] = await Promise.all([
+        fetchCommissioni(companyId, anno), fetchContratti(companyId), fetchRigheCaricate(companyId, annoOggi - 1),
+      ])
       setRighe(r)
       setContratti(c)
+      setCaricate(u)
     } catch (e) {
       toast({ type: 'error', message: `Non riesco a leggere le commissioni: ${(e as Error).message}` })
     } finally {
@@ -75,15 +85,26 @@ export default function CommissioniIncasso() {
 
   const totaleAnno = useMemo(() => totali.reduce((s, t) => s + t.totale, 0), [totali])
   const transatoNoto = useMemo(() => totali.reduce((s, t) => s + t.lordo, 0), [totali])
-  const quotaNetto = useMemo(
-    () => righe.filter(r => r.settlement_mode === 'netto').reduce((s, r) => s + r.fee_amount, 0),
+  // Costo pagato nell'anno: commissioni piu' acquiring e bolli.
+  const costoTotale = useMemo(
+    () => Math.round(righe.reduce((s, r) => s + Number(r.fee_amount) + Number(r.fixed_amount) + Number(r.stamp_amount), 0) * 100) / 100,
     [righe],
   )
+  // Trattenute alla fonte: la commissione dei contratti al netto, mai passata dal conto.
+  const quotaNetto = useMemo(
+    () => Math.round(righe.filter(r => r.settlement_mode === 'netto').reduce((s, r) => s + Number(r.fee_amount), 0) * 100) / 100,
+    [righe],
+  )
+  // Tutto il resto arriva dopo, come addebito SDD in banca.
+  const quotaAddebitata = Math.round((costoTotale - quotaNetto) * 100) / 100
+  const atteso = useMemo(() => meseAtteso(), [])
+  const ultimi = useMemo(() => ultimiCaricamenti(caricate, contratti, atteso), [caricate, contratti, atteso])
+  const mancanti = ultimi.filter(u => u.manca).length
   const daStima = useMemo(() => righe.filter(r => r.source !== 'documento'), [righe])
 
   // --- Caricamento estratti -------------------------------------------------
 
-  const importa = useCallback(async (scelti: FileList) => {
+  const importa = useCallback(async (scelti: FileList | File[]) => {
     if (!companyId) return
     setCaricamento(true)
     const nuovi: Esito[] = []
@@ -230,40 +251,30 @@ export default function CommissioniIncasso() {
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <button
-            onClick={() => inputFile.current?.click()}
-            disabled={caricamento}
-            className="flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
-          >
-            {caricamento ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            Carica estratti
-          </button>
-          <input
-            ref={inputFile}
-            type="file"
-            accept="application/pdf,.zip,application/zip,application/x-zip-compressed"
-            multiple
-            className="hidden"
-            onChange={e => { if (e.target.files?.length) void importa(e.target.files) }}
-          />
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-xl border border-gray-200 bg-white p-4">
-          <div className="text-xs uppercase tracking-wide text-gray-500">Commissioni {anno}</div>
-          <div className="mt-1 text-2xl font-semibold text-gray-900">{eur(totaleAnno)} €</div>
-          {transatoNoto > 0 && (
-            <div className="mt-1 text-xs text-gray-500">
-              su {eur(transatoNoto)} € di transato noto
-            </div>
-          )}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border border-indigo-200 bg-indigo-50 p-4">
+          <div className="text-xs uppercase tracking-wide text-indigo-700">Costo totale commissioni {anno}</div>
+          <div className="mt-1 text-2xl font-semibold text-gray-900">{eur(costoTotale)}</div>
+          <div className="mt-1 text-xs text-gray-600">
+            {eur(quotaNetto)} alla fonte + {eur(quotaAddebitata)} addebitate dopo
+          </div>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
           <div className="text-xs uppercase tracking-wide text-gray-500">Trattenute alla fonte</div>
-          <div className="mt-1 text-2xl font-semibold text-amber-600">{eur(quotaNetto)} €</div>
+          <div className="mt-1 text-2xl font-semibold text-amber-600">{eur(quotaNetto)}</div>
           <div className="mt-1 text-xs text-gray-500">
             mai passate dal conto corrente: senza estratto conto non si vedono
+          </div>
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-4">
+          <div className="text-xs uppercase tracking-wide text-gray-500">Addebitate dopo in banca</div>
+          <div className="mt-1 text-2xl font-semibold text-gray-900">{eur(quotaAddebitata)}</div>
+          <div className="mt-1 text-xs text-gray-500">
+            commissioni al lordo, canoni di acquiring e bolli, addebitati il mese dopo
+            {transatoNoto > 0 && <> · transato noto {eur(transatoNoto)}</>}
           </div>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-4">
@@ -273,6 +284,104 @@ export default function CommissioniIncasso() {
             {contratti.filter(c => c.settlement_mode === 'lordo').length} al lordo,{' '}
             {contratti.filter(c => c.settlement_mode === 'netto').length} al netto
           </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div
+          role="button"
+          tabIndex={0}
+          onClick={() => { if (!caricamento) inputFile.current?.click() }}
+          onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && !caricamento) { e.preventDefault(); inputFile.current?.click() } }}
+          onDragOver={e => { e.preventDefault(); setTrascina(true) }}
+          onDragLeave={() => setTrascina(false)}
+          onDrop={e => {
+            e.preventDefault()
+            setTrascina(false)
+            if (!caricamento && e.dataTransfer.files.length) void importa(Array.from(e.dataTransfer.files))
+          }}
+          className={`cursor-pointer rounded-xl border-2 border-dashed p-5 transition-colors ${
+            trascina ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 bg-white hover:border-indigo-400 hover:bg-gray-50'
+          } ${caricamento ? 'opacity-60' : ''}`}
+        >
+          <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+            {caricamento ? <Loader2 className="h-5 w-5 animate-spin text-indigo-600" /> : <Upload className="h-5 w-5 text-indigo-600" />}
+            {caricamento ? 'Leggo gli estratti…' : 'Trascina qui gli estratti, oppure clicca per sceglierli'}
+          </div>
+          <div className="mt-3 space-y-2 text-sm text-gray-600">
+            <p className="font-medium text-gray-700">Cosa caricare, ogni mese:</p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li><span className="font-medium">Amex</span>: l'«Estratto Conto Commissioni», un unico PDF con dentro tutti i punti vendita.</li>
+              <li><span className="font-medium">Nexi</span>: l'estratto conto mensile, un PDF per ogni punto vendita.</li>
+            </ul>
+            <p>
+              Vanno bene i PDF singoli o lo zip ricevuto per mail. I PDF devono essere quelli scaricati dal
+              portale: le scansioni sono fotografie della pagina e non si possono leggere. Il canone dei POS
+              non sta in questi estratti.
+            </p>
+          </div>
+          <input
+            ref={inputFile}
+            type="file"
+            accept="application/pdf,.zip,application/zip,application/x-zip-compressed"
+            multiple
+            className="hidden"
+            onClick={e => e.stopPropagation()}
+            onChange={e => { if (e.target.files?.length) void importa(e.target.files) }}
+          />
+        </div>
+
+        <div className="rounded-xl border border-gray-200 bg-white p-5">
+          <div className="flex items-baseline justify-between gap-2">
+            <h3 className="text-sm font-semibold text-gray-900">Ultimo estratto caricato</h3>
+            <span className="text-xs text-gray-500">
+              atteso: {MESI_LUNGHI[atteso.mese - 1]} {atteso.anno}
+            </span>
+          </div>
+          {ultimi.length === 0 ? (
+            <p className="mt-3 text-sm text-gray-500">
+              Nessun contratto Amex o Nexi censito: gli estratti non hanno ancora un punto vendita a cui agganciarsi.
+            </p>
+          ) : (
+            <>
+              <table className="mt-3 w-full text-sm">
+                <thead className="text-xs uppercase tracking-wide text-gray-500">
+                  <tr>
+                    <th className="py-1 text-left">Documento</th>
+                    <th className="py-1 text-left">Ultimo mese</th>
+                    <th className="py-1 text-right">Importo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {ultimi.map(u => (
+                    <tr key={u.chiave}>
+                      <td className="py-1.5 font-medium text-gray-900">{u.etichetta}</td>
+                      <td className="py-1.5">
+                        {u.mese && u.anno ? (
+                          <span className={u.manca ? 'text-amber-700' : 'text-emerald-700'}>
+                            {MESI_LUNGHI[u.mese - 1]} {u.anno}
+                          </span>
+                        ) : (
+                          <span className="text-amber-700">mai caricato</span>
+                        )}
+                        {u.manca && (
+                          <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                            manca {MESI_BREVI[atteso.mese - 1]} {atteso.anno}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1.5 text-right tabular-nums text-gray-700">{eur(u.importo)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className={`mt-3 text-xs ${mancanti ? 'text-amber-700' : 'text-emerald-700'}`}>
+                {mancanti
+                  ? `${mancanti} ${mancanti === 1 ? 'estratto da caricare' : 'estratti da caricare'} per ${MESI_LUNGHI[atteso.mese - 1]} ${atteso.anno}.`
+                  : `Tutti gli estratti di ${MESI_LUNGHI[atteso.mese - 1]} ${atteso.anno} sono caricati.`}
+              </p>
+            </>
+          )}
         </div>
       </div>
 

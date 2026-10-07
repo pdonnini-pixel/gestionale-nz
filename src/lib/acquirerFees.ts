@@ -340,3 +340,97 @@ export function totaliPerOutlet(righe: CommissioneRiga[]): TotaleOutlet[] {
     .map(t => ({ ...t, aliquota: t.lordo > 0 ? Math.round((t.conLordo / t.lordo) * 100000) / 1000 : null }))
     .sort((a, b) => b.totale - a.totale);
 }
+
+// --- Ultimo estratto caricato per documento ---------------------------------
+// Ogni mese arrivano un estratto Amex (tutti i punti vendita insieme) e un
+// estratto Nexi per ogni punto vendita. Per capire cosa manca basta sapere,
+// documento per documento, qual e' l'ultimo mese caricato e quanto valeva.
+
+/** Riga minima di `acquirer_fees` per ricostruire l'ultimo caricamento. */
+export type RigaCaricata = {
+  contract_id: string;
+  period_year: number;
+  period_month: number;
+  fee_amount: number;
+  fixed_amount: number;
+  stamp_amount: number;
+};
+
+export type UltimoCaricato = {
+  chiave: string;
+  acquirer: 'amex' | 'nexi';
+  /** «Amex» oppure «Nexi VDC». */
+  etichetta: string;
+  settlement_mode: SettlementMode | null;
+  anno: number | null;
+  mese: number | null;
+  /** Costo del mese: commissioni + acquiring + bollo. */
+  importo: number | null;
+  /** Vero se l'ultimo mese caricato e' prima del mese atteso. */
+  manca: boolean;
+};
+
+/** Il mese chiuso piu' recente, in ora di Roma: a ottobre si aspetta settembre. */
+export function meseAtteso(oggi: Date = new Date()): { anno: number; mese: number } {
+  const parti = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Rome', year: 'numeric', month: 'numeric' })
+    .formatToParts(oggi);
+  const anno = Number(parti.find(p => p.type === 'year')?.value);
+  const mese = Number(parti.find(p => p.type === 'month')?.value);
+  return mese === 1 ? { anno: anno - 1, mese: 12 } : { anno, mese: mese - 1 };
+}
+
+const chiavePeriodo = (anno: number, mese: number) => anno * 100 + mese;
+
+export function ultimiCaricamenti(
+  righe: RigaCaricata[],
+  contratti: ContrattoAcquirer[],
+  atteso: { anno: number; mese: number },
+): UltimoCaricato[] {
+  const soglia = chiavePeriodo(atteso.anno, atteso.mese);
+  const costo = (r: RigaCaricata) => Number(r.fee_amount) + Number(r.fixed_amount) + Number(r.stamp_amount);
+
+  const ultimo = (ids: Set<string>) => {
+    let periodo = 0;
+    let importo = 0;
+    for (const r of righe) {
+      if (!ids.has(r.contract_id)) continue;
+      const p = chiavePeriodo(r.period_year, r.period_month);
+      if (p > periodo) { periodo = p; importo = 0; }
+      if (p === periodo) importo += costo(r);
+    }
+    return periodo
+      ? { anno: Math.floor(periodo / 100), mese: periodo % 100, importo: Math.round(importo * 100) / 100, manca: periodo < soglia }
+      : { anno: null, mese: null, importo: null, manca: true };
+  };
+
+  const out: UltimoCaricato[] = [];
+  // Amex: un documento unico, che comprende anche i codici AX ormai spenti.
+  const amex = contratti.filter(c => c.acquirer === 'amex');
+  if (amex.length) {
+    out.push({
+      chiave: 'amex', acquirer: 'amex', etichetta: 'Amex', settlement_mode: 'lordo',
+      ...ultimo(new Set(amex.map(c => c.id))),
+    });
+  }
+  // Nexi: un documento per punto vendita, solo i contratti ancora attivi.
+  const nexi = contratti
+    .filter(c => c.acquirer === 'nexi' && c.is_active)
+    .sort((a, b) => (a.outlet_code ?? a.merchant_code).localeCompare(b.outlet_code ?? b.merchant_code));
+  for (const c of nexi) {
+    out.push({
+      chiave: c.id, acquirer: 'nexi', etichetta: `Nexi ${c.outlet_code ?? c.merchant_code}`,
+      settlement_mode: c.settlement_mode, ...ultimo(new Set([c.id])),
+    });
+  }
+  return out;
+}
+
+export async function fetchRigheCaricate(companyId: string, daAnno: number): Promise<RigaCaricata[]> {
+  const { data, error } = await supabase
+    .from('acquirer_fees')
+    .select('contract_id, period_year, period_month, fee_amount, fixed_amount, stamp_amount')
+    .eq('company_id', companyId)
+    .gte('period_year', daAnno);
+  if (error) throw error;
+  return (data ?? []) as RigaCaricata[];
+}
