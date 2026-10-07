@@ -35,6 +35,7 @@ import {
   statusConfig, paymentMethodLabels, paymentGroups, toDbPaymentMethod,
   ESTIMATE_HORIZON_MONTHS, ESTIMATE_MATCH_TOLERANCE_PCT, ESTIMATE_MATCH_TOLERANCE_ABS,
   RECURRENCE_STEP_MONTHS, normSupplier, categorizeIncome,
+  documentTypeLabel,
 } from './scadenzario/helpers';
 import { StatusPill, Modal } from './scadenzario/SharedUI';
 import { EditScheduleModal, InvoiceModal, SupplierModal, type InvoiceFormState } from './scadenzario/modals';
@@ -956,6 +957,8 @@ const ScadenzarioSmart = () => {
         const baseRow: AnyRow = {
           id: row.id || undefined,
           invoice_number: row.invoice_number || '-',
+          // Tipo documento (migration 269): NULL = fattura.
+          document_type: (row.document_type as string | null) ?? null,
           invoice_date: row.invoice_date,
           due_date: row.due_date,
           original_due_date: row.original_due_date,
@@ -2004,6 +2007,8 @@ const ScadenzarioSmart = () => {
         supplier_id: supplierId,
         supplier_name: effectiveName || null,
         invoice_number: invoiceData.invoiceNumber,
+        // NULL = fattura (il default di sempre): si scrive solo se è altro.
+        document_type: invoiceData.documentType && invoiceData.documentType !== 'fattura' ? invoiceData.documentType : null,
         invoice_date: invoiceData.invoiceDate,
         due_date: r.dueDate,
         original_due_date: r.dueDate,
@@ -2064,7 +2069,7 @@ const ScadenzarioSmart = () => {
     }
   }, [suppliers, modals, COMPANY_ID]);
 
-  type ScheduleData = { id: string; amount?: number; due_date?: string; status?: string; amount_paid?: number }
+  type ScheduleData = { id: string; amount?: number; due_date?: string; status?: string; amount_paid?: number; document_type?: string }
   // Mapping bidirezionale status payables <-> fiscal_deadlines
   const mapStatusToFiscal = (payableStatus?: string): string => {
     switch (payableStatus) {
@@ -2102,6 +2107,22 @@ const ScadenzarioSmart = () => {
           amount_paid: newPaid,
         } as never).eq('id', scheduleData.id);
         if (error) throw new Error(error.message);
+        // Tipo documento: si scrive solo se cambiato (NULL = fattura). Vale per
+        // il documento intero, quindi anche per le altre rate dello stesso
+        // documento (stesso fornitore, numero e data).
+        const orig = modals.editSchedule.schedule as AnyRow | null;
+        const prevType = (orig?.document_type as string | null) || 'fattura';
+        const nextType = scheduleData.document_type || 'fattura';
+        if (orig && nextType !== prevType) {
+          const dbType = nextType === 'fattura' ? null : nextType;
+          const num = String(orig.invoice_number || '').trim();
+          let q = supabase.from('payables').update({ document_type: dbType } as never);
+          q = num && num !== '-' && orig.supplier_id && orig.invoice_date
+            ? q.eq('supplier_id', orig.supplier_id as string).eq('invoice_number', num).eq('invoice_date', orig.invoice_date as string)
+            : q.eq('id', scheduleData.id);
+          const { error: dtErr } = await q;
+          if (dtErr) throw new Error(dtErr.message);
+        }
       }
       setModals({ ...modals, editSchedule: { open: false, schedule: null } });
       toast({ type: 'success', message: `Scadenza aggiornata: € ${newAmount.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` });
@@ -2980,11 +3001,11 @@ const ScadenzarioSmart = () => {
   // niente anni/mesi hardcoded. 'N/D' (senza data) va in fondo. Se un mese è
   // collassato, le sue righe non vengono emesse (resta solo l'header con
   // subtotale e conteggio).
-  // Ordinamento DENTRO al mese: di default le righe sono raggruppate per
-  // FORNITORE in ordine alfabetico (aggregato). A parità di fornitore si
-  // ordina dalla fattura più vecchia: prima per DATA DI EMISSIONE fattura
-  // (invoice_date) crescente, poi per NUMERO FATTURA (ordinamento numerico
-  // naturale) crescente, infine per data di scadenza. Se l'utente attiva un
+  // Ordinamento DENTRO al mese: di default per DATA DI SCADENZA crescente,
+  // dal primo all'ultimo giorno del mese (scelta di Patrizio del 07/10/2026:
+  // prima era alfabetico per fornitore e il mese non si leggeva in ordine di
+  // giorno). A parità di giorno: fornitore in ordine alfabetico, poi data di
+  // emissione fattura, poi numero fattura (numerico naturale). Se l'utente attiva un
   // ordinamento personalizzato dalle colonne (SortableTh), quello ha la
   // precedenza e le righe seguono l'ordine globale della tabella.
   // Subtotale/conteggio del mese tengono SEPARATE le scadenze reali dalle
@@ -2998,8 +3019,8 @@ const ScadenzarioSmart = () => {
     ((p.suppliers?.ragione_sociale || p.suppliers?.name || '') as string).trim().toLowerCase() || '￿';
   const monthRenderItems = useMemo<MonthRenderItem[]>(() => {
     // Il default della vista Mese è: scadenza più vecchia in cima (due_date asc,
-    // criterio unico). Solo in quel caso applichiamo l'aggregazione alfabetica
-    // per fornitore dentro ogni mese; con un sort personalizzato la rispettiamo.
+    // criterio unico). Solo in quel caso applichiamo i criteri di parità qui
+    // sotto dentro ogni mese; con un sort personalizzato lo rispettiamo.
     const isDefaultSort = sortByPayables.length === 1
       && sortByPayables[0].key === 'due_date'
       && sortByPayables[0].dir === 'asc';
@@ -3022,11 +3043,14 @@ const ScadenzarioSmart = () => {
       const collapsed = collapsedMonths.has(k);
       out.push({ kind: 'header', key: k, label: g.label, count: g.items.length - g.estimateCount, subtotal: g.subtotal, estimateCount: g.estimateCount, estimateSubtotal: g.estimateSubtotal, collapsed });
       if (!collapsed) {
-        // Con l'ordinamento di default: dentro il mese ordina per fornitore
-        // (alfabetico, aggregato); a parità di fornitore dalla fattura più
-        // vecchia (data emissione, poi numero fattura, poi scadenza).
+        // Con l'ordinamento di default: dentro il mese per data di scadenza
+        // (dall'1 al 31); a parità di giorno fornitore alfabetico, poi data
+        // emissione e numero fattura.
         const rows = isDefaultSort
           ? [...g.items].sort((a, b) => {
+              const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
+              const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
+              if (da !== db) return da - db;
               const byName = supplierSortName(a).localeCompare(supplierSortName(b), 'it');
               if (byName !== 0) return byName;
               // Data di emissione fattura crescente (più vecchia in alto).
@@ -3037,12 +3061,7 @@ const ScadenzarioSmart = () => {
               // (es. "2" prima di "10"). I valori vuoti/"-" vanno in fondo.
               const na = (a.invoice_number || '').trim() || '￿';
               const nb = (b.invoice_number || '').trim() || '￿';
-              const byNum = na.localeCompare(nb, 'it', { numeric: true, sensitivity: 'base' });
-              if (byNum !== 0) return byNum;
-              // Ultimo criterio: data di scadenza crescente.
-              const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
-              const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
-              return da - db;
+              return na.localeCompare(nb, 'it', { numeric: true, sensitivity: 'base' });
             })
           : g.items;
         rows.forEach(p => out.push({ kind: 'row', p }));
@@ -3680,7 +3699,7 @@ const ScadenzarioSmart = () => {
                               <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${dotColor(p)}`} />
                               <div>
                                 <UiTooltip content={p.suppliers?.ragione_sociale || p.suppliers?.name || ''}><div className="text-sm font-medium text-slate-800 truncate max-w-[280px]">{p.suppliers?.ragione_sociale || p.suppliers?.name || '—'}</div></UiTooltip>
-                                <UiTooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'Nota di credito' : 'Fatt.'} {p.invoice_number || '—'}{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) && p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : ''} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></UiTooltip>
+                                <UiTooltip content={p.invoice_number || ''}><div className="text-xs text-slate-400 truncate max-w-[280px]">{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) ? 'Nota di credito' : documentTypeLabel(p.document_type as string | null)} {p.invoice_number || '—'}{(p.status === 'nota_credito' || (Number(p.gross_amount) || 0) < 0) && p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : ''} {p.payment_method ? `- ${(paymentMethodLabels as Record<string, string>)[p.payment_method] || p.payment_method}` : ''}</div></UiTooltip>
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
@@ -4062,7 +4081,7 @@ const ScadenzarioSmart = () => {
                               const invoiceLabel = isFiscalRow
                                 ? fiscalSub
                                 : p.invoice_number && p.invoice_number !== '-'
-                                ? `${isNotaCredito ? 'Nota di credito' : 'Fattura'} • ${p.invoice_number}`
+                                ? `${isNotaCredito ? 'Nota di credito' : documentTypeLabel(p.document_type as string | null, 'long')} • ${p.invoice_number}`
                                   + (p.invoice_date ? ` del ${fmtDate(p.invoice_date as string)}` : '')
                                   + (p.original_due_date ? ` · scad. naturale ${fmtDate(p.original_due_date as string)}` : '')
                                 : ''

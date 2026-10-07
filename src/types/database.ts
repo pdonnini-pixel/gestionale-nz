@@ -18102,6 +18102,7 @@ export type Database = {
       }
       payables: {
         Row: {
+            document_type: string | null
           acube_uuid: string | null
           amount_paid: number | null
           amount_remaining: number | null
@@ -18158,6 +18159,7 @@ export type Database = {
           withholding_amount: number
         }
         Insert: {
+            document_type?: string | null
           acube_uuid?: string | null
           amount_paid?: number | null
           amount_remaining?: number | null
@@ -18214,6 +18216,7 @@ export type Database = {
           withholding_amount?: number
         }
         Update: {
+            document_type?: string | null
           acube_uuid?: string | null
           amount_paid?: number | null
           amount_remaining?: number | null
@@ -25293,6 +25296,7 @@ export type Database = {
       }
       v_payables_operative: {
         Row: {
+            document_type: string | null
           amount_paid: number | null
           amount_remaining: number | null
           bank_transaction_id: string | null

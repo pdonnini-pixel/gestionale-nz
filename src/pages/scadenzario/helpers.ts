@@ -150,6 +150,35 @@ export const paymentGroups = [
 export const PAYMENT_METHOD_ALIAS: Record<string, string> = { bonifico: 'bonifico_ordinario', riba: 'riba_30', carta: 'carta_credito' };
 export const toDbPaymentMethod = (m?: string | null): string => PAYMENT_METHOD_ALIAS[m || ''] || m || 'bonifico_ordinario';
 
+// Tipo del documento da cui nasce la scadenza (payables.document_type).
+// NULL = fattura, il caso di sempre (fatture elettroniche dal bridge SDI).
+export const DOCUMENT_TYPE_OPTIONS: { value: string; label: string; short: string }[] = [
+  { value: 'fattura', label: 'Fattura', short: 'Fatt.' },
+  { value: 'proforma', label: 'Proforma', short: 'Proforma' },
+  { value: 'notula', label: 'Notula', short: 'Notula' },
+  { value: 'parcella', label: 'Parcella', short: 'Parcella' },
+  { value: 'altro', label: 'Altro documento', short: 'Doc.' },
+];
+
+// Riconduce il tipo letto dal PDF (testo libero: "Fattura proforma",
+// "progetto di notula", "avviso di parcella"…) a uno dei valori ammessi.
+// La proforma si controlla prima della fattura: «fattura proforma» è una proforma.
+export function normalizeDocumentType(raw: string | null | undefined): string {
+  const s = String(raw ?? '').toLowerCase();
+  if (!s.trim()) return 'fattura';
+  if (/pro[\s-]?forma/.test(s)) return 'proforma';
+  if (/notul/.test(s)) return 'notula';
+  if (/parcell/.test(s)) return 'parcella';
+  if (/fattur|invoice/.test(s)) return 'fattura';
+  return 'altro';
+}
+
+// Etichetta della riga in lista: «Fatt.», «Proforma», «Notula»…
+export function documentTypeLabel(dt: string | null | undefined, form: 'short' | 'long' = 'short'): string {
+  const o = DOCUMENT_TYPE_OPTIONS.find(x => x.value === (dt || 'fattura')) || DOCUMENT_TYPE_OPTIONS[0];
+  return form === 'short' ? o.short : o.label;
+}
+
 export const RIBA_DAYS = { riba_30: 30, riba_60: 60, riba_90: 90, riba_120: 120 };
 
 // ── SCADENZE-STIMA da ricorrenza (on-the-fly) ─────────────────────────────
