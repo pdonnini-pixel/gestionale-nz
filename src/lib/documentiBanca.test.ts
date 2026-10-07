@@ -150,6 +150,10 @@ describe('esito in una frase', () => {
     expect(fraseEsito({ righe: 21, confermati: 19, corretti: 1, inseriti: 1, ambigui: 0, altro_conto: 0, non_inseriti: 0, domande_nuove: 1, quadratura: { scarto_gestionale: -297.27 } }))
       .toBe('21 movimenti: 19 già a posto, 1 corretto come dice la banca, 1 aggiunto perché mancavano. Scarto sul periodo: -297,27 €. Una cosa da chiederti qui sotto.')
   })
+  it('movimenti registrati dalla banca dopo la stampa: si dice, non si chiede', () => {
+    expect(fraseEsito({ righe: 595, confermati: 595, corretti: 0, inseriti: 0, ambigui: 0, altro_conto: 0, non_inseriti: 0, domande_nuove: 0, dopo_estratto: 8, quadratura: { scarto_gestionale: 0 } }))
+      .toBe('595 movimenti: 595 già a posto. Il periodo torna al centesimo. 8 movimenti la banca li ha registrati dopo questo estratto: li controllo con il prossimo.')
+  })
 })
 
 // ── Carte e distinte RiBa (05/10/2026) ──────────────────────────────────────

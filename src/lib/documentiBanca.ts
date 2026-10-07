@@ -262,6 +262,8 @@ export type EsitoApplicazione = {
   altro_conto: number
   non_inseriti: number
   domande_nuove: number
+  /** Movimenti del gestionale che la banca ha registrato dopo l'ultimo giorno dell'estratto (migration 269). */
+  dopo_estratto?: number
   quadratura?: {
     periodo_da?: string
     periodo_a?: string
@@ -288,6 +290,11 @@ export function fraseEsito(e: EsitoApplicazione): string {
   const scarto = e.quadratura?.scarto_gestionale
   if (scarto === 0) frase += ' Il periodo torna al centesimo.'
   else if (typeof scarto === 'number') frase += ` Scarto sul periodo: ${eur(scarto)}.`
+  if (e.dopo_estratto) {
+    frase += e.dopo_estratto === 1
+      ? ' Un movimento la banca l\'ha registrato dopo questo estratto: lo controllo con il prossimo.'
+      : ` ${e.dopo_estratto} movimenti la banca li ha registrati dopo questo estratto: li controllo con il prossimo.`
+  }
   if (e.domande_nuove) frase += ` ${e.domande_nuove === 1 ? 'Una cosa da chiederti' : `${e.domande_nuove} cose da chiederti`} qui sotto.`
   return frase
 }
