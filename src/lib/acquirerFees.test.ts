@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAmexStatement, parseNexiStatement, tipoEstratto, importoIt, totaliPerOutlet, nomeDocumento, funzioneArchivio, type CommissioneRiga } from './acquirerFees';
+import { parseAmexStatement, parseNexiStatement, tipoEstratto, importoIt, totaliPerOutlet, nomeDocumento, funzioneArchivio, ultimiCaricamenti, meseAtteso, type CommissioneRiga, type ContrattoAcquirer, type RigaCaricata } from './acquirerFees';
 
 // Righe prese dagli estratti conto veri di New Zago (agosto e luglio 2026),
 // ridotte ma non riscritte: i numeri sono quelli dei documenti.
@@ -195,5 +195,46 @@ describe('nomeDocumento e funzioneArchivio', () => {
     expect(funzioneArchivio('nexi', 'VDC')).toBe('Commissioni di incasso · Nexi VDC');
     expect(funzioneArchivio('nexi', 'PLM')).not.toBe(funzioneArchivio('nexi', 'VDC'));
     expect(funzioneArchivio('amex')).toBe('Commissioni di incasso · Amex');
+  });
+});
+
+describe('meseAtteso', () => {
+  it('a ottobre si aspetta settembre, a gennaio dicembre dell anno prima', () => {
+    expect(meseAtteso(new Date('2026-10-07T10:00:00Z'))).toEqual({ anno: 2026, mese: 9 });
+    expect(meseAtteso(new Date('2027-01-15T10:00:00Z'))).toEqual({ anno: 2026, mese: 12 });
+  });
+  it('usa l ora di Roma: la notte del primo del mese conta gia come mese nuovo', () => {
+    // 30/09 23:30 UTC = 01/10 01:30 a Roma
+    expect(meseAtteso(new Date('2026-09-30T23:30:00Z'))).toEqual({ anno: 2026, mese: 9 });
+  });
+});
+
+describe('ultimiCaricamenti', () => {
+  const contratto = (id: string, acquirer: string, outlet: string, attivo = true): ContrattoAcquirer => ({
+    id, outlet_id: null, outlet_code: outlet, acquirer, merchant_code: id, payment_contract: null,
+    settlement_mode: acquirer === 'amex' ? 'lordo' : 'netto', label: null, is_active: attivo,
+  });
+  const riga = (contract_id: string, mese: number, fee: number, fixed = 0, stamp = 0): RigaCaricata => ({
+    contract_id, period_year: 2026, period_month: mese, fee_amount: fee, fixed_amount: fixed, stamp_amount: stamp,
+  });
+  const contratti = [
+    contratto('ax1', 'amex', 'VDC'), contratto('ax2', 'amex', 'BRB'), contratto('ax0', 'amex', 'PLM', false),
+    contratto('ln2', 'nexi', 'VDC'), contratto('ln1', 'nexi', 'BRB'), contratto('lnX', 'nexi', 'OLD', false),
+  ];
+
+  it('Amex somma tutti i codici AX dell ultimo mese, Nexi uno per punto vendita attivo', () => {
+    const r = ultimiCaricamenti([
+      riga('ax1', 8, 10), riga('ax1', 9, 12.5), riga('ax2', 9, 7.5, 0, 2),
+      riga('ln2', 8, 300, 2.5, 2), riga('ln1', 7, 100),
+    ], contratti, { anno: 2026, mese: 9 });
+    expect(r.map(x => x.etichetta)).toEqual(['Amex', 'Nexi BRB', 'Nexi VDC']);
+    expect(r[0]).toMatchObject({ mese: 9, importo: 22, manca: false });
+    expect(r[1]).toMatchObject({ mese: 7, importo: 100, manca: true });
+    expect(r[2]).toMatchObject({ mese: 8, importo: 304.5, manca: true });
+  });
+
+  it('un documento mai caricato risulta mancante senza importo', () => {
+    const r = ultimiCaricamenti([], contratti, { anno: 2026, mese: 9 });
+    expect(r.every(x => x.manca && x.importo === null)).toBe(true);
   });
 });
