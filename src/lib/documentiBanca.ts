@@ -274,6 +274,47 @@ export type EsitoApplicazione = {
   }
 }
 
+/** Come sono finiti i file di un caricamento (uno stato per file). */
+export type ConteggioCaricamento = {
+  inCorso: number
+  fatti: number
+  nonCaricati: number
+  errori: number
+  daScegliere: number
+  domande: number
+}
+
+export type Chiusura = { tono: 'ok' | 'attenzione' | 'errore'; titolo: string; testo: string }
+
+/**
+ * Il messaggio di fine percorso, sotto la lista dei file: dice in chiaro se il
+ * lavoro e' finito e se resta qualcosa da fare (07/10/2026, Patrizio: «mi
+ * dovrebbe dire qualcosa, senno' non si capisce che e' finito»). Null finche'
+ * c'e' ancora un file in lettura.
+ */
+export function chiusuraCaricamento(c: ConteggioCaricamento): Chiusura | null {
+  const tot = c.fatti + c.nonCaricati + c.errori + c.daScegliere
+  if (c.inCorso > 0 || tot === 0) return null
+  const doc = (n: number) => (n === 1 ? '1 documento' : `${n} documenti`)
+  const file = (n: number) => (n === 1 ? '1 file' : `${n} file`)
+  const resto: string[] = []
+  if (c.daScegliere) resto.push(`per ${file(c.daScegliere)} manca solo il conto: sceglilo qui sopra`)
+  if (c.errori) resto.push(`${file(c.errori)} non ${c.errori === 1 ? 'è riuscito' : 'sono riusciti'}: il motivo è scritto in rosso accanto`)
+  if (c.nonCaricati) resto.push(`${file(c.nonCaricati)} non ${c.nonCaricati === 1 ? 'è stato caricato' : 'sono stati caricati'}: il motivo è scritto accanto`)
+  if (c.domande) resto.push(`${c.domande === 1 ? 'resta 1 cosa' : `restano ${c.domande} cose`} da chiarire nel riquadro «Da chiarire» qui sotto`)
+
+  if (c.fatti === 0) {
+    return { tono: c.errori ? 'errore' : 'attenzione', titolo: 'Nessun documento caricato', testo: `${capitalizza(resto.join('; '))}.` }
+  }
+  const base = `${capitalizza(doc(c.fatti))} ${c.fatti === 1 ? 'caricato e applicato' : 'caricati e applicati'}.`
+  if (resto.length === 0) {
+    return { tono: 'ok', titolo: 'Finito, tutti i dati sono aggiornati', testo: `${base} Non c'è niente da chiarire.` }
+  }
+  return { tono: c.errori || c.daScegliere ? 'attenzione' : 'ok', titolo: c.daScegliere ? 'Quasi finito' : 'Finito', testo: `${base} ${capitalizza(resto.join('; '))}.` }
+}
+
+const capitalizza = (t: string): string => (t ? t[0].toUpperCase() + t.slice(1) : t)
+
 const eur = (n: number): string => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 
 /**
@@ -288,6 +329,8 @@ export function fraseEsito(e: EsitoApplicazione): string {
   if (e.non_inseriti) pezzi.push(`${e.non_inseriti} non ${e.non_inseriti === 1 ? 'aggiunto' : 'aggiunti'}`)
   let frase = `${e.righe} movimenti: ${pezzi.join(', ')}.`
   const scarto = e.quadratura?.scarto_gestionale
+  const q = e.quadratura
+  if (q?.scarto_documento === 0 && typeof q.saldo_finale === 'number') frase += ` Saldo finale della banca ${eur(q.saldo_finale)}: torna.`
   if (scarto === 0) frase += ' Il periodo torna al centesimo.'
   else if (typeof scarto === 'number') frase += ` Scarto sul periodo: ${eur(scarto)}.`
   if (e.dopo_estratto) {

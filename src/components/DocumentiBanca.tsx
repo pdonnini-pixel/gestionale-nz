@@ -8,15 +8,15 @@
 //
 // Logica pura e testata in src/lib/documentiBanca.ts: qui c'e' solo il contorno.
 
-import { useCallback, useRef, useState } from 'react'
-import { FileUp, Loader2, Check, AlertTriangle, FileText, Info } from 'lucide-react'
+import { useCallback, useMemo, useRef, useState } from 'react'
+import { FileUp, Loader2, Check, AlertTriangle, FileText, Info, CheckCircle2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { extractPdfLines } from '../lib/pdfText'
 import { archiviaFile, collegaFileArchiviato } from '../lib/archivioFile'
 import {
   trovaConto, contoDaiMovimenti, righeIntestazione, classificaDocumento, saldiDichiarati, periodoDelle, righePerDb, leggiEstratto,
-  righeDaFoglio, fraseEsito, ETICHETTA_TIPO, leggiCarta, righeCartaPerDb, fraseEsitoCarta,
+  righeDaFoglio, fraseEsito, chiusuraCaricamento, ETICHETTA_TIPO, leggiCarta, righeCartaPerDb, fraseEsitoCarta,
   leggiDistintaMps, fraseEsitoDistinta, motivoNonSupportato,
   type ContoLite, type ContoTrovato, type TipoDocumento, type EsitoApplicazione,
   type EsitoCarta, type EsitoDistinta, type DistintaRiba,
@@ -38,6 +38,8 @@ type Voce = {
   esito?: EsitoApplicazione
   /** Esito gia' in parole (carte, distinte). */
   frase?: string
+  /** Domande nuove aperte da questo file, per il messaggio di fine percorso. */
+  domande?: number
   // dati letti, tenuti per applicare dopo la scelta del conto
   righe?: ReturnType<typeof righePerDb>
   saldi?: { iniziale: number | null; finale: number | null }
@@ -117,7 +119,8 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       // subito l'abbinamento invece di aspettare il giro notturno.
       try { await supabase.rpc('rerun_bijective_reconciliation') } catch { /* il giro notturno lo rifa' */ }
 
-      aggiorna(v.key, { stato: 'fatto', esito: esito as unknown as EsitoApplicazione })
+      const es = esito as unknown as EsitoApplicazione
+      aggiorna(v.key, { stato: 'fatto', esito: es, domande: es.domande_nuove ?? 0 })
       setChatKey((k) => k + 1)
       onRefresh?.()
     } catch (e) {
@@ -180,7 +183,8 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
         p_debit_date: carta.debit_date ?? undefined,
       })
       if (error) throw error
-      aggiorna(v.key, { stato: 'fatto', frase: fraseEsitoCarta(esito as unknown as EsitoCarta) })
+      const es = esito as unknown as EsitoCarta
+      aggiorna(v.key, { stato: 'fatto', frase: fraseEsitoCarta(es), domande: es.domande_nuove ?? 0 })
       setChatKey((k) => k + 1)
       onRefresh?.()
     } catch (e) {
@@ -226,11 +230,12 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
         p_conto: dist.conto ?? undefined,
       })
       if (error) throw error
-      let frase = fraseEsitoDistinta(esito as unknown as EsitoDistinta)
+      const es = esito as unknown as EsitoDistinta
+      let frase = fraseEsitoDistinta(es)
       if (dist.nDichiarate != null && dist.nDichiarate !== dist.disposizioni.length) {
         frase += ` Attenzione: la distinta dichiara ${dist.nDichiarate} effetti e ne ho letti ${dist.disposizioni.length}.`
       }
-      aggiorna(v.key, { stato: 'fatto', frase })
+      aggiorna(v.key, { stato: 'fatto', frase, domande: es.domande_nuove ?? 0 })
       setChatKey((k) => k + 1)
       onRefresh?.()
     } catch (e) {
@@ -320,6 +325,17 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       aggiorna(key, { stato: 'errore', messaggio: `Non sono riuscito a leggere il file: ${e instanceof Error ? e.message : String(e)}` })
     }
   }, [accounts, aggiorna, applica, applicaCarta, applicaDistinta])
+
+  // Il messaggio di fine percorso: senza, una lista di righe verdi non dice
+  // se il lavoro e' finito e se resta qualcosa da fare.
+  const chiusura = useMemo(() => chiusuraCaricamento({
+    inCorso: voci.filter((v) => v.stato === 'lettura' || v.stato === 'applicazione').length,
+    fatti: voci.filter((v) => v.stato === 'fatto').length,
+    nonCaricati: voci.filter((v) => v.stato === 'altro').length,
+    errori: voci.filter((v) => v.stato === 'errore').length,
+    daScegliere: voci.filter((v) => v.stato === 'scegli_conto').length,
+    domande: voci.reduce((n, v) => n + (v.stato === 'fatto' ? v.domande ?? 0 : 0), 0),
+  }), [voci])
 
   const caricaFile = useCallback((lista: FileList | File[] | null) => {
     if (!lista) return
@@ -431,6 +447,24 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {chiusura && (
+        <div
+          role="status"
+          className={`rounded-xl border p-4 flex items-start gap-3 ${
+            chiusura.tono === 'ok' ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+              : chiusura.tono === 'errore' ? 'bg-red-50 border-red-200 text-red-900'
+              : 'bg-amber-50 border-amber-200 text-amber-900'}`}
+        >
+          {chiusura.tono === 'ok'
+            ? <CheckCircle2 size={22} className="shrink-0 text-emerald-600" />
+            : <AlertTriangle size={22} className="shrink-0" />}
+          <div>
+            <div className="font-semibold">{chiusura.titolo}</div>
+            <div className="text-sm mt-0.5">{chiusura.testo}</div>
+          </div>
         </div>
       )}
 

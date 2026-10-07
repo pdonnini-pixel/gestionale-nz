@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   ibanNelTesto, trovaConto, classificaDocumento, saldiDichiarati, periodoDelle,
-  righePerDb, leggiEstratto, fraseEsito, normIban, numeroConto, righeIntestazione,
+  righePerDb, leggiEstratto, fraseEsito, chiusuraCaricamento, normIban, numeroConto, righeIntestazione,
   contoDaiMovimenti, leggiDistintaMps, numeriDallaCausale, fraseEsitoDistinta, righeCartaPerDb,
   fraseEsitoCarta, motivoNonSupportato, type ContoLite,
 } from './documentiBanca'
@@ -153,6 +153,40 @@ describe('esito in una frase', () => {
   it('movimenti registrati dalla banca dopo la stampa: si dice, non si chiede', () => {
     expect(fraseEsito({ righe: 595, confermati: 595, corretti: 0, inseriti: 0, ambigui: 0, altro_conto: 0, non_inseriti: 0, domande_nuove: 0, dopo_estratto: 8, quadratura: { scarto_gestionale: 0 } }))
       .toBe('595 movimenti: 595 già a posto. Il periodo torna al centesimo. 8 movimenti la banca li ha registrati dopo questo estratto: li controllo con il prossimo.')
+  })
+  it('PDF con i saldi: dice che il saldo della banca torna', () => {
+    expect(fraseEsito({ righe: 20, confermati: 20, corretti: 0, inseriti: 0, ambigui: 0, altro_conto: 0, non_inseriti: 0, domande_nuove: 0, dopo_estratto: 0, quadratura: { saldo_iniziale: 20425.14, saldo_finale: 16961.66, scarto_documento: 0, scarto_gestionale: 0 } }))
+      .toBe('20 movimenti: 20 già a posto. Saldo finale della banca 16.961,66 €: torna. Il periodo torna al centesimo.')
+  })
+})
+
+describe('messaggio di fine caricamento', () => {
+  const zero = { inCorso: 0, fatti: 0, nonCaricati: 0, errori: 0, daScegliere: 0, domande: 0 }
+  it('finche\' un file e\' in lettura non dice niente', () => {
+    expect(chiusuraCaricamento({ ...zero, inCorso: 1, fatti: 1 })).toBeNull()
+    expect(chiusuraCaricamento(zero)).toBeNull()
+  })
+  it('tutto a posto', () => {
+    expect(chiusuraCaricamento({ ...zero, fatti: 2 })).toEqual({
+      tono: 'ok', titolo: 'Finito, tutti i dati sono aggiornati',
+      testo: '2 documenti caricati e applicati. Non c\'è niente da chiarire.',
+    })
+  })
+  it('con domande e un file non caricato', () => {
+    expect(chiusuraCaricamento({ ...zero, fatti: 1, nonCaricati: 1, domande: 2 })).toEqual({
+      tono: 'ok', titolo: 'Finito',
+      testo: '1 documento caricato e applicato. 1 file non è stato caricato: il motivo è scritto accanto; restano 2 cose da chiarire nel riquadro «Da chiarire» qui sotto.',
+    })
+  })
+  it('manca il conto: quasi finito', () => {
+    const c = chiusuraCaricamento({ ...zero, fatti: 1, daScegliere: 1 })
+    expect(c?.tono).toBe('attenzione')
+    expect(c?.titolo).toBe('Quasi finito')
+  })
+  it('niente caricato per errore', () => {
+    expect(chiusuraCaricamento({ ...zero, errori: 1 })).toEqual({
+      tono: 'errore', titolo: 'Nessun documento caricato', testo: '1 file non è riuscito: il motivo è scritto in rosso accanto.',
+    })
   })
 })
 
