@@ -9,7 +9,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { SCHEDULE_MODE_GROUPS, findScheduleMode, derivePlan, computeInstallments, scheduleModeText, SCHEDULE_GROUP_TEXT } from '../../lib/paymentSchedule';
 import { PAYMENT_METHOD_ALIAS, DOCUMENT_TYPE_OPTIONS, normalizeDocumentType } from './helpers';
 
-export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string }
+export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string; document_type: string }
 export type ScheduleLike = Record<string, unknown> & { id?: string; gross_amount?: number | null; due_date?: string | null; status?: string | null; invoice_number?: string | null }
 export const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { schedule: ScheduleLike; onUpdate: (s: ScheduleLike) => void; onSave: (data: EditSchedulePayload) => void }) => {
   const [formData, setFormData] = useState<EditSchedulePayload>({
@@ -22,10 +22,22 @@ export const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { s
     status: ['da_pagare', 'pagato', 'parziale'].includes(String(schedule.status || ''))
       ? String(schedule.status)
       : 'da_pagare',
+    document_type: String(schedule.document_type || 'fattura'),
   });
+  // Le scadenze fiscali (id fiscal_…) non sono documenti di un fornitore.
+  const isFiscal = String(schedule.id || '').startsWith('fiscal_');
 
   return (
     <div className="space-y-3">
+      {!isFiscal && (
+        <div>
+          <label className="text-sm font-medium text-slate-700 mb-1 block">Tipo documento</label>
+          <select value={formData.document_type} onChange={e => setFormData({ ...formData, document_type: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+            {DOCUMENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </div>
+      )}
       <div>
         <label className="text-sm font-medium text-slate-700 mb-1 block">Importo</label>
         <input type="number" step="0.01" value={formData.amount} onChange={e => setFormData({ ...formData, amount: Number(e.target.value) })}

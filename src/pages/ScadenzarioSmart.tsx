@@ -957,6 +957,8 @@ const ScadenzarioSmart = () => {
         const baseRow: AnyRow = {
           id: row.id || undefined,
           invoice_number: row.invoice_number || '-',
+          // Tipo documento (migration 269): NULL = fattura.
+          document_type: (row.document_type as string | null) ?? null,
           invoice_date: row.invoice_date,
           due_date: row.due_date,
           original_due_date: row.original_due_date,
@@ -2067,7 +2069,7 @@ const ScadenzarioSmart = () => {
     }
   }, [suppliers, modals, COMPANY_ID]);
 
-  type ScheduleData = { id: string; amount?: number; due_date?: string; status?: string; amount_paid?: number }
+  type ScheduleData = { id: string; amount?: number; due_date?: string; status?: string; amount_paid?: number; document_type?: string }
   // Mapping bidirezionale status payables <-> fiscal_deadlines
   const mapStatusToFiscal = (payableStatus?: string): string => {
     switch (payableStatus) {
@@ -2105,6 +2107,22 @@ const ScadenzarioSmart = () => {
           amount_paid: newPaid,
         } as never).eq('id', scheduleData.id);
         if (error) throw new Error(error.message);
+        // Tipo documento: si scrive solo se cambiato (NULL = fattura). Vale per
+        // il documento intero, quindi anche per le altre rate dello stesso
+        // documento (stesso fornitore, numero e data).
+        const orig = modals.editSchedule.schedule as AnyRow | null;
+        const prevType = (orig?.document_type as string | null) || 'fattura';
+        const nextType = scheduleData.document_type || 'fattura';
+        if (orig && nextType !== prevType) {
+          const dbType = nextType === 'fattura' ? null : nextType;
+          const num = String(orig.invoice_number || '').trim();
+          let q = supabase.from('payables').update({ document_type: dbType } as never);
+          q = num && num !== '-' && orig.supplier_id && orig.invoice_date
+            ? q.eq('supplier_id', orig.supplier_id as string).eq('invoice_number', num).eq('invoice_date', orig.invoice_date as string)
+            : q.eq('id', scheduleData.id);
+          const { error: dtErr } = await q;
+          if (dtErr) throw new Error(dtErr.message);
+        }
       }
       setModals({ ...modals, editSchedule: { open: false, schedule: null } });
       toast({ type: 'success', message: `Scadenza aggiornata: € ${newAmount.toLocaleString('de-DE', { minimumFractionDigits: 2 })}` });
