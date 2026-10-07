@@ -222,12 +222,15 @@ export type RigaPerDb = {
  * confronta l'importo in valore assoluto e non inserisce righe senza segno.
  */
 export function righePerDb(parsed: EcParsed, dalPdf: boolean): RigaPerDb[] {
+  // Il segno si perde nei PDF a colonne dare/avere; alcuni PDF (BCC Relax Banking)
+  // lo portano scritto, e allora vale come in un Excel.
+  const conSegno = !dalPdf || parsed.segnoNoto === true
   return parsed.rows.map((r: EcRow, i: number) => ({
     row_no: i + 1,
     date: r.date,
     value_date: r.value_date,
-    amount: dalPdf ? Math.abs(r.amount) : r.amount,
-    sign_known: !dalPdf,
+    amount: conSegno ? r.amount : Math.abs(r.amount),
+    sign_known: conSegno,
     description: r.description,
     flusso_cbi: r.flusso_cbi,
     beneficiario: extractBeneficiary(r.description) || null,
@@ -259,6 +262,8 @@ export type EsitoApplicazione = {
   altro_conto: number
   non_inseriti: number
   domande_nuove: number
+  /** Movimenti del gestionale che la banca ha registrato dopo l'ultimo giorno dell'estratto (migration 269). */
+  dopo_estratto?: number
   quadratura?: {
     periodo_da?: string
     periodo_a?: string
@@ -268,6 +273,47 @@ export type EsitoApplicazione = {
     scarto_gestionale?: number | null
   }
 }
+
+/** Come sono finiti i file di un caricamento (uno stato per file). */
+export type ConteggioCaricamento = {
+  inCorso: number
+  fatti: number
+  nonCaricati: number
+  errori: number
+  daScegliere: number
+  domande: number
+}
+
+export type Chiusura = { tono: 'ok' | 'attenzione' | 'errore'; titolo: string; testo: string }
+
+/**
+ * Il messaggio di fine percorso, sotto la lista dei file: dice in chiaro se il
+ * lavoro e' finito e se resta qualcosa da fare (07/10/2026, Patrizio: «mi
+ * dovrebbe dire qualcosa, senno' non si capisce che e' finito»). Null finche'
+ * c'e' ancora un file in lettura.
+ */
+export function chiusuraCaricamento(c: ConteggioCaricamento): Chiusura | null {
+  const tot = c.fatti + c.nonCaricati + c.errori + c.daScegliere
+  if (c.inCorso > 0 || tot === 0) return null
+  const doc = (n: number) => (n === 1 ? '1 documento' : `${n} documenti`)
+  const file = (n: number) => (n === 1 ? '1 file' : `${n} file`)
+  const resto: string[] = []
+  if (c.daScegliere) resto.push(`per ${file(c.daScegliere)} manca solo il conto: sceglilo qui sopra`)
+  if (c.errori) resto.push(`${file(c.errori)} non ${c.errori === 1 ? 'è riuscito' : 'sono riusciti'}: il motivo è scritto in rosso accanto`)
+  if (c.nonCaricati) resto.push(`${file(c.nonCaricati)} non ${c.nonCaricati === 1 ? 'è stato caricato' : 'sono stati caricati'}: il motivo è scritto accanto`)
+  if (c.domande) resto.push(`${c.domande === 1 ? 'resta 1 cosa' : `restano ${c.domande} cose`} da chiarire nel riquadro «Da chiarire» qui sotto`)
+
+  if (c.fatti === 0) {
+    return { tono: c.errori ? 'errore' : 'attenzione', titolo: 'Nessun documento caricato', testo: `${capitalizza(resto.join('; '))}.` }
+  }
+  const base = `${capitalizza(doc(c.fatti))} ${c.fatti === 1 ? 'caricato e applicato' : 'caricati e applicati'}.`
+  if (resto.length === 0) {
+    return { tono: 'ok', titolo: 'Finito, tutti i dati sono aggiornati', testo: `${base} Non c'è niente da chiarire.` }
+  }
+  return { tono: c.errori || c.daScegliere ? 'attenzione' : 'ok', titolo: c.daScegliere ? 'Quasi finito' : 'Finito', testo: `${base} ${capitalizza(resto.join('; '))}.` }
+}
+
+const capitalizza = (t: string): string => (t ? t[0].toUpperCase() + t.slice(1) : t)
 
 const eur = (n: number): string => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'
 
@@ -283,8 +329,15 @@ export function fraseEsito(e: EsitoApplicazione): string {
   if (e.non_inseriti) pezzi.push(`${e.non_inseriti} non ${e.non_inseriti === 1 ? 'aggiunto' : 'aggiunti'}`)
   let frase = `${e.righe} movimenti: ${pezzi.join(', ')}.`
   const scarto = e.quadratura?.scarto_gestionale
+  const q = e.quadratura
+  if (q?.scarto_documento === 0 && typeof q.saldo_finale === 'number') frase += ` Saldo finale della banca ${eur(q.saldo_finale)}: torna.`
   if (scarto === 0) frase += ' Il periodo torna al centesimo.'
   else if (typeof scarto === 'number') frase += ` Scarto sul periodo: ${eur(scarto)}.`
+  if (e.dopo_estratto) {
+    frase += e.dopo_estratto === 1
+      ? ' Un movimento la banca l\'ha registrato dopo questo estratto: lo controllo con il prossimo.'
+      : ` ${e.dopo_estratto} movimenti la banca li ha registrati dopo questo estratto: li controllo con il prossimo.`
+  }
   if (e.domande_nuove) frase += ` ${e.domande_nuove === 1 ? 'Una cosa da chiederti' : `${e.domande_nuove} cose da chiederti`} qui sotto.`
   return frase
 }

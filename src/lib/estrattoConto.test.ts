@@ -240,3 +240,58 @@ describe('estratto conto MPS, tracciato vero', () => {
     expect(m[0].esito).toBe('ambiguo')
   })
 })
+
+// Stampa BCC «Relax Banking» (dati inventati, stessa forma delle righe che
+// pdfText ricostruisce dal PDF vero): importo col segno PRIMA della descrizione,
+// descrizione lunga spezzata sopra e sotto la riga con le date.
+describe('parseEcLines — PDF BCC Relax Banking', () => {
+  const pagina = (n: number, corpo: string[]) => [
+    'Credito Cooperativo Esempio',
+    'Conto 00000 00000 000000123456 conti correnti passivi AZIENDA DI PROVA S.R.L.',
+    'Saldo contabile 1.000,00',
+    'Data contabile Data valuta Importo Descrizione',
+    ...corpo,
+    `Stampa da Relax Banking per il contratto: AZIENDA DI PROVA S.R.L. in data 04/09/2030 08.00.00 Pagina ${n} di 2`,
+  ]
+  const righe = [
+    ...pagina(1, [
+      '03/09/2030 1.000,00 Saldo finale al 03/09/2030',
+      '02/09/2030 02/09/2030 500,00 Versamento contante - cassa contin 1.9.30',
+      '25/08/2030 25/08/2030 -0,70 Commissioni su bonifico tramite co',
+      'Bonifico tramite corporate banking *FORNITORE UNO S.R.L. SALDO',
+      '25/08/2030 25/08/2030 -300,00',
+      'FATTURA 12, ID.BON:0000000000000000000000000001IT',
+    ]),
+    ...pagina(2, [
+      'Bonifico tramite corporate banking *FORNITORE DUE SF-7,',
+      '07/08/2030 07/08/2030 -199,30',
+      'ID.BON:0000000000000000000000000002IT',
+      '05/08/2030 05/08/2030 1.000,00 Versamento contante - cassa contin 4.8.30',
+      '03/08/2030 0,00 Saldo iniziale al 03/08/2030',
+    ]),
+  ]
+  const p = parseEcLines(righe)
+
+  it('legge tutti i movimenti, col segno, e ricompone la descrizione spezzata', () => {
+    expect(p.segnoNoto).toBe(true)
+    expect(p.rows.map((r) => [r.date, r.value_date, r.amount])).toEqual([
+      ['2030-09-02', '2030-09-02', 500],
+      ['2030-08-25', '2030-08-25', -0.7],
+      ['2030-08-25', '2030-08-25', -300],
+      ['2030-08-07', '2030-08-07', -199.3],
+      ['2030-08-05', '2030-08-05', 1000],
+    ])
+    expect(p.rows[2].description).toBe('Bonifico tramite corporate banking *FORNITORE UNO S.R.L. SALDO FATTURA 12, ID.BON:0000000000000000000000000001IT')
+    expect(p.rows[3].description).toBe('Bonifico tramite corporate banking *FORNITORE DUE SF-7, ID.BON:0000000000000000000000000002IT')
+  })
+
+  it('legge i saldi del documento, e quadrano con i movimenti', () => {
+    expect(p.saldi).toEqual({ iniziale: 0, finale: 1000 })
+    const somma = p.rows.reduce((a, r) => a + r.amount, 0)
+    expect(Math.round(((p.saldi?.iniziale ?? 0) + somma) * 100) / 100).toBe(1000)
+  })
+
+  it('le intestazioni ripetute a ogni pagina non diventano descrizioni', () => {
+    expect(p.rows.every((r) => !/Credito Cooperativo|Stampa da Relax|Saldo contabile/.test(r.description))).toBe(true)
+  })
+})

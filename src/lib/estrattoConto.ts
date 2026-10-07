@@ -42,6 +42,10 @@ export type EcParsed = {
   /** Intestazioni riconosciute, per farle vedere in pagina quando qualcosa non torna */
   columns: Record<string, number> | null
   warnings: string[]
+  /** Il documento porta il segno degli importi (vale per tutti gli Excel e per alcuni PDF) */
+  segnoNoto?: boolean
+  /** Saldi scritti nel documento, quando il lettore li riconosce */
+  saldi?: { iniziale: number | null; finale: number | null }
 }
 
 export type EcMovement = {
@@ -253,8 +257,81 @@ export function parseEcAoa(aoa: unknown[][]): EcParsed {
 // e viene provato con entrambi i segni in fase di abbinamento.
 const RE_PDF_ROW = /^(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\s+(?:(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4})\s+)?(.+?)\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s*$/
 
+// PDF «Relax Banking» delle BCC (Figline, Mugello): «contabile valuta importo
+// descrizione», con l'importo PRIMA della descrizione e GIA' col segno. Quando la
+// descrizione e' lunga la stampa la spezza: meta' sulla riga sopra e meta' su
+// quella sotto la riga con le date, che resta senza testo:
+//   Bonifico tramite corporate banking *ALFATECNO S.R.L. SALDO
+//   25/08/2026 25/08/2026 -3.050,00
+//   FATTURA 99, ID.BON:0832500021967910483773002800IT
+// Il lettore generico (importo in coda) prendeva solo le righe senza testo, con la
+// data al posto della causale e senza segno: a settembre 2026 ha letto 6 righe su
+// 21 a Mugello e 135 su 170 a Figline, e le mancanti sono diventate domande.
+const RE_RELAX = /Relax Banking|Data contabile\s+Data valuta\s+Importo\s+Descrizione/i
+const RE_RELAX_ROW = /^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})(?:\s+(.*))?$/
+const RE_RELAX_SALDO = /^(\d{2}\/\d{2}\/\d{4})\s+(-?\d{1,3}(?:\.\d{3})*,\d{2})\s+Saldo\s+(iniziale|finale)\b/i
+const RE_RELAX_INTESTAZIONE = /^Data contabile\s+Data valuta\s+Importo\s+Descrizione/i
+const RE_RELAX_PIEDE = /^Stampa da Relax Banking|Pagina\s+\d+\s+di\b/i
+
+export function isRelaxBanking(lines: string[]): boolean {
+  return lines.some((l) => RE_RELAX.test(l))
+}
+
+export function parseRelaxBanking(lines: string[]): EcParsed {
+  type Tok = { kind: 'row'; date: string; value_date: string | null; amount: number; text: string } | { kind: 'text'; text: string; usato: boolean } | { kind: 'stop' }
+  const toks: Tok[] = []
+  const saldi: { iniziale: number | null; finale: number | null } = { iniziale: null, finale: null }
+  let inCorpo = false
+  for (const raw of lines) {
+    const l = norm(raw)
+    if (!l) continue
+    if (RE_RELAX_INTESTAZIONE.test(l)) { inCorpo = true; toks.push({ kind: 'stop' }); continue }
+    if (RE_RELAX_PIEDE.test(l)) { inCorpo = false; toks.push({ kind: 'stop' }); continue }
+    if (!inCorpo) continue
+    const sa = RE_RELAX_SALDO.exec(l)
+    if (sa) {
+      const v = parseAmountCell(sa[2])
+      if (/iniziale/i.test(sa[3])) saldi.iniziale = v
+      else saldi.finale = v
+      toks.push({ kind: 'stop' })
+      continue
+    }
+    const m = RE_RELAX_ROW.exec(l)
+    if (m) {
+      const date = parseDateCell(m[1])
+      const amount = parseAmountCell(m[3])
+      if (date && amount != null && amount !== 0) {
+        toks.push({ kind: 'row', date, value_date: parseDateCell(m[2]), amount, text: norm(m[4] ?? '') })
+        continue
+      }
+    }
+    toks.push({ kind: 'text', text: l, usato: false })
+  }
+  const rows: EcRow[] = []
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i]
+    if (t.kind !== 'row') continue
+    let description = t.text
+    if (!description) {
+      // Riga senza testo: la descrizione e' la riga sopra e quella sotto.
+      const parti: string[] = []
+      const sopra = toks[i - 1]
+      if (sopra && sopra.kind === 'text' && !sopra.usato) { parti.push(sopra.text); sopra.usato = true }
+      const sotto = toks[i + 1]
+      if (sotto && sotto.kind === 'text' && !sotto.usato) { parti.push(sotto.text); sotto.usato = true }
+      description = parti.join(' ')
+    }
+    if (description.length < 3) description = 'Movimento senza descrizione'
+    rows.push({ date: t.date, value_date: t.value_date, amount: t.amount, description, flusso_cbi: flussoCbiDi(description) })
+  }
+  const warnings: string[] = []
+  if (rows.length === 0) warnings.push('Nel PDF BCC non ho riconosciuto nessun movimento.')
+  return { rows, columns: null, warnings, segnoNoto: true, saldi }
+}
+
 /** Estratto conto in PDF: una riga per movimento, importo in coda. */
 export function parseEcLines(lines: string[]): EcParsed {
+  if (isRelaxBanking(lines)) return parseRelaxBanking(lines)
   const rows: EcRow[] = []
   const warnings: string[] = []
   for (const raw of lines) {

@@ -813,6 +813,21 @@ arrivano dalle chiusure di cassa); prospetti dei fornitori come l'«Analisi scad
 (non sono documenti della banca, quindi non comandano); estratti commissioni Nexi/Amex (per
 ora in Banche → Commissioni); distinte RiBa diverse da quella MPS e carte di altri emittenti.
 
+**Incidente del 06/10/2026 (primo caricamento vero di Sabrina, settembre) e cosa ne resta come regola.**
+- *Date degli Excel.* La libreria Excel crea la data alla mezzanotte del fuso del browser; letta in
+  UTC, a Roma diventava il giorno prima. Il motore, obbedendo alla R27, ha spostato indietro di un
+  giorno data, valuta e contabile di 777 movimenti (MPS 595, BCC Figline 161, BCC Mugello 21) e ha
+  aperto domande false sul 31/08. Corretto (#626: la data si legge a mezzogiorno), riprodotto con
+  `TZ=Europe/Rome` sul file MPS vero. Dati ripristinati il 07/10 dalla traccia di
+  `document_corrections` (copie in `_bkp_20261007_*`), domande archiviate, i tre Excel ripassati:
+  tutto confermato, 11 domande vere. **Regola:** ogni lettore di date si prova anche con
+  `TZ=Europe/Rome`, perché il computer di prova sta in UTC e il browser di chi lavora no.
+- *PDF BCC.* La stampa «Relax Banking» mette l'importo, col segno, prima della descrizione, e spezza
+  la descrizione lunga sopra e sotto la riga con le date. Il lettore generico ne prendeva solo le
+  righe senza testo (6 su 21 a Mugello, 135 su 170 a Figline): le mancanti sono diventate domande.
+  Ora c'e' un lettore apposta (`parseRelaxBanking`): sui PDF veri di agosto 20 righe su 20 e 190 su
+  190, saldo iniziale + movimenti = saldo finale al centesimo; il segno vale come in un Excel.
+
 ---
 
 ### R28: Quando qualcosa non torna, il sistema lo chiede a Sabrina in chat
@@ -882,3 +897,11 @@ migration vanno sui 3 tenant.
   chiusa di azioni: conferma, doppione, conto_sbagliato, non_so, chiarimento, informazione).
   Nessuna azione cancella o sposta: doppioni e conti sbagliati vengono annotati sul movimento
   per la conferma di Patrizio. Numerino delle domande aperte sulla voce Banche del menu.
+
+### Domande che il sistema sa già (07/10/2026, migration 269)
+
+Dopo gli estratti di settembre (Excel stampati fino al 05/10) la chat «Da chiarire» aveva 11 domande. Nessuna era vera:
+- 9 movimenti «che l'estratto non contiene» la banca li aveva registrati il 06/10, dopo la stampa. L'open banking lo dice in `raw_data.extra.postingDate`, che su 786 movimenti di settembre confermati coincide sempre con la data contabile dell'estratto.
+- 2 domande «quadratura» ripetevano in un numero la somma delle altre.
+
+Regola: un movimento assente dall'estratto con `postingDate` oltre l'ultimo giorno dell'estratto, o in stato `pending`, non si chiede e non entra nello scarto (si conta in `dopo_estratto` e lo conferma l'estratto successivo). La quadratura resta nel riepilogo, non è mai una domanda. La domanda che resta dice cosa guardare e cosa rispondere («c'è» / «non c'è»).
