@@ -215,6 +215,10 @@ export default function OpenBankingAcube({ onSynced }: { onSynced?: () => void }
       onSynced?.()
     } catch (err) {
       toast({ type: 'error', message: err instanceof Error ? err.message : 'Errore sync banche' })
+      // Anche se i movimenti non sono arrivati, i saldi del primo passaggio possono
+      // essere già cambiati: si mostrano subito, senza dover ricaricare la pagina.
+      await loadData()
+      onSynced?.()
     }
   }
 
