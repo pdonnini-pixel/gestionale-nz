@@ -12,6 +12,10 @@
 //   - "list"       → elenco utenti dell'azienda (profilo + email + stato accesso)
 //   - "invite"     → crea un login e invia l'email di invito (l'utente imposta la
 //                    password su /reset-password). Crea/aggiorna user_profiles.
+//                    Con delivery="password" non manda email: crea il login gia'
+//                    confermato con una password generata, restituita UNA volta
+//                    (serve quando l'email di invito non arriva o la casella
+//                    non e' letta, es. account di negozio).
 //   - "set_role"   → cambia ruolo (app_metadata.role + user_profiles.role)
 //   - "set_active" → blocca/sblocca l'accesso (ban dell'utente auth)
 //   - "delete"     → revoca il login (elimina l'utente auth + user_profiles)
@@ -21,7 +25,7 @@
 //                    all'utente (es. account di negozio senza email attiva):
 //                    nessuna email automatica.
 //
-// Body: { action, email?, first_name?, last_name?, phone?, role?, user_id?, active?, redirectTo?, outlet_id?, company_id? }
+// Body: { action, delivery?, email?, first_name?, last_name?, phone?, role?, user_id?, active?, redirectTo?, outlet_id?, company_id? }
 //
 // outlet_id (solo per il ruolo operatore_cassa = account di negozio): l'outlet
 // su cui l'account compila la chiusura di cassa. Viene scritto in
@@ -137,7 +141,7 @@ Deno.serve(async (req: Request) => {
       return jsonOk({ users: list });
     }
 
-    // ───────── INVITE (crea login + email di invito) ─────────
+    // ───────── INVITE (crea login + email di invito, oppure password generata) ─────────
     if (action === "invite") {
       const email = String(body.email ?? "").trim().toLowerCase();
       const role = String(body.role ?? "operatore_cassa");
@@ -147,17 +151,31 @@ Deno.serve(async (req: Request) => {
         return jsonError(400, "Per l'operatore di cassa serve il punto vendita (outlet_id).");
       }
       const redirectTo = String(body.redirectTo ?? "");
+      const userMeta = { first_name: body.first_name ?? "", last_name: body.last_name ?? "" };
+      const withPassword = body.delivery === "password";
 
-      const { data: inv, error: invErr } = await admin.auth.admin.inviteUserByEmail(email, {
-        data: { first_name: body.first_name ?? "", last_name: body.last_name ?? "" },
-        ...(redirectTo ? { redirectTo } : {}),
-      });
-      if (invErr || !inv?.user) return jsonError(400, `Invito non riuscito: ${invErr?.message ?? "sconosciuto"}`);
+      let newUserId: string;
+      let password: string | null = null;
+      if (withPassword) {
+        password = generatePassword();
+        const { data: cr, error: crErr } = await admin.auth.admin.createUser({
+          email, password, email_confirm: true, user_metadata: userMeta,
+        });
+        if (crErr || !cr?.user) return jsonError(400, `Creazione utente non riuscita: ${crErr?.message ?? "sconosciuto"}`);
+        newUserId = cr.user.id;
+      } else {
+        const { data: inv, error: invErr } = await admin.auth.admin.inviteUserByEmail(email, {
+          data: userMeta,
+          ...(redirectTo ? { redirectTo } : {}),
+        });
+        if (invErr || !inv?.user) return jsonError(400, `Invito non riuscito: ${invErr?.message ?? "sconosciuto"}`);
+        newUserId = inv.user.id;
+      }
 
       // Ruolo nel JWT (app_metadata) + profilo aziendale
-      await admin.auth.admin.updateUserById(inv.user.id, { app_metadata: { role } });
+      await admin.auth.admin.updateUserById(newUserId, { app_metadata: { role } });
       await admin.from("user_profiles").upsert({
-        id: inv.user.id,
+        id: newUserId,
         company_id: myCompany,
         first_name: body.first_name ?? null,
         last_name: body.last_name ?? null,
@@ -166,10 +184,10 @@ Deno.serve(async (req: Request) => {
         role,
       }, { onConflict: "id" });
 
-      const outletErr = await assignOutlet(inv.user.id, role, body.outlet_id);
+      const outletErr = await assignOutlet(newUserId, role, body.outlet_id);
       if (outletErr) return jsonError(400, outletErr);
 
-      return jsonOk({ ok: true, user_id: inv.user.id, invited: email });
+      return jsonOk({ ok: true, user_id: newUserId, invited: email, ...(password ? { password } : {}) });
     }
 
     // Da qui in poi serve un user_id target della propria azienda
