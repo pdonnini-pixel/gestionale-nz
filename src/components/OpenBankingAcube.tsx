@@ -62,7 +62,10 @@ function fmt(n: number | null | undefined, ccy = 'EUR'): string {
   return new Intl.NumberFormat('de-DE', { style: 'currency', currency: ccy, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
 }
 
-export default function OpenBankingAcube() {
+// onSynced: avvisa la pagina che ospita il riquadro (Banche) che saldi e
+// movimenti sono cambiati, così ricarica anche Panoramica, Movimenti e
+// Riconciliazione senza dover ricaricare il browser.
+export default function OpenBankingAcube({ onSynced }: { onSynced?: () => void } = {}) {
   const { toast } = useToast()
   const { profile } = useAuth()
   const acube = useAcubeOB()
@@ -173,6 +176,7 @@ export default function OpenBankingAcube() {
       toast({ type: 'success', message: `Sincronizzati ${r.bank_upserted ?? 0} conti dalla banca.` })
       setPendingConnectUrl(null)
       await loadData()
+      onSynced?.()
     } catch (err) {
       toast({ type: 'error', message: err instanceof Error ? err.message : 'Errore sync conti' })
     }
@@ -208,8 +212,13 @@ export default function OpenBankingAcube() {
         window.dispatchEvent(new CustomEvent('sync-runs-updated', { detail: { feed: 'banche' } }))
       } catch { /* il sync è già andato a buon fine: non bloccare */ }
       await loadData()
+      onSynced?.()
     } catch (err) {
       toast({ type: 'error', message: err instanceof Error ? err.message : 'Errore sync banche' })
+      // Anche se i movimenti non sono arrivati, i saldi del primo passaggio possono
+      // essere già cambiati: si mostrano subito, senza dover ricaricare la pagina.
+      await loadData()
+      onSynced?.()
     }
   }
 

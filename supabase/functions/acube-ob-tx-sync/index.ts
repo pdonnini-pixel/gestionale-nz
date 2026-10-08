@@ -191,7 +191,9 @@ Deno.serve(async (req: Request) => {
       const nextRel: string | undefined = data["hydra:view"]?.["hydra:next"] ?? data.next ?? null;
       nextUrl = nextRel ? buildUrl(nextRel) : null;
       pages++;
-      if (items.length === 0) break;
+      // Pagina non piena = ultima pagina, come nel cron RPC. Non fidarsi solo di
+      // hydra:next evita giri a vuoto fino al tetto di pagine.
+      if (items.length < 100) break;
     }
 
     // Lookup map: acube_account_uuid → bank_accounts.id (per insert in bank_transactions)
@@ -215,6 +217,15 @@ Deno.serve(async (req: Request) => {
         String(b.id ?? b.uuid ?? b.transactionId ?? "")));
     const occSeen = new Map<string, number>();
 
+    // Scrittura A BLOCCHI. Prima ogni movimento faceva 2-3 chiamate al database una dopo
+    // l'altra: con 60 giorni di movimenti (oltre 1.400 righe su NZ) la funzione superava
+    // il limite di 150 secondi, veniva interrotta senza rispondere e il pulsante
+    // «Aggiorna conti e movimenti» restava a girare all'infinito (08/10/2026).
+    const { data: knownAccs } = await supabase.from("acube_accounts").select("uuid");
+    const knownAcubeAccounts = new Set(((knownAccs ?? []) as Array<{ uuid: string }>).map((r) => r.uuid));
+    const stagingRows: Record<string, unknown>[] = [];
+    const bankRowsToInsert: Record<string, unknown>[] = [];
+
     for (const t of txs) {
       const txid: string = t.id ?? t.uuid ?? t.transactionId;
       if (!txid) continue;
@@ -230,39 +241,33 @@ Deno.serve(async (req: Request) => {
       const status: string = (t.status ?? "BOOKED").toString().toUpperCase();
       const hash = dedupHash(accountUuid, txid, madeOn, amount);
 
-      // Se il movimento e' gia' in staging si salta l'insert in acube_transactions, ma NON si
-      // salta il bridge verso bank_transactions: un movimento scaricato una volta e finito
-      // nel nulla a valle (com'e' successo con le collisioni di hash) deve poter essere
-      // recuperato al giro dopo, invece di restare perso per sempre.
-      const { data: ex } = await supabase.from("acube_transactions").select("id").eq("dedup_hash", hash).maybeSingle();
-
-      const { error: ae } = ex ? { error: null } : await supabase.from("acube_transactions").insert({
-        acube_transaction_id: txid,
-        acube_account_uuid: accountUuid,
-        dedup_hash: hash,
-        amount,
-        currency_code: currency,
-        made_on: madeOn,
-        posting_date: t.postingDate ?? t.posting_date ?? null,
-        description,
-        payer,
-        payee,
-        status,
-        category: t.category ?? null,
-        categorization_confidence: t.categorizationConfidence ?? t.categorization_confidence ?? null,
-        mcc: t.mcc ?? null,
-        merchant_id: t.merchantId ?? t.merchant_id ?? null,
-        end_to_end_id: t.endToEndId ?? t.end_to_end_id ?? null,
-        closing_balance: t.closingBalance ?? t.closing_balance ?? null,
-        additional: t.additional ?? null,
-        duplicated: false,
-        fetched_at: new Date().toISOString(),
-        acube_created_at: t.createdAt ?? t.created_at ?? null,
-        acube_updated_at: t.updatedAt ?? t.updated_at ?? null,
-        extra: t,
-      });
-      if (ae) continue;
-      if (ex) dups++; else acubeIns++;
+      if (knownAcubeAccounts.has(accountUuid)) {
+        stagingRows.push({
+          acube_transaction_id: txid,
+          acube_account_uuid: accountUuid,
+          dedup_hash: hash,
+          amount,
+          currency_code: currency,
+          made_on: madeOn,
+          posting_date: t.postingDate ?? t.posting_date ?? null,
+          description,
+          payer,
+          payee,
+          status,
+          category: t.category ?? null,
+          categorization_confidence: t.categorizationConfidence ?? t.categorization_confidence ?? null,
+          mcc: t.mcc ?? null,
+          merchant_id: t.merchantId ?? t.merchant_id ?? null,
+          end_to_end_id: t.endToEndId ?? t.end_to_end_id ?? null,
+          closing_balance: t.closingBalance ?? t.closing_balance ?? null,
+          additional: t.additional ?? null,
+          duplicated: false,
+          fetched_at: new Date().toISOString(),
+          acube_created_at: t.createdAt ?? t.created_at ?? null,
+          acube_updated_at: t.updatedAt ?? t.updated_at ?? null,
+          extra: t,
+        });
+      }
 
       // Bridge: insert in bank_transactions se esiste bank_account corrispondente.
       // Usa l'hash con numero d'occorrenza: indipendente da txid (A-Cube lo ribatte tra
@@ -274,8 +279,7 @@ Deno.serve(async (req: Request) => {
       const key = occKey(bankAccountId, madeOn, amount, description);
       const occ = (occSeen.get(key) ?? 0) + 1;
       occSeen.set(key, occ);
-      const bankHash = canonicalBankHashOcc(bankAccountId, madeOn, amount, description, occ);
-      const { error: be } = await supabase.from("bank_transactions").insert({
+      bankRowsToInsert.push({
         company_id: companyId,
         bank_account_id: bankAccountId,
         transaction_date: madeOn,
@@ -289,15 +293,46 @@ Deno.serve(async (req: Request) => {
         category: t.category ?? null,
         status: status === "BOOKED" ? "booked" : status.toLowerCase(),
         source: "acube_ob",
-        acube_dedup_hash: bankHash,
+        acube_dedup_hash: canonicalBankHashOcc(bankAccountId, madeOn, amount, description, occ),
         raw_data: t,
         is_reconciled: false,
       });
-      // Codice 23505 = unique_violation: significa che il movimento esiste gia' (canonical hash collide)
-      // -> non e' un errore, e' la protezione anti-dup. Tutti gli altri errori vengono ignorati silenziosamente
-      // come prima (consistente con comportamento legacy).
-      if (!be) bankIns++;
-      else if (be.code === "23505") dups++;
+    }
+
+    // Staging acube_transactions: upsert a blocchi, i gia' presenti vengono ignorati.
+    for (let i = 0; i < stagingRows.length; i += 500) {
+      const chunk = stagingRows.slice(i, i + 500);
+      const { data: insertedStaging, error: se } = await supabase.from("acube_transactions")
+        .upsert(chunk, { onConflict: "acube_account_uuid,dedup_hash", ignoreDuplicates: true })
+        .select("id");
+      if (se) console.error("[acube-ob-tx-sync] staging chunk error:", se.message);
+      else acubeIns += insertedStaging?.length ?? 0;
+    }
+
+    // bank_transactions: si leggono a blocchi gli hash gia' presenti e si inseriscono
+    // solo i movimenti nuovi. L'indice UNIQUE su acube_dedup_hash resta la garanzia
+    // finale contro i doppioni (es. il cron che gira nello stesso momento).
+    const existingHashes = new Set<string>();
+    const allHashes = bankRowsToInsert.map((r) => r.acube_dedup_hash as string);
+    for (let i = 0; i < allHashes.length; i += 150) {
+      const { data: ex } = await supabase.from("bank_transactions")
+        .select("acube_dedup_hash").in("acube_dedup_hash", allHashes.slice(i, i + 150));
+      for (const r of (ex ?? []) as Array<{ acube_dedup_hash: string }>) existingHashes.add(r.acube_dedup_hash);
+    }
+    const newBankRows = bankRowsToInsert.filter((r) => !existingHashes.has(r.acube_dedup_hash as string));
+    dups += bankRowsToInsert.length - newBankRows.length;
+    for (let i = 0; i < newBankRows.length; i += 200) {
+      const chunk = newBankRows.slice(i, i + 200);
+      const { error: be } = await supabase.from("bank_transactions").insert(chunk);
+      if (!be) { bankIns += chunk.length; continue; }
+      // Un blocco rifiutato (di solito un doppione arrivato nel frattempo): si riprova
+      // riga per riga. 23505 = unique_violation = movimento gia' presente, non un errore.
+      for (const row of chunk) {
+        const { error: rowErr } = await supabase.from("bank_transactions").insert(row);
+        if (!rowErr) bankIns++;
+        else if (rowErr.code === "23505") dups++;
+        else console.error("[acube-ob-tx-sync] insert error:", rowErr.message);
+      }
     }
 
     // Aggiorna balance_updated_at sui bank_accounts toccati (anche con 0 nuove tx).

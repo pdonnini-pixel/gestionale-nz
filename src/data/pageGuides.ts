@@ -734,7 +734,7 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Per collegare la prima banca, clicca \"Collega prima banca\" e compila P.IVA, ragione sociale ed email dell'azienda.",
           "Clicca \"Avvia consenso\": si apre una nuova finestra sul sito della banca, dove dai il consenso PSD2 (accesso in sola lettura ai conti).",
           "Completato il consenso, torna sulla pagina e clicca \"Ho completato il consenso — Importa conti\".",
-          "Da quel momento, usa il pulsante \"Aggiorna conti e movimenti\" ogni volta che vuoi far arrivare i dati più recenti dalla banca.",
+          "Da quel momento, usa il pulsante \"Aggiorna conti e movimenti\" ogni volta che vuoi far arrivare i dati più recenti dalla banca. Finito l'aggiornamento, saldi, movimenti e riconciliazione si aggiornano da soli nella pagina: non serve ricaricarla.",
           "Per collegare un'altra banca, ripeti la procedura cliccando \"Collega altra banca\"."
         ]
       },
