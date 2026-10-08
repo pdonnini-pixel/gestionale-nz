@@ -1600,7 +1600,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
   return (
     <div className="space-y-6">
       {/* Open Banking A-Cube — collegamento banche via PSD2 */}
-      <OpenBankingAcube />
+      <OpenBankingAcube onSynced={onRefresh} />
 
       {/* "Totale disponibilita" + griglia 3 KPI ridondante rimossa: gli stessi
           conti, saldi, IBAN e timestamp di sincronizzazione sono gia' mostrati
@@ -4224,10 +4224,14 @@ export default function TesoreriaManuale() {
   }, [companyId, toast])
 
   // Fetch all data
+  // Lo spinner a pagina intera solo al primo caricamento: i refresh successivi
+  // (es. dopo «Aggiorna conti e movimenti») aggiornano i dati sul posto, senza
+  // smontare la scheda aperta.
+  const loadedOnceRef = useRef(false)
   useEffect(() => {
     let cancelled = false
     async function load() {
-      setLoading(true)
+      if (!loadedOnceRef.current) setLoading(true)
       try {
         const [acctRes, txAll, payRes, batchRes, itemsRes, sugRes] = await Promise.all([
           supabase.from('bank_accounts').select('*').eq('company_id', companyId).order('bank_name'),
@@ -4280,7 +4284,10 @@ export default function TesoreriaManuale() {
       } catch (err: unknown) {
         console.error('TesoreriaManuale load error:', err)
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) {
+          loadedOnceRef.current = true
+          setLoading(false)
+        }
       }
     }
     load()
