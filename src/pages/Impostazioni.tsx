@@ -350,6 +350,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   // outlet_id: per il ruolo operatore_cassa (un account per punto vendita) e'
   // l'outlet su cui l'account puo' compilare la chiusura di cassa.
   const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
+  // Come riceve l'accesso un utente nuovo: password generata subito (mostrata
+  // una volta, da comunicare) oppure email di invito per sceglierla da se'.
+  const [delivery, setDelivery] = useState<'password' | 'email'>('password')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   // Reimposta password: conferma inline, poi la nuova password viene mostrata
@@ -407,13 +410,15 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   const resetForm = () => {
     setForm({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
+    setDelivery('password')
     setShowForm(false)
     setEditingId(null)
   }
 
   const isCashRole = form.ruolo === 'operatore_cassa'
 
-  // Nuovo utente = INVITO: crea il login e invia l'email per impostare la password.
+  // Nuovo utente: crea il login con una password generata (mostrata una volta)
+  // oppure invia l'email di invito per impostarla.
   // In modifica, cambia solo il ruolo (nome/email di un login esistente non si toccano qui).
   // Per l'operatore di cassa l'outlet e' obbligatorio: la funzione admin lo
   // scrive in user_outlet_access (can_write), da cui dipende la RLS della chiusura.
@@ -427,15 +432,24 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         showToast?.('Ruolo aggiornato')
       } else {
         if (!form.email.trim()) { showToast?.('Email obbligatoria', 'error'); return }
-        await callAdmin('invite', {
-          email: form.email.trim(),
+        const email = form.email.trim()
+        const res = await callAdmin('invite', {
+          email,
           first_name: form.nome.trim(),
           last_name: form.cognome.trim(),
           role: form.ruolo,
+          delivery,
           redirectTo: `${window.location.origin}/reset-password`,
           ...outletPayload,
-        })
-        showToast?.(`Invito inviato a ${form.email.trim()}`)
+        }) as { user_id?: string; password?: string }
+        if (delivery === 'password') {
+          if (!res?.password) throw new Error('Utente creato ma nessuna password restituita: generala con la chiave')
+          setNewPassword({ userId: res.user_id ?? '', email, password: res.password })
+          setCopied(false)
+          showToast?.(`Utente ${email} creato: comunicagli la password`)
+        } else {
+          showToast?.(`Invito inviato a ${email}`)
+        }
       }
       await loadUsers()
       resetForm()
@@ -537,8 +551,8 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2 text-xs text-blue-800">
         <ShieldCheck size={16} className="mt-0.5 shrink-0" />
         <span>
-          Qui gestisci gli <strong>accessi reali</strong> all'applicazione. <strong>Invita utente</strong> crea il login e
-          invia un'email per impostare la password; <strong>Nuova password</strong> (icona chiave) ne genera una e te la mostra
+          Qui gestisci gli <strong>accessi reali</strong> all'applicazione. <strong>Nuovo utente</strong> crea il login con una
+          password generata da comunicare tu, oppure manda un'email di invito; <strong>Nuova password</strong> (icona chiave) ne genera una e te la mostra
           una sola volta, da comunicare tu all'utente (es. account di negozio); <strong>Blocca</strong> impedisce l'accesso
           senza eliminare nulla; <strong>Elimina</strong> revoca definitivamente il login. Le azioni valgono solo per la tua azienda.
         </span>
@@ -560,7 +574,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
         >
           <Plus size={16} />
-          Invita utente
+          Nuovo utente
         </button>
       </div>
 
@@ -568,7 +582,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       {showForm && (
         <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 space-y-4">
           <h4 className="text-sm font-semibold text-slate-800">
-            {editingId ? 'Modifica ruolo utente' : 'Invita nuovo utente'}
+            {editingId ? 'Modifica ruolo utente' : 'Nuovo utente'}
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
@@ -613,9 +627,17 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
             </p>
           )}
           {!editingId && (
-            <p className="text-xs text-slate-500">
-              All'utente arriverà un'email per impostare la propria password e accedere. Blocco/eliminazione si gestiscono poi dalla lista.
-            </p>
+            <fieldset className="space-y-1.5">
+              <legend className="block text-xs font-medium text-slate-600 mb-1">Come riceve l'accesso</legend>
+              <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+                <input type="radio" name="delivery" checked={delivery === 'password'} onChange={() => setDelivery('password')} className="mt-1" />
+                <span><strong>Password generata ora</strong>: la vedi una sola volta qui sotto e la comunichi tu all'utente. Non serve che l'email arrivi.</span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer">
+                <input type="radio" name="delivery" checked={delivery === 'email'} onChange={() => setDelivery('email')} className="mt-1" />
+                <span><strong>Email di invito</strong>: l'utente riceve un link e sceglie la password da sé.</span>
+              </label>
+            </fieldset>
           )}
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={resetForm} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">
@@ -625,7 +647,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
               disabled={saving || (!editingId && !form.email.trim())}
               className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 transition">
               {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />}
-              {editingId ? 'Aggiorna ruolo' : 'Invia invito'}
+              {editingId ? 'Aggiorna ruolo' : delivery === 'password' ? 'Crea utente' : 'Invia invito'}
             </button>
           </div>
         </div>
@@ -638,9 +660,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
             <div className="flex items-start gap-2 text-sm text-emerald-900">
               <KeyRound size={16} className="mt-0.5 shrink-0" />
               <div>
-                <div className="font-semibold">Nuova password per {newPassword.email}</div>
+                <div className="font-semibold">Password per {newPassword.email}</div>
                 <div className="text-xs text-emerald-800 mt-0.5">
-                  Copiala e comunicala all'utente adesso: <strong>non verrà più mostrata</strong>. La vecchia password non funziona più.
+                  Copiala e comunicala all'utente adesso: <strong>non verrà più mostrata</strong>. Se esisteva una password precedente, non funziona più.
                 </div>
               </div>
             </div>
