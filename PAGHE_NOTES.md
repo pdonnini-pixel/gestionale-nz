@@ -24,10 +24,15 @@ Tutti PDF di Zucchetti «Paghe Infinity», con il testo leggibile:
 per il Prospetto l'ultimo mese di «Dal … Al …»), tipo di cedolino («Tipo cedolino Norm.»,
 «mensilità aggiuntive» = 14ª a giugno, 13ª a dicembre). Senza testo (Excel) guarda il nome.
 
-**Smista, non salva**: apre il file nel flusso che c'era (ImportLane netti, anteprima
-Prospetto) con mese e cedolino impostati. Anteprima e conferma restano a chi carica: il
-carico dei netti è una sostituzione del mese con il riquadro «Cosa cambia», e non va
-saltato. I Netti negativi si archiviano subito.
+**Salva da solo** (dall'08/10/2026, regola fissa di Patrizio, vedi CLAUDE.md «Un caricamento arriva in fondo da solo»).
+Prima la zona smistava e basta: serviva «Apri e controlla» e poi la conferma nell'anteprima.
+L'08/10 Sabrina si è fermata al primo passo, la pagina si è ricaricata e settembre non è mai stato salvato, senza che niente lo dicesse.
+Ora la zona porta ogni file fino in fondo, uno alla volta (i due flussi stanno in schede diverse):
+- Elenco netti → `ImportLane.doImport`, Prospetto → `CostiLordoTab.confirmSave`, chiamati dal codice;
+- prima di salvare si guarda il **database** (non la pagina): se per quel mese e cedolino ci sono già netti, o per quel mese c'è già costo lordo, il file li sostituirebbe e allora si chiede la conferma (anteprima aperta con «Cosa cambia»); si chiede anche se il totale letto non torna con quello del file;
+- il flusso risponde alla zona con l'evento `paghe-esito` (`segnalaEsitoPaghe`): salvato, da confermare, errore. Un file che non risponde entro 3 minuti viene segnalato;
+- alla fine la zona mostra «Finito, tutti i dati sono aggiornati» o cosa resta, e la pagina va sul mese dei file.
+I Netti negativi si archiviano subito.
 
 ## B. Stipendi pagati ↔ buste paga
 

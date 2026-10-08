@@ -28,6 +28,20 @@ Quando l'utente chiede "azzera/svuota/cancella": prima di toccare il DB, capire 
 
 ---
 
+## 🏁 REGOLA FISSA — UN CARICAMENTO ARRIVA IN FONDO DA SOLO E DICE CHE È FINITO (NON NEGOZIABILE)
+
+Fissata da Patrizio l'08/10/2026 («NON DIMENTICARE CHE È UNA REGOLA FISSA»). Vale per **ogni** punto del gestionale in cui si carica un file (documenti della banca, file dello studio paghe, fatture, distinte, estratti, qualunque nuova zona di caricamento).
+
+- **Il file si salva da solo.** Chi carica trascina il file e basta: niente «Apri e controlla», niente pulsanti intermedi, niente anteprime da confermare quando non c'è niente da decidere.
+- **Si chiede una conferma solo se il file SOSTITUIREBBE dati già presenti** (stesso mese, stesso conto, stesso documento) **o se i suoi totali non tornano.** Il controllo si fa sul **database**, non sullo stato della pagina. In quei due casi l'anteprima resta aperta, con cosa cambia e il pulsante di conferma.
+- **Alla fine si dice che è finito.** Accanto a ogni file compare cosa è stato fatto e, quando l'ultimo ha finito, un riquadro: verde «Finito, tutti i dati sono aggiornati» se non resta niente, altrimenti cosa resta da fare e perché. Una lista di righe verdi senza chiusura non basta.
+- **La pagina mostra quello che è appena arrivato** (per esempio va sul mese dei file caricati), non il mese corrente vuoto.
+- **Più file insieme si lavorano uno alla volta**, ciascuno fino in fondo: aprirne uno mentre l'altro salva non deve mai interromperlo.
+
+Nata da due casi: il 07/10 i PDF BCC si caricavano ma la pagina non diceva che il lavoro era finito; l'08/10 Sabrina ha caricato i file paghe di settembre, si è fermata al vecchio «Apri e controlla» e settembre non è mai stato salvato, senza che niente glielo dicesse. Riferimenti: `src/components/DocumentiBanca.tsx` (`chiusuraCaricamento`), `src/components/CaricaFilePaghe.tsx` (`segnalaEsitoPaghe`), `PAGHE_NOTES.md`.
+
+---
+
 ## 🧱 REGOLA GRANITICA — NIENTE LISTE DA COMPILARE A MANO (VERIFICA PRIMA DI CHIEDERE)
 
 **Il gestionale non chiede all'utente un dato che può ricavare da solo. Se una pagina produce una lista di cose "da sistemare a mano", quella lista è un difetto del codice finché non si è dimostrato il contrario, dati alla mano.**

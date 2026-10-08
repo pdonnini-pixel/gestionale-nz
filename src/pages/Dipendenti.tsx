@@ -50,7 +50,7 @@ import {
   LORDI_FIELDS, rowLordo, rowHasLordo,
   type PreviewRow, type ParsedImport, type ProspettoOutletRow, type StatEmpMonth, type ProspettoVersamento,
 } from '../lib/payrollParse';
-import CaricaFilePaghe, { type FileInArrivo } from '../components/CaricaFilePaghe';
+import CaricaFilePaghe, { type FileInArrivo, segnalaEsitoPaghe } from '../components/CaricaFilePaghe';
 import PagamentiPaghe from '../components/PagamentiPaghe';
 import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
 import { archiviaFile, avvisoArchiviazioneFallita, sostituisciPrecedenti } from '../lib/archivioFile';
@@ -353,9 +353,14 @@ export default function Dipendenti() {
   // File passato dalla zona «Carica i file dello studio paghe» alla scheda che lo
   // sa leggere. nonce: lo stesso file ricaricato due volte riapre l'anteprima.
   const [inArrivo, setInArrivo] = useState<FileInArrivo | null>(null);
-  const apriFilePaghe = (f: Omit<FileInArrivo, 'nonce'>) => {
+  const apriFilePaghe = (f: Omit<FileInArrivo, 'nonce'>): number => {
+    const nonce = Date.now();
     setView(f.dest === 'netti' ? 'costi' : 'lordi');
-    setInArrivo({ ...f, nonce: Date.now() });
+    // La pagina va sul mese del file: dopo il salvataggio si vede subito cosa
+    // e' arrivato (il 08/10 restava sul mese corrente, vuoto).
+    if (f.month && (!f.year || f.year === selectedYear)) pickMonth(f.month);
+    setInArrivo({ ...f, nonce });
+    return nonce;
   };
 
   // Dentro "Ferie e permessi": le richieste (tutti i giorni) o i saldi che
@@ -2533,6 +2538,14 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   // la conferma restano quelle di sempre.
   const laneRef = useRef<HTMLDivElement>(null);
   const [inAttesa, setInAttesa] = useState<FileInArrivo | null>(null);
+  // File arrivato dalla zona: si salva da solo appena letto (regola fissa,
+  // vedi CaricaFilePaghe). `confermaNonce` e' il file rimasto in attesa di
+  // conferma, a cui va detto com'e' finita quando la si da' a mano.
+  const [autoNonce, setAutoNonce] = useState<number | null>(null);
+  const [confermaNonce, setConfermaNonce] = useState<number | null>(null);
+  // Lo stesso nonce in un ref: processFile gira nella chiusura del render in cui
+  // e' partito, quando lo stato non e' ancora aggiornato.
+  const autoRef = useRef<number | null>(null);
   useEffect(() => {
     if (!inArrivo || inArrivo.dest !== 'netti' || fileInArrivoAperti.has(inArrivo.nonce)) return;
     fileInArrivoAperti.add(inArrivo.nonce);
@@ -2583,6 +2596,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   // spariva senza lasciare traccia, ed era proprio il file da guardare per
   // capire perche' il tracciato non veniva letto.
   const archiviaScartato = async (file: File, motivo: string) => {
+    if (autoRef.current) { segnalaEsitoPaghe({ nonce: autoRef.current, stato: 'errore', testo: motivo }); autoRef.current = null; setAutoNonce(null); }
     const esito = await archiviaFile({
       file, companyId, userId, modulo: 'Personale',
       funzione: `${isNetto ? 'Elenco netti' : 'Costi lordi'} per dipendente · file non riconosciuto`,
@@ -2681,6 +2695,8 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     if ((inAttesa.year && inAttesa.year !== impYear) || (inAttesa.month && inAttesa.month !== impMonth)
       || (inAttesa.tipoCedolino && inAttesa.tipoCedolino !== tipoCedolino)) return;
     const f = inAttesa.file;
+    setAutoNonce(inAttesa.nonce);
+    autoRef.current = inAttesa.nonce;
     setInAttesa(null);
     void processFile(f);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -2722,6 +2738,10 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   // Quante PERSONE porta il file: le righe doppie valgono una sola persona.
   const personeNelFile = useMemo(() => (rows ? new Set(rows.map(chiavePersona)).size : 0), [rows]);
   const reset = () => { setRows(null); setFileName(''); setFileObj(null); setFileTotal(null); setOverwriteAck(false); setRawPreview(null); setRemoveMissing(false); };
+  const annulla = () => {
+    if (confermaNonce) { segnalaEsitoPaghe({ nonce: confermaNonce, stato: 'errore', testo: 'Annullato: non è stato salvato niente.' }); setConfermaNonce(null); }
+    reset();
+  };
 
   // ── FASE 3 — il carico è una SOSTITUZIONE del mese, non un'aggiunta ─────────
   // Prima di confermare si mostra cosa cambia rispetto a quello che c'è già:
@@ -2770,8 +2790,10 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     return { usciti, entrati, cambioOutlet, presenti: aDb.length };
   }, [rows, isNetto, existingCosts, slipsMese, tipoCedolino, impYear, impMonth, employees, outlets]);
 
-  const doImport = async () => {
+  const doImport = async (nonceArg?: number) => {
     if (!rows) return;
+    const nonce = nonceArg ?? confermaNonce;
+    setConfermaNonce(null);
     setImporting(true);
     try {
       const outletByNorm: Record<string, string> = {};
@@ -2952,6 +2974,12 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       const mergedTxt = mergedKeys.length ? ` · ${mergedKeys.length} ${mergedKeys.length === 1 ? 'persona presente' : 'persone presenti'} su più righe: importi sommati` : '';
       const removedTxt = removedCount ? ` · ${removedCount} tolt${removedCount === 1 ? 'a' : 'e'} dal mese` : '';
       toast({ type: 'success', message: `Import ${isNetto ? 'netti' : 'costi lordi'} completato: ${uniquePayloads.length} righe, ${newCount - failedNew.length} nuovi dipendenti.${mergedTxt}${removedTxt}` });
+      if (nonce) {
+        const nuovi = newCount - failedNew.length;
+        segnalaEsitoPaghe({ nonce, stato: failedNew.length ? 'errore' : 'salvato', testo: failedNew.length
+          ? `Salvate ${uniquePayloads.length} buste, ma non sono riuscito a creare in anagrafica: ${failedNew.join(', ')}.`
+          : `Salvate ${personeNelFile} buste di ${MONTHS.find((m) => m.num === impMonth)?.label ?? impMonth} ${impYear} (${labelTipo(tipoCedolino)}), netti ${eurFmt.format(total)} €${nuovi ? `, ${nuovi} ${nuovi === 1 ? 'persona nuova' : 'persone nuove'} in anagrafica` : ''}.` });
+      }
       if (failedNew.length) {
         toast({ type: 'error', message: `Non sono riuscito a creare in anagrafica: ${failedNew.join(', ')}. Di solito la matricola è già usata da un'altra persona: controlla in Organico, poi ripeti l'import.` });
       }
@@ -2967,10 +2995,42 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       await onDone();
     } catch (err: any) {
       toast({ type: 'error', message: 'Errore import: ' + readableDbError(err) });
+      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Salvataggio non riuscito: ' + readableDbError(err) });
     } finally {
       setImporting(false);
     }
   };
+
+  // Salvataggio da solo del file arrivato dalla zona. Si guarda il database (non
+  // lo stato della pagina, che puo' essere ancora del mese di prima): se per quel
+  // mese e cedolino ci sono gia' netti il file li sostituirebbe, e allora si chiede.
+  useEffect(() => {
+    if (!autoNonce || !rows || parsing || importing) return;
+    const nonce = autoNonce;
+    setAutoNonce(null);
+    autoRef.current = null;
+    void (async () => {
+      const { count, error } = await supabase.from('employee_cost_slips').select('id', { count: 'exact', head: true })
+        .eq('company_id', companyId).eq('year', impYear).eq('month', impMonth).eq('tipo', tipoCedolino).neq('netto', 0);
+      const mese = `${MONTHS.find((m) => m.num === impMonth)?.label ?? impMonth} ${impYear}`;
+      if (error) {
+        segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Non riesco a controllare i dati già presenti: ' + readableDbError(error) });
+        return;
+      }
+      if ((count ?? 0) > 0) {
+        setConfermaNonce(nonce);
+        segnalaEsitoPaghe({ nonce, stato: 'da_confermare', testo: `Per ${mese} c'erano già ${count} buste «${labelTipo(tipoCedolino)}»: il file le sostituirebbe. Guarda «Cosa cambia» nell'anteprima in «Costi & cedolini» e conferma.` });
+        return;
+      }
+      if (!quadra) {
+        setConfermaNonce(nonce);
+        segnalaEsitoPaghe({ nonce, stato: 'da_confermare', testo: `Il totale letto (${eurFmt.format(total)} €) non torna con quello scritto nel file (${eurFmt.format(fileTotal ?? 0)} €). Controlla l'anteprima in «Costi & cedolini» e conferma.` });
+        return;
+      }
+      await doImport(nonce);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoNonce, rows, parsing, importing]);
 
   const accent = isNetto ? 'text-green-600' : 'text-orange-600';
   const chip = isNetto
@@ -3166,8 +3226,8 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
               </label>
             ) : <span />}
             <div className="flex items-center gap-2 ml-auto">
-              <button onClick={reset} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
-              <button onClick={doImport} disabled={importing || (monthHasData && !overwriteAck)} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 flex items-center gap-1.5">
+              <button onClick={annulla} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+              <button onClick={() => void doImport()} disabled={importing || (monthHasData && !overwriteAck)} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 flex items-center gap-1.5">
                 <Save size={15} /> {importing ? 'Import in corso…' : 'Conferma import'}
               </button>
             </div>
@@ -3698,10 +3758,14 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
   const costoLordoPreview = (r: ProspettoOutletRow) =>
     (r.totaleRetribuzioni || 0) - r.compensiAmm + contrAziendaOutlet(r) + inailPreview(r.inailPat) + r.tfrFondo;
 
-  const onPick = (file?: File | null) => {
+  // File rimasto in attesa di conferma (arrivato dalla zona): gli si dice com'e' finita.
+  const [confermaNonce, setConfermaNonce] = useState<number | null>(null);
+
+  const onPick = (file?: File | null, nonce?: number) => {
     if (!file) return;
+    const errore = (testo: string) => { if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo }); };
     const isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
-    if (!isPdf) { toast({ type: 'error', message: 'Carica il Prospetto paghe in formato PDF.' }); return; }
+    if (!isPdf) { toast({ type: 'error', message: 'Carica il Prospetto paghe in formato PDF.' }); errore('Il Prospetto va caricato in PDF.'); return; }
     (async () => {
       try {
         const { extractPdfLines } = await import('../lib/pdfText');
@@ -3712,13 +3776,35 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
           await archiviaFile({ file, companyId, userId, modulo: 'Personale',
             funzione: 'Prospetto paghe · file non riconosciuto', bucket: 'employee-documents',
             note: 'Nessun dato per outlet riconosciuto nel PDF.' });
+          errore('Nel PDF non trovo i dati per outlet del Prospetto: il file resta in archivio.');
           return;
         }
+        const nuovo = { rows: parsed.rows, fileName: file.name, tipiCedolino: parsed.tipiCedolino, soloNormale: parsed.soloNormale, versamenti: parsed.versamenti };
         setFileObj(file);
-        setPreview({ rows: parsed.rows, fileName: file.name, tipiCedolino: parsed.tipiCedolino, soloNormale: parsed.soloNormale, versamenti: parsed.versamenti });
+        setPreview(nuovo);
+        if (!nonce) return;
+        // Dalla zona: si salva da solo, salvo che per quel mese il costo lordo ci
+        // sia gia' (il file lo sostituirebbe). Si guarda il database, non la pagina.
+        const coppie = [...new Set(parsed.rows.map((r) => `${r.year}-${r.month}`))];
+        let gia = 0;
+        for (const c of coppie) {
+          const [y, m] = c.split('-').map(Number);
+          const { count, error } = await sb.from('personnel_gross_cost').select('id', { count: 'exact', head: true })
+            .eq('company_id', companyId).eq('year', y).eq('month', m);
+          if (error) { errore('Non riesco a controllare i dati già presenti: ' + readableDbError(error)); return; }
+          gia += count ?? 0;
+        }
+        if (gia > 0) {
+          setConfermaNonce(nonce);
+          const mesi = [...new Set(parsed.rows.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ');
+          segnalaEsitoPaghe({ nonce, stato: 'da_confermare', testo: `Per ${mesi} il costo lordo era già caricato: il file lo sostituirebbe. Controlla l'anteprima in «Costo lordo» e premi «Conferma e salva».` });
+          return;
+        }
+        await confirmSave(nuovo, file, nonce);
       } catch (e) {
         console.error(e);
         toast({ type: 'error', message: 'Impossibile leggere il PDF.' });
+        errore('Non riesco a leggere il PDF.');
       }
     })();
   };
@@ -3728,12 +3814,16 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
   useEffect(() => {
     if (inArrivo?.dest !== 'prospetto' || fileInArrivoAperti.has(inArrivo.nonce)) return;
     fileInArrivoAperti.add(inArrivo.nonce);
-    onPick(inArrivo.file);
+    onPick(inArrivo.file, inArrivo.nonce);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inArrivo?.nonce]);
 
-  const confirmSave = async () => {
-    if (!preview) return;
+  const confirmSave = async (pv = preview, fo = fileObj, nonceArg?: number) => {
+    if (!pv) return;
+    const preview = pv;
+    const fileObj = fo;
+    const nonce = nonceArg ?? confermaNonce;
+    setConfermaNonce(null);
     setImporting(true);
     try {
       const pr = preview.rows;
@@ -3826,11 +3916,13 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
 
       const monthsLbl = [...new Set(pr.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ');
       toast({ type: 'success', message: `Salvati ${pr.length} outlet (${monthsLbl}). Totale retribuzioni ${eurFmt.format(fileTotal)} €.${notaF24}` });
+      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'salvato', testo: `Costo lordo di ${monthsLbl} salvato: ${pr.length} outlet, retribuzioni ${eurFmt.format(fileTotal)} €.${notaF24}` });
       setPreview(null); setFileObj(null);
       await load();
     } catch (e: any) {
       console.error(e);
       toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e)}` });
+      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: `Salvataggio non riuscito: ${readableDbError(e)}` });
     } finally {
       setImporting(false);
     }
@@ -4258,8 +4350,11 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
           <div className="flex items-center justify-between mt-4">
             <div className="text-xs text-slate-400">Salvataggio idempotente: aggiorna i mesi/outlet esistenti, non duplica.</div>
             <div className="flex gap-2">
-              <button onClick={() => setPreview(null)} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
-              <button onClick={confirmSave} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 inline-flex items-center gap-1.5"><CheckCircle2 size={15} /> {importing ? 'Salvataggio…' : 'Conferma e salva'}</button>
+              <button onClick={() => {
+                if (confermaNonce) { segnalaEsitoPaghe({ nonce: confermaNonce, stato: 'errore', testo: 'Annullato: non è stato salvato niente.' }); setConfermaNonce(null); }
+                setPreview(null);
+              }} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
+              <button onClick={() => void confirmSave()} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 inline-flex items-center gap-1.5"><CheckCircle2 size={15} /> {importing ? 'Salvataggio…' : 'Conferma e salva'}</button>
             </div>
           </div>
         </Modal>
