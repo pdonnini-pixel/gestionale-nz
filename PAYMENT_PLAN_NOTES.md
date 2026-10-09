@@ -1769,6 +1769,12 @@ fornitore con centro «tutti» e senza regola, o con una regola scritta dal sist
 
 1. **Energia** (categoria `ENERG_GAS`): POD/PDR della bolletta → outlet da `utility_supply_points`
    (letti dal PDF della bolletta o dalla sede di fornitura). Se un codice non è noto, il fornitore resta senza regola.
+1b. **Trasferte e pasti** (categoria `VIAGGI`, migrazione 279): all'outlet del luogo. Il luogo si cerca,
+   per ogni fattura, nelle righe (stazioni dei treni, «Soggiorno presso Hotel Barberino»), poi nell'email
+   del cedente (le catene fatturano dalla sede legale ma scrivono il locale: «valdichiana@oldwildwest.it»),
+   poi nella città e provincia del fornitore. I luoghi di ogni outlet stanno in `outlet_travel_places`
+   (comuni e province; su NZ migrazione 280, vuota su Made e Zago = passo spento). Fattura con più outlet →
+   parti uguali; senza luogo → sede. Roma e Firenze non sono luoghi (partenza dei viaggi, o più outlet nella provincia).
 2. **Outlet nominato nelle fatture** degli ultimi 12 mesi (nome, città o centro commerciale dell'outlet;
    cedente, cessionario e allegati esclusi): nessuna fattura ne nomina due e almeno l'80% ne nomina uno →
    quote in proporzione agli importi. Non vale per la merce (le fatture nominano il magazzino di consegna).
@@ -1783,8 +1789,13 @@ restano senza regola: serve una decisione. `fn_riparto_automatico(company, true)
 
 Decisioni di Patrizio salvate in migrazioni NZ_ONLY: 272 (locatori senza outlet in fattura), 275 (contatori
 e fornitori di abbigliamento/accessori senza categoria), 276 (città degli outlet dalle bollette), 277
-(fornitori senza categoria rimasti → sede). Al 09/10/2026 su NZ è assegnato il 99% delle fatture 2026;
-restano HERA (PDR gas 03050000126920 senza indirizzo) e 32 fatture senza fornitore.
+(fornitori senza categoria rimasti → sede), 280 (PDR gas HERA 03050000126920 alla sede/magazzino: il PDF
+della bolletta, sezione «Servizio fornito in», dice Via Borratino Vallerempoli 44, Figline; luoghi delle
+trasferte; categoria `VIAGGI` a Trenitalia, Italo, Autogrill, B&B Hotels, Hotel Gross, Ristorante dell'Autista).
+Al 09/10/2026 su NZ ogni fattura 2026 con un fornitore ha un outlet; restano 32 fatture senza fornitore.
+Restano a mano (regole non automatiche, non toccate): Altomugello «Diretto» alla sede ma le righe dicono
+«Soggiorno presso Hotel Barberino»; C.A.E P. Ghetti «Diretto» alla sede. Il carburante (`MEZZI_E_CARBURANTE`)
+va ancora alla sede come struttura.
 
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
