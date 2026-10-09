@@ -359,12 +359,23 @@ async function getCompanyName(admin: any, companyId: string | null): Promise<str
   return rows.length === 1 && rows[0].name ? rows[0].name : "Gestionale";
 }
 
+// Mittente delle email di accesso: accessi@ sullo stesso dominio (gia'
+// verificato su Resend) del mittente delle distinte, con il nome dell'azienda
+// come nome visibile. Se il dominio non si legge, si usa il mittente com'e'.
+function accessiFrom(baseFrom: string, companyName: string): string {
+  const m = baseFrom.match(/@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/);
+  if (!m) return baseFrom;
+  const display = `Gestionale ${companyName}`.replace(/["<>\r\n]/g, "").trim();
+  return `"${display}" <accessi@${m[1]}>`;
+}
+
 async function sendAuthEmail(
   kind: "invite" | "recovery", to: string, link: string, companyName: string, redirectTo: string, firstName = "",
 ): Promise<boolean> {
   const key = Deno.env.get("RESEND_API_KEY");
-  const from = Deno.env.get("DISTINTA_EMAIL_FROM");
-  if (!key || !from) return false;
+  const baseFrom = Deno.env.get("DISTINTA_EMAIL_FROM");
+  if (!key || !baseFrom) return false;
+  const from = accessiFrom(baseFrom, companyName);
 
   const site = redirectTo ? new URL(redirectTo).host : "";
   const name = escapeHtml(companyName);
