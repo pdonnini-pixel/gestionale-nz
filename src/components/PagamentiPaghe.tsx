@@ -4,7 +4,8 @@
 //  - quali buste del mese sono state pagate e da quali disposizioni di
 //    emolumenti (payroll_payment_links);
 //  - l'F24 del personale atteso dal Prospetto e le deleghe trovate in banca
-//    intorno al 16 del mese dopo (payroll_f24_checks).
+//    intorno al 16 del mese dopo (payroll_f24_checks). Quando lo studio manda
+//    il modello F24 (migration 270) la cifra e' quella del modello.
 // Non scrive niente, salvo il bottone «Ricontrolla ora» che rilancia il motore.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -18,7 +19,7 @@ const gg = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`
 type Link = { slip_id: string; bank_transaction_id: string; netto: number; commissioni: number | null; id_flusso: string | null }
 type Slip = { id: string; employee_id: string | null; netto: number | null; tipo: string | null }
 type Bt = { id: string; transaction_date: string; amount: number }
-type Check = { periodo: string; scadenza: string; atteso: number; pagato: number | null; esito: string; bank_transaction_ids: string[] }
+type Check = { periodo: string; scadenza: string; atteso: number; pagato: number | null; esito: string; bank_transaction_ids: string[]; fonte: string }
 
 export default function PagamentiPaghe({ companyId, year, month, nomeDi }: {
   companyId: string
@@ -43,7 +44,7 @@ export default function PagamentiPaghe({ companyId, year, month, nomeDi }: {
         .eq('company_id', companyId).eq('year', year).eq('month', month),
       supabase.from('employee_cost_slips').select('id, employee_id, netto, tipo')
         .eq('company_id', companyId).eq('year', year).eq('month', month).gt('netto', 0),
-      supabase.from('payroll_f24_checks').select('periodo, scadenza, atteso, pagato, esito, bank_transaction_ids')
+      supabase.from('payroll_f24_checks').select('periodo, scadenza, atteso, pagato, esito, bank_transaction_ids, fonte')
         .eq('company_id', companyId).eq('periodo', periodo).maybeSingle(),
     ])
     const ls = (l.data ?? []) as Link[]
@@ -125,7 +126,9 @@ export default function PagamentiPaghe({ companyId, year, month, nomeDi }: {
               <strong>F24 del personale.</strong>{' '}
               {!check ? <>Il controllo parte quando carichi il Prospetto riepilogativo di {mese}: da lì il gestionale sa quanto va versato.</>
                 : <>
-                    Il prospetto chiede {eur(Number(check.atteso))} entro il {gg(check.scadenza)}.{' '}
+                    {check.fonte === 'modello'
+                      ? <>Il modello F24 dello studio dice {eur(Number(check.atteso))}, addebito automatico il {gg(check.scadenza)} (è in Scadenze fiscali, già disposto).{' '}</>
+                      : <>Il prospetto chiede {eur(Number(check.atteso))} entro il {gg(check.scadenza)} (stima: la cifra esatta arriva con il modello F24 dello studio).{' '}</>}
                     {check.esito === 'pagato' && <>Pagato: {check.bank_transaction_ids.length} {check.bank_transaction_ids.length === 1 ? 'delega' : 'deleghe'} per la cifra esatta.</>}
                     {check.esito === 'pagato_con_altre_voci' && <>Coperto: le deleghe di quei giorni fanno {eur(Number(check.pagato))} e comprendono anche altre imposte.</>}
                     {check.esito === 'in_attesa' && <>Deleghe non ancora arrivate in banca.</>}

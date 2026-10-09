@@ -588,6 +588,13 @@ export function parseProspettoPaghe(lines: string[], outlets: ParserOutlet[]): P
 
 // Fondi pensione: si versano al fondo, non con l'F24.
 const RE_FONDO_PENSIONE = /PREVIDENZ|FONDO PENSIONE|PENSIONE COMPLEMENTARE|\bFON\.?TE\b|FONCHIM|COMETA/i;
+// Enti esterni con codice 5xxx nel riepilogo (5108 AZIMUT PREVIDENZA, 5096
+// TAXBENEFIT NEW): si pagano all'ente, fuori dall'F24. Verificato sui modelli F24
+// veri dello studio di agosto e settembre 2026: non c'e' nessuna riga 5xxx, e
+// la TAXBENEFIT (75,06 € a settembre) gonfiava l'F24 atteso. Le voci che vanno
+// in F24 hanno i codici 9001 (INPS), 9540 (EBINTER), 9660 (Fondo EST) o nessun
+// codice (IRPEF, addizionali, imposta sostitutiva).
+const RE_CODICE_FUORI_F24 = /^5\d{3}$/;
 const RE_PERIODO_VERS = /Periodo versamento\s+(\d{2})\/(\d{4})/i;
 
 /**
@@ -629,7 +636,7 @@ export function rigaVersamento(ln: string, voceCorrente: string | null): {
     voce: haNome ? testo : undefined,
     versamento: {
       codice, descrizione,
-      canale: RE_FONDO_PENSIONE.test(nome) ? 'fondo' : 'f24',
+      canale: RE_FONDO_PENSIONE.test(nome) || (codice != null && RE_CODICE_FUORI_F24.test(codice)) ? 'fondo' : 'f24',
       periodo: `${mp[2]}-${mp[1]}`,
       importo: importi[importi.length - 1],
     },
@@ -654,7 +661,7 @@ export function totaliVersamenti(v: ProspettoVersamento[]): { canale: 'f24' | 'f
 // leggendo il testo del PDF e, se serve, il nome del file.
 // ============================================================================
 
-export type FilePaghe = 'elenco_netti' | 'netti_negativi' | 'prospetto' | 'statistica' | 'ratei_ferie' | 'sconosciuto';
+export type FilePaghe = 'elenco_netti' | 'netti_negativi' | 'prospetto' | 'modello_f24' | 'statistica' | 'ratei_ferie' | 'sconosciuto';
 export type FilePagheRiconosciuto = {
   tipo: FilePaghe;
   year: number | null;
@@ -670,7 +677,10 @@ export function riconosciFilePaghe(fileName: string, text: string): FilePagheRic
   const fn = fileName.replace(/#U00e0/gi, 'à');
   let tipo: FilePaghe = 'sconosciuto';
   const tab = tabulatoNetti(t) ?? tabulatoNetti(fn);
-  if (/Prospetto riepilogativo elaborazione paghe/i.test(t)) tipo = 'prospetto';
+  // Il modello F24 che lo studio prepara e trasmette (Entratel): prima delle
+  // altre regole, perche' nel testo compaiono anche «INPS», «ritenute» ecc.
+  if (/MODELLO DI PAGAMENTO/i.test(t) && /DELEGA IRREVOCABILE/i.test(t) && /F24/i.test(t)) tipo = 'modello_f24';
+  else if (/Prospetto riepilogativo elaborazione paghe/i.test(t)) tipo = 'prospetto';
   else if (tab === 'negativi') tipo = 'netti_negativi';
   else if (tab === 'elenco') tipo = 'elenco_netti';
   else if (/Statistica costo orario/i.test(t)) tipo = 'statistica';
@@ -679,8 +689,15 @@ export function riconosciFilePaghe(fileName: string, text: string): FilePagheRic
   // Mese: dal testo («Periodo di elaborazione: Agosto 2026», per il Prospetto
   // l'ultimo mese di «Dal … - Al …»), altrimenti dal nome («di 08-2026», «Dal 082026»).
   let year: number | null = null, month: number | null = null;
+  // Modello F24: il mese e' quello dei contributi e delle ritenute, cioe' il
+  // mese prima della scadenza (scadenza 16/10/2026 → settembre 2026).
+  const scad = tipo === 'modello_f24' ? t.match(/Scadenza\s+(\d{2})\/(\d{2})\/(\d{4})/i) : null;
   const tuttiMesi = [...t.matchAll(new RegExp(RE_MESE_ANNO.source, 'gi'))];
-  if (tuttiMesi.length) {
+  if (scad) {
+    const m0 = Number(scad[2]) - 1;
+    year = m0 === 0 ? Number(scad[3]) - 1 : Number(scad[3]);
+    month = m0 === 0 ? 12 : m0;
+  } else if (tuttiMesi.length) {
     const ultimo = tipo === 'prospetto' ? tuttiMesi[Math.min(1, tuttiMesi.length - 1)] : tuttiMesi[0];
     month = MONTHS_IT[ultimo[1].toLowerCase()]; year = Number(ultimo[2]);
   } else {

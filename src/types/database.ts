@@ -20959,6 +20959,8 @@ export type Database = {
           bank_transaction_ids: string[]
           company_id: string
           esito: string
+          fiscal_deadline_id: string | null
+          fonte: string
           id: string
           pagato: number | null
           periodo: string
@@ -20970,6 +20972,8 @@ export type Database = {
           bank_transaction_ids?: string[]
           company_id: string
           esito: string
+          fiscal_deadline_id?: string | null
+          fonte?: string
           id?: string
           pagato?: number | null
           periodo: string
@@ -20981,10 +20985,81 @@ export type Database = {
           bank_transaction_ids?: string[]
           company_id?: string
           esito?: string
+          fiscal_deadline_id?: string | null
+          fonte?: string
           id?: string
           pagato?: number | null
           periodo?: string
           scadenza?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      payroll_f24_documents: {
+        Row: {
+          bank_account_id: string | null
+          banca: string | null
+          codici: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          file_name: string | null
+          fiscal_deadline_id: string | null
+          iban: string | null
+          id: string
+          import_document_id: string | null
+          modo_invio: string | null
+          moduli: Json | null
+          periodo: string
+          prog: number
+          quadra: boolean
+          scadenza: string
+          sezioni: Json | null
+          totale: number
+          updated_at: string
+        }
+        Insert: {
+          bank_account_id?: string | null
+          banca?: string | null
+          codici?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          file_name?: string | null
+          fiscal_deadline_id?: string | null
+          iban?: string | null
+          id?: string
+          import_document_id?: string | null
+          modo_invio?: string | null
+          moduli?: Json | null
+          periodo: string
+          prog: number
+          quadra?: boolean
+          scadenza: string
+          sezioni?: Json | null
+          totale: number
+          updated_at?: string
+        }
+        Update: {
+          bank_account_id?: string | null
+          banca?: string | null
+          codici?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          file_name?: string | null
+          fiscal_deadline_id?: string | null
+          iban?: string | null
+          id?: string
+          import_document_id?: string | null
+          modo_invio?: string | null
+          moduli?: Json | null
+          periodo?: string
+          prog?: number
+          quadra?: boolean
+          scadenza?: string
+          sezioni?: Json | null
+          totale?: number
           updated_at?: string
         }
         Relationships: []
@@ -26027,6 +26102,10 @@ export type Database = {
         Returns: Json
       }
       payroll_sync_now: { Args: never; Returns: Json }
+      save_payroll_f24_document: {
+        Args: { p_conferma?: boolean; p_doc: Json }
+        Returns: Json
+      }
       save_payroll_f24_items: {
         Args: { p_import_id: string; p_items: Json; p_month: number; p_year: number }
         Returns: Json
