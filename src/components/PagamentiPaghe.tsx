@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Landmark, RefreshCw, Check, AlertTriangle, Clock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { suDatiPagheAggiornati } from './CaricaFilePaghe'
 
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
 const eur = (n: number) => `${new Intl.NumberFormat('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)} €`
@@ -60,6 +61,8 @@ export default function PagamentiPaghe({ companyId, year, month, nomeDi }: {
   }, [companyId, year, month, periodo])
 
   useEffect(() => { void load() }, [load])
+  // Un file paghe appena salvato (Prospetto, netti, modello F24) cambia questo riquadro.
+  useEffect(() => suDatiPagheAggiornati(() => { void load() }), [load])
 
   const ricontrolla = async () => {
     setBusy(true)

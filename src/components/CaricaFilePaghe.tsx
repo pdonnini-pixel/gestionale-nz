@@ -41,6 +41,22 @@ export type FileInArrivo = {
 export type EsitoPaghe = { nonce: number; stato: 'salvato' | 'da_confermare' | 'errore'; testo: string }
 
 const EVENTO = 'paghe-esito'
+const EVENTO_DATI = 'paghe-dati-aggiornati'
+
+/**
+ * Detto a tutta la pagina quando un file dello studio paghe ha salvato qualcosa:
+ * KPI, riepiloghi e riquadri si ricaricano dal database. Il 09/10 il Prospetto di
+ * settembre era salvato ma «Costo lordo» mostrava ancora gennaio-agosto.
+ */
+export function segnalaDatiPagheAggiornati(): void {
+  window.dispatchEvent(new Event(EVENTO_DATI))
+}
+
+/** Ascolta i salvataggi dei file paghe (vedi segnalaDatiPagheAggiornati). */
+export function suDatiPagheAggiornati(fn: () => void): () => void {
+  window.addEventListener(EVENTO_DATI, fn)
+  return () => window.removeEventListener(EVENTO_DATI, fn)
+}
 
 /** Chiamata dal flusso che salva (ImportLane, CostiLordoTab) per dire alla zona com'e' andata. */
 export function segnalaEsitoPaghe(e: EsitoPaghe): void {
@@ -126,6 +142,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
   useEffect(() => {
     const su = (ev: Event) => {
       const e = (ev as CustomEvent<EsitoPaghe>).detail
+      if (e.stato === 'salvato') segnalaDatiPagheAggiornati()
       // Un esito dopo la conferma a mano (file rimasto «da confermare»).
       setVoci((vs) => vs.map((v) => (v.nonce === e.nonce ? { ...v, stato: e.stato, nota: e.testo } : v)))
       const fine = attese.current.get(e.nonce)
@@ -166,6 +183,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
     if (e.stato === 'da_confermare') aggiorna(id, { stato: 'da_confermare', nota: e.messaggio, f24: doc })
     else if (e.stato === 'salvato' || e.stato === 'gia_presente') {
       aggiorna(id, { stato: 'salvato', f24: undefined, nota: `${e.stato === 'gia_presente' ? 'Era già caricato. ' : ''}${e.messaggio ?? ''}` })
+      segnalaDatiPagheAggiornati()
     } else aggiorna(id, { stato: 'errore', nota: e.messaggio ?? 'Il modello F24 non è stato salvato.' })
   }
 

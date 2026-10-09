@@ -50,7 +50,7 @@ import {
   LORDI_FIELDS, rowLordo, rowHasLordo,
   type PreviewRow, type ParsedImport, type ProspettoOutletRow, type StatEmpMonth, type ProspettoVersamento,
 } from '../lib/payrollParse';
-import CaricaFilePaghe, { type FileInArrivo, segnalaEsitoPaghe } from '../components/CaricaFilePaghe';
+import CaricaFilePaghe, { type FileInArrivo, segnalaEsitoPaghe, suDatiPagheAggiornati } from '../components/CaricaFilePaghe';
 import PagamentiPaghe from '../components/PagamentiPaghe';
 import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
 import { archiviaFile, avvisoArchiviazioneFallita, sostituisciPrecedenti } from '../lib/archivioFile';
@@ -441,10 +441,15 @@ export default function Dipendenti() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [COMPANY_ID, selectedYear]);
 
+  // La scritta «Caricamento…» al posto delle schede solo la prima volta. Nei
+  // ricaricamenti dopo un salvataggio le schede restano montate: il 09/10, mentre
+  // il Prospetto si salvava in «Costo lordo», il ricaricamento dopo i netti ha
+  // smontato e rimontato la scheda, che ha letto i dati prima di settembre.
+  const caricatoUnaVolta = useRef(false);
   const loadStatic = async () => {
     if (!COMPANY_ID) return;
     try {
-      setLoading(true);
+      if (!caricatoUnaVolta.current) setLoading(true);
       const [empRes, allocRes, costRes, ccRes, outRes, docRes] = await Promise.all([
         supabase.from('employees').select('*').eq('company_id', COMPANY_ID).order('cognome', { nullsFirst: false }),
         supabase.from('employee_outlet_allocations').select('*').eq('company_id', COMPANY_ID),
@@ -462,6 +467,7 @@ export default function Dipendenti() {
       setCostCenters((ccRes.data as CostCenterRow[]) || []);
       setOutlets((outRes.data as OutletRow[]) || []);
       setEmployeeDocs((docRes.data as EmployeeDocument[]) || []);
+      caricatoUnaVolta.current = true;
     } catch (err) {
       console.error('Errore caricamento Personale:', err);
       toast({ type: 'error', message: 'Errore nel caricamento dei dati' });
@@ -564,6 +570,10 @@ export default function Dipendenti() {
     if (!COMPANY_ID) return;
     await Promise.all([loadStatic(), loadYearScoped(COMPANY_ID, selectedYear)]);
   };
+  // Un file paghe salvato dalla zona in alto: KPI e schede si aggiornano subito.
+  useEffect(() => suDatiPagheAggiornati(() => { void reloadAll(); }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [COMPANY_ID, selectedYear]);
 
   // ========== DERIVED ==========
   const activeEmployees = useMemo(() => employees.filter((e) => e.is_active !== false), [employees]);
@@ -3739,6 +3749,8 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
     setLoading(false);
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [companyId, year]);
+  // Prospetto salvato da un'altra istanza o dalla zona in alto: si rilegge.
+  useEffect(() => suDatiPagheAggiornati(() => { void load(); }), /* eslint-disable-next-line */ [companyId, year]);
 
   const rows = useMemo(() => allRows.filter((r) => r.month === month), [allRows, month]);
   // Costo lordo per outlet, mese per mese: e' l'unica fonte che arriva ogni mese,
