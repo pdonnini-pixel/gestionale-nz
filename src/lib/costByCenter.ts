@@ -1,21 +1,28 @@
 /**
- * Preventivo del piano dei conti ripartito per centro di costo (outlet).
+ * Anno del piano dei conti ripartito per centro di costo (outlet): consuntivo
+ * nei mesi in cui c'è, preventivo nei mesi che restano fino a fine anno.
  *
- * Stesse regole del Conto Economico (loadBudgetSummary in ContoEconomico.tsx):
- * - COSTI: `budget_entries.budget_amount`, escluse le righe segnaposto
- *   (`is_placeholder`, copie dell'anno precedente) e la rettifica bilancio;
- * - RICAVI: se l'anno ha righe in `budget_confronto` (il preventivo di Lilian),
- *   vengono da lì (`entry_type = 'rev_monthly'`); altrimenti, come per gli anni
- *   storici, da `budget_entries` con le stesse esclusioni dei costi.
+ * Fonti (le stesse di Budget & Controllo, Confronto Outlet e Conto Economico):
+ * - PREVENTIVO COSTI: `budget_entries.budget_amount` per mese, escluse le righe
+ *   segnaposto (`is_placeholder`, copie dell'anno precedente) e la rettifica bilancio;
+ * - PREVENTIVO RICAVI: `budget_confronto` `rev_monthly` (il preventivo di Lilian)
+ *   se l'anno ha righe lì; altrimenti, come per gli anni storici, `budget_entries`;
+ * - CONSUNTIVO (ricavi e costi): `budget_confronto` `cons_monthly`, il dato
+ *   granitico inserito in «Preventivo vs Consuntivo». Per ogni mese vale il
+ *   consuntivo se c'è, altrimenti il preventivo (regola granitico-else-preventivo
+ *   di `outletRevenue.ts`).
  * Il centro `'all'` è «Sede / Costi generali» (costi non allocati a un outlet).
  */
 
-export type AmountsByCenter = Record<string, number>
+/** Importo dell'anno e parte di esso che viene dal consuntivo. */
+export interface CenterAmount { total: number; actual: number }
+export type AmountsByCenter = Record<string, CenterAmount>
 
 export interface BudgetEntryLite {
   account_code: string | null
   cost_center: string | null
   budget_amount: number | string | null
+  month: number | null
   is_placeholder?: boolean | null
 }
 
@@ -32,47 +39,81 @@ export interface AccountLite { id: string; code: string; parent_id: string | nul
 export const SEDE_CENTER = 'all'
 const EXCLUDED_CENTERS = new Set(['rettifica_bilancio'])
 
-export interface PreventivoResult {
+export interface ProiezioneResult {
   byCode: Record<string, AmountsByCenter>
   /** Righe segnaposto di budget_entries lasciate fuori (0 = nessuna). */
   placeholdersExcluded: number
-  /** true se i ricavi vengono da budget_confronto. */
+  /** true se il preventivo ricavi viene da budget_confronto. */
   revenueFromConfronto: boolean
+  /** Ultimo mese (1-12) con un consuntivo di ricavi / di costi; 0 = nessuno. */
+  lastActualMonthRevenue: number
+  lastActualMonthCosts: number
 }
 
-function add(out: Record<string, AmountsByCenter>, code: string, cc: string, amount: number) {
-  const byCc = (out[code] ||= {})
-  byCc[cc] = (byCc[cc] || 0) + amount
+type Monthly = Record<string, Record<string, Record<number, number>>> // code → cc → mese → importo
+
+function put(m: Monthly, code: string, cc: string, month: number, amount: number) {
+  const byCc = (m[code] ||= {})
+  const byMonth = (byCc[cc] ||= {})
+  byMonth[month] = (byMonth[month] || 0) + amount
 }
 
-/** Somma il preventivo per conto e centro di costo. */
-export function buildPreventivo(
+/** Consuntivo dove c'è, preventivo negli altri mesi, per conto e centro di costo. */
+export function buildProiezione(
   entries: BudgetEntryLite[],
   confronto: BudgetConfrontoLite[],
   isRevenue: (code: string) => boolean,
-): PreventivoResult {
-  const out: Record<string, AmountsByCenter> = {}
-  const revenueFromConfronto = confronto.length > 0
+): ProiezioneResult {
+  const prev: Monthly = {}
+  const cons: Monthly = {}
+  const revenueFromConfronto = confronto.some(r => r.entry_type === 'rev_monthly')
   let placeholdersExcluded = 0
+  let lastActualMonthRevenue = 0
+  let lastActualMonthCosts = 0
+
   for (const e of entries) {
     const code = e.account_code
-    if (!code) continue
+    const m = Number(e.month || 0)
+    if (!code || m < 1 || m > 12) continue
     const cc = e.cost_center || SEDE_CENTER
     if (EXCLUDED_CENTERS.has(cc)) continue
     if (e.is_placeholder === true) { placeholdersExcluded++; continue }
     if (revenueFromConfronto && isRevenue(code)) continue
-    add(out, code, cc, Number(e.budget_amount) || 0)
+    put(prev, code, cc, m, Number(e.budget_amount) || 0)
   }
-  if (revenueFromConfronto) {
-    for (const r of confronto) {
-      const code = r.account_code
-      const m = Number(r.month || 0)
-      if (!code || r.entry_type !== 'rev_monthly' || m < 1 || m > 12) continue
-      if (!isRevenue(code)) continue
-      add(out, code, r.cost_center || SEDE_CENTER, Number(r.amount) || 0)
+  for (const r of confronto) {
+    const code = r.account_code
+    const m = Number(r.month || 0)
+    if (!code || m < 1 || m > 12) continue
+    const cc = r.cost_center || SEDE_CENTER
+    if (EXCLUDED_CENTERS.has(cc)) continue
+    const amount = Number(r.amount) || 0
+    if (r.entry_type === 'rev_monthly') {
+      if (isRevenue(code)) put(prev, code, cc, m, amount)
+    } else if (r.entry_type === 'cons_monthly') {
+      put(cons, code, cc, m, amount)
+      if (isRevenue(code)) lastActualMonthRevenue = Math.max(lastActualMonthRevenue, m)
+      else lastActualMonthCosts = Math.max(lastActualMonthCosts, m)
     }
   }
-  return { byCode: out, placeholdersExcluded, revenueFromConfronto }
+
+  const byCode: Record<string, AmountsByCenter> = {}
+  const codes = new Set([...Object.keys(prev), ...Object.keys(cons)])
+  for (const code of codes) {
+    const centers = new Set([...Object.keys(prev[code] || {}), ...Object.keys(cons[code] || {})])
+    for (const cc of centers) {
+      const p = prev[code]?.[cc] || {}
+      const c = cons[code]?.[cc] || {}
+      let total = 0, actual = 0
+      for (let m = 1; m <= 12; m++) {
+        if (c[m] != null) { total += c[m]; actual += c[m] }
+        else if (p[m] != null) total += p[m]
+      }
+      if (total === 0 && actual === 0) continue
+      ;(byCode[code] ||= {})[cc] = { total, actual }
+    }
+  }
+  return { byCode, placeholdersExcluded, revenueFromConfronto, lastActualMonthRevenue, lastActualMonthCosts }
 }
 
 /**
@@ -97,7 +138,11 @@ export function rollupByAccount(
     visiting.add(a.id)
     const merge = (src: AmountsByCenter | undefined) => {
       if (!src) return
-      for (const [cc, v] of Object.entries(src)) acc[cc] = (acc[cc] || 0) + v
+      for (const [cc, v] of Object.entries(src)) {
+        const cur = (acc[cc] ||= { total: 0, actual: 0 })
+        cur.total += v.total
+        cur.actual += v.actual
+      }
     }
     merge(byCode[a.code])
     for (const ch of children[a.id] || []) merge(visit(ch))
@@ -110,10 +155,10 @@ export function rollupByAccount(
 }
 
 /** Totale di una voce su tutti i centri o su un centro solo. */
-export function totalFor(amounts: AmountsByCenter | undefined, center: string | null): number {
-  if (!amounts) return 0
-  if (center) return amounts[center] || 0
-  let t = 0
-  for (const v of Object.values(amounts)) t += v
-  return t
+export function totalFor(amounts: AmountsByCenter | undefined, center: string | null): CenterAmount {
+  if (!amounts) return { total: 0, actual: 0 }
+  if (center) return amounts[center] ? { ...amounts[center] } : { total: 0, actual: 0 }
+  let total = 0, actual = 0
+  for (const v of Object.values(amounts)) { total += v.total; actual += v.actual }
+  return { total, actual }
 }

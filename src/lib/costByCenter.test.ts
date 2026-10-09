@@ -1,41 +1,53 @@
 import { describe, it, expect } from 'vitest'
-import { buildPreventivo, rollupByAccount, totalFor } from './costByCenter'
+import { buildProiezione, rollupByAccount, totalFor } from './costByCenter'
 
 const isRevenue = (code: string) => code.startsWith('51')
+const be = (account_code: string | null, cost_center: string | null, month: number, budget_amount: number | string, is_placeholder = false) =>
+  ({ account_code, cost_center, month, budget_amount, is_placeholder })
+const cf = (account_code: string, cost_center: string, entry_type: string, month: number, amount: number) =>
+  ({ account_code, cost_center, entry_type, month, amount })
 
 describe('costByCenter', () => {
   const entries = [
-    { account_code: '630301', cost_center: 'barberino', budget_amount: 100 },
-    { account_code: '630301', cost_center: 'barberino', budget_amount: '50' },
-    { account_code: '630301', cost_center: 'valdichiana', budget_amount: 200 },
-    { account_code: '630302', cost_center: null, budget_amount: 30 },
-    { account_code: '630302', cost_center: 'rettifica_bilancio', budget_amount: -999 },
-    { account_code: '630302', cost_center: 'all', budget_amount: 777, is_placeholder: true },
-    { account_code: '510107', cost_center: 'barberino', budget_amount: 5000 },
-    { account_code: null, cost_center: 'barberino', budget_amount: 5 },
+    be('630301', 'barberino', 1, 100),
+    be('630301', 'barberino', 2, '50'),
+    be('630301', 'valdichiana', 1, 200),
+    be('630302', null, 1, 30),
+    be('630302', 'rettifica_bilancio', 1, -999),
+    be('630302', 'all', 1, 777, true),
+    be('510107', 'barberino', 1, 5000),
+    be(null, 'barberino', 1, 5),
   ]
 
-  it('costi da budget_entries senza segnaposto né rettifica bilancio', () => {
-    const r = buildPreventivo(entries, [], isRevenue)
-    expect(r.byCode['630301']).toEqual({ barberino: 150, valdichiana: 200 })
-    expect(r.byCode['630302']).toEqual({ all: 30 })
+  it('senza budget_confronto: solo preventivo, senza segnaposto né rettifica bilancio', () => {
+    const r = buildProiezione(entries, [], isRevenue)
+    expect(r.byCode['630301']).toEqual({ barberino: { total: 150, actual: 0 }, valdichiana: { total: 200, actual: 0 } })
+    expect(r.byCode['630302']).toEqual({ all: { total: 30, actual: 0 } })
+    expect(r.byCode['510107']).toEqual({ barberino: { total: 5000, actual: 0 } })
     expect(r.placeholdersExcluded).toBe(1)
-    // senza budget_confronto i ricavi restano quelli di budget_entries
-    expect(r.byCode['510107']).toEqual({ barberino: 5000 })
     expect(r.revenueFromConfronto).toBe(false)
   })
 
-  it('con budget_confronto i ricavi vengono dal preventivo mensile (rev_monthly)', () => {
+  it('ricavi: consuntivo nei mesi in cui c\'è, preventivo negli altri', () => {
     const confronto = [
-      { account_code: '510107', cost_center: 'barberino', amount: 40, entry_type: 'rev_monthly', month: 1 },
-      { account_code: '510107', cost_center: 'barberino', amount: 60, entry_type: 'rev_monthly', month: 2 },
-      { account_code: '510107', cost_center: 'barberino', amount: 999, entry_type: 'cons_monthly', month: 1 },
-      { account_code: '510107', cost_center: 'barberino', amount: 999, entry_type: 'rev_monthly', month: 0 },
+      cf('510107', 'barberino', 'rev_monthly', 1, 40),
+      cf('510107', 'barberino', 'rev_monthly', 2, 60),
+      cf('510107', 'barberino', 'rev_monthly', 3, 70),
+      cf('510107', 'barberino', 'cons_monthly', 1, 45),
+      cf('510107', 'barberino', 'cons_monthly', 2, 0), // consuntivo zero è un dato vero
+      cf('510107', 'barberino', 'rev_monthly', 0, 999),
     ]
-    const r = buildPreventivo(entries, confronto, isRevenue)
-    expect(r.byCode['510107']).toEqual({ barberino: 100 })
-    expect(r.byCode['630301']).toEqual({ barberino: 150, valdichiana: 200 })
+    const r = buildProiezione(entries, confronto, isRevenue)
+    expect(r.byCode['510107']).toEqual({ barberino: { total: 45 + 0 + 70, actual: 45 } })
+    expect(r.lastActualMonthRevenue).toBe(2)
+    expect(r.lastActualMonthCosts).toBe(0)
     expect(r.revenueFromConfronto).toBe(true)
+  })
+
+  it('costi: il consuntivo del mese sostituisce il preventivo di quel mese', () => {
+    const r = buildProiezione(entries, [cf('630301', 'barberino', 'cons_monthly', 1, 120)], isRevenue)
+    expect(r.byCode['630301'].barberino).toEqual({ total: 120 + 50, actual: 120 })
+    expect(r.lastActualMonthCosts).toBe(1)
   })
 
   it('i conti padre sommano i sottoconti', () => {
@@ -45,10 +57,10 @@ describe('costByCenter', () => {
       { id: 'a', code: '630301', parent_id: 'l2' },
       { id: 'b', code: '630302', parent_id: 'l2' },
     ]
-    const r = rollupByAccount(accounts, buildPreventivo(entries, [], isRevenue).byCode)
-    expect(totalFor(r.l1, null)).toBe(380)
-    expect(totalFor(r.l2, 'barberino')).toBe(150)
-    expect(totalFor(r.b, 'barberino')).toBe(0)
+    const r = rollupByAccount(accounts, buildProiezione(entries, [], isRevenue).byCode)
+    expect(totalFor(r.l1, null).total).toBe(380)
+    expect(totalFor(r.l2, 'barberino').total).toBe(150)
+    expect(totalFor(r.b, 'barberino').total).toBe(0)
   })
 
   it('una gerarchia circolare non va in loop', () => {
@@ -56,7 +68,7 @@ describe('costByCenter', () => {
       { id: 'x', code: 'X', parent_id: 'y' },
       { id: 'y', code: 'Y', parent_id: 'x' },
     ]
-    const r = rollupByAccount(accounts, { X: { all: 1 } })
-    expect(totalFor(r.x, null)).toBeGreaterThanOrEqual(1)
+    const r = rollupByAccount(accounts, { X: { all: { total: 1, actual: 0 } } })
+    expect(totalFor(r.x, null).total).toBeGreaterThanOrEqual(1)
   })
 })
