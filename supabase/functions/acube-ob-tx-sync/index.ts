@@ -233,6 +233,15 @@ Deno.serve(async (req: Request) => {
       if (!accountUuid) continue;
       const madeOn: string = t.madeOn ?? t.made_on ?? t.date ?? t.bookingDate ?? "";
       if (!madeOn) continue;
+      // Per bank_transactions solo il giorno, «AAAA-MM-GG». A-Cube manda
+      // «2026-09-16T00:00:00Z», mentre il cron RPC calcola l'hash con la data
+      // (bank_tx_canonical_hash_occ, to_char(date,'YYYY-MM-DD')): con l'ora dentro gli
+      // hash non coincidevano mai. L'08/10/2026 alle 15:31, la prima volta che questa
+      // funzione e' arrivata in fondo (#632), ha reinserito 997 movimenti di
+      // agosto-settembre gia' presenti.
+      const madeOnDay: string = /^\d{4}-\d{2}-\d{2}/.test(madeOn) ? madeOn.slice(0, 10) : madeOn;
+      const postingRaw: string | null = t.postingDate ?? t.posting_date ?? null;
+      const postingDay: string | null = postingRaw && /^\d{4}-\d{2}-\d{2}/.test(postingRaw) ? postingRaw.slice(0, 10) : postingRaw;
       const amount: number = Number(t.amount ?? 0);
       const currency: string = (t.currencyCode ?? t.currency_code ?? t.currency ?? "EUR").toUpperCase();
       const description: string = t.description ?? t.label ?? t.merchant ?? "";
@@ -276,15 +285,15 @@ Deno.serve(async (req: Request) => {
       // data, importo e i primi 40 caratteri della descrizione.
       const bankAccountId = acubeToBankId.get(accountUuid);
       if (!bankAccountId) continue;
-      const key = occKey(bankAccountId, madeOn, amount, description);
+      const key = occKey(bankAccountId, madeOnDay, amount, description);
       const occ = (occSeen.get(key) ?? 0) + 1;
       occSeen.set(key, occ);
       bankRowsToInsert.push({
         company_id: companyId,
         bank_account_id: bankAccountId,
-        transaction_date: madeOn,
-        booking_date: madeOn,
-        value_date: t.postingDate ?? t.posting_date ?? madeOn,
+        transaction_date: madeOnDay,
+        booking_date: madeOnDay,
+        value_date: postingDay ?? madeOnDay,
         amount,
         currency,
         description,
@@ -293,7 +302,7 @@ Deno.serve(async (req: Request) => {
         category: t.category ?? null,
         status: status === "BOOKED" ? "booked" : status.toLowerCase(),
         source: "acube_ob",
-        acube_dedup_hash: canonicalBankHashOcc(bankAccountId, madeOn, amount, description, occ),
+        acube_dedup_hash: canonicalBankHashOcc(bankAccountId, madeOnDay, amount, description, occ),
         raw_data: t,
         is_reconciled: false,
       });
