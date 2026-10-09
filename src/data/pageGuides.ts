@@ -2867,7 +2867,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/impostazioni",
     "icon": "Settings",
     "title": "Impostazioni",
-    "description": "La pagina Impostazioni raccoglie i dati dell'azienda, la gestione degli utenti, il catalogo delle voci di costo, i centri di costo (punti vendita), la configurazione della fatturazione elettronica SDI e il report incassi serale (la mail automatica con le chiusure di cassa). Le sezioni visibili dipendono dal tuo ruolo utente.",
+    "description": "La pagina Impostazioni raccoglie i dati dell'azienda, la gestione degli utenti, il piano dei conti con il preventivo per centro di costo (Voci di costo), i centri di costo (punti vendita), la configurazione della fatturazione elettronica SDI e il report incassi serale (la mail automatica con le chiusure di cassa). Le sezioni visibili dipendono dal tuo ruolo utente.",
     "sections": [
       {
         "heading": "Come è organizzata la pagina",
@@ -2898,14 +2898,13 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Voci di costo",
-        "body": "Qui è raccolto il catalogo di tutte le voci di spesa dell'azienda, raggruppate per macro-gruppo (es. Locazione, Personale, Marketing). Ogni voce ha un codice, un nome, un importo annuo, il tipo (fisso o variabile, ricorrente o no) e i centri di costo (punti vendita) a cui è assegnata.",
+        "body": "Qui c'è il piano dei conti dell'azienda (ricavi e costi), diviso nei gruppi del Conto Economico: Ricavi, Acquisti e costi di produzione, Servizi, Godimento beni di terzi, Personale, Ammortamenti, Variazione rimanenze, Oneri diversi di gestione, Proventi e oneri finanziari, Proventi e oneri straordinari. Il piano ha tre livelli (conto, sotto-categoria, conto di dettaglio). Accanto a ogni voce vedi il preventivo dell'anno selezionato e la sua ripartizione per centro di costo: ogni etichetta colorata è un punto vendita (o la sede) con il suo importo, e «Sede / Costi generali» raccoglie i costi non assegnati a un outlet. Gli importi vengono da Budget & Controllo e qui sono in sola lettura: per cambiarli si va lì. Le voci di livello 1 e 2 mostrano la somma dei loro sottoconti. Se in Budget & Controllo è stato aggiornato anche il consuntivo, compare una colonna «Consuntivo». In fondo trovi il totale del preventivo, con ricavi e costi separati.",
         "steps": [
-          "Usa la barra di ricerca o il filtro per centro di costo per trovare una voce specifica",
-          "Clicca su un gruppo (es. \"Locazione\") per espanderlo e vedere le voci al suo interno, con il totale del gruppo",
-          "Clicca \"Nuova voce\" per crearne una: servono almeno codice e nome",
-          "Puoi assegnare la voce a uno o più centri di costo, oppure a \"Tutti gli outlet\"",
-          "Puoi anche indicare che una voce è un sottoconto di un'altra, per creare una struttura gerarchica",
-          "Usa l'icona matita per modificare una voce esistente o il cestino per eliminarla (con conferma)"
+          "Scegli l'anno nel selettore accanto al filtro dei centri: gli importi mostrati sono quelli del preventivo di quell'anno",
+          "Usa il filtro dei centri di costo per vedere un solo punto vendita (o «Sede / Costi generali»): restano solo le voci che hanno importi su quel centro, con i totali di quel centro",
+          "Clicca su un gruppo (es. «Servizi») per aprirlo e vedere le voci, il preventivo e la ripartizione per centro di costo; passa il mouse su un'etichetta per leggere l'importo per esteso",
+          "Clicca «Nuova voce» per aggiungere un conto: servono codice e nome; se scegli un conto padre (di livello 1 o 2) la voce prende il suo gruppo e il livello successivo",
+          "Usa l'icona matita per modificare una voce o il cestino per eliminarla: l'eliminazione è bloccata se la voce ha sottoconti o righe di preventivo collegate"
         ]
       },
       {
@@ -2967,8 +2966,8 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "In Produzione le fatture elettroniche vengono inviate realmente al Sistema di Interscambio dell'Agenzia delle Entrate. In Test vengono solo validate senza essere trasmesse ai destinatari. Cambia questa impostazione solo se sei sicuro, perché ha un impatto reale sull'invio delle fatture."
       },
       {
-        "q": "Posso assegnare una voce di costo a più punti vendita contemporaneamente?",
-        "a": "Sì, nella sezione Voci di costo puoi selezionare più centri di costo per la stessa voce, oppure scegliere \"Tutti gli outlet\" se riguarda l'intera azienda."
+        "q": "Dove vedo quanto costa una voce in ciascun punto vendita?",
+        "a": "In Voci di costo: apri il gruppo e accanto a ogni voce trovi il preventivo dell'anno diviso per centro di costo. Con il filtro in alto vedi un solo punto vendita. Gli importi si inseriscono e si cambiano in Budget & Controllo; se una voce non ha importi, per quell'anno non c'è ancora un preventivo. Per dividere le fatture di un fornitore fra più punti vendita si usa invece il riparto nella scheda del fornitore."
       },
       {
         "q": "Un negozio ha perso la password dell'account cassa: come faccio?",

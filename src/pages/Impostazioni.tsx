@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
   ChevronDown, ChevronUp, Check, AlertCircle, Search, Copy, Eye, EyeOff, Loader,
@@ -10,6 +10,8 @@ import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets, isSellingOutlet } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
 import { slugCostCenter } from '../lib/costCenterKey'
+import { usePeriod } from '../hooks/usePeriod'
+import { aggregateByCode, rollupByAccount, totalFor, SEDE_CENTER, type AmountsByCenter, type BudgetEntryLite } from '../lib/costByCenter'
 import PageHeader from '../components/PageHeader'
 import type { Database } from '../types/database'
 
@@ -51,17 +53,27 @@ const ROLE_OPTIONS = [
   { value: 'viewer', label: 'Sola lettura', color: 'bg-stone-100 text-stone-700' },
 ]
 
-const MACRO_GROUPS = [
-  'Costo del venduto',
-  'Locazione',
-  'Personale',
-  'Generali & Amministrative',
-  'Finanziarie',
-  'Utenze & Servizi',
-  'Marketing',
-  'Manutenzione',
-  'Oneri diversi',
+// Macro gruppi del piano dei conti: i valori sono quelli salvati in
+// chart_of_accounts.macro_group (uguali sui 3 tenant), le etichette sono per l'utente.
+const MACRO_GROUPS: { value: string; label: string }[] = [
+  { value: 'ricavi', label: 'Ricavi' },
+  { value: 'costi_produzione', label: 'Acquisti e costi di produzione' },
+  { value: 'servizi', label: 'Servizi' },
+  { value: 'godimento_beni_terzi', label: 'Godimento beni di terzi' },
+  { value: 'personale', label: 'Personale' },
+  { value: 'ammortamenti', label: 'Ammortamenti' },
+  { value: 'variazione_rimanenze', label: 'Variazione rimanenze' },
+  { value: 'oneri_diversi', label: 'Oneri diversi di gestione' },
+  { value: 'finanziarie', label: 'Proventi e oneri finanziari' },
+  { value: 'straordinari', label: 'Proventi e oneri straordinari' },
 ]
+
+function macroGroupLabel(value: string): string {
+  const g = MACRO_GROUPS.find(m => m.value === value)
+  if (g) return g.label
+  const s = (value || 'Senza gruppo').replace(/_/g, ' ')
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
 
 // ========================
 // HELPER FUNCTIONS
@@ -787,18 +799,60 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [expandedGroup, setExpandedGroup] = useState<string | null>(null)
-  const [filterCentro, setFilterCentro] = useState('all')
+  // '' = tutti i centri; altrimenti il codice del centro (SEDE_CENTER = Sede / Costi generali)
+  const [filterCentro, setFilterCentro] = useState('')
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  // Importi dell'anno attivo per conto e centro, letti da budget_entries
+  // (le stesse righe di Budget & Controllo). Qui sono in sola lettura.
+  // Il selettore anno globale è nascosto in Impostazioni: la sezione ne ha uno suo, che usa lo stesso anno.
+  const { year, setYear } = usePeriod()
+  const nowYear = new Date().getFullYear()
+  const yearOptions = Array.from(new Set([nowYear - 2, nowYear - 1, nowYear, nowYear + 1, year])).sort((a, b) => a - b)
+  const [amountsByCode, setAmountsByCode] = useState<Record<string, AmountsByCenter>>({})
+  const [amountsLoading, setAmountsLoading] = useState(true)
+  const [amountsError, setAmountsError] = useState(false)
 
-  const emptyForm = { code: '', name: '', macro_group: MACRO_GROUPS[0], is_fixed: false, is_recurring: true, default_centers: ['all'], annual_amount: '', note: '', parent_id: '' }
+  const emptyForm = { code: '', name: '', macro_group: MACRO_GROUPS[0].value, is_fixed: false, is_recurring: true, note: '', parent_id: '' }
   const [form, setForm] = useState(emptyForm)
 
   useEffect(() => {
     loadCosts()
     loadCostCenters()
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    const loadAmounts = async () => {
+      setAmountsLoading(true)
+      setAmountsError(false)
+      try {
+        // A pagine da 1000: un anno di preventivo supera il limite di una singola risposta.
+        const rows: BudgetEntryLite[] = []
+        const PAGE = 1000
+        for (let from = 0; ; from += PAGE) {
+          const { data, error } = await supabase
+            .from('budget_entries')
+            .select('account_code, cost_center, budget_amount, actual_amount')
+            .eq('company_id', COMPANY_ID || '')
+            .eq('year', year)
+            .order('id', { ascending: true })
+            .range(from, from + PAGE - 1)
+          if (error) throw error
+          rows.push(...((data || []) as BudgetEntryLite[]))
+          if (!data || data.length < PAGE) break
+        }
+        if (!cancelled) setAmountsByCode(aggregateByCode(rows))
+      } catch {
+        if (!cancelled) { setAmountsByCode({}); setAmountsError(true) }
+      } finally {
+        if (!cancelled) setAmountsLoading(false)
+      }
+    }
+    loadAmounts()
+    return () => { cancelled = true }
+  }, [COMPANY_ID, year])
 
   const loadCosts = async () => {
     try {
@@ -855,30 +909,38 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
     try {
       setSaving(true)
+      // Il livello segue il conto padre (1 → 2 → 3): il budget si inserisce sul livello 3.
+      // In modifica si riscrive solo se cambia il conto padre.
+      // Importo annuo e centri di default non si scrivono più: gli importi per
+      // outlet arrivano dal preventivo (budget_entries), i valori salvati restano intatti.
+      const parent = form.parent_id ? costs.find(c => c.id === form.parent_id) : null
       const payload = {
         code: form.code.toUpperCase(),
         name: form.name,
         macro_group: form.macro_group,
         is_fixed: form.is_fixed,
         is_recurring: form.is_recurring,
-        default_centers: form.default_centers,
-        annual_amount: Number(form.annual_amount) || 0,
         note: form.note,
         parent_id: form.parent_id || null,
         company_id: COMPANY_ID,
       }
+      const level = parent ? Math.min((Number(parent.level) || 1) + 1, 3) : 1
+      const current = editingId ? costs.find(c => c.id === editingId) : null
+      const parentChanged = !current || (current.parent_id || '') !== (form.parent_id || '')
 
       if (editingId) {
         const { error } = await supabase
           .from('chart_of_accounts')
-          .update(payload)
+          .update(parentChanged ? { ...payload, level } : payload)
           .eq('id', editingId)
 
         if (error) throw error
       } else {
+        // Una voce nuova è un ricavo se lo è il conto padre, o se sta nel gruppo Ricavi.
+        const is_revenue = parent ? !!parent.is_revenue : form.macro_group === 'ricavi'
         const { error } = await supabase
           .from('chart_of_accounts')
-          .insert([payload])
+          .insert([{ ...payload, level, is_revenue }])
 
         if (error) throw error
       }
@@ -901,8 +963,6 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       macro_group: c.macro_group,
       is_fixed: c.is_fixed,
       is_recurring: c.is_recurring,
-      default_centers: [...(c.default_centers || ['all'])],
-      annual_amount: c.annual_amount,
       note: c.note || '',
       parent_id: c.parent_id || '',
     })
@@ -951,27 +1011,33 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
   }
 
-  // Get parent options for hierarchy
-  const parentOptions = costs.filter(c => !c.parent_id) // only root items can be parents
+  // Conti padre ammessi: livello 1 e 2 (il livello 3 è l'ultimo, quello su cui si mette il budget)
+  const parentOptions = costs.filter(c => (Number(c.level) || 1) < 3)
 
-  const toggleCentroCost = (centroCode: string) => {
-    setForm(prev => {
-      if (centroCode === 'all') return { ...prev, default_centers: ['all'] }
-      let newCentri = prev.default_centers.filter(o => o !== 'all')
-      if (newCentri.includes(centroCode)) {
-        newCentri = newCentri.filter(o => o !== centroCode)
-      } else {
-        newCentri.push(centroCode)
-      }
-      if (newCentri.length === 0) newCentri = ['all']
-      return { ...prev, default_centers: newCentri }
-    })
+  // Importi di ogni voce: i propri più quelli dei sottoconti
+  const rollup = useMemo(
+    () => rollupByAccount(costs.map(c => ({ id: c.id, code: c.code, parent_id: c.parent_id ?? null })), amountsByCode),
+    [costs, amountsByCode],
+  )
+  const centro = filterCentro || null
+  const hasSede = useMemo(() => Object.values(amountsByCode).some(m => !!m[SEDE_CENTER]), [amountsByCode])
+  const hasActual = useMemo(
+    () => Object.values(amountsByCode).some(m => Object.values(m).some(v => v.actual !== 0)),
+    [amountsByCode],
+  )
+  const centerLabel = (code: string) => code === SEDE_CENTER ? 'Sede / Costi generali' : getCentroLabel(code, costCenters)
+  const centerColor = (code: string) => code === SEDE_CENTER ? 'bg-slate-600' : (costCenters.find(c => c.code === code)?.color || 'bg-slate-500')
+  // Ordine dei centri: quello di Impostazioni → Centri di costo, poi Sede, poi eventuali codici non censiti
+  const centerOrder = (code: string) => {
+    if (code === SEDE_CENTER) return 10_000
+    const i = costCenters.findIndex(c => c.code === code)
+    return i === -1 ? 20_000 : i
   }
 
   const filtered = costs.filter(c => {
     const q = search.toLowerCase()
     const matchSearch = !q || c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
-    const matchCentro = filterCentro === 'all' || c.default_centers.includes('all') || c.default_centers.includes(filterCentro)
+    const matchCentro = !centro || totalFor(rollup[c.id], centro).budget !== 0 || totalFor(rollup[c.id], centro).actual !== 0
     return matchSearch && matchCentro
   })
 
@@ -981,8 +1047,21 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     if (!groups[c.macro_group]) groups[c.macro_group] = []
     groups[c.macro_group].push(c)
   })
+  // Gruppi nell'ordine del Conto Economico
+  const groupOrder = (g: string) => { const i = MACRO_GROUPS.findIndex(m => m.value === g); return i === -1 ? 999 : i }
+  const groupEntries = Object.entries(groups).sort(([a], [b]) => groupOrder(a) - groupOrder(b))
 
-  const totale = filtered.reduce((s, c) => s + (c.annual_amount || 0), 0)
+  // Per i totali si contano solo le voci il cui padre non è nell'elenco:
+  // il padre contiene già i figli, sommarli entrambi raddoppierebbe.
+  const filteredIds = new Set(filtered.map(c => c.id))
+  const isTop = (c: CostItem) => !c.parent_id || !filteredIds.has(c.parent_id)
+  const sumItems = (items: CostItem[]) => items.filter(isTop).reduce(
+    (s, c) => { const t = totalFor(rollup[c.id], centro); return { budget: s.budget + t.budget, actual: s.actual + t.actual } },
+    { budget: 0, actual: 0 },
+  )
+  const totRicavi = sumItems(filtered.filter(c => c.is_revenue))
+  const totCosti = sumItems(filtered.filter(c => !c.is_revenue))
+  const hasAnyAmount = Object.keys(amountsByCode).length > 0
 
   if (loading) return <div className="px-5 py-4 text-center text-slate-500">Caricamento costi...</div>
 
@@ -990,17 +1069,22 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     <div className="px-5 py-4 space-y-4">
       {/* Toolbar */}
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-        <div className="flex items-center gap-3 flex-1">
-          <div className="relative flex-1 max-w-xs">
+        <div className="flex flex-wrap items-center gap-3 flex-1">
+          <div className="relative flex-1 min-w-[180px] max-w-xs">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="Cerca voce di costo..."
+            <input type="text" placeholder="Cerca voce..."
               value={search} onChange={e => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500" />
           </div>
-          <select value={filterCentro} onChange={e => setFilterCentro(e.target.value)}
+          <select value={filterCentro} onChange={e => setFilterCentro(e.target.value)} aria-label="Centro di costo"
             className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
-            <option value="all">Tutti i centri</option>
+            <option value="">Tutti i centri</option>
             {costCenters.map(c => <option key={c.code} value={c.code}>{c.label}</option>)}
+            {hasSede && <option value={SEDE_CENTER}>Sede / Costi generali</option>}
+          </select>
+          <select value={year} onChange={e => setYear(Number(e.target.value))} aria-label="Anno del preventivo"
+            className="px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500">
+            {yearOptions.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </div>
         <button onClick={() => { resetForm(); setShowForm(true) }}
@@ -1008,6 +1092,17 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           <Plus size={16} />
           Nuova voce
         </button>
+      </div>
+
+      {/* Da dove vengono gli importi */}
+      <div className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+        {amountsLoading
+          ? `Carico il preventivo ${year}...`
+          : amountsError
+            ? `Non riesco a leggere il preventivo ${year}: gli importi non sono disponibili, riprova più tardi.`
+            : hasAnyAmount
+              ? `Importi del preventivo ${year} per centro di costo, presi da Budget & Controllo (sola lettura: si modificano lì).${centro ? ` Mostro solo le voci con importi su «${centerLabel(centro)}».` : ''}`
+              : `Nessun preventivo ${year} inserito in Budget & Controllo: gli importi per centro compaiono appena lo si compila.`}
       </div>
 
       {/* Form */}
@@ -1021,14 +1116,9 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 placeholder="ES: LOC003"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg font-mono" />
             </div>
-            <div className="md:col-span-2">
+            <div className="md:col-span-3">
               <label className="block text-xs font-medium text-slate-600 mb-1">Nome voce *</label>
               <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Importo annuo</label>
-              <input type="number" value={form.annual_amount} onChange={e => setForm(p => ({ ...p, annual_amount: e.target.value }))}
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg" />
             </div>
           </div>
@@ -1037,7 +1127,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
               <label className="block text-xs font-medium text-slate-600 mb-1">Macro gruppo</label>
               <select value={form.macro_group} onChange={e => setForm(p => ({ ...p, macro_group: e.target.value }))}
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg">
-                {MACRO_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+                {MACRO_GROUPS.map(g => <option key={g.value} value={g.value}>{g.label}</option>)}
               </select>
             </div>
             <div className="flex items-end gap-4">
@@ -1064,40 +1154,19 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
               <CornerDownRight size={12} className="inline mr-1" />
               Sottoconto di (opzionale)
             </label>
-            <select value={form.parent_id} onChange={e => setForm(p => ({ ...p, parent_id: e.target.value }))}
+            <select value={form.parent_id} onChange={e => {
+              const pid = e.target.value
+              const par = costs.find(c => c.id === pid)
+              // Un sottoconto sta nello stesso gruppo del suo conto padre
+              setForm(p => ({ ...p, parent_id: pid, macro_group: par?.macro_group || p.macro_group }))
+            }}
               className="w-full md:w-1/2 px-3 py-2 text-sm border border-slate-200 rounded-lg">
               <option value="">— Nessuno (voce principale) —</option>
               {parentOptions.filter(p => p.id !== editingId).map(p => (
                 <option key={p.id} value={p.id}>{p.code} — {p.name}</option>
               ))}
             </select>
-            <p className="text-[11px] text-slate-400 mt-1">Seleziona un conto padre per creare una struttura gerarchica conti/sottoconti.</p>
-          </div>
-          {/* Centri di costo */}
-          <div>
-            <label className="block text-xs font-medium text-slate-600 mb-2">Assegna a centro/i di costo</label>
-            <div className="flex flex-wrap gap-2">
-              <button key="all" onClick={() => toggleCentroCost('all')}
-                className={`px-3 py-1.5 text-xs font-medium rounded-full border transition ${
-                  form.default_centers.includes('all') ? 'bg-slate-600 text-white border-transparent' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                }`}
-              >
-                Tutti gli outlet
-              </button>
-              {costCenters.map(c => {
-                const selected = form.default_centers.includes(c.code)
-                return (
-                  <button key={c.code} onClick={() => toggleCentroCost(c.code)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-full border transition ${
-                      selected ? `${c.color} text-white border-transparent` : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'
-                    }`}
-                  >
-                    {c.label}
-                  </button>
-                )
-              })}
-            </div>
-            <p className="text-[11px] text-slate-400 mt-1">Seleziona uno o più centri di costo. "Tutti" assegna il costo a tutte le entità.</p>
+            <p className="text-[11px] text-slate-400 mt-1">Il piano ha tre livelli (conto, sotto-categoria, conto di dettaglio): il preventivo in Budget & Controllo si inserisce sul terzo.</p>
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={resetForm} className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">Annulla</button>
@@ -1111,14 +1180,14 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         </div>
       )}
 
-      {/* Grouped costs */}
+      {/* Voci raggruppate per macro gruppo, con importi per centro di costo */}
       <div className="space-y-2">
-        {Object.entries(groups).length === 0 ? (
-          <div className="py-8 text-center text-sm text-slate-400">Nessuna voce di costo trovata</div>
+        {groupEntries.length === 0 ? (
+          <div className="py-8 text-center text-sm text-slate-400">Nessuna voce trovata</div>
         ) : (
-          Object.entries(groups).map(([group, cats]) => {
+          groupEntries.map(([group, cats]) => {
             const isOpen = expandedGroup === group
-            const groupTotal = cats.reduce((s, c) => s + (c.annual_amount || 0), 0)
+            const groupTotal = sumItems(cats)
             return (
               <div key={group} className="border border-slate-200 rounded-xl overflow-hidden">
                 <div
@@ -1126,51 +1195,55 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   onClick={() => setExpandedGroup(isOpen ? null : group)}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-sm text-slate-800">{group}</span>
+                    <span className="font-semibold text-sm text-slate-800">{macroGroupLabel(group)}</span>
                     <span className="text-xs text-slate-400">({cats.length} voci)</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-slate-700">€ {fmt(groupTotal)}</span>
+                    <span className="text-sm font-bold text-slate-700" title={`Preventivo ${year}`}>€ {fmt(groupTotal.budget)}</span>
                     {isOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
                   </div>
                 </div>
                 {isOpen && (
                   <div className="border-t border-slate-100 overflow-x-auto scroll-shadow-x">
-                    <table className="w-full min-w-[640px] text-sm">
+                    <table className="w-full min-w-[760px] text-sm">
                       <thead>
                         <tr className="bg-slate-50/80 text-xs text-slate-500 uppercase tracking-wide">
                           <th className="px-4 py-2 text-left font-medium">Codice</th>
                           <th className="px-4 py-2 text-left font-medium">Voce</th>
-                          <th className="px-4 py-2 text-right font-medium">Importo annuo</th>
-                          <th className="px-4 py-2 text-center font-medium">Tipo</th>
-                          <th className="px-4 py-2 text-left font-medium">Centri di costo</th>
+                          <th className="px-4 py-2 text-right font-medium">Preventivo {year}</th>
+                          {hasActual && <th className="px-4 py-2 text-right font-medium">Consuntivo</th>}
+                          <th className="px-4 py-2 text-left font-medium">{centro ? 'Centro di costo' : 'Ripartizione per centro di costo'}</th>
                           <th className="px-4 py-2 text-left font-medium">Note</th>
                           <th className="px-4 py-2 text-center font-medium w-20">Azioni</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-50">
-                        {cats.map(c => (
-                          <tr key={c.id} className="hover:bg-slate-50/50 group/row">
+                        {cats.map(c => {
+                          const amounts = rollup[c.id] || {}
+                          const tot = totalFor(amounts, centro)
+                          const split = Object.entries(amounts)
+                            .filter(([cc, v]) => (!centro || cc === centro) && (v.budget !== 0 || v.actual !== 0))
+                            .sort(([a], [b]) => centerOrder(a) - centerOrder(b))
+                          const lvl = Number(c.level) || 1
+                          return (
+                          <tr key={c.id} className="hover:bg-slate-50/50 group/row align-top">
                             <td className="px-4 py-2.5 font-mono text-xs text-slate-500">{c.code}</td>
-                            <td className="px-4 py-2.5 font-medium text-slate-800">
+                            <td className={`px-4 py-2.5 text-slate-800 ${lvl < 3 ? 'font-semibold' : 'font-medium'}`} style={{ paddingLeft: `${16 + (lvl - 1) * 14}px` }}>
                               {c.parent_id && <CornerDownRight size={12} className="inline mr-1 text-slate-300" />}
                               {c.name}
                             </td>
-                            <td className="px-4 py-2.5 text-right font-semibold text-slate-700">€ {fmt(c.annual_amount)}</td>
-                            <td className="px-4 py-2.5 text-center">
-                              <div className="flex justify-center gap-1">
-                                {c.is_fixed && <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Fisso</span>}
-                                {!c.is_fixed && <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-100 text-sky-700">Variabile</span>}
-                                {c.is_recurring && <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-700">Ric.</span>}
-                              </div>
-                            </td>
+                            <td className="px-4 py-2.5 text-right font-semibold text-slate-700 whitespace-nowrap">{tot.budget !== 0 ? `€ ${fmt(tot.budget)}` : <span className="text-slate-300">—</span>}</td>
+                            {hasActual && <td className="px-4 py-2.5 text-right text-slate-600 whitespace-nowrap">{tot.actual !== 0 ? `€ ${fmt(tot.actual)}` : <span className="text-slate-300">—</span>}</td>}
                             <td className="px-4 py-2.5">
                               <div className="flex flex-wrap gap-1">
-                                {c.default_centers && c.default_centers.map((cc: string) => (
-                                  <span key={cc} className={`text-[10px] px-1.5 py-0.5 rounded-full text-white ${getCentroColor(cc)}`}>
-                                    {getCentroLabel(cc, costCenters)}
-                                  </span>
-                                ))}
+                                {split.length === 0
+                                  ? <span className="text-xs text-slate-300">—</span>
+                                  : split.map(([cc, v]) => (
+                                    <span key={cc} className={`text-[10px] px-1.5 py-0.5 rounded-full text-white whitespace-nowrap ${centerColor(cc)}`}
+                                      title={`${centerLabel(cc)}: preventivo € ${fmt(v.budget)}${hasActual ? `, consuntivo € ${fmt(v.actual)}` : ''}`}>
+                                      {centerLabel(cc)} · € {fmt(v.budget)}
+                                    </span>
+                                  ))}
                               </div>
                             </td>
                             <td className="px-4 py-2.5 text-xs text-slate-400 max-w-[150px] truncate" title={c.note || '—'}>{c.note || '—'}</td>
@@ -1196,7 +1269,8 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                               </div>
                             </td>
                           </tr>
-                        ))}
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -1207,11 +1281,14 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         )}
       </div>
 
-      {/* Totale */}
+      {/* Totali: ricavi e costi separati (sommarli insieme non avrebbe senso) */}
       {filtered.length > 0 && (
-        <div className="flex items-center justify-between pt-3 border-t border-slate-200">
-          <span className="text-sm text-slate-600">{filtered.length} voci di costo {filterCentro !== 'all' && `(filtro: ${getCentroLabel(filterCentro, costCenters)})`}</span>
-          <span className="text-base font-bold text-slate-900">Totale: € {fmt(totale)}</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-3 border-t border-slate-200">
+          <span className="text-sm text-slate-600">{filtered.length} voci {centro && `(centro: ${centerLabel(centro)})`}</span>
+          <span className="text-sm text-slate-700">
+            Preventivo {year}: ricavi <span className="font-bold text-slate-900">€ {fmt(totRicavi.budget)}</span>
+            {' · '}costi <span className="font-bold text-slate-900">€ {fmt(totCosti.budget)}</span>
+          </span>
         </div>
       )}
     </div>
@@ -2068,7 +2145,7 @@ export default function Impostazioni() {
   const sections = [
     { id: 'company', icon: Building2, title: 'Dati azienda', subtitle: 'Visura e compagine societaria', component: CompanySection },
     { id: 'users', icon: Users, title: 'Utenti', subtitle: 'Gestione utenti, ruoli e accessi', component: UserSection },
-    { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: 'Catalogo costi con assegnazione a centri di costo e gerarchia conti/sottoconti', component: CostSection },
+    { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: 'Piano dei conti con il preventivo dell\'anno diviso per centro di costo (outlet)', component: CostSection },
     { id: 'centri', icon: Shield, title: 'Centri di costo', subtitle: 'Punti vendita, sede, magazzino — entità di allocazione', component: CentriDiCostoSection },
     { id: 'sdi', icon: FileText, title: 'Fatturazione SDI', subtitle: 'Accreditamento, certificati e configurazione Sistema di Interscambio', component: SdiSection },
     { id: 'report', icon: Mail, title: 'Report incassi serale', subtitle: 'Mail automatica ogni sera con le chiusure di cassa di tutti i punti vendita', component: ReportSection },
