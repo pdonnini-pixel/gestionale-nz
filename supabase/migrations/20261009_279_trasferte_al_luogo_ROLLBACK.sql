@@ -1,0 +1,5 @@
+-- Rollback 279: rimettere la funzione della 274 (ri-eseguire la sezione 3 di
+-- 20261009_274_riparto_automatico_notturno.sql). La tabella
+-- outlet_travel_places resta: vuota o no, senza il passo 1b non è letta.
+-- Le regole automatiche create dal passo 1b si correggono da sole alla notte
+-- successiva (la 274 le ricalcola); nessun dato da cancellare.
