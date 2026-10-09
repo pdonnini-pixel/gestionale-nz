@@ -397,6 +397,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         ruolo: (u.role as string) || 'operatore_cassa',
         is_active: u.active !== false,
         last_sign_in_at: u.last_sign_in_at || null,
+        invited_at: u.invited_at || null,
         outlet_ids: accessByUser.get(u.id as string) ?? [],
       }))
       mapped.sort((a, b) => (a.nome + a.cognome).localeCompare(b.nome + b.cognome))
@@ -441,12 +442,14 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           delivery,
           redirectTo: `${window.location.origin}/reset-password`,
           ...outletPayload,
-        }) as { user_id?: string; password?: string }
+        }) as { user_id?: string; password?: string; mail?: string }
         if (delivery === 'password') {
           if (!res?.password) throw new Error('Utente creato ma nessuna password restituita: generala con la chiave')
           setNewPassword({ userId: res.user_id ?? '', email, password: res.password })
           setCopied(false)
           showToast?.(`Utente ${email} creato: comunicagli la password`)
+        } else if (res?.mail === 'failed') {
+          showToast?.(`Utente ${email} creato, ma l'email di invito non è partita: genera la password con l'icona della chiave`, 'error')
         } else {
           showToast?.(`Invito inviato a ${email}`)
         }
@@ -695,6 +698,12 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-sm text-slate-900">{u.nome} {u.cognome}</span>
                   {!u.is_active && <span className="text-[10px] text-red-500 uppercase tracking-wide font-semibold">accesso bloccato</span>}
+                  {u.is_active && !u.last_sign_in_at && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold"
+                      title={u.invited_at ? 'Invito inviato: non ha ancora scelto la password' : 'Non è ancora entrato nel gestionale'}>
+                      {u.invited_at ? 'In attesa: invito inviato' : 'In attesa del primo accesso'}
+                    </span>
+                  )}
                 </div>
                 <div className="text-xs text-slate-400 truncate" title={u.email}>{u.email}</div>
                 <div className="flex flex-wrap gap-1 mt-1">
@@ -737,7 +746,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 </button>
               )}
               <button onClick={() => handleEdit(u)} title="Modifica ruolo"
-                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition">
                 <Pencil size={14} />
               </button>
               {confirmDelete === u.id ? (
@@ -751,7 +760,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 </div>
               ) : (
                 <button onClick={() => setConfirmDelete(u.id)} title="Elimina"
-                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition opacity-100 md:opacity-0 md:group-hover:opacity-100">
+                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition">
                   <Trash2 size={14} />
                 </button>
               )}
