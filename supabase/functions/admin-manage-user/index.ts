@@ -19,11 +19,22 @@
 //   - "set_role"   → cambia ruolo (app_metadata.role + user_profiles.role)
 //   - "set_active" → blocca/sblocca l'accesso (ban dell'utente auth)
 //   - "delete"     → revoca il login (elimina l'utente auth + user_profiles)
+//   - "recover"    → PUBBLICA (nessun login richiesto): "password dimenticata".
+//                    Manda all'utente il link per reimpostare la password.
+//                    Risponde sempre ok, anche se l'email non esiste, per non
+//                    rivelare chi ha un accesso; al massimo una mail al minuto
+//                    per utente.
 //   - "set_password" → genera una nuova password (12 caratteri, senza simboli
 //                    ambigui) e la imposta sul login. La password viene
 //                    restituita UNA sola volta al chiamante, che la comunica
 //                    all'utente (es. account di negozio senza email attiva):
 //                    nessuna email automatica.
+//
+// Email di invito e di recupero: se il tenant ha i secret RESEND_API_KEY e
+// DISTINTA_EMAIL_FROM (gli stessi del report incassi), il link lo genera
+// Supabase (generateLink, nessuna mail) e la mail parte da Resend con il
+// nome dell'azienda, in italiano. Senza quei secret si ripiega sulla mail
+// standard di Supabase Auth, come prima.
 //
 // Body: { action, delivery?, email?, first_name?, last_name?, phone?, role?, user_id?, active?, redirectTo?, outlet_id?, company_id? }
 //
@@ -57,6 +68,40 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({}));
     const action: string = body.action ?? "";
+
+    // ───────── RECOVER (pubblica: "password dimenticata" dalla pagina di login) ─────────
+    if (action === "recover") {
+      const email = String(body.email ?? "").trim().toLowerCase();
+      const redirectTo = safeRedirect(body.redirectTo);
+      if (!email || !email.includes("@")) return jsonOk({ ok: true });
+      const { data: prof } = await admin.from("user_profiles")
+        .select("id, company_id").ilike("email", escapeLike(email)).limit(1).maybeSingle();
+      const p = prof as { id?: string; company_id?: string } | null;
+      if (!p?.id) return jsonOk({ ok: true });
+      const { data: au } = await admin.auth.admin.getUserById(p.id);
+      const u = au?.user as { email?: string; recovery_sent_at?: string; banned_until?: string } | undefined;
+      if (!u?.email) return jsonOk({ ok: true });
+      if (u.banned_until && new Date(u.banned_until).getTime() > Date.now()) return jsonOk({ ok: true });
+      if (u.recovery_sent_at && Date.now() - new Date(u.recovery_sent_at).getTime() < 60_000) return jsonOk({ ok: true });
+
+      if (!resendConfigured()) {
+        // Ripiego: mail standard di Supabase Auth
+        const anon = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
+        await anon.auth.resetPasswordForEmail(u.email, redirectTo ? { redirectTo } : undefined);
+        return jsonOk({ ok: true });
+      }
+      const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
+        type: "recovery", email: u.email, ...(redirectTo ? { options: { redirectTo } } : {}),
+      });
+      if (linkErr || !link?.properties?.action_link) {
+        console.error("[admin-manage-user] recover generateLink:", linkErr?.message);
+        return jsonOk({ ok: true });
+      }
+      const companyName = await getCompanyName(admin, p.company_id ?? null);
+      const sent = await sendAuthEmail("recovery", u.email, link.properties.action_link, companyName, redirectTo);
+      if (!sent) console.error("[admin-manage-user] recover: invio Resend non riuscito");
+      return jsonOk({ ok: true });
+    }
 
     // 1. Autenticazione chiamante: JWT di un super_advisor, oppure il segreto
     //    condiviso x-autofix-cron (stesso meccanismo di closing-photo-extract e
@@ -136,6 +181,7 @@ Deno.serve(async (req: Request) => {
           email: p.email ?? au?.user?.email ?? null,
           active,
           last_sign_in_at: au?.user?.last_sign_in_at ?? null,
+          invited_at: (au?.user as { invited_at?: string } | null)?.invited_at ?? null,
         });
       }
       return jsonOk({ users: list });
@@ -156,6 +202,7 @@ Deno.serve(async (req: Request) => {
 
       let newUserId: string;
       let password: string | null = null;
+      let inviteLink: string | null = null;
       if (withPassword) {
         password = generatePassword();
         const { data: cr, error: crErr } = await admin.auth.admin.createUser({
@@ -163,6 +210,17 @@ Deno.serve(async (req: Request) => {
         });
         if (crErr || !cr?.user) return jsonError(400, `Creazione utente non riuscita: ${crErr?.message ?? "sconosciuto"}`);
         newUserId = cr.user.id;
+      } else if (resendConfigured()) {
+        // Link di invito generato da Supabase (nessuna mail), mail nostra via Resend
+        const { data: gl, error: glErr } = await admin.auth.admin.generateLink({
+          type: "invite", email,
+          options: { data: userMeta, ...(redirectTo ? { redirectTo } : {}) },
+        });
+        if (glErr || !gl?.user || !gl.properties?.action_link) {
+          return jsonError(400, `Invito non riuscito: ${glErr?.message ?? "sconosciuto"}`);
+        }
+        newUserId = gl.user.id;
+        inviteLink = gl.properties.action_link;
       } else {
         const { data: inv, error: invErr } = await admin.auth.admin.inviteUserByEmail(email, {
           data: userMeta,
@@ -187,7 +245,15 @@ Deno.serve(async (req: Request) => {
       const outletErr = await assignOutlet(newUserId, role, body.outlet_id);
       if (outletErr) return jsonError(400, outletErr);
 
-      return jsonOk({ ok: true, user_id: newUserId, invited: email, ...(password ? { password } : {}) });
+      // Mail di invito nostra: se Resend non risponde l'utente esiste gia',
+      // lo si dice al chiamante (puo' generare la password con la chiave).
+      let mail: "sent" | "failed" | undefined;
+      if (inviteLink) {
+        const companyName = await getCompanyName(admin, myCompany);
+        mail = (await sendAuthEmail("invite", email, inviteLink, companyName, redirectTo, String(body.first_name ?? ""))) ? "sent" : "failed";
+      }
+
+      return jsonOk({ ok: true, user_id: newUserId, invited: email, ...(password ? { password } : {}), ...(mail ? { mail } : {}) });
     }
 
     // Da qui in poi serve un user_id target della propria azienda
@@ -252,4 +318,93 @@ function jsonOk(p: unknown): Response {
 }
 function jsonError(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+}
+
+// ───────── Email di accesso (invito / password dimenticata) via Resend ─────────
+
+function resendConfigured(): boolean {
+  return !!(Deno.env.get("RESEND_API_KEY") && Deno.env.get("DISTINTA_EMAIL_FROM"));
+}
+
+// Solo URL https verso /reset-password: il link nella mail non deve poter
+// portare altrove. Supabase lo ricontrolla comunque con i Redirect URLs.
+function safeRedirect(v: unknown): string {
+  try {
+    const u = new URL(String(v ?? ""));
+    return u.protocol === "https:" && u.pathname === "/reset-password" ? u.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function escapeLike(v: string): string {
+  return v.replace(/[\\%_]/g, (c) => `\\${c}`);
+}
+
+function escapeHtml(v: string): string {
+  return v.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+}
+
+// deno-lint-ignore no-explicit-any
+async function getCompanyName(admin: any, companyId: string | null): Promise<string> {
+  if (!companyId) return "Gestionale";
+  const { data } = await admin.from("companies").select("name").eq("id", companyId).maybeSingle();
+  return (data as { name?: string } | null)?.name || "Gestionale";
+}
+
+async function sendAuthEmail(
+  kind: "invite" | "recovery", to: string, link: string, companyName: string, redirectTo: string, firstName = "",
+): Promise<boolean> {
+  const key = Deno.env.get("RESEND_API_KEY");
+  const from = Deno.env.get("DISTINTA_EMAIL_FROM");
+  if (!key || !from) return false;
+
+  const site = redirectTo ? new URL(redirectTo).host : "";
+  const name = escapeHtml(companyName);
+  const hello = firstName.trim() ? `Ciao ${escapeHtml(firstName.trim())},` : "Ciao,";
+  const subject = kind === "invite"
+    ? `Il tuo accesso al gestionale ${companyName}`
+    : `Reimposta la password del gestionale ${companyName}`;
+  const intro = kind === "invite"
+    ? `ti è stato creato un accesso al gestionale di <strong>${name}</strong>. Per entrare scegli la tua password dal pulsante qui sotto.`
+    : `abbiamo ricevuto una richiesta per reimpostare la password del gestionale di <strong>${name}</strong>. Scegli la nuova password dal pulsante qui sotto.`;
+  const button = kind === "invite" ? "Scegli la password" : "Reimposta la password";
+  const note = kind === "invite"
+    ? "Il link si può usare una sola volta e scade dopo un po' di tempo: se non funziona più, chiedi all'amministrazione di mandarti un nuovo accesso. Dopo, entra con la tua email e la password che hai scelto."
+    : "Il link si può usare una sola volta e scade dopo un po' di tempo: se non funziona più, ripeti la richiesta da \"Password dimenticata?\". Se non hai chiesto tu di cambiare password, ignora questa email: la password attuale resta valida.";
+
+  const html = `<!doctype html><html lang="it"><body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#ffffff;border-radius:16px;overflow:hidden;border:1px solid #e2e8f0">
+<tr><td style="background:#1e3a8a;padding:20px 28px;color:#ffffff">
+<div style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;opacity:.8">Gestionale</div>
+<div style="font-size:20px;font-weight:700;margin-top:2px">${name}</div></td></tr>
+<tr><td style="padding:28px">
+<p style="margin:0 0 12px;font-size:15px">${hello}</p>
+<p style="margin:0 0 24px;font-size:15px;line-height:1.55">${intro}</p>
+<table role="presentation" cellpadding="0" cellspacing="0"><tr><td style="border-radius:10px;background:#2563eb">
+<a href="${escapeHtml(link)}" style="display:inline-block;padding:12px 24px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none">${button}</a>
+</td></tr></table>
+<p style="margin:24px 0 0;font-size:13px;line-height:1.5;color:#475569">${note}</p>
+<p style="margin:16px 0 0;font-size:12px;line-height:1.5;color:#94a3b8">Se il pulsante non funziona, copia questo indirizzo nel browser:<br><span style="word-break:break-all">${escapeHtml(link)}</span></p>
+</td></tr>
+<tr><td style="padding:16px 28px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8">${site ? escapeHtml(site) + " · " : ""}Email automatica, non rispondere.</td></tr>
+</table></td></tr></table></body></html>`;
+  const text = `${firstName.trim() ? `Ciao ${firstName.trim()},` : "Ciao,"}\n\n${intro.replace(/<[^>]+>/g, "")}\n\n${button}: ${link}\n\n${note}`;
+
+  try {
+    const resp = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ from, to: [to], subject, html, text }),
+    });
+    if (!resp.ok) {
+      console.error(`[admin-manage-user] Resend ${resp.status}:`, (await resp.text()).slice(0, 300));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error("[admin-manage-user] Resend:", e);
+    return false;
+  }
 }

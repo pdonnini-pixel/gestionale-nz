@@ -108,10 +108,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // /reset-password sul dominio del tenant corrente (window.location.origin),
   // dove l'utente imposta la nuova password. redirectTo va incluso tra i
   // "Redirect URLs" consentiti nelle impostazioni Auth di ciascun tenant.
+  // La mail la manda admin-manage-user (azione pubblica "recover"): italiana,
+  // con il nome dell'azienda, via Resend. Se la funzione non risponde si
+  // ripiega sulla mail standard di Supabase Auth.
   async function resetPassword(email: string) {
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/reset-password`,
+    const redirectTo = `${window.location.origin}/reset-password`
+    const { error: fnError } = await supabase.functions.invoke('admin-manage-user', {
+      body: { action: 'recover', email: email.trim(), redirectTo },
     })
+    if (!fnError) return { error: null }
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo })
     return { error }
   }
 
