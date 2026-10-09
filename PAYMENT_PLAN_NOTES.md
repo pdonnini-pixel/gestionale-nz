@@ -1759,3 +1759,32 @@ IP Services 4077300000006518 (100,00), BLU SERVICE 4214700000010678 (100,13) e
 Fatture a zero **vere**, da non toccare: OMNITEKSTORE 6128/2026 (merce 134,02 + spedizione
 5,33 compensate dall'acconto della 5999/2026, che è in Scadenzario per 170,00), Estenergy
 412601042965 (nota di credito a zero), Fastweb 6638079479, C.A.E P. Ghetti 101380/1210.
+
+## Riparto dei fornitori sugli outlet: automatico, ogni notte (09/10/2026)
+
+Deciso da Patrizio il 09/10/2026. `fn_riparto_automatico(company, prova)` (migrazione 274) gira ogni
+notte alle 02:40 UTC (job pg_cron `riparto-automatico-notturno`, migrazione 278) sui 3 tenant. Per ogni
+fornitore con centro «tutti» e senza regola, o con una regola scritta dal sistema («Automatica: …»,
+`created_by` NULL), applica la prima regola che trova:
+
+1. **Energia** (categoria `ENERG_GAS`): POD/PDR della bolletta → outlet da `utility_supply_points`
+   (letti dal PDF della bolletta o dalla sede di fornitura). Se un codice non è noto, il fornitore resta senza regola.
+2. **Outlet nominato nelle fatture** degli ultimi 12 mesi (nome, città o centro commerciale dell'outlet;
+   cedente, cessionario e allegati esclusi): nessuna fattura ne nomina due e almeno l'80% ne nomina uno →
+   quote in proporzione agli importi. Non vale per la merce (le fatture nominano il magazzino di consegna).
+3. **Nome del fornitore** che contiene un solo outlet (nome o centro commerciale; la città solo per i Comuni).
+4. **Merce** (`ACQ_MERCE`, `ACCESSORI_ABB_TO` o regola «Automatica: merce»): quote del preventivo acquisti
+   dell'anno per outlet (segnaposto, Sede/costi generali e rettifica esclusi; outlet in apertura compresi).
+5. **Struttura** (gruppi generali_amministrative, finanziarie, oneri_diversi): alla sede (centro `hq`).
+
+Le regole messe a mano non si toccano mai. Una regola automatica si sostituisce solo se le quote cambiano
+(la vecchia si disattiva, non si cancella). Locazioni senza outlet ricavabile e fornitori senza categoria
+restano senza regola: serve una decisione. `fn_riparto_automatico(company, true)` mostra il piano senza scrivere.
+
+Decisioni di Patrizio salvate in migrazioni NZ_ONLY: 272 (locatori senza outlet in fattura), 275 (contatori
+e fornitori di abbigliamento/accessori senza categoria), 276 (città degli outlet dalle bollette), 277
+(fornitori senza categoria rimasti → sede). Al 09/10/2026 su NZ è assegnato il 99% delle fatture 2026;
+restano HERA (PDR gas 03050000126920 senza indirizzo) e 32 fatture senza fornitore.
+
+Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
+consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.

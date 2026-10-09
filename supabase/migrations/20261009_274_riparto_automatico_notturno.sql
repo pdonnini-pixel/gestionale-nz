@@ -2,7 +2,7 @@
 --
 -- Deciso da Patrizio il 09/10/2026: il riparto dei costi sugli outlet non deve
 -- dipendere da qualcuno che lo imposta a mano fornitore per fornitore. Ogni
--- notte il sistema guarda i fornitori senza regola (o con una regola che ha
+-- notte (migrazione 278) il sistema guarda i fornitori senza regola (o con una regola che ha
 -- scritto lui) e applica, in quest'ordine, la prima regola che trova:
 --
 --   1. ENERGIA (categoria ENERG_GAS): ogni bolletta riporta POD/PDR; il punto
@@ -45,17 +45,13 @@ COMMENT ON TABLE public.utility_supply_points IS
   'Punto di fornitura (POD/PDR) → outlet, letto dalle bollette. Usato dal riparto automatico (fn_riparto_automatico).';
 
 ALTER TABLE public.utility_supply_points ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS company_isolation ON public.utility_supply_points;
 CREATE POLICY company_isolation ON public.utility_supply_points FOR ALL
   USING (company_id IN (SELECT user_profiles.company_id FROM public.user_profiles WHERE user_profiles.id = auth.uid()));
-DROP POLICY IF EXISTS viewer_no_insert ON public.utility_supply_points;
 CREATE POLICY viewer_no_insert ON public.utility_supply_points FOR INSERT
   WITH CHECK (COALESCE((public.get_my_role())::text, '') <> 'viewer');
-DROP POLICY IF EXISTS viewer_no_update ON public.utility_supply_points;
 CREATE POLICY viewer_no_update ON public.utility_supply_points FOR UPDATE
   USING (COALESCE((public.get_my_role())::text, '') <> 'viewer')
   WITH CHECK (COALESCE((public.get_my_role())::text, '') <> 'viewer');
-DROP POLICY IF EXISTS viewer_no_delete ON public.utility_supply_points;
 CREATE POLICY viewer_no_delete ON public.utility_supply_points FOR DELETE
   USING (COALESCE((public.get_my_role())::text, '') <> 'viewer');
 
@@ -113,6 +109,7 @@ DECLARE
   v_created int := 0;
   v_replaced int := 0;
   v_same   int := 0;
+  v_merce  boolean;
   v_piano  jsonb := '[]'::jsonb;  -- cosa è stato (o sarebbe, in prova) creato o sostituito
 BEGIN
   -- Sede: l'outlet legato al centro di costo con ruolo 'hq'
@@ -123,31 +120,6 @@ BEGIN
   ORDER BY o.created_at LIMIT 1;
 
   -- Parole che identificano ogni outlet: nome, città, centro commerciale
-  CREATE TEMP TABLE IF NOT EXISTS _ra_outlet_kw (outlet_id uuid, kw text) ON COMMIT DROP;
-  TRUNCATE _ra_outlet_kw;
-  INSERT INTO _ra_outlet_kw
-  SELECT o.id,
-    (SELECT string_agg(DISTINCT w, '|')
-       FROM unnest(regexp_split_to_array(lower(concat_ws(' ', o.name, o.city, o.mall_name)), '[^a-zà-ù]+')) w
-      WHERE length(w) >= 5
-        AND w NOT IN ('outlet','village','fashion','store','magazzino','ufficio','negozio','punto','vendita',
-                      'centro','commerciale','shopping','designer','luxury','sede','della','delle'))
-  FROM public.outlets o
-  WHERE o.company_id = p_company_id AND o.is_active;
-  DELETE FROM _ra_outlet_kw WHERE kw IS NULL;
-
-  -- Fatture degli ultimi 12 mesi per fornitore, con testo ricercabile
-  CREATE TEMP TABLE IF NOT EXISTS _ra_inv (supplier_id uuid, inv_id uuid, net numeric, txt text) ON COMMIT DROP;
-  TRUNCATE _ra_inv;
-  INSERT INTO _ra_inv
-  SELECT DISTINCT ON (e.id) p.supplier_id, e.id, abs(coalesce(e.net_amount, 0)),
-         public.fn_testo_fattura_ricercabile(e.xml_content)
-  FROM public.electronic_invoices e
-  JOIN public.payables p ON p.electronic_invoice_id = e.id AND p.supplier_id IS NOT NULL
-  WHERE e.company_id = p_company_id
-    AND e.invoice_date >= v_from
-    AND coalesce(e.xml_content, '') <> '';
-
   FOR s IN
     SELECT sp.id, sp.name, cat.code AS cat_code, cat.macro_group::text AS cat_group,
            ar.id AS rule_id, ar.description AS rule_desc
@@ -162,65 +134,115 @@ BEGIN
       AND (ar.id IS NULL OR (ar.created_by IS NULL AND ar.description LIKE 'Automatica:%'))
   LOOP
     v_want := NULL; v_mode := NULL; v_motivo := NULL;
+    -- La merce arriva al magazzino: le sue fatture nominano il luogo di
+    -- consegna, non l'outlet che la vende. Per la merce vale solo il preventivo.
+    v_merce := coalesce(s.cat_code, '') IN ('ACQ_MERCE', 'ACCESSORI_ABB_TO')
+               OR coalesce(s.rule_desc, '') LIKE 'Automatica: merce%';
 
     -- 1. Energia: codici POD/PDR → outlet
     IF s.cat_code = 'ENERG_GAS' THEN
-      WITH c AS (
-        SELECT i.inv_id, i.net, m[1] AS code
-        FROM _ra_inv i, regexp_matches(upper(i.txt), '(IT[0-9]{3}E[0-9A-Z]{8,9}|(?<![0-9])[0-9]{14}(?![0-9]))', 'g') m
-        WHERE i.supplier_id = s.id
+      WITH inv AS (
+        SELECT DISTINCT ON (e.id) e.id AS inv_id, abs(coalesce(e.net_amount, 0)) AS net,
+               public.fn_testo_fattura_ricercabile(e.xml_content) AS txt
+        FROM public.payables p
+        JOIN public.electronic_invoices e ON e.id = p.electronic_invoice_id
+        WHERE p.supplier_id = s.id AND e.company_id = p_company_id
+          AND e.invoice_date >= v_from AND coalesce(e.xml_content, '') <> ''
       ),
       per_inv AS (
         SELECT i.inv_id, i.net,
-               array_agg(DISTINCT c.code) FILTER (WHERE c.code IS NOT NULL) AS codes,
-               bool_and(usp.outlet_id IS NOT NULL) FILTER (WHERE c.code IS NOT NULL) AS all_known
-        FROM _ra_inv i
-        LEFT JOIN c ON c.inv_id = i.inv_id
-        LEFT JOIN public.utility_supply_points usp ON usp.company_id = p_company_id AND usp.code = c.code
-        WHERE i.supplier_id = s.id
-        GROUP BY i.inv_id, i.net
+               array(SELECT DISTINCT m[1] FROM regexp_matches(upper(i.txt),
+                     '(IT[0-9]{3}E[0-9A-Z]{8,9}|(?<![0-9])[0-9]{14}(?![0-9]))', 'g') m) AS codes
+        FROM inv i
+      ),
+      chk AS (
+        SELECT pi.*, cardinality(pi.codes) > 0
+                 AND NOT EXISTS (SELECT 1 FROM unnest(pi.codes) cd
+                                  WHERE NOT EXISTS (SELECT 1 FROM public.utility_supply_points usp
+                                                     WHERE usp.company_id = p_company_id AND usp.code = cd)) AS ok
+        FROM per_inv pi
+      ),
+      w AS (
+        SELECT usp.outlet_id, sum(c.net / cardinality(c.codes)) AS a
+        FROM chk c
+        JOIN public.utility_supply_points usp ON usp.company_id = p_company_id AND usp.code = ANY (c.codes)
+        GROUP BY usp.outlet_id
       )
-      SELECT CASE WHEN count(*) > 0 AND bool_and(codes IS NOT NULL AND all_known) THEN true ELSE false END
-        INTO v_mode
-      FROM per_inv;
-      IF v_mode = 'true' THEN
-        WITH w AS (
-          SELECT usp.outlet_id, sum(i.net / x.n) AS a
-          FROM _ra_inv i
-          JOIN LATERAL (SELECT array_agg(DISTINCT m[1]) AS codes, count(DISTINCT m[1]) AS n
-                          FROM regexp_matches(upper(i.txt), '(IT[0-9]{3}E[0-9A-Z]{8,9}|(?<![0-9])[0-9]{14}(?![0-9]))', 'g') m) x ON true
-          JOIN public.utility_supply_points usp ON usp.company_id = p_company_id AND usp.code = ANY (x.codes)
-          WHERE i.supplier_id = s.id
-          GROUP BY usp.outlet_id
-        )
-        SELECT jsonb_object_agg(outlet_id, a) INTO v_want FROM w WHERE a > 0;
+      SELECT CASE WHEN (SELECT count(*) FROM chk) > 0 AND (SELECT bool_and(ok) FROM chk)
+                  THEN (SELECT jsonb_object_agg(outlet_id, a) FROM w WHERE a > 0) END
+        INTO v_want;
+      IF v_want IS NOT NULL THEN
         v_motivo := 'bollette ripartite per punto di fornitura (POD/PDR)';
       END IF;
-      v_mode := NULL;
     END IF;
 
     -- 2. Outlet nominato in ogni fattura
-    IF v_want IS NULL THEN
-      WITH h AS (
+    IF v_want IS NULL AND NOT v_merce THEN
+      WITH inv AS (
+        SELECT DISTINCT ON (e.id) e.id AS inv_id, abs(coalesce(e.net_amount, 0)) AS net,
+               public.fn_testo_fattura_ricercabile(e.xml_content) AS txt
+        FROM public.payables p
+        JOIN public.electronic_invoices e ON e.id = p.electronic_invoice_id
+        WHERE p.supplier_id = s.id AND e.company_id = p_company_id
+          AND e.invoice_date >= v_from AND coalesce(e.xml_content, '') <> ''
+      ),
+      kw AS (
+        SELECT o.id AS outlet_id,
+          (SELECT string_agg(DISTINCT w, '|')
+             FROM unnest(regexp_split_to_array(lower(concat_ws(' ', o.name, o.city, o.mall_name)), '[^a-zà-ù]+')) w
+            WHERE length(w) >= 5
+              AND w NOT IN ('outlet','village','fashion','store','magazzino','ufficio','negozio','punto','vendita',
+                            'centro','commerciale','shopping','designer','luxury','sede','della','delle')) AS kw
+        FROM public.outlets o
+        WHERE o.company_id = p_company_id AND o.is_active
+      ),
+      h AS (
         SELECT i.inv_id, i.net, array_agg(k.outlet_id) FILTER (WHERE k.outlet_id IS NOT NULL) AS outs
-        FROM _ra_inv i
-        LEFT JOIN _ra_outlet_kw k ON i.txt ~ ('\m(' || k.kw || ')\M')
-        WHERE i.supplier_id = s.id
+        FROM inv i
+        LEFT JOIN kw k ON k.kw IS NOT NULL AND i.txt ~ ('\m(' || k.kw || ')\M')
         GROUP BY i.inv_id, i.net
       )
-      SELECT CASE WHEN count(*) > 0 AND bool_and(cardinality(outs) = 1) THEN
-               (SELECT jsonb_object_agg(o, a) FROM (SELECT outs[1] AS o, sum(net) AS a FROM h GROUP BY outs[1]) z WHERE a > 0)
-             END
-        INTO v_want
+      -- Nessuna fattura nomina due outlet e almeno l'80% ne nomina uno solo:
+      -- le quote si calcolano sulle fatture che lo nominano.
+      SELECT CASE WHEN count(*) > 0
+                   AND bool_and(coalesce(cardinality(outs), 0) <= 1)
+                   AND count(*) FILTER (WHERE cardinality(outs) = 1) >= 0.8 * count(*) THEN
+               (SELECT jsonb_object_agg(o, a) FROM (SELECT outs[1] AS o, sum(net) AS a FROM h
+                                                     WHERE cardinality(outs) = 1 GROUP BY outs[1]) z WHERE a > 0)
+             END,
+             format('le fatture nominano l''outlet (%s su %s)', count(*) FILTER (WHERE cardinality(outs) = 1), count(*))
+        INTO v_want, v_motivo
       FROM h;
+      IF v_want IS NULL THEN
+        v_motivo := NULL;
+      END IF;
+    END IF;
+
+    -- 2b. Il nome stesso del fornitore contiene un solo outlet: nome o centro
+    --     commerciale dell'outlet; la città conta solo per i Comuni
+    --     (es. «Comune di Sant'Oreste» → Roma Soratte, «Tari Valdichiana»)
+    IF v_want IS NULL AND NOT v_merce THEN
+      SELECT CASE WHEN count(*) = 1 THEN jsonb_build_object(min(k.outlet_id::text), 1) END
+        INTO v_want
+      FROM (
+        SELECT o.id AS outlet_id,
+          (SELECT string_agg(DISTINCT w, '|')
+             FROM unnest(regexp_split_to_array(lower(concat_ws(' ', o.name, o.mall_name,
+                    CASE WHEN lower(s.name) LIKE 'comune di%' THEN o.city END)), '[^a-zà-ù]+')) w
+            WHERE length(w) >= 5
+              AND w NOT IN ('outlet','village','fashion','store','magazzino','ufficio','negozio','punto','vendita',
+                            'centro','commerciale','shopping','designer','luxury','sede','della','delle')) AS kw
+        FROM public.outlets o
+        WHERE o.company_id = p_company_id AND o.is_active
+      ) k
+      WHERE k.kw IS NOT NULL AND lower(s.name) ~ ('\m(' || k.kw || ')\M');
       IF v_want IS NOT NULL THEN
-        v_motivo := 'ogni fattura nomina un solo outlet';
+        v_motivo := 'il nome del fornitore indica l''outlet';
       END IF;
     END IF;
 
     -- 3. Merce: quote del preventivo acquisti dell'anno
-    IF v_want IS NULL AND (s.cat_code IN ('ACQ_MERCE', 'ACCESSORI_ABB_TO')
-                           OR coalesce(s.rule_desc, '') LIKE 'Automatica: merce%') THEN
+    IF v_want IS NULL AND v_merce THEN
       SELECT jsonb_object_agg(outlet_id, a) INTO v_want
       FROM (
         SELECT o.id AS outlet_id, sum(be.budget_amount) AS a
@@ -252,9 +274,9 @@ BEGIN
     -- Pesi → percentuali a due decimali che sommano esattamente 100
     WITH w AS (SELECT key::uuid AS outlet_id, value::numeric AS a FROM jsonb_each_text(v_want)),
     q AS (SELECT outlet_id, a, round(100 * a / sum(a) OVER (), 2) AS pct,
-                 row_number() OVER (ORDER BY a DESC, outlet_id) AS rn FROM w)
-    SELECT jsonb_object_agg(outlet_id, CASE WHEN rn = 1 THEN pct + (100 - sum(pct) OVER ()) ELSE pct END)
-      INTO v_want FROM q;
+                 row_number() OVER (ORDER BY a DESC, outlet_id) AS rn FROM w),
+    f AS (SELECT outlet_id, CASE WHEN rn = 1 THEN pct + (100 - sum(pct) OVER ()) ELSE pct END AS p FROM q)
+    SELECT jsonb_object_agg(outlet_id, p) INTO v_want FROM f;
     v_mode := CASE WHEN (SELECT count(*) FROM jsonb_object_keys(v_want)) = 1 THEN 'DIRETTO' ELSE 'SPLIT_PCT' END;
 
     -- Regola attuale (se automatica): uguale? allora niente
@@ -320,5 +342,4 @@ END;
 $$;
 REVOKE ALL ON FUNCTION public.fn_riparto_automatico_tutte() FROM PUBLIC, anon, authenticated;
 
--- Il job notturno che chiama fn_riparto_automatico_tutte() si attiva a parte,
--- dopo conferma esplicita (vedi migrazione dedicata).
+-- Il job notturno che chiama fn_riparto_automatico_tutte() è nella migrazione 278.
