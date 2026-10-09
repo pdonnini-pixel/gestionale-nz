@@ -24,6 +24,7 @@ import {
   ChevronDown,
   ChevronRight,
   CalendarClock,
+  Info,
 } from 'lucide-react';
 import {
   BarChart,
@@ -1802,6 +1803,9 @@ function CostiTab(props: {
   const cedGroups: Record<string, Employee[]> = {};
   paid.forEach((e) => { const k = primaryOutlet(allocByEmp[e.id] || []); (cedGroups[k] ||= []).push(e); });
   const cedNames = sortGroupNames(Object.keys(cedGroups), outlets);
+  // Il totale dell'Elenco netti comprende l'amministratore, che qui sta a parte:
+  // senza dirlo, 59.391 in alto e 69.981 nel file sembravano un errore (09/10).
+  const nettoAmm = admins.reduce((s2, e) => s2 + (nettoCell(e.id) || 0), 0);
   return (
     <div className="space-y-5">
       <div className="text-xs sm:text-[13px] text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-start justify-between gap-2.5">
@@ -1810,8 +1814,11 @@ function CostiTab(props: {
           <div>Questa vista mostra i <strong>netti dai cedolini</strong> per dipendente e mese. Il <strong>costo lordo</strong> (retribuzione + contributi + INAIL, per dipendente e outlet) vive ora nella scheda <strong>«Costo lordo»</strong>.</div>
         </div>
         <div className="text-right shrink-0">
-          <div className="text-[11px] text-slate-400">Netto pagato · {monthLabel} {year}</div>
+          <div className="text-[11px] text-slate-400">Netto ai dipendenti · {monthLabel} {year}</div>
           <div className="font-semibold tabular-nums text-slate-900">{eurFmt.format(totalNettoMese)}&nbsp;€</div>
+          {nettoAmm > 0 && (
+            <div className="text-[11px] text-slate-500 tabular-nums">+ amministratori {eurFmt.format(nettoAmm)}&nbsp;€ = {eurFmt.format(totalNettoMese + nettoAmm)}&nbsp;€ dell'Elenco netti</div>
+          )}
         </div>
       </div>
 
@@ -2563,7 +2570,6 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     if (inArrivo.month) setImpMonth(inArrivo.month);
     if (inArrivo.tipoCedolino) setTipoCedolino(inArrivo.tipoCedolino);
     setInAttesa(inArrivo);
-    laneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inArrivo?.nonce]);
 
@@ -3020,20 +3026,28 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     setAutoNonce(null);
     autoRef.current = null;
     void (async () => {
-      const { count, error } = await supabase.from('employee_cost_slips').select('id', { count: 'exact', head: true })
+      const { data: gia, error } = await supabase.from('employee_cost_slips').select('netto')
         .eq('company_id', companyId).eq('year', impYear).eq('month', impMonth).eq('tipo', tipoCedolino).neq('netto', 0);
       const mese = `${MONTHS.find((m) => m.num === impMonth)?.label ?? impMonth} ${impYear}`;
       if (error) {
         segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Non riesco a controllare i dati già presenti: ' + readableDbError(error) });
         return;
       }
-      if ((count ?? 0) > 0) {
+      const count = (gia || []).length;
+      const totGia = (gia || []).reduce((s2, r: { netto: number | null }) => s2 + Number(r.netto || 0), 0);
+      // Lo stesso file ricaricato (stesse persone, stesso totale) non sostituisce
+      // niente: si risalva senza chiedere (regola fissa del caricamento).
+      const uguale = count > 0 && count === personeNelFile && Math.abs(totGia - total) < 0.01 && quadra;
+      if (count > 0 && !uguale) {
         setConfermaNonce(nonce);
+        // Solo qui la pagina scende all'anteprima: c'e' davvero da decidere.
+        laneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         segnalaEsitoPaghe({ nonce, stato: 'da_confermare', testo: `Per ${mese} c'erano già ${count} buste «${labelTipo(tipoCedolino)}»: il file le sostituirebbe. Guarda «Cosa cambia» nell'anteprima in «Costi & cedolini» e conferma.` });
         return;
       }
       if (!quadra) {
         setConfermaNonce(nonce);
+        laneRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         segnalaEsitoPaghe({ nonce, stato: 'da_confermare', testo: `Il totale letto (${eurFmt.format(total)} €) non torna con quello scritto nel file (${eurFmt.format(fileTotal ?? 0)} €). Controlla l'anteprima in «Costi & cedolini» e conferma.` });
         return;
       }
@@ -3060,6 +3074,13 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
           : <>Costo lordo aziendale <strong>persona per persona</strong> (retribuzione lorda + contributi + INAIL + TFR + altri). Il «Prospetto riepilogativo elaborazione paghe», che è per <strong>outlet</strong> e non per persona, va invece nella scheda «Costo lordo»: qui non viene accettato.</>}
       </p>
 
+      {isNetto && !rows && !parsing && (
+        <p className="text-sm text-slate-600 mb-2">
+          L'Elenco netti si carica dal riquadro in alto <strong>«Carica i file dello studio paghe»</strong>: qui compare l'anteprima solo quando serve una conferma.
+        </p>
+      )}
+      <details open={!isNetto || !!rows || parsing} className="group">
+        <summary className={`${isNetto ? '' : 'hidden'} cursor-pointer text-xs text-slate-500 mb-3`}>Caricare a mano un Excel o un CSV di netti</summary>
       <div className="flex flex-wrap items-center gap-2 mb-3">
         <select value={impYear} onChange={(e) => setImpYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-300">
           {[defaultYear + 1, defaultYear, defaultYear - 1, defaultYear - 2].map((y) => <option key={y} value={y}>Anno {y}</option>)}
@@ -3098,11 +3119,19 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         <div className="text-sm font-medium text-slate-700">{parsing ? 'Lettura del file…' : 'Trascina qui il file PDF / CSV / Excel'}</div>
         <div className="text-xs text-slate-400 mt-0.5">oppure clicca per sceglierlo {fileName && !parsing ? `· ${fileName}` : ''}</div>
       </div>
+      </details>
 
       {rawPreview && (
         <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
           <div className="text-xs font-semibold text-slate-500 mb-1.5">Estratto del file (per diagnosticare il formato):</div>
           <pre className="text-[11px] text-slate-600 whitespace-pre-wrap max-h-48 overflow-y-auto font-mono">{rawPreview.join('\n')}</pre>
+        </div>
+      )}
+
+      {confermaNonce && rows && (
+        <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-sm text-blue-900 flex items-start gap-2">
+          <Info size={16} className="mt-0.5 shrink-0" />
+          <span>Questo file è arrivato dal riquadro in alto «Carica i file dello studio paghe». Il gestionale si è fermato qui perché il file <strong>cambierebbe</strong> dati già salvati: guarda «Cosa cambia» qui sotto e conferma, oppure premi «Annulla».</span>
         </div>
       )}
 
@@ -3799,14 +3828,24 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
         // sia gia' (il file lo sostituirebbe). Si guarda il database, non la pagina.
         const coppie = [...new Set(parsed.rows.map((r) => `${r.year}-${r.month}`))];
         let gia = 0;
+        let diverso = false;
         for (const c of coppie) {
           const [y, m] = c.split('-').map(Number);
-          const { count, error } = await sb.from('personnel_gross_cost').select('id', { count: 'exact', head: true })
+          const { data: esistenti, error } = await sb.from('personnel_gross_cost').select('filiale_code, totale_retribuzioni')
             .eq('company_id', companyId).eq('year', y).eq('month', m);
           if (error) { errore('Non riesco a controllare i dati già presenti: ' + readableDbError(error)); return; }
-          gia += count ?? 0;
+          const es = (esistenti || []) as { filiale_code: string | null; totale_retribuzioni: number | null }[];
+          gia += es.length;
+          if (es.length === 0) continue;
+          // Lo stesso Prospetto ricaricato (stesse filiali, stesso totale) non
+          // sostituisce niente: si risalva senza chiedere.
+          const nel = parsed.rows.filter((r) => r.year === y && r.month === m);
+          const totNel = nel.reduce((s2, r) => s2 + (r.totaleRetribuzioni || 0), 0);
+          const totGia = es.reduce((s2, r) => s2 + Number(r.totale_retribuzioni || 0), 0);
+          const filNel = new Set(nel.map((r) => r.filialeCode)).size;
+          if (filNel !== new Set(es.map((r) => r.filiale_code)).size || Math.abs(totNel - totGia) >= 0.01) diverso = true;
         }
-        if (gia > 0) {
+        if (gia > 0 && diverso) {
           setConfermaNonce(nonce);
           const mesi = [...new Set(parsed.rows.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ');
           segnalaEsitoPaghe({ nonce, stato: 'da_confermare', testo: `Per ${mesi} il costo lordo era già caricato: il file lo sostituirebbe. Controlla l'anteprima in «Costo lordo» e premi «Conferma e salva».` });
@@ -4075,32 +4114,10 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
           <span className="text-xs text-slate-400">il documento che arriva ogni mese · {monthLabel} {year}</span>
         </div>
     <div className="space-y-5">
-      {/* Import tile + export */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2">
-          <div
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => { e.preventDefault(); setDragOver(false); onPick(e.dataTransfer.files?.[0]); }}
-            className={`rounded-2xl border-2 border-dashed p-6 text-center transition-colors ${dragOver ? 'border-blue-400 bg-blue-50' : 'border-slate-200 bg-white'}`}
-          >
-            <FileUp size={26} className="mx-auto text-slate-400 mb-2" />
-            <div className="text-sm font-semibold text-slate-800">Import costi lordi — Prospetto paghe (PDF)</div>
-            <div className="text-xs text-slate-500 mt-1 mb-3">Trascina qui il «Prospetto riepilogativo elaborazione paghe» del mese, oppure</div>
-            <button onClick={() => fileRef.current?.click()} className="px-3.5 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium inline-flex items-center gap-1.5"><Upload size={15} /> Scegli il PDF</button>
-            <input ref={fileRef} type="file" accept=".pdf" className="hidden" onChange={(e) => { onPick(e.target.files?.[0]); e.target.value = ''; }} />
-            <div className="text-[11px] text-slate-400 mt-3">Il sistema riconosce gli outlet e il mese dal file. Re-importare lo stesso mese <strong>aggiorna</strong> i dati, non li duplica.</div>
-          </div>
-        </div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-col justify-between">
-          <div>
-            <div className="text-xs font-medium text-slate-500">Periodo</div>
-            <div className="text-lg font-bold text-slate-900">{monthLabel} {year}</div>
-            <div className="text-xs text-slate-400 mt-1">{rows.length} outlet con dati</div>
-          </div>
-          {rows.length > 0 && <div className="mt-3"><ExportMenu data={exportData} columns={exportCols} filename={`costo_lordo_${year}_${String(month).padStart(2, '0')}`} title={`Costo lordo ${monthLabel} ${year}`} /></div>}
-        </div>
-      </div>
+      {/* Il Prospetto si carica dal riquadro in alto «Carica i file dello studio
+          paghe»; qui si apre solo l'anteprima, quando serve una conferma.
+          L'esportazione sta nel riquadro «Riepilogo periodo». */}
+      <p className="text-xs text-slate-500">Il Prospetto riepilogativo si carica dal riquadro in alto «Carica i file dello studio paghe». Se il file cambia dati già salvati, qui si apre l'anteprima con il pulsante di conferma.</p>
 
       {anyInailMissing && (
         <div className="flex items-start gap-2 text-sm bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3">
