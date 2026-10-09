@@ -52,7 +52,7 @@ import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
 import {
-  buildRow, classifyMovement, counterpartOf, causaleOf, pivaOf, invoiceCountOf, invoicesTotalOf,
+  buildRow, classifyMovement, counterpartOf, acquirerDebitOutlet, causaleOf, pivaOf, invoiceCountOf, invoicesTotalOf,
   summarizeByKind, KIND_LABELS, isRiba, ribaCountOf, tipoMovimentoOf, nomeFileExport,
   type PnPayable, type PnFiscalDeadline, type PnMovement, type MovementKind,
 } from '../lib/primaNotaExport'
@@ -681,8 +681,10 @@ export default function PrimaNota() {
   )
   const incassiRows = useMemo(() => incassi.map(({ m, a }) => buildIncassoRow(m, a, incassiLk, fmtDate)), [incassi, incassiLk])
   // Contropartita per la Prima Nota: per POS, Amex e versamenti è l'outlet di
-  // riferimento (con il canale), non il testo della banca; per il resto quella
-  // del movimento (fornitore, F24, beneficiario in causale).
+  // riferimento (con il canale), non il testo della banca; per gli addebiti
+  // delle commissioni Amex e Nexi è il negozio letto dal codice in causale, così
+  // lo studio non le registra al magazzino (Monica, 08/10/2026); per il resto
+  // quella del movimento (fornitore, F24, beneficiario in causale).
   const contropartitaOf = useMemo(() => {
     const byId = new Map<string, string>()
     for (const { m, a } of incassi) {
@@ -690,8 +692,14 @@ export default function PrimaNota() {
       const label = outletLabel(a.outlet_id, incassiLk)
       if (label) byId.set(m.id, a.channel?.label ? `${label}, ${a.channel.label}` : label)
     }
+    for (const m of movements) {
+      const hit = acquirerDebitOutlet(m, contratti)
+      if (!hit) continue
+      const label = outletLabel(hit.outlet_id, incassiLk)
+      if (label) byId.set(m.id, `${label}, commissioni ${hit.acquirer === 'amex' ? 'Amex' : hit.acquirer === 'nexi' ? 'Nexi' : hit.acquirer}`)
+    }
     return (m: Movement): string => byId.get(m.id) ?? counterpartOf(m)
-  }, [incassi, incassiLk])
+  }, [incassi, incassiLk, movements, contratti])
   const byOutlet = useMemo(() => summarizeByOutlet(incassi, incassiLk), [incassi, incassiLk])
   const incassiTot = useMemo(() => {
     const sum = (k: IncassoKind | null) => Math.round(incassi.filter(x => k === null || x.a.kind === k).reduce((s, x) => s + x.m.amount, 0) * 100) / 100

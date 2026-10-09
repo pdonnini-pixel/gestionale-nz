@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import {
   classifyMovement, counterpartOf, pivaOf, causaleOf, buildRow, summarizeByKind, outletCodeFromNote,
   isRiba, ribaCountOf, tipoMovimentoOf, KIND_LABELS,
-  invoicesTotalOf, nomeFileExport, type PnMovement, type PnPayable,
+  invoicesTotalOf, nomeFileExport, acquirerDebitOutlet, type PnMovement, type PnPayable, type PnAcquirerContract,
 } from './primaNotaExport'
 
 const mv = (over: Partial<PnMovement> & { amount: number; description: string }): PnMovement => ({
@@ -229,5 +229,36 @@ describe('nome del file scaricato', () => {
       .toBe('Azienda Prima nota Agosto 2026 - esportato il 18-09-2026.xlsx')
     expect(nomeFileExport('Zago / Vicolo', 'Prima nota', 'Agosto 2026', oggi, 'xlsx'))
       .toBe('Zago Vicolo Prima nota Agosto 2026 - esportato il 18-09-2026.xlsx')
+  })
+})
+
+// Causali reali di giugno 2026 (NZ): un addebito di commissioni per punto vendita.
+const AMEX_MPS = 'Causale: ADD.DIRETTO CARTA CREDITO - Descrizione: ADDEBITO SDD N. 636755412 A FAVORE AMERICAN EXPRESS PAYMENTS EUSL CODICE MANDATO 7043090000007377153036 IMPORTO 10,17 COMMISSIONI 0,00 SPESE 0,00 05267377153036'
+const AMEX_BCC = 'SDD Core - Richiesta Incasso SEPA 05267373035260 AMERICAN EXPRESS PAYMENTS EUSL 7043090000007373035260'
+const NEXI = 'Causale: ADDEBITO DIRETTO - Descrizione: ADDEBITO SDD N. 636758558 A FAVORE NEXI PAYMENTS SPA CODICE MANDATO CL2XV900518975PC0001000583 IMPORTO 491,07 COMMISSIONI 0,00 SPESE 0,00 PV 1000001000584 ADDEBITO DIRITTO . COMM NEXI EC 052026 RIF 1292766891699'
+const CONTRATTI: PnAcquirerContract[] = [
+  { outlet_id: 'brb', acquirer: 'amex', merchant_code: '7377153036', payment_contract: null },
+  { outlet_id: 'vdc', acquirer: 'amex', merchant_code: '7373035260', payment_contract: null },
+  { outlet_id: 'vdc', acquirer: 'nexi', merchant_code: 'LN0004777495', payment_contract: 'PC0001000583' },
+]
+
+describe('commissioni di incasso: spesa bancaria con il suo negozio', () => {
+  it("l'addebito Amex su MPS («ADD.DIRETTO CARTA CREDITO») e' una spesa bancaria, non una carta", () => {
+    expect(classifyMovement(mv({ amount: -10.17, description: AMEX_MPS, category: 'commissioni_incasso' }))).toBe('spese_banca')
+    expect(classifyMovement(mv({ amount: -10.17, description: AMEX_MPS }))).toBe('spese_banca')
+    expect(classifyMovement(mv({ amount: -8.02, description: AMEX_BCC }))).toBe('spese_banca')
+    expect(classifyMovement(mv({ amount: -491.07, description: NEXI }))).toBe('spese_banca')
+  })
+  it('il negozio arriva dal codice esercente Amex o dal Payment Contract Nexi', () => {
+    expect(acquirerDebitOutlet({ amount: -10.17, description: AMEX_MPS }, CONTRATTI)).toEqual({ outlet_id: 'brb', acquirer: 'amex' })
+    expect(acquirerDebitOutlet({ amount: -8.02, description: AMEX_BCC }, CONTRATTI)).toEqual({ outlet_id: 'vdc', acquirer: 'amex' })
+    expect(acquirerDebitOutlet({ amount: -491.07, description: NEXI }, CONTRATTI)).toEqual({ outlet_id: 'vdc', acquirer: 'nexi' })
+  })
+  it('senza un codice conosciuto, o con codici di negozi diversi, non indovina', () => {
+    expect(acquirerDebitOutlet({ amount: -5, description: 'SDD Core AMERICAN EXPRESS PAYMENTS EUSL 7043090000009999999999' }, CONTRATTI)).toBeNull()
+    expect(acquirerDebitOutlet({ amount: -5, description: `${AMEX_BCC} 7377153036` }, CONTRATTI)).toBeNull()
+    // Un accredito non e' un addebito di commissioni, e un'altra spesa non ha negozio.
+    expect(acquirerDebitOutlet({ amount: 10.17, description: AMEX_MPS }, CONTRATTI)).toBeNull()
+    expect(acquirerDebitOutlet({ amount: -29.5, description: 'Imposta di bollo 7377153036' }, CONTRATTI)).toBeNull()
   })
 })
