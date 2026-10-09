@@ -347,9 +347,16 @@ function escapeHtml(v: string): string {
 
 // deno-lint-ignore no-explicit-any
 async function getCompanyName(admin: any, companyId: string | null): Promise<string> {
-  if (!companyId) return "Gestionale";
-  const { data } = await admin.from("companies").select("name").eq("id", companyId).maybeSingle();
-  return (data as { name?: string } | null)?.name || "Gestionale";
+  if (companyId) {
+    const { data } = await admin.from("companies").select("name").eq("id", companyId).maybeSingle();
+    const name = (data as { name?: string } | null)?.name;
+    if (name) return name;
+  }
+  // Profilo senza azienda: ogni tenant ha un solo progetto Supabase, quindi
+  // se c'e' una sola azienda e' quella.
+  const { data: all } = await admin.from("companies").select("name").limit(2);
+  const rows = (all ?? []) as Array<{ name?: string }>;
+  return rows.length === 1 && rows[0].name ? rows[0].name : "Gestionale";
 }
 
 async function sendAuthEmail(
