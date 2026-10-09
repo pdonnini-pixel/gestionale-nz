@@ -11,7 +11,7 @@ import { useOutlets, isSellingOutlet } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
 import { slugCostCenter } from '../lib/costCenterKey'
 import { usePeriod } from '../hooks/usePeriod'
-import { aggregateByCode, rollupByAccount, totalFor, SEDE_CENTER, type AmountsByCenter, type BudgetEntryLite } from '../lib/costByCenter'
+import { buildPreventivo, rollupByAccount, totalFor, SEDE_CENTER, type AmountsByCenter, type BudgetEntryLite, type BudgetConfrontoLite } from '../lib/costByCenter'
 import PageHeader from '../components/PageHeader'
 import type { Database } from '../types/database'
 
@@ -804,13 +804,14 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [search, setSearch] = useState('')
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  // Importi dell'anno attivo per conto e centro, letti da budget_entries
-  // (le stesse righe di Budget & Controllo). Qui sono in sola lettura.
+  // Preventivo dell'anno per conto e centro, con le regole del Conto Economico
+  // (costi da budget_entries, ricavi da budget_confronto). Qui è in sola lettura.
   // Il selettore anno globale è nascosto in Impostazioni: la sezione ne ha uno suo, che usa lo stesso anno.
   const { year, setYear } = usePeriod()
   const nowYear = new Date().getFullYear()
   const yearOptions = Array.from(new Set([nowYear - 2, nowYear - 1, nowYear, nowYear + 1, year])).sort((a, b) => a - b)
-  const [amountsByCode, setAmountsByCode] = useState<Record<string, AmountsByCenter>>({})
+  const [entryRows, setEntryRows] = useState<BudgetEntryLite[]>([])
+  const [confrontoRows, setConfrontoRows] = useState<BudgetConfrontoLite[]>([])
   const [amountsLoading, setAmountsLoading] = useState(true)
   const [amountsError, setAmountsError] = useState(false)
 
@@ -829,23 +830,30 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       setAmountsError(false)
       try {
         // A pagine da 1000: un anno di preventivo supera il limite di una singola risposta.
-        const rows: BudgetEntryLite[] = []
         const PAGE = 1000
-        for (let from = 0; ; from += PAGE) {
-          const { data, error } = await supabase
-            .from('budget_entries')
-            .select('account_code, cost_center, budget_amount, actual_amount')
-            .eq('company_id', COMPANY_ID || '')
-            .eq('year', year)
-            .order('id', { ascending: true })
-            .range(from, from + PAGE - 1)
-          if (error) throw error
-          rows.push(...((data || []) as BudgetEntryLite[]))
-          if (!data || data.length < PAGE) break
+        const fetchAll = async <T,>(table: 'budget_entries' | 'budget_confronto', cols: string): Promise<T[]> => {
+          const out: T[] = []
+          for (let from = 0; ; from += PAGE) {
+            const { data, error } = await supabase
+              .from(table)
+              .select(cols)
+              .eq('company_id', COMPANY_ID || '')
+              .eq('year', year)
+              .order('id', { ascending: true })
+              .range(from, from + PAGE - 1)
+            if (error) throw error
+            out.push(...((data || []) as unknown as T[]))
+            if (!data || data.length < PAGE) break
+          }
+          return out
         }
-        if (!cancelled) setAmountsByCode(aggregateByCode(rows))
+        const [be, cf] = await Promise.all([
+          fetchAll<BudgetEntryLite>('budget_entries', 'account_code, cost_center, budget_amount, is_placeholder'),
+          fetchAll<BudgetConfrontoLite>('budget_confronto', 'account_code, cost_center, amount, entry_type, month'),
+        ])
+        if (!cancelled) { setEntryRows(be); setConfrontoRows(cf) }
       } catch {
-        if (!cancelled) { setAmountsByCode({}); setAmountsError(true) }
+        if (!cancelled) { setEntryRows([]); setConfrontoRows([]); setAmountsError(true) }
       } finally {
         if (!cancelled) setAmountsLoading(false)
       }
@@ -1014,6 +1022,12 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   // Conti padre ammessi: livello 1 e 2 (il livello 3 è l'ultimo, quello su cui si mette il budget)
   const parentOptions = costs.filter(c => (Number(c.level) || 1) < 3)
 
+  // Ricavo/costo dal piano dei conti (is_revenue), mai dal prefisso del codice
+  const preventivo = useMemo(() => {
+    const revenueCodes = new Set(costs.filter(c => c.is_revenue).map(c => c.code as string))
+    return buildPreventivo(entryRows, confrontoRows, code => revenueCodes.has(code))
+  }, [costs, entryRows, confrontoRows])
+  const amountsByCode = preventivo.byCode
   // Importi di ogni voce: i propri più quelli dei sottoconti
   const rollup = useMemo(
     () => rollupByAccount(costs.map(c => ({ id: c.id, code: c.code, parent_id: c.parent_id ?? null })), amountsByCode),
@@ -1021,10 +1035,6 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   )
   const centro = filterCentro || null
   const hasSede = useMemo(() => Object.values(amountsByCode).some(m => !!m[SEDE_CENTER]), [amountsByCode])
-  const hasActual = useMemo(
-    () => Object.values(amountsByCode).some(m => Object.values(m).some(v => v.actual !== 0)),
-    [amountsByCode],
-  )
   const centerLabel = (code: string) => code === SEDE_CENTER ? 'Sede / Costi generali' : getCentroLabel(code, costCenters)
   const centerColor = (code: string) => code === SEDE_CENTER ? 'bg-slate-600' : (costCenters.find(c => c.code === code)?.color || 'bg-slate-500')
   // Ordine dei centri: quello di Impostazioni → Centri di costo, poi Sede, poi eventuali codici non censiti
@@ -1037,7 +1047,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const filtered = costs.filter(c => {
     const q = search.toLowerCase()
     const matchSearch = !q || c.name.toLowerCase().includes(q) || c.code.toLowerCase().includes(q)
-    const matchCentro = !centro || totalFor(rollup[c.id], centro).budget !== 0 || totalFor(rollup[c.id], centro).actual !== 0
+    const matchCentro = !centro || totalFor(rollup[c.id], centro) !== 0
     return matchSearch && matchCentro
   })
 
@@ -1055,10 +1065,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   // il padre contiene già i figli, sommarli entrambi raddoppierebbe.
   const filteredIds = new Set(filtered.map(c => c.id))
   const isTop = (c: CostItem) => !c.parent_id || !filteredIds.has(c.parent_id)
-  const sumItems = (items: CostItem[]) => items.filter(isTop).reduce(
-    (s, c) => { const t = totalFor(rollup[c.id], centro); return { budget: s.budget + t.budget, actual: s.actual + t.actual } },
-    { budget: 0, actual: 0 },
-  )
+  const sumItems = (items: CostItem[]) => items.filter(isTop).reduce((s, c) => s + totalFor(rollup[c.id], centro), 0)
   const totRicavi = sumItems(filtered.filter(c => c.is_revenue))
   const totCosti = sumItems(filtered.filter(c => !c.is_revenue))
   const hasAnyAmount = Object.keys(amountsByCode).length > 0
@@ -1101,7 +1108,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           : amountsError
             ? `Non riesco a leggere il preventivo ${year}: gli importi non sono disponibili, riprova più tardi.`
             : hasAnyAmount
-              ? `Importi del preventivo ${year} per centro di costo, presi da Budget & Controllo (sola lettura: si modificano lì).${centro ? ` Mostro solo le voci con importi su «${centerLabel(centro)}».` : ''}`
+              ? `Preventivo ${year} per centro di costo, preso da Budget & Controllo con le stesse regole del Conto Economico: costi dal preventivo per outlet, ricavi ${preventivo.revenueFromConfronto ? 'dal preventivo mensile dei ricavi' : 'dal preventivo per outlet'}. Sola lettura: si modifica lì.${preventivo.placeholdersExcluded > 0 ? ` Non conto ${preventivo.placeholdersExcluded} righe provvisorie copiate dall'anno precedente.` : ''}${centro ? ` Mostro solo le voci con importi su «${centerLabel(centro)}».` : ''}`
               : `Nessun preventivo ${year} inserito in Budget & Controllo: gli importi per centro compaiono appena lo si compila.`}
       </div>
 
@@ -1199,7 +1206,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                     <span className="text-xs text-slate-400">({cats.length} voci)</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold text-slate-700" title={`Preventivo ${year}`}>€ {fmt(groupTotal.budget)}</span>
+                    <span className="text-sm font-bold text-slate-700" title={`Preventivo ${year}`}>€ {fmt(groupTotal)}</span>
                     {isOpen ? <ChevronUp size={16} className="text-slate-400" /> : <ChevronDown size={16} className="text-slate-400" />}
                   </div>
                 </div>
@@ -1211,7 +1218,6 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                           <th className="px-4 py-2 text-left font-medium">Codice</th>
                           <th className="px-4 py-2 text-left font-medium">Voce</th>
                           <th className="px-4 py-2 text-right font-medium">Preventivo {year}</th>
-                          {hasActual && <th className="px-4 py-2 text-right font-medium">Consuntivo</th>}
                           <th className="px-4 py-2 text-left font-medium">{centro ? 'Centro di costo' : 'Ripartizione per centro di costo'}</th>
                           <th className="px-4 py-2 text-left font-medium">Note</th>
                           <th className="px-4 py-2 text-center font-medium w-20">Azioni</th>
@@ -1222,7 +1228,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                           const amounts = rollup[c.id] || {}
                           const tot = totalFor(amounts, centro)
                           const split = Object.entries(amounts)
-                            .filter(([cc, v]) => (!centro || cc === centro) && (v.budget !== 0 || v.actual !== 0))
+                            .filter(([cc, v]) => (!centro || cc === centro) && v !== 0)
                             .sort(([a], [b]) => centerOrder(a) - centerOrder(b))
                           const lvl = Number(c.level) || 1
                           return (
@@ -1232,16 +1238,15 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                               {c.parent_id && <CornerDownRight size={12} className="inline mr-1 text-slate-300" />}
                               {c.name}
                             </td>
-                            <td className="px-4 py-2.5 text-right font-semibold text-slate-700 whitespace-nowrap">{tot.budget !== 0 ? `€ ${fmt(tot.budget)}` : <span className="text-slate-300">—</span>}</td>
-                            {hasActual && <td className="px-4 py-2.5 text-right text-slate-600 whitespace-nowrap">{tot.actual !== 0 ? `€ ${fmt(tot.actual)}` : <span className="text-slate-300">—</span>}</td>}
+                            <td className="px-4 py-2.5 text-right font-semibold text-slate-700 whitespace-nowrap">{tot !== 0 ? `€ ${fmt(tot)}` : <span className="text-slate-300">—</span>}</td>
                             <td className="px-4 py-2.5">
                               <div className="flex flex-wrap gap-1">
                                 {split.length === 0
                                   ? <span className="text-xs text-slate-300">—</span>
                                   : split.map(([cc, v]) => (
                                     <span key={cc} className={`text-[10px] px-1.5 py-0.5 rounded-full text-white whitespace-nowrap ${centerColor(cc)}`}
-                                      title={`${centerLabel(cc)}: preventivo € ${fmt(v.budget)}${hasActual ? `, consuntivo € ${fmt(v.actual)}` : ''}`}>
-                                      {centerLabel(cc)} · € {fmt(v.budget)}
+                                      title={`${centerLabel(cc)}: preventivo € ${fmt(v)}`}>
+                                      {centerLabel(cc)} · € {fmt(v)}
                                     </span>
                                   ))}
                               </div>
@@ -1286,8 +1291,9 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-3 border-t border-slate-200">
           <span className="text-sm text-slate-600">{filtered.length} voci {centro && `(centro: ${centerLabel(centro)})`}</span>
           <span className="text-sm text-slate-700">
-            Preventivo {year}: ricavi <span className="font-bold text-slate-900">€ {fmt(totRicavi.budget)}</span>
-            {' · '}costi <span className="font-bold text-slate-900">€ {fmt(totCosti.budget)}</span>
+            Preventivo {year}: ricavi <span className="font-bold text-slate-900">€ {fmt(totRicavi)}</span>
+            {' · '}costi <span className="font-bold text-slate-900">€ {fmt(totCosti)}</span>
+            {' · '}risultato <span className={`font-bold ${totRicavi - totCosti < 0 ? 'text-red-600' : 'text-emerald-700'}`}>€ {fmt(totRicavi - totCosti)}</span>
           </span>
         </div>
       )}

@@ -1,21 +1,30 @@
 /**
- * Importi del piano dei conti ripartiti per centro di costo (outlet).
+ * Preventivo del piano dei conti ripartito per centro di costo (outlet).
  *
- * Fonte: `budget_entries` dell'anno (preventivo `budget_amount`, consuntivo
- * `actual_amount`), le stesse righe che si compilano in Budget & Controllo.
- * Le righe di rettifica bilancio (`cost_center = 'rettifica_bilancio'`) sono
- * escluse, come nella vista per outlet di Budget & Controllo.
+ * Stesse regole del Conto Economico (loadBudgetSummary in ContoEconomico.tsx):
+ * - COSTI: `budget_entries.budget_amount`, escluse le righe segnaposto
+ *   (`is_placeholder`, copie dell'anno precedente) e la rettifica bilancio;
+ * - RICAVI: se l'anno ha righe in `budget_confronto` (il preventivo di Lilian),
+ *   vengono da lì (`entry_type = 'rev_monthly'`); altrimenti, come per gli anni
+ *   storici, da `budget_entries` con le stesse esclusioni dei costi.
  * Il centro `'all'` è «Sede / Costi generali» (costi non allocati a un outlet).
  */
 
-export interface CenterAmount { budget: number; actual: number }
-export type AmountsByCenter = Record<string, CenterAmount>
+export type AmountsByCenter = Record<string, number>
 
 export interface BudgetEntryLite {
   account_code: string | null
   cost_center: string | null
   budget_amount: number | string | null
-  actual_amount: number | string | null
+  is_placeholder?: boolean | null
+}
+
+export interface BudgetConfrontoLite {
+  account_code: string | null
+  cost_center: string | null
+  amount: number | string | null
+  entry_type: string | null
+  month: number | null
 }
 
 export interface AccountLite { id: string; code: string; parent_id: string | null }
@@ -23,34 +32,52 @@ export interface AccountLite { id: string; code: string; parent_id: string | nul
 export const SEDE_CENTER = 'all'
 const EXCLUDED_CENTERS = new Set(['rettifica_bilancio'])
 
-/** Somma le righe per conto e per centro di costo. */
-export function aggregateByCode(entries: BudgetEntryLite[]): Record<string, AmountsByCenter> {
+export interface PreventivoResult {
+  byCode: Record<string, AmountsByCenter>
+  /** Righe segnaposto di budget_entries lasciate fuori (0 = nessuna). */
+  placeholdersExcluded: number
+  /** true se i ricavi vengono da budget_confronto. */
+  revenueFromConfronto: boolean
+}
+
+function add(out: Record<string, AmountsByCenter>, code: string, cc: string, amount: number) {
+  const byCc = (out[code] ||= {})
+  byCc[cc] = (byCc[cc] || 0) + amount
+}
+
+/** Somma il preventivo per conto e centro di costo. */
+export function buildPreventivo(
+  entries: BudgetEntryLite[],
+  confronto: BudgetConfrontoLite[],
+  isRevenue: (code: string) => boolean,
+): PreventivoResult {
   const out: Record<string, AmountsByCenter> = {}
+  const revenueFromConfronto = confronto.length > 0
+  let placeholdersExcluded = 0
   for (const e of entries) {
     const code = e.account_code
     if (!code) continue
     const cc = e.cost_center || SEDE_CENTER
     if (EXCLUDED_CENTERS.has(cc)) continue
-    const byCc = (out[code] ||= {})
-    const cur = (byCc[cc] ||= { budget: 0, actual: 0 })
-    cur.budget += Number(e.budget_amount) || 0
-    cur.actual += Number(e.actual_amount) || 0
+    if (e.is_placeholder === true) { placeholdersExcluded++; continue }
+    if (revenueFromConfronto && isRevenue(code)) continue
+    add(out, code, cc, Number(e.budget_amount) || 0)
   }
-  return out
-}
-
-function addInto(target: AmountsByCenter, src: AmountsByCenter | undefined) {
-  if (!src) return
-  for (const [cc, v] of Object.entries(src)) {
-    const cur = (target[cc] ||= { budget: 0, actual: 0 })
-    cur.budget += v.budget
-    cur.actual += v.actual
+  if (revenueFromConfronto) {
+    for (const r of confronto) {
+      const code = r.account_code
+      const m = Number(r.month || 0)
+      if (!code || r.entry_type !== 'rev_monthly' || m < 1 || m > 12) continue
+      if (!isRevenue(code)) continue
+      add(out, code, r.cost_center || SEDE_CENTER, Number(r.amount) || 0)
+    }
   }
+  return { byCode: out, placeholdersExcluded, revenueFromConfronto }
 }
 
 /**
  * Importi per voce: quelli propri più quelli di tutti i sottoconti (via
- * `parent_id`). Il budget si inserisce sul livello 3, quindi i livelli 1 e 2
+ * `parent_id`). Il preventivo si inserisce sul livello 3, quindi i livelli 1 e 2
  * mostrano la somma dei figli.
  */
 export function rollupByAccount(
@@ -68,8 +95,12 @@ export function rollupByAccount(
     const acc: AmountsByCenter = {}
     if (visiting.has(a.id)) return acc // gerarchia circolare: non contare due volte
     visiting.add(a.id)
-    addInto(acc, byCode[a.code])
-    for (const ch of children[a.id] || []) addInto(acc, visit(ch))
+    const merge = (src: AmountsByCenter | undefined) => {
+      if (!src) return
+      for (const [cc, v] of Object.entries(src)) acc[cc] = (acc[cc] || 0) + v
+    }
+    merge(byCode[a.code])
+    for (const ch of children[a.id] || []) merge(visit(ch))
     visiting.delete(a.id)
     memo[a.id] = acc
     return acc
@@ -79,10 +110,10 @@ export function rollupByAccount(
 }
 
 /** Totale di una voce su tutti i centri o su un centro solo. */
-export function totalFor(amounts: AmountsByCenter | undefined, center: string | null): CenterAmount {
-  if (!amounts) return { budget: 0, actual: 0 }
-  if (center) return amounts[center] ? { ...amounts[center] } : { budget: 0, actual: 0 }
-  let budget = 0, actual = 0
-  for (const v of Object.values(amounts)) { budget += v.budget; actual += v.actual }
-  return { budget, actual }
+export function totalFor(amounts: AmountsByCenter | undefined, center: string | null): number {
+  if (!amounts) return 0
+  if (center) return amounts[center] || 0
+  let t = 0
+  for (const v of Object.values(amounts)) t += v
+  return t
 }
