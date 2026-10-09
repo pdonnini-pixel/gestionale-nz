@@ -14,11 +14,19 @@
 // stato salvato, senza che niente glielo dicesse.
 //
 // Il flusso che salva risponde con l'evento `paghe-esito` (segnalaEsitoPaghe).
+//
+// Il modello F24 dello studio (08/10/2026) si salva qui dentro, senza cambiare
+// scheda: si legge (src/lib/modelloF24.ts), si archivia il PDF e
+// save_payroll_f24_document (migration 270) crea la scadenza fiscale gia'
+// disposta, con importo, data e conto di addebito presi dal modello.
 
 import { useEffect, useRef, useState } from 'react'
 import { FileUp, Loader2, Check, AlertTriangle, ArrowRight, Info, CheckCircle2 } from 'lucide-react'
 import { riconosciFilePaghe, type FilePagheRiconosciuto, type FilePaghe } from '../lib/payrollParse'
 import { archiviaFile } from '../lib/archivioFile'
+import { leggiModelloF24, codiciF24InBreve, sezioniF24InBreve, type ModelloF24 } from '../lib/modelloF24'
+import { supabase } from '../lib/supabase'
+import type { Json } from '../types/database'
 
 export type FileInArrivo = {
   nonce: number
@@ -46,6 +54,22 @@ type Voce = {
   stato: 'lettura' | 'pronto' | 'in_corso' | 'salvato' | 'da_confermare' | 'archiviato' | 'errore'
   nota?: string
   nonce?: number
+  /** Modello F24 letto, in attesa della conferma a mano. */
+  f24?: Record<string, unknown>
+}
+
+type EsitoF24 = { stato?: string; messaggio?: string }
+
+const eur = (n: number) => n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** I dati del modello come li vuole save_payroll_f24_document. */
+function docF24(m: ModelloF24, fileName: string, importDocumentId: string | null): Record<string, unknown> {
+  return {
+    scadenza: m.scadenza, prog: m.prog, totale: m.totale, iban: m.iban, banca: m.banca,
+    codice_fiscale: m.codiceFiscale, modo_invio: m.modoInvio, sezioni: m.sezioni,
+    sezioni_testo: sezioniF24InBreve(m), codici: codiciF24InBreve(m), moduli: m.moduli,
+    quadra: m.quadra, file_name: fileName, import_document_id: importDocumentId,
+  }
 }
 
 // Un file che non risponde entro questo tempo e' rimasto a meta' (pagina
@@ -60,6 +84,7 @@ const NOME: Record<FilePaghe, string> = {
   elenco_netti: 'Elenco netti',
   netti_negativi: 'Netti negativi',
   prospetto: 'Prospetto riepilogativo',
+  modello_f24: 'Modello F24',
   statistica: 'Statistica costo orario',
   ratei_ferie: 'Ratei ferie e permessi',
   sconosciuto: 'File non riconosciuto',
@@ -133,6 +158,52 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
     }))
   }
 
+  // Il modello F24 non cambia scheda: si salva qui, sempre in coda agli altri.
+  const scriviF24 = async (id: number, doc: Record<string, unknown>, conferma: boolean) => {
+    const { data, error } = await supabase.rpc('save_payroll_f24_document', { p_doc: doc as Json, p_conferma: conferma })
+    if (error) { aggiorna(id, { stato: 'errore', nota: `Salvataggio non riuscito: ${error.message}` }); return }
+    const e = (data ?? {}) as EsitoF24
+    if (e.stato === 'da_confermare') aggiorna(id, { stato: 'da_confermare', nota: e.messaggio, f24: doc })
+    else if (e.stato === 'salvato' || e.stato === 'gia_presente') {
+      aggiorna(id, { stato: 'salvato', f24: undefined, nota: `${e.stato === 'gia_presente' ? 'Era già caricato. ' : ''}${e.messaggio ?? ''}` })
+    } else aggiorna(id, { stato: 'errore', nota: e.messaggio ?? 'Il modello F24 non è stato salvato.' })
+  }
+
+  const salvaF24 = (v: Voce) => {
+    coda.current = coda.current.then(async () => {
+      aggiorna(v.id, { stato: 'in_corso', nota: undefined })
+      try {
+        const { extractPdfLines } = await import('../lib/pdfText')
+        const m = leggiModelloF24(await extractPdfLines(v.file))
+        if (!m) { aggiorna(v.id, { stato: 'errore', nota: 'Non riesco a leggere scadenza e saldi del modello F24.' }); return }
+        const arch = await archiviaFile({
+          file: v.file, companyId, userId, modulo: 'Personale', funzione: 'Modello F24 del personale',
+          bucket: 'employee-documents', year: Number(m.periodo.slice(0, 4)), month: Number(m.periodo.slice(5, 7)),
+          referenceTable: 'payroll_f24_documents', note: `Delega F24 in scadenza il ${m.scadenza.split('-').reverse().join('/')}, totale ${eur(m.totale)} €.`,
+        })
+        const doc = docF24(m, v.file.name, arch.id)
+        if (!m.quadra) {
+          // I totali non tornano: si salva solo con una conferma.
+          const rotti = m.moduli.filter((x) => !x.quadra).map((x) => x.pagina).join(', ')
+          aggiorna(v.id, {
+            stato: 'da_confermare', f24: doc,
+            nota: `Nel modulo ${rotti} la somma delle sezioni non fa il saldo finale: controlla il PDF. Totale letto ${eur(m.totale)} €. Lo salvo così?`,
+          })
+          return
+        }
+        await scriviF24(v.id, doc, false)
+      } catch (e) {
+        aggiorna(v.id, { stato: 'errore', nota: `Non riesco a salvare il modello F24: ${e instanceof Error ? e.message : 'motivo non noto'}` })
+      }
+    })
+  }
+
+  const confermaF24 = (v: Voce) => {
+    if (!v.f24) return
+    aggiorna(v.id, { stato: 'in_corso', nota: undefined })
+    void scriviF24(v.id, v.f24, true)
+  }
+
   const leggi = async (files: FileList | File[]) => {
     const nuove: Voce[] = Array.from(files).map((file) => ({ id: ++seq.current, file, r: null, stato: 'lettura' }))
     setVoci((vs) => [...nuove, ...vs])
@@ -156,6 +227,9 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
         } else if (r.tipo === 'elenco_netti' || r.tipo === 'prospetto') {
           aggiorna(v.id, { r, stato: 'pronto' })
           salva(v, r)
+        } else if (r.tipo === 'modello_f24') {
+          aggiorna(v.id, { r, stato: 'pronto' })
+          salvaF24(v)
         } else {
           aggiorna(v.id, { r, stato: 'pronto' })
         }
@@ -172,20 +246,23 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
   }
 
   // Il messaggio di fine percorso: se non c'e', non si capisce che e' finito.
-  const inCoda = voci.filter((v) => v.stato === 'pronto' && (v.r?.tipo === 'elenco_netti' || v.r?.tipo === 'prospetto')).length
+  const inCoda = voci.filter((v) => v.stato === 'pronto' && (v.r?.tipo === 'elenco_netti' || v.r?.tipo === 'prospetto' || v.r?.tipo === 'modello_f24')).length
   const salvati = voci.filter((v) => v.stato === 'salvato').length
   const daConfermare = voci.filter((v) => v.stato === 'da_confermare').length
+  // Solo i file aperti in un'altra scheda fermano la coda; il modello F24 aspetta
+  // la conferma qui e gli altri file vanno avanti.
+  const bloccanti = voci.filter((v) => v.stato === 'da_confermare' && v.r?.tipo !== 'modello_f24').length
   const errori = voci.filter((v) => v.stato === 'errore').length
   const altrove = voci.filter((v) => v.stato === 'pronto' && (v.r?.tipo === 'statistica' || v.r?.tipo === 'ratei_ferie')).length
   const sconosciuti = voci.filter((v) => v.stato === 'pronto' && v.r?.tipo === 'sconosciuto').length
   const resta: string[] = []
-  if (daConfermare) resta.push(`${daConfermare === 1 ? '1 file aspetta' : `${daConfermare} file aspettano`} la tua conferma: il motivo è scritto accanto${inCoda ? `; dopo salvo ${inCoda === 1 ? "l'altro file" : `gli altri ${inCoda}`}` : ''}`)
+  if (daConfermare) resta.push(`${daConfermare === 1 ? '1 file aspetta' : `${daConfermare} file aspettano`} la tua conferma: il motivo è scritto accanto${inCoda && bloccanti ? `; dopo salvo ${inCoda === 1 ? "l'altro file" : `gli altri ${inCoda}`}` : ''}`)
   if (errori) resta.push(`${errori === 1 ? '1 file non è riuscito' : `${errori} file non sono riusciti`}: il motivo è scritto accanto`)
   if (altrove) resta.push(`${altrove === 1 ? '1 file si carica' : `${altrove} file si caricano`} dalla sua scheda (pulsante accanto)`)
   if (sconosciuti) resta.push(`${sconosciuti === 1 ? '1 file non è stato riconosciuto' : `${sconosciuti} file non sono stati riconosciuti`}`)
   // In lavorazione: un file in lettura o in salvataggio, o file in coda senza
   // una conferma che li stia trattenendo.
-  const inCorso = voci.some((v) => v.stato === 'lettura' || v.stato === 'in_corso') || (inCoda > 0 && daConfermare === 0)
+  const inCorso = voci.some((v) => v.stato === 'lettura' || v.stato === 'in_corso') || (inCoda > 0 && bloccanti === 0)
   const chiusura = voci.length === 0 || inCorso ? null
     : resta.length === 0
       ? { ok: true, titolo: 'Finito, tutti i dati sono aggiornati', testo: `${salvati === 1 ? '1 documento salvato' : `${salvati} documenti salvati`}${voci.some((v) => v.stato === 'archiviato') ? ', i Netti negativi archiviati' : ''}. Non c'è altro da fare.` }
@@ -234,6 +311,13 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
                   {v.nota && <> · {v.nota}</>}
                 </div>
               </div>
+              {v.stato === 'da_confermare' && v.f24 && (
+                <button onClick={() => confermaF24(v)}
+                  className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium flex items-center gap-1">
+                  Sì, salva il modello
+                  <Check size={13} />
+                </button>
+              )}
               {v.stato === 'pronto' && v.r && (v.r.tipo === 'statistica' || v.r.tipo === 'ratei_ferie') && (
                 <button onClick={() => apri(v)}
                   className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium flex items-center gap-1">
@@ -261,7 +345,8 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
         <ul className="mt-2 ml-4 list-disc space-y-1">
           <li><strong>Elenco netti</strong> (mensilità normale, cedolino aggiuntivo, mensilità aggiuntive: a giugno è la 14ª, a dicembre la 13ª): le buste si salvano in «Costi & cedolini» e si agganciano da sole alle disposizioni di emolumenti arrivate in banca.</li>
           <li><strong>Prospetto riepilogativo</strong>: salva il costo per outlet in «Costo lordo» e quanto va versato con l'F24 del 16 del mese dopo; il gestionale controlla che le deleghe in banca lo coprano.</li>
-          <li><strong>Conferma</strong>: solo se per quel mese c'erano già buste o costo lordo (il file li sostituirebbe) o se i totali non tornano. In quel caso trovi l'anteprima aperta con il pulsante di conferma.</li>
+          <li><strong>Modello F24</strong> (il PDF «… in scadenza il 16-…» dello studio): è la cifra vera da versare e prende il posto della stima del Prospetto. Il gestionale crea la scadenza in «Scadenze fiscali» con importo, data e conto di addebito scritti nel modello, già segnata come disposta: la banca la addebita da sola, non va pagata a mano. Quando la delega compare in banca al centesimo, la scadenza si chiude da sola.</li>
+          <li><strong>Conferma</strong>: solo se per quel mese c'erano già buste o costo lordo (il file li sostituirebbe) o se i totali non tornano (per il modello F24: un importo diverso già presente per quella scadenza, o un modulo che non quadra). In quel caso trovi l'anteprima aperta, o il pulsante di conferma accanto al file.</li>
           <li><strong>Netti negativi</strong>: si archivia e basta, per scelta non si importa.</li>
           <li><strong>Statistica costo orario</strong> e <strong>ratei ferie</strong>: vengono riconosciuti e ti porta nella scheda dove si caricano.</li>
           <li>Quello che non torna (una disposizione senza buste, un F24 che manca) diventa una domanda in Banche → Documenti banca → «Da chiarire».</li>

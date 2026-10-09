@@ -14,6 +14,7 @@ Tutti PDF di Zucchetti «Paghe Infinity», con il testo leggibile:
 | Elenco netti (mensilità aggiuntive automatiche) | la 14ª a giugno, la 13ª a dicembre | stesse buste, tipo quattordicesima / tredicesima |
 | Netti negativi | chi quel mese deve restituire | **non si importa** (scelta): si archivia |
 | Prospetto riepilogativo «Dal … Agg.1 al … Norm.» | costo per filiale + riepilogo dei versamenti | Costo lordo (`personnel_gross_cost`) + voci F24 (`payroll_f24_items`) |
+| Modello F24 «AAAA-MM in scadenza il 16-MM-AAAA (prog.N) tipo Ordinario» | la delega vera: moduli, saldi per sezione, IBAN di addebito | `payroll_f24_documents` + scadenza in `fiscal_deadlines` già disposta (migration 270) |
 | Statistica costo orario (saltuaria) | lordo per persona | Costo lordo → dettaglio per dipendente |
 | Situazione ratei ferie e permessi | saldi ferie | Ferie e permessi → Saldi dalle paghe (vedi `PIANO_FERIE_NOTES.md`) |
 
@@ -79,6 +80,32 @@ funzione e va in timeout; la versione è anche più prudente.)
 `payroll_f24_checks`: atteso, scadenza (16 del mese dopo il periodo, sabato e domenica al
 lunedì), deleghe in banca fra scadenza −3 e +7 giorni, esito `pagato` (combinazione esatta),
 `pagato_con_altre_voci` (coprono), `in_attesa`, `da_chiarire`.
+
+### Il modello F24 dello studio comanda (migration 270, 08/10/2026)
+
+Il Prospetto dà solo una stima. Settembre 2026 NZ: Prospetto 32.715,42, modello 32.601,97.
+La differenza era TAXBENEFIT 75,06 (codice 5096, si paga fuori dall'F24) e 38,39 di quote INPS
+con periodo del mese dopo. Da qui tre regole:
+- le voci con codice 5xxx del Prospetto (TAXBENEFIT, Azimut) sono canale `fondo`, non F24
+  (`RE_CODICE_FUORI_F24` in `payrollParse.ts`);
+- `fn_payroll_sync` conta solo le voci con `periodo` = mese del Prospetto: le piccole quote INPS
+  del mese dopo non aprono più un controllo a sé;
+- quando c'è il modello (`payroll_f24_documents`), l'atteso è il suo totale (`payroll_f24_checks.fonte = 'modello'`).
+
+Lettura: `src/lib/modelloF24.ts` (`leggiModelloF24` sulle righe di `extractPdfLines`): un modulo
+per pagina, saldo finale = somma dei saldi di sezione (ogni modulo si controlla da solo),
+IBAN dalle lettere dopo «Autorizzo addebito su», periodo = mese prima della scadenza.
+Settembre 2026: 10 moduli tutti in quadra, 32.601,97, MPS …621460.
+
+Salvataggio: `save_payroll_f24_document(p_doc, p_conferma)` dalla zona unica, senza cambiare
+scheda. Controlla che il codice fiscale sia dell'azienda, trova il conto dall'IBAN e crea la riga
+in Scadenze fiscali «F24 ritenute e contributi dipendenti, <mese> <anno>» con importo, scadenza,
+codici e la **disposizione già compilata** (data, conto, importo, nota «la banca la addebita da
+sola, non va disposta a mano»): così è fra i pagamenti pianificati di Scadenzario e Tesoreria.
+Se esiste già una F24 del personale con la stessa scadenza la completa invece di duplicarla.
+Conferma solo se sostituirebbe un importo diverso o se un modulo non quadra. Quando in banca
+arriva una sola delega che fa la cifra al centesimo, `fn_payroll_sync` chiude la scadenza
+(`paid`, `bank_transaction_id`). In Fabbisogno la stima F24 di quel mese non si somma più.
 
 Vale dai Prospetti caricati dopo il 05/10/2026: i Prospetti già in archivio non hanno le voci
 salvate (non si rielaborano i dati vecchi). Ricaricando un Prospetto vecchio le voci arrivano.

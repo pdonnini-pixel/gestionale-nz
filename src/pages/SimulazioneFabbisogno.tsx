@@ -522,7 +522,14 @@ export default function SimulazioneFabbisogno() {
       }
     }
 
+    // L'F24 del personale caricato dal modello dello studio (migration 270) e'
+    // gia' fra le scadenze fiscali: la stima calcolata di quel mese non si somma.
+    const mesiF24Personale = new Set(
+      fiscali.filter((f) => f.deadline_type === 'f24' && /dipendent|personale|paghe|ritenute e contributi/i.test(f.title || ''))
+        .map((f) => (f.due_date || '').slice(0, 7)),
+    )
     for (const v of vociDelPersonale) {
+      if (v.tipo === 'f24' && mesiF24Personale.has(v.data.slice(0, 7))) continue
       out.push({
         id: v.ref,
         key: 'stipendi',
@@ -1372,7 +1379,7 @@ export default function SimulazioneFabbisogno() {
         <div className="space-y-1">
           <div><strong>Addebiti automatici.</strong> SDD, RID e addebiti su carta sono obbligatori d'ufficio: partono dal conto per mandato dato al creditore, senza che nessuno disponga niente. Restano in elenco con la spunta bloccata.</div>
           <div><strong>Le RiBa sono decidibili.</strong> Una ricevuta bancaria si può lasciare impagata: torna insoluta al fornitore, con commissioni e danno di rapporto, ma resta una scelta. Per questo la spunta è libera e quelle lasciate fuori vengono segnalate.</div>
-          <div><strong>Personale e IVA.</strong> Non stanno a scadenzario e vengono calcolati: il personale dall'ultimo cedolino chiuso (netti, più ritenute e contributi in F24), l'IVA dalla stessa catena di liquidazione della pagina dedicata. Se una liquidazione è già a scadenzario come F24, non viene contata due volte.</div>
+          <div><strong>Personale e IVA.</strong> Non stanno a scadenzario e vengono calcolati: il personale dall'ultimo cedolino chiuso (netti, più ritenute e contributi in F24; se lo studio ha già mandato il modello F24 del mese, conta quello delle scadenze fiscali), l'IVA dalla stessa catena di liquidazione della pagina dedicata. Se una liquidazione è già a scadenzario come F24, non viene contata due volte.</div>
           <div><strong>La selezione è condivisa e resta.</strong> Le spunte si salvano legate alla data di riferimento: cambiando data si riparte da una selezione nuova. Il pulsante Azzera cancella le spunte di quella data.</div>
           <div><strong>Cosa non entra.</strong> Costi ricorrenti non ancora fatturati, RiBa presentate ma non ancora a scadenzario, insoluti in corso di rientro.</div>
         </div>
