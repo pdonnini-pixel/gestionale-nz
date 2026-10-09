@@ -104,6 +104,11 @@ const RE_SPESE_BANCA = /COMMISSION|COMM\.|COMM\/SPESE|CANONE RAPPORTO|CANONE SET
 const RE_GIROCONTO = /GIROCONTO|PASSAGGIO CONTANTI|PREL\.?\s*CONT|PRELEVAMENTO|COSTITUZIONE PEGNO/i
 // SDD di servizi bancari (commissioni POS, rimborsi tax free): spese, non fornitori.
 const RE_SDD_SERVIZI = /A FAVORE NEXI PAYMENTS|A FAVORE GLOBAL BLUE/i
+// Addebito delle commissioni di incasso (Amex, Nexi): un SDD per punto vendita.
+// Su MPS l'Amex arriva come «ADD.DIRETTO CARTA CREDITO ... A FAVORE AMERICAN
+// EXPRESS PAYMENTS»: la parola «carta» non lo fa diventare un estratto carta
+// (su NZ, 57 addebiti su 57 da ottobre 2025 sono commissioni Amex).
+export const RE_SDD_ACQUIRER = /A FAVORE NEXI PAYMENTS|AMERICAN EXPRESS PAYMENTS/i
 // Un flusso CBI o un bonifico ha la STRUTTURA di un pagamento: se nessuno l'ha
 // agganciato a una fattura resta «da chiarire», non diventa «spese bancarie»
 // solo perché la causale cita le commissioni scorporate (IMPORTO COMMISSIONI).
@@ -143,6 +148,7 @@ export function classifyMovement(m: PnMovement): MovementKind {
   if (RE_FINANZIAMENTO.test(d)) return 'finanziamento'
   if (RE_GIROCONTO.test(d)) return 'giroconto'
   if (RE_RICARICA_PREPAGATA.test(d)) return 'ricarica_prepagata'
+  if (m.amount < 0 && RE_SDD_ACQUIRER.test(d)) return 'spese_banca'
   if (RE_CARTA.test(d)) return 'carta'
   // Pagamento POS con la carta di debito: esce direttamente dal conto, non da un estratto.
   if (m.amount < 0 && RE_POS_DEBITO.test(d)) return 'carta_debito'
@@ -217,6 +223,34 @@ export function counterpartOf(m: PnMovement): string {
 export function outletCodeFromNote(note: string | null | undefined): string | null {
   const m = /^\s*Outlet:\s*([A-Za-z0-9_-]+)/i.exec(note ?? '')
   return m ? m[1].toUpperCase() : null
+}
+
+export type PnAcquirerContract = { outlet_id: string | null; acquirer: string; merchant_code: string; payment_contract: string | null }
+
+/**
+ * Negozio di un addebito di commissioni Amex o Nexi, letto dalla causale.
+ * Lo studio chiede a quale negozio appartiene ogni spesa (Monica, 08/10/2026):
+ * senza, le commissioni finiscono al magazzino. La causale porta sempre il
+ * codice del punto vendita: Amex il codice esercente di 10 cifre in coda al
+ * mandato («7043090000007377153036»), Nexi il Payment Contract nel mandato
+ * («CL2XV900518975PC0001000583»). Si confronta con `acquirer_contracts`,
+ * contratti cessati compresi (un addebito arriva il mese dopo). Se i codici
+ * trovati portano a piu' negozi, o a nessuno, non si indovina: null.
+ * Su NZ, gennaio-ottobre 2026: 156 addebiti su 156 con un negozio solo.
+ */
+export function acquirerDebitOutlet(
+  m: { amount: number; description: string | null },
+  contratti: PnAcquirerContract[],
+): { outlet_id: string; acquirer: string } | null {
+  if (m.amount >= 0) return null
+  const d = String(m.description ?? '').toUpperCase()
+  if (!RE_SDD_ACQUIRER.test(d)) return null
+  // Codici corti (meno di 8 caratteri) non sono un aggancio sicuro dentro una causale.
+  const has = (code: string | null | undefined) => !!code && code.trim().length >= 8 && d.includes(code.trim().toUpperCase())
+  const hits = contratti.filter(c => c.outlet_id && (has(c.merchant_code) || has(c.payment_contract)))
+  const outlets = new Set(hits.map(h => h.outlet_id))
+  if (outlets.size !== 1) return null
+  return { outlet_id: hits[0].outlet_id as string, acquirer: hits[0].acquirer }
 }
 
 export function pivaOf(m: PnMovement): string {
