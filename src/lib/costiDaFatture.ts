@@ -1,4 +1,4 @@
-// Costi da fatture per outlet (vista v_costi_outlet_da_fatture, migrazioni 285 e 294).
+// Costi da fatture per outlet (vista v_costi_outlet_da_fatture, migrazioni 285, 294 e 297).
 // Le fatture passive sono già ripartite sugli outlet dal database con le regole
 // dei fornitori; qui si sommano per outlet sui mesi scelti e si raggruppano
 // nelle colonne del riquadro. Dalla 294 la vista porta anche il costo del
@@ -57,6 +57,10 @@ export function colonnaGruppo(gruppo: string | null): keyof Pick<CostiOutlet, 'p
     case 'locazione': return 'affitti'
     case 'generali_amministrative': return 'struttura'
     case 'allestimenti': return 'allestimenti'
+    // Spese pagate dalla cassa del negozio e commissioni Amex e Nexi (migrazione 297)
+    case 'spese_cassa':
+    case 'commissioni_incasso':
+      return 'altro'
     case 'senza_categoria':
     case 'senza_fornitore':
     case null:

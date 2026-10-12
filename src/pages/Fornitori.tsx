@@ -99,6 +99,7 @@ const PROFILE_FIELD_LABEL: Record<string, string> = {
   piano_pagamento: 'modalità delle scadenze',
   metodo_pagamento: 'metodo di pagamento',
   categoria: 'categoria',
+  categoria_dal_riparto: 'categoria dal riparto',
 };
 
 // Carica TUTTE le payables del tenant con colonne leggere (mai xml_content),
@@ -1016,6 +1017,13 @@ export default function Fornitori() {
                   <>: {((s.profile_from_invoice_fields as string[] | null) || [])
                     .map(f => PROFILE_FIELD_LABEL[f] || f).join(', ')}</>
                 )}
+              </div>
+            )}
+            {/* Categoria messa dal sistema seguendo il riparto (migrazione 296):
+                un ripiego, si sostituisce scegliendo la categoria vera. */}
+            {((s.profile_from_invoice_fields as string[] | null) || []).includes('categoria_dal_riparto') && (
+              <div className="border-t border-slate-100 pt-1.5 mt-1.5 text-[11px] leading-snug text-slate-500">
+                Categoria assegnata dal sistema in base al riparto (merce o costo di struttura): se ne conosci una più precisa, sceglila e sostituisce questa.
               </div>
             )}
           </div>
