@@ -145,10 +145,12 @@ export default function CostiDaFattureOutlet({ companyId, year, months, periodLa
             : mesePers < ultimoMesePeriodo ? `, caricato fino a ${MESI[mesePers - 1]}` : ''}. Fatture
           elettroniche dei fornitori per data fattura, importi senza IVA, note di credito in meno. Merce, mezzi e carburante divisi come il preventivo
           acquisti; costi di struttura divisi in proporzione ai ricavi; affitti, bollette e trasferte sull'outlet a cui si riferiscono.
+          In «Altri costi» anche le spese pagate dalla cassa del negozio (chiusure di cassa) e le commissioni Amex e Nexi
+          addebitate in banca, sul negozio letto dal codice nella causale.
         </p>
         <p>
-          <span className="font-medium text-slate-600">Cosa non c'è:</span> F24 e commissioni bancarie, e tutto ciò che non
-          arriva come fattura o dal Prospetto paghe; caparre e depositi a garanzia; autofatture di integrazione IVA. Per questo il totale
+          <span className="font-medium text-slate-600">Cosa non c'è:</span> F24, spese e commissioni della banca, spese delle
+          carte senza fattura, e tutto ciò che non arriva come fattura, dal Prospetto paghe o dalle chiusure di cassa; caparre e depositi a garanzia; autofatture di integrazione IVA. Per questo il totale
           non coincide con il conto economico.
         </p>
         <p>

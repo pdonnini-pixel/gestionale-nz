@@ -12,6 +12,8 @@ describe('colonnaGruppo', () => {
     expect(colonnaGruppo('allestimenti')).toBe('allestimenti')
     expect(colonnaGruppo('personale')).toBe('personale')
     expect(colonnaGruppo('amministratori')).toBe('amministratori')
+    expect(colonnaGruppo('spese_cassa')).toBe('altro')
+    expect(colonnaGruppo('commissioni_incasso')).toBe('altro')
     expect(colonnaGruppo('senza_fornitore')).toBe('senzaCategoria')
     expect(colonnaGruppo('oneri_diversi')).toBe('altro')
     expect(colonnaGruppo('finanziarie')).toBe('altro')

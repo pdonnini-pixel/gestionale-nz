@@ -1836,5 +1836,18 @@ compensi amministratori, più INPS, EBINTER, EST, INAIL imponibile × tasso, TFR
 Il riquadro dice fin dove è caricato il Prospetto. Verifica NZ 2026 gen-set: 796.293 € di personale (uguale a
 Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
 
+**Categoria dal riparto, spese di cassa e commissioni (migrazioni 295-298, 12/10/2026).** Deciso da Patrizio.
+- 295: `v_quote_negozio_fornitore`, le quote per negozio di ogni fornitore, usata dalla colonna «Negozio» della
+  Prima Nota (fogli per conto e per carta), chiesta da Monica l'08/10.
+- 296: `fn_categoria_dal_riparto` riempie la categoria VUOTA dei fornitori con ciò che il riparto ha già deciso
+  (regola automatica «merce…» → ACQ_MERCE, «costo di struttura…» → ALTRI_STRUTTURA, nuova categoria di
+  ripiego) e marca `categoria_dal_riparto` in `profile_from_invoice_fields`. Gira ogni notte dentro
+  `fn_riparto_automatico_tutte`. NZ: 88 fornitori (8 merce, 80 struttura); «Senza categoria» 2026 da 233.359 € a
+  38.621 € (restano i fornitori la cui regola nomina un outlet ma non dice la natura del costo).
+- 297: la vista aggiunge `spese_cassa` (chiusure non in bozza) e `commissioni_incasso` (SDD Amex e Nexi, negozio
+  dal codice in causale come in Prima Nota), entrambe nella colonna «Altri costi». NZ 2026: 6.389 € e 6.533 €.
+  CTE materializzate per banca, contratti e cassa: 1,1 s da utente.
+- 298: se una persona cambia la categoria, il trigger toglie il segno `categoria_dal_riparto`.
+
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
