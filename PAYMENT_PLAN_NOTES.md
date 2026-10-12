@@ -1853,6 +1853,8 @@ Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
 - NZ_ONLY 300: categorie decise da Patrizio leggendo le fatture: Fastweb telefonia, GLS spedizioni, Blustudio
   consulenze (assistenza contrattuale Valmontone e Torino), Caccia Agnese e Annalisa Boschetti allestimenti e
   aperture (avvio di Roma Soratte e di Torino). Regole di riparto invariate.
+- NZ_ONLY 301: Colette srl (stender) allestimenti della sede e del magazzino; Amilon (Zucchetti Card) altre
+  commerciali, omaggi e promozioni. Regole di riparto invariate. «Senza categoria» 2026: 5.200 €.
 
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
