@@ -1,0 +1,4 @@
+-- Rollback 287: fermare prima il job (SELECT cron.unschedule('consuntivo-ricavi-da-incassi');).
+-- Le funzioni possono restare: senza job non scrivono nulla. Le righe di consuntivo
+-- già inserite sono dati veri (somma degli incassi): NON cancellarle senza
+-- conferma di Patrizio.

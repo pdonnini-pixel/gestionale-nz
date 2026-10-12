@@ -1,0 +1,3 @@
+-- Rollback 289: DROP TRIGGER trg_cash_closing_reproject ON public.outlet_daily_closings;
+-- (solo con conferma di Patrizio). Le righe di daily_revenue riallineate sono
+-- corrette (proiezione della chiusura): non vanno ripristinate.
