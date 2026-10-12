@@ -10,6 +10,7 @@ import { usePeriod } from '../hooks/usePeriod'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import ExportMenu from '../components/ExportMenu'
 import PageHeader from '../components/PageHeader'
+import CostiDaFattureOutlet from '../components/CostiDaFattureOutlet'
 import {
   Store, TrendingUp, Users, DollarSign, RefreshCw, ChevronDown, ChevronUp,
   ArrowUpRight, ArrowDownRight, BarChart3, Target, Percent, Building2, AlertCircle,
@@ -1478,6 +1479,18 @@ export default function ConfrontoOutlet() {
 
       {/* Tabella benchmark */}
       <TabellaBenchmark outletMetrics={outletMetrics} />
+
+      {/* Costi da fatture ripartiti con le regole dei fornitori: riferimento in
+          sola lettura, separato dal consuntivo di Budget & Controllo */}
+      {COMPANY_ID && (
+        <CostiDaFattureOutlet
+          companyId={COMPANY_ID}
+          year={year}
+          months={selectedMonths}
+          periodLabel={(PERIOD_OPTIONS.find(p => p.value === period)?.label || 'Annuale').toLowerCase()}
+          sedeKeys={hqCodes}
+        />
+      )}
 
       {/* Cards parallele — confronto diretto */}
       <div>

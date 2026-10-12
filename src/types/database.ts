@@ -24709,6 +24709,20 @@ export type Database = {
           },
         ]
       }
+      v_costi_outlet_da_fatture: {
+        Row: {
+          anno: number | null
+          company_id: string | null
+          cost_center_key: string | null
+          fatture: number | null
+          gruppo: string | null
+          importo: number | null
+          mese: number | null
+          outlet: string | null
+          outlet_id: string | null
+        }
+        Relationships: []
+      }
       v_electronic_invoices_list: {
         Row: {
           acube_uuid: string | null
