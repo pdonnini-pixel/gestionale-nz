@@ -1,0 +1,3 @@
+-- Rollback 284: ri-eseguire la funzione di 20261012_281_carburante_come_merce.sql.
+-- Alla notte successiva i costi di struttura tornano alla sede (le regole
+-- sostituite restano disattivate, nessun dato da cancellare).

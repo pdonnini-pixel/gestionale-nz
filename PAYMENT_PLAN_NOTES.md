@@ -1783,7 +1783,11 @@ fornitore con centro «tutti» e senza regola, o con una regola scritta dal sist
    dell'anno per outlet (segnaposto, Sede/costi generali e rettifica esclusi; outlet in apertura compresi).
    Dal 12/10/2026 (migrazione 281, decisione di Patrizio) vale anche per **mezzi e carburante**
    (`MEZZI_E_CARBURANTE`): carburante, telematica dei mezzi, noleggi si dividono come la merce.
-5. **Struttura** (gruppi generali_amministrative, finanziarie, oneri_diversi): alla sede (centro `hq`).
+5. **Struttura** (gruppi generali_amministrative, finanziarie, oneri_diversi, e fornitori senza categoria
+   già messi qui dal sistema): dal 12/10/2026 (migrazione 284, decisione di Patrizio) **sugli outlet in
+   proporzione ai ricavi dell'anno**, consuntivo dove c'è e preventivo per i mesi che mancano (solo centri
+   con ruolo `outlet`; Roma Soratte entra con i ricavi previsti). Le trasferte senza località restano alla
+   sede. Le quote si aggiornano da sole quando si aggiunge un mese di consuntivo.
 
 Le regole messe a mano non si toccano mai. Una regola automatica si sostituisce solo se le quote cambiano
 (la vecchia si disattiva, non si cancella). Locazioni senza outlet ricavabile e fornitori senza categoria
