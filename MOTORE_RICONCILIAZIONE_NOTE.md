@@ -513,3 +513,70 @@ GRUPPO FB, e tutte quelle di S.R.T., MARF, GLADIOTEX e faliero.
 I residui aperti sono quasi solo note di credito da compensare (SHINE −31,51 —
 le due fuori elenco già identificate a settembre; MIAN −219,60), più una riga
 GRUPPO FB da 866,57.
+
+---
+
+## Il controllo del 12/10: tre allarmi, tre falsi positivi delle mie query
+
+Quinta settimana pulita sul cron: otto giri dal 05/10 al 12/10, tutti riusciti.
+Diciassette agganci del motore, **nessuno su causale anonima**: tutti portano in
+causale il beneficiario o il numero di fattura (gli SDD di Palmanova, CNH, San
+Mauro, Consorzio Shopinn, DWS, BMG Barberino; i bonifici a EPPI «SF-36»,
+ALFATECNO «SALDO FATTURA 138», PROFASHION «FPR-274 26»; la RiBa ARCO con
+`RIF.FATT`). Quindici agganci manuali il 07/10, fatti da fuori con i documenti
+alla mano.
+
+Niente da correggere. La parte utile di questa settimana è che **tre cose che
+sembravano difetti erano difetti delle query con cui le cercavo**. È la seconda
+settimana di fila, quindi vale la pena fissare la regola.
+
+### 1. «Palmanova agganciata due volte»
+
+Nel log la stessa fattura `B02026001615` compare due volte, stesso movimento,
+stesso importo di 10.010,00: sembrava un doppio aggancio da 20.020. Sui dati il
+movimento ha **una sola** scadenza agganciata, e quadra al centesimo. Erano due
+righe di **log** per un aggancio solo. Contate su 60 giorni: **una coppia
+duplicata in tutto**, nello stesso giorno. Caso isolato, nessun dato sbagliato,
+niente da sistemare.
+
+### 2. «Una scadenza chiusa a mano è fuori dal vincolo della 218»
+
+La settimana scorsa erano zero, questa uno: BRT `386668 (996)`, chiusa a mano il
+31/07, agganciata a un movimento del 30/06 — 31 giorni di scarto, appena oltre
+il limite.
+
+Due ragioni per cui non è un difetto. La prima: l'aggancio è **manuale**
+(`match_type = 'manual'`, 07/10), e il vincolo della 218 vive dentro
+`try_match_bank_transaction`, cioè vale per il motore, non per chi aggancia a
+mano con l'estratto conto davanti. La seconda: l'aggancio è **giusto**. Quel
+movimento da 4.397,75 è un bonifico cumulativo che paga **sei** fatture BRT per
+4.396,00 esatti, più 1,75 di commissione — lo schema CBI già noto.
+
+**La query di controllo va corretta**: la verifica del vincolo 218 deve filtrare
+`match_type <> 'manual'`, altrimenti segnala come violazione ogni pagamento
+raggruppato chiuso a mano.
+
+### 3. «Il giro del 09/10 è andato a 202 secondi»
+
+Contro una media di 140. Non è carico: i movimenti aperti da esaminare erano 329
+quel giorno, 329 il giorno dopo (150 s) e 329 quello dopo ancora (139 s). Picco
+isolato, contesa di risorse sul database, nessun degrado.
+
+Da tenere d'occhio invece il **trend dell'arretrato**: 317 movimenti aperti il
+05/10, 330 il 12/10. Cresce di una dozzina a settimana, e il tempo di giro
+cresce con lui. Non è un problema ora (il timeout del job è 20 minuti), ma se
+l'arretrato supera il migliaio la cura è quella già scritta nel 2026-09: 
+pre-calcolare le chiavi del numero fattura in una colonna indicizzata invece di
+valutare `invoice_cited_in_text` su ogni candidato.
+
+### La regola, dopo due settimane dello stesso errore
+
+Il 05/10 la metrica sul tie-break contava candidati che il motore non poteva
+scegliere. Oggi la verifica del vincolo 218 contava agganci a cui quel vincolo
+non si applica. In entrambi i casi il motore aveva ragione e la query torto.
+
+**Prima di dire che il motore ha sbagliato, controllare che la domanda sia
+quella giusta**: filtrare i candidati per disponibilità, filtrare gli agganci per
+chi li ha fatti, e guardare il movimento vero prima di contare le righe di log.
+Un conteggio che gira su `reconciliation_log` senza guardare `payables` misura
+quante volte il motore ha *scritto*, non quante volte ha *agganciato*.
