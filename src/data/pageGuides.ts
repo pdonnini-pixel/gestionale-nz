@@ -271,6 +271,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "body": "Una tabella riassuntiva mette a confronto tutti gli outlet su una serie di indicatori (ricavi, margine in euro e in percentuale, numero dipendenti in forza dai cedolini, ricavo per dipendente, costo personale, affitto, incidenza del personale e dell'affitto sui ricavi). Il valore migliore di ogni riga è evidenziato in verde; in vista 'Scostamento' i colori seguono invece il significato del cambiamento (verde se il numero è andato nella direzione giusta, rosso se in quella sbagliata)."
       },
       {
+        "heading": "Costi da fatture (riparto automatico)",
+        "body": "Sotto la tabella di benchmark c'è un riquadro con i costi presi dalle fatture dei fornitori, già divisi sugli outlet con le regole di riparto della pagina Fornitori. Per ogni outlet mostra merce, affitti, costi di struttura, altri costi, fornitori senza categoria e il totale; la sede compare in fondo, e le fatture senza fornitore in una riga «Non assegnato». La colonna viola «Allestimenti (a parte)» raccoglie arredi, insegne, impianti e progettazione per aprire un negozio: sono un investimento di avvio e non entrano nel totale. Gli importi sono senza IVA, per data fattura, con le note di credito in meno; restano fuori stipendi, F24, commissioni bancarie, caparre e depositi a garanzia e le autofatture di integrazione IVA, quindi il totale non coincide con il conto economico. È un riferimento in sola lettura: non cambia il consuntivo inserito in Budget & Controllo né le schede outlet. Segue il periodo scelto in alto."
+      },
+      {
         "heading": "Schede outlet — confronto dettagliato",
         "body": "Sotto la tabella trovi una scheda per ogni outlet, con i ricavi (o lo scostamento, in vista Scostamento), un'etichetta che indica quanto è affidabile il dato mostrato ('Granitico' = dato reale confermato, 'X reali + Y previsti' = dato misto, 'Preventivo' = solo stima), il numero di dipendenti in forza secondo i cedolini (passa il mouse sul riquadro per vedere di quale mese), lo scostamento rispetto al preventivo, un link 'Apri in Budget & Controllo' per andare al dettaglio di quell'outlet, quattro riquadri di costo (acquisto merci, costo personale, costo locazioni, costo per servizi), il margine dell'outlet e, quando disponibile, la quota di costi di sede attribuita e il margine dopo la sede (ed eventualmente dopo le imposte). Il pulsante 'Mostra dettaglio' apre l'elenco completo delle voci di costo e ricavo di quell'outlet."
       },
@@ -291,6 +295,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché un outlet mostra 'Nessun dato'?",
         "a": "Significa che per quell'outlet non ci sono ancora dati caricati dal Budget o dal Bilancio per il periodo selezionato. Puoi caricarli dalla pagina Budget & Controllo."
+      },
+      {
+        "q": "Perché i costi del riquadro «Costi da fatture» sono diversi da quelli delle schede outlet?",
+        "a": "Sono due fonti diverse. Le schede usano il preventivo e il consuntivo di Budget & Controllo; il riquadro somma le fatture dei fornitori divise con le regole di riparto. Nel riquadro mancano stipendi, F24 e tutto ciò che non arriva come fattura, e la data è quella della fattura. Serve a vedere quanto spende davvero ogni outlet con i fornitori, non a sostituire il consuntivo."
       },
       {
         "q": "Cosa vuol dire 'Quota sede'?",
