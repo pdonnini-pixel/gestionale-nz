@@ -1,0 +1,6 @@
+-- Rollback 285 (solo con conferma di Patrizio):
+-- - ri-eseguire la funzione di 20261012_284_struttura_sugli_outlet_per_ricavi.sql
+--   e fn_riparto_automatico_tutte della 274;
+-- - la vista v_costi_outlet_da_fatture non è letta da nessuno finché non c'è il
+--   riquadro: si può lasciare. La tabella invoice_cost_flags e la categoria
+--   ALLESTIMENTI restano (la categoria si disattiva con is_active = false se serve).

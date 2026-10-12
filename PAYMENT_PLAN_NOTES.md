@@ -1809,5 +1809,14 @@ disattivazione falliva. Il job notturno è fallito così l'11 e il 12/10/2026 (n
 quelle notti). Ora c'è un indice unico parziale `(company_id, supplier_id) WHERE is_active`: una sola regola
 attiva, storico libero. Per vedere l'esito del job: `cron.job_run_details` del job `riparto-automatico-notturno`.
 
+**Costi per outlet da fatture (migrazione 285, 12/10/2026).** Vista in sola lettura
+`v_costi_outlet_da_fatture` (outlet, anno, mese, gruppo, importo): fatture passive ripartite con le regole
+dei fornitori. Note di credito in negativo; esclusi TD16/17/18 (integrazioni IVA) e le fatture in
+`invoice_cost_flags` (caparre e depositi a garanzia con i loro storni, riconosciuti dalle righe dal giro
+notturno; «deposito cauzionale» no, perché sta nelle bollette con i consumi). Categoria `ALLESTIMENTI`
+(arredi, insegne, impianti, progettazione di un'apertura): gruppo a parte nella vista, mai ripartita come
+struttura. NZ_ONLY 286 l'ha data ai fornitori delle aperture di Torino e Roma Soratte. Non scrive in
+`budget_entries` né in `budget_confronto`: i numeri inseriti a mano restano intatti.
+
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
