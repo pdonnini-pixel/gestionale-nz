@@ -1859,6 +1859,9 @@ Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
   `fn_categorize_from_lines`; scrive la categoria se almeno metà delle fatture la indica e nessun'altra la
   eguaglia, segno `categoria_dalle_fatture`. Giro notturno: fatture → riparto → ripiego. NZ: 50 fornitori
   (13 ristoranti e alberghi diventati VIAGGI, ora sul luogo o sulla sede); «Senza categoria» 2026: 4.400 €.
+- 303 (3 tenant): vocabolario deciso da Patrizio, vigilanza e verde → MANUT, transpallet e attrezzatura di
+  magazzino → ALLESTIMENTI. NZ: Corpo Vigili e Ginevra Green Garden manutenzioni, B.F.M. e ASMEP allestimenti
+  della sede; «Senza categoria» 2026: 1.097 €.
 - NZ_ONLY 301: Colette srl (stender) allestimenti della sede e del magazzino; Amilon (Zucchetti Card) altre
   commerciali, omaggi e promozioni. Regole di riparto invariate. «Senza categoria» 2026: 5.200 €.
 
