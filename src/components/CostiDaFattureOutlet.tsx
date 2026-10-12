@@ -25,8 +25,12 @@ type Props = {
 
 const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
 
+// de-DE dà il formato italiano (punto per le migliaia) anche sui numeri a 4
+// cifre: it-IT scriverebbe «6258» invece di «6.258».
+const fmtEuro = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 })
+
 function euro(n: number): string {
-  return Math.round(n).toLocaleString('it-IT')
+  return `${fmtEuro.format(Math.round(n))} €`
 }
 
 function Cella({ v, forte }: { v: number; forte?: boolean }) {
@@ -109,7 +113,7 @@ export default function CostiDaFattureOutlet({ companyId, year, months, periodLa
         <div className="text-sm text-slate-500 py-6 text-center">Nessun costo del personale né fattura fornitore nel periodo scelto.</div>
       ) : (
         <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-sm min-w-[860px]">
+          <table className="w-full text-sm min-w-[960px]">
             <thead>
               <tr className="text-xs text-slate-500">
                 <th className="px-3 py-2 text-left font-medium">Outlet</th>
@@ -154,7 +158,7 @@ export default function CostiDaFattureOutlet({ companyId, year, months, periodLa
         {riepilogo.totale.amministratori !== 0 && (
           <p>
             <span className="font-medium text-slate-600">Amministratori:</span> compensi e INPS gestione separata,{' '}
-            {euro(riepilogo.totale.amministratori)} € nel periodo. Come in Dipendenti, restano fuori dal costo del personale e dal totale.
+            {euro(riepilogo.totale.amministratori)} nel periodo. Come in Dipendenti, restano fuori dal costo del personale e dal totale.
           </p>
         )}
       </div>
