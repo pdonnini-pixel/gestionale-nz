@@ -1,0 +1,3 @@
+-- Rollback 281: ri-eseguire la funzione di 20261009_279_trasferte_al_luogo.sql.
+-- Le regole «mezzi e carburante» tornano alla sede alla notte successiva
+-- (le regole sostituite restano disattivate, nessun dato da cancellare).

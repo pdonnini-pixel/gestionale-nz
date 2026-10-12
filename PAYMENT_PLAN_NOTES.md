@@ -1781,6 +1781,8 @@ fornitore con centro «tutti» e senza regola, o con una regola scritta dal sist
 3. **Nome del fornitore** che contiene un solo outlet (nome o centro commerciale; la città solo per i Comuni).
 4. **Merce** (`ACQ_MERCE`, `ACCESSORI_ABB_TO` o regola «Automatica: merce»): quote del preventivo acquisti
    dell'anno per outlet (segnaposto, Sede/costi generali e rettifica esclusi; outlet in apertura compresi).
+   Dal 12/10/2026 (migrazione 281, decisione di Patrizio) vale anche per **mezzi e carburante**
+   (`MEZZI_E_CARBURANTE`): carburante, telematica dei mezzi, noleggi si dividono come la merce.
 5. **Struttura** (gruppi generali_amministrative, finanziarie, oneri_diversi): alla sede (centro `hq`).
 
 Le regole messe a mano non si toccano mai. Una regola automatica si sostituisce solo se le quote cambiano
@@ -1793,9 +1795,15 @@ e fornitori di abbigliamento/accessori senza categoria), 276 (città degli outle
 della bolletta, sezione «Servizio fornito in», dice Via Borratino Vallerempoli 44, Figline; luoghi delle
 trasferte; categoria `VIAGGI` a Trenitalia, Italo, Autogrill, B&B Hotels, Hotel Gross, Ristorante dell'Autista).
 Al 09/10/2026 su NZ ogni fattura 2026 con un fornitore ha un outlet; restano 32 fatture senza fornitore.
-Restano a mano (regole non automatiche, non toccate): Altomugello «Diretto» alla sede ma le righe dicono
-«Soggiorno presso Hotel Barberino»; C.A.E P. Ghetti «Diretto» alla sede. Il carburante (`MEZZI_E_CARBURANTE`)
-va ancora alla sede come struttura.
+Decisioni del 12/10/2026 (NZ_ONLY 282): Altomugello (Hotel Barberino) → Barberino, regola a mano;
+MCA, Romano di Lombardia → Franciacorta (luogo aggiunto a `outlet_travel_places`). Resta a mano C.A.E P. Ghetti
+«Diretto» alla sede.
+
+**Vincolo delle regole (migrazione 283).** Il baseline aveva `UNIQUE (company_id, supplier_id, is_active)`:
+vietava anche due regole DISATTIVATE per lo stesso fornitore, quindi al secondo cambio di riparto la
+disattivazione falliva. Il job notturno è fallito così l'11 e il 12/10/2026 (nessun fornitore aggiornato in
+quelle notti). Ora c'è un indice unico parziale `(company_id, supplier_id) WHERE is_active`: una sola regola
+attiva, storico libero. Per vedere l'esito del job: `cron.job_run_details` del job `riparto-automatico-notturno`.
 
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
