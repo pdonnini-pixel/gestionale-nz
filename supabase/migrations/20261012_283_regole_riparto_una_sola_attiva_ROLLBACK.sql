@@ -1,0 +1,7 @@
+-- Rollback 283: rimettere il vincolo vecchio è possibile solo se nessun
+-- fornitore ha più di una regola disattivata; altrimenti fallisce (ed è il
+-- difetto che la 283 corregge). Non cancellare regole per farlo passare.
+-- ALTER TABLE public.supplier_allocation_rules
+--   ADD CONSTRAINT supplier_allocation_rules_company_id_supplier_id_is_active_key
+--   UNIQUE (company_id, supplier_id, is_active);
+-- DROP INDEX IF EXISTS public.supplier_allocation_rules_one_active_per_supplier;
