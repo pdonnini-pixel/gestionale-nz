@@ -150,3 +150,19 @@ ALTER TABLE public.budget_confronto DROP COLUMN IF EXISTS rettifica_amount;
 ## 8. Sequenza commit
 - `658ff6e` `[budget] types+hooks: rigenera tipi DB post-migrazione e aggiunge useRole`
 - `[next]` `[budget] ui: workflow approvazione + lock + vista mensile completa`
+
+## Consuntivo ricavi dagli incassi, in automatico (12/10/2026)
+
+Deciso da Patrizio il 12/10/2026, dopo che Confronto Outlet era rimasto fermo ad agosto perché settembre non era stato
+inserito. `fn_consuntivo_ricavi_da_incassi(company, prova)` (migrazione 287), job pg_cron `consuntivo-ricavi-da-incassi`
+alle 02:20 UTC (288), prima del riparto notturno delle 02:40 che usa i ricavi.
+- Scrive `budget_confronto` `cons_monthly`, stato `granitico`, con la somma di `daily_revenue.net_revenue` del mese.
+- Solo celle vuote (nessun `cons_monthly` per quell'outlet e mese): un consuntivo già inserito non si tocca.
+- Solo mesi finiti da almeno 2 giorni, coperti da incassi in almeno (giorni del mese − 3) giorni, negli ultimi 3 mesi.
+- Conto ricavi = quello che l'outlet già usa in `budget_confronto` per l'anno; se non c'è, l'outlet si salta.
+- Luglio e agosto 2026, inseriti a mano, coincidono al centesimo con questa somma. Settembre 2026 inserito così il 12/10.
+
+**Incassi che seguono la chiusura corretta (migrazione 289).** `daily_revenue` veniva scritto solo alla conferma della
+chiusura: Franciacorta 30/09/2026 era stata confermata con 0 € e poi corretta a 2.114,56 € lordi, ma gli incassi restavano a
+0 (unica giornata disallineata del 2026, riallineata; il consuntivo di settembre di Franciacorta corretto a 42.821,69 €).
+Ora il trigger `trg_cash_closing_reproject` rifà la proiezione quando cambia il totale di una chiusura confermata o verificata.

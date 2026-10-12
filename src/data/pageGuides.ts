@@ -1312,6 +1312,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Segnala che quel valore è ancora un dato segnaposto (provvisorio, non ancora confermato dall'operatrice) e va controllato e confermato."
       },
       {
+        "q": "Il consuntivo dei ricavi si riempie da solo?",
+        "a": "Sì, per i mesi chiusi. Ogni notte, quando un mese è finito da almeno due giorni e gli incassi giornalieri lo coprono per intero (al massimo tre giorni mancanti), il consuntivo ricavi di ogni punto vendita si scrive da solo con la somma degli incassi netti IVA, come dato reale (granitico). Si riempiono solo le celle vuote: un consuntivo già inserito non viene mai sovrascritto, e i mesi di apertura parziale restano da inserire a mano. Se una chiusura di cassa viene corretta dopo la conferma, anche gli incassi giornalieri si aggiornano da soli."
+      },
+      {
         "q": "Qual è la differenza tra Preventivo e Consuntivo?",
         "a": "Il Preventivo è la previsione, un numero che si può sempre correggere. Il Consuntivo è il dato reale del mese chiuso: una volta inserito è considerato definitivo ('granitico') e rappresenta ciò che è davvero successo."
       },
