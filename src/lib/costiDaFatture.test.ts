@@ -10,6 +10,8 @@ describe('colonnaGruppo', () => {
     expect(colonnaGruppo('locazione')).toBe('affitti')
     expect(colonnaGruppo('generali_amministrative')).toBe('struttura')
     expect(colonnaGruppo('allestimenti')).toBe('allestimenti')
+    expect(colonnaGruppo('personale')).toBe('personale')
+    expect(colonnaGruppo('amministratori')).toBe('amministratori')
     expect(colonnaGruppo('senza_fornitore')).toBe('senzaCategoria')
     expect(colonnaGruppo('oneri_diversi')).toBe('altro')
     expect(colonnaGruppo('finanziarie')).toBe('altro')
@@ -51,5 +53,27 @@ describe('aggregaCostiDaFatture', () => {
     expect(out.outlet).toHaveLength(1)
     expect(out.outlet[0].merce).toBe(2000)
     expect(out.nonAssegnato).toBeNull()
+  })
+
+  it('somma il personale nel totale, tiene fuori gli amministratori', () => {
+    const conPersonale = [
+      ...righe,
+      r('t', 'torino', 3, 'personale', 9000),
+      r('s', 'sede_magazzino', 3, 'personale', 12000),
+      r('s', 'sede_magazzino', 4, 'personale', 12500),
+      r('s', 'sede_magazzino', 3, 'amministratori', 18000),
+    ]
+    const out = aggregaCostiDaFatture(conPersonale, null, new Set(['sede_magazzino']))
+    const torino = out.outlet.find(o => o.key === 't')!
+    expect(torino.personale).toBe(9000)
+    expect(torino.correnti).toBe(21000)
+    const sede = out.outlet.find(o => o.key === 's')!
+    expect(sede.personale).toBe(24500)
+    expect(sede.amministratori).toBe(18000)
+    expect(sede.correnti).toBe(50000 + 24500)
+    expect(out.totale.amministratori).toBe(18000)
+    expect(out.ultimoMesePersonale).toBe(4)
+    expect(aggregaCostiDaFatture(conPersonale, [3], new Set()).ultimoMesePersonale).toBe(3)
+    expect(aggregaCostiDaFatture(righe, null, new Set()).ultimoMesePersonale).toBeNull()
   })
 })

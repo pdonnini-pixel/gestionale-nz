@@ -1480,7 +1480,7 @@ export default function ConfrontoOutlet() {
       {/* Tabella benchmark */}
       <TabellaBenchmark outletMetrics={outletMetrics} />
 
-      {/* Costi da fatture ripartiti con le regole dei fornitori: riferimento in
+      {/* Costo del personale (Prospetto paghe) e costi da fatture ripartiti con le regole dei fornitori: riferimento in
           sola lettura, separato dal consuntivo di Budget & Controllo */}
       {COMPANY_ID && (
         <CostiDaFattureOutlet
