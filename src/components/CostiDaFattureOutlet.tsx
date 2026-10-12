@@ -134,8 +134,8 @@ export default function CostiDaFattureOutlet({ companyId, year, months, periodLa
           non coincide con il conto economico.
         </p>
         <p>
-          <span className="font-medium text-violet-700">Allestimenti:</span> arredi, insegne, impianti e progettazione per aprire
-          un negozio. Sono un investimento di avvio e restano fuori dal totale dei costi.
+          <span className="font-medium text-violet-700">Allestimenti:</span> arredi, insegne, impianti, lavori e progettazione per aprire
+          un negozio o ristrutturare la sede e il magazzino. Sono un investimento e restano fuori dal totale dei costi.
         </p>
       </div>
     </div>

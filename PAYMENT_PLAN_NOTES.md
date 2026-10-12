@@ -1818,5 +1818,15 @@ notturno; «deposito cauzionale» no, perché sta nelle bollette con i consumi).
 struttura. NZ_ONLY 286 l'ha data ai fornitori delle aperture di Torino e Roma Soratte. Non scrive in
 `budget_entries` né in `budget_confronto`: i numeri inseriti a mano restano intatti.
 
+**Magazzino e nuovi outlet (migrazioni 291-293, 12/10/2026).** Deciso da Patrizio: i lavori del magazzino
+di Pian di Rona sono allestimenti della sede/magazzino; il resto del magazzino (affitto, energia,
+manutenzioni, personale) resta in sede. `invoice_cost_overrides` classifica la singola fattura (outlet al 100%
+e gruppo `allestimenti`) e vince sulla regola del fornitore: serve quando un fornitore lavora sia al magazzino
+sia ai negozi (Marco Ghezzi). NZ_ONLY 292: 8 fatture del cantiere feb-lug 2026 = 26.459,75 € di allestimenti
+sede; Ghezzi n.92 (manutenzione impianto) in sede come costo corrente; Ghezzi n.93 a Barberino.
+Un outlet nuovo entra da solo nelle regole: merce e struttura dalle quote di preventivo e ricavi, la città
+diventa un luogo delle trasferte (trigger `trg_outlet_luogo_trasferte`). Restano da dare a mano i POD/PDR
+delle sue bollette (`utility_supply_points`), finché non si leggono dalle bollette.
+
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.

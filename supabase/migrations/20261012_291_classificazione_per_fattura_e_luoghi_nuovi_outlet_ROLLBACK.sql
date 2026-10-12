@@ -1,0 +1,4 @@
+-- Rollback 291 (solo con conferma di Patrizio):
+-- DROP TRIGGER trg_outlet_luogo_trasferte ON public.outlets;
+-- ri-eseguire la vista di 20261012_290_vista_costi_outlet_veloce.sql.
+-- La tabella invoice_cost_overrides e i luoghi aggiunti restano (dati decisi).
