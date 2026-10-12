@@ -1850,6 +1850,9 @@ Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
 - 298: se una persona cambia la categoria, il trigger toglie il segno `categoria_dal_riparto`.
 - NZ_ONLY 299: Realcart (P.IVA 01715000343, buste shopper) è merce per decisione di Patrizio: categoria
   ACQ_MERCE e riparto come il preventivo acquisti, non sull'outlet di consegna nominato in fattura.
+- NZ_ONLY 300: categorie decise da Patrizio leggendo le fatture: Fastweb telefonia, GLS spedizioni, Blustudio
+  consulenze (assistenza contrattuale Valmontone e Torino), Caccia Agnese e Annalisa Boschetti allestimenti e
+  aperture (avvio di Roma Soratte e di Torino). Regole di riparto invariate.
 
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
