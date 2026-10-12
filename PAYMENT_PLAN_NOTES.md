@@ -1848,6 +1848,8 @@ Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
   dal codice in causale come in Prima Nota), entrambe nella colonna «Altri costi». NZ 2026: 6.389 € e 6.533 €.
   CTE materializzate per banca, contratti e cassa: 1,1 s da utente.
 - 298: se una persona cambia la categoria, il trigger toglie il segno `categoria_dal_riparto`.
+- NZ_ONLY 299: Realcart (P.IVA 01715000343, buste shopper) è merce per decisione di Patrizio: categoria
+  ACQ_MERCE e riparto come il preventivo acquisti, non sull'outlet di consegna nominato in fattura.
 
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
