@@ -28,6 +28,9 @@ export type PnPayable = {
   installment_total?: number | null
   /** Metodo di pagamento della scadenza (riba_30, bonifico_ordinario, …): serve a far capire le RiBa. */
   payment_method?: string | null
+  /** Fornitore e fattura elettronica: servono alla colonna «Negozio» (facoltativi). */
+  supplier_id?: string | null
+  electronic_invoice_id?: string | null
 }
 
 export type PnFiscalDeadline = {
@@ -321,6 +324,8 @@ export type PnRow = {
   Importo: number
   Valuta: string
   Contropartita: string
+  /** Negozio a cui va il movimento (vuoto se non si sa): vedi testoNegozio. */
+  Negozio: string
   'P.IVA Contropartita': string
   'N. fatture': number | ''
   'Totale fatture': number | ''
@@ -340,6 +345,7 @@ export function buildRow(
   m: PnMovement & { transaction_date: string; posting_date?: string | null; currency: string | null; bank_accounts?: PnBankAccount },
   fmtDate: (d: string) => string,
   contropartita?: string,
+  negozio?: string,
 ): PnRow {
   const n = invoiceCountOf(m)
   const tot = invoicesTotalOf(m)
@@ -353,6 +359,7 @@ export function buildRow(
     Importo: Math.abs(m.amount),
     Valuta: m.currency ?? 'EUR',
     Contropartita: contropartita || counterpartOf(m),
+    Negozio: negozio ?? '',
     'P.IVA Contropartita': pivaOf(m),
     'N. fatture': n > 0 ? n : '',
     'Totale fatture': tot ?? '',
@@ -361,7 +368,7 @@ export function buildRow(
   }
 }
 
-export const PN_COLUMN_WIDTHS = [14, 14, 30, 30, 9, 22, 12, 6, 35, 16, 8, 12, 60, 18]
+export const PN_COLUMN_WIDTHS = [14, 14, 30, 30, 9, 22, 12, 6, 35, 30, 16, 8, 12, 60, 18]
 
 // Riepilogo per tipo di movimento (foglio «Riepilogo» dell'Excel e controllo a
 // video): quante righe e quanto importo per ciascun tipo, entrate e uscite.
@@ -396,4 +403,79 @@ export function nomeFileExport(azienda: string | null | undefined, cosa: string,
   const esportato = `${due(oggi.getDate())}-${due(oggi.getMonth() + 1)}-${oggi.getFullYear()}`
   const nome = `${(azienda ?? '').trim() || 'Azienda'} ${cosa} ${periodo} - esportato il ${esportato}`
   return `${nome.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim()}.${ext}`
+}
+
+// ============================================================================
+// COLONNA «NEGOZIO» (Monica, Studio Poli, 08/10/2026)
+// «Verificare sempre a quale negozio appartengono le spese, altrimenti sono
+// costretta a registrarle al magazzino.» Il negozio di una fattura viene dal
+// riparto dei fornitori (v_quote_negozio_fornitore, migrazione 295), con la
+// classificazione della singola fattura (invoice_cost_overrides) che vince,
+// come nel riquadro di Confronto Outlet. Un movimento che salda più fatture
+// pesa le quote sugli importi. Niente si indovina: senza quote, cella vuota.
+// ============================================================================
+
+export type QuotaNegozio = { outlet_id: string; pct: number }
+
+export type NegozioLookup = {
+  /** supplier_id → quote del riparto (somma 100) */
+  perFornitore: Map<string, QuotaNegozio[]>
+  /** electronic_invoice_id → outlet della singola fattura (vince sul fornitore) */
+  perFattura: Map<string, string>
+}
+
+/** Quote di una fattura: classificazione della fattura, altrimenti il riparto del fornitore. */
+export function quoteFattura(p: Pick<PnPayable, 'supplier_id' | 'electronic_invoice_id'>, lk: NegozioLookup): QuotaNegozio[] | null {
+  const ov = p.electronic_invoice_id ? lk.perFattura.get(p.electronic_invoice_id) : undefined
+  if (ov) return [{ outlet_id: ov, pct: 100 }]
+  const q = p.supplier_id ? lk.perFornitore.get(p.supplier_id) : undefined
+  return q && q.length > 0 ? q : null
+}
+
+/** Chiave delle quote senza negozio: la parte di un movimento che non si sa a chi va. */
+export const NEGOZIO_NON_ASSEGNATO = ''
+
+/**
+ * Quote di un movimento che salda più fatture: media delle quote pesata sugli
+ * importi. La parte delle fatture senza quote resta «non assegnata» (chiave
+ * vuota), così la percentuale degli altri negozi non si gonfia.
+ */
+export function quoteMovimento(parti: Array<{ importo: number; quote: QuotaNegozio[] | null }>): QuotaNegozio[] {
+  const tot = parti.reduce((s, p) => s + Math.abs(p.importo), 0)
+  if (tot <= 0) {
+    // Importi mancanti: se tutte le parti dicono la stessa cosa vale quella.
+    const conQuote = parti.filter(p => p.quote)
+    return conQuote.length === parti.length && conQuote.length > 0 && conQuote.every(p => JSON.stringify(p.quote) === JSON.stringify(conQuote[0].quote))
+      ? conQuote[0].quote as QuotaNegozio[]
+      : []
+  }
+  const acc = new Map<string, number>()
+  for (const p of parti) {
+    const peso = Math.abs(p.importo) / tot
+    if (!p.quote) { acc.set(NEGOZIO_NON_ASSEGNATO, (acc.get(NEGOZIO_NON_ASSEGNATO) ?? 0) + peso * 100); continue }
+    for (const q of p.quote) acc.set(q.outlet_id, (acc.get(q.outlet_id) ?? 0) + peso * q.pct)
+  }
+  if (acc.size === 1 && acc.has(NEGOZIO_NON_ASSEGNATO)) return []
+  return [...acc.entries()].map(([outlet_id, pct]) => ({ outlet_id, pct })).sort((a, b) => b.pct - a.pct)
+}
+
+/**
+ * Testo della cella: il negozio quando è uno solo («BRB · Barberino»),
+ * altrimenti «Diviso: BRB 22%, VDC 18%, …» con i codici del foglio «Codici
+ * negozi». Vuoto quando non si sa.
+ */
+export function testoNegozio(quote: QuotaNegozio[], outlet: (id: string) => { code: string | null; name: string } | null): string {
+  const valide = quote.filter(q => q.pct > 0.005)
+  if (valide.length === 0) return ''
+  const label = (id: string) => {
+    if (id === NEGOZIO_NON_ASSEGNATO) return 'non assegnato'
+    const o = outlet(id)
+    return o ? (o.code || o.name) : 'non assegnato'
+  }
+  if (valide.length === 1 && valide[0].outlet_id !== NEGOZIO_NON_ASSEGNATO) {
+    const o = outlet(valide[0].outlet_id)
+    return o ? (o.code ? `${o.code} · ${o.name}` : o.name) : ''
+  }
+  const pct = (v: number) => (v < 1 ? '<1%' : `${Math.round(v)}%`)
+  return `Diviso: ${valide.map(q => `${label(q.outlet_id)} ${pct(q.pct)}`).join(', ')}`
 }
