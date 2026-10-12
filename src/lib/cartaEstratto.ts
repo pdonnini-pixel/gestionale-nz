@@ -417,7 +417,7 @@ export function matchRicariche(lines: CardLine[], movements: BankMovLite[]): Map
 
 // ── Aggancio alle fatture pagate con carta ─────────────────────────────
 
-export type PayableLite = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number; supplier_name: string | null; invoice_number: string | null; payment_method?: string | null }
+export type PayableLite = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number; supplier_name: string | null; invoice_number: string | null; payment_method?: string | null; supplier_id?: string | null; electronic_invoice_id?: string | null }
 
 const tokens = (s: string | null): string[] => (s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').split(' ').filter(t => t.length >= 3 && !/^(SRL|SPA|SNC|SAS|SRLS|DI|DEL|DELLA|THE|AND|ITA|IRL)$/.test(t))
 
@@ -469,13 +469,15 @@ export type CartaExportRow = {
   Valuta: string
   Fornitore: string
   Fattura: string
+  /** Negozio della fattura pagata con la carta (riparto del fornitore), vuoto se non c'è fattura. */
+  Negozio: string
   'Pagata il': string
   'Riscontro banca': string
   /** Prepagata: saldo della carta dopo la riga (righe in ordine cronologico); vuoto per le carte di credito. */
   Saldo: number | ''
 }
 
-export function buildCartaRow(cardLabel: string, l: CardLine, payable: PayableLite | undefined, riscontro: string, fmtDate: (d: string) => string, saldo: number | null = null): CartaExportRow {
+export function buildCartaRow(cardLabel: string, l: CardLine, payable: PayableLite | undefined, riscontro: string, fmtDate: (d: string) => string, saldo: number | null = null, negozio = ''): CartaExportRow {
   return {
     Carta: cardLabel,
     'Data acquisto': fmtDate(l.purchase_date),
@@ -486,13 +488,14 @@ export function buildCartaRow(cardLabel: string, l: CardLine, payable: PayableLi
     Valuta: l.currency,
     Fornitore: payable?.supplier_name ?? '',
     Fattura: payable?.invoice_number ?? '',
+    Negozio: payable ? negozio : '',
     'Pagata il': payable?.payment_date ? fmtDate(payable.payment_date) : '',
     'Riscontro banca': riscontro,
     Saldo: saldo ?? '',
   }
 }
 
-export const CARTE_COLUMN_WIDTHS = [26, 13, 15, 50, 12, 11, 7, 30, 18, 12, 30, 12]
+export const CARTE_COLUMN_WIDTHS = [26, 13, 15, 50, 12, 11, 7, 30, 18, 30, 12, 30, 12]
 
 /** Totali di un estratto: spese, accrediti (ricariche/storni), commissioni, netto. */
 export function totaliCarta(lines: CardLine[]): { spese: number; accrediti: number; commissioni: number; netto: number; n: number } {

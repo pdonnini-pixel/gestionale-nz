@@ -266,7 +266,7 @@ describe('righe export e totali', () => {
     const l: CardLine = { card_last4: '5388', purchase_date: '2026-05-18', posting_date: '2026-05-19', description: 'SISSI PRATO ITA', amount: -201.3, fee: 0, currency: 'EUR', original_amount: null }
     expect(buildCartaRow('Carta credito BCC *5388', l, { id: 'p', payment_date: '2026-05-18', invoice_date: null, gross_amount: 201.3, supplier_name: 'SISSI', invoice_number: '12' }, 'addebito 25/06/2026', fmt)).toEqual({
       Carta: 'Carta credito BCC *5388', 'Data acquisto': '18/05/2026', 'Data registrazione': '19/05/2026', Descrizione: 'SISSI PRATO ITA', Importo: -201.3, Commissioni: '', Valuta: 'EUR',
-      Fornitore: 'SISSI', Fattura: '12', 'Pagata il': '18/05/2026', 'Riscontro banca': 'addebito 25/06/2026', Saldo: '',
+      Fornitore: 'SISSI', Fattura: '12', Negozio: '', 'Pagata il': '18/05/2026', 'Riscontro banca': 'addebito 25/06/2026', Saldo: '',
     })
     const t = totaliCarta([l, { ...l, amount: 500, fee: -1 }])
     expect(t).toEqual({ spese: 201.3, accrediti: 500, commissioni: -1, netto: 297.7, n: 2 })
