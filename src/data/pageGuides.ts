@@ -883,6 +883,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Nella Prima Nota, foglio di ogni conto: per gli addebiti delle commissioni Amex e Nexi la colonna Contropartita è il negozio, con il circuito (per esempio \"VDC · Valdichiana, commissioni Nexi\"). Il gestionale lo legge da solo dal codice scritto nella causale della banca (codice esercente Amex, Payment Contract Nexi), confrontato con i contratti in Banche → Commissioni. Se compare ancora il testo della banca, il contratto di quel codice manca nella scheda Commissioni. Le commissioni Nexi dei negozi al netto non passano dal conto e quindi non sono in Prima Nota: i totali per negozio sono nella scheda Commissioni."
       },
       {
+        "q": "Lo studio chiede a quale negozio va ogni spesa: dove lo trova?",
+        "a": "Nella Prima Nota c'è la colonna \"Negozio\", a video, nel CSV e nel foglio di ogni conto dell'Excel. Per incassi, versamenti e commissioni Amex e Nexi è il negozio dell'incasso. Per i pagamenti ai fornitori è il riparto della pagina Fornitori (centro di costo o regola di riparto; se una fattura è classificata a mano vince quella), lo stesso del riquadro \"Costi per outlet\" di Confronto Outlet. Quando il movimento salda fatture di più negozi la cella dice \"Diviso:\" con i codici e le percentuali pesate sugli importi, e le righe \"di cui fattura\" dell'Excel danno il negozio di ogni fattura. La cella resta vuota quando il gestionale non lo sa (F24, stipendi, giroconti, spese della banca, fornitori senza riparto): non indovina mai."
+      },
+      {
         "q": "Il commercialista vuole gli incassi divisi per negozio: da dove li prendo?",
         "a": "In Banche → Prima Nota, vista \"Incassi per outlet\": ogni accredito POS o Amex e ogni versamento di contante è attribuito al punto vendita dal codice terminale o dalla parola chiave del canale (o dalla chiusura di cassa già abbinata), con una tabella per outlet in alto. Nell'Excel è il foglio \"Incassi per outlet\". Se una riga resta \"Da attribuire\", il codice terminale o la parola chiave mancano nei canali dell'outlet: si aggiungono in Incassi giornalieri → Canali e la riga si sistema da sola."
       },

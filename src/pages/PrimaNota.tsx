@@ -50,11 +50,13 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale, Users, CreditCard, Upload } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
+import { formatOutletName } from '../lib/formatters'
 import { lastDayOfMonthYMD } from '../lib/dateLocal'
 import {
   buildRow, classifyMovement, counterpartOf, acquirerDebitOutlet, causaleOf, pivaOf, invoiceCountOf, invoicesTotalOf,
   summarizeByKind, KIND_LABELS, isRiba, ribaCountOf, tipoMovimentoOf, nomeFileExport,
-  type PnPayable, type PnFiscalDeadline, type PnMovement, type MovementKind,
+  outletCodeFromNote, quoteFattura, quoteMovimento, testoNegozio,
+  type PnPayable, type NegozioLookup, type QuotaNegozio, type PnFiscalDeadline, type PnMovement, type MovementKind,
 } from '../lib/primaNotaExport'
 import type { StyledRow } from '../lib/xlsxStyled'
 import { buildCodiciRows, buildCodiciSheet, CODICI_WIDTHS, type PnContratto } from '../lib/primaNotaCodici'
@@ -216,6 +218,9 @@ export default function PrimaNota() {
   const [incassiLk, setIncassiLk] = useState<IncassiLookups>({ channels: [], outlets: new Map(), closingMatches: new Map(), bankAccounts: new Map() })
   // Contratti Nexi e Amex (codice punto vendita, contratto, codice esercente): foglio «Codici negozi» dell'Excel
   const [contratti, setContratti] = useState<PnContratto[]>([])
+  // Colonna «Negozio» (Monica, 08/10/2026): quote del riparto per fornitore e
+  // classificazione delle singole fatture, come nel riquadro di Confronto Outlet
+  const [negozioLk, setNegozioLk] = useState<NegozioLookup>({ perFornitore: new Map(), perFattura: new Map() })
   // Quadratura: movimenti di una finestra larga intorno al periodo (per i saldi della banca) e chiusure di cassa del periodo
   const [winRaw, setWinRaw] = useState<WinRow[]>([])
   const [closings, setClosings] = useState<PnClosingLite[]>([])
@@ -324,7 +329,7 @@ export default function PrimaNota() {
         const [payResults, fdResults, logResults] = await Promise.all([
           Promise.all(chunks.map(ids => supabase
             .from('payables')
-            .select('id, bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total, payment_method')
+            .select('id, bank_transaction_id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total, payment_method, supplier_id, electronic_invoice_id')
             .in('bank_transaction_id', ids)
             .order('invoice_number', { ascending: true }))),
           Promise.all(chunks.map(ids => supabase
@@ -333,7 +338,7 @@ export default function PrimaNota() {
             .in('bank_transaction_id', ids))),
           Promise.all(chunks.map(ids => supabase
             .from('reconciliation_log')
-            .select('bank_transaction_id, payable_id, status, payables(id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total, payment_method)')
+            .select('bank_transaction_id, payable_id, status, payables(id, invoice_number, supplier_name, supplier_vat, gross_amount, invoice_date, amount_paid, installment_number, installment_total, payment_method, supplier_id, electronic_invoice_id)')
             .in('bank_transaction_id', ids)
             .eq('status', 'applied'))),
         ])
@@ -342,16 +347,16 @@ export default function PrimaNota() {
           if (!p.bank_transaction_id) continue
           seen.add(`${p.bank_transaction_id}:${p.id}`)
           const list = payMap.get(p.bank_transaction_id) ?? []
-          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total, payment_method: p.payment_method })
+          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total, payment_method: p.payment_method, supplier_id: p.supplier_id, electronic_invoice_id: p.electronic_invoice_id })
           payMap.set(p.bank_transaction_id, list)
         }
-        type LogRow = { bank_transaction_id: string | null; payable_id: string | null; payables: { id: string; invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null; gross_amount: number | null; invoice_date: string | null; amount_paid: number | null; installment_number: number | null; installment_total: number | null; payment_method: string | null } | null }
+        type LogRow = { bank_transaction_id: string | null; payable_id: string | null; payables: { id: string; invoice_number: string | null; supplier_name: string | null; supplier_vat: string | null; gross_amount: number | null; invoice_date: string | null; amount_paid: number | null; installment_number: number | null; installment_total: number | null; payment_method: string | null; supplier_id: string | null; electronic_invoice_id: string | null } | null }
         for (const l of logResults.flatMap(r => (r.data ?? []) as unknown as LogRow[])) {
           const p = l.payables
           if (!l.bank_transaction_id || !p || seen.has(`${l.bank_transaction_id}:${p.id}`)) continue
           seen.add(`${l.bank_transaction_id}:${p.id}`)
           const list = payMap.get(l.bank_transaction_id) ?? []
-          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total, payment_method: p.payment_method })
+          list.push({ invoice_number: p.invoice_number, supplier_name: p.supplier_name, supplier_vat: p.supplier_vat, gross_amount: p.gross_amount, invoice_date: p.invoice_date, amount_paid: p.amount_paid, installment_number: p.installment_number, installment_total: p.installment_total, payment_method: p.payment_method, supplier_id: p.supplier_id, electronic_invoice_id: p.electronic_invoice_id })
           payMap.set(l.bank_transaction_id, list)
         }
         for (const f of fdResults.flatMap(r => r.data ?? [])) {
@@ -644,6 +649,38 @@ export default function PrimaNota() {
   useEffect(() => { loadPagamenti() }, [loadPagamenti])
   useEffect(() => { loadIncassiLookups(movements.filter(m => m.amount > 0).map(m => m.id)) }, [movements, loadIncassiLookups])
 
+  // Quote per negozio dei fornitori (v_quote_negozio_fornitore, migrazione 295)
+  // e outlet delle fatture classificate una per una (invoice_cost_overrides).
+  useEffect(() => {
+    if (!companyId) return
+    let vivo = true
+    const invoiceIds = Array.from(new Set(movements.flatMap(m => m.payables.map(p => p.electronic_invoice_id)).filter((x): x is string => !!x)))
+    void (async () => {
+      try {
+        const [qRes, ovResults] = await Promise.all([
+          supabase.from('v_quote_negozio_fornitore').select('supplier_id, outlet_id, pct').eq('company_id', companyId).range(0, 19999),
+          Promise.all(chunk(invoiceIds).map(ids => supabase.from('invoice_cost_overrides').select('invoice_id, outlet_id').in('invoice_id', ids))),
+        ])
+        if (!vivo) return
+        if (qRes.error) throw qRes.error
+        const perFornitore = new Map<string, QuotaNegozio[]>()
+        for (const r of qRes.data ?? []) {
+          if (!r.supplier_id || !r.outlet_id) continue
+          const list = perFornitore.get(r.supplier_id) ?? []
+          list.push({ outlet_id: r.outlet_id, pct: Number(r.pct) || 0 })
+          perFornitore.set(r.supplier_id, list)
+        }
+        const perFattura = new Map<string, string>()
+        for (const r of ovResults.flatMap(x => x.data ?? [])) perFattura.set(r.invoice_id, r.outlet_id)
+        setNegozioLk({ perFornitore, perFattura })
+      } catch (e) {
+        // La colonna resta vuota: la Prima Nota funziona lo stesso.
+        console.error('[PrimaNota] negozio:', e)
+      }
+    })()
+    return () => { vivo = false }
+  }, [companyId, movements])
+
   // Fatture pagate visibili con il filtro conto corrente
   const pagamentiVisibili = useMemo(
     () => pagamenti.filter(p => includePagamento(p, lookups, bankAccountId)),
@@ -700,6 +737,41 @@ export default function PrimaNota() {
     }
     return (m: Movement): string => byId.get(m.id) ?? counterpartOf(m)
   }, [incassi, incassiLk, movements, contratti])
+  // Negozio per la Prima Nota (Monica, 08/10/2026), in quest'ordine:
+  // outlet scritto nella nota («Outlet: BRB · …»), outlet dell'incasso o delle
+  // commissioni Amex e Nexi, poi le fatture saldate (riparto del fornitore o
+  // classificazione della fattura, pesate sugli importi), infine il fornitore
+  // agganciato al movimento. Se nessuna fonte lo dice, la cella resta vuota.
+  const outletInfo = useCallback((id: string) => {
+    const o = incassiLk.outlets.get(id)
+    return o ? { code: o.code, name: formatOutletName(o.name) } : null
+  }, [incassiLk])
+  const quoteNegozioOf = useMemo(() => {
+    const byCode = new Map<string, string>()
+    for (const [id, o] of incassiLk.outlets) if (o.code) byCode.set(o.code.toUpperCase(), id)
+    const diretto = new Map<string, string>()
+    for (const { m, a } of incassi) if (a.outlet_id) diretto.set(m.id, a.outlet_id)
+    for (const m of movements) {
+      const hit = acquirerDebitOutlet(m, contratti)
+      if (hit) diretto.set(m.id, hit.outlet_id)
+    }
+    return (m: Movement): QuotaNegozio[] => {
+      const daNota = outletCodeFromNote(m.note)
+      const idNota = daNota ? byCode.get(daNota) : undefined
+      const id = idNota ?? diretto.get(m.id)
+      if (id) return [{ outlet_id: id, pct: 100 }]
+      if (m.payables.length > 0) {
+        return quoteMovimento(m.payables.map(p => ({ importo: Number(p.amount_paid ?? p.gross_amount ?? 0), quote: quoteFattura(p, negozioLk) })))
+      }
+      const qf = m.supplier_id ? negozioLk.perFornitore.get(m.supplier_id) : undefined
+      return qf ?? []
+    }
+  }, [incassi, incassiLk, movements, contratti, negozioLk])
+  const negozioOf = useCallback((m: Movement): string => testoNegozio(quoteNegozioOf(m), outletInfo), [quoteNegozioOf, outletInfo])
+  const negozioFattura = useCallback((p: PnPayable): string => {
+    const q = quoteFattura(p, negozioLk)
+    return q ? testoNegozio(q, outletInfo) : ''
+  }, [negozioLk, outletInfo])
   const byOutlet = useMemo(() => summarizeByOutlet(incassi, incassiLk), [incassi, incassiLk])
   const incassiTot = useMemo(() => {
     const sum = (k: IncassoKind | null) => Math.round(incassi.filter(x => k === null || x.a.kind === k).reduce((s, x) => s + x.m.amount, 0) * 100) / 100
@@ -981,7 +1053,7 @@ export default function PrimaNota() {
     [r.piu.length ? `+ ${r.piu.length} mov. arrivati dopo lo scarico (${fmt(sumRows(r.piu))})` : '', r.meno.length ? `− ${r.meno.length} mov. già nello scarico ma datati dopo (${fmt(sumRows(r.meno))})` : ''].filter(Boolean).join('; ')
 
   // Righe formato Prima Nota standardizzato (una per movimento, fatture in causale)
-  const rows = useMemo(() => movements.map(m => ({ ...buildRow(m, fmtDate, contropartitaOf(m)), 'Saldo progressivo': saldoById.get(m.id) ?? '' })), [movements, saldoById, contropartitaOf])
+  const rows = useMemo(() => movements.map(m => ({ ...buildRow(m, fmtDate, contropartitaOf(m), negozioOf(m)), 'Saldo progressivo': saldoById.get(m.id) ?? '' })), [movements, saldoById, contropartitaOf, negozioOf])
 
   const exportCsv = () => {
     const src: Array<Record<string, unknown>> = view === 'banca' ? rows : view === 'pagamenti' ? pagRows : view === 'incassi' ? incassiRows : view === 'dipendenti' ? stipendiRows : carteRows
@@ -1044,12 +1116,12 @@ export default function PrimaNota() {
         { kind: 'meta', cells: ['IBAN', acc?.iban ?? ''] },
         { kind: 'meta', cells: ['Periodo', `${periodoLabel} (dal ${fmtDate(dateStart)} al ${fmtDate(dateEnd)}, per ${dataUsata})`] },
         { kind: 'blank', cells: [] },
-        { kind: 'header', cells: ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo', 'Di cui fattura'] },
-        { kind: 'open', cells: [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''] },
+        { kind: 'header', cells: ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'Negozio', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo', 'Di cui fattura'] },
+        { kind: 'open', cells: [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''] },
         ...ms.flatMap((m): StyledRow[] => {
-          const r = buildRow(m, fmtDate, contropartitaOf(m))
+          const r = buildRow(m, fmtDate, contropartitaOf(m), negozioOf(m))
           const riba = ribaCountOf(m) > 0
-          const out: StyledRow[] = [{ kind: riba ? 'data_riba' : 'data', cells: [r['Data operazione'], r['Data contabile'], r['Tipo movimento'], r.Contropartita, r['P.IVA Contropartita'], r['N. fatture'], r.Causale, r.Categoria,
+          const out: StyledRow[] = [{ kind: riba ? 'data_riba' : 'data', cells: [r['Data operazione'], r['Data contabile'], r['Tipo movimento'], r.Contropartita, r.Negozio, r['P.IVA Contropartita'], r['N. fatture'], r.Causale, r.Categoria,
             m.amount > 0 ? Math.round(m.amount * 100) / 100 : '', m.amount < 0 ? Math.round(-m.amount * 100) / 100 : '', saldoById.get(m.id) ?? '', ''] }]
           // Movimento che salda piu' fatture (RiBa, distinta CBI): sotto, una riga per
           // fattura con il suo importo nella colonna «Di cui fattura», cosi' lo studio
@@ -1061,8 +1133,8 @@ export default function PrimaNota() {
           if (classifyMovement(m) === 'ricarica_prepagata') {
             const info = ricaricaInfo.get(m.id)
             out.push(info
-              ? { kind: 'sub', cells: ['', '', '↳ ricarica prepagata', `vedi foglio «${info.foglio}»`, '', '', `Non è una spesa: i soldi passano dal conto alla carta. Come sono stati spesi lo dice il foglio «${info.foglio}», riga per riga: ${info.nSpese} spese per ${fmt(info.spese)} nel mese di ${info.mese}, con questa ricarica fra le entrate della carta.${info.saldo ? ` Saldo della carta a fine ${info.mese}: ${fmt(info.saldo.saldo_finale)} (iniziale ${fmt(info.saldo.saldo_iniziale)}).` : ''}`, '', '', '', '', ''] }
-              : { kind: 'warn', cells: ['', '', '↳ ricarica prepagata', 'estratto della carta non importato', '', '', 'Non è una spesa: i soldi passano dal conto alla carta. Per vedere come sono stati spesi serve l\'estratto della prepagata di questo mese: Banche → Prima Nota → Carte → «Importa estratto carta».', '', '', '', '', ''] })
+              ? { kind: 'sub', cells: ['', '', '↳ ricarica prepagata', `vedi foglio «${info.foglio}»`, '', '', '', `Non è una spesa: i soldi passano dal conto alla carta. Come sono stati spesi lo dice il foglio «${info.foglio}», riga per riga: ${info.nSpese} spese per ${fmt(info.spese)} nel mese di ${info.mese}, con questa ricarica fra le entrate della carta.${info.saldo ? ` Saldo della carta a fine ${info.mese}: ${fmt(info.saldo.saldo_finale)} (iniziale ${fmt(info.saldo.saldo_iniziale)}).` : ''}`, '', '', '', '', ''] }
+              : { kind: 'warn', cells: ['', '', '↳ ricarica prepagata', 'estratto della carta non importato', '', '', '', 'Non è una spesa: i soldi passano dal conto alla carta. Per vedere come sono stati spesi serve l\'estratto della prepagata di questo mese: Banche → Prima Nota → Carte → «Importa estratto carta».', '', '', '', '', ''] })
           }
           if (m.payables.length > 1) {
             let somma = 0
@@ -1070,22 +1142,22 @@ export default function PrimaNota() {
               const imp = Math.round(Number(p.amount_paid ?? p.gross_amount ?? 0) * 100) / 100
               somma += imp
               const rata = p.installment_total && p.installment_total > 1 ? ` · rata ${p.installment_number ?? '?'}/${p.installment_total}` : ''
-              out.push({ kind: isRiba(p) ? 'sub_riba' : 'sub', cells: ['', '', isRiba(p) ? '↳ di cui fattura RiBa' : '↳ di cui fattura', p.supplier_name ?? '', p.supplier_vat ?? '', '', `Fatt. ${p.invoice_number ?? '?'}${p.invoice_date ? ` del ${fmtDate(p.invoice_date)}` : ''}${rata}${isRiba(p) ? ' · RiBa' : ''}`, '', '', '', '', imp] })
+              out.push({ kind: isRiba(p) ? 'sub_riba' : 'sub', cells: ['', '', isRiba(p) ? '↳ di cui fattura RiBa' : '↳ di cui fattura', p.supplier_name ?? '', negozioFattura(p), p.supplier_vat ?? '', '', `Fatt. ${p.invoice_number ?? '?'}${p.invoice_date ? ` del ${fmtDate(p.invoice_date)}` : ''}${rata}${isRiba(p) ? ' · RiBa' : ''}`, '', '', '', '', imp] })
             }
             const resto = Math.round((Math.abs(m.amount) - somma) * 100) / 100
-            if (Math.abs(resto) >= 0.005) out.push({ kind: 'sub', cells: ['', '', '↳ resto', resto > 0 ? 'commissioni o acconto non in fattura' : 'nota di credito o sconto', '', '', '', '', '', '', '', resto] })
-            out.push({ kind: 'subtotal', cells: ['', '', '↳ totale fatture', `${m.payables.length} fatture`, '', '', '', '', '', '', '', Math.round(Math.abs(m.amount) * 100) / 100] })
+            if (Math.abs(resto) >= 0.005) out.push({ kind: 'sub', cells: ['', '', '↳ resto', resto > 0 ? 'commissioni o acconto non in fattura' : 'nota di credito o sconto', '', '', '', '', '', '', '', '', resto] })
+            out.push({ kind: 'subtotal', cells: ['', '', '↳ totale fatture', `${m.payables.length} fatture`, '', '', '', '', '', '', '', '', Math.round(Math.abs(m.amount) * 100) / 100] })
           }
           return out
         }),
-        { kind: 'close', cells: [`Saldo finale al ${quadPeriodo.ultimoGiorno} (calcolato)`, `${ms.length} movimenti`, '', '', '', '', '', '', q.entrate, q.uscite, q.saldo_finale_calcolato ?? ''] },
-        { kind: 'close', cells: [`Saldo finale al ${quadPeriodo.ultimoGiorno} (banca)`, q.saldo_scarico_finale != null ? `banca al ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${rettificaLabel(q.rettifica_finale) ? ' ' + rettificaLabel(q.rettifica_finale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', q.saldo_finale ?? ''] },
-        { kind: q.stato === 'quadra' ? 'ok' : q.stato === 'non_quadra' ? 'ko' : 'warn', cells: ['Differenza', q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili', '', '', '', '', '', '', '', '', q.differenza ?? ''] },
+        { kind: 'close', cells: [`Saldo finale al ${quadPeriodo.ultimoGiorno} (calcolato)`, `${ms.length} movimenti`, '', '', '', '', '', '', '', q.entrate, q.uscite, q.saldo_finale_calcolato ?? ''] },
+        { kind: 'close', cells: [`Saldo finale al ${quadPeriodo.ultimoGiorno} (banca)`, q.saldo_scarico_finale != null ? `banca al ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${rettificaLabel(q.rettifica_finale) ? ' ' + rettificaLabel(q.rettifica_finale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', '', q.saldo_finale ?? ''] },
+        { kind: q.stato === 'quadra' ? 'ok' : q.stato === 'non_quadra' ? 'ko' : 'warn', cells: ['Differenza', q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili', '', '', '', '', '', '', '', '', '', q.differenza ?? ''] },
       ]
       const name = sheetName(acc?.bank_name ?? 'Conto', used)
       nomiConti.push(name)
       if (acc) contoSheetByAcc.set(acc.id, name)
-      addStyledSheet(wb, { name, rows: srows, widths: [30, 14, 26, 35, 16, 8, 60, 18, 14, 14, 14, 14], moneyHeaders: ['Entrate', 'Uscite', 'Saldo', 'Di cui fattura'], tabColor: '1F3864' })
+      addStyledSheet(wb, { name, rows: srows, widths: [30, 14, 26, 35, 30, 16, 8, 60, 18, 14, 14, 14, 14], moneyHeaders: ['Entrate', 'Uscite', 'Saldo', 'Di cui fattura'], tabColor: '1F3864' })
     }
     // Su richiesta di Patrizio (15/09) i fogli «Tutti i movimenti», «Pagamenti
     // fornitori» e «Riepilogo» non ci sono più: allo studio bastano gli estratti
@@ -2052,6 +2124,7 @@ export default function PrimaNota() {
               {!kindFilter && saldoById.get(m.id) != null && <span className="ml-2 text-xs font-normal text-slate-400">saldo {fmt(saldoById.get(m.id) as number)}</span>}
             </div>
             <div className="text-sm font-medium text-slate-800 mt-0.5 break-words">{contropartitaOf(m) || '—'}</div>
+            {negozioOf(m) && <div className="text-xs text-slate-500 mt-0.5 break-words">Negozio: {negozioOf(m)}</div>}
             {causaleOf(m) && (
               <div className="text-xs text-slate-600 mt-0.5 break-words">{causaleOf(m)}</div>
             )}
@@ -2082,6 +2155,7 @@ export default function PrimaNota() {
                 <th className="px-3 py-2 text-right">Importo</th>
                 <th className="px-3 py-2 text-right">Saldo</th>
                 <th className="px-3 py-2 text-left">Contropartita</th>
+                <th className="px-3 py-2 text-left">Negozio</th>
                 <th className="px-3 py-2 text-left">P.IVA</th>
                 <th className="px-3 py-2 text-right">Fatt.</th>
                 <th className="px-3 py-2 text-left">Causale</th>
@@ -2090,11 +2164,11 @@ export default function PrimaNota() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">
+                <tr><td colSpan={11} className="px-3 py-8 text-center text-slate-400">
                   <Loader2 size={20} className="inline animate-spin mr-2" /> Caricamento…
                 </td></tr>
               ) : movementsShown.length === 0 ? (
-                <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-400">
+                <tr><td colSpan={11} className="px-3 py-8 text-center text-slate-400">
                   {kindFilter ? 'Nessun movimento con questo filtro' : 'Nessun movimento nel periodo selezionato'}
                 </td></tr>
               ) : quadratura.filter(q => movementsShown.some(m => m.bank_account_id === q.bank_account_id)).flatMap(q => {
@@ -2105,11 +2179,11 @@ export default function PrimaNota() {
                   <tr key={`open-${q.bank_account_id}`} className="border-t-2 border-slate-200 bg-slate-50/80">
                     <td colSpan={4} className="px-3 py-2 font-semibold text-slate-800">{accountName(q.bank_account_id)} · saldo iniziale al {quadPeriodo.giornoPrima}</td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap">{q.saldo_iniziale != null ? fmt(q.saldo_iniziale) : <span className="text-slate-400 font-normal">n.d.</span>}</td>
-                    <td colSpan={5} className="px-3 py-2 text-xs text-slate-400">{q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' · ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'la banca non ha fornito il saldo per questo periodo'}</td>
+                    <td colSpan={6} className="px-3 py-2 text-xs text-slate-400">{q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' · ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'la banca non ha fornito il saldo per questo periodo'}</td>
                   </tr>
                 )] : [(
                   <tr key={`open-${q.bank_account_id}`} className="border-t-2 border-slate-200 bg-slate-50/80">
-                    <td colSpan={10} className="px-3 py-2 font-semibold text-slate-800">{accountName(q.bank_account_id)} <span className="font-normal text-slate-400">· {ms.length} movimenti con il filtro attivo</span></td>
+                    <td colSpan={11} className="px-3 py-2 font-semibold text-slate-800">{accountName(q.bank_account_id)} <span className="font-normal text-slate-400">· {ms.length} movimenti con il filtro attivo</span></td>
                   </tr>
                 )]
                 const close = !kindFilter ? [(
@@ -2119,7 +2193,7 @@ export default function PrimaNota() {
                       <span className="font-normal text-slate-500"> · {ms.length} movimenti, entrate +{fmt(q.entrate)}, uscite −{fmt(q.uscite)}</span>
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap">{q.saldo_finale_calcolato != null ? fmt(q.saldo_finale_calcolato) : <span className="text-slate-400 font-normal">n.d.</span>}</td>
-                    <td colSpan={5} className="px-3 py-2 text-xs">
+                    <td colSpan={6} className="px-3 py-2 text-xs">
                       {q.saldo_finale != null ? (<>
                         <span className="text-slate-600">banca: <strong className="tabular-nums">{fmt(q.saldo_finale)}</strong></span>
                         <span className="text-slate-400"> (al {fmtDateTime(q.scaricato_finale)}: {fmt(q.saldo_scarico_finale ?? 0)}{rettificaLabel(q.rettifica_finale) ? ' · ' + rettificaLabel(q.rettifica_finale) : ''})</span>
@@ -2155,6 +2229,11 @@ export default function PrimaNota() {
                   <td className="px-3 py-2 text-slate-700 max-w-[200px]">
                     <Tooltip content={contropartitaOf(m)}>
                       <div className="truncate cursor-help">{contropartitaOf(m) || '—'}</div>
+                    </Tooltip>
+                  </td>
+                  <td className="px-3 py-2 text-slate-600 text-xs max-w-[180px]">
+                    <Tooltip content={negozioOf(m)}>
+                      <div className="truncate cursor-help">{negozioOf(m) || '—'}</div>
                     </Tooltip>
                   </td>
                   <td className="px-3 py-2 text-slate-500 text-xs font-mono">{pivaOf(m) || '—'}</td>

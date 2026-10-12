@@ -3,6 +3,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   classifyMovement, counterpartOf, pivaOf, causaleOf, buildRow, summarizeByKind, outletCodeFromNote,
+  quoteFattura, quoteMovimento, testoNegozio, type NegozioLookup,
   isRiba, ribaCountOf, tipoMovimentoOf, KIND_LABELS,
   invoicesTotalOf, nomeFileExport, acquirerDebitOutlet, type PnMovement, type PnPayable, type PnAcquirerContract,
 } from './primaNotaExport'
@@ -260,5 +261,46 @@ describe('commissioni di incasso: spesa bancaria con il suo negozio', () => {
     // Un accredito non e' un addebito di commissioni, e un'altra spesa non ha negozio.
     expect(acquirerDebitOutlet({ amount: 10.17, description: AMEX_MPS }, CONTRATTI)).toBeNull()
     expect(acquirerDebitOutlet({ amount: -29.5, description: 'Imposta di bollo 7377153036' }, CONTRATTI)).toBeNull()
+  })
+})
+
+describe('colonna Negozio (Monica, 08/10/2026)', () => {
+  const lk: NegozioLookup = {
+    perFornitore: new Map([
+      ['merce', [{ outlet_id: 'brb', pct: 60 }, { outlet_id: 'vdc', pct: 40 }]],
+      ['affitto', [{ outlet_id: 'vdc', pct: 100 }]],
+    ]),
+    perFattura: new Map([['fattura-magazzino', 'sede']]),
+  }
+  const outlet = (id: string) => ({ brb: { code: 'BRB', name: 'Barberino' }, vdc: { code: 'VDC', name: 'Valdichiana' }, sede: { code: null, name: 'Sede / Magazzino' } } as Record<string, { code: string | null; name: string }>)[id] ?? null
+
+  it('la classificazione della fattura vince sul riparto del fornitore', () => {
+    expect(quoteFattura({ supplier_id: 'merce', electronic_invoice_id: 'fattura-magazzino' }, lk)).toEqual([{ outlet_id: 'sede', pct: 100 }])
+    expect(quoteFattura({ supplier_id: 'merce', electronic_invoice_id: 'altra' }, lk)).toHaveLength(2)
+    expect(quoteFattura({ supplier_id: 'sconosciuto', electronic_invoice_id: null }, lk)).toBeNull()
+  })
+
+  it('un negozio solo: codice e nome; diviso: codici e percentuali', () => {
+    expect(testoNegozio([{ outlet_id: 'vdc', pct: 100 }], outlet)).toBe('VDC · Valdichiana')
+    expect(testoNegozio([{ outlet_id: 'sede', pct: 100 }], outlet)).toBe('Sede / Magazzino')
+    expect(testoNegozio([{ outlet_id: 'brb', pct: 60 }, { outlet_id: 'vdc', pct: 40 }], outlet)).toBe('Diviso: BRB 60%, VDC 40%')
+    expect(testoNegozio([], outlet)).toBe('')
+  })
+
+  it('più fatture in un movimento: quote pesate sugli importi', () => {
+    const q = quoteMovimento([
+      { importo: 1000, quote: lk.perFornitore.get('merce')! },
+      { importo: 1000, quote: lk.perFornitore.get('affitto')! },
+    ])
+    expect(testoNegozio(q, outlet)).toBe('Diviso: VDC 70%, BRB 30%')
+  })
+
+  it('la parte senza quote resta non assegnata e non gonfia gli altri', () => {
+    const q = quoteMovimento([
+      { importo: 300, quote: [{ outlet_id: 'vdc', pct: 100 }] },
+      { importo: 100, quote: null },
+    ])
+    expect(testoNegozio(q, outlet)).toBe('Diviso: VDC 75%, non assegnato 25%')
+    expect(quoteMovimento([{ importo: 50, quote: null }])).toEqual([])
   })
 })

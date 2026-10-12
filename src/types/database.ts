@@ -15545,6 +15545,33 @@ export type Database = {
           },
         ]
       }
+      invoice_cost_overrides: {
+        Row: {
+          company_id: string
+          created_at: string
+          gruppo: string | null
+          invoice_id: string
+          note: string | null
+          outlet_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          gruppo?: string | null
+          invoice_id: string
+          note?: string | null
+          outlet_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          gruppo?: string | null
+          invoice_id?: string
+          note?: string | null
+          outlet_id?: string
+        }
+        Relationships: []
+      }
       inail_rates: {
         Row: {
           company_id: string
@@ -24720,6 +24747,15 @@ export type Database = {
           mese: number | null
           outlet: string | null
           outlet_id: string | null
+        }
+        Relationships: []
+      }
+      v_quote_negozio_fornitore: {
+        Row: {
+          company_id: string | null
+          outlet_id: string | null
+          pct: number | null
+          supplier_id: string | null
         }
         Relationships: []
       }
