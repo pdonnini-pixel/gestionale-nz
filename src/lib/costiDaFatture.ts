@@ -1,7 +1,10 @@
-// Costi da fatture per outlet (vista v_costi_outlet_da_fatture, migrazione 285).
+// Costi da fatture per outlet (vista v_costi_outlet_da_fatture, migrazioni 285 e 294).
 // Le fatture passive sono già ripartite sugli outlet dal database con le regole
 // dei fornitori; qui si sommano per outlet sui mesi scelti e si raggruppano
-// nelle colonne del riquadro. Funzioni pure, testate in costiDaFatture.test.ts.
+// nelle colonne del riquadro. Dalla 294 la vista porta anche il costo del
+// personale (gruppo 'personale', Prospetto dello studio paghe) e gli
+// amministratori (gruppo 'amministratori', tenuti fuori dal totale come in
+// Dipendenti). Funzioni pure, testate in costiDaFatture.test.ts.
 
 export type RigaCostiDaFatture = {
   outlet_id: string | null
@@ -16,32 +19,40 @@ export type CostiOutlet = {
   key: string
   nome: string
   isSede: boolean
+  /** Costo lordo del personale (Prospetto paghe, senza amministratori) */
+  personale: number
   merce: number
   affitti: number
   struttura: number
   altro: number
   senzaCategoria: number
-  /** Costi dell'anno: tutto tranne gli allestimenti */
+  /** Costi dell'anno: tutto tranne allestimenti e amministratori */
   correnti: number
   /** Allestimenti e aperture: investimento di avvio, tenuto a parte */
   allestimenti: number
+  /** Compensi e INPS gestione separata degli amministratori: fuori dal totale */
+  amministratori: number
 }
 
 export type CostiDaFattureRiepilogo = {
   outlet: CostiOutlet[]
   nonAssegnato: CostiOutlet | null
   totale: CostiOutlet
+  /** Ultimo mese (dentro il periodo) con il costo del personale caricato; null = nessuno */
+  ultimoMesePersonale: number | null
 }
 
 const NON_ASSEGNATO = '__non_assegnato__'
 
 function vuoto(key: string, nome: string, isSede: boolean): CostiOutlet {
-  return { key, nome, isSede, merce: 0, affitti: 0, struttura: 0, altro: 0, senzaCategoria: 0, correnti: 0, allestimenti: 0 }
+  return { key, nome, isSede, personale: 0, merce: 0, affitti: 0, struttura: 0, altro: 0, senzaCategoria: 0, correnti: 0, allestimenti: 0, amministratori: 0 }
 }
 
 /** Colonna del riquadro per un gruppo della vista (macro_group della categoria). */
-export function colonnaGruppo(gruppo: string | null): keyof Pick<CostiOutlet, 'merce' | 'affitti' | 'struttura' | 'altro' | 'senzaCategoria' | 'allestimenti'> {
+export function colonnaGruppo(gruppo: string | null): keyof Pick<CostiOutlet, 'personale' | 'merce' | 'affitti' | 'struttura' | 'altro' | 'senzaCategoria' | 'allestimenti' | 'amministratori'> {
   switch (gruppo) {
+    case 'personale': return 'personale'
+    case 'amministratori': return 'amministratori'
     case 'costo_venduto': return 'merce'
     case 'locazione': return 'affitti'
     case 'generali_amministrative': return 'struttura'
@@ -65,6 +76,7 @@ export function aggregaCostiDaFatture(
 ): CostiDaFattureRiepilogo {
   const perOutlet = new Map<string, CostiOutlet>()
   const totale = vuoto('__totale__', 'Totale', false)
+  let ultimoMesePersonale: number | null = null
 
   for (const r of righe) {
     if (mesi && (r.mese == null || !mesi.includes(r.mese))) continue
@@ -82,7 +94,8 @@ export function aggregaCostiDaFatture(
     const col = colonnaGruppo(r.gruppo)
     o[col] += importo
     totale[col] += importo
-    if (col !== 'allestimenti') {
+    if (col === 'personale' && r.mese != null) ultimoMesePersonale = Math.max(ultimoMesePersonale ?? 0, r.mese)
+    if (col !== 'allestimenti' && col !== 'amministratori') {
       o.correnti += importo
       totale.correnti += importo
     }
@@ -93,5 +106,5 @@ export function aggregaCostiDaFatture(
     .filter(o => o.key !== NON_ASSEGNATO)
     .sort((a, b) => (a.isSede === b.isSede ? b.correnti - a.correnti : a.isSede ? 1 : -1))
   const nonAssegnato = perOutlet.get(NON_ASSEGNATO) ?? null
-  return { outlet, nonAssegnato, totale }
+  return { outlet, nonAssegnato, totale, ultimoMesePersonale }
 }

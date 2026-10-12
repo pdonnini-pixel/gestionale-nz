@@ -28,7 +28,7 @@ quote AS MATERIALIZED (
   JOIN public.supplier_allocation_details d ON d.rule_id = r.id
   JOIN public.suppliers s ON s.id = r.supplier_id
   WHERE r.is_active AND coalesce(nullif(s.cost_center, ''), 'all') = 'all'
-,
+),
 ol AS MATERIALIZED (
   SELECT o.id, o.name, o.cost_center_key FROM public.outlets o
 )

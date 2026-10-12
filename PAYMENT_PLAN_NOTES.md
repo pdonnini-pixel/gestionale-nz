@@ -1828,5 +1828,13 @@ Un outlet nuovo entra da solo nelle regole: merce e struttura dalle quote di pre
 diventa un luogo delle trasferte (trigger `trg_outlet_luogo_trasferte`). Restano da dare a mano i POD/PDR
 delle sue bollette (`utility_supply_points`), finché non si leggono dalle bollette.
 
+**Colonna Personale (migrazione 294, 12/10/2026).** Chiesta da Patrizio. La vista porta anche le righe del
+personale, lette da `v_personnel_gross_cost` (Prospetto dello studio paghe, per filiale e mese): gruppo
+`personale` = `costo_lordo_outlet` (stessa formula di Dipendenti, decisa da Lilian: totale retribuzioni meno
+compensi amministratori, più INPS, EBINTER, EST, INAIL imponibile × tasso, TFR a fondo) e gruppo
+`amministratori` = `amministratori_totale`, tenuto fuori dal totale. Personale di sede e magazzino sulla sede.
+Il riquadro dice fin dove è caricato il Prospetto. Verifica NZ 2026 gen-set: 796.293 € di personale (uguale a
+Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
+
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
