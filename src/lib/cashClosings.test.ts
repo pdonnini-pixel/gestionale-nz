@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -362,5 +362,43 @@ describe('totalMissingFromPhoto', () => {
 
   it('il giorno di negozio chiuso non chiede niente', () => {
     expect(totalMissingFromPhoto({ isClosedDay: true, totalReceipts: 0, photoTotal: 2114.56 })).toBeNull()
+  })
+})
+
+describe('cancelledCashNotCollected', () => {
+  it('riconosce l\'annullo in contanti dall\'ammanco pari agli annulli (Franciacorta 12/10/2026)', () => {
+    expect(cancelledCashNotCollected({
+      isClosedDay: false, photoCancellations: 47.2, cashDifference: -47.2, totalReceipts: 682.4, cashLine: 87.1,
+    })).toEqual({ annulli: 47.2, total: 635.2, cash: 39.9 })
+  })
+
+  it('tace quando la cassa quadra, anche con annulli nella foto (il caso di tutti i giorni)', () => {
+    expect(cancelledCashNotCollected({
+      isClosedDay: false, photoCancellations: 20, cashDifference: 0, totalReceipts: 3930.74, cashLine: 724.2,
+    })).toBeNull()
+  })
+
+  it('tace se l\'ammanco non coincide con gli annulli', () => {
+    expect(cancelledCashNotCollected({
+      isClosedDay: false, photoCancellations: 47.2, cashDifference: -14.06, totalReceipts: 682.4, cashLine: 87.1,
+    })).toBeNull()
+  })
+
+  it('tace su un\'eccedenza: lì i soldi sono rimasti in cassa', () => {
+    expect(cancelledCashNotCollected({
+      isClosedDay: false, photoCancellations: 47.2, cashDifference: 47.2, totalReceipts: 682.4, cashLine: 87.1,
+    })).toBeNull()
+  })
+
+  it('tace senza annulli letti, senza differenza o a negozio chiuso', () => {
+    expect(cancelledCashNotCollected({ isClosedDay: false, photoCancellations: null, cashDifference: -47.2, totalReceipts: 682.4, cashLine: 87.1 })).toBeNull()
+    expect(cancelledCashNotCollected({ isClosedDay: false, photoCancellations: 0, cashDifference: -47.2, totalReceipts: 682.4, cashLine: 87.1 })).toBeNull()
+    expect(cancelledCashNotCollected({ isClosedDay: false, photoCancellations: 47.2, cashDifference: null, totalReceipts: 682.4, cashLine: 87.1 })).toBeNull()
+    expect(cancelledCashNotCollected({ isClosedDay: true, photoCancellations: 47.2, cashDifference: -47.2, totalReceipts: 682.4, cashLine: 87.1 })).toBeNull()
+  })
+
+  it('non propone numeri negativi', () => {
+    expect(cancelledCashNotCollected({ isClosedDay: false, photoCancellations: 47.2, cashDifference: -47.2, totalReceipts: 682.4, cashLine: 10 })).toBeNull()
+    expect(cancelledCashNotCollected({ isClosedDay: false, photoCancellations: 47.2, cashDifference: -47.2, totalReceipts: 30, cashLine: 87.1 })).toBeNull()
   })
 })

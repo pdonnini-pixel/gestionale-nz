@@ -53,6 +53,13 @@ export function extractedAmount(extracted: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : null
 }
 
+/** Un altro valore numerico letto dalla foto, per chiave (es. `cancellations_total`). */
+export function extractedNumber(extracted: unknown, key: string): number | null {
+  if (!extracted || typeof extracted !== 'object') return null
+  const v = (extracted as ExtractedData)[key]
+  return typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : null
+}
+
 function extractedStr(e: ExtractedData, key: string): string | null {
   const v = e[key]
   return typeof v === 'string' && v.trim() ? v.trim() : null
@@ -355,6 +362,58 @@ export function pendingLooksLikeExpected(i: {
   const proposto = r2(atteso - fondo)
   if (proposto < 0) return null
   return Math.abs(proposto - daVersare) < 0.005 ? null : proposto
+}
+
+/**
+ * Annullo che ha spostato denaro: lo scontrino annullato era in contanti,
+ * quindi quei soldi non sono entrati in cassa, ma nei totali del registratore
+ * ci sono ancora. Scritti così, il gestionale vede un ammanco che non esiste e
+ * conta un ricavo che non c'è.
+ *
+ * È il caso di Franciacorta del 12/10/2026: chiusura RT con 47,20 € di annulli,
+ * «buono per cliente causa reso fallato» nella nota, contanti dell'RT 87,10 €
+ * ma in cassa 39,90 €, e un finto ammanco di 47,20 €. Lo stesso il 04/10, dove
+ * la cassiera aveva corretto i contanti ma non il totale, lasciando 68 € di
+ * ricavo in più.
+ *
+ * Gli annulli da soli non vogliono dire niente: a Franciacorta ce ne sono
+ * quasi ogni giorno (scontrini sbagliati e subito rifatti) e la cassa quadra.
+ * La firma del caso è un'altra, e si misura: la differenza di cassa è un
+ * ammanco esattamente pari agli annulli letti dalla foto. Allora il totale e i
+ * contanti vanno riportati al netto, e tutto torna da sé.
+ */
+export interface CancelledCashInput {
+  isClosedDay: boolean
+  /** Annulli letti dalla foto dello scontrino di chiusura (`cancellations_total`). */
+  photoCancellations: number | null
+  /** Differenza di cassa calcolata adesso (contato − atteso). */
+  cashDifference: number | null
+  /** Totale corrispettivi scritto nel punto 1 (null se vuoto). */
+  totalReceipts: number | null
+  /** Contanti scritti nel punto 1 (riga «Contanti»). */
+  cashLine: number
+}
+
+export interface CancelledCashFix {
+  /** Annulli letti dalla foto. */
+  annulli: number
+  /** Totale corrispettivi da scrivere. */
+  total: number
+  /** Contanti da scrivere. */
+  cash: number
+}
+
+export function cancelledCashNotCollected(i: CancelledCashInput): CancelledCashFix | null {
+  if (i.isClosedDay) return null
+  const annulli = i.photoCancellations
+  if (annulli == null || !(annulli > 0)) return null
+  if (i.cashDifference == null) return null
+  // Ammanco esattamente pari agli annulli: è la firma del caso.
+  if (Math.abs(i.cashDifference + annulli) >= 0.005) return null
+  if (i.totalReceipts == null) return null
+  // I netti devono restare numeri sensati: mai negativi.
+  if (i.cashLine - annulli < -0.005 || i.totalReceipts - annulli < -0.005) return null
+  return { annulli: r2(annulli), total: r2(i.totalReceipts - annulli), cash: r2(i.cashLine - annulli) }
 }
 
 export type ClosingBlockField = 'fondo' | 'da_versare'
