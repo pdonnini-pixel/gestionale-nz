@@ -327,6 +327,8 @@ La CI (`.github/workflows/ci.yml`) ha 3 job bloccanti sulle PR: `build` (npm run
 
 **Regola viste**: ogni `CREATE [OR REPLACE] VIEW public.v_*` in una migration DEVE dichiarare `WITH (security_invoker = on)` nella stessa istruzione (oppure un `ALTER VIEW ... SET (security_invoker = on)` subito dopo, nello stesso file). In PostgreSQL il `CREATE OR REPLACE VIEW` azzera i reloptions: senza l'opzione la vista torna a girare come SECURITY DEFINER e ignora la RLS delle tabelle sottostanti, esponendo i dati di tutte le aziende. È già successo tre volte (069 → 106 → 113 → 143/144 → 153); ora il job `view-security-invoker` blocca la PR.
 
+**Regola policy RLS veloci** (dal 13/10/2026, migration `20261013_305`): nelle policy le funzioni d'identità vanno SEMPRE avvolte in una sottoselect: `(SELECT get_my_company_id())`, `(SELECT get_my_role())`, `(SELECT jwt_company_id())`, `(SELECT auth.uid())`, `(SELECT auth.jwt())`. Scritte nude vengono ricalcolate per ogni riga (sono SECURITY DEFINER, non inline-abili) e rallentano tutte le pagine: prima della 305 Banche e Scadenzario impiegavano fino a 10 volte di più e PostgREST andava in timeout. Il significato è identico, cambia solo quante volte si calcolano.
+
 ---
 
 ## Stack Tecnico — Riferimento Rapido
