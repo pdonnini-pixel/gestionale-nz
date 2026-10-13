@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement } from './reconcileMatch'
+import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible } from './reconcileMatch'
 
 // Casi reali (New Zago, tab Banche → Riconciliazione). Vedi RICONCILIAZIONE_REGOLE.md R5/R6.
 describe('extractBeneficiary', () => {
@@ -232,5 +232,22 @@ describe('isBankOwnMovement', () => {
 
   it('regge le causali vuote', () => {
     expect(isBankOwnMovement('')).toBe(false)
+  })
+})
+
+describe('isPaymentDatePlausible', () => {
+  it('scarta un pagamento arrivato mesi prima della fattura (casi reali del 13/10/2026)', () => {
+    expect(isPaymentDatePlausible('2026-06-24', '2026-10-06')).toBe(false) // HERA
+    expect(isPaymentDatePlausible('2026-01-12', '2026-09-28')).toBe(false) // SPM
+    expect(isPaymentDatePlausible('2026-02-09', '2026-10-07')).toBe(false) // Amazon
+  })
+  it('tiene gli SDD che partono qualche settimana prima della data fattura', () => {
+    expect(isPaymentDatePlausible('2026-05-11', '2026-06-03')).toBe(true)  // consorzio, 23 giorni
+    expect(isPaymentDatePlausible('2026-04-10', '2026-05-04')).toBe(true)  // San Mauro, 24 giorni
+  })
+  it('tiene i pagamenti dopo la fattura e non esclude se manca una data', () => {
+    expect(isPaymentDatePlausible('2026-10-09', '2026-10-02')).toBe(true)
+    expect(isPaymentDatePlausible(null, '2026-10-02')).toBe(true)
+    expect(isPaymentDatePlausible('2026-10-09', '')).toBe(true)
   })
 })

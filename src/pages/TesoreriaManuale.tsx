@@ -29,7 +29,7 @@ import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
-import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement } from '../lib/reconcileMatch'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import CommissioniIncasso from './CommissioniIncasso'
 import OpenBankingAcube from '../components/OpenBankingAcube'
@@ -2973,8 +2973,56 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const [summaryModal, setSummaryModal] = useState<{ rows: SugRow[] } | null>(null)
   const [undoModal, setUndoModal] = useState<{ logId: string; label: string; amount: number } | null>(null)
   const [processingSug, setProcessingSug] = useState(false)
-  const [dismissedVerify, setDismissedVerify] = useState<Set<string>>(new Set())
-  const [dismissedGroup, setDismissedGroup] = useState<Set<string>>(new Set())
+  // «Nascondi» si ricorda: ogni coppia (movimento, fattura) scartata finisce in
+  // reconciliation_log come 'rejected', la stessa traccia che il motore SQL già
+  // rispetta (R26). Prima era uno stato della pagina e al ricaricamento tornava tutto.
+  const { session } = useAuth()
+  const [rejectedPairs, setRejectedPairs] = useState<Set<string>>(new Set())
+  const pairKey = (btId: unknown, payableId: unknown) => `${String(btId)}|${String(payableId)}`
+  useEffect(() => {
+    let cancel = false
+    ;(async () => {
+      const keys = new Set<string>()
+      const PAGE = 1000
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await (supabase.from('reconciliation_log') as any)
+          .select('bank_transaction_id, payable_id')
+          .eq('company_id', companyId)
+          .eq('status', 'rejected')
+          .not('bank_transaction_id', 'is', null)
+          .not('payable_id', 'is', null)
+          .order('id')
+          .range(from, from + PAGE - 1)
+        if (error || !data) break
+        for (const r of data as { bank_transaction_id: string; payable_id: string }[]) keys.add(pairKey(r.bank_transaction_id, r.payable_id))
+        if (data.length < PAGE) break
+      }
+      if (!cancel) setRejectedPairs(keys)
+    })()
+    return () => { cancel = true }
+  }, [companyId])
+
+  const hideProposal = async (bt: TxT, payableIds: string[], dove: string) => {
+    const keys = payableIds.map((pid) => pairKey(bt.id, pid))
+    setRejectedPairs((prev) => { const n = new Set(prev); keys.forEach((k) => n.add(k)); return n })
+    const quando = new Date().toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })
+    const { error } = await (supabase.from('reconciliation_log') as any).insert(payableIds.map((pid) => ({
+      company_id: companyId,
+      bank_transaction_id: String(bt.id),
+      payable_id: pid,
+      match_type: 'rejected',
+      confidence: 0,
+      status: 'rejected',
+      notes: `nascosto da «${dove}» il ${quando}`,
+      performed_by: session?.user?.id ?? null,
+    })))
+    if (error) {
+      setRejectedPairs((prev) => { const n = new Set(prev); keys.forEach((k) => n.delete(k)); return n })
+      toast({ type: 'error', message: 'Non sono riuscito a salvare «Nascondi»: ' + error.message })
+      return
+    }
+    toast({ type: 'info', message: 'Nascosto. Non verrà più proposto; il movimento resta abbinabile a mano.' })
+  }
   // Note di credito COLLEGATE (pending) per fattura: servono a confrontare le distinte
   // al NETTO della NC (regola R8). Le NC "vaganti" (payable a importo negativo) entrano
   // invece direttamente come voci del gruppo.
@@ -3223,6 +3271,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       const payable = payById.get(log.payable_id)
       if (!bt || bt.is_reconciled) continue
       if (!payable) continue
+      if (!isPaymentDatePlausible(String(bt.transaction_date || ''), String(payable.invoice_date || ''))) continue
       const chiusa = isClosedManualUnlinked(payable)
       const isOpen = OPEN_STATUSES.includes(String(payable.status))
       if (!isOpen && !chiusa) continue
@@ -3275,7 +3324,6 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     ]
     for (const m of unreconciledMovements) {
       if (highConfBtIds.has(String(m.id))) continue
-      if (dismissedVerify.has(String(m.id))) continue
       const desc = String(m.description || '')
       if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
       const benef = extractBeneficiary(desc)
@@ -3291,6 +3339,8 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       let bestDiff = Infinity
       for (const c of candidates) {
         if (c.base <= 0) continue
+        if (rejectedPairs.has(pairKey(m.id, c.p.id))) continue
+        if (!isPaymentDatePlausible(String(m.transaction_date || ''), String(c.p.invoice_date || ''))) continue
         const diff = Math.abs(c.base - mv)
         if (diff / c.base > 0.05) continue
         const supWords = new Set(sigWords(getSupplierName(c.p)))
@@ -3314,7 +3364,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     return Array.from(bestByPayable.values())
       .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
       .slice(0, 80)
-  }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, dismissedVerify])
+  }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, rejectedPairs])
 
   // Pagamenti RAGGRUPPATI: un bonifico che paga N fatture dello STESSO fornitore
   // (es. −466,95 = 155,65 + 311,30). Tre regole, tutte imparate su casi reali:
@@ -3356,7 +3406,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     const out: { bt: TxT; items: GroupItem[]; beneficiario: string; total: number }[] = []
     for (const m of unreconciledMovements) {
       const id = String(m.id)
-      if (highConfBtIds.has(id) || dismissedGroup.has(id)) continue
+      if (highConfBtIds.has(id)) continue
       const desc = String(m.description || '')
       if (!isRealTransfer(desc) && NON_SUPPLIER_RE.test(desc)) continue
       // Netto: scorpora la commissione dichiarata in causale (flussi CBI).
@@ -3372,6 +3422,8 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       // causale nomina il beneficiario, solo i fornitori che gli somigliano.
       const pool0 = candidates.filter((c) => {
         if (cents(c.base) > target) return false
+        if (rejectedPairs.has(pairKey(m.id, c.p.id))) return false
+        if (!isPaymentDatePlausible(String(m.transaction_date || ''), String(c.p.invoice_date || ''))) return false
         if (benefWords.length === 0) return true
         const supWords = new Set(sigWords(getSupplierName(c.p)))
         return benefWords.some((w) => supWords.has(w))
@@ -3401,7 +3453,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     return out
       .sort((a, b) => new Date(String(b.bt.transaction_date) || 0).getTime() - new Date(String(a.bt.transaction_date) || 0).getTime())
       .slice(0, 40)
-  }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, dismissedGroup, pendingNc])
+  }, [unreconciledMovements, unpaidPayables, closedManualPayables, suggestions, rejectedPairs, pendingNc])
 
   /**
    * Importo del movimento. Sui flussi CBI la commissione è DENTRO l'importo e la
@@ -3795,7 +3847,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                       className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-600 text-white rounded-lg text-xs font-medium hover:bg-emerald-700 transition disabled:opacity-50">
                       <Check size={12} /> Conferma
                     </button>
-                    <button onClick={() => setDismissedVerify((prev) => new Set(prev).add(String(bt.id)))} disabled={reconciling}
+                    <button onClick={() => hideProposal(bt, [String(payable.id)], 'Da verificare')} disabled={reconciling}
                       className="flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50">
                       <X size={12} /> Nascondi
                     </button>
@@ -3861,7 +3913,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
                       className="flex items-center gap-1 px-2.5 py-1.5 bg-violet-600 text-white rounded-lg text-xs font-medium hover:bg-violet-700 transition disabled:opacity-50">
                       <Check size={12} /> Conferma gruppo
                     </button>
-                    <button onClick={() => setDismissedGroup((prev) => new Set(prev).add(String(bt.id)))} disabled={reconciling}
+                    <button onClick={() => hideProposal(bt, ids, 'Pagamenti raggruppati')} disabled={reconciling}
                       className="flex items-center gap-1 px-2.5 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 transition disabled:opacity-50">
                       <X size={12} /> Nascondi
                     </button>

@@ -113,6 +113,27 @@ export const movementNet = (m: { description?: string | null; amount?: number | 
 export const hasPaymentStructure = (desc: string): boolean =>
   /IMPORTO\s+BONIFICI|NUM\.?\s*TOT\.?\s*PAGAMENTI|A FAVORE|BONIFICO/i.test(String(desc || ''))
 
+// Un pagamento non arriva mesi PRIMA della fattura che salda. Senza questa regola i
+// fornitori a importo fisso (utenze, servizi mensili) agganciavano un addebito di
+// gennaio o giugno alla fattura di ottobre dello stesso importo: il 13/10/2026 il
+// riquadro «Da verificare» proponeva HERA 24/06 → fattura del 06/10, SPM 12/01 →
+// fattura del 28/09, Amazon 09/02 → fattura del 07/10. Misurato sui 696 abbinamenti
+// già confermati di NZ: gli SDD di utenze e consorzi partono fino a 23 giorni prima
+// della data fattura, quindi la tolleranza è di 30 giorni. Data mancante = non si
+// esclude (meglio una proposta in più che una persa).
+export const PAYMENT_BEFORE_INVOICE_MAX_DAYS = 30
+export const isPaymentDatePlausible = (
+  txDate: string | null | undefined,
+  invoiceDate: string | null | undefined,
+  maxDaysBefore: number = PAYMENT_BEFORE_INVOICE_MAX_DAYS,
+): boolean => {
+  if (!txDate || !invoiceDate) return true
+  const tx = Date.parse(String(txDate).slice(0, 10))
+  const inv = Date.parse(String(invoiceDate).slice(0, 10))
+  if (Number.isNaN(tx) || Number.isNaN(inv)) return true
+  return (inv - tx) / 86_400_000 <= maxDaysBefore
+}
+
 // Un flusso CBI / disposizione / bonifico è un pagamento reale a fornitore anche se
 // la causale contiene la parola "commissioni": NON va escluso come non-fornitore (R9).
 export const isRealTransfer = (desc: string): boolean => /IMPORTO BONIFICI|DISPOSIZIONE|A FAVORE|BONIFICO/i.test(String(desc || ''))
