@@ -331,6 +331,26 @@ Contante atteso = fondo di ieri + contanti da versare di ieri + contanti di oggi
 Restano da fare: usare `electronic` (pagamento elettronico dallo scontrino RT) come controllo incrociato della somma dei POS; valutare se aprire «Reimposta password» anche al contabile per gli account di negozio.
 
 
+### 4d. annulli, resi e buoni: quando l'ammanco non è un ammanco (fatto il 2026-10-13, PR #664)
+
+Caso di partenza, Franciacorta 12/10/2026: nota «47,20€ effettuato buono per cliente causa reso fallato» e cassa in ammanco di esattamente 47,20 €. La chiusura RT n. 550 segnava `cancellations_total` 47,20 con `returns_total` 0; il «da versare» contato era cresciuto di 39,90 €, cioè 87,10 (contanti dell'RT) meno 47,20. Il corrispettivo vero del giorno, 635,20 €, combacia al centesimo con l'imponibile IVA della chiusura (559,34 × 1,22 = 682,39 meno i 47,20 di annulli) e con l'incasso vero (39,90 contanti + 595,30 POS).
+
+**Come funziona l'RT**: i totali di pagamento stampati sono *lordi* degli annulli, mentre il corrispettivo fiscale è netto. Quindi, quando lo scontrino annullato era in contanti, quei soldi non entrano in cassa ma restano nei totali del registratore. Dimostrato dai precedenti dello stesso negozio:
+
+| giorno | contanti RT | annulli | contanti scritti | esito |
+|---|---|---|---|---|
+| 02/10 | 293,85 | 194,26 (= 237,00 lordi, scontrino rifatto come fattura, pagato col POS) | 293,85 | cassa a zero |
+| 04/10 | 1.451,60 | 68,00 (in contanti) | 1.383,60 | cassa a zero, 68 € di differenza corrispettivi |
+| 12/10 | 87,10 | 47,20 (in contanti) | 87,10 | finto ammanco di 47,20 € |
+
+**La segnalazione non si accende sugli annulli**, che sono normalissimi: a Franciacorta ce ne sono quasi ogni giorno (20,00 il 10/10, 55,20 il 5/10, 62,30 l'1/10, 53,91 il 7/10) e sono scontrini sbagliati e subito rifatti, dove il denaro non si muove. Avvisare su quelli sarebbe la lista da compilare a mano che la regola granitica vieta. La firma del caso è un'altra, misurabile: **ammanco di cassa esattamente pari agli annulli letti dalla foto**. Su trenta giorni capita una volta sola. Helper `cancelledCashNotCollected` in `src/lib/cashClosings.ts` (più `extractedNumber` per leggere `cancellations_total` dall'estratto della foto); riquadro nel punto 5 e avviso al centro alla conferma, con il pulsante «Togli l'annullo» che scrive totale e contanti al netto. Si può sempre confermare com'è: il contante lo vede solo chi è in negozio.
+
+**Ricavo del giorno con le fatture** (migration `20261013_303`): `project_cash_closing_to_daily_revenue` proiettava in `daily_revenue` solo `total_receipts`, lasciando fuori `invoices_total`, che è un incasso vero. Erano 40 giornate sottostimate per 8.163,47 € in tutto. Ora proietta corrispettivi + fatture e la migration riproietta quelle giornate; applicata su NZ, Made e Zago (su Made e Zago nessuna giornata con fattura).
+
+**Correzioni dati del 12-13/10** (backup nello scratchpad di sessione prima di ogni UPDATE): Franciacorta 12/10 → totale 635,20 e contanti 39,90, cassa a zero; Franciacorta 04/10 → totale 7.032,94, differenza corrispettivi azzerata; Franciacorta 02/10 → la fattura da 237,00 era contata due volte (dentro il totale corrispettivi e nel canale Fatture), totale riportato a 1.502,52. Barberino 26/09, differenza di 88,00 €: controllato e **non** da correggere, alla cliente erano stati addebitati 118 € invece di 30 perché 88 € erano già su gift card, e l'eccedenza è tornata col bonifico MPS del 29/09 (−88,50 € in banca, flusso CBI 137818923).
+
+**Resta da decidere (Patrizio)**: i buoni al cliente. Se il buono viene speso subito, come il 12/10, il valore esce in merce e la cassa lo fa vedere. Se invece resta da spendere, i soldi restano in cassa, tutto quadra e nessuno sa che l'azienda deve quella cifra a un cliente: lì serve un registro minimo (importo, data, negozio, quando viene speso), oppure la regola che il reso si fa a soldi.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?

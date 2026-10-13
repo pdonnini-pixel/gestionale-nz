@@ -38,9 +38,10 @@ import type { Database } from '../types/database'
 import {
   type PaymentChannel, type AttachmentTarget, type ExpenseKind, type ExtractedData, CLOSING_STATUS_LABELS, EXPENSE_KIND_LABELS, kindForTarget,
   parseAmount, formatAmount, formatEuro, computeQuadrature, todayIso, addDaysIso, monthDays,
-  formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount,
+  formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount, extractedNumber,
   eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type DeviationLine,
-  closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, type ClosingBlocker, type ClosingBlockField,
+  closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected,
+  type ClosingBlocker, type ClosingBlockField, type CancelledCashFix,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
@@ -144,6 +145,9 @@ export default function ChiusuraCassa() {
   // Punto 1 a zero mentre la foto dello scontrino dice un'altra cifra.
   const [totalWarn, setTotalWarn] = useState<number | null>(null)
   const [totalAccepted, setTotalAccepted] = useState(false)
+  // Annullo in contanti: ammanco pari agli annulli letti dalla foto.
+  const [cancelWarn, setCancelWarn] = useState<CancelledCashFix | null>(null)
+  const [cancelAccepted, setCancelAccepted] = useState(false)
   const fondoRef = useRef<HTMLElement>(null)
   const daVersareRef = useRef<HTMLElement>(null)
 
@@ -297,7 +301,7 @@ export default function ChiusuraCassa() {
     setForm((f) => (f.cashFloatOpening === v ? f : { ...f, cashFloatOpening: v }))
     setDirty(true)
   }, [derivedOpening])
-  useEffect(() => { setAllCashNow(''); setPendingAccepted(false); setPendingWarn(null); setTotalAccepted(false); setTotalWarn(null) }, [outletId, dateIso])
+  useEffect(() => { setAllCashNow(''); setPendingAccepted(false); setPendingWarn(null); setTotalAccepted(false); setTotalWarn(null); setCancelAccepted(false); setCancelWarn(null) }, [outletId, dateIso])
 
   const update = (patch: Partial<FormState>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
   const updateAmount = (channelId: string, v: string) => { setForm((f) => ({ ...f, amounts: { ...f.amounts, [channelId]: v } })); setDirty(true) }
@@ -318,6 +322,30 @@ export default function ChiusuraCassa() {
   const totalHint = useMemo(() => totalMissingFromPhoto({
     isClosedDay: form.isClosedDay, totalReceipts: parseAmount(form.total), photoTotal,
   }), [form.isClosedDay, form.total, photoTotal])
+  /** Annulli letti dalla foto dello scontrino di chiusura (l'ultima letta). */
+  const photoCancellations = useMemo(() => {
+    const letti = totalPhotos
+      .filter((a) => ['letta', 'da_rivedere'].includes(a.extraction_status ?? ''))
+      .map((a) => extractedNumber(a.extracted, 'cancellations_total'))
+      .filter((v): v is number => v != null)
+    return letti.length > 0 ? letti[letti.length - 1] : null
+  }, [totalPhotos])
+  // Annullo in contanti: l'ammanco è esattamente pari agli annulli della foto.
+  const cancelHint = useMemo(() => cancelledCashNotCollected({
+    isClosedDay: form.isClosedDay, photoCancellations, cashDifference: quad.cashDifference,
+    totalReceipts: parseAmount(form.total), cashLine: quad.cashLine,
+  }), [form.isClosedDay, photoCancellations, quad.cashDifference, form.total, quad.cashLine])
+  const cashChannelId = useMemo(() => channels.find((ch) => ch.kind === 'contanti')?.id ?? null, [channels])
+  /** Riporta totale e contanti al netto dell'annullo, in un gesto solo. */
+  const fixCancelled = (h: CancelledCashFix) => {
+    setForm((f) => ({
+      ...f,
+      total: formatAmount(h.total),
+      amounts: cashChannelId ? { ...f.amounts, [cashChannelId]: formatAmount(h.cash) } : f.amounts,
+    }))
+    setDirty(true)
+    setCancelWarn(null)
+  }
 
   // ─── Persistenza ──────────────────────────────────────────────────────
   const closingPayload = () => ({
@@ -421,10 +449,11 @@ export default function ChiusuraCassa() {
     return out
   }
 
-  const confirm = async (force = false, pendingOk = false, totalOk = false) => {
+  const confirm = async (force = false, pendingOk = false, totalOk = false, cancelOk = false) => {
     if (missingData.length > 0) { setBlockers(missingData); return }
     if (!totalOk && !totalAccepted && totalHint != null) { setTotalWarn(totalHint); return }
     if (!pendingOk && !pendingAccepted && pendingHint != null) { setPendingWarn(pendingHint); return }
+    if (!cancelOk && !cancelAccepted && cancelHint != null) { setCancelWarn(cancelHint); return }
     if (!form.isClosedDay && totalPhotos.length === 0) {
       toast({ type: 'warning', message: 'Serve la foto dello scontrino di chiusura: è l\'unica obbligatoria.' })
       return
@@ -1043,6 +1072,18 @@ export default function ChiusuraCassa() {
                 ) : (
                   <p className="text-xs text-slate-500">Il contante atteso si calcola dopo aver scritto la partenza (fondo e da versare di ieri).</p>
                 )}
+                {cancelHint != null && !readOnly && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 space-y-2">
+                    <p className="text-sm text-amber-900">
+                      <strong>Non è un ammanco, è un annullo.</strong> Dalla foto dello scontrino risultano {formatEuro(cancelHint.annulli)} di annulli e in cassa manca la stessa cifra:
+                      lo scontrino annullato era in contanti, quindi quei soldi non sono entrati. Il totale del punto 1 diventa <strong>{formatEuro(cancelHint.total)}</strong> e i contanti <strong>{formatEuro(cancelHint.cash)}</strong>.
+                    </p>
+                    <button type="button" onClick={() => fixCancelled(cancelHint)}
+                      className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold">
+                      <Check size={14} />Togli l'annullo
+                    </button>
+                  </div>
+                )}
               </section>
             </>
           )}
@@ -1164,11 +1205,30 @@ export default function ChiusuraCassa() {
         </p>
         <p className="text-sm text-slate-600 mb-4">Se in cassa hai contato davvero quella cifra lascia pure com'è: il contante lo vedi solo tu.</p>
         <div className="flex flex-wrap justify-end gap-2">
-          <button onClick={() => { setPendingAccepted(true); setPendingWarn(null); void confirm(false, true, true) }}
+          <button onClick={() => { setPendingAccepted(true); setPendingWarn(null); void confirm(false, true, true, cancelAccepted || cancelHint == null) }}
             className="px-4 py-3 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium">Ho contato così, conferma</button>
           <button onClick={() => pendingWarn != null && fixPending(pendingWarn)}
             className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
             <Check size={16} />Correggi in {formatEuro(pendingWarn)}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Annullo in contanti: l'ammanco è esattamente pari agli annulli della foto */}
+      <Modal open={cancelWarn != null} onClose={() => setCancelWarn(null)} title="C'è un annullo da togliere">
+        <p className="text-sm text-slate-700 mb-3">
+          Dalla foto dello scontrino di chiusura risultano <strong>{formatEuro(cancelWarn?.annulli)}</strong> di annulli, e in cassa manca esattamente la stessa cifra.
+          Succede quando lo scontrino annullato era in contanti: quei soldi non sono entrati, ma nei totali del registratore ci sono ancora.
+        </p>
+        <p className="text-sm text-slate-600 mb-4">
+          Scrivendo il totale e i contanti al netto, <strong>{formatEuro(cancelWarn?.total)}</strong> e <strong>{formatEuro(cancelWarn?.cash)}</strong>, la cassa torna da sé. Spiega poi in nota com'è andata (reso, buono al cliente, vendita annullata).
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={() => { setCancelAccepted(true); setCancelWarn(null); void confirm(false, true, true, true) }}
+            className="px-4 py-3 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium">I contanti sono giusti, conferma</button>
+          <button onClick={() => cancelWarn != null && fixCancelled(cancelWarn)}
+            className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
+            <Check size={16} />Togli l'annullo
           </button>
         </div>
       </Modal>
