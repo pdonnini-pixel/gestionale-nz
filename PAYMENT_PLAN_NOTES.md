@@ -1862,6 +1862,8 @@ Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
 - 303 (3 tenant): vocabolario deciso da Patrizio, vigilanza e verde → MANUT, transpallet e attrezzatura di
   magazzino → ALLESTIMENTI. NZ: Corpo Vigili e Ginevra Green Garden manutenzioni, B.F.M. e ASMEP allestimenti
   della sede; «Senza categoria» 2026: 1.097 €.
+- NZ_ONLY 304: GGZ 22/GE (scaffalatura per appenderia del magazzino, 1.720,00) classificata come allestimento
+  della sede/magazzino per singola fattura; le altre fatture GGZ restano merce.
 - NZ_ONLY 301: Colette srl (stender) allestimenti della sede e del magazzino; Amilon (Zucchetti Card) altre
   commerciali, omaggi e promozioni. Regole di riparto invariate. «Senza categoria» 2026: 5.200 €.
 
