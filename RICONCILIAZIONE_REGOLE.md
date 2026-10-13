@@ -915,3 +915,7 @@ Misura sui 696 abbinamenti già confermati di NZ: 680 hanno il pagamento il gior
 Regola: si propone una fattura solo se la sua data non è oltre **30 giorni dopo** il movimento (`isPaymentDatePlausible` in `src/lib/reconcileMatch.ts`). Data mancante = non si esclude. L'abbinamento a mano resta libero.
 
 Caso a parte, San Mauro 10/04 → fattura 26-0449 del 04/05 (24 giorni, la proposta resta): la fattura di aprile 26-0362 è agganciata all'addebito dell'11/05 e quella di maggio è rimasta senza movimento. I due importi sono uguali (3.714,57), quindi confermare la proposta chiude il buco senza cambiare numeri.
+
+### R30: «Nascondi» si ricorda (13/10/2026)
+
+Nei riquadri «Da verificare — beneficiario dalla causale» e «Pagamenti raggruppati» il pulsante «Nascondi» era uno stato della pagina: ricaricando, le proposte tornavano. Ora ogni «Nascondi» scrive in `reconciliation_log` una riga `status = 'rejected'`, `match_type = 'rejected'` per ogni coppia (movimento, fattura) scartata, con la nota «nascosto da … il gg/mm/aaaa» e chi l'ha fatto. È la stessa traccia che il motore SQL `try_match_bank_transaction` già rispetta (R26), quindi il no vale ovunque: nei due riquadri e nelle proposte del motore. Per un gruppo si rifiutano tutte le coppie del gruppo. Il movimento resta abbinabile a mano. Per riaprire una coppia basta riportare quella riga a `to_confirm`, niente si cancella. Nessuna migration: tabella, vincoli e permessi erano già identici sui 3 tenant.
