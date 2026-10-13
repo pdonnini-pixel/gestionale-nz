@@ -29,7 +29,7 @@ import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
-import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement } from '../lib/reconcileMatch'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import CommissioniIncasso from './CommissioniIncasso'
 import OpenBankingAcube from '../components/OpenBankingAcube'
@@ -3223,6 +3223,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       const payable = payById.get(log.payable_id)
       if (!bt || bt.is_reconciled) continue
       if (!payable) continue
+      if (!isPaymentDatePlausible(String(bt.transaction_date || ''), String(payable.invoice_date || ''))) continue
       const chiusa = isClosedManualUnlinked(payable)
       const isOpen = OPEN_STATUSES.includes(String(payable.status))
       if (!isOpen && !chiusa) continue
@@ -3291,6 +3292,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       let bestDiff = Infinity
       for (const c of candidates) {
         if (c.base <= 0) continue
+        if (!isPaymentDatePlausible(String(m.transaction_date || ''), String(c.p.invoice_date || ''))) continue
         const diff = Math.abs(c.base - mv)
         if (diff / c.base > 0.05) continue
         const supWords = new Set(sigWords(getSupplierName(c.p)))
@@ -3372,6 +3374,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       // causale nomina il beneficiario, solo i fornitori che gli somigliano.
       const pool0 = candidates.filter((c) => {
         if (cents(c.base) > target) return false
+        if (!isPaymentDatePlausible(String(m.transaction_date || ''), String(c.p.invoice_date || ''))) return false
         if (benefWords.length === 0) return true
         const supWords = new Set(sigWords(getSupplierName(c.p)))
         return benefWords.some((w) => supWords.has(w))

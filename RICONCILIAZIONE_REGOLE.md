@@ -905,3 +905,13 @@ Dopo gli estratti di settembre (Excel stampati fino al 05/10) la chat «Da chiar
 - 2 domande «quadratura» ripetevano in un numero la somma delle altre.
 
 Regola: un movimento assente dall'estratto con `postingDate` oltre l'ultimo giorno dell'estratto, o in stato `pending`, non si chiede e non entra nello scarto (si conta in `dopo_estratto` e lo conferma l'estratto successivo). La quadratura resta nel riepilogo, non è mai una domanda. La domanda che resta dice cosa guardare e cosa rispondere («c'è» / «non c'è»).
+
+### R29: Un pagamento non arriva mesi prima della fattura (13/10/2026)
+
+Il riquadro «Da verificare — beneficiario dalla causale» di NZ proponeva cinque movimenti di gennaio-giugno contro fatture di giugno-ottobre: HERA 24/06 → fattura del 06/10, SPM 12/01 → 28/09, F&B 12/01 → 30/06, Amazon 09/02 → 07/10. Fornitori a importo fisso: nome e importo combaciavano, la data no. Nessuno dei tre motori (suggerimenti, «Da verificare», raggruppati) guardava la data.
+
+Misura sui 696 abbinamenti già confermati di NZ: 680 hanno il pagamento il giorno della fattura o dopo, 13 da 1 a 3 giorni prima, 3 SDD di utenze e consorzi da 10 a 23 giorni prima (lo SDD parte prima che la fattura sia datata nello SDI), uno a 92 giorni (distinta BRT, da ricontrollare).
+
+Regola: si propone una fattura solo se la sua data non è oltre **30 giorni dopo** il movimento (`isPaymentDatePlausible` in `src/lib/reconcileMatch.ts`). Data mancante = non si esclude. L'abbinamento a mano resta libero.
+
+Caso a parte, San Mauro 10/04 → fattura 26-0449 del 04/05 (24 giorni, la proposta resta): la fattura di aprile 26-0362 è agganciata all'addebito dell'11/05 e quella di maggio è rimasta senza movimento. I due importi sono uguali (3.714,57), quindi confermare la proposta chiude il buco senza cambiare numeri.
