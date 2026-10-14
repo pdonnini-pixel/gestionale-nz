@@ -15572,6 +15572,33 @@ export type Database = {
         }
         Relationships: []
       }
+      invoice_outlet_auto: {
+        Row: {
+          calcolato_il: string
+          company_id: string
+          invoice_id: string
+          outlet_contatore: string | null
+          outlet_luogo: string | null
+          outlet_nominato: string | null
+        }
+        Insert: {
+          calcolato_il?: string
+          company_id: string
+          invoice_id: string
+          outlet_contatore?: string | null
+          outlet_luogo?: string | null
+          outlet_nominato?: string | null
+        }
+        Update: {
+          calcolato_il?: string
+          company_id?: string
+          invoice_id?: string
+          outlet_contatore?: string | null
+          outlet_luogo?: string | null
+          outlet_nominato?: string | null
+        }
+        Relationships: []
+      }
       inail_rates: {
         Row: {
           company_id: string
@@ -24746,6 +24773,15 @@ export type Database = {
           importo: number | null
           mese: number | null
           outlet: string | null
+          outlet_id: string | null
+        }
+        Relationships: []
+      }
+      v_negozio_fattura: {
+        Row: {
+          company_id: string | null
+          fonte: string | null
+          invoice_id: string | null
           outlet_id: string | null
         }
         Relationships: []

@@ -409,9 +409,11 @@ export function nomeFileExport(azienda: string | null | undefined, cosa: string,
 // COLONNA «NEGOZIO» (Monica, Studio Poli, 08/10/2026)
 // «Verificare sempre a quale negozio appartengono le spese, altrimenti sono
 // costretta a registrarle al magazzino.» Il negozio di una fattura viene dal
-// riparto dei fornitori (v_quote_negozio_fornitore, migrazione 295), con la
-// classificazione della singola fattura (invoice_cost_overrides) che vince,
-// come nel riquadro di Confronto Outlet. Un movimento che salda più fatture
+// riparto dei fornitori (v_quote_negozio_fornitore, migrazione 295), con il
+// negozio della singola fattura (v_negozio_fattura, migrazione 306) che vince:
+// la classificazione a mano, altrimenti il negozio letto dal documento
+// (contatore della bolletta, luogo della trasferta, negozio nominato), come
+// nel riquadro di Confronto Outlet. Un movimento che salda più fatture
 // pesa le quote sugli importi. Niente si indovina: senza quote, cella vuota.
 // ============================================================================
 

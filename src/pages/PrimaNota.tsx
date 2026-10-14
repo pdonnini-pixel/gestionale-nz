@@ -650,7 +650,8 @@ export default function PrimaNota() {
   useEffect(() => { loadIncassiLookups(movements.filter(m => m.amount > 0).map(m => m.id)) }, [movements, loadIncassiLookups])
 
   // Quote per negozio dei fornitori (v_quote_negozio_fornitore, migrazione 295)
-  // e outlet delle fatture classificate una per una (invoice_cost_overrides).
+  // e negozio della singola fattura (v_negozio_fattura, migrazione 306: la
+  // classificazione a mano, altrimenti il negozio letto dal documento).
   useEffect(() => {
     if (!companyId) return
     let vivo = true
@@ -659,7 +660,7 @@ export default function PrimaNota() {
       try {
         const [qRes, ovResults] = await Promise.all([
           supabase.from('v_quote_negozio_fornitore').select('supplier_id, outlet_id, pct').eq('company_id', companyId).range(0, 19999),
-          Promise.all(chunk(invoiceIds).map(ids => supabase.from('invoice_cost_overrides').select('invoice_id, outlet_id').in('invoice_id', ids))),
+          Promise.all(chunk(invoiceIds).map(ids => supabase.from('v_negozio_fattura').select('invoice_id, outlet_id').in('invoice_id', ids))),
         ])
         if (!vivo) return
         if (qRes.error) throw qRes.error
@@ -671,7 +672,7 @@ export default function PrimaNota() {
           perFornitore.set(r.supplier_id, list)
         }
         const perFattura = new Map<string, string>()
-        for (const r of ovResults.flatMap(x => x.data ?? [])) perFattura.set(r.invoice_id, r.outlet_id)
+        for (const r of ovResults.flatMap(x => x.data ?? [])) if (r.invoice_id && r.outlet_id) perFattura.set(r.invoice_id, r.outlet_id)
         setNegozioLk({ perFornitore, perFattura })
       } catch (e) {
         // La colonna resta vuota: la Prima Nota funziona lo stesso.
