@@ -74,6 +74,14 @@ Riferimenti: migration `20260910_204` (profilo dalla fattura), `212` (piano semp
 
 ---
 
+## 📒 REGOLA — PRIMA NOTA E FATTURE D'ACQUISTO HANNO VITE SEPARATE (fissata da Patrizio il 15/10/2026)
+
+Il file della **Prima Nota** (pagina Prima Nota, `src/pages/PrimaNota.tsx`, `src/lib/primaNota*.ts`) e il file delle **fatture d'acquisto** per lo studio (negozio della singola fattura, `v_negozio_fattura`, riquadro «Costi per outlet» di Confronto Outlet) sono due lavori separati. Una modifica fatta per le fatture d'acquisto **non deve mai cambiare il file della Prima Nota**, nemmeno "per coerenza". Se un intervento sembra toccare entrambi, fermarsi e chiedere a Patrizio prima di toccare la Prima Nota.
+
+Nata dalla PR #668 (14/10/2026), che lavorando sulle fatture d'acquisto aveva fatto leggere `v_negozio_fattura` anche alla colonna Negozio della Prima Nota; ripristinata il 15/10/2026.
+
+---
+
 ## ⚠️ REGOLA #0 — PARITÀ TENANT (NON NEGOZIABILE)
 
 **OGNI modifica/fix/deploy va applicato a TUTTI E 3 i tenant: NZ + Made + Zago. Sempre. Senza eccezioni.**
