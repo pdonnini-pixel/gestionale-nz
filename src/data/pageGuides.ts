@@ -1436,6 +1436,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Dove finiscono i numeri che inserisco?",
         "a": "Alla conferma il giorno viene scritto nei ricavi giornalieri del punto vendita, che alimentano la scheda Corrispettivi dell'outlet, la dashboard e il cashflow. Chi amministra li vede riepilogati per mese nella pagina Incassi giornalieri, con le tue foto accanto ai numeri."
+      },
+      {
+        "q": "Ho annullato uno scontrino di un altro giorno: cosa scrivo?",
+        "a": "Scrivi i soldi che hai davvero incassato oggi, come sempre. Se la foto dello scontrino di chiusura mostra annulli o resi e un corrispettivo trasmesso più basso del totale scritto, e la differenza è esattamente quella degli annulli e dei resi, il gestionale toglie da solo quella cifra dal ricavo del giorno, che può anche diventare negativo (per esempio vendite 85,90, annullo di 261,50, ricavo -175,60). La cassa non cambia. Così il ricavo coincide con quello trasmesso all'Agenzia e con il registro del commercialista."
       }
     ]
   },
@@ -2791,7 +2795,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Dove finisce la quota indetraibile (auto, telefono, ristoranti)?",
-        "a": "Per ora da nessuna parte: tutta l'IVA sugli acquisti è considerata detraibile. Se il commercialista applica quote indetraibili, correggi l'IVA acquisti con \"Conferma\" quando hai il dato definitivo."
+        "a": "Una parte si toglie da sola: l'IVA che nella fattura elettronica porta il riferimento all'art. 74 (per esempio il traffico prepagato di Wind Tre e Fastweb, «IVA assolta da…») è già stata versata dall'operatore e non entra nell'IVA acquisti. Il resto è considerato detraibile: se il commercialista applica altre quote indetraibili (auto, biglietti del treno), correggi l'IVA acquisti con \"Conferma\" quando hai il dato definitivo."
+      },
+      {
+        "q": "Come conta le note di credito?",
+        "a": "Con il segno scritto nel documento. Una nota di credito normale riduce l'IVA acquisti; una nota con importi negativi (capita con le bollette, per esempio Publiacqua) storna una nota precedente e l'IVA torna a credito, come la registra lo studio."
       },
       {
         "q": "L'acconto IVA di dicembre è compreso?",
