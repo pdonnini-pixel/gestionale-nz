@@ -85,6 +85,7 @@ Schema:
   "documents_count": number|null,   // numero documenti commerciali/scontrini emessi
   "returns_total": number|null,     // resi
   "cancellations_total": number|null, // annulli
+  "fiscal_total": number|null,      // CORRISPETTIVO del giorno trasmesso all'Agenzia: vendite MENO resi e annulli (anche negativo). Solo su chiusura fiscale RT; null su rapporti finanziari/gestionali non fiscali o se non stampato
   "grand_total": number|null,       // GRAN TOTALE progressivo
   "closure_number": number|null,    // numero azzeramenti / numero chiusura
   "vat_lines": [ { "rate": number|null, "taxable": number|null, "tax": number|null } ],
@@ -94,6 +95,7 @@ Schema:
   "notes": string|null
 }
 POS: spesso nella stessa foto, accanto allo scontrino del registratore, ci sono uno o piu' SCONTRINI DI CHIUSURA POS (terminali bancari: Nexi, MPS/Monte dei Paschi, BCC/Iccrea/Numia, American Express, Ingenico, Verifone, SumUp). Per OGNI scontrino POS presente aggiungi una voce in "pos_closures" con: "terminal_id" (TERMINALE / TID / POS ID / TML, cosi' com'e' stampato), "acquirer" (banca o gestore: quello stampato in testa oppure, se manca, quello che compare nelle righe dei circuiti, es. "Nexi", "MPS", "BCC", "American Express"; null solo se non c'e' alcun indizio), "circuit" (se lo scontrino e' il totale di un solo circuito, es. "Amex", "PagoBancomat"; altrimenti null), "merchant" (esercente o codice esercente, se presente) e "amount" (il TOTALE incassato di quello scontrino, non il numero di transazioni). Se uno scontrino POS ha una riga separata per American Express/Amex, crea DUE voci con lo stesso "terminal_id": una con "circuit": "Amex" e l'importo di quella riga, e una con "circuit": null e il totale dello scontrino MENO l'Amex. Se nella foto non ci sono scontrini POS, "pos_closures" e' []. Non confondere il totale del POS con "electronic" del registratore: quello resta il pagamento elettronico stampato dal registratore.
+CORRISPETTIVO: sulla chiusura fiscale RT il corrispettivo trasmesso (righe IVA: ammontare + imposta, oppure "CORRISPETTIVO"/"TOTALE COMPLESSIVO") e' gia' al netto di resi e annulli e puo' essere negativo quando si annulla uno scontrino di un altro giorno. "total_sales" resta il totale delle vendite del giorno; "fiscal_total" e' il corrispettivo netto. Esempio: vendite 85,90, annulli 261,50 -> total_sales 85.9, cancellations_total 261.5, fiscal_total -175.6.
 ${COMMON_RULES}`;
     case "canale":
       return kind === "pos_chiusura"

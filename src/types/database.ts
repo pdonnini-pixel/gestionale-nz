@@ -14045,6 +14045,7 @@ export type Database = {
           tipo_documento: string | null
           updated_at: string | null
           vat_amount: number | null
+          vat_non_detraibile: number | null
           withholding_amount: number
           xml_content: string | null
           xml_file_path: string | null
@@ -14084,6 +14085,7 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
+          vat_non_detraibile?: never
           withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
@@ -14123,6 +14125,7 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
+          vat_non_detraibile?: never
           withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
