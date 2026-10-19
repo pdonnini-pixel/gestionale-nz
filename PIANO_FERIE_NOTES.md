@@ -308,3 +308,52 @@ persone) è ancora di Patrizio.
    valle non deve produrre niente per lo studio.
 5. **Coefficienti**: 4,325 / 0,8 / 0,7 restano dedotti finché lo studio non li conferma. Confermata
    invece la **regola** dei ROL: si maturano solo dopo 24 mesi.
+
+## Fase 4 — pianificazione da parte dei dipendenti (decisa da Patrizio il 19/10/2026, non ancora costruita)
+
+### La finestra
+
+- Ogni anno **dal 1° gennaio al 28 febbraio** i dipendenti pianificano le ferie dell'anno in corso e del
+  successivo. In apertura la finestra va **da subito al 28/02/2027** e copre fino al 31/12/2027.
+- Dopo il 28 febbraio si può ancora chiedere: richiesta singola, valutata subito, senza la priorità
+  della finestra.
+- Tutto quello che si sceglie è una **proposta** (stato `inviata`), mai un'accettazione. Le richieste
+  della finestra si valutano tutte insieme alla chiusura, negozio per negozio: chi sceglie prima non è
+  avvantaggiato. Decidono sempre i referenti (`leave_decidi`).
+
+### Il semaforo sulla copertura
+
+Per ogni giorno scelto il gestionale toglie la persona, i colleghi già via (approvati e in attesa,
+segnati a parte) e le assenze lunghe, e verifica con il fabbisogno del giorno e la geometria dei turni
+(pause sfalsate, massimo 8 ore) se il negozio si copre: **verde** si copre, **giallo** si copre con
+poco margine, **rosso** non si copre. I giorni rossi **si possono chiedere lo stesso**, con l'avviso.
+Alla persona il semaforo; nomi dei colleghi e numeri del fabbisogno restano a chi approva.
+
+Questo supera la regola del 24/09 «si dice chi è via, mai chi è presente»: quella valeva finché il
+gestionale non conosceva turni e fabbisogno. Il semaforo va costruito solo quando li conosce davvero.
+
+### I conflitti
+
+Criteri, in quest'ordine: **1) chi ha più ore maturate da smaltire, 2) rotazione di agosto e di Natale
+rispetto all'anno prima.** L'anzianità **non** è un criterio (Patrizio: «non ha senso»).
+
+### Maturazione e anticipo
+
+- Saldo di partenza dal tabulato; ratei proiettati mese per mese (ferie ore settimanali × 4,325 / 12,
+  ex festività × 0,8, ROL × 0,7 dopo 24 mesi), con la regola mensile dello studio (da confermare: mese
+  intero oltre 15 giorni lavorati). Ogni tabulato nuovo si confronta con la proiezione.
+- Ferie oltre il maturato a quella data (**anticipo**): **sì solo per i tempi indeterminati.** Per i
+  determinati la proiezione si ferma alla scadenza del contratto e oltre non si pianifica. Chi è a
+  chiamata non pianifica (ferie pagate ogni mese).
+- **Obiettivo di fine anno: zero sulle ore che altrimenti verrebbero pagate.** Da confermare con lo
+  studio quali e quando: residuo dei determinati a fine contratto, ex festività e ROL non goduti nei
+  termini. Le ferie dei tempi indeterminati «non scadono» (studio, 23/09): restano l'obiettivo di legge
+  di due settimane nell'anno di maturazione.
+- Chi pianifica poco riceve, a finestra chiusa, ferie **proposte dal sistema** nei periodi verdi del
+  suo negozio, modificabili.
+
+### L'accesso
+
+**Un accesso per negozio** (decisione di Patrizio). Il ruolo `dipendente` esiste ed è blindato: va
+aperto alle righe delle persone di quel negozio. Con un accesso condiviso chi propone sceglie il proprio
+nome: ogni proposta lo registra, e resta una proposta finché un referente non decide.
