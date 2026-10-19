@@ -689,11 +689,45 @@ la motivazione aggiunta in coda a quella del 12/10 senza cancellarla. Dopo la
 chiusura le righe `applied` con `applied_amount = 0` e la rata ancora aperta sono
 **zero**.
 
-**Da sapere, non da correggere**: il bonifico MINGARDO da 7.198,00 del
-05/06/2026 («CF-48») resta non riconciliato in banca, pur essendo uno dei due che
-compongono gli 11.594,00 già contati come pagati. Agganciarlo vorrebbe dire
-gestire il pagamento parziale a mano su una fattura ormai chiusa: non vale il
-rischio, e il totale pagato è giusto così.
+**Il bonifico da 7.198,00 del 05/06 è stato poi agganciato**, su richiesta di
+Patrizio lo stesso 19/10. Come, e perché non con la funzione normale:
+
+`reconcile_movement` ha il ramo giusto («solo aggancio, nessuna doppia
+scrittura»), ma scatta solo `IF v_pay.status = 'pagato' AND
+v_pay.bank_transaction_id IS NULL`. La rata MINGARDO adesso un movimento ce l'ha,
+quello del 05/10 che l'ha chiusa, quindi quel ramo non parte e il successivo
+risponde `stale`. In `payables` il movimento è un campo solo: **una rata pagata da
+due bonifici tiene nel campo l'ultimo**, e il primo vive come riga di
+`reconciliation_log`. Il precedente esiste già nei dati: WOLF GROUP 218, da
+79.683,24, pagata con due movimenti.
+
+Quindi, a mano, esattamente quello che fa quel ramo:
+- `bank_transactions`: `is_reconciled = true`, `reconciled_at`, `reconciled_invoice_id` sulla rata;
+- una riga di log `manual` / `applied` / `applied_amount = 7198`, con la motivazione per intero;
+- **niente** su `payables`: `amount_paid` resta 14.396,00 e la rata resta legata al
+  bonifico di ottobre. Sommare i 7.198 sarebbe stato un doppio conteggio, perché
+  sono già dentro gli 11.594 pagati.
+
+Riletto dopo: rata invariata (14.396 pagati, residuo zero, `pagato`, 05/10), e
+tutti e quattro i movimenti MINGARDO ora riconciliati.
+
+**Perché il motore non l'aveva mai proposto**, e non è colpa sua: A-Cube
+classifica quel bonifico come `financials`, una delle categorie che il motore
+esclude dagli abbinamenti (`NON_RECONCILABLE_CATEGORIES`). Un bonifico vero a
+fornitore finito nella categoria sbagliata dalla banca. Vale la pena ricordarselo:
+quando un pagamento evidente non viene mai proposto, guardare la categoria prima
+della logica.
+
+**Chiarito anche l'`applied_amount = 0`** che il 19/10 sembrava un buco: la nota
+di quella riga dice «auto (distinta): scadenza disposta su questa banca in queste
+date — già pagata, solo aggancio». Era il ramo «solo aggancio» del motore, che
+non scrive l'importo. Lasciato com'è: è quello che il motore ha scritto, e i
+totali in interfaccia leggono prima l'importo del movimento.
+
+**Cosa resterebbe da fare, se si vuole**: `reconcile_movement` non sa aggiungere
+un secondo movimento a una rata già pagata e già agganciata, quindi un caso come
+questo oggi non si può chiudere dall'interfaccia. Non è stato cambiato: tocca una
+funzione condivisa che usa la pagina Banche, e nessuno l'ha chiesto.
 
 **La lezione**: il campo `manual_close_reason` conteneva la spiegazione completa
 e la prima lettura non l'aveva guardato. Quando una riga sembra incoerente, il
