@@ -3065,7 +3065,17 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   // fattura senza bank_transaction_id è sempre abbinabile, a prescindere dallo stato.
   // Escluse solo quelle già collegate a un bank_transaction_id.
   const closedManualPayables = useMemo(() =>
-    payables.filter((p) => String(p.status) === 'pagato' && !(p as { bank_transaction_id?: string | null }).bank_transaction_id),
+    payables.filter((p) => String(p.status) === 'pagato' && !p.bank_transaction_id),
+    [payables]
+  )
+
+  // Fatture già pagate che hanno GIÀ un movimento agganciato. Una fattura pagata con
+  // due bonifici ne tiene uno nel suo campo e il secondo resta orfano in banca: per
+  // agganciarlo bisogna poterla scegliere qui (caso MINGARDO 48 del 19/10/2026, con
+  // 7.198 a giugno e 2.802 a ottobre). Non entrano nelle liste automatiche — sarebbero
+  // migliaia di righe senza niente da decidere — ma si trovano cercandole per nome.
+  const paidLinkedPayables = useMemo(() =>
+    payables.filter((p) => String(p.status) === 'pagato' && !!p.bank_transaction_id),
     [payables]
   )
 
@@ -3084,7 +3094,11 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
     // Include anche le fatture GIÀ PAGATE senza aggancio (chiuse a mano o pagate
     // all'import): il loro bonifico è orfano e va abbinato — vanno trovate qui.
+    // Le pagate che hanno già un movimento entrano SOLO quando si cerca per testo:
+    // servono per il secondo bonifico di una fattura pagata in più volte, ma in lista
+    // libera sarebbero rumore.
     let list = unpaidPayables.concat(closedManualPayables)
+    if (q.length >= 2) list = list.concat(paidLinkedPayables)
 
     if (q.length >= 2) {
       list = list.filter((p) =>
@@ -3115,7 +3129,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     })
 
     return list.slice(0, 20)
-  }, [unpaidPayables, closedManualPayables, manualSearch, selectedMovement])
+  }, [unpaidPayables, closedManualPayables, paidLinkedPayables, manualSearch, selectedMovement])
 
   // Auto-match function: match by amount with 5% tolerance, produce confidence score
   const findMatches = useCallback((movement: TxT | null): MatchT[] => {
@@ -3181,8 +3195,17 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         p_payable_id: String(payable.id),
       } as never)
       if (error) throw error
-      const res = data as { ok?: boolean } | null
-      if (!res?.ok) throw new Error('Riconciliazione non applicata')
+      const res = data as { ok?: boolean; reason?: string; linked_only?: boolean } | null
+      if (!res?.ok) {
+        // 'stale' = nel frattempo quel movimento o quella fattura sono stati presi da
+        // qualcun altro: va detto, non mostrato come errore generico.
+        throw new Error(res?.reason === 'stale'
+          ? 'Nel frattempo questo movimento o questa fattura sono stati abbinati altrove: ricarica e riprova'
+          : 'Riconciliazione non applicata')
+      }
+      if (res.linked_only) {
+        toast({ type: 'success', message: 'Fattura già pagata: ho collegato il movimento senza toccare gli importi.' })
+      }
 
       setSelectedMovement(null)
       onRefresh()
@@ -3196,7 +3219,12 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
 
   const handleManualReconcile = async () => {
     if (!selectedMovement || !manualPayableId) return
-    const payable = unpaidPayables.find((p) => p.id === manualPayableId)
+    // Si cerca fra TUTTE le fatture, non solo fra le non pagate: prima una fattura
+    // già pagata si poteva selezionare ma non confermare, e rispondeva «Fattura non
+    // trovata» (trovato il 19/10/2026 col caso MINGARDO). Non si guarda nei candidati
+    // mostrati, che sono tagliati a 20: la selezione sopravvive a un cambio di ricerca.
+    // Cosa è ammesso lo decide reconcile_movement, che è l'unica autorità.
+    const payable = payables.find((p) => p.id === manualPayableId)
     if (!payable) { toast({ type: 'warning', message: 'Fattura non trovata' }); return }
     await handleReconcile(selectedMovement, payable)
     setManualPayableId('')
