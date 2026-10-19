@@ -214,7 +214,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       )}
       {proposta && (
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-          <strong>Proposta dai dati, non ancora salvata.</strong> Controlla e salva {puoFabbisogno ? 'orari e fabbisogno' : 'gli orari (il fabbisogno lo decide Patrizio)'}.
+          <strong>Proposta dai dati, non ancora salvata.</strong> Controlla e salva {puoFabbisogno ? 'orari e fabbisogno' : 'gli orari (il fabbisogno lo decide la direzione, profilo Super Advisor)'}.
           <ul className="list-disc pl-5 mt-1 space-y-0.5">{proposta.map((r) => <li key={r}>{r}</li>)}</ul>
         </div>
       )}
@@ -277,7 +277,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
           <div className="flex items-center justify-between gap-2 p-4 border-b border-slate-100 flex-wrap">
             <div>
               <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Fabbisogno: persone per fascia {!puoFabbisogno && <Lock size={13} className="text-slate-400" />}</h3>
-              <p className="text-xs text-slate-500">{puoFabbisogno ? 'Quante persone servono in negozio, fascia per fascia.' : 'Lo decide Patrizio: qui lo vedi, non lo modifichi.'}</p>
+              <p className="text-xs text-slate-500">{puoFabbisogno ? 'Quante persone servono in negozio, fascia per fascia.' : 'Lo decide la direzione (profilo Super Advisor): qui lo vedi, non lo modifichi.'}</p>
             </div>
             {puoFabbisogno && (
               <div className="flex gap-2">

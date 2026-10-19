@@ -23,7 +23,7 @@ ferie e decisioni. Nessuno dei due sostituisce l'altro.
 - Segnare cambiamenti, aggiungere persone, orari dei negozi, giorni speciali, regole e turni:
   **profili contabilità o superiori** (`super_advisor`, `ceo`, `cfo`, `coo`, `contabile`), funzione
   `organico_puo_scrivere()`. Per questo la voce Dipendenti del menu è aperta anche a `ceo` e `cfo`.
-- **Fabbisogno** (persone per fascia) e persone in più dei giorni speciali: **solo Patrizio**
+- **Fabbisogno** (persone per fascia) e persone in più dei giorni speciali: **solo il profilo Super Advisor** (su NZ Patrizio e Lilian, che deve avere le stesse facoltà: Patrizio 19/10/2026)
   (`super_advisor`), funzione `organico_puo_decidere_fabbisogno()` e trigger sui giorni speciali.
 - Una persona nuova passa da `organico_nuova_persona()` (RPC con controllo del ruolo): la policy di
   `employees` resta com'era (scrivono solo super_advisor e contabile).

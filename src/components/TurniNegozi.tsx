@@ -119,7 +119,7 @@ export default function TurniNegozi({ companyId }: Props) {
         <div className="flex flex-wrap items-center gap-2">
         {puoScrivere && (
           <button type="button" onClick={stimaTutti} disabled={stimo}
-            title={puoFabbisogno ? 'Orari e fabbisogno stimati dai dati, solo per i negozi che non li hanno' : 'Orari stimati dai dati, solo per i negozi che non li hanno (il fabbisogno lo decide Patrizio)'}
+            title={puoFabbisogno ? 'Orari e fabbisogno stimati dai dati, solo per i negozi che non li hanno' : 'Orari stimati dai dati, solo per i negozi che non li hanno (il fabbisogno lo decide la direzione, profilo Super Advisor)'}
             className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-50">
             <Sparkles size={14} /> {stimo ? 'Stimo…' : 'Stima i negozi vuoti dai dati'}
           </button>

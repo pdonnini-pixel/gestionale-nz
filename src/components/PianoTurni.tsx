@@ -208,7 +208,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       )}
       {haOrari && !haFabbisogno && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
-          <Info size={15} className="shrink-0 mt-0.5" /> Il fabbisogno di {nomeNegozio} non è ancora indicato (lo decide Patrizio): la proposta distribuisce le ore di contratto, ma non può dire se bastano.
+          <Info size={15} className="shrink-0 mt-0.5" /> Il fabbisogno di {nomeNegozio} non è ancora indicato (lo decide la direzione, profilo Super Advisor): la proposta distribuisce le ore di contratto, ma non può dire se bastano.
         </div>
       )}
       {stimati && (
