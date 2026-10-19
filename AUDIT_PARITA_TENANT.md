@@ -121,14 +121,50 @@ L'unica differenza di comportamento vera, trovata leggendo i testi:
 `get_autofix_cron_secret` su Zago aveva `search_path` senza `extensions`, dove
 vivono le funzioni di decrittazione del Vault. Ora allineata.
 
-**`close_incoming_movements` è rimasta fuori.** Il connettore Supabase manda in
-timeout quel payload in modo ripetibile: quattro tentativi, su Made e su Zago, con
-`apply_migration`, con `execute_sql` e dentro un blocco `DO`, mentre ogni altra
-funzione passa al primo colpo. Il sospetto è un filtro che reagisce al contenuto del
-suo regex, dove compaiono i nomi dei circuiti delle carte (VISA, MASTERCARD). La sua
-logica è identica sui tre tenant, verificata leggendo entrambe le versioni riga per
-riga, quindi non si è forzata la mano con una patch testuale fragile. Nei prossimi
-audit comparirà come differenza di testo: è questa, ed è nota.
+**`close_incoming_movements` ha richiesto un'altra strada, e ora è allineata.**
+Il `CREATE OR REPLACE` con il testo intero manda in timeout il connettore in modo
+ripetibile: quattro tentativi, su Made e su Zago, con `apply_migration`, con
+`execute_sql` e dentro un blocco `DO`, mentre ogni altra funzione passa al primo
+colpo. Il sospetto resta un filtro che reagisce al contenuto del suo regex, dove
+compaiono i nomi dei circuiti delle carte.
+
+La via d'uscita è la tecnica delle migration 218, 219 e 306: **il testo non si
+invia, si legge dal server** con `pg_get_functiondef` e si corregge con `replace()`
+mirati. Nel payload finiscono solo le ancore, che non contengono i pattern
+bloccanti, e passa.
+
+Dodici sostituzioni, tutte di sola scrittura (righe vuote, indentazione, un `AS`
+davanti a un alias, lo spazio dopo una virgola). **Che dodici `replace()` di
+formattazione bastino per arrivare al testo identico è la prova definitiva che la
+logica era già la stessa.**
+
+E una patch testuale a dodici passi non è fragile se si verifica da sé: il testo di
+NZ ha un'impronta nota (`0d581a41…`, 2.082 caratteri), quindi la patch ricalcola,
+confronta e **alza un'eccezione senza eseguire se non combacia**. Non esiste l'esito
+a metà. Provata prima a vuoto — le dodici sostituzioni sul testo di Made davano
+esattamente l'md5 di NZ senza scrivere niente — e solo dopo eseguita. Migration
+`20261020_309`.
+
+**Quindi tutte e 9 sono allineate**, e la lezione generale: quando il canale rifiuta
+un payload, il testo si fa costruire dal server e si verifica con l'impronta. Vale
+per ogni funzione, non solo per questa.
+
+### Le 18 di sola formattazione, ancora diverse
+
+Restano le 18 divergenze che l'audit aveva classificato come formattazione (fra cui
+`_acube_marking_to_sdi_status`, `check_pixel_and_alert`, `delete_cash_closing`,
+`close_non_supplier_movements`): la logica è la stessa, il testo no, quindi
+l'impronta non normalizzata dei tre tenant resta diversa e ogni audit futuro le
+segnalerà.
+
+Due modi per chiudere anche quelle, quando si vuole:
+1. la patch sulla definizione viva della 309, una per una, con il controllo dell'md5
+   che garantisce l'esattezza (sicuro ma lento: serve conoscere le ancore di ognuna);
+2. usare nell'audit la misura **normalizzata** di cui sopra, che le ignora senza
+   toccare i database.
+
+La seconda costa niente ed è quella giusta per il controllo settimanale; la prima ha
+senso se si vuole che i tre tenant siano leggibili come un solo codice.
 
 ### Com'era prima dell'allineamento: le 9 funzioni
 
