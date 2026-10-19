@@ -113,3 +113,81 @@ La migration 315 è stata applicata via connettore su NZ, Made e Zago a blocchi 
 `DROP ... IF EXISTS`**: il connettore chiede conferma per ogni `DROP` o `DELETE` (anche dentro il
 testo di una funzione) e va in timeout. Per le prossime migration: niente `DROP` nelle tabelle nuove,
 blocchi piccoli.
+
+## Specifica della fase 2 (decisa da Patrizio il 19/10/2026, non ancora costruita)
+
+Nata dal confronto con il documento di Lilian «Turni outlet New Zago: specifiche per il gestionale»
+(19/10/2026) e dalle risposte di Patrizio dello stesso giorno. Qui c'è **cosa** deve fare il gestionale;
+il codice non c'è ancora. Prima di costruire un pezzo, rileggere questa sezione.
+
+### L'obiettivo
+
+Le ore di contratto si pagano comunque. Ogni settimana, per ogni persona:
+**ore di contratto = ore lavorate + ferie e permessi goduti + festività.**
+Ottimizzare vuol dire mettere le ore lavorate dove il negozio ne ha bisogno; le ore che avanzano nei
+periodi tranquilli diventano ferie e permessi. Nei picchi niente ferie, e dove le persone non bastano
+il gestionale lo dice.
+
+### Orizzonte e ritmo
+
+- Calendari per **tutti i negozi fino al 31/12/2027** (Forte dei Marmi escluso: non è un negozio NZ).
+- La pianificazione è **mensile**, ma l'operatore deve poter generare o rigenerare i turni di qualunque
+  periodo **in qualsiasi momento**. Turni messi a mano e pubblicati restano protetti, come oggi.
+- Due livelli di calcolo: un piano settimanale di capacità (ore necessarie, ore di contratto, settimane
+  di ferie, rinforzi) per tutto l'orizzonte, e i turni giorno per giorno generati come bozza e
+  ricalcolati quando cambia organico, fabbisogno o ferie.
+
+### Il calendario dei giorni
+
+Per ogni negozio e giorno: aperto o chiuso, orario, tipo di giorno (feriale, sabato, domenica con la
+stagione del mese; festivo aperto; giorno di punta; chiusura). Festività 2027: 01/01, 06/01, Pasqua
+28/03 e Pasquetta 29/03, 25/04, 01/05, 02/06, 15/08, 01/11, 08/12, 25-26/12. Punte da Lilian: weekend
+del Black Friday (2027: venerdì 26/11), 8/12, Ognissanti, feriali fra Natale e Capodanno, eventi dei
+village, avvio dei saldi. Date dei saldi per regione ed eventi vanno confermati: fino ad allora sono
+ipotesi e lo dicono.
+
+### Il fabbisogno
+
+- Fonte principale: il **report MODA «Conversion Rate»** (ingressi, scontrini, valore per ora). Va
+  costruita la zona di caricamento (regola fissa dei caricamenti). Per fascia: ingressi medi diviso la
+  soglia di affollamento del negozio (ingressi per addetto all'ora oltre cui la conversione cala),
+  arrotondato, almeno una persona. Profilo per tipo di giorno e mese; i giorni di punta prendono gli
+  ingressi dello stesso giorno dell'anno prima. Soglia ricalcolata ogni mese.
+- Ordine delle fonti: decisione della direzione > MODA > stima dagli incassi > standard.
+- Si salva il fabbisogno **vero** (codice S di Lilian), non quello ridotto alle ore disponibili (A): lo
+  scoperto si mostra, non si nasconde.
+- **Chi è in pausa non conta come presente**: la copertura deve reggere con le pause sfalsate. Oggi
+  `copertura()` in `turni.ts` conta anche chi è in pausa: va corretto prima di caricare i numeri di Lilian.
+- Servono: fabbisogno per periodo (oggi una sola settimana tipo) e giorni speciali con le proprie fasce
+  (oggi solo «persone in più» su tutta la giornata).
+- Roma non ha storia: parte dal profilo di un negozio simile.
+
+### I turni
+
+- **La durata del turno segue le ore settimanali disponibili** della persona (nessun menu fisso di
+  durate; le 7 ore sono ammesse). Massimo 8 ore lavorate, un turno al giorno, pause 30' da 6 ore e
+  un'ora da 8, nessun turno minimo (resta il limite tecnico di un'ora).
+- Vincoli da aggiungere: massimo giorni lavorati per persona, «solo sabato e domenica», persona che
+  lavora in più negozi (Elisa Manescalchi un giorno a settimana fuori Barberino), massimo 6 giorni
+  consecutivi a cavallo fra due settimane, rotazione equa di sabati e domeniche liberi.
+- **Rinforzi nei picchi**: prima con il personale che c'è (spostando ore e persone fra negozi), poi
+  straordinari. Le persone a chiamata sono riserva, non base.
+- Calcolo: serve un ottimizzatore a numeri interi (come il PuLP/CBC usato da Lilian), non la proposta
+  greedy di oggi. Obiettivo: coprire il fabbisogno (penalità più alta nei giorni di punta), non mettere
+  ore dove non servono, consumare le ferie in modo equo.
+
+### Le ferie dentro il piano
+
+Vedi `PIANO_FERIE_NOTES.md`, sezione «Fase 4». In breve: saldo dal tabulato più maturazione proiettata
+mese per mese, ferie messe nei periodi tranquilli, obiettivo di fine anno = zero sulle ore che
+altrimenti verrebbero pagate.
+
+### Dati da chiedere
+
+- Kacorri (Brugnato): la maternità è scritta nella nota del 29/09 ma senza date; servono inizio e
+  rientro per segnarla come assenza lunga.
+- Report MODA mensili di tutti i negozi, e quelli 2025 di Valdichiana e Torino.
+- File presenze mensile di People Smart (lo prepara Veronica per lo studio): darebbe ferie godute,
+  malattie e il confronto turni pianificati / ore vere.
+- I calendari di Lilian di Franciacorta (contano Platto, in aspettativa, e Balada, uscita il 05/09) e
+  di Brugnato da novembre (Ruggeri scade il 04/11, Falchi oggi a chiamata) vanno rifatti.
