@@ -73,6 +73,31 @@ Un caso utile da ricordare (test): 2 persone dalle 10 alle 20 con turni da 8 ore
 richiedono 4 turni al giorno (due aprono, due chiudono). Quattro persone a 40 ore non bastano anche se
 le ore totali sì: la proposta usa comunque tutte le loro ore e dice dove manca qualcuno.
 
+## Rinnovi e trasformazioni con orario diverso (migration 316)
+
+Una proroga o un passaggio a indeterminato possono portare più o meno ore: il cambiamento porta
+`ore_settimanali`, che valgono dal suo `data_dal` (la nuova scadenza invece vale subito). Si scrive
+solo se diversa dalle ore di oggi. `organico_riconcilia` chiude la proroga (o la trasformazione) solo
+quando l'anagrafica riporta anche le ore.
+
+## Orari e fabbisogno stimati dai dati (migration 316, `stimaNegozio.ts`)
+
+Per non partire da pagine vuote. Fonti misurate il 19/10/2026 sulle chiusure di cassa di NZ da
+settembre: la cassa si conferma a fine giornata, alle 20 quasi ovunque e alle 21 a Valmontone il
+sabato e la domenica; l'incasso del weekend è 3-5 volte quello dei feriali.
+- Chiusura = mediana dell'ora di conferma (ora di Roma), arrotondata alla mezz'ora prima.
+- Apertura = 10:00 standard: **nessun dato la registra**, e la spiegazione lo dice.
+- Persone = ore di contratto del negozio distribuite sui giorni con peso √incasso medio, per difetto,
+  almeno una, e mai più di metà delle persone in servizio se la giornata è più lunga di un turno
+  (8 ore + pausa): per avere k persone tutto il giorno servono k che aprono e k che chiudono.
+- Si salva con `origine = 'stima'`; il salvataggio da una persona la rende `manuale`. Lo stimato è
+  azzurro in pagina. La stima di massa scrive solo nei negozi senza dati e salta quelli senza chiusure
+  di cassa (sede, Roma prima dell'apertura).
+
+Prova a secco del 19/10/2026 su NZ (organico di oggi, settimana tipo): con la stima la proposta dei
+turni copre tutto in Valdichiana, Palmanova, Franciacorta, Barberino, Torino e Brugnato; a Valmontone
+resta scoperta l'ultima ora del weekend (20-21). Sede e Roma non hanno chiusure: si inseriscono a mano.
+
 ## Il piano ferie
 
 Saldi dal tabulato dello studio (`v_leave_disponibilita`, vedi `PIANO_FERIE_NOTES.md`): il gestionale

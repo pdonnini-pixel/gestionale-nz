@@ -4,6 +4,7 @@
 
 import { supabase } from './supabase';
 import type { EventoOrganico, SchedaPersona } from './organico';
+import { oraRoma, type ChiusuraGiorno } from './stimaNegozio';
 
 export interface NegozioRif {
   id: string;
@@ -89,4 +90,25 @@ export async function caricaGiorniFerie(companyId: string, dal: string, al: stri
     const r = Array.isArray(d.leave_requests) ? d.leave_requests[0] : d.leave_requests;
     return { employee_id: r?.employee_id, data: d.data, ore: Number(d.ore), tipo: d.tipo, stato_richiesta: r?.stato, stato_giorno: d.stato };
   }).filter((d) => !!d.employee_id);
+}
+
+/**
+ * Chiusure di cassa delle ultime settimane, per stimare orari e fabbisogno
+ * (stimaNegozio.ts). Ora di conferma gia' convertita nell'ora di Roma.
+ */
+export async function caricaChiusurePerStima(companyId: string, settimane = 8): Promise<(ChiusuraGiorno & { outlet_id: string })[]> {
+  const dal = new Date(Date.now() - settimane * 7 * 86_400_000).toISOString().slice(0, 10);
+  const { data, error } = await supabase.from('outlet_daily_closings')
+    .select('outlet_id, closing_date, is_closed_day, confirmed_at, total_receipts')
+    .eq('company_id', companyId)
+    .gte('closing_date', dal);
+  if (error) throw error;
+  return ((data as { outlet_id: string; closing_date: string; is_closed_day: boolean | null; confirmed_at: string | null; total_receipts: number | null }[]) ?? [])
+    .map((c) => ({
+      outlet_id: c.outlet_id,
+      data: c.closing_date,
+      giornoChiuso: !!c.is_closed_day,
+      oraConferma: oraRoma(c.confirmed_at),
+      incasso: c.total_receipts != null ? Number(c.total_receipts) : null,
+    }));
 }

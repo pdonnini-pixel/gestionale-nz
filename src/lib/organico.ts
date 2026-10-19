@@ -183,6 +183,8 @@ export function personaAllaData(scheda: SchedaPersona, eventiTutti: EventoOrgani
         // Una proroga si conosce prima che cominci: la nuova scadenza vale subito.
         if (e.data_al) scadenza = e.data_al;
         if (e.data_al && ultimoGiorno && ultimoGiorno < e.data_al) ultimoGiorno = null;
+        // Il rinnovo puo' cambiare l'orario (piu' o meno ore): vale dal primo giorno del rinnovo.
+        if (valeOggi && e.ore_settimanali != null) ore = Number(e.ore_settimanali);
         break;
       case 'cessazione':
       case 'non_rinnovo':
@@ -204,7 +206,12 @@ export function personaAllaData(scheda: SchedaPersona, eventiTutti: EventoOrgani
         if (valeOggi && e.outlet_id) outletId = e.outlet_id;
         break;
       case 'trasformazione_indeterminato':
-        if (valeOggi) { contratto = 'indeterminato'; scadenza = null; }
+        if (valeOggi) {
+          contratto = 'indeterminato';
+          scadenza = null;
+          // Anche il passaggio a indeterminato puo' portare un orario diverso.
+          if (e.ore_settimanali != null) ore = Number(e.ore_settimanali);
+        }
         break;
       case 'assenza_lunga':
         if (valeOggi && (!e.data_al || data < e.data_al)) {
@@ -308,10 +315,10 @@ export function descriviEvento(e: EventoOrganico, nomeNegozio?: (id: string) => 
     case 'rientro': return `Rientro dal ${dal}`;
     case 'non_rinnovo': return `Non rinnovato: ultimo giorno ${dal}`;
     case 'cessazione': return `${e.motivo ? capitalizza(e.motivo) : 'Uscita'}: ultimo giorno ${dal}`;
-    case 'proroga': return `Proroga fino al ${al || '?'}`;
+    case 'proroga': return `Proroga fino al ${al || '?'}${e.ore_settimanali ? `, ${e.ore_settimanali} ore dal ${dal}` : ''}`;
     case 'cambio_orario': return `${e.ore_settimanali ?? '?'} ore dal ${dal}`;
     case 'cambio_negozio': return `Passa a ${e.outlet_id && nomeNegozio ? nomeNegozio(e.outlet_id) : 'un altro negozio'} dal ${dal}`;
-    case 'trasformazione_indeterminato': return `Indeterminato dal ${dal}`;
+    case 'trasformazione_indeterminato': return `Indeterminato dal ${dal}${e.ore_settimanali ? `, ${e.ore_settimanali} ore` : ''}`;
     case 'assunzione': return `Assunta dal ${dal}${e.ore_settimanali ? `, ${e.ore_settimanali} ore` : ''}${al ? `, scadenza ${al}` : ''}`;
     default: return `${e.nota ?? 'Cambiamento'} dal ${dal}`;
   }
@@ -346,17 +353,23 @@ export function confrontoEvento(
       if (o == null) return { esito: 'non_riportato', studio: 'orario non indicato' };
       return { esito: Number(o) === Number(e.ore_settimanali) ? 'uguale' : 'diverso', studio: `${o} ore` };
     }
-    case 'proroga':
+    case 'proroga': {
       if (!scheda.scadenza_td) return { esito: 'non_riportato', studio: 'nessuna scadenza' };
-      return { esito: scheda.scadenza_td === e.data_al ? 'uguale' : 'diverso', studio: `scadenza ${formattaDataBreve(scheda.scadenza_td)}` };
+      const oreStudio = scheda.ore_settimanali != null ? `, ${scheda.ore_settimanali} ore` : '';
+      const studio = `scadenza ${formattaDataBreve(scheda.scadenza_td)}${e.ore_settimanali != null ? oreStudio : ''}`;
+      const stessaScadenza = scheda.scadenza_td === e.data_al;
+      const stesseOre = e.ore_settimanali == null || Number(scheda.ore_settimanali) === Number(e.ore_settimanali);
+      return { esito: stessaScadenza && stesseOre ? 'uguale' : 'diverso', studio };
+    }
     case 'cessazione':
     case 'non_rinnovo':
       if (!scheda.data_cessazione) return { esito: 'non_riportato', studio: 'ancora in forza' };
       return { esito: scheda.data_cessazione === e.data_dal ? 'uguale' : 'diverso', studio: `cessazione ${formattaDataBreve(scheda.data_cessazione)}` };
-    case 'trasformazione_indeterminato':
-      return scheda.contratto_tipo === 'indeterminato'
-        ? { esito: 'uguale', studio: 'indeterminato' }
-        : { esito: 'non_riportato', studio: scheda.contratto_tipo ?? 'contratto non indicato' };
+    case 'trasformazione_indeterminato': {
+      if (scheda.contratto_tipo !== 'indeterminato') return { esito: 'non_riportato', studio: scheda.contratto_tipo ?? 'contratto non indicato' };
+      const stesseOre = e.ore_settimanali == null || Number(scheda.ore_settimanali) === Number(e.ore_settimanali);
+      return { esito: stesseOre ? 'uguale' : 'diverso', studio: `indeterminato${scheda.ore_settimanali != null ? `, ${scheda.ore_settimanali} ore` : ''}` };
+    }
     case 'cambio_negozio':
       if (!scheda.outlet_id) return { esito: 'non_riportato', studio: 'negozio non indicato' };
       return { esito: scheda.outlet_id === e.outlet_id ? 'uguale' : 'non_riportato', studio: nomeNegozio(scheda.outlet_id) };

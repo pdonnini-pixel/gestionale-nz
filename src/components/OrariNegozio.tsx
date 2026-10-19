@@ -8,7 +8,7 @@
 //  - Regole: turno minimo e massimo, pausa, giorni di lavoro a settimana.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Copy, Lock, Plus, Save, Trash2 } from 'lucide-react';
+import { Copy, Lock, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import {
@@ -16,6 +16,8 @@ import {
   type FasciaFabbisogno, type RegoleTurni,
 } from '../lib/turni';
 import { formattaDataBreve, oggiRoma } from '../lib/organico';
+import { caricaChiusurePerStima } from '../lib/organicoDati';
+import { stimaOrariEFabbisogno } from '../lib/stimaNegozio';
 
 type Props = {
   companyId: string;
@@ -25,6 +27,8 @@ type Props = {
   puoFabbisogno: boolean;
   /** ore settimanali di contratto delle persone in servizio nel negozio */
   oreContratto: number;
+  /** quante persone sono in servizio nel negozio (tetto della stima) */
+  personeInServizio: number;
   onSalvato?: () => void;
 };
 
@@ -38,7 +42,7 @@ const inputCls = 'min-h-[36px] rounded-lg border border-slate-300 px-2 text-sm d
 let chiaveSeq = 0;
 const nuovaChiave = () => `n${++chiaveSeq}`;
 
-export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScrivere, puoFabbisogno, oreContratto, onSalvato }: Props) {
+export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScrivere, puoFabbisogno, oreContratto, personeInServizio, onSalvato }: Props) {
   const { toast } = useToast();
   const [orari, setOrari] = useState<RigaOrario[]>(settimanaVuota());
   const [fasce, setFasce] = useState<RigaFascia[]>([]);
@@ -48,6 +52,10 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [nuovoSpeciale, setNuovoSpeciale] = useState<RigaSpeciale>({ data: '', chiuso: false, apre: '', chiude: '', persone_extra: 0, nota: '' });
   const [caricamento, setCaricamento] = useState(true);
   const [salvo, setSalvo] = useState<string | null>(null);
+  // Orari e fabbisogno salvati come stima (non ancora confermati da una persona).
+  const [stimaSalvata, setStimaSalvata] = useState<{ orari: boolean; fasce: boolean }>({ orari: false, fasce: false });
+  // Proposta dai dati appena calcolata, non ancora salvata.
+  const [proposta, setProposta] = useState<string[] | null>(null);
 
   const carica = useCallback(async () => {
     setCaricamento(true);
@@ -58,6 +66,11 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
     ]);
     const base = settimanaVuota();
+    setStimaSalvata({
+      orari: ((o.data as { origine?: string }[]) ?? []).some((x) => x.origine === 'stima'),
+      fasce: ((f.data as { origine?: string }[]) ?? []).some((x) => x.origine === 'stima'),
+    });
+    setProposta(null);
     for (const x of (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? []) {
       base[x.giorno - 1] = { giorno: x.giorno, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude) };
     }
@@ -91,7 +104,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     setSalvo('orari');
     const { error } = await supabase.from('outlet_opening_hours').upsert(orari.map((o) => ({
       company_id: companyId, outlet_id: outletId, giorno: o.giorno, chiuso: o.chiuso,
-      apre: o.chiuso ? null : o.apre, chiude: o.chiuso ? null : o.chiude, updated_at: new Date().toISOString(),
+      apre: o.chiuso ? null : o.apre, chiude: o.chiuso ? null : o.chiude, origine: 'manuale', updated_at: new Date().toISOString(),
     })), { onConflict: 'outlet_id,giorno' });
     setSalvo(null);
     if (error) { toast({ type: 'error', message: error.message }); return; }
@@ -109,7 +122,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
         if (error) throw error;
       }
       for (const f of fasce) {
-        const riga = { company_id: companyId, outlet_id: outletId, giorno: f.giorno, dalle: f.dalle, alle: f.alle, persone: f.persone, updated_at: new Date().toISOString() };
+        const riga = { company_id: companyId, outlet_id: outletId, giorno: f.giorno, dalle: f.dalle, alle: f.alle, persone: f.persone, origine: 'manuale', updated_at: new Date().toISOString() };
         const { error } = f.id
           ? await supabase.from('outlet_staffing_needs').update(riga).eq('id', f.id)
           : await supabase.from('outlet_staffing_needs').insert([riga]);
@@ -163,6 +176,24 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     onSalvato?.();
   };
 
+  // Proposta dai dati: chiusure di cassa (ora di chiusura, incasso per giorno)
+  // e ore di contratto del negozio. Riempie il modulo, non salva: chi guarda
+  // controlla e salva. Il fabbisogno lo propone solo a chi puo' deciderlo.
+  const proponiDaiDati = async () => {
+    setSalvo('stima');
+    try {
+      const chiusure = (await caricaChiusurePerStima(companyId)).filter((c) => c.outlet_id === outletId);
+      const stima = stimaOrariEFabbisogno(chiusure, oreContratto, personeInServizio);
+      setOrari(stima.orari.map((o) => ({ giorno: o.giorno, chiuso: o.chiuso, apre: o.apre ?? '', chiude: o.chiude ?? '' })));
+      if (puoFabbisogno) setFasce(stima.fasce.map((f) => ({ ...f, chiave: nuovaChiave() })));
+      setProposta(stima.spiegazione);
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Stima non riuscita.' });
+    } finally {
+      setSalvo(null);
+    }
+  };
+
   const copiaOrariLunedi = () => setOrari((o) => o.map((x) => (x.giorno === 1 ? x : { ...o[0], giorno: x.giorno })));
   const copiaFasceLunedi = () => setFasce((f) => {
     const lun = f.filter((x) => x.giorno === 1);
@@ -175,6 +206,26 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
 
   return (
     <div className="space-y-4">
+      {puoScrivere && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-slate-600">Non sai da dove partire? La proposta legge le chiusure di cassa del negozio e le ore di contratto di chi ci lavora.</p>
+          <button type="button" onClick={proponiDaiDati} disabled={salvo === 'stima'}
+            className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg border border-slate-300 bg-white text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+            <Sparkles size={15} /> {salvo === 'stima' ? 'Calcolo…' : 'Proponi dai dati'}
+          </button>
+        </div>
+      )}
+      {proposta && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+          <strong>Proposta dai dati, non ancora salvata.</strong> Controlla e salva {puoFabbisogno ? 'orari e fabbisogno' : 'gli orari (il fabbisogno lo decide Patrizio)'}.
+          <ul className="list-disc pl-5 mt-1 space-y-0.5">{proposta.map((r) => <li key={r}>{r}</li>)}</ul>
+        </div>
+      )}
+      {!proposta && (stimaSalvata.orari || stimaSalvata.fasce) && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+          {stimaSalvata.orari && stimaSalvata.fasce ? 'Orari e fabbisogno' : stimaSalvata.orari ? 'Gli orari' : 'Il fabbisogno'} di {nomeNegozio} sono stimati dai dati e non ancora confermati: controlla e salva per confermarli.
+        </div>
+      )}
       <div className={`rounded-xl border p-4 flex flex-wrap gap-x-8 gap-y-2 text-sm ${oreServono > 0 && mancano > 0 ? 'bg-amber-50 border-amber-200' : 'bg-white border-slate-200'}`}>
         <span>Ore da coprire in una settimana tipo: <strong className="tabular-nums">{oreServono.toLocaleString('it-IT')}</strong></span>
         <span>Ore di contratto delle persone in servizio: <strong className="tabular-nums">{oreContratto.toLocaleString('it-IT')}</strong></span>

@@ -17456,6 +17456,7 @@ export type Database = {
           company_id: string
           giorno: number
           id: string
+          origine: string
           outlet_id: string
           updated_at: string
           updated_by: string | null
@@ -17467,6 +17468,7 @@ export type Database = {
           company_id: string
           giorno: number
           id?: string
+          origine?: string
           outlet_id: string
           updated_at?: string
           updated_by?: string | null
@@ -17478,6 +17480,7 @@ export type Database = {
           company_id?: string
           giorno?: number
           id?: string
+          origine?: string
           outlet_id?: string
           updated_at?: string
           updated_by?: string | null
@@ -17716,6 +17719,7 @@ export type Database = {
           dalle: string
           giorno: number
           id: string
+          origine: string
           outlet_id: string
           persone: number
           updated_at: string
@@ -17727,6 +17731,7 @@ export type Database = {
           dalle: string
           giorno: number
           id?: string
+          origine?: string
           outlet_id: string
           persone: number
           updated_at?: string
@@ -17738,6 +17743,7 @@ export type Database = {
           dalle?: string
           giorno?: number
           id?: string
+          origine?: string
           outlet_id?: string
           persone?: number
           updated_at?: string

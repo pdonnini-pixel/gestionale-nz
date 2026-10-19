@@ -93,7 +93,7 @@ export default function SegnaCambiamento({
     if (!persona) return;
     if (tipo === 'non_rinnovo' && persona.scadenza) setDal(persona.scadenza);
     if (tipo === 'proroga' && persona.scadenza) setDal(aggiungiGiorni(persona.scadenza, 1));
-    if (tipo === 'cambio_orario' && persona.ore != null) setOre(String(persona.ore));
+    if ((tipo === 'cambio_orario' || tipo === 'proroga' || tipo === 'trasformazione_indeterminato') && persona.ore != null) setOre(String(persona.ore));
   }, [tipo, persona]);
 
   // Cosa succede: turni e ferie dopo la data, per chi esce o si assenta.
@@ -137,6 +137,7 @@ export default function SegnaCambiamento({
     if (tipo === 'proroga' && !al) return 'Indica la nuova scadenza.';
     if (al && al < dal) return 'La seconda data viene prima della prima.';
     if (tipo === 'cambio_orario' && (!ore || Number(ore) <= 0 || Number(ore) > 48)) return 'Indica le nuove ore settimanali.';
+    if ((tipo === 'proroga' || tipo === 'trasformazione_indeterminato') && ore && (Number(ore) <= 0 || Number(ore) > 48)) return 'Le ore settimanali vanno da 1 a 48.';
     if (tipo === 'cambio_negozio' && !negozio) return 'Scegli il negozio.';
     if (tipo === 'altro' && !nota.trim()) return 'Scrivi cosa è successo.';
     return null;
@@ -186,7 +187,11 @@ export default function SegnaCambiamento({
           motivo: motivo || null,
           data_dal: dal,
           data_al: al || null,
-          ore_settimanali: tipo === 'cambio_orario' ? Number(ore) : null,
+          // Proroga e passaggio a indeterminato possono cambiare l'orario:
+          // le ore si scrivono solo se sono diverse da quelle di oggi.
+          ore_settimanali: tipo === 'cambio_orario' ? Number(ore)
+            : (tipo === 'proroga' || tipo === 'trasformazione_indeterminato') && ore && Number(ore) !== persona?.ore ? Number(ore)
+            : null,
           outlet_id: tipo === 'cambio_negozio' ? negozio : null,
           contratto_tipo: tipo === 'trasformazione_indeterminato' ? 'indeterminato' : null,
           nota: nota.trim() || null,
@@ -331,6 +336,17 @@ export default function SegnaCambiamento({
                 )}
                 {tipo === 'proroga' && (
                   <div><label className={labelCls} htmlFor="sc-al">Nuova scadenza</label><input id="sc-al" type="date" className={inputCls} value={al} onChange={(e) => setAl(e.target.value)} /></div>
+                )}
+                {(tipo === 'proroga' || tipo === 'trasformazione_indeterminato') && (
+                  <div>
+                    <label className={labelCls} htmlFor="sc-ore-rinnovo">Ore settimanali {tipo === 'proroga' ? 'dal rinnovo' : 'da indeterminato'}</label>
+                    <input id="sc-ore-rinnovo" type="number" min={1} max={48} step={0.5} className={inputCls} value={ore} onChange={(e) => setOre(e.target.value)} />
+                    <p className="text-xs text-slate-500 mt-1">
+                      {persona?.ore != null && ore && Number(ore) !== persona.ore
+                        ? `Da ${persona.ore} a ${ore} ore dal ${formattaDataBreve(dal)}.`
+                        : 'Cambiale solo se il nuovo contratto ha più o meno ore.'}
+                    </p>
+                  </div>
                 )}
                 {tipo === 'cambio_orario' && (
                   <div><label className={labelCls} htmlFor="sc-ore">Nuove ore settimanali</label><input id="sc-ore" type="number" min={1} max={48} step={0.5} className={inputCls} value={ore} onChange={(e) => setOre(e.target.value)} /></div>

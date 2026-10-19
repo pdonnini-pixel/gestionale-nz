@@ -1,0 +1,7 @@
+-- Rollback della 316. Le colonne origine restano (ADD COLUMN additiva, nessun
+-- dato da recuperare); si ripristina la riconciliazione della 315, che non
+-- guarda le ore di proroghe e trasformazioni.
+-- Per togliere anche le colonne serve conferma di Patrizio (NO DATA LOSS):
+--   ALTER TABLE public.outlet_opening_hours  DROP COLUMN origine;
+--   ALTER TABLE public.outlet_staffing_needs DROP COLUMN origine;
+-- Funzione: rieseguire la sezione 9 di 20261019_315_organico_turni.sql.

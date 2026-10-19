@@ -45,6 +45,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [giorni, setGiorni] = useState<GiornoPiano[]>([]);
   const [haOrari, setHaOrari] = useState(true);
   const [haFabbisogno, setHaFabbisogno] = useState(true);
+  const [stimati, setStimati] = useState(false);
   const [regole, setRegole] = useState<RegoleTurni>(REGOLE_DEFAULT);
   const [turni, setTurni] = useState<TurnoDb[]>([]);
   const [ferie, setFerie] = useState<Awaited<ReturnType<typeof caricaGiorniFerie>>>([]);
@@ -56,8 +57,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     setCaricamento(true);
     try {
       const [o, f, s, r, t, fe] = await Promise.all([
-        supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', outletId),
-        supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone').eq('outlet_id', outletId),
+        supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude, origine').eq('outlet_id', outletId),
+        supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
         supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
         supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo')
@@ -67,6 +68,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
       const fasce = (f.data as { giorno: number; dalle: string; alle: string; persone: number }[]) ?? [];
       setHaOrari(orari.length > 0);
+      setStimati([...orari, ...fasce].some((x) => (x as { origine?: string }).origine === 'stima'));
       setHaFabbisogno(fasce.some((x) => x.persone > 0));
       setGiorni(costruisciGiorni(date, orari, fasce, (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? []));
       const rr = r.data as { turno_min_ore: number; turno_max_ore: number; pausa_oltre_ore: number; pausa_minuti: number; giorni_lavoro_max: number } | null;
@@ -211,6 +213,12 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       {haOrari && !haFabbisogno && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
           <Info size={15} className="shrink-0 mt-0.5" /> Il fabbisogno di {nomeNegozio} non è ancora indicato (lo decide Patrizio): la proposta distribuisce le ore di contratto, ma non può dire se bastano.
+        </div>
+      )}
+      {stimati && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900 flex flex-wrap items-center gap-2">
+          <Info size={15} /> Orari o fabbisogno di {nomeNegozio} sono stimati dai dati, non ancora confermati: la proposta è una simulazione.
+          <button type="button" onClick={onVaiOrari} className="underline font-semibold">Controlla e conferma</button>
         </div>
       )}
       {annullatiPubblicati > 0 && (

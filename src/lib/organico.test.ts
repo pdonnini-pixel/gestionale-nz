@@ -69,6 +69,24 @@ describe('personaAllaData', () => {
     expect(decisioniDaPrendere([p])).toHaveLength(0);
   });
 
+  it('rinnovo con orario diverso: nuova scadenza subito, nuove ore dal primo giorno del rinnovo', () => {
+    const s = { ...base, scadenza_td: '2026-12-15' };
+    const e = [ev({ tipo: 'proroga', data_dal: '2026-12-16', data_al: '2027-06-15', ore_settimanali: 36 })];
+    const prima = personaAllaData(s, e, '2026-12-01');
+    expect(prima.scadenza).toBe('2027-06-15');
+    expect(prima.ore).toBe(30);
+    expect(personaAllaData(s, e, '2026-12-16').ore).toBe(36);
+    expect(descriviEvento(e[0])).toBe('Proroga fino al 15/06/2027, 36 ore dal 16/12/2026');
+  });
+
+  it('passaggio a indeterminato con meno ore', () => {
+    const e = [ev({ tipo: 'trasformazione_indeterminato', data_dal: '2026-11-01', ore_settimanali: 24 })];
+    const p = personaAllaData(base, e, '2026-11-01');
+    expect(p.contratto).toBe('indeterminato');
+    expect(p.ore).toBe(24);
+    expect(personaAllaData(base, e, '2026-10-31').ore).toBe(30);
+  });
+
   it('cambio d’orario vale dalla sua data', () => {
     const e = [ev({ tipo: 'cambio_orario', data_dal: '2026-10-01', ore_settimanali: 20 })];
     expect(personaAllaData(base, e, '2026-09-30').ore).toBe(30);
@@ -140,6 +158,12 @@ describe('confronto con lo studio', () => {
     const e = ev({ tipo: 'cambio_orario', ore_settimanali: 20 });
     expect(confrontoEvento(e, { ...base, ore_settimanali: 20 }, false).esito).toBe('uguale');
     expect(confrontoEvento(e, base, false)).toEqual({ esito: 'diverso', studio: '30 ore' });
+  });
+  it('proroga con ore: uguale solo se lo studio riporta scadenza e ore', () => {
+    const e = ev({ tipo: 'proroga', data_al: '2027-06-15', ore_settimanali: 36 });
+    expect(confrontoEvento(e, { ...base, scadenza_td: '2027-06-15', ore_settimanali: 36 }, false).esito).toBe('uguale');
+    expect(confrontoEvento(e, { ...base, scadenza_td: '2027-06-15', ore_settimanali: 30 }, false))
+      .toEqual({ esito: 'diverso', studio: 'scadenza 15/06/2027, 30 ore' });
   });
   it('maternità: non verificabile dai documenti', () => {
     expect(confrontoEvento(ev({ tipo: 'assenza_lunga' }), base, false).esito).toBe('non_verificabile');
