@@ -758,3 +758,89 @@ Il controllo è stato incluso nella funzione nuova, con un test che lo fissa
 («scarta la proposta il cui movimento precede di mesi la fattura»). La lezione è
 quella di sempre, e vale anche fuori dal database: **prima di sostituire un
 blocco, leggere la versione viva di quel blocco**, non quella che si ricordava.
+
+---
+
+## 20/10/2026 — Agganciare un secondo bonifico si fa dall'interfaccia (306)
+
+Seguito del caso MINGARDO 48: Patrizio ha chiesto di sistemare la funzione, così un
+aggancio come quello non passa più da una query a mano. Andando a guardare, i motivi
+per cui non si poteva fare erano **tre**, non uno, e il secondo era il più grave.
+
+### 1. La funzione rifiutava il caso
+
+`reconcile_movement` ha il ramo giusto («solo aggancio, nessuna doppia scrittura»),
+ma scattava solo `IF status = 'pagato' AND bank_transaction_id IS NULL`. In
+`payables` il movimento è **un campo solo**: una fattura pagata da due bonifici ne
+tiene uno, quindi per il secondo il ramo non partiva e la funzione rispondeva
+`stale`. Il precedente nei dati c'era già: WOLF GROUP 218, da 79.683,24, pagata con
+due movimenti.
+
+Ora il ramo vale per qualsiasi fattura pagata, e il movimento già presente **non si
+sovrascrive mai** (`COALESCE(bank_transaction_id, p_bt_id)`): chi ha chiuso la rata
+resta chi l'ha chiusa, il secondo vive come riga di log.
+
+### 2. Annullare un aggancio riapriva una fattura pagata
+
+Questo non l'aveva chiesto nessuno, ed era il difetto vero.
+`undo_reconcile_movement` sottraeva `applied_amount` da `amount_paid` **anche per le
+righe di solo aggancio**, che quell'importo non l'avevano mai aggiunto. Annullare un
+aggancio da «Riconciliati» riapriva quindi una fattura regolarmente pagata, con il
+suo residuo tornato in piedi nello Scadenzario.
+
+Misurato prima di chiamarlo difetto: su NZ le righe in quello stato erano **201**
+(151 con la dicitura nuova, 50 con quella pre-114 «chiusa a mano»), di cui 141
+ancora attive. Il pulsante che le avrebbe riaperte è in produzione da luglio.
+
+La cura: una colonna `reconciliation_log.linked_only`, scritta dal ramo di solo
+aggancio e letta dall'annullo, che in quel caso scollega il movimento e **non tocca
+gli importi**. Il campo della fattura si azzera solo se puntava proprio a quel
+movimento. Backfill prudente per costruzione: marca solo le righe che nelle note
+dichiarano di non aver toccato gli importi.
+
+### 3. L'interfaccia offriva una cosa che non sapeva fare
+
+`handleManualReconcile` cercava la fattura scelta **solo fra le non pagate**, mentre
+la lista mostrava anche le pagate senza aggancio. Chi ne selezionava una leggeva
+«Fattura non trovata». Era rotto per tutte le fatture pagate, non solo per il caso
+dei due bonifici. Ora si cerca fra tutte, e cosa è ammesso lo decide
+`reconcile_movement`, che è l'unica autorità.
+
+Le pagate che hanno già un movimento entrano fra i candidati **solo cercando per
+testo**: in lista libera sarebbero migliaia di righe senza niente da decidere.
+E a cose fatte l'interfaccia dice cosa ha fatto: «Fattura già pagata: ho collegato
+il movimento senza toccare gli importi».
+
+### La parità tenant era rotta da tre mesi
+
+Il guardrail della patch si è fermato su Made invece di applicare: il ramo non era
+riconoscibile. Il motivo: la **migration 114 del 24/07** («abbinabile OGNI fattura
+senza aggancio») era stata applicata **solo su NZ**, pur scrivendo nella propria
+intestazione «⚠️ REGOLA #0 — applicare su NZ + Made + Zago». Su Made e Zago il ramo
+chiedeva ancora `closed_manually`, cioè la forma di tre mesi prima.
+
+Riapplicare la 114 tale e quale non si poteva: è un `CREATE OR REPLACE` del testo
+intero e avrebbe cancellato la 203, che su Made e Zago invece c'è. Quindi la 306
+riconosce **entrambe le forme** e patcha quella viva, qualunque sia. A conti fatti i
+tre tenant hanno ora la stessa funzione allo stesso carattere: `reconcile_movement`
+md5 `ab331a38…` (5.098 caratteri) e `undo_reconcile_movement` md5 `36eae4a0…` su NZ,
+Made e Zago.
+
+**Da qui una cosa da fare sempre**: la parità non si dà per fatta perché una
+migration dice di applicarla ai tre. Si misura, e il modo più rapido è confrontare
+l'md5 di `pg_get_functiondef` sui tre tenant. Quattro caratteri di differenza —
+quelli fra `già` e `gia''` nelle note — si vedono subito così, e non si vedrebbero
+in nessun altro modo.
+
+### Provata sul vivo, senza lasciare traccia
+
+La catena è stata eseguita sul database vero dentro un blocco che poi si annulla da
+sé con un'eccezione, così il rollback è garantito: aggancio di una commissione da
+3,00 su MINGARDO 48 (pagata e già agganciata), lettura degli effetti, annullo,
+lettura finale.
+
+- aggancio: `ok: true, linked_only: true` — prima era `stale`
+- fattura prima, dopo l'aggancio e dopo l'annullo: **identica** in tutti e tre i
+  momenti (pagato, 14.396,00, residuo 0, data 05/10, movimento del 05/10)
+- il movimento di prova torna libero (`is_reconciled: false`)
+- a rollback avvenuto: zero righe di log residue, MINGARDO intatta
