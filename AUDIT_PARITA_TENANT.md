@@ -197,6 +197,16 @@ urgenza chiuderla.
 Questo confronto va rifatto **dopo ogni blocco di migration** e, in ogni caso, nel
 controllo settimanale del motore. Costa sei query e dura un minuto.
 
+Dal 20/10/2026 non è più un buon proposito: è il **punto 7** del trigger
+«Motore riconciliazione — controllo settimanale», che ogni lunedì esegue la query
+delle funzioni sui tre tenant e scrive a Patrizio se le impronte non coincidono.
+Nota nel giro: `MOTORE_RICONCILIAZIONE_NOTE.md`, sezione del 20/10/2026.
+
+Una cosa da tenere a mente leggendo quel confronto: **il valore atteso non è fisso.**
+`257` e `f3072c8ae1b5…` sono la fotografia del 20/10; ogni migration che aggiunge una
+funzione li cambia, su tutti e tre insieme. Quello che deve restare vero è che i tre
+diano lo stesso numero e la stessa impronta fra loro.
+
 Nell'ordine:
 1. impronte per categoria sui tre tenant (la query in cima);
 2. dove un'impronta differisce, impronta **normalizzata** della categoria;
