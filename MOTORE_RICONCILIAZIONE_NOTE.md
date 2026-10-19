@@ -675,10 +675,29 @@ Lo storico dei movimenti MINGARDO non si legge da solo: un «SALDO FATTURA 48» 
 riconciliato**, e una rata da 7.198,00 annullata il 12/10 che porta come data di
 pagamento proprio il 05/06/2026.
 
-**Niente è stato modificato**: la fattura 48 è passata per le mani di qualcuno
-sei giorni prima e non si può indovinare cosa volesse fare. È stato chiesto a
-Patrizio, in modo binario, perché il rischio è concreto: nello Scadenzario quella
-riga appare come da pagare per 2.802 € già usciti dal conto.
+**Chiusa su conferma di Patrizio, lo stesso 19/10.** Il backup della riga (fatto
+prima di toccarla, come sempre) portava la risposta che mancava, in
+`manual_close_reason`: «Fattura 48 MINGARDO da 14.396,00 (originale). Pagati
+11.594,00 = bonifici 7.198,00 del 05/06/2026 + 4.396,00 (come da accordo).
+Residuo 2.802,00 al 30/09/2026.» L'intervento del 12/10 aveva ricostruito la
+storia della fattura annullando le righe doppie, e aveva lasciato aperto un
+residuo che a quella data era davvero aperto: il bonifico del 05/10 lo chiude al
+centesimo.
+
+La rata è ora `pagato`, 14.396,00 pagati, residuo zero, data pagamento 05/10, con
+la motivazione aggiunta in coda a quella del 12/10 senza cancellarla. Dopo la
+chiusura le righe `applied` con `applied_amount = 0` e la rata ancora aperta sono
+**zero**.
+
+**Da sapere, non da correggere**: il bonifico MINGARDO da 7.198,00 del
+05/06/2026 («CF-48») resta non riconciliato in banca, pur essendo uno dei due che
+compongono gli 11.594,00 già contati come pagati. Agganciarlo vorrebbe dire
+gestire il pagamento parziale a mano su una fattura ormai chiusa: non vale il
+rischio, e il totale pagato è giusto così.
+
+**La lezione**: il campo `manual_close_reason` conteneva la spiegazione completa
+e la prima lettura non l'aveva guardato. Quando una riga sembra incoerente, il
+backup va letto *prima* di chiamarla incoerente, non solo prima di modificarla.
 
 Misura, prima di chiamarlo difetto sistematico: le righe di log `applied` con
 `applied_amount = 0` sono 45, ma **una sola** ha la rata ancora aperta, ed è
