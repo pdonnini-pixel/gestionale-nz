@@ -170,8 +170,9 @@ ipotesi e lo dicono.
 - Vincoli da aggiungere: massimo giorni lavorati per persona, «solo sabato e domenica», persona che
   lavora in più negozi (Elisa Manescalchi un giorno a settimana fuori Barberino), massimo 6 giorni
   consecutivi a cavallo fra due settimane, rotazione equa di sabati e domeniche liberi.
-- **Rinforzi nei picchi**: prima con il personale che c'è (spostando ore e persone fra negozi), poi
-  straordinari. Le persone a chiamata sono riserva, non base.
+- **Rinforzi nei picchi**: prima con il personale **dello stesso negozio** (spostando ore fra le sue
+  persone), poi straordinari. **Niente prestiti fra negozi**: sono troppo lontani fra loro (Patrizio,
+  19/10/2026). Le persone a chiamata sono riserva, non base.
 - Calcolo: serve un ottimizzatore a numeri interi (come il PuLP/CBC usato da Lilian), non la proposta
   greedy di oggi. Obiettivo: coprire il fabbisogno (penalità più alta nei giorni di punta), non mettere
   ore dove non servono, consumare le ferie in modo equo.
@@ -188,6 +189,9 @@ altrimenti verrebbero pagate.
   rientro per segnarla come assenza lunga.
 - Report MODA mensili di tutti i negozi, e quelli 2025 di Valdichiana e Torino.
 - File presenze mensile di People Smart (lo prepara Veronica per lo studio): darebbe ferie godute,
-  malattie e il confronto turni pianificati / ore vere.
+  malattie e il confronto turni pianificati / ore vere. **Da chiedere più avanti**, non ora (Patrizio,
+  19/10/2026).
+- Chi chiede cosa: a Veronica solo le date di Kacorri; a Lilian i report MODA e le due domande per lo
+  studio (quali ore non godute vengono pagate e quando; regola mensile della maturazione).
 - I calendari di Lilian di Franciacorta (contano Platto, in aspettativa, e Balada, uscita il 05/09) e
   di Brugnato da novembre (Ruggeri scade il 04/11, Falchi oggi a chiamata) vanno rifatti.
