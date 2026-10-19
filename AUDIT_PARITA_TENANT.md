@@ -90,7 +90,47 @@ differenza sono policy sulle tabelle di backup, create da
   NOT NULL`). Zago li aveva. Creati con la migration `20261020_307`, additiva:
   Made è passato da 446 a 448 indici con la stessa impronta di NZ e Zago.
 
-### Logica davvero diversa: 9 funzioni
+### Allineate il 20/10, e una misura ancora da correggere
+
+Patrizio ha chiesto di allinearle tutte e nove. Allineandole è venuto fuori che la
+misura «normalizzata» di cui sopra **non bastava**: collassa gli spazi multipli ma
+non quello singolo dopo una virgola, e non tocca gli alias. Così
+`COALESCE(x,false)` e `COALESCE(x, false)`, oppure `) d` e `) AS d`, risultavano
+differenze. Aggiungendo due normalizzazioni:
+
+```sql
+-- la misura che distingue davvero la logica dalla scrittura
+regexp_replace(
+  replace( <testo con spazi collassati e commenti via>, ' as ', ' '),
+'\s*([(),;])\s*', '\1', 'g')
+```
+
+tre delle nove risultano **equivalenti già da prima** (`_suppliers_slugify`,
+`acube_tx_set_dedup_hash`, `sync_acube_account_to_bank_account`), e cade quello che
+avevo scritto sugli accenti di `_suppliers_slugify`: non era una differenza di
+comportamento, era indentazione. **Terza correzione di metrica della giornata**, e
+la lezione è che per dire «queste due funzioni fanno cose diverse» non basta un
+hash: va letto il codice.
+
+**Esito dell'allineamento**: 8 funzioni su 9 ora **identiche al carattere** sui tre
+tenant, verificato con l'impronta non normalizzata. Permessi invariati (controllati
+prima e dopo), i 4 trigger che usano queste funzioni ancora attaccati, 73 trigger su
+tutti e tre come prima.
+
+L'unica differenza di comportamento vera, trovata leggendo i testi:
+`get_autofix_cron_secret` su Zago aveva `search_path` senza `extensions`, dove
+vivono le funzioni di decrittazione del Vault. Ora allineata.
+
+**`close_incoming_movements` è rimasta fuori.** Il connettore Supabase manda in
+timeout quel payload in modo ripetibile: quattro tentativi, su Made e su Zago, con
+`apply_migration`, con `execute_sql` e dentro un blocco `DO`, mentre ogni altra
+funzione passa al primo colpo. Il sospetto è un filtro che reagisce al contenuto del
+suo regex, dove compaiono i nomi dei circuiti delle carte (VISA, MASTERCARD). La sua
+logica è identica sui tre tenant, verificata leggendo entrambe le versioni riga per
+riga, quindi non si è forzata la mano con una patch testuale fragile. Nei prossimi
+audit comparirà come differenza di testo: è questa, ed è nota.
+
+### Com'era prima dell'allineamento: le 9 funzioni
 
 Nessuna riguarda il motore di riconciliazione, che è allineato
 (`try_match_bank_transaction`, `try_match_amount_bank_transaction`,
