@@ -580,3 +580,128 @@ quella giusta**: filtrare i candidati per disponibilità, filtrare gli agganci p
 chi li ha fatti, e guardare il movimento vero prima di contare le righe di log.
 Un conteggio che gira su `reconciliation_log` senza guardare `payables` misura
 quante volte il motore ha *scritto*, non quante volte ha *agganciato*.
+
+---
+
+## Il controllo del 19/10/2026
+
+Sesta settimana di fila senza un aggancio sbagliato dal motore. Otto giri dal
+12/10 al 19/10, tutti riusciti, da 137 a 146 secondi: il picco di 202 secondi
+del 09/10 resta un caso isolato.
+
+Agganci della settimana: **undici righe di log**, nove scritte dal motore (cinque
+`auto_exact` applicate, quattro `auto_fuzzy` lasciate da confermare) e due
+manuali, le due SAN MAURO del 13/10. Zero su causale scarna, quindi niente da
+verificare uno per uno. I cinque applicati sono tutti corretti: DWS GRUNDBESITZ
+(SDD, 1 € di commissione sul movimento), SIGNORINI, CLIMASERVICE, UnipolTech e
+CACCIA AGNESE, ciascuno con la rata chiusa e il movimento legato.
+
+**Patch 218 e 219 intatte**, con tutti i rami al loro posto (`fn_bank_own_movement`,
+`payable_credit_note_links`, `payable_in_distinta_for_movement`, `bank_movement_net`,
+`v_ties`). Il controllo del vincolo 218, fatto stavolta con il filtro
+`match_type <> 'manual'` imparato la settimana scorsa, dà **zero violazioni**.
+
+### 1. Il badge diceva 23, la lista ne apriva 0
+
+Il difetto vero di questa settimana non sta nel motore, sta in come il suo
+lavoro viene raccontato.
+
+Le righe `to_confirm` di `reconciliation_log` invecchiano: il movimento viene
+riconciliato altrove, la rata viene pagata o agganciata a un altro movimento, e
+quella riga resta lì senza che nessuno la chiuda. Al 19/10 su NZ erano **78**,
+la più vecchia dell'11/06: **59 su rate già pagate**, **34 su rate già agganciate**
+a un movimento.
+
+La lista degli «Abbinamenti suggeriti» le scartava già, e bene: guarda il
+movimento (non riconciliato), la rata (aperta, o chiusa a mano senza aggancio),
+l'affidabilità (≥ 70%) e l'importo (entro il 5%). Il **contatore sulla tab** no:
+guardava solo `status = 'to_confirm'` e `confidence >= 70`. Misurato sui dati
+veri: **badge 23, lista 0**. Venti di quelle 23 avevano il movimento già
+riconciliato, ventidue la rata già chiusa.
+
+E il danno non era solo un numero gonfiato. Il badge mostra le proposte **oppure**,
+se non ce ne sono, le uscite ancora da abbinare a mano: con un contatore pieno di
+fantasmi, un numero inutile copriva l'unico dato azionabile.
+
+**Cosa è stato fatto.** La regola sta ora in un posto solo, in
+`src/lib/reconcileMatch.ts` (R14): `isSuggestionActionable`,
+`pickActionableSuggestions`, `countActionableSuggestions`. La usano sia la lista
+dentro la tab sia il contatore nel parent, che per questo carica le righe
+`to_confirm` invece del solo conteggio (poche decine, peso trascurabile). Dodici
+test nuovi sui casi veri della settimana, fra cui la rata pagata di DX SRL e i
+fuzzy da 51-57 di affidabilità.
+
+**Le 78 righe stantie nel database restano dove sono**: ora il frontend le ignora
+correttamente e chiuderle sarebbe toccare dati vivi senza necessità. Se un giorno
+diventassero migliaia, la cura è una `status = 'stale'` scritta dal cron, non una
+cancellazione.
+
+Made e Zago hanno zero righe `to_confirm`, quindi oggi il difetto mordeva solo NZ.
+La correzione è frontend: vale sui tre tenant dallo stesso deploy.
+
+### 2. I quattro fuzzy della settimana, e perché restano fuori
+
+Nessuno dei quattro è stato applicato (sono `to_confirm`, affidabilità 51-57), e
+nessuno dei quattro passa la soglia della lista. Due però dicono qualcosa:
+
+- **LA FAVORITA SRL 2511** (249,33) proposta su una «Ricarica carta prepagata
+  TASCA da CARTA» di 250,00. Una ricarica di carta non paga una fattura. È un
+  caso solo su 78: non vale una regola in `BANK_OWN_MOVEMENT_RE`, ma se se ne
+  vedono altri il posto è quello.
+- **DX SRL 725** (76,15) proposta su un movimento del 13/10, con la rata **già
+  pagata il 24/09**. Il motore propone anche su rate chiuse (serve, per le
+  chiuse a mano senza aggancio), ed è giusto che resti una proposta e non un
+  aggancio.
+
+### 3. MINGARDO 48: una fattura pagata che risulta da pagare
+
+Il controllo degli scarti fra movimento e rate agganciate ha trovato sei casi.
+Quattro sono RiBa con pochi euro di commissione (da 2,38 a 26,01 su totali da
+7 a 104 mila), uno è un pagamento parziale corretto (SISTEMI ANTITACCHEGGIO 103:
+movimento 2.247,85, esattamente metà di 4.495,70, con `applied_amount` scritto).
+
+Il sesto no. **MINGARDO SRLS fattura 48**: totale 14.396,00, risulta
+«parziale» con 11.594,00 pagati e **2.802,00 di residuo**. Ma il bonifico da
+2.802,00 del 05/10 («SF-48») è agganciato proprio a quella rata, e la copre
+esattamente. La rata ha `payment_date` vuota e `applied_amount = 0`.
+
+Non è il motore: quando aggancia in `auto_exact` scrive `status = 'pagato'`,
+`amount_paid = gross_amount`, `amount_remaining = 0`. È successo dopo. Tutte e
+cinque le righe MINGARDO (quattro annullate, una parziale) portano lo stesso
+`updated_at`: **12/10/2026 10:48:42**, un intervento in blocco fatto da fuori.
+
+Lo storico dei movimenti MINGARDO non si legge da solo: un «SALDO FATTURA 48» da
+11.224,00 nel luglio 2025, un «CF-48» da 7.198,00 del 05/06/2026 **mai
+riconciliato**, e una rata da 7.198,00 annullata il 12/10 che porta come data di
+pagamento proprio il 05/06/2026.
+
+**Niente è stato modificato**: la fattura 48 è passata per le mani di qualcuno
+sei giorni prima e non si può indovinare cosa volesse fare. È stato chiesto a
+Patrizio, in modo binario, perché il rischio è concreto: nello Scadenzario quella
+riga appare come da pagare per 2.802 € già usciti dal conto.
+
+Misura, prima di chiamarlo difetto sistematico: le righe di log `applied` con
+`applied_amount = 0` sono 45, ma **una sola** ha la rata ancora aperta, ed è
+questa. Non è un buco del motore, è un caso singolo.
+
+### Arretrato
+
+335 uscite non riconciliate (411 movimenti aperti in tutto, entrate comprese),
+contro 330 la settimana scorsa e 317 il 05/10. Cresce di cinque: la curva si sta
+appiattendo rispetto alle due settimane precedenti. Il tempo di giro la segue
+senza affanno.
+
+### Una trappola evitata: la regola che main aveva appena aggiunto
+
+Spostando la regola della lista in libreria, il merge con `main` ha fatto
+emergere che il 13/10 era entrato un filtro in più, dentro quella stessa lista:
+`isPaymentDatePlausible`, che scarta un pagamento arrivato mesi prima della
+fattura (i casi HERA, SPM, Amazon). Prenderla come stava e portarla di peso in
+`isSuggestionActionable` avrebbe **cancellato quel filtro di sei giorni prima**:
+lo stesso incidente già visto tre volte con `CREATE OR REPLACE` sulle funzioni
+condivise, solo in TypeScript.
+
+Il controllo è stato incluso nella funzione nuova, con un test che lo fissa
+(«scarta la proposta il cui movimento precede di mesi la fattura»). La lezione è
+quella di sempre, e vale anche fuori dal database: **prima di sostituire un
+blocco, leggere la versione viva di quel blocco**, non quella che si ricordava.

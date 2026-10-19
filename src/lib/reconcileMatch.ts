@@ -253,3 +253,132 @@ export const findExactCombo = (
   const full = solutions.map(back).filter((s) => cited.every((c) => s.includes(c)))
   return full.length === 1 ? full[0] : null
 }
+
+// ---------------------------------------------------------------------------
+// Proposte del motore ancora azionabili (R14)
+// ---------------------------------------------------------------------------
+// Il motore scrive in reconciliation_log sia gli abbinamenti che applica da sé
+// (status 'applied') sia quelli da far confermare a mano ('to_confirm'). Una
+// proposta 'to_confirm' però invecchia: il movimento viene riconciliato altrove,
+// la rata viene pagata o agganciata a un altro movimento, e quella riga resta lì
+// senza che nessuno la chiuda. Al 19/10/2026 su NZ erano 78 righe aperte, di cui
+// 59 su rate già pagate e 34 su rate già agganciate a un movimento.
+//
+// La lista degli abbinamenti suggeriti le scartava già. Il contatore sulla tab
+// Riconciliazione no: guardava solo status + confidenza, e annunciava 23 proposte
+// mentre la lista ne apriva zero. Peggio: con un contatore pieno il badge nasconde
+// il numero utile (le uscite ancora da abbinare), quindi un numero fantasma
+// copriva l'unico dato azionabile.
+//
+// Da qui la regola sta in un posto solo, usata dalla lista e dal contatore.
+
+export const SUGGEST_MIN_CONFIDENCE = 70
+export const SUGGEST_AMOUNT_TOLERANCE = 0.05
+export const SUGGEST_OPEN_STATUSES = ['da_pagare', 'in_scadenza', 'scaduto', 'parziale']
+
+export type SuggestionLogLike = {
+  id: string
+  bank_transaction_id?: string | null
+  payable_id?: string | null
+  confidence?: number | null
+  status?: string | null
+}
+export type SuggestionTxLike = { id: string; amount?: number | null; is_reconciled?: boolean | null; transaction_date?: string | null }
+export type SuggestionPayableLike = {
+  id: string
+  status?: string | null
+  gross_amount?: number | null
+  amount_paid?: number | null
+  amount_remaining?: number | null
+  closed_manually?: boolean | null
+  bank_transaction_id?: string | null
+  invoice_date?: string | null
+}
+
+// Fattura chiusa a mano e non ancora agganciata a un movimento: paid +
+// closed_manually + nessun bank_transaction_id. Regola Patrizio: ogni movimento va
+// SEMPRE verificato anche contro queste, non solo contro le aperte.
+export const isClosedManualUnlinked = (p: SuggestionPayableLike): boolean =>
+  String(p.status) === 'pagato' && p.closed_manually === true && !p.bank_transaction_id
+
+// Base di confronto: il residuo per le aperte, il totale fattura per le chiuse a
+// mano (il residuo è 0 perché la rata risulta già pagata).
+export const suggestionBase = (p: SuggestionPayableLike): number =>
+  isClosedManualUnlinked(p)
+    ? Number(p.gross_amount || 0)
+    : (p.amount_remaining != null
+        ? Number(p.amount_remaining)
+        : Number(p.gross_amount || 0) - Number(p.amount_paid || 0))
+
+// Vero se la proposta è ancora buona da mostrare: movimento non riconciliato,
+// rata aperta (o chiusa a mano senza aggancio), affidabilità sopra soglia e
+// importo del movimento che coincide con la base entro il 5%.
+export const isSuggestionActionable = (
+  log: SuggestionLogLike,
+  bt: SuggestionTxLike | undefined,
+  payable: SuggestionPayableLike | undefined,
+): boolean => {
+  if (String(log.status) !== 'to_confirm') return false
+  if (!log.bank_transaction_id || !log.payable_id) return false
+  if (!bt || bt.is_reconciled) return false
+  if (!payable) return false
+  // Un pagamento non puo' precedere di mesi la fattura che chiude (casi HERA, SPM,
+  // Amazon del 13/10/2026): sta in isPaymentDatePlausible.
+  if (!isPaymentDatePlausible(String(bt.transaction_date || ''), String(payable.invoice_date || ''))) return false
+  if (!SUGGEST_OPEN_STATUSES.includes(String(payable.status)) && !isClosedManualUnlinked(payable)) return false
+  const base = suggestionBase(payable)
+  if (base <= 0) return false
+  if ((Number(log.confidence) || 0) < SUGGEST_MIN_CONFIDENCE) return false
+  const mov = Math.abs(Number(bt.amount) || 0)
+  return Math.abs(mov - base) / base <= SUGGEST_AMOUNT_TOLERANCE
+}
+
+// Le proposte azionabili, ordinate per affidabilità e deduplicate per fattura:
+// una stessa fattura non va proposta per più movimenti (costi ricorrenti a importo
+// fisso, es. NEXI/SPM stessa fattura ×N). Tiene la proposta migliore.
+export const pickActionableSuggestions = <
+  L extends SuggestionLogLike,
+  T extends SuggestionTxLike,
+  P extends SuggestionPayableLike,
+>(
+  logRows: L[],
+  txById: Map<string, T>,
+  payById: Map<string, P>,
+): { log: L; bt: T; payable: P; confidence: number; chiusa: boolean }[] => {
+  const out: { log: L; bt: T; payable: P; confidence: number; chiusa: boolean }[] = []
+  for (const log of logRows) {
+    const bt = log.bank_transaction_id ? txById.get(String(log.bank_transaction_id)) : undefined
+    const payable = log.payable_id ? payById.get(String(log.payable_id)) : undefined
+    if (!isSuggestionActionable(log, bt, payable)) continue
+    out.push({
+      log,
+      bt: bt as T,
+      payable: payable as P,
+      confidence: Number(log.confidence) || 0,
+      chiusa: isClosedManualUnlinked(payable as P),
+    })
+  }
+  out.sort((a, b) => b.confidence - a.confidence)
+  const seenPayable = new Set<string>()
+  const deduped: typeof out = []
+  for (const s of out) {
+    const pid = String(s.payable.id)
+    if (seenPayable.has(pid)) continue
+    seenPayable.add(pid)
+    deduped.push(s)
+  }
+  return deduped
+}
+
+// Quante proposte sono davvero azionabili, partendo da array (per il contatore
+// della tab, che ha i movimenti e le rate già in memoria). Deve dare lo STESSO
+// numero di righe che la lista apre: è il bug che questa funzione chiude.
+export const countActionableSuggestions = (
+  logRows: SuggestionLogLike[],
+  transactions: SuggestionTxLike[],
+  payables: SuggestionPayableLike[],
+): number => {
+  const txById = new Map(transactions.map((t) => [String(t.id), t]))
+  const payById = new Map(payables.map((p) => [String(p.id), p]))
+  return pickActionableSuggestions(logRows, txById, payById).length
+}

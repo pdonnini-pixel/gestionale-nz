@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible } from './reconcileMatch'
+import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, isSuggestionActionable, pickActionableSuggestions, countActionableSuggestions, isClosedManualUnlinked, suggestionBase } from './reconcileMatch'
 
 // Casi reali (New Zago, tab Banche → Riconciliazione). Vedi RICONCILIAZIONE_REGOLE.md R5/R6.
 describe('extractBeneficiary', () => {
@@ -249,5 +249,104 @@ describe('isPaymentDatePlausible', () => {
     expect(isPaymentDatePlausible('2026-10-09', '2026-10-02')).toBe(true)
     expect(isPaymentDatePlausible(null, '2026-10-02')).toBe(true)
     expect(isPaymentDatePlausible('2026-10-09', '')).toBe(true)
+  })
+})
+
+// Casi veri del controllo settimanale del 19/10/2026 su New Zago: 78 proposte aperte
+// in reconciliation_log, di cui 59 su rate già pagate e 34 su rate già agganciate a un
+// movimento. La lista le scartava, il contatore della tab no: diceva 23, la lista ne
+// apriva 0. Qui si fissa che le due cose guardino la stessa regola.
+describe('proposte del motore ancora azionabili (R14)', () => {
+  const mov = (over: Record<string, unknown> = {}) => ({ id: 'bt1', amount: -345.32, is_reconciled: false, ...over })
+  const rata = (over: Record<string, unknown> = {}) => ({
+    id: 'p1', status: 'da_pagare', gross_amount: 345.32, amount_paid: 0,
+    amount_remaining: 345.32, closed_manually: false, bank_transaction_id: null, ...over,
+  })
+  const prop = (over: Record<string, unknown> = {}) => ({
+    id: 'l1', bank_transaction_id: 'bt1', payable_id: 'p1', confidence: 85, status: 'to_confirm', ...over,
+  })
+
+  it('tiene la proposta buona: rata aperta, movimento libero, importo e affidabilità a posto', () => {
+    expect(isSuggestionActionable(prop(), mov(), rata())).toBe(true)
+  })
+
+  it('scarta la proposta su una rata già pagata (caso DX SRL, pagata il 24/09)', () => {
+    const pagata = rata({ status: 'pagato', amount_paid: 345.32, amount_remaining: 0, payment_date: '2026-09-24' })
+    expect(isSuggestionActionable(prop(), mov(), pagata)).toBe(false)
+  })
+
+  it('scarta la proposta su una rata già agganciata a un altro movimento', () => {
+    const agganciata = rata({ status: 'pagato', amount_remaining: 0, bank_transaction_id: 'bt-altro' })
+    expect(isSuggestionActionable(prop(), mov(), agganciata)).toBe(false)
+  })
+
+  it('scarta la proposta il cui movimento è già riconciliato', () => {
+    expect(isSuggestionActionable(prop(), mov({ is_reconciled: true }), rata())).toBe(false)
+  })
+
+  it('tiene la fattura chiusa a mano e senza aggancio, confrontando il totale', () => {
+    // Residuo 0 perché risulta pagata: la base è il totale fattura.
+    const chiusa = rata({ status: 'pagato', closed_manually: true, amount_paid: 345.32, amount_remaining: 0 })
+    expect(isClosedManualUnlinked(chiusa)).toBe(true)
+    expect(suggestionBase(chiusa)).toBe(345.32)
+    expect(isSuggestionActionable(prop(), mov(), chiusa)).toBe(true)
+  })
+
+  it('scarta l\'affidabilità sotto il 70% (i fuzzy da 51-57 della settimana)', () => {
+    expect(isSuggestionActionable(prop({ confidence: 57.1 }), mov({ amount: -250 }), rata({ gross_amount: 249.33, amount_remaining: 249.33 }))).toBe(false)
+  })
+
+  it('scarta l\'importo lontano oltre il 5%', () => {
+    expect(isSuggestionActionable(prop(), mov({ amount: -500 }), rata())).toBe(false)
+  })
+
+  it('scarta la riga già applicata o rifiutata', () => {
+    expect(isSuggestionActionable(prop({ status: 'applied' }), mov(), rata())).toBe(false)
+    expect(isSuggestionActionable(prop({ status: 'rejected' }), mov(), rata())).toBe(false)
+  })
+
+  it('scarta la riga senza movimento o senza rata', () => {
+    expect(isSuggestionActionable(prop({ bank_transaction_id: null }), undefined, rata())).toBe(false)
+    expect(isSuggestionActionable(prop({ payable_id: null }), mov(), undefined)).toBe(false)
+  })
+
+  it('non propone la stessa fattura per due movimenti: tiene la più affidabile', () => {
+    const logs = [prop({ id: 'l1', bank_transaction_id: 'bt1', confidence: 80 }),
+                  prop({ id: 'l2', bank_transaction_id: 'bt2', confidence: 95 })]
+    const tx = new Map([['bt1', mov({ id: 'bt1' })], ['bt2', mov({ id: 'bt2' })]])
+    const pay = new Map([['p1', rata()]])
+    const out = pickActionableSuggestions(logs, tx, pay)
+    expect(out).toHaveLength(1)
+    expect(out[0].log.id).toBe('l2')
+  })
+
+  it('il contatore dà lo stesso numero di righe che la lista apre', () => {
+    const logs = [
+      prop({ id: 'buona', payable_id: 'p1' }),
+      prop({ id: 'su-rata-pagata', payable_id: 'p2' }),
+      prop({ id: 'mov-riconciliato', payable_id: 'p3', bank_transaction_id: 'bt3' }),
+    ]
+    const tx = new Map([['bt1', mov({ id: 'bt1' })], ['bt3', mov({ id: 'bt3', is_reconciled: true })]])
+    const pay = new Map([
+      ['p1', rata({ id: 'p1' })],
+      ['p2', rata({ id: 'p2', status: 'pagato', amount_remaining: 0 })],
+      ['p3', rata({ id: 'p3' })],
+    ])
+    expect(pickActionableSuggestions(logs, tx, pay)).toHaveLength(1)
+    expect(countActionableSuggestions(logs, [...tx.values()], [...pay.values()])).toBe(1)
+  })
+
+  it('scarta la proposta il cui movimento precede di mesi la fattura (R13 dentro R14)', () => {
+    // Il controllo di isPaymentDatePlausible va applicato anche qui: la lista lo
+    // faceva per conto suo, e spostando la regola in libreria non va perso.
+    const mov0624 = mov({ transaction_date: '2026-06-24' })
+    expect(isSuggestionActionable(prop(), mov0624, rata({ invoice_date: '2026-10-06' }))).toBe(false)
+    expect(isSuggestionActionable(prop(), mov0624, rata({ invoice_date: '2026-06-10' }))).toBe(true)
+  })
+
+  it('regge la rata senza residuo dichiarato, calcolandolo dal totale meno il pagato', () => {
+    const senzaRemaining = rata({ amount_remaining: null, gross_amount: 345.32, amount_paid: 0 })
+    expect(suggestionBase(senzaRemaining)).toBeCloseTo(345.32, 2)
+    expect(isSuggestionActionable(prop(), mov(), senzaRemaining)).toBe(true)
   })
 })
