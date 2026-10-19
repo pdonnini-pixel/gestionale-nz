@@ -844,3 +844,44 @@ lettura finale.
   momenti (pagato, 14.396,00, residuo 0, data 05/10, movimento del 05/10)
 - il movimento di prova torna libero (`is_reconciled: false`)
 - a rollback avvenuto: zero righe di log residue, MINGARDO intatta
+
+---
+
+## 20/10/2026 — il controllo di parità entra nel giro settimanale (punto 7)
+
+Il giro del lunedì guardava solo gli agganci della settimana. Da oggi guarda anche
+se i tre tenant hanno ancora lo stesso codice, perché il caso della **migration 114
+rimasta solo su NZ per tre mesi** ha mostrato come se ne accorge il sistema: non se
+ne accorge. L'avevo trovata per caso, inciampando nel guardrail di un'altra patch.
+
+Il punto 7 del trigger settimanale è una query sola, da eseguire sui tre:
+
+```sql
+SELECT count(*) AS n,
+       md5(string_agg(p.proname || '(' || pg_get_function_identity_arguments(p.oid)
+           || ')=' || md5(pg_get_functiondef(p.oid)), E'\n'
+           ORDER BY p.proname, pg_get_function_identity_arguments(p.oid))) AS impronta
+  FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+ WHERE ns.nspname = 'public' AND p.prokind = 'f';
+```
+
+NZ `xfvfxsvqpnpvibgeqpqp`, Made `wdgoebzvosspjqttitra`, Zago `jxlwvzjreukscnswkbjx`.
+Al 20/10/2026 i tre danno `257` e `f3072c8ae1b57fc73384e2efb23101f8`, verificato
+rileggendolo oggi dopo la 310.
+
+**Quello che conta non è il valore, è che i tre coincidano.** Il numero sale ogni
+volta che una migration aggiunge una funzione, e in quel caso sale su tutti e tre
+insieme: è esattamente ciò che si vuole vedere. Un'impronta diversa su un tenant
+vuol dire che qualcosa non è arrivato là.
+
+Se differiscono si scende per gruppi come descritto in `AUDIT_PARITA_TENANT.md`:
+prima l'impronta del testo per capire **dove** guardare, poi quella normalizzata per
+capire se è sostanza o solo indentazione. Una divergenza di sola formattazione va
+chiusa comunque, ma senza fretta; una di sostanza è una migration da riapplicare.
+
+Perché questo controllo sta nel giro del motore e non altrove: il motore di
+riconciliazione è fatto di funzioni SQL, e una funzione vecchia su un tenant non dà
+errore, dà **risultati diversi in silenzio**. È il tipo di guasto che nessuna
+pagina segnala.
+
+Costa tre query al mese per quattro, e paga la prima volta che trova qualcosa.
