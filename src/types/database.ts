@@ -14710,6 +14710,78 @@ export type Database = {
         }
         Relationships: []
       }
+      employee_events: {
+        Row: {
+          company_id: string
+          contratto_tipo: string | null
+          created_at: string
+          created_by: string | null
+          created_by_nome: string | null
+          data_al: string | null
+          data_dal: string
+          documento_nome: string | null
+          documento_path: string | null
+          employee_id: string
+          esito_da: string | null
+          esito_il: string | null
+          esito_nota: string | null
+          id: string
+          motivo: string | null
+          nota: string | null
+          ore_settimanali: number | null
+          outlet_id: string | null
+          stato: string
+          tipo: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          contratto_tipo?: string | null
+          created_at?: string
+          created_by?: string | null
+          created_by_nome?: string | null
+          data_al?: string | null
+          data_dal: string
+          documento_nome?: string | null
+          documento_path?: string | null
+          employee_id: string
+          esito_da?: string | null
+          esito_il?: string | null
+          esito_nota?: string | null
+          id?: string
+          motivo?: string | null
+          nota?: string | null
+          ore_settimanali?: number | null
+          outlet_id?: string | null
+          stato?: string
+          tipo: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          contratto_tipo?: string | null
+          created_at?: string
+          created_by?: string | null
+          created_by_nome?: string | null
+          data_al?: string | null
+          data_dal?: string
+          documento_nome?: string | null
+          documento_path?: string | null
+          employee_id?: string
+          esito_da?: string | null
+          esito_il?: string | null
+          esito_nota?: string | null
+          id?: string
+          motivo?: string | null
+          nota?: string | null
+          ore_settimanali?: number | null
+          outlet_id?: string | null
+          stato?: string
+          tipo?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       employee_matricole: {
         Row: {
           company_id: string
@@ -17376,6 +17448,42 @@ export type Database = {
           },
         ]
       }
+      outlet_opening_hours: {
+        Row: {
+          apre: string | null
+          chiude: string | null
+          chiuso: boolean
+          company_id: string
+          giorno: number
+          id: string
+          outlet_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          apre?: string | null
+          chiude?: string | null
+          chiuso?: boolean
+          company_id: string
+          giorno: number
+          id?: string
+          outlet_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          apre?: string | null
+          chiude?: string | null
+          chiuso?: boolean
+          company_id?: string
+          giorno?: number
+          id?: string
+          outlet_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       outlet_payment_channels: {
         Row: {
           bank_account_id: string | null
@@ -17476,6 +17584,42 @@ export type Database = {
           },
         ]
       }
+      outlet_shift_rules: {
+        Row: {
+          company_id: string
+          giorni_lavoro_max: number
+          outlet_id: string
+          pausa_minuti: number
+          pausa_oltre_ore: number
+          turno_max_ore: number
+          turno_min_ore: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          company_id: string
+          giorni_lavoro_max?: number
+          outlet_id: string
+          pausa_minuti?: number
+          pausa_oltre_ore?: number
+          turno_max_ore?: number
+          turno_min_ore?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          company_id?: string
+          giorni_lavoro_max?: number
+          outlet_id?: string
+          pausa_minuti?: number
+          pausa_oltre_ore?: number
+          turno_max_ore?: number
+          turno_min_ore?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       outlet_simulations: {
         Row: {
           company_id: string
@@ -17522,6 +17666,84 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      outlet_special_days: {
+        Row: {
+          apre: string | null
+          chiude: string | null
+          chiuso: boolean
+          company_id: string
+          data: string
+          id: string
+          nota: string | null
+          outlet_id: string
+          persone_extra: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          apre?: string | null
+          chiude?: string | null
+          chiuso?: boolean
+          company_id: string
+          data: string
+          id?: string
+          nota?: string | null
+          outlet_id: string
+          persone_extra?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          apre?: string | null
+          chiude?: string | null
+          chiuso?: boolean
+          company_id?: string
+          data?: string
+          id?: string
+          nota?: string | null
+          outlet_id?: string
+          persone_extra?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
+      outlet_staffing_needs: {
+        Row: {
+          alle: string
+          company_id: string
+          dalle: string
+          giorno: number
+          id: string
+          outlet_id: string
+          persone: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          alle: string
+          company_id: string
+          dalle: string
+          giorno: number
+          id?: string
+          outlet_id: string
+          persone: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          alle?: string
+          company_id?: string
+          dalle?: string
+          giorno?: number
+          id?: string
+          outlet_id?: string
+          persone?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
       }
       outlet_suppliers: {
         Row: {
@@ -22471,6 +22693,60 @@ export type Database = {
           },
         ]
       }
+      shifts: {
+        Row: {
+          annullato_motivo: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          data: string
+          employee_id: string
+          fine: string
+          id: string
+          inizio: string
+          nota: string | null
+          origine: string
+          outlet_id: string
+          pausa_minuti: number
+          stato: string
+          updated_at: string
+        }
+        Insert: {
+          annullato_motivo?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          data: string
+          employee_id: string
+          fine: string
+          id?: string
+          inizio: string
+          nota?: string | null
+          origine?: string
+          outlet_id: string
+          pausa_minuti?: number
+          stato?: string
+          updated_at?: string
+        }
+        Update: {
+          annullato_motivo?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          data?: string
+          employee_id?: string
+          fine?: string
+          id?: string
+          inizio?: string
+          nota?: string | null
+          origine?: string
+          outlet_id?: string
+          pausa_minuti?: number
+          stato?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       spm_reconcile_backup_20260806_banktx: {
         Row: {
           account_id: string | null
@@ -26190,6 +26466,24 @@ export type Database = {
         Args: { p_debit_date?: string; p_lines: Json; p_statement_id: string }
         Returns: Json
       }
+      organico_nuova_persona: {
+        Args: {
+          p_autore_nome: string
+          p_cognome: string
+          p_contratto_tipo: string
+          p_data_assunzione: string
+          p_livello: string
+          p_nome: string
+          p_nota: string
+          p_ore_settimanali: number
+          p_outlet_id: string
+          p_scadenza: string
+        }
+        Returns: string
+      }
+      organico_puo_decidere_fabbisogno: { Args: never; Returns: boolean }
+      organico_puo_scrivere: { Args: never; Returns: boolean }
+      organico_riconcilia: { Args: never; Returns: number }
       payroll_sync_now: { Args: never; Returns: Json }
       save_payroll_f24_document: {
         Args: { p_conferma?: boolean; p_doc: Json }

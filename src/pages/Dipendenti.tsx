@@ -24,6 +24,8 @@ import {
   ChevronDown,
   ChevronRight,
   CalendarClock,
+  CalendarDays,
+  UserCheck,
   Info,
 } from 'lucide-react';
 import {
@@ -70,6 +72,9 @@ const RateiFerieImport = lazy(() => import('../components/RateiFerieImport'));
 // Le richieste tirano dentro jspdf e xlsx: si caricano solo aprendo la scheda.
 const RichiesteFerie = lazy(() => import('../components/RichiesteFerie'));
 const ApprovazioniFerie = lazy(() => import('../components/ApprovazioniFerie'));
+const PianoFerie = lazy(() => import('../components/PianoFerie'));
+const OrganicoOggi = lazy(() => import('../components/OrganicoOggi'));
+const TurniNegozi = lazy(() => import('../components/TurniNegozi'));
 
 // ============================================================================
 // TYPES
@@ -93,8 +98,8 @@ interface OutletRow {
 }
 
 // Vista persistita in URL come ?view=
-type PersonaleView = 'panoramica' | 'per_outlet' | 'organico' | 'costi' | 'lordi' | 'ferie';
-const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'organico', 'costi', 'lordi', 'ferie'];
+type PersonaleView = 'panoramica' | 'per_outlet' | 'oggi' | 'organico' | 'costi' | 'lordi' | 'turni' | 'ferie';
+const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'oggi', 'organico', 'costi', 'lordi', 'turni', 'ferie'];
 
 const MONTHS = [
   { num: 1, label: 'Gennaio' }, { num: 2, label: 'Febbraio' }, { num: 3, label: 'Marzo' },
@@ -368,9 +373,9 @@ export default function Dipendenti() {
   // arrivano dalle paghe (una volta al mese). Anche questa sta nell'URL, cosi'
   // un link porta dove deve.
   const ferieParam = searchParams.get('ferie');
-  const ferieTab: 'richieste' | 'approvazioni' | 'ratei' =
-    ferieParam === 'ratei' ? 'ratei' : ferieParam === 'approvazioni' ? 'approvazioni' : 'richieste';
-  const setFerieTab = (next: 'richieste' | 'approvazioni' | 'ratei') => {
+  const ferieTab: 'richieste' | 'piano' | 'approvazioni' | 'ratei' =
+    ferieParam === 'ratei' ? 'ratei' : ferieParam === 'approvazioni' ? 'approvazioni' : ferieParam === 'piano' ? 'piano' : 'richieste';
+  const setFerieTab = (next: 'richieste' | 'piano' | 'approvazioni' | 'ratei') => {
     const p = new URLSearchParams(searchParams);
     p.set('ferie', next);
     setSearchParams(p);
@@ -1026,9 +1031,11 @@ export default function Dipendenti() {
         {([
           { k: 'panoramica', label: 'Panoramica', icon: BarChart3 },
           { k: 'per_outlet', label: 'Per outlet', icon: Store },
+          { k: 'oggi', label: 'Organico di oggi', icon: UserCheck },
           { k: 'organico', label: 'Organico', icon: Users },
           { k: 'costi', label: 'Costi & cedolini', icon: FileText },
           { k: 'lordi', label: 'Costo lordo', icon: Percent },
+          { k: 'turni', label: 'Turni', icon: CalendarDays },
           { k: 'ferie', label: 'Ferie e permessi', icon: CalendarClock },
         ] as { k: PersonaleView; label: string; icon: any }[]).map((t) => {
           const Icon = t.icon;
@@ -1219,6 +1226,20 @@ export default function Dipendenti() {
             />
           )}
 
+          {/* Organico di oggi e turni: l'anagrafica dello studio piu' i
+              cambiamenti segnati in azienda (organico.ts), e da li' i turni
+              dei negozi. */}
+          {view === 'oggi' && (
+            <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
+              <OrganicoOggi companyId={COMPANY_ID} />
+            </Suspense>
+          )}
+          {view === 'turni' && (
+            <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
+              <TurniNegozi companyId={COMPANY_ID} />
+            </Suspense>
+          )}
+
           {view === 'ferie' && (
             <>
               {/* Due momenti diversi: i saldi arrivano dalle paghe una volta al
@@ -1226,6 +1247,7 @@ export default function Dipendenti() {
               <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5 w-fit mb-4">
                 {([
                   { k: 'richieste' as const, label: 'Richieste' },
+                  { k: 'piano' as const, label: 'Piano ferie' },
                   { k: 'approvazioni' as const, label: 'Approvazioni' },
                   { k: 'ratei' as const, label: 'Saldi dalle paghe' },
                 ]).map((t) => (
@@ -1241,6 +1263,7 @@ export default function Dipendenti() {
               </div>
               <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
                 {ferieTab === 'richieste' && <RichiesteFerie companyId={COMPANY_ID} userId={USER_ID} />}
+                {ferieTab === 'piano' && <PianoFerie companyId={COMPANY_ID} />}
                 {ferieTab === 'approvazioni' && <ApprovazioniFerie companyId={COMPANY_ID} userId={USER_ID} />}
                 {ferieTab === 'ratei' && <RateiFerieImport companyId={COMPANY_ID} userId={USER_ID} />}
               </Suspense>
