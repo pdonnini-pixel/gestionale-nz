@@ -22,8 +22,12 @@ export const SLOT_MINUTI = 30;
 export interface RegoleTurni {
   turnoMinOre: number;
   turnoMaxOre: number;
+  /** da quante ore lavorate scatta la pausa (6 ore esatte comprese) */
   pausaOltreOre: number;
   pausaMinuti: number;
+  /** da quante ore lavorate la pausa diventa lunga (8 ore esatte comprese) */
+  pausaLungaOltreOre: number;
+  pausaLungaMinuti: number;
   giorniLavoroMax: number;
 }
 
@@ -32,8 +36,32 @@ export const REGOLE_DEFAULT: RegoleTurni = {
   turnoMaxOre: 8,
   pausaOltreOre: 6,
   pausaMinuti: 30,
+  pausaLungaOltreOre: 8,
+  pausaLungaMinuti: 60,
   giorniLavoroMax: 6,
 };
+
+/** Pausa (minuti) per un turno di `lavoroMinuti` lavorati: regola aziendale 6 ore = 30', 8 ore = un'ora. */
+export function pausaPer(lavoroMinuti: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  if (lavoroMinuti >= regole.pausaLungaOltreOre * 60) return regole.pausaLungaMinuti;
+  if (lavoroMinuti >= regole.pausaOltreOre * 60) return regole.pausaMinuti;
+  return 0;
+}
+
+/** Regole da una riga di outlet_shift_rules (o i default se il negozio non ne ha). */
+export function regoleDaRiga(r: {
+  turno_min_ore: number | string; turno_max_ore: number | string; pausa_oltre_ore: number | string; pausa_minuti: number | string;
+  pausa_lunga_oltre_ore?: number | string | null; pausa_lunga_minuti?: number | string | null; giorni_lavoro_max: number | string;
+} | null | undefined): RegoleTurni {
+  if (!r) return REGOLE_DEFAULT;
+  return {
+    turnoMinOre: Number(r.turno_min_ore), turnoMaxOre: Number(r.turno_max_ore),
+    pausaOltreOre: Number(r.pausa_oltre_ore), pausaMinuti: Number(r.pausa_minuti),
+    pausaLungaOltreOre: Number(r.pausa_lunga_oltre_ore ?? REGOLE_DEFAULT.pausaLungaOltreOre),
+    pausaLungaMinuti: Number(r.pausa_lunga_minuti ?? REGOLE_DEFAULT.pausaLungaMinuti),
+    giorniLavoroMax: Number(r.giorni_lavoro_max),
+  };
+}
 
 export interface OrarioGiornoTipo {
   /** 1 = lunedi' ... 7 = domenica */
@@ -268,13 +296,11 @@ export function proponiSettimana(args: {
     ore = Math.min(Math.max(ore, regole.turnoMinOre), regole.turnoMaxOre, rest);
     ore = arrotondaMezzOra(ore);
     let lavoro = ore * 60;
-    let pausa = lavoro > regole.pausaOltreOre * 60 ? regole.pausaMinuti : 0;
     const giornata = g.chiude - g.apre;
-    if (lavoro + pausa > giornata) {
-      lavoro = Math.floor((giornata - pausa) / SLOT_MINUTI) * SLOT_MINUTI;
-      pausa = lavoro > regole.pausaOltreOre * 60 ? regole.pausaMinuti : 0;
-    }
-    return { lavoro, pausa };
+    // Se il turno con la sua pausa non sta nella giornata si accorcia di
+    // mezz'ora alla volta (la pausa scende di fascia quando serve).
+    while (lavoro > 0 && lavoro + pausaPer(lavoro, regole) > giornata) lavoro -= SLOT_MINUTI;
+    return { lavoro, pausa: pausaPer(lavoro, regole) };
   };
 
   const assegna = (p: PersonaTurni, g: GiornoPiano, inizioMin: number, lavoro: number, pausa: number) => {

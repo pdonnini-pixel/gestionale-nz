@@ -17592,6 +17592,8 @@ export type Database = {
           company_id: string
           giorni_lavoro_max: number
           outlet_id: string
+          pausa_lunga_minuti: number
+          pausa_lunga_oltre_ore: number
           pausa_minuti: number
           pausa_oltre_ore: number
           turno_max_ore: number
@@ -17603,6 +17605,8 @@ export type Database = {
           company_id: string
           giorni_lavoro_max?: number
           outlet_id: string
+          pausa_lunga_minuti?: number
+          pausa_lunga_oltre_ore?: number
           pausa_minuti?: number
           pausa_oltre_ore?: number
           turno_max_ore?: number
@@ -17614,6 +17618,8 @@ export type Database = {
           company_id?: string
           giorni_lavoro_max?: number
           outlet_id?: string
+          pausa_lunga_minuti?: number
+          pausa_lunga_oltre_ore?: number
           pausa_minuti?: number
           pausa_oltre_ore?: number
           turno_max_ore?: number

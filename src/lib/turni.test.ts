@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate,
+  costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer,
   scopertureDelGiorno, oreDaCoprire, minuti, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
 } from './turni';
 
@@ -68,7 +68,7 @@ describe('proponiSettimana', () => {
         expect(oreLavorate(t)).toBeGreaterThanOrEqual(4);
         expect(oreLavorate(t)).toBeLessThanOrEqual(8);
         expect(t.inizio >= '10:00' && t.fine <= '20:00').toBe(true);
-        if (oreLavorate(t) > 6) expect(t.pausaMinuti).toBe(30);
+        expect(t.pausaMinuti).toBe(oreLavorate(t) >= 8 ? 60 : oreLavorate(t) >= 6 ? 30 : 0);
       }
     }
   });
@@ -123,5 +123,23 @@ describe('scopertureDelGiorno', () => {
       { data: LUN, dalle: '10:00', alle: '16:00', mancano: 1 },
       { data: LUN, dalle: '16:00', alle: '20:00', mancano: 2 },
     ]);
+  });
+});
+
+describe('pausaPer', () => {
+  it('30 minuti da 6 ore lavorate, un\'ora da 8', () => {
+    expect(pausaPer(5.5 * 60)).toBe(0);
+    expect(pausaPer(6 * 60)).toBe(30);
+    expect(pausaPer(7.5 * 60)).toBe(30);
+    expect(pausaPer(8 * 60)).toBe(60);
+  });
+
+  it('un turno da 8 ore occupa 9 ore di negozio; se non ci sta si accorcia', () => {
+    const lun = costruisciGiorni(['2026-10-19'], [{ giorno: 1, chiuso: false, apre: '10:00', chiude: '18:30' }], [{ giorno: 1, dalle: '10:00', alle: '18:30', persone: 1 }], []);
+    const esito = proponiSettimana({ giorni: lun, persone: [persona('a', 8)] });
+    // 8 ore + un'ora non stanno in 8 ore e mezza: 7,5 ore con 30 minuti di pausa
+    expect(esito.turni).toHaveLength(1);
+    expect(oreLavorate(esito.turni[0])).toBe(7.5);
+    expect(esito.turni[0].pausaMinuti).toBe(30);
   });
 });

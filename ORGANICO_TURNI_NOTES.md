@@ -61,7 +61,9 @@ Regola semplice e leggibile, non un ottimizzatore:
    vince, persone in più sommate);
 2. si copre prima il buco più grande, dando il turno a chi ha la quota più alta di ore di contratto
    ancora libere; la lunghezza del turno è quella giusta per le ore di contratto della persona (fra il
-   minimo e il massimo delle regole), con la pausa oltre la soglia;
+   minimo e il massimo delle regole), con la pausa: 30 minuti da 6 ore lavorate, un'ora da 8
+   (regola aziendale, Patrizio 19/10/2026, migration 317); se il turno con la pausa non sta nella
+   giornata si accorcia di mezz'ora alla volta;
 3. le ore di contratto che avanzano vanno nei giorni e nelle fasce dove serve di più;
 4. quello che non si riesce a coprire si dice (scoperture), senza inventare persone.
 
@@ -69,7 +71,7 @@ Mai oltre le ore di contratto, un turno al giorno, mai oltre i giorni di lavoro 
 assente, scaduto, non ancora assunto, in un altro negozio o in ferie approvate a giornata intera quel
 giorno non è disponibile. I contratti a chiamata (nessun orario fisso) restano fuori dalla proposta.
 
-Un caso utile da ricordare (test): 2 persone dalle 10 alle 20 con turni da 8 ore più la pausa
+Un caso utile da ricordare (test): 2 persone dalle 10 alle 20 con turni da 8 ore più l'ora di pausa
 richiedono 4 turni al giorno (due aprono, due chiudono). Quattro persone a 40 ore non bastano anche se
 le ore totali sì: la proposta usa comunque tutte le loro ore e dice dove manca qualcuno.
 
@@ -89,7 +91,7 @@ sabato e la domenica; l'incasso del weekend è 3-5 volte quello dei feriali.
 - Apertura = 10:00 standard: **nessun dato la registra**, e la spiegazione lo dice.
 - Persone = ore di contratto del negozio distribuite sui giorni con peso √incasso medio, per difetto,
   almeno una, e mai più di metà delle persone in servizio se la giornata è più lunga di un turno
-  (8 ore + pausa): per avere k persone tutto il giorno servono k che aprono e k che chiudono.
+  (8 ore + un'ora di pausa): per avere k persone tutto il giorno servono k che aprono e k che chiudono.
 - Si salva con `origine = 'stima'`; il salvataggio da una persona la rende `manuale`. Lo stimato è
   azzurro in pagina. La stima di massa scrive solo nei negozi senza dati e salta quelli senza chiusure
   di cassa (sede, Roma prima dell'apertura).

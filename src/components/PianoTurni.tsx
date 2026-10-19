@@ -17,7 +17,7 @@ import {
 } from '../lib/organico';
 import { caricaGiorniFerie, type DatiOrganico } from '../lib/organicoDati';
 import {
-  NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, oreLavorate,
+  NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
@@ -71,11 +71,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       setStimati([...orari, ...fasce].some((x) => (x as { origine?: string }).origine === 'stima'));
       setHaFabbisogno(fasce.some((x) => x.persone > 0));
       setGiorni(costruisciGiorni(date, orari, fasce, (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? []));
-      const rr = r.data as { turno_min_ore: number; turno_max_ore: number; pausa_oltre_ore: number; pausa_minuti: number; giorni_lavoro_max: number } | null;
-      setRegole(rr ? {
-        turnoMinOre: Number(rr.turno_min_ore), turnoMaxOre: Number(rr.turno_max_ore), pausaOltreOre: Number(rr.pausa_oltre_ore),
-        pausaMinuti: Number(rr.pausa_minuti), giorniLavoroMax: Number(rr.giorni_lavoro_max),
-      } : REGOLE_DEFAULT);
+      setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
       setTurni(((t.data as TurnoDb[]) ?? []).map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) })));
       setFerie(fe);
     } catch (e) {
@@ -335,6 +331,9 @@ function EditorTurno({ companyId, outletId, editor, nome, giorno, regole, onClos
 
   const ore = oreLavorate({ inizio, fine, pausaMinuti: pausa });
   const errore = fine <= inizio ? 'La fine viene prima dell’inizio.' : ore <= 0 ? 'Turno vuoto.' : null;
+  // Pausa prevista dalle regole (30' da 6 ore lavorate, un'ora da 8): si
+  // suggerisce, non si impone, perche' il turno messo a mano e' una scelta.
+  const pausaDovuta = errore ? 0 : pausaPer(ore * 60, regole);
 
   const salva = async () => {
     if (errore) return;
@@ -369,6 +368,12 @@ function EditorTurno({ companyId, outletId, editor, nome, giorno, regole, onClos
           <label className="text-xs font-semibold text-slate-600">Pausa (min)<input type="number" min={0} max={180} step={15} value={pausa} onChange={(e) => setPausa(Number(e.target.value) || 0)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
         </div>
         <p className="text-sm text-slate-600">{errore ?? `${ore.toLocaleString('it-IT')} ore di lavoro.`} Il turno diventa «messo a mano»: il ricalcolo non lo cambia.</p>
+        {pausa < pausaDovuta && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            Con {ore.toLocaleString('it-IT')} ore di lavoro la regola prevede {pausaDovuta} minuti di pausa.{' '}
+            <button type="button" onClick={() => setPausa(pausaDovuta)} className="font-semibold underline">Metti {pausaDovuta} minuti</button>
+          </p>
+        )}
         <div className="flex flex-wrap justify-between gap-2 pt-2 border-t border-slate-200">
           {editor.turno ? (
             <button type="button" onClick={togli} disabled={salvo} className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50"><Trash2 size={15} /> Togli il turno</button>

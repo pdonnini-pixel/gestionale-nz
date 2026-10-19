@@ -20,7 +20,7 @@
 // qualcuno conferma. Funzioni pure, test in stimaNegozio.test.ts.
 
 import type { FasciaFabbisogno, OrarioGiornoTipo } from './turni';
-import { REGOLE_DEFAULT, giornoIso, hhmm, minuti } from './turni';
+import { REGOLE_DEFAULT, giornoIso, hhmm, minuti, pausaPer } from './turni';
 
 export const APERTURA_STANDARD = '10:00';
 export const CHIUSURA_STANDARD = '20:00';
@@ -102,10 +102,10 @@ export function stimaOrariEFabbisogno(
       const oreDelGiorno = oreContratto * peso(o.giorno) / totalePeso;
       // Per difetto: chiedere piu' persone di quante le ore ne coprono lascerebbe
       // buchi certi; le ore che avanzano la proposta dei turni le mette dove serve.
-      // Una persona fa un turno al giorno, al massimo 8 ore piu' la pausa: se
+      // Una persona fa un turno al giorno, al massimo 8 ore piu' l'ora di pausa: se
       // il negozio resta aperto di piu', per avere k persone tutto il giorno
       // servono k che aprono e k che chiudono. Il tetto lo tiene possibile.
-      const turnoLungo = REGOLE_DEFAULT.turnoMaxOre + REGOLE_DEFAULT.pausaMinuti / 60;
+      const turnoLungo = REGOLE_DEFAULT.turnoMaxOre + pausaPer(REGOLE_DEFAULT.turnoMaxOre * 60) / 60;
       const tettoGiorno = oreGiorno > turnoLungo ? Math.max(1, Math.floor(tetto / 2)) : tetto;
       persone = Math.min(tettoGiorno, Math.max(1, Math.floor(oreDelGiorno / oreGiorno + 0.2)));
     } else {

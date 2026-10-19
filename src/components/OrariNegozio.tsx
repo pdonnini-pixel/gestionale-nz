@@ -12,7 +12,7 @@ import { Copy, Lock, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import {
-  NOMI_GIORNO, REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, oreDaCoprire,
+  NOMI_GIORNO, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreDaCoprire,
   type FasciaFabbisogno, type RegoleTurni,
 } from '../lib/turni';
 import { formattaDataBreve, oggiRoma } from '../lib/organico';
@@ -81,11 +81,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     setFasceIniziali(ff.map((x) => x.id!));
     setSpeciali(((s.data as { id: string; data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [])
       .map((x) => ({ id: x.id, data: x.data, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude), persone_extra: x.persone_extra, nota: x.nota ?? '' })));
-    const rr = r.data as { turno_min_ore: number; turno_max_ore: number; pausa_oltre_ore: number; pausa_minuti: number; giorni_lavoro_max: number } | null;
-    setRegole(rr ? {
-      turnoMinOre: Number(rr.turno_min_ore), turnoMaxOre: Number(rr.turno_max_ore), pausaOltreOre: Number(rr.pausa_oltre_ore),
-      pausaMinuti: Number(rr.pausa_minuti), giorniLavoroMax: Number(rr.giorni_lavoro_max),
-    } : REGOLE_DEFAULT);
+    setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
     setCaricamento(false);
   }, [outletId]);
 
@@ -140,10 +136,12 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
 
   const salvaRegole = async () => {
     if (regole.turnoMaxOre < regole.turnoMinOre) { toast({ type: 'error', message: 'Il turno massimo è più corto del minimo.' }); return; }
+    if (regole.pausaLungaOltreOre < regole.pausaOltreOre) { toast({ type: 'error', message: 'La pausa lunga deve scattare dopo quella normale.' }); return; }
     setSalvo('regole');
     const { error } = await supabase.from('outlet_shift_rules').upsert([{
       outlet_id: outletId, company_id: companyId, turno_min_ore: regole.turnoMinOre, turno_max_ore: regole.turnoMaxOre,
-      pausa_oltre_ore: regole.pausaOltreOre, pausa_minuti: regole.pausaMinuti, giorni_lavoro_max: regole.giorniLavoroMax,
+      pausa_oltre_ore: regole.pausaOltreOre, pausa_minuti: regole.pausaMinuti,
+      pausa_lunga_oltre_ore: regole.pausaLungaOltreOre, pausa_lunga_minuti: regole.pausaLungaMinuti, giorni_lavoro_max: regole.giorniLavoroMax,
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
     setSalvo(null);
@@ -372,8 +370,10 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
             {([
               { k: 'turnoMinOre' as const, label: 'Turno minimo (ore)', min: 1, max: 12, step: 0.5 },
               { k: 'turnoMaxOre' as const, label: 'Turno massimo (ore)', min: 1, max: 12, step: 0.5 },
-              { k: 'pausaOltreOre' as const, label: 'Pausa oltre le (ore)', min: 1, max: 12, step: 0.5 },
+              { k: 'pausaOltreOre' as const, label: 'Pausa da (ore lavorate)', min: 1, max: 12, step: 0.5 },
               { k: 'pausaMinuti' as const, label: 'Pausa (minuti)', min: 0, max: 120, step: 15 },
+              { k: 'pausaLungaOltreOre' as const, label: 'Pausa lunga da (ore lavorate)', min: 1, max: 12, step: 0.5 },
+              { k: 'pausaLungaMinuti' as const, label: 'Pausa lunga (minuti)', min: 0, max: 120, step: 15 },
               { k: 'giorniLavoroMax' as const, label: 'Giorni di lavoro a settimana, al massimo', min: 1, max: 7, step: 1 },
             ]).map((c) => (
               <label key={c.k} className="text-xs text-slate-600">{c.label}<br />
