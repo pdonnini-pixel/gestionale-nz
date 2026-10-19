@@ -102,7 +102,7 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       key: 'risorse',
       label: 'Risorse',
       items: [
-        { to: '/dipendenti', icon: UserCheck, label: 'Dipendenti', roles: ['super_advisor', 'coo', 'contabile'] },
+        { to: '/dipendenti', icon: UserCheck, label: 'Dipendenti', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile'] },
       ],
     },
     {
