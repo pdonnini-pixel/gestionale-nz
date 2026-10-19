@@ -60,8 +60,9 @@ Regola semplice e leggibile, non un ottimizzatore:
 1. per ogni mezz'ora servono le persone del fabbisogno (fasce del giorno tipo, giorno speciale che
    vince, persone in più sommate);
 2. si copre prima il buco più grande, dando il turno a chi ha la quota più alta di ore di contratto
-   ancora libere; la lunghezza del turno è quella giusta per le ore di contratto della persona (fra il
-   minimo e il massimo delle regole), con la pausa: 30 minuti da 6 ore lavorate, un'ora da 8
+   ancora libere; la lunghezza del turno è quella giusta per le ore di contratto della persona (fino al
+   massimo delle regole; il turno minimo non è una regola, Patrizio 19/10/2026: vincola e basta.
+   Resta solo il limite tecnico di un'ora), con la pausa: 30 minuti da 6 ore lavorate, un'ora da 8
    (regola aziendale, Patrizio 19/10/2026, migration 317); se il turno con la pausa non sta nella
    giornata si accorcia di mezz'ora alla volta;
 3. le ore di contratto che avanzano vanno nei giorni e nelle fasce dove serve di più;

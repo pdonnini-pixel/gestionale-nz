@@ -135,11 +135,10 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   };
 
   const salvaRegole = async () => {
-    if (regole.turnoMaxOre < regole.turnoMinOre) { toast({ type: 'error', message: 'Il turno massimo è più corto del minimo.' }); return; }
     if (regole.pausaLungaOltreOre < regole.pausaOltreOre) { toast({ type: 'error', message: 'La pausa lunga deve scattare dopo quella normale.' }); return; }
     setSalvo('regole');
     const { error } = await supabase.from('outlet_shift_rules').upsert([{
-      outlet_id: outletId, company_id: companyId, turno_min_ore: regole.turnoMinOre, turno_max_ore: regole.turnoMaxOre,
+      outlet_id: outletId, company_id: companyId, turno_max_ore: regole.turnoMaxOre,
       pausa_oltre_ore: regole.pausaOltreOre, pausa_minuti: regole.pausaMinuti,
       pausa_lunga_oltre_ore: regole.pausaLungaOltreOre, pausa_lunga_minuti: regole.pausaLungaMinuti, giorni_lavoro_max: regole.giorniLavoroMax,
       updated_at: new Date().toISOString(),
@@ -368,7 +367,6 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
           </div>
           <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
             {([
-              { k: 'turnoMinOre' as const, label: 'Turno minimo (ore)', min: 1, max: 12, step: 0.5 },
               { k: 'turnoMaxOre' as const, label: 'Turno massimo (ore)', min: 1, max: 12, step: 0.5 },
               { k: 'pausaOltreOre' as const, label: 'Pausa da (ore lavorate)', min: 1, max: 12, step: 0.5 },
               { k: 'pausaMinuti' as const, label: 'Pausa (minuti)', min: 0, max: 120, step: 15 },

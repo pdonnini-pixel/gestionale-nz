@@ -325,7 +325,7 @@ function EditorTurno({ companyId, outletId, editor, nome, giorno, regole, onClos
   const { toast } = useToast();
   const hh = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
   const [inizio, setInizio] = useState(editor.turno?.inizio ?? hh(giorno.apre));
-  const [fine, setFine] = useState(editor.turno?.fine ?? hh(Math.min(giorno.chiude, giorno.apre + regole.turnoMinOre * 60)));
+  const [fine, setFine] = useState(editor.turno?.fine ?? hh(Math.min(giorno.chiude, giorno.apre + regole.turnoMaxOre * 60 + pausaPer(regole.turnoMaxOre * 60, regole))));
   const [pausa, setPausa] = useState(editor.turno?.pausa_minuti ?? 0);
   const [salvo, setSalvo] = useState(false);
 

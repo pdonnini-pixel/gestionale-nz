@@ -20,6 +20,7 @@
 export const SLOT_MINUTI = 30;
 
 export interface RegoleTurni {
+  /** limite tecnico, non una regola del negozio: niente turni sotto l'ora (Patrizio, 19/10/2026: il turno minimo vincola e basta) */
   turnoMinOre: number;
   turnoMaxOre: number;
   /** da quante ore lavorate scatta la pausa (6 ore esatte comprese) */
@@ -32,7 +33,7 @@ export interface RegoleTurni {
 }
 
 export const REGOLE_DEFAULT: RegoleTurni = {
-  turnoMinOre: 4,
+  turnoMinOre: 1,
   turnoMaxOre: 8,
   pausaOltreOre: 6,
   pausaMinuti: 30,
@@ -50,12 +51,12 @@ export function pausaPer(lavoroMinuti: number, regole: RegoleTurni = REGOLE_DEFA
 
 /** Regole da una riga di outlet_shift_rules (o i default se il negozio non ne ha). */
 export function regoleDaRiga(r: {
-  turno_min_ore: number | string; turno_max_ore: number | string; pausa_oltre_ore: number | string; pausa_minuti: number | string;
+  turno_min_ore?: number | string | null; turno_max_ore: number | string; pausa_oltre_ore: number | string; pausa_minuti: number | string;
   pausa_lunga_oltre_ore?: number | string | null; pausa_lunga_minuti?: number | string | null; giorni_lavoro_max: number | string;
 } | null | undefined): RegoleTurni {
   if (!r) return REGOLE_DEFAULT;
   return {
-    turnoMinOre: Number(r.turno_min_ore), turnoMaxOre: Number(r.turno_max_ore),
+    turnoMinOre: REGOLE_DEFAULT.turnoMinOre, turnoMaxOre: Number(r.turno_max_ore),
     pausaOltreOre: Number(r.pausa_oltre_ore), pausaMinuti: Number(r.pausa_minuti),
     pausaLungaOltreOre: Number(r.pausa_lunga_oltre_ore ?? REGOLE_DEFAULT.pausaLungaOltreOre),
     pausaLungaMinuti: Number(r.pausa_lunga_minuti ?? REGOLE_DEFAULT.pausaLungaMinuti),
