@@ -149,60 +149,48 @@ esattamente l'md5 di NZ senza scrivere niente — e solo dopo eseguita. Migratio
 un payload, il testo si fa costruire dal server e si verifica con l'impronta. Vale
 per ogni funzione, non solo per questa.
 
-### Le 18 di sola formattazione, ancora diverse
+### Le ultime 18, chiuse il 20/10 — i tre tenant hanno lo stesso codice
 
-Restano le 18 divergenze che l'audit aveva classificato come formattazione (fra cui
-`_acube_marking_to_sdi_status`, `check_pixel_and_alert`, `delete_cash_closing`,
-`close_non_supplier_movements`): la logica è la stessa, il testo no, quindi
-l'impronta non normalizzata dei tre tenant resta diversa e ogni audit futuro le
-segnalerà.
+Erano le divergenze classificate come formattazione: logica identica, testo no.
+Tutte appaiate nello stesso modo, **Made e Zago con lo stesso testo fra loro**
+contro NZ, tranne `_acube_marking_to_sdi_status`, l'unica funzione dello schema
+con tre versioni diverse, una per tenant.
 
-Due modi per chiudere anche quelle, quando si vuole:
-1. la patch sulla definizione viva della 309, una per una, con il controllo dell'md5
-   che garantisce l'esattezza (sicuro ma lento: serve conoscere le ancore di ognuna);
-2. usare nell'audit la misura **normalizzata** di cui sopra, che le ignora senza
-   toccare i database.
+Allineate tutte: 17 copiando su Made e Zago il testo che `pg_get_functiondef`
+restituisce su NZ (a gruppi, perché il connettore non regge un payload unico), e
+`delete_cash_closing` con la patch sulla definizione viva. Migration
+`20261020_310`.
 
-La seconda costa niente ed è quella giusta per il controllo settimanale; la prima ha
-senso se si vuole che i tre tenant siano leggibili come un solo codice.
+**L'ipotesi sul perché alcuni payload vengono rifiutati era sbagliata.** Nella 309
+avevo scritto che il sospetto erano i nomi dei circuiti delle carte nel regex di
+`close_incoming_movements`. No: `close_non_supplier_movements` contiene gli stessi
+nomi ed è passata al primo colpo. L'elemento comune alle **due sole** funzioni
+rifiutate su 27 è un altro: entrambe hanno `DELETE FROM` nel corpo, due la prima e
+cinque `delete_cash_closing`. Resta un'ipotesi, ma è l'unica coerente con tutti i
+dati: un controllo del connettore sui comandi distruttivi nel testo inviato. Quando
+succede, la via è la patch sulla definizione viva con un'ancora che non contenga
+quei comandi.
 
-### Com'era prima dell'allineamento: le 9 funzioni
+### Lo stato al 20/10/2026: parità piena
 
-Nessuna riguarda il motore di riconciliazione, che è allineato
-(`try_match_bank_transaction`, `try_match_amount_bank_transaction`,
-`supplier_confirmed_in_text`, `close_non_supplier_movements`,
-`trg_set_bank_tx_dedup_hash`, `fn_payable_is_riba`: tutte identiche nella logica).
+| categoria | impronta uguale sui tre | valore |
+|---|---|---|
+| funzioni (257) | sì | `f3072c8ae1b57fc73384e2efb23101f8` |
+| viste (37) | sì | `f46975acbb1e566fef82850f0f6f8163` |
+| trigger (73) | sì | `283400422cd8b3de5e2d97141a6c2b9e` |
+| indici (448) | sì | `da001a1f2df84f4481d17ea83b577f39` |
+| permessi sulle funzioni | sì | `d56779b1dc3c1ff5b52f9887ca5946fc` |
+| colonne (148 tabelle) | sì | ogni hash per tabella combacia |
 
-| funzione | chi è indietro | migration di riferimento | area |
-|---|---|---|---|
-| `sync_employee_costs_from_slips` | Made, Zago | `161` (02/09) | costi del personale dai cedolini |
-| `refresh_budget_consuntivo` | tutti e tre diversi | `018`/`019` (13/05) | consuntivo del budget |
-| `close_incoming_movements` | NZ più corto, logica diversa | `167`/`184` (03-04/09) | chiusura movimenti in entrata |
-| `acube_tx_set_dedup_hash` | Made, Zago | nessuna nel repo | anti-doppione movimenti A-Cube |
-| `ensure_acube_business_registry_stub` | Made, Zago | `040`/`042` (17/05) | anagrafica A-Cube SDI |
-| `_suppliers_slugify` | Made, Zago | `044`/`156` | slug fornitori (cosmetico) |
-| `get_autofix_cron_secret` | solo Zago | `156` (02/09) | segreto del cron autofix |
-| `ticket_autofix_run` | solo Zago | `156` (02/09) | autofix dei ticket |
-| `sync_acube_account_to_bank_account` | solo Zago | `029` (15/05) | conti A-Cube → conti banca |
+**Da ora il controllo di parità è un confronto secco**: la query delle funzioni in
+fondo alla 310 deve dare `257` e `f3072c8ae1b5…` su tutti e tre. Nessuna
+normalizzazione, nessun falso allarme da indentazione. Se un giorno quel valore
+differisce, è perché una migration non è arrivata da qualche parte, e si scende per
+gruppi come descritto sopra.
 
-Una policy esiste su Made e Zago e **non** su NZ: `profiles_self_select` su
-`user_profiles` (la crea la `009`, l'onboarding tenant). NZ ha comunque
-`profiles_select` e `profiles_own_update`, quindi non è un buco funzionale, ma la
-differenza è reale.
-
-### Perché non è urgente, e perché va fatto comunque
-
-Misurato lo stesso giorno: **Made e Zago sono praticamente vuoti**. Made ha 0
-movimenti bancari, 5 scadenze, 5 fatture, 1 fornitore, 1 negozio, 0 dipendenti;
-Zago 0 movimenti, 0 fatture, 0 fornitori, 12 dipendenti, 2 negozi. Nessun log di
-riconciliazione da nessuna delle due parti.
-
-Quindi oggi quelle 9 funzioni non girano su niente. Ma il giorno in cui Made
-collega la banca, il primo movimento passa dalla logica che c'è, non da quella
-giusta: l'allineamento va fatto **prima** che quei tenant inizino a lavorare, non
-dopo il primo numero sbagliato.
-
----
+La misura normalizzata resta scritta qui perché serve ancora in un caso: capire se
+una divergenza trovata è di sostanza o di scrittura, prima di decidere con quanta
+urgenza chiuderla.
 
 ## Da rifare, e quando
 
