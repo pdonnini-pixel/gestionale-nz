@@ -29,7 +29,7 @@ import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
-import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible } from '../lib/reconcileMatch'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, pickActionableSuggestions, countActionableSuggestions, type SuggestionLogLike } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import CommissioniIncasso from './CommissioniIncasso'
 import OpenBankingAcube from '../components/OpenBankingAcube'
@@ -564,7 +564,7 @@ function Pagination({ page, totalPages, onPageChange }: { page: number; totalPag
 
 type AccountT = Record<string, unknown> & { id: string; bank_name?: string | null; account_name?: string | null; current_balance?: number | null; credit_line?: number | null; iban?: string | null; account_type?: string | null; last_balance_update?: string | null; is_active?: boolean | null }
 type TransactionT = Record<string, unknown> & { id: string; transaction_date?: string | null; amount?: number | null; type?: string | null; description?: string | null; bank_account_id?: string | null; reconciliation_status?: string | null; counterpart_name?: string | null; is_reconciled?: boolean | null; note?: string | null; reconciled_at?: string | null; reconciled_invoice_id?: string | null; category?: string | null }
-type PayableT = Record<string, unknown> & { id: string; due_date?: string | null; amount?: number | null; gross_amount?: number | null; amount_paid?: number | null; amount_remaining?: number | null; supplier_name?: string | null; invoice_number?: string | null; status?: string | null; suppliers?: { ragione_sociale?: string | null; name?: string | null; iban?: string | null } | null }
+type PayableT = Record<string, unknown> & { id: string; due_date?: string | null; amount?: number | null; gross_amount?: number | null; amount_paid?: number | null; amount_remaining?: number | null; supplier_name?: string | null; invoice_number?: string | null; invoice_date?: string | null; status?: string | null; closed_manually?: boolean | null; bank_transaction_id?: string | null; suppliers?: { ragione_sociale?: string | null; name?: string | null; iban?: string | null } | null }
 function TabPanoramica({ accounts, transactions, payables, committedByAccount, committedPayables, onNavigate }: { accounts: AccountT[]; transactions: TransactionT[]; payables: PayableT[]; committedByAccount: CommittedByAccount; committedPayables: CommittedPayables; onNavigate: (tab: string) => void }) {
   // Conta solo i conti attivi: un conto disattivato (es. doppione lasciato dal
   // ri-collegamento A-Cube con lo stesso IBAN) NON deve gonfiare la cassa. Coerente
@@ -3244,63 +3244,16 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     return m
   }, [payables])
 
-  const OPEN_STATUSES = ['da_pagare', 'in_scadenza', 'scaduto', 'parziale']
-  // Un suggerimento si mostra solo se: importo del movimento coincide col residuo
-  // della fattura (entro il 5%) E affidabilità >= 70%. Così spariscono gli
-  // abbinamenti assurdi (importo lontano, proposti solo per nome/data).
-  const SUGGEST_MIN_CONFIDENCE = 70
-  const SUGGEST_AMOUNT_TOLERANCE = 0.05
-
-  // Fattura chiusa a mano non ancora agganciata a un movimento: paid + closed_manually
-  // + nessun bank_transaction_id. Regola Patrizio: ogni movimento va SEMPRE verificato
-  // anche contro queste, non solo contro le aperte.
-  const isClosedManualUnlinked = (p: PayT): boolean =>
-    String(p.status) === 'pagato' && (p as { closed_manually?: boolean }).closed_manually === true
-    && !(p as { bank_transaction_id?: string | null }).bank_transaction_id
-
   // Suggerimenti validi: log 'to_confirm' il cui movimento non è ancora riconciliato e
   // la cui fattura è ancora aperta OPPURE è chiusa a mano senza aggancio bancario. Gli
-  // stantii/deboli vengono nascosti. Per le chiuse a mano l'importo si confronta col
-  // totale fattura (il residuo è 0 perché già pagata).
-  const suggestions = useMemo<SugRow[]>(() => {
-    const out: SugRow[] = []
-    for (const log of logRows) {
-      if (log.status !== 'to_confirm') continue
-      if (!log.bank_transaction_id || !log.payable_id) continue
-      const bt = txById.get(log.bank_transaction_id)
-      const payable = payById.get(log.payable_id)
-      if (!bt || bt.is_reconciled) continue
-      if (!payable) continue
-      if (!isPaymentDatePlausible(String(bt.transaction_date || ''), String(payable.invoice_date || ''))) continue
-      const chiusa = isClosedManualUnlinked(payable)
-      const isOpen = OPEN_STATUSES.includes(String(payable.status))
-      if (!isOpen && !chiusa) continue
-      // base di confronto: residuo per le aperte, totale fattura per le chiuse a mano
-      const base = chiusa
-        ? Number(payable.gross_amount || 0)
-        : (payable.amount_remaining != null ? Number(payable.amount_remaining) : Number(payable.gross_amount || 0) - Number(payable.amount_paid || 0))
-      if (base <= 0) continue
-      const conf = Number(log.confidence) || 0
-      if (conf < SUGGEST_MIN_CONFIDENCE) continue
-      // importo del movimento deve coincidere con la base (entro tolleranza)
-      const mov = Math.abs(Number(bt.amount) || 0)
-      if (Math.abs(mov - base) / base > SUGGEST_AMOUNT_TOLERANCE) continue
-      out.push({ log, bt, payable, confidence: conf, chiusa })
-    }
-    // Dedup: una stessa fattura non va proposta per più movimenti (costi ricorrenti
-    // a importo fisso). Ordino per affidabilità e tengo, per ogni fattura, solo la
-    // proposta migliore. Così spariscono i doppioni (es. NEXI/SPM stessa fattura ×N).
-    out.sort((a, b) => b.confidence - a.confidence)
-    const seenPayable = new Set<string>()
-    const deduped: SugRow[] = []
-    for (const s of out) {
-      const pid = String(s.payable.id)
-      if (seenPayable.has(pid)) continue
-      seenPayable.add(pid)
-      deduped.push(s)
-    }
-    return deduped
-  }, [logRows, txById, payById])
+  // stantii/deboli vengono nascosti (importo lontano oltre il 5%, affidabilità sotto il
+  // 70%). La regola sta in pickActionableSuggestions, così il contatore della tab conta
+  // esattamente le righe che questa lista apre: prima guardava solo status + confidenza
+  // e annunciava proposte che qui non comparivano (19/10/2026: badge 23, lista 0).
+  const suggestions = useMemo<SugRow[]>(
+    () => pickActionableSuggestions(logRows, txById, payById),
+    [logRows, txById, payById],
+  )
 
   // Helper puri di matching (estratti e testati in src/lib/reconcileMatch.ts):
   // NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary (incl. pattern "*NOME"),
@@ -4241,13 +4194,24 @@ export default function TesoreriaManuale() {
   const [payables, setPayables] = useState<any[]>([])
   const [batches, setBatches] = useState<any[]>([])
   const [batchItems, setBatchItems] = useState<any[]>([])
-  const [suggestCount, setSuggestCount] = useState(0)
+  // Proposte del motore ancora da confermare. Si caricano le righe, non il solo
+  // conteggio: il numero sul badge deve essere quello delle proposte che la tab
+  // apre davvero, e per saperlo servono movimento e rata (vedi R14 in
+  // reconcileMatch.ts). Sono poche decine, il peso è trascurabile.
+  const [suggestLogRows, setSuggestLogRows] = useState<SuggestionLogLike[]>([])
   // Impegni "in distinta" non ancora pagati, per conto → saldo previsionale
   // affiancato al reale nella Panoramica. Non tocca il saldo vero.
   const [committedByAccount, setCommittedByAccount] = useState<CommittedByAccount>({})
   // Scadenze già impegnate in banca (effetto RI.BA presentato o bonifico disposto):
   // servono solo a marcarle nella lista, per distinguerle da quelle da pagare a mano.
   const [committedPayables, setCommittedPayables] = useState<CommittedPayables>({})
+
+  // Quante proposte sono davvero azionabili: stessa regola della lista dentro la tab
+  // Riconciliazione, così badge e lista non possono più dire numeri diversi.
+  const suggestCount = useMemo(
+    () => countActionableSuggestions(suggestLogRows, transactions, payables),
+    [suggestLogRows, transactions, payables],
+  )
 
   const refresh = useCallback(() => setRefreshKey(k => k + 1), [])
 
@@ -4304,7 +4268,7 @@ export default function TesoreriaManuale() {
           supabase.from('payables').select('*, suppliers(id, name, ragione_sociale, iban)').eq('company_id', companyId).order('due_date'),
           supabase.from('payment_batches').select('*').eq('company_id', companyId).order('created_at', { ascending: false }),
           supabase.from('payment_batch_items').select('*').eq('company_id', companyId).order('priority'),
-          (supabase.from('reconciliation_log') as any).select('id', { count: 'exact', head: true }).eq('company_id', companyId).eq('status', 'to_confirm').gte('confidence', 70),
+          (supabase.from('reconciliation_log') as any).select('id, bank_transaction_id, payable_id, confidence, status').eq('company_id', companyId).eq('status', 'to_confirm').gte('confidence', 70),
         ])
 
         if (!cancelled) {
@@ -4313,7 +4277,7 @@ export default function TesoreriaManuale() {
           setPayables((payRes.data || []).filter((p) => !p.is_placeholder))
           setBatches(batchRes.data || [])
           setBatchItems(itemsRes.data || [])
-          setSuggestCount(sugRes.count || 0)
+          setSuggestLogRows((sugRes.data || []) as SuggestionLogLike[])
         }
 
         // Impegni distinta per il saldo previsionale (best-effort: non blocca la pagina).
