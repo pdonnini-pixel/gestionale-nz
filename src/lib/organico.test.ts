@@ -87,6 +87,19 @@ describe('personaAllaData', () => {
     expect(personaAllaData(base, e, '2026-10-31').ore).toBe(30);
   });
 
+  it('rinnovo che passa da chiamata a part-time: le ore contano dal rinnovo', () => {
+    const chiamata: SchedaPersona = { ...base, contratto_tipo: 'a_chiamata', ore_settimanali: null, scadenza_td: '2026-10-31' };
+    const e = [ev({ tipo: 'proroga', data_dal: '2026-11-01', data_al: '2027-01-31', ore_settimanali: 20, contratto_tipo: 'determinato' })];
+    const prima = personaAllaData(chiamata, e, '2026-10-31');
+    expect(prima.ore).toBeNull();
+    expect(prima.stato).toBe('in_servizio');
+    const dopo = personaAllaData(chiamata, e, '2026-11-01');
+    expect(dopo.stato).toBe('in_servizio');
+    expect(dopo.contratto).toBe('determinato');
+    expect(dopo.ore).toBe(20);
+    expect(dopo.scadenza).toBe('2027-01-31');
+  });
+
   it('cambio d’orario vale dalla sua data', () => {
     const e = [ev({ tipo: 'cambio_orario', data_dal: '2026-10-01', ore_settimanali: 20 })];
     expect(personaAllaData(base, e, '2026-09-30').ore).toBe(30);

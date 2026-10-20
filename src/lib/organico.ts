@@ -185,6 +185,8 @@ export function personaAllaData(scheda: SchedaPersona, eventiTutti: EventoOrgani
         if (e.data_al && ultimoGiorno && ultimoGiorno < e.data_al) ultimoGiorno = null;
         // Il rinnovo puo' cambiare l'orario (piu' o meno ore): vale dal primo giorno del rinnovo.
         if (valeOggi && e.ore_settimanali != null) ore = Number(e.ore_settimanali);
+        // ...e anche il tipo di contratto (es. da chiamata a part-time a tempo determinato).
+        if (valeOggi && e.contratto_tipo) contratto = e.contratto_tipo;
         break;
       case 'cessazione':
       case 'non_rinnovo':
