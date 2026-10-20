@@ -326,13 +326,41 @@ export function scopertureDelGiorno(giorno: GiornoPiano, turni: Turno[]): Scoper
 
 const arrotondaMezzOra = (ore: number) => Math.floor(ore * 2 + 1e-9) / 2;
 
-export function proponiSettimana(args: {
+type ArgsProposta = {
   giorni: GiornoPiano[];
   persone: PersonaTurni[];
   regole?: RegoleTurni;
   /** turni che restano come sono: messi a mano o gia' pubblicati */
   fissi?: Turno[];
-}): EsitoProposta {
+};
+
+/** Ore-persona che mancano, pause comprese. */
+export function oreScoperte(giorni: GiornoPiano[], turni: Turno[]): number {
+  return giorni.reduce((s, g) => s + copertura(g, turni)
+    .reduce((a, c, i) => a + Math.max(0, g.fabbisogno[i] - c), 0) * (SLOT_MINUTI / 60), 0);
+}
+
+/**
+ * La proposta prova quattro strategie e tiene quella che lascia meno ore
+ * scoperte: riempire prima i giorni piu' pieni oppure il buco piu' grande, e
+ * turni lunghi nei giorni pieni oppure tutti uguali. Misurato il 20/10/2026
+ * sui 7 negozi con il fabbisogno di Lilian: nessuna vince ovunque, la
+ * migliore delle quattro si'. E' un ripiego finche' non c'e' l'ottimizzatore.
+ */
+export function proponiSettimana(args: ArgsProposta): EsitoProposta {
+  const tutti = (e: EsitoProposta) => [...(args.fissi ?? []), ...e.turni];
+  let meglio: { e: EsitoProposta; ore: number } | null = null;
+  for (const ordine of ['pieni', 'buco'] as const) {
+    for (const turni of ['pesati', 'uguali'] as const) {
+      const e = proponiConStrategia(args, ordine, turni);
+      const ore = oreScoperte(args.giorni, tutti(e));
+      if (!meglio || ore < meglio.ore - 1e-9) meglio = { e, ore };
+    }
+  }
+  return meglio!.e;
+}
+
+function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni: 'pesati' | 'uguali'): EsitoProposta {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const giorni = args.giorni;
   const fissi = args.fissi ?? [];
@@ -362,10 +390,20 @@ export function proponiSettimana(args: {
     && (g.chiude - g.apre) >= regole.turnoMinOre * 60;
 
   const durata = (p: PersonaTurni, g: GiornoPiano): { lavoro: number; pausa: number } => {
-    const giorniLiberi = giorni.filter((x) => puoLavorare(p, x)).length;
-    const giorniRestanti = Math.max(1, Math.min(giorniLiberi, regole.giorniLavoroMax - lavora.get(p.id)!.size));
+    // Le ore che restano si dividono sui giorni che la persona puo' ancora
+    // lavorare in proporzione a quanto serve in ciascuno: turni lunghi nei
+    // giorni pieni (sabato, domenica), corti in quelli tranquilli. Dividerle
+    // in parti uguali lasciava ore in piu' nei feriali e buchi nel weekend
+    // (Franciacorta, 20/10/2026: 28 ore in piu' dal lunedi' al venerdi',
+    // 10 e mezza scoperte nel fine settimana con le stesse persone).
+    const peso = (x: GiornoPiano) => Math.max(1, x.fabbisogno.reduce((a, b) => a + b, 0));
+    const slot = Math.max(1, regole.giorniLavoroMax - lavora.get(p.id)!.size);
+    const liberi = giorni.filter((x) => x.data !== g.data && puoLavorare(p, x)).sort((a, b) => peso(b) - peso(a));
+    const insieme = [g, ...liberi.slice(0, slot - 1)];
     const rest = restanti.get(p.id) ?? 0;
-    let ore = rest / giorniRestanti;
+    let ore = turni === 'pesati'
+      ? rest * peso(g) / insieme.reduce((a, x) => a + peso(x), 0)
+      : rest / Math.max(1, Math.min(liberi.length + 1, slot));
     ore = Math.min(Math.max(ore, regole.turnoMinOre), regole.turnoMaxOre, rest);
     ore = arrotondaMezzOra(ore);
     let lavoro = ore * 60;
@@ -405,7 +443,11 @@ export function proponiSettimana(args: {
       for (let i = 0; i < c.length; i++) {
         const manca = g.fabbisogno[i] - c[i];
         if (manca <= 0 || bloccati.has(`${g.data}|${i}`)) continue;
-        if (!best || manca > best.manca) best = { g, i, manca };
+        // Ordine «pieni»: prima i giorni piu' pieni, poi il buco piu' grande.
+        // Ordine «buco»: il buco piu' grande della settimana.
+        const pg = ordine === 'pieni' ? g.fabbisogno.reduce((a, b) => a + b, 0) : 0;
+        const pb = !best ? -1 : ordine === 'pieni' ? best.g.fabbisogno.reduce((a, b) => a + b, 0) : 0;
+        if (!best || pg > pb || (pg === pb && manca > best.manca)) best = { g, i, manca };
       }
     }
     if (!best) break;

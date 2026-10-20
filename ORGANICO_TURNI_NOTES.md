@@ -184,6 +184,11 @@ ipotesi e lo dicono.
 - **Rinforzi nei picchi**: prima con il personale **dello stesso negozio** (spostando ore fra le sue
   persone), poi straordinari. **Niente prestiti fra negozi**: sono troppo lontani fra loro (Patrizio,
   19/10/2026). Le persone a chiamata sono riserva, non base.
+- **Ripiego in uso dal 20/10/2026** (`proponiSettimana`): le ore si dividono sui giorni in proporzione al
+  fabbisogno (turni lunghi nel weekend, corti nei feriali) e si provano quattro strategie (giorni pieni
+  prima o buco più grande; turni pesati o uguali), tenendo quella con meno ore scoperte, pause comprese.
+  Misurato sui 7 negozi con il fabbisogno di Lilian: ore scoperte da 89 a 46 a settimana, nessun negozio
+  peggiora (Franciacorta da 10,5 a 1; Brugnato resta a 20,5 perché mancano persone: 100 ore contro 114).
 - Calcolo: serve un ottimizzatore a numeri interi (come il PuLP/CBC usato da Lilian), non la proposta
   greedy di oggi. Obiettivo: coprire il fabbisogno (penalità più alta nei giorni di punta), non mettere
   ore dove non servono, consumare le ferie in modo equo.

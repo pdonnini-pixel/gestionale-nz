@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer,
-  scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
+  scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
 } from './turni';
 
 const LUN = '2026-10-19';
@@ -179,5 +179,23 @@ describe('pause: chi e\' in pausa non e\' in negozio', () => {
     const esito = proponiSettimana({ giorni: g7, persone: ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => persona(id, 40)) });
     expect(esito.scoperture).toEqual([]);
     for (const g of g7) expect(copertura(g, esito.turni).every((c) => c >= 2)).toBe(true);
+  });
+});
+
+describe('turni lunghi nei giorni pieni (Franciacorta, 20/10/2026)', () => {
+  it('con le stesse ore, il weekend si copre e i feriali non hanno ore in piu\' inutili', () => {
+    const date = giorniDellaSettimana('2026-10-19');
+    const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
+    const F = (g: number[], s: string) => s.split(',').flatMap((x) => { const [a, b, n] = x.split(' '); return g.map((d) => ({ giorno: d, dalle: a, alle: b, persone: +n })); });
+    const fasce = [...F([1, 2, 3, 4], '10:00 12:00 1,12:00 17:00 2,17:00 20:00 1'), ...F([5], '10:00 11:00 1,11:00 18:00 2,18:00 20:00 1'),
+      ...F([6], '10:00 11:00 2,11:00 12:00 3,12:00 15:00 2,15:00 18:00 4,18:00 19:00 2,19:00 20:00 1'),
+      ...F([7], '10:00 11:00 2,11:00 14:00 3,14:00 18:00 4,18:00 19:00 3,19:00 20:00 1')];
+    const giorni = costruisciGiorni(date, orari, fasce, []);
+    // 152 ore di contratto contro 134 che servono: con i turni tutti uguali
+    // restavano 10 ore e mezza scoperte nel weekend
+    const persone = [36, 32, 34, 20, 30].map((ore, i) => persona(`p${i}`, ore));
+    const esito = proponiSettimana({ giorni, persone });
+    expect(oreScoperte(giorni, esito.turni)).toBeLessThanOrEqual(1);
+    for (const p of persone) expect(esito.ore[p.id].pianificate).toBeLessThanOrEqual(p.ore + 1e-9);
   });
 });
