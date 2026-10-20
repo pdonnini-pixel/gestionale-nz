@@ -18,7 +18,7 @@ import {
 import { caricaGiorniFerie, type DatiOrganico } from '../lib/organicoDati';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
-  proponiSettimana, scopertureDelGiorno, type GiornoPiano, type RegoleTurni, type Turno,
+  proponiSettimana, scopertureDelGiorno, collocaPause, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
 type Props = {
@@ -172,6 +172,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const pubblicati = attivi.filter((t) => t.stato === 'pubblicato').length;
   const annullatiPubblicati = turni.filter((t) => t.stato === 'annullato').length;
   const scoperture = giorni.flatMap((g) => scopertureDelGiorno(g, turniPerCalcolo));
+  // Dove cade la pausa di ciascuno: sfalsata in modo che il negozio resti coperto (chi e' in pausa non conta).
+  const pausaDi = new Map(giorni.flatMap((g) => collocaPause(g, turniPerCalcolo)).map((x) => [`${x.employeeId}|${x.data}`, x]));
   const totaleOre = persone.reduce((s, p) => s + attivi.filter((t) => t.employee_id === p.scheda.id).reduce((a, t) => a + oreLavorate({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }), 0), 0);
   const totaleContratto = persone.reduce((s, p) => s + (p.ore ?? 0), 0);
 
@@ -264,6 +266,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                             ? vivo.stato === 'pubblicato' ? 'bg-blue-100 text-blue-900' : vivo.origine === 'manuale' ? 'bg-violet-100 text-violet-900' : 'bg-blue-50 text-blue-800 border border-dashed border-blue-300'
                             : nd ? 'bg-slate-100 text-slate-500 font-sans' : g.chiuso ? 'text-slate-300' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50 font-sans'}`}>
                           {vivo ? `${vivo.inizio}-${vivo.fine}` : nd ? nd : g.chiuso ? '' : 'riposo'}
+                          {vivo && pausaDi.get(`${p.scheda.id}|${g.data}`) && (
+                            <span className="block font-sans text-[11px] opacity-75">pausa {pausaDi.get(`${p.scheda.id}|${g.data}`)!.dalle}</span>
+                          )}
                           {vivo && fe && <span className="block font-sans text-emerald-700">permesso {fe.ore} h</span>}
                         </button>
                         {annullato && !vivo && <span className="block text-[11px] text-slate-400 line-through text-center">{annullato.inizio}-{annullato.fine}</span>}

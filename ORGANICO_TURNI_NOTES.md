@@ -156,11 +156,22 @@ ipotesi e lo dicono.
 - Ordine delle fonti: decisione della direzione > MODA > stima dagli incassi > standard.
 - Si salva il fabbisogno **vero** (codice S di Lilian), non quello ridotto alle ore disponibili (A): lo
   scoperto si mostra, non si nasconde.
-- **Chi è in pausa non conta come presente**: la copertura deve reggere con le pause sfalsate. Oggi
-  `copertura()` in `turni.ts` conta anche chi è in pausa: va corretto prima di caricare i numeri di Lilian.
+- **Chi è in pausa non conta come presente**: la copertura deve reggere con le pause sfalsate. **Fatto
+  il 20/10/2026**: `collocaPause()` in `turni.ts` mette ogni pausa dopo almeno due ore di lavoro e prima
+  delle ultime due, nella mezz'ora in cui toglie meno rispetto al fabbisogno; `copertura()` sottrae chi
+  è in pausa, la proposta ricalcola le pause a ogni turno aggiunto, la pagina mostra l'ora della pausa.
+  Le pause non si salvano: sono deterministiche e si ricalcolano dai turni.
 - Servono: fabbisogno per periodo (oggi una sola settimana tipo) e giorni speciali con le proprie fasce
   (oggi solo «persone in più» su tutta la giornata).
 - Roma non ha storia: parte dal profilo di un negozio simile.
+- **Caricati su NZ il 20/10/2026** (solo dati, nessuno schema): orari 10-20 di tutti i giorni e
+  fabbisogno della settimana tipo di ottobre-novembre per Brugnato, Valmontone, Barberino, Palmanova,
+  Franciacorta, più la proposta di settembre per Valdichiana e Torino; `origine = 'stima'` finché la
+  direzione non conferma. Numeri S di Lilian; dove esiste solo il numero A (feriali lun-gio e sabato di
+  Barberino) si è usato quello. Brugnato feriali: la S (2 persone 13-17), non la A (14-16). Giorni
+  speciali: 25/12 e 01/01 chiusi ovunque, 26/12 chiusi Brugnato e Barberino, 24 e 31/12 chiusura alle
+  18 a Valmontone, Barberino, Palmanova, Franciacorta. Valmontone nel weekend resta 10-20 come nel
+  documento, anche se cassa e ingressi dicono 21: da confermare. Sede e Roma senza orari.
 
 ### I turni
 
