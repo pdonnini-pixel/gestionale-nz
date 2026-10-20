@@ -306,8 +306,12 @@ chiude: turni e piano non si modificano piu' e servono per la riprova con le ore
 presenze People Smart (quando arrivera').
 
 **Persone**: Caprioli (Brugnato, a chiamata) si usa per arrivare a copertura nel weekend; il suo contratto
-oggi scade il 25/10/2026, per novembre serve una proroga. Falchi non rinnova alla scadenza del 31/10/2026
-(evento non_rinnovo registrato il 20/10/2026, da confermare con il documento dello studio).
+oggi scade il 25/10/2026, per novembre serve una proroga. Falchi: il non rinnovo del 20/10/2026 è stato annullato lo stesso giorno. Dal 1/11/2026 torna a
+Brugnato con un part-time di 20 ore (rinnovo da_confermare, scadenza provvisoria 31/01/2027): la
+simulazione di novembre chiedeva circa 16 ore a settimana, 20 per coprire le settimane di ferie.
+
+**Rinnovo che cambia contratto**: una proroga con `contratto_tipo` cambia anche il tipo di contratto
+dal suo `data_dal` (es. da chiamata a part-time determinato), così le ore contano nei piani.
 
 ## Piani mensili, traffico MODA, HR, chiusura al cedolino (migration 320, 20/10/2026)
 
