@@ -18,7 +18,7 @@ import {
 import { caricaGiorniFerie, type DatiOrganico } from '../lib/organicoDati';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
-  proponiSettimana, scopertureDelGiorno, collocaPause, type GiornoPiano, type RegoleTurni, type Turno,
+  proponiSettimana, scopertureDelGiorno, collocaPause, eventiDelNegozio, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
 type Props = {
@@ -49,6 +49,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [regole, setRegole] = useState<RegoleTurni>(REGOLE_DEFAULT);
   const [turni, setTurni] = useState<TurnoDb[]>([]);
   const [ferie, setFerie] = useState<Awaited<ReturnType<typeof caricaGiorniFerie>>>([]);
+  // Ore di ferie e permessi gia' maturate e non godute, per persona (tabulato dello studio).
+  const [saldi, setSaldi] = useState<Map<string, number>>(new Map());
   const [caricamento, setCaricamento] = useState(true);
   const [lavoro, setLavoro] = useState(false);
   const [editor, setEditor] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
@@ -56,7 +58,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const carica = useCallback(async () => {
     setCaricamento(true);
     try {
-      const [o, f, s, r, t, fe] = await Promise.all([
+      const [o, f, s, r, t, fe, sl, ev] = await Promise.all([
         supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude, origine').eq('outlet_id', outletId),
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
@@ -64,16 +66,27 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo')
           .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]).order('inizio'),
         caricaGiorniFerie(companyId, date[0], date[6]),
+        supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
+        // Eventi della settimana (Black Friday, feste, saldi): piu' persone e straordinari se mancano
+        supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari')
+          .eq('company_id', companyId).lte('data_dal', date[6]).gte('data_al', date[0]),
       ]);
       const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
       const fasce = (f.data as { giorno: number; dalle: string; alle: string; persone: number }[]) ?? [];
       setHaOrari(orari.length > 0);
       setStimati([...orari, ...fasce].some((x) => (x as { origine?: string }).origine === 'stima'));
       setHaFabbisogno(fasce.some((x) => x.persone > 0));
-      setGiorni(costruisciGiorni(date, orari, fasce, (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? []));
+      setGiorni(costruisciGiorni(date, orari, fasce,
+        (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [],
+        eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId)));
       setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
       setTurni(((t.data as TurnoDb[]) ?? []).map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) })));
       setFerie(fe);
+      const m = new Map<string, number>();
+      for (const x of ((sl.data as { employee_id: string | null; residuo_disponibile: number | null }[]) ?? [])) {
+        if (x.employee_id) m.set(x.employee_id, (m.get(x.employee_id) ?? 0) + Number(x.residuo_disponibile ?? 0));
+      }
+      setSaldi(m);
     } catch (e) {
       toast({ type: 'error', message: `Turni non caricati: ${e instanceof Error ? e.message : 'errore'}` });
     } finally {
@@ -131,8 +144,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         .filter((p) => p.ore != null && p.ore > 0)
         .map((p) => ({
           id: p.scheda.id,
-          ore: p.ore as number,
+          // le ore gia' coperte da ferie e permessi approvati in settimana non si lavorano
+          ore: Math.max(0, (p.ore as number) - date.reduce((a, d) => a + Number(inFerie(p.scheda.id, d)?.ore ?? 0), 0)),
           nonDisponibile: new Set(date.filter((d, i) => motivoNonDisponibile(p.perGiorno[i], p.scheda.id, d) != null)),
+          saldoOre: saldi.get(p.scheda.id) ?? 0,
         }));
       const esito = proponiSettimana({ giorni, persone: candidati, regole, fissi });
       if (esito.turni.length) {
@@ -142,11 +157,16 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         })));
         if (error) throw error;
       }
+      const libere = Object.values(esito.ore).reduce((a, o) => a + Math.max(0, o.contratto - o.pianificate), 0);
+      const straord = Object.values(esito.ore).reduce((a, o) => a + (o.straordinario ?? 0), 0);
+      const perFerie = (libere > 0.25 ? ` ${libere.toLocaleString('it-IT')} ore di contratto non servono: restano per ferie e permessi, le vedi nella colonna Ore.` : '')
+        + (straord > 0.25 ? ` Per l'evento servono ${straord.toLocaleString('it-IT')} ore di straordinario.` : '');
       toast({
         type: esito.scoperture.length ? 'warning' : 'success',
         message: esito.scoperture.length
-          ? `Proposta fatta: ${esito.turni.length} turni. Restano ${esito.scoperture.length} fasce scoperte, le vedi sotto ogni giorno.`
-          : `Proposta fatta: ${esito.turni.length} turni, tutto coperto.`,
+          ? `Proposta fatta: ${esito.turni.length} turni. Restano ${esito.scoperture.length} fasce scoperte, le vedi sotto ogni giorno.${perFerie}`
+          : `Proposta fatta: ${esito.turni.length} turni, tutto coperto.${perFerie}`,
+        duration: 10000,
       });
       await carica();
     } catch (e) {
@@ -236,6 +256,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                   {g.chiuso && <span className="block normal-case font-normal text-slate-400">chiuso</span>}
                   {!g.chiuso && <span className="block normal-case font-normal text-slate-400">{`${String(Math.floor(g.apre / 60)).padStart(2, '0')}:${String(g.apre % 60).padStart(2, '0')}-${String(Math.floor(g.chiude / 60)).padStart(2, '0')}:${String(g.chiude % 60).padStart(2, '0')}`}</span>}
                   {g.nota && <span className="block normal-case font-normal text-blue-700">{g.nota}</span>}
+                  {g.evento && <span className="block normal-case font-semibold text-red-700" title="Evento: più personale, niente ferie né permessi, straordinari se mancano persone">{g.evento}</span>}
                 </th>
               ))}
               <th className="px-3 py-2 font-semibold text-right">Ore</th>
@@ -267,7 +288,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                             : nd ? 'bg-slate-100 text-slate-500 font-sans' : g.chiuso ? 'text-slate-300' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50 font-sans'}`}>
                           {vivo ? `${vivo.inizio}-${vivo.fine}` : nd ? nd : g.chiuso ? '' : 'riposo'}
                           {vivo && pausaDi.get(`${p.scheda.id}|${g.data}`) && (
-                            <span className="block font-sans text-[11px] opacity-75">pausa {pausaDi.get(`${p.scheda.id}|${g.data}`)!.dalle}</span>
+                            <span className="block font-sans text-[11px] opacity-75">pausa {pausaDi.get(`${p.scheda.id}|${g.data}`)!.dalle}-{pausaDi.get(`${p.scheda.id}|${g.data}`)!.alle}</span>
                           )}
                           {vivo && fe && <span className="block font-sans text-emerald-700">permesso {fe.ore} h</span>}
                         </button>
@@ -275,8 +296,17 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                       </td>
                     );
                   })}
-                  <td className={`px-3 py-2 text-right tabular-nums ${p.ore != null && Math.abs(pianificate - p.ore) > 0.01 ? 'text-amber-800 font-semibold' : 'text-emerald-800'}`}>
+                  <td className={`px-3 py-2 text-right tabular-nums ${p.ore != null && pianificate > p.ore + 0.01 ? 'text-amber-800 font-semibold' : 'text-emerald-800'}`}>
                     {pianificate.toLocaleString('it-IT')}{p.ore != null ? `/${p.ore}` : ''}
+                    {p.ore != null && pianificate - p.ore > 0.25 && (
+                      <span className="block text-[11px] font-normal text-amber-800 whitespace-nowrap">{(pianificate - p.ore).toLocaleString('it-IT')} h straordinario</span>
+                    )}
+                    {p.ore != null && p.ore - pianificate > 0.25 && (
+                      <span className="block text-[11px] font-normal text-slate-500 whitespace-nowrap"
+                        title="Ore di contratto che il negozio non usa questa settimana: si coprono con ferie o permessi">
+                        {(p.ore - pianificate).toLocaleString('it-IT')} h ferie/permessi{saldi.get(p.scheda.id) ? ` · maturate ${Math.round(saldi.get(p.scheda.id)!).toLocaleString('it-IT')} h` : ''}
+                      </span>
+                    )}
                   </td>
                 </tr>
               );
@@ -336,7 +366,7 @@ function EditorTurno({ companyId, outletId, editor, nome, giorno, regole, onClos
 
   const ore = oreLavorate({ inizio, fine, pausaMinuti: pausa });
   const errore = fine <= inizio ? 'La fine viene prima dell’inizio.' : ore <= 0 ? 'Turno vuoto.' : null;
-  // Pausa prevista dalle regole (30' da 6 ore lavorate, un'ora da 8): si
+  // Pausa prevista dalle regole (30' da 6 ore lavorate, anche da 8, in aggiunta alle ore): si
   // suggerisce, non si impone, perche' il turno messo a mano e' una scelta.
   const pausaDovuta = errore ? 0 : pausaPer(ore * 60, regole);
 

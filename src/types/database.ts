@@ -17676,6 +17676,54 @@ export type Database = {
           },
         ]
       }
+      outlet_events: {
+        Row: {
+          blocca_ferie: boolean
+          company_id: string
+          created_at: string
+          data_al: string
+          data_dal: string
+          id: string
+          nome: string
+          nota: string | null
+          outlet_ids: string[] | null
+          persone_extra: number
+          straordinari: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          blocca_ferie?: boolean
+          company_id: string
+          created_at?: string
+          data_al: string
+          data_dal: string
+          id?: string
+          nome: string
+          nota?: string | null
+          outlet_ids?: string[] | null
+          persone_extra?: number
+          straordinari?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          blocca_ferie?: boolean
+          company_id?: string
+          created_at?: string
+          data_al?: string
+          data_dal?: string
+          id?: string
+          nome?: string
+          nota?: string | null
+          outlet_ids?: string[] | null
+          persone_extra?: number
+          straordinari?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       outlet_special_days: {
         Row: {
           apre: string | null
@@ -17895,6 +17943,7 @@ export type Database = {
           unit_code: string | null
           updated_at: string | null
           variable_rent_pct: number | null
+          referente_employee_id: string | null
         }
         Insert: {
           address?: string | null
@@ -17958,6 +18007,7 @@ export type Database = {
           unit_code?: string | null
           updated_at?: string | null
           variable_rent_pct?: number | null
+          referente_employee_id?: string | null
         }
         Update: {
           address?: string | null
@@ -18021,6 +18071,7 @@ export type Database = {
           unit_code?: string | null
           updated_at?: string | null
           variable_rent_pct?: number | null
+          referente_employee_id?: string | null
         }
         Relationships: [
           {
@@ -26494,6 +26545,10 @@ export type Database = {
         Returns: string
       }
       organico_puo_decidere_fabbisogno: { Args: never; Returns: boolean }
+      organico_imposta_referente: {
+        Args: { p_employee_id: string | null; p_outlet_id: string }
+        Returns: undefined
+      }
       organico_puo_scrivere: { Args: never; Returns: boolean }
       organico_riconcilia: { Args: never; Returns: number }
       payroll_sync_now: { Args: never; Returns: Json }

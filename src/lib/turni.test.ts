@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer,
-  scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
+  scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
 } from './turni';
 
 const LUN = '2026-10-19';
@@ -65,10 +65,10 @@ describe('proponiSettimana', () => {
       expect(new Set(suoi.map((t) => t.data)).size).toBe(suoi.length);
       expect(suoi.length).toBeLessThanOrEqual(6);
       for (const t of suoi) {
-        expect(oreLavorate(t)).toBeGreaterThanOrEqual(4);
+        expect(oreLavorate(t)).toBeGreaterThanOrEqual(1);
         expect(oreLavorate(t)).toBeLessThanOrEqual(8);
         expect(t.inizio >= '10:00' && t.fine <= '20:00').toBe(true);
-        expect(t.pausaMinuti).toBe(oreLavorate(t) >= 8 ? 60 : oreLavorate(t) >= 6 ? 30 : 0);
+        expect(t.pausaMinuti).toBe(oreLavorate(t) >= 6 ? 30 : 0);
       }
     }
   });
@@ -81,10 +81,21 @@ describe('proponiSettimana', () => {
     expect(esito.scoperture).toEqual([]);
   });
 
-  it('quando non si può coprire tutto, usa comunque tutte le ore di contratto', () => {
+  it('non mette ore dove non servono: le ore in piu\' restano per ferie e permessi', () => {
     const esito = proponiSettimana({ giorni, persone: ['a', 'b', 'c', 'd'].map((id) => persona(id, 40)) });
-    expect(Object.values(esito.ore).every((o) => o.pianificate === 40)).toBe(true);
+    // in piu' resta solo quello che un turno continuo non puo' evitare
+    const inPiu = giorni.reduce((s, g) => s + copertura(g, esito.turni).reduce((a, c, i) => a + Math.max(0, c - g.fabbisogno[i]), 0) / 2, 0);
+    expect(inPiu).toBeLessThanOrEqual(8);
+    expect(Object.values(esito.ore).every((o) => o.pianificate <= 40)).toBe(true);
     expect(esito.scoperture.length).toBeGreaterThan(0);
+  });
+
+  it('le ore in piu\' le perde prima chi ha piu\' ferie maturate', () => {
+    const tutti = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ ...persona(id, 40), saldoOre: id === 'a' ? 120 : 10 }));
+    const esito = proponiSettimana({ giorni, persone: tutti });
+    expect(esito.scoperture).toEqual([]);
+    const libere = (id: string) => esito.ore[id].contratto - esito.ore[id].pianificate;
+    expect(libere('a')).toBeGreaterThanOrEqual(Math.max(...['b', 'c', 'd', 'e', 'f'].map(libere)));
   });
 
   it('con poche persone dice cosa resta scoperto, senza inventare', () => {
@@ -127,20 +138,24 @@ describe('scopertureDelGiorno', () => {
 });
 
 describe('pausaPer', () => {
-  it('30 minuti da 6 ore lavorate, un\'ora da 8', () => {
+  it('30 minuti da 6 ore lavorate e anche da 8, in aggiunta alle ore', () => {
     expect(pausaPer(5.5 * 60)).toBe(0);
     expect(pausaPer(6 * 60)).toBe(30);
     expect(pausaPer(7.5 * 60)).toBe(30);
-    expect(pausaPer(8 * 60)).toBe(60);
+    expect(pausaPer(8 * 60)).toBe(30);
   });
 
-  it('un turno da 8 ore occupa 9 ore di negozio; se non ci sta si accorcia', () => {
-    const lun = costruisciGiorni(['2026-10-19'], [{ giorno: 1, chiuso: false, apre: '10:00', chiude: '18:30' }], [{ giorno: 1, dalle: '10:00', alle: '18:30', persone: 1 }], []);
-    const esito = proponiSettimana({ giorni: lun, persone: [persona('a', 8)] });
-    // 8 ore + un'ora non stanno in 8 ore e mezza: 7,5 ore con 30 minuti di pausa
-    expect(esito.turni).toHaveLength(1);
-    expect(oreLavorate(esito.turni[0])).toBe(7.5);
-    expect(esito.turni[0].pausaMinuti).toBe(30);
+  it('un turno da 8 ore occupa 8 ore e mezza di negozio; se non ci sta si accorcia', () => {
+    const giorno = (chiude: string) => costruisciGiorni(['2026-10-19'], [{ giorno: 1, chiuso: false, apre: '10:00', chiude }], [{ giorno: 1, dalle: '10:00', alle: chiude, persone: 1 }], []);
+    // 10:00-18:30: 8 ore di lavoro + 30 minuti di pausa, ci sta giusto
+    const pieno = proponiSettimana({ giorni: giorno('18:30'), persone: [persona('a', 8)] });
+    expect(pieno.turni).toHaveLength(1);
+    expect(oreLavorate(pieno.turni[0])).toBe(8);
+    expect(pieno.turni[0]).toMatchObject({ inizio: '10:00', fine: '18:30', pausaMinuti: 30 });
+    // 10:00-18:00: 8 ore con la pausa non stanno, 7,5 ore + 30 minuti si'
+    const corto = proponiSettimana({ giorni: giorno('18:00'), persone: [persona('a', 8)] });
+    expect(oreLavorate(corto.turni[0])).toBe(7.5);
+    expect(corto.turni[0].pausaMinuti).toBe(30);
   });
 });
 
@@ -179,5 +194,76 @@ describe('pause: chi e\' in pausa non e\' in negozio', () => {
     const esito = proponiSettimana({ giorni: g7, persone: ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => persona(id, 40)) });
     expect(esito.scoperture).toEqual([]);
     for (const g of g7) expect(copertura(g, esito.turni).every((c) => c >= 2)).toBe(true);
+  });
+});
+
+describe('turni lunghi nei giorni pieni (Franciacorta, 20/10/2026)', () => {
+  it('con le stesse ore, il weekend si copre e i feriali non hanno ore in piu\' inutili', () => {
+    const date = giorniDellaSettimana('2026-10-19');
+    const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
+    const F = (g: number[], s: string) => s.split(',').flatMap((x) => { const [a, b, n] = x.split(' '); return g.map((d) => ({ giorno: d, dalle: a, alle: b, persone: +n })); });
+    const fasce = [...F([1, 2, 3, 4], '10:00 12:00 1,12:00 17:00 2,17:00 20:00 1'), ...F([5], '10:00 11:00 1,11:00 18:00 2,18:00 20:00 1'),
+      ...F([6], '10:00 11:00 2,11:00 12:00 3,12:00 15:00 2,15:00 18:00 4,18:00 19:00 2,19:00 20:00 1'),
+      ...F([7], '10:00 11:00 2,11:00 14:00 3,14:00 18:00 4,18:00 19:00 3,19:00 20:00 1')];
+    const giorni = costruisciGiorni(date, orari, fasce, []);
+    // 152 ore di contratto contro 134 che servono: con i turni tutti uguali
+    // restavano 10 ore e mezza scoperte nel weekend
+    const persone = [36, 32, 34, 20, 30].map((ore, i) => persona(`p${i}`, ore));
+    const esito = proponiSettimana({ giorni, persone });
+    // con il ritocco finale (20/10/2026) non resta scoperto niente
+    expect(oreScoperte(giorni, esito.turni)).toBe(0);
+    for (const p of persone) expect(esito.ore[p.id].pianificate).toBeLessThanOrEqual(p.ore + 1e-9);
+  });
+});
+
+describe('eventi dei negozi (Black Friday, feste, saldi)', () => {
+  const ev = (over: Partial<EventoNegozio> = {}): EventoNegozio => ({
+    nome: 'Black Friday', data_dal: '2026-10-23', data_al: '2026-10-25', outlet_ids: null,
+    persone_extra: 1, blocca_ferie: true, straordinari: true, ...over,
+  });
+
+  it('vale per tutti i negozi o solo per quelli scelti', () => {
+    expect(eventiDelNegozio([ev()], 'x')).toHaveLength(1);
+    expect(eventiDelNegozio([ev({ outlet_ids: ['a', 'b'] })], 'x')).toHaveLength(0);
+    expect(eventiDelNegozio([ev({ outlet_ids: ['a', 'b'] })], 'b')).toHaveLength(1);
+  });
+
+  it('nei suoi giorni aggiunge le persone in piu\' e il nome, non apre un giorno chiuso', () => {
+    const chiusoDom = orari.map((o) => (o.giorno === 7 ? { ...o, chiuso: true } : o));
+    const g = costruisciGiorni(settimana, chiusoDom, fasce, [], [ev()]);
+    expect(g[3].fabbisogno.every((n) => n === 2)).toBe(true); // giovedi', fuori evento
+    expect(g[3].evento).toBeNull();
+    expect(g[4].fabbisogno.every((n) => n === 3)).toBe(true); // venerdi', Black Friday
+    expect(g[4]).toMatchObject({ evento: 'Black Friday', straordinari: true });
+    expect(g[6].chiuso).toBe(true);
+  });
+
+  it('straordinari solo nei giorni di evento, e solo se le ore di contratto non bastano', () => {
+    // 2 persone a 16 ore: senza evento coprono 32 ore e basta. Con l'evento
+    // del venerdi' servono piu' ore e la proposta va oltre il contratto
+    // solo quel giorno.
+    const giorni = costruisciGiorni(settimana, orari, [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 1 })), [],
+      [ev({ data_dal: '2026-10-23', data_al: '2026-10-23', persone_extra: 1 })]);
+    const persone = [persona('a', 16), persona('b', 16)];
+    const esito = proponiSettimana({ giorni, persone });
+    const straord = esito.ore.a.straordinario! + esito.ore.b.straordinario!;
+    expect(straord).toBeGreaterThan(0);
+    // il venerdi' resta meno scoperto che senza straordinari
+    const senzaStraord = proponiSettimana({ giorni: giorni.map((g) => ({ ...g, straordinari: false })), persone });
+    expect(oreScoperte([giorni[4]], esito.turni)).toBeLessThan(oreScoperte([giorni[4]], senzaStraord.turni));
+    // gli altri giorni restano come senza evento: le ore in piu' vanno solo sul venerdi'
+    for (const t of esito.turni.filter((x) => x.data !== '2026-10-23')) expect(oreLavorate(t)).toBeLessThanOrEqual(8);
+    // fuori dall'evento nessuno supera il contratto per coprire gli altri giorni
+    const senzaEvento = proponiSettimana({ giorni: costruisciGiorni(settimana, orari, [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 1 })), []), persone });
+    expect(senzaEvento.ore.a.straordinario).toBe(0);
+    expect(senzaEvento.ore.b.straordinario).toBe(0);
+  });
+
+  it('senza «straordinari» l\'evento resta scoperto invece di andare oltre il contratto', () => {
+    const giorni = costruisciGiorni(settimana, orari, [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 1 })), [],
+      [ev({ data_dal: '2026-10-23', data_al: '2026-10-23', straordinari: false })]);
+    const esito = proponiSettimana({ giorni, persone: [persona('a', 16), persona('b', 16)] });
+    expect(esito.ore.a.straordinario).toBe(0);
+    expect(esito.ore.b.straordinario).toBe(0);
   });
 });

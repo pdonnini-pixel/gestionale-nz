@@ -20,8 +20,8 @@
 // save_payroll_f24_document (migration 270) crea la scadenza fiscale gia'
 // disposta, con importo, data e conto di addebito presi dal modello.
 
-import { useEffect, useRef, useState } from 'react'
-import { FileUp, Loader2, Check, AlertTriangle, ArrowRight, Info, CheckCircle2 } from 'lucide-react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { FileUp, Loader2, Check, AlertTriangle, ArrowRight, Info, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
 import { riconosciFilePaghe, type FilePagheRiconosciuto, type FilePaghe } from '../lib/payrollParse'
 import { archiviaFile } from '../lib/archivioFile'
 import { leggiModelloF24, codiciF24InBreve, sezioniF24InBreve, type ModelloF24 } from '../lib/modelloF24'
@@ -129,6 +129,10 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
 }) {
   const [voci, setVoci] = useState<Voce[]>([])
   const [drag, setDrag] = useState(false)
+  // Chiuso di solito: serve solo quando c'e' da caricare qualcosa (Patrizio,
+  // 20/10/2026). Si apre da solo appena si trascina un file o ci sono file in
+  // lavorazione, cosi' l'esito finale resta sempre visibile.
+  const [aperto, setAperto] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const seq = useRef(0)
   // Esiti arrivati dai flussi, per nonce: la coda li aspetta uno alla volta.
@@ -286,11 +290,40 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
       ? { ok: true, titolo: 'Finito, tutti i dati sono aggiornati', testo: `${salvati === 1 ? '1 documento salvato' : `${salvati} documenti salvati`}${voci.some((v) => v.stato === 'archiviato') ? ', i Netti negativi archiviati' : ''}. Non c'è altro da fare.` }
       : { ok: false, titolo: salvati ? 'Quasi finito' : 'Niente di salvato', testo: `${salvati ? `${salvati === 1 ? '1 documento salvato' : `${salvati} documenti salvati`}. ` : ''}${resta.join('; ')}.` }
 
+  const trascina = {
+    onDragOver: (e: DragEvent) => { e.preventDefault(); setDrag(true) },
+    onDragLeave: () => setDrag(false),
+    onDrop: (e: DragEvent) => { e.preventDefault(); setDrag(false); setAperto(true); if (e.dataTransfer.files?.length) void leggi(e.dataTransfer.files) },
+  }
+
+  if (!aperto && voci.length === 0) {
+    return (
+      <div {...trascina}
+        className={`rounded-2xl border shadow-sm px-4 py-2.5 flex flex-wrap items-center gap-2 ${drag ? 'border-blue-400 bg-blue-50' : 'bg-white border-slate-200'}`}>
+        <FileUp size={16} className="text-blue-600" />
+        <span className="font-semibold text-sm text-slate-800">Carica i file dello studio paghe</span>
+        <span className="text-xs text-slate-500">trascinali qui</span>
+        <button type="button" onClick={() => setAperto(true)}
+          className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">
+          Apri <ChevronDown size={14} />
+        </button>
+        <input ref={inputRef} type="file" multiple accept=".pdf,.xlsx,.xls,.csv" className="hidden"
+          onChange={(e) => { if (e.target.files?.length) { setAperto(true); void leggi(e.target.files) } e.target.value = '' }} />
+      </div>
+    )
+  }
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div className="flex items-center gap-2 mb-1">
         <FileUp size={18} className="text-blue-600" />
         <h3 className="font-bold text-slate-800">Carica i file dello studio paghe</h3>
+        {voci.length === 0 && (
+          <button type="button" onClick={() => setAperto(false)}
+            className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-slate-700">
+            Chiudi <ChevronUp size={14} />
+          </button>
+        )}
       </div>
       <p className="text-xs text-slate-500 mb-3">
         Trascina qui tutti i PDF del mese insieme. Il gestionale riconosce cosa sono e di che mese e li salva da solo,
@@ -299,9 +332,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
       </p>
 
       <div
-        onDragOver={(e) => { e.preventDefault(); setDrag(true) }}
-        onDragLeave={() => setDrag(false)}
-        onDrop={(e) => { e.preventDefault(); setDrag(false); if (e.dataTransfer.files?.length) void leggi(e.dataTransfer.files) }}
+        {...trascina}
         onClick={() => inputRef.current?.click()}
         className={`cursor-pointer rounded-xl border-2 border-dashed px-4 py-5 text-center text-sm transition-colors ${drag ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300 text-slate-500'}`}
       >

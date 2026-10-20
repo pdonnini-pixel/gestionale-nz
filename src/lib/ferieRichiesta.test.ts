@@ -279,3 +279,18 @@ describe('oreInParole', () => {
   });
 });
 
+
+describe('eventi del negozio: niente ferie ne\' permessi', () => {
+  const bf = { nome: 'Black Friday', data_dal: '2026-11-27', data_al: '2026-11-29' };
+  it('un giorno dentro l\'evento blocca la richiesta', () => {
+    const a = verificaRichiesta([giorno('2026-11-26'), giorno('2026-11-27')], [disp()], 6, [bf]);
+    const b = a.filter((x) => x.gravita === 'blocco');
+    expect(b).toHaveLength(1);
+    expect(b[0].testo).toMatch(/Black Friday/);
+    expect(b[0].data).toBe('2026-11-27');
+  });
+  it('fuori dall\'evento nessun blocco', () => {
+    const a = verificaRichiesta([giorno('2026-11-26')], [disp()], 6, [bf]);
+    expect(a.some((x) => x.gravita === 'blocco')).toBe(false);
+  });
+});

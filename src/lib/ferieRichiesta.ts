@@ -166,10 +166,15 @@ export function oreInParole(ore: number | null | undefined): string {
 const arrotonda2 = (n: number): string =>
   n.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
+/** Un evento del negozio in cui non si prendono ferie (outlet_events con blocca_ferie). */
+export type PeriodoSenzaFerie = { nome: string; data_dal: string; data_al: string };
+
 export function verificaRichiesta(
   giorni: GiornoRichiesto[],
   disponibilita: DisponibilitaVoce[],
   oreGiornataPiena: number,
+  /** eventi del negozio della persona con «niente ferie» (Black Friday, feste, saldi) */
+  senzaFerie: PeriodoSenzaFerie[] = [],
 ): Avviso[] {
   const avvisi: Avviso[] = [];
   if (!giorni.length) {
@@ -229,6 +234,19 @@ export function verificaRichiesta(
         testo: `${anteriori.length === 1 ? 'Un giorno è' : `${anteriori.length} giorni sono`} precedenti al ${formattaData(dataSaldo)}, la data dell'ultimo tabulato: le paghe li hanno già contati, quindi non tolgono altre ore al saldo.`,
       });
     }
+  }
+
+  // Negli eventi del negozio serve tutto il personale: niente ferie ne'
+  // permessi (Patrizio, 20/10/2026). E' un blocco, non un avviso.
+  for (const e of senzaFerie) {
+    const dentro = [...new Set(giorni.filter((g) => e.data_dal <= g.data && g.data <= e.data_al).map((g) => g.data))].sort();
+    if (!dentro.length) continue;
+    const periodo = e.data_dal === e.data_al ? `il ${formattaData(e.data_dal)}` : `dal ${formattaData(e.data_dal)} al ${formattaData(e.data_al)}`;
+    avvisi.push({
+      gravita: 'blocco',
+      data: dentro[0],
+      testo: `${e.nome} (${periodo}): nel negozio serve tutto il personale, niente ferie né permessi. ${dentro.length === 1 ? `Togli il ${formattaData(dentro[0])}` : `Togli i ${dentro.length} giorni dentro l'evento`}.`,
+    });
   }
 
   const festivi = giorni.filter((g) => eFestivoOItaliano(g.data));

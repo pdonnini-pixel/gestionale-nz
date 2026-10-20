@@ -62,8 +62,9 @@ Regola semplice e leggibile, non un ottimizzatore:
 2. si copre prima il buco più grande, dando il turno a chi ha la quota più alta di ore di contratto
    ancora libere; la lunghezza del turno è quella giusta per le ore di contratto della persona (fino al
    massimo delle regole; il turno minimo non è una regola, Patrizio 19/10/2026: vincola e basta.
-   Resta solo il limite tecnico di un'ora), con la pausa: 30 minuti da 6 ore lavorate, un'ora da 8
-   (regola aziendale, Patrizio 19/10/2026, migration 317); se il turno con la pausa non sta nella
+   Resta solo il limite tecnico di un'ora), con la pausa: 30 minuti da 6 ore lavorate e 30 anche da 8, in aggiunta alle ore (Patrizio
+   20/10/2026: «6 + 30 minuti e 8 + 30 minuti e non -», migration 318; la 317 del 19/10 prevedeva
+   un'ora da 8); se il turno con la pausa non sta nella
    giornata si accorcia di mezz'ora alla volta;
 3. le ore di contratto che avanzano vanno nei giorni e nelle fasce dove serve di più;
 4. quello che non si riesce a coprire si dice (scoperture), senza inventare persone.
@@ -72,7 +73,7 @@ Mai oltre le ore di contratto, un turno al giorno, mai oltre i giorni di lavoro 
 assente, scaduto, non ancora assunto, in un altro negozio o in ferie approvate a giornata intera quel
 giorno non è disponibile. I contratti a chiamata (nessun orario fisso) restano fuori dalla proposta.
 
-Un caso utile da ricordare (test): 2 persone dalle 10 alle 20 con turni da 8 ore più l'ora di pausa
+Un caso utile da ricordare (test): 2 persone dalle 10 alle 20 con turni da 8 ore più la mezz'ora di pausa
 richiedono 4 turni al giorno (due aprono, due chiudono). Quattro persone a 40 ore non bastano anche se
 le ore totali sì: la proposta usa comunque tutte le loro ore e dice dove manca qualcuno.
 
@@ -92,7 +93,7 @@ sabato e la domenica; l'incasso del weekend è 3-5 volte quello dei feriali.
 - Apertura = 10:00 standard: **nessun dato la registra**, e la spiegazione lo dice.
 - Persone = ore di contratto del negozio distribuite sui giorni con peso √incasso medio, per difetto,
   almeno una, e mai più di metà delle persone in servizio se la giornata è più lunga di un turno
-  (8 ore + un'ora di pausa): per avere k persone tutto il giorno servono k che aprono e k che chiudono.
+  (8 ore + mezz'ora di pausa): per avere k persone tutto il giorno servono k che aprono e k che chiudono.
 - Si salva con `origine = 'stima'`; il salvataggio da una persona la rende `manuale`. Lo stimato è
   azzurro in pagina. La stima di massa scrive solo nei negozi senza dati e salta quelli senza chiusure
   di cassa (sede, Roma prima dell'apertura).
@@ -159,7 +160,7 @@ ipotesi e lo dicono.
 - **Chi è in pausa non conta come presente**: la copertura deve reggere con le pause sfalsate. **Fatto
   il 20/10/2026**: `collocaPause()` in `turni.ts` mette ogni pausa dopo almeno due ore di lavoro e prima
   delle ultime due, nella mezz'ora in cui toglie meno rispetto al fabbisogno; `copertura()` sottrae chi
-  è in pausa, la proposta ricalcola le pause a ogni turno aggiunto, la pagina mostra l'ora della pausa.
+  è in pausa, la proposta ricalcola le pause a ogni turno aggiunto, la pagina mostra la pausa con inizio e fine («pausa 13:00-13:30»).
   Le pause non si salvano: sono deterministiche e si ricalcolano dai turni.
 - Servono: fabbisogno per periodo (oggi una sola settimana tipo) e giorni speciali con le proprie fasce
   (oggi solo «persone in più» su tutta la giornata).
@@ -184,6 +185,18 @@ ipotesi e lo dicono.
 - **Rinforzi nei picchi**: prima con il personale **dello stesso negozio** (spostando ore fra le sue
   persone), poi straordinari. **Niente prestiti fra negozi**: sono troppo lontani fra loro (Patrizio,
   19/10/2026). Le persone a chiamata sono riserva, non base.
+- **Ripiego in uso dal 20/10/2026** (`proponiSettimana`): le ore si dividono sui giorni in proporzione al
+  fabbisogno (turni lunghi nel weekend, corti nei feriali) e si provano quattro strategie (giorni pieni
+  prima o buco più grande; turni pesati o uguali), tenendo quella con meno ore scoperte, pause comprese.
+  Misurato sui 7 negozi con il fabbisogno di Lilian: ore scoperte da 89 a 46 a settimana, nessun negozio
+  peggiora (Franciacorta da 10,5 a 1; Brugnato resta a 20,5 perché mancano persone: 100 ore contro 114).
+- **Solo le ore che servono (20/10/2026)**: dopo la proposta `sfrondaOreInPiu()` accorcia di mezz'ora
+  alla volta i turni proposti (mai quelli fissi) e toglie quelli inutili finché la copertura del giorno
+  non peggiora, partendo da chi ha più ferie e permessi maturati (`saldoOre`, dal tabulato). Le ore di
+  contratto che avanzano restano per ferie e permessi e la colonna «Ore» lo dice. Sui 7 negozi: Barberino
+  103,5 ore pianificate per 103 necessarie (prima 130), Torino 120,5 per 120, scoperte invariate. Senza
+  fabbisogno non si accorcia niente. Le ferie e i permessi approvati in settimana riducono le ore.
+  Manca ancora il passo successivo della specifica: trasformare quelle ore in proposte di ferie vere.
 - Calcolo: serve un ottimizzatore a numeri interi (come il PuLP/CBC usato da Lilian), non la proposta
   greedy di oggi. Obiettivo: coprire il fabbisogno (penalità più alta nei giorni di punta), non mettere
   ore dove non servono, consumare le ferie in modo equo.
@@ -206,3 +219,92 @@ altrimenti verrebbero pagate.
   studio (quali ore non godute vengono pagate e quando; regola mensile della maturazione).
 - I calendari di Lilian di Franciacorta (contano Platto, in aspettativa, e Balada, uscita il 05/09) e
   di Brugnato da novembre (Ruggeri scade il 04/11, Falchi oggi a chiamata) vanno rifatti.
+
+## Pausa da 8 ore a 30 minuti e ritocco finale (20/10/2026)
+
+- Regola di Patrizio: «6 + 30 minuti e 8 + 30 minuti e non -». La pausa e' sempre di 30 minuti da 6
+  ore lavorate in su e si aggiunge alle ore: 8 ore di lavoro sono 8 ore e mezza di presenza.
+  `REGOLE_DEFAULT.pausaLungaMinuti = 30`, default di colonna a 30 con la migration 318 sui 3 tenant
+  (tabella `outlet_shift_rules` vuota ovunque, nessuna riga toccata). Le due soglie restano
+  modificabili per negozio.
+- Il piano mostra la pausa con inizio e fine («pausa 13:00-13:30»).
+- `ritoccaScoperture()`: dopo la proposta e la prima sfrondatura, allunga, sposta o aggiunge turni
+  di mezz'ora in mezz'ora finche' le ore scoperte calano (sempre entro contratto, 8 ore, un turno al
+  giorno, giorni consentiti), poi si sfronda di nuovo. Misurato sui 7 negozi di NZ con il fabbisogno
+  di Lilian e l'organico del 20/10: ore scoperte da 45,5 a 31,5; Franciacorta a zero. Brugnato resta
+  a 17,5 perche' servono 114 ore e il contratto ne ha 100.
+- Falchi (Brugnato, a chiamata) lavora solo sabato e domenica (Veronica, 20/10/2026): annotato nella
+  scheda. I contratti a chiamata restano fuori dalla proposta; il vincolo «solo questi giorni» per
+  persona e' fra i vincoli per persona della fase successiva.
+
+## Eventi, giorni chiusi e referenti (migration 319, 20/10/2026)
+
+Richiesta di Patrizio: «la sezione giorni speciali deve essere dedicata a eventi che Veronica può
+inserire anche in corso d'anno [...] Black Friday, feste natalizie, saldi [...] maggior necessità di
+personale e quindi no ferie, no permessi e se necessario aggiunta straordinari; mentre ci deve essere
+per ogni outlet i giorni chiusi».
+
+- **`outlet_events`** (nuova): nome, `data_dal`/`data_al`, `outlet_ids` (NULL = tutti i negozi),
+  `persone_extra`, `blocca_ferie`, `straordinari`, nota. Scrive chi tiene l'organico (Veronica e'
+  `contabile`); `persone_extra` e' fabbisogno e la cambia solo `super_advisor` (trigger
+  `outlet_events_fabbisogno`). UI: scheda «Eventi» della pagina Turni (`EventiNegozi.tsx`).
+- **Effetti**: `costruisciGiorni(..., eventi)` somma le persone in piu' (il maggiore se gli eventi
+  si sovrappongono; un evento non apre un giorno chiuso) e porta `evento`/`straordinari` sul giorno.
+  `verificaRichiesta(..., senzaFerie)` blocca una richiesta con un giorno dentro un evento
+  `blocca_ferie`; il calendario lo mostra in rosso; Approvazioni avvisa sulle richieste gia'
+  arrivate. `proponiSettimana` dopo il ritocco normale fa un secondo ritocco **solo nei giorni di
+  evento con straordinari**, oltre le ore di contratto (sempre max 8 ore al giorno e i giorni
+  consentiti): `ore[id].straordinario`, mostrato nella colonna «Ore» e nel messaggio della proposta.
+- **Giorni chiusi**: restano per negozio in `outlet_special_days` («Giorni chiusi e orari diversi»),
+  con «anche negli altri negozi» per segnare la stessa data su tutti. Il campo persone in piu' non si
+  inserisce piu' da li' (le righe gia' salvate lo conservano).
+- **Referente di negozio**: `outlets.referente_employee_id`, impostata con la RPC
+  `organico_imposta_referente` (chi tiene l'organico; la scheda negozio la scrive solo la direzione).
+  NZ al 20/10/2026: Barberino Elisa Manescalchi, Valdichiana Silvia Felici, Brugnato Sara Buratta,
+  Valmontone Daniela Cacciotti, Palmanova Shadi Mir Shafiei («Shari M»), Torino Ana Solange Da
+  Fonseca Mannile, Franciacorta Paola Maggiori. **Roma: «Tania A» non e' in anagrafica**, referente
+  da impostare quando arriva la sua scheda.
+- Aperto: nessun evento caricato; le date di Black Friday, feste e saldi le inserisce Veronica.
+
+## Pianificazione mensile: disegno concordato con Patrizio (20/10/2026)
+
+Decisioni di Patrizio dopo l'analisi dei report MODA (settembre-dicembre 2025, 1-24 settembre 2026).
+
+**Partenza**: piani dal 1° novembre 2026.
+
+**Fabbisogno dal dato MODA, senza obiettivi**. Nessun «ingressi per persona all'ora» da fissare: si fa
+il massimo, negozio per negozio, con le persone che ci sono. Le ore disponibili della settimana (contratto
+meno ferie e permessi approvati) si distribuiscono fra giorni e ore in proporzione agli ingressi MODA, con
+almeno una persona per tutta l'apertura. Tipi di giorno: lun-gio, venerdi' (feriale con sera piu' piena),
+sabato, domenica. Forma oraria dallo stesso mese dell'anno prima, livello corretto con le settimane recenti.
+Storico MODA: Torino ha aperto a marzo 2026 e Valmontone a ottobre 2025, quindi niente 2025 per loro (non e'
+un dato mancante). Servono i report gennaio-agosto 2026. Roma: nessuno storico, finche' non apre profilo di
+Valmontone.
+
+**Giorni speciali per tipo, non per data**: festivo infrasettimanale come una domenica; venerdi' del Black
+Friday come un sabato; feriali prima di Natale e fra Natale e Capodanno con il loro moltiplicatore (2025:
+x1,3-3,4); ogni anno si ricollocano rispetto al weekend (2026: Immacolata martedi', ponte lunedi' 7/12 senza
+storico; 26/12 di sabato).
+
+**Weekend liberi a rotazione nel mese** (punti 1-7 approvati):
+1. il mese e' l'unita': prima si fissano i sabati/domeniche liberi del mese, poi si costruiscono le settimane;
+2. a rotazione, prima a chi ne ha avuti meno; il contatore non si azzera a fine mese;
+3. un solo giorno (sabato o domenica); il weekend intero solo se avanza;
+4. priorita': copertura, poi weekend libero; nei weekend di evento zero liberi, e chi li lavora parte avanti;
+5. le ore della settimana restano quelle: il libero si recupera in un feriale, dove il traffico serve di piu';
+6. rigenerare una settimana non tocca i liberi gia' dati;
+7. chi lavora a chiamata non entra nella rotazione; le ferie approvate in un weekend non contano come libero.
+Nessun minimo di domeniche libere da contratto: decide l'azienda.
+
+**Piu' piani per lo stesso mese**: per ogni negozio e mese si possono creare piu' piani alternativi con regola
+weekend diversa (nessun libero; solo sabati; solo domeniche; sabato o domenica a rotazione) e confrontarli
+(ore scoperte, straordinari, liberi per persona). La responsabile HR sceglie quello che vale; gli altri restano
+come bozze.
+
+**Storico e riprova**: piani e turni restano per sempre. Quando arriva il cedolino del mese, quel mese si
+chiude: turni e piano non si modificano piu' e servono per la riprova con le ore del cedolino e con il file
+presenze People Smart (quando arrivera').
+
+**Persone**: Caprioli (Brugnato, a chiamata) si usa per arrivare a copertura nel weekend; il suo contratto
+oggi scade il 25/10/2026, per novembre serve una proroga. Falchi non rinnova alla scadenza del 31/10/2026
+(evento non_rinnovo registrato il 20/10/2026, da confermare con il documento dello studio).

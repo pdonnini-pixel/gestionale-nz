@@ -1,17 +1,20 @@
 // «Turni»: il piano settimanale di ogni negozio e, sotto, gli orari e il
 // fabbisogno da cui si parte. Il negozio si sceglie qui; l'organico (chi
-// c'e' e con che orario) arriva dall'organico di oggi.
+// c'e' e con che orario) arriva dall'organico di oggi. Qui si sceglie anche
+// la referente del negozio, e nella scheda «Eventi» si segnano Black
+// Friday, feste e saldi, che valgono per piu' negozi insieme.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Sparkles } from 'lucide-react';
+import { Sparkles, UserRound } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { stimaOrariEFabbisogno } from '../lib/stimaNegozio';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from './Toast';
-import { organicoAllaData, oggiRoma } from '../lib/organico';
+import { organicoAllaData, oggiRoma, nomePersona } from '../lib/organico';
 import { caricaChiusurePerStima, caricaOrganico, nomeNegozio, puoDecidereFabbisogno, puoTenereOrganico, type DatiOrganico } from '../lib/organicoDati';
 import PianoTurni from './PianoTurni';
 import OrariNegozio from './OrariNegozio';
+import EventiNegozi from './EventiNegozi';
 
 type Props = { companyId?: string };
 
@@ -23,7 +26,7 @@ export default function TurniNegozi({ companyId }: Props) {
 
   const [dati, setDati] = useState<DatiOrganico | null>(null);
   const [negozio, setNegozio] = useState('');
-  const [sotto, setSotto] = useState<'piano' | 'orari'>('piano');
+  const [sotto, setSotto] = useState<'piano' | 'orari' | 'eventi'>('piano');
   const [versione, setVersione] = useState(0);
   const [stimo, setStimo] = useState(false);
 
@@ -103,6 +106,19 @@ export default function TurniNegozi({ companyId }: Props) {
   if (!dati) return <div className="text-slate-400 py-12 text-center">Caricamento…</div>;
 
   const scelto = negozi.find((n) => n.id === negozio);
+  // Chi puo' fare la referente: le persone in servizio nel negozio, piu'
+  // quella gia' scelta se nel frattempo non lo e' piu'.
+  const delNegozio = persone.filter((p) => p.outletId === negozio && p.stato === 'in_servizio');
+  const referente = scelto?.referente_employee_id ? dati.schede.find((s) => s.id === scelto.referente_employee_id) : undefined;
+  const sceltePossibili = [...delNegozio.map((p) => p.scheda), ...(referente && !delNegozio.some((p) => p.scheda.id === referente.id) ? [referente] : [])]
+    .sort((a, b) => nomePersona(a).localeCompare(nomePersona(b), 'it'));
+  const impostaReferente = async (employeeId: string) => {
+    if (!scelto) return;
+    const { error } = await supabase.rpc('organico_imposta_referente', { p_outlet_id: scelto.id, p_employee_id: employeeId || null });
+    if (error) { toast({ type: 'error', message: error.message }); return; }
+    toast({ type: 'success', message: employeeId ? `Referente di ${nomeNegozio(scelto)} salvata.` : `${nomeNegozio(scelto)} è senza referente.` });
+    await carica();
+  };
   const oreContratto = persone.filter((p) => p.outletId === negozio && p.stato === 'in_servizio').reduce((s, p) => s + (p.ore ?? 0), 0);
 
   return (
@@ -125,7 +141,7 @@ export default function TurniNegozi({ companyId }: Props) {
           </button>
         )}
         <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5 w-fit">
-          {([{ k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }]).map((t) => (
+          {([{ k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }, { k: 'eventi' as const, label: 'Eventi' }]).map((t) => (
             <button key={t.k} type="button" onClick={() => setSotto(t.k)}
               className={`text-sm px-3 py-1.5 rounded-md ${sotto === t.k ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{t.label}</button>
           ))}
@@ -133,6 +149,25 @@ export default function TurniNegozi({ companyId }: Props) {
         </div>
       </div>
 
+      {scelto && sotto !== 'eventi' && (
+        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+          <UserRound size={15} className="text-slate-400" />
+          <span>Referente di {nomeNegozio(scelto)}:</span>
+          {puoScrivere ? (
+            <select aria-label="Referente del negozio" value={scelto.referente_employee_id ?? ''} onChange={(e) => impostaReferente(e.target.value)}
+              className="min-h-[34px] rounded-lg border border-slate-300 px-2 text-sm bg-white">
+              <option value="">nessuna</option>
+              {sceltePossibili.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
+            </select>
+          ) : (
+            <strong className="text-slate-800">{referente ? nomePersona(referente) : 'nessuna'}</strong>
+          )}
+        </div>
+      )}
+
+      {sotto === 'eventi' && (
+        <EventiNegozi companyId={companyId} negozi={negozi} puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} onSalvato={() => setVersione((v) => v + 1)} />
+      )}
       {scelto && sotto === 'piano' && (
         <PianoTurni key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}
           dati={dati} puoScrivere={puoScrivere} onVaiOrari={() => setSotto('orari')} />
@@ -140,6 +175,7 @@ export default function TurniNegozi({ companyId }: Props) {
       {scelto && sotto === 'orari' && (
         <OrariNegozio key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}
           puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} oreContratto={oreContratto}
+          altriNegozi={negozi.filter((n) => n.id !== scelto.id).map((n) => ({ id: n.id, nome: nomeNegozio(n) }))}
           personeInServizio={persone.filter((p) => p.outletId === negozio && p.stato === 'in_servizio').length} />
       )}
     </div>

@@ -3,8 +3,10 @@
 //  - Orari della settimana tipo: li inserisce chi tiene l'organico.
 //  - Fabbisogno (quante persone servono in ogni fascia): lo decide Patrizio,
 //    quindi lo modifica solo super_advisor; gli altri lo vedono.
-//  - Giorni speciali (festivi, chiusure, saldi): orari diversi e, se serve,
-//    persone in piu' (che sono fabbisogno: solo super_advisor).
+//  - Giorni chiusi e orari diversi del negozio (Natale, Capodanno, vigilie
+//    con chiusura anticipata): valgono al posto della settimana tipo e si
+//    possono segnare in un colpo su tutti i negozi. Black Friday, feste e
+//    saldi (piu' personale, niente ferie) non stanno qui: sono «Eventi».
 //  - Regole: turno minimo e massimo, pausa, giorni di lavoro a settimana.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -29,6 +31,8 @@ type Props = {
   oreContratto: number;
   /** quante persone sono in servizio nel negozio (tetto della stima) */
   personeInServizio: number;
+  /** gli altri negozi, per segnare la stessa chiusura su tutti */
+  altriNegozi?: { id: string; nome: string }[];
   onSalvato?: () => void;
 };
 
@@ -42,14 +46,15 @@ const inputCls = 'min-h-[36px] rounded-lg border border-slate-300 px-2 text-sm d
 let chiaveSeq = 0;
 const nuovaChiave = () => `n${++chiaveSeq}`;
 
-export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScrivere, puoFabbisogno, oreContratto, personeInServizio, onSalvato }: Props) {
+export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScrivere, puoFabbisogno, oreContratto, personeInServizio, altriNegozi = [], onSalvato }: Props) {
   const { toast } = useToast();
   const [orari, setOrari] = useState<RigaOrario[]>(settimanaVuota());
   const [fasce, setFasce] = useState<RigaFascia[]>([]);
   const [fasceIniziali, setFasceIniziali] = useState<string[]>([]);
   const [regole, setRegole] = useState<RegoleTurni>(REGOLE_DEFAULT);
   const [speciali, setSpeciali] = useState<RigaSpeciale[]>([]);
-  const [nuovoSpeciale, setNuovoSpeciale] = useState<RigaSpeciale>({ data: '', chiuso: false, apre: '', chiude: '', persone_extra: 0, nota: '' });
+  const [nuovoSpeciale, setNuovoSpeciale] = useState<RigaSpeciale>({ data: '', chiuso: true, apre: '', chiude: '', persone_extra: 0, nota: '' });
+  const [suTutti, setSuTutti] = useState(false);
   const [caricamento, setCaricamento] = useState(true);
   const [salvo, setSalvo] = useState<string | null>(null);
   // Orari e fabbisogno salvati come stima (non ancora confermati da una persona).
@@ -152,16 +157,21 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const aggiungiSpeciale = async () => {
     const s = nuovoSpeciale;
     if (!s.data) { toast({ type: 'error', message: 'Indica la data.' }); return; }
-    if (!s.chiuso && s.apre && s.chiude && s.chiude <= s.apre) { toast({ type: 'error', message: 'La chiusura viene prima dell’apertura.' }); return; }
+    if (!s.chiuso && (!s.apre || !s.chiude)) { toast({ type: 'error', message: 'Indica l’orario del giorno, oppure segna chiuso.' }); return; }
+    if (!s.chiuso && s.chiude <= s.apre) { toast({ type: 'error', message: 'La chiusura viene prima dell’apertura.' }); return; }
     setSalvo('speciali');
-    const { error } = await supabase.from('outlet_special_days').upsert([{
-      company_id: companyId, outlet_id: outletId, data: s.data, chiuso: s.chiuso,
-      apre: s.chiuso ? null : (s.apre || null), chiude: s.chiuso ? null : (s.chiude || null),
-      persone_extra: puoFabbisogno ? s.persone_extra : 0, nota: s.nota || null,
-    }], { onConflict: 'outlet_id,data' });
+    // Le persone in piu' (fabbisogno) di una riga gia' salvata restano come sono:
+    // qui non si toccano, il piu' personale passa dagli «Eventi».
+    const negozi = [outletId, ...(suTutti ? altriNegozi.map((n) => n.id) : [])];
+    const { error } = await supabase.from('outlet_special_days').upsert(negozi.map((id) => ({
+      company_id: companyId, outlet_id: id, data: s.data, chiuso: s.chiuso,
+      apre: s.chiuso ? null : s.apre, chiude: s.chiuso ? null : s.chiude, nota: s.nota || null,
+    })), { onConflict: 'outlet_id,data' });
     setSalvo(null);
     if (error) { toast({ type: 'error', message: error.message }); return; }
-    setNuovoSpeciale({ data: '', chiuso: false, apre: '', chiude: '', persone_extra: 0, nota: '' });
+    if (suTutti) toast({ type: 'success', message: `${formattaDataBreve(s.data)} segnato su ${negozi.length} negozi.` });
+    setNuovoSpeciale({ data: '', chiuso: true, apre: '', chiude: '', persone_extra: 0, nota: '' });
+    setSuTutti(false);
     await carica();
     onSalvato?.();
   };
@@ -228,7 +238,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
         <span>Ore di contratto delle persone in servizio: <strong className="tabular-nums">{oreContratto.toLocaleString('it-IT')}</strong></span>
         {oreServono > 0 && (mancano > 0
           ? <span className="font-semibold text-amber-900">Mancano {mancano.toLocaleString('it-IT')} ore</span>
-          : <span className="font-semibold text-emerald-800">Le ore bastano ({(-mancano).toLocaleString('it-IT')} in più)</span>)}
+          : <span className="font-semibold text-emerald-800">Le ore bastano: {(-mancano).toLocaleString('it-IT')} in più, che la proposta lascia per ferie e permessi</span>)}
         {oreServono === 0 && <span className="text-slate-500">Senza fabbisogno la proposta dei turni usa solo le ore di contratto.</span>}
       </div>
 
@@ -323,8 +333,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
 
         <section className="bg-white border border-slate-200 rounded-xl">
           <div className="p-4 border-b border-slate-100">
-            <h3 className="text-sm font-semibold text-slate-800">Giorni speciali</h3>
-            <p className="text-xs text-slate-500">Festivi aperti, chiusure, saldi: valgono al posto della settimana tipo.</p>
+            <h3 className="text-sm font-semibold text-slate-800">Giorni chiusi e orari diversi</h3>
+            <p className="text-xs text-slate-500">Natale, Capodanno, vigilie con chiusura anticipata: valgono al posto della settimana tipo. Black Friday, feste e saldi si segnano in «Eventi».</p>
           </div>
           <ul className="divide-y divide-slate-100 text-sm">
             {speciali.map((s) => (
@@ -334,11 +344,11 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                   <span className="text-slate-500"> · {s.chiuso ? 'chiuso' : `${s.apre || 'orario solito'}${s.chiude ? `-${s.chiude}` : ''}`}{s.persone_extra ? `, ${s.persone_extra > 0 ? '+' : ''}${s.persone_extra} persone` : ''}</span>
                 </span>
                 {puoScrivere && s.id && (
-                  <button type="button" aria-label="Togli il giorno speciale" onClick={() => togliSpeciale(s.id!)} className="p-1.5 rounded hover:bg-slate-100"><Trash2 size={14} /></button>
+                  <button type="button" aria-label="Togli il giorno" onClick={() => togliSpeciale(s.id!)} className="p-1.5 rounded hover:bg-slate-100"><Trash2 size={14} /></button>
                 )}
               </li>
             ))}
-            {!speciali.length && <li className="px-4 py-3 text-slate-400">Nessun giorno speciale nei prossimi mesi.</li>}
+            {!speciali.length && <li className="px-4 py-3 text-slate-400">Nessun giorno di chiusura o con orario diverso nei prossimi mesi.</li>}
           </ul>
           {puoScrivere && (
             <div className="p-4 border-t border-slate-100 flex flex-wrap items-end gap-2">
@@ -346,10 +356,10 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
               <label className="text-xs text-slate-600 flex items-center gap-1 pb-2"><input type="checkbox" checked={nuovoSpeciale.chiuso} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, chiuso: e.target.checked }))} /> chiuso</label>
               <label className="text-xs text-slate-600">Apre<br /><input type="time" step={1800} disabled={nuovoSpeciale.chiuso} className={inputCls} value={nuovoSpeciale.apre} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, apre: e.target.value }))} /></label>
               <label className="text-xs text-slate-600">Chiude<br /><input type="time" step={1800} disabled={nuovoSpeciale.chiuso} className={inputCls} value={nuovoSpeciale.chiude} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, chiude: e.target.value }))} /></label>
-              {puoFabbisogno && (
-                <label className="text-xs text-slate-600">Persone in più<br /><input type="number" min={-30} max={30} className={`${inputCls} w-20`} value={nuovoSpeciale.persone_extra} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, persone_extra: Number(e.target.value) || 0 }))} /></label>
+              <label className="text-xs text-slate-600 flex-1 min-w-[140px]">Nota<br /><input className={`${inputCls} w-full`} value={nuovoSpeciale.nota} placeholder="Natale, vigilia…" onChange={(e) => setNuovoSpeciale((s) => ({ ...s, nota: e.target.value }))} /></label>
+              {altriNegozi.length > 0 && (
+                <label className="text-xs text-slate-600 flex items-center gap-1 pb-2"><input type="checkbox" checked={suTutti} onChange={(e) => setSuTutti(e.target.checked)} /> anche negli altri {altriNegozi.length} negozi</label>
               )}
-              <label className="text-xs text-slate-600 flex-1 min-w-[140px]">Nota<br /><input className={`${inputCls} w-full`} value={nuovoSpeciale.nota} placeholder="Immacolata, saldi…" onChange={(e) => setNuovoSpeciale((s) => ({ ...s, nota: e.target.value }))} /></label>
               <button type="button" onClick={aggiungiSpeciale} disabled={salvo === 'speciali'} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Plus size={13} /> Aggiungi</button>
             </div>
           )}
