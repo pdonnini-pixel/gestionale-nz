@@ -22908,6 +22908,7 @@ export type Database = {
           riepilogo: Json
           scelto_da_nome: string | null
           scelto_il: string | null
+          simulazione: boolean
           stato: string
           updated_at: string
         }
@@ -22924,6 +22925,7 @@ export type Database = {
           riepilogo?: Json
           scelto_da_nome?: string | null
           scelto_il?: string | null
+          simulazione?: boolean
           stato?: string
           updated_at?: string
         }
@@ -22940,6 +22942,7 @@ export type Database = {
           riepilogo?: Json
           scelto_da_nome?: string | null
           scelto_il?: string | null
+          simulazione?: boolean
           stato?: string
           updated_at?: string
         }

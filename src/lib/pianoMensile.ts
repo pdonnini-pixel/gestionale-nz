@@ -287,6 +287,14 @@ export function pianificaMese(args: {
   extra?: Map<string, number>;
   senzaLiberi?: Set<string>;
   regole?: RegoleTurni;
+  /**
+   * Simulazione: il fabbisogno resta quello di «Orari e fabbisogno» (le ore
+   * che servono), invece di seguire le ore che ci sono. Serve per vedere se
+   * delle ore di contratto ipotetiche bastano.
+   */
+  fabbisognoFisso?: boolean;
+  /** ore di straordinario ammesse a settimana per persona, solo dove manca copertura */
+  straordinariSettimana?: number;
 }): EsitoPianoMese {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const nelMese = (d: string) => d.slice(0, 7) === args.mese;
@@ -325,6 +333,7 @@ export function pianificaMese(args: {
     const date = giorniDellaSettimana(lun).filter(nelMese);
     const gg = args.giorni.filter((g) => date.includes(g.data));
     const ore = contrattuali.reduce((a, p) => a + orePersona(p, lun), 0);
+    if (args.fabbisognoFisso) { giorniMese.push(...gg); continue; }
     const maxP = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) && !libero(p.id, g.data)).length]));
     giorniMese.push(...fabbisognoDaTraffico(gg, args.atteso, ore, maxP, args.extra));
   }
@@ -346,6 +355,16 @@ export function pianificaMese(args: {
     if (disponibiliRiserva.length && oreScoperte(gg, esito) > 0) {
       const perRitocco: PersonaTurni[] = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile }));
       esito = ritoccaScoperture(gg, esito, [], perRitocco, regole, undefined, new Set(disponibiliRiserva.map((p) => p.id)));
+    }
+    // Poi, se ammessi, gli straordinari di chi ha un contratto: prima la
+    // riserva (ore normali), poi le ore in piu' dei titolari.
+    const straord = args.straordinariSettimana ?? 0;
+    if (straord > 0 && oreScoperte(gg, esito) > 0) {
+      const quota = straord * date.length / 7;
+      const conExtra: PersonaTurni[] = candidati.map((c) => ({ ...c, ore: c.ore + quota }));
+      const ids = new Set(conExtra.map((c) => c.id));
+      const altri = esito.filter((t) => !ids.has(t.employeeId));
+      esito = [...altri, ...ritoccaScoperture(gg, esito.filter((t) => ids.has(t.employeeId)), altri, conExtra, regole)];
     }
     turni.push(...esito);
   }

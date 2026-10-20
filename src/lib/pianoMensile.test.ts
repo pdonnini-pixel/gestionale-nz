@@ -130,4 +130,22 @@ describe('il piano del mese', () => {
     expect(con.oreScoperte).toBeLessThan(senza.oreScoperte);
     for (const p of poche) expect(con.persone[p.id].straordinario).toBe(0);
   });
+  it('simulazione: fabbisogno fisso, ore ipotetiche e straordinari ammessi', () => {
+    // fabbisogno di «Orari e fabbisogno»: 2 persone tutto il giorno = 140 ore a settimana
+    const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));
+    const gFissi = costruisciGiorni(tutte, orari, fasce, []);
+    const tre = (ore: number) => [0, 1, 2].map((i) => ({ id: `s${i}`, oreSettimana: ore, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }));
+    const base = { mese, giorni: gFissi, regola: 'nessuno' as const, storicoWeekend: new Map(), atteso, fabbisognoFisso: true };
+    const a30 = pianificaMese({ ...base, persone: tre(30) });
+    const a40 = pianificaMese({ ...base, persone: tre(40) });
+    // il fabbisogno non si adatta alle ore: con meno ore restano più buchi
+    expect(a40.oreScoperte).toBeLessThan(a30.oreScoperte);
+    expect(a30.persone.s0.straordinario).toBe(0);
+    const conStraord = pianificaMese({ ...base, persone: tre(30), straordinariSettimana: 6 });
+    expect(conStraord.oreScoperte).toBeLessThan(a30.oreScoperte);
+    const extra = Object.values(conStraord.persone).reduce((s, p) => s + p.straordinario, 0);
+    expect(extra).toBeGreaterThan(0);
+    // mai oltre il tetto: 6 ore a settimana per persona, proporzionate ai giorni del mese
+    for (const p of Object.values(conStraord.persone)) expect(p.straordinario).toBeLessThanOrEqual(6 * 30 / 7 + 1e-6);
+  });
 });
