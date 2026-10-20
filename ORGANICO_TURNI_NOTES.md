@@ -189,6 +189,13 @@ ipotesi e lo dicono.
   prima o buco più grande; turni pesati o uguali), tenendo quella con meno ore scoperte, pause comprese.
   Misurato sui 7 negozi con il fabbisogno di Lilian: ore scoperte da 89 a 46 a settimana, nessun negozio
   peggiora (Franciacorta da 10,5 a 1; Brugnato resta a 20,5 perché mancano persone: 100 ore contro 114).
+- **Solo le ore che servono (20/10/2026)**: dopo la proposta `sfrondaOreInPiu()` accorcia di mezz'ora
+  alla volta i turni proposti (mai quelli fissi) e toglie quelli inutili finché la copertura del giorno
+  non peggiora, partendo da chi ha più ferie e permessi maturati (`saldoOre`, dal tabulato). Le ore di
+  contratto che avanzano restano per ferie e permessi e la colonna «Ore» lo dice. Sui 7 negozi: Barberino
+  103,5 ore pianificate per 103 necessarie (prima 130), Torino 120,5 per 120, scoperte invariate. Senza
+  fabbisogno non si accorcia niente. Le ferie e i permessi approvati in settimana riducono le ore.
+  Manca ancora il passo successivo della specifica: trasformare quelle ore in proposte di ferie vere.
 - Calcolo: serve un ottimizzatore a numeri interi (come il PuLP/CBC usato da Lilian), non la proposta
   greedy di oggi. Obiettivo: coprire il fabbisogno (penalità più alta nei giorni di punta), non mettere
   ore dove non servono, consumare le ferie in modo equo.

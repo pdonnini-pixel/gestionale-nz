@@ -65,7 +65,7 @@ describe('proponiSettimana', () => {
       expect(new Set(suoi.map((t) => t.data)).size).toBe(suoi.length);
       expect(suoi.length).toBeLessThanOrEqual(6);
       for (const t of suoi) {
-        expect(oreLavorate(t)).toBeGreaterThanOrEqual(4);
+        expect(oreLavorate(t)).toBeGreaterThanOrEqual(1);
         expect(oreLavorate(t)).toBeLessThanOrEqual(8);
         expect(t.inizio >= '10:00' && t.fine <= '20:00').toBe(true);
         expect(t.pausaMinuti).toBe(oreLavorate(t) >= 8 ? 60 : oreLavorate(t) >= 6 ? 30 : 0);
@@ -81,10 +81,21 @@ describe('proponiSettimana', () => {
     expect(esito.scoperture).toEqual([]);
   });
 
-  it('quando non si può coprire tutto, usa comunque tutte le ore di contratto', () => {
+  it('non mette ore dove non servono: le ore in piu\' restano per ferie e permessi', () => {
     const esito = proponiSettimana({ giorni, persone: ['a', 'b', 'c', 'd'].map((id) => persona(id, 40)) });
-    expect(Object.values(esito.ore).every((o) => o.pianificate === 40)).toBe(true);
+    // in piu' resta solo quello che un turno continuo non puo' evitare
+    const inPiu = giorni.reduce((s, g) => s + copertura(g, esito.turni).reduce((a, c, i) => a + Math.max(0, c - g.fabbisogno[i]), 0) / 2, 0);
+    expect(inPiu).toBeLessThanOrEqual(8);
+    expect(Object.values(esito.ore).every((o) => o.pianificate <= 40)).toBe(true);
     expect(esito.scoperture.length).toBeGreaterThan(0);
+  });
+
+  it('le ore in piu\' le perde prima chi ha piu\' ferie maturate', () => {
+    const tutti = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => ({ ...persona(id, 40), saldoOre: id === 'a' ? 120 : 10 }));
+    const esito = proponiSettimana({ giorni, persone: tutti });
+    expect(esito.scoperture).toEqual([]);
+    const libere = (id: string) => esito.ore[id].contratto - esito.ore[id].pianificate;
+    expect(libere('a')).toBeGreaterThanOrEqual(Math.max(...['b', 'c', 'd', 'e', 'f'].map(libere)));
   });
 
   it('con poche persone dice cosa resta scoperto, senza inventare', () => {

@@ -107,6 +107,8 @@ export interface PersonaTurni {
   ore: number;
   /** giorni (ISO) in cui non puo' lavorare: ferie approvate, assenza, fuori contratto */
   nonDisponibile: Set<string>;
+  /** ore di ferie e permessi gia' maturate e non godute: chi ne ha di piu' lavora meno ore quando avanzano */
+  saldoOre?: number;
 }
 
 export interface Turno {
@@ -348,6 +350,69 @@ export function oreScoperte(giorni: GiornoPiano[], turni: Turno[]): number {
  * migliore delle quattro si'. E' un ripiego finche' non c'e' l'ottimizzatore.
  */
 export function proponiSettimana(args: ArgsProposta): EsitoProposta {
+  // Si pianificano solo le ore che servono (Patrizio, 20/10/2026): prima la
+  // copertura migliore possibile con tutte le ore, poi si tolgono le mezz'ore
+  // in cui ci sono piu' persone del fabbisogno. Le ore di contratto che
+  // avanzano non diventano turni in piu': diventano ferie e permessi, e si
+  // tolgono prima a chi ne ha maturati di piu'.
+  const piena = migliorStrategia(args);
+  // Senza fabbisogno non si sa cosa serve: si resta sulle ore di contratto.
+  if (oreDaCoprire(args.giorni) <= 0) return piena;
+  const regole = args.regole ?? REGOLE_DEFAULT;
+  const fissi = args.fissi ?? [];
+  const saldo = new Map(args.persone.map((p) => [p.id, p.saldoOre ?? 0]));
+  const turni = sfrondaOreInPiu(args.giorni, piena.turni, fissi, regole, saldo);
+  const tutti = [...fissi, ...turni];
+  const ore: EsitoProposta['ore'] = {};
+  for (const p of args.persone) {
+    ore[p.id] = { contratto: p.ore, pianificate: tutti.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0) };
+  }
+  return { turni, scoperture: args.giorni.flatMap((g) => scopertureDelGiorno(g, tutti)), ore };
+}
+
+/**
+ * Accorcia i turni proposti (mai quelli fissi) di mezz'ora alla volta, dall'inizio
+ * o dalla fine, e toglie quelli che non servono, finche' la copertura del giorno
+ * non peggiora. Prima chi ha piu' ferie e permessi maturati (criterio di
+ * Patrizio del 19/10/2026), cosi' sono le sue ore a diventare ferie.
+ */
+export function sfrondaOreInPiu(
+  giorni: GiornoPiano[], proposti: Turno[], fissi: Turno[], regole: RegoleTurni, saldo: Map<string, number>,
+): Turno[] {
+  let turni = [...proposti];
+  const scopDelGiorno = (g: GiornoPiano, t: Turno[]) => oreScoperte([g], [...fissi, ...t]);
+  for (const g of giorni) {
+    if (g.chiuso) continue;
+    let cambiato = true;
+    for (let giro = 0; cambiato && giro < 200; giro++) {
+      cambiato = false;
+      const base = scopDelGiorno(g, turni);
+      const delGiorno = turni
+        .map((t, idx) => ({ t, idx }))
+        .filter((x) => x.t.data === g.data)
+        .sort((a, b) => (saldo.get(b.t.employeeId) ?? 0) - (saldo.get(a.t.employeeId) ?? 0) || oreLavorate(b.t) - oreLavorate(a.t));
+      for (const { t, idx } of delGiorno) {
+        const lavoro = oreLavorate(t) * 60;
+        const candidati: (Turno | null)[] = [];
+        if (lavoro - SLOT_MINUTI < 60) candidati.push(null);
+        else {
+          const l2 = lavoro - SLOT_MINUTI;
+          const p2 = pausaPer(l2, regole);
+          candidati.push({ ...t, inizio: hhmm(minuti(t.fine) - l2 - p2), pausaMinuti: p2 });
+          candidati.push({ ...t, fine: hhmm(minuti(t.inizio) + l2 + p2), pausaMinuti: p2 });
+        }
+        for (const c of candidati) {
+          const prova = c ? turni.map((x, i) => (i === idx ? c : x)) : turni.filter((_, i) => i !== idx);
+          if (scopDelGiorno(g, prova) <= base + 1e-9) { turni = prova; cambiato = true; break; }
+        }
+        if (cambiato) break;
+      }
+    }
+  }
+  return turni.sort((a, b) => a.data.localeCompare(b.data) || a.inizio.localeCompare(b.inizio));
+}
+
+function migliorStrategia(args: ArgsProposta): EsitoProposta {
   const tutti = (e: EsitoProposta) => [...(args.fissi ?? []), ...e.turni];
   let meglio: { e: EsitoProposta; ore: number } | null = null;
   for (const ordine of ['pieni', 'buco'] as const) {

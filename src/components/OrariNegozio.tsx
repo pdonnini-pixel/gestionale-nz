@@ -228,7 +228,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
         <span>Ore di contratto delle persone in servizio: <strong className="tabular-nums">{oreContratto.toLocaleString('it-IT')}</strong></span>
         {oreServono > 0 && (mancano > 0
           ? <span className="font-semibold text-amber-900">Mancano {mancano.toLocaleString('it-IT')} ore</span>
-          : <span className="font-semibold text-emerald-800">Le ore bastano ({(-mancano).toLocaleString('it-IT')} in più)</span>)}
+          : <span className="font-semibold text-emerald-800">Le ore bastano: {(-mancano).toLocaleString('it-IT')} in più, che la proposta lascia per ferie e permessi</span>)}
         {oreServono === 0 && <span className="text-slate-500">Senza fabbisogno la proposta dei turni usa solo le ore di contratto.</span>}
       </div>
 
