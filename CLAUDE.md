@@ -397,6 +397,28 @@ ALTER TABLE existing_table ALTER COLUMN new_col SET NOT NULL;
 COMMIT;
 ```
 
+### Permessi espliciti sulle tabelle nuove (obbligatorio dal 30/10/2026)
+Dal 30 ottobre 2026 Supabase non concede più in automatico l'accesso all'API alle tabelle nuove create in `public`, su tutti e 3 i tenant e sui branch DB. Una tabella creata senza GRANT risponde «permission denied» a supabase-js, PostgREST ed Edge Function. Le tabelle già esistenti non cambiano.
+
+Regola: ogni `CREATE TABLE public.<tabella>` porta i GRANT **nella stessa migration**, subito dopo RLS e policy:
+```sql
+ALTER TABLE public.<tabella> ENABLE ROW LEVEL SECURITY;
+-- policy RLS come sempre
+
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.<tabella> TO authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.<tabella> TO service_role;
+-- anon SOLO se la tabella deve essere letta senza login (di norma mai nel gestionale)
+```
+- Colonne `serial`/`bigserial`: aggiungi `GRANT USAGE, SELECT ON SEQUENCE public.<tabella>_<colonna>_seq TO authenticated, service_role;`
+- Funzioni nuove in `public` chiamate via `rpc()`: aggiungi `GRANT EXECUTE ON FUNCTION public.<funzione>(<argomenti>) TO authenticated, service_role;`
+- Tabelle di backup (`_bkp_*`, `*_bkp_*`, `backup_*`): **nessun GRANT**, devono restare invisibili all'API (è già così oggi).
+- Verifica dopo `apply_migration`, su ognuno dei 3 tenant:
+```sql
+SELECT has_table_privilege('authenticated','public.<tabella>','select') AS auth,
+       has_table_privilege('service_role','public.<tabella>','insert') AS srv;
+```
+Entrambi devono essere `true`. Se una pagina dà «permission denied for table», manca il GRANT: aggiungilo con una migration nuova, non a mano.
+
 ### Branch strategy per migrazioni
 1. `supabase branch create feature-xxx` → crea branch DB
 2. Applica migrazione sul branch
