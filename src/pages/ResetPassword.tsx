@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom'
 import type { EmailOtpType } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { getCurrentTenant } from '../lib/tenants'
+import { messaggioErrorePassword } from '../lib/passwordErrors'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, KeyRound } from 'lucide-react'
 
 export default function ResetPassword() {
@@ -81,7 +82,7 @@ export default function ResetPassword() {
     setSaving(true)
     const { error } = await supabase.auth.updateUser({ password })
     setSaving(false)
-    if (error) { setError(error.message); return }
+    if (error) { setError(messaggioErrorePassword(error)); return }
     setDone(true)
     // Chiudi la sessione di recupero e torna al login dopo un attimo.
     await supabase.auth.signOut()
