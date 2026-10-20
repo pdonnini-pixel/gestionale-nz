@@ -15,6 +15,7 @@ import { caricaChiusurePerStima, caricaOrganico, nomeNegozio, puoDecidereFabbiso
 import PianoTurni from './PianoTurni';
 import OrariNegozio from './OrariNegozio';
 import EventiNegozi from './EventiNegozi';
+import PianiMensili from './PianiMensili';
 
 type Props = { companyId?: string };
 
@@ -26,7 +27,7 @@ export default function TurniNegozi({ companyId }: Props) {
 
   const [dati, setDati] = useState<DatiOrganico | null>(null);
   const [negozio, setNegozio] = useState('');
-  const [sotto, setSotto] = useState<'piano' | 'orari' | 'eventi'>('piano');
+  const [sotto, setSotto] = useState<'mese' | 'piano' | 'orari' | 'eventi'>('mese');
   const [versione, setVersione] = useState(0);
   const [stimo, setStimo] = useState(false);
 
@@ -141,7 +142,7 @@ export default function TurniNegozi({ companyId }: Props) {
           </button>
         )}
         <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5 w-fit">
-          {([{ k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }, { k: 'eventi' as const, label: 'Eventi' }]).map((t) => (
+          {([{ k: 'mese' as const, label: 'Piano del mese' }, { k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }, { k: 'eventi' as const, label: 'Eventi' }]).map((t) => (
             <button key={t.k} type="button" onClick={() => setSotto(t.k)}
               className={`text-sm px-3 py-1.5 rounded-md ${sotto === t.k ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{t.label}</button>
           ))}
@@ -167,6 +168,10 @@ export default function TurniNegozi({ companyId }: Props) {
 
       {sotto === 'eventi' && (
         <EventiNegozi companyId={companyId} negozi={negozi} puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} onSalvato={() => setVersione((v) => v + 1)} />
+      )}
+      {scelto && sotto === 'mese' && (
+        <PianiMensili key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}
+          dati={dati} puoScrivere={puoScrivere} />
       )}
       {scelto && sotto === 'piano' && (
         <PianoTurni key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}

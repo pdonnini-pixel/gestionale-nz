@@ -13,7 +13,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays, ChevronLeft, ChevronRight, FileDown, FileSpreadsheet, Save,
-  Send, Trash2, AlertTriangle, Info, CheckCircle2, Clock, Undo2, Users,
+  Send, Trash2, AlertTriangle, Info, CheckCircle2, Clock, Undo2, Users, CalendarClock, XCircle,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
@@ -87,12 +87,19 @@ const ETICHETTE_ORIGINE: Record<string, string> = {
 
 const chiave = (data: string, voce: VoceFerie) => `${data}|${voce}`;
 
+type Controproposta = {
+  id: string; employee_id: string; motivo: string; proposta_da_nome: string | null; proposta_il: string;
+  giorni: { data: string; voce: string; tipo: string; ore: number }[];
+};
+
 export default function RichiesteFerie({ companyId, userId }: Props) {
   const { toast } = useToast();
 
   const [anagrafica, setAnagrafica] = useState<PersonaAnagrafica[]>([]);
   const [disponibilita, setDisponibilita] = useState<Record<string, DisponibilitaVoce[]>>({});
   const [richieste, setRichieste] = useState<RichiestaSalvata[]>([]);
+  // Date proposte da chi decide al posto di quelle chieste, in attesa di risposta.
+  const [controproposte, setControproposte] = useState<Controproposta[]>([]);
   // Eventi dei negozi con «niente ferie» (Black Friday, feste, saldi).
   const [eventiSenzaFerie, setEventiSenzaFerie] = useState<(PeriodoSenzaFerie & { outlet_ids: string[] | null })[]>([]);
   const [azienda, setAzienda] = useState('');
@@ -183,6 +190,10 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
         ...r, giorni: giorniPerRichiesta.get(r.id) ?? [],
       })));
       setAzienda((comp.data as { name?: string } | null)?.name ?? '');
+      const cp = await supabase.from('leave_counterproposals')
+        .select('id, employee_id, giorni, motivo, proposta_da_nome, proposta_il')
+        .eq('company_id', companyId).eq('stato', 'aperta').order('proposta_il');
+      setControproposte((cp.data as Controproposta[]) ?? []);
     } finally {
       setCaricamento(false);
     }
@@ -448,8 +459,35 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
   // ── Interfaccia ────────────────────────────────────────────────────
   if (!companyId) return null;
 
+  const rispondi = async (c: Controproposta, accetta: boolean) => {
+    const { error } = await supabase.rpc('leave_rispondi_controproposta', { p_id: c.id, p_accetta: accetta });
+    if (error) { toast({ type: 'error', message: error.message }); return; }
+    toast({ type: 'success', message: accetta ? 'Date accettate: risultano già approvate.' : 'Proposta rifiutata: si può fare una nuova richiesta.' });
+    await carica();
+  };
+  const nomeDi = (id: string) => {
+    const p = anagrafica.find((x) => x.id === id);
+    return p ? `${p.cognome ?? ''} ${p.nome ?? ''}`.trim() : 'Persona';
+  };
+
   return (
     <div className="space-y-5">
+      {controproposte.length > 0 && (
+        <div className="bg-amber-50 rounded-xl border border-amber-200 p-4 space-y-3">
+          <p className="text-sm font-semibold text-amber-900 flex items-center gap-2"><CalendarClock size={16} /> Date proposte da chi decide, in attesa di risposta</p>
+          {controproposte.map((c) => (
+            <div key={c.id} className="bg-white rounded-lg border border-amber-200 p-3 text-sm">
+              <div className="font-medium text-slate-900">{nomeDi(c.employee_id)}</div>
+              <div className="text-slate-700">Date proposte: {c.giorni.map((g) => `${formattaData(g.data)} (${ETICHETTE_VOCE_BREVI[g.voce as VoceFerie] ?? g.voce}, ${formattaOre(g.ore)})`).join(', ')}</div>
+              <div className="text-slate-500 text-xs mt-0.5">Motivo: {c.motivo}{c.proposta_da_nome ? ` · da ${c.proposta_da_nome}` : ''}</div>
+              <div className="flex gap-2 mt-2">
+                <button type="button" onClick={() => void rispondi(c, true)} className="inline-flex items-center gap-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg px-3 py-1.5 hover:bg-emerald-700"><CheckCircle2 size={14} /> Accetta</button>
+                <button type="button" onClick={() => void rispondi(c, false)} className="inline-flex items-center gap-1.5 border border-slate-300 text-slate-700 text-xs rounded-lg px-3 py-1.5 hover:bg-slate-50"><XCircle size={14} /> Rifiuta</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5">
         <div className="flex items-start gap-3">
           <CalendarDays className="text-blue-600 shrink-0 mt-0.5" size={20} />

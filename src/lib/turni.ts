@@ -433,6 +433,8 @@ export function ritoccaScoperture(
   giorni: GiornoPiano[], proposti: Turno[], fissi: Turno[], persone: PersonaTurni[], regole: RegoleTurni,
   /** giorni (eventi) in cui si puo' andare oltre le ore di contratto: straordinari */
   oltreContratto?: Set<string>,
+  /** se c'e', si toccano solo i turni di queste persone (la riserva a chiamata) */
+  soloPersone?: Set<string>,
 ): Turno[] {
   let turni = [...proposti];
   const contratto = new Map(persone.map((p) => [p.id, p.ore]));
@@ -456,7 +458,7 @@ export function ritoccaScoperture(
       if (base <= 1e-9) break;
       const mosse: Turno[][] = [];
       turni.forEach((t, idx) => {
-        if (t.data !== g.data) return;
+        if (t.data !== g.data || (soloPersone && !soloPersone.has(t.employeeId))) return;
         const i0 = minuti(t.inizio);
         const lavoro = oreLavorate(t) * 60;
         const varianti = [
