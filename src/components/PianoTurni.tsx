@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Info, RefreshCw, Send, Trash2 } from 'lucide-react';
-import { Modal } from './ui/Modal';
+import EditorTurno from './EditorTurno';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import {
@@ -70,7 +70,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
         supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
-        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id')
+        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id, straordinario')
           .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]).order('inizio'),
         caricaGiorniFerie(companyId, date[0], date[6]),
         supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
@@ -362,84 +362,15 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
 
       {editor && (
         <EditorTurno
-          companyId={companyId} outletId={outletId} editor={editor} planId={pianiScelti.get(editor.data.slice(0, 7)) ?? null}
+          companyId={companyId} outletId={outletId} employeeId={editor.employeeId} data={editor.data} turno={editor.turno}
+          planId={pianiScelti.get(editor.data.slice(0, 7)) ?? null}
           nome={nomePersona(dati.schede.find((s) => s.id === editor.employeeId) ?? { nome: '', cognome: '' })}
-          giorno={giorni.find((g) => g.data === editor.data)!}
+          apre={giorni.find((g) => g.data === editor.data)!.apre} chiude={giorni.find((g) => g.data === editor.data)!.chiude}
           regole={regole}
           onClose={() => setEditor(null)}
           onSalvato={() => { setEditor(null); carica(); }}
         />
       )}
     </div>
-  );
-}
-
-function EditorTurno({ companyId, outletId, editor, planId, nome, giorno, regole, onClose, onSalvato }: {
-  companyId: string; outletId: string; editor: { employeeId: string; data: string; turno: TurnoDb | null }; planId: string | null;
-  nome: string; giorno: GiornoPiano; regole: RegoleTurni; onClose: () => void; onSalvato: () => void;
-}) {
-  const { toast } = useToast();
-  const hh = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
-  const [inizio, setInizio] = useState(editor.turno?.inizio ?? hh(giorno.apre));
-  const [fine, setFine] = useState(editor.turno?.fine ?? hh(Math.min(giorno.chiude, giorno.apre + regole.turnoMaxOre * 60 + pausaPer(regole.turnoMaxOre * 60, regole))));
-  const [pausa, setPausa] = useState(editor.turno?.pausa_minuti ?? 0);
-  const [salvo, setSalvo] = useState(false);
-
-  const ore = oreLavorate({ inizio, fine, pausaMinuti: pausa });
-  const errore = fine <= inizio ? 'La fine viene prima dell’inizio.' : ore <= 0 ? 'Turno vuoto.' : null;
-  // Pausa prevista dalle regole (30' da 6 ore lavorate, anche da 8, in aggiunta alle ore): si
-  // suggerisce, non si impone, perche' il turno messo a mano e' una scelta.
-  const pausaDovuta = errore ? 0 : pausaPer(ore * 60, regole);
-
-  const salva = async () => {
-    if (errore) return;
-    setSalvo(true);
-    const riga = { inizio, fine, pausa_minuti: pausa, origine: 'manuale' as const };
-    const { error } = editor.turno
-      ? await supabase.from('shifts').update(riga).eq('id', editor.turno.id)
-      : await supabase.from('shifts').insert([{ ...riga, company_id: companyId, outlet_id: outletId, employee_id: editor.employeeId, data: editor.data, stato: 'bozza', plan_id: planId }]);
-    setSalvo(false);
-    if (error) { toast({ type: 'error', message: error.message }); return; }
-    onSalvato();
-  };
-
-  const togli = async () => {
-    if (!editor.turno) return;
-    setSalvo(true);
-    const t = editor.turno;
-    const { error } = t.origine === 'proposta' && t.stato === 'bozza'
-      ? await supabase.from('shifts').delete().eq('id', t.id)
-      : await supabase.from('shifts').update({ stato: 'annullato', annullato_motivo: 'Tolto a mano' }).eq('id', t.id);
-    setSalvo(false);
-    if (error) { toast({ type: 'error', message: error.message }); return; }
-    onSalvato();
-  };
-
-  return (
-    <Modal open onClose={onClose} title={`${nome} · ${NOMI_GIORNO_BREVI[giorno.giorno]} ${formattaDataBreve(editor.data)}`}>
-      <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
-          <label className="text-xs font-semibold text-slate-600">Inizio<input type="time" step={1800} value={inizio} onChange={(e) => setInizio(e.target.value)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
-          <label className="text-xs font-semibold text-slate-600">Fine<input type="time" step={1800} value={fine} onChange={(e) => setFine(e.target.value)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
-          <label className="text-xs font-semibold text-slate-600">Pausa (min)<input type="number" min={0} max={180} step={15} value={pausa} onChange={(e) => setPausa(Number(e.target.value) || 0)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
-        </div>
-        <p className="text-sm text-slate-600">{errore ?? `${ore.toLocaleString('it-IT')} ore di lavoro.`} Il turno diventa «messo a mano»: il ricalcolo non lo cambia.</p>
-        {pausa < pausaDovuta && (
-          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Con {ore.toLocaleString('it-IT')} ore di lavoro la regola prevede {pausaDovuta} minuti di pausa.{' '}
-            <button type="button" onClick={() => setPausa(pausaDovuta)} className="font-semibold underline">Metti {pausaDovuta} minuti</button>
-          </p>
-        )}
-        <div className="flex flex-wrap justify-between gap-2 pt-2 border-t border-slate-200">
-          {editor.turno ? (
-            <button type="button" onClick={togli} disabled={salvo} className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50"><Trash2 size={15} /> Togli il turno</button>
-          ) : <span />}
-          <div className="flex gap-2">
-            <button type="button" onClick={onClose} className="min-h-[40px] px-4 rounded-lg border border-slate-300 text-sm">Annulla</button>
-            <button type="button" onClick={salva} disabled={!!errore || salvo} className="min-h-[40px] px-4 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50">Salva</button>
-          </div>
-        </div>
-      </div>
-    </Modal>
   );
 }
