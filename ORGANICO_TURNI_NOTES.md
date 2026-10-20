@@ -390,3 +390,14 @@ persone che ci sono, con le ore ipotetiche; niente fabbisogno fisso di «Orari e
   riepilogo «Ore del mese, persona per persona» (contratto, ferie e permessi con date, da lavorare, pianificate,
   differenza con il motivo). «Stima i negozi vuoti» spostato in «Orari e fabbisogno».
 - Verifica visiva fatta in locale con un'anteprima a dati finti (motore vero, traffico MODA di Brugnato).
+
+
+## Turni a mano dal piano del mese e straordinari (migration 323, 20/10/2026)
+
+- `shifts.straordinario` (boolean, default false): turno concordato in più del contratto.
+- Nel piano del mese la responsabile HR (`organico_e_hr`: su NZ Patrizio, Lilian, Veronica) clicca una casella e
+  apre `EditorTurno` (ora in un file suo, condiviso con il piano settimanale): inizio, fine, pausa, «Straordinario»
+  e il conto del mese della persona (da lavorare, ordinarie, straordinario, ore non usate).
+- Riepilogo «Ore del mese»: ore non usate = da lavorare − ordinarie; straordinario = turni segnati + ordinarie oltre
+  il contratto. Un turno pubblicato o messo a mano non si cancella: si annulla (trigger della 315).
+- Non si apre dove la persona non può lavorare: fuori servizio, negozio chiuso, giorno non disponibile, ferie intere.
