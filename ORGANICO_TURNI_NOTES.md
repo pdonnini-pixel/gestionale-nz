@@ -265,3 +265,46 @@ per ogni outlet i giorni chiusi».
   Fonseca Mannile, Franciacorta Paola Maggiori. **Roma: «Tania A» non e' in anagrafica**, referente
   da impostare quando arriva la sua scheda.
 - Aperto: nessun evento caricato; le date di Black Friday, feste e saldi le inserisce Veronica.
+
+## Pianificazione mensile: disegno concordato con Patrizio (20/10/2026)
+
+Decisioni di Patrizio dopo l'analisi dei report MODA (settembre-dicembre 2025, 1-24 settembre 2026).
+
+**Partenza**: piani dal 1° novembre 2026.
+
+**Fabbisogno dal dato MODA, senza obiettivi**. Nessun «ingressi per persona all'ora» da fissare: si fa
+il massimo, negozio per negozio, con le persone che ci sono. Le ore disponibili della settimana (contratto
+meno ferie e permessi approvati) si distribuiscono fra giorni e ore in proporzione agli ingressi MODA, con
+almeno una persona per tutta l'apertura. Tipi di giorno: lun-gio, venerdi' (feriale con sera piu' piena),
+sabato, domenica. Forma oraria dallo stesso mese dell'anno prima, livello corretto con le settimane recenti.
+Storico MODA: Torino ha aperto a marzo 2026 e Valmontone a ottobre 2025, quindi niente 2025 per loro (non e'
+un dato mancante). Servono i report gennaio-agosto 2026. Roma: nessuno storico, finche' non apre profilo di
+Valmontone.
+
+**Giorni speciali per tipo, non per data**: festivo infrasettimanale come una domenica; venerdi' del Black
+Friday come un sabato; feriali prima di Natale e fra Natale e Capodanno con il loro moltiplicatore (2025:
+x1,3-3,4); ogni anno si ricollocano rispetto al weekend (2026: Immacolata martedi', ponte lunedi' 7/12 senza
+storico; 26/12 di sabato).
+
+**Weekend liberi a rotazione nel mese** (punti 1-7 approvati):
+1. il mese e' l'unita': prima si fissano i sabati/domeniche liberi del mese, poi si costruiscono le settimane;
+2. a rotazione, prima a chi ne ha avuti meno; il contatore non si azzera a fine mese;
+3. un solo giorno (sabato o domenica); il weekend intero solo se avanza;
+4. priorita': copertura, poi weekend libero; nei weekend di evento zero liberi, e chi li lavora parte avanti;
+5. le ore della settimana restano quelle: il libero si recupera in un feriale, dove il traffico serve di piu';
+6. rigenerare una settimana non tocca i liberi gia' dati;
+7. chi lavora a chiamata non entra nella rotazione; le ferie approvate in un weekend non contano come libero.
+Nessun minimo di domeniche libere da contratto: decide l'azienda.
+
+**Piu' piani per lo stesso mese**: per ogni negozio e mese si possono creare piu' piani alternativi con regola
+weekend diversa (nessun libero; solo sabati; solo domeniche; sabato o domenica a rotazione) e confrontarli
+(ore scoperte, straordinari, liberi per persona). La responsabile HR sceglie quello che vale; gli altri restano
+come bozze.
+
+**Storico e riprova**: piani e turni restano per sempre. Quando arriva il cedolino del mese, quel mese si
+chiude: turni e piano non si modificano piu' e servono per la riprova con le ore del cedolino e con il file
+presenze People Smart (quando arrivera').
+
+**Persone**: Caprioli (Brugnato, a chiamata) si usa per arrivare a copertura nel weekend; il suo contratto
+oggi scade il 25/10/2026, per novembre serve una proroga. Falchi non rinnova alla scadenza del 31/10/2026
+(evento non_rinnovo registrato il 20/10/2026, da confermare con il documento dello studio).
