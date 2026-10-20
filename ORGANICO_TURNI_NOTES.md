@@ -364,3 +364,12 @@ non usate (Rossini a Brugnato, 97 su 128,6) mentre il piano chiamava la riserva.
 scoperture, accorciamento, riserva a chiamata e straordinari. Prezzo misurato: Franciacorta, mezz'ora a
 settimana non si copre; Brugnato novembre, la riserva passa da 27 a 37 ore (anche lei non fa meno di 4 ore).
 I turni messi a mano possono essere più corti.
+
+Misura sul traffico MODA vero di Brugnato, novembre 2026 (Buratta 40, Ruggeri 30, Rossini 30, Falchi a chiamata
+solo weekend): con il minimo di un'ora 38 turni corti, Rossini 100 su 128,6 ore, 42,5 ore scoperte, Falchi 9;
+con il minimo di 4 ore 0 turni corti, Rossini 128 su 128,6, 34,5 ore scoperte, Falchi 39. Con Ruggeri e Rossini
+a 40: 18,5 ore scoperte, Falchi 39.
+
+**La simulazione usa MODA** (Patrizio, 20/10/2026): come i piani veri, il fabbisogno viene dal traffico e dalle
+persone che ci sono, con le ore ipotetiche; niente fabbisogno fisso di «Orari e fabbisogno». La prima versione
+(PR #690) lo usava: era contro la regola e l'ho tolto.
