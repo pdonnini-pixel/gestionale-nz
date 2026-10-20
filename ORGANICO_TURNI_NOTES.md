@@ -1,5 +1,7 @@
 # Organico di oggi, turni e piano ferie: note di dominio
 
+> **Regole granitiche (CLAUDE.md, 20/10/2026)**: il fabbisogno viene SEMPRE dal traffico MODA e dalle persone che ci sono, anche nelle simulazioni e nelle misure fatte in sessione; il turno minimo nella giornata e' di 4 ore e si cambia solo nelle «Regole dei turni» del negozio.
+
 Da leggere prima di toccare le schede «Organico di oggi» e «Turni» di Dipendenti, il «Piano ferie»,
 le tabelle `employee_events`, `outlet_opening_hours`, `outlet_staffing_needs`, `outlet_special_days`,
 `outlet_shift_rules`, `shifts`, o le librerie `src/lib/organico.ts` e `src/lib/turni.ts`.
