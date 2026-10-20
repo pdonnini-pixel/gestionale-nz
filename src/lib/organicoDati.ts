@@ -12,6 +12,8 @@ export interface NegozioRif {
   name: string | null;
   is_active: boolean | null;
   opening_date: string | null;
+  /** la referente del negozio (outlets.referente_employee_id) */
+  referente_employee_id?: string | null;
 }
 
 export interface DatiOrganico {
@@ -34,7 +36,7 @@ export async function caricaOrganico(companyId: string): Promise<DatiOrganico> {
       .select('id, nome, cognome, first_name, last_name, matricola, outlet_id, contratto_tipo, ore_settimanali, ore_settimanali_paghe, data_assunzione, hire_date, scadenza_td, data_cessazione, termination_date, is_active, livello, qualifica, role_description')
       .eq('company_id', companyId),
     supabase.from('employee_events').select('*').eq('company_id', companyId).order('data_dal'),
-    supabase.from('outlets').select('id, code, name, is_active, opening_date').eq('company_id', companyId).order('name'),
+    supabase.from('outlets').select('id, code, name, is_active, opening_date, referente_employee_id').eq('company_id', companyId).order('name'),
   ]);
   if (emp.error) throw emp.error;
   if (ev.error) throw ev.error;

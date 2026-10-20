@@ -24,6 +24,7 @@ import {
   totaliPerVoce, type VoceFerie, type GiornoRichiesto,
 } from '../lib/ferieRichiesta';
 import SovrapposizioniOutlet from './SovrapposizioniOutlet';
+import { eventiDelNegozio, eventiDelGiorno, type EventoNegozio } from '../lib/turni';
 
 type Props = { companyId?: string; userId?: string | null };
 
@@ -113,10 +114,17 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
   const [nuovaEmail, setNuovaEmail] = useState('');
   const [nuovoOutlet, setNuovoOutlet] = useState('');
 
+  // Eventi con «niente ferie» (Black Friday, feste, saldi): un giorno chiesto
+  // dentro un evento si segnala a chi decide.
+  const [eventiSenzaFerie, setEventiSenzaFerie] = useState<Pick<EventoNegozio, 'nome' | 'data_dal' | 'data_al' | 'outlet_ids'>[]>([]);
+
   const carica = useCallback(async () => {
     if (!companyId) return;
     setCaricamento(true);
     try {
+      const ev = await supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids')
+        .eq('company_id', companyId).eq('blocca_ferie', true);
+      setEventiSenzaFerie((ev.data as Pick<EventoNegozio, 'nome' | 'data_dal' | 'data_al' | 'outlet_ids'>[]) ?? []);
       const [req, days, emp, appr, prof, out] = await Promise.all([
         supabase.from('leave_requests')
           .select('id, employee_id, stato, titolo, note_dipendente, motivazione, outlet_code, origine, inviata_il, decisa_il, decisa_da_nome, created_at')
@@ -360,6 +368,18 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
                     <p className="text-xs text-slate-500">
                       Un clic su un giorno lo toglie o lo rimette. In verde quelli concessi.
                     </p>
+
+                    {(() => {
+                      const evNegozio = eventiDelNegozio(eventiSenzaFerie, r.outlet_id);
+                      const dentro = r.giorni.filter((g) => eventiDelGiorno(evNegozio, g.data).length);
+                      if (!dentro.length) return null;
+                      const nomi = [...new Set(dentro.flatMap((g) => eventiDelGiorno(evNegozio, g.data).map((e) => e.nome)))].join(', ');
+                      return (
+                        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+                          {dentro.length === 1 ? 'Un giorno cade' : `${dentro.length} giorni cadono`} in {nomi}: nel negozio serve tutto il personale, niente ferie né permessi ({dentro.map((g) => formattaDataLunga(g.data)).join(', ')}).
+                        </p>
+                      );
+                    })()}
 
                     <div className="rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2">
                       <SovrapposizioniOutlet

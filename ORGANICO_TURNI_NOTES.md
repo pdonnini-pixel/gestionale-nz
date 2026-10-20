@@ -236,3 +236,32 @@ altrimenti verrebbero pagate.
 - Falchi (Brugnato, a chiamata) lavora solo sabato e domenica (Veronica, 20/10/2026): annotato nella
   scheda. I contratti a chiamata restano fuori dalla proposta; il vincolo «solo questi giorni» per
   persona e' fra i vincoli per persona della fase successiva.
+
+## Eventi, giorni chiusi e referenti (migration 319, 20/10/2026)
+
+Richiesta di Patrizio: «la sezione giorni speciali deve essere dedicata a eventi che Veronica può
+inserire anche in corso d'anno [...] Black Friday, feste natalizie, saldi [...] maggior necessità di
+personale e quindi no ferie, no permessi e se necessario aggiunta straordinari; mentre ci deve essere
+per ogni outlet i giorni chiusi».
+
+- **`outlet_events`** (nuova): nome, `data_dal`/`data_al`, `outlet_ids` (NULL = tutti i negozi),
+  `persone_extra`, `blocca_ferie`, `straordinari`, nota. Scrive chi tiene l'organico (Veronica e'
+  `contabile`); `persone_extra` e' fabbisogno e la cambia solo `super_advisor` (trigger
+  `outlet_events_fabbisogno`). UI: scheda «Eventi» della pagina Turni (`EventiNegozi.tsx`).
+- **Effetti**: `costruisciGiorni(..., eventi)` somma le persone in piu' (il maggiore se gli eventi
+  si sovrappongono; un evento non apre un giorno chiuso) e porta `evento`/`straordinari` sul giorno.
+  `verificaRichiesta(..., senzaFerie)` blocca una richiesta con un giorno dentro un evento
+  `blocca_ferie`; il calendario lo mostra in rosso; Approvazioni avvisa sulle richieste gia'
+  arrivate. `proponiSettimana` dopo il ritocco normale fa un secondo ritocco **solo nei giorni di
+  evento con straordinari**, oltre le ore di contratto (sempre max 8 ore al giorno e i giorni
+  consentiti): `ore[id].straordinario`, mostrato nella colonna «Ore» e nel messaggio della proposta.
+- **Giorni chiusi**: restano per negozio in `outlet_special_days` («Giorni chiusi e orari diversi»),
+  con «anche negli altri negozi» per segnare la stessa data su tutti. Il campo persone in piu' non si
+  inserisce piu' da li' (le righe gia' salvate lo conservano).
+- **Referente di negozio**: `outlets.referente_employee_id`, impostata con la RPC
+  `organico_imposta_referente` (chi tiene l'organico; la scheda negozio la scrive solo la direzione).
+  NZ al 20/10/2026: Barberino Elisa Manescalchi, Valdichiana Silvia Felici, Brugnato Sara Buratta,
+  Valmontone Daniela Cacciotti, Palmanova Shadi Mir Shafiei («Shari M»), Torino Ana Solange Da
+  Fonseca Mannile, Franciacorta Paola Maggiori. **Roma: «Tania A» non e' in anagrafica**, referente
+  da impostare quando arriva la sua scheda.
+- Aperto: nessun evento caricato; le date di Black Friday, feste e saldi le inserisce Veronica.

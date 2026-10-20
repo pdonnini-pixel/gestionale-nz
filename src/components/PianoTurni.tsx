@@ -18,7 +18,7 @@ import {
 import { caricaGiorniFerie, type DatiOrganico } from '../lib/organicoDati';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
-  proponiSettimana, scopertureDelGiorno, collocaPause, type GiornoPiano, type RegoleTurni, type Turno,
+  proponiSettimana, scopertureDelGiorno, collocaPause, eventiDelNegozio, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
 type Props = {
@@ -58,7 +58,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const carica = useCallback(async () => {
     setCaricamento(true);
     try {
-      const [o, f, s, r, t, fe, sl] = await Promise.all([
+      const [o, f, s, r, t, fe, sl, ev] = await Promise.all([
         supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude, origine').eq('outlet_id', outletId),
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
@@ -67,13 +67,18 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]).order('inizio'),
         caricaGiorniFerie(companyId, date[0], date[6]),
         supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
+        // Eventi della settimana (Black Friday, feste, saldi): piu' persone e straordinari se mancano
+        supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari')
+          .eq('company_id', companyId).lte('data_dal', date[6]).gte('data_al', date[0]),
       ]);
       const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
       const fasce = (f.data as { giorno: number; dalle: string; alle: string; persone: number }[]) ?? [];
       setHaOrari(orari.length > 0);
       setStimati([...orari, ...fasce].some((x) => (x as { origine?: string }).origine === 'stima'));
       setHaFabbisogno(fasce.some((x) => x.persone > 0));
-      setGiorni(costruisciGiorni(date, orari, fasce, (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? []));
+      setGiorni(costruisciGiorni(date, orari, fasce,
+        (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [],
+        eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId)));
       setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
       setTurni(((t.data as TurnoDb[]) ?? []).map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) })));
       setFerie(fe);
@@ -153,7 +158,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         if (error) throw error;
       }
       const libere = Object.values(esito.ore).reduce((a, o) => a + Math.max(0, o.contratto - o.pianificate), 0);
-      const perFerie = libere > 0.25 ? ` ${libere.toLocaleString('it-IT')} ore di contratto non servono: restano per ferie e permessi, le vedi nella colonna Ore.` : '';
+      const straord = Object.values(esito.ore).reduce((a, o) => a + (o.straordinario ?? 0), 0);
+      const perFerie = (libere > 0.25 ? ` ${libere.toLocaleString('it-IT')} ore di contratto non servono: restano per ferie e permessi, le vedi nella colonna Ore.` : '')
+        + (straord > 0.25 ? ` Per l'evento servono ${straord.toLocaleString('it-IT')} ore di straordinario.` : '');
       toast({
         type: esito.scoperture.length ? 'warning' : 'success',
         message: esito.scoperture.length
@@ -249,6 +256,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                   {g.chiuso && <span className="block normal-case font-normal text-slate-400">chiuso</span>}
                   {!g.chiuso && <span className="block normal-case font-normal text-slate-400">{`${String(Math.floor(g.apre / 60)).padStart(2, '0')}:${String(g.apre % 60).padStart(2, '0')}-${String(Math.floor(g.chiude / 60)).padStart(2, '0')}:${String(g.chiude % 60).padStart(2, '0')}`}</span>}
                   {g.nota && <span className="block normal-case font-normal text-blue-700">{g.nota}</span>}
+                  {g.evento && <span className="block normal-case font-semibold text-red-700" title="Evento: più personale, niente ferie né permessi, straordinari se mancano persone">{g.evento}</span>}
                 </th>
               ))}
               <th className="px-3 py-2 font-semibold text-right">Ore</th>
@@ -290,6 +298,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                   })}
                   <td className={`px-3 py-2 text-right tabular-nums ${p.ore != null && pianificate > p.ore + 0.01 ? 'text-amber-800 font-semibold' : 'text-emerald-800'}`}>
                     {pianificate.toLocaleString('it-IT')}{p.ore != null ? `/${p.ore}` : ''}
+                    {p.ore != null && pianificate - p.ore > 0.25 && (
+                      <span className="block text-[11px] font-normal text-amber-800 whitespace-nowrap">{(pianificate - p.ore).toLocaleString('it-IT')} h straordinario</span>
+                    )}
                     {p.ore != null && p.ore - pianificate > 0.25 && (
                       <span className="block text-[11px] font-normal text-slate-500 whitespace-nowrap"
                         title="Ore di contratto che il negozio non usa questa settimana: si coprono con ferie o permessi">

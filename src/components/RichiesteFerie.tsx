@@ -24,8 +24,9 @@ import {
   grigliaDelMese, eDomenica, etichettaFestivita, oreGiornata, oreDelGiorno,
   giornateDaOre, totaliPerVoce, verificaRichiesta, formattaOre, formattaData,
   formattaGiornate, round2,
-  type VoceFerie, type TipoGiorno, type GiornoRichiesto, type DisponibilitaVoce, type Avviso,
+  type VoceFerie, type TipoGiorno, type GiornoRichiesto, type DisponibilitaVoce, type Avviso, type PeriodoSenzaFerie,
 } from '../lib/ferieRichiesta';
+import { eventiDelNegozio, eventiDelGiorno } from '../lib/turni';
 import { esportaModuloPdf, esportaModuloExcel, type ModuloFerie } from '../lib/ferieExport';
 import SovrapposizioniOutlet from './SovrapposizioniOutlet';
 
@@ -92,6 +93,8 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
   const [anagrafica, setAnagrafica] = useState<PersonaAnagrafica[]>([]);
   const [disponibilita, setDisponibilita] = useState<Record<string, DisponibilitaVoce[]>>({});
   const [richieste, setRichieste] = useState<RichiestaSalvata[]>([]);
+  // Eventi dei negozi con «niente ferie» (Black Friday, feste, saldi).
+  const [eventiSenzaFerie, setEventiSenzaFerie] = useState<(PeriodoSenzaFerie & { outlet_ids: string[] | null })[]>([]);
   const [azienda, setAzienda] = useState('');
   const [caricamento, setCaricamento] = useState(true);
   const [salvataggio, setSalvataggio] = useState(false);
@@ -133,6 +136,9 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
           .eq('company_id', companyId),
         supabase.from('companies').select('name').eq('id', companyId).maybeSingle(),
       ]);
+      const ev = await supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids')
+        .eq('company_id', companyId).eq('blocca_ferie', true);
+      setEventiSenzaFerie((ev.data as (PeriodoSenzaFerie & { outlet_ids: string[] | null })[]) ?? []);
 
       const perOutlet = new Map<string, { code: string | null; name: string | null }>();
       for (const o of (outlets.data as { id: string; code: string | null; name: string | null }[]) ?? []) {
@@ -212,9 +218,10 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
   const totali = useMemo(() => totaliPerVoce(giorniScelti), [giorniScelti]);
 
   const avvisi = useMemo<Avviso[]>(
-    () => (personaId && giorniScelti.length ? verificaRichiesta(giorniScelti, saldi, orario.ore) : []),
-    [personaId, giorniScelti, saldi, orario.ore],
+    () => (personaId && giorniScelti.length ? verificaRichiesta(giorniScelti, saldi, orario.ore, eventiDelNegozio(eventiSenzaFerie, persona?.outletId)) : []),
+    [personaId, giorniScelti, saldi, orario.ore, eventiSenzaFerie, persona?.outletId],
   );
+  const eventiPersona = useMemo(() => eventiDelNegozio(eventiSenzaFerie, persona?.outletId), [eventiSenzaFerie, persona?.outletId]);
   const bloccanti = avvisi.filter((a) => a.gravita === 'blocco');
 
   const richiestePersona = useMemo(
@@ -603,7 +610,9 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
               const domenica = eDomenica(data);
               const ore = segnati.reduce((s, g) => s + g.ore, 0);
               const via = colleghiVia[data] ?? 0;
+              const evento = eventiDelGiorno(eventiPersona, data).map((e) => e.nome).join(', ');
               const titoloGiorno = [
+                evento ? `${evento}: niente ferie né permessi` : null,
                 festa,
                 via ? `${via} ${via === 1 ? 'collega è già via' : 'colleghi sono già via'}` : null,
               ].filter(Boolean).join(' · ') || undefined;
@@ -642,6 +651,9 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
                         </div>
                       ))}
                     </div>
+                  )}
+                  {!segnati.length && evento && (
+                    <div className="text-[10px] leading-tight text-red-700 font-medium truncate">{evento}</div>
                   )}
                   {!segnati.length && festa && (
                     <div className="text-[10px] leading-tight text-slate-400 truncate">{festa}</div>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer,
-  scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
+  scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
 } from './turni';
 
 const LUN = '2026-10-19';
@@ -213,5 +213,57 @@ describe('turni lunghi nei giorni pieni (Franciacorta, 20/10/2026)', () => {
     // con il ritocco finale (20/10/2026) non resta scoperto niente
     expect(oreScoperte(giorni, esito.turni)).toBe(0);
     for (const p of persone) expect(esito.ore[p.id].pianificate).toBeLessThanOrEqual(p.ore + 1e-9);
+  });
+});
+
+describe('eventi dei negozi (Black Friday, feste, saldi)', () => {
+  const ev = (over: Partial<EventoNegozio> = {}): EventoNegozio => ({
+    nome: 'Black Friday', data_dal: '2026-10-23', data_al: '2026-10-25', outlet_ids: null,
+    persone_extra: 1, blocca_ferie: true, straordinari: true, ...over,
+  });
+
+  it('vale per tutti i negozi o solo per quelli scelti', () => {
+    expect(eventiDelNegozio([ev()], 'x')).toHaveLength(1);
+    expect(eventiDelNegozio([ev({ outlet_ids: ['a', 'b'] })], 'x')).toHaveLength(0);
+    expect(eventiDelNegozio([ev({ outlet_ids: ['a', 'b'] })], 'b')).toHaveLength(1);
+  });
+
+  it('nei suoi giorni aggiunge le persone in piu\' e il nome, non apre un giorno chiuso', () => {
+    const chiusoDom = orari.map((o) => (o.giorno === 7 ? { ...o, chiuso: true } : o));
+    const g = costruisciGiorni(settimana, chiusoDom, fasce, [], [ev()]);
+    expect(g[3].fabbisogno.every((n) => n === 2)).toBe(true); // giovedi', fuori evento
+    expect(g[3].evento).toBeNull();
+    expect(g[4].fabbisogno.every((n) => n === 3)).toBe(true); // venerdi', Black Friday
+    expect(g[4]).toMatchObject({ evento: 'Black Friday', straordinari: true });
+    expect(g[6].chiuso).toBe(true);
+  });
+
+  it('straordinari solo nei giorni di evento, e solo se le ore di contratto non bastano', () => {
+    // 2 persone a 16 ore: senza evento coprono 32 ore e basta. Con l'evento
+    // del venerdi' servono piu' ore e la proposta va oltre il contratto
+    // solo quel giorno.
+    const giorni = costruisciGiorni(settimana, orari, [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 1 })), [],
+      [ev({ data_dal: '2026-10-23', data_al: '2026-10-23', persone_extra: 1 })]);
+    const persone = [persona('a', 16), persona('b', 16)];
+    const esito = proponiSettimana({ giorni, persone });
+    const straord = esito.ore.a.straordinario! + esito.ore.b.straordinario!;
+    expect(straord).toBeGreaterThan(0);
+    // il venerdi' resta meno scoperto che senza straordinari
+    const senzaStraord = proponiSettimana({ giorni: giorni.map((g) => ({ ...g, straordinari: false })), persone });
+    expect(oreScoperte([giorni[4]], esito.turni)).toBeLessThan(oreScoperte([giorni[4]], senzaStraord.turni));
+    // gli altri giorni restano come senza evento: le ore in piu' vanno solo sul venerdi'
+    for (const t of esito.turni.filter((x) => x.data !== '2026-10-23')) expect(oreLavorate(t)).toBeLessThanOrEqual(8);
+    // fuori dall'evento nessuno supera il contratto per coprire gli altri giorni
+    const senzaEvento = proponiSettimana({ giorni: costruisciGiorni(settimana, orari, [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 1 })), []), persone });
+    expect(senzaEvento.ore.a.straordinario).toBe(0);
+    expect(senzaEvento.ore.b.straordinario).toBe(0);
+  });
+
+  it('senza «straordinari» l\'evento resta scoperto invece di andare oltre il contratto', () => {
+    const giorni = costruisciGiorni(settimana, orari, [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 1 })), [],
+      [ev({ data_dal: '2026-10-23', data_al: '2026-10-23', straordinari: false })]);
+    const esito = proponiSettimana({ giorni, persone: [persona('a', 16), persona('b', 16)] });
+    expect(esito.ore.a.straordinario).toBe(0);
+    expect(esito.ore.b.straordinario).toBe(0);
   });
 });

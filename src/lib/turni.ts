@@ -2,7 +2,9 @@
 //
 // Ingredienti, tutti dal database:
 //  - orari della settimana tipo del negozio (outlet_opening_hours) e giorni
-//    speciali (outlet_special_days: festivi, chiusure, saldi);
+//    chiusi o con orari diversi (outlet_special_days);
+//  - eventi e periodi di punta (outlet_events: Black Friday, feste, saldi):
+//    piu' persone, niente ferie, straordinari se mancano persone;
 //  - fabbisogno: quante persone servono in ogni fascia (outlet_staffing_needs,
 //    lo decide Patrizio);
 //  - persone disponibili: l'organico di oggi (organico.ts) meno chi e' in
@@ -88,6 +90,34 @@ export interface GiornoSpeciale {
   nota?: string | null;
 }
 
+/**
+ * Evento o periodo di punta (outlet_events, Patrizio 20/10/2026): Black
+ * Friday, feste natalizie, saldi. Uno o piu' giorni, uno o piu' negozi
+ * (outlet_ids null = tutti). Serve piu' personale, niente ferie ne' permessi,
+ * e se mancano persone si chiedono straordinari.
+ */
+export interface EventoNegozio {
+  id?: string;
+  nome: string;
+  data_dal: string;
+  data_al: string;
+  outlet_ids: string[] | null;
+  persone_extra: number;
+  blocca_ferie: boolean;
+  straordinari: boolean;
+  nota?: string | null;
+}
+
+/** Gli eventi che riguardano un negozio. */
+export function eventiDelNegozio<E extends Pick<EventoNegozio, 'outlet_ids'>>(eventi: E[], outletId: string | null | undefined): E[] {
+  return eventi.filter((e) => !e.outlet_ids || e.outlet_ids.length === 0 || (!!outletId && e.outlet_ids.includes(outletId)));
+}
+
+/** Gli eventi in corso in una data. */
+export function eventiDelGiorno<E extends Pick<EventoNegozio, 'data_dal' | 'data_al'>>(eventi: E[], data: string): E[] {
+  return eventi.filter((e) => e.data_dal <= data && data <= e.data_al);
+}
+
 export interface GiornoPiano {
   data: string;
   giorno: number;
@@ -99,6 +129,10 @@ export interface GiornoPiano {
   fabbisogno: number[];
   nota: string | null;
   speciale: boolean;
+  /** nome dell'evento in corso (Black Friday, saldi...), se c'e' */
+  evento?: string | null;
+  /** in questo giorno, se mancano persone, si chiedono straordinari */
+  straordinari?: boolean;
 }
 
 export interface PersonaTurni {
@@ -129,8 +163,8 @@ export interface Scopertura {
 export interface EsitoProposta {
   turni: Turno[];
   scoperture: Scopertura[];
-  /** ore di contratto e ore pianificate (fissi + proposti) per persona */
-  ore: Record<string, { contratto: number; pianificate: number }>;
+  /** ore di contratto e ore pianificate (fissi + proposti) per persona; straordinario = ore oltre il contratto, solo nei giorni di evento */
+  ore: Record<string, { contratto: number; pianificate: number; straordinario?: number }>;
 }
 
 // ── Date e orari ─────────────────────────────────────────────────────────
@@ -180,14 +214,22 @@ export const NOMI_GIORNO_BREVI = ['', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 
  * Per ogni data: se il negozio e' aperto, da che ora a che ora, e quante
  * persone servono in ogni mezz'ora. Il giorno speciale vince sulla
  * settimana tipo; le sue persone in piu' si aggiungono a tutta l'apertura.
+ * Gli eventi (gia' filtrati per il negozio) aggiungono le loro persone in
+ * piu' a tutta l'apertura; se piu' eventi si sovrappongono vale il maggiore.
+ * Un evento non apre un giorno chiuso.
  */
 export function costruisciGiorni(
   date: string[],
   orari: OrarioGiornoTipo[],
   fasce: FasciaFabbisogno[],
   speciali: GiornoSpeciale[],
+  eventi: EventoNegozio[] = [],
 ): GiornoPiano[] {
   return date.map((data) => {
+    const ev = eventiDelGiorno(eventi, data);
+    const evento = ev.length ? ev.map((e) => e.nome).join(', ') : null;
+    const straordinari = ev.some((e) => e.straordinari);
+    const extraEvento = ev.reduce((m, e) => Math.max(m, e.persone_extra || 0), 0);
     const g = giornoIso(data);
     const tipo = orari.find((o) => o.giorno === g);
     const sp = speciali.find((s) => s.data === data);
@@ -195,11 +237,11 @@ export function costruisciGiorni(
     const apre = minuti((sp && !sp.chiuso && sp.apre) || tipo?.apre || null);
     const chiude = minuti((sp && !sp.chiuso && sp.chiude) || tipo?.chiude || null);
     if (chiuso || chiude <= apre) {
-      return { data, giorno: g, chiuso: true, apre: 0, chiude: 0, fabbisogno: [], nota: sp?.nota ?? null, speciale: !!sp };
+      return { data, giorno: g, chiuso: true, apre: 0, chiude: 0, fabbisogno: [], nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari: false };
     }
     const n = Math.floor((chiude - apre) / SLOT_MINUTI);
     const fasceGiorno = fasce.filter((f) => f.giorno === g);
-    const extra = sp?.persone_extra ?? 0;
+    const extra = (sp?.persone_extra ?? 0) + extraEvento;
     const fabbisogno = Array.from({ length: n }, (_, i) => {
       const t = apre + i * SLOT_MINUTI;
       const base = fasceGiorno
@@ -207,7 +249,7 @@ export function costruisciGiorni(
         .reduce((m, f) => Math.max(m, f.persone), 0);
       return Math.max(0, base + extra);
     });
-    return { data, giorno: g, chiuso: false, apre, chiude, fabbisogno, nota: sp?.nota ?? null, speciale: !!sp };
+    return { data, giorno: g, chiuso: false, apre, chiude, fabbisogno, nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari };
   });
 }
 
@@ -364,12 +406,17 @@ export function proponiSettimana(args: ArgsProposta): EsitoProposta {
   // Sfrondare libera ore di contratto che il ritocco usa per chiudere i
   // buchi rimasti; poi si sfronda di nuovo quello che il ritocco ha lasciato in piu'.
   const sfrondati = sfrondaOreInPiu(args.giorni, piena.turni, fissi, regole, saldo);
-  const ritoccati = ritoccaScoperture(args.giorni, sfrondati, fissi, args.persone, regole);
+  let ritoccati = ritoccaScoperture(args.giorni, sfrondati, fissi, args.persone, regole);
+  // Nei giorni di evento, se mancano ancora persone, si va oltre il
+  // contratto: sono straordinari (Patrizio, 20/10/2026), e si dicono.
+  const giorniStraordinari = new Set(args.giorni.filter((g) => g.straordinari && !g.chiuso).map((g) => g.data));
+  if (giorniStraordinari.size) ritoccati = ritoccaScoperture(args.giorni, ritoccati, fissi, args.persone, regole, giorniStraordinari);
   const turni = sfrondaOreInPiu(args.giorni, ritoccati, fissi, regole, saldo);
   const tutti = [...fissi, ...turni];
   const ore: EsitoProposta['ore'] = {};
   for (const p of args.persone) {
-    ore[p.id] = { contratto: p.ore, pianificate: tutti.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0) };
+    const pianificate = tutti.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0);
+    ore[p.id] = { contratto: p.ore, pianificate, straordinario: Math.max(0, pianificate - p.ore) };
   }
   return { turni, scoperture: args.giorni.flatMap((g) => scopertureDelGiorno(g, tutti)), ore };
 }
@@ -384,6 +431,8 @@ export function proponiSettimana(args: ArgsProposta): EsitoProposta {
  */
 export function ritoccaScoperture(
   giorni: GiornoPiano[], proposti: Turno[], fissi: Turno[], persone: PersonaTurni[], regole: RegoleTurni,
+  /** giorni (eventi) in cui si puo' andare oltre le ore di contratto: straordinari */
+  oltreContratto?: Set<string>,
 ): Turno[] {
   let turni = [...proposti];
   const contratto = new Map(persone.map((p) => [p.id, p.ore]));
@@ -397,10 +446,10 @@ export function ritoccaScoperture(
     const lavoro = oreLavorate(t) * 60;
     return minuti(t.inizio) >= g.apre && minuti(t.fine) <= g.chiude
       && lavoro >= 60 && lavoro <= regole.turnoMaxOre * 60
-      && oreDi(t.employeeId, prova) <= (contratto.get(t.employeeId) ?? 0) + 1e-9;
+      && (!!oltreContratto?.has(t.data) || oreDi(t.employeeId, prova) <= (contratto.get(t.employeeId) ?? 0) + 1e-9);
   };
   for (const g of giorni) {
-    if (g.chiuso) continue;
+    if (g.chiuso || (oltreContratto && !oltreContratto.has(g.data))) continue;
     const scop = (t: Turno[]) => oreScoperte([g], [...fissi, ...t]);
     for (let giro = 0; giro < 200; giro++) {
       const base = scop(turni);
