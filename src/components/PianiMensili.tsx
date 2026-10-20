@@ -7,9 +7,13 @@
 // distribuiscono come gli ingressi. La responsabile HR sceglie la variante
 // che vale; le altre restano bozze. Quando arrivano i cedolini del mese il
 // piano si chiude e resta com'era, per la riprova.
+//
+// «Simulazione» (Patrizio, 20/10/2026): ore di contratto ipotetiche e
+// straordinari ammessi, senza toccare l'organico, sul fabbisogno fisso di
+// «Orari e fabbisogno». Si confronta con gli altri piani ma non si sceglie.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, Lock, Plus, Send, Trash2 } from 'lucide-react';
+import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, FlaskConical, Lock, Plus, Send, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
@@ -32,13 +36,16 @@ type Props = {
 };
 
 type Piano = {
-  id: string; nome: string; mese: string; regola_weekend: RegolaWeekend; stato: 'bozza' | 'scelto';
+  id: string; nome: string; mese: string; regola_weekend: RegolaWeekend; stato: 'bozza' | 'scelto'; simulazione: boolean;
   riepilogo: Riepilogo; created_by_nome: string | null; scelto_da_nome: string | null; scelto_il: string | null; created_at: string;
 };
 type Riepilogo = {
   oreScoperte?: number; oreRiserva?: number; straordinario?: number; fonte?: string; turni?: number;
   persone?: Record<string, { contratto: number; pianificate: number; straordinario: number; weekendLiberi: number; riserva: boolean }>;
+  ipotesi?: { persone: { nome: string; oggi: number | null; ipotesi: number | null; soloWeekend: boolean }[]; straordinariSettimana: number };
 };
+/** Le ipotesi di una simulazione: ore per persona (vuoto = come oggi), solo weekend, straordinari ammessi. */
+type Simulazione = { ore: Record<string, string>; soloWeekend: Record<string, boolean>; straordinari: string };
 type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string };
 
 const REGOLE: RegolaWeekend[] = ['sabato_o_domenica', 'solo_sabati', 'solo_domeniche', 'nessuno'];
@@ -73,6 +80,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [liberiPiano, setLiberiPiano] = useState<{ employee_id: string; data: string }[]>([]);
   const [lavoro, setLavoro] = useState<string | null>(null);
   const [caricamento, setCaricamento] = useState(true);
+  const [sim, setSim] = useState<Simulazione | null>(null);
+  const [simRegola, setSimRegola] = useState<RegolaWeekend>('nessuno');
 
   const dateMese = useMemo(() => dateDelMese(mese), [mese]);
 
@@ -114,8 +123,14 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     .filter((x) => x.perGiorno.some((p) => p.outletId === outletId && p.stato === 'in_servizio'))
     .sort((a, b) => nomePersona(a.scheda).localeCompare(nomePersona(b.scheda), 'it')), [dati, dateMese, outletId]);
 
-  const creaPiano = async (regola: RegolaWeekend) => {
-    setLavoro(regola);
+  const oreOggi = (perGiorno: ReturnType<typeof personaAllaData>[]) => perGiorno.find((p) => p.outletId === outletId && p.stato === 'in_servizio')?.ore ?? null;
+  const numero = (v: string | undefined) => {
+    const n = Number(String(v ?? '').replace(',', '.'));
+    return v != null && v.trim() !== '' && Number.isFinite(n) && n >= 0 ? n : null;
+  };
+
+  const creaPiano = async (regola: RegolaWeekend, ipotesi?: Simulazione) => {
+    setLavoro(ipotesi ? 'simulazione' : regola);
     try {
       // Settimane intere che toccano il mese.
       const settimane = [...new Set(dateMese.map(lunediDi))];
@@ -163,33 +178,51 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       }
       const ferieOk = fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno));
 
+      const fasceNegozio = (f.data as unknown[] | null) ?? [];
       const personePiano: PersonaPiano[] = persone.map(({ scheda, perGiorno }) => {
-        const oreSett = perGiorno.find((p) => p.outletId === outletId && p.stato === 'in_servizio')?.ore ?? null;
+        // In simulazione le ore scritte sostituiscono quelle del contratto; vuoto = come oggi.
+        const oreSett = (ipotesi ? numero(ipotesi.ore[scheda.id]) : null) ?? oreOggi(perGiorno);
         const suoFerie = ferieOk.filter((x) => x.employee_id === scheda.id);
+        const soloWeekend = !!ipotesi?.soloWeekend[scheda.id];
         return {
           id: scheda.id,
           oreSettimana: oreSett,
           nonDisponibile: new Set([
             ...dateMese.filter((d, i) => perGiorno[i].outletId !== outletId || perGiorno[i].stato !== 'in_servizio'),
             ...suoFerie.filter((x) => x.tipo === 'giornata').map((x) => x.data),
+            ...(soloWeekend ? tutte.filter((d) => ![0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay())) : []),
           ]),
           oreFerie: new Map(suoFerie.map((x) => [x.data, Number(x.ore)])),
           saldoOre: saldi.get(scheda.id) ?? 0,
         };
       });
-      const esito = pianificaMese({ mese, giorni, persone: personePiano, regola, storicoWeekend, atteso, extra, senzaLiberi, regole });
+      const fabbisognoFisso = !!ipotesi && fasceNegozio.length > 0;
+      const straordinari = ipotesi ? numero(ipotesi.straordinari) ?? 0 : 0;
+      const esito = pianificaMese({
+        mese, giorni, persone: personePiano, regola, storicoWeekend, atteso, extra, senzaLiberi, regole,
+        fabbisognoFisso, straordinariSettimana: straordinari,
+      });
 
       const riepilogo: Riepilogo = {
         oreScoperte: esito.oreScoperte,
         oreRiserva: esito.oreRiserva,
         straordinario: Object.values(esito.persone).reduce((a, p) => a + p.straordinario, 0),
-        fonte: atteso.size ? `${propria ? 'traffico MODA del negozio' : 'forma media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}` : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
+        fonte: fabbisognoFisso ? '«Orari e fabbisogno» del negozio (le ore che servono, fisse)'
+          : atteso.size ? `${propria ? 'traffico MODA del negozio' : 'forma media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}${ipotesi ? ' (manca il fabbisogno fisso: si adatta alle ore ipotetiche, il confronto dice poco)' : ''}` : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
         turni: esito.turni.length,
         persone: esito.persone,
+        ...(ipotesi ? {
+          ipotesi: {
+            persone: persone.map(({ scheda, perGiorno }) => ({
+              nome: nomePersona(scheda), oggi: oreOggi(perGiorno), ipotesi: numero(ipotesi.ore[scheda.id]), soloWeekend: !!ipotesi.soloWeekend[scheda.id],
+            })),
+            straordinariSettimana: straordinari,
+          },
+        } : {}),
       };
-      const nome = `${NOMI_MESE[Number(mese.slice(5))].replace(/^./, (c) => c.toUpperCase())} ${mese.slice(0, 4)} · ${ETICHETTE_REGOLA[regola]}`;
+      const nome = `${ipotesi ? 'Simulazione · ' : ''}${NOMI_MESE[Number(mese.slice(5))].replace(/^./, (c) => c.toUpperCase())} ${mese.slice(0, 4)} · ${ETICHETTE_REGOLA[regola]}`;
       const { data: pianoNuovo, error: e1 } = await supabase.from('shift_plans').insert([{
-        company_id: companyId, outlet_id: outletId, mese: `${mese}-01`, nome, regola_weekend: regola, riepilogo,
+        company_id: companyId, outlet_id: outletId, mese: `${mese}-01`, nome, regola_weekend: regola, riepilogo, simulazione: !!ipotesi,
       }]).select('id').single();
       if (e1) throw e1;
       const planId = (pianoNuovo as { id: string }).id;
@@ -205,7 +238,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         const { error } = await supabase.from('shift_plan_weekend_off').insert(liberi);
         if (error) throw error;
       }
-      toast({ type: 'success', message: `Piano creato: ${esito.turni.length} turni, ${fmt(esito.oreScoperte)} ore scoperte nel mese.` });
+      toast({ type: 'success', message: `${ipotesi ? 'Simulazione' : 'Piano'} creat${ipotesi ? 'a' : 'o'}: ${esito.turni.length} turni, ${fmt(esito.oreScoperte)} ore scoperte nel mese${riepilogo.straordinario ? `, ${fmt(riepilogo.straordinario)} ore di straordinario` : ''}.` });
+      if (ipotesi) setSim(null);
       await carica();
       setAperto(planId);
     } catch (e) {
@@ -279,7 +313,64 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               <Plus size={14} /> {lavoro === r ? 'Calcolo…' : `Piano con ${ETICHETTE_REGOLA[r]}`}
             </button>
           ))}
+          <button type="button" onClick={() => setSim(sim ? null : { ore: {}, soloWeekend: {}, straordinari: '' })} disabled={!!lavoro}
+            className="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100 disabled:opacity-50">
+            <FlaskConical size={14} /> Simulazione
+          </button>
         </div>
+      )}
+
+      {sim && puoScrivere && !chiuso && (
+        <section className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 space-y-3">
+          <div>
+            <h3 className="text-sm font-semibold text-violet-900 flex items-center gap-1.5"><FlaskConical size={15} /> Simulazione per {nomeNegozio}</h3>
+            <p className="text-xs text-slate-600">Scrivi le ore a settimana che vuoi provare (vuoto = come oggi) e gli straordinari che chiederesti. L'organico non cambia: la simulazione usa il fabbisogno di «Orari e fabbisogno», cioè le ore che servono, e dice quante restano scoperte. Si confronta con gli altri piani, ma non si sceglie né si pubblica.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="text-sm">
+              <thead>
+                <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
+                  <th className="pr-4 py-1">Persona</th><th className="pr-4 py-1 text-right">Oggi</th><th className="pr-4 py-1">Ore da provare</th><th className="py-1">Solo sabato e domenica</th>
+                </tr>
+              </thead>
+              <tbody>
+                {persone.map(({ scheda, perGiorno }) => {
+                  const oggi = oreOggi(perGiorno);
+                  return (
+                    <tr key={scheda.id}>
+                      <td className="pr-4 py-1 font-medium text-slate-800">{nomePersona(scheda)}</td>
+                      <td className="pr-4 py-1 text-right tabular-nums text-slate-600">{oggi == null ? 'a chiamata' : `${fmt(oggi)} h`}</td>
+                      <td className="pr-4 py-1">
+                        <input type="text" inputMode="decimal" aria-label={`Ore da provare per ${nomePersona(scheda)}`} placeholder={oggi == null ? 'a chiamata' : String(oggi)}
+                          value={sim.ore[scheda.id] ?? ''} onChange={(e) => setSim({ ...sim, ore: { ...sim.ore, [scheda.id]: e.target.value } })}
+                          className="w-24 px-2 py-1 rounded border border-slate-300 bg-white text-right" />
+                      </td>
+                      <td className="py-1">
+                        <input type="checkbox" aria-label={`${nomePersona(scheda)} solo sabato e domenica`} checked={!!sim.soloWeekend[scheda.id]}
+                          onChange={(e) => setSim({ ...sim, soloWeekend: { ...sim.soloWeekend, [scheda.id]: e.target.checked } })} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-sm text-slate-700">Straordinari ammessi (ore a settimana per persona)
+              <input type="text" inputMode="decimal" value={sim.straordinari} placeholder="0" onChange={(e) => setSim({ ...sim, straordinari: e.target.value })}
+                className="block mt-1 w-24 px-2 py-1 rounded border border-slate-300 bg-white text-right" />
+            </label>
+            <label className="text-sm text-slate-700">Sabati e domeniche liberi
+              <select value={simRegola} onChange={(e) => setSimRegola(e.target.value as RegolaWeekend)} className="block mt-1 px-2 py-1 rounded border border-slate-300 bg-white">
+                {REGOLE.map((r) => <option key={r} value={r}>{ETICHETTE_REGOLA[r]}</option>)}
+              </select>
+            </label>
+            <button type="button" onClick={() => creaPiano(simRegola, sim)} disabled={!!lavoro}
+              className="text-sm px-3 py-2 rounded-lg bg-violet-600 text-white font-semibold hover:bg-violet-700 disabled:opacity-50">
+              {lavoro === 'simulazione' ? 'Calcolo…' : 'Calcola la simulazione'}
+            </button>
+          </div>
+        </section>
       )}
 
       {caricamento ? <div className="text-slate-400 py-6 text-center">Caricamento…</div> : (
@@ -303,6 +394,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                   <tr key={p.id} className={`border-b border-slate-100 ${aperto === p.id ? 'bg-blue-50/50' : ''}`}>
                     <td className="px-3 py-2">
                       <button type="button" onClick={() => setAperto(p.id)} className="font-medium text-slate-900 hover:underline text-left">{p.nome}</button>
+                      {p.simulazione && <span className="ml-2 inline-flex items-center gap-1 text-xs font-semibold text-violet-700"><FlaskConical size={13} /> simulazione</span>}
                       {p.stato === 'scelto' && <span className="ml-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 size={13} /> scelto{p.scelto_da_nome ? ` da ${p.scelto_da_nome}` : ''}</span>}
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{fmt(p.riepilogo.oreScoperte)}</td>
@@ -310,7 +402,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                     <td className="px-3 py-2 text-right tabular-nums">{fmt(p.riepilogo.straordinario)}</td>
                     <td className="px-3 py-2 text-xs text-slate-600">{liberi.length ? `${Math.min(...liberi)}-${Math.max(...liberi)}` : '-'}</td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
-                      {eHr && p.stato !== 'scelto' && !chiuso && (
+                      {eHr && p.stato !== 'scelto' && !p.simulazione && !chiuso && (
                         <button type="button" onClick={() => scegli(p.id)} disabled={!!lavoro} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">Scegli questo</button>
                       )}
                       {puoScrivere && p.stato === 'bozza' && !chiuso && (
@@ -332,8 +424,15 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             <div>
               <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5"><CalendarDays size={15} /> {pianoAperto.nome}</h3>
               <p className="text-xs text-slate-500">Fabbisogno da: {pianoAperto.riepilogo.fonte ?? '-'}</p>
+              {pianoAperto.riepilogo.ipotesi && (
+                <p className="text-xs text-violet-800 mt-0.5">
+                  Ipotesi: {pianoAperto.riepilogo.ipotesi.persone.filter((x) => x.ipotesi != null || x.soloWeekend)
+                    .map((x) => `${x.nome} ${x.ipotesi != null ? `${fmt(x.ipotesi)} h (oggi ${x.oggi == null ? 'a chiamata' : `${fmt(x.oggi)} h`})` : ''}${x.soloWeekend ? ' solo sabato e domenica' : ''}`).join(' · ') || 'ore di oggi'}
+                  {' · '}straordinari ammessi {fmt(pianoAperto.riepilogo.ipotesi.straordinariSettimana)} h a settimana per persona
+                </p>
+              )}
             </div>
-            {puoScrivere && pianoAperto.stato === 'scelto' && bozzeAperto > 0 && !chiuso && (
+            {puoScrivere && pianoAperto.stato === 'scelto' && !pianoAperto.simulazione && bozzeAperto > 0 && !chiuso && (
               <button type="button" onClick={() => pubblica(pianoAperto)} disabled={!!lavoro}
                 className="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"><Send size={14} /> Pubblica il mese ({bozzeAperto})</button>
             )}
