@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, assegnaWeekendLiberi,
-  personeMinime, pianificaMese, type RigaTraffico,
+  personeMinime, pianificaMese, usaOreResidue, proponiFerie, type RigaTraffico,
 } from './pianoMensile';
 import { costruisciGiorni, giorniDellaSettimana, lunediDi, oreLavorate } from './turni';
 
@@ -187,3 +187,37 @@ describe('il piano del mese', () => {
     expect(suoi.every((t) => t.data >= '2026-11-16')).toBe(true);
   });
 });
+
+describe('le ore di contratto che avanzano', () => {
+  const sett = giorniDellaSettimana('2026-11-09');
+  const giorni = costruisciGiorni(sett, orari, [], []);
+  const atteso = new Map(sett.map((d) => [d, Array.from({ length: 24 }, (_, h) => (h >= 15 && h < 18 ? 50 : 10))]));
+  it('allunga i turni dove entra più gente, entro 8 ore, fino alle ore di contratto', () => {
+    const turni = [0, 1, 2, 3].map((i) => ({ employeeId: 'a', data: sett[i], inizio: '10:00', fine: '14:00', pausaMinuti: 0 }));
+    const persone = [{ id: 'a', ore: 30, nonDisponibile: new Set<string>() }];
+    const out = usaOreResidue(giorni, turni, persone, atteso);
+    const ore = out.reduce((s, t) => s + oreLavorate(t), 0);
+    expect(ore).toBeGreaterThan(16);
+    expect(ore).toBeLessThanOrEqual(30 + 1e-9);
+    expect(out.every((t) => oreLavorate(t) <= 8 + 1e-9 && oreLavorate(t) >= 4 - 1e-9)).toBe(true);
+    // si allunga verso il pomeriggio, dove il traffico e' alto
+    expect(out.some((t) => t.fine >= '17:00')).toBe(true);
+  });
+  it('non usa i giorni in cui la persona non può lavorare', () => {
+    const persone = [{ id: 'a', ore: 16, nonDisponibile: new Set(sett.slice(0, 5)) }];
+    const out = usaOreResidue(giorni, [], persone, atteso);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.every((t) => !sett.slice(0, 5).includes(t.data))).toBe(true);
+  });
+  it('quello che resta diventa una proposta di ferie: giornate intere e un permesso a ore', () => {
+    const date = date30();
+    const p = proponiFerie({ ore: 14, oreSettimana: 30, date, possibile: () => true });
+    expect(p.filter((x) => x.tipo === 'giornata').map((x) => x.ore)).toEqual([6, 6]);
+    expect(p.find((x) => x.tipo === 'ore')).toMatchObject({ voce: 'F02', ore: 2 });
+    expect(p.every((x) => new Date(`${x.data}T00:00:00Z`).getUTCDay() >= 1 && new Date(`${x.data}T00:00:00Z`).getUTCDay() <= 5)).toBe(true);
+    // distribuite su settimane diverse
+    expect(new Set(p.map((x) => lunediDi(x.data))).size).toBe(3);
+    expect(proponiFerie({ ore: 0.2, oreSettimana: 30, date, possibile: () => true })).toEqual([]);
+  });
+});
+function date30() { return Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, '0')}`); }

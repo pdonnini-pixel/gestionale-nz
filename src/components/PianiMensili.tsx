@@ -19,6 +19,7 @@ import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, FlaskConical, Lo
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import EditorTurno from './EditorTurno';
+import { Modal } from './ui/Modal';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, caricaTraffico, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
 import {
@@ -26,8 +27,8 @@ import {
   REGOLE_DEFAULT, type EventoNegozio, type RegoleTurni, type Turno,
 } from '../lib/turni';
 import {
-  pianificaMese, storicoTraffico, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
-  type EsitoPianoMese, type PersonaPiano, type RegolaWeekend, type RigaTraffico,
+  pianificaMese, proponiFerie, storicoTraffico, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
+  type EsitoPianoMese, type FeriaProposta, type PersonaPiano, type RegolaWeekend, type RigaTraffico,
 } from '../lib/pianoMensile';
 
 type Props = {
@@ -112,6 +113,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   // Modifica a mano di un turno dal calendario del mese (solo HR).
   const [editorMese, setEditorMese] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
   const [regolePiano, setRegolePiano] = useState<RegoleTurni>(REGOLE_DEFAULT);
+  // Proposta di ferie per le ore di contratto che restano non usate.
+  const [proposta, setProposta] = useState<{ employeeId: string; nome: string; ore: number; giorni: FeriaProposta[] } | null>(null);
   const [giorniApertura, setGiorniApertura] = useState<Map<string, { apre: number; chiude: number; chiuso: boolean }>>(new Map());
 
   const dateMese = useMemo(() => dateDelMese(mese), [mese]);
@@ -386,6 +389,62 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const varianti = piani.filter((p) => !p.simulazione);
   // Mettere e togliere turni a mano dal calendario: la responsabile HR, a mese aperto.
   const puoModificare = eHr && puoScrivere && !chiuso;
+  // Ore da lavorare dal vivo: contratto del mese meno le ferie e i permessi di
+  // adesso (una proposta di ferie appena inviata abbassa subito le ore non usate).
+  const daLavorareOra = (employeeId: string): number | null => {
+    const r = pianoAperto?.riepilogo.persone?.[employeeId];
+    if (!r || r.riserva) return null;
+    if (r.ferie == null) return r.contratto;
+    const ferieOra = ferieMese.filter((x) => x.employee_id === employeeId).reduce((a, x) => a + x.ore, 0);
+    return Math.max(0, r.contratto + r.ferie - ferieOra);
+  };
+
+  const apriProposta = (employeeId: string, nome: string, oreSett: number | null, ore: number) => {
+    if (!oreSett) return;
+    const pers = persone.find((x) => x.scheda.id === employeeId);
+    const giorni = proponiFerie({
+      ore, oreSettimana: oreSett, date: dateMese,
+      possibile: (d) => {
+        const k = dateMese.indexOf(d);
+        return !!pers && k >= 0 && pers.perGiorno[k].outletId === outletId && pers.perGiorno[k].stato === 'in_servizio'
+          && puoLavorareIl(disponibilita, employeeId, d) && !(giorniApertura.get(d)?.chiuso ?? false)
+          && !turniPiano.some((x) => x.employee_id === employeeId && x.data === d)
+          && !liberiPiano.some((x) => x.employee_id === employeeId && x.data === d)
+          && !ferieMese.some((x) => x.employee_id === employeeId && x.data === d);
+      },
+    });
+    if (!giorni.length) { toast({ type: 'warning', message: `Per ${nome} non ci sono giorni feriali liberi in cui proporre ferie: aggiungi le ore nel calendario.` }); return; }
+    setProposta({ employeeId, nome, ore, giorni });
+  };
+
+  const inviaProposta = async () => {
+    if (!proposta) return;
+    setLavoro('proposta');
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const negozio = dati.negozi.find((n) => n.id === outletId);
+      const { data, error } = await supabase.from('leave_requests').insert({
+        company_id: companyId, employee_id: proposta.employeeId, outlet_code: negozio?.code ?? null,
+        stato: 'inviata', origine: 'gestionale', titolo: 'Proposta dal piano del mese',
+        note_dipendente: `Ore di contratto non usate nel piano di ${NOMI_MESE[Number(mese.slice(5))]} ${mese.slice(0, 4)}: ${fmt(proposta.ore)} h. Proposta della responsabile HR, da concordare con la dipendente prima di approvarla.`,
+        compilata_da: u.user?.id ?? null, inviata_il: new Date().toISOString(),
+      }).select('id').single();
+      if (error) throw error;
+      const requestId = (data as { id: string }).id;
+      const { error: e2 } = await supabase.from('leave_request_days').insert(proposta.giorni.map((g) => ({
+        company_id: companyId, request_id: requestId, data: g.data, voce: g.voce, tipo: g.tipo, ore: g.ore,
+        nota: 'Proposta dal piano del mese',
+      })));
+      if (e2) throw e2;
+      toast({ type: 'success', message: `Proposta inviata per ${proposta.nome}: la trovi in Approvazioni ferie, da approvare dopo averne parlato con lei.` });
+      setProposta(null);
+      setVersione((v) => v + 1);
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Proposta non inviata.' });
+    } finally {
+      setLavoro(null);
+    }
+  };
   const pianoScelto = varianti.find((p) => p.stato === 'scelto') ?? null;
   const regoleMancanti = REGOLE.filter((r) => !varianti.some((p) => p.regola_weekend === r));
   const minimoScoperte = Math.min(...varianti.map((p) => p.riepilogo.oreScoperte ?? 0));
@@ -875,8 +934,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                           const segnate = riga.turni.filter((x) => 'straordinario' in x && x.straordinario).reduce((a, x) => a + oreDi(x), 0);
                           const ordinarie = fatte - segnate;
                           const suoFerie = ferieMese.filter((x) => x.employee_id === riga.id).sort((a, b) => a.data.localeCompare(b.data));
-                          const oreFerie = r?.ferie ?? suoFerie.reduce((a, x) => a + x.ore, 0);
-                          const daLavorare = r && !r.riserva ? r.contratto : null;
+                          const oreFerie = suoFerie.reduce((a, x) => a + x.ore, 0);
+                          const daLavorare = riga.nuova ? (r && !r.riserva ? r.contratto : null) : daLavorareOra(riga.id);
                           const ipo = ipot?.find((x) => x.nome === riga.nome);
                           const giorniFerie = suoFerie.filter((x) => x.tipo !== 'ore');
                           const permessi = suoFerie.filter((x) => x.tipo === 'ore');
@@ -890,7 +949,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                 {ipo?.ipotesi != null && <span className="block text-xs font-normal text-violet-700">simulazione: {fmt(ipo.ipotesi)} h invece di {ipo.oggi == null ? 'a chiamata' : `${fmt(ipo.oggi)} h`}</span>}
                               </td>
                               <td className="px-3 py-2 text-right tabular-nums">{riga.oreSett == null ? '–' : `${fmt(ipo?.ipotesi ?? riga.oreSett)} h`}</td>
-                              <td className="px-3 py-2 text-right tabular-nums">{daLavorare != null ? `${fmt(daLavorare + oreFerie)} h` : '–'}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{daLavorare != null ? `${fmt(daLavorare + (riga.nuova ? 0 : oreFerie))} h` : '–'}</td>
                               <td className="px-3 py-2 text-xs text-slate-700">
                                 {oreFerie > 0.25 ? (
                                   <>
@@ -913,7 +972,13 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                         <span className="block text-slate-500">{(r?.settimanePiene ?? 0) > 0
                                           ? `in ${r?.settimanePiene === 1 ? 'una settimana ha' : `${r?.settimanePiene} settimane ha`} già ${giorniMax} giorni di lavoro: le ore che restano non entrano in un altro giorno`
                                           : 'al negozio non servivano: il traffico di quei giorni era già coperto'}</span>
-                                        {puoModificare && <span className="block text-blue-700">clicca una casella del calendario per aggiungere ore</span>}
+                                        {puoModificare && !pianoAperto.simulazione && !riga.nuova && nonUsate >= 1 && (
+                                          <button type="button" onClick={() => apriProposta(riga.id, riga.nome, riga.oreSett, nonUsate)}
+                                            className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200">
+                                            Proponi ferie per {fmt(nonUsate)} h
+                                          </button>
+                                        )}
+                                        {puoModificare && <span className="block mt-1 text-blue-700">oppure clicca una casella del calendario per aggiungere ore</span>}
                                       </span>
                                     ) : <span className="block text-emerald-700 font-medium">tutte le ore di contratto usate</span>}
                                     {straordTot > 0.25 && <span className="block mt-1 font-semibold text-amber-800">+{fmt(straordTot)} h di straordinario</span>}
@@ -933,8 +998,32 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           <p className="px-4 py-2 text-xs text-slate-500">Il dettaglio della settimana, con le pause e la copertura ora per ora, è nel «Piano settimanale»: per i mesi con un piano scelto mostra i turni di quel piano.</p>
         </section>
       )}
+      {proposta && (
+        <Modal open onClose={() => setProposta(null)} title={`Ferie proposte a ${proposta.nome}`}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Nel piano restano <b>{fmt(proposta.ore)} ore di contratto non usate</b>. Invece di pagarle senza lavoro, si propongono come ferie nei feriali in cui non lavora:
+              giornate intere di ferie e, per il resto, un permesso a ore.
+            </p>
+            <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+              {proposta.giorni.map((g) => (
+                <li key={g.data} className="flex items-center justify-between px-3 py-2 text-sm">
+                  <span className="font-medium text-slate-800 capitalize">{new Date(`${g.data}T00:00:00Z`).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}</span>
+                  <span className="text-slate-600">{g.tipo === 'giornata' ? 'ferie, giornata intera' : 'permesso'} · <b className="tabular-nums">{fmt(g.ore)} h</b></span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-slate-500">Diventa una richiesta di ferie «in attesa»: si approva o si respinge in Approvazioni ferie, dopo averne parlato con la dipendente. Le ore escono dal suo saldo solo se approvata.</p>
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+              <button type="button" onClick={() => setProposta(null)} className="min-h-[40px] px-4 rounded-lg border border-slate-300 text-sm">Annulla</button>
+              <button type="button" onClick={inviaProposta} disabled={lavoro === 'proposta'} className="min-h-[40px] px-4 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50">
+                {lavoro === 'proposta' ? 'Invio…' : 'Invia la proposta'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {editorMese && pianoAperto && (() => {
-        const r = pianoAperto.riepilogo.persone?.[editorMese.employeeId];
         const altri = turniPiano.filter((x) => x.employee_id === editorMese.employeeId && x.id !== editorMese.turno?.id);
         const ore = (x: TurnoDb) => oreLavorate({ inizio: x.inizio, fine: x.fine, pausaMinuti: x.pausa_minuti });
         const g = giorniApertura.get(editorMese.data);
@@ -945,7 +1034,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             nome={nomePersona(dati.schede.find((x) => x.id === editorMese.employeeId) ?? { nome: '', cognome: '' })}
             apre={g?.apre ?? 600} chiude={g?.chiude ?? 1200} regole={regolePiano}
             conto={{
-              daLavorare: r && !r.riserva ? r.contratto : null,
+              daLavorare: daLavorareOra(editorMese.employeeId),
               ordinarieAltri: altri.filter((x) => !x.straordinario).reduce((a, x) => a + ore(x), 0),
               straordinarioAltri: altri.filter((x) => x.straordinario).reduce((a, x) => a + ore(x), 0),
             }}
