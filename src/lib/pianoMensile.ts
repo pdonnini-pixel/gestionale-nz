@@ -21,7 +21,7 @@
 import { festivitaItaliane } from './ferieRichiesta';
 import {
   SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, proponiSettimana,
-  ritoccaScoperture, oreLavorate, oreScoperte, scopertureDelGiorno,
+  ritoccaScoperture, oreLavorate, oreScoperte, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura,
 } from './turni';
 
@@ -246,6 +246,109 @@ export function assegnaWeekendLiberi(args: {
   return out;
 }
 
+// ── Le ore di contratto che avanzano (Patrizio, 20/10/2026) ──────────────
+
+/**
+ * Prima si usano tutte le ore: a chi ha ancora ore di contratto nella settimana
+ * si allungano i turni di mezz'ora alla volta dove il traffico MODA e' piu' alto
+ * e ci sono meno colleghi, entro il turno massimo e gli orari del negozio; se non
+ * basta, un turno nuovo (almeno il turno minimo) in un giorno in cui non lavora,
+ * senza superare i giorni di lavoro. Quello che resta diventa una proposta di
+ * ferie (`proponiFerie`), mai ore pagate senza lavoro.
+ */
+export function usaOreResidue(
+  giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], atteso: Map<string, number[]>, regole: RegoleTurni = REGOLE_DEFAULT,
+): Turno[] {
+  let out = [...turni];
+  const giorno = new Map(giorni.filter((g) => !g.chiuso).map((g) => [g.data, g]));
+  // Peso di una mezz'ora: ingressi attesi diviso le persone gia' in negozio.
+  const peso = (g: GiornoPiano, inizioMin: number, fineMin: number, lista: Turno[]) => {
+    const cop = coperturaLorda(g, lista);
+    let w = 0;
+    for (let t = inizioMin; t < fineMin; t += SLOT_MINUTI) {
+      const i = Math.floor((t - g.apre) / SLOT_MINUTI);
+      const ingressi = (atteso.get(g.data)?.[Math.floor(t / 60)] ?? 1) + 0.01;
+      w += ingressi / (1 + (cop[i] ?? 0));
+    }
+    return w;
+  };
+  const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
+    const pausa = pausaPer(lavoro, regole);
+    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+  };
+  for (const p of persone) {
+    let residuo = p.ore - out.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0);
+    for (let giro = 0; residuo >= 0.5 - 1e-9 && giro < 400; giro++) {
+      let meglio: { lista: Turno[]; w: number } | null = null;
+      // 1. allungare un turno che c'e' gia'
+      out.forEach((t, idx) => {
+        if (t.employeeId !== p.id) return;
+        const g = giorno.get(t.data);
+        if (!g) return;
+        const i0 = minuti(t.inizio);
+        const lavoro = oreLavorate(t) * 60 + SLOT_MINUTI;
+        if (lavoro > regole.turnoMaxOre * 60) return;
+        for (const v of [conPausa(t, i0 - SLOT_MINUTI, lavoro), conPausa(t, i0, lavoro)]) {
+          if (minuti(v.inizio) < g.apre || minuti(v.fine) > g.chiude) continue;
+          const lista = out.map((x, k) => (k === idx ? v : x));
+          const nuovo = minuti(v.inizio) < i0 ? [minuti(v.inizio), i0] : [minuti(t.fine), minuti(v.fine)];
+          const w = peso(g, nuovo[0], nuovo[1], out);
+          if (!meglio || w > meglio.w) meglio = { lista, w };
+        }
+      });
+      if (meglio) { out = (meglio as { lista: Turno[] }).lista; residuo -= 0.5; continue; }
+      // 2. un turno nuovo in un giorno in cui non lavora
+      const suoi = new Set(out.filter((t) => t.employeeId === p.id).map((t) => t.data));
+      const lavoro = Math.min(regole.turnoMaxOre, Math.floor(residuo * 2) / 2) * 60;
+      if (suoi.size >= regole.giorniLavoroMax || lavoro < regole.turnoMinOre * 60 - 1e-9) break;
+      let nuovo: { t: Turno; w: number } | null = null;
+      for (const g of giorno.values()) {
+        if (suoi.has(g.data) || p.nonDisponibile.has(g.data)) continue;
+        const durata = lavoro + pausaPer(lavoro, regole);
+        for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
+          const t = conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, s0, lavoro);
+          const w = peso(g, s0, s0 + durata, out) / (durata / SLOT_MINUTI);
+          if (!nuovo || w > nuovo.w) nuovo = { t, w };
+        }
+      }
+      if (!nuovo) break;
+      out = [...out, (nuovo as { t: Turno }).t];
+      residuo -= lavoro / 60;
+    }
+  }
+  return out;
+}
+
+export interface FeriaProposta { data: string; voce: 'F01' | 'F02'; tipo: 'giornata' | 'ore'; ore: number }
+
+/**
+ * Le ore che restano dopo `usaOreResidue` diventano una proposta di ferie da
+ * concordare con la dipendente: giornate intere (ore settimanali / 5) di ferie
+ * nei feriali in cui non lavora, distribuite sulle settimane, e il resto come
+ * permesso a ore. Si propone soltanto: la decide la responsabile HR.
+ */
+export function proponiFerie(args: {
+  ore: number; oreSettimana: number; date: string[]; possibile: (data: string) => boolean;
+}): FeriaProposta[] {
+  const giornata = Math.round((args.oreSettimana / 5) * 100) / 100;
+  if (args.ore < 1 || giornata <= 0) return [];
+  // feriali (lun-ven) in cui la persona non lavora, a giro sulle settimane
+  const liberi = args.date.filter((d) => giornoIso(d) <= 5 && args.possibile(d));
+  const perSett = new Map<string, string[]>();
+  for (const d of liberi) { const k = lunediDi(d); perSett.set(k, [...(perSett.get(k) ?? []), d]); }
+  const ordine: string[] = [];
+  const code = [...perSett.values()];
+  for (let i = 0; code.some((c) => c.length > i); i++) for (const c of code) if (c[i]) ordine.push(c[i]);
+  const out: FeriaProposta[] = [];
+  let resto = Math.round(args.ore * 2) / 2;
+  for (const d of ordine) {
+    if (resto < 0.5) break;
+    if (resto >= giornata - 1e-9) { out.push({ data: d, voce: 'F01', tipo: 'giornata', ore: giornata }); resto -= giornata; }
+    else { out.push({ data: d, voce: 'F02', tipo: 'ore', ore: Math.round(resto * 2) / 2 }); resto = 0; }
+  }
+  return out.sort((a, b) => a.data.localeCompare(b.data));
+}
+
 // ── Il piano del mese ────────────────────────────────────────────────────
 
 export interface PersonaPiano {
@@ -358,6 +461,8 @@ export function pianificaMese(args: {
       saldoOre: p.saldoOre ?? 0,
     }));
     let esito = proponiSettimana({ giorni: gg, persone: candidati, regole }).turni;
+    // Le ore di contratto che avanzano si usano dove c'e' piu' gente (traffico MODA).
+    esito = usaOreResidue(gg, esito, candidati, args.atteso, regole);
     // La riserva a chiamata copre i buchi che restano, fino a 8 ore al giorno.
     const disponibiliRiserva = riserva.filter((p) => date.some((d) => !p.nonDisponibile.has(d)));
     if (disponibiliRiserva.length && oreScoperte(gg, esito) > 0) {

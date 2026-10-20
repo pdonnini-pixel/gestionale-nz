@@ -401,3 +401,16 @@ persone che ci sono, con le ore ipotetiche; niente fabbisogno fisso di «Orari e
 - Riepilogo «Ore del mese»: ore non usate = da lavorare − ordinarie; straordinario = turni segnati + ordinarie oltre
   il contratto. Un turno pubblicato o messo a mano non si cancella: si annulla (trigger della 315).
 - Non si apre dove la persona non può lavorare: fuori servizio, negozio chiuso, giorno non disponibile, ferie intere.
+
+
+## Ore di contratto che avanzano: prima si usano, poi ferie proposte (20/10/2026)
+
+Decisione di Patrizio («la terza»): nessuna ora pagata senza lavoro.
+1. `usaOreResidue` (pianoMensile.ts), subito dopo `proponiSettimana`: a chi ha ancora ore nella settimana si allungano i
+   turni di 30' dove ingressi MODA / persone in negozio è più alto, entro turno massimo e orari; se non basta, un turno
+   nuovo di almeno il turno minimo in un giorno disponibile, senza superare i giorni di lavoro. Brugnato novembre (MODA
+   vero): Buratta 148 -> 165,5 su 165,7, Ruggeri 120,5 -> 128 su 128,6, ore scoperte invariate (34,5).
+2. `proponiFerie`: quello che resta (da 1 ora) diventa una proposta: giornate intere F01 (ore settimanali / 5) nei
+   feriali senza turno, una per settimana, e il resto come permesso F02 a ore. Dal riepilogo «Proponi ferie» crea una
+   `leave_requests` «inviata», titolo «Proposta dal piano del mese»; la decide la HR in Approvazioni ferie.
+3. Nel riepilogo «da lavorare» è dal vivo: contratto del mese meno ferie e permessi di adesso.
