@@ -280,7 +280,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                             : nd ? 'bg-slate-100 text-slate-500 font-sans' : g.chiuso ? 'text-slate-300' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50 font-sans'}`}>
                           {vivo ? `${vivo.inizio}-${vivo.fine}` : nd ? nd : g.chiuso ? '' : 'riposo'}
                           {vivo && pausaDi.get(`${p.scheda.id}|${g.data}`) && (
-                            <span className="block font-sans text-[11px] opacity-75">pausa {pausaDi.get(`${p.scheda.id}|${g.data}`)!.dalle}</span>
+                            <span className="block font-sans text-[11px] opacity-75">pausa {pausaDi.get(`${p.scheda.id}|${g.data}`)!.dalle}-{pausaDi.get(`${p.scheda.id}|${g.data}`)!.alle}</span>
                           )}
                           {vivo && fe && <span className="block font-sans text-emerald-700">permesso {fe.ore} h</span>}
                         </button>
@@ -355,7 +355,7 @@ function EditorTurno({ companyId, outletId, editor, nome, giorno, regole, onClos
 
   const ore = oreLavorate({ inizio, fine, pausaMinuti: pausa });
   const errore = fine <= inizio ? 'La fine viene prima dell’inizio.' : ore <= 0 ? 'Turno vuoto.' : null;
-  // Pausa prevista dalle regole (30' da 6 ore lavorate, un'ora da 8): si
+  // Pausa prevista dalle regole (30' da 6 ore lavorate, anche da 8, in aggiunta alle ore): si
   // suggerisce, non si impone, perche' il turno messo a mano e' una scelta.
   const pausaDovuta = errore ? 0 : pausaPer(ore * 60, regole);
 

@@ -62,8 +62,9 @@ Regola semplice e leggibile, non un ottimizzatore:
 2. si copre prima il buco più grande, dando il turno a chi ha la quota più alta di ore di contratto
    ancora libere; la lunghezza del turno è quella giusta per le ore di contratto della persona (fino al
    massimo delle regole; il turno minimo non è una regola, Patrizio 19/10/2026: vincola e basta.
-   Resta solo il limite tecnico di un'ora), con la pausa: 30 minuti da 6 ore lavorate, un'ora da 8
-   (regola aziendale, Patrizio 19/10/2026, migration 317); se il turno con la pausa non sta nella
+   Resta solo il limite tecnico di un'ora), con la pausa: 30 minuti da 6 ore lavorate e 30 anche da 8, in aggiunta alle ore (Patrizio
+   20/10/2026: «6 + 30 minuti e 8 + 30 minuti e non -», migration 318; la 317 del 19/10 prevedeva
+   un'ora da 8); se il turno con la pausa non sta nella
    giornata si accorcia di mezz'ora alla volta;
 3. le ore di contratto che avanzano vanno nei giorni e nelle fasce dove serve di più;
 4. quello che non si riesce a coprire si dice (scoperture), senza inventare persone.
@@ -72,7 +73,7 @@ Mai oltre le ore di contratto, un turno al giorno, mai oltre i giorni di lavoro 
 assente, scaduto, non ancora assunto, in un altro negozio o in ferie approvate a giornata intera quel
 giorno non è disponibile. I contratti a chiamata (nessun orario fisso) restano fuori dalla proposta.
 
-Un caso utile da ricordare (test): 2 persone dalle 10 alle 20 con turni da 8 ore più l'ora di pausa
+Un caso utile da ricordare (test): 2 persone dalle 10 alle 20 con turni da 8 ore più la mezz'ora di pausa
 richiedono 4 turni al giorno (due aprono, due chiudono). Quattro persone a 40 ore non bastano anche se
 le ore totali sì: la proposta usa comunque tutte le loro ore e dice dove manca qualcuno.
 
@@ -92,7 +93,7 @@ sabato e la domenica; l'incasso del weekend è 3-5 volte quello dei feriali.
 - Apertura = 10:00 standard: **nessun dato la registra**, e la spiegazione lo dice.
 - Persone = ore di contratto del negozio distribuite sui giorni con peso √incasso medio, per difetto,
   almeno una, e mai più di metà delle persone in servizio se la giornata è più lunga di un turno
-  (8 ore + un'ora di pausa): per avere k persone tutto il giorno servono k che aprono e k che chiudono.
+  (8 ore + mezz'ora di pausa): per avere k persone tutto il giorno servono k che aprono e k che chiudono.
 - Si salva con `origine = 'stima'`; il salvataggio da una persona la rende `manuale`. Lo stimato è
   azzurro in pagina. La stima di massa scrive solo nei negozi senza dati e salta quelli senza chiusure
   di cassa (sede, Roma prima dell'apertura).
@@ -159,7 +160,7 @@ ipotesi e lo dicono.
 - **Chi è in pausa non conta come presente**: la copertura deve reggere con le pause sfalsate. **Fatto
   il 20/10/2026**: `collocaPause()` in `turni.ts` mette ogni pausa dopo almeno due ore di lavoro e prima
   delle ultime due, nella mezz'ora in cui toglie meno rispetto al fabbisogno; `copertura()` sottrae chi
-  è in pausa, la proposta ricalcola le pause a ogni turno aggiunto, la pagina mostra l'ora della pausa.
+  è in pausa, la proposta ricalcola le pause a ogni turno aggiunto, la pagina mostra la pausa con inizio e fine («pausa 13:00-13:30»).
   Le pause non si salvano: sono deterministiche e si ricalcolano dai turni.
 - Servono: fabbisogno per periodo (oggi una sola settimana tipo) e giorni speciali con le proprie fasce
   (oggi solo «persone in più» su tutta la giornata).
@@ -218,3 +219,20 @@ altrimenti verrebbero pagate.
   studio (quali ore non godute vengono pagate e quando; regola mensile della maturazione).
 - I calendari di Lilian di Franciacorta (contano Platto, in aspettativa, e Balada, uscita il 05/09) e
   di Brugnato da novembre (Ruggeri scade il 04/11, Falchi oggi a chiamata) vanno rifatti.
+
+## Pausa da 8 ore a 30 minuti e ritocco finale (20/10/2026)
+
+- Regola di Patrizio: «6 + 30 minuti e 8 + 30 minuti e non -». La pausa e' sempre di 30 minuti da 6
+  ore lavorate in su e si aggiunge alle ore: 8 ore di lavoro sono 8 ore e mezza di presenza.
+  `REGOLE_DEFAULT.pausaLungaMinuti = 30`, default di colonna a 30 con la migration 318 sui 3 tenant
+  (tabella `outlet_shift_rules` vuota ovunque, nessuna riga toccata). Le due soglie restano
+  modificabili per negozio.
+- Il piano mostra la pausa con inizio e fine («pausa 13:00-13:30»).
+- `ritoccaScoperture()`: dopo la proposta e la prima sfrondatura, allunga, sposta o aggiunge turni
+  di mezz'ora in mezz'ora finche' le ore scoperte calano (sempre entro contratto, 8 ore, un turno al
+  giorno, giorni consentiti), poi si sfronda di nuovo. Misurato sui 7 negozi di NZ con il fabbisogno
+  di Lilian e l'organico del 20/10: ore scoperte da 45,5 a 31,5; Franciacorta a zero. Brugnato resta
+  a 17,5 perche' servono 114 ore e il contratto ne ha 100.
+- Falchi (Brugnato, a chiamata) lavora solo sabato e domenica (Veronica, 20/10/2026): annotato nella
+  scheda. I contratti a chiamata restano fuori dalla proposta; il vincolo «solo questi giorni» per
+  persona e' fra i vincoli per persona della fase successiva.

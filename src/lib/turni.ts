@@ -38,11 +38,11 @@ export const REGOLE_DEFAULT: RegoleTurni = {
   pausaOltreOre: 6,
   pausaMinuti: 30,
   pausaLungaOltreOre: 8,
-  pausaLungaMinuti: 60,
+  pausaLungaMinuti: 30,
   giorniLavoroMax: 6,
 };
 
-/** Pausa (minuti) per un turno di `lavoroMinuti` lavorati: regola aziendale 6 ore = 30', 8 ore = un'ora. */
+/** Pausa (minuti) per un turno di `lavoroMinuti` lavorati: regola aziendale (Patrizio, 20/10/2026): 30 minuti da 6 ore e anche da 8, in aggiunta alle ore lavorate (8 ore = 8 ore e mezza di presenza). */
 export function pausaPer(lavoroMinuti: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
   if (lavoroMinuti >= regole.pausaLungaOltreOre * 60) return regole.pausaLungaMinuti;
   if (lavoroMinuti >= regole.pausaOltreOre * 60) return regole.pausaMinuti;
@@ -361,13 +361,86 @@ export function proponiSettimana(args: ArgsProposta): EsitoProposta {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const fissi = args.fissi ?? [];
   const saldo = new Map(args.persone.map((p) => [p.id, p.saldoOre ?? 0]));
-  const turni = sfrondaOreInPiu(args.giorni, piena.turni, fissi, regole, saldo);
+  // Sfrondare libera ore di contratto che il ritocco usa per chiudere i
+  // buchi rimasti; poi si sfronda di nuovo quello che il ritocco ha lasciato in piu'.
+  const sfrondati = sfrondaOreInPiu(args.giorni, piena.turni, fissi, regole, saldo);
+  const ritoccati = ritoccaScoperture(args.giorni, sfrondati, fissi, args.persone, regole);
+  const turni = sfrondaOreInPiu(args.giorni, ritoccati, fissi, regole, saldo);
   const tutti = [...fissi, ...turni];
   const ore: EsitoProposta['ore'] = {};
   for (const p of args.persone) {
     ore[p.id] = { contratto: p.ore, pianificate: tutti.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0) };
   }
   return { turni, scoperture: args.giorni.flatMap((g) => scopertureDelGiorno(g, tutti)), ore };
+}
+
+/**
+ * Ritocco dopo la proposta: allunga, sposta o aggiunge turni di mezz'ora in
+ * mezz'ora finche' le ore scoperte del giorno calano. Mai oltre le ore di
+ * contratto, il turno massimo, un turno al giorno e i giorni consentiti; i
+ * turni fissi non si toccano. Serve perche' la proposta e' greedy: il
+ * 20/10/2026, con la pausa da 8 ore scesa a 30 minuti, a Franciacorta
+ * lasciava 3 ore scoperte nei feriali pur avendo 18 ore in piu'.
+ */
+export function ritoccaScoperture(
+  giorni: GiornoPiano[], proposti: Turno[], fissi: Turno[], persone: PersonaTurni[], regole: RegoleTurni,
+): Turno[] {
+  let turni = [...proposti];
+  const contratto = new Map(persone.map((p) => [p.id, p.ore]));
+  const oreDi = (id: string, t: Turno[]) => [...fissi, ...t].filter((x) => x.employeeId === id).reduce((a, x) => a + oreLavorate(x), 0);
+  const giorniDi = (id: string, t: Turno[]) => new Set([...fissi, ...t].filter((x) => x.employeeId === id).map((x) => x.data));
+  const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
+    const pausa = pausaPer(lavoro, regole);
+    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+  };
+  const valido = (g: GiornoPiano, t: Turno, prova: Turno[]) => {
+    const lavoro = oreLavorate(t) * 60;
+    return minuti(t.inizio) >= g.apre && minuti(t.fine) <= g.chiude
+      && lavoro >= 60 && lavoro <= regole.turnoMaxOre * 60
+      && oreDi(t.employeeId, prova) <= (contratto.get(t.employeeId) ?? 0) + 1e-9;
+  };
+  for (const g of giorni) {
+    if (g.chiuso) continue;
+    const scop = (t: Turno[]) => oreScoperte([g], [...fissi, ...t]);
+    for (let giro = 0; giro < 200; giro++) {
+      const base = scop(turni);
+      if (base <= 1e-9) break;
+      const mosse: Turno[][] = [];
+      turni.forEach((t, idx) => {
+        if (t.data !== g.data) return;
+        const i0 = minuti(t.inizio);
+        const lavoro = oreLavorate(t) * 60;
+        const varianti = [
+          conPausa(t, i0 - SLOT_MINUTI, lavoro + SLOT_MINUTI), // prima
+          conPausa(t, i0, lavoro + SLOT_MINUTI), // dopo
+          conPausa(t, i0 - SLOT_MINUTI, lavoro), // tutto prima
+          conPausa(t, i0 + SLOT_MINUTI, lavoro), // tutto dopo
+        ];
+        for (const v of varianti) {
+          const prova = turni.map((x, i) => (i === idx ? v : x));
+          if (valido(g, v, prova)) mosse.push(prova);
+        }
+      });
+      for (const p of persone) {
+        if (p.nonDisponibile.has(g.data)) continue;
+        const gg = giorniDi(p.id, turni);
+        if (gg.has(g.data) || gg.size >= regole.giorniLavoroMax) continue;
+        for (let s = g.apre; s + 60 <= g.chiude; s += SLOT_MINUTI) {
+          const v = conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, s, 60);
+          const prova = [...turni, v];
+          if (valido(g, v, prova)) mosse.push(prova);
+        }
+      }
+      let meglio: { t: Turno[]; ore: number } | null = null;
+      for (const m of mosse) {
+        const o = scop(m);
+        if (o < base - 1e-9 && (!meglio || o < meglio.ore - 1e-9)) meglio = { t: m, ore: o };
+      }
+      if (!meglio) break;
+      turni = meglio.t;
+    }
+  }
+  return turni;
 }
 
 /**

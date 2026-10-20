@@ -68,7 +68,7 @@ describe('proponiSettimana', () => {
         expect(oreLavorate(t)).toBeGreaterThanOrEqual(1);
         expect(oreLavorate(t)).toBeLessThanOrEqual(8);
         expect(t.inizio >= '10:00' && t.fine <= '20:00').toBe(true);
-        expect(t.pausaMinuti).toBe(oreLavorate(t) >= 8 ? 60 : oreLavorate(t) >= 6 ? 30 : 0);
+        expect(t.pausaMinuti).toBe(oreLavorate(t) >= 6 ? 30 : 0);
       }
     }
   });
@@ -138,20 +138,24 @@ describe('scopertureDelGiorno', () => {
 });
 
 describe('pausaPer', () => {
-  it('30 minuti da 6 ore lavorate, un\'ora da 8', () => {
+  it('30 minuti da 6 ore lavorate e anche da 8, in aggiunta alle ore', () => {
     expect(pausaPer(5.5 * 60)).toBe(0);
     expect(pausaPer(6 * 60)).toBe(30);
     expect(pausaPer(7.5 * 60)).toBe(30);
-    expect(pausaPer(8 * 60)).toBe(60);
+    expect(pausaPer(8 * 60)).toBe(30);
   });
 
-  it('un turno da 8 ore occupa 9 ore di negozio; se non ci sta si accorcia', () => {
-    const lun = costruisciGiorni(['2026-10-19'], [{ giorno: 1, chiuso: false, apre: '10:00', chiude: '18:30' }], [{ giorno: 1, dalle: '10:00', alle: '18:30', persone: 1 }], []);
-    const esito = proponiSettimana({ giorni: lun, persone: [persona('a', 8)] });
-    // 8 ore + un'ora non stanno in 8 ore e mezza: 7,5 ore con 30 minuti di pausa
-    expect(esito.turni).toHaveLength(1);
-    expect(oreLavorate(esito.turni[0])).toBe(7.5);
-    expect(esito.turni[0].pausaMinuti).toBe(30);
+  it('un turno da 8 ore occupa 8 ore e mezza di negozio; se non ci sta si accorcia', () => {
+    const giorno = (chiude: string) => costruisciGiorni(['2026-10-19'], [{ giorno: 1, chiuso: false, apre: '10:00', chiude }], [{ giorno: 1, dalle: '10:00', alle: chiude, persone: 1 }], []);
+    // 10:00-18:30: 8 ore di lavoro + 30 minuti di pausa, ci sta giusto
+    const pieno = proponiSettimana({ giorni: giorno('18:30'), persone: [persona('a', 8)] });
+    expect(pieno.turni).toHaveLength(1);
+    expect(oreLavorate(pieno.turni[0])).toBe(8);
+    expect(pieno.turni[0]).toMatchObject({ inizio: '10:00', fine: '18:30', pausaMinuti: 30 });
+    // 10:00-18:00: 8 ore con la pausa non stanno, 7,5 ore + 30 minuti si'
+    const corto = proponiSettimana({ giorni: giorno('18:00'), persone: [persona('a', 8)] });
+    expect(oreLavorate(corto.turni[0])).toBe(7.5);
+    expect(corto.turni[0].pausaMinuti).toBe(30);
   });
 });
 
@@ -206,7 +210,8 @@ describe('turni lunghi nei giorni pieni (Franciacorta, 20/10/2026)', () => {
     // restavano 10 ore e mezza scoperte nel weekend
     const persone = [36, 32, 34, 20, 30].map((ore, i) => persona(`p${i}`, ore));
     const esito = proponiSettimana({ giorni, persone });
-    expect(oreScoperte(giorni, esito.turni)).toBeLessThanOrEqual(1);
+    // con il ritocco finale (20/10/2026) non resta scoperto niente
+    expect(oreScoperte(giorni, esito.turni)).toBe(0);
     for (const p of persone) expect(esito.ore[p.id].pianificate).toBeLessThanOrEqual(p.ore + 1e-9);
   });
 });
