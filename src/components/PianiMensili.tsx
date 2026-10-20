@@ -42,7 +42,11 @@ type Riepilogo = {
 type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string };
 
 const REGOLE: RegolaWeekend[] = ['sabato_o_domenica', 'solo_sabati', 'solo_domeniche', 'nessuno'];
-const STATI_FERIE_APPROVATE = ['approvata', 'approvata_parziale', 'chiusa'];
+// Nei turni contano le ferie approvate e anche quelle chieste e in attesa
+// (Patrizio, 20/10/2026: «prendile in considerazione»): una richiesta
+// respinta torna disponibile al ricalcolo, un giorno respinto no.
+const STATI_FERIE_APPROVATE = ['inviata', 'approvata', 'approvata_parziale', 'chiusa'];
+const GIORNI_FERIE_VALIDI = ['richiesto', 'approvato'];
 const t5 = (t: string) => t.slice(0, 5);
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 1 });
 
@@ -157,7 +161,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
         if (pl?.stato === 'scelto') storicoWeekend.set(x.employee_id, (storicoWeekend.get(x.employee_id) ?? 0) + 1);
       }
-      const ferieOk = fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && x.stato_giorno === 'approvato');
+      const ferieOk = fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno));
 
       const personePiano: PersonaPiano[] = persone.map(({ scheda, perGiorno }) => {
         const oreSett = perGiorno.find((p) => p.outletId === outletId && p.stato === 'in_servizio')?.ore ?? null;

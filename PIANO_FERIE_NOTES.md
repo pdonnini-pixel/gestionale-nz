@@ -367,3 +367,14 @@ date (...): motivo» (passa da `leave_decidi`, quindi avviso in-app e mail come 
 salva la proposta in `leave_counterproposals`. In «Richieste» la proposta si accetta o rifiuta con
 `leave_rispondi_controproposta`: se accettata nasce una richiesta nuova gia' approvata con le date
 proposte. Le date proposte non possono cadere in un evento con «niente ferie né permessi».
+
+## Moduli ottobre-dicembre 2026 caricati (20/10/2026)
+
+Dalla cartella Drive di Patrizio (Forte dei Marmi escluso, Torino senza cartella): 23 moduli, presi
+solo i giorni dal 1° novembre. 13 richieste «inviate» (origine modulo cartaceo) per 61 giornate,
+ore = ore settimanali (paghe, altrimenti anagrafica) / 5. Valmontone (Nunziante, Cacciotti,
+Talone) aveva scritto «Ferie» senza quantità: contate come giornate intere. Piantoni, Rachele,
+Maggiori avevano anche le ore accanto alla giornata: contate giornate intere. Oltre il «da fruire»
+a fine anno: Pampaloni (12 h su 2,4), Suzzi (7 su 2,8), Nunziante e Talone (30 su 28,9). Il modulo
+«ASUTI» di Palmanova porta il nome di Shafiei in testa e di Astuti in ottobre, ed e' vuoto.
+Da questa data i piani dei turni (mese e settimana) contano anche le richieste in attesa.

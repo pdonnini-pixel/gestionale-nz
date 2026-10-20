@@ -36,7 +36,11 @@ type TurnoDb = {
 };
 
 const t5 = (t: string) => t.slice(0, 5);
-const STATI_FERIE_APPROVATE = ['approvata', 'approvata_parziale', 'chiusa'];
+// Nei turni contano le ferie approvate e anche quelle chieste e in attesa
+// (Patrizio, 20/10/2026: «prendile in considerazione»): una richiesta
+// respinta torna disponibile al ricalcolo, un giorno respinto no.
+const STATI_FERIE_APPROVATE = ['inviata', 'approvata', 'approvata_parziale', 'chiusa'];
+const GIORNI_FERIE_VALIDI = ['richiesto', 'approvato'];
 
 export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puoScrivere, onVaiOrari }: Props) {
   const { toast } = useToast();
@@ -121,7 +125,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   }, [dati, date, outletId, turni]);
 
   const inFerie = useCallback((empId: string, data: string) => ferie.find((f) => f.employee_id === empId && f.data === data
-    && STATI_FERIE_APPROVATE.includes(f.stato_richiesta) && f.stato_giorno === 'approvato'), [ferie]);
+    && STATI_FERIE_APPROVATE.includes(f.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(f.stato_giorno)), [ferie]);
 
   const motivoNonDisponibile = useCallback((pg: PersonaOggi, empId: string, data: string): string | null => {
     if (pg.stato === 'assente') return pg.assenza?.motivo ?? 'assente';
