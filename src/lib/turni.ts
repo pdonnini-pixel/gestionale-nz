@@ -216,8 +216,8 @@ export function oreDaCoprire(giorni: GiornoPiano[]): number {
 
 // ── Copertura ───────────────────────────────────────────────────────────
 
-/** Quante persone ci sono in ogni mezz'ora, dati i turni (la pausa non si toglie: e' breve e non ha un orario fisso). */
-export function copertura(giorno: GiornoPiano, turni: Turno[]): number[] {
+/** Quante persone hanno il turno in ogni mezz'ora, pause comprese. */
+export function coperturaLorda(giorno: GiornoPiano, turni: Turno[]): number[] {
   const cop = giorno.fabbisogno.map(() => 0);
   for (const t of turni) {
     if (t.data !== giorno.data) continue;
@@ -226,6 +226,75 @@ export function copertura(giorno: GiornoPiano, turni: Turno[]): number[] {
     for (let i = 0; i < cop.length; i++) {
       const s = giorno.apre + i * SLOT_MINUTI;
       if (s >= da && s < a) cop[i] += 1;
+    }
+  }
+  return cop;
+}
+
+export interface PausaCollocata {
+  employeeId: string;
+  data: string;
+  dalle: string;
+  alle: string;
+}
+
+/** Almeno due ore di lavoro prima della pausa e almeno due dopo (Lilian, 19/10/2026: sul turno da 6 la pausa finisce entro 4 ore e mezza dall'inizio). */
+export const PAUSA_DOPO_MINUTI = 120;
+
+/**
+ * Dove cade la pausa di ogni turno del giorno. Chi e' in pausa non e' in
+ * negozio (Patrizio, 19/10/2026: «persone» sono le presenti, esclusa chi e'
+ * in pausa), quindi le pause si sfalsano: ognuna va nella mezz'ora in cui
+ * togliere una persona fa meno danno rispetto al fabbisogno. Funzione
+ * deterministica: gli stessi turni danno sempre le stesse pause, e la
+ * pagina le puo' ricalcolare senza salvarle.
+ */
+export function collocaPause(giorno: GiornoPiano, turni: Turno[]): PausaCollocata[] {
+  if (giorno.chiuso) return [];
+  const delGiorno = turni
+    .filter((t) => t.data === giorno.data && (t.pausaMinuti || 0) > 0)
+    .sort((a, b) => a.inizio.localeCompare(b.inizio) || a.employeeId.localeCompare(b.employeeId));
+  const cop = coperturaLorda(giorno, turni);
+  const out: PausaCollocata[] = [];
+  for (const t of delGiorno) {
+    const durata = Math.ceil(t.pausaMinuti / SLOT_MINUTI) * SLOT_MINUTI;
+    const da = minuti(t.inizio);
+    const a = minuti(t.fine);
+    let primo = da + PAUSA_DOPO_MINUTI;
+    let ultimo = a - PAUSA_DOPO_MINUTI - durata;
+    if (ultimo < primo) { primo = da; ultimo = a - durata; }
+    let scelta: { inizio: number; margine: number; somma: number } | null = null;
+    for (let s = primo; s <= ultimo; s += SLOT_MINUTI) {
+      let margine = Infinity;
+      let somma = 0;
+      for (let m = s; m < s + durata; m += SLOT_MINUTI) {
+        const i = (m - giorno.apre) / SLOT_MINUTI;
+        if (i < 0 || i >= cop.length) continue;
+        const resto = cop[i] - 1 - giorno.fabbisogno[i];
+        margine = Math.min(margine, resto);
+        somma += resto;
+      }
+      if (!scelta || margine > scelta.margine || (margine === scelta.margine && somma > scelta.somma)) {
+        scelta = { inizio: s, margine, somma };
+      }
+    }
+    if (!scelta) continue;
+    for (let m = scelta.inizio; m < scelta.inizio + durata; m += SLOT_MINUTI) {
+      const i = (m - giorno.apre) / SLOT_MINUTI;
+      if (i >= 0 && i < cop.length) cop[i] -= 1;
+    }
+    out.push({ employeeId: t.employeeId, data: t.data, dalle: hhmm(scelta.inizio), alle: hhmm(scelta.inizio + durata) });
+  }
+  return out;
+}
+
+/** Quante persone sono davvero in negozio in ogni mezz'ora: chi e' in pausa non conta. */
+export function copertura(giorno: GiornoPiano, turni: Turno[]): number[] {
+  const cop = coperturaLorda(giorno, turni);
+  for (const p of collocaPause(giorno, turni)) {
+    for (let m = minuti(p.dalle); m < minuti(p.alle); m += SLOT_MINUTI) {
+      const i = (m - giorno.apre) / SLOT_MINUTI;
+      if (i >= 0 && i < cop.length) cop[i] -= 1;
     }
   }
   return cop;
@@ -278,8 +347,11 @@ export function proponiSettimana(args: {
     restanti.set(p.id, p.ore - fissiP.reduce((s, t) => s + oreLavorate(t), 0));
   }
 
+  // Copertura netta (chi e' in pausa non conta), ricalcolata sul giorno
+  // ogni volta che si aggiunge un turno: le pause si risistemano insieme.
   const cop = new Map<string, number[]>();
-  for (const g of giorni) cop.set(g.data, copertura(g, fissi));
+  const ricalcola = (g: GiornoPiano) => cop.set(g.data, copertura(g, [...fissi, ...proposti]));
+  for (const g of giorni) ricalcola(g);
 
   const puoLavorare = (p: PersonaTurni, g: GiornoPiano) =>
     !g.chiuso
@@ -314,11 +386,7 @@ export function proponiSettimana(args: {
     proposti.push(t);
     lavora.get(p.id)!.add(g.data);
     restanti.set(p.id, (restanti.get(p.id) ?? 0) - lavoro / 60);
-    const c = cop.get(g.data)!;
-    for (let i = 0; i < c.length; i++) {
-      const s = g.apre + i * SLOT_MINUTI;
-      if (s >= inizio && s < inizio + span) c[i] += 1;
-    }
+    ricalcola(g);
   };
 
   const scegli = (g: GiornoPiano) => persone
