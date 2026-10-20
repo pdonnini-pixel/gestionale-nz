@@ -338,3 +338,19 @@ dal suo `data_dal` (es. da chiamata a part-time determinato), così le ore conta
   mesi con un piano scelto, i turni di quel piano; altrimenti quelli fatti settimana per settimana.
 - **Chiusura**: `turni_mese_chiuso` = ci sono buste in `employee_cost_slips` per quel mese; i trigger
   bloccano inserimenti, modifiche e cancellazioni di turni, piani e liberi di quel mese.
+
+## Risposte di Veronica del 20/10/2026 (registrate su NZ)
+
+- **Ruggeri** (Brugnato): proroga di sei mesi a 30 ore, evento `proroga` da_confermare dal 05/11/2026 al
+  04/05/2027 (scadenza calcolata, da confermare con il documento dello studio).
+- **Roma Soratte**: aperto tutti i giorni 10-20 (`outlet_opening_hours`, origine manuale); chiuso il
+  25/12/2026, l'1/1/2027 e a Pasqua 28/03/2027 (`outlet_special_days`). Per gli anni dopo le chiusure
+  vanno aggiunte: Pasqua cambia data.
+- **Valmontone**: sabato e domenica chiude alle 21 (orari ora manuali). Aggiunta la fascia 20-21 con
+  una persona, origine stima, come la chiusura dei feriali.
+- **Sede / Magazzino**: gli orari fissi sono turni manuali in bozza per novembre 2026 (84 turni):
+  Sestini lun-mer 9-13/14-17, gio 9-13, ven 9-12 (28 ore); Focardi lun-mar 9-13/14-17, mer 9-13,
+  gio-ven 9-12 (24); Sabrina Scanu lun-ven 9-13 (20); Rosseti lun-mar 9-17, mer-ven 9-13 (28).
+  Le ore coincidono con i contratti. **Ceni** (9-13/14-20, varia con le trasferte) non ha turni: il suo
+  orario cambia di settimana in settimana e 10 ore al giorno superano le 40 del contratto.
+  Non esiste ancora un «orario fisso» per persona: da dicembre i turni della Sede vanno ricopiati.
