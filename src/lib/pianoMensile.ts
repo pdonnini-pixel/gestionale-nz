@@ -266,7 +266,13 @@ export interface EsitoPianoMese {
   oreScoperte: number;
   giorni: GiornoPiano[];
   /** per persona: ore del mese da contratto (proporzionate), pianificate, straordinario, liberi nel weekend */
-  persone: Record<string, { contratto: number; pianificate: number; straordinario: number; weekendLiberi: number; riserva: boolean }>;
+  persone: Record<string, {
+    contratto: number; pianificate: number; straordinario: number; weekendLiberi: number; riserva: boolean;
+    /** ore di ferie e permessi del mese (gia' tolte da `contratto`) */
+    ferie?: number;
+    /** settimane in cui ha gia' il massimo di giorni di lavoro: le ore che restano non si possono usare */
+    settimanePiene?: number;
+  }>;
   /** ore fatte dalle persone a chiamata */
   oreRiserva: number;
 }
@@ -295,6 +301,8 @@ export function pianificaMese(args: {
   fabbisognoFisso?: boolean;
   /** ore di straordinario ammesse a settimana per persona, solo dove manca copertura */
   straordinariSettimana?: number;
+  /** disponibilita' del singolo: ore di straordinario a settimana per persona (0 = non ne fa); prevale sul valore comune */
+  straordinariPersona?: Map<string, number>;
 }): EsitoPianoMese {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const nelMese = (d: string) => d.slice(0, 7) === args.mese;
@@ -358,10 +366,9 @@ export function pianificaMese(args: {
     }
     // Poi, se ammessi, gli straordinari di chi ha un contratto: prima la
     // riserva (ore normali), poi le ore in piu' dei titolari.
-    const straord = args.straordinariSettimana ?? 0;
-    if (straord > 0 && oreScoperte(gg, esito) > 0) {
-      const quota = straord * date.length / 7;
-      const conExtra: PersonaTurni[] = candidati.map((c) => ({ ...c, ore: c.ore + quota }));
+    const straordDi = (id: string) => args.straordinariPersona?.get(id) ?? args.straordinariSettimana ?? 0;
+    if (candidati.some((c) => straordDi(c.id) > 0) && oreScoperte(gg, esito) > 0) {
+      const conExtra: PersonaTurni[] = candidati.map((c) => ({ ...c, ore: c.ore + straordDi(c.id) * date.length / 7 }));
       const ids = new Set(conExtra.map((c) => c.id));
       const altri = esito.filter((t) => !ids.has(t.employeeId));
       esito = [...altri, ...ritoccaScoperture(gg, esito.filter((t) => ids.has(t.employeeId)), altri, conExtra, regole)];
@@ -373,7 +380,14 @@ export function pianificaMese(args: {
   for (const p of args.persone) {
     const pianificate = turni.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0);
     const contratto = p.oreSettimana == null ? 0 : settimane.reduce((a, lun) => a + orePersona(p, lun), 0);
+    const ferie = args.giorni.filter((g) => nelMese(g.data) && !g.chiuso).reduce((a, g) => a + (p.oreFerie.get(g.data) ?? 0), 0);
+    const settimanePiene = settimane.filter((lun) => {
+      const date = giorniDellaSettimana(lun).filter(nelMese);
+      return new Set(turni.filter((t) => t.employeeId === p.id && date.includes(t.data)).map((t) => t.data)).size >= Math.min(regole.giorniLavoroMax, date.length);
+    }).length;
     persone[p.id] = {
+      ferie,
+      settimanePiene,
       contratto,
       pianificate,
       straordinario: p.oreSettimana == null ? 0 : Math.max(0, pianificate - contratto),

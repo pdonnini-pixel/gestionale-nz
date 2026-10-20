@@ -148,4 +148,29 @@ describe('il piano del mese', () => {
     // mai oltre il tetto: 6 ore a settimana per persona, proporzionate ai giorni del mese
     for (const p of Object.values(conStraord.persone)) expect(p.straordinario).toBeLessThanOrEqual(6 * 30 / 7 + 1e-6);
   });
+  it('straordinari per persona: chi non è disponibile non ne fa', () => {
+    const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));
+    const gFissi = costruisciGiorni(tutte, orari, fasce, []);
+    const persone = [0, 1, 2].map((i) => ({ id: `s${i}`, oreSettimana: 30, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }));
+    const e = pianificaMese({
+      mese, giorni: gFissi, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso, fabbisognoFisso: true,
+      straordinariPersona: new Map([['s0', 8], ['s1', 0], ['s2', 0]]),
+    });
+    expect(e.persone.s0.straordinario).toBeGreaterThan(0);
+    expect(e.persone.s1.straordinario).toBe(0);
+    expect(e.persone.s2.straordinario).toBe(0);
+  });
+  it('una persona nuova (id inventato) entra nel piano dal giorno indicato', () => {
+    const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));
+    const gFissi = costruisciGiorni(tutte, orari, fasce, []);
+    const due = [0, 1].map((i) => ({ id: `s${i}`, oreSettimana: 40, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }));
+    const nuova = { id: 'nuova-1', oreSettimana: 30, nonDisponibile: new Set(tutte.filter((d) => d < '2026-11-16')), oreFerie: new Map<string, number>() };
+    const base = { mese, giorni: gFissi, regola: 'nessuno' as const, storicoWeekend: new Map(), atteso, fabbisognoFisso: true };
+    const senza = pianificaMese({ ...base, persone: due });
+    const con = pianificaMese({ ...base, persone: [...due, nuova] });
+    expect(con.oreScoperte).toBeLessThan(senza.oreScoperte);
+    const suoi = con.turni.filter((t) => t.employeeId === 'nuova-1');
+    expect(suoi.length).toBeGreaterThan(0);
+    expect(suoi.every((t) => t.data >= '2026-11-16')).toBe(true);
+  });
 });
