@@ -357,3 +357,13 @@ rispetto all'anno prima.** L'anzianità **non** è un criterio (Patrizio: «non 
 **Un accesso per negozio** (decisione di Patrizio). Il ruolo `dipendente` esiste ed è blindato: va
 aperto alle righe delle persone di quel negozio. Con un accesso condiviso chi propone sceglie il proprio
 nome: ogni proposta lo registra, e resta una proposta finché un referente non decide.
+
+## Controproposte (migration 320, 20/10/2026)
+
+Richiesta di Patrizio: chi decide le ferie deve poter approvare, rifiutare o proporre altre date.
+Chi decide resta quello di `leave_approvers` (anche una persona senza accesso, avvisata per mail).
+`leave_controproponi(request, giorni, motivo)` chiude la richiesta respinta con «Proposte altre
+date (...): motivo» (passa da `leave_decidi`, quindi avviso in-app e mail come una decisione) e
+salva la proposta in `leave_counterproposals`. In «Richieste» la proposta si accetta o rifiuta con
+`leave_rispondi_controproposta`: se accettata nasce una richiesta nuova gia' approvata con le date
+proposte. Le date proposte non possono cadere in un evento con «niente ferie né permessi».

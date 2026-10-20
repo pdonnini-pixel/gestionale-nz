@@ -16091,6 +16091,57 @@ export type Database = {
           },
         ]
       }
+      leave_counterproposals: {
+        Row: {
+          company_id: string
+          employee_id: string
+          esito_da_nome: string | null
+          esito_il: string | null
+          esito_nota: string | null
+          giorni: Json
+          id: string
+          motivo: string
+          nuova_request_id: string | null
+          proposta_da: string | null
+          proposta_da_nome: string | null
+          proposta_il: string
+          request_id: string
+          stato: string
+        }
+        Insert: {
+          company_id: string
+          employee_id: string
+          esito_da_nome?: string | null
+          esito_il?: string | null
+          esito_nota?: string | null
+          giorni: Json
+          id?: string
+          motivo: string
+          nuova_request_id?: string | null
+          proposta_da?: string | null
+          proposta_da_nome?: string | null
+          proposta_il?: string
+          request_id: string
+          stato?: string
+        }
+        Update: {
+          company_id?: string
+          employee_id?: string
+          esito_da_nome?: string | null
+          esito_il?: string | null
+          esito_nota?: string | null
+          giorni?: Json
+          id?: string
+          motivo?: string
+          nuova_request_id?: string | null
+          proposta_da?: string | null
+          proposta_da_nome?: string | null
+          proposta_il?: string
+          request_id?: string
+          stato?: string
+        }
+        Relationships: []
+      }
       leave_request_days: {
         Row: {
           company_id: string
@@ -16764,6 +16815,27 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      organico_hr: {
+        Row: {
+          company_id: string
+          created_at: string
+          nome: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          nome: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          nome?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       outlet_attachments: {
         Row: {
@@ -17879,6 +17951,51 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      outlet_traffic_hourly: {
+        Row: {
+          company_id: string
+          created_at: string
+          data: string
+          file_name: string | null
+          fonte: string
+          id: string
+          ingressi: number
+          ora: number
+          outlet_id: string
+          scontrini: number
+          updated_at: string
+          vendite: number
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          data: string
+          file_name?: string | null
+          fonte?: string
+          id?: string
+          ingressi?: number
+          ora: number
+          outlet_id: string
+          scontrini?: number
+          updated_at?: string
+          vendite?: number
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          data?: string
+          file_name?: string | null
+          fonte?: string
+          id?: string
+          ingressi?: number
+          ora?: number
+          outlet_id?: string
+          scontrini?: number
+          updated_at?: string
+          vendite?: number
+        }
+        Relationships: []
       }
       outlets: {
         Row: {
@@ -22756,6 +22873,78 @@ export type Database = {
           },
         ]
       }
+      shift_plan_weekend_off: {
+        Row: {
+          company_id: string
+          data: string
+          employee_id: string
+          plan_id: string
+        }
+        Insert: {
+          company_id: string
+          data: string
+          employee_id: string
+          plan_id: string
+        }
+        Update: {
+          company_id?: string
+          data?: string
+          employee_id?: string
+          plan_id?: string
+        }
+        Relationships: []
+      }
+      shift_plans: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          created_by_nome: string | null
+          id: string
+          mese: string
+          nome: string
+          outlet_id: string
+          regola_weekend: string
+          riepilogo: Json
+          scelto_da_nome: string | null
+          scelto_il: string | null
+          stato: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          created_by_nome?: string | null
+          id?: string
+          mese: string
+          nome: string
+          outlet_id: string
+          regola_weekend: string
+          riepilogo?: Json
+          scelto_da_nome?: string | null
+          scelto_il?: string | null
+          stato?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          created_by_nome?: string | null
+          id?: string
+          mese?: string
+          nome?: string
+          outlet_id?: string
+          regola_weekend?: string
+          riepilogo?: Json
+          scelto_da_nome?: string | null
+          scelto_il?: string | null
+          stato?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       shifts: {
         Row: {
           annullato_motivo: string | null
@@ -22773,6 +22962,7 @@ export type Database = {
           pausa_minuti: number
           stato: string
           updated_at: string
+          plan_id: string | null
         }
         Insert: {
           annullato_motivo?: string | null
@@ -22790,6 +22980,7 @@ export type Database = {
           pausa_minuti?: number
           stato?: string
           updated_at?: string
+          plan_id?: string | null
         }
         Update: {
           annullato_motivo?: string | null
@@ -22807,6 +22998,7 @@ export type Database = {
           pausa_minuti?: number
           stato?: string
           updated_at?: string
+          plan_id?: string | null
         }
         Relationships: []
       }
@@ -26529,6 +26721,15 @@ export type Database = {
         Args: { p_debit_date?: string; p_lines: Json; p_statement_id: string }
         Returns: Json
       }
+      leave_controproponi: {
+        Args: { p_giorni: Json; p_motivo: string; p_request_id: string }
+        Returns: string
+      }
+      leave_rispondi_controproposta: {
+        Args: { p_accetta: boolean; p_id: string; p_nota?: string }
+        Returns: string
+      }
+      organico_e_hr: { Args: never; Returns: boolean }
       organico_nuova_persona: {
         Args: {
           p_autore_nome: string
@@ -27232,6 +27433,14 @@ export type Database = {
       try_match_group_numbers_bank_transaction: {
         Args: { p_bt_id: string }
         Returns: Json
+      }
+      turni_mese_chiuso: {
+        Args: { p_company: string; p_data: string }
+        Returns: boolean
+      }
+      turni_scegli_piano: {
+        Args: { p_plan_id: string }
+        Returns: undefined
       }
       undo_reconcile_fiscal_deadline: {
         Args: { p_fiscal_id: string }

@@ -114,3 +114,22 @@ export async function caricaChiusurePerStima(companyId: string, settimane = 8): 
       incasso: c.total_receipts != null ? Number(c.total_receipts) : null,
     }));
 }
+
+/**
+ * Traffico per ora (MODA) di un negozio, o di tutti i negozi se outletId e'
+ * null. Si legge a pagine: il server restituisce al massimo mille righe per
+ * richiesta e un negozio ne ha una per ora aperta di ogni giorno.
+ */
+export async function caricaTraffico(companyId: string, outletId: string | null): Promise<{ data: string; ora: number; ingressi: number }[]> {
+  const out: { data: string; ora: number; ingressi: number }[] = [];
+  for (let da = 0; ; da += 1000) {
+    let q = supabase.from('outlet_traffic_hourly').select('data, ora, ingressi').eq('company_id', companyId);
+    if (outletId) q = q.eq('outlet_id', outletId);
+    const { data, error } = await q.order('data').order('ora').order('outlet_id').range(da, da + 999);
+    if (error) throw error;
+    const righe = (data as { data: string; ora: number; ingressi: number }[]) ?? [];
+    out.push(...righe);
+    if (righe.length < 1000) break;
+  }
+  return out;
+}

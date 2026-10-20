@@ -15,7 +15,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2, XCircle, Clock, AlertTriangle, UserPlus, Trash2, Mail,
-  ShieldCheck, ChevronDown, ChevronRight, History,
+  ShieldCheck, ChevronDown, ChevronRight, History, CalendarClock,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
@@ -105,6 +105,9 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
   const [aperta, setAperta] = useState<string | null>(null);
   const [concessi, setConcessi] = useState<Set<string>>(new Set());
   const [motivo, setMotivo] = useState('');
+  // Altre date da proporre al posto di quelle chieste (controproposta).
+  const [proposta, setProposta] = useState<Record<string, string> | null>(null);
+  const [motivoProposta, setMotivoProposta] = useState('');
   const [vediDecise, setVediDecise] = useState(false);
 
   // Nuovo referente
@@ -200,6 +203,34 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
     // Si parte da tutto concesso: chi decide toglie quello che non va.
     setConcessi(new Set(r.giorni.map((g) => g.id)));
     setMotivo('');
+    setProposta(null);
+    setMotivoProposta('');
+  }
+
+  // Chi decide propone altre date: la richiesta si chiude respinta con il
+  // motivo, e la proposta aspetta la risposta della persona (Richieste).
+  async function controproponi(r: Richiesta) {
+    if (!proposta) return;
+    const giorni = r.giorni.map((g) => ({ data: proposta[g.id] || '', voce: g.voce, tipo: g.tipo, ore: g.ore }));
+    if (giorni.some((g) => !g.data)) { toast({ type: 'warning', message: 'Indica una data per ogni giorno.' }); return; }
+    if (giorni.every((g, i) => g.data === r.giorni[i].data)) { toast({ type: 'warning', message: 'Le date proposte sono le stesse chieste.' }); return; }
+    if (!motivoProposta.trim()) { toast({ type: 'warning', message: 'Scrivi il motivo: chi riceve la proposta deve capire perché.' }); return; }
+    const evNegozio = eventiDelNegozio(eventiSenzaFerie, r.outlet_id);
+    const inEvento = giorni.filter((g) => eventiDelGiorno(evNegozio, g.data).length);
+    if (inEvento.length) { toast({ type: 'error', message: `Il ${formattaDataLunga(inEvento[0].data)} cade in un evento del negozio: niente ferie né permessi.` }); return; }
+    setSalvataggio(true);
+    try {
+      const { error } = await supabase.rpc('leave_controproponi', { p_request_id: r.id, p_giorni: giorni, p_motivo: motivoProposta.trim() });
+      if (error) throw error;
+      try { await supabase.functions.invoke('leave-notify', { body: { request_id: r.id, momento: 'decisione' } }); } catch { /* la mail e' un di piu' */ }
+      toast({ type: 'success', message: `Proposte altre date a ${r.dipendente}: aspetta la sua risposta in «Richieste».` });
+      setAperta(null);
+      await carica();
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Proposta non salvata.' });
+    } finally {
+      setSalvataggio(false);
+    }
   }
 
   function alterna(id: string) {
@@ -432,7 +463,45 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
                       >
                         Rimetti tutto
                       </button>
+                      {r.stato === 'inviata' && !proposta && (
+                        <button
+                          type="button"
+                          onClick={() => setProposta(Object.fromEntries(r.giorni.map((g) => [g.id, g.data])))}
+                          className="inline-flex items-center gap-2 border border-amber-300 text-amber-800 text-sm rounded-lg px-4 py-2 hover:bg-amber-50"
+                        >
+                          <CalendarClock size={15} /> Proponi altre date
+                        </button>
+                      )}
                     </div>
+
+                    {proposta && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-2">
+                        <p className="text-sm font-medium text-amber-900">Altre date da proporre, una per ogni giorno chiesto</p>
+                        <div className="flex flex-wrap gap-2">
+                          {r.giorni.map((g) => (
+                            <label key={g.id} className="text-xs text-slate-600">
+                              al posto del {formattaDataLunga(g.data)} ({ETICHETTE_VOCE_BREVI[g.voce]}, {formattaOre(g.ore)})<br />
+                              <input type="date" value={proposta[g.id] ?? ''} onChange={(e) => setProposta((p) => ({ ...(p ?? {}), [g.id]: e.target.value }))}
+                                className="mt-1 border border-slate-300 rounded-lg px-2 py-1.5 text-sm" />
+                            </label>
+                          ))}
+                        </div>
+                        <label className="block text-sm text-slate-600">
+                          Perché queste date
+                          <textarea value={motivoProposta} onChange={(e) => setMotivoProposta(e.target.value)} rows={2}
+                            placeholder="Es. quella settimana il negozio è scoperto, la successiva no."
+                            className="mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                        </label>
+                        <div className="flex gap-2">
+                          <button type="button" disabled={salvataggio} onClick={() => void controproponi(r)}
+                            className="inline-flex items-center gap-2 bg-amber-600 text-white text-sm rounded-lg px-4 py-2 hover:bg-amber-700 disabled:opacity-50">
+                            <CalendarClock size={15} /> Manda la proposta
+                          </button>
+                          <button type="button" onClick={() => setProposta(null)} className="text-sm text-slate-500 hover:text-slate-800 px-2">Annulla</button>
+                        </div>
+                        <p className="text-xs text-slate-500">La richiesta si chiude come respinta, con il motivo e le date proposte. Se la persona accetta, le nuove date risultano già approvate.</p>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

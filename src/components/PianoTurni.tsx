@@ -31,7 +31,7 @@ type Props = {
 };
 
 type TurnoDb = {
-  id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number;
+  id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null;
   origine: 'proposta' | 'manuale'; stato: 'bozza' | 'pubblicato' | 'annullato'; annullato_motivo: string | null;
 };
 
@@ -53,24 +53,31 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [saldi, setSaldi] = useState<Map<string, number>>(new Map());
   const [caricamento, setCaricamento] = useState(true);
   const [lavoro, setLavoro] = useState(false);
+  // Piano del mese scelto per ogni mese della settimana ('YYYY-MM' -> id).
+  const [pianiScelti, setPianiScelti] = useState<Map<string, string>>(new Map());
   const [editor, setEditor] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
 
   const carica = useCallback(async () => {
     setCaricamento(true);
     try {
-      const [o, f, s, r, t, fe, sl, ev] = await Promise.all([
+      const [o, f, s, r, t, fe, sl, ev, pi] = await Promise.all([
         supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude, origine').eq('outlet_id', outletId),
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
         supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
-        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo')
+        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id')
           .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]).order('inizio'),
         caricaGiorniFerie(companyId, date[0], date[6]),
         supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
         // Eventi della settimana (Black Friday, feste, saldi): piu' persone e straordinari se mancano
         supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari')
           .eq('company_id', companyId).lte('data_dal', date[6]).gte('data_al', date[0]),
+        // Piani del mese scelti per i mesi di questa settimana: nei loro giorni valgono i loro turni.
+        supabase.from('shift_plans').select('id, mese').eq('outlet_id', outletId).eq('stato', 'scelto')
+          .in('mese', [...new Set([date[0], date[6]].map((d) => `${d.slice(0, 7)}-01`))]),
       ]);
+      const pianoDelMese = new Map(((pi.data as { id: string; mese: string }[]) ?? []).map((x) => [x.mese.slice(0, 7), x.id]));
+      setPianiScelti(pianoDelMese);
       const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
       const fasce = (f.data as { giorno: number; dalle: string; alle: string; persone: number }[]) ?? [];
       setHaOrari(orari.length > 0);
@@ -80,7 +87,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [],
         eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId)));
       setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
-      setTurni(((t.data as TurnoDb[]) ?? []).map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) })));
+      // Si vedono i turni del piano scelto per quel mese, oppure quelli fatti settimana per settimana.
+      setTurni(((t.data as TurnoDb[]) ?? [])
+        .filter((x) => (x.plan_id ?? null) === (pianoDelMese.get(x.data.slice(0, 7)) ?? null))
+        .map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) })));
       setFerie(fe);
       const m = new Map<string, number>();
       for (const x of ((sl.data as { employee_id: string | null; residuo_disponibile: number | null }[]) ?? [])) {
@@ -154,6 +164,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         const { error } = await supabase.from('shifts').insert(esito.turni.map((t) => ({
           company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data,
           inizio: t.inizio, fine: t.fine, pausa_minuti: t.pausaMinuti, origine: 'proposta', stato: 'bozza',
+          plan_id: pianiScelti.get(t.data.slice(0, 7)) ?? null,
         })));
         if (error) throw error;
       }
@@ -178,8 +189,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
 
   const pubblica = async () => {
     setLavoro(true);
-    const { error } = await supabase.from('shifts').update({ stato: 'pubblicato' })
-      .eq('company_id', companyId).eq('outlet_id', outletId).eq('stato', 'bozza').gte('data', date[0]).lte('data', date[6]);
+    // Solo i turni che si vedono: quelli del piano scelto del mese o quelli settimanali, non le varianti scartate.
+    const daPubblicare = turni.filter((t) => t.stato === 'bozza').map((t) => t.id);
+    const { error } = await supabase.from('shifts').update({ stato: 'pubblicato' }).in('id', daPubblicare.length ? daPubblicare : ['00000000-0000-0000-0000-000000000000']);
     setLavoro(false);
     if (error) { toast({ type: 'error', message: error.message }); return; }
     toast({ type: 'success', message: `Turni della settimana pubblicati per ${nomeNegozio}.` });
@@ -341,7 +353,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
 
       {editor && (
         <EditorTurno
-          companyId={companyId} outletId={outletId} editor={editor}
+          companyId={companyId} outletId={outletId} editor={editor} planId={pianiScelti.get(editor.data.slice(0, 7)) ?? null}
           nome={nomePersona(dati.schede.find((s) => s.id === editor.employeeId) ?? { nome: '', cognome: '' })}
           giorno={giorni.find((g) => g.data === editor.data)!}
           regole={regole}
@@ -353,8 +365,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   );
 }
 
-function EditorTurno({ companyId, outletId, editor, nome, giorno, regole, onClose, onSalvato }: {
-  companyId: string; outletId: string; editor: { employeeId: string; data: string; turno: TurnoDb | null };
+function EditorTurno({ companyId, outletId, editor, planId, nome, giorno, regole, onClose, onSalvato }: {
+  companyId: string; outletId: string; editor: { employeeId: string; data: string; turno: TurnoDb | null }; planId: string | null;
   nome: string; giorno: GiornoPiano; regole: RegoleTurni; onClose: () => void; onSalvato: () => void;
 }) {
   const { toast } = useToast();
@@ -376,7 +388,7 @@ function EditorTurno({ companyId, outletId, editor, nome, giorno, regole, onClos
     const riga = { inizio, fine, pausa_minuti: pausa, origine: 'manuale' as const };
     const { error } = editor.turno
       ? await supabase.from('shifts').update(riga).eq('id', editor.turno.id)
-      : await supabase.from('shifts').insert([{ ...riga, company_id: companyId, outlet_id: outletId, employee_id: editor.employeeId, data: editor.data, stato: 'bozza' }]);
+      : await supabase.from('shifts').insert([{ ...riga, company_id: companyId, outlet_id: outletId, employee_id: editor.employeeId, data: editor.data, stato: 'bozza', plan_id: planId }]);
     setSalvo(false);
     if (error) { toast({ type: 'error', message: error.message }); return; }
     onSalvato();

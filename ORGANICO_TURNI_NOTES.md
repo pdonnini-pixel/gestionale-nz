@@ -308,3 +308,29 @@ presenze People Smart (quando arrivera').
 **Persone**: Caprioli (Brugnato, a chiamata) si usa per arrivare a copertura nel weekend; il suo contratto
 oggi scade il 25/10/2026, per novembre serve una proroga. Falchi non rinnova alla scadenza del 31/10/2026
 (evento non_rinnovo registrato il 20/10/2026, da confermare con il documento dello studio).
+
+## Piani mensili, traffico MODA, HR, chiusura al cedolino (migration 320, 20/10/2026)
+
+- **Traffico** in `outlet_traffic_hourly` (ingressi, scontrini per ora). Caricati il 20/10/2026 su NZ
+  i 13 report MODA dello zip di Patrizio (set-dic 2025 per 6 negozi, 1-24/09/2026 per 7): totali
+  per negozio verificati uguali al pezzo ai PDF. Vendite non caricate. Torino ha aperto a marzo 2026,
+  Valmontone a ottobre 2025. Mancano i report gennaio-agosto 2026 (arrivano): servono un caricamento
+  in pagina, che oggi non c'e'.
+- **Motore** `src/lib/pianoMensile.ts`: tipo di giorno dal calendario (festivi, Black Friday =
+  ultimo venerdi' di novembre, il suo weekend, feriali 22-30/12, vigilie), traffico atteso per tipo e
+  mese dalla storia del negozio (ripiego: stesso tipo in tutta la storia, poi tipo vicino; negozio
+  senza storia = forma media degli altri), fabbisogno = ore disponibili distribuite come il traffico
+  (round(k·ingressi), minimo 1, massimo persone disponibili, k per bisezione), weekend liberi PRIMA del
+  fabbisogno (un giorno a testa nel mese, quando restano chi apre e chi chiude; prima a chi ne ha
+  avuti meno nei piani scelti), poi le settimane con `proponiSettimana`; chi e' a chiamata copre solo
+  i buchi rimasti (`ritoccaScoperture` con `soloPersone`). Il ponte del 7/12/2026 non ha storia:
+  resta un lunedi'.
+- Simulazione novembre 2026 sui 7 negozi (organico al 20/10): ognuno ha un giorno libero nel weekend
+  con 0-10 ore scoperte in piu' sul mese rispetto a «nessun libero» (Torino fino a 22). Black Friday di
+  Valmontone: 1.806 ingressi attesi contro 644 di un sabato e 1.060 di una domenica di novembre.
+- **Varianti**: `shift_plans` (regola_weekend), `shift_plan_weekend_off`, `shifts.plan_id`. Una
+  sola «scelto» per negozio e mese, con `turni_scegli_piano` (solo HR: `organico_hr`, NZ =
+  Patrizio, Lilian, Veronica; senza righe vale super_advisor). Il piano settimanale mostra, per i
+  mesi con un piano scelto, i turni di quel piano; altrimenti quelli fatti settimana per settimana.
+- **Chiusura**: `turni_mese_chiuso` = ci sono buste in `employee_cost_slips` per quel mese; i trigger
+  bloccano inserimenti, modifiche e cancellazioni di turni, piani e liberi di quel mese.
