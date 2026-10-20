@@ -5,11 +5,18 @@
 // sessione temporanea di recupero ed emette l'evento PASSWORD_RECOVERY. Qui
 // l'utente imposta la nuova password (updateUser), poi lo rimandiamo al login.
 //
+// Link nuovi (mail di admin-manage-user): arrivano qui con ?token_hash=…&type=…
+// e il token si verifica (verifyOtp) solo quando la persona preme «Continua».
+// I filtri di sicurezza della posta aprono i link da soli appena la mail
+// arriva: con il vecchio link /auth/v1/verify consumavano il token monouso e
+// la persona trovava «Link non valido o scaduto» (20/10/2026).
+//
 // NB: questa route NON è sotto PublicRoute (che rimbalzerebbe via la sessione di
 // recupero): è pubblica e gestisce da sé i vari stati.
 
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import type { EmailOtpType } from '@supabase/supabase-js'
 import { supabase } from '../lib/supabase'
 import { getCurrentTenant } from '../lib/tenants'
 import { Eye, EyeOff, AlertCircle, CheckCircle2, KeyRound } from 'lucide-react'
@@ -25,8 +32,30 @@ export default function ResetPassword() {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [done, setDone] = useState(false)
+  // Token del link nuovo, letto una volta all'apertura della pagina.
+  const [pending] = useState<{ tokenHash: string; type: EmailOtpType } | null>(() => {
+    const q = new URLSearchParams(window.location.search)
+    const tokenHash = q.get('token_hash')
+    const type = q.get('type')
+    return tokenHash && (type === 'recovery' || type === 'invite') ? { tokenHash, type } : null
+  })
+  const [verifying, setVerifying] = useState(false)
+
+  async function handleContinue() {
+    if (!pending) return
+    setVerifying(true)
+    const { data, error } = await supabase.auth.verifyOtp({ token_hash: pending.tokenHash, type: pending.type })
+    setVerifying(false)
+    // Il token non serve più: via dalla barra degli indirizzi.
+    window.history.replaceState(null, '', window.location.pathname)
+    if (error || !data.session) { setLinkValid(false); return }
+    setReady(true)
+  }
 
   useEffect(() => {
+    // Link nuovo: si aspetta il clic su «Continua», niente controllo automatico
+    // (una sessione già aperta nel browser potrebbe essere di un altro utente).
+    if (pending) return
     let settled = false
     // Se il token di recupero è nell'URL, Supabase emette PASSWORD_RECOVERY.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
@@ -42,7 +71,7 @@ export default function ResetPassword() {
     // Dopo un attimo, se non è arrivata nessuna sessione, il link è scaduto/non valido.
     const t = setTimeout(() => { if (!settled) setLinkValid(false) }, 4000)
     return () => { subscription.unsubscribe(); clearTimeout(t) }
-  }, [])
+  }, [pending])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -97,6 +126,18 @@ export default function ResetPassword() {
                 </div>
                 <button onClick={() => navigate('/login', { replace: true })} className="text-sm text-blue-600 hover:text-blue-800 font-medium">
                   ← Torna al login
+                </button>
+              </div>
+            ) : pending && !ready ? (
+              <div className="text-center space-y-4">
+                <p className="text-sm text-slate-600">
+                  {pending.type === 'invite'
+                    ? 'Premi «Continua» per scegliere la password del tuo accesso.'
+                    : 'Premi «Continua» per scegliere la nuova password.'}
+                </p>
+                <button type="button" onClick={handleContinue} disabled={verifying}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition disabled:opacity-50 disabled:cursor-not-allowed">
+                  {verifying ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : 'Continua'}
                 </button>
               </div>
             ) : !ready ? (
