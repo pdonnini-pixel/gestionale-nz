@@ -354,3 +354,13 @@ dal suo `data_dal` (es. da chiamata a part-time determinato), così le ore conta
   Le ore coincidono con i contratti. **Ceni** (9-13/14-20, varia con le trasferte) non ha turni: il suo
   orario cambia di settimana in settimana e 10 ore al giorno superano le 40 del contratto.
   Non esiste ancora un «orario fisso» per persona: da dicembre i turni della Sede vanno ricopiati.
+
+## Turno minimo di 4 ore (Patrizio, 20/10/2026)
+
+Sostituisce la scelta del 19/10 («nessun turno minimo, solo niente sotto l'ora»). I pezzi da un'ora
+o un'ora e mezza consumavano un giorno di lavoro: a 6 giorni la persona si fermava con ore di contratto
+non usate (Rossini a Brugnato, 97 su 128,6) mentre il piano chiamava la riserva. Ora `REGOLE_DEFAULT.turnoMinOre = 4`
+(e `outlet_shift_rules.turno_min_ore` se un negozio ne salva uno), rispettato da proposta, ritocco delle
+scoperture, accorciamento, riserva a chiamata e straordinari. Prezzo misurato: Franciacorta, mezz'ora a
+settimana non si copre; Brugnato novembre, la riserva passa da 27 a 37 ore (anche lei non fa meno di 4 ore).
+I turni messi a mano possono essere più corti.
