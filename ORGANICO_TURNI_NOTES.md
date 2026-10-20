@@ -375,3 +375,18 @@ a 40: 18,5 ore scoperte, Falchi 39.
 **La simulazione usa MODA** (Patrizio, 20/10/2026): come i piani veri, il fabbisogno viene dal traffico e dalle
 persone che ci sono, con le ore ipotetiche; niente fabbisogno fisso di «Orari e fabbisogno». La prima versione
 (PR #690) lo usava: era contro la regola e l'ho tolto.
+
+
+## Disponibilità delle persone e pagina del piano del mese (migration 322, 20/10/2026)
+
+- `employee_availability` (employee_id, giorni smallint[] 1..7, nota): giorni in cui la persona può lavorare.
+  Senza riga = tutti. La rispettano piano del mese (`nonDisponibile`), piano settimanale (`motivoNonDisponibile`)
+  e simulazioni (che partono da lì: «solo sabato e domenica» già spuntato). Nata da Falchi: il piano vero la
+  metteva nei feriali perché il «solo weekend» stava solo nella simulazione (errore mio, segnalato da Patrizio).
+  Falchi su NZ = {6,7}. Migration in due passi (322 e 322b per il GRANT DELETE: il connettore si blocca con
+  quella parola nel testo).
+- Pagina «Piano del mese» rifatta: testata con mese e stato, «Chi lavora» con ore e giorni, «Crea le varianti
+  del mese» (le quattro regole in un colpo, solo quelle mancanti), varianti come schede, mese per settimane,
+  riepilogo «Ore del mese, persona per persona» (contratto, ferie e permessi con date, da lavorare, pianificate,
+  differenza con il motivo). «Stima i negozi vuoti» spostato in «Orari e fabbisogno».
+- Verifica visiva fatta in locale con un'anteprima a dati finti (motore vero, traffico MODA di Brugnato).

@@ -124,45 +124,49 @@ export default function TurniNegozi({ companyId }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3 justify-between">
-        <div className="flex flex-wrap gap-2">
-          {negozi.map((n) => (
-            <button key={n.id} type="button" onClick={() => setNegozio(n.id)}
-              className={`text-sm px-3 py-1.5 rounded-lg border ${negozio === n.id ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-300 hover:bg-slate-50'}`}>
-              {nomeNegozio(n)} <span className={negozio === n.id ? 'text-slate-300' : 'text-slate-400'}>{n.persone}</span>
-            </button>
-          ))}
+      {/* Prima cosa si fa (le quattro schede), poi su quale negozio. */}
+      <nav className="flex gap-1 border-b border-slate-200 overflow-x-auto" aria-label="Sezioni dei turni">
+        {([{ k: 'mese' as const, label: 'Piano del mese' }, { k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }, { k: 'eventi' as const, label: 'Eventi' }]).map((t) => (
+          <button key={t.k} type="button" onClick={() => setSotto(t.k)} aria-current={sotto === t.k ? 'page' : undefined}
+            className={`whitespace-nowrap px-4 py-2.5 text-sm font-medium border-b-2 -mb-px ${sotto === t.k ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>{t.label}</button>
+        ))}
+      </nav>
+
+      {sotto !== 'eventi' && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Negozio">
+            {negozi.map((n) => (
+              <button key={n.id} type="button" role="tab" aria-selected={negozio === n.id} onClick={() => setNegozio(n.id)}
+                className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${negozio === n.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-400'}`}>
+                {nomeNegozio(n)} <span className={`ml-0.5 text-xs ${negozio === n.id ? 'text-slate-300' : 'text-slate-400'}`}>{n.persone}</span>
+              </button>
+            ))}
+          </div>
+          {scelto && (
+            <label className="flex items-center gap-2 text-sm text-slate-600">
+              <UserRound size={15} className="text-slate-400" />
+              <span>Referente</span>
+              {puoScrivere ? (
+                <select aria-label="Referente del negozio" value={scelto.referente_employee_id ?? ''} onChange={(e) => impostaReferente(e.target.value)}
+                  className="min-h-[34px] rounded-lg border border-slate-300 px-2 text-sm bg-white">
+                  <option value="">nessuna</option>
+                  {sceltePossibili.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
+                </select>
+              ) : (
+                <strong className="text-slate-800">{referente ? nomePersona(referente) : 'nessuna'}</strong>
+              )}
+            </label>
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-        {puoScrivere && (
+      )}
+
+      {sotto === 'orari' && puoScrivere && (
+        <div className="flex justify-end">
           <button type="button" onClick={stimaTutti} disabled={stimo}
             title={puoFabbisogno ? 'Orari e fabbisogno stimati dai dati, solo per i negozi che non li hanno' : 'Orari stimati dai dati, solo per i negozi che non li hanno (il fabbisogno lo decide la direzione, profilo Super Advisor)'}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 disabled:opacity-50">
+            className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50">
             <Sparkles size={14} /> {stimo ? 'Stimo…' : 'Stima i negozi vuoti dai dati'}
           </button>
-        )}
-        <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5 w-fit">
-          {([{ k: 'mese' as const, label: 'Piano del mese' }, { k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }, { k: 'eventi' as const, label: 'Eventi' }]).map((t) => (
-            <button key={t.k} type="button" onClick={() => setSotto(t.k)}
-              className={`text-sm px-3 py-1.5 rounded-md ${sotto === t.k ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{t.label}</button>
-          ))}
-        </div>
-        </div>
-      </div>
-
-      {scelto && sotto !== 'eventi' && (
-        <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-          <UserRound size={15} className="text-slate-400" />
-          <span>Referente di {nomeNegozio(scelto)}:</span>
-          {puoScrivere ? (
-            <select aria-label="Referente del negozio" value={scelto.referente_employee_id ?? ''} onChange={(e) => impostaReferente(e.target.value)}
-              className="min-h-[34px] rounded-lg border border-slate-300 px-2 text-sm bg-white">
-              <option value="">nessuna</option>
-              {sceltePossibili.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
-            </select>
-          ) : (
-            <strong className="text-slate-800">{referente ? nomePersona(referente) : 'nessuna'}</strong>
-          )}
         </div>
       )}
 

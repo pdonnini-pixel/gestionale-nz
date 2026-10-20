@@ -14710,6 +14710,33 @@ export type Database = {
         }
         Relationships: []
       }
+      employee_availability: {
+        Row: {
+          company_id: string
+          employee_id: string
+          giorni: number[]
+          nota: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          company_id: string
+          employee_id: string
+          giorni: number[]
+          nota?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          company_id?: string
+          employee_id?: string
+          giorni?: number[]
+          nota?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       employee_events: {
         Row: {
           company_id: string
