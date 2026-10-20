@@ -148,6 +148,19 @@ describe('il piano del mese', () => {
     // mai oltre il tetto: 6 ore a settimana per persona, proporzionate ai giorni del mese
     for (const p of Object.values(conStraord.persone)) expect(p.straordinario).toBeLessThanOrEqual(6 * 30 / 7 + 1e-6);
   });
+  it('turno minimo di 4 ore anche per la riserva e per gli straordinari', () => {
+    const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));
+    const gFissi = costruisciGiorni(tutte, orari, fasce, []);
+    const persone = [
+      ...[0, 1].map((i) => ({ id: `s${i}`, oreSettimana: 30, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() })),
+      { id: 'r', oreSettimana: null, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() },
+    ];
+    const e = pianificaMese({
+      mese, giorni: gFissi, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso, fabbisognoFisso: true, straordinariSettimana: 5,
+    });
+    expect(e.turni.length).toBeGreaterThan(0);
+    expect(e.turni.every((t) => oreLavorate(t) >= 4 - 1e-9)).toBe(true);
+  });
   it('straordinari per persona: chi non è disponibile non ne fa', () => {
     const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));
     const gFissi = costruisciGiorni(tutte, orari, fasce, []);

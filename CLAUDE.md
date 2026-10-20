@@ -82,6 +82,19 @@ Nata dalla PR #668 (14/10/2026), che lavorando sulle fatture d'acquisto aveva fa
 
 ---
 
+## 🗓️ REGOLA GRANITICA — TURNI: FABBISOGNO DA MODA E TURNO MINIMO DI 4 ORE (fissata da Patrizio il 20/10/2026, NON NEGOZIABILE)
+
+Vale per **ogni** calcolo di turni: piano del mese, piano settimanale, **simulazioni**, prove e misure fatte in sessione (`src/lib/pianoMensile.ts`, `src/lib/turni.ts`, `src/components/PianiMensili.tsx`, `PianoTurni.tsx`).
+
+1. **Il fabbisogno viene dal traffico MODA del negozio e dalle persone che ci sono.** Le ore di chi lavora nel negozio (ferie e permessi tolti) si distribuiscono come gli ingressi MODA (`outlet_traffic_hourly`, `fabbisognoDaTraffico`), sempre con almeno una persona. Niente obiettivi, niente fabbisogno fisso al posto di MODA: «fare il massimo con le persone che hai». Il fabbisogno di «Orari e fabbisogno» si usa **solo** per un negozio che non ha traffico (né suo né la forma media degli altri).
+   - **La simulazione usa MODA come i piani veri.** Cambiano solo le ipotesi (ore di contratto, persone nuove, chi fa straordinari e quanti), mai la fonte del fabbisogno. Anche le misure e le prove in sessione si fanno sul traffico MODA vero del negozio, non su fasce inventate o su «Orari e fabbisogno».
+   - Nata il 20/10/2026: la prima simulazione (PR #690) usava il fabbisogno fisso e dava numeri diversi da quelli del piano vero. Patrizio: «deve usare MODA e le regole che ci siamo dati».
+2. **Il turno minimo nella giornata è di 4 ore.** Nessun turno proposto (proposta, ritocco delle scoperture, accorciamento, riserva a chiamata, straordinari) scende sotto le 4 ore: un pezzo da un'ora occupa un giorno di lavoro e lascia ore di contratto non usate. Il minimo **si cambia solo nelle regole del negozio** («Regole dei turni» → «Turno minimo nella giornata», `outlet_shift_rules.turno_min_ore`); senza regole salvate vale `REGOLE_DEFAULT.turnoMinOre = 4`. Mai abbassarlo nel codice o in una simulazione. Solo i turni messi a mano possono essere più corti.
+
+Le altre regole dei turni restano quelle di `ORGANICO_TURNI_NOTES.md` (pausa di 30' da 6 e da 8 ore aggiunta alla presenza, al massimo 6 giorni su 7, un sabato o una domenica liberi a rotazione solo quando possibile, mese chiuso all'arrivo del cedolino).
+
+---
+
 ## ⚠️ REGOLA #0 — PARITÀ TENANT (NON NEGOZIABILE)
 
 **OGNI modifica/fix/deploy va applicato a TUTTI E 3 i tenant: NZ + Made + Zago. Sempre. Senza eccezioni.**

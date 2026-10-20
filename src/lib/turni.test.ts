@@ -210,9 +210,12 @@ describe('turni lunghi nei giorni pieni (Franciacorta, 20/10/2026)', () => {
     // restavano 10 ore e mezza scoperte nel weekend
     const persone = [36, 32, 34, 20, 30].map((ore, i) => persona(`p${i}`, ore));
     const esito = proponiSettimana({ giorni, persone });
-    // con il ritocco finale (20/10/2026) non resta scoperto niente
-    expect(oreScoperte(giorni, esito.turni)).toBe(0);
+    // con il ritocco finale (20/10/2026) non resta scoperto quasi niente: col turno
+    // minimo di 4 ore (Patrizio, 20/10/2026) mezz'ora non si copre senza un pezzo corto
+    expect(oreScoperte(giorni, esito.turni)).toBeLessThanOrEqual(0.5);
     for (const p of persone) expect(esito.ore[p.id].pianificate).toBeLessThanOrEqual(p.ore + 1e-9);
+    // nessun turno sotto le 4 ore
+    expect(esito.turni.every((t) => oreLavorate(t) >= 4 - 1e-9)).toBe(true);
   });
 });
 

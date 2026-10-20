@@ -202,7 +202,6 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       }
       const ferieOk = fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno));
 
-      const fasceNegozio = (f.data as unknown[] | null) ?? [];
       const personePiano: PersonaPiano[] = persone.map(({ scheda, perGiorno }) => {
         // In simulazione le ore scritte sostituiscono quelle del contratto; vuoto = come oggi.
         const oreSett = (ipotesi ? numero(ipotesi.ore[scheda.id]) : null) ?? oreOggi(perGiorno);
@@ -232,7 +231,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           saldoOre: 0,
         });
       }
-      const fabbisognoFisso = !!ipotesi && fasceNegozio.length > 0;
+      // Anche la simulazione segue la regola di sempre (Patrizio, 20/10/2026):
+      // fabbisogno dal traffico MODA e dalle persone che ci sono, mai da obiettivi.
       // Straordinari: la disponibilita' del singolo, vuoto = non ne fa.
       const straordinariPersona = new Map<string, number>([
         ...persone.map(({ scheda }) => [scheda.id, numero(ipotesi?.straord[scheda.id]) ?? 0] as [string, number]),
@@ -240,15 +240,14 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       ]);
       const esito = pianificaMese({
         mese, giorni, persone: personePiano, regola, storicoWeekend, atteso, extra, senzaLiberi, regole,
-        fabbisognoFisso, straordinariPersona: ipotesi ? straordinariPersona : undefined,
+        straordinariPersona: ipotesi ? straordinariPersona : undefined,
       });
 
       const riepilogo: Riepilogo = {
         oreScoperte: esito.oreScoperte,
         oreRiserva: esito.oreRiserva,
         straordinario: Object.values(esito.persone).reduce((a, p) => a + p.straordinario, 0),
-        fonte: fabbisognoFisso ? '«Orari e fabbisogno» del negozio (le ore che servono, fisse)'
-          : atteso.size ? `${propria ? 'traffico MODA del negozio' : 'forma media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}${ipotesi ? ' (manca il fabbisogno fisso: si adatta alle ore ipotetiche, il confronto dice poco)' : ''}` : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
+        fonte: atteso.size ? `${propria ? 'traffico MODA del negozio' : 'forma media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}` : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
         turni: esito.turni.length,
         persone: esito.persone,
         ...(ipotesi ? {
@@ -372,7 +371,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         <section className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 space-y-3">
           <div>
             <h3 className="text-sm font-semibold text-violet-900 flex items-center gap-1.5"><FlaskConical size={15} /> Simulazione per {nomeNegozio}</h3>
-            <p className="text-xs text-slate-600">Scrivi le ore a settimana che vuoi provare (vuoto = come oggi) e, per ognuno, quante ore di straordinario può fare a settimana (vuoto = non ne fa). Puoi aggiungere persone nuove, che esistono solo nella simulazione. L'organico non cambia: la simulazione usa il fabbisogno di «Orari e fabbisogno», cioè le ore che servono, e dice quante restano scoperte. Si confronta con gli altri piani, ma non si sceglie né si pubblica.</p>
+            <p className="text-xs text-slate-600">Scrivi le ore a settimana che vuoi provare (vuoto = come oggi) e, per ognuno, quante ore di straordinario può fare a settimana (vuoto = non ne fa). Puoi aggiungere persone nuove, che esistono solo nella simulazione. L'organico non cambia. Come i piani veri, la simulazione distribuisce le ore di chi c'è (con le ore che scrivi qui) come gli ingressi MODA del negozio, sempre almeno una persona, con le stesse regole: turno minimo di 4 ore, pause, giorni di lavoro, sabati e domeniche liberi. Si confronta con gli altri piani, ma non si sceglie né si pubblica.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="text-sm">

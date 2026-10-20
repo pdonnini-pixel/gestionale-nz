@@ -22,7 +22,7 @@
 export const SLOT_MINUTI = 30;
 
 export interface RegoleTurni {
-  /** limite tecnico, non una regola del negozio: niente turni sotto l'ora (Patrizio, 19/10/2026: il turno minimo vincola e basta) */
+  /** turno minimo nella giornata: 4 ore (Patrizio, 20/10/2026). I pezzi da un'ora consumavano un giorno di lavoro e lasciavano ore di contratto non usate. */
   turnoMinOre: number;
   turnoMaxOre: number;
   /** da quante ore lavorate scatta la pausa (6 ore esatte comprese) */
@@ -35,7 +35,7 @@ export interface RegoleTurni {
 }
 
 export const REGOLE_DEFAULT: RegoleTurni = {
-  turnoMinOre: 1,
+  turnoMinOre: 4,
   turnoMaxOre: 8,
   pausaOltreOre: 6,
   pausaMinuti: 30,
@@ -58,7 +58,7 @@ export function regoleDaRiga(r: {
 } | null | undefined): RegoleTurni {
   if (!r) return REGOLE_DEFAULT;
   return {
-    turnoMinOre: REGOLE_DEFAULT.turnoMinOre, turnoMaxOre: Number(r.turno_max_ore),
+    turnoMinOre: Number(r.turno_min_ore ?? REGOLE_DEFAULT.turnoMinOre), turnoMaxOre: Number(r.turno_max_ore),
     pausaOltreOre: Number(r.pausa_oltre_ore), pausaMinuti: Number(r.pausa_minuti),
     pausaLungaOltreOre: Number(r.pausa_lunga_oltre_ore ?? REGOLE_DEFAULT.pausaLungaOltreOre),
     pausaLungaMinuti: Number(r.pausa_lunga_minuti ?? REGOLE_DEFAULT.pausaLungaMinuti),
@@ -447,7 +447,7 @@ export function ritoccaScoperture(
   const valido = (g: GiornoPiano, t: Turno, prova: Turno[]) => {
     const lavoro = oreLavorate(t) * 60;
     return minuti(t.inizio) >= g.apre && minuti(t.fine) <= g.chiude
-      && lavoro >= 60 && lavoro <= regole.turnoMaxOre * 60
+      && lavoro >= regole.turnoMinOre * 60 - 1e-9 && lavoro <= regole.turnoMaxOre * 60
       && (!!oltreContratto?.has(t.data) || oreDi(t.employeeId, prova) <= (contratto.get(t.employeeId) ?? 0) + 1e-9);
   };
   for (const g of giorni) {
@@ -476,8 +476,9 @@ export function ritoccaScoperture(
         if (p.nonDisponibile.has(g.data)) continue;
         const gg = giorniDi(p.id, turni);
         if (gg.has(g.data) || gg.size >= regole.giorniLavoroMax) continue;
-        for (let s = g.apre; s + 60 <= g.chiude; s += SLOT_MINUTI) {
-          const v = conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, s, 60);
+        const minimo = regole.turnoMinOre * 60;
+        for (let s = g.apre; s + minimo <= g.chiude; s += SLOT_MINUTI) {
+          const v = conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, s, minimo);
           const prova = [...turni, v];
           if (valido(g, v, prova)) mosse.push(prova);
         }
@@ -518,7 +519,7 @@ export function sfrondaOreInPiu(
       for (const { t, idx } of delGiorno) {
         const lavoro = oreLavorate(t) * 60;
         const candidati: (Turno | null)[] = [];
-        if (lavoro - SLOT_MINUTI < 60) candidati.push(null);
+        if (lavoro - SLOT_MINUTI < regole.turnoMinOre * 60 - 1e-9) candidati.push(null);
         else {
           const l2 = lavoro - SLOT_MINUTI;
           const p2 = pausaPer(l2, regole);
