@@ -98,7 +98,7 @@ Deno.serve(async (req: Request) => {
         return jsonOk({ ok: true });
       }
       const companyName = await getCompanyName(admin, p.company_id ?? null);
-      const sent = await sendAuthEmail("recovery", u.email, link.properties.action_link, companyName, redirectTo);
+      const sent = await sendAuthEmail("recovery", u.email, emailLink(redirectTo, link.properties, "recovery"), companyName, redirectTo);
       if (!sent) console.error("[admin-manage-user] recover: invio Resend non riuscito");
       return jsonOk({ ok: true });
     }
@@ -220,7 +220,7 @@ Deno.serve(async (req: Request) => {
           return jsonError(400, `Invito non riuscito: ${glErr?.message ?? "sconosciuto"}`);
         }
         newUserId = gl.user.id;
-        inviteLink = gl.properties.action_link;
+        inviteLink = emailLink(redirectTo, gl.properties, "invite");
       } else {
         const { data: inv, error: invErr } = await admin.auth.admin.inviteUserByEmail(email, {
           data: userMeta,
@@ -335,6 +335,25 @@ function safeRedirect(v: unknown): string {
   } catch {
     return "";
   }
+}
+
+// Link da mettere nella mail. Non punta a /auth/v1/verify (che consuma il token
+// monouso alla prima apertura) ma alla nostra /reset-password con il token in
+// chiaro: la pagina lo verifica solo quando la persona preme «Continua».
+// Motivo: i filtri di sicurezza della posta aprono i link appena la mail
+// arriva e bruciavano il token prima della persona (20/10/2026, newzago:
+// verify aperto 19 secondi dopo l'invio da un browser diverso, poi «Link non
+// valido o scaduto»). Senza hashed_token o redirect valido si torna al link
+// di Supabase, come prima.
+function emailLink(
+  redirectTo: unknown, props: { action_link: string; hashed_token?: string }, type: "recovery" | "invite",
+): string {
+  const base = safeRedirect(redirectTo);
+  if (!base || !props.hashed_token) return props.action_link;
+  const u = new URL(base);
+  u.searchParams.set("token_hash", props.hashed_token);
+  u.searchParams.set("type", type);
+  return u.toString();
 }
 
 function escapeLike(v: string): string {

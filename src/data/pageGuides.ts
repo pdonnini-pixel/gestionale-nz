@@ -3165,7 +3165,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Cosa devo fare se dimentico la nuova password appena impostata?",
-        "a": "Nella pagina di accesso clicca \"Password dimenticata?\", scrivi la tua email e apri l'email \"Reimposta la password del gestionale\": il pulsante \"Reimposta la password\" porta alla pagina dove sceglierne una nuova (il link si usa una volta sola e scade dopo un po' di tempo: se non funziona, ripeti la richiesta). Se l'email non arriva, chiedi a un amministratore: da Impostazioni → Utenti, con l'icona della chiave, ti genera una password nuova. La password salvata non è visibile a nessuno, nemmeno agli amministratori."
+        "a": "Nella pagina di accesso clicca \"Password dimenticata?\", scrivi la tua email e apri l'email \"Reimposta la password del gestionale\": il pulsante \"Reimposta la password\" porta alla pagina dove premere \"Continua\" e poi sceglierne una nuova (il link si usa una volta sola e scade dopo un po' di tempo: se non funziona, ripeti la richiesta). Se l'email non arriva, chiedi a un amministratore: da Impostazioni → Utenti, con l'icona della chiave, ti genera una password nuova. La password salvata non è visibile a nessuno, nemmeno agli amministratori."
       },
       {
         "q": "La nuova password deve rispettare regole particolari?",
