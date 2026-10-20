@@ -19,7 +19,7 @@ import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, FlaskConical, Lo
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
-import { caricaGiorniFerie, caricaTraffico, type DatiOrganico } from '../lib/organicoDati';
+import { caricaDisponibilita, caricaGiorniFerie, caricaTraffico, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
 import {
   NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno,
   type EventoNegozio, type Turno,
@@ -71,6 +71,12 @@ const GIORNI_FERIE_VALIDI = ['richiesto', 'approvato'];
 const t5 = (t: string) => t.slice(0, 5);
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 1 });
 
+const NOMI_GIORNI_LUNGHI = ['', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
+function testoGiorni(giorni: number[]): string {
+  const g = [...giorni].sort();
+  return g.length === 7 ? 'tutti i giorni' : g.map((x) => NOMI_GIORNI_LUNGHI[x]).join(', ').replace(/, ([^,]*)$/, ' e $1');
+}
+
 function meseSuccessivo(mese: string, delta: number): string {
   const [a, m] = mese.split('-').map(Number);
   const d = new Date(Date.UTC(a, m - 1 + delta, 1));
@@ -98,16 +104,22 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [simRegola, setSimRegola] = useState<RegolaWeekend>('nessuno');
   const [ferieMese, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string }[]>([]);
   const [giorniMax, setGiorniMax] = useState(6);
+  // Giorni in cui ognuno puo' lavorare (employee_availability): valgono per piani e simulazioni.
+  const [disponibilita, setDisponibilita] = useState<Map<string, number[]>>(new Map());
+  const [dispAperta, setDispAperta] = useState(false);
+  const [dispModifica, setDispModifica] = useState<Record<string, number[]>>({});
 
   const dateMese = useMemo(() => dateDelMese(mese), [mese]);
 
   const carica = useCallback(async () => {
     setCaricamento(true);
-    const [p, hr, ch] = await Promise.all([
+    const [p, hr, ch, disp] = await Promise.all([
       supabase.from('shift_plans').select('*').eq('company_id', companyId).eq('outlet_id', outletId).eq('mese', `${mese}-01`).order('created_at'),
       supabase.rpc('organico_e_hr'),
       supabase.rpc('turni_mese_chiuso', { p_company: companyId, p_data: `${mese}-01` }),
+      caricaDisponibilita(companyId).catch(() => new Map<string, number[]>()),
     ]);
+    setDisponibilita(disp);
     if (p.error) toast({ type: 'error', message: `Piani non caricati: ${p.error.message}` });
     const lista = ((p.data as Piano[]) ?? []);
     setPiani(lista);
@@ -127,6 +139,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         supabase.from('shift_plan_weekend_off').select('employee_id, data').eq('plan_id', aperto),
       ]);
       if (!vivo) return;
+      // Prima i turni: devono comparire anche se le ferie tardano o non arrivano.
+      setTurniPiano(((t.data as TurnoDb[]) ?? []).map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) })));
+      setLiberiPiano((l.data as { employee_id: string; data: string }[]) ?? []);
       // Ferie e permessi del mese (approvati o in attesa), per vederli nelle caselle.
       try {
         const fe = await caricaGiorniFerie(companyId, dateMese[0], dateMese[dateMese.length - 1]);
@@ -135,8 +150,6 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         setFerieMese(fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)));
         setGiorniMax(Number((rr.data as { giorni_lavoro_max?: number } | null)?.giorni_lavoro_max ?? 6));
       } catch { setFerieMese([]); }
-      setTurniPiano(((t.data as TurnoDb[]) ?? []).map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) })));
-      setLiberiPiano((l.data as { employee_id: string; data: string }[]) ?? []);
     })();
     return () => { vivo = false; };
   }, [aperto, versione, companyId, outletId, dateMese]);
@@ -214,6 +227,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             ...dateMese.filter((d, i) => perGiorno[i].outletId !== outletId || perGiorno[i].stato !== 'in_servizio'),
             ...suoFerie.filter((x) => x.tipo === 'giornata').map((x) => x.data),
             ...(soloWeekend ? tutte.filter((d) => ![0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay())) : []),
+            // i giorni in cui non e' disponibile (es. Falchi: solo sabato e domenica)
+            ...tutte.filter((d) => !puoLavorareIl(disponibilita, scheda.id, d)),
           ]),
           oreFerie: new Map(suoFerie.map((x) => [x.data, Number(x.ore)])),
           saldoOre: saldi.get(scheda.id) ?? 0,
@@ -296,6 +311,26 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     }
   };
 
+  const salvaDisponibilita = async (employeeId: string, giorni: number[]) => {
+    setLavoro(`disp-${employeeId}`);
+    try {
+      if (giorni.length === 7) {
+        const { error } = await supabase.from('employee_availability').delete().eq('employee_id', employeeId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from('employee_availability').upsert([{ employee_id: employeeId, company_id: companyId, giorni, updated_at: new Date().toISOString() }], { onConflict: 'employee_id' });
+        if (error) throw error;
+      }
+      setDisponibilita((m) => { const n = new Map(m); if (giorni.length === 7) n.delete(employeeId); else n.set(employeeId, giorni); return n; });
+      setDispModifica((x) => { const n = { ...x }; delete n[employeeId]; return n; });
+      toast({ type: 'success', message: 'Disponibilità salvata: vale per i prossimi piani e le simulazioni.' });
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Disponibilità non salvata.' });
+    } finally {
+      setLavoro(null);
+    }
+  };
+
   const scegli = async (id: string) => {
     setLavoro(id);
     const { error } = await supabase.rpc('turni_scegli_piano', { p_plan_id: id });
@@ -334,38 +369,114 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   };
 
   const pianoAperto = piani.find((p) => p.id === aperto) ?? null;
+  const varianti = piani.filter((p) => !p.simulazione);
+  const pianoScelto = varianti.find((p) => p.stato === 'scelto') ?? null;
+  const regoleMancanti = REGOLE.filter((r) => !varianti.some((p) => p.regola_weekend === r));
+  const minimoScoperte = Math.min(...varianti.map((p) => p.riepilogo.oreScoperte ?? 0));
+  // Le quattro varianti in un colpo solo, una alla volta: solo quelle che mancano.
+  const creaVarianti = async () => { for (const r of regoleMancanti) await creaPiano(r); };
   const bozzeAperto = turniPiano.filter((t) => t.stato === 'bozza').length;
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <button type="button" aria-label="Mese prima" onClick={() => setMese((m) => meseSuccessivo(m, -1))} className="p-2 rounded-lg border border-slate-300 hover:bg-slate-50"><ChevronLeft size={16} /></button>
-          <span className="text-sm font-semibold text-slate-800 min-w-[160px] text-center capitalize">{NOMI_MESE[Number(mese.slice(5))]} {mese.slice(0, 4)}</span>
-          <button type="button" aria-label="Mese dopo" onClick={() => setMese((m) => meseSuccessivo(m, 1))} className="p-2 rounded-lg border border-slate-300 hover:bg-slate-50"><ChevronRight size={16} /></button>
+    <div className="space-y-5">
+      {/* Testata: mese, stato del mese e le due azioni. */}
+      <section className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
+          <div className="flex items-center rounded-lg border border-slate-200 bg-slate-50">
+            <button type="button" aria-label="Mese prima" onClick={() => setMese((m) => meseSuccessivo(m, -1))} className="p-2 rounded-l-lg hover:bg-white"><ChevronLeft size={16} /></button>
+            <span className="px-2 text-sm font-semibold text-slate-800 min-w-[120px] text-center capitalize">{NOMI_MESE[Number(mese.slice(5))]} {mese.slice(0, 4)}</span>
+            <button type="button" aria-label="Mese dopo" onClick={() => setMese((m) => meseSuccessivo(m, 1))} className="p-2 rounded-r-lg hover:bg-white"><ChevronRight size={16} /></button>
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-lg font-semibold text-slate-900 leading-tight">Turni di {nomeNegozio.charAt(0) + nomeNegozio.slice(1).toLowerCase()}</h2>
+            <p className="text-sm text-slate-500">
+              {chiuso ? 'Mese chiuso: sono arrivati i cedolini, il piano resta com\'era per la riprova.'
+                : pianoScelto ? `Vale il piano «${ETICHETTE_REGOLA[pianoScelto.regola_weekend]}»${pianoScelto.scelto_da_nome ? `, scelto da ${pianoScelto.scelto_da_nome}` : ''}.`
+                  : varianti.length ? `${varianti.length === 1 ? 'Una variante' : `${varianti.length} varianti`} da confrontare: ${eHr ? 'scegli tu quella che vale' : 'quella che vale la sceglie la responsabile HR'}.`
+                    : 'Ancora nessun piano per questo mese.'}
+            </p>
+          </div>
         </div>
-        {chiuso && <span className="inline-flex items-center gap-1.5 text-sm text-slate-600"><Lock size={14} /> Cedolini arrivati: il mese è chiuso e resta com'era, per la riprova.</span>}
-      </div>
-
-      <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 space-y-1">
-        <p>Il piano del mese distribuisce le ore di chi lavora in {nomeNegozio} come gli ingressi registrati da MODA: più persone quando entra più gente, sempre almeno una. I giorni speciali (festivi, Black Friday, settimane di Natale) si riconoscono dal calendario; gli eventi del negozio si aggiungono dalla scheda «Eventi».</p>
-        <p>Si possono creare più varianti con regole diverse per i sabati e le domeniche liberi e confrontarle. {eHr ? 'Tu puoi scegliere quella che vale.' : 'Quella che vale la sceglie la responsabile HR.'}</p>
-      </div>
-
-      {puoScrivere && !chiuso && (
-        <div className="flex flex-wrap gap-2">
-          {REGOLE.map((r) => (
-            <button key={r} type="button" onClick={() => creaPiano(r)} disabled={!!lavoro}
-              className="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50">
-              <Plus size={14} /> {lavoro === r ? 'Calcolo…' : `Piano con ${ETICHETTE_REGOLA[r]}`}
+        {chiuso ? (
+          <span className="inline-flex items-center gap-1.5 text-sm text-slate-600 px-3 py-2 rounded-lg bg-slate-100"><Lock size={14} /> Mese chiuso</span>
+        ) : puoScrivere && (
+          <div className="flex flex-wrap gap-2">
+            {regoleMancanti.length > 0 && (
+              <button type="button" onClick={creaVarianti} disabled={!!lavoro}
+                className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
+                <Plus size={15} /> {lavoro && lavoro !== 'simulazione' && !lavoro.startsWith('disp-') ? 'Calcolo le varianti…' : varianti.length ? `Crea le varianti mancanti (${regoleMancanti.length})` : 'Crea le varianti del mese'}
+              </button>
+            )}
+            <button type="button" onClick={() => setSim(sim ? null : {
+              ore: {}, straord: {}, perTutti: '', nuove: [],
+              soloWeekend: Object.fromEntries(persone.map(({ scheda }) => [scheda.id, (disponibilita.get(scheda.id) ?? []).join(',') === '6,7'])),
+            })} disabled={!!lavoro}
+              className={`inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border font-semibold disabled:opacity-50 ${sim ? 'bg-violet-600 border-violet-600 text-white' : 'border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100'}`}>
+              <FlaskConical size={15} /> {sim ? 'Chiudi la simulazione' : 'Simulazione'}
             </button>
-          ))}
-          <button type="button" onClick={() => setSim(sim ? null : { ore: {}, soloWeekend: {}, straord: {}, perTutti: '', nuove: [] })} disabled={!!lavoro}
-            className="inline-flex items-center gap-1.5 text-sm px-3 py-2 rounded-lg border border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100 disabled:opacity-50">
-            <FlaskConical size={14} /> Simulazione
-          </button>
+          </div>
+        )}
+      </section>
+
+      {/* Chi lavora nel mese, con ore e giorni in cui può lavorare. */}
+      <section className="bg-white border border-slate-200 rounded-xl">
+        <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
+          <h3 className="text-sm font-semibold text-slate-800">Chi lavora a {NOMI_MESE[Number(mese.slice(5))]}</h3>
+          {puoScrivere && (
+            <button type="button" onClick={() => setDispAperta((v) => !v)} className="text-xs font-semibold text-blue-700 hover:underline">
+              {dispAperta ? 'Fatto' : 'Cambia i giorni in cui possono lavorare'}
+            </button>
+          )}
         </div>
-      )}
+        {!dispAperta ? (
+          <div className="flex flex-wrap gap-2 px-4 py-3">
+            {persone.map(({ scheda, perGiorno }) => {
+              const ore = oreOggi(perGiorno);
+              const g = disponibilita.get(scheda.id);
+              return (
+                <span key={scheda.id} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 pl-3 pr-2 py-1 text-sm">
+                  <span className="font-medium text-slate-800">{nomePersona(scheda)}</span>
+                  <span className="text-xs text-slate-500">{ore == null ? 'a chiamata' : `${fmt(ore)} h/sett.`}</span>
+                  {g && <span className="text-[11px] font-semibold rounded-full bg-amber-100 text-amber-900 px-2 py-0.5">solo {testoGiorni(g)}</span>}
+                </span>
+              );
+            })}
+            {!persone.length && <span className="text-sm text-slate-400">Nessuno in servizio in questo negozio nel mese.</span>}
+          </div>
+        ) : (
+          <div className="px-4 py-3 space-y-2">
+            <p className="text-xs text-slate-500">Nei giorni spenti la persona non riceve turni: vale per il piano del mese, il piano settimanale e le simulazioni. Il contratto non cambia.</p>
+            {persone.map(({ scheda }) => {
+              const salvati = disponibilita.get(scheda.id) ?? [1, 2, 3, 4, 5, 6, 7];
+              const correnti = dispModifica[scheda.id] ?? salvati;
+              const cambiato = correnti.slice().sort().join() !== salvati.slice().sort().join();
+              return (
+                <div key={scheda.id} className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="w-44 font-medium text-slate-800">{nomePersona(scheda)}</span>
+                  <div className="flex gap-1">
+                    {[1, 2, 3, 4, 5, 6, 7].map((g) => {
+                      const on = correnti.includes(g);
+                      return (
+                        <button key={g} type="button" disabled={!puoScrivere} aria-pressed={on} aria-label={`${nomePersona(scheda)} ${NOMI_GIORNI_LUNGHI[g]}`}
+                          onClick={() => setDispModifica((x) => ({ ...x, [scheda.id]: on ? correnti.filter((y) => y !== g) : [...correnti, g].sort() }))}
+                          className={`w-10 py-1.5 rounded-md text-xs font-semibold border ${on ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-400'} disabled:opacity-60`}>
+                          {NOMI_GIORNO_BREVI[g]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {cambiato && (
+                    <button type="button" disabled={!!lavoro || correnti.length === 0} onClick={() => salvaDisponibilita(scheda.id, correnti)}
+                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
+                      {correnti.length === 0 ? 'Almeno un giorno' : 'Salva'}
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
 
       {sim && puoScrivere && !chiuso && (
         <section className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 space-y-3">
@@ -385,7 +496,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                   const oggi = oreOggi(perGiorno);
                   return (
                     <tr key={scheda.id}>
-                      <td className="pr-4 py-1 font-medium text-slate-800">{nomePersona(scheda)}</td>
+                      <td className="pr-4 py-1 font-medium text-slate-800">{nomePersona(scheda)}
+                        {disponibilita.get(scheda.id) && <span className="block text-[11px] font-normal text-slate-500">lavora solo {testoGiorni(disponibilita.get(scheda.id)!)}</span>}
+                      </td>
                       <td className="pr-4 py-1 text-right tabular-nums text-slate-600">{oggi == null ? 'a chiamata' : `${fmt(oggi)} h`}</td>
                       <td className="pr-4 py-1">
                         <input type="text" inputMode="decimal" aria-label={`Ore da provare per ${nomePersona(scheda)}`} placeholder={oggi == null ? 'a chiamata' : String(oggi)}
@@ -467,50 +580,71 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         </section>
       )}
 
-      {caricamento ? <div className="text-slate-400 py-6 text-center">Caricamento…</div> : (
-        <section className="bg-white border border-slate-200 rounded-xl overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200">
-                <th className="px-3 py-2">Variante</th>
-                <th className="px-3 py-2 text-right">Ore scoperte</th>
-                <th className="px-3 py-2 text-right">A chiamata</th>
-                <th className="px-3 py-2 text-right">Straordinari</th>
-                <th className="px-3 py-2">Weekend liberi a testa</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {piani.map((p) => {
-                const pp = Object.values(p.riepilogo.persone ?? {}).filter((x) => !x.riserva);
-                const liberi = pp.map((x) => x.weekendLiberi);
-                return (
-                  <tr key={p.id} className={`border-b border-slate-100 ${aperto === p.id ? 'bg-blue-50/50' : ''}`}>
-                    <td className="px-3 py-2">
-                      <button type="button" onClick={() => setAperto(p.id)} className="font-medium text-slate-900 hover:underline text-left">{p.nome}</button>
-                      {p.simulazione && <span className="ml-2 inline-flex items-center gap-1 text-xs font-semibold text-violet-700"><FlaskConical size={13} /> simulazione</span>}
-                      {p.stato === 'scelto' && <span className="ml-2 inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><CheckCircle2 size={13} /> scelto{p.scelto_da_nome ? ` da ${p.scelto_da_nome}` : ''}</span>}
-                    </td>
-                    <td className="px-3 py-2 text-right tabular-nums">{fmt(p.riepilogo.oreScoperte)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{fmt(p.riepilogo.oreRiserva)}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{fmt(p.riepilogo.straordinario)}</td>
-                    <td className="px-3 py-2 text-xs text-slate-600">{liberi.length ? `${Math.min(...liberi)}-${Math.max(...liberi)}` : '-'}</td>
-                    <td className="px-3 py-2 text-right whitespace-nowrap">
-                      {eHr && p.stato !== 'scelto' && !p.simulazione && !chiuso && (
-                        <button type="button" onClick={() => scegli(p.id)} disabled={!!lavoro} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">Scegli questo</button>
-                      )}
-                      {puoScrivere && p.stato === 'bozza' && !chiuso && (
-                        <button type="button" aria-label="Togli la bozza" onClick={() => togli(p)} disabled={!!lavoro} className="ml-1 p-1.5 rounded hover:bg-slate-100"><Trash2 size={14} /></button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {!piani.length && <tr><td colSpan={6} className="px-3 py-4 text-slate-400">Nessun piano per questo mese. Creane uno o più con i pulsanti sopra e confrontali.</td></tr>}
-            </tbody>
-          </table>
+      {caricamento ? <div className="text-slate-400 py-6 text-center">Caricamento…</div> : !piani.length ? (
+        <section className="bg-white border border-dashed border-slate-300 rounded-xl px-6 py-10 text-center">
+          <CalendarDays size={28} className="mx-auto text-slate-400" />
+          <h3 className="mt-2 text-base font-semibold text-slate-800">Nessun piano per {NOMI_MESE[Number(mese.slice(5))]}</h3>
+          <p className="mt-1 text-sm text-slate-500 max-w-xl mx-auto">
+            «Crea le varianti del mese» prepara quattro piani, uno per ogni regola dei sabati e delle domeniche liberi, sul traffico MODA di {nomeNegozio.charAt(0) + nomeNegozio.slice(1).toLowerCase()} e sulle ore di chi lavora. Poi si confrontano qui e la responsabile HR sceglie quello che vale.
+          </p>
+        </section>
+      ) : (
+        <section>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {piani.map((p) => {
+              const pp = Object.values(p.riepilogo.persone ?? {}).filter((x) => !x.riserva);
+              const liberi = pp.map((x) => x.weekendLiberi);
+              const scoperte = p.riepilogo.oreScoperte ?? 0;
+              const migliore = !p.simulazione && varianti.length > 1 && scoperte <= minimoScoperte + 1e-9;
+              const selezionato = aperto === p.id;
+              return (
+                <div key={p.id} role="button" tabIndex={0} onClick={() => setAperto(p.id)} onKeyDown={(e) => { if (e.key === 'Enter') setAperto(p.id); }}
+                  className={`relative cursor-pointer rounded-xl border bg-white p-4 transition-shadow hover:shadow-md ${selezionato ? 'ring-2 ring-blue-600 border-blue-600' : p.stato === 'scelto' ? 'border-emerald-400' : p.simulazione ? 'border-violet-300' : 'border-slate-200'}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <span className={`text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 ${p.stato === 'scelto' ? 'bg-emerald-100 text-emerald-800' : p.simulazione ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-600'}`}>
+                      {p.stato === 'scelto' ? 'Vale questo' : p.simulazione ? 'Simulazione' : 'Bozza'}
+                    </span>
+                    {migliore && <span className="text-[11px] font-semibold text-blue-700">meno ore scoperte</span>}
+                  </div>
+                  <h4 className="mt-2 text-sm font-semibold text-slate-900 leading-snug first-letter:uppercase">{ETICHETTE_REGOLA[p.regola_weekend]}</h4>
+                  {p.simulazione && p.riepilogo.ipotesi && (
+                    <p className="text-xs text-violet-700 mt-0.5 line-clamp-2">
+                      {[...p.riepilogo.ipotesi.persone.filter((x) => x.ipotesi != null).map((x) => `${x.nome.split(' ')[0]} ${fmt(x.ipotesi!)} h`),
+                        ...(p.riepilogo.ipotesi.nuove ?? []).map((n) => `+ ${n.nome}`)].join(' · ') || 'ore di oggi'}
+                    </p>
+                  )}
+                  <p className={`mt-3 text-2xl font-semibold tabular-nums ${scoperte > 0.25 ? 'text-red-700' : 'text-emerald-700'}`}>
+                    {scoperte > 0.25 ? `${fmt(scoperte)} h` : 'Coperto'}
+                    <span className="ml-1 text-xs font-normal text-slate-500">{scoperte > 0.25 ? 'scoperte nel mese' : 'tutto il mese'}</span>
+                  </p>
+                  <dl className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div><dt className="text-slate-500">A chiamata</dt><dd className="font-semibold text-slate-800 tabular-nums">{fmt(p.riepilogo.oreRiserva)} h</dd></div>
+                    <div><dt className="text-slate-500">Straordinari</dt><dd className="font-semibold text-slate-800 tabular-nums">{fmt(p.riepilogo.straordinario)} h</dd></div>
+                    <div><dt className="text-slate-500">Weekend liberi</dt><dd className="font-semibold text-slate-800">{liberi.length ? (Math.min(...liberi) === Math.max(...liberi) ? `${Math.min(...liberi)} a testa` : `${Math.min(...liberi)}-${Math.max(...liberi)} a testa`) : '-'}</dd></div>
+                  </dl>
+                  <div className="mt-3 flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                    {eHr && p.stato !== 'scelto' && !p.simulazione && !chiuso && (
+                      <button type="button" onClick={() => scegli(p.id)} disabled={!!lavoro} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">Scegli questo</button>
+                    )}
+                    <span className="text-xs text-slate-500">{selezionato ? 'aperto sotto' : 'clicca per aprirlo'}</span>
+                    {puoScrivere && p.stato === 'bozza' && !chiuso && (
+                      <button type="button" aria-label="Togli la bozza" title="Togli" onClick={() => togli(p)} disabled={!!lavoro} className="ml-auto p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Trash2 size={14} /></button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </section>
       )}
+
+      <details className="text-sm text-slate-600">
+        <summary className="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">Come si calcola il piano</summary>
+        <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-1 text-xs">
+          <p>Le ore di contratto di chi lavora nel negozio, meno ferie e permessi, si distribuiscono come gli ingressi registrati da MODA: più persone quando entra più gente, sempre almeno una. I giorni speciali (festivi, Black Friday, settimane di Natale) si riconoscono dal calendario; gli eventi del negozio si aggiungono dalla scheda «Eventi».</p>
+          <p>Ogni turno dura almeno 4 ore (si cambia solo nelle regole del negozio), con la pausa di 30 minuti da 6 ore; al massimo 6 giorni su 7. Chi è a chiamata copre solo i buchi che restano, nei giorni in cui può lavorare.</p>
+        </div>
+      </details>
 
       {pianoAperto && (
         <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -570,107 +704,183 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100" /> ferie o permesso</span>
             <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-200" /> non in servizio in questo negozio</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="text-xs min-w-max border-separate border-spacing-0">
-              <thead>
-                <tr className="text-slate-500">
-                  <th className="px-3 py-2 text-left sticky left-0 z-10 bg-white min-w-[160px] border-b border-slate-200 font-semibold">Persona</th>
-                  {dateMese.map((d) => {
-                    const t = tipoDelGiorno(d);
-                    const gs = new Date(`${d}T00:00:00Z`).getUTCDay() || 7;
-                    const speciale = !['feriale', 'venerdi', 'sabato', 'domenica'].includes(t.tipo);
+          {(() => {
+            // Le righe del piano: persone del negozio, poi le persone nuove della simulazione.
+            const righe = [
+              ...persone.map(({ scheda, perGiorno }) => ({
+                id: scheda.id, nome: nomePersona(scheda), nuova: false,
+                oreSett: oreOggi(perGiorno) as number | null,
+                inServizio: (d: string) => { const k = dateMese.indexOf(d); return k >= 0 && perGiorno[k].outletId === outletId && perGiorno[k].stato === 'in_servizio'; },
+                turni: turniPiano.filter((x) => x.employee_id === scheda.id).map((x) => ({ ...x, pubblicato: x.stato === 'pubblicato' })),
+                liberi: new Set(liberiPiano.filter((x) => x.employee_id === scheda.id).map((x) => x.data)),
+              })),
+              ...(pianoAperto.riepilogo.ipotesi?.nuove ?? []).map((n) => ({
+                id: n.id, nome: n.nome, nuova: true, oreSett: n.ore,
+                inServizio: (d: string) => d >= n.dal && dateMese.includes(d),
+                turni: (pianoAperto.riepilogo.turniNuove ?? []).filter((x) => x.employee_id === n.id).map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine), pubblicato: false })),
+                liberi: new Set((pianoAperto.riepilogo.liberiNuove ?? []).filter((x) => x.employee_id === n.id).map((x) => x.data)),
+              })),
+            ];
+            const ipot = pianoAperto.riepilogo.ipotesi?.persone;
+            const oreDi = (t: { inizio: string; fine: string; pausa_minuti: number }) => oreLavorate({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti });
+            const giornoCorto = (d: string) => `${Number(d.slice(8))}/${Number(d.slice(5, 7))}`;
+            const settimane = [...new Set(dateMese.map(lunediDi))];
+            const casella = (riga: (typeof righe)[number], d: string): ReactNode => {
+              if (!dateMese.includes(d)) return <span className="block py-1.5 text-slate-200">·</span>;
+              const t = riga.turni.find((x) => x.data === d);
+              const f = ferieMese.find((x) => x.employee_id === riga.id && x.data === d);
+              const fTesto = f ? (f.tipo === 'giornata' ? 'ferie' : f.tipo === 'ore' ? `permesso ${fmt(f.ore)} h` : 'mezza giornata di ferie') : '';
+              if (t) {
+                const ore = oreDi(t);
+                return (
+                  <>
+                    <span title={`${t.inizio}-${t.fine}, ${fmt(ore)} ore${t.pausa_minuti ? ` con ${t.pausa_minuti}' di pausa` : ''}`}
+                      className={`block rounded-md px-1 py-1 leading-tight ${riga.nuova ? 'bg-violet-100 text-violet-900' : t.pubblicato ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-900 ring-1 ring-inset ring-blue-200'}`}>
+                      <span className="block font-semibold tabular-nums">{t.inizio.replace(/:00$/, '')}–{t.fine.replace(/:00$/, '')}</span>
+                      <span className="block text-[10px] opacity-80">{fmt(ore)} h</span>
+                    </span>
+                    {f && <span className="block mt-0.5 text-[10px] text-amber-800">{fTesto}</span>}
+                  </>
+                );
+              }
+              if (f) return <span className="block rounded-md px-1 py-1.5 bg-amber-100 text-amber-900 font-medium">{fTesto}</span>;
+              if (riga.liberi.has(d)) return <span className="block rounded-md px-1 py-1.5 bg-emerald-100 text-emerald-900 font-medium">libero</span>;
+              if (!riga.inServizio(d)) return <span className="block rounded-md py-1.5 bg-slate-100 text-slate-400" title="Non in servizio in questo negozio">non in servizio</span>;
+              if (!riga.nuova && !puoLavorareIl(disponibilita, riga.id, d)) return <span className="block py-1.5 text-[10px] text-slate-400">non disponibile</span>;
+              return <span className="block py-1.5 text-slate-300">–</span>;
+            };
+            return (
+              <>
+                {/* Il mese settimana per settimana, una sotto l'altra. */}
+                <div className="p-4 space-y-5">
+                  {settimane.map((lun) => {
+                    const giorniSett = giorniDellaSettimana(lun);
+                    const nelMese = giorniSett.filter((d) => dateMese.includes(d));
                     return (
-                      <th key={d} title={t.nome ?? undefined}
-                        className={`px-1 py-2 text-center min-w-[64px] border-b border-slate-200 font-medium ${gs >= 6 ? 'bg-slate-50' : ''} ${gs === 1 ? 'border-l border-l-slate-300' : ''}`}>
-                        <span className="block text-[10px] uppercase tracking-wide">{NOMI_GIORNO_BREVI[gs]}</span>
-                        <span className="block text-sm font-semibold text-slate-800">{Number(d.slice(8))}</span>
-                        {speciale && <span className="block text-[10px] font-semibold text-red-700 truncate max-w-[64px]">{t.nome}</span>}
-                      </th>
+                      <div key={lun}>
+                        <h4 className="text-sm font-semibold text-slate-700 mb-1.5">
+                          Settimana dal {giornoCorto(nelMese[0])} al {giornoCorto(nelMese[nelMese.length - 1])}
+                        </h4>
+                        <div className="overflow-x-auto rounded-lg border border-slate-200">
+                          <table className="w-full text-xs border-separate border-spacing-0">
+                            <thead>
+                              <tr className="text-slate-500">
+                                <th className="px-3 py-2 text-left bg-slate-50 border-b border-slate-200 font-semibold w-[170px] min-w-[150px]">Persona</th>
+                                {giorniSett.map((d) => {
+                                  const gs = new Date(`${d}T00:00:00Z`).getUTCDay() || 7;
+                                  const t = tipoDelGiorno(d);
+                                  const speciale = dateMese.includes(d) && !['feriale', 'venerdi', 'sabato', 'domenica'].includes(t.tipo);
+                                  return (
+                                    <th key={d} title={t.nome ?? undefined} className={`px-1 py-2 text-center border-b border-slate-200 min-w-[78px] font-medium ${gs >= 6 ? 'bg-slate-100' : 'bg-slate-50'} ${dateMese.includes(d) ? '' : 'opacity-40'}`}>
+                                      <span className="block text-[10px] uppercase tracking-wide">{NOMI_GIORNO_BREVI[gs]}</span>
+                                      <span className="block text-sm font-semibold text-slate-800">{Number(d.slice(8))}</span>
+                                      {speciale && <span className="block text-[10px] font-semibold text-red-700 truncate">{t.nome}</span>}
+                                    </th>
+                                  );
+                                })}
+                                <th className="px-3 py-2 text-right bg-slate-50 border-b border-slate-200 font-semibold min-w-[90px]">Ore settimana</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {righe.map((riga) => {
+                                const oreSett = riga.turni.filter((x) => nelMese.includes(x.data)).reduce((a, x) => a + oreDi(x), 0);
+                                const quota = riga.oreSett != null ? riga.oreSett * nelMese.length / 7 : null;
+                                return (
+                                  <tr key={riga.id} className={riga.nuova ? 'bg-violet-50/40' : ''}>
+                                    <td className={`px-3 py-1.5 border-b border-slate-100 ${riga.nuova ? 'text-violet-900' : 'text-slate-900'} font-medium`}>
+                                      {riga.nome}
+                                      {riga.nuova && <span className="block text-[10px] font-normal text-violet-700">nuova, solo simulazione</span>}
+                                    </td>
+                                    {giorniSett.map((d) => {
+                                      const gs = new Date(`${d}T00:00:00Z`).getUTCDay() || 7;
+                                      return <td key={d} className={`px-1 py-1.5 text-center border-b border-slate-100 ${gs >= 6 ? 'bg-slate-50/60' : ''}`}>{casella(riga, d)}</td>;
+                                    })}
+                                    <td className="px-3 py-1.5 text-right border-b border-slate-100 tabular-nums">
+                                      <span className="font-semibold text-slate-900">{fmt(oreSett)} h</span>
+                                      {quota != null && <span className="block text-[10px] text-slate-500">contratto {fmt(quota)} h</span>}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
                     );
                   })}
-                  <th className="px-3 py-2 text-right border-b border-slate-200 min-w-[170px] font-semibold">Ore del mese</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[
-                  ...persone.map(({ scheda, perGiorno }) => ({
-                    id: scheda.id, nome: nomePersona(scheda), nuova: false,
-                    inServizio: (i: number) => perGiorno[i].outletId === outletId && perGiorno[i].stato === 'in_servizio',
-                    turni: turniPiano.filter((x) => x.employee_id === scheda.id).map((x) => ({ ...x, pubblicato: x.stato === 'pubblicato' })),
-                    liberi: new Set(liberiPiano.filter((x) => x.employee_id === scheda.id).map((x) => x.data)),
-                  })),
-                  ...(pianoAperto.riepilogo.ipotesi?.nuove ?? []).map((n) => ({
-                    id: n.id, nome: n.nome, nuova: true,
-                    inServizio: (i: number) => dateMese[i] >= n.dal,
-                    turni: (pianoAperto.riepilogo.turniNuove ?? []).filter((x) => x.employee_id === n.id).map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine), pubblicato: false })),
-                    liberi: new Set((pianoAperto.riepilogo.liberiNuove ?? []).filter((x) => x.employee_id === n.id).map((x) => x.data)),
-                  })),
-                ].map((riga) => {
-                  const r = pianoAperto.riepilogo.persone?.[riga.id];
-                  const fatte = riga.turni.reduce((a, x) => a + oreLavorate({ inizio: x.inizio, fine: x.fine, pausaMinuti: x.pausa_minuti }), 0);
-                  const suoFerie = ferieMese.filter((x) => x.employee_id === riga.id);
-                  const oreFerieVista = suoFerie.reduce((a, x) => a + x.ore, 0);
-                  const ferie = r?.ferie ?? oreFerieVista;
-                  const nonUsate = r && !r.riserva ? Math.max(0, r.contratto - fatte) : 0;
-                  return (
-                    <tr key={riga.id} className={riga.nuova ? 'bg-violet-50/40' : ''}>
-                      <td className={`px-3 py-2 sticky left-0 z-10 border-b border-slate-100 ${riga.nuova ? 'bg-violet-50' : 'bg-white'}`}>
-                        <span className={`block text-sm font-medium ${riga.nuova ? 'text-violet-900' : 'text-slate-900'}`}>{riga.nome}</span>
-                        <span className="block text-[11px] text-slate-500">
-                          {riga.nuova ? 'nuova, solo simulazione' : ''}{riga.nuova && r?.riserva ? ' · ' : ''}{r?.riserva ? 'a chiamata, solo dove serve' : ''}
-                        </span>
-                      </td>
-                      {dateMese.map((d, i) => {
-                        const t = riga.turni.find((x) => x.data === d);
-                        const f = suoFerie.find((x) => x.data === d);
-                        const gs = new Date(`${d}T00:00:00Z`).getUTCDay() || 7;
-                        const fondo = `${gs >= 6 ? 'bg-slate-50/60' : ''} ${gs === 1 ? 'border-l border-l-slate-300' : ''}`;
-                        let dentro: ReactNode;
-                        if (t) {
-                          const ore = oreLavorate({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti });
-                          dentro = (
-                            <span title={`${t.inizio}-${t.fine}, ${fmt(ore)} ore${t.pausa_minuti ? ` con ${t.pausa_minuti}' di pausa` : ''}`}
-                              className={`block rounded-md px-1 py-1 leading-tight ${riga.nuova ? 'bg-violet-100 text-violet-900' : t.pubblicato ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-900 ring-1 ring-inset ring-blue-200'}`}>
-                              <span className="block font-semibold tabular-nums">{t.inizio.replace(/:00$/, '')}–{t.fine.replace(/:00$/, '')}</span>
-                              <span className="block text-[10px] opacity-80">{fmt(ore)} h</span>
-                            </span>
+                </div>
+
+                {/* Il conto delle ore del mese, persona per persona. */}
+                <div className="px-4 pb-4">
+                  <h4 className="text-sm font-semibold text-slate-800">Ore del mese, persona per persona</h4>
+                  <p className="text-xs text-slate-500 mb-2">
+                    <b>Contratto nel mese</b> = ore a settimana × giorni del mese ÷ 7. <b>Da lavorare</b> = contratto meno ferie e permessi.
+                    <b> Pianificate</b> = ore dei turni di questo piano. La differenza è straordinario (se sono di più) oppure ore non usate (se sono di meno), con il motivo.
+                  </p>
+                  <div className="overflow-x-auto rounded-lg border border-slate-200">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
+                          <th className="px-3 py-2">Persona</th>
+                          <th className="px-3 py-2 text-right">Ore a settimana</th>
+                          <th className="px-3 py-2 text-right">Contratto nel mese</th>
+                          <th className="px-3 py-2">Ferie e permessi</th>
+                          <th className="px-3 py-2 text-right">Da lavorare</th>
+                          <th className="px-3 py-2 text-right">Pianificate</th>
+                          <th className="px-3 py-2">Differenza</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {righe.map((riga) => {
+                          const r = pianoAperto.riepilogo.persone?.[riga.id];
+                          const fatte = riga.turni.reduce((a, x) => a + oreDi(x), 0);
+                          const suoFerie = ferieMese.filter((x) => x.employee_id === riga.id).sort((a, b) => a.data.localeCompare(b.data));
+                          const oreFerie = r?.ferie ?? suoFerie.reduce((a, x) => a + x.ore, 0);
+                          const daLavorare = r && !r.riserva ? r.contratto : null;
+                          const ipo = ipot?.find((x) => x.nome === riga.nome);
+                          const giorniFerie = suoFerie.filter((x) => x.tipo !== 'ore');
+                          const permessi = suoFerie.filter((x) => x.tipo === 'ore');
+                          const diff = daLavorare != null ? fatte - daLavorare : null;
+                          return (
+                            <tr key={riga.id} className={`border-b border-slate-100 align-top ${riga.nuova ? 'bg-violet-50/40' : ''}`}>
+                              <td className="px-3 py-2 font-medium text-slate-900">{riga.nome}
+                                {r?.riserva && <span className="block text-xs font-normal text-slate-500">a chiamata: solo dove manca qualcuno</span>}
+                                {ipo?.ipotesi != null && <span className="block text-xs font-normal text-violet-700">simulazione: {fmt(ipo.ipotesi)} h invece di {ipo.oggi == null ? 'a chiamata' : `${fmt(ipo.oggi)} h`}</span>}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums">{riga.oreSett == null ? '–' : `${fmt(ipo?.ipotesi ?? riga.oreSett)} h`}</td>
+                              <td className="px-3 py-2 text-right tabular-nums">{daLavorare != null ? `${fmt(daLavorare + oreFerie)} h` : '–'}</td>
+                              <td className="px-3 py-2 text-xs text-slate-700">
+                                {oreFerie > 0.25 ? (
+                                  <>
+                                    <span className="font-semibold text-amber-800">{fmt(oreFerie)} h</span>
+                                    {giorniFerie.length > 0 && <span className="block">ferie: {giorniFerie.map((x) => giornoCorto(x.data)).join(', ')}</span>}
+                                    {permessi.length > 0 && <span className="block">permessi: {permessi.map((x) => `${giornoCorto(x.data)} (${fmt(x.ore)} h)`).join(', ')}</span>}
+                                  </>
+                                ) : <span className="text-slate-400">nessuna</span>}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums">{daLavorare != null ? `${fmt(daLavorare)} h` : '–'}</td>
+                              <td className="px-3 py-2 text-right tabular-nums font-semibold">{fmt(fatte)} h</td>
+                              <td className="px-3 py-2 text-xs">
+                                {diff == null ? (fatte > 0 ? <span className="text-slate-600">chiamata per i buchi</span> : <span className="text-slate-400">non chiamata</span>)
+                                  : diff > 0.25 ? <span className="font-semibold text-amber-800">+{fmt(diff)} h di straordinario</span>
+                                    : diff < -0.25 ? (
+                                      <span className="text-slate-700"><b>{fmt(-diff)} h non usate</b>
+                                        <span className="block text-slate-500">{(r?.settimanePiene ?? 0) > 0
+                                          ? `in ${r?.settimanePiene === 1 ? 'una settimana ha' : `${r?.settimanePiene} settimane ha`} già ${giorniMax} giorni di lavoro: le ore che restano non entrano in un altro giorno`
+                                          : 'al negozio non servivano: il traffico di quei giorni era già coperto'}</span>
+                                      </span>
+                                    ) : <span className="text-emerald-700 font-medium">tutte le ore usate</span>}
+                              </td>
+                            </tr>
                           );
-                          if (f) dentro = <>{dentro}<span className="block mt-0.5 text-[10px] text-amber-800">{f.tipo === 'ore' ? `perm. ${fmt(f.ore)} h` : 'mezza ferie'}</span></>;
-                        } else if (f) {
-                          dentro = <span className="block rounded-md px-1 py-1.5 bg-amber-100 text-amber-900 font-medium">{f.tipo === 'giornata' ? 'ferie' : f.tipo === 'ore' ? `perm. ${fmt(f.ore)} h` : 'mezza ferie'}</span>;
-                        } else if (riga.liberi.has(d)) {
-                          dentro = <span className="block rounded-md px-1 py-1.5 bg-emerald-100 text-emerald-900 font-medium">libero</span>;
-                        } else if (!riga.inServizio(i)) {
-                          dentro = <span className="block rounded-md py-1.5 bg-slate-100 text-slate-400" title="Non in servizio in questo negozio">·</span>;
-                        } else {
-                          dentro = <span className="block py-1.5 text-slate-300">–</span>;
-                        }
-                        return <td key={d} className={`px-1 py-1.5 text-center border-b border-slate-100 ${fondo}`}>{dentro}</td>;
-                      })}
-                      <td className="px-3 py-2 text-right border-b border-slate-100 align-top">
-                        <span className="block text-sm font-semibold text-slate-900 tabular-nums">{fmt(fatte)} h</span>
-                        {r && !r.riserva && <span className="block text-[11px] text-slate-500">su {fmt(r.contratto + ferie)} h di contratto</span>}
-                        {ferie > 0.25 && <span className="block text-[11px] text-amber-800">ferie e permessi {fmt(ferie)} h</span>}
-                        {nonUsate > 0.25 && (
-                          <span className="block text-[11px] text-slate-600"
-                            title={(r?.settimanePiene ?? 0) > 0
-                              ? 'In quelle settimane ha già il massimo di giorni di lavoro: le ore che restano non si possono mettere in un altro giorno.'
-                              : 'Il fabbisogno di quei giorni era già coperto dagli altri.'}>
-                            {fmt(nonUsate)} h non usate
-                            <span className="block text-[10px] text-slate-500">
-                              {(r?.settimanePiene ?? 0) > 0 ? `${r?.settimanePiene === 1 ? 'una settimana' : `${r?.settimanePiene} settimane`} con già ${giorniMax} giorni di lavoro` : 'non servivano al negozio'}
-                            </span>
-                          </span>
-                        )}
-                        {r && r.straordinario > 0.25 && <span className="block text-[11px] font-medium text-amber-800">{fmt(r.straordinario)} h di straordinario</span>}
-                        {r?.riserva && fatte > 0 && <span className="block text-[11px] text-slate-500">chiamata per i buchi</span>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            );
+          })()}
           <p className="px-4 py-2 text-xs text-slate-500">Il dettaglio della settimana, con le pause e la copertura ora per ora, è nel «Piano settimanale»: per i mesi con un piano scelto mostra i turni di quel piano.</p>
         </section>
       )}

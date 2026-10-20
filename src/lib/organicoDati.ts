@@ -133,3 +133,19 @@ export async function caricaTraffico(companyId: string, outletId: string | null)
   }
   return out;
 }
+
+/**
+ * Giorni della settimana in cui ognuno puo' lavorare (1 = lunedi' ... 7 = domenica),
+ * da `employee_availability` (Patrizio, 20/10/2026). Chi non c'e' puo' lavorare tutti i giorni.
+ */
+export async function caricaDisponibilita(companyId: string): Promise<Map<string, number[]>> {
+  const { data, error } = await supabase.from('employee_availability').select('employee_id, giorni').eq('company_id', companyId);
+  if (error) throw error;
+  return new Map(((data as { employee_id: string; giorni: number[] }[]) ?? []).map((x) => [x.employee_id, x.giorni.map(Number)]));
+}
+
+/** La persona puo' lavorare in quella data secondo la sua disponibilita'? */
+export function puoLavorareIl(disponibilita: Map<string, number[]>, employeeId: string, data: string): boolean {
+  const g = disponibilita.get(employeeId);
+  return !g || g.includes(new Date(`${data}T00:00:00Z`).getUTCDay() || 7);
+}

@@ -15,7 +15,7 @@ import {
   personaAllaData, nomePersona, formattaDataBreve, oggiRoma, aggiungiGiorni, contaNellOrganico,
   type PersonaOggi,
 } from '../lib/organico';
-import { caricaGiorniFerie, type DatiOrganico } from '../lib/organicoDati';
+import { caricaDisponibilita, caricaGiorniFerie, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, collocaPause, eventiDelNegozio, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
@@ -59,12 +59,13 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [lavoro, setLavoro] = useState(false);
   // Piano del mese scelto per ogni mese della settimana ('YYYY-MM' -> id).
   const [pianiScelti, setPianiScelti] = useState<Map<string, string>>(new Map());
+  const [disponibilita, setDisponibilita] = useState<Map<string, number[]>>(new Map());
   const [editor, setEditor] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
 
   const carica = useCallback(async () => {
     setCaricamento(true);
     try {
-      const [o, f, s, r, t, fe, sl, ev, pi] = await Promise.all([
+      const [o, f, s, r, t, fe, sl, ev, pi, disp] = await Promise.all([
         supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude, origine').eq('outlet_id', outletId),
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
@@ -79,7 +80,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         // Piani del mese scelti per i mesi di questa settimana: nei loro giorni valgono i loro turni.
         supabase.from('shift_plans').select('id, mese').eq('outlet_id', outletId).eq('stato', 'scelto')
           .in('mese', [...new Set([date[0], date[6]].map((d) => `${d.slice(0, 7)}-01`))]),
+        caricaDisponibilita(companyId).catch(() => new Map<string, number[]>()),
       ]);
+      setDisponibilita(disp);
       const pianoDelMese = new Map(((pi.data as { id: string; mese: string }[]) ?? []).map((x) => [x.mese.slice(0, 7), x.id]));
       setPianiScelti(pianoDelMese);
       const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
@@ -135,8 +138,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     if (pg.outletId !== outletId) return 'in un altro negozio';
     const fe = inFerie(empId, data);
     if (fe && fe.tipo === 'giornata') return 'ferie';
+    // Giorni in cui la persona puo' lavorare (es. solo sabato e domenica).
+    if (!puoLavorareIl(disponibilita, empId, data)) return 'non disponibile quel giorno';
     return null;
-  }, [outletId, inFerie]);
+  }, [outletId, inFerie, disponibilita]);
 
   const attivi = turni.filter((t) => t.stato !== 'annullato');
   const turniPerCalcolo: Turno[] = attivi.map((t) => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }));
