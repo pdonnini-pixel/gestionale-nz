@@ -29,6 +29,8 @@ export interface PageGuide {
   description: string
   sections: GuideSection[]
   faq: GuideFaq[]
+  /** Id delle guide passo passo (schermate + PDF) da `guideTutorials.ts`. */
+  tutorials?: string[]
 }
 
 export const PAGE_GUIDES: PageGuide[] = [
@@ -2424,6 +2426,7 @@ export const PAGE_GUIDES: PageGuide[] = [
   },
   {
     "path": "/fatturazione",
+    "tutorials": ["fatture-moda-xml"],
     "icon": "FileCode",
     "title": "Fatturazione Elettronica",
     "description": "In questa pagina trovi tutte le fatture elettroniche dell'azienda: quelle ricevute dai fornitori, quelle emesse verso i clienti e gli incassi giornalieri dei punti vendita. La pagina è divisa in tre schede (Fatture Passive, Fatture Attive, Corrispettivi).",
@@ -2599,6 +2602,7 @@ export const PAGE_GUIDES: PageGuide[] = [
   },
   {
     "path": "/fatturazione/converti-xml",
+    "tutorials": ["fatture-moda-xml"],
     "icon": "FileCode",
     "title": "Converti Excel → XML Fattura Elettronica",
     "description": "Questo strumento trasforma l'export Excel del gestionale in file XML di fattura elettronica (formato FPR12), pronti per essere importati sul sito dell'Agenzia delle Entrate. Funziona interamente sul tuo computer, senza inviare nulla a SDI: genera solo i file da caricare tu stessa.",
@@ -2661,6 +2665,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       }
     ],
     "faq": [
+      {
+        "q": "C'è una guida con le schermate da seguire o da mandare a una collega?",
+        "a": "Sì. Nel pannello «?», scheda Guida, sotto «Guide passo passo» trovi «Fatture di Moda in XML, da sola»: aprila per vedere i passi con le schermate (i numeri nei cerchi rossi indicano dove cliccare), oppure premi «Scarica PDF» per stamparla o mandarla. Le schermate usano dati di esempio, non quelli dell'azienda."
+      },
       {
         "q": "Gli XML generati qui vengono inviati automaticamente all'Agenzia delle Entrate?",
         "a": "No. Questo strumento lavora solo sul tuo computer e genera i file XML: nessun invio automatico avviene da questa pagina. Devi scaricare i file e importarli tu stessa sul sito dell'Agenzia delle Entrate."
