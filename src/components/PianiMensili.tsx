@@ -27,8 +27,8 @@ import {
   REGOLE_DEFAULT, type EventoNegozio, type RegoleTurni, type Turno,
 } from '../lib/turni';
 import {
-  pianificaMese, proponiFerie, storicoTraffico, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
-  type EsitoPianoMese, type FeriaProposta, type PersonaPiano, type RegolaWeekend, type RigaTraffico,
+  pianificaMese, proponiFerie, suggerisciFinestre, storicoTraffico, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
+  type EsitoPianoMese, type FeriaProposta, type FinestraSuggerita, type PersonaPiano, type RegolaWeekend, type RigaTraffico,
 } from '../lib/pianoMensile';
 
 type Props = {
@@ -114,6 +114,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [editorMese, setEditorMese] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
   const [regolePiano, setRegolePiano] = useState<RegoleTurni>(REGOLE_DEFAULT);
   // Proposta di ferie per le ore di contratto che restano non usate.
+  // Dove mettere le ore che avanzano: le finestre migliori del mese (traffico MODA).
+  const [dove, setDove] = useState<{ employeeId: string; nome: string; ore: number; finestre: FinestraSuggerita[] | null } | null>(null);
   const [proposta, setProposta] = useState<{ employeeId: string; nome: string; ore: number; giorni: FeriaProposta[] } | null>(null);
   const [giorniApertura, setGiorniApertura] = useState<Map<string, { apre: number; chiude: number; chiuso: boolean }>>(new Map());
 
@@ -399,19 +401,65 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     return Math.max(0, r.contratto + r.ferie - ferieOra);
   };
 
+  // Un giorno in cui la persona puo' ricevere un turno o una proposta di ferie:
+  // in servizio qui, disponibile, negozio aperto, senza turno, libero o ferie.
+  const giornoSenzaImpegni = (employeeId: string, d: string) => {
+    const pers = persone.find((x) => x.scheda.id === employeeId);
+    const k = dateMese.indexOf(d);
+    return !!pers && k >= 0 && pers.perGiorno[k].outletId === outletId && pers.perGiorno[k].stato === 'in_servizio'
+      && puoLavorareIl(disponibilita, employeeId, d) && !(giorniApertura.get(d)?.chiuso ?? false)
+      && !turniPiano.some((x) => x.employee_id === employeeId && x.data === d)
+      && !liberiPiano.some((x) => x.employee_id === employeeId && x.data === d)
+      && !ferieMese.some((x) => x.employee_id === employeeId && x.data === d);
+  };
+
+  const apriDove = async (employeeId: string, nome: string, ore: number) => {
+    setDove({ employeeId, nome, ore, finestre: null });
+    try {
+      const [tr, oo, sp, ev] = await Promise.all([
+        caricaTraffico(companyId, outletId),
+        supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', outletId),
+        supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', dateMese[0]).lte('data', dateMese[dateMese.length - 1]),
+        supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari').eq('company_id', companyId).lte('data_dal', dateMese[dateMese.length - 1]).gte('data_al', dateMese[0]),
+      ]);
+      const st = storicoTraffico(tr.length ? tr : await caricaTraffico(companyId, null));
+      const atteso = new Map<string, number[]>();
+      for (const d of dateMese) { const a = trafficoAtteso(st, d); if (a) atteso.set(d, a.ore); }
+      const giorni = costruisciGiorni(dateMese,
+        (oo.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [], [],
+        (sp.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [],
+        eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId));
+      const finestre = suggerisciFinestre({
+        giorni, atteso, regole: regolePiano, ore,
+        turni: turniPiano.map((t) => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti })),
+        possibile: (d) => giornoSenzaImpegni(employeeId, d),
+      });
+      setDove({ employeeId, nome, ore, finestre });
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Suggerimenti non calcolati.' });
+      setDove(null);
+    }
+  };
+
+  const aggiungiFinestra = async (f: FinestraSuggerita, straordinario: boolean) => {
+    if (!dove || !pianoAperto) return;
+    setLavoro('dove');
+    const { error } = await supabase.from('shifts').insert([{
+      company_id: companyId, outlet_id: outletId, employee_id: dove.employeeId, data: f.data, inizio: f.inizio, fine: f.fine,
+      pausa_minuti: f.pausaMinuti, origine: 'manuale', stato: 'bozza', plan_id: pianoAperto.id, straordinario,
+    }]);
+    setLavoro(null);
+    if (error) { toast({ type: 'error', message: error.message }); return; }
+    toast({ type: 'success', message: `Turno aggiunto a ${dove.nome} come ${straordinario ? 'straordinario' : 'ore di contratto'}: il riepilogo è aggiornato.` });
+    setDove(null);
+    setVersione((v) => v + 1);
+  };
+
   const apriProposta = (employeeId: string, nome: string, oreSett: number | null, ore: number) => {
     if (!oreSett) return;
-    const pers = persone.find((x) => x.scheda.id === employeeId);
     const giorni = proponiFerie({
       ore, oreSettimana: oreSett, date: dateMese,
-      possibile: (d) => {
-        const k = dateMese.indexOf(d);
-        return !!pers && k >= 0 && pers.perGiorno[k].outletId === outletId && pers.perGiorno[k].stato === 'in_servizio'
-          && puoLavorareIl(disponibilita, employeeId, d) && !(giorniApertura.get(d)?.chiuso ?? false)
-          && !turniPiano.some((x) => x.employee_id === employeeId && x.data === d)
-          && !liberiPiano.some((x) => x.employee_id === employeeId && x.data === d)
-          && !ferieMese.some((x) => x.employee_id === employeeId && x.data === d);
-      },
+      possibile: (d) => giornoSenzaImpegni(employeeId, d),
     });
     if (!giorni.length) { toast({ type: 'warning', message: `Per ${nome} non ci sono giorni feriali liberi in cui proporre ferie: aggiungi le ore nel calendario.` }); return; }
     setProposta({ employeeId, nome, ore, giorni });
@@ -973,10 +1021,16 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                           ? `in ${r?.settimanePiene === 1 ? 'una settimana ha' : `${r?.settimanePiene} settimane ha`} già ${giorniMax} giorni di lavoro: le ore che restano non entrano in un altro giorno`
                                           : 'al negozio non servivano: il traffico di quei giorni era già coperto'}</span>
                                         {puoModificare && !pianoAperto.simulazione && !riga.nuova && nonUsate >= 1 && (
-                                          <button type="button" onClick={() => apriProposta(riga.id, riga.nome, riga.oreSett, nonUsate)}
-                                            className="mt-1.5 inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200">
-                                            Proponi ferie per {fmt(nonUsate)} h
-                                          </button>
+                                          <span className="mt-1.5 flex flex-wrap gap-1.5">
+                                            <button type="button" onClick={() => apriDove(riga.id, riga.nome, nonUsate)}
+                                              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
+                                              Dove metterle
+                                            </button>
+                                            <button type="button" onClick={() => apriProposta(riga.id, riga.nome, riga.oreSett, nonUsate)}
+                                              className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-amber-100 text-amber-900 hover:bg-amber-200">
+                                              Proponi ferie per {fmt(nonUsate)} h
+                                            </button>
+                                          </span>
                                         )}
                                         {puoModificare && <span className="block mt-1 text-blue-700">oppure clicca una casella del calendario per aggiungere ore</span>}
                                       </span>
@@ -997,6 +1051,45 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           })()}
           <p className="px-4 py-2 text-xs text-slate-500">Il dettaglio della settimana, con le pause e la copertura ora per ora, è nel «Piano settimanale»: per i mesi con un piano scelto mostra i turni di quel piano.</p>
         </section>
+      )}
+      {dove && (
+        <Modal open onClose={() => setDove(null)} title={`Dove mettere le ore di ${dove.nome}`}>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-600">
+              Restano <b>{fmt(dove.ore)} ore</b>. Queste sono le finestre del mese con più ingressi MODA per persona già in negozio, nei giorni in cui {dove.nome.split(' ')[0]} può lavorare e non ha un turno.
+              Scegli se aggiungerle come <b>ore di contratto</b> del mese (riducono le ore non usate) o come <b>straordinario</b> (si contano a parte).
+            </p>
+            {dove.finestre == null ? <p className="text-sm text-slate-400">Calcolo sul traffico MODA…</p>
+              : !dove.finestre.length ? <p className="text-sm text-slate-500">Nessun giorno libero adatto in questo mese.</p> : (
+                <ul className="space-y-2">
+                  {dove.finestre.map((f, k) => {
+                    const t = tipoDelGiorno(f.data);
+                    const speciale = !['feriale', 'venerdi', 'sabato', 'domenica'].includes(t.tipo);
+                    return (
+                      <li key={f.data} className={`rounded-lg border p-3 ${k === 0 ? 'border-blue-300 bg-blue-50/40' : 'border-slate-200'}`}>
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <span className="font-semibold text-slate-900 capitalize">
+                            {new Date(`${f.data}T00:00:00Z`).toLocaleDateString('it-IT', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}
+                            {speciale && <span className="ml-2 text-xs font-semibold text-red-700 normal-case">{t.nome}</span>}
+                            {k === 0 && <span className="ml-2 text-xs font-semibold text-blue-700 normal-case">la migliore</span>}
+                          </span>
+                          <span className="text-sm text-slate-700 tabular-nums">{f.inizio}–{f.fine} · <b>{fmt(f.ore)} h</b>{f.pausaMinuti ? ` · pausa ${f.pausaMinuti}'` : ''}</span>
+                        </div>
+                        <p className="text-xs text-slate-500 mt-0.5">circa {fmt(f.ingressiPerPersona)} ingressi l'ora per persona in negozio</p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <button type="button" disabled={lavoro === 'dove'} onClick={() => aggiungiFinestra(f, false)}
+                            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Aggiungi come ore di contratto</button>
+                          <button type="button" disabled={lavoro === 'dove'} onClick={() => aggiungiFinestra(f, true)}
+                            className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-amber-500 text-white hover:bg-amber-600 disabled:opacity-50">Aggiungi come straordinario</button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            <p className="text-xs text-slate-500">Il turno si aggiunge in bozza al piano e si può poi spostare cliccando la casella del calendario.</p>
+          </div>
+        </Modal>
       )}
       {proposta && (
         <Modal open onClose={() => setProposta(null)} title={`Ferie proposte a ${proposta.nome}`}>

@@ -319,6 +319,51 @@ export function usaOreResidue(
   return out;
 }
 
+export interface FinestraSuggerita {
+  data: string; inizio: string; fine: string; pausaMinuti: number; ore: number;
+  /** ingressi attesi per persona gia' presente, in media sulla finestra */
+  ingressiPerPersona: number;
+}
+
+/**
+ * Dove mettere le ore che avanzano a una persona (Patrizio, 21/10/2026): le
+ * finestre del mese con piu' ingressi MODA per persona gia' in negozio, una
+ * per giorno, nei giorni in cui puo' lavorare e non ha gia' un turno. Il
+ * Black Friday e gli altri giorni di punta vincono da soli, perche' hanno piu'
+ * traffico. La durata e' quella delle ore che restano, entro turno minimo e
+ * massimo. Quando la responsabile HR ne sceglie una decide se sono ore di
+ * contratto del mese o straordinario.
+ */
+export function suggerisciFinestre(args: {
+  giorni: GiornoPiano[]; atteso: Map<string, number[]>; turni: Turno[];
+  possibile: (data: string) => boolean; ore: number; regole?: RegoleTurni; quante?: number;
+}): FinestraSuggerita[] {
+  const regole = args.regole ?? REGOLE_DEFAULT;
+  const lavoro = Math.min(regole.turnoMaxOre, Math.max(regole.turnoMinOre, Math.round(args.ore * 2) / 2)) * 60;
+  const pausa = pausaPer(lavoro, regole);
+  const durata = lavoro + pausa;
+  const out: FinestraSuggerita[] = [];
+  for (const g of args.giorni) {
+    if (g.chiuso || !args.possibile(g.data) || g.chiude - g.apre < durata) continue;
+    const cop = coperturaLorda(g, args.turni);
+    let meglio: FinestraSuggerita | null = null;
+    for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
+      let w = 0; let n = 0;
+      for (let t = s0; t < s0 + durata; t += SLOT_MINUTI) {
+        const i = Math.floor((t - g.apre) / SLOT_MINUTI);
+        w += (args.atteso.get(g.data)?.[Math.floor(t / 60)] ?? 0) / (1 + (cop[i] ?? 0));
+        n++;
+      }
+      const media = n ? w / n : 0;
+      if (!meglio || media > meglio.ingressiPerPersona) {
+        meglio = { data: g.data, inizio: hhmm(s0), fine: hhmm(s0 + durata), pausaMinuti: pausa, ore: lavoro / 60, ingressiPerPersona: media };
+      }
+    }
+    if (meglio) out.push(meglio);
+  }
+  return out.sort((a, b) => b.ingressiPerPersona - a.ingressiPerPersona).slice(0, args.quante ?? 3);
+}
+
 export interface FeriaProposta { data: string; voce: 'F01' | 'F02'; tipo: 'giornata' | 'ore'; ore: number }
 
 /**
