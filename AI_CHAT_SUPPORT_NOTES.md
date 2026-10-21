@@ -98,3 +98,27 @@ nessun modo di risalire a cosa era stato chiesto e a cosa aveva risposto l'AI.
 ## Possibile evoluzione (fase 3, non inclusa)
 Far rispondere l'AI anche sui dati reali del tenant ("quanto devo a X?"): richiede
 accesso DB con RLS e va valutato a parte per rischi/costi.
+
+## Guide passo passo (schermate + PDF) — 21/10/2026
+
+Nel pannello «?», scheda **Guida**, la sezione **«Guide passo passo»** mostra procedure illustrate:
+passi numerati, schermate con i riquadri rossi e un pulsante **«Scarica PDF»** da stampare o mandare
+a chi deve imparare. I passi vanno anche nel contesto dell'assistente (`buildPageContext` in
+`src/components/HelpPanel.tsx`), così la chat risponde con gli stessi passaggi.
+
+- **Definizione**: `src/data/guideTutorials.ts` (titolo, intro, schermate e passi). Una pagina la
+  richiama con `"tutorials": ["<id>"]` nella sua voce di `src/data/pageGuides.ts`.
+- **File**: `public/guide/<id>/` (PNG + `guida.pdf`), pubblicati da Netlify sui 3 site: nessun
+  database, nessun deploy manuale.
+- **Rigenerare le schermate** (quando la pagina cambia):
+  1. `VITE_SUPABASE_URL=https://mock.supabase.co VITE_SUPABASE_ANON_KEY=x npx vite --port 5173`
+  2. `node tools/guide-tutorials/capture.mjs <id>` (in sandbox cloud:
+     `PLAYWRIGHT_MODULE=/opt/node-tools/node_modules/playwright/index.mjs CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome`).
+  Lo script apre il gestionale vero con un backend Supabase **finto** e **dati inventati**
+  («Azienda Esempio», clienti «Rossi», «Bianchi»…). Mai dati reali: il repo è pubblico e le guide
+  le vedono tutti e 3 i tenant. Una guida nuova = una voce in `guideTutorials.ts` + uno scenario in
+  `SCENARIOS` dello script (pagine da aprire, riquadri da disegnare, dati finti).
+- **Controllo**: `src/data/guideTutorials.test.ts` verifica che ogni guida richiamata esista, che
+  i file ci siano e che i riquadri siano numerati 1..N.
+- Prima guida: `fatture-moda-xml` (Fatturazione → Converti Excel → XML), nata dalla mail di Sabrina
+  del 21/10/2026 che chiedeva a Lilian di convertire due fatture di Moda.

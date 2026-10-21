@@ -7,9 +7,10 @@ import {
   CalendarClock, DatabaseZap, Archive, FileCode, Settings,
   Sparkles, Send, Loader2, BookOpen, Package, UserCircle,
   MessageSquare, Lock, Search, CheckCircle2, AlertTriangle,
-  LucideIcon,
+  Download, Images, LucideIcon,
 } from 'lucide-react'
 import { PAGE_GUIDES, type PageGuide } from '../data/pageGuides'
+import { TUTORIAL_BY_ID, tutorialFile, tutorialAsText, type GuideTutorial } from '../data/guideTutorials'
 import { useAuth } from '../hooks/useAuth'
 import {
   fetchOpenSession, createSession, fetchMessages, appendMessage, closeSession,
@@ -68,7 +69,17 @@ function buildPageContext(guide: PageGuide | null): string {
   if (guide.faq.length > 0) {
     parts.push('Domande frequenti:\n' + guide.faq.map((f) => `D: ${f.q}\nR: ${f.a}`).join('\n'))
   }
+  const tutorials = guideTutorials(guide)
+  if (tutorials.length > 0) parts.push(tutorials.map(tutorialAsText).join('\n\n'))
   return parts.join('\n\n')
+}
+
+// Guide passo passo richiamate dalla voce della pagina (id sconosciuti ignorati).
+function guideTutorials(guide: PageGuide): GuideTutorial[] {
+  return (guide.tutorials ?? []).flatMap((id) => {
+    const t = TUTORIAL_BY_ID.get(id)
+    return t ? [t] : []
+  })
 }
 
 // Titolo leggibile per pagine senza guida (la chat è comunque disponibile).
@@ -674,12 +685,80 @@ function ArchiveDetail({
   )
 }
 
-// Tab guida: descrizione + sezioni (con eventuali passi) + FAQ.
+// Guida passo passo: schermate con i riquadri rossi numerati, chiusa di
+// default per non allungare il pannello. Ogni schermata si apre a tutta
+// grandezza in una scheda nuova; il PDF raccoglie tutto per stamparlo o
+// mandarlo a chi deve imparare la procedura.
+function TutorialCard({ tutorial }: { tutorial: GuideTutorial }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="border border-blue-100 bg-blue-50/40 rounded-xl overflow-hidden">
+      <button
+        onClick={() => setOpen(!open)}
+        className="w-full text-left px-3 py-2.5 flex items-start gap-2 hover:bg-blue-50 transition"
+      >
+        <Images size={16} className="text-blue-600 shrink-0 mt-0.5" />
+        <span className="flex-1 min-w-0">
+          <span className="block text-sm font-semibold text-slate-900">{tutorial.title}</span>
+          <span className="block text-xs text-slate-500 mt-0.5">{tutorial.intro}</span>
+        </span>
+        <ChevronRight size={14} className={`text-slate-400 shrink-0 mt-1 transition-transform ${open ? 'rotate-90' : ''}`} />
+      </button>
+      <div className="px-3 pb-3 flex">
+        <a
+          href={tutorialFile(tutorial, tutorial.pdf)}
+          download
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium bg-white border border-blue-200 text-blue-700 rounded-lg hover:bg-blue-50 transition"
+        >
+          <Download size={13} /> Scarica PDF
+        </a>
+      </div>
+      {open && (
+        <ol className="px-3 pb-3 space-y-4">
+          {tutorial.shots.map((shot) => (
+            <li key={shot.image} className="space-y-1.5">
+              <div className="text-sm font-semibold text-slate-800">{shot.title}</div>
+              <ul className="space-y-1">
+                {shot.steps.map((st) => (
+                  <li key={st.n} className="flex items-start gap-2 text-sm text-slate-600">
+                    <span className="shrink-0 w-5 h-5 rounded-full bg-rose-600 text-white text-[11px] font-bold flex items-center justify-center mt-0.5">{st.n}</span>
+                    <span>{st.text}</span>
+                  </li>
+                ))}
+              </ul>
+              <a href={tutorialFile(tutorial, shot.image)} target="_blank" rel="noopener noreferrer" title="Apri la schermata a tutta grandezza">
+                <img
+                  src={tutorialFile(tutorial, shot.image)}
+                  alt={shot.title}
+                  loading="lazy"
+                  className="w-full rounded-lg border border-slate-200 hover:border-blue-400 transition"
+                />
+              </a>
+              <div className="text-[11px] text-slate-400">Tocca la schermata per vederla a tutta grandezza.</div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+// Tab guida: descrizione + guide passo passo + sezioni (con eventuali passi) + FAQ.
 function GuideView({ guide }: { guide: PageGuide }) {
   const [expandedFaq, setExpandedFaq] = useState<number | null>(null)
+  const tutorials = guideTutorials(guide)
   return (
     <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">
       <p className="text-sm text-slate-600 leading-relaxed">{guide.description}</p>
+
+      {tutorials.length > 0 && (
+        <div>
+          <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider mb-2">Guide passo passo</h4>
+          <div className="space-y-2">
+            {tutorials.map((t) => <TutorialCard key={t.id} tutorial={t} />)}
+          </div>
+        </div>
+      )}
 
       {guide.sections.length > 0 && (
         <div className="space-y-4">
