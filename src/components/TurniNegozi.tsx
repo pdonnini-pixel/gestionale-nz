@@ -5,9 +5,10 @@
 // Friday, feste e saldi, che valgono per piu' negozi insieme.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Sparkles, UserRound } from 'lucide-react';
+import { Clock, Sparkles, UserRound } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { stimaOrariEFabbisogno } from '../lib/stimaNegozio';
+import { riassuntoOrari, type OrarioGiornoTipo } from '../lib/turni';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from './Toast';
 import { organicoAllaData, oggiRoma, nomePersona } from '../lib/organico';
@@ -37,6 +38,18 @@ export default function TurniNegozi({ companyId }: Props) {
     catch (e) { toast({ type: 'error', message: `Organico non caricato: ${e instanceof Error ? e.message : 'errore'}` }); }
   }, [companyId, toast]);
   useEffect(() => { carica(); }, [carica]);
+
+  // Gli orari del negozio scelto, sempre in vista: chi fa i turni non deve
+  // ricordarli a memoria (Patrizio, 21/10/2026).
+  const [orari, setOrari] = useState<OrarioGiornoTipo[] | null>(null);
+  useEffect(() => {
+    if (!negozio) return;
+    let vivo = true;
+    setOrari(null);
+    supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', negozio)
+      .then(({ data }) => { if (vivo) setOrari((data as OrarioGiornoTipo[]) ?? []); });
+    return () => { vivo = false; };
+  }, [negozio, versione]);
 
   const oggi = oggiRoma();
   const persone = useMemo(() => (dati ? organicoAllaData(dati.schede, dati.eventi, oggi) : []), [dati, oggi]);
@@ -142,6 +155,14 @@ export default function TurniNegozi({ companyId }: Props) {
               </button>
             ))}
           </div>
+          {scelto && orari && (
+            <button type="button" onClick={() => setSotto('orari')} title="Gli orari si cambiano in «Orari e fabbisogno»"
+              className="inline-flex items-center gap-1.5 text-sm text-slate-700 hover:text-blue-700">
+              <Clock size={15} className="text-slate-400" />
+              <span className="text-slate-500">Orari</span>
+              <strong className="font-semibold">{orari.length ? riassuntoOrari(orari) : 'non inseriti'}</strong>
+            </button>
+          )}
           {scelto && (
             <label className="flex items-center gap-2 text-sm text-slate-600">
               <UserRound size={15} className="text-slate-400" />

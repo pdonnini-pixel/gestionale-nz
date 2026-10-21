@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  riassuntoOrari,
   costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer, pausaMinimaPerPresenza,
   scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
 } from './turni';
@@ -21,6 +22,16 @@ describe('date', () => {
   });
   it('ore lavorate tolgono la pausa', () => {
     expect(oreLavorate({ inizio: '10:00', fine: '17:30', pausaMinuti: 30 })).toBe(7);
+  });
+});
+
+describe('riassuntoOrari', () => {
+  const g = (giorno: number, apre: string | null, chiude: string | null, chiuso = false) => ({ giorno, chiuso, apre, chiude });
+  it('raggruppa i giorni uguali', () => {
+    expect(riassuntoOrari([1, 2, 3, 4, 5].map((d) => g(d, '10:00:00', '20:00:00')).concat([g(6, '10:00', '21:00'), g(7, '10:00', '21:00')])))
+      .toBe('Lun-Ven 10-20 · Sab-Dom 10-21');
+    expect(riassuntoOrari([1, 2, 3, 4, 5, 6, 7].map((d) => g(d, '10:00', '20:00')))).toBe('Tutti i giorni 10-20');
+    expect(riassuntoOrari([g(1, null, null, true), ...[2, 3, 4, 5, 6, 7].map((d) => g(d, '09:30', '19:30'))])).toBe('Lun chiuso · Mar-Dom 9:30-19:30');
   });
 });
 

@@ -223,6 +223,31 @@ export function oreLavorate(t: Pick<Turno, 'inizio' | 'fine' | 'pausaMinuti'>): 
 export const NOMI_GIORNO = ['', 'Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
 export const NOMI_GIORNO_BREVI = ['', 'Lun', 'Mar', 'Mer', 'Gio', 'Ven', 'Sab', 'Dom'];
 
+/**
+ * Gli orari della settimana tipo in una riga, giorni uguali raggruppati
+ * («Lun-Ven 10-20 · Sab-Dom 10-21»). Per chi fa i turni e non li ricorda
+ * (Patrizio, 21/10/2026).
+ */
+export function riassuntoOrari(orari: OrarioGiornoTipo[]): string {
+  const ora = (t: string | null) => {
+    if (!t) return '';
+    const [h, m] = t.split(':');
+    return m && m !== '00' ? `${Number(h)}:${m}` : String(Number(h));
+  };
+  const testo = (g: number) => {
+    const o = orari.find((x) => x.giorno === g);
+    return !o || o.chiuso || !o.apre || !o.chiude ? 'chiuso' : `${ora(o.apre)}-${ora(o.chiude)}`;
+  };
+  const gruppi: { da: number; a: number; t: string }[] = [];
+  for (let g = 1; g <= 7; g++) {
+    const t = testo(g);
+    const ultimo = gruppi.at(-1);
+    if (ultimo && ultimo.t === t) ultimo.a = g; else gruppi.push({ da: g, a: g, t });
+  }
+  if (gruppi.length === 1) return `Tutti i giorni ${gruppi[0].t}`;
+  return gruppi.map((x) => `${NOMI_GIORNO_BREVI[x.da]}${x.a > x.da ? `-${NOMI_GIORNO_BREVI[x.a]}` : ''} ${x.t}`).join(' · ');
+}
+
 // ── I giorni della settimana con orari e fabbisogno ─────────────────────
 
 /**
