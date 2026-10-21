@@ -424,3 +424,11 @@ lunghe quanto le ore che restano (minimo e massimo del turno). Dal riepilogo «D
 contratto» (contano come ordinarie, riducono le non usate) o «straordinario» (`shifts.straordinario`). Il motore
 resta settimanale; lo spostamento di ore tra settimane è una scelta della HR, non del calcolo (Patrizio: «così abbiamo
 tutte e due le possibilità»).
+
+
+## Straordinario a ore (migration 324, 21/10/2026)
+
+`shifts.ore_straordinario` (numeric, default 0): quante ore del turno sono straordinario. Allungando un turno di un'ora e
+segnandolo, straordinario è solo quell'ora (Patrizio). L'editor propone le ore aggiunte rispetto alle ordinarie che il
+turno aveva (tutte, per un turno nuovo), correggibili. Riepilogo: ordinarie = ore del turno − ore_straordinario.
+`shifts.straordinario` resta come «contiene straordinario» (ore_straordinario > 0).

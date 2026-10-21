@@ -62,7 +62,7 @@ type NuovaPersona = { id: string; nome: string; ore: string; soloWeekend: boolea
 /** `straord`: ore di straordinario che la persona puo' fare a settimana (vuoto = non ne fa). */
 type Simulazione = { ore: Record<string, string>; soloWeekend: Record<string, boolean>; straord: Record<string, string>; perTutti: string; nuove: NuovaPersona[] };
 const ID_NUOVA = 'nuova-';
-type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string; straordinario?: boolean };
+type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string; straordinario?: boolean; ore_straordinario?: number };
 
 const REGOLE: RegolaWeekend[] = ['sabato_o_domenica', 'solo_sabati', 'solo_domeniche', 'nessuno'];
 // Nei turni contano le ferie approvate e anche quelle chieste e in attesa
@@ -145,7 +145,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     let vivo = true;
     void (async () => {
       const [t, l] = await Promise.all([
-        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, stato, origine, straordinario').eq('plan_id', aperto).neq('stato', 'annullato'),
+        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, stato, origine, straordinario, ore_straordinario').eq('plan_id', aperto).neq('stato', 'annullato'),
         supabase.from('shift_plan_weekend_off').select('employee_id, data').eq('plan_id', aperto),
       ]);
       if (!vivo) return;
@@ -446,7 +446,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     setLavoro('dove');
     const { error } = await supabase.from('shifts').insert([{
       company_id: companyId, outlet_id: outletId, employee_id: dove.employeeId, data: f.data, inizio: f.inizio, fine: f.fine,
-      pausa_minuti: f.pausaMinuti, origine: 'manuale', stato: 'bozza', plan_id: pianoAperto.id, straordinario,
+      pausa_minuti: f.pausaMinuti, origine: 'manuale', stato: 'bozza', plan_id: pianoAperto.id, straordinario, ore_straordinario: straordinario ? f.ore : 0,
     }]);
     setLavoro(null);
     if (error) { toast({ type: 'error', message: error.message }); return; }
@@ -880,9 +880,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 return (
                   <>
                     <span title={`${t.inizio}-${t.fine}, ${fmt(ore)} ore${t.pausa_minuti ? ` con ${t.pausa_minuti}' di pausa` : ''}`}
-                      className={`block rounded-md px-1 py-1 leading-tight ${riga.nuova ? 'bg-violet-100 text-violet-900' : 'straordinario' in t && t.straordinario ? 'bg-amber-100 text-amber-950 ring-1 ring-inset ring-amber-400' : t.pubblicato ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-900 ring-1 ring-inset ring-blue-200'}`}>
+                      className={`block rounded-md px-1 py-1 leading-tight ${riga.nuova ? 'bg-violet-100 text-violet-900' : 'ore_straordinario' in t && Number(t.ore_straordinario ?? 0) > 0 ? 'bg-amber-100 text-amber-950 ring-1 ring-inset ring-amber-400' : t.pubblicato ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-900 ring-1 ring-inset ring-blue-200'}`}>
                       <span className="block font-semibold tabular-nums">{t.inizio.replace(/:00$/, '')}–{t.fine.replace(/:00$/, '')}</span>
-                      <span className="block text-[10px] opacity-80">{fmt(ore)} h{'straordinario' in t && t.straordinario ? ' · straord.' : ''}</span>
+                      <span className="block text-[10px] opacity-80">{fmt(ore)} h{'ore_straordinario' in t && Number(t.ore_straordinario ?? 0) > 0 ? ` · ${Number(t.ore_straordinario) >= ore - 1e-9 ? 'straord.' : `${fmt(Number(t.ore_straordinario))} straord.`}` : ''}</span>
                     </span>
                     {f && <span className="block mt-0.5 text-[10px] text-amber-800">{fTesto}</span>}
                   </>
@@ -979,7 +979,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                         {righe.map((riga) => {
                           const r = pianoAperto.riepilogo.persone?.[riga.id];
                           const fatte = riga.turni.reduce((a, x) => a + oreDi(x), 0);
-                          const segnate = riga.turni.filter((x) => 'straordinario' in x && x.straordinario).reduce((a, x) => a + oreDi(x), 0);
+                          const segnate = riga.turni.reduce((a, x) => a + ('ore_straordinario' in x ? Number(x.ore_straordinario ?? 0) : 0), 0);
                           const ordinarie = fatte - segnate;
                           const suoFerie = ferieMese.filter((x) => x.employee_id === riga.id).sort((a, b) => a.data.localeCompare(b.data));
                           const oreFerie = suoFerie.reduce((a, x) => a + x.ore, 0);
@@ -1128,8 +1128,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             apre={g?.apre ?? 600} chiude={g?.chiude ?? 1200} regole={regolePiano}
             conto={{
               daLavorare: daLavorareOra(editorMese.employeeId),
-              ordinarieAltri: altri.filter((x) => !x.straordinario).reduce((a, x) => a + ore(x), 0),
-              straordinarioAltri: altri.filter((x) => x.straordinario).reduce((a, x) => a + ore(x), 0),
+              ordinarieAltri: altri.reduce((a, x) => a + ore(x) - Number(x.ore_straordinario ?? 0), 0),
+              straordinarioAltri: altri.reduce((a, x) => a + Number(x.ore_straordinario ?? 0), 0),
             }}
             onClose={() => setEditorMese(null)}
             onSalvato={() => { setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
