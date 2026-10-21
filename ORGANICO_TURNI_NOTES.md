@@ -414,3 +414,13 @@ Decisione di Patrizio («la terza»): nessuna ora pagata senza lavoro.
    feriali senza turno, una per settimana, e il resto come permesso F02 a ore. Dal riepilogo «Proponi ferie» crea una
    `leave_requests` «inviata», titolo «Proposta dal piano del mese»; la decide la HR in Approvazioni ferie.
 3. Nel riepilogo «da lavorare» è dal vivo: contratto del mese meno ferie e permessi di adesso.
+
+
+## Dove mettere le ore che avanzano (21/10/2026)
+
+`suggerisciFinestre` (pianoMensile.ts): per la persona con ore non usate, le 3 finestre migliori del mese (una per
+giorno) dove ingressi MODA attesi / persone già in negozio è più alto, nei giorni in cui può lavorare e non ha turni,
+lunghe quanto le ore che restano (minimo e massimo del turno). Dal riepilogo «Dove metterle»: la HR sceglie «ore di
+contratto» (contano come ordinarie, riducono le non usate) o «straordinario» (`shifts.straordinario`). Il motore
+resta settimanale; lo spostamento di ore tra settimane è una scelta della HR, non del calcolo (Patrizio: «così abbiamo
+tutte e due le possibilità»).

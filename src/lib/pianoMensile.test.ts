@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, assegnaWeekendLiberi,
-  personeMinime, pianificaMese, usaOreResidue, proponiFerie, type RigaTraffico,
+  personeMinime, pianificaMese, usaOreResidue, proponiFerie, suggerisciFinestre, type RigaTraffico,
 } from './pianoMensile';
 import { costruisciGiorni, giorniDellaSettimana, lunediDi, oreLavorate } from './turni';
 
@@ -221,3 +221,19 @@ describe('le ore di contratto che avanzano', () => {
   });
 });
 function date30() { return Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, '0')}`); }
+
+describe('dove mettere le ore che avanzano', () => {
+  it('propone il giorno e le ore con più ingressi per persona (es. Black Friday pomeriggio)', () => {
+    const date = date30();
+    const giorni = costruisciGiorni(date, orari, [], []);
+    const atteso = new Map(date.map((d) => [d, Array.from({ length: 24 }, (_, h) => (d === '2026-11-27' ? (h >= 15 ? 80 : 30) : 10))]));
+    // il 27 c'e' gia' una persona la mattina
+    const turni = [{ employeeId: 'x', data: '2026-11-27', inizio: '10:00', fine: '15:00', pausaMinuti: 0 }];
+    const f = suggerisciFinestre({ giorni, atteso, turni, possibile: (d) => d !== '2026-11-03', ore: 5.7 });
+    expect(f).toHaveLength(3);
+    expect(f[0]).toMatchObject({ data: '2026-11-27', ore: 5.5, fine: '20:00' });
+    expect(f.every((x) => x.data !== '2026-11-03')).toBe(true);
+    // poche ore: il turno resta di almeno 4 ore
+    expect(suggerisciFinestre({ giorni, atteso, turni, possibile: () => true, ore: 2.9 })[0].ore).toBe(4);
+  });
+});
