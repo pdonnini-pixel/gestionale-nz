@@ -82,7 +82,7 @@ Nata dalla PR #668 (14/10/2026), che lavorando sulle fatture d'acquisto aveva fa
 
 ---
 
-## 🗓️ REGOLA GRANITICA — TURNI: FABBISOGNO DA MODA E TURNO MINIMO DI 4 ORE (fissata da Patrizio il 20/10/2026, NON NEGOZIABILE)
+## 🗓️ REGOLA GRANITICA — TURNI: FABBISOGNO DA MODA, TURNO MINIMO DI 4 ORE, NEGOZIO MAI SCOPERTO, PAUSA NON PAGATA (fissata da Patrizio il 20-21/10/2026, NON NEGOZIABILE)
 
 Vale per **ogni** calcolo di turni: piano del mese, piano settimanale, **simulazioni**, prove e misure fatte in sessione (`src/lib/pianoMensile.ts`, `src/lib/turni.ts`, `src/components/PianiMensili.tsx`, `PianoTurni.tsx`).
 
@@ -91,7 +91,11 @@ Vale per **ogni** calcolo di turni: piano del mese, piano settimanale, **simulaz
    - Nata il 20/10/2026: la prima simulazione (PR #690) usava il fabbisogno fisso e dava numeri diversi da quelli del piano vero. Patrizio: «deve usare MODA e le regole che ci siamo dati».
 2. **Il turno minimo nella giornata è di 4 ore.** Nessun turno proposto (proposta, ritocco delle scoperture, accorciamento, riserva a chiamata, straordinari) scende sotto le 4 ore: un pezzo da un'ora occupa un giorno di lavoro e lascia ore di contratto non usate. Il minimo **si cambia solo nelle regole del negozio** («Regole dei turni» → «Turno minimo nella giornata», `outlet_shift_rules.turno_min_ore`); senza regole salvate vale `REGOLE_DEFAULT.turnoMinOre = 4`. Mai abbassarlo nel codice o in una simulazione. Solo i turni messi a mano possono essere più corti.
 
-Le altre regole dei turni restano quelle di `ORGANICO_TURNI_NOTES.md` (pausa di 30' da 6 e da 8 ore aggiunta alla presenza, al massimo 6 giorni su 7, un sabato o una domenica liberi a rotazione solo quando possibile, mese chiuso all'arrivo del cedolino).
+3. **Comanda l'orario: il negozio non è mai scoperto** (Patrizio, 21/10/2026). Ogni mezz'ora di apertura ha almeno una persona. I soli giorni chiusi sono quelli del calendario (orari tipo, «Giorni chiusi e orari diversi») e quelli prima di `outlets.opening_date`: il motore non decide mai da solo che un giorno nessuno lavora. MODA viene sopra al minimo di una persona: dove il traffico chiede la seconda o la terza persona e le ore non bastano, la pagina lo **evidenzia** come personale mancante (riga «In negozio»), non lo nasconde. Nel motore: `copriOrarioMinimo()` in `pianoMensile.ts`; il sabato o la domenica liberi saltano se servono a non lasciare il negozio vuoto.
+4. **La pausa non è lavoro e non si paga** (Patrizio, 21/10/2026, sostituisce la 318): almeno 30' da 6 ore lavorate, **un'ora da 8**. 7 ore di presenza = 6 lavorate + 30'; 9 ore di presenza = 8 lavorate + 1 ora. Vale per motore, editor dei turni (impone la pausa minima, `pausaMinimaPerPresenza`) e conteggi di contratto e straordinario. Migration 325.
+5. **Ore del mese da contratto** = ore settimanali × giorni del mese / 7 (40 ore su 6 giorni a novembre: 30 giorni meno il riposo settimanale = 171,4 ore), poi meno ferie e permessi del mese.
+
+Le altre regole dei turni restano quelle di `ORGANICO_TURNI_NOTES.md` (al massimo 6 giorni su 7, un sabato o una domenica liberi a rotazione solo quando possibile, mese chiuso all'arrivo del cedolino).
 
 ---
 

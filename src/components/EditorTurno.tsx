@@ -9,7 +9,7 @@ import { Modal } from './ui/Modal';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import { formattaDataBreve } from '../lib/organico';
-import { NOMI_GIORNO_BREVI, oreLavorate, pausaPer, type RegoleTurni } from '../lib/turni';
+import { NOMI_GIORNO_BREVI, minuti, oreLavorate, pausaMinimaPerPresenza, pausaPer, type RegoleTurni } from '../lib/turni';
 
 export type TurnoModificabile = {
   id: string; inizio: string; fine: string; pausa_minuti: number;
@@ -49,11 +49,12 @@ export default function EditorTurno({
   const [oreStraordScritte, setOreStraordScritte] = useState<string | null>(oreStraordPrima > 0 ? String(oreStraordPrima) : null);
   const [salvo, setSalvo] = useState(false);
 
-  const ore = oreLavorate({ inizio, fine, pausaMinuti: pausa });
+  // La pausa non e' mai lavoro (Patrizio, 21/10/2026): 30' da 6 ore lavorate, un'ora
+  // da 8. Si impone la minima per la presenza scritta; la si puo' allungare, non accorciare.
+  const pausaMinima = fine > inizio ? pausaMinimaPerPresenza(minuti(fine) - minuti(inizio), regole) : 0;
+  const pausaVera = Math.max(pausa, pausaMinima);
+  const ore = oreLavorate({ inizio, fine, pausaMinuti: pausaVera });
   const errore = fine <= inizio ? 'La fine viene prima dell’inizio.' : ore <= 0 ? 'Turno vuoto.' : null;
-  // Pausa prevista dalle regole (30' da 6 ore lavorate, anche da 8, in aggiunta alle ore): si
-  // suggerisce, non si impone, perche' il turno messo a mano e' una scelta.
-  const pausaDovuta = errore ? 0 : pausaPer(ore * 60, regole);
   const giornoSett = new Date(`${data}T00:00:00Z`).getUTCDay() || 7;
 
   // Come cambia il mese della persona con questo turno.
@@ -68,7 +69,7 @@ export default function EditorTurno({
   const salva = async () => {
     if (errore) return;
     setSalvo(true);
-    const riga = { inizio, fine, pausa_minuti: pausa, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord };
+    const riga = { inizio, fine, pausa_minuti: pausaVera, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord };
     const { error } = turno
       ? await supabase.from('shifts').update(riga).eq('id', turno.id)
       : await supabase.from('shifts').insert([{ ...riga, company_id: companyId, outlet_id: outletId, employee_id: employeeId, data, stato: 'bozza', plan_id: planId }]);
@@ -96,11 +97,13 @@ export default function EditorTurno({
           <label className="text-xs font-semibold text-slate-600">Fine<input type="time" step={1800} value={fine} onChange={(e) => setFine(e.target.value)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
           <label className="text-xs font-semibold text-slate-600">Pausa (min)<input type="number" min={0} max={180} step={15} value={pausa} onChange={(e) => setPausa(Number(e.target.value) || 0)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
         </div>
-        <p className="text-sm text-slate-600">{errore ?? `${fmt(ore)} ore di lavoro.`} Il turno diventa «messo a mano»: il ricalcolo non lo cambia.</p>
-        {pausa < pausaDovuta && (
+        <p className="text-sm text-slate-600">
+          {errore ?? <>Presenza {fmt((minuti(fine) - minuti(inizio)) / 60)} ore: <b>{fmt(ore)} ore di lavoro</b> e {pausaVera} minuti di pausa, che non si pagano.</>}
+          {' '}Il turno diventa «messo a mano»: il ricalcolo non lo cambia.
+        </p>
+        {pausa < pausaMinima && !errore && (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            Con {fmt(ore)} ore di lavoro la regola prevede {pausaDovuta} minuti di pausa.{' '}
-            <button type="button" onClick={() => setPausa(pausaDovuta)} className="font-semibold underline">Metti {pausaDovuta} minuti</button>
+            La regola vuole almeno {pausaMinima} minuti di pausa (30 da 6 ore di lavoro, un'ora da 8): li conto io, la pausa scritta non basta.
           </p>
         )}
 

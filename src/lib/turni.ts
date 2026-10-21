@@ -40,11 +40,24 @@ export const REGOLE_DEFAULT: RegoleTurni = {
   pausaOltreOre: 6,
   pausaMinuti: 30,
   pausaLungaOltreOre: 8,
-  pausaLungaMinuti: 30,
+  pausaLungaMinuti: 60,
   giorniLavoroMax: 6,
 };
 
-/** Pausa (minuti) per un turno di `lavoroMinuti` lavorati: regola aziendale (Patrizio, 20/10/2026): 30 minuti da 6 ore e anche da 8, in aggiunta alle ore lavorate (8 ore = 8 ore e mezza di presenza). */
+/**
+ * Pausa (minuti) per un turno di `lavoroMinuti` lavorati, in aggiunta alle ore
+ * lavorate e mai pagata: 30 minuti da 6 ore, un'ora da 8 (Patrizio, 21/10/2026:
+ * 7 ore di presenza = 6 lavorate e mezz'ora di pausa; 9 di presenza = 8 e un'ora).
+ */
+export function pausaMinimaPerPresenza(presenzaMinuti: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  // La pausa piu' corta che rispetta la regola per le ore che restano di lavoro.
+  for (const p of [0, regole.pausaMinuti, regole.pausaLungaMinuti].sort((a, b) => a - b)) {
+    if (pausaPer(presenzaMinuti - p, regole) <= p) return p;
+  }
+  return regole.pausaLungaMinuti;
+}
+
+/** Pausa (minuti) per un turno di `lavoroMinuti` lavorati: 30 da 6 ore, 60 da 8 (vedi `pausaMinimaPerPresenza`). */
 export function pausaPer(lavoroMinuti: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
   if (lavoroMinuti >= regole.pausaLungaOltreOre * 60) return regole.pausaLungaMinuti;
   if (lavoroMinuti >= regole.pausaOltreOre * 60) return regole.pausaMinuti;
@@ -133,6 +146,8 @@ export interface GiornoPiano {
   evento?: string | null;
   /** in questo giorno, se mancano persone, si chiedono straordinari */
   straordinari?: boolean;
+  /** persone che MODA chiederebbe in ogni mezz'ora, senza il tetto delle persone disponibili quel giorno: la differenza con chi c'e' e' personale che manca */
+  esigenza?: number[];
 }
 
 export interface PersonaTurni {
@@ -224,8 +239,13 @@ export function costruisciGiorni(
   fasce: FasciaFabbisogno[],
   speciali: GiornoSpeciale[],
   eventi: EventoNegozio[] = [],
+  /** data di apertura del negozio: prima e' chiuso, nessuno da mettere in turno */
+  apertura: string | null = null,
 ): GiornoPiano[] {
   return date.map((data) => {
+    if (apertura && data < apertura) {
+      return { data, giorno: giornoIso(data), chiuso: true, apre: 0, chiude: 0, fabbisogno: [], nota: `Il negozio apre il ${apertura.split('-').reverse().join('/')}`, speciale: false, evento: null, straordinari: false };
+    }
     const ev = eventiDelGiorno(eventi, data);
     const evento = ev.length ? ev.map((e) => e.nome).join(', ') : null;
     const straordinari = ev.some((e) => e.straordinari);

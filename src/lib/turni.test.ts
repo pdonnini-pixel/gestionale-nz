@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer,
+  costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer, pausaMinimaPerPresenza,
   scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
 } from './turni';
 
@@ -46,6 +46,12 @@ describe('costruisciGiorni', () => {
     expect(ven.fabbisogno[ven.fabbisogno.length - 1]).toBe(1);
   });
 
+  it('prima della data di apertura il negozio è chiuso', () => {
+    const giorni = costruisciGiorni(settimana, orari, fasce, [], [], settimana[3]);
+    expect(giorni.slice(0, 3).every((g) => g.chiuso && g.fabbisogno.length === 0)).toBe(true);
+    expect(giorni[3].chiuso).toBe(false);
+  });
+
   it('negozio senza orari: chiuso, niente da coprire', () => {
     const giorni = costruisciGiorni(settimana, [], fasce, []);
     expect(giorni.every((g) => g.chiuso)).toBe(true);
@@ -68,7 +74,7 @@ describe('proponiSettimana', () => {
         expect(oreLavorate(t)).toBeGreaterThanOrEqual(1);
         expect(oreLavorate(t)).toBeLessThanOrEqual(8);
         expect(t.inizio >= '10:00' && t.fine <= '20:00').toBe(true);
-        expect(t.pausaMinuti).toBe(oreLavorate(t) >= 6 ? 30 : 0);
+        expect(t.pausaMinuti).toBe(oreLavorate(t) >= 8 ? 60 : oreLavorate(t) >= 6 ? 30 : 0);
       }
     }
   });
@@ -138,20 +144,28 @@ describe('scopertureDelGiorno', () => {
 });
 
 describe('pausaPer', () => {
-  it('30 minuti da 6 ore lavorate e anche da 8, in aggiunta alle ore', () => {
+  it('30 minuti da 6 ore lavorate, un\'ora da 8, in aggiunta alle ore (Patrizio, 21/10/2026)', () => {
     expect(pausaPer(5.5 * 60)).toBe(0);
     expect(pausaPer(6 * 60)).toBe(30);
     expect(pausaPer(7.5 * 60)).toBe(30);
-    expect(pausaPer(8 * 60)).toBe(30);
+    expect(pausaPer(8 * 60)).toBe(60);
   });
 
-  it('un turno da 8 ore occupa 8 ore e mezza di negozio; se non ci sta si accorcia', () => {
+  it('la pausa minima dalla presenza: 7 ore = 6 di lavoro e 30\', 9 ore = 8 e un\'ora', () => {
+    expect(pausaMinimaPerPresenza(7 * 60)).toBe(30);
+    expect(pausaMinimaPerPresenza(9 * 60)).toBe(60);
+    expect(pausaMinimaPerPresenza(5 * 60)).toBe(0);
+    // 8 ore e mezza di presenza: con 30' sarebbero 8 ore di lavoro (che vogliono un'ora), quindi un'ora e 7,5 di lavoro
+    expect(pausaMinimaPerPresenza(8.5 * 60)).toBe(60);
+  });
+
+  it('un turno da 8 ore occupa 9 ore di negozio; se non ci sta si accorcia', () => {
     const giorno = (chiude: string) => costruisciGiorni(['2026-10-19'], [{ giorno: 1, chiuso: false, apre: '10:00', chiude }], [{ giorno: 1, dalle: '10:00', alle: chiude, persone: 1 }], []);
-    // 10:00-18:30: 8 ore di lavoro + 30 minuti di pausa, ci sta giusto
-    const pieno = proponiSettimana({ giorni: giorno('18:30'), persone: [persona('a', 8)] });
+    // 10:00-19:00: 8 ore di lavoro + un'ora di pausa, ci sta giusto
+    const pieno = proponiSettimana({ giorni: giorno('19:00'), persone: [persona('a', 8)] });
     expect(pieno.turni).toHaveLength(1);
     expect(oreLavorate(pieno.turni[0])).toBe(8);
-    expect(pieno.turni[0]).toMatchObject({ inizio: '10:00', fine: '18:30', pausaMinuti: 30 });
+    expect(pieno.turni[0]).toMatchObject({ inizio: '10:00', fine: '19:00', pausaMinuti: 60 });
     // 10:00-18:00: 8 ore con la pausa non stanno, 7,5 ore + 30 minuti si'
     const corto = proponiSettimana({ giorni: giorno('18:00'), persone: [persona('a', 8)] });
     expect(oreLavorate(corto.turni[0])).toBe(7.5);

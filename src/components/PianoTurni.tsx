@@ -92,7 +92,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       setHaFabbisogno(fasce.some((x) => x.persone > 0));
       setGiorni(costruisciGiorni(date, orari, fasce,
         (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [],
-        eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId)));
+        eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId), dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null));
       setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
       // Si vedono i turni del piano scelto per quel mese, oppure quelli fatti settimana per settimana.
       setTurni(((t.data as TurnoDb[]) ?? [])
