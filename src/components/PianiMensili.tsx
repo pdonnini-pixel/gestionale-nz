@@ -365,20 +365,30 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     carica();
   };
 
+  // Un piano si toglie intero, anche con turni messi a mano o segnati straordinario
+  // (Patrizio, 21/10/2026), finche' non ha turni pubblicati: quelli il negozio li ha gia' visti.
   const togli = async (p: Piano) => {
-    if (!window.confirm(`Togliere la bozza «${p.nome}»? I suoi turni proposti spariscono; il piano si può rifare.`)) return;
     setLavoro(p.id);
     try {
-      const a = await supabase.from('shifts').delete().eq('plan_id', p.id).eq('origine', 'proposta').eq('stato', 'bozza');
+      const pub = await supabase.from('shifts').select('id', { count: 'exact', head: true }).eq('plan_id', p.id).eq('stato', 'pubblicato');
+      if (pub.error) throw pub.error;
+      if ((pub.count ?? 0) > 0) {
+        toast({ type: 'error', message: `«${p.nome}» ha ${pub.count} turni già pubblicati al negozio: non si toglie. Cambia i turni dal calendario.` });
+        return;
+      }
+      const cosa = p.simulazione ? 'la simulazione' : p.stato === 'scelto' ? 'il piano che vale per il mese' : 'la bozza';
+      if (!window.confirm(`Togliere ${cosa} «${p.nome}»? Spariscono tutti i suoi turni, anche quelli messi a mano. Il piano si può rifare.`)) return;
+      const a = await supabase.from('shifts').delete().eq('plan_id', p.id).neq('stato', 'pubblicato');
       if (a.error) throw a.error;
       const b = await supabase.from('shift_plan_weekend_off').delete().eq('plan_id', p.id);
       if (b.error) throw b.error;
-      const c = await supabase.from('shift_plans').delete().eq('id', p.id).eq('stato', 'bozza');
+      const c = await supabase.from('shift_plans').delete().eq('id', p.id);
       if (c.error) throw c.error;
       if (aperto === p.id) setAperto(null);
+      toast({ type: 'success', message: `Tolto «${p.nome}».` });
       await carica();
     } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Bozza non tolta (un turno messo a mano non si cancella).' });
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Piano non tolto.' });
     } finally {
       setLavoro(null);
     }
@@ -758,8 +768,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                       <button type="button" onClick={() => scegli(p.id)} disabled={!!lavoro} className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50">Scegli questo</button>
                     )}
                     <span className="text-xs text-slate-500">{selezionato ? 'aperto sotto' : 'clicca per aprirlo'}</span>
-                    {puoScrivere && p.stato === 'bozza' && !chiuso && (
-                      <button type="button" aria-label="Togli la bozza" title="Togli" onClick={() => togli(p)} disabled={!!lavoro} className="ml-auto p-1.5 rounded-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"><Trash2 size={14} /></button>
+                    {puoScrivere && !chiuso && (p.stato === 'bozza' || eHr) && (
+                      <button type="button" aria-label={p.simulazione ? 'Togli la simulazione' : p.stato === 'scelto' ? 'Togli il piano' : 'Togli la bozza'} title="Togli"
+                        onClick={() => togli(p)} disabled={!!lavoro} className="ml-auto p-1.5 rounded-lg text-slate-400 hover:bg-red-50 hover:text-red-700"><Trash2 size={14} /></button>
                     )}
                   </div>
                 </div>

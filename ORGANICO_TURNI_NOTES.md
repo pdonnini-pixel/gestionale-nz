@@ -454,3 +454,11 @@ turno aveva (tutte, per un turno nuovo), correggibili. Riepilogo: ordinarie = or
   «nessun libero» e «un sabato o una domenica»): 0 mezz'ore vuote in tutti i negozi, 0 pause sotto la regola,
   0 turni fuori 4-8 ore, mai più di 6 giorni. Roma Soratte apre il 05/11: prima è chiusa.
 - I piani di novembre salvati prima di questa versione vanno ricreati (avevano buchi e pause di 30' a 8 ore).
+
+## Un piano si toglie intero (21/10/2026, migration 326)
+
+Patrizio: «mi deve far cancellare sempre le simulazioni anche se già modificate e manca un cestino». Il cestino della
+scheda toglie bozze e simulazioni con tutti i turni (anche messi a mano o straordinario); il piano scelto lo toglie
+l'HR. `shifts_no_hard_delete` ora lascia togliere i turni di un piano (`plan_id` non nullo) che non sono pubblicati;
+restano protetti i turni pubblicati e quelli messi a mano fuori dai piani. Un piano con turni pubblicati non si toglie
+(la pagina lo dice prima, e comunque lo blocca la chiave esterna). Mese chiuso: `trg_shifts_mese_chiuso`.
