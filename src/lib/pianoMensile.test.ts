@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, assegnaWeekendLiberi,
-  personeMinime, pianificaMese, usaOreResidue, proponiFerie, suggerisciFinestre, type RigaTraffico,
+  personeMinime, pianificaMese, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
 } from './pianoMensile';
 import { costruisciGiorni, giorniDellaSettimana, lunediDi, oreLavorate } from './turni';
 
@@ -212,12 +212,29 @@ describe('le ore di contratto che avanzano', () => {
   it('quello che resta diventa una proposta di ferie: giornate intere e un permesso a ore', () => {
     const date = date30();
     const p = proponiFerie({ ore: 14, oreSettimana: 30, date, possibile: () => true });
-    expect(p.filter((x) => x.tipo === 'giornata').map((x) => x.ore)).toEqual([6, 6]);
-    expect(p.find((x) => x.tipo === 'ore')).toMatchObject({ voce: 'F02', ore: 2 });
+    // 30 ore su 6 giorni: una giornata vale 5 ore (regola a giornata, 21/10/2026)
+    expect(p.filter((x) => x.tipo === 'giornata').map((x) => x.ore)).toEqual([5, 5]);
+    expect(p.find((x) => x.tipo === 'ore')).toMatchObject({ voce: 'F02', ore: 4 });
     expect(p.every((x) => new Date(`${x.data}T00:00:00Z`).getUTCDay() >= 1 && new Date(`${x.data}T00:00:00Z`).getUTCDay() <= 5)).toBe(true);
     // distribuite su settimane diverse
     expect(new Set(p.map((x) => lunediDi(x.data))).size).toBe(3);
     expect(proponiFerie({ ore: 0.2, oreSettimana: 30, date, possibile: () => true })).toEqual([]);
+  });
+});
+describe('ore di contratto a giornata', () => {
+  it('novembre 2026: 26 giorni lavorativi, 40 ore = 173,3; una giornata di ferie vale 6,67', () => {
+    expect(oreGiornata(40)).toBeCloseTo(6.667, 2);
+    expect(oreFerieGiorno('giornata', 8, 40)).toBeCloseTo(6.667, 2);
+    expect(oreFerieGiorno('mezza', 4, 40)).toBeCloseTo(3.333, 2);
+    expect(oreFerieGiorno('ore', 2, 40)).toBe(2);
+    const settimane = [...new Set(date30().map(lunediDi))];
+    const nelMese = (d: string) => d.startsWith('2026-11');
+    const giorni = settimane.reduce((a, l) => {
+      const date = giorniDellaSettimana(l);
+      return a + giorniLavorativiSettimana(date, nelMese, date.every(nelMese));
+    }, 0);
+    expect(giorni).toBe(26);
+    expect(giorni * oreGiornata(40)).toBeCloseTo(173.33, 1);
   });
 });
 function date30() { return Array.from({ length: 30 }, (_, i) => `2026-11-${String(i + 1).padStart(2, '0')}`); }

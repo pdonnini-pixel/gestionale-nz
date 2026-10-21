@@ -27,7 +27,7 @@ import {
   REGOLE_DEFAULT, minuti, type EventoNegozio, type RegoleTurni, type Turno,
 } from '../lib/turni';
 import {
-  pianificaMese, proponiFerie, suggerisciFinestre, storicoTraffico, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
+  pianificaMese, proponiFerie, oreFerieGiorno, suggerisciFinestre, storicoTraffico, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
   type EsitoPianoMese, type FeriaProposta, type FinestraSuggerita, type PersonaPiano, type RegolaWeekend, type RigaTraffico,
 } from '../lib/pianoMensile';
 
@@ -108,7 +108,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [caricamento, setCaricamento] = useState(true);
   const [sim, setSim] = useState<Simulazione | null>(null);
   const [simRegola, setSimRegola] = useState<RegolaWeekend>('nessuno');
-  const [ferieMese, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string }[]>([]);
+  const [ferieRegistrate, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string }[]>([]);
   const [giorniMax, setGiorniMax] = useState(6);
   // Giorni in cui ognuno puo' lavorare (employee_availability): valgono per piani e simulazioni.
   const [disponibilita, setDisponibilita] = useState<Map<string, number[]>>(new Map());
@@ -183,6 +183,13 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     .filter((x) => x.perGiorno.some((p) => p.outletId === outletId && p.stato === 'in_servizio'))
     .sort((a, b) => nomePersona(a.scheda).localeCompare(nomePersona(b.scheda), 'it')), [dati, dateMese, outletId]);
 
+  // Ferie e permessi in ore secondo la regola a giornata (Patrizio, 21/10/2026):
+  // una giornata di ferie vale ore settimanali / 6, un permesso a ore le sue ore.
+  const ferieMese = useMemo(() => {
+    const oreSett = new Map(persone.map(({ scheda, perGiorno }) => [scheda.id, perGiorno.find((p) => p.outletId === outletId && p.stato === 'in_servizio')?.ore ?? null]));
+    return ferieRegistrate.map((x) => ({ ...x, ore: oreFerieGiorno(x.tipo, Number(x.ore), oreSett.get(x.employee_id) ?? null, regolePiano) }));
+  }, [ferieRegistrate, persone, outletId, regolePiano]);
+
   const oreOggi = (perGiorno: ReturnType<typeof personaAllaData>[]) => perGiorno.find((p) => p.outletId === outletId && p.stato === 'in_servizio')?.ore ?? null;
   const numero = (v: string | undefined) => {
     const n = Number(String(v ?? '').replace(',', '.'));
@@ -253,7 +260,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             // i giorni in cui non e' disponibile (es. Falchi: solo sabato e domenica)
             ...tutte.filter((d) => !puoLavorareIl(disponibilita, scheda.id, d)),
           ]),
-          oreFerie: new Map(suoFerie.map((x) => [x.data, Number(x.ore)])),
+          oreFerie: new Map(suoFerie.map((x) => [x.data, oreFerieGiorno(x.tipo, Number(x.ore), oreSett, regole)])),
+          // Chi entra o esce a meta' mese conta solo i giorni con il contratto.
+          inServizio: new Set(dateMese.filter((d, i) => perGiorno[i].outletId === outletId && perGiorno[i].stato === 'in_servizio')),
           saldoOre: saldi.get(scheda.id) ?? 0,
         };
       });
@@ -266,6 +275,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           nonDisponibile: new Set(tutte.filter((d) => d < dal
             || (n.soloWeekend && ![0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay())))),
           oreFerie: new Map(),
+          inServizio: new Set(dateMese.filter((d) => d >= dal)),
           saldoOre: 0,
         });
       }
@@ -413,7 +423,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const r = pianoAperto?.riepilogo.persone?.[employeeId];
     if (!r || r.riserva) return null;
     const ferieOra = ferieMese.filter((x) => x.employee_id === employeeId).reduce((a, x) => a + x.ore, 0);
-    // Contratto del mese (ore settimanali x giorni / 7) meno le ferie di adesso.
+    // Contratto del mese (giorni lavorativi x ore settimanali / 6) meno le ferie di adesso.
     if (r.contrattoMese != null) return Math.max(0, r.contrattoMese - ferieOra);
     if (r.ferie == null) return r.contratto;
     return Math.max(0, r.contratto + r.ferie - ferieOra);
@@ -980,7 +990,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                             <tbody>
                               {righe.map((riga) => {
                                 const oreSett = riga.turni.filter((x) => nelMese.includes(x.data)).reduce((a, x) => a + oreDi(x), 0);
-                                const quota = riga.oreSett != null ? riga.oreSett * nelMese.length / 7 : null;
+                                // quota della settimana: intera = le ore settimanali; a cavallo del mese = giorni del mese x ore / 6 (regola a giornata)
+                                const quota = riga.oreSett != null ? (nelMese.length >= 7 ? riga.oreSett : riga.oreSett * nelMese.length / 6) : null;
                                 return (
                                   <tr key={riga.id} className={riga.nuova ? 'bg-violet-50/40' : ''}>
                                     <td className={`px-3 py-1.5 border-b border-slate-100 ${riga.nuova ? 'text-violet-900' : 'text-slate-900'} font-medium`}>

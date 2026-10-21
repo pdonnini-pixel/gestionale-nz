@@ -462,3 +462,18 @@ scheda toglie bozze e simulazioni con tutti i turni (anche messi a mano o straor
 l'HR. `shifts_no_hard_delete` ora lascia togliere i turni di un piano (`plan_id` non nullo) che non sono pubblicati;
 restano protetti i turni pubblicati e quelli messi a mano fuori dai piani. Un piano con turni pubblicati non si toglie
 (la pagina lo dice prima, e comunque lo blocca la chiave esterna). Mese chiuso: `trg_shifts_mese_chiuso`.
+
+## Ore di contratto a giornata (21/10/2026)
+
+Regola di Patrizio: ogni contratto vale a ore per giornata lavorativa, ore settimanali / 6, e anche le ferie
+consumano quelle ore. Sostituisce «ore settimanali × giorni del mese / 7» (sezione sopra).
+- `giorniLavorativiSettimana`: date del mese con il contratto e il negozio aperto, meno 1 riposo solo nelle settimane
+  intere (tutte nel mese e tutte con il contratto). Novembre 2026: 26 giorni; 40 h = 173,3.
+- `PersonaPiano.inServizio`: giorni con il contratto nel negozio (chi è assente non ne ha). Roma Soratte: contratti dal
+  02/11, turni dal 05/11 (`opening_date`): i giorni a negozio chiuso non contano.
+- `oreFerieGiorno`: nel piano una giornata di ferie toglie ore settimanali / 6, mezza la metà, un permesso a ore le sue
+  ore, qualunque valore sia registrato (i moduli inseriti valgono 8 h per 40 h, base 5 giorni). Il modulo Ferie e
+  permessi (saldi dal tabulato, `rateiParse`) resta com'è: la regola vale per i piani.
+- `proponiFerie`: giornate da ore settimanali / 6.
+- Misura del 21/10/2026, novembre NZ: Buratta 173,3 − 6,7 = 166,7; Rachele (32 h, ferie 11-15/11) 138,7 − 26,7 = 112;
+  0 mezz'ore vuote in tutti i negozi, 0 turni fuori 4-8 ore.
