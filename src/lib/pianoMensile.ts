@@ -574,14 +574,15 @@ export interface FeriaProposta { data: string; voce: 'F01' | 'F02'; tipo: 'giorn
 
 /**
  * Le ore che restano dopo `usaOreResidue` diventano una proposta di ferie da
- * concordare con la dipendente: giornate intere (ore settimanali / 5) di ferie
+ * concordare con la dipendente: giornate intere (ore settimanali / 6, la regola
+ * a giornata) di ferie
  * nei feriali in cui non lavora, distribuite sulle settimane, e il resto come
  * permesso a ore. Si propone soltanto: la decide la responsabile HR.
  */
 export function proponiFerie(args: {
   ore: number; oreSettimana: number; date: string[]; possibile: (data: string) => boolean;
 }): FeriaProposta[] {
-  const giornata = Math.round((args.oreSettimana / 5) * 100) / 100;
+  const giornata = Math.round(oreGiornata(args.oreSettimana) * 100) / 100;
   if (args.ore < 1 || giornata <= 0) return [];
   // feriali (lun-ven) in cui la persona non lavora, a giro sulle settimane
   const liberi = args.date.filter((d) => giornoIso(d) <= 5 && args.possibile(d));
@@ -610,7 +611,38 @@ export interface PersonaPiano {
   nonDisponibile: Set<string>;
   /** ore di ferie e permessi approvati per data (si tolgono dalle ore da lavorare) */
   oreFerie: Map<string, number>;
+  /** giorni del mese con il contratto in questo negozio (assente = nessuno); vuoto = tutti */
+  inServizio?: Set<string>;
   saldoOre?: number;
+}
+
+// ── Ore di contratto a giornata (Patrizio, 21/10/2026) ────────────────────
+// Ogni contratto vale a ore per giornata lavorativa: ore settimanali diviso i
+// giorni di lavoro della settimana (6). Una giornata di ferie consuma le stesse
+// ore, una mezza giornata la meta', un permesso a ore le sue ore.
+
+/** Ore di una giornata di lavoro: 40 ore su 6 giorni = 6,67. */
+export function oreGiornata(oreSettimana: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  return oreSettimana / regole.giorniLavoroMax;
+}
+
+/** Ore che una richiesta di ferie o permesso toglie in quel giorno. */
+export function oreFerieGiorno(tipo: string, oreScritte: number, oreSettimana: number | null, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  if (tipo === 'ore' || !oreSettimana) return oreScritte;
+  const g = oreGiornata(oreSettimana, regole);
+  return tipo === 'giornata' ? g : g / 2;
+}
+
+/**
+ * Giorni lavorativi del contratto in una settimana (lunedi'-domenica), contando
+ * solo le date `valide` (nel mese, negozio aperto, contratto in corso). Il
+ * riposo settimanale si toglie solo dalle settimane intere: una settimana tutta
+ * dentro il mese e tutta con il contratto. Novembre 2026: 30 giorni, 4
+ * settimane intere, 26 giorni lavorativi.
+ */
+export function giorniLavorativiSettimana(date: string[], valide: (d: string) => boolean, intera: boolean): number {
+  const n = date.filter(valide).length;
+  return Math.max(0, n - (intera && n > 0 ? 1 : 0));
 }
 
 export interface EsitoPianoMese {
@@ -624,7 +656,7 @@ export interface EsitoPianoMese {
     contratto: number; pianificate: number; straordinario: number; weekendLiberi: number; riserva: boolean;
     /** ore di ferie e permessi del mese (gia' tolte da `contratto`) */
     ferie?: number;
-    /** contratto del mese prima delle ferie: ore settimanali x giorni del mese / 7 */
+    /** contratto del mese prima delle ferie: giorni lavorativi del mese x ore settimanali / 6 */
     contrattoMese?: number;
     /** ore messe nelle settimane a cavallo del mese oltre la quota di questo mese, per non lasciare il negozio vuoto: valgono per il mese dopo, non sono straordinario */
     anticipo?: number;
@@ -668,14 +700,16 @@ export function pianificaMese(args: {
   const riserva = args.persone.filter((p) => p.oreSettimana == null);
   const settimane = [...new Set(args.giorni.filter((g) => nelMese(g.data)).map((g) => lunediDi(g.data)))].sort();
 
-  // Ore di ogni persona in ogni settimana, solo per i giorni del mese.
-  // Contratto della settimana per i soli giorni del mese (ore settimanali x
-  // giorni aperti del mese / giorni aperti della settimana), senza le ferie.
+  // Contratto della settimana per i soli giorni del mese: giorni lavorativi
+  // (date del mese, negozio aperto, contratto in corso, meno il riposo delle
+  // settimane intere) per le ore di una giornata. Senza ferie.
   const contrattoSett = (p: PersonaPiano, lun: string) => {
     const date = giorniDellaSettimana(lun);
-    const aperti = args.giorni.filter((g) => date.includes(g.data) && !g.chiuso);
-    const apertiMese = aperti.filter((g) => nelMese(g.data));
-    return aperti.length ? (p.oreSettimana ?? 0) * apertiMese.length / aperti.length : 0;
+    const aperto = (d: string) => args.giorni.some((g) => g.data === d && !g.chiuso);
+    const conContratto = (d: string) => !p.inServizio || p.inServizio.has(d);
+    const intera = date.every((d) => nelMese(d) && conContratto(d));
+    const giorni = giorniLavorativiSettimana(date, (d) => nelMese(d) && aperto(d) && conContratto(d), intera);
+    return giorni * oreGiornata(p.oreSettimana ?? 0, regole);
   };
   const ferieSett = (p: PersonaPiano, lun: string) => args.giorni
     .filter((g) => giorniDellaSettimana(lun).includes(g.data) && nelMese(g.data) && !g.chiuso)
