@@ -22992,6 +22992,7 @@ export type Database = {
           pausa_minuti: number
           stato: string
           straordinario: boolean
+          ore_straordinario: number
           updated_at: string
           plan_id: string | null
         }
@@ -23011,6 +23012,7 @@ export type Database = {
           pausa_minuti?: number
           stato?: string
           straordinario?: boolean
+          ore_straordinario?: number
           updated_at?: string
           plan_id?: string | null
         }
@@ -23030,6 +23032,7 @@ export type Database = {
           pausa_minuti?: number
           stato?: string
           straordinario?: boolean
+          ore_straordinario?: number
           updated_at?: string
           plan_id?: string | null
         }

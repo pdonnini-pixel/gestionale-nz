@@ -70,7 +70,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
         supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
-        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id, straordinario')
+        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id, straordinario, ore_straordinario')
           .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]).order('inizio'),
         caricaGiorniFerie(companyId, date[0], date[6]),
         supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
@@ -92,7 +92,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       setHaFabbisogno(fasce.some((x) => x.persone > 0));
       setGiorni(costruisciGiorni(date, orari, fasce,
         (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [],
-        eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId)));
+        eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId), dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null));
       setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
       // Si vedono i turni del piano scelto per quel mese, oppure quelli fatti settimana per settimana.
       setTurni(((t.data as TurnoDb[]) ?? [])

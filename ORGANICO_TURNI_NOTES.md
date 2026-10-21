@@ -64,7 +64,7 @@ Regola semplice e leggibile, non un ottimizzatore:
 2. si copre prima il buco più grande, dando il turno a chi ha la quota più alta di ore di contratto
    ancora libere; la lunghezza del turno è quella giusta per le ore di contratto della persona (fino al
    massimo delle regole; il turno minimo non è una regola, Patrizio 19/10/2026: vincola e basta.
-   Resta solo il limite tecnico di un'ora), con la pausa: 30 minuti da 6 ore lavorate e 30 anche da 8, in aggiunta alle ore (Patrizio
+   Resta solo il limite tecnico di un'ora), con la pausa: 30 minuti da 6 ore lavorate e un'ora da 8 dal 21/10/2026 (migration 325), in aggiunta alle ore (Patrizio
    20/10/2026: «6 + 30 minuti e 8 + 30 minuti e non -», migration 318; la 317 del 19/10 prevedeva
    un'ora da 8); se il turno con la pausa non sta nella
    giornata si accorcia di mezz'ora alla volta;
@@ -424,3 +424,41 @@ lunghe quanto le ore che restano (minimo e massimo del turno). Dal riepilogo «D
 contratto» (contano come ordinarie, riducono le non usate) o «straordinario» (`shifts.straordinario`). Il motore
 resta settimanale; lo spostamento di ore tra settimane è una scelta della HR, non del calcolo (Patrizio: «così abbiamo
 tutte e due le possibilità»).
+
+
+## Straordinario a ore (migration 324, 21/10/2026)
+
+`shifts.ore_straordinario` (numeric, default 0): quante ore del turno sono straordinario. Allungando un turno di un'ora e
+segnandolo, straordinario è solo quell'ora (Patrizio). L'editor propone le ore aggiunte rispetto alle ordinarie che il
+turno aveva (tutte, per un turno nuovo), correggibili. Riepilogo: ordinarie = ore del turno − ore_straordinario.
+`shifts.straordinario` resta come «contiene straordinario» (ore_straordinario > 0).
+
+## Negozio mai scoperto, pausa di un'ora da 8, contratto nel mese (21/10/2026)
+
+- **Comanda l'orario.** Ogni mezz'ora di apertura ha almeno una persona; i soli giorni chiusi sono quelli del
+  calendario e quelli prima di `outlets.opening_date` (`costruisciGiorni(..., apertura)`). `copriOrarioMinimo()`
+  in `pianoMensile.ts`, dopo proposta e ore residue, ripara ogni buco nell'ordine: (1) sposta o allunga il turno di
+  chi lavora quel giorno; (2) turno nuovo a chi non lavora; (3) prende ore dove ci sono già due persone
+  (`liberaOre`: accorcia di mezz'ora i turni con colleghi, toglie un turno che non lascia vuoti) oppure sposta il
+  turno di un altro giorno e risistema quel giorno, anche liberando ore a chi ci lavora; (4) chi è a chiamata.
+  Se il negozio resterebbe vuoto, il sabato o la domenica liberi della settimana saltano.
+- **MODA sopra il minimo.** `fabbisognoDaTraffico` restituisce anche `esigenza` (persone che MODA chiederebbe
+  senza il tetto delle ore). Il riepilogo del piano lo salva in `bisogno`; la riga «In negozio» mostra per giorno:
+  rosso «scoperto HH-HH», giallo «manca N persone» nelle fasce dove MODA vuole più persone, verde «coperto».
+- **Pausa.** `REGOLE_DEFAULT.pausaLungaMinuti = 60`, default di colonna a 60 (migration 325, nessuna riga
+  salvata). `EditorTurno` impone `pausaMinimaPerPresenza`: 10:00-18:30 con pausa 0 non vale più 8,5 ore.
+- **Contratto nel mese** = ore settimanali × giorni del mese / 7, ferie redistribuite sul mese (una settimana con
+  più ferie che contratto non si azzera da sola). Buratta a novembre: 171,4 − 8 ferie = 163,4 da lavorare (prima
+  173,7, sbagliato). Nelle settimane a cavallo l'eccedenza sulla quota del mese è «anticipo», non straordinario.
+- **Misura del 21/10/2026** (novembre, NZ, traffico MODA vero, persone vere, ferie e disponibilità; varianti
+  «nessun libero» e «un sabato o una domenica»): 0 mezz'ore vuote in tutti i negozi, 0 pause sotto la regola,
+  0 turni fuori 4-8 ore, mai più di 6 giorni. Roma Soratte apre il 05/11: prima è chiusa.
+- I piani di novembre salvati prima di questa versione vanno ricreati (avevano buchi e pause di 30' a 8 ore).
+
+## Un piano si toglie intero (21/10/2026, migration 326)
+
+Patrizio: «mi deve far cancellare sempre le simulazioni anche se già modificate e manca un cestino». Il cestino della
+scheda toglie bozze e simulazioni con tutti i turni (anche messi a mano o straordinario); il piano scelto lo toglie
+l'HR. `shifts_no_hard_delete` ora lascia togliere i turni di un piano (`plan_id` non nullo) che non sono pubblicati;
+restano protetti i turni pubblicati e quelli messi a mano fuori dai piani. Un piano con turni pubblicati non si toglie
+(la pagina lo dice prima, e comunque lo blocca la chiave esterna). Mese chiuso: `trg_shifts_mese_chiuso`.
