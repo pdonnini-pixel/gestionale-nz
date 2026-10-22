@@ -35,7 +35,7 @@ import {
   statusConfig, paymentMethodLabels, paymentGroups, toDbPaymentMethod,
   ESTIMATE_HORIZON_MONTHS, ESTIMATE_MATCH_TOLERANCE_PCT, ESTIMATE_MATCH_TOLERANCE_ABS,
   RECURRENCE_STEP_MONTHS, normSupplier, categorizeIncome,
-  documentTypeLabel,
+  documentTypeLabel, notaDistintaNC,
 } from './scadenzario/helpers';
 import { StatusPill, Modal } from './scadenzario/SharedUI';
 import { EditScheduleModal, InvoiceModal, SupplierModal, type InvoiceFormState } from './scadenzario/modals';
@@ -2251,14 +2251,19 @@ const ScadenzarioSmart = () => {
         const bank = bankAccounts.find(b => b.id === plan.bankId);
 
         // Tipo ACCONTO/SALDO (con eventuale rata) + note di credito compensate.
-        const { label: tipoLabel } = distintaTipo(payable, plan);
+        const { tipo: tipoKind, label: tipoLabel } = distintaTipo(payable, plan);
         const ncList = ncBreakdown(plan);
         // Causale NC per il bonifico (la scrive Sabrina): "al netto NC n.X del gg/mm/aaaa (importo)"
         // — con la data di emissione della nota di credito, sempre insieme a numero e importo.
         const ncNote = ncList.length
           ? `al netto ${ncList.map(n => `NC n.${n.num}${n.date ? ` del ${fmtDate(n.date)}` : ''} (${fmt(n.amt)})`).join(' e ')}`
           : '';
-        const composedNote = [plan.note, ncNote].filter(Boolean).join(' — ');
+        // Note della mail: con NC scalate si apre con la fattura saldata
+        // ("Saldo fattura N. 285 del 30/06/2026 — al netto NC n.92 ..."), poi l'eventuale nota libera.
+        const composedNote = [
+          notaDistintaNC(tipoKind, payable.invoice_number as string | null, payable.invoice_date as string | null, ncList),
+          plan.note,
+        ].filter(Boolean).join(' — ');
 
         // Riga da salvare alla conferma (la disposizione NON marca la fattura pagata:
         // resta aperta finche' il movimento non viene riconciliato). La nota include tipo

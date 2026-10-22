@@ -90,6 +90,22 @@ export function fmtDate(d: string | null | undefined): string {
   return new Date(d).toLocaleDateString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric' })
 }
 
+// Testo delle note della distinta quando una fattura si paga scalando note di credito
+// (regola Patrizio, 22/10/2026). Formato, per la mail della distinta:
+//   "Saldo fattura N. 285 del 30/06/2026 — al netto NC n.92 del 05/08/2026 (67,22) e NC n.109 del 14/09/2026 (237,90)"
+// Per un acconto la parola iniziale diventa "Acconto". Senza NC restituisce ''.
+export function notaDistintaNC(
+  tipo: 'ACCONTO' | 'SALDO',
+  invoiceNumber: string | null | undefined,
+  invoiceDate: string | null | undefined,
+  ncList: { num: string; date: string | null; amt: number }[],
+): string {
+  if (!ncList.length) return ''
+  const fattura = `${tipo === 'ACCONTO' ? 'Acconto' : 'Saldo'} fattura N. ${invoiceNumber || 's/n'}${invoiceDate ? ` del ${fmtDate(invoiceDate)}` : ''}`
+  const nc = ncList.map(n => `NC n.${n.num}${n.date ? ` del ${fmtDate(n.date)}` : ''} (${fmt(n.amt)})`).join(' e ')
+  return `${fattura} — al netto ${nc}`
+}
+
 // Status config
 export const statusConfig = {
   scaduto: { label: 'Scaduto', bg: 'bg-red-100 text-red-700' },
