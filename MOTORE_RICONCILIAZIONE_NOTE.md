@@ -885,3 +885,58 @@ errore, dà **risultati diversi in silenzio**. È il tipo di guasto che nessuna
 pagina segnala.
 
 Costa tre query al mese per quattro, e paga la prima volta che trova qualcosa.
+
+---
+
+## Il controllo del 26/10/2026: settimana pulita, e il punto 7 serve già a qualcosa
+
+Otto giri consecutivi riusciti, dal 19 al 26 ottobre, tutti alle 05:45 UTC fra i
+146 e i 158 secondi. Nessun errore, nessun timeout, durata stabile.
+
+Nove agganci applicati dal motore nella settimana (più uno manuale, il secondo
+bonifico MINGARDO del 19/10, che è una mia scrittura e non una decisione del
+motore) e sedici proposte `to_confirm` lasciate da confermare.
+
+**Zero causali anonime.** È il motivo per cui il controllo di questa settimana è
+finito in fretta: nessuno dei nove agganci è su un «A FAVORE DI N.D.», quindi la
+verifica uno per uno del punto 3 non è mai scattata. Ognuno porta la prova in
+causale:
+
+| fornitore | importo | prova in causale |
+|---|---|---|
+| COMUNE DI SANT'ORESTE | 80,00 | «BEN COMUNE SANT' ORESTE» + distinta |
+| GIFET | 8,50 | POS, «ESERCENTE : GIFET S.R.L.» |
+| AREADOCKS | 78,00 | POS, «ESERCENTE : AREADOCKS SRL» |
+| FUTURA IMMOBILIARE | 854,00 | nome e «SF-53», cioè la fattura 53 |
+| IP PLUS | 966,01 | «PER FATTURA 9601475441» |
+| Wind Tre | 480,51 | «A FAVORE WIND TRE S.P.A. ... IMPORTO 480,51» |
+| LUCA BOZZA | 5,50 | «BEN LUCA BOZZA» + distinta |
+| UnipolTech | 264,30 | numero 914919754 in causale |
+| Texcart | 3.580,70 | «BEN TEXCART S.R.L.» + distinta |
+
+Wind Tre merita una riga: il movimento è 481,51 contro una fattura da 480,51,
+perché l'addebito SDD porta 1,00 di commissioni, scritto nella causale stessa. La
+fattura era già pagata, quindi il ramo di **solo aggancio** della 306 ha collegato
+il movimento senza toccare gli importi: nessun residuo da un euro, che è
+esattamente il comportamento per cui quella colonna esiste.
+
+### Il punto 7 alla sua prima accensione
+
+Il controllo di parità aggiunto al giro la settimana scorsa ha dato subito la
+risposta che serviva: **le funzioni sui tre tenant sono 267 con impronta
+`58213f2cd085089988cabe4e3dc80b95`, identica.** Il 20/10 erano 257 con
+`f3072c8ae1b5…`. Dieci funzioni in più in una settimana, e sono salite **su tutti
+e tre insieme**.
+
+Vale la pena fermarsi un secondo su questo numero. Se nel prompt avessi scritto
+«deve dare 257 e f3072c8ae1b5…», il primo lunedì utile avrei svegliato Patrizio
+per un allarme inventato, dopo una settimana di migration legittime. L'istruzione
+giusta era quella scritta: **conta che i tre coincidano fra loro, non che siano
+ancora quelli di allora.** È la quarta volta in un mese che il modo di misurare
+conta più della misura.
+
+Estesa la verifica anche a viste e trigger, visto che la settimana ha portato
+parecchie migration: viste 37, impronta `8056e205d7f2de2fa64cb17612294401`;
+trigger 79, impronta `cb5d1927d5a25fa072323092e842cb19`. Identiche sui tre.
+
+Niente da decidere, niente scritto a Patrizio.
