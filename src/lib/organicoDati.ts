@@ -79,19 +79,21 @@ export function nomeNegozio(n: Pick<NegozioRif, 'name' | 'code'> | undefined | n
 /** Giorni di ferie e permessi approvati a giornata intera, per persona: in quei giorni non si lavora. */
 export async function caricaGiorniFerie(companyId: string, dal: string, al: string): Promise<{
   employee_id: string; data: string; ore: number; tipo: string; stato_richiesta: string; stato_giorno: string; creato_il: string;
+  /** id del giorno e della richiesta: servono per togliere le ferie dal calendario */
+  id: string; request_id: string;
 }[]> {
   const { data, error } = await supabase.from('leave_request_days')
-    .select('data, ore, tipo, stato, created_at, request_id, leave_requests!inner(employee_id, stato)')
+    .select('id, data, ore, tipo, stato, created_at, request_id, leave_requests!inner(employee_id, stato)')
     .eq('company_id', companyId)
     .gte('data', dal)
     .lte('data', al);
   if (error) throw error;
   return ((data as unknown as {
-    data: string; ore: number; tipo: string; stato: string; created_at: string;
+    id: string; request_id: string; data: string; ore: number; tipo: string; stato: string; created_at: string;
     leave_requests: { employee_id: string; stato: string } | { employee_id: string; stato: string }[];
   }[]) ?? []).map((d) => {
     const r = Array.isArray(d.leave_requests) ? d.leave_requests[0] : d.leave_requests;
-    return { employee_id: r?.employee_id, data: d.data, ore: Number(d.ore), tipo: d.tipo, stato_richiesta: r?.stato, stato_giorno: d.stato, creato_il: d.created_at };
+    return { employee_id: r?.employee_id, data: d.data, ore: Number(d.ore), tipo: d.tipo, stato_richiesta: r?.stato, stato_giorno: d.stato, creato_il: d.created_at, id: d.id, request_id: d.request_id };
   }).filter((d) => !!d.employee_id);
 }
 

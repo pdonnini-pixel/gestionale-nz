@@ -150,9 +150,11 @@ describe('il piano del mese', () => {
   it('settimana intera anche a cavallo dei mesi: le ore di ottobre si tolgono dalle 40', () => {
     const una = [{ id: 'p0', oreSettimana: 40, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }];
     const libero = pianificaMese({ mese, giorni, persone: una, regola: 'nessuno', storicoWeekend: new Map(), atteso });
-    // ottobre senza turni: domenica 1/11 prende la sua parte secondo il traffico
-    // (nel test il weekend ha 4 volte gli ingressi dei feriali: 4 / (5 + 4 + 4) delle 40 ore)
-    expect(libero.settimane[0].contratto).toBeCloseTo(40 * 4 / 13, 1);
+    // ottobre senza turni: domenica 1/11 prenderebbe la sua parte secondo il traffico
+    // (40 x 4 / 13 = 12,3 ore), ma un giorno solo regge un turno: al massimo 9 ore
+    // lavorate in un negozio aperto 10 ore. Il resto resta a ottobre.
+    expect(libero.settimane[0].contratto).toBe(9);
+    expect(libero.persone.p0.settimane?.['2026-10-26']).toBe(9);
     const ottobre = new Map([['p0', new Map(['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29'].map((d) => [d, 9]))]]);
     const e = pianificaMese({ mese, giorni, persone: una, regola: 'nessuno', storicoWeekend: new Map(), atteso, oreFuoriMese: ottobre });
     expect(e.settimane[0].contratto).toBe(4);

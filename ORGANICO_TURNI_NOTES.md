@@ -585,3 +585,20 @@ le inseriscono la responsabile HR e chi tiene l'organico (poi anche le responsab
   regole (`motivoNonDisponibile` «in trasferta», ore tolte, `fissi`).
 - UI: riquadro trasferta in `EditorTurno`, casella «trasferta» nel calendario, riga trasferte in «Ore del mese»,
   scheda «Trasferte» (`TrasferteNegozi.tsx`) con totali ed export Excel.
+
+## Le parole delle ore: «ore da contratto» e «ore programmate» (28/10/2026)
+
+Patrizio: niente «ordinarie», «lavorate», «da lavorare», «pianificate», «non usate». Due numeri e la differenza:
+- **Ore da contratto** = ore settimanali (nelle settimane a cavallo la parte del mese) meno ferie, permessi e trasferte,
+  con la spiegazione sotto («173,3 meno 13 di ferie»). **Ore programmate** = turni, senza lo straordinario concordato.
+- Differenza: «In linea con il contratto» · «Mancano N h da programmare» · «N h in più del contratto: decidi se sono
+  straordinario o se le togli». Lo straordinario concordato (turni segnati) su una riga a parte.
+- Dove: accanto al nome nel calendario (colonna fissa, «33 di 36 h»), nell'editor della casella (prima la settimana, poi
+  il mese, `ContoMese.settimana`), nella tabella «Ore del mese». La vecchia colonna «Ore settimana» a destra è tolta.
+- Quota del mese nelle settimane a cavallo, se l'altro mese non ha turni: mai più della capienza dei giorni del mese (un
+  turno al giorno, `lavoroMassimoGiorno`). Caso Maggiori (FRC, 36 h): 1/11 domenica sola valeva 12,4 h, ora 9.
+  `EsitoPianoMese.persone[id].settimane` = contratto lordo per settimana (`contrattoSettimanaOra` toglie ferie e
+  trasferte dal vivo).
+- Ferie dalla casella: il giorno di ferie si apre e «Togli le ferie» chiama `leave_decidi` con gli altri giorni
+  approvati della richiesta e motivo «Tolte dal piano del mese» (giorno respinto, saldo a posto, storico intatto). Se
+  la richiesta ha altri giorni «richiesto», si rimanda ad Approvazioni ferie per non approvarli senza volerlo.

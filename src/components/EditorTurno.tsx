@@ -18,14 +18,19 @@ export type TurnoModificabile = {
   origine: string; stato: string; straordinario?: boolean; ore_straordinario?: number;
 };
 
-/** Il conto del mese della persona, per vedere subito come cambia la differenza. */
+/**
+ * Il conto della persona, per vedere subito come cambia (Patrizio, 28/10/2026:
+ * «ore da contratto» e «ore programmate», nient'altro). Mese e settimana del turno.
+ */
 export type ContoMese = {
-  /** ore da lavorare nel mese (contratto meno ferie e permessi); null = a chiamata */
+  /** ore da contratto nel periodo (ferie, permessi e trasferte tolti); null = a chiamata */
   daLavorare: number | null;
-  /** ore ordinarie gia' pianificate nel mese, senza il turno che si sta modificando */
+  /** ore programmate nel periodo, senza il turno che si sta modificando (straordinario escluso) */
   ordinarieAltri: number;
-  /** ore di straordinario gia' pianificate nel mese, senza questo turno */
+  /** ore di straordinario concordato nel periodo, senza questo turno */
   straordinarioAltri: number;
+  /** la settimana del turno, con le stesse voci */
+  settimana?: { daLavorare: number | null; ordinarieAltri: number; straordinarioAltri: number; etichetta: string };
 };
 
 const fmt = (n: number) => n.toLocaleString('it-IT', { maximumFractionDigits: 1 });
@@ -35,7 +40,11 @@ const fmt = (n: number) => n.toLocaleString('it-IT', { maximumFractionDigits: 1 
  * ore settimanali della persona (la giornata vale ore / 6), codice del negozio,
  * e se quel giorno ha gia' ferie o permessi.
  */
-export type FerieDalCalendario = { oreSettimana: number; outletCode: string | null; giaInFerie: boolean };
+export type FerieDalCalendario = {
+  oreSettimana: number; outletCode: string | null; giaInFerie: boolean;
+  /** le ferie o il permesso gia' segnati quel giorno: da qui si tolgono */
+  esistente?: { id: string; requestId: string; testo: string; statoRichiesta: string } | null;
+};
 
 /**
  * Per segnare una trasferta dal calendario (Patrizio, 28/10/2026): i negozi fra
@@ -77,9 +86,12 @@ export default function EditorTurno({
   const proposte = Math.max(0, oreTurno - (turno ? ordinariePrima : 0)) || oreTurno;
   const lette = oreStraordScritte != null ? Number(oreStraordScritte.replace(',', '.')) : NaN;
   const oreStraord = !straordinario ? 0 : Math.min(oreTurno, Math.max(0, Number.isFinite(lette) ? lette : proposte));
-  const ordinarie = (conto?.ordinarieAltri ?? 0) + (oreTurno - oreStraord);
-  const straordTot = (conto?.straordinarioAltri ?? 0) + oreStraord;
-  const differenza = conto?.daLavorare != null ? conto.daLavorare - ordinarie : null;
+  // Ore da contratto contro ore programmate, per la settimana e per il mese.
+  const contoDi = (c: { daLavorare: number | null; ordinarieAltri: number; straordinarioAltri: number } | undefined) => c && c.daLavorare != null ? {
+    contratto: c.daLavorare,
+    programmate: c.ordinarieAltri + (oreTurno - oreStraord),
+    straord: c.straordinarioAltri + oreStraord,
+  } : null;
 
   const salva = async () => {
     if (errore) return;
@@ -191,6 +203,33 @@ export default function EditorTurno({
     onSalvato('Trasferta tolta: il giorno torna disponibile per un turno.');
   };
 
+  // Togliere ferie o permesso dal calendario (Patrizio, 28/10/2026): il giorno
+  // passa a «respinto» con la stessa decisione di Approvazioni ferie, cosi' il
+  // saldo torna a posto e lo storico resta. Gli altri giorni della richiesta non cambiano.
+  const togliFerie = async () => {
+    const f = ferie?.esistente;
+    if (!f) return;
+    setSalvo(true);
+    try {
+      const { data: giorni, error } = await supabase.from('leave_request_days').select('id, stato').eq('request_id', f.requestId);
+      if (error) throw error;
+      const altri = ((giorni as { id: string; stato: string }[]) ?? []).filter((g) => g.id !== f.id);
+      if (altri.some((g) => g.stato === 'richiesto')) {
+        toast({ type: 'warning', message: 'La richiesta ha altri giorni ancora da decidere: togli questo giorno da Approvazioni ferie, dove decidi anche gli altri.', duration: 10000 });
+        return;
+      }
+      const { error: e2 } = await supabase.rpc('leave_decidi', {
+        p_request_id: f.requestId, p_giorni_approvati: altri.filter((g) => g.stato === 'approvato').map((g) => g.id), p_motivazione: 'Tolte dal piano del mese',
+      });
+      if (e2) throw e2;
+      onSalvato(`${f.testo} tolte per ${nome.split(' ')[0]}: il giorno torna disponibile per un turno e il saldo delle ferie si aggiorna.`);
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non tolte.' });
+    } finally {
+      setSalvo(false);
+    }
+  };
+
   return (
     <Modal open onClose={onClose} title={`${nome} · ${NOMI_GIORNO_BREVI[giornoSett]} ${formattaDataBreve(data)}`}>
       <div className="space-y-4">
@@ -227,19 +266,36 @@ export default function EditorTurno({
           </label>
         )}
 
-        {conto && conto.daLavorare != null && (
-          <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">Il mese di {nome.split(' ')[0]} con questo turno</p>
-            <div className="grid grid-cols-3 gap-2">
-              <div><span className="block text-xs text-slate-500">Da lavorare</span><span className="font-semibold tabular-nums">{fmt(conto.daLavorare)} h</span></div>
-              <div><span className="block text-xs text-slate-500">Ordinarie</span><span className="font-semibold tabular-nums">{fmt(ordinarie)} h</span></div>
-              <div><span className="block text-xs text-slate-500">Straordinario</span><span className="font-semibold tabular-nums text-amber-800">{fmt(straordTot)} h</span></div>
-            </div>
-            <p className={`mt-1.5 text-sm font-medium ${differenza! > 0.25 ? 'text-slate-700' : differenza! < -0.25 ? 'text-amber-800' : 'text-emerald-700'}`}>
-              {differenza! > 0.25 ? `Restano ${fmt(differenza!)} h di contratto non usate.`
-                : differenza! < -0.25 ? `Le ore ordinarie superano il contratto di ${fmt(-differenza!)} h: se sono ore in più concordate, segna il turno come straordinario.`
-                  : 'Tutte le ore di contratto sono usate.'}
-            </p>
+        {conto && (contoDi(conto.settimana) || contoDi(conto)) && (
+          <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5 text-sm space-y-2">
+            {([[conto.settimana ? `La settimana ${conto.settimana.etichetta}` : null, contoDi(conto.settimana)], ['Il mese', contoDi(conto)]] as [string | null, ReturnType<typeof contoDi>][])
+              .filter(([titolo, c]) => titolo && c).map(([titolo, c]) => {
+                const scarto = c!.programmate - c!.contratto;
+                return (
+                  <div key={titolo}>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">{titolo} di {nome.split(' ')[0]} con questo turno</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div><span className="block text-xs text-slate-500">Ore da contratto</span><span className="font-semibold tabular-nums">{fmt(c!.contratto)} h</span></div>
+                      <div><span className="block text-xs text-slate-500">Ore programmate</span><span className="font-semibold tabular-nums">{fmt(c!.programmate)} h</span></div>
+                    </div>
+                    <p className={`mt-1 text-sm font-medium ${Math.abs(scarto) <= 0.25 ? 'text-emerald-700' : scarto < 0 ? 'text-slate-700' : 'text-amber-800'}`}>
+                      {Math.abs(scarto) <= 0.25 ? 'In linea con il contratto.'
+                        : scarto < 0 ? `Mancano ${fmt(-scarto)} h da programmare.`
+                          : `${fmt(scarto)} h in più del contratto: decidi se sono straordinario (segna il turno come straordinario) oppure se le togli.`}
+                    </p>
+                    {c!.straord > 0.25 && <p className="text-xs text-amber-800">Straordinario concordato: {fmt(c!.straord)} h, a parte.</p>}
+                  </div>
+                );
+              })}
+          </div>
+        )}
+
+        {ferie?.esistente && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-sm text-amber-900">
+            <p className="text-xs font-semibold uppercase tracking-wide mb-1">In questo giorno</p>
+            <p>{ferie.esistente.testo}{ferie.esistente.statoRichiesta === 'inviata' ? ', da approvare' : ', approvate'}.</p>
+            <button type="button" onClick={togliFerie} disabled={salvo}
+              className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-sm font-semibold hover:bg-amber-100 disabled:opacity-50"><Trash2 size={14} /> Togli le ferie</button>
           </div>
         )}
 
