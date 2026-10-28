@@ -124,7 +124,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [caricamento, setCaricamento] = useState(true);
   const [sim, setSim] = useState<Simulazione | null>(null);
   const [simRegola, setSimRegola] = useState<RegolaWeekend>('nessuno');
-  const [ferieRegistrate, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string }[]>([]);
+  const [ferieRegistrate, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string; creato_il: string }[]>([]);
   const [giorniMax, setGiorniMax] = useState(6);
   // Giorni in cui ognuno puo' lavorare (employee_availability): valgono per piani e simulazioni.
   const [disponibilita, setDisponibilita] = useState<Map<string, number[]>>(new Map());
@@ -201,7 +201,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
 
   // Ferie e permessi in ore secondo la regola a giornata (Patrizio, 21/10/2026):
   // una giornata di ferie vale ore settimanali / 6, un permesso a ore le sue ore.
-  const ferieMese = useMemo(() => {
+  const ferieTutte = useMemo(() => {
     const oreSett = new Map(persone.map(({ scheda, perGiorno }) => [scheda.id, perGiorno.find((p) => p.outletId === outletId && p.stato === 'in_servizio')?.ore ?? null]));
     return ferieRegistrate.map((x) => ({ ...x, ore: oreFerieGiorno(x.tipo, Number(x.ore), oreSett.get(x.employee_id) ?? null, regolePiano) }));
   }, [ferieRegistrate, persone, outletId, regolePiano]);
@@ -338,8 +338,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         ...(senzaFerie ? { senzaFerie: true } : {}),
         settimane: esito.settimane,
         persone: esito.persone,
-        bisogno: Object.fromEntries(esito.giorni.filter((g) => !g.chiuso && g.data.startsWith(mese))
-          .map((g) => [g.data, { apre: g.apre, chiude: g.chiude, esigenza: g.esigenza ?? g.fabbisogno }])),
+        // «In negozio»: le persone necessarie a organico pieno (mai piu' di quelle in servizio)
+        bisogno: Object.fromEntries(esito.necessari.filter((g) => !g.chiuso && g.data.startsWith(mese))
+          .map((g) => [g.data, { apre: g.apre, chiude: g.chiude, esigenza: g.fabbisogno }])),
         ...(ipotesi ? {
           ipotesi: {
             persone: persone.map(({ scheda, perGiorno }) => ({
@@ -456,6 +457,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   };
 
   const pianoAperto = piani.find((p) => p.id === aperto) ?? null;
+  // Nel calendario senza ferie si vedono solo le ferie inserite dopo averlo
+  // creato (Patrizio, 28/10/2026): quelle di prima il calendario le ignora.
+  const ferieMese = useMemo(() => (pianoAperto?.riepilogo.senzaFerie
+    ? ferieTutte.filter((x) => x.creato_il > pianoAperto.created_at) : ferieTutte), [ferieTutte, pianoAperto]);
   const varianti = piani.filter((p) => !p.simulazione);
   // Mettere e togliere turni a mano dal calendario: la responsabile HR, a mese aperto.
   const puoModificare = eHr && puoScrivere && !chiuso;
@@ -673,15 +678,26 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       {pianoOre?.riepilogo.settimane && (() => {
         const w = pianoOre.riepilogo.settimane;
         const dopo = prova?.dopo[pianoOre.regola_weekend];
-        const tot = (k: keyof SettimanaPiano) => w.reduce((a, x) => a + Number(x[k]), 0);
         const etichetta = (x: SettimanaPiano) => x.dal === x.al ? `${Number(x.dal.slice(8))}/${Number(x.dal.slice(5, 7))}` : `${Number(x.dal.slice(8))}-${Number(x.al.slice(8))}/${Number(x.al.slice(5, 7))}`;
         const peggiore = Math.max(...w.map((x) => x.scoperte));
-        const righe: { k: keyof SettimanaPiano; label: string; nota: string; forte?: boolean }[] = [
-          { k: 'necessarie', label: 'Ore necessarie', nota: 'organico pieno distribuito come gli ingressi MODA', forte: true },
-          { k: 'contratto', label: 'Contratto', nota: 'ore a giornata dei giorni con il contratto' },
+        // Due conti che si sommano: necessarie = coperte + scoperte; nei turni = coperte + in piu'.
+        const val = (x: SettimanaPiano, k: string): number => {
+          if (k === 'coperte') return x.coperte ?? x.necessarie - x.scoperte;
+          if (k === 'inPiu') return x.inPiu ?? Math.max(0, x.pianificate - (x.necessarie - x.scoperte));
+          if (k === 'nonUsate') return x.nonUsate ?? Math.max(0, x.disponibili - x.pianificate);
+          return Number(x[k as keyof SettimanaPiano]);
+        };
+        const tot = (k: string) => w.reduce((a, x) => a + val(x, k), 0);
+        const righe: { k: string; label: string; nota: string; forte?: boolean; rientro?: boolean; bordo?: boolean }[] = [
+          { k: 'necessarie', label: 'Ore necessarie', nota: 'MODA a organico pieno: tutte al lavoro, nessuna ferie', forte: true },
+          { k: 'coperte', label: 'coperte dai turni', nota: 'necessarie meno scoperte', rientro: true },
+          { k: 'contratto', label: 'Contratto', nota: 'ore a giornata dei giorni con il contratto', bordo: true },
           { k: 'ferie', label: 'Ferie e permessi', nota: 'chiesti o approvati' },
           { k: 'disponibili', label: 'Ore disponibili', nota: 'contratto meno ferie e permessi', forte: true },
-          { k: 'pianificate', label: 'Ore nei turni', nota: 'pause escluse, anche chi è a chiamata' },
+          { k: 'pianificate', label: 'Ore nei turni', nota: 'pause escluse, anche chi è a chiamata', forte: true, bordo: true },
+          { k: 'coperte', label: 'dove servono', nota: 'le stesse ore coperte di sopra', rientro: true },
+          { k: 'inPiu', label: 'dove MODA non le chiede', nota: 'per le regole: turno minimo, un turno al giorno, negozio sempre aperto', rientro: true },
+          { k: 'nonUsate', label: 'Contratto non usato', nota: 'ore disponibili che i turni non usano (turno minimo, giorni di lavoro, giorni non disponibili)', bordo: true },
         ];
         return (
           <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -707,15 +723,15 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                   </tr>
                 </thead>
                 <tbody>
-                  {righe.map((r) => (
-                    <tr key={r.k} className="border-t border-slate-100">
-                      <td className="py-1.5 pr-3"><span className={r.forte ? 'font-semibold text-slate-800' : 'text-slate-700'}>{r.label}</span><span className="block text-[11px] text-slate-400">{r.nota}</span></td>
-                      {w.map((x) => <td key={x.lunedi} className={`text-right px-2 ${r.forte ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{fmt(Number(x[r.k]))}</td>)}
+                  {righe.slice(0, 2).map((r, i) => (
+                    <tr key={`${r.k}-${i}`} className="border-t border-slate-100">
+                      <td className={`py-1.5 pr-3 ${r.rientro ? 'pl-4' : ''}`}><span className={r.forte ? 'font-semibold text-slate-800' : 'text-slate-700'}>{r.rientro ? '↳ ' : ''}{r.label}</span><span className="block text-[11px] text-slate-400">{r.nota}</span></td>
+                      {w.map((x) => <td key={x.lunedi} className={`text-right px-2 ${r.forte ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{fmt(val(x, r.k))}</td>)}
                       <td className="text-right pl-3 font-semibold text-slate-800">{fmt(tot(r.k))}</td>
                     </tr>
                   ))}
-                  <tr className="border-t border-slate-200">
-                    <td className="py-1.5 pr-3"><span className="font-semibold text-red-800">Ore scoperte</span><span className="block text-[11px] text-slate-400">necessarie che i turni non coprono</span></td>
+                  <tr className="border-t border-slate-100">
+                    <td className="py-1.5 pr-3 pl-4"><span className="font-semibold text-red-800">↳ scoperte</span><span className="block text-[11px] text-slate-400">necessarie che i turni non coprono: dove intervenire</span></td>
                     {w.map((x) => (
                       <td key={x.lunedi} className="text-right px-2">
                         <span className={`inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 font-semibold ${x.scoperte < 0.25 ? 'text-emerald-700' : x.scoperte >= peggiore - 1e-9 ? 'bg-red-600 text-white' : 'bg-red-50 text-red-800'}`}>{fmt(x.scoperte)}</span>
@@ -723,6 +739,13 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                     ))}
                     <td className="text-right pl-3 font-semibold text-red-800">{fmt(tot('scoperte'))}</td>
                   </tr>
+                  {righe.slice(2).map((r, i) => (
+                    <tr key={`${r.k}-b${i}`} className={r.bordo ? 'border-t-2 border-slate-200' : 'border-t border-slate-100'}>
+                      <td className={`py-1.5 pr-3 ${r.rientro ? 'pl-4' : ''}`}><span className={r.forte ? 'font-semibold text-slate-800' : 'text-slate-700'}>{r.rientro ? '↳ ' : ''}{r.label}</span><span className="block text-[11px] text-slate-400">{r.nota}</span></td>
+                      {w.map((x) => <td key={x.lunedi} className={`text-right px-2 ${r.forte ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{fmt(val(x, r.k))}</td>)}
+                      <td className="text-right pl-3 font-semibold text-slate-800">{fmt(tot(r.k))}</td>
+                    </tr>
+                  ))}
                   {dopo && (
                     <tr className="border-t border-amber-200 bg-amber-50/60">
                       <td className="py-1.5 pr-3"><span className="font-semibold text-amber-900">Senza le ferie spente</span><span className="block text-[11px] text-amber-800">prova, le richieste non cambiano</span></td>
@@ -903,7 +926,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       )}
 
       {/* Ferie del mese da spegnere per prova (Patrizio, 28/10/2026). */}
-      {variantiCon.length > 0 && ferieMese.length > 0 && !chiuso && (
+      {variantiCon.length > 0 && ferieTutte.length > 0 && !chiuso && (
         <section className="bg-white border border-slate-200 rounded-xl px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -924,8 +947,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             )}
           </div>
           <div className="mt-2 space-y-1.5">
-            {persone.filter(({ scheda }) => ferieMese.some((x) => x.employee_id === scheda.id)).map(({ scheda }) => {
-              const suoi = ferieMese.filter((x) => x.employee_id === scheda.id).sort((a, b) => a.data.localeCompare(b.data));
+            {persone.filter(({ scheda }) => ferieTutte.some((x) => x.employee_id === scheda.id)).map(({ scheda }) => {
+              const suoi = ferieTutte.filter((x) => x.employee_id === scheda.id).sort((a, b) => a.data.localeCompare(b.data));
               return (
                 <div key={scheda.id} className="flex flex-wrap items-center gap-1.5 text-sm">
                   <span className="w-44 font-medium text-slate-800 truncate">{nomePersona(scheda)}</span>
