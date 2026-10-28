@@ -656,6 +656,12 @@ export type SettimanaPiano = {
   disponibili: number;
   /** ore di lavoro dei turni del piano (pause escluse) */
   pianificate: number;
+  /** ore necessarie coperte dai turni: necessarie = coperte + scoperte */
+  coperte?: number;
+  /** ore nei turni dove MODA non chiede persone: pianificate = coperte + inPiu */
+  inPiu?: number;
+  /** ore di contratto (ferie tolte) che i turni non usano, persona per persona */
+  nonUsate?: number;
   /** ore necessarie che il piano non copre */
   scoperte: number;
 };
@@ -663,6 +669,8 @@ export type SettimanaPiano = {
 export interface EsitoPianoMese {
   /** il mese settimana per settimana */
   settimane: SettimanaPiano[];
+  /** i giorni del mese con le persone necessarie a organico pieno, mezz'ora per mezz'ora */
+  necessari: GiornoPiano[];
   turni: Turno[];
   weekendLiberi: Map<string, string[]>;
   scoperture: Scopertura[];
@@ -881,12 +889,18 @@ export function pianificaMese(args: {
     const gn = giorniNecessari.filter((g) => date.includes(g.data));
     const contratto = contrattuali.reduce((a, p) => a + contrattoSett(p, lun), 0);
     const ferie = contrattuali.reduce((a, p) => a + ferieSett(p, lun), 0);
+    const necessarie = gn.reduce((a, g) => a + (g.chiuso ? 0 : g.fabbisogno.reduce((x, y) => x + y, 0)), 0) * SLOT_MINUTI / 60;
+    const scoperte = oreScoperte(gn, turni);
+    const pianificate = turni.filter((t) => date.includes(t.data)).reduce((a, t) => a + oreLavorate(t), 0);
+    const coperte = necessarie - scoperte;
+    const nonUsate = contrattuali.reduce((a, p) => {
+      const fatte = turni.filter((t) => t.employeeId === p.id && date.includes(t.data)).reduce((x, t) => x + oreLavorate(t), 0);
+      return a + Math.max(0, orePersona(p, lun) - fatte);
+    }, 0);
     return {
       lunedi: lun, dal: date[0], al: date[date.length - 1],
-      necessarie: gn.reduce((a, g) => a + (g.chiuso ? 0 : g.fabbisogno.reduce((x, y) => x + y, 0)), 0) * SLOT_MINUTI / 60,
-      contratto, ferie, disponibili: Math.max(0, contratto - ferie),
-      pianificate: turni.filter((t) => date.includes(t.data)).reduce((a, t) => a + oreLavorate(t), 0),
-      scoperte: oreScoperte(gn, turni),
+      necessarie, contratto, ferie, disponibili: Math.max(0, contratto - ferie),
+      pianificate, coperte, inPiu: Math.max(0, pianificate - coperte), nonUsate, scoperte,
     };
   });
   return {
@@ -895,6 +909,7 @@ export function pianificaMese(args: {
     scoperture,
     oreScoperte: riepilogoSettimane.reduce((a, x) => a + x.scoperte, 0),
     settimane: riepilogoSettimane,
+    necessari: giorniNecessari,
     giorni: giorniMese,
     persone,
     oreRiserva: riserva.reduce((a, p) => a + persone[p.id].pianificate, 0),

@@ -513,3 +513,18 @@ sceglierlo e poi inserire ferie e permessi dal calendario; resta anche la propos
   approvata» (default) o «Da approvare». Già approvata chiama `leave_decidi` sul giorno appena creato: stessa
   approvazione di Approvazioni ferie, il saldo si consuma. Se l'utente non può decidere sulle ferie, la richiesta
   resta inviata e la pagina lo dice. Un processo di approvazione dedicato si farà dopo (Patrizio).
+
+## Riquadro delle ore che si somma, «In negozio» e ferie nel calendario senza ferie (28/10/2026)
+
+Patrizio non capiva il riquadro (21 necessarie, 21,7 di contratto, 3,5 scoperte; «manca 12 persone» il sabato) e
+vedeva le ferie nel calendario senza ferie.
+- `SettimanaPiano` ha `coperte` (= necessarie − scoperte), `inPiu` (= nei turni − coperte: ore messe dove MODA
+  non le chiede, per le regole) e `nonUsate` (ore disponibili per persona che i turni non usano). Il riquadro mostra
+  necessarie = coperte + scoperte e nei turni = coperte + in più. Barberino, novembre, senza ferie: 1/11 21 = 17,5 +
+  3,5; contratto 21,7, non usate 4,2 (Pampaloni 3,33 h sotto il turno minimo + arrotondamenti alla mezz'ora).
+- «In negozio» confronta con `esito.necessari` (organico pieno, tetto = persone in servizio), non più con
+  `esigenza` senza tetto: massimo «manca» misurato a Barberino 2 persone su un picco di 4.
+- Calendario senza ferie: `ferieMese` mostra solo i giorni creati dopo il piano (`creato_il` > `created_at`);
+  `ferieTutte` resta per la prova delle ferie.
+- 93 contro 91,5 ore (nessun weekend libero peggio di un sabato libero): la proposta è un metodo a tentativi, non un
+  ottimo garantito; differenze di 1-2 ore fra varianti sono possibili.
