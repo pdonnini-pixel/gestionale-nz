@@ -602,3 +602,10 @@ Patrizio: niente «ordinarie», «lavorate», «da lavorare», «pianificate», 
 - Ferie dalla casella: il giorno di ferie si apre e «Togli le ferie» chiama `leave_decidi` con gli altri giorni
   approvati della richiesta e motivo «Tolte dal piano del mese» (giorno respinto, saldo a posto, storico intatto). Se
   la richiesta ha altri giorni «richiesto», si rimanda ad Approvazioni ferie per non approvarli senza volerlo.
+- (stesso giorno, dopo) Tabella «Ore del mese, settimana per settimana» spostata fra le schede delle varianti e il
+  calendario, quattro righe: Ore da contratto (piene, nessuna ferie tolta; «di cui in ferie o permesso» se ci sono) ·
+  Ore nei turni · Ore ancora da assegnare (contratto − ferie − turni; negativo = «oltre») · Ore sotto MODA (ex
+  «scoperte»: orari in cui i turni hanno meno persone di quelle che chiede il traffico). Spariti necessarie, coperte,
+  disponibili, dove servono, dove MODA non le chiede, contratto non usato. «mancano» → «da assegnare»; «manca N
+  persone» → «sotto MODA di N persone». Le necessarie si calcolano sulle ore da contratto del mese (`contrattoSett`)
+  distribuite sui giorni del mese, così non superano più il contratto nelle settimane a cavallo (44 contro 42,9).

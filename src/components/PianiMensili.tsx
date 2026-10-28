@@ -419,7 +419,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         const { error } = await supabase.from('shift_plan_weekend_off').insert(liberi);
         if (error) throw error;
       }
-      toast({ type: 'success', message: `${ipotesi ? 'Simulazione' : 'Piano'} creat${ipotesi ? 'a' : 'o'}: ${esito.turni.length} turni, ${fmt(esito.oreScoperte)} ore scoperte nel mese${riepilogo.straordinario ? `, ${fmt(riepilogo.straordinario)} ore di straordinario` : ''}.` });
+      toast({ type: 'success', message: `${ipotesi ? 'Simulazione' : 'Piano'} creat${ipotesi ? 'a' : 'o'}: ${esito.turni.length} turni, ${fmt(esito.oreScoperte)} ore sotto MODA nel mese${riepilogo.straordinario ? `, ${fmt(riepilogo.straordinario)} ore di straordinario` : ''}.` });
       if (ipotesi) setSim(null);
       await carica();
       setAperto(planId);
@@ -712,95 +712,6 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         )}
       </section>
 
-      {/* Le ore del mese settimana per settimana (Patrizio, 28/10/2026): prima di tutto. */}
-      {pianoOre?.riepilogo.settimane && (() => {
-        const w = pianoOre.riepilogo.settimane;
-        const dopo = prova?.dopo[pianoOre.regola_weekend];
-        const etichetta = (x: SettimanaPiano) => x.dal === x.al ? `${Number(x.dal.slice(8))}/${Number(x.dal.slice(5, 7))}` : `${Number(x.dal.slice(8))}-${Number(x.al.slice(8))}/${Number(x.al.slice(5, 7))}`;
-        const peggiore = Math.max(...w.map((x) => x.scoperte));
-        // Due conti che si sommano: necessarie = coperte + scoperte; nei turni = coperte + in piu'.
-        const val = (x: SettimanaPiano, k: string): number => {
-          if (k === 'coperte') return x.coperte ?? x.necessarie - x.scoperte;
-          if (k === 'inPiu') return x.inPiu ?? Math.max(0, x.pianificate - (x.necessarie - x.scoperte));
-          if (k === 'nonUsate') return x.nonUsate ?? Math.max(0, x.disponibili - x.pianificate);
-          return Number(x[k as keyof SettimanaPiano]);
-        };
-        const tot = (k: string) => w.reduce((a, x) => a + val(x, k), 0);
-        const righe: { k: string; label: string; nota: string; forte?: boolean; rientro?: boolean; bordo?: boolean }[] = [
-          { k: 'necessarie', label: 'Ore necessarie', nota: 'MODA a organico pieno: tutte al lavoro, nessuna ferie', forte: true },
-          { k: 'coperte', label: 'coperte dai turni', nota: 'necessarie meno scoperte', rientro: true },
-          { k: 'contratto', label: 'Contratto', nota: 'ore a giornata dei giorni con il contratto', bordo: true },
-          { k: 'ferie', label: 'Ferie e permessi', nota: 'chiesti o approvati' },
-          { k: 'disponibili', label: 'Ore disponibili', nota: 'contratto meno ferie e permessi', forte: true },
-          { k: 'pianificate', label: 'Ore nei turni', nota: 'pause escluse, anche chi è a chiamata', forte: true, bordo: true },
-          { k: 'coperte', label: 'dove servono', nota: 'le stesse ore coperte di sopra', rientro: true },
-          { k: 'inPiu', label: 'dove MODA non le chiede', nota: 'per le regole: turno minimo, un turno al giorno, negozio sempre aperto', rientro: true },
-          { k: 'nonUsate', label: 'Contratto non usato', nota: 'ore disponibili che i turni non usano (turno minimo, giorni di lavoro, giorni non disponibili)', bordo: true },
-        ];
-        return (
-          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
-              <div>
-                <h3 className="text-sm font-semibold text-slate-800">Ore del mese, settimana per settimana</h3>
-                <p className="text-xs text-slate-500">Variante «{ETICHETTE_REGOLA[pianoOre.regola_weekend]}»{pianoOre.simulazione ? ' (simulazione)' : ''}: la settimana più rossa è dove intervenire.</p>
-              </div>
-              {puoScrivere && !chiuso && (
-                <button type="button" onClick={() => setSim(simulazioneVuota())} disabled={!!lavoro}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100 disabled:opacity-50">
-                  <FlaskConical size={13} /> Prova ore di contratto diverse
-                </button>
-              )}
-            </div>
-            <div className="overflow-x-auto px-4 py-3">
-              <table className="w-full text-sm tabular-nums">
-                <thead>
-                  <tr className="text-xs text-slate-500">
-                    <th className="text-left font-medium py-1 pr-3">Settimana</th>
-                    {w.map((x) => <th key={x.lunedi} className="text-right font-medium py-1 px-2 whitespace-nowrap">{etichetta(x)}</th>)}
-                    <th className="text-right font-semibold py-1 pl-3 text-slate-700">Mese</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {righe.slice(0, 2).map((r, i) => (
-                    <tr key={`${r.k}-${i}`} className="border-t border-slate-100">
-                      <td className={`py-1.5 pr-3 ${r.rientro ? 'pl-4' : ''}`}><span className={r.forte ? 'font-semibold text-slate-800' : 'text-slate-700'}>{r.rientro ? '↳ ' : ''}{r.label}</span><span className="block text-[11px] text-slate-400">{r.nota}</span></td>
-                      {w.map((x) => <td key={x.lunedi} className={`text-right px-2 ${r.forte ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{fmt(val(x, r.k))}</td>)}
-                      <td className="text-right pl-3 font-semibold text-slate-800">{fmt(tot(r.k))}</td>
-                    </tr>
-                  ))}
-                  <tr className="border-t border-slate-100">
-                    <td className="py-1.5 pr-3 pl-4"><span className="font-semibold text-red-800">↳ scoperte</span><span className="block text-[11px] text-slate-400">necessarie che i turni non coprono: dove intervenire</span></td>
-                    {w.map((x) => (
-                      <td key={x.lunedi} className="text-right px-2">
-                        <span className={`inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 font-semibold ${x.scoperte < 0.25 ? 'text-emerald-700' : x.scoperte >= peggiore - 1e-9 ? 'bg-red-600 text-white' : 'bg-red-50 text-red-800'}`}>{fmt(x.scoperte)}</span>
-                      </td>
-                    ))}
-                    <td className="text-right pl-3 font-semibold text-red-800">{fmt(tot('scoperte'))}</td>
-                  </tr>
-                  {righe.slice(2).map((r, i) => (
-                    <tr key={`${r.k}-b${i}`} className={r.bordo ? 'border-t-2 border-slate-200' : 'border-t border-slate-100'}>
-                      <td className={`py-1.5 pr-3 ${r.rientro ? 'pl-4' : ''}`}><span className={r.forte ? 'font-semibold text-slate-800' : 'text-slate-700'}>{r.rientro ? '↳ ' : ''}{r.label}</span><span className="block text-[11px] text-slate-400">{r.nota}</span></td>
-                      {w.map((x) => <td key={x.lunedi} className={`text-right px-2 ${r.forte ? 'font-semibold text-slate-800' : 'text-slate-600'}`}>{fmt(val(x, r.k))}</td>)}
-                      <td className="text-right pl-3 font-semibold text-slate-800">{fmt(tot(r.k))}</td>
-                    </tr>
-                  ))}
-                  {dopo && (
-                    <tr className="border-t border-amber-200 bg-amber-50/60">
-                      <td className="py-1.5 pr-3"><span className="font-semibold text-amber-900">Senza le ferie spente</span><span className="block text-[11px] text-amber-800">prova, le richieste non cambiano</span></td>
-                      {dopo.map((x) => <td key={x.lunedi} className="text-right px-2 font-semibold text-amber-900">{fmt(x.scoperte)}</td>)}
-                      <td className="text-right pl-3 font-semibold text-amber-900">{fmt(scoperteDi(dopo))}</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        );
-      })()}
-      {!pianoOre && piani.length > 0 && (
-        <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">Queste varianti sono state calcolate prima del 28/10/2026, senza il dettaglio per settimana: toglile con il cestino e ricreale per vedere le ore necessarie e scoperte settimana per settimana.</p>
-      )}
-
       {/* Chi lavora nel mese, con ore e giorni in cui può lavorare. */}
       <section className="bg-white border border-slate-200 rounded-xl">
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
@@ -931,7 +842,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="text-sm font-semibold text-slate-800">Ferie e permessi del mese: prova a spegnerli</h3>
-              <p className="text-xs text-slate-500">Clicca un giorno per spegnerlo o riaccenderlo: le ore scoperte si ricalcolano subito in ogni variante. È una prova, le richieste di ferie non cambiano.</p>
+              <p className="text-xs text-slate-500">Clicca un giorno per spegnerlo o riaccenderlo: le ore sotto MODA si ricalcolano subito in ogni variante. È una prova, le richieste di ferie non cambiano.</p>
             </div>
             {ferieTolte.size > 0 && (
               <div className="flex gap-2">
@@ -1010,7 +921,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                     <span className={`text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 ${p.stato === 'scelto' ? 'bg-emerald-100 text-emerald-800' : p.simulazione ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-600'}`}>
                       {p.stato === 'scelto' ? 'Vale questo' : p.simulazione ? 'Simulazione' : 'Bozza'}
                     </span>
-                    {migliore && <span className="text-[11px] font-semibold text-blue-700">meno ore scoperte</span>}
+                    {migliore && <span className="text-[11px] font-semibold text-blue-700">meno ore sotto MODA</span>}
                   </div>
                   <h4 className="mt-2 text-sm font-semibold text-slate-900 leading-snug first-letter:uppercase">{ETICHETTE_REGOLA[p.regola_weekend]}</h4>
                   {p.riepilogo.senzaFerie && <p className="text-xs text-blue-700 mt-0.5">senza ferie e permessi</p>}
@@ -1023,7 +934,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                   )}
                   <p className={`mt-3 text-2xl font-semibold tabular-nums ${scoperte > 0.25 ? 'text-red-700' : 'text-emerald-700'}`}>
                     {scoperte > 0.25 ? `${fmt(scoperte)} h` : 'Coperto'}
-                    <span className="ml-1 text-xs font-normal text-slate-500">{scoperte > 0.25 ? 'scoperte nel mese' : 'tutto il mese'}</span>
+                    <span className="ml-1 text-xs font-normal text-slate-500">{scoperte > 0.25 ? 'ore sotto MODA' : 'tutto il mese'}</span>
                   </p>
                   {p.riepilogo.settimane?.length ? (() => {
                     // Le ore scoperte settimana per settimana, a colpo d'occhio.
@@ -1077,12 +988,105 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       <details className="text-sm text-slate-600">
         <summary className="cursor-pointer text-xs font-semibold text-slate-500 hover:text-slate-700">Come si calcola il piano</summary>
         <div className="mt-2 rounded-lg bg-slate-50 border border-slate-200 p-3 space-y-1 text-xs">
-          <p>Le ore necessarie sono le ore di contratto di tutte le persone del negozio, senza togliere ferie e permessi, distribuite come gli ingressi MODA: è il fabbisogno a organico pieno. Le ore scoperte sono le ore necessarie che i turni non coprono, per le ferie o per le regole dei turni; spegnendo una ferie nella prova si vede quante se ne recuperano.</p>
+          <p>MODA comanda: le ore da contratto di tutte le persone del negozio, senza togliere ferie e permessi, si distribuiscono come entrano i clienti, e questo dice quante persone servono mezz'ora per mezz'ora. Le ore sotto MODA sono gli orari in cui i turni hanno meno persone di quelle che il traffico chiede, per le ferie o per le regole dei turni; spegnendo una ferie nella prova si vede quante se ne recuperano.</p>
           <p>Le ore di contratto di chi lavora nel negozio, meno ferie e permessi, si distribuiscono come gli ingressi registrati da MODA: più persone quando entra più gente, sempre almeno una. I giorni speciali (festivi, Black Friday, settimane di Natale) si riconoscono dal calendario; gli eventi del negozio si aggiungono dalla scheda «Eventi».</p>
           <p>Comanda l'orario del negozio: in ogni mezz'ora di apertura c'è almeno una persona, i giorni chiusi sono solo quelli del calendario (e quelli prima della data di apertura). MODA decide dove servono la seconda e la terza persona; se le ore non bastano, la riga «In negozio» lo segnala come personale mancante.</p>
           <p>Ogni turno dura almeno 4 ore (si cambia solo nelle regole del negozio). La pausa non è lavoro e non si paga: almeno 30 minuti da 6 ore di lavoro, un'ora da 8 (9 ore di presenza = 8 di lavoro). Al massimo 6 giorni su 7. Chi è a chiamata copre solo i buchi che restano, nei giorni in cui può lavorare.</p>
         </div>
       </details>
+
+      {/* Le ore del mese settimana per settimana (Patrizio, 28/10/2026): fra le schede delle varianti e il calendario. */}
+      {pianoOre?.riepilogo.settimane && (() => {
+        const w = pianoOre.riepilogo.settimane;
+        const dopo = prova?.dopo[pianoOre.regola_weekend];
+        const etichetta = (x: SettimanaPiano) => x.dal === x.al ? `${Number(x.dal.slice(8))}/${Number(x.dal.slice(5, 7))}` : `${Number(x.dal.slice(8))}-${Number(x.al.slice(8))}/${Number(x.al.slice(5, 7))}`;
+        const peggiore = Math.max(...w.map((x) => x.scoperte));
+        // Due conti che si sommano: necessarie = coperte + scoperte; nei turni = coperte + in piu'.
+        const val = (x: SettimanaPiano, k: string): number => {
+          if (k === 'coperte') return x.coperte ?? x.necessarie - x.scoperte;
+          if (k === 'inPiu') return x.inPiu ?? Math.max(0, x.pianificate - (x.necessarie - x.scoperte));
+          if (k === 'nonUsate') return x.nonUsate ?? Math.max(0, x.disponibili - x.pianificate);
+          return Number(x[k as keyof SettimanaPiano]);
+        };
+        const tot = (k: string) => w.reduce((a, x) => a + val(x, k), 0);
+        // Quattro righe, una logica sola (Patrizio, 28/10/2026): ore da contratto
+        // piene, ore nei turni, quelle ancora da assegnare e le ore sotto MODA.
+        const daAssegnare = (x: SettimanaPiano) => x.contratto - x.ferie - x.pianificate;
+        const totFerie = tot('ferie');
+        return (
+          <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">Ore del mese, settimana per settimana</h3>
+                <p className="text-xs text-slate-500">Variante «{ETICHETTE_REGOLA[pianoOre.regola_weekend]}»{pianoOre.simulazione ? ' (simulazione)' : ''}: cambia cliccando un'altra scheda. La settimana più rossa è dove intervenire, nel calendario qui sotto.</p>
+              </div>
+              {puoScrivere && !chiuso && (
+                <button type="button" onClick={() => setSim(simulazioneVuota())} disabled={!!lavoro}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg border border-violet-300 bg-violet-50 text-violet-900 hover:bg-violet-100 disabled:opacity-50">
+                  <FlaskConical size={13} /> Prova ore di contratto diverse
+                </button>
+              )}
+            </div>
+            <div className="overflow-x-auto px-4 py-3">
+              <table className="w-full text-sm tabular-nums">
+                <thead>
+                  <tr className="text-xs text-slate-500">
+                    <th className="text-left font-medium py-1 pr-3">Settimana</th>
+                    {w.map((x) => <th key={x.lunedi} className="text-right font-medium py-1 px-2 whitespace-nowrap">{etichetta(x)}</th>)}
+                    <th className="text-right font-semibold py-1 pl-3 text-slate-700">Mese</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-t border-slate-100">
+                    <td className="py-1.5 pr-3"><span className="font-semibold text-slate-800">Ore da contratto</span><span className="block text-[11px] text-slate-400">di tutte le persone del negozio, nessuna ferie tolta</span></td>
+                    {w.map((x) => <td key={x.lunedi} className="text-right px-2 font-semibold text-slate-800">{fmt(x.contratto)}</td>)}
+                    <td className="text-right pl-3 font-semibold text-slate-800">{fmt(tot('contratto'))}</td>
+                  </tr>
+                  {totFerie > 0.25 && (
+                    <tr className="border-t border-slate-100">
+                      <td className="py-1.5 pr-3 pl-4"><span className="text-slate-700">↳ di cui in ferie o permesso</span><span className="block text-[11px] text-slate-400">già decise: quelle ore la persona non c'è</span></td>
+                      {w.map((x) => <td key={x.lunedi} className="text-right px-2 text-amber-800">{fmt(x.ferie)}</td>)}
+                      <td className="text-right pl-3 font-semibold text-amber-800">{fmt(totFerie)}</td>
+                    </tr>
+                  )}
+                  <tr className="border-t border-slate-100">
+                    <td className="py-1.5 pr-3"><span className="font-semibold text-slate-800">Ore nei turni</span><span className="block text-[11px] text-slate-400">pause escluse</span></td>
+                    {w.map((x) => <td key={x.lunedi} className="text-right px-2 font-semibold text-slate-800">{fmt(x.pianificate)}</td>)}
+                    <td className="text-right pl-3 font-semibold text-slate-800">{fmt(tot('pianificate'))}</td>
+                  </tr>
+                  <tr className="border-t border-slate-100">
+                    <td className="py-1.5 pr-3"><span className="font-semibold text-slate-800">Ore ancora da assegnare</span><span className="block text-[11px] text-slate-400">ore da contratto né nei turni né in ferie: mettile dove i turni sono sotto MODA, oppure dalle come ferie o permesso. «oltre» = turni oltre il contratto: straordinario o da togliere</span></td>
+                    {w.map((x) => {
+                      const d = daAssegnare(x);
+                      return <td key={x.lunedi} className={`text-right px-2 font-semibold ${Math.abs(d) <= 0.25 ? 'text-emerald-700' : d > 0 ? 'text-slate-800' : 'text-amber-800'}`}>{Math.abs(d) <= 0.25 ? '0' : d > 0 ? fmt(d) : `${fmt(-d)} oltre`}</td>;
+                    })}
+                    {(() => { const d = w.reduce((a, x) => a + daAssegnare(x), 0); return <td className={`text-right pl-3 font-semibold ${Math.abs(d) <= 0.25 ? 'text-emerald-700' : d > 0 ? 'text-slate-800' : 'text-amber-800'}`}>{Math.abs(d) <= 0.25 ? '0' : d > 0 ? fmt(d) : `${fmt(-d)} oltre`}</td>; })()}
+                  </tr>
+                  <tr className="border-t-2 border-slate-200">
+                    <td className="py-1.5 pr-3"><span className="font-semibold text-red-800">Ore sotto MODA</span><span className="block text-[11px] text-slate-400">orari in cui i turni hanno meno persone di quelle che chiede il traffico (MODA); nel calendario sotto, riga «In negozio»</span></td>
+                    {w.map((x) => (
+                      <td key={x.lunedi} className="text-right px-2">
+                        <span className={`inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 font-semibold ${x.scoperte < 0.25 ? 'text-emerald-700' : x.scoperte >= peggiore - 1e-9 ? 'bg-red-600 text-white' : 'bg-red-50 text-red-800'}`}>{fmt(x.scoperte)}</span>
+                      </td>
+                    ))}
+                    <td className="text-right pl-3 font-semibold text-red-800">{fmt(tot('scoperte'))}</td>
+                  </tr>
+                  {dopo && (
+                    <tr className="border-t border-amber-200 bg-amber-50/60">
+                      <td className="py-1.5 pr-3"><span className="font-semibold text-amber-900">Senza le ferie spente</span><span className="block text-[11px] text-amber-800">prova, le richieste non cambiano</span></td>
+                      {dopo.map((x) => <td key={x.lunedi} className="text-right px-2 font-semibold text-amber-900">{fmt(x.scoperte)}</td>)}
+                      <td className="text-right pl-3 font-semibold text-amber-900">{fmt(scoperteDi(dopo))}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })()}
+      {!pianoOre && piani.length > 0 && (
+        <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">Queste varianti sono state calcolate prima del 28/10/2026, senza il dettaglio per settimana: toglile con il cestino e ricreale per vedere le ore necessarie e scoperte settimana per settimana.</p>
+      )}
 
       {pianoAperto && (
         <section className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -1124,7 +1128,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               )}
               <div className="flex flex-wrap gap-2 mt-2 text-xs">
                 <span className={`px-2 py-1 rounded-md ${(pianoAperto.riepilogo.oreScoperte ?? 0) > 0.25 ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-800'}`}>
-                  {(pianoAperto.riepilogo.oreScoperte ?? 0) > 0.25 ? `${fmt(pianoAperto.riepilogo.oreScoperte)} ore scoperte nel mese` : 'Fabbisogno coperto'}
+                  {(pianoAperto.riepilogo.oreScoperte ?? 0) > 0.25 ? `${fmt(pianoAperto.riepilogo.oreScoperte)} ore sotto MODA nel mese` : 'Turni in linea con MODA'}
                 </span>
                 {(pianoAperto.riepilogo.oreRiserva ?? 0) > 0 && <span className="px-2 py-1 rounded-md bg-slate-100 text-slate-700">{fmt(pianoAperto.riepilogo.oreRiserva)} ore a chiamata</span>}
                 {(pianoAperto.riepilogo.straordinario ?? 0) > 0.25 && <span className="px-2 py-1 rounded-md bg-amber-50 text-amber-800">{fmt(pianoAperto.riepilogo.straordinario)} ore di straordinario</span>}
@@ -1192,7 +1196,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               const mancano = Math.max(0, ...cop.map((c, i) => (b.esigenza[i] ?? 1) - c));
               if (mancano > 0) {
                 const dove = fasce((i) => (b.esigenza[i] ?? 1) > cop[i]);
-                return <span className="block rounded-md px-1 py-1 bg-amber-100 text-amber-900 text-[10px] font-semibold leading-tight" title="Per il traffico MODA servirebbero più persone in questi orari">manca {mancano === 1 ? '1 persona' : `${mancano} persone`} {dove.join(', ')}</span>;
+                return <span className="block rounded-md px-1 py-1 bg-amber-100 text-amber-900 text-[10px] font-semibold leading-tight" title="Sotto MODA: in questi orari il traffico chiede più persone di quelle in turno">sotto MODA di {mancano === 1 ? '1 persona' : `${mancano} persone`} {dove.join(', ')}</span>;
               }
               return <span className="block text-[10px] font-semibold text-emerald-700">coperto</span>;
             };
@@ -1300,7 +1304,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                         <span className="block text-[11px] font-normal tabular-nums" title={nelMese.length < 7 ? `Settimana a cavallo del mese: ${fmt(riga.oreSett ?? 0)} h in tutta la settimana, qui la parte di questo mese` : undefined}>
                                           <span className="text-slate-600">{fmt(programmate)} di {fmt(daContratto)} h</span>{' '}
                                           {Math.abs(scarto) <= 0.25 ? <span className="text-emerald-700 font-semibold">in linea</span>
-                                            : scarto < 0 ? <span className="text-slate-700 font-semibold">mancano {fmt(-scarto)} h</span>
+                                            : scarto < 0 ? <span className="text-slate-700 font-semibold">{fmt(-scarto)} h da assegnare</span>
                                               : <span className="text-amber-800 font-semibold">{fmt(scarto)} h in più</span>}
                                           {straordSett > 0.25 && <span className="block text-amber-800">+ {fmt(straordSett)} h straordinario</span>}
                                         </span>
@@ -1330,7 +1334,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                   <h4 className="text-sm font-semibold text-slate-800">Ore del mese, persona per persona</h4>
                   <p className="text-xs text-slate-500 mb-2">
                     Due numeri e la differenza. <b>Ore da contratto</b> = le ore a settimana di ogni settimana del mese (nelle settimane a cavallo di due mesi, la parte di questo mese) meno ferie, permessi e trasferte.
-                    <b> Ore programmate</b> = ore dei turni di questo piano, senza lo straordinario concordato, che si conta a parte. Se le programmate sono meno, mancano ore da programmare; se sono di più, decidi se sono straordinario o se toglierle.
+                    <b> Ore programmate</b> = ore dei turni di questo piano, senza lo straordinario concordato, che si conta a parte. Se le programmate sono meno, la differenza sono ore ancora da assegnare (in un turno dove i turni sono sotto MODA, oppure come ferie o permesso); se sono di più, decidi se sono straordinario o se toglierle.
                   </p>
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
                     <table className="w-full text-sm">
@@ -1396,7 +1400,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                 {daLavorare == null ? (fatte > 0 ? <span className="text-slate-600">chiamata per i buchi</span> : <span className="text-slate-400">non chiamata</span>) : (
                                   <>
                                     {nonUsate > 0.25 ? (
-                                      <span className="block text-slate-700"><b>Mancano {fmt(nonUsate)} h da programmare</b>
+                                      <span className="block text-slate-700"><b>{fmt(nonUsate)} h ancora da assegnare</b>
                                         <span className="block text-slate-500">{(r?.settimanePiene ?? 0) > 0
                                           ? `in ${r?.settimanePiene === 1 ? 'una settimana ha' : `${r?.settimanePiene} settimane ha`} già ${giorniMax} giorni di lavoro: le ore che restano non entrano in un altro giorno`
                                           : 'al negozio non servivano: il traffico di quei giorni era già coperto'}</span>

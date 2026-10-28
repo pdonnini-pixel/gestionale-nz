@@ -873,14 +873,12 @@ export function pianificaMese(args: {
     if (args.fabbisognoFisso) { giorniMese.push(...gg); giorniNecessari.push(...gg); continue; }
     const maxP = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) && !libero(p.id, g.data)).length]));
     giorniMese.push(...fabbisognoDaTraffico(gg, args.atteso, ore, maxP, args.extra));
-    // Le necessarie della settimana intera, distribuite come MODA su tutti i
-    // suoi giorni; di questo mese contano solo i suoi giorni.
-    const intera = args.giorni.filter((g) => giorniDellaSettimana(lun).includes(g.data));
-    const orePiene = contrattuali.reduce((a, p) => a + contrattoIntero(p, lun), 0) * Math.min(1, intera.length / 7);
-    const maxPieno = new Map(intera.map((g) => [g.data, nelMese(g.data)
-      ? contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length
-      : contrattuali.length]));
-    giorniNecessari.push(...fabbisognoDaTraffico(intera, args.atteso, orePiene, maxPieno, args.extra).filter((g) => nelMese(g.data)));
+    // Le necessarie sulla stessa base del contratto (Patrizio, 28/10/2026: 44 di
+    // necessarie contro 42,9 di contratto non si capiva): le ore da contratto di
+    // questo mese, distribuite come MODA sui suoi giorni.
+    const orePiene = contrattuali.reduce((a, p) => a + contrattoSett(p, lun), 0);
+    const maxPieno = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length]));
+    giorniNecessari.push(...fabbisognoDaTraffico(gg, args.atteso, orePiene, maxPieno, args.extra));
   }
 
   // 3. Le settimane.
