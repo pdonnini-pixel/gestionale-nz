@@ -9,7 +9,7 @@ import {
   ChevronLeft, ChevronRight, ArrowRight, Send, Ban, Percent,
   Calendar, Info, MoreVertical, Copy, FileUp, Layers, Unlink,
   CircleDot, Sparkles, Receipt, ChevronsUpDown, AlertTriangle,
-  BarChart3, PieChart as PieChartIcon, Table2, Columns3
+  BarChart3, PieChart as PieChartIcon, Table2, Columns3, Paperclip
 } from 'lucide-react'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -36,6 +36,7 @@ import OpenBankingAcube from '../components/OpenBankingAcube'
 import FinanziamentiTab from '../components/FinanziamentiTab'
 import EstrattiContoImport from '../components/EstrattiContoImport'
 import DocumentiBanca from '../components/DocumentiBanca'
+import AllegatiMovimento, { contaAllegatiMovimenti } from '../components/AllegatiMovimento'
 import CellTooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import { Modal as UIModal } from '../components/ui/Modal'
@@ -1697,7 +1698,7 @@ function TabContiBancari({ accounts, companyId, onRefresh }: { accounts: Account
 // ═══ TAB 3: MOVIMENTI ═══
 // ═══════════════════════════════════════════════════════════════════
 
-function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategoryFilter, year }: { transactions: TransactionT[]; accounts: AccountT[]; onAssignCategory: (t: TransactionT, category: string) => void | Promise<void>; initialCategoryFilter?: string; year: number }) {
+function TabMovimenti({ transactions, accounts, companyId, onAssignCategory, initialCategoryFilter, year }: { transactions: TransactionT[]; accounts: AccountT[]; companyId: string; onAssignCategory: (t: TransactionT, category: string) => void | Promise<void>; initialCategoryFilter?: string; year: number }) {
   // Deep-link Dashboard: ?filter=senza-categoria preseleziona il filtro categoria
   // e azzera il range date (default = mese corrente) per mostrare TUTTI i movimenti
   // senza categoria, non solo quelli del mese.
@@ -1717,6 +1718,12 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
   const [sortField, setSortField] = useState<keyof TransactionT | string>('transaction_date')
   const [sortDir, setSortDir] = useState('desc')
   const [assigningId, setAssigningId] = useState<string | null>(null)
+  // Allegati (scontrini, ricevute): numero per movimento della pagina e movimento aperto.
+  const [allegatiPer, setAllegatiPer] = useState<Record<string, number>>({})
+  const [allegatiDi, setAllegatiDi] = useState<TransactionT | null>(null)
+  const aggiornaAllegati = useCallback((id: string, quanti: number) => {
+    setAllegatiPer(m => (m[id] === quanti ? m : { ...m, [id]: quanti }))
+  }, [])
 
   // Se il deep-link cambia dopo il mount (navigazione da Dashboard con Banche già aperta)
   useEffect(() => {
@@ -1773,6 +1780,13 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
   const pageItems = filtered.slice((page - 1) * perPage, page * perPage)
   const rangeStart = filtered.length === 0 ? 0 : (page - 1) * perPage + 1
   const rangeEnd = Math.min(page * perPage, filtered.length)
+
+  const idsPagina = pageItems.map(t => t.id).join(',')
+  useEffect(() => {
+    let vivo = true
+    contaAllegatiMovimenti(idsPagina ? idsPagina.split(',') : []).then(m => { if (vivo) setAllegatiPer(m) })
+    return () => { vivo = false }
+  }, [idsPagina])
 
   // Il range date corrisponde a un anno intero (`YYYY-01-01`..`YYYY-12-31`)?
   // In tal caso la lista sta mostrando solo quell'anno: lo segnaliamo con un banner
@@ -2030,6 +2044,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
                   <th className="px-4 py-3 text-right text-xs font-medium text-slate-500">Saldo</th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-slate-500">Categoria contabile</th>
                   <th className="px-4 py-3 text-center text-xs font-medium text-slate-500">Stato</th>
+                  <th className="px-4 py-3 text-center text-xs font-medium text-slate-500">Allegati</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
@@ -2085,6 +2100,17 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
                           <span className="text-xs text-slate-400">Da riconciliare</span>
                         )}
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        <button type="button" onClick={() => setAllegatiDi(t)}
+                          title={allegatiPer[t.id] ? 'Vedi o aggiungi allegati' : 'Allega scontrino o ricevuta'}
+                          aria-label={allegatiPer[t.id] ? `${allegatiPer[t.id]} allegati` : 'Allega scontrino o ricevuta'}
+                          className={classNames(
+                            'inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs',
+                            allegatiPer[t.id] ? 'text-blue-700 bg-blue-50 hover:bg-blue-100 font-medium' : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'
+                          )}>
+                          <Paperclip size={13} />{allegatiPer[t.id] ? allegatiPer[t.id] : null}
+                        </button>
+                      </td>
                     </tr>
                   )
                 })}
@@ -2094,6 +2120,7 @@ function TabMovimenti({ transactions, accounts, onAssignCategory, initialCategor
         )}
         <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
       </div>
+      <AllegatiMovimento movimento={allegatiDi} companyId={companyId} onClose={() => setAllegatiDi(null)} onCambiato={aggiornaAllegati} />
     </div>
   )
 }
@@ -4442,6 +4469,7 @@ export default function TesoreriaManuale() {
         <TabMovimenti
           transactions={transactions}
           accounts={accounts}
+          companyId={companyId}
           onAssignCategory={handleAssignCategory}
           initialCategoryFilter={searchParams.get('filter') === 'senza-categoria' ? 'senza_categoria' : undefined}
           year={year}
