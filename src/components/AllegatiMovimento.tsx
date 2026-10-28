@@ -28,6 +28,9 @@ import { Modal } from './ui/Modal'
 import { archiviaFile, urlFileArchiviato } from '../lib/archivioFile'
 
 export const TABELLA_MOVIMENTI = 'bank_transactions'
+/** Righe degli estratti carta (Prima Nota → Carte): spese della prepagata e delle carte di credito. */
+export const TABELLA_RIGHE_CARTA = 'card_transactions'
+export type TabellaAllegati = typeof TABELLA_MOVIMENTI | typeof TABELLA_RIGHE_CARTA
 const FUNZIONE = 'Allegato movimento'
 
 export type MovimentoLite = {
@@ -51,13 +54,13 @@ type Foglio = Allegato & { collegamenti: number }
 
 type Voce = { key: string; nome: string; stato: 'attesa' | 'salvataggio' | 'fatto' | 'collegato' | 'gia_presente' | 'errore'; messaggio?: string }
 
-/** Quanti allegati ha ogni movimento della lista (solo quelli correnti). */
-export async function contaAllegatiMovimenti(ids: string[]): Promise<Record<string, number>> {
+/** Quanti allegati ha ogni movimento (o riga carta) della lista, solo quelli correnti. */
+export async function contaAllegatiMovimenti(ids: string[], tabella: TabellaAllegati = TABELLA_MOVIMENTI): Promise<Record<string, number>> {
   const out: Record<string, number> = {}
   if (ids.length === 0) return out
   const { data } = await supabase.from('import_documents')
     .select('reference_id')
-    .eq('reference_table', TABELLA_MOVIMENTI)
+    .eq('reference_table', tabella)
     .is('superseded_at', null)
     .in('reference_id', ids)
   for (const r of (data ?? []) as Array<{ reference_id: string | null }>) {
@@ -82,9 +85,11 @@ const fmtPeso = (b: number | null | undefined) => {
 
 const ESTENSIONI = /\.(pdf|jpe?g|png|heic|webp)$/i
 
-export default function AllegatiMovimento({ movimento, companyId, onClose, onCambiato }: {
+export default function AllegatiMovimento({ movimento, companyId, onClose, onCambiato, tabella = TABELLA_MOVIMENTI }: {
   movimento: MovimentoLite | null
   companyId: string
+  /** A cosa si attacca il file: movimento della banca (default) o riga di un estratto carta. */
+  tabella?: TabellaAllegati
   onClose: () => void
   /** Avvisa la tabella del nuovo numero di allegati del movimento. */
   onCambiato?: (movimentoId: string, quanti: number) => void
@@ -107,7 +112,7 @@ export default function AllegatiMovimento({ movimento, companyId, onClose, onCam
     setCarico(true)
     const { data } = await supabase.from('import_documents')
       .select('id, file_name, file_path, storage_bucket, file_size, uploaded_at')
-      .eq('reference_table', TABELLA_MOVIMENTI)
+      .eq('reference_table', tabella)
       .eq('reference_id', movimento.id)
       .is('superseded_at', null)
       .order('uploaded_at', { ascending: true })
@@ -149,7 +154,7 @@ export default function AllegatiMovimento({ movimento, companyId, onClose, onCam
     setCarico(false)
     onCambiato?.(movimento.id, lista.length)
     return lista
-  }, [movimento, onCambiato])
+  }, [movimento, onCambiato, tabella])
 
   useEffect(() => {
     setVoci([])
@@ -174,14 +179,14 @@ export default function AllegatiMovimento({ movimento, companyId, onClose, onCam
       funzione: FUNZIONE,
       year: movimento.transaction_date ? Number(movimento.transaction_date.slice(0, 4)) : null,
       month: movimento.transaction_date ? Number(movimento.transaction_date.slice(5, 7)) : null,
-      reference_table: TABELLA_MOVIMENTI,
+      reference_table: tabella,
       reference_id: movimento.id,
       uploaded_by: userId,
       note: `${fmtData(movimento.transaction_date)} · ${fmtEuro(movimento.amount)} € · ${(movimento.description ?? '').slice(0, 120)}`,
       uploaded_at: new Date().toISOString(),
     }])
     return error ? error.message : null
-  }, [companyId, movimento, userId])
+  }, [companyId, movimento, tabella, userId])
 
   const collegaFoglio = useCallback(async (f: Foglio) => {
     const key = `${Date.now()}-${f.id}`
@@ -235,7 +240,7 @@ export default function AllegatiMovimento({ movimento, companyId, onClose, onCam
       const arch = await archiviaFile({
         file: f, companyId, userId, modulo: 'Banche', funzione: FUNZIONE,
         bucket: 'bank-statements', year: anno, month: mese,
-        referenceTable: TABELLA_MOVIMENTI, referenceId: movimento.id,
+        referenceTable: tabella, referenceId: movimento.id,
         note: `${fmtData(movimento.transaction_date)} · ${fmtEuro(movimento.amount)} € · ${(movimento.description ?? '').slice(0, 120)}`,
       })
       if (arch.errore) {
@@ -246,7 +251,7 @@ export default function AllegatiMovimento({ movimento, companyId, onClose, onCam
       presenti = await ricarica()
     }
     setLavoro(false)
-  }, [allegati, collega, companyId, movimento, ricarica, userId])
+  }, [allegati, collega, companyId, movimento, ricarica, tabella, userId])
 
   const togli = useCallback(async (a: Allegato) => {
     if (!window.confirm(`Togliere «${a.file_name}» da questo movimento? Il file resta comunque in Archivio documenti.`)) return
@@ -263,7 +268,7 @@ export default function AllegatiMovimento({ movimento, companyId, onClose, onCam
   const errori = voci.filter((v) => v.stato === 'errore').length
 
   return (
-    <Modal open={!!movimento} onClose={onClose} title="Allegati del movimento" maxWidthClass="max-w-xl">
+    <Modal open={!!movimento} onClose={onClose} title={tabella === TABELLA_RIGHE_CARTA ? 'Allegati della spesa con carta' : 'Allegati del movimento'} maxWidthClass="max-w-xl">
       {movimento && (
         <div className="space-y-4">
           <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2 text-sm">
@@ -331,7 +336,7 @@ export default function AllegatiMovimento({ movimento, companyId, onClose, onCam
             {carico && allegati.length === 0 ? (
               <p className="text-sm text-slate-500 flex items-center gap-2"><Loader2 size={14} className="animate-spin" /> Caricamento…</p>
             ) : allegati.length === 0 ? (
-              <p className="text-sm text-slate-500">Nessun allegato per questo movimento.</p>
+              <p className="text-sm text-slate-500">{tabella === TABELLA_RIGHE_CARTA ? 'Nessun allegato per questa spesa.' : 'Nessun allegato per questo movimento.'}</p>
             ) : (
               <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
                 {allegati.map((a) => (

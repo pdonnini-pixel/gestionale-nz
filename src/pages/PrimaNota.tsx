@@ -47,7 +47,7 @@
 // (testata sui documenti veri).
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
-import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale, Users, CreditCard, Upload } from 'lucide-react'
+import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale, Users, CreditCard, Upload, Paperclip } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { formatOutletName } from '../lib/formatters'
@@ -87,6 +87,7 @@ import { Modal } from '../components/ui/Modal'
 import { useCompany } from '../hooks/useCompany'
 import Tooltip from '../components/Tooltip'
 import TableScroll from '../components/ui/TableScroll'
+import AllegatiMovimento, { contaAllegatiMovimenti, TABELLA_MOVIMENTI, TABELLA_RIGHE_CARTA, type MovimentoLite, type TabellaAllegati } from '../components/AllegatiMovimento'
 
 type BankAccount = { id: string; bank_name: string; account_name: string | null; iban: string | null }
 type Supplier = { id: string; ragione_sociale: string | null; name: string | null; partita_iva: string | null }
@@ -1285,6 +1286,39 @@ export default function PrimaNota() {
     await downloadWorkbook(wb, nomeFile('Prima nota', 'xlsx'))
   }
 
+  // Allegati (scontrini, ricevute) delle righe delle carte. Solo a video: il
+  // file della Prima Nota (Excel, CSV) non cambia. Le righe degli estratti carta
+  // si legano a card_transactions; le carte di debito sono movimenti del conto e
+  // usano gli stessi allegati di Banche → Movimenti.
+  const [allegatiCarta, setAllegatiCarta] = useState<Record<string, number>>({})
+  const [allegatiDi, setAllegatiDi] = useState<{ riga: MovimentoLite; tabella: TabellaAllegati } | null>(null)
+  const idsRigheCarta = useMemo(() => carte.flatMap(c => c.lines.map(l => l.id)).join(','), [carte])
+  const idsRigheDebito = useMemo(() => carteDebito.flatMap(g => g.lines.map(l => l.id)).join(','), [carteDebito])
+  useEffect(() => {
+    if (view !== 'carte') return
+    let vivo = true
+    Promise.all([
+      contaAllegatiMovimenti(idsRigheCarta ? idsRigheCarta.split(',') : [], TABELLA_RIGHE_CARTA),
+      contaAllegatiMovimenti(idsRigheDebito ? idsRigheDebito.split(',') : [], TABELLA_MOVIMENTI),
+    ]).then(([a, b]) => { if (vivo) setAllegatiCarta({ ...a, ...b }) })
+    return () => { vivo = false }
+  }, [view, idsRigheCarta, idsRigheDebito])
+  const aggiornaAllegatiCarta = useCallback((id: string, quanti: number) => {
+    setAllegatiCarta(m => (m[id] === quanti ? m : { ...m, [id]: quanti }))
+  }, [])
+  const chiudiAllegati = useCallback(() => setAllegatiDi(null), [])
+  const Graffetta = ({ id, onApri }: { id: string; onApri: () => void }) => {
+    const n = allegatiCarta[id] ?? 0
+    return (
+      <button type="button" onClick={onApri}
+        title={n ? 'Vedi o aggiungi allegati' : 'Allega scontrino o ricevuta'}
+        aria-label={n ? `${n} allegati` : 'Allega scontrino o ricevuta'}
+        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs ${n ? 'text-blue-700 bg-blue-50 hover:bg-blue-100 font-medium' : 'text-slate-400 hover:text-blue-600 hover:bg-slate-100'}`}>
+        <Paperclip size={13} />{n ? n : null}
+      </button>
+    )
+  }
+
   const KindBadge = ({ m }: { m: Movement }) => {
     const k = classifyMovement(m)
     return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${KIND_BADGE[k]}`}>{tipoMovimentoOf(m)}</span>
@@ -1814,6 +1848,7 @@ export default function PrimaNota() {
       </>)}
 
       {view === 'carte' && (<>
+        <AllegatiMovimento movimento={allegatiDi?.riga ?? null} tabella={allegatiDi?.tabella} companyId={companyId ?? ''} onClose={chiudiAllegati} onCambiato={aggiornaAllegatiCarta} />
       <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-4">
         <KpiBox label="Estratti carta nel periodo" value={carteTot.n.toString()} color="slate" hint={carteTot.senzaRighe > 0 ? `${carteTot.senzaRighe} archiviati senza righe: leggili dal file` : carteTot.n > 0 ? 'tutti con le righe importate' : 'importa il PDF o l\'Excel dell\'estratto'} />
         <KpiBox label="Spese con carta" value={`€ ${fmt(carteTot.spese)}`} color="red" hint={`${carteTot.speseN} operazioni`} />
@@ -1872,6 +1907,7 @@ export default function PrimaNota() {
                       <th className="px-3 py-2 text-left">Fattura pagata</th>
                       <th className="px-3 py-2 text-left">Riscontro banca</th>
                       {c.isPrepagata && c.saldo && <th className="px-3 py-2 text-right">Saldo</th>}
+                      <th className="px-3 py-2 text-center">Allegati</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1888,6 +1924,7 @@ export default function PrimaNota() {
                           <td className="px-3 py-1.5 text-xs">{p ? <span className="text-slate-700">{p.supplier_name ?? '—'}<span className="block text-slate-400">fatt. {p.invoice_number ?? '?'}{p.payment_date ? ` · pagata il ${fmtDate(p.payment_date)}` : ''}</span>{negozioFattura(p) && <span className="block text-slate-500">negozio: {negozioFattura(p)}</span>}</span> : l.amount < 0 ? <span className="text-slate-400">nessuna fattura con carta per questo importo</span> : ''}</td>
                           <td className="px-3 py-1.5 text-xs">{risc && <span className={`inline-block px-1.5 py-0.5 rounded ${riscontroClass(risc)}`}>{risc}</span>}</td>
                           {c.isPrepagata && c.saldo && <td className={`px-3 py-1.5 text-right tabular-nums whitespace-nowrap font-medium ${saldo != null && saldo < 0 ? 'text-red-700' : 'text-slate-900'}`}>{saldo == null ? '' : fmt(saldo)}</td>}
+                          <td className="px-3 py-1.5 text-center"><Graffetta id={l.id} onApri={() => setAllegatiDi({ riga: { id: l.id, transaction_date: l.purchase_date, amount: l.amount, description: l.description }, tabella: TABELLA_RIGHE_CARTA })} /></td>
                         </tr>
                       )
                     })}
@@ -1920,6 +1957,7 @@ export default function PrimaNota() {
                     <th className="px-3 py-2 text-right">Comm.</th>
                     <th className="px-3 py-2 text-left">Fattura pagata</th>
                     <th className="px-3 py-2 text-left">Riscontro banca</th>
+                    <th className="px-3 py-2 text-center">Allegati</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1934,6 +1972,7 @@ export default function PrimaNota() {
                         <td className="px-3 py-1.5 text-right tabular-nums text-xs text-slate-500">{l.fee ? fmt(l.fee) : ''}</td>
                         <td className="px-3 py-1.5 text-xs">{p ? <span className="text-slate-700">{p.supplier_name ?? '—'}<span className="block text-slate-400">fatt. {p.invoice_number ?? '?'}{p.payment_date ? ` · pagata il ${fmtDate(p.payment_date)}` : ''}</span>{negozioFattura(p) && <span className="block text-slate-500">negozio: {negozioFattura(p)}</span>}</span> : <span className="text-slate-400">nessuna fattura con carta di debito per questo importo</span>}</td>
                         <td className="px-3 py-1.5 text-xs"><span className="inline-block px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">{riscontroDebito(g.bankName, l)}</span></td>
+                        <td className="px-3 py-1.5 text-center"><Graffetta id={l.id} onApri={() => setAllegatiDi({ riga: { id: l.id, transaction_date: l.purchase_date, amount: l.amount, description: l.description }, tabella: TABELLA_MOVIMENTI })} /></td>
                       </tr>
                     )
                   })}
