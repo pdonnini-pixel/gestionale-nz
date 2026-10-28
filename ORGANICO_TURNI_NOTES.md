@@ -609,3 +609,23 @@ Patrizio: niente «ordinarie», «lavorate», «da lavorare», «pianificate», 
   disponibili, dove servono, dove MODA non le chiede, contratto non usato. «mancano» → «da assegnare»; «manca N
   persone» → «sotto MODA di N persone». Le necessarie si calcolano sulle ore da contratto del mese (`contrattoSett`)
   distribuite sui giorni del mese, così non superano più il contratto nelle settimane a cavallo (44 contro 42,9).
+
+## Mai un giorno con una persona sola (28/10/2026)
+
+Patrizio: «non creare mai giornate con 1 dipendente solo, perché se si ammala dalla mattina siamo senza apertura».
+Nei piani di Barberino di novembre (calcolati prima) il giovedì aveva una persona sola 10-20 in tutte le varianti.
+- `almenoDuePersone(base, turni, titolari, riserva, regole, fissi)` in `pianoMensile.ts`: per ogni giorno con una
+  persona sola dà un turno minimo a un collega (prima chi ha meno giorni e più ore libere). Ore libere: se mancano si
+  accorciano i suoi turni nei giorni con almeno due persone; se ha già tutti i giorni o turni già al minimo, si sposta
+  qui un suo turno da un giorno affollato e quel giorno si ricopre con `copriOrarioMinimo`. Il turno di chi era da sola
+  si accorcia dove ora c'è il collega. Mai toccati i turni fissi (a mano, pubblicati, trasferte che coprono).
+- Chiamata in `pianificaMese` prima dell'ultimo `usaOreResidue`, e in `PianoTurni` dopo `proponiSettimana`.
+- Riga «In negozio»: «una persona sola» quando nessuno ha potuto.
+- Misura su novembre 2026, 8 negozi, regole «nessuno» e «sabato o domenica»: senza la regola giovedì 26/11 con una
+  persona sola a PLM, RSO, TRN; con la regola 0 ovunque, 0 mezz'ore vuote, 0 turni sotto 4 ore, ore sotto MODA +1,5/2,5.
+
+## Scheda dipendente ordinata (28/10/2026)
+
+Contratto e anagrafica sempre aperti e compatti (ore a settimana in vista, tempo determinato su due righe senza testo
+che esce); note e storico, documenti del rapporto, disponibilità per i turni e netti dell'anno in sezioni che si aprono
+(`<details>`), con il riassunto nel titolo.

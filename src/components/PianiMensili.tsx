@@ -1192,6 +1192,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 return out;
               };
               const vuote = fasce((i) => cop[i] === 0);
+              // Mai un giorno con una persona sola (Patrizio, 28/10/2026)
+              const persone = new Set(tutti.map((x) => ('employee_id' in x ? x.employee_id : (x as { employeeId: string }).employeeId))).size;
+              if (!vuote.length && persone === 1) return <span className="block rounded-md px-1 py-1 bg-amber-100 text-amber-900 text-[10px] font-semibold leading-tight" title="Se si ammala la mattina il negozio resta chiuso: aggiungi un collega">una persona sola</span>;
               if (vuote.length) return <span className="block rounded-md px-1 py-1 bg-red-600 text-white text-[10px] font-semibold leading-tight" title="Negozio senza nessuno in questi orari">scoperto {vuote.join(', ')}</span>;
               const mancano = Math.max(0, ...cop.map((c, i) => (b.esigenza[i] ?? 1) - c));
               if (mancano > 0) {

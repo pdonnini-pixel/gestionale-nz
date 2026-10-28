@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CalendarClock } from 'lucide-react';
+import { CalendarClock, ChevronDown } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import { minuti, regoleDaRiga, REGOLE_DEFAULT, type RegoleTurni } from '../lib/turni';
@@ -114,11 +114,12 @@ export default function AccordiOrario({ employeeId, companyId, outletId, oreSett
   };
 
   return (
-    <div className="mb-4 rounded-xl border border-slate-200 p-3">
-      <div className="flex items-center justify-between gap-2 mb-2">
+    <details className="group mb-3 rounded-xl border border-slate-200">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
         <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 inline-flex items-center gap-1.5"><CalendarClock size={14} /> Disponibilità per i turni</span>
-        <span className="text-xs text-slate-600">{salvato ? testoAccordo(salvato) : 'sempre disponibile'}</span>
-      </div>
+        <span className="flex items-center gap-2 text-xs text-slate-600 text-right">{salvato ? testoAccordo(salvato) : 'sempre disponibile'}<ChevronDown size={15} className="shrink-0 text-slate-500 transition-transform group-open:rotate-180" /></span>
+      </summary>
+      <div className="px-3 pb-3">
       <p className="text-[11px] text-slate-500 mb-2">
         Gli accordi presi con la persona: in quali giorni e in quali ore può lavorare. Il contratto non cambia. Li rispettano il piano del mese, il piano settimanale e le simulazioni; un turno messo a mano può uscirne.
         {!eHr && ' Li modifica solo la responsabile HR.'}
@@ -177,6 +178,7 @@ export default function AccordiOrario({ employeeId, companyId, outletId, oreSett
             className="px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">Sempre disponibile</button>
         </div>
       )}
-    </div>
+      </div>
+    </details>
   );
 }

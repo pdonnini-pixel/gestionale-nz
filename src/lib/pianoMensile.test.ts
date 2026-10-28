@@ -320,3 +320,26 @@ describe('turno massimo di 10 ore (Patrizio, 28/10/2026)', () => {
     expect(lavoroMassimoGiorno({ apre: 600, chiude: 1080 })).toBe(450);
   });
 });
+
+describe('mai un giorno con una persona sola (Patrizio, 28/10/2026)', () => {
+  it('ogni giorno aperto ha almeno due persone diverse quando ce ne sono', () => {
+    const mese = '2026-11';
+    const tutte = Array.from({ length: 42 }, (_, i) => { const d = new Date(Date.UTC(2026, 9, 26 + i)); return d.toISOString().slice(0, 10); });
+    const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
+    const giorni = costruisciGiorni(tutte, orari, [], []);
+    // giovedi' quasi senza traffico: il motore tenderebbe a metterci una persona sola
+    const atteso = new Map(tutte.map((d) => {
+      const gs = new Date(`${d}T00:00:00Z`).getUTCDay();
+      const v = gs === 4 ? 1 : gs === 0 || gs === 6 ? 60 : 8;
+      return [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 20 ? v : 0))];
+    }));
+    // tre persone (40, 30, 20 ore): senza la regola le domeniche restavano a una persona sola,
+    // perche' gli altri avevano gia' tutti i giorni o le ore in turni da 4 ore
+    const persone = [40, 30, 20].map((ore, i) => ({ id: `p${i}`, oreSettimana: ore, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }));
+    const e = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    for (const d of tutte.filter((x) => x.startsWith(mese))) {
+      expect(new Set(e.turni.filter((t) => t.data === d).map((t) => t.employeeId)).size, d).toBeGreaterThanOrEqual(2);
+    }
+    expect(e.turni.every((t) => oreLavorate(t) >= 4 - 1e-9)).toBe(true);
+  });
+});
