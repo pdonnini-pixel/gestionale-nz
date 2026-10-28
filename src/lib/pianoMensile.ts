@@ -716,6 +716,8 @@ export interface EsitoPianoMese {
     settimanePiene?: number;
     /** ore di trasferta del mese (lavoro fuori dal negozio, gia' tolte da `contratto`) */
     trasferte?: number;
+    /** ore da contratto di ogni settimana (lunedi' -> ore) prima di ferie e trasferte: nelle settimane a cavallo la parte di questo mese */
+    settimane?: Record<string, number>;
   }>;
   /** ore fatte dalle persone a chiamata */
   oreRiserva: number;
@@ -806,9 +808,17 @@ export function pianificaMese(args: {
     const tot = date.reduce((a, d) => a + pesoGiorno(d), 0);
     const qui = date.filter(nelMese).reduce((a, d) => a + pesoGiorno(d), 0);
     const intere = Math.max(0, contrattoIntero(p, lun) - ferieFuori);
+    // Mai piu' di quello che i giorni di questo mese possono contenere (un turno
+    // al giorno, al massimo il turno massimo): il resto resta all'altro mese.
+    // Una domenica sola non regge 12 ore (Maggiori, Franciacorta, 28/10/2026).
+    const capienza = date.filter((d) => nelMese(d) && !p.nonDisponibile.has(d))
+      .map((d) => args.giorni.find((g) => g.data === d))
+      .filter((g): g is GiornoPiano => !!g && !g.chiuso)
+      .slice(0, regole.giorniLavoroMax)
+      .reduce((a, g) => a + lavoroMassimoGiorno(limitiPersona(p, g), regole) / 60, 0);
     // almeno un turno minimo, se la persona ha ore: una quota da 3 ore non
     // diventerebbe mai un turno (minimo 4 ore) e il giorno resterebbe scoperto
-    return qui > 0 ? Math.min(intere, Math.max(regole.turnoMinOre, intere * qui / tot)) : 0;
+    return qui > 0 ? Math.min(intere, capienza, Math.max(regole.turnoMinOre, intere * qui / tot)) : 0;
   };
   const ferieSett = (p: PersonaPiano, lun: string) => args.giorni
     .filter((g) => giorniDellaSettimana(lun).includes(g.data) && nelMese(g.data) && !g.chiuso)
@@ -972,6 +982,7 @@ export function pianificaMese(args: {
       weekendLiberi: [...weekendLiberi.values()].filter((ids) => ids.includes(p.id)).length,
       riserva: p.oreSettimana == null,
       trasferte: [...(p.oreTrasferta ?? new Map<string, number>())].filter(([d]) => nelMese(d)).reduce((a, [, h]) => a + h, 0),
+      settimane: p.oreSettimana == null ? undefined : Object.fromEntries(settimane.map((l) => [l, contrattoSett(p, l)])),
     };
   }
   const presenti = [...turni, ...(args.fissi ?? [])];

@@ -129,7 +129,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [caricamento, setCaricamento] = useState(true);
   const [sim, setSim] = useState<Simulazione | null>(null);
   const [simRegola, setSimRegola] = useState<RegolaWeekend>('nessuno');
-  const [ferieRegistrate, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string; creato_il: string }[]>([]);
+  const [ferieRegistrate, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string; creato_il: string; id: string; request_id: string; stato_richiesta: string }[]>([]);
   const [giorniMax, setGiorniMax] = useState(6);
   // Giorni in cui ognuno puo' lavorare (employee_availability): valgono per piani e simulazioni.
   const [disponibilita, setDisponibilita] = useState<Map<string, Accordo>>(new Map());
@@ -498,6 +498,20 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     if (r.contrattoMese != null) return Math.max(0, r.contrattoMese - ferieOra - trasferteOra);
     if (r.ferie == null) return r.contratto;
     return Math.max(0, r.contratto + r.ferie - ferieOra);
+  };
+
+  // Ore da contratto di una settimana, dal vivo (Patrizio, 28/10/2026: «ore da
+  // contratto» e «ore programmate», nient'altro): quelle della settimana (nelle
+  // settimane a cavallo la parte di questo mese) meno ferie, permessi e trasferte
+  // di adesso nei giorni del mese.
+  const contrattoSettimanaOra = (employeeId: string, lun: string, oreSett: number | null): number | null => {
+    const r = pianoAperto?.riepilogo.persone?.[employeeId];
+    if (oreSett == null || r?.riserva) return null;
+    const giorni = giorniDellaSettimana(lun).filter((d) => d.startsWith(mese));
+    const lorde = r?.settimane?.[lun] ?? (giorni.length >= 7 ? oreSett : oreSett * giorni.length / 7);
+    const via = ferieMese.filter((x) => x.employee_id === employeeId && giorni.includes(x.data)).reduce((a, x) => a + x.ore, 0)
+      + trasferte.filter((x) => x.employeeId === employeeId && giorni.includes(x.data)).reduce((a, x) => a + oreTrasferta(x), 0);
+    return Math.max(0, lorde - via);
   };
 
   // Un giorno in cui la persona puo' ricevere un turno o una proposta di ferie:
@@ -1186,9 +1200,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             // giorno disponibile e non in ferie per la giornata intera.
             const modificabile = (riga: (typeof righe)[number], d: string) => puoModificare && !riga.nuova && dateMese.includes(d)
               && riga.inServizio(d) && !(giorniApertura.get(d)?.chiuso ?? false)
-              && puoLavorareIl(disponibilita, riga.id, d)
-              // in ferie per la giornata si apre solo se c'e' un turno da togliere (calendario senza ferie)
-              && (!ferieMese.some((x) => x.employee_id === riga.id && x.data === d && x.tipo === 'giornata') || riga.turni.some((x) => x.data === d));
+              && puoLavorareIl(disponibilita, riga.id, d);
+              // anche il giorno di ferie si apre: da li' si tolgono (Patrizio, 28/10/2026)
             const apriEditor = (riga: (typeof righe)[number], d: string) => {
               const t = turniPiano.find((x) => x.employee_id === riga.id && x.data === d) ?? null;
               setEditorMese({ employeeId: riga.id, data: d, turno: t });
@@ -1254,7 +1267,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                           <table className="w-full text-xs border-separate border-spacing-0">
                             <thead>
                               <tr className="text-slate-500">
-                                <th className="px-3 py-2 text-left bg-slate-50 border-b border-slate-200 font-semibold w-[170px] min-w-[150px]">Persona</th>
+                                <th className="sticky left-0 z-10 px-3 py-2 text-left bg-slate-50 border-b border-slate-200 font-semibold w-[170px] min-w-[150px]">Persona</th>
                                 {giorniSett.map((d) => {
                                   const gs = new Date(`${d}T00:00:00Z`).getUTCDay() || 7;
                                   const t = tipoDelGiorno(d);
@@ -1267,35 +1280,42 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                     </th>
                                   );
                                 })}
-                                <th className="px-3 py-2 text-right bg-slate-50 border-b border-slate-200 font-semibold min-w-[90px]">Ore settimana</th>
                               </tr>
                             </thead>
                             <tbody>
                               {righe.map((riga) => {
-                                const oreSett = riga.turni.filter((x) => nelMese.includes(x.data)).reduce((a, x) => a + oreDi(x), 0);
-                                // le ore settimanali valgono sulla settimana intera, anche a cavallo del mese
-                                const quota = riga.oreSett;
+                                // Ore da contratto e ore programmate della settimana (Patrizio, 28/10/2026):
+                                // lo straordinario concordato resta fuori dalle programmate e si conta a parte.
+                                const suoiSett = riga.turni.filter((x) => nelMese.includes(x.data));
+                                const straordSett = suoiSett.reduce((a, x) => a + ('ore_straordinario' in x ? Number(x.ore_straordinario ?? 0) : 0), 0);
+                                const programmate = suoiSett.reduce((a, x) => a + oreDi(x), 0) - straordSett;
+                                const daContratto = riga.nuova ? null : contrattoSettimanaOra(riga.id, lun, riga.oreSett);
+                                const scarto = daContratto == null ? 0 : programmate - daContratto;
                                 return (
                                   <tr key={riga.id} className={riga.nuova ? 'bg-violet-50/40' : ''}>
-                                    <td className={`px-3 py-1.5 border-b border-slate-100 ${riga.nuova ? 'text-violet-900' : 'text-slate-900'} font-medium`}>
+                                    <td className={`sticky left-0 z-10 px-3 py-1.5 border-b border-slate-100 ${riga.nuova ? 'text-violet-900 bg-violet-50' : 'text-slate-900 bg-white'} font-medium`}>
                                       {riga.nome}
                                       {riga.nuova && <span className="block text-[10px] font-normal text-violet-700">nuova, solo simulazione</span>}
+                                      {daContratto != null ? (
+                                        <span className="block text-[11px] font-normal tabular-nums" title={nelMese.length < 7 ? `Settimana a cavallo del mese: ${fmt(riga.oreSett ?? 0)} h in tutta la settimana, qui la parte di questo mese` : undefined}>
+                                          <span className="text-slate-600">{fmt(programmate)} di {fmt(daContratto)} h</span>{' '}
+                                          {Math.abs(scarto) <= 0.25 ? <span className="text-emerald-700 font-semibold">in linea</span>
+                                            : scarto < 0 ? <span className="text-slate-700 font-semibold">mancano {fmt(-scarto)} h</span>
+                                              : <span className="text-amber-800 font-semibold">{fmt(scarto)} h in più</span>}
+                                          {straordSett > 0.25 && <span className="block text-amber-800">+ {fmt(straordSett)} h straordinario</span>}
+                                        </span>
+                                      ) : !riga.nuova && <span className="block text-[11px] font-normal text-slate-500">{fmt(programmate + straordSett)} h, a chiamata</span>}
                                     </td>
                                     {giorniSett.map((d) => {
                                       const gs = new Date(`${d}T00:00:00Z`).getUTCDay() || 7;
                                       return <td key={d} className={`px-1 py-1.5 text-center border-b border-slate-100 ${gs >= 6 ? 'bg-slate-50/60' : ''}`}>{casellaCliccabile(riga, d)}</td>;
                                     })}
-                                    <td className="px-3 py-1.5 text-right border-b border-slate-100 tabular-nums">
-                                      <span className="font-semibold text-slate-900">{fmt(oreSett)} h</span>
-                                      {quota != null && <span className="block text-[10px] text-slate-500">contratto {fmt(quota)} h{nelMese.length < 7 ? ' in tutta la settimana' : ''}</span>}
-                                    </td>
                                   </tr>
                                 );
                               })}
                               <tr className="bg-slate-50/70">
-                                <td className="px-3 py-1.5 text-xs font-semibold text-slate-600">In negozio</td>
+                                <td className="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">In negozio</td>
                                 {giorniSett.map((d) => <td key={d} className="px-1 py-1.5 text-center align-top">{statoCopertura(d)}</td>)}
-                                <td />
                               </tr>
                             </tbody>
                           </table>
@@ -1309,8 +1329,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 <div className="px-4 pb-4">
                   <h4 className="text-sm font-semibold text-slate-800">Ore del mese, persona per persona</h4>
                   <p className="text-xs text-slate-500 mb-2">
-                    <b>Contratto nel mese</b> = le ore a settimana di ogni settimana; nelle settimane a cavallo di due mesi, la parte di questo mese (quello che resta dopo i turni dell'altro mese, oppure la sua quota secondo il traffico se l'altro mese non ha ancora turni). <b>Da lavorare</b> = contratto meno ferie, permessi e trasferte.
-                    <b> Pianificate</b> = ore dei turni di questo piano. La differenza è straordinario (se sono di più) oppure ore non usate (se sono di meno), con il motivo.
+                    Due numeri e la differenza. <b>Ore da contratto</b> = le ore a settimana di ogni settimana del mese (nelle settimane a cavallo di due mesi, la parte di questo mese) meno ferie, permessi e trasferte.
+                    <b> Ore programmate</b> = ore dei turni di questo piano, senza lo straordinario concordato, che si conta a parte. Se le programmate sono meno, mancano ore da programmare; se sono di più, decidi se sono straordinario o se toglierle.
                   </p>
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
                     <table className="w-full text-sm">
@@ -1318,10 +1338,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                         <tr className="text-left text-xs uppercase tracking-wide text-slate-500 bg-slate-50 border-b border-slate-200">
                           <th className="px-3 py-2">Persona</th>
                           <th className="px-3 py-2 text-right">Ore a settimana</th>
-                          <th className="px-3 py-2 text-right">Contratto nel mese</th>
-                          <th className="px-3 py-2">Ferie e permessi</th>
-                          <th className="px-3 py-2 text-right">Da lavorare</th>
-                          <th className="px-3 py-2 text-right">Pianificate</th>
+                          <th className="px-3 py-2">Ferie, permessi e trasferte</th>
+                          <th className="px-3 py-2 text-right">Ore da contratto</th>
+                          <th className="px-3 py-2 text-right">Ore programmate</th>
                           <th className="px-3 py-2">Differenza</th>
                         </tr>
                       </thead>
@@ -1339,9 +1358,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                           const permessi = suoFerie.filter((x) => x.tipo === 'ore');
                           // Le ore ordinarie coprono il contratto; quelle segnate straordinario si contano a parte.
                           const nonUsate = daLavorare != null ? Math.max(0, daLavorare - ordinarie) : 0;
-                          // Ore messe nella settimana a cavallo del mese oltre la quota: valgono per il mese dopo.
-                          const anticipo = Math.min(r?.anticipo ?? 0, daLavorare != null ? Math.max(0, ordinarie - daLavorare) : 0);
-                          const straordTot = segnate + (daLavorare != null ? Math.max(0, ordinarie - daLavorare - anticipo) : 0);
+                          // Programmate oltre il contratto: non sono straordinario finche' non si decide.
+                          const inPiu = daLavorare != null ? Math.max(0, ordinarie - daLavorare) : 0;
+                          const suoTrMese = trasferte.filter((x) => x.employeeId === riga.id && x.data.startsWith(mese)).reduce((a, x) => a + oreTrasferta(x), 0);
+                          const lordo = r?.contrattoMese != null && !r.riserva ? r.contrattoMese : null;
                           return (
                             <tr key={riga.id} className={`border-b border-slate-100 align-top ${riga.nuova ? 'bg-violet-50/40' : ''}`}>
                               <td className="px-3 py-2 font-medium text-slate-900">{riga.nome}
@@ -1349,7 +1369,6 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                 {ipo?.ipotesi != null && <span className="block text-xs font-normal text-violet-700">simulazione: {fmt(ipo.ipotesi)} h invece di {ipo.oggi == null ? 'a chiamata' : `${fmt(ipo.oggi)} h`}</span>}
                               </td>
                               <td className="px-3 py-2 text-right tabular-nums">{riga.oreSett == null ? '–' : `${fmt(ipo?.ipotesi ?? riga.oreSett)} h`}</td>
-                              <td className="px-3 py-2 text-right tabular-nums">{r?.contrattoMese != null && !r.riserva ? `${fmt(r.contrattoMese)} h` : daLavorare != null ? `${fmt(daLavorare + (riga.nuova ? 0 : oreFerie))} h` : '–'}</td>
                               <td className="px-3 py-2 text-xs text-slate-700">
                                 {oreFerie > 0.25 ? (
                                   <>
@@ -1363,16 +1382,21 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                   return suoTr.length > 0 && <span className="block mt-0.5 text-indigo-800">trasferte: {fmt(suoTr.reduce((a, x) => a + oreTrasferta(x), 0))} h ({suoTr.map((x) => giornoCorto(x.data)).join(', ')})</span>;
                                 })()}
                               </td>
-                              <td className="px-3 py-2 text-right tabular-nums">{daLavorare != null ? `${fmt(daLavorare)} h` : '–'}</td>
                               <td className="px-3 py-2 text-right tabular-nums">
-                                <span className="font-semibold">{fmt(fatte)} h</span>
-                                {segnate > 0.25 && <span className="block text-xs text-amber-800">di cui {fmt(segnate)} h straord.</span>}
+                                <span className="font-semibold">{daLavorare != null ? `${fmt(daLavorare)} h` : '–'}</span>
+                                {daLavorare != null && lordo != null && oreFerie + suoTrMese > 0.25 && !riga.nuova && (
+                                  <span className="block text-xs font-normal text-slate-500">{fmt(lordo)} meno {fmt(oreFerie + suoTrMese)} di {suoTrMese > 0.25 && oreFerie > 0.25 ? 'ferie e trasferte' : suoTrMese > 0.25 ? 'trasferte' : 'ferie'}</span>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 text-right tabular-nums">
+                                <span className="font-semibold">{fmt(ordinarie)} h</span>
+                                {segnate > 0.25 && <span className="block text-xs text-amber-800">+ {fmt(segnate)} h straordinario</span>}
                               </td>
                               <td className="px-3 py-2 text-xs">
                                 {daLavorare == null ? (fatte > 0 ? <span className="text-slate-600">chiamata per i buchi</span> : <span className="text-slate-400">non chiamata</span>) : (
                                   <>
                                     {nonUsate > 0.25 ? (
-                                      <span className="block text-slate-700"><b>{fmt(nonUsate)} h non usate</b>
+                                      <span className="block text-slate-700"><b>Mancano {fmt(nonUsate)} h da programmare</b>
                                         <span className="block text-slate-500">{(r?.settimanePiene ?? 0) > 0
                                           ? `in ${r?.settimanePiene === 1 ? 'una settimana ha' : `${r?.settimanePiene} settimane ha`} già ${giorniMax} giorni di lavoro: le ore che restano non entrano in un altro giorno`
                                           : 'al negozio non servivano: il traffico di quei giorni era già coperto'}</span>
@@ -1390,9 +1414,12 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                         )}
                                         {puoModificare && <span className="block mt-1 text-blue-700">oppure clicca una casella del calendario per aggiungere ore</span>}
                                       </span>
-                                    ) : <span className="block text-emerald-700 font-medium">tutte le ore di contratto usate</span>}
-                                    {straordTot > 0.25 && <span className="block mt-1 font-semibold text-amber-800">+{fmt(straordTot)} h di straordinario</span>}
-                                    {anticipo > 0.25 && <span className="block mt-1 text-slate-600">+{fmt(anticipo)} h anticipate dalla settimana che finisce nel mese dopo, per non lasciare il negozio vuoto (non sono straordinario)</span>}
+                                    ) : inPiu > 0.25 ? (
+                                      <span className="block text-amber-800"><b>{fmt(inPiu)} h in più del contratto</b>
+                                        <span className="block">decidi se sono straordinario (apri il turno e segnalo) oppure se le togli</span>
+                                      </span>
+                                    ) : <span className="block text-emerald-700 font-medium">In linea con il contratto</span>}
+                                    {segnate > 0.25 && <span className="block mt-1 text-amber-800">Straordinario concordato: {fmt(segnate)} h, a parte</span>}
                                   </>
                                 )}
                               </td>
@@ -1483,16 +1510,36 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             planId={pianoAperto.id}
             nome={nomePersona(dati.schede.find((x) => x.id === editorMese.employeeId) ?? { nome: '', cognome: '' })}
             apre={g?.apre ?? 600} chiude={g?.chiude ?? 1200} regole={regolePiano}
-            conto={{
-              daLavorare: daLavorareOra(editorMese.employeeId),
-              ordinarieAltri: altri.reduce((a, x) => a + ore(x) - Number(x.ore_straordinario ?? 0), 0),
-              straordinarioAltri: altri.reduce((a, x) => a + Number(x.ore_straordinario ?? 0), 0),
-            }}
+            conto={(() => {
+              const lun = lunediDi(editorMese.data);
+              const giorniSett = giorniDellaSettimana(lun).filter((d) => d.startsWith(mese));
+              const altriSett = altri.filter((x) => giorniSett.includes(x.data));
+              const oreSett = oreOggi(persone.find((x) => x.scheda.id === editorMese.employeeId)?.perGiorno ?? []);
+              const breve = (d: string) => `${Number(d.slice(8))}/${Number(d.slice(5, 7))}`;
+              return {
+                daLavorare: daLavorareOra(editorMese.employeeId),
+                ordinarieAltri: altri.reduce((a, x) => a + ore(x) - Number(x.ore_straordinario ?? 0), 0),
+                straordinarioAltri: altri.reduce((a, x) => a + Number(x.ore_straordinario ?? 0), 0),
+                settimana: {
+                  daLavorare: contrattoSettimanaOra(editorMese.employeeId, lun, oreSett),
+                  ordinarieAltri: altriSett.reduce((a, x) => a + ore(x) - Number(x.ore_straordinario ?? 0), 0),
+                  straordinarioAltri: altriSett.reduce((a, x) => a + Number(x.ore_straordinario ?? 0), 0),
+                  etichetta: `dal ${breve(giorniSett[0])} al ${breve(giorniSett[giorniSett.length - 1])}`,
+                },
+              };
+            })()}
             ferie={(() => {
               const oreSett = oreOggi(persone.find((x) => x.scheda.id === editorMese.employeeId)?.perGiorno ?? []);
               return oreSett == null ? undefined : {
                 oreSettimana: oreSett, outletCode: dati.negozi.find((n) => n.id === outletId)?.code ?? null,
                 giaInFerie: ferieMese.some((x) => x.employee_id === editorMese.employeeId && x.data === editorMese.data && x.tipo === 'giornata'),
+                esistente: (() => {
+                  const f = ferieMese.find((x) => x.employee_id === editorMese.employeeId && x.data === editorMese.data);
+                  return f ? {
+                    id: f.id, requestId: f.request_id, statoRichiesta: f.stato_richiesta,
+                    testo: f.tipo === 'giornata' ? `Giornata di ferie (${fmt(f.ore)} h)` : f.tipo === 'mezza_giornata' ? `Mezza giornata di ferie (${fmt(f.ore)} h)` : `Permesso di ${fmt(f.ore)} h`,
+                  } : null;
+                })(),
               };
             })()}
             trasferta={{
