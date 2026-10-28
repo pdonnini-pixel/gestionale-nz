@@ -121,6 +121,20 @@ describe('il piano del mese', () => {
     }
     expect(e.turni.every((t) => oreLavorate(t) <= 8)).toBe(true);
   });
+  it('ore necessarie sull\'organico pieno: togliere una settimana di ferie riduce le ore scoperte', () => {
+    const ferie = new Map(['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13'].map((d) => [d, 40 / 6]));
+    const conFerie = persone.map((p, i) => (i === 0 ? { ...p, oreFerie: ferie, nonDisponibile: new Set(ferie.keys()) } : p));
+    const a = pianificaMese({ mese, giorni, persone: conFerie, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    const b = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    expect(b.oreScoperte).toBeLessThan(a.oreScoperte);
+    // le necessarie non dipendono dalle ferie; le disponibili si'
+    a.settimane.forEach((w, i) => expect(w.necessarie).toBeCloseTo(b.settimane[i].necessarie, 6));
+    const w9 = a.settimane.find((w) => w.lunedi === '2026-11-09')!;
+    expect(w9.ferie).toBeCloseTo(5 * 40 / 6, 6);
+    expect(w9.disponibili).toBeCloseTo(w9.contratto - w9.ferie, 6);
+    // il totale del mese e' la somma delle settimane
+    expect(a.oreScoperte).toBeCloseTo(a.settimane.reduce((x, w) => x + w.scoperte, 0), 6);
+  });
   it('la riserva a chiamata copre i buchi, il contratto no', () => {
     const poche = persone.slice(0, 2);
     const riserva = { id: 'r', oreSettimana: null, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() };

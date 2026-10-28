@@ -477,3 +477,21 @@ consumano quelle ore. Sostituisce «ore settimanali × giorni del mese / 7» (se
 - `proponiFerie`: giornate da ore settimanali / 6.
 - Misura del 21/10/2026, novembre NZ: Buratta 173,3 − 6,7 = 166,7; Rachele (32 h, ferie 11-15/11) 138,7 − 26,7 = 112;
   0 mezz'ore vuote in tutti i negozi, 0 turni fuori 4-8 ore.
+
+## Ore necessarie a organico pieno, settimane e prova delle ferie (28/10/2026)
+
+Richiesta di Patrizio: vedere sopra a tutto le ore necessarie della settimana e del mese, capire dove sono le ore
+scoperte e poter spegnere le ferie con il conto in tempo reale.
+- Misura prima della modifica (Valmontone, novembre): con il fabbisogno costruito sulle ore disponibili, togliere le
+  ferie faceva SALIRE le ore scoperte (71,5 → 76,5), perché cresceva anche il fabbisogno. Per questo le ore necessarie
+  ora si calcolano sull'organico pieno: contratto di tutti senza ferie, distribuito come MODA (`giorniNecessari`,
+  `maxPieno` conta anche chi è in ferie). Le scoperte si misurano su queste. I turni restano costruiti sulle ore
+  disponibili, come prima.
+- `EsitoPianoMese.settimane` (`SettimanaPiano`): necessarie, contratto, ferie, disponibili, pianificate, scoperte per
+  settimana (solo giorni del mese); `oreScoperte` = somma. Salvato in `riepilogo.settimane`.
+- Pagina: riquadro «Ore del mese, settimana per settimana» in cima; striscia delle scoperte per settimana in ogni
+  scheda; riquadro «Ferie e permessi del mese: prova a spegnerli» con ricalcolo delle varianti in browser
+  (`caricaBase` una volta, `calcolaPiano` per regola, chiavi «persona|data»). «Salva come simulazione» salva
+  `ipotesi.ferieTolte`. Le richieste di ferie non cambiano mai dalla prova.
+- Le varianti salvate prima del 28/10 non hanno `settimane` e hanno le scoperte misurate alla vecchia maniera: vanno
+  ricreate.

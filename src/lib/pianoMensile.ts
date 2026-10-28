@@ -645,10 +645,28 @@ export function giorniLavorativiSettimana(date: string[], valide: (d: string) =>
   return Math.max(0, n - (intera && n > 0 ? 1 : 0));
 }
 
+/** Una settimana del mese (solo i giorni del mese): ore necessarie, disponibili, pianificate, scoperte. */
+export type SettimanaPiano = {
+  lunedi: string; dal: string; al: string;
+  /** ore che servono sull'organico pieno (contratto di tutti, senza ferie), distribuite come MODA */
+  necessarie: number;
+  contratto: number;
+  ferie: number;
+  /** contratto meno ferie e permessi */
+  disponibili: number;
+  /** ore di lavoro dei turni del piano (pause escluse) */
+  pianificate: number;
+  /** ore necessarie che il piano non copre */
+  scoperte: number;
+};
+
 export interface EsitoPianoMese {
+  /** il mese settimana per settimana */
+  settimane: SettimanaPiano[];
   turni: Turno[];
   weekendLiberi: Map<string, string[]>;
   scoperture: Scopertura[];
+  /** ore necessarie (organico pieno) che il piano non copre, nel mese */
   oreScoperte: number;
   giorni: GiornoPiano[];
   /** per persona: ore del mese da contratto (proporzionate), pianificate, straordinario, liberi nel weekend */
@@ -748,14 +766,22 @@ export function pianificaMese(args: {
 
   // 2. Fabbisogno di ogni settimana dal traffico e dalle ore che ci sono,
   // con le persone davvero disponibili giorno per giorno.
+  // Le ore necessarie (Patrizio, 28/10/2026) si calcolano sull'organico pieno:
+  // le ore di contratto di tutti, senza togliere ferie e permessi, distribuite
+  // come gli ingressi MODA. Le ferie e le regole dei turni fanno la differenza
+  // fra necessarie e coperte: togliendo una ferie le ore scoperte calano.
   const giorniMese: GiornoPiano[] = [];
+  const giorniNecessari: GiornoPiano[] = [];
   for (const lun of settimane) {
     const date = giorniDellaSettimana(lun).filter(nelMese);
     const gg = args.giorni.filter((g) => date.includes(g.data));
     const ore = contrattuali.reduce((a, p) => a + orePersona(p, lun), 0);
-    if (args.fabbisognoFisso) { giorniMese.push(...gg); continue; }
+    if (args.fabbisognoFisso) { giorniMese.push(...gg); giorniNecessari.push(...gg); continue; }
     const maxP = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) && !libero(p.id, g.data)).length]));
     giorniMese.push(...fabbisognoDaTraffico(gg, args.atteso, ore, maxP, args.extra));
+    const orePiene = contrattuali.reduce((a, p) => a + contrattoSett(p, lun), 0);
+    const maxPieno = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length]));
+    giorniNecessari.push(...fabbisognoDaTraffico(gg, args.atteso, orePiene, maxPieno, args.extra));
   }
 
   // 3. Le settimane.
@@ -849,11 +875,26 @@ export function pianificaMese(args: {
     };
   }
   const scoperture = giorniMese.flatMap((g) => scopertureDelGiorno(g, turni));
+  // Il mese settimana per settimana: dove mancano le ore e perche'.
+  const riepilogoSettimane: SettimanaPiano[] = settimane.map((lun) => {
+    const date = giorniDellaSettimana(lun).filter(nelMese);
+    const gn = giorniNecessari.filter((g) => date.includes(g.data));
+    const contratto = contrattuali.reduce((a, p) => a + contrattoSett(p, lun), 0);
+    const ferie = contrattuali.reduce((a, p) => a + ferieSett(p, lun), 0);
+    return {
+      lunedi: lun, dal: date[0], al: date[date.length - 1],
+      necessarie: gn.reduce((a, g) => a + (g.chiuso ? 0 : g.fabbisogno.reduce((x, y) => x + y, 0)), 0) * SLOT_MINUTI / 60,
+      contratto, ferie, disponibili: Math.max(0, contratto - ferie),
+      pianificate: turni.filter((t) => date.includes(t.data)).reduce((a, t) => a + oreLavorate(t), 0),
+      scoperte: oreScoperte(gn, turni),
+    };
+  });
   return {
     turni: turni.sort((a, b) => a.data.localeCompare(b.data) || a.inizio.localeCompare(b.inizio)),
     weekendLiberi,
     scoperture,
-    oreScoperte: oreScoperte(giorniMese, turni),
+    oreScoperte: riepilogoSettimane.reduce((a, x) => a + x.scoperte, 0),
+    settimane: riepilogoSettimane,
     giorni: giorniMese,
     persone,
     oreRiserva: riserva.reduce((a, p) => a + persone[p.id].pianificate, 0),
