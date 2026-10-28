@@ -1,3 +1,4 @@
+/*! Runtime Node 22 dal 28/10/2026: certificati eMudhra (cambia il bundle per far ricreare la funzione) */
 /**
  * Netlify Serverless Function — SDI Sync (manuale)
  *
