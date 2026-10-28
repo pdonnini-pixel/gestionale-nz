@@ -48,6 +48,8 @@ type Riepilogo = {
   persone?: EsitoPianoMese['persone'];
   /** il mese settimana per settimana (piani calcolati dal 28/10/2026) */
   settimane?: SettimanaPiano[];
+  /** calendario senza ferie e permessi: l'organico pieno, le ferie si inseriscono dopo dal calendario */
+  senzaFerie?: boolean;
   ipotesi?: {
     persone: { nome: string; oggi: number | null; ipotesi: number | null; soloWeekend: boolean; straordinari?: number }[];
     /** solo nelle prime simulazioni: un tetto uguale per tutti */
@@ -319,18 +321,21 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       return { esito, straordinariPersona, tolte };
   };
 
-  const creaPiano = async (regola: RegolaWeekend, ipotesi?: Simulazione) => {
-    setLavoro(ipotesi ? 'simulazione' : regola);
+  // senzaFerie (Patrizio, 28/10/2026): il calendario dell'organico pieno, come se
+  // nessuno avesse ferie o permessi; le ferie si inseriscono poi dal calendario.
+  const creaPiano = async (regola: RegolaWeekend, ipotesi?: Simulazione, senzaFerie = false) => {
+    setLavoro(ipotesi ? 'simulazione' : `${senzaFerie ? 'senza-' : ''}${regola}`);
     try {
       const b = await caricaBase();
       if (!b) return;
-      const { esito, straordinariPersona, tolte } = calcolaPiano(b, regola, ipotesi);
+      const { esito, straordinariPersona, tolte } = calcolaPiano(b, regola, ipotesi, senzaFerie ? new Set(b.ferie.map((x) => `${x.employee_id}|${x.data}`)) : undefined);
       const riepilogo: Riepilogo = {
         oreScoperte: esito.oreScoperte,
         oreRiserva: esito.oreRiserva,
         straordinario: Object.values(esito.persone).reduce((a, p) => a + p.straordinario, 0),
         fonte: b.fonte,
         turni: esito.turni.length,
+        ...(senzaFerie ? { senzaFerie: true } : {}),
         settimane: esito.settimane,
         persone: esito.persone,
         bisogno: Object.fromEntries(esito.giorni.filter((g) => !g.chiuso && g.data.startsWith(mese))
@@ -353,7 +358,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           liberiNuove: [...esito.weekendLiberi].flatMap(([data, ids]) => ids.filter((id) => id.startsWith(ID_NUOVA)).map((id) => ({ employee_id: id, data }))),
         } : {}),
       };
-      const nome = `${ipotesi ? 'Simulazione · ' : ''}${NOMI_MESE[Number(mese.slice(5))].replace(/^./, (c) => c.toUpperCase())} ${mese.slice(0, 4)} · ${ETICHETTE_REGOLA[regola]}`;
+      const nome = `${ipotesi ? 'Simulazione · ' : ''}${NOMI_MESE[Number(mese.slice(5))].replace(/^./, (c) => c.toUpperCase())} ${mese.slice(0, 4)} · ${senzaFerie ? 'senza ferie · ' : ''}${ETICHETTE_REGOLA[regola]}`;
       const { data: pianoNuovo, error: e1 } = await supabase.from('shift_plans').insert([{
         company_id: companyId, outlet_id: outletId, mese: `${mese}-01`, nome, regola_weekend: regola, riepilogo, simulazione: !!ipotesi,
       }]).select('id').single();
@@ -559,8 +564,14 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     }
   };
   const pianoScelto = varianti.find((p) => p.stato === 'scelto') ?? null;
-  const regoleMancanti = REGOLE.filter((r) => !varianti.some((p) => p.regola_weekend === r));
-  const minimoScoperte = Math.min(...varianti.map((p) => p.riepilogo.oreScoperte ?? 0));
+  // Due gruppi di varianti: la proposta con ferie e permessi e il calendario
+  // dell'organico pieno, senza ferie (Patrizio, 28/10/2026).
+  const variantiCon = varianti.filter((p) => !p.riepilogo.senzaFerie);
+  const variantiSenza = varianti.filter((p) => p.riepilogo.senzaFerie);
+  const regoleMancanti = REGOLE.filter((r) => !variantiCon.some((p) => p.regola_weekend === r));
+  const regoleMancantiSenza = REGOLE.filter((r) => !variantiSenza.some((p) => p.regola_weekend === r));
+  const minimoDi = (lista: Piano[]) => Math.min(...lista.map((p) => p.riepilogo.oreScoperte ?? 0));
+  const minimoScoperte = minimoDi(variantiCon);
   // La simulazione vuota: ore di oggi, chi lavora solo nel weekend lo resta.
   const simulazioneVuota = (): Simulazione => ({
     ore: {}, straord: {}, perTutti: '', nuove: [],
@@ -575,7 +586,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const baseProva = useRef<{ base: BaseMese; prima: Partial<Record<RegolaWeekend, SettimanaPiano[]>> } | null>(null);
   useEffect(() => { setFerieTolte(new Set()); }, [mese, outletId]);
   useEffect(() => { baseProva.current = null; }, [mese, outletId, piani]);
-  const regoleVarianti = varianti.map((p) => p.regola_weekend).join(',');
+  const regoleVarianti = variantiCon.map((p) => p.regola_weekend).join(',');
   useEffect(() => {
     if (!ferieTolte.size) { setProva(null); return; }
     let vivo = true;
@@ -606,10 +617,11 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   }, [ferieTolte, regoleVarianti]);
   const scoperteDi = (w?: SettimanaPiano[]) => (w ?? []).reduce((a, x) => a + x.scoperte, 0);
   // Il riquadro delle ore: la variante aperta, altrimenti quella con meno ore scoperte.
-  const pianoOre = [pianoAperto, ...varianti.filter((p) => (p.riepilogo.oreScoperte ?? 0) <= minimoScoperte + 1e-9), ...piani]
+  const pianoOre = [pianoAperto, ...variantiCon.filter((p) => (p.riepilogo.oreScoperte ?? 0) <= minimoScoperte + 1e-9), ...piani]
     .find((p) => p?.riepilogo.settimane?.length) ?? null;
   // Le quattro varianti in un colpo solo, una alla volta: solo quelle che mancano.
   const creaVarianti = async () => { for (const r of regoleMancanti) await creaPiano(r); };
+  const creaVariantiSenza = async () => { for (const r of regoleMancantiSenza) await creaPiano(r, undefined, true); };
   const bozzeAperto = turniPiano.filter((t) => t.stato === 'bozza').length;
 
   return (
@@ -639,7 +651,14 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             {regoleMancanti.length > 0 && (
               <button type="button" onClick={creaVarianti} disabled={!!lavoro}
                 className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
-                <Plus size={15} /> {lavoro && lavoro !== 'simulazione' && !lavoro.startsWith('disp-') ? 'Calcolo le varianti…' : varianti.length ? `Crea le varianti mancanti (${regoleMancanti.length})` : 'Crea le varianti del mese'}
+                <Plus size={15} /> {lavoro && lavoro !== 'simulazione' && !lavoro.startsWith('disp-') && !lavoro.startsWith('senza-') ? 'Calcolo le varianti…' : variantiCon.length ? `Varianti con ferie mancanti (${regoleMancanti.length})` : 'Crea le varianti con ferie e permessi'}
+              </button>
+            )}
+            {regoleMancantiSenza.length > 0 && (
+              <button type="button" onClick={creaVariantiSenza} disabled={!!lavoro}
+                title="Il calendario dell'organico pieno, come se nessuno avesse ferie o permessi: le ferie si inseriscono poi dal calendario"
+                className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-blue-300 bg-white text-blue-800 font-semibold hover:bg-blue-50 disabled:opacity-50">
+                <Plus size={15} /> {lavoro?.startsWith('senza-') ? 'Calcolo le varianti…' : variantiSenza.length ? `Varianti senza ferie mancanti (${regoleMancantiSenza.length})` : 'Crea le varianti senza ferie'}
               </button>
             )}
             <button type="button" onClick={() => setSim(sim ? null : simulazioneVuota())} disabled={!!lavoro}
@@ -884,7 +903,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       )}
 
       {/* Ferie del mese da spegnere per prova (Patrizio, 28/10/2026). */}
-      {varianti.length > 0 && ferieMese.length > 0 && !chiuso && (
+      {variantiCon.length > 0 && ferieMese.length > 0 && !chiuso && (
         <section className="bg-white border border-slate-200 rounded-xl px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -896,7 +915,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 <button type="button" onClick={() => setFerieTolte(new Set())} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">Riaccendi tutte</button>
                 {puoScrivere && (
                   <button type="button" disabled={!!lavoro}
-                    onClick={() => creaPiano(varianti.find((p) => (p.riepilogo.oreScoperte ?? 0) <= minimoScoperte + 1e-9)?.regola_weekend ?? 'nessuno', { ...simulazioneVuota(), ferieTolte: [...ferieTolte] })}
+                    onClick={() => creaPiano(variantiCon.find((p) => (p.riepilogo.oreScoperte ?? 0) <= minimoScoperte + 1e-9)?.regola_weekend ?? 'nessuno', { ...simulazioneVuota(), ferieTolte: [...ferieTolte] })}
                     className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50">
                     <FlaskConical size={13} /> Salva come simulazione
                   </button>
@@ -944,13 +963,22 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           </p>
         </section>
       ) : (
-        <section>
+        <section className="space-y-4">
+          {[
+            { chiave: 'con', titolo: 'Proposta con ferie e permessi', nota: 'il calendario calcolato con le ferie e i permessi di adesso', lista: [...variantiCon, ...piani.filter((x) => x.simulazione)] },
+            { chiave: 'senza', titolo: 'Senza ferie e permessi: organico pieno', nota: 'tutte al lavoro; scelto il calendario, le ferie si inseriscono cliccando la casella', lista: variantiSenza },
+          ].filter((gr) => gr.lista.length > 0).map((gr, _i, gruppi) => (
+          <div key={gr.chiave}>
+            {(gruppi.length > 1 || gr.chiave === 'senza') && (
+              <h3 className="mb-2 text-sm font-semibold text-slate-800">{gr.titolo} <span className="font-normal text-slate-500">· {gr.nota}</span></h3>
+            )}
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {piani.map((p) => {
+            {gr.lista.map((p) => {
               const pp = Object.values(p.riepilogo.persone ?? {}).filter((x) => !x.riserva);
               const liberi = pp.map((x) => x.weekendLiberi);
               const scoperte = p.riepilogo.oreScoperte ?? 0;
-              const migliore = !p.simulazione && varianti.length > 1 && scoperte <= minimoScoperte + 1e-9;
+              const delGruppo = gr.lista.filter((x) => !x.simulazione);
+              const migliore = !p.simulazione && delGruppo.length > 1 && scoperte <= minimoDi(delGruppo) + 1e-9;
               const selezionato = aperto === p.id;
               return (
                 <div key={p.id} role="button" tabIndex={0} onClick={() => setAperto(p.id)} onKeyDown={(e) => { if (e.key === 'Enter') setAperto(p.id); }}
@@ -962,6 +990,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                     {migliore && <span className="text-[11px] font-semibold text-blue-700">meno ore scoperte</span>}
                   </div>
                   <h4 className="mt-2 text-sm font-semibold text-slate-900 leading-snug first-letter:uppercase">{ETICHETTE_REGOLA[p.regola_weekend]}</h4>
+                  {p.riepilogo.senzaFerie && <p className="text-xs text-blue-700 mt-0.5">senza ferie e permessi</p>}
                   {p.simulazione && p.riepilogo.ipotesi && (
                     <p className="text-xs text-violet-700 mt-0.5 line-clamp-2">
                       {[...p.riepilogo.ipotesi.persone.filter((x) => x.ipotesi != null).map((x) => `${x.nome.split(' ')[0]} ${fmt(x.ipotesi!)} h`),
@@ -1017,6 +1046,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               );
             })}
           </div>
+          </div>
+          ))}
         </section>
       )}
 
@@ -1145,7 +1176,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             const modificabile = (riga: (typeof righe)[number], d: string) => puoModificare && !riga.nuova && dateMese.includes(d)
               && riga.inServizio(d) && !(giorniApertura.get(d)?.chiuso ?? false)
               && puoLavorareIl(disponibilita, riga.id, d)
-              && !ferieMese.some((x) => x.employee_id === riga.id && x.data === d && x.tipo === 'giornata');
+              // in ferie per la giornata si apre solo se c'e' un turno da togliere (calendario senza ferie)
+              && (!ferieMese.some((x) => x.employee_id === riga.id && x.data === d && x.tipo === 'giornata') || riga.turni.some((x) => x.data === d));
             const apriEditor = (riga: (typeof righe)[number], d: string) => {
               const t = turniPiano.find((x) => x.employee_id === riga.id && x.data === d) ?? null;
               setEditorMese({ employeeId: riga.id, data: d, turno: t });
@@ -1432,8 +1464,15 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               ordinarieAltri: altri.reduce((a, x) => a + ore(x) - Number(x.ore_straordinario ?? 0), 0),
               straordinarioAltri: altri.reduce((a, x) => a + Number(x.ore_straordinario ?? 0), 0),
             }}
+            ferie={(() => {
+              const oreSett = oreOggi(persone.find((x) => x.scheda.id === editorMese.employeeId)?.perGiorno ?? []);
+              return oreSett == null ? undefined : {
+                oreSettimana: oreSett, outletCode: dati.negozi.find((n) => n.id === outletId)?.code ?? null,
+                giaInFerie: ferieMese.some((x) => x.employee_id === editorMese.employeeId && x.data === editorMese.data && x.tipo === 'giornata'),
+              };
+            })()}
             onClose={() => setEditorMese(null)}
-            onSalvato={() => { setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
+            onSalvato={(msg) => { setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: msg ?? 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
           />
         );
       })()}

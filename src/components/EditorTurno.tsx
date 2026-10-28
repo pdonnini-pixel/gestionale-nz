@@ -10,6 +10,7 @@ import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import { formattaDataBreve } from '../lib/organico';
 import { NOMI_GIORNO_BREVI, minuti, oreLavorate, pausaMinimaPerPresenza, pausaPer, type RegoleTurni } from '../lib/turni';
+import { oreGiornata } from '../lib/pianoMensile';
 
 export type TurnoModificabile = {
   id: string; inizio: string; fine: string; pausa_minuti: number;
@@ -28,12 +29,19 @@ export type ContoMese = {
 
 const fmt = (n: number) => n.toLocaleString('it-IT', { maximumFractionDigits: 1 });
 
+/**
+ * Per inserire ferie e permessi dal calendario del mese (Patrizio, 28/10/2026):
+ * ore settimanali della persona (la giornata vale ore / 6), codice del negozio,
+ * e se quel giorno ha gia' ferie o permessi.
+ */
+export type FerieDalCalendario = { oreSettimana: number; outletCode: string | null; giaInFerie: boolean };
+
 export default function EditorTurno({
-  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, onClose, onSalvato,
+  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, onClose, onSalvato,
 }: {
   companyId: string; outletId: string; employeeId: string; data: string; turno: TurnoModificabile | null; planId: string | null;
-  nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese;
-  onClose: () => void; onSalvato: () => void;
+  nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario;
+  onClose: () => void; onSalvato: (messaggio?: string) => void;
 }) {
   const { toast } = useToast();
   const hh = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -78,15 +86,55 @@ export default function EditorTurno({
     onSalvato();
   };
 
+  // Il turno di un piano non pubblicato si toglie; uno pubblicato si annulla.
+  const togliTurno = async (motivo: string) => {
+    if (!turno) return null;
+    const { error } = turno.stato !== 'pubblicato' && (planId || (turno.origine === 'proposta' && turno.stato === 'bozza'))
+      ? await supabase.from('shifts').delete().eq('id', turno.id)
+      : await supabase.from('shifts').update({ stato: 'annullato', annullato_motivo: motivo }).eq('id', turno.id);
+    return error;
+  };
   const togli = async () => {
     if (!turno) return;
     setSalvo(true);
-    const { error } = turno.origine === 'proposta' && turno.stato === 'bozza'
-      ? await supabase.from('shifts').delete().eq('id', turno.id)
-      : await supabase.from('shifts').update({ stato: 'annullato', annullato_motivo: 'Tolto a mano' }).eq('id', turno.id);
+    const error = await togliTurno('Tolto a mano');
     setSalvo(false);
     if (error) { toast({ type: 'error', message: error.message }); return; }
     onSalvato();
+  };
+
+  // Ferie e permessi inseriti dal calendario: diventano una richiesta «inviata»,
+  // come le proposte del piano, da approvare in Approvazioni ferie. Con la
+  // giornata di ferie il turno del giorno si toglie.
+  const [orePermesso, setOrePermesso] = useState('2');
+  const giornata = ferie ? Math.round(oreGiornata(ferie.oreSettimana, regole) * 100) / 100 : 0;
+  const inserisciFerie = async (tipo: 'giornata' | 'ore') => {
+    if (!ferie) return;
+    const oreF = tipo === 'giornata' ? giornata : Math.round(Number(orePermesso.replace(',', '.')) * 2) / 2;
+    if (!(oreF > 0)) { toast({ type: 'error', message: 'Scrivi le ore del permesso.' }); return; }
+    setSalvo(true);
+    try {
+      const { data: u } = await supabase.auth.getUser();
+      const testo = tipo === 'giornata' ? `Giornata di ferie (${fmt(oreF)} h)` : `Permesso di ${fmt(oreF)} h`;
+      const { data: r, error } = await supabase.from('leave_requests').insert({
+        company_id: companyId, employee_id: employeeId, outlet_code: ferie.outletCode,
+        stato: 'inviata', origine: 'gestionale', titolo: 'Inserita dal piano del mese',
+        note_dipendente: `${testo} il ${formattaDataBreve(data)}, inserita dalla responsabile HR nel calendario del mese.`,
+        compilata_da: u.user?.id ?? null, inviata_il: new Date().toISOString(),
+      }).select('id').single();
+      if (error) throw error;
+      const { error: e2 } = await supabase.from('leave_request_days').insert([{
+        company_id: companyId, request_id: (r as { id: string }).id, data,
+        voce: tipo === 'giornata' ? 'F01' : 'F02', tipo, ore: oreF, nota: 'Inserita dal piano del mese',
+      }]);
+      if (e2) throw e2;
+      if (tipo === 'giornata') { const e3 = await togliTurno('Ferie inserite dal calendario'); if (e3) throw e3; }
+      onSalvato(`${testo} per ${nome.split(' ')[0]}: è in Approvazioni ferie.${tipo === 'ore' && turno ? ' Accorcia il turno se serve.' : ''}`);
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non inserite.' });
+    } finally {
+      setSalvo(false);
+    }
   };
 
   return (
@@ -138,6 +186,23 @@ export default function EditorTurno({
                 : differenza! < -0.25 ? `Le ore ordinarie superano il contratto di ${fmt(-differenza!)} h: se sono ore in più concordate, segna il turno come straordinario.`
                   : 'Tutte le ore di contratto sono usate.'}
             </p>
+          </div>
+        )}
+
+        {ferie && !ferie.giaInFerie && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 mb-1">Ferie o permesso in questo giorno</p>
+            <p className="text-xs text-amber-900 mb-2">Diventa una richiesta in Approvazioni ferie. Con la giornata di ferie il turno del giorno si toglie.</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <button type="button" onClick={() => inserisciFerie('giornata')} disabled={salvo}
+                className="min-h-[36px] px-3 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50">Giornata di ferie ({fmt(giornata)} h)</button>
+              <span className="text-xs text-amber-900">oppure permesso di</span>
+              <input type="text" inputMode="decimal" aria-label="Ore di permesso" value={orePermesso} onChange={(e) => setOrePermesso(e.target.value)}
+                className="w-16 min-h-[36px] rounded-lg border border-amber-300 px-2 text-right tabular-nums bg-white" />
+              <span className="text-xs text-amber-900">h</span>
+              <button type="button" onClick={() => inserisciFerie('ore')} disabled={salvo}
+                className="min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50">Inserisci permesso</button>
+            </div>
           </div>
         )}
 

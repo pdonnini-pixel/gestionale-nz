@@ -495,3 +495,17 @@ scoperte e poter spegnere le ferie con il conto in tempo reale.
   `ipotesi.ferieTolte`. Le richieste di ferie non cambiano mai dalla prova.
 - Le varianti salvate prima del 28/10 non hanno `settimane` e hanno le scoperte misurate alla vecchia maniera: vanno
   ricreate.
+
+## Calendario senza ferie e ferie inserite dal calendario (28/10/2026)
+
+Richiesta di Patrizio: poter creare il calendario senza ferie e permessi (organico pieno, sempre MODA e regole),
+sceglierlo e poi inserire ferie e permessi dal calendario; resta anche la proposta automatica con le ferie giuste.
+- `creaPiano(regola, ipotesi, senzaFerie)`: con `senzaFerie` tutte le ferie del mese sono tolte dal calcolo
+  (`calcolaPiano` con tutte le chiavi «persona|data»); `riepilogo.senzaFerie = true`, nome «… · senza ferie · …».
+  Le schede si dividono in due gruppi; «meno ore scoperte» si confronta dentro il gruppo; la prova delle ferie
+  vale solo per le varianti con ferie.
+- `EditorTurno` prop `ferie` (ore settimanali, codice negozio, già in ferie): «Giornata di ferie» (ore / 6) o
+  «Inserisci permesso» creano `leave_requests` stato `inviata`, titolo «Inserita dal piano del mese», più il giorno
+  (`F01` giornata, `F02` ore). Con la giornata il turno del giorno si toglie (`togliTurno`: tolto se il piano non è
+  pubblicato, altrimenti annullato).
+- La casella in ferie per la giornata si apre se c'è un turno (calendario senza ferie), per poterlo togliere.
