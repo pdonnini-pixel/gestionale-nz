@@ -16,6 +16,7 @@ import {
   type PersonaOggi,
 } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
+import { fasceDelle, type Accordo } from '../lib/accordiOrario';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, collocaPause, eventiDelNegozio, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
@@ -59,7 +60,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [lavoro, setLavoro] = useState(false);
   // Piano del mese scelto per ogni mese della settimana ('YYYY-MM' -> id).
   const [pianiScelti, setPianiScelti] = useState<Map<string, string>>(new Map());
-  const [disponibilita, setDisponibilita] = useState<Map<string, number[]>>(new Map());
+  const [disponibilita, setDisponibilita] = useState<Map<string, Accordo>>(new Map());
   const [editor, setEditor] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
 
   const carica = useCallback(async () => {
@@ -80,7 +81,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         // Piani del mese scelti per i mesi di questa settimana: nei loro giorni valgono i loro turni.
         supabase.from('shift_plans').select('id, mese').eq('outlet_id', outletId).eq('stato', 'scelto')
           .in('mese', [...new Set([date[0], date[6]].map((d) => `${d.slice(0, 7)}-01`))]),
-        caricaDisponibilita(companyId).catch(() => new Map<string, number[]>()),
+        caricaDisponibilita(companyId).catch(() => new Map<string, Accordo>()),
       ]);
       setDisponibilita(disp);
       const pianoDelMese = new Map(((pi.data as { id: string; mese: string }[]) ?? []).map((x) => [x.mese.slice(0, 7), x.id]));
@@ -167,6 +168,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           ore: Math.max(0, (p.ore as number) - date.reduce((a, d) => a + Number(inFerie(p.scheda.id, d)?.ore ?? 0), 0)),
           nonDisponibile: new Set(date.filter((d, i) => motivoNonDisponibile(p.perGiorno[i], p.scheda.id, d) != null)),
           saldoOre: saldi.get(p.scheda.id) ?? 0,
+          // accordi della scheda: le fasce orarie in cui puo' lavorare
+          fasce: fasceDelle(disponibilita, p.scheda.id, date),
         }));
       const esito = proponiSettimana({ giorni, persone: candidati, regole, fissi });
       if (esito.turni.length) {

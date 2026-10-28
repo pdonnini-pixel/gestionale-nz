@@ -5,6 +5,7 @@
 import { supabase } from './supabase';
 import type { EventoOrganico, SchedaPersona } from './organico';
 import { oraRoma, type ChiusuraGiorno } from './stimaNegozio';
+import { puoLavorareIl, type Accordo, type FasciaOraria } from './accordiOrario';
 
 export interface NegozioRif {
   id: string;
@@ -135,17 +136,15 @@ export async function caricaTraffico(companyId: string, outletId: string | null)
 }
 
 /**
- * Giorni della settimana in cui ognuno puo' lavorare (1 = lunedi' ... 7 = domenica),
- * da `employee_availability` (Patrizio, 20/10/2026). Chi non c'e' puo' lavorare tutti i giorni.
+ * Accordi di ognuno per i turni (`employee_availability`, Patrizio 20 e
+ * 28/10/2026): giorni, fasce orarie, date di validita'. Chi non c'e' puo'
+ * lavorare sempre. Le regole stanno in accordiOrario.ts.
  */
-export async function caricaDisponibilita(companyId: string): Promise<Map<string, number[]>> {
-  const { data, error } = await supabase.from('employee_availability').select('employee_id, giorni').eq('company_id', companyId);
+export async function caricaDisponibilita(companyId: string): Promise<Map<string, Accordo>> {
+  const { data, error } = await supabase.from('employee_availability').select('employee_id, giorni, fasce, valido_dal, valido_al, nota').eq('company_id', companyId);
   if (error) throw error;
-  return new Map(((data as { employee_id: string; giorni: number[] }[]) ?? []).map((x) => [x.employee_id, x.giorni.map(Number)]));
+  return new Map(((data as { employee_id: string; giorni: number[]; fasce: Record<string, FasciaOraria[]> | null; valido_dal: string | null; valido_al: string | null; nota: string | null }[]) ?? [])
+    .map((x) => [x.employee_id, { giorni: x.giorni.map(Number), fasce: x.fasce ?? {}, validoDal: x.valido_dal, validoAl: x.valido_al, nota: x.nota }]));
 }
 
-/** La persona puo' lavorare in quella data secondo la sua disponibilita'? */
-export function puoLavorareIl(disponibilita: Map<string, number[]>, employeeId: string, data: string): boolean {
-  const g = disponibilita.get(employeeId);
-  return !g || g.includes(new Date(`${data}T00:00:00Z`).getUTCDay() || 7);
-}
+export { puoLavorareIl };

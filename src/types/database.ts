@@ -14714,26 +14714,35 @@ export type Database = {
         Row: {
           company_id: string
           employee_id: string
+          fasce: Json | null
           giorni: number[]
           nota: string | null
           updated_at: string
           updated_by: string | null
+          valido_al: string | null
+          valido_dal: string | null
         }
         Insert: {
           company_id: string
           employee_id: string
+          fasce?: Json | null
           giorni: number[]
           nota?: string | null
           updated_at?: string
           updated_by?: string | null
+          valido_al?: string | null
+          valido_dal?: string | null
         }
         Update: {
           company_id?: string
           employee_id?: string
+          fasce?: Json | null
           giorni?: number[]
           nota?: string | null
           updated_at?: string
           updated_by?: string | null
+          valido_al?: string | null
+          valido_dal?: string | null
         }
         Relationships: []
       }

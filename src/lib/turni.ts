@@ -171,6 +171,39 @@ export interface PersonaTurni {
   nonDisponibile: Set<string>;
   /** ore di ferie e permessi gia' maturate e non godute: chi ne ha di piu' lavora meno ore quando avanzano */
   saldoOre?: number;
+  /** accordi con la persona: per data, la fascia in cui puo' lavorare (assente = tutto l'orario) */
+  fasce?: Map<string, Fascia>;
+}
+
+/** Fascia oraria (minuti dalla mezzanotte) in cui una persona puo' lavorare, dagli accordi della scheda. */
+export interface Fascia { dalle: number; alle: number }
+
+/** Apertura e chiusura del giorno per quella persona: l'orario del negozio dentro la sua fascia. */
+export function limitiPersona(p: { fasce?: Map<string, Fascia> } | undefined, g: { data: string; apre: number; chiude: number }): { apre: number; chiude: number } {
+  const f = p?.fasce?.get(g.data);
+  return f ? { apre: Math.max(g.apre, f.dalle), chiude: Math.min(g.chiude, f.alle) } : { apre: g.apre, chiude: g.chiude };
+}
+
+/**
+ * Riporta ogni turno dentro la fascia della persona (accordi della scheda,
+ * Patrizio 28/10/2026): si accorcia quello che esce, e se non resta il turno
+ * minimo si toglie. E' la rete di sicurezza in fondo ai calcoli.
+ */
+export function rispettaFasce(turni: Turno[], persone: { id: string; fasce?: Map<string, Fascia> }[], regole: RegoleTurni = REGOLE_DEFAULT): Turno[] {
+  const per = new Map(persone.map((p) => [p.id, p]));
+  const out: Turno[] = [];
+  for (const t of turni) {
+    const f = per.get(t.employeeId)?.fasce?.get(t.data);
+    const i = minuti(t.inizio); const e = minuti(t.fine);
+    if (!f || (i >= f.dalle && e <= f.alle)) { out.push(t); continue; }
+    const a = Math.max(i, f.dalle); const b = Math.min(e, f.alle);
+    let lavoro = Math.min(b - a, oreLavorate(t) * 60);
+    while (lavoro > 0 && lavoro + pausaPer(lavoro, regole) > b - a) lavoro -= SLOT_MINUTI;
+    if (lavoro < regole.turnoMinOre * 60 - 1e-9) continue;
+    const pausa = pausaPer(lavoro, regole);
+    out.push({ ...t, inizio: hhmm(a), fine: hhmm(a + lavoro + pausa), pausaMinuti: pausa });
+  }
+  return out;
 }
 
 export interface Turno {
@@ -502,9 +535,11 @@ export function ritoccaScoperture(
     const pausa = pausaPer(lavoro, regole);
     return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
   };
+  const perId = new Map(persone.map((p) => [p.id, p]));
   const valido = (g: GiornoPiano, t: Turno, prova: Turno[]) => {
     const lavoro = oreLavorate(t) * 60;
-    return minuti(t.inizio) >= g.apre && minuti(t.fine) <= g.chiude
+    const l = limitiPersona(perId.get(t.employeeId), g);
+    return minuti(t.inizio) >= l.apre && minuti(t.fine) <= l.chiude
       && lavoro >= regole.turnoMinOre * 60 - 1e-9 && lavoro <= regole.turnoMaxOre * 60
       && (!!oltreContratto?.has(t.data) || oreDi(t.employeeId, prova) <= (contratto.get(t.employeeId) ?? 0) + 1e-9);
   };
@@ -535,7 +570,8 @@ export function ritoccaScoperture(
         const gg = giorniDi(p.id, turni);
         if (gg.has(g.data) || gg.size >= regole.giorniLavoroMax) continue;
         const minimo = regole.turnoMinOre * 60;
-        for (let s = g.apre; s + minimo <= g.chiude; s += SLOT_MINUTI) {
+        const l = limitiPersona(p, g);
+        for (let s = l.apre; s + minimo <= l.chiude; s += SLOT_MINUTI) {
           const v = conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, s, minimo);
           const prova = [...turni, v];
           if (valido(g, v, prova)) mosse.push(prova);
@@ -635,7 +671,7 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
     && !lavora.get(p.id)!.has(g.data)
     && lavora.get(p.id)!.size < regole.giorniLavoroMax
     && (restanti.get(p.id) ?? 0) >= regole.turnoMinOre - 1e-9
-    && (g.chiude - g.apre) >= regole.turnoMinOre * 60;
+    && lavoroMassimoGiorno(limitiPersona(p, g), regole) >= regole.turnoMinOre * 60;
 
   const durata = (p: PersonaTurni, g: GiornoPiano): { lavoro: number; pausa: number } => {
     // Le ore che restano si dividono sui giorni che la persona puo' ancora
@@ -655,7 +691,8 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
     ore = Math.min(Math.max(ore, regole.turnoMinOre), regole.turnoMaxOre, rest);
     ore = arrotondaMezzOra(ore);
     let lavoro = ore * 60;
-    const giornata = g.chiude - g.apre;
+    const l = limitiPersona(p, g);
+    const giornata = l.chiude - l.apre;
     // Se il turno con la sua pausa non sta nella giornata si accorcia di
     // mezz'ora alla volta (la pausa scende di fascia quando serve).
     while (lavoro > 0 && lavoro + pausaPer(lavoro, regole) > giornata) lavoro -= SLOT_MINUTI;
@@ -664,10 +701,12 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
 
   const assegna = (p: PersonaTurni, g: GiornoPiano, inizioMin: number, lavoro: number, pausa: number) => {
     const span = lavoro + pausa;
-    let inizio = Math.max(g.apre, inizioMin);
-    if (inizio + span > g.chiude) inizio = g.chiude - span;
+    const l = limitiPersona(p, g);
+    let inizio = Math.max(l.apre, inizioMin);
+    if (inizio + span > l.chiude) inizio = l.chiude - span;
     inizio = g.apre + Math.round((inizio - g.apre) / SLOT_MINUTI) * SLOT_MINUTI;
-    if (inizio + span > g.chiude) inizio -= SLOT_MINUTI;
+    if (inizio + span > l.chiude) inizio -= SLOT_MINUTI;
+    if (inizio < l.apre) inizio += SLOT_MINUTI;
     const t: Turno = { employeeId: p.id, data: g.data, inizio: hhmm(inizio), fine: hhmm(inizio + span), pausaMinuti: pausa };
     proposti.push(t);
     lavora.get(p.id)!.add(g.data);
@@ -675,8 +714,9 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
     ricalcola(g);
   };
 
-  const scegli = (g: GiornoPiano) => persone
-    .filter((p) => puoLavorare(p, g))
+  // chi puo' lavorare quel giorno e, con i suoi accordi, anche in quella mezz'ora
+  const scegli = (g: GiornoPiano, i: number) => persone
+    .filter((p) => puoLavorare(p, g) && (() => { const l = limitiPersona(p, g); const t = g.apre + i * SLOT_MINUTI; return t >= l.apre && t < l.chiude; })())
     .sort((a, b) => ((restanti.get(b.id)! / b.ore) - (restanti.get(a.id)! / a.ore))
       || (restanti.get(b.id)! - restanti.get(a.id)!)
       || a.id.localeCompare(b.id))[0];
@@ -699,7 +739,7 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
       }
     }
     if (!best) break;
-    const p = scegli(best.g);
+    const p = scegli(best.g, best.i);
     if (!p) { bloccati.add(`${best.g.data}|${best.i}`); continue; }
     const c = cop.get(best.g.data)!;
     let r0 = best.i;
@@ -726,7 +766,8 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
       if (lavoro < regole.turnoMinOre * 60 - 1e-9) continue;
       const span = lavoro + pausa;
       const c = cop.get(g.data)!;
-      for (let s = g.apre; s + span <= g.chiude; s += SLOT_MINUTI) {
+      const l = limitiPersona(p, g);
+      for (let s = l.apre; s + span <= l.chiude; s += SLOT_MINUTI) {
         let peso = 0;
         for (let i = 0; i < c.length; i++) {
           const t = g.apre + i * SLOT_MINUTI;
@@ -749,7 +790,7 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
   }
 
   return {
-    turni: proposti.sort((a, b) => a.data.localeCompare(b.data) || a.inizio.localeCompare(b.inizio)),
+    turni: rispettaFasce(proposti, persone, regole).sort((a, b) => a.data.localeCompare(b.data) || a.inizio.localeCompare(b.inizio)),
     scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, tutti)),
     ore,
   };

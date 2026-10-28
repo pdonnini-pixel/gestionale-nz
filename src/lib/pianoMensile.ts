@@ -21,8 +21,8 @@
 import { festivitaItaliane } from './ferieRichiesta';
 import {
   SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, proponiSettimana,
-  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, oreScoperte, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
-  type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura,
+  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
+  type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
 
 // ── Tipo di giorno ───────────────────────────────────────────────────────
@@ -284,14 +284,19 @@ export function copriOrarioMinimo(
     return null;
   };
   // Turno che copre [a, b) (o il pezzo che si puo') con `lavoro` minuti, dentro l'orario.
-  const turnoPer = (id: string, g: GiornoPiano, a: number, b: number, lavoro: number): Turno => {
+  // Con gli accordi della scheda il turno sta dentro la fascia della persona.
+  const turnoPer = (p: PersonaTurni, g: GiornoPiano, a: number, b: number, lavoro: number): Turno => {
+    const l = limitiPersona(p, g);
     const durata = lavoro + pausaPer(lavoro, regole);
-    const inizio = Math.max(g.apre, Math.min(a, g.chiude - durata, b - durata < a ? a : b - durata));
-    return conPausa({ employeeId: id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, Math.max(g.apre, Math.min(inizio, g.chiude - durata)), lavoro);
+    const inizio = Math.max(l.apre, Math.min(a, l.chiude - durata, b - durata < a ? a : b - durata));
+    return conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, Math.max(l.apre, Math.min(inizio, l.chiude - durata)), lavoro);
   };
-  const lavoroPer = (a: number, b: number, disponibili: number, g: GiornoPiano) => {
+  // 0 se la fascia della persona non tocca il buco [a, b): li' non serve
+  const lavoroPer = (a: number, b: number, disponibili: number, g: GiornoPiano, p: PersonaTurni) => {
+    const l = limitiPersona(p, g);
+    if (l.apre >= b || l.chiude <= a) return 0;
     const serve = Math.max(regole.turnoMinOre * 60, b - a);
-    return Math.min(lavoroMassimoGiorno(g, regole), serve, Math.floor(disponibili * 2) / 2 * 60);
+    return Math.min(lavoroMassimoGiorno(l, regole), serve, Math.floor(disponibili * 2) / 2 * 60);
   };
 
   // Il passo (1) su un giorno qualsiasi: restituisce la lista migliorata o null.
@@ -305,9 +310,10 @@ export function copriOrarioMinimo(
       if (!p) continue;
       const oraLav = oreLavorate(t) * 60;
       const maxLav = Math.min(regole.turnoMaxOre * 60, oraLav + Math.floor((p.ore - ore(p.id, lista)) * 2) / 2 * 60);
+      const l = limitiPersona(p, g);
       for (let lav = oraLav; lav <= maxLav; lav += SLOT_MINUTI) {
         const durata = lav + pausaPer(lav, regole);
-        for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
+        for (let s0 = l.apre; s0 + durata <= l.chiude; s0 += SLOT_MINUTI) {
           const v = conPausa(t, s0, lav);
           const l2 = lista.map((x) => (x === t ? v : x));
           const n = vuote(l2);
@@ -369,9 +375,9 @@ export function copriOrarioMinimo(
     const liberi = (gruppo: PersonaTurni[]) => gruppo.filter((p) => !p.nonDisponibile.has(g.data) && !giorniDi(p.id).has(g.data)
       && giorniDi(p.id, out.filter((t) => settimana.includes(t.data))).size < regole.giorniLavoroMax);
     for (const p of liberi(titolari).sort((x, y) => (y.ore - ore(y.id)) - (x.ore - ore(x.id)))) {
-      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g);
+      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g, p);
       if (lavoro < regole.turnoMinOre * 60) continue;
-      out = [...out, turnoPer(p.id, g, a, b, lavoro)];
+      out = [...out, turnoPer(p, g, a, b, lavoro)];
       fatto = true; break;
     }
     if (fatto) continue;
@@ -389,8 +395,8 @@ export function copriOrarioMinimo(
         const togli = altri.find((t) => nessunBuco(prova.filter((x) => x !== t), [t.data]));
         if (togli) {
           const senza = prova.filter((x) => x !== togli);
-          const lavoro = lavoroPer(a, b, p.ore - ore(p.id, senza), g);
-          if (lavoro >= regole.turnoMinOre * 60) { out = [...senza, turnoPer(p.id, g, a, b, lavoro)]; fatto = true; break; }
+          const lavoro = lavoroPer(a, b, p.ore - ore(p.id, senza), g, p);
+          if (lavoro >= regole.turnoMinOre * 60) { out = [...senza, turnoPer(p, g, a, b, lavoro)]; fatto = true; break; }
         }
       }
       // (3b) accorciare turni dove ci sono altri, mezz'ora alla volta, poi allungare o creare
@@ -402,11 +408,12 @@ export function copriOrarioMinimo(
         const aggiunta = Math.min(b - a, Math.floor(libere * 2) / 2 * 60, regole.turnoMaxOre * 60 - lavoroOra);
         if (aggiunta >= SLOT_MINUTI) {
           const nuovo = minuti(t.fine) === a ? conPausa(t, minuti(t.inizio), lavoroOra + aggiunta) : conPausa(t, b - aggiunta - lavoroOra, lavoroOra + aggiunta);
-          if (minuti(nuovo.inizio) >= g.apre && minuti(nuovo.fine) <= g.chiude) { out = prova.map((x) => (x === t ? nuovo : x)); fatto = true; break; }
+          const l = limitiPersona(p, g);
+          if (minuti(nuovo.inizio) >= l.apre && minuti(nuovo.fine) <= l.chiude) { out = prova.map((x) => (x === t ? nuovo : x)); fatto = true; break; }
         }
       } else if (giorniDi(p.id, prova.filter((t) => settimana.includes(t.data))).size < regole.giorniLavoroMax) {
-        const lavoro = lavoroPer(a, b, libere, g);
-        if (lavoro >= regole.turnoMinOre * 60) { out = [...prova, turnoPer(p.id, g, a, b, lavoro)]; fatto = true; break; }
+        const lavoro = lavoroPer(a, b, libere, g, p);
+        if (lavoro >= regole.turnoMinOre * 60) { out = [...prova, turnoPer(p, g, a, b, lavoro)]; fatto = true; break; }
       }
     }
     if (fatto) continue;
@@ -427,9 +434,9 @@ export function copriOrarioMinimo(
           sistemata = sistemaGiorno(liberaOre(senza, q, vuoteG2, [g2.data, g.data], settimana), g2);
         }
         if (!sistemata) continue;
-        const lavoro = lavoroPer(a, b, p.ore - ore(p.id, sistemata), g);
+        const lavoro = lavoroPer(a, b, p.ore - ore(p.id, sistemata), g, p);
         if (lavoro < regole.turnoMinOre * 60) continue;
-        out = [...sistemata, turnoPer(p.id, g, a, b, lavoro)];
+        out = [...sistemata, turnoPer(p, g, a, b, lavoro)];
         fatto = true; break;
       }
       if (fatto) break;
@@ -438,9 +445,9 @@ export function copriOrarioMinimo(
 
     // (4) chi e' a chiamata
     for (const p of liberi(riserva)) {
-      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g);
+      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g, p);
       if (lavoro < regole.turnoMinOre * 60) continue;
-      out = [...out, turnoPer(p.id, g, a, b, lavoro)];
+      out = [...out, turnoPer(p, g, a, b, lavoro)];
       fatto = true; break;
     }
     if (fatto) continue;
@@ -494,8 +501,9 @@ export function usaOreResidue(
         const i0 = minuti(t.inizio);
         const lavoro = oreLavorate(t) * 60 + SLOT_MINUTI;
         if (lavoro > regole.turnoMaxOre * 60) return;
+        const l = limitiPersona(p, g);
         for (const v of [conPausa(t, i0 - SLOT_MINUTI, lavoro), conPausa(t, i0, lavoro)]) {
-          if (minuti(v.inizio) < g.apre || minuti(v.fine) > g.chiude) continue;
+          if (minuti(v.inizio) < l.apre || minuti(v.fine) > l.chiude) continue;
           const lista = out.map((x, k) => (k === idx ? v : x));
           const nuovo = minuti(v.inizio) < i0 ? [minuti(v.inizio), i0] : [minuti(t.fine), minuti(v.fine)];
           const w = peso(g, nuovo[0], nuovo[1], out);
@@ -510,11 +518,12 @@ export function usaOreResidue(
       let nuovo: { t: Turno; w: number } | null = null;
       for (const g of giorno.values()) {
         if (suoi.has(g.data) || p.nonDisponibile.has(g.data)) continue;
-        // il turno con la sua pausa deve stare nell'orario del giorno
-        const lavoro = Math.min(voluto, lavoroMassimoGiorno(g, regole));
+        // il turno con la sua pausa deve stare nell'orario del giorno e nella fascia della persona
+        const l = limitiPersona(p, g);
+        const lavoro = Math.min(voluto, lavoroMassimoGiorno(l, regole));
         if (lavoro < regole.turnoMinOre * 60 - 1e-9) continue;
         const durata = lavoro + pausaPer(lavoro, regole);
-        for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
+        for (let s0 = l.apre; s0 + durata <= l.chiude; s0 += SLOT_MINUTI) {
           const t = conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, s0, lavoro);
           const w = peso(g, s0, s0 + durata, out) / (durata / SLOT_MINUTI);
           if (!nuovo || w > nuovo.w) nuovo = { t, w };
@@ -546,19 +555,22 @@ export interface FinestraSuggerita {
 export function suggerisciFinestre(args: {
   giorni: GiornoPiano[]; atteso: Map<string, number[]>; turni: Turno[];
   possibile: (data: string) => boolean; ore: number; regole?: RegoleTurni; quante?: number;
+  /** accordi della persona: la fascia in cui puo' lavorare, per data */
+  fasce?: Map<string, Fascia>;
 }): FinestraSuggerita[] {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const voluto = Math.min(regole.turnoMaxOre, Math.max(regole.turnoMinOre, Math.round(args.ore * 2) / 2)) * 60;
   const out: FinestraSuggerita[] = [];
   for (const g of args.giorni) {
     if (g.chiuso || !args.possibile(g.data)) continue;
-    const lavoro = Math.min(voluto, lavoroMassimoGiorno(g, regole));
+    const l = limitiPersona({ fasce: args.fasce }, g);
+    const lavoro = Math.min(voluto, lavoroMassimoGiorno(l, regole));
     if (lavoro < regole.turnoMinOre * 60) continue;
     const pausa = pausaPer(lavoro, regole);
     const durata = lavoro + pausa;
     const cop = coperturaLorda(g, args.turni);
     let meglio: FinestraSuggerita | null = null;
-    for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
+    for (let s0 = l.apre; s0 + durata <= l.chiude; s0 += SLOT_MINUTI) {
       let w = 0; let n = 0;
       for (let t = s0; t < s0 + durata; t += SLOT_MINUTI) {
         const i = Math.floor((t - g.apre) / SLOT_MINUTI);
@@ -619,6 +631,8 @@ export interface PersonaPiano {
   /** giorni del mese con il contratto in questo negozio (assente = nessuno); vuoto = tutti */
   inServizio?: Set<string>;
   saldoOre?: number;
+  /** accordi della scheda: per data, la fascia in cui puo' lavorare */
+  fasce?: Map<string, Fascia>;
 }
 
 // ── Ore di contratto a giornata (Patrizio, 21/10/2026) ────────────────────
@@ -856,6 +870,7 @@ export function pianificaMese(args: {
       ore: orePersona(p, lun),
       nonDisponibile: new Set([...p.nonDisponibile, ...date.filter((d) => libero(p.id, d))]),
       saldoOre: p.saldoOre ?? 0,
+      fasce: p.fasce,
     }));
     let esito = proponiSettimana({ giorni: gg, persone: candidati, regole }).turni;
     // Le ore di contratto che avanzano si usano dove c'e' piu' gente (traffico MODA).
@@ -864,7 +879,7 @@ export function pianificaMese(args: {
     // La riserva a chiamata copre i buchi che restano, fino a 8 ore al giorno.
     const disponibiliRiserva = riserva.filter((p) => date.some((d) => !p.nonDisponibile.has(d)));
     if (disponibiliRiserva.length && oreScoperte(gg, esito) > 0) {
-      const perRitocco: PersonaTurni[] = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile }));
+      const perRitocco: PersonaTurni[] = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile, fasce: p.fasce }));
       esito = ritoccaScoperture(gg, esito, [], perRitocco, regole, undefined, new Set(disponibiliRiserva.map((p) => p.id)));
     }
     // Regola fissa (Patrizio, 21/10/2026): comanda l'orario del negozio, mai
@@ -877,7 +892,7 @@ export function pianificaMese(args: {
       const p = contrattuali.find((x) => x.id === c.id);
       return { ...c, ore: Math.max(c.ore, Math.min(p?.oreSettimana ?? 0, regole.turnoMaxOre * date.length)) };
     });
-    const riservaCopertura = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile }));
+    const riservaCopertura = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile, fasce: p.fasce }));
     esito = copriOrarioMinimo(base, esito, perCopertura, riservaCopertura, regole);
     // Il sabato o la domenica liberi si danno «solo quando possibile»: se il negozio
     // resterebbe vuoto, il libero di questa settimana salta e quelle persone tornano disponibili.
@@ -904,7 +919,8 @@ export function pianificaMese(args: {
       const altri = esito.filter((t) => !ids.has(t.employeeId));
       esito = [...altri, ...ritoccaScoperture(gg, esito.filter((t) => ids.has(t.employeeId)), altri, conExtra, regole)];
     }
-    turni.push(...esito);
+    // Rete di sicurezza: nessun turno fuori dagli accordi della scheda.
+    turni.push(...rispettaFasce(esito, args.persone, regole));
   }
 
   const persone: EsitoPianoMese['persone'] = {};

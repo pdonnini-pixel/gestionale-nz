@@ -22,6 +22,7 @@ import EditorTurno from './EditorTurno';
 import { Modal } from './ui/Modal';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, caricaTraffico, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
+import { fasceDelle, testoAccordo, type Accordo } from '../lib/accordiOrario';
 import {
   NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno,
   REGOLE_DEFAULT, minuti, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
@@ -129,9 +130,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [ferieRegistrate, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string; creato_il: string }[]>([]);
   const [giorniMax, setGiorniMax] = useState(6);
   // Giorni in cui ognuno puo' lavorare (employee_availability): valgono per piani e simulazioni.
-  const [disponibilita, setDisponibilita] = useState<Map<string, number[]>>(new Map());
-  const [dispAperta, setDispAperta] = useState(false);
-  const [dispModifica, setDispModifica] = useState<Record<string, number[]>>({});
+  const [disponibilita, setDisponibilita] = useState<Map<string, Accordo>>(new Map());
   // Modifica a mano di un turno dal calendario del mese (solo HR).
   const [editorMese, setEditorMese] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
   const [regolePiano, setRegolePiano] = useState<RegoleTurni>(REGOLE_DEFAULT);
@@ -149,7 +148,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       supabase.from('shift_plans').select('*').eq('company_id', companyId).eq('outlet_id', outletId).eq('mese', `${mese}-01`).order('created_at'),
       supabase.rpc('organico_e_hr'),
       supabase.rpc('turni_mese_chiuso', { p_company: companyId, p_data: `${mese}-01` }),
-      caricaDisponibilita(companyId).catch(() => new Map<string, number[]>()),
+      caricaDisponibilita(companyId).catch(() => new Map<string, Accordo>()),
     ]);
     setDisponibilita(disp);
     if (p.error) toast({ type: 'error', message: `Piani non caricati: ${p.error.message}` });
@@ -308,6 +307,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           // Chi entra o esce a meta' mese conta solo i giorni con il contratto.
           inServizio: new Set(dateMese.filter((d, i) => perGiorno[i].outletId === outletId && perGiorno[i].stato === 'in_servizio')),
           saldoOre: b.saldi.get(scheda.id) ?? 0,
+          // accordi della scheda: le fasce orarie in cui puo' lavorare
+          fasce: fasceDelle(disponibilita, scheda.id, tutte),
         };
       });
       // Persone nuove della simulazione: dal giorno indicato, ore scritte (vuoto = a chiamata).
@@ -405,25 +406,6 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     }
   };
 
-  const salvaDisponibilita = async (employeeId: string, giorni: number[]) => {
-    setLavoro(`disp-${employeeId}`);
-    try {
-      if (giorni.length === 7) {
-        const { error } = await supabase.from('employee_availability').delete().eq('employee_id', employeeId);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('employee_availability').upsert([{ employee_id: employeeId, company_id: companyId, giorni, updated_at: new Date().toISOString() }], { onConflict: 'employee_id' });
-        if (error) throw error;
-      }
-      setDisponibilita((m) => { const n = new Map(m); if (giorni.length === 7) n.delete(employeeId); else n.set(employeeId, giorni); return n; });
-      setDispModifica((x) => { const n = { ...x }; delete n[employeeId]; return n; });
-      toast({ type: 'success', message: 'Disponibilità salvata: vale per i prossimi piani e le simulazioni.' });
-    } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Disponibilità non salvata.' });
-    } finally {
-      setLavoro(null);
-    }
-  };
 
   const scegli = async (id: string) => {
     setLavoro(id);
@@ -596,7 +578,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   // La simulazione vuota: ore di oggi, chi lavora solo nel weekend lo resta.
   const simulazioneVuota = (): Simulazione => ({
     ore: {}, straord: {}, perTutti: '', nuove: [],
-    soloWeekend: Object.fromEntries(persone.map(({ scheda }) => [scheda.id, (disponibilita.get(scheda.id) ?? []).join(',') === '6,7'])),
+    soloWeekend: Object.fromEntries(persone.map(({ scheda }) => [scheda.id, (disponibilita.get(scheda.id)?.giorni ?? []).join(',') === '6,7'])),
   });
 
   // Prova delle ferie (Patrizio, 28/10/2026): si spengono giorni di ferie e si
@@ -783,60 +765,22 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       <section className="bg-white border border-slate-200 rounded-xl">
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
           <h3 className="text-sm font-semibold text-slate-800">Chi lavora a {NOMI_MESE[Number(mese.slice(5))]}</h3>
-          {puoScrivere && (
-            <button type="button" onClick={() => setDispAperta((v) => !v)} className="text-xs font-semibold text-blue-700 hover:underline">
-              {dispAperta ? 'Fatto' : 'Cambia i giorni in cui possono lavorare'}
-            </button>
-          )}
+          <span className="text-xs text-slate-500">Gli accordi di ognuno (giorni e fasce orarie) si cambiano nella scheda del dipendente, riquadro «Disponibilità per i turni».</span>
         </div>
-        {!dispAperta ? (
-          <div className="flex flex-wrap gap-2 px-4 py-3">
-            {persone.map(({ scheda, perGiorno }) => {
-              const ore = oreOggi(perGiorno);
-              const g = disponibilita.get(scheda.id);
-              return (
-                <span key={scheda.id} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 pl-3 pr-2 py-1 text-sm">
-                  <span className="font-medium text-slate-800">{nomePersona(scheda)}</span>
-                  <span className="text-xs text-slate-500">{ore == null ? 'a chiamata' : `${fmt(ore)} h/sett.`}</span>
-                  {g && <span className="text-[11px] font-semibold rounded-full bg-amber-100 text-amber-900 px-2 py-0.5">solo {testoGiorni(g)}</span>}
-                </span>
-              );
-            })}
-            {!persone.length && <span className="text-sm text-slate-400">Nessuno in servizio in questo negozio nel mese.</span>}
-          </div>
-        ) : (
-          <div className="px-4 py-3 space-y-2">
-            <p className="text-xs text-slate-500">Nei giorni spenti la persona non riceve turni: vale per il piano del mese, il piano settimanale e le simulazioni. Il contratto non cambia.</p>
-            {persone.map(({ scheda }) => {
-              const salvati = disponibilita.get(scheda.id) ?? [1, 2, 3, 4, 5, 6, 7];
-              const correnti = dispModifica[scheda.id] ?? salvati;
-              const cambiato = correnti.slice().sort().join() !== salvati.slice().sort().join();
-              return (
-                <div key={scheda.id} className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="w-44 font-medium text-slate-800">{nomePersona(scheda)}</span>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5, 6, 7].map((g) => {
-                      const on = correnti.includes(g);
-                      return (
-                        <button key={g} type="button" disabled={!puoScrivere} aria-pressed={on} aria-label={`${nomePersona(scheda)} ${NOMI_GIORNI_LUNGHI[g]}`}
-                          onClick={() => setDispModifica((x) => ({ ...x, [scheda.id]: on ? correnti.filter((y) => y !== g) : [...correnti, g].sort() }))}
-                          className={`w-10 py-1.5 rounded-md text-xs font-semibold border ${on ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-400'} disabled:opacity-60`}>
-                          {NOMI_GIORNO_BREVI[g]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {cambiato && (
-                    <button type="button" disabled={!!lavoro || correnti.length === 0} onClick={() => salvaDisponibilita(scheda.id, correnti)}
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
-                      {correnti.length === 0 ? 'Almeno un giorno' : 'Salva'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2 px-4 py-3">
+          {persone.map(({ scheda, perGiorno }) => {
+            const ore = oreOggi(perGiorno);
+            const a = disponibilita.get(scheda.id);
+            return (
+              <span key={scheda.id} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 pl-3 pr-2 py-1 text-sm">
+                <span className="font-medium text-slate-800">{nomePersona(scheda)}</span>
+                <span className="text-xs text-slate-500">{ore == null ? 'a chiamata' : `${fmt(ore)} h/sett.`}</span>
+                {a && <span className="text-[11px] font-semibold rounded-full bg-amber-100 text-amber-900 px-2 py-0.5" title={a.nota ?? undefined}>{testoAccordo(a)}</span>}
+              </span>
+            );
+          })}
+          {!persone.length && <span className="text-sm text-slate-400">Nessuno in servizio in questo negozio nel mese.</span>}
+        </div>
       </section>
 
       {sim && puoScrivere && !chiuso && (
@@ -858,7 +802,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                   return (
                     <tr key={scheda.id}>
                       <td className="pr-4 py-1 font-medium text-slate-800">{nomePersona(scheda)}
-                        {disponibilita.get(scheda.id) && <span className="block text-[11px] font-normal text-slate-500">lavora solo {testoGiorni(disponibilita.get(scheda.id)!)}</span>}
+                        {disponibilita.get(scheda.id) && <span className="block text-[11px] font-normal text-slate-500">{testoAccordo(disponibilita.get(scheda.id)!)}</span>}
                       </td>
                       <td className="pr-4 py-1 text-right tabular-nums text-slate-600">{oggi == null ? 'a chiamata' : `${fmt(oggi)} h`}</td>
                       <td className="pr-4 py-1">

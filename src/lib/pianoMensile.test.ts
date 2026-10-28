@@ -159,6 +159,17 @@ describe('il piano del mese', () => {
     // le settimane intere restano a 40
     expect(e.settimane[1].contratto).toBe(40);
   });
+  it('accordi della scheda: i turni stanno nella fascia della persona e mai nei giorni esclusi', () => {
+    // p0 lavora solo dalle 14 alle 20; p1 mai il martedi'
+    const fasce = new Map(tutte.map((d) => [d, { dalle: 14 * 60, alle: 20 * 60 }]));
+    const conAccordi = persone.map((p, i) => (i === 0 ? { ...p, fasce }
+      : i === 1 ? { ...p, nonDisponibile: new Set(tutte.filter((d) => new Date(`${d}T00:00:00Z`).getUTCDay() === 2)) } : p));
+    const e = pianificaMese({ mese, giorni, persone: conAccordi, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    const p0 = e.turni.filter((t) => t.employeeId === 'p0');
+    expect(p0.length).toBeGreaterThan(0);
+    expect(p0.every((t) => t.inizio >= '14:00' && t.fine <= '20:00' && oreLavorate(t) >= 4)).toBe(true);
+    expect(e.turni.some((t) => t.employeeId === 'p1' && new Date(`${t.data}T00:00:00Z`).getUTCDay() === 2)).toBe(false);
+  });
   it('simulazione: fabbisogno fisso, ore ipotetiche e straordinari ammessi', () => {
     // fabbisogno di «Orari e fabbisogno»: 2 persone tutto il giorno = 140 ore a settimana
     const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));

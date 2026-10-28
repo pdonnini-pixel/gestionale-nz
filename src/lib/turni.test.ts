@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  rispettaFasce,
   riassuntoOrari,
   costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer, pausaMinimaPerPresenza,
   scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
@@ -292,5 +293,20 @@ describe('eventi dei negozi (Black Friday, feste, saldi)', () => {
     const esito = proponiSettimana({ giorni, persone: [persona('a', 16), persona('b', 16)] });
     expect(esito.ore.a.straordinario).toBe(0);
     expect(esito.ore.b.straordinario).toBe(0);
+  });
+});
+
+describe('rispettaFasce', () => {
+  it('accorcia il turno dentro la fascia e toglie quello che scende sotto il minimo', () => {
+    const fasce = new Map([['2026-11-02', { dalle: 14 * 60, alle: 20 * 60 }]]);
+    const turni = [
+      { employeeId: 'a', data: '2026-11-02', inizio: '10:00', fine: '19:00', pausaMinuti: 60 },
+      { employeeId: 'a', data: '2026-11-03', inizio: '10:00', fine: '15:00', pausaMinuti: 0 },
+    ];
+    const out = rispettaFasce(turni, [{ id: 'a', fasce }]);
+    expect(out[0]).toEqual({ employeeId: 'a', data: '2026-11-02', inizio: '14:00', fine: '19:00', pausaMinuti: 0 });
+    expect(out[1].inizio).toBe('10:00');
+    const corto = rispettaFasce([{ employeeId: 'a', data: '2026-11-02', inizio: '10:00', fine: '16:00', pausaMinuti: 0 }], [{ id: 'a', fasce }]);
+    expect(corto).toEqual([]);
   });
 });

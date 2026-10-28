@@ -551,3 +551,20 @@ settimanale: un 40 ore può fare 4 ore un giorno e 9 o 10 il giorno dopo, sempre
   ore della settimana (nei limiti 4-10 ore al giorno). Le necessarie si distribuiscono come MODA sull'intera settimana e
   si contano solo i giorni del mese. Straordinario e anticipo si contano settimana per settimana (prima: netto del mese).
   Il «contratto del mese» non è più fisso (non più 173,3 per un 40 ore a novembre): dipende dal mese accanto.
+
+## Accordi con il dipendente: giorni e fasce orarie (28/10/2026)
+
+Patrizio: partire dagli accordi presi con il singolo, tenendo fermo l'orario di contratto. Nella scheda dipendente
+(`src/components/AccordiOrario.tsx`, montato in `SchedaDipendenteModal` di `Dipendenti.tsx`), riquadro «Disponibilità
+per i turni»: per ogni giorno Sempre / Mai / Solo dalle-alle, nota dell'accordo, validità dal-al.
+- Tabella `employee_availability` (322) + migration 328: `fasce jsonb` ({"4": [{"dalle": "14:00", "alle": "20:00"}]},
+  giorno assente = tutto l'orario; il formato accetta più fasce, oggi la pagina ne usa una perché il turno non si spezza),
+  `valido_dal`, `valido_al`. Scrive solo `organico_e_hr()` (Patrizio: «solo gli amministratori»), leggono tutti.
+  Martina Falchi (giorni 6,7, senza fasce) resta valida così com'è.
+- Regole pure in `src/lib/accordiOrario.ts`: `puoLavorareIl`, `fasciaIl` (la fascia più lunga), `fasceDelle`,
+  `testoAccordo` («mar mai · gio 14-20»), `orePossibiliSettimana` (ore massime a settimana nell'orario del negozio, confronto
+  in rosso con il contratto).
+- Motore: `PersonaTurni.fasce` / `PersonaPiano.fasce` (per data); `limitiPersona` sostituisce apertura e chiusura del negozio
+  quando si crea, allunga o sposta un turno (proponiSettimana, ritoccaScoperture, copriOrarioMinimo, usaOreResidue,
+  suggerisciFinestre); `rispettaFasce` è la rete di sicurezza in fondo a proponiSettimana e a ogni settimana di pianificaMese.
+- Il piano del mese mostra il riassunto in «Chi lavora»; i vecchi pulsanti dei giorni sono stati tolti (si modifica dalla scheda).
