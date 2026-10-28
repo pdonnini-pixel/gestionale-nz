@@ -22,6 +22,8 @@ import EditorTurno from './EditorTurno';
 import { Modal } from './ui/Modal';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, caricaTraffico, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
+import { fasceDelle, testoAccordo, type Accordo } from '../lib/accordiOrario';
+import { caricaTrasferte, copertureVerso, doveTrasferta, orePerData, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno,
   REGOLE_DEFAULT, minuti, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
@@ -78,6 +80,8 @@ type GiornoFerie = { employee_id: string; data: string; ore: number; tipo: strin
 type BaseMese = {
   tutte: string[]; giorni: GiornoPiano[]; regole: RegoleTurni; atteso: Map<string, number[]>; extra: Map<string, number>;
   senzaLiberi: Set<string>; saldi: Map<string, number>; storicoWeekend: Map<string, number>; ferie: GiornoFerie[]; fonte: string;
+  /** ore dei turni veri nei giorni dell'altro mese delle settimane a cavallo, per persona e data */
+  oreFuoriMese: Map<string, Map<string, number>>;
 };
 const ID_NUOVA = 'nuova-';
 type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string; straordinario?: boolean; ore_straordinario?: number };
@@ -111,6 +115,7 @@ function dateDelMese(mese: string): string[] {
 export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, puoScrivere }: Props) {
   // Prima della data di apertura il negozio e' chiuso: nessun turno.
   const apertura = dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null;
+  const nomeNegozioDi = (id: string) => { const n = dati.negozi.find((x) => x.id === id); return n ? (n.name ?? n.code ?? 'negozio') : 'altro negozio'; };
   const { toast } = useToast();
   const [mese, setMese] = useState(() => meseSuccessivo(oggiRoma().slice(0, 7), 1));
   const [piani, setPiani] = useState<Piano[]>([]);
@@ -127,9 +132,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [ferieRegistrate, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string; creato_il: string }[]>([]);
   const [giorniMax, setGiorniMax] = useState(6);
   // Giorni in cui ognuno puo' lavorare (employee_availability): valgono per piani e simulazioni.
-  const [disponibilita, setDisponibilita] = useState<Map<string, number[]>>(new Map());
-  const [dispAperta, setDispAperta] = useState(false);
-  const [dispModifica, setDispModifica] = useState<Record<string, number[]>>({});
+  const [disponibilita, setDisponibilita] = useState<Map<string, Accordo>>(new Map());
+  // Trasferte delle settimane del mese (tutta l'azienda): lavoro fuori dal negozio.
+  const [trasferte, setTrasferte] = useState<Trasferta[]>([]);
   // Modifica a mano di un turno dal calendario del mese (solo HR).
   const [editorMese, setEditorMese] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
   const [regolePiano, setRegolePiano] = useState<RegoleTurni>(REGOLE_DEFAULT);
@@ -143,13 +148,16 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
 
   const carica = useCallback(async () => {
     setCaricamento(true);
-    const [p, hr, ch, disp] = await Promise.all([
+    const settimaneMese = [...new Set(dateMese.map(lunediDi))].flatMap(giorniDellaSettimana);
+    const [p, hr, ch, disp, tr] = await Promise.all([
       supabase.from('shift_plans').select('*').eq('company_id', companyId).eq('outlet_id', outletId).eq('mese', `${mese}-01`).order('created_at'),
       supabase.rpc('organico_e_hr'),
       supabase.rpc('turni_mese_chiuso', { p_company: companyId, p_data: `${mese}-01` }),
-      caricaDisponibilita(companyId).catch(() => new Map<string, number[]>()),
+      caricaDisponibilita(companyId).catch(() => new Map<string, Accordo>()),
+      caricaTrasferte(companyId, settimaneMese[0], settimaneMese[settimaneMese.length - 1]).catch(() => [] as Trasferta[]),
     ]);
     setDisponibilita(disp);
+    setTrasferte(tr);
     if (p.error) toast({ type: 'error', message: `Piani non caricati: ${p.error.message}` });
     const lista = ((p.data as Piano[]) ?? []);
     setPiani(lista);
@@ -157,7 +165,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     setChiuso(!!ch.data);
     setAperto((a) => (a && lista.some((x) => x.id === a) ? a : lista.find((x) => x.stato === 'scelto')?.id ?? null));
     setCaricamento(false);
-  }, [companyId, outletId, mese, toast]);
+  }, [companyId, outletId, mese, toast, dateMese, versione]);
   useEffect(() => { carica(); }, [carica]);
 
   useEffect(() => {
@@ -218,17 +226,23 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     // Settimane intere che toccano il mese.
     const settimane = [...new Set(dateMese.map(lunediDi))];
     const tutte = settimane.flatMap(giorniDellaSettimana);
-    const [o, f, s, r, ev, tr, fe, sl, storico] = await Promise.all([
+    const [o, f, s, r, ev, tr, fe, sl, storico, fuori] = await Promise.all([
       supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', outletId),
       supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone').eq('outlet_id', outletId),
       supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', tutte[0]).lte('data', tutte[tutte.length - 1]),
       supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
       supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari').eq('company_id', companyId).lte('data_dal', tutte[tutte.length - 1]).gte('data_al', tutte[0]),
       caricaTraffico(companyId, outletId),
-      caricaGiorniFerie(companyId, dateMese[0], dateMese[dateMese.length - 1]),
+      // anche i giorni dell'altro mese nelle settimane a cavallo: tolgono ore alla settimana
+      caricaGiorniFerie(companyId, tutte[0], tutte[tutte.length - 1]),
       supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
       // Sabati e domeniche liberi dei piani scelti prima di questo mese: lo storico della rotazione.
       supabase.from('shift_plan_weekend_off').select('employee_id, data, shift_plans!inner(stato, outlet_id, mese)').eq('company_id', companyId).lt('data', `${mese}-01`),
+      // Settimana intera anche a cavallo di due mesi (Patrizio, 28/10/2026): i
+      // turni veri dei giorni dell'altro mese (piano scelto, piano settimanale,
+      // turni a mano, in qualunque negozio) tolgono ore alla settimana.
+      supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, shift_plans(stato)').eq('company_id', companyId)
+        .in('data', tutte.filter((d) => !d.startsWith(mese))).neq('stato', 'annullato'),
     ]);
     const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
     if (!orari.length) { toast({ type: 'error', message: `Mancano gli orari di ${nomeNegozio}: inseriscili in «Orari e fabbisogno».` }); return null; }
@@ -259,8 +273,16 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
       if (pl?.stato === 'scelto') storicoWeekend.set(x.employee_id, (storicoWeekend.get(x.employee_id) ?? 0) + 1);
     }
+    const oreFuoriMese = new Map<string, Map<string, number>>();
+    for (const x of ((fuori.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
+      const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
+      if (x.plan_id && pl?.stato !== 'scelto') continue; // le bozze degli altri piani non contano
+      const m = oreFuoriMese.get(x.employee_id) ?? new Map<string, number>();
+      m.set(x.data, (m.get(x.data) ?? 0) + oreLavorate({ inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 }));
+      oreFuoriMese.set(x.employee_id, m);
+    }
     return {
-      tutte, giorni, regole, atteso, extra, senzaLiberi, saldi, storicoWeekend,
+      tutte, giorni, regole, atteso, extra, senzaLiberi, saldi, storicoWeekend, oreFuoriMese,
       ferie: fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)),
       fonte: atteso.size ? `${propria ? 'traffico MODA del negozio' : 'forma media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}` : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
     };
@@ -268,6 +290,16 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
 
   // Il piano di una regola sui dati del mese: le ipotesi della simulazione e le
   // ferie tolte per prova (chiavi «persona|data») cambiano solo il calcolo.
+  // Nelle settimane a cavallo le trasferte dei giorni dell'altro mese sono ore gia' lavorate.
+  const conTrasferteFuori = (base: Map<string, Map<string, number>>) => {
+    const out = new Map([...base].map(([k, v]) => [k, new Map(v)]));
+    for (const t of trasferte.filter((x) => !x.data.startsWith(mese))) {
+      const m = out.get(t.employeeId) ?? new Map<string, number>();
+      m.set(t.data, (m.get(t.data) ?? 0) + oreTrasferta(t));
+      out.set(t.employeeId, m);
+    }
+    return out;
+  };
   const calcolaPiano = (b: BaseMese, regola: RegolaWeekend, ipotesi?: Simulazione, ferieTolte?: Set<string>) => {
     const tolte = new Set([...(ferieTolte ?? []), ...(ipotesi?.ferieTolte ?? [])]);
     const ferieOk = b.ferie.filter((x) => !tolte.has(`${x.employee_id}|${x.data}`));
@@ -287,11 +319,17 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             ...(soloWeekend ? tutte.filter((d) => ![0, 6].includes(new Date(`${d}T00:00:00Z`).getUTCDay())) : []),
             // i giorni in cui non e' disponibile (es. Falchi: solo sabato e domenica)
             ...tutte.filter((d) => !puoLavorareIl(disponibilita, scheda.id, d)),
+            // i giorni in trasferta
+            ...trasferte.filter((x) => x.employeeId === scheda.id).map((x) => x.data),
           ]),
           oreFerie: new Map(suoFerie.map((x) => [x.data, oreFerieGiorno(x.tipo, Number(x.ore), oreSett, regole)])),
           // Chi entra o esce a meta' mese conta solo i giorni con il contratto.
           inServizio: new Set(dateMese.filter((d, i) => perGiorno[i].outletId === outletId && perGiorno[i].stato === 'in_servizio')),
           saldoOre: b.saldi.get(scheda.id) ?? 0,
+          // accordi della scheda: le fasce orarie in cui puo' lavorare
+          fasce: fasceDelle(disponibilita, scheda.id, tutte),
+          // trasferte: ore di lavoro fuori dal negozio, il giorno non e' libero per un turno qui
+          oreTrasferta: orePerData(trasferte.filter((x) => x.data.startsWith(mese)), scheda.id),
         };
       });
       // Persone nuove della simulazione: dal giorno indicato, ore scritte (vuoto = a chiamata).
@@ -317,6 +355,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       const esito = pianificaMese({
         mese, giorni: b.giorni, persone: personePiano, regola, storicoWeekend: b.storicoWeekend, atteso: b.atteso, extra: b.extra, senzaLiberi: b.senzaLiberi, regole,
         straordinariPersona: ipotesi ? straordinariPersona : undefined,
+        oreFuoriMese: conTrasferteFuori(b.oreFuoriMese),
+        // le trasferte verso questo negozio segnate «coprono il negozio»
+        fissi: copertureVerso(trasferte, outletId),
       });
       return { esito, straordinariPersona, tolte };
   };
@@ -389,25 +430,6 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     }
   };
 
-  const salvaDisponibilita = async (employeeId: string, giorni: number[]) => {
-    setLavoro(`disp-${employeeId}`);
-    try {
-      if (giorni.length === 7) {
-        const { error } = await supabase.from('employee_availability').delete().eq('employee_id', employeeId);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('employee_availability').upsert([{ employee_id: employeeId, company_id: companyId, giorni, updated_at: new Date().toISOString() }], { onConflict: 'employee_id' });
-        if (error) throw error;
-      }
-      setDisponibilita((m) => { const n = new Map(m); if (giorni.length === 7) n.delete(employeeId); else n.set(employeeId, giorni); return n; });
-      setDispModifica((x) => { const n = { ...x }; delete n[employeeId]; return n; });
-      toast({ type: 'success', message: 'Disponibilità salvata: vale per i prossimi piani e le simulazioni.' });
-    } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Disponibilità non salvata.' });
-    } finally {
-      setLavoro(null);
-    }
-  };
 
   const scegli = async (id: string) => {
     setLavoro(id);
@@ -470,8 +492,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const r = pianoAperto?.riepilogo.persone?.[employeeId];
     if (!r || r.riserva) return null;
     const ferieOra = ferieMese.filter((x) => x.employee_id === employeeId).reduce((a, x) => a + x.ore, 0);
-    // Contratto del mese (giorni lavorativi x ore settimanali / 6) meno le ferie di adesso.
-    if (r.contrattoMese != null) return Math.max(0, r.contrattoMese - ferieOra);
+    // le trasferte di adesso: ore di lavoro gia' fatte fuori dal negozio
+    const trasferteOra = trasferte.filter((x) => x.employeeId === employeeId && x.data.startsWith(mese)).reduce((a, x) => a + oreTrasferta(x), 0);
+    // Contratto del mese meno le ferie e le trasferte di adesso.
+    if (r.contrattoMese != null) return Math.max(0, r.contrattoMese - ferieOra - trasferteOra);
     if (r.ferie == null) return r.contratto;
     return Math.max(0, r.contratto + r.ferie - ferieOra);
   };
@@ -580,7 +604,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   // La simulazione vuota: ore di oggi, chi lavora solo nel weekend lo resta.
   const simulazioneVuota = (): Simulazione => ({
     ore: {}, straord: {}, perTutti: '', nuove: [],
-    soloWeekend: Object.fromEntries(persone.map(({ scheda }) => [scheda.id, (disponibilita.get(scheda.id) ?? []).join(',') === '6,7'])),
+    soloWeekend: Object.fromEntries(persone.map(({ scheda }) => [scheda.id, (disponibilita.get(scheda.id)?.giorni ?? []).join(',') === '6,7'])),
   });
 
   // Prova delle ferie (Patrizio, 28/10/2026): si spengono giorni di ferie e si
@@ -767,60 +791,22 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       <section className="bg-white border border-slate-200 rounded-xl">
         <div className="flex flex-wrap items-center justify-between gap-2 px-4 pt-3">
           <h3 className="text-sm font-semibold text-slate-800">Chi lavora a {NOMI_MESE[Number(mese.slice(5))]}</h3>
-          {puoScrivere && (
-            <button type="button" onClick={() => setDispAperta((v) => !v)} className="text-xs font-semibold text-blue-700 hover:underline">
-              {dispAperta ? 'Fatto' : 'Cambia i giorni in cui possono lavorare'}
-            </button>
-          )}
+          <span className="text-xs text-slate-500">Gli accordi di ognuno (giorni e fasce orarie) si cambiano nella scheda del dipendente, riquadro «Disponibilità per i turni».</span>
         </div>
-        {!dispAperta ? (
-          <div className="flex flex-wrap gap-2 px-4 py-3">
-            {persone.map(({ scheda, perGiorno }) => {
-              const ore = oreOggi(perGiorno);
-              const g = disponibilita.get(scheda.id);
-              return (
-                <span key={scheda.id} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 pl-3 pr-2 py-1 text-sm">
-                  <span className="font-medium text-slate-800">{nomePersona(scheda)}</span>
-                  <span className="text-xs text-slate-500">{ore == null ? 'a chiamata' : `${fmt(ore)} h/sett.`}</span>
-                  {g && <span className="text-[11px] font-semibold rounded-full bg-amber-100 text-amber-900 px-2 py-0.5">solo {testoGiorni(g)}</span>}
-                </span>
-              );
-            })}
-            {!persone.length && <span className="text-sm text-slate-400">Nessuno in servizio in questo negozio nel mese.</span>}
-          </div>
-        ) : (
-          <div className="px-4 py-3 space-y-2">
-            <p className="text-xs text-slate-500">Nei giorni spenti la persona non riceve turni: vale per il piano del mese, il piano settimanale e le simulazioni. Il contratto non cambia.</p>
-            {persone.map(({ scheda }) => {
-              const salvati = disponibilita.get(scheda.id) ?? [1, 2, 3, 4, 5, 6, 7];
-              const correnti = dispModifica[scheda.id] ?? salvati;
-              const cambiato = correnti.slice().sort().join() !== salvati.slice().sort().join();
-              return (
-                <div key={scheda.id} className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="w-44 font-medium text-slate-800">{nomePersona(scheda)}</span>
-                  <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5, 6, 7].map((g) => {
-                      const on = correnti.includes(g);
-                      return (
-                        <button key={g} type="button" disabled={!puoScrivere} aria-pressed={on} aria-label={`${nomePersona(scheda)} ${NOMI_GIORNI_LUNGHI[g]}`}
-                          onClick={() => setDispModifica((x) => ({ ...x, [scheda.id]: on ? correnti.filter((y) => y !== g) : [...correnti, g].sort() }))}
-                          className={`w-10 py-1.5 rounded-md text-xs font-semibold border ${on ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-300 text-slate-400'} disabled:opacity-60`}>
-                          {NOMI_GIORNO_BREVI[g]}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {cambiato && (
-                    <button type="button" disabled={!!lavoro || correnti.length === 0} onClick={() => salvaDisponibilita(scheda.id, correnti)}
-                      className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">
-                      {correnti.length === 0 ? 'Almeno un giorno' : 'Salva'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2 px-4 py-3">
+          {persone.map(({ scheda, perGiorno }) => {
+            const ore = oreOggi(perGiorno);
+            const a = disponibilita.get(scheda.id);
+            return (
+              <span key={scheda.id} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 pl-3 pr-2 py-1 text-sm">
+                <span className="font-medium text-slate-800">{nomePersona(scheda)}</span>
+                <span className="text-xs text-slate-500">{ore == null ? 'a chiamata' : `${fmt(ore)} h/sett.`}</span>
+                {a && <span className="text-[11px] font-semibold rounded-full bg-amber-100 text-amber-900 px-2 py-0.5" title={a.nota ?? undefined}>{testoAccordo(a)}</span>}
+              </span>
+            );
+          })}
+          {!persone.length && <span className="text-sm text-slate-400">Nessuno in servizio in questo negozio nel mese.</span>}
+        </div>
       </section>
 
       {sim && puoScrivere && !chiuso && (
@@ -842,7 +828,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                   return (
                     <tr key={scheda.id}>
                       <td className="pr-4 py-1 font-medium text-slate-800">{nomePersona(scheda)}
-                        {disponibilita.get(scheda.id) && <span className="block text-[11px] font-normal text-slate-500">lavora solo {testoGiorni(disponibilita.get(scheda.id)!)}</span>}
+                        {disponibilita.get(scheda.id) && <span className="block text-[11px] font-normal text-slate-500">{testoAccordo(disponibilita.get(scheda.id)!)}</span>}
                       </td>
                       <td className="pr-4 py-1 text-right tabular-nums text-slate-600">{oggi == null ? 'a chiamata' : `${fmt(oggi)} h`}</td>
                       <td className="pr-4 py-1">
@@ -1174,6 +1160,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               const tutti = [
                 ...turniPiano.filter((x) => x.data === d),
                 ...(pianoAperto.riepilogo.turniNuove ?? []).filter((x) => x.data === d),
+                // chi viene qui in trasferta e copre il negozio
+                ...trasferte.filter((x) => x.data === d && x.copreDestinazione && x.destinazioneOutletId === outletId),
               ];
               const n = Math.round((b.chiude - b.apre) / 30);
               const cop = Array.from({ length: n }, (_, i) => {
@@ -1212,7 +1200,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               return (
                 <button type="button" onClick={() => apriEditor(riga, d)} title={vuota ? 'Aggiungi un turno' : 'Modifica il turno'}
                   className="group block w-full rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  {vuota && !riga.liberi.has(d) && !ferieMese.some((x) => x.employee_id === riga.id && x.data === d)
+                  {vuota && !riga.liberi.has(d) && !ferieMese.some((x) => x.employee_id === riga.id && x.data === d) && !trasferte.some((x) => x.employeeId === riga.id && x.data === d)
                     ? <span className="block py-1.5 rounded-md text-slate-300 group-hover:bg-blue-50 group-hover:text-blue-600">+</span> : dentro}
                 </button>
               );
@@ -1233,6 +1221,15 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                     </span>
                     {f && <span className="block mt-0.5 text-[10px] text-amber-800">{fTesto}</span>}
                   </>
+                );
+              }
+              const tr = trasferte.find((x) => x.employeeId === riga.id && x.data === d);
+              if (tr) {
+                return (
+                  <span title={`Trasferta ${tr.inizio}-${tr.fine}${tr.motivo ? `: ${tr.motivo}` : ''}`} className="block rounded-md px-1 py-1 bg-indigo-100 text-indigo-900 leading-tight">
+                    <span className="block font-semibold">trasferta</span>
+                    <span className="block text-[10px] truncate">{doveTrasferta(tr, nomeNegozioDi)} · {fmt(oreTrasferta(tr))} h</span>
+                  </span>
                 );
               }
               if (f) return <span className="block rounded-md px-1 py-1.5 bg-amber-100 text-amber-900 font-medium">{fTesto}</span>;
@@ -1276,8 +1273,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                             <tbody>
                               {righe.map((riga) => {
                                 const oreSett = riga.turni.filter((x) => nelMese.includes(x.data)).reduce((a, x) => a + oreDi(x), 0);
-                                // quota della settimana: intera = le ore settimanali; a cavallo del mese = giorni del mese x ore / 6 (regola a giornata)
-                                const quota = riga.oreSett != null ? (nelMese.length >= 7 ? riga.oreSett : riga.oreSett * nelMese.length / 6) : null;
+                                // le ore settimanali valgono sulla settimana intera, anche a cavallo del mese
+                                const quota = riga.oreSett;
                                 return (
                                   <tr key={riga.id} className={riga.nuova ? 'bg-violet-50/40' : ''}>
                                     <td className={`px-3 py-1.5 border-b border-slate-100 ${riga.nuova ? 'text-violet-900' : 'text-slate-900'} font-medium`}>
@@ -1290,7 +1287,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                     })}
                                     <td className="px-3 py-1.5 text-right border-b border-slate-100 tabular-nums">
                                       <span className="font-semibold text-slate-900">{fmt(oreSett)} h</span>
-                                      {quota != null && <span className="block text-[10px] text-slate-500">contratto {fmt(quota)} h</span>}
+                                      {quota != null && <span className="block text-[10px] text-slate-500">contratto {fmt(quota)} h{nelMese.length < 7 ? ' in tutta la settimana' : ''}</span>}
                                     </td>
                                   </tr>
                                 );
@@ -1312,7 +1309,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 <div className="px-4 pb-4">
                   <h4 className="text-sm font-semibold text-slate-800">Ore del mese, persona per persona</h4>
                   <p className="text-xs text-slate-500 mb-2">
-                    <b>Contratto nel mese</b> = ore a settimana × giorni del mese ÷ 7. <b>Da lavorare</b> = contratto meno ferie e permessi.
+                    <b>Contratto nel mese</b> = le ore a settimana di ogni settimana; nelle settimane a cavallo di due mesi, la parte di questo mese (quello che resta dopo i turni dell'altro mese, oppure la sua quota secondo il traffico se l'altro mese non ha ancora turni). <b>Da lavorare</b> = contratto meno ferie, permessi e trasferte.
                     <b> Pianificate</b> = ore dei turni di questo piano. La differenza è straordinario (se sono di più) oppure ore non usate (se sono di meno), con il motivo.
                   </p>
                   <div className="overflow-x-auto rounded-lg border border-slate-200">
@@ -1361,6 +1358,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                     {permessi.length > 0 && <span className="block">permessi: {permessi.map((x) => `${giornoCorto(x.data)} (${fmt(x.ore)} h)`).join(', ')}</span>}
                                   </>
                                 ) : <span className="text-slate-400">nessuna</span>}
+                                {(() => {
+                                  const suoTr = trasferte.filter((x) => x.employeeId === riga.id && x.data.startsWith(mese));
+                                  return suoTr.length > 0 && <span className="block mt-0.5 text-indigo-800">trasferte: {fmt(suoTr.reduce((a, x) => a + oreTrasferta(x), 0))} h ({suoTr.map((x) => giornoCorto(x.data)).join(', ')})</span>;
+                                })()}
                               </td>
                               <td className="px-3 py-2 text-right tabular-nums">{daLavorare != null ? `${fmt(daLavorare)} h` : '–'}</td>
                               <td className="px-3 py-2 text-right tabular-nums">
@@ -1494,6 +1495,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 giaInFerie: ferieMese.some((x) => x.employee_id === editorMese.employeeId && x.data === editorMese.data && x.tipo === 'giornata'),
               };
             })()}
+            trasferta={{
+              negozi: dati.negozi.filter((n) => n.is_active !== false).map((n) => ({ id: n.id, nome: nomeNegozioDi(n.id) })),
+              esistente: trasferte.find((x) => x.employeeId === editorMese.employeeId && x.data === editorMese.data) ?? null,
+            }}
             onClose={() => setEditorMese(null)}
             onSalvato={(msg) => { setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: msg ?? 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
           />

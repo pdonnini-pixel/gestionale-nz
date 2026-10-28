@@ -543,5 +543,45 @@ settimanale: un 40 ore può fare 4 ore un giorno e 9 o 10 il giorno dopo, sempre
   non dimezza più il tetto delle persone nei negozi aperti fino a 11 ore.
 - **Ferie**: approvate = ore scritte nel piano ferie (`oreFerieGiorno`, il /6 solo se mancano); proposte da noi = ore
   settimanali / 6 nei negozi (`proponiFerie`, `EditorTurno`), / 5 in Sede (quando ci sarà la sezione Sede).
-- **Settimana intera anche fra due mesi** (decisa da Patrizio): resta da realizzare il conteggio delle settimane a
-  cavallo; finché non c'è, `contrattoSett` usa ancora i giorni del mese (`giorniLavorativiSettimana` × ore / 6).
+- **Settimana intera anche fra due mesi** (Patrizio, 28/10/2026): `contrattoIntero` = ore settimanali sull'intera
+  settimana lun-dom (ridotte in proporzione solo per giorni a negozio chiuso o senza contratto, tolto il riposo delle
+  settimane intere); `contrattoSett` = la parte di questo mese, cioè `contrattoIntero` meno le ore dei turni veri
+  (piano scelto, piano settimanale, turni a mano, in qualunque negozio: `oreFuoriMese`, caricate in `caricaBase`) e
+  delle ferie nei giorni dell'altro mese. Se l'altro mese non ha turni, i giorni di questo mese possono usare tutte le
+  ore della settimana (nei limiti 4-10 ore al giorno). Le necessarie si distribuiscono come MODA sull'intera settimana e
+  si contano solo i giorni del mese. Straordinario e anticipo si contano settimana per settimana (prima: netto del mese).
+  Il «contratto del mese» non è più fisso (non più 173,3 per un 40 ore a novembre): dipende dal mese accanto.
+
+## Accordi con il dipendente: giorni e fasce orarie (28/10/2026)
+
+Patrizio: partire dagli accordi presi con il singolo, tenendo fermo l'orario di contratto. Nella scheda dipendente
+(`src/components/AccordiOrario.tsx`, montato in `SchedaDipendenteModal` di `Dipendenti.tsx`), riquadro «Disponibilità
+per i turni»: per ogni giorno Sempre / Mai / Solo dalle-alle, nota dell'accordo, validità dal-al.
+- Tabella `employee_availability` (322) + migration 328: `fasce jsonb` ({"4": [{"dalle": "14:00", "alle": "20:00"}]},
+  giorno assente = tutto l'orario; il formato accetta più fasce, oggi la pagina ne usa una perché il turno non si spezza),
+  `valido_dal`, `valido_al`. Scrive solo `organico_e_hr()` (Patrizio: «solo gli amministratori»), leggono tutti.
+  Martina Falchi (giorni 6,7, senza fasce) resta valida così com'è.
+- Regole pure in `src/lib/accordiOrario.ts`: `puoLavorareIl`, `fasciaIl` (la fascia più lunga), `fasceDelle`,
+  `testoAccordo` («mar mai · gio 14-20»), `orePossibiliSettimana` (ore massime a settimana nell'orario del negozio, confronto
+  in rosso con il contratto).
+- Motore: `PersonaTurni.fasce` / `PersonaPiano.fasce` (per data); `limitiPersona` sostituisce apertura e chiusura del negozio
+  quando si crea, allunga o sposta un turno (proponiSettimana, ritoccaScoperture, copriOrarioMinimo, usaOreResidue,
+  suggerisciFinestre); `rispettaFasce` è la rete di sicurezza in fondo a proponiSettimana e a ogni settimana di pianificaMese.
+- Il piano del mese mostra il riassunto in «Chi lavora»; i vecchi pulsanti dei giorni sono stati tolti (si modifica dalla scheda).
+
+## Trasferte (28/10/2026)
+
+Patrizio: le referenti possono lavorare in altre sedi; quelle ore sono orario di lavoro ma non presenza nel negozio di
+riferimento, e servono per il report. Decisioni: la copertura del negozio di destinazione si sceglie volta per volta;
+le inseriscono la responsabile HR e chi tiene l'organico (poi anche le responsabili di negozio); per ora niente rimborsi.
+- Tabella `employee_trasferte` (migration 329 + 329b per il GRANT DELETE, 3 tenant): persona, negozio di riferimento,
+  data, inizio, fine, pausa, destinazione (negozio o luogo), `copre_destinazione`, motivo. A parte da `shifts` apposta:
+  nessun conteggio dei turni in negozio le prende per presenza.
+- `src/lib/trasferte.ts`: caricamento, ore (pausa esclusa), `copertureVerso` (turni fissi per la copertura del negozio
+  di destinazione), `riepilogaTrasferte` (per persona e per destinazione).
+- Piano del mese: `PersonaPiano.oreTrasferta` si toglie dalle ore della settimana come le ferie, il giorno non è libero
+  per un turno; trasferte dei giorni dell'altro mese in `oreFuoriMese`; `pianificaMese({ fissi })` per chi copre il
+  negozio (contano nelle scoperte e nella riga «In negozio», non entrano nei turni del piano). Piano settimanale: stesse
+  regole (`motivoNonDisponibile` «in trasferta», ore tolte, `fissi`).
+- UI: riquadro trasferta in `EditorTurno`, casella «trasferta» nel calendario, riga trasferte in «Ore del mese»,
+  scheda «Trasferte» (`TrasferteNegozi.tsx`) con totali ed export Excel.

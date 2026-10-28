@@ -14714,26 +14714,35 @@ export type Database = {
         Row: {
           company_id: string
           employee_id: string
+          fasce: Json | null
           giorni: number[]
           nota: string | null
           updated_at: string
           updated_by: string | null
+          valido_al: string | null
+          valido_dal: string | null
         }
         Insert: {
           company_id: string
           employee_id: string
+          fasce?: Json | null
           giorni: number[]
           nota?: string | null
           updated_at?: string
           updated_by?: string | null
+          valido_al?: string | null
+          valido_dal?: string | null
         }
         Update: {
           company_id?: string
           employee_id?: string
+          fasce?: Json | null
           giorni?: number[]
           nota?: string | null
           updated_at?: string
           updated_by?: string | null
+          valido_al?: string | null
+          valido_dal?: string | null
         }
         Relationships: []
       }
@@ -14906,6 +14915,60 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      employee_trasferte: {
+        Row: {
+          company_id: string
+          copre_destinazione: boolean
+          created_at: string
+          created_by: string | null
+          created_by_nome: string | null
+          data: string
+          destinazione_outlet_id: string | null
+          employee_id: string
+          fine: string
+          id: string
+          inizio: string
+          luogo: string | null
+          motivo: string | null
+          outlet_id: string | null
+          pausa_minuti: number
+        }
+        Insert: {
+          company_id: string
+          copre_destinazione?: boolean
+          created_at?: string
+          created_by?: string | null
+          created_by_nome?: string | null
+          data: string
+          destinazione_outlet_id?: string | null
+          employee_id: string
+          fine: string
+          id?: string
+          inizio: string
+          luogo?: string | null
+          motivo?: string | null
+          outlet_id?: string | null
+          pausa_minuti?: number
+        }
+        Update: {
+          company_id?: string
+          copre_destinazione?: boolean
+          created_at?: string
+          created_by?: string | null
+          created_by_nome?: string | null
+          data?: string
+          destinazione_outlet_id?: string | null
+          employee_id?: string
+          fine?: string
+          id?: string
+          inizio?: string
+          luogo?: string | null
+          motivo?: string | null
+          outlet_id?: string | null
+          pausa_minuti?: number
+        }
+        Relationships: []
       }
       employees: {
         Row: {

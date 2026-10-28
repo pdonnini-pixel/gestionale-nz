@@ -21,8 +21,8 @@
 import { festivitaItaliane } from './ferieRichiesta';
 import {
   SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, proponiSettimana,
-  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, oreScoperte, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
-  type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura,
+  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
+  type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
 
 // ── Tipo di giorno ───────────────────────────────────────────────────────
@@ -284,14 +284,19 @@ export function copriOrarioMinimo(
     return null;
   };
   // Turno che copre [a, b) (o il pezzo che si puo') con `lavoro` minuti, dentro l'orario.
-  const turnoPer = (id: string, g: GiornoPiano, a: number, b: number, lavoro: number): Turno => {
+  // Con gli accordi della scheda il turno sta dentro la fascia della persona.
+  const turnoPer = (p: PersonaTurni, g: GiornoPiano, a: number, b: number, lavoro: number): Turno => {
+    const l = limitiPersona(p, g);
     const durata = lavoro + pausaPer(lavoro, regole);
-    const inizio = Math.max(g.apre, Math.min(a, g.chiude - durata, b - durata < a ? a : b - durata));
-    return conPausa({ employeeId: id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, Math.max(g.apre, Math.min(inizio, g.chiude - durata)), lavoro);
+    const inizio = Math.max(l.apre, Math.min(a, l.chiude - durata, b - durata < a ? a : b - durata));
+    return conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, Math.max(l.apre, Math.min(inizio, l.chiude - durata)), lavoro);
   };
-  const lavoroPer = (a: number, b: number, disponibili: number, g: GiornoPiano) => {
+  // 0 se la fascia della persona non tocca il buco [a, b): li' non serve
+  const lavoroPer = (a: number, b: number, disponibili: number, g: GiornoPiano, p: PersonaTurni) => {
+    const l = limitiPersona(p, g);
+    if (l.apre >= b || l.chiude <= a) return 0;
     const serve = Math.max(regole.turnoMinOre * 60, b - a);
-    return Math.min(lavoroMassimoGiorno(g, regole), serve, Math.floor(disponibili * 2) / 2 * 60);
+    return Math.min(lavoroMassimoGiorno(l, regole), serve, Math.floor(disponibili * 2) / 2 * 60);
   };
 
   // Il passo (1) su un giorno qualsiasi: restituisce la lista migliorata o null.
@@ -305,9 +310,10 @@ export function copriOrarioMinimo(
       if (!p) continue;
       const oraLav = oreLavorate(t) * 60;
       const maxLav = Math.min(regole.turnoMaxOre * 60, oraLav + Math.floor((p.ore - ore(p.id, lista)) * 2) / 2 * 60);
+      const l = limitiPersona(p, g);
       for (let lav = oraLav; lav <= maxLav; lav += SLOT_MINUTI) {
         const durata = lav + pausaPer(lav, regole);
-        for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
+        for (let s0 = l.apre; s0 + durata <= l.chiude; s0 += SLOT_MINUTI) {
           const v = conPausa(t, s0, lav);
           const l2 = lista.map((x) => (x === t ? v : x));
           const n = vuote(l2);
@@ -369,9 +375,9 @@ export function copriOrarioMinimo(
     const liberi = (gruppo: PersonaTurni[]) => gruppo.filter((p) => !p.nonDisponibile.has(g.data) && !giorniDi(p.id).has(g.data)
       && giorniDi(p.id, out.filter((t) => settimana.includes(t.data))).size < regole.giorniLavoroMax);
     for (const p of liberi(titolari).sort((x, y) => (y.ore - ore(y.id)) - (x.ore - ore(x.id)))) {
-      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g);
+      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g, p);
       if (lavoro < regole.turnoMinOre * 60) continue;
-      out = [...out, turnoPer(p.id, g, a, b, lavoro)];
+      out = [...out, turnoPer(p, g, a, b, lavoro)];
       fatto = true; break;
     }
     if (fatto) continue;
@@ -389,8 +395,8 @@ export function copriOrarioMinimo(
         const togli = altri.find((t) => nessunBuco(prova.filter((x) => x !== t), [t.data]));
         if (togli) {
           const senza = prova.filter((x) => x !== togli);
-          const lavoro = lavoroPer(a, b, p.ore - ore(p.id, senza), g);
-          if (lavoro >= regole.turnoMinOre * 60) { out = [...senza, turnoPer(p.id, g, a, b, lavoro)]; fatto = true; break; }
+          const lavoro = lavoroPer(a, b, p.ore - ore(p.id, senza), g, p);
+          if (lavoro >= regole.turnoMinOre * 60) { out = [...senza, turnoPer(p, g, a, b, lavoro)]; fatto = true; break; }
         }
       }
       // (3b) accorciare turni dove ci sono altri, mezz'ora alla volta, poi allungare o creare
@@ -402,11 +408,12 @@ export function copriOrarioMinimo(
         const aggiunta = Math.min(b - a, Math.floor(libere * 2) / 2 * 60, regole.turnoMaxOre * 60 - lavoroOra);
         if (aggiunta >= SLOT_MINUTI) {
           const nuovo = minuti(t.fine) === a ? conPausa(t, minuti(t.inizio), lavoroOra + aggiunta) : conPausa(t, b - aggiunta - lavoroOra, lavoroOra + aggiunta);
-          if (minuti(nuovo.inizio) >= g.apre && minuti(nuovo.fine) <= g.chiude) { out = prova.map((x) => (x === t ? nuovo : x)); fatto = true; break; }
+          const l = limitiPersona(p, g);
+          if (minuti(nuovo.inizio) >= l.apre && minuti(nuovo.fine) <= l.chiude) { out = prova.map((x) => (x === t ? nuovo : x)); fatto = true; break; }
         }
       } else if (giorniDi(p.id, prova.filter((t) => settimana.includes(t.data))).size < regole.giorniLavoroMax) {
-        const lavoro = lavoroPer(a, b, libere, g);
-        if (lavoro >= regole.turnoMinOre * 60) { out = [...prova, turnoPer(p.id, g, a, b, lavoro)]; fatto = true; break; }
+        const lavoro = lavoroPer(a, b, libere, g, p);
+        if (lavoro >= regole.turnoMinOre * 60) { out = [...prova, turnoPer(p, g, a, b, lavoro)]; fatto = true; break; }
       }
     }
     if (fatto) continue;
@@ -427,9 +434,9 @@ export function copriOrarioMinimo(
           sistemata = sistemaGiorno(liberaOre(senza, q, vuoteG2, [g2.data, g.data], settimana), g2);
         }
         if (!sistemata) continue;
-        const lavoro = lavoroPer(a, b, p.ore - ore(p.id, sistemata), g);
+        const lavoro = lavoroPer(a, b, p.ore - ore(p.id, sistemata), g, p);
         if (lavoro < regole.turnoMinOre * 60) continue;
-        out = [...sistemata, turnoPer(p.id, g, a, b, lavoro)];
+        out = [...sistemata, turnoPer(p, g, a, b, lavoro)];
         fatto = true; break;
       }
       if (fatto) break;
@@ -438,9 +445,9 @@ export function copriOrarioMinimo(
 
     // (4) chi e' a chiamata
     for (const p of liberi(riserva)) {
-      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g);
+      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g, p);
       if (lavoro < regole.turnoMinOre * 60) continue;
-      out = [...out, turnoPer(p.id, g, a, b, lavoro)];
+      out = [...out, turnoPer(p, g, a, b, lavoro)];
       fatto = true; break;
     }
     if (fatto) continue;
@@ -494,8 +501,9 @@ export function usaOreResidue(
         const i0 = minuti(t.inizio);
         const lavoro = oreLavorate(t) * 60 + SLOT_MINUTI;
         if (lavoro > regole.turnoMaxOre * 60) return;
+        const l = limitiPersona(p, g);
         for (const v of [conPausa(t, i0 - SLOT_MINUTI, lavoro), conPausa(t, i0, lavoro)]) {
-          if (minuti(v.inizio) < g.apre || minuti(v.fine) > g.chiude) continue;
+          if (minuti(v.inizio) < l.apre || minuti(v.fine) > l.chiude) continue;
           const lista = out.map((x, k) => (k === idx ? v : x));
           const nuovo = minuti(v.inizio) < i0 ? [minuti(v.inizio), i0] : [minuti(t.fine), minuti(v.fine)];
           const w = peso(g, nuovo[0], nuovo[1], out);
@@ -510,11 +518,12 @@ export function usaOreResidue(
       let nuovo: { t: Turno; w: number } | null = null;
       for (const g of giorno.values()) {
         if (suoi.has(g.data) || p.nonDisponibile.has(g.data)) continue;
-        // il turno con la sua pausa deve stare nell'orario del giorno
-        const lavoro = Math.min(voluto, lavoroMassimoGiorno(g, regole));
+        // il turno con la sua pausa deve stare nell'orario del giorno e nella fascia della persona
+        const l = limitiPersona(p, g);
+        const lavoro = Math.min(voluto, lavoroMassimoGiorno(l, regole));
         if (lavoro < regole.turnoMinOre * 60 - 1e-9) continue;
         const durata = lavoro + pausaPer(lavoro, regole);
-        for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
+        for (let s0 = l.apre; s0 + durata <= l.chiude; s0 += SLOT_MINUTI) {
           const t = conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, s0, lavoro);
           const w = peso(g, s0, s0 + durata, out) / (durata / SLOT_MINUTI);
           if (!nuovo || w > nuovo.w) nuovo = { t, w };
@@ -546,19 +555,22 @@ export interface FinestraSuggerita {
 export function suggerisciFinestre(args: {
   giorni: GiornoPiano[]; atteso: Map<string, number[]>; turni: Turno[];
   possibile: (data: string) => boolean; ore: number; regole?: RegoleTurni; quante?: number;
+  /** accordi della persona: la fascia in cui puo' lavorare, per data */
+  fasce?: Map<string, Fascia>;
 }): FinestraSuggerita[] {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const voluto = Math.min(regole.turnoMaxOre, Math.max(regole.turnoMinOre, Math.round(args.ore * 2) / 2)) * 60;
   const out: FinestraSuggerita[] = [];
   for (const g of args.giorni) {
     if (g.chiuso || !args.possibile(g.data)) continue;
-    const lavoro = Math.min(voluto, lavoroMassimoGiorno(g, regole));
+    const l = limitiPersona({ fasce: args.fasce }, g);
+    const lavoro = Math.min(voluto, lavoroMassimoGiorno(l, regole));
     if (lavoro < regole.turnoMinOre * 60) continue;
     const pausa = pausaPer(lavoro, regole);
     const durata = lavoro + pausa;
     const cop = coperturaLorda(g, args.turni);
     let meglio: FinestraSuggerita | null = null;
-    for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
+    for (let s0 = l.apre; s0 + durata <= l.chiude; s0 += SLOT_MINUTI) {
       let w = 0; let n = 0;
       for (let t = s0; t < s0 + durata; t += SLOT_MINUTI) {
         const i = Math.floor((t - g.apre) / SLOT_MINUTI);
@@ -619,6 +631,10 @@ export interface PersonaPiano {
   /** giorni del mese con il contratto in questo negozio (assente = nessuno); vuoto = tutti */
   inServizio?: Set<string>;
   saldoOre?: number;
+  /** accordi della scheda: per data, la fascia in cui puo' lavorare */
+  fasce?: Map<string, Fascia>;
+  /** ore di trasferta per data (lavoro fuori dal negozio): si tolgono dalle ore della settimana */
+  oreTrasferta?: Map<string, number>;
 }
 
 // ── Ore di contratto a giornata (Patrizio, 21/10/2026) ────────────────────
@@ -698,6 +714,8 @@ export interface EsitoPianoMese {
     anticipo?: number;
     /** settimane in cui ha gia' il massimo di giorni di lavoro: le ore che restano non si possono usare */
     settimanePiene?: number;
+    /** ore di trasferta del mese (lavoro fuori dal negozio, gia' tolte da `contratto`) */
+    trasferte?: number;
   }>;
   /** ore fatte dalle persone a chiamata */
   oreRiserva: number;
@@ -729,6 +747,18 @@ export function pianificaMese(args: {
   straordinariSettimana?: number;
   /** disponibilita' del singolo: ore di straordinario a settimana per persona (0 = non ne fa); prevale sul valore comune */
   straordinariPersona?: Map<string, number>;
+  /**
+   * Ore gia' nei turni veri (piano scelto, piano settimanale, turni a mano) dei
+   * giorni fuori dal mese, per persona e data: nelle settimane a cavallo di due
+   * mesi si tolgono dalle ore settimanali.
+   */
+  oreFuoriMese?: Map<string, Map<string, number>>;
+  /**
+   * Turni fissi di chi non e' del negozio ma lo copre: le trasferte verso questo
+   * negozio segnate «coprono il negozio». Contano come presenza, non si toccano
+   * e non entrano nei turni del piano.
+   */
+  fissi?: Turno[];
 }): EsitoPianoMese {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const nelMese = (d: string) => d.slice(0, 7) === args.mese;
@@ -736,20 +766,56 @@ export function pianificaMese(args: {
   const riserva = args.persone.filter((p) => p.oreSettimana == null);
   const settimane = [...new Set(args.giorni.filter((g) => nelMese(g.data)).map((g) => lunediDi(g.data)))].sort();
 
-  // Contratto della settimana per i soli giorni del mese: giorni lavorativi
-  // (date del mese, negozio aperto, contratto in corso, meno il riposo delle
-  // settimane intere) per le ore di una giornata. Senza ferie.
+  // La settimana intera, anche a cavallo di due mesi (Patrizio, 28/10/2026):
+  // le ore settimanali valgono da lunedi' a domenica. Si riducono solo per i
+  // giorni a negozio chiuso o senza contratto (in proporzione ai giorni di
+  // lavoro, tolto il riposo delle settimane intere). Fuori dal mese il
+  // contratto e' quello del primo o dell'ultimo giorno del mese.
+  const dateDelMese = args.giorni.map((g) => g.data).filter(nelMese).sort();
+  const contrattoIntero = (p: PersonaPiano, lun: string) => {
+    const date = giorniDellaSettimana(lun);
+    const aperto = (d: string) => { const g = args.giorni.find((x) => x.data === d); return g ? !g.chiuso : true; };
+    const conContratto = (d: string) => !p.inServizio || p.inServizio.has(d)
+      || (!nelMese(d) && p.inServizio.has(d < dateDelMese[0] ? dateDelMese[0] : dateDelMese[dateDelMese.length - 1]));
+    const intera = date.every(conContratto);
+    const giorni = giorniLavorativiSettimana(date, (d) => aperto(d) && conContratto(d), intera);
+    return (p.oreSettimana ?? 0) * Math.min(1, giorni / regole.giorniLavoroMax);
+  };
+  // La parte di questo mese. Se l'altro mese ha gia' i suoi turni: le ore della
+  // settimana meno quelle gia' lavorate o in ferie nei suoi giorni. Se non ne ha
+  // ancora: la quota dei giorni di questo mese secondo il traffico MODA (il resto
+  // resta all'altro mese), invece di ammassare tutte le ore su uno o due giorni.
+  const pesoGiorno = (d: string) => {
+    const g = args.giorni.find((x) => x.data === d);
+    if (g ? g.chiuso : false) return 0;
+    const t = args.atteso.get(d);
+    const w = t && g ? t.slice(Math.floor(g.apre / 60), Math.ceil(g.chiude / 60)).reduce((a, x) => a + x, 0) : 0;
+    return w > 0 ? w : 1;
+  };
+  const altroMesePianificato = (lun: string) => giorniDellaSettimana(lun).filter((d) => !nelMese(d))
+    .some((d) => [...(args.oreFuoriMese?.values() ?? [])].some((m) => (m.get(d) ?? 0) > 0));
   const contrattoSett = (p: PersonaPiano, lun: string) => {
     const date = giorniDellaSettimana(lun);
-    const aperto = (d: string) => args.giorni.some((g) => g.data === d && !g.chiuso);
-    const conContratto = (d: string) => !p.inServizio || p.inServizio.has(d);
-    const intera = date.every((d) => nelMese(d) && conContratto(d));
-    const giorni = giorniLavorativiSettimana(date, (d) => nelMese(d) && aperto(d) && conContratto(d), intera);
-    return giorni * oreGiornata(p.oreSettimana ?? 0, regole);
+    const fuori = date.filter((d) => !nelMese(d));
+    if (!fuori.length) return contrattoIntero(p, lun);
+    const ferieFuori = fuori.reduce((a, d) => a + (p.oreFerie.get(d) ?? 0), 0);
+    if (altroMesePianificato(lun)) {
+      const lavorate = fuori.reduce((a, d) => a + (args.oreFuoriMese?.get(p.id)?.get(d) ?? 0), 0);
+      return Math.max(0, contrattoIntero(p, lun) - lavorate - ferieFuori);
+    }
+    const tot = date.reduce((a, d) => a + pesoGiorno(d), 0);
+    const qui = date.filter(nelMese).reduce((a, d) => a + pesoGiorno(d), 0);
+    const intere = Math.max(0, contrattoIntero(p, lun) - ferieFuori);
+    // almeno un turno minimo, se la persona ha ore: una quota da 3 ore non
+    // diventerebbe mai un turno (minimo 4 ore) e il giorno resterebbe scoperto
+    return qui > 0 ? Math.min(intere, Math.max(regole.turnoMinOre, intere * qui / tot)) : 0;
   };
   const ferieSett = (p: PersonaPiano, lun: string) => args.giorni
     .filter((g) => giorniDellaSettimana(lun).includes(g.data) && nelMese(g.data) && !g.chiuso)
     .reduce((a, g) => a + (p.oreFerie.get(g.data) ?? 0), 0);
+  // Le trasferte sono lavoro fuori dal negozio: tolgono ore come le ferie.
+  const trasfSett = (p: PersonaPiano, lun: string) => giorniDellaSettimana(lun).filter(nelMese)
+    .reduce((a, d) => a + (p.oreTrasferta?.get(d) ?? 0), 0);
   // Le ferie si tolgono dal mese intero (Patrizio, 21/10/2026): se in una
   // settimana superano il contratto di quei giorni (es. ferie il 30/11, unico
   // giorno del mese in quella settimana), l'eccedenza si toglie dalle altre
@@ -759,7 +825,7 @@ export function pianificaMese(args: {
     let q = quote.get(p.id);
     if (!q) {
       const lunedi = [...new Set(args.giorni.filter((g) => nelMese(g.data)).map((g) => lunediDi(g.data)))];
-      const grezze = lunedi.map((l) => contrattoSett(p, l) - ferieSett(p, l));
+      const grezze = lunedi.map((l) => contrattoSett(p, l) - ferieSett(p, l) - trasfSett(p, l));
       const deficit = grezze.filter((x) => x < 0).reduce((a, x) => a - x, 0);
       const positive = grezze.filter((x) => x > 0).reduce((a, x) => a + x, 0);
       q = new Map(lunedi.map((l, i) => [l, grezze[i] <= 0 ? 0 : Math.max(0, grezze[i] - (positive ? deficit * grezze[i] / positive : 0))]));
@@ -797,9 +863,14 @@ export function pianificaMese(args: {
     if (args.fabbisognoFisso) { giorniMese.push(...gg); giorniNecessari.push(...gg); continue; }
     const maxP = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) && !libero(p.id, g.data)).length]));
     giorniMese.push(...fabbisognoDaTraffico(gg, args.atteso, ore, maxP, args.extra));
-    const orePiene = contrattuali.reduce((a, p) => a + contrattoSett(p, lun), 0);
-    const maxPieno = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length]));
-    giorniNecessari.push(...fabbisognoDaTraffico(gg, args.atteso, orePiene, maxPieno, args.extra));
+    // Le necessarie della settimana intera, distribuite come MODA su tutti i
+    // suoi giorni; di questo mese contano solo i suoi giorni.
+    const intera = args.giorni.filter((g) => giorniDellaSettimana(lun).includes(g.data));
+    const orePiene = contrattuali.reduce((a, p) => a + contrattoIntero(p, lun), 0) * Math.min(1, intera.length / 7);
+    const maxPieno = new Map(intera.map((g) => [g.data, nelMese(g.data)
+      ? contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length
+      : contrattuali.length]));
+    giorniNecessari.push(...fabbisognoDaTraffico(intera, args.atteso, orePiene, maxPieno, args.extra).filter((g) => nelMese(g.data)));
   }
 
   // 3. Le settimane.
@@ -812,15 +883,20 @@ export function pianificaMese(args: {
       ore: orePersona(p, lun),
       nonDisponibile: new Set([...p.nonDisponibile, ...date.filter((d) => libero(p.id, d))]),
       saldoOre: p.saldoOre ?? 0,
+      fasce: p.fasce,
     }));
-    let esito = proponiSettimana({ giorni: gg, persone: candidati, regole }).turni;
+    // Le trasferte verso questo negozio contano come presenza: si aggiungono alla
+    // lista come turni fissi (nessun passo li modifica, non sono di chi pianifichiamo)
+    // e si tolgono alla fine della settimana.
+    const fissiSett = (args.fissi ?? []).filter((t) => date.includes(t.data));
+    let esito = [...proponiSettimana({ giorni: gg, persone: candidati, regole, fissi: fissiSett }).turni, ...fissiSett];
     // Le ore di contratto che avanzano si usano dove c'e' piu' gente (traffico MODA).
     esito = usaOreResidue(gg, esito, candidati, args.atteso, regole);
     const base = gg.map((g) => ({ ...g, fabbisogno: g.fabbisogno.map(() => 1) }));
     // La riserva a chiamata copre i buchi che restano, fino a 8 ore al giorno.
     const disponibiliRiserva = riserva.filter((p) => date.some((d) => !p.nonDisponibile.has(d)));
     if (disponibiliRiserva.length && oreScoperte(gg, esito) > 0) {
-      const perRitocco: PersonaTurni[] = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile }));
+      const perRitocco: PersonaTurni[] = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile, fasce: p.fasce }));
       esito = ritoccaScoperture(gg, esito, [], perRitocco, regole, undefined, new Set(disponibiliRiserva.map((p) => p.id)));
     }
     // Regola fissa (Patrizio, 21/10/2026): comanda l'orario del negozio, mai
@@ -833,7 +909,7 @@ export function pianificaMese(args: {
       const p = contrattuali.find((x) => x.id === c.id);
       return { ...c, ore: Math.max(c.ore, Math.min(p?.oreSettimana ?? 0, regole.turnoMaxOre * date.length)) };
     });
-    const riservaCopertura = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile }));
+    const riservaCopertura = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile, fasce: p.fasce }));
     esito = copriOrarioMinimo(base, esito, perCopertura, riservaCopertura, regole);
     // Il sabato o la domenica liberi si danno «solo quando possibile»: se il negozio
     // resterebbe vuoto, il libero di questa settimana salta e quelle persone tornano disponibili.
@@ -860,7 +936,9 @@ export function pianificaMese(args: {
       const altri = esito.filter((t) => !ids.has(t.employeeId));
       esito = [...altri, ...ritoccaScoperture(gg, esito.filter((t) => ids.has(t.employeeId)), altri, conExtra, regole)];
     }
-    turni.push(...esito);
+    // Rete di sicurezza: nessun turno fuori dagli accordi della scheda.
+    const fissiRef = new Set(fissiSett);
+    turni.push(...rispettaFasce(esito.filter((t) => !fissiRef.has(t)), args.persone, regole));
   }
 
   const persone: EsitoPianoMese['persone'] = {};
@@ -873,13 +951,16 @@ export function pianificaMese(args: {
       const date = giorniDellaSettimana(lun).filter(nelMese);
       return new Set(turni.filter((t) => t.employeeId === p.id && date.includes(t.data)).map((t) => t.data)).size >= Math.min(regole.giorniLavoroMax, date.length);
     }).length;
-    // Settimane a cavallo del mese: ore oltre la quota di questo mese = anticipo.
-    const anticipo = p.oreSettimana == null ? 0 : settimane.reduce((a, lun) => {
+    // Le ore oltre il contratto si contano settimana per settimana (le ore
+    // settimanali valgono sulla settimana intera): nelle settimane a cavallo del
+    // mese sono «anticipo», nelle altre straordinario.
+    const oltre = (lun: string) => {
       const date = giorniDellaSettimana(lun);
-      if (date.every(nelMese)) return a;
       const fatte = turni.filter((t) => t.employeeId === p.id && date.includes(t.data)).reduce((x, t) => x + oreLavorate(t), 0);
-      return a + Math.max(0, fatte - orePersona(p, lun));
-    }, 0);
+      return Math.max(0, fatte - orePersona(p, lun));
+    };
+    const anticipo = p.oreSettimana == null ? 0 : settimane.filter((l) => !giorniDellaSettimana(l).every(nelMese)).reduce((a, l) => a + oltre(l), 0);
+    const straordinario = p.oreSettimana == null ? 0 : settimane.filter((l) => giorniDellaSettimana(l).every(nelMese)).reduce((a, l) => a + oltre(l), 0);
     persone[p.id] = {
       ferie,
       contrattoMese,
@@ -887,12 +968,14 @@ export function pianificaMese(args: {
       settimanePiene,
       contratto,
       pianificate,
-      straordinario: p.oreSettimana == null ? 0 : Math.max(0, pianificate - contratto - anticipo),
+      straordinario,
       weekendLiberi: [...weekendLiberi.values()].filter((ids) => ids.includes(p.id)).length,
       riserva: p.oreSettimana == null,
+      trasferte: [...(p.oreTrasferta ?? new Map<string, number>())].filter(([d]) => nelMese(d)).reduce((a, [, h]) => a + h, 0),
     };
   }
-  const scoperture = giorniMese.flatMap((g) => scopertureDelGiorno(g, turni));
+  const presenti = [...turni, ...(args.fissi ?? [])];
+  const scoperture = giorniMese.flatMap((g) => scopertureDelGiorno(g, presenti));
   // Il mese settimana per settimana: dove mancano le ore e perche'.
   const riepilogoSettimane: SettimanaPiano[] = settimane.map((lun) => {
     const date = giorniDellaSettimana(lun).filter(nelMese);
@@ -900,7 +983,7 @@ export function pianificaMese(args: {
     const contratto = contrattuali.reduce((a, p) => a + contrattoSett(p, lun), 0);
     const ferie = contrattuali.reduce((a, p) => a + ferieSett(p, lun), 0);
     const necessarie = gn.reduce((a, g) => a + (g.chiuso ? 0 : g.fabbisogno.reduce((x, y) => x + y, 0)), 0) * SLOT_MINUTI / 60;
-    const scoperte = oreScoperte(gn, turni);
+    const scoperte = oreScoperte(gn, presenti);
     const pianificate = turni.filter((t) => date.includes(t.data)).reduce((a, t) => a + oreLavorate(t), 0);
     const coperte = necessarie - scoperte;
     const nonUsate = contrattuali.reduce((a, p) => {

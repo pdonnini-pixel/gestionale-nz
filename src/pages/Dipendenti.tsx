@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { Row } from '../types/business';
 import { usePeriod } from '../hooks/usePeriod';
 import PageHeader from '../components/PageHeader';
+import AccordiOrario from '../components/AccordiOrario';
 import { useToast } from '../components/Toast';
 import {
   BarChart3,
@@ -2152,6 +2153,9 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
       </div>
 
       <DocumentiRapporto employeeId={employee.id} companyId={companyId} docs={docs} onChanged={onDocsChanged} />
+
+      <AccordiOrario employeeId={employee.id} companyId={companyId} outletId={employee.outlet_id ?? null}
+        oreSettimanali={emp.ore_settimanali != null ? Number(emp.ore_settimanali) : null} />
 
       <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 leading-relaxed">
         Inserisci il <strong>netto del mese</strong> (così come arriva dalla busta paga). Ci sono <strong>14 mensilità</strong>: quando arrivano dall'Elenco netti, la <strong>13ª</strong> e la <strong>14ª</strong> sono cedolini a parte e si sommano da sole al mese (dicembre e giugno); se scrivi tu il netto qui, mettici anche la mensilità aggiuntiva, perché il valore a mano sostituisce tutto il mese. Il totale annuo è la <strong>somma dei mesi</strong>, mai mese×12. I valori inseriti qui a mano sono <strong>provvisori</strong>: l'import del mese (Elenco netti) li <strong>sovrascrive</strong> con il dato ufficiale.

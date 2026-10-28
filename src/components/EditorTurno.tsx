@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import { formattaDataBreve } from '../lib/organico';
 import { NOMI_GIORNO_BREVI, minuti, oreLavorate, pausaMinimaPerPresenza, pausaPer, type RegoleTurni } from '../lib/turni';
 import { oreGiornata } from '../lib/pianoMensile';
+import { oreTrasferta, type Trasferta } from '../lib/trasferte';
 
 export type TurnoModificabile = {
   id: string; inizio: string; fine: string; pausa_minuti: number;
@@ -36,11 +37,17 @@ const fmt = (n: number) => n.toLocaleString('it-IT', { maximumFractionDigits: 1 
  */
 export type FerieDalCalendario = { oreSettimana: number; outletCode: string | null; giaInFerie: boolean };
 
+/**
+ * Per segnare una trasferta dal calendario (Patrizio, 28/10/2026): i negozi fra
+ * cui scegliere la destinazione e la trasferta gia' segnata quel giorno.
+ */
+export type TrasfertaDalCalendario = { negozi: { id: string; nome: string }[]; esistente: Trasferta | null };
+
 export default function EditorTurno({
-  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, onClose, onSalvato,
+  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, onClose, onSalvato,
 }: {
   companyId: string; outletId: string; employeeId: string; data: string; turno: TurnoModificabile | null; planId: string | null;
-  nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario;
+  nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario; trasferta?: TrasfertaDalCalendario;
   onClose: () => void; onSalvato: (messaggio?: string) => void;
 }) {
   const { toast } = useToast();
@@ -148,6 +155,42 @@ export default function EditorTurno({
     }
   };
 
+  // Trasferta (Patrizio, 28/10/2026): lavoro fuori dal negozio, con l'orario
+  // scritto sopra. Vale come lavoro, non come presenza qui; se la destinazione e'
+  // un negozio si sceglie se copre anche quel negozio. Il turno del giorno si toglie.
+  const [destinazione, setDestinazione] = useState('');
+  const [luogo, setLuogo] = useState('');
+  const [copre, setCopre] = useState(false);
+  const [motivo, setMotivo] = useState('');
+  const segnaTrasferta = async () => {
+    if (errore) return;
+    const altro = destinazione === 'altro';
+    if (!destinazione || (altro && !luogo.trim())) { toast({ type: 'error', message: 'Scegli dove va: un negozio oppure scrivi il luogo.' }); return; }
+    setSalvo(true);
+    try {
+      const { error } = await supabase.from('employee_trasferte').insert([{
+        company_id: companyId, employee_id: employeeId, outlet_id: outletId, data, inizio, fine, pausa_minuti: pausaVera,
+        destinazione_outlet_id: altro ? null : destinazione, luogo: altro ? luogo.trim() : null,
+        copre_destinazione: !altro && copre, motivo: motivo.trim() || null,
+      }]);
+      if (error) throw error;
+      if (turno) { const e2 = await togliTurno('Trasferta'); if (e2) throw e2; }
+      onSalvato(`Trasferta di ${nome.split(' ')[0]} segnata: ${fmt(ore)} ore di lavoro fuori dal negozio${!altro && copre ? ', coprono il negozio di destinazione' : ''}.`);
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Trasferta non segnata.' });
+    } finally {
+      setSalvo(false);
+    }
+  };
+  const togliTrasferta = async () => {
+    if (!trasferta?.esistente) return;
+    setSalvo(true);
+    const { error } = await supabase.from('employee_trasferte').delete().eq('id', trasferta.esistente.id);
+    setSalvo(false);
+    if (error) { toast({ type: 'error', message: error.message }); return; }
+    onSalvato('Trasferta tolta: il giorno torna disponibile per un turno.');
+  };
+
   return (
     <Modal open onClose={onClose} title={`${nome} · ${NOMI_GIORNO_BREVI[giornoSett]} ${formattaDataBreve(data)}`}>
       <div className="space-y-4">
@@ -220,6 +263,54 @@ export default function EditorTurno({
               <button type="button" onClick={() => inserisciFerie('ore')} disabled={salvo}
                 className="min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50">Inserisci permesso</button>
             </div>
+          </div>
+        )}
+
+        {trasferta?.esistente && (
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-sm text-indigo-900">
+            <p className="text-xs font-semibold uppercase tracking-wide mb-1">Trasferta in questo giorno</p>
+            <p>{trasferta.esistente.inizio}-{trasferta.esistente.fine}, {fmt(oreTrasferta(trasferta.esistente))} ore di lavoro
+              {' '}a {trasferta.esistente.destinazioneOutletId ? (trasferta.negozi.find((n) => n.id === trasferta.esistente!.destinazioneOutletId)?.nome ?? 'altro negozio') : trasferta.esistente.luogo}
+              {trasferta.esistente.copreDestinazione ? ', copre quel negozio' : ''}{trasferta.esistente.motivo ? ` · ${trasferta.esistente.motivo}` : ''}.</p>
+            <button type="button" onClick={togliTrasferta} disabled={salvo} className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-indigo-300 bg-white text-sm font-semibold hover:bg-indigo-100 disabled:opacity-50"><Trash2 size={14} /> Togli la trasferta</button>
+          </div>
+        )}
+        {trasferta && !trasferta.esistente && (
+          <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-900 mb-1">Oppure: trasferta in questo giorno</p>
+            <p className="text-xs text-indigo-900 mb-2">Lavoro fuori da questo negozio con l'orario scritto sopra ({errore ? '—' : `${fmt(ore)} ore`}): vale come lavoro nelle ore della settimana, non come presenza qui. Il turno del giorno si toglie.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label className="text-xs font-semibold text-indigo-900">Dove
+                <select value={destinazione} onChange={(e) => { setDestinazione(e.target.value); if (e.target.value === 'altro') setCopre(false); }}
+                  className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm">
+                  <option value="">Scegli…</option>
+                  {trasferta.negozi.filter((n) => n.id !== outletId).map((n) => <option key={n.id} value={n.id}>{n.nome}</option>)}
+                  <option value="altro">Altro luogo…</option>
+                </select>
+              </label>
+              {destinazione === 'altro' ? (
+                <label className="text-xs font-semibold text-indigo-900">Luogo
+                  <input type="text" value={luogo} onChange={(e) => setLuogo(e.target.value)} placeholder="es. fiera di Milano" className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm" />
+                </label>
+              ) : (
+                <label className="text-xs font-semibold text-indigo-900">Motivo
+                  <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="es. allestimento vetrine" className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm" />
+                </label>
+              )}
+              {destinazione === 'altro' && (
+                <label className="text-xs font-semibold text-indigo-900 sm:col-span-2">Motivo
+                  <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm" />
+                </label>
+              )}
+            </div>
+            {destinazione && destinazione !== 'altro' && (
+              <label className="mt-2 flex items-start gap-2 text-xs text-indigo-900">
+                <input type="checkbox" checked={copre} onChange={(e) => setCopre(e.target.checked)} className="mt-0.5" />
+                Le ore coprono anche quel negozio: nel suo piano contano come una persona presente.
+              </label>
+            )}
+            <button type="button" onClick={segnaTrasferta} disabled={salvo || !!errore}
+              className="mt-2 min-h-[36px] px-3 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">Segna come trasferta</button>
           </div>
         )}
 
