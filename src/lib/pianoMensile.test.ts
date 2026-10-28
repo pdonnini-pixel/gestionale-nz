@@ -170,6 +170,20 @@ describe('il piano del mese', () => {
     expect(p0.every((t) => t.inizio >= '14:00' && t.fine <= '20:00' && oreLavorate(t) >= 4)).toBe(true);
     expect(e.turni.some((t) => t.employeeId === 'p1' && new Date(`${t.data}T00:00:00Z`).getUTCDay() === 2)).toBe(false);
   });
+  it('trasferte: tolgono ore come lavoro fuori dal negozio e, se coprono il negozio, contano come presenza', () => {
+    const conTrasferta = persone.map((p, i) => (i === 0
+      ? { ...p, oreTrasferta: new Map([['2026-11-04', 8]]), nonDisponibile: new Set(['2026-11-04']) } : p));
+    const senza = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    const con = pianificaMese({ mese, giorni, persone: conTrasferta, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    expect(con.persone.p0.trasferte).toBe(8);
+    expect(con.persone.p0.contratto).toBeCloseTo(senza.persone.p0.contratto - 8, 5);
+    expect(con.turni.some((t) => t.employeeId === 'p0' && t.data === '2026-11-04')).toBe(false);
+    // una referente di un altro negozio copre qui il 4/11 dalle 10 alle 19
+    const fissi = [{ employeeId: 'ext', data: '2026-11-04', inizio: '10:00', fine: '19:00', pausaMinuti: 60 }];
+    const coperto = pianificaMese({ mese, giorni, persone: conTrasferta, regola: 'nessuno', storicoWeekend: new Map(), atteso, fissi });
+    expect(coperto.turni.some((t) => t.employeeId === 'ext')).toBe(false);
+    expect(coperto.oreScoperte).toBeLessThanOrEqual(con.oreScoperte);
+  });
   it('simulazione: fabbisogno fisso, ore ipotetiche e straordinari ammessi', () => {
     // fabbisogno di «Orari e fabbisogno»: 2 persone tutto il giorno = 140 ore a settimana
     const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));

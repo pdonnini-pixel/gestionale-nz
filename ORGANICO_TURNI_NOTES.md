@@ -568,3 +568,20 @@ per i turni»: per ogni giorno Sempre / Mai / Solo dalle-alle, nota dell'accordo
   quando si crea, allunga o sposta un turno (proponiSettimana, ritoccaScoperture, copriOrarioMinimo, usaOreResidue,
   suggerisciFinestre); `rispettaFasce` è la rete di sicurezza in fondo a proponiSettimana e a ogni settimana di pianificaMese.
 - Il piano del mese mostra il riassunto in «Chi lavora»; i vecchi pulsanti dei giorni sono stati tolti (si modifica dalla scheda).
+
+## Trasferte (28/10/2026)
+
+Patrizio: le referenti possono lavorare in altre sedi; quelle ore sono orario di lavoro ma non presenza nel negozio di
+riferimento, e servono per il report. Decisioni: la copertura del negozio di destinazione si sceglie volta per volta;
+le inseriscono la responsabile HR e chi tiene l'organico (poi anche le responsabili di negozio); per ora niente rimborsi.
+- Tabella `employee_trasferte` (migration 329 + 329b per il GRANT DELETE, 3 tenant): persona, negozio di riferimento,
+  data, inizio, fine, pausa, destinazione (negozio o luogo), `copre_destinazione`, motivo. A parte da `shifts` apposta:
+  nessun conteggio dei turni in negozio le prende per presenza.
+- `src/lib/trasferte.ts`: caricamento, ore (pausa esclusa), `copertureVerso` (turni fissi per la copertura del negozio
+  di destinazione), `riepilogaTrasferte` (per persona e per destinazione).
+- Piano del mese: `PersonaPiano.oreTrasferta` si toglie dalle ore della settimana come le ferie, il giorno non è libero
+  per un turno; trasferte dei giorni dell'altro mese in `oreFuoriMese`; `pianificaMese({ fissi })` per chi copre il
+  negozio (contano nelle scoperte e nella riga «In negozio», non entrano nei turni del piano). Piano settimanale: stesse
+  regole (`motivoNonDisponibile` «in trasferta», ore tolte, `fissi`).
+- UI: riquadro trasferta in `EditorTurno`, casella «trasferta» nel calendario, riga trasferte in «Ore del mese»,
+  scheda «Trasferte» (`TrasferteNegozi.tsx`) con totali ed export Excel.

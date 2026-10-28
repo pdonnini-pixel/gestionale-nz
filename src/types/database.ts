@@ -14916,6 +14916,60 @@ export type Database = {
           },
         ]
       }
+      employee_trasferte: {
+        Row: {
+          company_id: string
+          copre_destinazione: boolean
+          created_at: string
+          created_by: string | null
+          created_by_nome: string | null
+          data: string
+          destinazione_outlet_id: string | null
+          employee_id: string
+          fine: string
+          id: string
+          inizio: string
+          luogo: string | null
+          motivo: string | null
+          outlet_id: string | null
+          pausa_minuti: number
+        }
+        Insert: {
+          company_id: string
+          copre_destinazione?: boolean
+          created_at?: string
+          created_by?: string | null
+          created_by_nome?: string | null
+          data: string
+          destinazione_outlet_id?: string | null
+          employee_id: string
+          fine: string
+          id?: string
+          inizio: string
+          luogo?: string | null
+          motivo?: string | null
+          outlet_id?: string | null
+          pausa_minuti?: number
+        }
+        Update: {
+          company_id?: string
+          copre_destinazione?: boolean
+          created_at?: string
+          created_by?: string | null
+          created_by_nome?: string | null
+          data?: string
+          destinazione_outlet_id?: string | null
+          employee_id?: string
+          fine?: string
+          id?: string
+          inizio?: string
+          luogo?: string | null
+          motivo?: string | null
+          outlet_id?: string | null
+          pausa_minuti?: number
+        }
+        Relationships: []
+      }
       employees: {
         Row: {
           codice_fiscale: string | null

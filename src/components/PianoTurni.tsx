@@ -17,6 +17,7 @@ import {
 } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
 import { fasceDelle, type Accordo } from '../lib/accordiOrario';
+import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, collocaPause, eventiDelNegozio, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
@@ -61,12 +62,13 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // Piano del mese scelto per ogni mese della settimana ('YYYY-MM' -> id).
   const [pianiScelti, setPianiScelti] = useState<Map<string, string>>(new Map());
   const [disponibilita, setDisponibilita] = useState<Map<string, Accordo>>(new Map());
+  const [trasferte, setTrasferte] = useState<Trasferta[]>([]);
   const [editor, setEditor] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
 
   const carica = useCallback(async () => {
     setCaricamento(true);
     try {
-      const [o, f, s, r, t, fe, sl, ev, pi, disp] = await Promise.all([
+      const [o, f, s, r, t, fe, sl, ev, pi, disp, tr] = await Promise.all([
         supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude, origine').eq('outlet_id', outletId),
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
@@ -82,8 +84,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         supabase.from('shift_plans').select('id, mese').eq('outlet_id', outletId).eq('stato', 'scelto')
           .in('mese', [...new Set([date[0], date[6]].map((d) => `${d.slice(0, 7)}-01`))]),
         caricaDisponibilita(companyId).catch(() => new Map<string, Accordo>()),
+        caricaTrasferte(companyId, date[0], date[6]).catch(() => [] as Trasferta[]),
       ]);
       setDisponibilita(disp);
+      setTrasferte(tr);
       const pianoDelMese = new Map(((pi.data as { id: string; mese: string }[]) ?? []).map((x) => [x.mese.slice(0, 7), x.id]));
       setPianiScelti(pianoDelMese);
       const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
@@ -139,10 +143,12 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     if (pg.outletId !== outletId) return 'in un altro negozio';
     const fe = inFerie(empId, data);
     if (fe && fe.tipo === 'giornata') return 'ferie';
+    // Trasferta: lavora fuori dal negozio, quel giorno niente turno qui.
+    if (trasferte.some((x) => x.employeeId === empId && x.data === data)) return 'in trasferta';
     // Giorni in cui la persona puo' lavorare (es. solo sabato e domenica).
     if (!puoLavorareIl(disponibilita, empId, data)) return 'non disponibile quel giorno';
     return null;
-  }, [outletId, inFerie, disponibilita]);
+  }, [outletId, inFerie, disponibilita, trasferte]);
 
   const attivi = turni.filter((t) => t.stato !== 'annullato');
   const turniPerCalcolo: Turno[] = attivi.map((t) => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }));
@@ -165,13 +171,16 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         .map((p) => ({
           id: p.scheda.id,
           // le ore gia' coperte da ferie e permessi approvati in settimana non si lavorano
-          ore: Math.max(0, (p.ore as number) - date.reduce((a, d) => a + Number(inFerie(p.scheda.id, d)?.ore ?? 0), 0)),
+          ore: Math.max(0, (p.ore as number) - date.reduce((a, d) => a + Number(inFerie(p.scheda.id, d)?.ore ?? 0), 0)
+            // le ore di trasferta sono lavoro gia' fatto fuori dal negozio
+            - trasferte.filter((x) => x.employeeId === p.scheda.id).reduce((a, x) => a + oreTrasferta(x), 0)),
           nonDisponibile: new Set(date.filter((d, i) => motivoNonDisponibile(p.perGiorno[i], p.scheda.id, d) != null)),
           saldoOre: saldi.get(p.scheda.id) ?? 0,
           // accordi della scheda: le fasce orarie in cui puo' lavorare
           fasce: fasceDelle(disponibilita, p.scheda.id, date),
         }));
-      const esito = proponiSettimana({ giorni, persone: candidati, regole, fissi });
+      // chi viene qui in trasferta e copre il negozio conta come presenza
+      const esito = proponiSettimana({ giorni, persone: candidati, regole, fissi: [...fissi, ...copertureVerso(trasferte, outletId)] });
       if (esito.turni.length) {
         const { error } = await supabase.from('shifts').insert(esito.turni.map((t) => ({
           company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data,
