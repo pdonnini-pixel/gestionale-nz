@@ -509,3 +509,7 @@ sceglierlo e poi inserire ferie e permessi dal calendario; resta anche la propos
   (`F01` giornata, `F02` ore). Con la giornata il turno del giorno si toglie (`togliTurno`: tolto se il piano non è
   pubblicato, altrimenti annullato).
 - La casella in ferie per la giornata si apre se c'è un turno (calendario senza ferie), per poterlo togliere.
+- Aggiornamento stesso giorno: anche la mezza giornata (`mezza_giornata`, metà delle ore / 6) e la scelta «Già
+  approvata» (default) o «Da approvare». Già approvata chiama `leave_decidi` sul giorno appena creato: stessa
+  approvazione di Approvazioni ferie, il saldo si consuma. Se l'utente non può decidere sulle ferie, la richiesta
+  resta inviata e la pagina lo dice. Un processo di approvazione dedicato si farà dopo (Patrizio).

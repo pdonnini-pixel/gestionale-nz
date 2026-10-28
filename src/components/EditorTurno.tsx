@@ -103,19 +103,22 @@ export default function EditorTurno({
     onSalvato();
   };
 
-  // Ferie e permessi inseriti dal calendario: diventano una richiesta «inviata»,
-  // come le proposte del piano, da approvare in Approvazioni ferie. Con la
-  // giornata di ferie il turno del giorno si toglie.
+  // Ferie e permessi inseriti dal calendario (Patrizio, 28/10/2026): giornata,
+  // mezza giornata o permesso a ore, gia' approvati (consumano subito il saldo,
+  // con la stessa approvazione di Approvazioni ferie) oppure da approvare.
+  // Con la giornata intera il turno del giorno si toglie.
   const [orePermesso, setOrePermesso] = useState('2');
+  const [giaApprovata, setGiaApprovata] = useState(true);
   const giornata = ferie ? Math.round(oreGiornata(ferie.oreSettimana, regole) * 100) / 100 : 0;
-  const inserisciFerie = async (tipo: 'giornata' | 'ore') => {
+  const inserisciFerie = async (tipo: 'giornata' | 'mezza_giornata' | 'ore') => {
     if (!ferie) return;
-    const oreF = tipo === 'giornata' ? giornata : Math.round(Number(orePermesso.replace(',', '.')) * 2) / 2;
+    const oreF = tipo === 'giornata' ? giornata : tipo === 'mezza_giornata' ? Math.round(giornata / 2 * 100) / 100
+      : Math.round(Number(orePermesso.replace(',', '.')) * 2) / 2;
     if (!(oreF > 0)) { toast({ type: 'error', message: 'Scrivi le ore del permesso.' }); return; }
     setSalvo(true);
     try {
       const { data: u } = await supabase.auth.getUser();
-      const testo = tipo === 'giornata' ? `Giornata di ferie (${fmt(oreF)} h)` : `Permesso di ${fmt(oreF)} h`;
+      const testo = tipo === 'giornata' ? `Giornata di ferie (${fmt(oreF)} h)` : tipo === 'mezza_giornata' ? `Mezza giornata di ferie (${fmt(oreF)} h)` : `Permesso di ${fmt(oreF)} h`;
       const { data: r, error } = await supabase.from('leave_requests').insert({
         company_id: companyId, employee_id: employeeId, outlet_code: ferie.outletCode,
         stato: 'inviata', origine: 'gestionale', titolo: 'Inserita dal piano del mese',
@@ -123,13 +126,21 @@ export default function EditorTurno({
         compilata_da: u.user?.id ?? null, inviata_il: new Date().toISOString(),
       }).select('id').single();
       if (error) throw error;
-      const { error: e2 } = await supabase.from('leave_request_days').insert([{
-        company_id: companyId, request_id: (r as { id: string }).id, data,
-        voce: tipo === 'giornata' ? 'F01' : 'F02', tipo, ore: oreF, nota: 'Inserita dal piano del mese',
-      }]);
+      const requestId = (r as { id: string }).id;
+      const { data: g, error: e2 } = await supabase.from('leave_request_days').insert([{
+        company_id: companyId, request_id: requestId, data,
+        voce: tipo === 'ore' ? 'F02' : 'F01', tipo, ore: oreF, nota: 'Inserita dal piano del mese',
+      }]).select('id').single();
       if (e2) throw e2;
       if (tipo === 'giornata') { const e3 = await togliTurno('Ferie inserite dal calendario'); if (e3) throw e3; }
-      onSalvato(`${testo} per ${nome.split(' ')[0]}: è in Approvazioni ferie.${tipo === 'ore' && turno ? ' Accorcia il turno se serve.' : ''}`);
+      // Gia' approvata: la stessa approvazione di Approvazioni ferie, che scala il saldo.
+      let approvata = false;
+      if (giaApprovata) {
+        const { error: e4 } = await supabase.rpc('leave_decidi', { p_request_id: requestId, p_giorni_approvati: [(g as { id: string }).id] });
+        if (e4) { toast({ type: 'warning', message: `${testo} inserita ma non approvata (${e4.message}): la trovi in Approvazioni ferie.`, duration: 10000 }); }
+        else approvata = true;
+      }
+      onSalvato(`${testo} per ${nome.split(' ')[0]}: ${approvata ? 'approvata, consuma il saldo delle ferie' : 'da approvare in Approvazioni ferie'}.${tipo !== 'giornata' && turno ? ' Accorcia il turno se serve.' : ''}`);
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non inserite.' });
     } finally {
@@ -192,10 +203,16 @@ export default function EditorTurno({
         {ferie && !ferie.giaInFerie && (
           <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-sm">
             <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 mb-1">Ferie o permesso in questo giorno</p>
-            <p className="text-xs text-amber-900 mb-2">Diventa una richiesta in Approvazioni ferie. Con la giornata di ferie il turno del giorno si toglie.</p>
+            <div className="flex flex-wrap gap-3 mb-2 text-xs text-amber-900" role="radiogroup" aria-label="Stato della richiesta">
+              <label className="inline-flex items-center gap-1.5"><input type="radio" checked={giaApprovata} onChange={() => setGiaApprovata(true)} /> Già approvata: consuma subito il saldo</label>
+              <label className="inline-flex items-center gap-1.5"><input type="radio" checked={!giaApprovata} onChange={() => setGiaApprovata(false)} /> Da approvare</label>
+            </div>
+            <p className="text-xs text-amber-900 mb-2">La mezza giornata vale metà delle ore di una giornata. Con la giornata intera il turno del giorno si toglie; con mezza giornata o permesso il turno resta, da accorciare.</p>
             <div className="flex flex-wrap items-center gap-2">
               <button type="button" onClick={() => inserisciFerie('giornata')} disabled={salvo}
                 className="min-h-[36px] px-3 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50">Giornata di ferie ({fmt(giornata)} h)</button>
+              <button type="button" onClick={() => inserisciFerie('mezza_giornata')} disabled={salvo}
+                className="min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50">Mezza giornata ({fmt(giornata / 2)} h)</button>
               <span className="text-xs text-amber-900">oppure permesso di</span>
               <input type="text" inputMode="decimal" aria-label="Ore di permesso" value={orePermesso} onChange={(e) => setOrePermesso(e.target.value)}
                 className="w-16 min-h-[36px] rounded-lg border border-amber-300 px-2 text-right tabular-nums bg-white" />
