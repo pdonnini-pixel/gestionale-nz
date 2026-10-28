@@ -166,7 +166,7 @@ export default function AccordiOrario({ employeeId, companyId, outletId, oreSett
         <div className={`mt-3 rounded-lg px-3 py-2 text-xs ${possibili + 1e-9 < oreSettimanali ? 'bg-red-50 border border-red-200 text-red-800' : 'bg-slate-50 border border-slate-200 text-slate-600'}`}>
           {possibili + 1e-9 < oreSettimanali
             ? <>Con questi accordi può fare al massimo <strong>{fmt(possibili)} ore</strong> a settimana nell'orario del negozio; il contratto ne prevede <strong>{fmt(oreSettimanali)}</strong>. Le ore che mancano non si possono pianificare.</>
-            : <>Con questi accordi può fare fino a {fmt(possibili)} ore a settimana nell'orario del negozio: il contratto di {fmt(oreSettimanali)} ore ci sta.</>}
+            : <>Con questi accordi le {fmt(oreSettimanali)} ore settimanali del contratto si possono pianificare tutte.</>}
         </div>
       )}
       {eHr && (
