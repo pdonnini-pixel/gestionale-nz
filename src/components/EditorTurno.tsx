@@ -280,7 +280,7 @@ export default function EditorTurno({
                     </div>
                     <p className={`mt-1 text-sm font-medium ${Math.abs(scarto) <= 0.25 ? 'text-emerald-700' : scarto < 0 ? 'text-slate-700' : 'text-amber-800'}`}>
                       {Math.abs(scarto) <= 0.25 ? 'In linea con il contratto.'
-                        : scarto < 0 ? `Mancano ${fmt(-scarto)} h da programmare.`
+                        : scarto < 0 ? `${fmt(-scarto)} h ancora da assegnare: in un turno dove servono, oppure come ferie o permesso.`
                           : `${fmt(scarto)} h in più del contratto: decidi se sono straordinario (segna il turno come straordinario) oppure se le togli.`}
                     </p>
                     {c!.straord > 0.25 && <p className="text-xs text-amber-800">Straordinario concordato: {fmt(c!.straord)} h, a parte.</p>}
