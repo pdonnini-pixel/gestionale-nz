@@ -147,6 +147,18 @@ describe('il piano del mese', () => {
     expect(con.oreScoperte).toBeLessThan(senza.oreScoperte);
     for (const p of poche) expect(con.persone[p.id].straordinario).toBe(0);
   });
+  it('settimana intera anche a cavallo dei mesi: le ore di ottobre si tolgono dalle 40', () => {
+    const una = [{ id: 'p0', oreSettimana: 40, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }];
+    const libero = pianificaMese({ mese, giorni, persone: una, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    // ottobre senza turni: domenica 1/11 prende la sua parte secondo il traffico
+    // (nel test il weekend ha 4 volte gli ingressi dei feriali: 4 / (5 + 4 + 4) delle 40 ore)
+    expect(libero.settimane[0].contratto).toBeCloseTo(40 * 4 / 13, 1);
+    const ottobre = new Map([['p0', new Map(['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29'].map((d) => [d, 9]))]]);
+    const e = pianificaMese({ mese, giorni, persone: una, regola: 'nessuno', storicoWeekend: new Map(), atteso, oreFuoriMese: ottobre });
+    expect(e.settimane[0].contratto).toBe(4);
+    // le settimane intere restano a 40
+    expect(e.settimane[1].contratto).toBe(40);
+  });
   it('simulazione: fabbisogno fisso, ore ipotetiche e straordinari ammessi', () => {
     // fabbisogno di «Orari e fabbisogno»: 2 persone tutto il giorno = 140 ore a settimana
     const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));

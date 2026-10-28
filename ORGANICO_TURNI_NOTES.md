@@ -543,5 +543,11 @@ settimanale: un 40 ore può fare 4 ore un giorno e 9 o 10 il giorno dopo, sempre
   non dimezza più il tetto delle persone nei negozi aperti fino a 11 ore.
 - **Ferie**: approvate = ore scritte nel piano ferie (`oreFerieGiorno`, il /6 solo se mancano); proposte da noi = ore
   settimanali / 6 nei negozi (`proponiFerie`, `EditorTurno`), / 5 in Sede (quando ci sarà la sezione Sede).
-- **Settimana intera anche fra due mesi** (decisa da Patrizio): resta da realizzare il conteggio delle settimane a
-  cavallo; finché non c'è, `contrattoSett` usa ancora i giorni del mese (`giorniLavorativiSettimana` × ore / 6).
+- **Settimana intera anche fra due mesi** (Patrizio, 28/10/2026): `contrattoIntero` = ore settimanali sull'intera
+  settimana lun-dom (ridotte in proporzione solo per giorni a negozio chiuso o senza contratto, tolto il riposo delle
+  settimane intere); `contrattoSett` = la parte di questo mese, cioè `contrattoIntero` meno le ore dei turni veri
+  (piano scelto, piano settimanale, turni a mano, in qualunque negozio: `oreFuoriMese`, caricate in `caricaBase`) e
+  delle ferie nei giorni dell'altro mese. Se l'altro mese non ha turni, i giorni di questo mese possono usare tutte le
+  ore della settimana (nei limiti 4-10 ore al giorno). Le necessarie si distribuiscono come MODA sull'intera settimana e
+  si contano solo i giorni del mese. Straordinario e anticipo si contano settimana per settimana (prima: netto del mese).
+  Il «contratto del mese» non è più fisso (non più 173,3 per un 40 ore a novembre): dipende dal mese accanto.

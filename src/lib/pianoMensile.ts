@@ -729,6 +729,12 @@ export function pianificaMese(args: {
   straordinariSettimana?: number;
   /** disponibilita' del singolo: ore di straordinario a settimana per persona (0 = non ne fa); prevale sul valore comune */
   straordinariPersona?: Map<string, number>;
+  /**
+   * Ore gia' nei turni veri (piano scelto, piano settimanale, turni a mano) dei
+   * giorni fuori dal mese, per persona e data: nelle settimane a cavallo di due
+   * mesi si tolgono dalle ore settimanali.
+   */
+  oreFuoriMese?: Map<string, Map<string, number>>;
 }): EsitoPianoMese {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const nelMese = (d: string) => d.slice(0, 7) === args.mese;
@@ -736,16 +742,49 @@ export function pianificaMese(args: {
   const riserva = args.persone.filter((p) => p.oreSettimana == null);
   const settimane = [...new Set(args.giorni.filter((g) => nelMese(g.data)).map((g) => lunediDi(g.data)))].sort();
 
-  // Contratto della settimana per i soli giorni del mese: giorni lavorativi
-  // (date del mese, negozio aperto, contratto in corso, meno il riposo delle
-  // settimane intere) per le ore di una giornata. Senza ferie.
+  // La settimana intera, anche a cavallo di due mesi (Patrizio, 28/10/2026):
+  // le ore settimanali valgono da lunedi' a domenica. Si riducono solo per i
+  // giorni a negozio chiuso o senza contratto (in proporzione ai giorni di
+  // lavoro, tolto il riposo delle settimane intere). Fuori dal mese il
+  // contratto e' quello del primo o dell'ultimo giorno del mese.
+  const dateDelMese = args.giorni.map((g) => g.data).filter(nelMese).sort();
+  const contrattoIntero = (p: PersonaPiano, lun: string) => {
+    const date = giorniDellaSettimana(lun);
+    const aperto = (d: string) => { const g = args.giorni.find((x) => x.data === d); return g ? !g.chiuso : true; };
+    const conContratto = (d: string) => !p.inServizio || p.inServizio.has(d)
+      || (!nelMese(d) && p.inServizio.has(d < dateDelMese[0] ? dateDelMese[0] : dateDelMese[dateDelMese.length - 1]));
+    const intera = date.every(conContratto);
+    const giorni = giorniLavorativiSettimana(date, (d) => aperto(d) && conContratto(d), intera);
+    return (p.oreSettimana ?? 0) * Math.min(1, giorni / regole.giorniLavoroMax);
+  };
+  // La parte di questo mese. Se l'altro mese ha gia' i suoi turni: le ore della
+  // settimana meno quelle gia' lavorate o in ferie nei suoi giorni. Se non ne ha
+  // ancora: la quota dei giorni di questo mese secondo il traffico MODA (il resto
+  // resta all'altro mese), invece di ammassare tutte le ore su uno o due giorni.
+  const pesoGiorno = (d: string) => {
+    const g = args.giorni.find((x) => x.data === d);
+    if (g ? g.chiuso : false) return 0;
+    const t = args.atteso.get(d);
+    const w = t && g ? t.slice(Math.floor(g.apre / 60), Math.ceil(g.chiude / 60)).reduce((a, x) => a + x, 0) : 0;
+    return w > 0 ? w : 1;
+  };
+  const altroMesePianificato = (lun: string) => giorniDellaSettimana(lun).filter((d) => !nelMese(d))
+    .some((d) => [...(args.oreFuoriMese?.values() ?? [])].some((m) => (m.get(d) ?? 0) > 0));
   const contrattoSett = (p: PersonaPiano, lun: string) => {
     const date = giorniDellaSettimana(lun);
-    const aperto = (d: string) => args.giorni.some((g) => g.data === d && !g.chiuso);
-    const conContratto = (d: string) => !p.inServizio || p.inServizio.has(d);
-    const intera = date.every((d) => nelMese(d) && conContratto(d));
-    const giorni = giorniLavorativiSettimana(date, (d) => nelMese(d) && aperto(d) && conContratto(d), intera);
-    return giorni * oreGiornata(p.oreSettimana ?? 0, regole);
+    const fuori = date.filter((d) => !nelMese(d));
+    if (!fuori.length) return contrattoIntero(p, lun);
+    const ferieFuori = fuori.reduce((a, d) => a + (p.oreFerie.get(d) ?? 0), 0);
+    if (altroMesePianificato(lun)) {
+      const lavorate = fuori.reduce((a, d) => a + (args.oreFuoriMese?.get(p.id)?.get(d) ?? 0), 0);
+      return Math.max(0, contrattoIntero(p, lun) - lavorate - ferieFuori);
+    }
+    const tot = date.reduce((a, d) => a + pesoGiorno(d), 0);
+    const qui = date.filter(nelMese).reduce((a, d) => a + pesoGiorno(d), 0);
+    const intere = Math.max(0, contrattoIntero(p, lun) - ferieFuori);
+    // almeno un turno minimo, se la persona ha ore: una quota da 3 ore non
+    // diventerebbe mai un turno (minimo 4 ore) e il giorno resterebbe scoperto
+    return qui > 0 ? Math.min(intere, Math.max(regole.turnoMinOre, intere * qui / tot)) : 0;
   };
   const ferieSett = (p: PersonaPiano, lun: string) => args.giorni
     .filter((g) => giorniDellaSettimana(lun).includes(g.data) && nelMese(g.data) && !g.chiuso)
@@ -797,9 +836,14 @@ export function pianificaMese(args: {
     if (args.fabbisognoFisso) { giorniMese.push(...gg); giorniNecessari.push(...gg); continue; }
     const maxP = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) && !libero(p.id, g.data)).length]));
     giorniMese.push(...fabbisognoDaTraffico(gg, args.atteso, ore, maxP, args.extra));
-    const orePiene = contrattuali.reduce((a, p) => a + contrattoSett(p, lun), 0);
-    const maxPieno = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length]));
-    giorniNecessari.push(...fabbisognoDaTraffico(gg, args.atteso, orePiene, maxPieno, args.extra));
+    // Le necessarie della settimana intera, distribuite come MODA su tutti i
+    // suoi giorni; di questo mese contano solo i suoi giorni.
+    const intera = args.giorni.filter((g) => giorniDellaSettimana(lun).includes(g.data));
+    const orePiene = contrattuali.reduce((a, p) => a + contrattoIntero(p, lun), 0) * Math.min(1, intera.length / 7);
+    const maxPieno = new Map(intera.map((g) => [g.data, nelMese(g.data)
+      ? contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length
+      : contrattuali.length]));
+    giorniNecessari.push(...fabbisognoDaTraffico(intera, args.atteso, orePiene, maxPieno, args.extra).filter((g) => nelMese(g.data)));
   }
 
   // 3. Le settimane.
@@ -873,13 +917,16 @@ export function pianificaMese(args: {
       const date = giorniDellaSettimana(lun).filter(nelMese);
       return new Set(turni.filter((t) => t.employeeId === p.id && date.includes(t.data)).map((t) => t.data)).size >= Math.min(regole.giorniLavoroMax, date.length);
     }).length;
-    // Settimane a cavallo del mese: ore oltre la quota di questo mese = anticipo.
-    const anticipo = p.oreSettimana == null ? 0 : settimane.reduce((a, lun) => {
+    // Le ore oltre il contratto si contano settimana per settimana (le ore
+    // settimanali valgono sulla settimana intera): nelle settimane a cavallo del
+    // mese sono «anticipo», nelle altre straordinario.
+    const oltre = (lun: string) => {
       const date = giorniDellaSettimana(lun);
-      if (date.every(nelMese)) return a;
       const fatte = turni.filter((t) => t.employeeId === p.id && date.includes(t.data)).reduce((x, t) => x + oreLavorate(t), 0);
-      return a + Math.max(0, fatte - orePersona(p, lun));
-    }, 0);
+      return Math.max(0, fatte - orePersona(p, lun));
+    };
+    const anticipo = p.oreSettimana == null ? 0 : settimane.filter((l) => !giorniDellaSettimana(l).every(nelMese)).reduce((a, l) => a + oltre(l), 0);
+    const straordinario = p.oreSettimana == null ? 0 : settimane.filter((l) => giorniDellaSettimana(l).every(nelMese)).reduce((a, l) => a + oltre(l), 0);
     persone[p.id] = {
       ferie,
       contrattoMese,
@@ -887,7 +934,7 @@ export function pianificaMese(args: {
       settimanePiene,
       contratto,
       pianificate,
-      straordinario: p.oreSettimana == null ? 0 : Math.max(0, pianificate - contratto - anticipo),
+      straordinario,
       weekendLiberi: [...weekendLiberi.values()].filter((ids) => ids.includes(p.id)).length,
       riserva: p.oreSettimana == null,
     };

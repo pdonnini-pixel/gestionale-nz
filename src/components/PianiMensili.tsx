@@ -78,6 +78,8 @@ type GiornoFerie = { employee_id: string; data: string; ore: number; tipo: strin
 type BaseMese = {
   tutte: string[]; giorni: GiornoPiano[]; regole: RegoleTurni; atteso: Map<string, number[]>; extra: Map<string, number>;
   senzaLiberi: Set<string>; saldi: Map<string, number>; storicoWeekend: Map<string, number>; ferie: GiornoFerie[]; fonte: string;
+  /** ore dei turni veri nei giorni dell'altro mese delle settimane a cavallo, per persona e data */
+  oreFuoriMese: Map<string, Map<string, number>>;
 };
 const ID_NUOVA = 'nuova-';
 type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string; straordinario?: boolean; ore_straordinario?: number };
@@ -218,17 +220,23 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     // Settimane intere che toccano il mese.
     const settimane = [...new Set(dateMese.map(lunediDi))];
     const tutte = settimane.flatMap(giorniDellaSettimana);
-    const [o, f, s, r, ev, tr, fe, sl, storico] = await Promise.all([
+    const [o, f, s, r, ev, tr, fe, sl, storico, fuori] = await Promise.all([
       supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', outletId),
       supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone').eq('outlet_id', outletId),
       supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', tutte[0]).lte('data', tutte[tutte.length - 1]),
       supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
       supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari').eq('company_id', companyId).lte('data_dal', tutte[tutte.length - 1]).gte('data_al', tutte[0]),
       caricaTraffico(companyId, outletId),
-      caricaGiorniFerie(companyId, dateMese[0], dateMese[dateMese.length - 1]),
+      // anche i giorni dell'altro mese nelle settimane a cavallo: tolgono ore alla settimana
+      caricaGiorniFerie(companyId, tutte[0], tutte[tutte.length - 1]),
       supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
       // Sabati e domeniche liberi dei piani scelti prima di questo mese: lo storico della rotazione.
       supabase.from('shift_plan_weekend_off').select('employee_id, data, shift_plans!inner(stato, outlet_id, mese)').eq('company_id', companyId).lt('data', `${mese}-01`),
+      // Settimana intera anche a cavallo di due mesi (Patrizio, 28/10/2026): i
+      // turni veri dei giorni dell'altro mese (piano scelto, piano settimanale,
+      // turni a mano, in qualunque negozio) tolgono ore alla settimana.
+      supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, shift_plans(stato)').eq('company_id', companyId)
+        .in('data', tutte.filter((d) => !d.startsWith(mese))).neq('stato', 'annullato'),
     ]);
     const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
     if (!orari.length) { toast({ type: 'error', message: `Mancano gli orari di ${nomeNegozio}: inseriscili in «Orari e fabbisogno».` }); return null; }
@@ -259,8 +267,16 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
       if (pl?.stato === 'scelto') storicoWeekend.set(x.employee_id, (storicoWeekend.get(x.employee_id) ?? 0) + 1);
     }
+    const oreFuoriMese = new Map<string, Map<string, number>>();
+    for (const x of ((fuori.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
+      const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
+      if (x.plan_id && pl?.stato !== 'scelto') continue; // le bozze degli altri piani non contano
+      const m = oreFuoriMese.get(x.employee_id) ?? new Map<string, number>();
+      m.set(x.data, (m.get(x.data) ?? 0) + oreLavorate({ inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 }));
+      oreFuoriMese.set(x.employee_id, m);
+    }
     return {
-      tutte, giorni, regole, atteso, extra, senzaLiberi, saldi, storicoWeekend,
+      tutte, giorni, regole, atteso, extra, senzaLiberi, saldi, storicoWeekend, oreFuoriMese,
       ferie: fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)),
       fonte: atteso.size ? `${propria ? 'traffico MODA del negozio' : 'forma media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}` : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
     };
@@ -316,7 +332,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       ]);
       const esito = pianificaMese({
         mese, giorni: b.giorni, persone: personePiano, regola, storicoWeekend: b.storicoWeekend, atteso: b.atteso, extra: b.extra, senzaLiberi: b.senzaLiberi, regole,
-        straordinariPersona: ipotesi ? straordinariPersona : undefined,
+        straordinariPersona: ipotesi ? straordinariPersona : undefined, oreFuoriMese: b.oreFuoriMese,
       });
       return { esito, straordinariPersona, tolte };
   };
