@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Info, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { almenoDuePersone } from '../lib/pianoMensile';
 import EditorTurno from './EditorTurno';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
@@ -180,7 +181,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           fasce: fasceDelle(disponibilita, p.scheda.id, date),
         }));
       // chi viene qui in trasferta e copre il negozio conta come presenza
-      const esito = proponiSettimana({ giorni, persone: candidati, regole, fissi: [...fissi, ...copertureVerso(trasferte, outletId)] });
+      const fissiTutti = [...fissi, ...copertureVerso(trasferte, outletId)];
+      const proposta = proponiSettimana({ giorni, persone: candidati, regole, fissi: fissiTutti });
+      // Mai un giorno con una persona sola (Patrizio, 28/10/2026); i turni a mano non si toccano.
+      const esito = { ...proposta, turni: almenoDuePersone(giorni, proposta.turni, candidati, [], regole, fissiTutti) };
       if (esito.turni.length) {
         const { error } = await supabase.from('shifts').insert(esito.turni.map((t) => ({
           company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data,

@@ -2111,45 +2111,50 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
   const outletName = outlets.find((o) => o.id === employee.outlet_id)?.name;
   const isTD = (emp.contratto_tipo || '') === 'determinato';
   const Cell = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div><div className="text-xs text-slate-400">{label}</div><div className="font-medium">{children}</div></div>
+    <div className="min-w-0"><div className="text-xs text-slate-400">{label}</div><div className="font-medium break-words">{children}</div></div>
   );
 
   return (
     <Modal title={`Scheda — ${empName(employee)}`} onClose={onClose} maxW="max-w-2xl">
-      {/* Sezione Contratto (sola lettura) + Modifica */}
-      <div className="mb-4 rounded-xl border border-slate-200 p-3">
-        <div className="flex items-center justify-between mb-2">
+      {/* Scheda ordinata (Patrizio, 28/10/2026): il contratto sempre in vista,
+          il resto in sezioni che si aprono quando servono. */}
+      <div className="mb-3 rounded-xl border border-slate-200 p-3">
+        <div className="flex items-center justify-between gap-2 mb-2">
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contratto e anagrafica</span>
           <button onClick={onEdit} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Edit2 size={13} /> Modifica</button>
         </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-          <Cell label="Matricola"><span className="tabular-nums">{val(employee.matricola)}</span></Cell>
-          <Cell label="Qualifica">{val(emp.qualifica || employee.role_description)}</Cell>
-          <Cell label="Livello">{val(employee.livello || (employee as any).level)}</Cell>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2.5 text-sm">
           <Cell label="Tipo contratto">{contrattoLabel(emp.contratto_tipo || (employee as any).contract_type)}</Cell>
-          <Cell label="% part time">{pct(emp.part_time_pct)}</Cell>
+          <Cell label="Ore a settimana"><span className="tabular-nums">{emp.ore_settimanali != null ? `${Number(emp.ore_settimanali).toLocaleString('it-IT')} h` : '—'}</span> <span className="text-xs font-normal text-slate-400">({pct(emp.part_time_pct)})</span></Cell>
           <Cell label="Sede">{val(outletName || sede)}</Cell>
-          <Cell label="Codice fiscale"><span className="tabular-nums text-xs">{val(employee.codice_fiscale || (employee as any).fiscal_code)}</span></Cell>
+          <Cell label="Qualifica e livello">{val(emp.qualifica || employee.role_description)} · {val(employee.livello || (employee as any).level)}</Cell>
           <Cell label="Data assunzione">{fmtDate(inizio)}</Cell>
+          <Cell label="Matricola"><span className="tabular-nums">{val(employee.matricola)}</span></Cell>
+          <div className="col-span-2 sm:col-span-3 min-w-0"><div className="text-xs text-slate-400">Codice fiscale</div><div className="font-medium tabular-nums text-xs break-all">{val(employee.codice_fiscale || (employee as any).fiscal_code)}</div></div>
         </div>
-        {emp.filiale && <div className="text-[11px] text-slate-400 mt-2">Filiale (da file contratti): {emp.filiale}</div>}
-
-        {isTD ? (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 p-2.5">
-            <div className="text-[11px] font-semibold text-amber-800 mb-1.5">Tempo determinato</div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-              <Cell label="Scadenza TD">{fmtDate(emp.scadenza_td)}</Cell>
-              <Cell label="Durata (mesi)"><span className="tabular-nums">{val(emp.durata_mesi)}</span></Cell>
-              <Cell label="Proroghe (usate/disp.)"><span className="tabular-nums">{val(emp.proroghe)} / {val(emp.proroghe_disponibili)}</span></Cell>
-              <Cell label="Stato">{val(emp.stato_td)}</Cell>
-              <Cell label="Mesi disp. senza causale"><span className="tabular-nums">{val(emp.mesi_disp_senza_causale)}</span></Cell>
-              <Cell label="Mesi disp. con causale"><span className="tabular-nums">{val(emp.mesi_disp_con_causale)}</span></Cell>
+        {isTD && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm text-amber-950">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Tempo determinato</span>
+              <span>scade il <b>{fmtDate(emp.scadenza_td)}</b></span>
+              <span className="text-amber-900/80">durata {val(emp.durata_mesi)} mesi</span>
+              <span className="text-amber-900/80">proroghe {val(emp.proroghe)} usate, {val(emp.proroghe_disponibili)} disponibili</span>
+            </div>
+            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-amber-900/80">
+              {emp.stato_td && <span className="break-words">{String(emp.stato_td)}</span>}
+              <span>mesi disponibili: {val(emp.mesi_disp_senza_causale)} senza causale, {val(emp.mesi_disp_con_causale)} con causale</span>
             </div>
           </div>
-        ) : (
-          <div className="text-[11px] text-slate-400 mt-2">Contratto non a termine: nessuna scadenza/proroga (il blocco "Tempo determinato" compare solo per i contratti a tempo determinato).</div>
         )}
-        {(emp.note || employee.notes) && <div className="text-[11px] text-slate-500 mt-2 whitespace-pre-line">{emp.note || employee.notes}</div>}
+        {emp.filiale && <div className="text-[11px] text-slate-400 mt-2">Filiale (da file contratti): {emp.filiale}</div>}
+        {(emp.note || employee.notes) && (
+          <details className="group mt-2">
+            <summary className="cursor-pointer list-none text-xs font-medium text-slate-500 hover:text-slate-700 inline-flex items-center gap-1 [&::-webkit-details-marker]:hidden">
+              <ChevronDown size={13} className="transition-transform group-open:rotate-180" /> Note e storico delle modifiche
+            </summary>
+            <div className="text-[11px] text-slate-500 mt-1 whitespace-pre-line break-words">{emp.note || employee.notes}</div>
+          </details>
+        )}
       </div>
 
       <DocumentiRapporto employeeId={employee.id} companyId={companyId} docs={docs} onChanged={onDocsChanged} />
@@ -2157,35 +2162,39 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
       <AccordiOrario employeeId={employee.id} companyId={companyId} outletId={employee.outlet_id ?? null}
         oreSettimanali={emp.ore_settimanali != null ? Number(emp.ore_settimanali) : null} />
 
-      <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-800 leading-relaxed">
-        Inserisci il <strong>netto del mese</strong> (così come arriva dalla busta paga). Ci sono <strong>14 mensilità</strong>: quando arrivano dall'Elenco netti, la <strong>13ª</strong> e la <strong>14ª</strong> sono cedolini a parte e si sommano da sole al mese (dicembre e giugno); se scrivi tu il netto qui, mettici anche la mensilità aggiuntiva, perché il valore a mano sostituisce tutto il mese. Il totale annuo è la <strong>somma dei mesi</strong>, mai mese×12. I valori inseriti qui a mano sono <strong>provvisori</strong>: l'import del mese (Elenco netti) li <strong>sovrascrive</strong> con il dato ufficiale.
-      </div>
+      <details className="group mb-3 rounded-xl border border-slate-200">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Netti del {year}</span>
+          <span className="flex items-center gap-2 text-xs text-slate-500">{mesiCompilati} mesi · <b className="tabular-nums text-emerald-700">{eurFmt.format(totale)}&nbsp;€</b><ChevronDown size={15} className="transition-transform group-open:rotate-180" /></span>
+        </summary>
+        <div className="px-3 pb-3">
+          <p className="mb-3 text-xs text-slate-600 leading-relaxed">
+            Il <b>netto del mese</b> come arriva dalla busta paga. La 13ª (dicembre) e la 14ª (giugno) arrivano dall'Elenco netti come cedolini a parte; se scrivi tu il netto, mettici anche la mensilità aggiuntiva. I valori scritti a mano sono provvisori: l'Elenco netti del mese li sostituisce con il dato ufficiale.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {MONTHS.map((m) => (
+              <label key={m.num} className="block">
+                <span className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+                  {m.label}
+                  {m.num === 12 && <span className="text-[10px] px-1 rounded bg-amber-50 text-amber-700">+13ª</span>}
+                  {m.num === 6 && <span className="text-[10px] px-1 rounded bg-amber-50 text-amber-700">+14ª</span>}
+                </span>
+                <div className="relative">
+                  <input value={vals[m.num]} onChange={(e) => setM(m.num, e.target.value)} placeholder="—" inputMode="decimal"
+                    className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 tabular-nums text-right pr-6" />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">€</span>
+                </div>
+              </label>
+            ))}
+          </div>
+          <div className="mt-3 flex justify-end">
+            <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva netti'}</button>
+          </div>
+        </div>
+      </details>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-        {MONTHS.map((m) => (
-          <label key={m.num} className="block">
-            <span className="text-xs text-slate-500 mb-1 flex items-center gap-1">
-              {m.label}
-              {m.num === 12 && <span className="text-[10px] px-1 rounded bg-amber-50 text-amber-700">+13ª</span>}
-              {m.num === 6 && <span className="text-[10px] px-1 rounded bg-amber-50 text-amber-700">+14ª</span>}
-            </span>
-            <div className="relative">
-              <input value={vals[m.num]} onChange={(e) => setM(m.num, e.target.value)} placeholder="—" inputMode="decimal"
-                className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 tabular-nums text-right pr-6" />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">€</span>
-            </div>
-          </label>
-        ))}
-      </div>
-
-      <div className="mt-4 p-3 rounded-lg bg-slate-50 border border-slate-200 flex items-center justify-between text-sm">
-        <span className="text-slate-600">Totale netto {year} <span className="text-slate-400">({mesiCompilati} mesi compilati)</span></span>
-        <strong className="tabular-nums" style={{ color: '#16a34a' }}>{eurFmt.format(totale)}&nbsp;€</strong>
-      </div>
-
-      <div className="flex justify-end gap-2 mt-5">
+      <div className="flex justify-end mt-4">
         <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Chiudi</button>
-        <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva netti'}</button>
       </div>
     </Modal>
   );
@@ -2419,8 +2428,12 @@ function DocumentiRapporto({ employeeId, companyId, docs, onChanged }: { employe
   };
 
   return (
-    <div className="mb-4 rounded-xl border border-slate-200 p-3">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-2">Documenti del rapporto</div>
+    <details className="group mb-3 rounded-xl border border-slate-200">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
+        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Documenti del rapporto</span>
+        <span className="flex items-center gap-2 text-xs text-slate-500">{ordinati.length ? `${ordinati.length} ${ordinati.length === 1 ? 'documento' : 'documenti'}` : 'nessuno'}<ChevronDown size={15} className="transition-transform group-open:rotate-180" /></span>
+      </summary>
+      <div className="px-3 pb-3">
       {ordinati.length === 0 ? (
         <div className="text-xs text-slate-400 mb-2">Nessun documento archiviato.</div>
       ) : (
@@ -2453,7 +2466,8 @@ function DocumentiRapporto({ employeeId, companyId, docs, onChanged }: { employe
       <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) carica(f); }} />
       <button onClick={() => fileRef.current?.click()} disabled={busy} className="mt-2 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Upload size={13} /> {busy ? 'Caricamento…' : 'Carica documento'}</button>
       <div className="text-[11px] text-slate-400 mt-1.5">I documenti restano come storico: uno nuovo si aggiunge, non sostituisce i precedenti.</div>
-    </div>
+      </div>
+    </details>
   );
 }
 

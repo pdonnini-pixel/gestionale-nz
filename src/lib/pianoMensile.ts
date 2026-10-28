@@ -459,6 +459,118 @@ export function copriOrarioMinimo(
   return out;
 }
 
+// ── Mai un giorno con una persona sola (Patrizio, 28/10/2026) ────────────
+
+/**
+ * Ogni giorno di apertura ha almeno due persone diverse: se una si ammala la
+ * mattina il negozio non resta chiuso, e il traffico non si regge su una sola.
+ * Per ogni giorno con una persona sola si da' un turno (almeno il turno minimo)
+ * a un collega che quel giorno non lavora: se non ha ore libere nella settimana
+ * le si prendono accorciando i suoi turni dove ci sono gia' due persone, senza
+ * lasciare mai una mezz'ora vuota. Il turno di chi era da sola si accorcia dove
+ * ora c'e' il collega; le ore che avanzano le rimette `usaOreResidue`. Se nessuno
+ * puo', il giorno resta e la pagina lo segnala («una persona sola»).
+ */
+export function almenoDuePersone(
+  base: GiornoPiano[], turni: Turno[], titolari: PersonaTurni[], riserva: PersonaTurni[], regole: RegoleTurni = REGOLE_DEFAULT,
+  /** turni messi a mano o gia' pubblicati: contano, ma non si toccano mai */
+  fissi: Turno[] = [],
+): Turno[] {
+  const intoccabili = new Set(fissi);
+  let out = [...turni, ...fissi];
+  const giorni = base.filter((g) => !g.chiuso);
+  const ore = (id: string, lista: Turno[], date: string[]) => lista.filter((t) => t.employeeId === id && date.includes(t.data)).reduce((a, t) => a + oreLavorate(t), 0);
+  const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
+    const pausa = pausaPer(lavoro, regole);
+    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+  };
+  const persone = (g: GiornoPiano, lista: Turno[]) => new Set(lista.filter((t) => t.data === g.data).map((t) => t.employeeId));
+  const copreTutto = (g: GiornoPiano, lista: Turno[]) => coperturaLorda(g, lista).every((c) => c >= 1);
+  const minimo = regole.turnoMinOre * 60;
+
+  for (const g of giorni) {
+    const chi = persone(g, out);
+    if (chi.size !== 1) continue;
+    const [solo] = [...chi];
+    const settimana = giorniDellaSettimana(lunediDi(g.data));
+    const giorniDi = (id: string, lista: Turno[]) => new Set(lista.filter((t) => t.employeeId === id && settimana.includes(t.data)).map((t) => t.data));
+    const candidati = [...titolari, ...riserva].filter((q) => q.id !== solo && !q.nonDisponibile.has(g.data)
+      && !out.some((t) => t.employeeId === q.id && t.data === g.data)
+      && lavoroMassimoGiorno(limitiPersona(q, g), regole) >= minimo)
+      .sort((a, b) => (giorniDi(a.id, out).size - giorniDi(b.id, out).size) || ((b.ore - ore(b.id, out, settimana)) - (a.ore - ore(a.id, out, settimana))));
+    for (const q of candidati) {
+      let prova = out;
+      // ha gia' tutti i giorni di lavoro: gli si toglie il turno di un giorno in cui
+      // restano almeno due persone e nessuna mezz'ora vuota, e quel turno viene qui
+      const spostaUnTurno = (lista: Turno[]): Turno[] | null => {
+        const via = lista.filter((t) => t.employeeId === q.id && t.data !== g.data && settimana.includes(t.data) && !intoccabili.has(t))
+          .map((t) => ({ t, g2: giorni.find((x) => x.data === t.data) }))
+          .filter((x): x is { t: Turno; g2: GiornoPiano } => !!x.g2)
+          .map(({ t, g2 }) => {
+            // senza il suo turno quel giorno si ricopre allungando i turni di chi c'e'
+            let senza = lista.filter((x) => x !== t);
+            if (!copreTutto(g2, senza)) {
+              const riparato = copriOrarioMinimo([g2], senza, titolari.filter((x) => x.id !== q.id), [], regole);
+              // la riparazione non deve aver toccato turni fissi
+              senza = fissi.every((f) => riparato.includes(f)) ? riparato : senza;
+            }
+            return { g2, senza };
+          })
+          .filter(({ g2, senza }) => persone(g2, senza).size >= 2 && copreTutto(g2, senza))
+          .sort((x, y) => persone(y.g2, y.senza).size - persone(x.g2, x.senza).size)[0];
+        return via ? via.senza : null;
+      };
+      let spostato = false;
+      if (giorniDi(q.id, prova).size >= regole.giorniLavoroMax) {
+        const l2 = spostaUnTurno(prova);
+        if (!l2) continue;
+        prova = l2; spostato = true;
+      }
+      // ore libere: se mancano, si accorciano i suoi turni dove ci sono gia' due persone
+      for (let k = 0; k < 40 && (q.ore - ore(q.id, prova, settimana)) * 60 < minimo - 1e-9; k++) {
+        let preso = false;
+        for (const t of prova.filter((x) => x.employeeId === q.id && x.data !== g.data && settimana.includes(x.data) && !intoccabili.has(x))) {
+          const g2 = giorni.find((x) => x.data === t.data);
+          const lav = oreLavorate(t) * 60 - SLOT_MINUTI;
+          if (!g2 || lav < minimo || persone(g2, prova).size < 2) continue;
+          for (const v of [conPausa(t, minuti(t.inizio) + SLOT_MINUTI, lav), conPausa(t, minuti(t.inizio), lav)]) {
+            const l2 = prova.map((x) => (x === t ? v : x));
+            if (copreTutto(g2, l2)) { prova = l2; preso = true; break; }
+          }
+          if (preso) break;
+        }
+        if (!preso) break;
+      }
+      if ((q.ore - ore(q.id, prova, settimana)) * 60 < minimo - 1e-9 && !spostato) {
+        // ore finite e turni gia' al minimo: si sposta qui un suo turno da un giorno affollato
+        const l2 = spostaUnTurno(prova);
+        if (l2) prova = l2;
+      }
+      if ((q.ore - ore(q.id, prova, settimana)) * 60 < minimo - 1e-9) continue;
+      // il turno del collega: alla chiusura se chi e' da sola apre, altrimenti all'apertura
+      const l = limitiPersona(q, g);
+      const lavoro = Math.min(lavoroMassimoGiorno(l, regole), minimo);
+      const durata = lavoro + pausaPer(lavoro, regole);
+      const suo = prova.find((t) => t.employeeId === solo && t.data === g.data)!;
+      const allaChiusura = minuti(suo.inizio) <= g.apre + SLOT_MINUTI;
+      const inizio = allaChiusura ? l.chiude - durata : l.apre;
+      if (inizio < l.apre || inizio + durata > l.chiude) continue;
+      const nuovo = conPausa({ employeeId: q.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, inizio, lavoro);
+      let lista = [...prova, nuovo];
+      // chi era da sola lascia al collega la parte che ora copre lui, senza scendere sotto il minimo
+      const i0 = minuti(suo.inizio); const lavSuo = oreLavorate(suo) * 60;
+      for (let taglio = intoccabili.has(suo) ? 0 : lavSuo - minimo; taglio >= SLOT_MINUTI; taglio -= SLOT_MINUTI) {
+        const v = allaChiusura ? conPausa(suo, i0, lavSuo - taglio) : conPausa(suo, i0 + taglio, lavSuo - taglio);
+        const l2 = lista.map((x) => (x === suo ? v : x));
+        if (copreTutto(g, l2)) { lista = l2; break; }
+      }
+      out = lista;
+      break;
+    }
+  }
+  return out.filter((t) => !intoccabili.has(t));
+}
+
 // ── Le ore di contratto che avanzano (Patrizio, 20/10/2026) ──────────────
 
 /**
@@ -932,6 +1044,11 @@ export function pianificaMese(args: {
         const restano = (weekendLiberi.get(d) ?? []).filter((id) => !esito.some((t) => t.employeeId === id && t.data === d));
         if (restano.length) weekendLiberi.set(d, restano); else weekendLiberi.delete(d);
       }
+    }
+    // Mai un giorno con una persona sola (Patrizio, 28/10/2026).
+    {
+      const fissiRefSett = new Set(fissiSett);
+      esito = [...almenoDuePersone(base, esito.filter((t) => !fissiRefSett.has(t)), perCopertura, riservaCopertura, regole, fissiSett), ...fissiSett];
     }
     // Le ore liberate dalla riparazione tornano dove MODA vede piu' gente.
     esito = usaOreResidue(gg, esito, candidati, args.atteso, regole);
