@@ -41,12 +41,12 @@ describe('stimaOrariEFabbisogno', () => {
     const lun = s.fasce.find((f) => f.giorno === 1)!;
     const sab = s.fasce.find((f) => f.giorno === 6)!;
     expect(sab.persone).toBeGreaterThan(lun.persone);
-    // aperto 10 ore: con 7 persone al massimo 3 tutto il giorno (3 aprono, 3 chiudono)
-    expect(s.fasce.every((f) => f.persone >= 1 && f.persone <= 3)).toBe(true);
+    // turno massimo 10 ore (Patrizio, 28/10/2026): fino a 11 ore di apertura
+    // una persona copre tutta la giornata, il tetto sono le persone in servizio
+    expect(s.fasce.every((f) => f.persone >= 1 && f.persone <= 7)).toBe(true);
     const tetto = stimaOrariEFabbisogno(chiusure(), 1000, 4);
-    // il mercoledi' chiude alle 18 (8 ore): li' un turno copre tutta la giornata, il tetto e' 4
-    expect(tetto.fasce.filter((f) => f.giorno !== 3).every((f) => f.persone <= 2)).toBe(true);
-    expect(tetto.fasce.find((f) => f.giorno === 3)!.persone).toBeLessThanOrEqual(4);
+    expect(tetto.fasce.every((f) => f.persone <= 4)).toBe(true);
+    expect(tetto.fasce.find((f) => f.giorno === 6)!.persone).toBe(4);
   });
 
   it('senza dati: orario standard e due persone, e lo dice', () => {

@@ -36,7 +36,7 @@ export interface RegoleTurni {
 
 export const REGOLE_DEFAULT: RegoleTurni = {
   turnoMinOre: 4,
-  turnoMaxOre: 8,
+  turnoMaxOre: 10,
   pausaOltreOre: 6,
   pausaMinuti: 30,
   pausaLungaOltreOre: 8,
@@ -62,6 +62,19 @@ export function pausaPer(lavoroMinuti: number, regole: RegoleTurni = REGOLE_DEFA
   if (lavoroMinuti >= regole.pausaLungaOltreOre * 60) return regole.pausaLungaMinuti;
   if (lavoroMinuti >= regole.pausaOltreOre * 60) return regole.pausaMinuti;
   return 0;
+}
+
+/**
+ * Minuti lavorati massimi di un turno in quel giorno: il turno massimo, ma con
+ * la sua pausa dentro l'orario di apertura (Patrizio, 28/10/2026: turno
+ * massimo 10 ore; in un negozio aperto 10 ore se ne lavorano 9 con un'ora di
+ * pausa, in uno aperto 11 ore se ne lavorano 10).
+ */
+export function lavoroMassimoGiorno(g: { apre: number; chiude: number }, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  const giornata = g.chiude - g.apre;
+  let lavoro = Math.min(regole.turnoMaxOre * 60, giornata);
+  while (lavoro > 0 && lavoro + pausaPer(lavoro, regole) > giornata) lavoro -= SLOT_MINUTI;
+  return Math.max(0, lavoro);
 }
 
 /** Regole da una riga di outlet_shift_rules (o i default se il negozio non ne ha). */
