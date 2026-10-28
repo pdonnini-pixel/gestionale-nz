@@ -102,7 +102,7 @@ export function stimaOrariEFabbisogno(
       const oreDelGiorno = oreContratto * peso(o.giorno) / totalePeso;
       // Per difetto: chiedere piu' persone di quante le ore ne coprono lascerebbe
       // buchi certi; le ore che avanzano la proposta dei turni le mette dove serve.
-      // Una persona fa un turno al giorno, al massimo 8 ore piu' la mezz'ora di pausa: se
+      // Una persona fa un turno al giorno, al massimo il turno massimo piu' la pausa: se
       // il negozio resta aperto di piu', per avere k persone tutto il giorno
       // servono k che aprono e k che chiudono. Il tetto lo tiene possibile.
       const turnoLungo = REGOLE_DEFAULT.turnoMaxOre + pausaPer(REGOLE_DEFAULT.turnoMaxOre * 60) / 60;

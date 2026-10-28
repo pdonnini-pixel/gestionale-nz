@@ -3,7 +3,7 @@ import {
   blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, assegnaWeekendLiberi,
   personeMinime, pianificaMese, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
 } from './pianoMensile';
-import { costruisciGiorni, giorniDellaSettimana, lunediDi, oreLavorate } from './turni';
+import { REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, lavoroMassimoGiorno, oreLavorate } from './turni';
 
 const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
 const date = (dal: string, n: number) => Array.from({ length: n }, (_, i) => {
@@ -72,8 +72,11 @@ describe('sabati e domeniche liberi a rotazione', () => {
   const giorni = costruisciGiorni(mese, orari, fasce, []);
   const persone = ['a', 'b', 'c', 'd', 'e'].map((id) => ({ id, disponibile: () => true }));
   it('equo: uno a testa nel mese, quando possibile', () => {
-    // sabato e domenica servono 4 persone (2 aprono, 2 chiudono): con 5 ne avanza una al giorno
-    expect(personeMinime(giorni.find((g) => g.data === '2026-11-07')!)).toBe(4);
+    // sabato e domenica servono 2 persone: con il turno massimo di 10 ore una
+    // persona copre tutta la giornata (9 lavorate + 1 di pausa in 10 ore)
+    expect(personeMinime(giorni.find((g) => g.data === '2026-11-07')!)).toBe(2);
+    // con turni da 8 ore servivano 2 che aprono e 2 che chiudono
+    expect(personeMinime(giorni.find((g) => g.data === '2026-11-07')!, { ...REGOLE_DEFAULT, turnoMaxOre: 8 })).toBe(4);
     const lib = assegnaWeekendLiberi({ giorni, persone, regola: 'sabato_o_domenica', storico: new Map() });
     const conta = new Map<string, number>();
     for (const ids of lib.values()) for (const id of ids) conta.set(id, (conta.get(id) ?? 0) + 1);
@@ -93,7 +96,7 @@ describe('sabati e domeniche liberi a rotazione', () => {
   });
   it('lo storico conta: chi ne ha avuti meno parte avanti', () => {
     const lib = assegnaWeekendLiberi({ giorni, persone, regola: 'solo_sabati', storico: new Map([['a', 5], ['b', 5], ['c', 5], ['d', 5]]) });
-    expect(lib.get('2026-11-07')).toEqual(['e']);
+    expect(lib.get('2026-11-07')![0]).toBe('e');
   });
   it('nei giorni degli eventi nessun libero', () => {
     const lib = assegnaWeekendLiberi({ giorni, persone, regola: 'sabato_o_domenica', storico: new Map(), senzaLiberi: new Set(['2026-11-28', '2026-11-29']) });
@@ -119,7 +122,7 @@ describe('il piano del mese', () => {
       expect(e.persone[p.id].pianificate).toBeLessThanOrEqual(e.persone[p.id].contratto + 1e-6);
       expect(e.persone[p.id].weekendLiberi).toBe(1);
     }
-    expect(e.turni.every((t) => oreLavorate(t) <= 8)).toBe(true);
+    expect(e.turni.every((t) => oreLavorate(t) <= 10)).toBe(true);
   });
   it('ore necessarie sull\'organico pieno: togliere una settimana di ferie riduce le ore scoperte', () => {
     const ferie = new Map(['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13'].map((d) => [d, 40 / 6]));
@@ -206,14 +209,14 @@ describe('le ore di contratto che avanzano', () => {
   const sett = giorniDellaSettimana('2026-11-09');
   const giorni = costruisciGiorni(sett, orari, [], []);
   const atteso = new Map(sett.map((d) => [d, Array.from({ length: 24 }, (_, h) => (h >= 15 && h < 18 ? 50 : 10))]));
-  it('allunga i turni dove entra più gente, entro 8 ore, fino alle ore di contratto', () => {
+  it('allunga i turni dove entra più gente, entro il turno massimo, fino alle ore di contratto', () => {
     const turni = [0, 1, 2, 3].map((i) => ({ employeeId: 'a', data: sett[i], inizio: '10:00', fine: '14:00', pausaMinuti: 0 }));
     const persone = [{ id: 'a', ore: 30, nonDisponibile: new Set<string>() }];
     const out = usaOreResidue(giorni, turni, persone, atteso);
     const ore = out.reduce((s, t) => s + oreLavorate(t), 0);
     expect(ore).toBeGreaterThan(16);
     expect(ore).toBeLessThanOrEqual(30 + 1e-9);
-    expect(out.every((t) => oreLavorate(t) <= 8 + 1e-9 && oreLavorate(t) >= 4 - 1e-9)).toBe(true);
+    expect(out.every((t) => oreLavorate(t) <= 10 + 1e-9 && oreLavorate(t) >= 4 - 1e-9)).toBe(true);
     // si allunga verso il pomeriggio, dove il traffico e' alto
     expect(out.some((t) => t.fine >= '17:00')).toBe(true);
   });
@@ -236,10 +239,12 @@ describe('le ore di contratto che avanzano', () => {
   });
 });
 describe('ore di contratto a giornata', () => {
-  it('novembre 2026: 26 giorni lavorativi, 40 ore = 173,3; una giornata di ferie vale 6,67', () => {
+  it('novembre 2026: 26 giorni lavorativi, 40 ore = 173,3; una giornata di ferie proposta vale 6,67', () => {
     expect(oreGiornata(40)).toBeCloseTo(6.667, 2);
-    expect(oreFerieGiorno('giornata', 8, 40)).toBeCloseTo(6.667, 2);
-    expect(oreFerieGiorno('mezza', 4, 40)).toBeCloseTo(3.333, 2);
+    // le ferie approvate valgono le ore del piano ferie; solo se mancano, /6
+    expect(oreFerieGiorno('giornata', 8, 40)).toBe(8);
+    expect(oreFerieGiorno('giornata', 0, 40)).toBeCloseTo(6.667, 2);
+    expect(oreFerieGiorno('mezza_giornata', 0, 40)).toBeCloseTo(3.333, 2);
     expect(oreFerieGiorno('ore', 2, 40)).toBe(2);
     const settimane = [...new Set(date30().map(lunediDi))];
     const nelMese = (d: string) => d.startsWith('2026-11');
@@ -266,5 +271,13 @@ describe('dove mettere le ore che avanzano', () => {
     expect(f.every((x) => x.data !== '2026-11-03')).toBe(true);
     // poche ore: il turno resta di almeno 4 ore
     expect(suggerisciFinestre({ giorni, atteso, turni, possibile: () => true, ore: 2.9 })[0].ore).toBe(4);
+  });
+});
+
+describe('turno massimo di 10 ore (Patrizio, 28/10/2026)', () => {
+  it('la pausa sta dentro l\'orario: 9 ore lavorate se il negozio apre 10 ore, 10 se ne apre 11', () => {
+    expect(lavoroMassimoGiorno({ apre: 600, chiude: 1200 })).toBe(540);
+    expect(lavoroMassimoGiorno({ apre: 600, chiude: 1260 })).toBe(600);
+    expect(lavoroMassimoGiorno({ apre: 600, chiude: 1080 })).toBe(450);
   });
 });

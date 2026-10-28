@@ -528,3 +528,20 @@ vedeva le ferie nel calendario senza ferie.
   `ferieTutte` resta per la prova delle ferie.
 - 93 contro 91,5 ore (nessun weekend libero peggio di un sabato libero): la proposta è un metodo a tentativi, non un
   ottimo garantito; differenze di 1-2 ore fra varianti sono possibili.
+
+## Ore della settimana e turno massimo di 10 ore (28/10/2026)
+
+Patrizio: «non è più valida la regola di dividere l'orario settimanale per 6 giorni». Il contratto è un monte ore
+settimanale: un 40 ore può fare 4 ore un giorno e 9 o 10 il giorno dopo, sempre con il minimo di 4 ore.
+- **Turno massimo 10 ore lavorate** (`REGOLE_DEFAULT.turnoMaxOre = 10`, default di colonna `turno_max_ore` a 10 con la
+  migration 327; Franciacorta aveva già 10, nessun altro negozio aveva regole salvate). La pausa sta dentro l'orario:
+  `lavoroMassimoGiorno` dà 9 ore lavorate in un negozio aperto 10 ore (10-20), 10 in uno aperto 11 (Valmontone sab-dom).
+  Prima il motore saltava il giorno quando turno + pausa non entravano nell'orario (difetto che già toccava Franciacorta):
+  ora il turno si accorcia a quello che entra.
+- Con turni più lunghi una persona copre da sola una giornata di 10 o 11 ore: `personeMinime` scende (es. 2 invece di 4
+  nel weekend con fabbisogno 2), quindi più sabati e domeniche liberi possibili; anche la stima di «Proponi dai dati»
+  non dimezza più il tetto delle persone nei negozi aperti fino a 11 ore.
+- **Ferie**: approvate = ore scritte nel piano ferie (`oreFerieGiorno`, il /6 solo se mancano); proposte da noi = ore
+  settimanali / 6 nei negozi (`proponiFerie`, `EditorTurno`), / 5 in Sede (quando ci sarà la sezione Sede).
+- **Settimana intera anche fra due mesi** (decisa da Patrizio): resta da realizzare il conteggio delle settimane a
+  cavallo; finché non c'è, `contrattoSett` usa ancora i giorni del mese (`giorniLavorativiSettimana` × ore / 6).

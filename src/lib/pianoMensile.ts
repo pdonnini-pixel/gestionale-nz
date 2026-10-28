@@ -21,7 +21,7 @@
 import { festivitaItaliane } from './ferieRichiesta';
 import {
   SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, proponiSettimana,
-  ritoccaScoperture, oreLavorate, oreScoperte, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
+  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, oreScoperte, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura,
 } from './turni';
 
@@ -289,9 +289,9 @@ export function copriOrarioMinimo(
     const inizio = Math.max(g.apre, Math.min(a, g.chiude - durata, b - durata < a ? a : b - durata));
     return conPausa({ employeeId: id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, Math.max(g.apre, Math.min(inizio, g.chiude - durata)), lavoro);
   };
-  const lavoroPer = (a: number, b: number, disponibili: number) => {
+  const lavoroPer = (a: number, b: number, disponibili: number, g: GiornoPiano) => {
     const serve = Math.max(regole.turnoMinOre * 60, b - a);
-    return Math.min(regole.turnoMaxOre * 60, serve, Math.floor(disponibili * 2) / 2 * 60);
+    return Math.min(lavoroMassimoGiorno(g, regole), serve, Math.floor(disponibili * 2) / 2 * 60);
   };
 
   // Il passo (1) su un giorno qualsiasi: restituisce la lista migliorata o null.
@@ -369,7 +369,7 @@ export function copriOrarioMinimo(
     const liberi = (gruppo: PersonaTurni[]) => gruppo.filter((p) => !p.nonDisponibile.has(g.data) && !giorniDi(p.id).has(g.data)
       && giorniDi(p.id, out.filter((t) => settimana.includes(t.data))).size < regole.giorniLavoroMax);
     for (const p of liberi(titolari).sort((x, y) => (y.ore - ore(y.id)) - (x.ore - ore(x.id)))) {
-      const lavoro = lavoroPer(a, b, p.ore - ore(p.id));
+      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g);
       if (lavoro < regole.turnoMinOre * 60) continue;
       out = [...out, turnoPer(p.id, g, a, b, lavoro)];
       fatto = true; break;
@@ -389,7 +389,7 @@ export function copriOrarioMinimo(
         const togli = altri.find((t) => nessunBuco(prova.filter((x) => x !== t), [t.data]));
         if (togli) {
           const senza = prova.filter((x) => x !== togli);
-          const lavoro = lavoroPer(a, b, p.ore - ore(p.id, senza));
+          const lavoro = lavoroPer(a, b, p.ore - ore(p.id, senza), g);
           if (lavoro >= regole.turnoMinOre * 60) { out = [...senza, turnoPer(p.id, g, a, b, lavoro)]; fatto = true; break; }
         }
       }
@@ -405,7 +405,7 @@ export function copriOrarioMinimo(
           if (minuti(nuovo.inizio) >= g.apre && minuti(nuovo.fine) <= g.chiude) { out = prova.map((x) => (x === t ? nuovo : x)); fatto = true; break; }
         }
       } else if (giorniDi(p.id, prova.filter((t) => settimana.includes(t.data))).size < regole.giorniLavoroMax) {
-        const lavoro = lavoroPer(a, b, libere);
+        const lavoro = lavoroPer(a, b, libere, g);
         if (lavoro >= regole.turnoMinOre * 60) { out = [...prova, turnoPer(p.id, g, a, b, lavoro)]; fatto = true; break; }
       }
     }
@@ -427,7 +427,7 @@ export function copriOrarioMinimo(
           sistemata = sistemaGiorno(liberaOre(senza, q, vuoteG2, [g2.data, g.data], settimana), g2);
         }
         if (!sistemata) continue;
-        const lavoro = lavoroPer(a, b, p.ore - ore(p.id, sistemata));
+        const lavoro = lavoroPer(a, b, p.ore - ore(p.id, sistemata), g);
         if (lavoro < regole.turnoMinOre * 60) continue;
         out = [...sistemata, turnoPer(p.id, g, a, b, lavoro)];
         fatto = true; break;
@@ -438,7 +438,7 @@ export function copriOrarioMinimo(
 
     // (4) chi e' a chiamata
     for (const p of liberi(riserva)) {
-      const lavoro = lavoroPer(a, b, p.ore - ore(p.id));
+      const lavoro = lavoroPer(a, b, p.ore - ore(p.id), g);
       if (lavoro < regole.turnoMinOre * 60) continue;
       out = [...out, turnoPer(p.id, g, a, b, lavoro)];
       fatto = true; break;
@@ -505,11 +505,14 @@ export function usaOreResidue(
       if (meglio) { out = (meglio as { lista: Turno[] }).lista; residuo -= 0.5; continue; }
       // 2. un turno nuovo in un giorno in cui non lavora
       const suoi = new Set(out.filter((t) => t.employeeId === p.id).map((t) => t.data));
-      const lavoro = Math.min(regole.turnoMaxOre, Math.floor(residuo * 2) / 2) * 60;
-      if (suoi.size >= regole.giorniLavoroMax || lavoro < regole.turnoMinOre * 60 - 1e-9) break;
+      const voluto = Math.min(regole.turnoMaxOre, Math.floor(residuo * 2) / 2) * 60;
+      if (suoi.size >= regole.giorniLavoroMax || voluto < regole.turnoMinOre * 60 - 1e-9) break;
       let nuovo: { t: Turno; w: number } | null = null;
       for (const g of giorno.values()) {
         if (suoi.has(g.data) || p.nonDisponibile.has(g.data)) continue;
+        // il turno con la sua pausa deve stare nell'orario del giorno
+        const lavoro = Math.min(voluto, lavoroMassimoGiorno(g, regole));
+        if (lavoro < regole.turnoMinOre * 60 - 1e-9) continue;
         const durata = lavoro + pausaPer(lavoro, regole);
         for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
           const t = conPausa({ employeeId: p.id, data: g.data, inizio: '', fine: '', pausaMinuti: 0 }, s0, lavoro);
@@ -519,7 +522,7 @@ export function usaOreResidue(
       }
       if (!nuovo) break;
       out = [...out, (nuovo as { t: Turno }).t];
-      residuo -= lavoro / 60;
+      residuo -= oreLavorate((nuovo as { t: Turno }).t);
     }
   }
   return out;
@@ -545,12 +548,14 @@ export function suggerisciFinestre(args: {
   possibile: (data: string) => boolean; ore: number; regole?: RegoleTurni; quante?: number;
 }): FinestraSuggerita[] {
   const regole = args.regole ?? REGOLE_DEFAULT;
-  const lavoro = Math.min(regole.turnoMaxOre, Math.max(regole.turnoMinOre, Math.round(args.ore * 2) / 2)) * 60;
-  const pausa = pausaPer(lavoro, regole);
-  const durata = lavoro + pausa;
+  const voluto = Math.min(regole.turnoMaxOre, Math.max(regole.turnoMinOre, Math.round(args.ore * 2) / 2)) * 60;
   const out: FinestraSuggerita[] = [];
   for (const g of args.giorni) {
-    if (g.chiuso || !args.possibile(g.data) || g.chiude - g.apre < durata) continue;
+    if (g.chiuso || !args.possibile(g.data)) continue;
+    const lavoro = Math.min(voluto, lavoroMassimoGiorno(g, regole));
+    if (lavoro < regole.turnoMinOre * 60) continue;
+    const pausa = pausaPer(lavoro, regole);
+    const durata = lavoro + pausa;
     const cop = coperturaLorda(g, args.turni);
     let meglio: FinestraSuggerita | null = null;
     for (let s0 = g.apre; s0 + durata <= g.chiude; s0 += SLOT_MINUTI) {
@@ -575,7 +580,7 @@ export interface FeriaProposta { data: string; voce: 'F01' | 'F02'; tipo: 'giorn
 /**
  * Le ore che restano dopo `usaOreResidue` diventano una proposta di ferie da
  * concordare con la dipendente: giornate intere (ore settimanali / 6, la regola
- * a giornata) di ferie
+ * delle ferie proposte da noi in negozio) di ferie
  * nei feriali in cui non lavora, distribuite sulle settimane, e il resto come
  * permesso a ore. Si propone soltanto: la decide la responsabile HR.
  */
@@ -617,18 +622,23 @@ export interface PersonaPiano {
 }
 
 // ── Ore di contratto a giornata (Patrizio, 21/10/2026) ────────────────────
-// Ogni contratto vale a ore per giornata lavorativa: ore settimanali diviso i
-// giorni di lavoro della settimana (6). Una giornata di ferie consuma le stesse
-// ore, una mezza giornata la meta', un permesso a ore le sue ore.
+// Il turno del giorno non dipende dalle ore settimanali divise per i giorni
+// (Patrizio, 28/10/2026): le ore della settimana si usano con turni da 4 ore
+// al turno massimo. Il /6 resta solo per le ferie che proponiamo noi nei
+// negozi (in Sede /5); le ferie approvate valgono le ore scritte nel piano ferie.
 
-/** Ore di una giornata di lavoro: 40 ore su 6 giorni = 6,67. */
+/** Ore di una giornata di ferie proposta da noi in negozio: 40 ore su 6 giorni = 6,67. */
 export function oreGiornata(oreSettimana: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
   return oreSettimana / regole.giorniLavoroMax;
 }
 
-/** Ore che una richiesta di ferie o permesso toglie in quel giorno. */
+/**
+ * Ore che una richiesta di ferie o permesso toglie in quel giorno: quelle
+ * scritte nel piano ferie. Solo se mancano, la giornata vale ore settimanali / 6
+ * e la mezza giornata la meta'.
+ */
 export function oreFerieGiorno(tipo: string, oreScritte: number, oreSettimana: number | null, regole: RegoleTurni = REGOLE_DEFAULT): number {
-  if (tipo === 'ore' || !oreSettimana) return oreScritte;
+  if (oreScritte > 0 || tipo === 'ore' || !oreSettimana) return oreScritte;
   const g = oreGiornata(oreSettimana, regole);
   return tipo === 'giornata' ? g : g / 2;
 }

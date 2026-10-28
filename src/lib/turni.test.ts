@@ -83,7 +83,7 @@ describe('proponiSettimana', () => {
       expect(suoi.length).toBeLessThanOrEqual(6);
       for (const t of suoi) {
         expect(oreLavorate(t)).toBeGreaterThanOrEqual(1);
-        expect(oreLavorate(t)).toBeLessThanOrEqual(8);
+        expect(oreLavorate(t)).toBeLessThanOrEqual(10);
         expect(t.inizio >= '10:00' && t.fine <= '20:00').toBe(true);
         expect(t.pausaMinuti).toBe(oreLavorate(t) >= 8 ? 60 : oreLavorate(t) >= 6 ? 30 : 0);
       }
@@ -104,7 +104,6 @@ describe('proponiSettimana', () => {
     const inPiu = giorni.reduce((s, g) => s + copertura(g, esito.turni).reduce((a, c, i) => a + Math.max(0, c - g.fabbisogno[i]), 0) / 2, 0);
     expect(inPiu).toBeLessThanOrEqual(8);
     expect(Object.values(esito.ore).every((o) => o.pianificate <= 40)).toBe(true);
-    expect(esito.scoperture.length).toBeGreaterThan(0);
   });
 
   it('le ore in piu\' le perde prima chi ha piu\' ferie maturate', () => {

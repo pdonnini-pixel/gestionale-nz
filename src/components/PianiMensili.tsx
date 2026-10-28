@@ -199,8 +199,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     .filter((x) => x.perGiorno.some((p) => p.outletId === outletId && p.stato === 'in_servizio'))
     .sort((a, b) => nomePersona(a.scheda).localeCompare(nomePersona(b.scheda), 'it')), [dati, dateMese, outletId]);
 
-  // Ferie e permessi in ore secondo la regola a giornata (Patrizio, 21/10/2026):
-  // una giornata di ferie vale ore settimanali / 6, un permesso a ore le sue ore.
+  // Ferie e permessi approvati valgono le ore scritte nel piano ferie (Patrizio,
+  // 28/10/2026); solo se mancano, la giornata vale ore settimanali / 6.
   const ferieTutte = useMemo(() => {
     const oreSett = new Map(persone.map(({ scheda, perGiorno }) => [scheda.id, perGiorno.find((p) => p.outletId === outletId && p.stato === 'in_servizio')?.ore ?? null]));
     return ferieRegistrate.map((x) => ({ ...x, ore: oreFerieGiorno(x.tipo, Number(x.ore), oreSett.get(x.employee_id) ?? null, regolePiano) }));
