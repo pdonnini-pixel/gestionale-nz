@@ -10,9 +10,8 @@
 // Il fabbisogno viene dal traffico MODA come nei turni (Patrizio, 29/10/2026):
 // le ore di contratto di tutto l'organico distribuite come gli ingressi
 // attesi, settimana per settimana (le «ore necessarie» del piano del mese).
-// Servono le persone del momento di punta, e mai meno di due (un giorno con
-// una persona sola non regge un'assenza). «Orari e fabbisogno» vale solo per
-// un negozio senza traffico.
+// Servono le persone del momento di punta. «Orari e fabbisogno» vale solo
+// per un negozio senza traffico.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
@@ -130,10 +129,8 @@ export default function PianoFerie({ companyId }: Props) {
     const out: { data: string; servono: number; restano: number; chi: string[] }[] = [];
     for (const g of fabbisogno.giorni) {
       if (g.data < oggi || g.data > fine || g.chiuso || !g.fabbisogno.length) continue;
-      const picco = Math.max(...g.fabbisogno);
-      if (picco <= 0) continue;
-      // con MODA: mai meno di due persone nella giornata (regola del 28/10/2026)
-      const servono = fabbisogno.moda ? Math.max(2, picco) : picco;
+      const servono = Math.max(...g.fabbisogno);
+      if (servono <= 0) continue;
       const presenti = fabbisogno.presenti(g.data);
       const via = presenti.filter((p) => ferie.some((f) => f.employee_id === p.scheda.id && f.data === g.data && f.tipo === 'giornata'
         && ['inviata', ...STATI_APPROVATE].includes(f.stato_richiesta) && f.stato_giorno !== 'respinto'));
@@ -217,7 +214,7 @@ export default function PianoFerie({ companyId }: Props) {
         <h3 className="text-sm font-semibold text-slate-800">Ferie e fabbisogno del negozio</h3>
         {fabbisogno?.moda && (
           <p className="text-xs text-slate-500 mt-0.5">
-            Fabbisogno dal {fabbisogno.moda.propria ? 'traffico MODA del negozio' : 'traffico MODA medio degli altri negozi'}: le ore di contratto di tutti distribuite come gli ingressi, contano le persone del momento di punta e mai meno di due.
+            Fabbisogno dal {fabbisogno.moda.propria ? 'traffico MODA del negozio' : 'traffico MODA medio degli altri negozi'}: le ore di contratto di tutti distribuite come gli ingressi, contano le persone del momento di punta.
           </p>
         )}
         {!haFabbisogno ? (

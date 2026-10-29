@@ -661,8 +661,9 @@ regola 1 del CLAUDE.md.
   altri), come il piano del mese. Le fasce valgono solo senza traffico.
 - **Piano ferie** (`PianoFerie.tsx`): `fabbisognoPienoDaTraffico`, cioè le «ore necessarie» del piano
   del mese: per ogni settimana le ore di contratto di tutto l'organico, ferie non tolte, distribuite
-  come MODA, al massimo le persone in forza. Servono le persone del picco della giornata, mai meno di
-  due (regola 6). Avviso se chi resta è meno.
+  come MODA, al massimo le persone in forza. Servono le persone del picco della giornata. Avviso se chi
+  resta è meno. Niente minimo di due persone nel controllo ferie: Patrizio, 29/10/2026, «per il
+  momento non lo aggiungerei».
 - **Piano del mese**: le «persone in più» dei giorni speciali prima si perdevano quando c'era il
   traffico (contavano solo quelle degli eventi); ora `personeInPiu` le somma tutte e due.
 - Misura del 29/10/2026 su NZ, settimana 9-15/11 (ore delle fasce → ore MODA): Barberino 103 → 170
