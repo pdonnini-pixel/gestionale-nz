@@ -146,8 +146,12 @@ export const NOMI_MESE = ['', 'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio'
 
 /**
  * Le ore disponibili della settimana distribuite come il traffico: in ogni
- * mezz'ora round(k × ingressi attesi), almeno una persona, mai piu' delle
- * persone disponibili quel giorno; k e' il piu' grande che sta nelle ore.
+ * mezz'ora round(k × ingressi attesi), almeno una persona; k e' il piu' grande
+ * con cui la distribuzione, senza tetti, sta nelle ore. Poi il tetto: mai piu'
+ * delle persone disponibili quel giorno. Le ore tagliate dal tetto non si
+ * spostano nelle mezz'ore con meno traffico (Patrizio, 29/10/2026): restano
+ * ore di contratto da usare altrove, e dove il traffico e' basso la
+ * richiesta resta bassa, cosi' le pause trovano posto.
  * Le persone in piu' degli eventi si sommano dopo. Senza traffico per un
  * giorno resta il fabbisogno che c'era.
  */
@@ -163,26 +167,24 @@ export function fabbisognoDaTraffico(
     const t = g.apre + i * SLOT_MINUTI;
     return (atteso.get(g.data)![Math.floor(t / 60)] ?? 0) / (60 / SLOT_MINUTI);
   };
-  const costruisci = (k: number) => giorni.map((g) => {
-    if (g.chiuso || !atteso.has(g.data)) return g;
-    const max = Math.max(1, maxPersone.get(g.data) ?? 1);
-    const fabbisogno = g.fabbisogno.map((_, i) => Math.min(max, Math.max(1, Math.round(k * peso(g, i)))) + (extra.get(g.data) ?? 0));
-    return { ...g, fabbisogno };
-  });
+  // Quello che MODA chiede senza il tetto delle persone di quel giorno.
+  const richiesta = (g: GiornoPiano, k: number) => g.fabbisogno.map((_, i) => Math.max(1, Math.round(k * peso(g, i))) + (extra.get(g.data) ?? 0));
   if (!conTraffico.length) return giorni;
-  const ore = (gg: GiornoPiano[]) => gg.reduce((s, g) => s + (atteso.has(g.data) ? g.fabbisogno.reduce((a, b) => a + b, 0) * SLOT_MINUTI / 60 : 0), 0);
+  const ore = (k: number) => conTraffico.reduce((s, g) => s + richiesta(g, k).reduce((a, b) => a + b, 0) * SLOT_MINUTI / 60, 0);
   let lo = 0, hi = 1;
-  while (ore(costruisci(hi)) < oreDisponibili && hi < 1e4) hi *= 2;
+  while (ore(hi) < oreDisponibili && hi < 1e4) hi *= 2;
   for (let i = 0; i < 40; i++) {
     const mid = (lo + hi) / 2;
-    if (ore(costruisci(mid)) <= oreDisponibili) lo = mid; else hi = mid;
+    if (ore(mid) <= oreDisponibili) lo = mid; else hi = mid;
   }
-  // Quello che MODA chiederebbe senza il tetto delle persone di quel giorno
-  // (Patrizio, 21/10/2026): serve a dire dove manca personale.
-  return costruisci(lo).map((g) => (g.chiuso || !atteso.has(g.data) ? g : {
-    ...g,
-    esigenza: g.fabbisogno.map((_, i) => Math.max(1, Math.round(lo * peso(g, i))) + (extra.get(g.data) ?? 0)),
-  }));
+  return giorni.map((g) => {
+    if (g.chiuso || !atteso.has(g.data)) return g;
+    const max = Math.max(1, maxPersone.get(g.data) ?? 1);
+    const extraG = extra.get(g.data) ?? 0;
+    // Il tetto vale sulle persone del traffico; quelle in piu' degli eventi si sommano sopra.
+    const esigenza = richiesta(g, lo);
+    return { ...g, fabbisogno: esigenza.map((x) => Math.min(max, x - extraG) + extraG), esigenza };
+  });
 }
 
 /**
