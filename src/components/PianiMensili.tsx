@@ -28,7 +28,7 @@ import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import SpostaTurnoModal from './SpostaTurnoModal';
 import { caricaTrasferte, copertureVerso, doveTrasferta, orePerData, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
-  NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno,
+  NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno, personeInPiu,
   REGOLE_DEFAULT, minuti, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 import {
@@ -267,7 +267,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       const a = trafficoAtteso(st, d);
       if (a) { atteso.set(d, a.ore); if (d.startsWith(mese)) fonti.add(a.fonte); }
     }
-    const extra = new Map(tutte.map((d) => [d, eventiDelGiorno(eventi, d).reduce((m, e) => Math.max(m, e.persone_extra || 0), 0)]));
+    // Persone in piu' degli eventi e dei giorni speciali («Giorni chiusi e orari diversi»), sopra MODA.
+    const extra = personeInPiu(tutte, (s.data as { data: string; persone_extra: number }[]) ?? [], eventi);
     const senzaLiberi = new Set(tutte.filter((d) => eventiDelGiorno(eventi, d).some((e) => e.blocca_ferie)));
 
     const saldi = new Map<string, number>();

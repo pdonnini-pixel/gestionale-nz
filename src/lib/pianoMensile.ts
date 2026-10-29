@@ -185,6 +185,49 @@ export function fabbisognoDaTraffico(
   }));
 }
 
+/**
+ * Gli ingressi attesi giorno per giorno e da dove vengono (tipo di giorno e
+ * mese). Vuoto se lo storico non ha giorni: allora vale il fabbisogno di
+ * «Orari e fabbisogno».
+ */
+export function attesoDelleDate(st: StoricoTraffico, date: string[]): { atteso: Map<string, number[]>; fonti: string[] } {
+  const atteso = new Map<string, number[]>();
+  const fonti = new Set<string>();
+  for (const d of date) {
+    const a = trafficoAtteso(st, d);
+    if (a) { atteso.set(d, a.ore); fonti.add(a.fonte); }
+  }
+  return { atteso, fonti: [...fonti] };
+}
+
+/**
+ * Il fabbisogno a organico pieno di piu' settimane, come le «ore necessarie»
+ * del piano del mese (Patrizio, 28/10/2026): per ogni settimana le ore di
+ * contratto di tutti, senza togliere ferie, distribuite come gli ingressi
+ * MODA, al massimo le persone in forza quel giorno. Serve al piano ferie per
+ * dire in quali giorni le ferie lasciano il negozio sotto MODA.
+ */
+export function fabbisognoPienoDaTraffico(
+  giorni: GiornoPiano[],
+  atteso: Map<string, number[]>,
+  oreSettimana: (lunedi: string) => number,
+  personeIl: (data: string) => number,
+  extra: Map<string, number> = new Map(),
+): GiornoPiano[] {
+  const perSettimana = new Map<string, GiornoPiano[]>();
+  for (const g of giorni) {
+    const lun = lunediDi(g.data);
+    if (!perSettimana.has(lun)) perSettimana.set(lun, []);
+    perSettimana.get(lun)!.push(g);
+  }
+  const fatti = new Map<string, GiornoPiano>();
+  for (const [lun, gg] of perSettimana) {
+    const maxP = new Map(gg.map((g) => [g.data, personeIl(g.data)]));
+    for (const g of fabbisognoDaTraffico(gg, atteso, oreSettimana(lun), maxP, extra)) fatti.set(g.data, g);
+  }
+  return giorni.map((g) => fatti.get(g.data) ?? g);
+}
+
 // ── Sabati e domeniche liberi ────────────────────────────────────────────
 
 export type RegolaWeekend = 'nessuno' | 'solo_sabati' | 'solo_domeniche' | 'sabato_o_domenica';

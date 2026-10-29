@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, assegnaWeekendLiberi,
+  blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, fabbisognoPienoDaTraffico, assegnaWeekendLiberi,
   personeMinime, pianificaMese, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
 } from './pianoMensile';
-import { REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, lavoroMassimoGiorno, oreLavorate } from './turni';
+import { REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate } from './turni';
 
 const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
 const date = (dal: string, n: number) => Array.from({ length: n }, (_, i) => {
@@ -62,6 +62,23 @@ describe('fabbisogno dal traffico, senza obiettivi', () => {
     for (const g of f) expect(Math.min(...g.fabbisogno)).toBeGreaterThanOrEqual(1);
     expect(Math.max(...f[5].fabbisogno)).toBeGreaterThan(Math.max(...f[0].fabbisogno)); // sabato > lunedì
     expect(Math.max(...f[5].fabbisogno)).toBeLessThanOrEqual(4);
+  });
+  it('a organico pieno, settimana per settimana: ogni settimana usa le sue ore', () => {
+    const due = [...sett, ...giorniDellaSettimana('2026-11-16')];
+    const gg = costruisciGiorni(due, orari, [], []);
+    const at = new Map(due.map((d) => [d, atteso.get(sett[giorniDellaSettimana(lunediDi(d)).indexOf(d)])!]));
+    const f = fabbisognoPienoDaTraffico(gg, at, (lun) => (lun === '2026-11-09' ? 120 : 60), () => 4);
+    const oreSett = (lun: string) => f.filter((g) => lunediDi(g.data) === lun).reduce((s, g) => s + g.fabbisogno.reduce((a, b) => a + b, 0) / 2, 0);
+    expect(oreSett('2026-11-09')).toBeGreaterThan(100);
+    expect(oreSett('2026-11-09')).toBeLessThanOrEqual(120);
+    expect(oreSett('2026-11-16')).toBeLessThanOrEqual(70); // almeno una persona sempre: 7 giorni x 10 ore
+  });
+  it('le persone in più di giorni speciali ed eventi si sommano a MODA', () => {
+    const extra = personeInPiu(sett, [{ data: sett[0], persone_extra: 1 }],
+      [{ nome: 'Saldi', data_dal: sett[0], data_al: sett[1], outlet_ids: null, persone_extra: 2, blocca_ferie: false, straordinari: false }]);
+    expect(extra.get(sett[0])).toBe(3);
+    expect(extra.get(sett[1])).toBe(2);
+    expect(extra.get(sett[2])).toBe(0);
   });
 });
 

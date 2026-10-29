@@ -6,6 +6,7 @@ import { supabase } from './supabase';
 import type { EventoOrganico, SchedaPersona } from './organico';
 import { oraRoma, type ChiusuraGiorno } from './stimaNegozio';
 import { puoLavorareIl, type Accordo, type FasciaOraria } from './accordiOrario';
+import { storicoTraffico, type StoricoTraffico } from './pianoMensile';
 
 export interface NegozioRif {
   id: string;
@@ -116,6 +117,17 @@ export async function caricaChiusurePerStima(companyId: string, settimane = 8): 
       oraConferma: oraRoma(c.confirmed_at),
       incasso: c.total_receipts != null ? Number(c.total_receipts) : null,
     }));
+}
+
+/**
+ * Lo storico MODA per il fabbisogno di un negozio: il suo traffico, oppure,
+ * se non ne ha (negozio nuovo), la forma media di tutti gli altri. Stessa
+ * fonte del piano del mese.
+ */
+export async function caricaStoricoNegozio(companyId: string, outletId: string): Promise<{ storico: StoricoTraffico; propria: boolean }> {
+  const righe = await caricaTraffico(companyId, outletId);
+  const propria = righe.length > 0;
+  return { storico: storicoTraffico(propria ? righe : await caricaTraffico(companyId, null)), propria };
 }
 
 /**
