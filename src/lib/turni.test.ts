@@ -220,6 +220,34 @@ describe('pause: chi e\' in pausa non e\' in negozio', () => {
     expect(oreScoperte([g], t)).toBe(1); // contando persone intere sarebbe un'ora
   });
 
+  it('pausa pranzo fra le 13 e le 15 per chi lavora a cavallo; chi entra dopo la fa dopo due ore', () => {
+    const g = giorno(1);
+    const t = [
+      { employeeId: 'a', data: LUN, inizio: '10:00', fine: '18:00', pausaMinuti: 30 },
+      { employeeId: 'b', data: LUN, inizio: '10:00', fine: '19:00', pausaMinuti: 60 },
+      { employeeId: 'c', data: LUN, inizio: '14:00', fine: '20:00', pausaMinuti: 30 },
+    ];
+    const pause = new Map(collocaPause(g, t).map((p) => [p.employeeId, p]));
+    for (const id of ['a', 'b']) {
+      expect(minuti(pause.get(id)!.dalle)).toBeGreaterThanOrEqual(minuti('13:00'));
+      expect(minuti(pause.get(id)!.alle)).toBeLessThanOrEqual(minuti('15:00'));
+    }
+    expect(minuti(pause.get('c')!.dalle)).toBeGreaterThanOrEqual(minuti('16:00'));
+  });
+
+  it('giorno pieno: turni da 7 ore e mezza, pause da mezz\'ora tutte nella fascia del pranzo', () => {
+    const dom = '2026-11-01';
+    const fasce = [['10:00', '11:00', 1], ['11:00', '13:00', 4], ['13:00', '15:00', 3], ['15:00', '18:00', 4], ['18:00', '19:00', 2], ['19:00', '20:00', 1]]
+      .map(([dalle, alle, persone]) => ({ giorno: 7, dalle: String(dalle), alle: String(alle), persone: Number(persone) }));
+    const g = costruisciGiorni([dom], [{ giorno: 7, chiuso: false, apre: '10:00', chiude: '20:00' }], fasce, [])[0];
+    const esito = proponiSettimana({ giorni: [g], persone: ['a', 'b', 'c', 'd'].map((id) => persona(id, 36)) });
+    expect(esito.turni.filter((t) => oreLavorate(t) <= 7.5).length).toBeGreaterThanOrEqual(3);
+    for (const p of collocaPause(g, esito.turni)) {
+      expect(minuti(p.dalle)).toBeGreaterThanOrEqual(minuti('13:00'));
+      expect(minuti(p.alle)).toBeLessThanOrEqual(minuti('15:00'));
+    }
+  });
+
   it('la proposta tiene conto delle pause: con 2 persone sempre servono pause sfalsate', () => {
     const date = giorniDellaSettimana('2026-10-19');
     const g7 = costruisciGiorni(date, [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' })),

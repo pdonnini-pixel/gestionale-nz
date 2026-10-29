@@ -292,7 +292,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     return {
       tutte, giorni, regole, atteso, extra, senzaLiberi, saldi, storicoWeekend, oreFuoriMese,
       ferie: fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)),
-      fonte: atteso.size ? `${propria ? 'traffico MODA del negozio' : 'forma media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}` : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
+      fonte: atteso.size
+        ? `${propria ? 'traffico MODA del negozio' : 'forma media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}; ${regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali, ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria)`
+        : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
     };
   };
 

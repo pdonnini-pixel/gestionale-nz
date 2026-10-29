@@ -145,46 +145,45 @@ export const NOMI_MESE = ['', 'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio'
 // ── Fabbisogno dal traffico ──────────────────────────────────────────────
 
 /**
- * Le ore disponibili della settimana distribuite come il traffico: in ogni
- * mezz'ora round(k × ingressi attesi), almeno una persona; k e' il piu' grande
- * con cui la distribuzione, senza tetti, sta nelle ore. Poi il tetto: mai piu'
- * delle persone disponibili quel giorno. Le ore tagliate dal tetto non si
- * spostano nelle mezz'ore con meno traffico (Patrizio, 29/10/2026): restano
- * ore di contratto da usare altrove, e dove il traffico e' basso la
- * richiesta resta bassa, cosi' le pause trovano posto.
- * Le persone in piu' degli eventi si sommano dopo. Senza traffico per un
- * giorno resta il fabbisogno che c'era.
+ * La soglia di ingressi per addetto di quel giorno: quella del weekend per
+ * sabato, domenica e festivi, quando entrano famiglie e curiosi; quella dei
+ * feriali negli altri giorni.
+ */
+export function sogliaDelGiorno(data: string, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  const weekend = giornoIso(data) >= 6 || !!festivi(Number(data.slice(0, 4)))[data];
+  return Math.max(1, weekend ? regole.sogliaWeekend : regole.sogliaFeriali);
+}
+
+/**
+ * Il fabbisogno dal traffico MODA e dalla soglia (Patrizio, 29/10/2026): in
+ * ogni mezz'ora servono gli ingressi attesi in quell'ora diviso la soglia di
+ * ingressi per addetto, almeno una persona, mai piu' delle persone disponibili
+ * quel giorno, piu' le persone in piu' di eventi e giorni speciali. Le ore di
+ * contratto non cambiano il fabbisogno: quelle che il traffico non chiede
+ * restano da assegnare (ferie, permessi o turni, lo decide l'HR).
+ * `esatto` e' lo stesso senza arrotondare; `esigenza` e' senza il tetto delle
+ * persone. Senza traffico per un giorno resta il fabbisogno che c'era.
  */
 export function fabbisognoDaTraffico(
   giorni: GiornoPiano[],
   atteso: Map<string, number[]>,
-  oreDisponibili: number,
+  regole: RegoleTurni,
   maxPersone: Map<string, number>,
   extra: Map<string, number> = new Map(),
 ): GiornoPiano[] {
-  const conTraffico = giorni.filter((g) => !g.chiuso && atteso.has(g.data));
-  const peso = (g: GiornoPiano, i: number) => {
-    const t = g.apre + i * SLOT_MINUTI;
-    return (atteso.get(g.data)![Math.floor(t / 60)] ?? 0) / (60 / SLOT_MINUTI);
-  };
-  // Quello che MODA chiede senza il tetto delle persone di quel giorno.
-  const richiesta = (g: GiornoPiano, k: number) => g.fabbisogno.map((_, i) => Math.max(1, Math.round(k * peso(g, i))) + (extra.get(g.data) ?? 0));
-  if (!conTraffico.length) return giorni;
-  const ore = (k: number) => conTraffico.reduce((s, g) => s + richiesta(g, k).reduce((a, b) => a + b, 0) * SLOT_MINUTI / 60, 0);
-  let lo = 0, hi = 1;
-  while (ore(hi) < oreDisponibili && hi < 1e4) hi *= 2;
-  for (let i = 0; i < 40; i++) {
-    const mid = (lo + hi) / 2;
-    if (ore(mid) <= oreDisponibili) lo = mid; else hi = mid;
-  }
   return giorni.map((g) => {
     if (g.chiuso || !atteso.has(g.data)) return g;
+    const soglia = sogliaDelGiorno(g.data, regole);
     const max = Math.max(1, maxPersone.get(g.data) ?? 1);
     const extraG = extra.get(g.data) ?? 0;
+    const persone = g.fabbisogno.map((_, i) => Math.max(1, (atteso.get(g.data)![Math.floor((g.apre + i * SLOT_MINUTI) / 60)] ?? 0) / soglia));
     // Il tetto vale sulle persone del traffico; quelle in piu' degli eventi si sommano sopra.
-    const esigenza = richiesta(g, lo);
-    const esatto = g.fabbisogno.map((_, i) => Math.min(max, Math.max(1, lo * peso(g, i))) + extraG);
-    return { ...g, fabbisogno: esigenza.map((x) => Math.min(max, x - extraG) + extraG), esigenza, esatto };
+    return {
+      ...g,
+      fabbisogno: persone.map((x) => Math.min(max, Math.round(x)) + extraG),
+      esigenza: persone.map((x) => Math.round(x) + extraG),
+      esatto: persone.map((x) => Math.min(max, x) + extraG),
+    };
   });
 }
 
@@ -201,34 +200,6 @@ export function attesoDelleDate(st: StoricoTraffico, date: string[]): { atteso: 
     if (a) { atteso.set(d, a.ore); fonti.add(a.fonte); }
   }
   return { atteso, fonti: [...fonti] };
-}
-
-/**
- * Il fabbisogno a organico pieno di piu' settimane, come le «ore necessarie»
- * del piano del mese (Patrizio, 28/10/2026): per ogni settimana le ore di
- * contratto di tutti, senza togliere ferie, distribuite come gli ingressi
- * MODA, al massimo le persone in forza quel giorno. Serve al piano ferie per
- * dire in quali giorni le ferie lasciano il negozio sotto MODA.
- */
-export function fabbisognoPienoDaTraffico(
-  giorni: GiornoPiano[],
-  atteso: Map<string, number[]>,
-  oreSettimana: (lunedi: string) => number,
-  personeIl: (data: string) => number,
-  extra: Map<string, number> = new Map(),
-): GiornoPiano[] {
-  const perSettimana = new Map<string, GiornoPiano[]>();
-  for (const g of giorni) {
-    const lun = lunediDi(g.data);
-    if (!perSettimana.has(lun)) perSettimana.set(lun, []);
-    perSettimana.get(lun)!.push(g);
-  }
-  const fatti = new Map<string, GiornoPiano>();
-  for (const [lun, gg] of perSettimana) {
-    const maxP = new Map(gg.map((g) => [g.data, personeIl(g.data)]));
-    for (const g of fabbisognoDaTraffico(gg, atteso, oreSettimana(lun), maxP, extra)) fatti.set(g.data, g);
-  }
-  return giorni.map((g) => fatti.get(g.data) ?? g);
 }
 
 // ── Sabati e domeniche liberi ────────────────────────────────────────────
@@ -514,7 +485,7 @@ export function copriOrarioMinimo(
  * a un collega che quel giorno non lavora: se non ha ore libere nella settimana
  * le si prendono accorciando i suoi turni dove ci sono gia' due persone, senza
  * lasciare mai una mezz'ora vuota. Il turno di chi era da sola si accorcia dove
- * ora c'e' il collega; le ore che avanzano le rimette `usaOreResidue`. Se nessuno
+ * ora c'e' il collega; le ore che avanzano restano da assegnare. Se nessuno
  * puo', il giorno resta e la pagina lo segnala («una persona sola»).
  */
 export function almenoDuePersone(
@@ -626,6 +597,8 @@ export function almenoDuePersone(
  * basta, un turno nuovo (almeno il turno minimo) in un giorno in cui non lavora,
  * senza superare i giorni di lavoro. Quello che resta diventa una proposta di
  * ferie (`proponiFerie`), mai ore pagate senza lavoro.
+ * Dal 29/10/2026 il piano del mese non la usa piu': con la soglia di ingressi
+ * le ore che il traffico non chiede restano da assegnare, e le decide l'HR.
  */
 export function usaOreResidue(
   giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], atteso: Map<string, number[]>, regole: RegoleTurni = REGOLE_DEFAULT,
@@ -1016,27 +989,21 @@ export function pianificaMese(args: {
   });
   const libero = (id: string, d: string) => (weekendLiberi.get(d) ?? []).includes(id);
 
-  // 2. Fabbisogno di ogni settimana dal traffico e dalle ore che ci sono,
-  // con le persone davvero disponibili giorno per giorno.
-  // Le ore necessarie (Patrizio, 28/10/2026) si calcolano sull'organico pieno:
-  // le ore di contratto di tutti, senza togliere ferie e permessi, distribuite
-  // come gli ingressi MODA. Le ferie e le regole dei turni fanno la differenza
-  // fra necessarie e coperte: togliendo una ferie le ore scoperte calano.
+  // 2. Fabbisogno di ogni giorno dal traffico e dalla soglia di ingressi per
+  // addetto (Patrizio, 29/10/2026), con le persone davvero disponibili giorno
+  // per giorno. Le ore necessarie si calcolano sull'organico pieno (senza
+  // togliere ferie e permessi): le ferie fanno la differenza fra necessarie e
+  // coperte, e togliendo una ferie le ore scoperte calano.
   const giorniMese: GiornoPiano[] = [];
   const giorniNecessari: GiornoPiano[] = [];
   for (const lun of settimane) {
     const date = giorniDellaSettimana(lun).filter(nelMese);
     const gg = args.giorni.filter((g) => date.includes(g.data));
-    const ore = contrattuali.reduce((a, p) => a + orePersona(p, lun), 0);
     if (args.fabbisognoFisso) { giorniMese.push(...gg); giorniNecessari.push(...gg); continue; }
     const maxP = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) && !libero(p.id, g.data)).length]));
-    giorniMese.push(...fabbisognoDaTraffico(gg, args.atteso, ore, maxP, args.extra));
-    // Le necessarie sulla stessa base del contratto (Patrizio, 28/10/2026: 44 di
-    // necessarie contro 42,9 di contratto non si capiva): le ore da contratto di
-    // questo mese, distribuite come MODA sui suoi giorni.
-    const orePiene = contrattuali.reduce((a, p) => a + contrattoSett(p, lun), 0);
+    giorniMese.push(...fabbisognoDaTraffico(gg, args.atteso, regole, maxP, args.extra));
     const maxPieno = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length]));
-    giorniNecessari.push(...fabbisognoDaTraffico(gg, args.atteso, orePiene, maxPieno, args.extra));
+    giorniNecessari.push(...fabbisognoDaTraffico(gg, args.atteso, regole, maxPieno, args.extra));
   }
 
   // 3. Le settimane.
@@ -1056,8 +1023,8 @@ export function pianificaMese(args: {
     // e si tolgono alla fine della settimana.
     const fissiSett = (args.fissi ?? []).filter((t) => date.includes(t.data));
     let esito = [...proponiSettimana({ giorni: gg, persone: candidati, regole, fissi: fissiSett }).turni, ...fissiSett];
-    // Le ore di contratto che avanzano si usano dove c'e' piu' gente (traffico MODA).
-    esito = usaOreResidue(gg, esito, candidati, args.atteso, regole);
+    // Le ore di contratto che il traffico non chiede restano da assegnare: ferie,
+    // permessi o turni li decide l'HR (Patrizio, 29/10/2026), niente turni in piu' automatici.
     const base = gg.map((g) => ({ ...g, fabbisogno: g.fabbisogno.map(() => 1) }));
     // La riserva a chiamata copre i buchi che restano, fino a 8 ore al giorno.
     const disponibiliRiserva = riserva.filter((p) => date.some((d) => !p.nonDisponibile.has(d)));
@@ -1096,8 +1063,6 @@ export function pianificaMese(args: {
       const fissiRefSett = new Set(fissiSett);
       esito = [...almenoDuePersone(base, esito.filter((t) => !fissiRefSett.has(t)), perCopertura, riservaCopertura, regole, fissiSett), ...fissiSett];
     }
-    // Le ore liberate dalla riparazione tornano dove MODA vede piu' gente.
-    esito = usaOreResidue(gg, esito, candidati, args.atteso, regole);
     // Poi, se ammessi, gli straordinari di chi ha un contratto: prima la
     // riserva (ore normali), poi le ore in piu' dei titolari.
     const straordDi = (id: string) => args.straordinariPersona?.get(id) ?? args.straordinariSettimana ?? 0;

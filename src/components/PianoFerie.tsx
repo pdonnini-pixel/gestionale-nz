@@ -8,10 +8,10 @@
 // con quelle ferie, restano meno persone di quelle che servono.
 //
 // Il fabbisogno viene dal traffico MODA come nei turni (Patrizio, 29/10/2026):
-// le ore di contratto di tutto l'organico distribuite come gli ingressi
-// attesi, settimana per settimana (le «ore necessarie» del piano del mese).
-// Servono le persone del momento di punta. «Orari e fabbisogno» vale solo
-// per un negozio senza traffico.
+// in ogni ora gli ingressi attesi diviso la soglia di ingressi per addetto
+// del negozio, al massimo le persone in forza (le «ore necessarie» del piano
+// del mese). Servono le persone del momento di punta. «Orari e fabbisogno»
+// vale solo per un negozio senza traffico.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
@@ -22,9 +22,9 @@ import {
   type PersonaOggi,
 } from '../lib/organico';
 import { caricaGiorniFerie, caricaOrganico, caricaStoricoNegozio, nomeNegozio, type DatiOrganico } from '../lib/organicoDati';
-import { attesoDelleDate, fabbisognoPienoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
+import { attesoDelleDate, fabbisognoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
 import {
-  costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu,
+  costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, regoleDaRiga, type RegoleTurni,
   type FasciaFabbisogno, type GiornoSpeciale, type OrarioGiornoTipo,
 } from '../lib/turni';
 
@@ -50,20 +50,24 @@ export default function PianoFerie({ companyId }: Props) {
   const [fasce, setFasce] = useState<(FasciaFabbisogno & { outlet_id: string })[]>([]);
   const [speciali, setSpeciali] = useState<(GiornoSpeciale & { outlet_id: string })[]>([]);
   const [negozio, setNegozio] = useState('');
+  // Regole dei turni per negozio: la soglia di ingressi per addetto.
+  const [regoleNegozi, setRegoleNegozi] = useState<Map<string, RegoleTurni>>(new Map());
   // Traffico MODA del negozio scelto (o forma media degli altri).
   const [storico, setStorico] = useState<{ outletId: string; storico: StoricoTraffico; propria: boolean } | null>(null);
 
   const carica = useCallback(async () => {
     if (!companyId) return;
     try {
-      const [d, s, f, o, n, sp] = await Promise.all([
+      const [d, s, f, o, n, sp, rg] = await Promise.all([
         caricaOrganico(companyId),
         supabase.from('v_leave_disponibilita').select('*').eq('company_id', companyId),
         caricaGiorniFerie(companyId, oggi, fine),
         supabase.from('outlet_opening_hours').select('outlet_id, giorno, chiuso, apre, chiude').eq('company_id', companyId),
         supabase.from('outlet_staffing_needs').select('outlet_id, giorno, dalle, alle, persone').eq('company_id', companyId),
         supabase.from('outlet_special_days').select('outlet_id, data, chiuso, apre, chiude, persone_extra, nota').eq('company_id', companyId).gte('data', oggi).lte('data', fine),
+        supabase.from('outlet_shift_rules').select('*').eq('company_id', companyId),
       ]);
+      setRegoleNegozi(new Map(((rg.data as (Parameters<typeof regoleDaRiga>[0] & { outlet_id: string })[]) ?? []).map((r) => [r.outlet_id, regoleDaRiga(r)])));
       setDati(d);
       setSaldi(((s.data as Record<string, unknown>[]) ?? []).map((r) => ({
         employee_id: String(r.employee_id), voce: String(r.voce), saldo_alla_data: (r.saldo_alla_data as string) ?? null,
@@ -103,7 +107,6 @@ export default function PianoFerie({ companyId }: Props) {
   // I giorni in cui, con le ferie, il negozio resta sotto il fabbisogno.
   const fabbisogno = useMemo(() => {
     if (!dati || !negozio) return null;
-    // Settimane intere: le ore di contratto valgono da lunedi' a domenica.
     const date: string[] = [];
     for (let l = lunediDi(oggi); l <= fine; l = aggiungiGiorni(l, 7)) date.push(...giorniDellaSettimana(l));
     const sp = speciali.filter((x) => x.outlet_id === negozio);
@@ -112,17 +115,13 @@ export default function PianoFerie({ companyId }: Props) {
     const presenti = (d: string) => dati.schede.map((x) => personaAllaData(x, dati.eventi, d)).filter((p) => p.outletId === negozio && p.stato === 'in_servizio');
     const moda = storico?.outletId === negozio ? attesoDelleDate(storico.storico, date) : null;
     if (!moda || !moda.atteso.size) return { giorni: base, presenti, moda: null };
-    // Le ore settimanali di chi e' in forza in quella settimana, ferie comprese.
-    const oreSettimana = (lun: string) => dati.schede.reduce((a, x) => {
-      const p = giorniDellaSettimana(lun).map((d) => personaAllaData(x, dati.eventi, d)).find((q) => q.outletId === negozio && q.stato === 'in_servizio');
-      return a + (p?.ore ?? 0);
-    }, 0);
+    const regole = regoleNegozi.get(negozio) ?? regoleDaRiga(null);
     return {
-      giorni: fabbisognoPienoDaTraffico(base, moda.atteso, oreSettimana, (d) => presenti(d).length, personeInPiu(date, sp)),
+      giorni: fabbisognoDaTraffico(base, moda.atteso, regole, new Map(date.map((d) => [d, presenti(d).length])), personeInPiu(date, sp)),
       presenti,
-      moda: { fonti: moda.fonti, propria: storico?.propria ?? false },
+      moda: { fonti: moda.fonti, propria: storico?.propria ?? false, soglia: regole },
     };
-  }, [dati, negozio, orari, fasce, speciali, storico, oggi, fine]);
+  }, [dati, negozio, orari, fasce, speciali, storico, oggi, fine, regoleNegozi]);
 
   const conflitti = useMemo(() => {
     if (!fabbisogno) return [];
@@ -214,7 +213,7 @@ export default function PianoFerie({ companyId }: Props) {
         <h3 className="text-sm font-semibold text-slate-800">Ferie e fabbisogno del negozio</h3>
         {fabbisogno?.moda && (
           <p className="text-xs text-slate-500 mt-0.5">
-            Fabbisogno dal {fabbisogno.moda.propria ? 'traffico MODA del negozio' : 'traffico MODA medio degli altri negozi'}: le ore di contratto di tutti distribuite come gli ingressi, contano le persone del momento di punta.
+            Fabbisogno dal {fabbisogno.moda.propria ? 'traffico MODA del negozio' : 'traffico MODA medio degli altri negozi'}: in ogni ora gli ingressi diviso {fabbisogno.moda.soglia.sogliaFeriali} per addetto nei feriali e {fabbisogno.moda.soglia.sogliaWeekend} nel weekend (soglia provvisoria), al massimo le persone in forza; contano le persone del momento di punta.
           </p>
         )}
         {!haFabbisogno ? (
