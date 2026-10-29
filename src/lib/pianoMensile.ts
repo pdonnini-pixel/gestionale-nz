@@ -21,7 +21,7 @@
 import { festivitaItaliane } from './ferieRichiesta';
 import {
   SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, proponiSettimana,
-  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
+  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
 
@@ -183,7 +183,8 @@ export function fabbisognoDaTraffico(
     const extraG = extra.get(g.data) ?? 0;
     // Il tetto vale sulle persone del traffico; quelle in piu' degli eventi si sommano sopra.
     const esigenza = richiesta(g, lo);
-    return { ...g, fabbisogno: esigenza.map((x) => Math.min(max, x - extraG) + extraG), esigenza };
+    const esatto = g.fabbisogno.map((_, i) => Math.min(max, Math.max(1, lo * peso(g, i))) + extraG);
+    return { ...g, fabbisogno: esigenza.map((x) => Math.min(max, x - extraG) + extraG), esigenza, esatto };
   });
 }
 
@@ -1153,8 +1154,10 @@ export function pianificaMese(args: {
     const gn = giorniNecessari.filter((g) => date.includes(g.data));
     const contratto = contrattuali.reduce((a, p) => a + contrattoSett(p, lun), 0);
     const ferie = contrattuali.reduce((a, p) => a + ferieSett(p, lun), 0);
-    const necessarie = gn.reduce((a, g) => a + (g.chiuso ? 0 : g.fabbisogno.reduce((x, y) => x + y, 0)), 0) * SLOT_MINUTI / 60;
-    const scoperte = oreScoperte(gn, presenti);
+    // Necessarie e sotto MODA senza arrotondare (Patrizio, 29/10/2026): 3,53
+    // persone con 3 in negozio sono mezza persona che manca, non una.
+    const necessarie = gn.reduce((a, g) => a + (g.chiuso ? 0 : (g.esatto ?? g.fabbisogno).reduce((x, y) => x + y, 0)), 0) * SLOT_MINUTI / 60;
+    const scoperte = oreSottoModa(gn, presenti);
     const pianificate = turni.filter((t) => date.includes(t.data)).reduce((a, t) => a + oreLavorate(t), 0);
     const coperte = necessarie - scoperte;
     const nonUsate = contrattuali.reduce((a, p) => {

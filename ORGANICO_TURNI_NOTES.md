@@ -671,3 +671,20 @@ regola 1 del CLAUDE.md.
   picco 5), Palmanova 113 → 126, Valmontone 147 → 156. Avvisi ferie fino al 31/12: prima 0 ovunque;
   con MODA Barberino 4 giorni (7, 8, 14, 15/11), Valmontone 6 (weekend 7-8, 14-15, 21-22/11),
   Palmanova 0. Sono tutte ferie di sabato o domenica, dove il picco MODA chiede tutto l'organico.
+
+## Ore oltre il tetto, sotto MODA senza arrotondare, «In negozio» con le pause (29/10/2026)
+
+Nato dal 1/11 di Barberino: tabella «4 ore sotto MODA», calendario «coperto».
+- La riga «In negozio» contava chi aveva il turno, pausa compresa; il riquadro delle ore toglieva le
+  pause. Ora anche «In negozio» usa `copertura()` (pause tolte) e lo stesso fabbisogno esatto.
+- `fabbisognoDaTraffico`: k si calcola sulla distribuzione **senza** il tetto delle persone, poi il
+  tetto taglia. Prima k cresceva finché le ore entravano col tetto, e le ore del sabato e della
+  domenica finivano nelle ore e nei giorni con meno traffico (il 1/11: 4 persone anche alle 18 con 49
+  ingressi). Le ore tagliate restano «da assegnare» o ferie.
+- `esatto` (non arrotondato, con tetto) misura necessarie e ore sotto MODA (`oreSottoModa`) e guida
+  `collocaPause`. La proposta e i controlli interni del motore (`oreScoperte`) restano interi.
+- Misura del 29/10: 1/11 Barberino, 36 h, 4 persone dalle 10 alle 20 con un'ora di pausa: da 4 a 3,6 ore
+  sotto MODA. Il traffico chiede 4 persone (4,3-5,5 senza tetto) in tutte le ore 11-18 tranne le 13
+  (3,63): la prima pausa va alle 13, le altre tre cadono dove servono tutte e quattro. Il buco è vero.
+  Settimane di novembre (necessarie intere): Barberino 170 → 135 h (feriali 16 → 10 h), Palmanova 126 →
+  117, Valmontone 156 → 133. Le varianti già create vanno ricreate per vedere i numeri nuovi.

@@ -161,6 +161,13 @@ export interface GiornoPiano {
   straordinari?: boolean;
   /** persone che MODA chiederebbe in ogni mezz'ora, senza il tetto delle persone disponibili quel giorno: la differenza con chi c'e' e' personale che manca */
   esigenza?: number[];
+  /**
+   * Le persone che MODA chiede in ogni mezz'ora senza arrotondare (3,53 e non
+   * 4), con il tetto delle persone e le persone in piu'. Serve a misurare le
+   * ore sotto MODA e a mettere le pause dove il traffico e' piu' basso
+   * (Patrizio, 29/10/2026); la proposta dei turni usa il fabbisogno intero.
+   */
+  esatto?: number[];
 }
 
 export interface PersonaTurni {
@@ -416,7 +423,8 @@ export function collocaPause(giorno: GiornoPiano, turni: Turno[]): PausaCollocat
       for (let m = s; m < s + durata; m += SLOT_MINUTI) {
         const i = (m - giorno.apre) / SLOT_MINUTI;
         if (i < 0 || i >= cop.length) continue;
-        const resto = cop[i] - 1 - giorno.fabbisogno[i];
+        // dove c'e' il fabbisogno esatto di MODA, la pausa va dove il traffico e' piu' basso
+        const resto = cop[i] - 1 - (giorno.esatto?.[i] ?? giorno.fabbisogno[i]);
         margine = Math.min(margine, resto);
         somma += resto;
       }
@@ -484,6 +492,20 @@ type ArgsProposta = {
 export function oreScoperte(giorni: GiornoPiano[], turni: Turno[]): number {
   return giorni.reduce((s, g) => s + copertura(g, turni)
     .reduce((a, c, i) => a + Math.max(0, g.fabbisogno[i] - c), 0) * (SLOT_MINUTI / 60), 0);
+}
+
+/**
+ * Ore sotto MODA: in ogni mezz'ora le persone che il traffico chiede senza
+ * arrotondare meno chi e' davvero in negozio (le pause tolte). Mezza persona
+ * che manca per mezz'ora vale un quarto d'ora. Senza il fabbisogno esatto
+ * (negozio senza traffico) vale quello intero, come oreScoperte.
+ */
+export function oreSottoModa(giorni: GiornoPiano[], turni: Turno[]): number {
+  return giorni.reduce((s, g) => {
+    if (g.chiuso) return s;
+    const serve = g.esatto ?? g.fabbisogno;
+    return s + copertura(g, turni).reduce((a, c, i) => a + Math.max(0, (serve[i] ?? 0) - c), 0) * (SLOT_MINUTI / 60);
+  }, 0);
 }
 
 /**

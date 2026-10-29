@@ -3,7 +3,7 @@ import {
   rispettaFasce,
   riassuntoOrari,
   costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer, pausaMinimaPerPresenza,
-  scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
+  scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, oreSottoModa, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
 } from './turni';
 
 const LUN = '2026-10-19';
@@ -210,6 +210,14 @@ describe('pause: chi e\' in pausa non e\' in negozio', () => {
     const pause = collocaPause(g, t);
     expect(pause).toHaveLength(2);
     expect(pause[0].dalle).not.toBe(pause[1].dalle);
+  });
+
+  it('con il fabbisogno esatto la pausa va dove il traffico è più basso e mezza persona vale mezza', () => {
+    const g = { ...giorno(2), esatto: Array.from({ length: 20 }, (_, i) => (i === 8 || i === 9 ? 1.4 : 2)) }; // 14-15 piu' vuota
+    const t = [{ employeeId: 'a', data: LUN, inizio: '10:00', fine: '20:00', pausaMinuti: 60 }, { employeeId: 'b', data: LUN, inizio: '10:00', fine: '20:00', pausaMinuti: 0 }];
+    expect(collocaPause(g, t)[0].dalle).toBe('14:00');
+    expect(oreSottoModa([g], t)).toBeCloseTo(0.4); // 0,4 persone per un'ora
+    expect(oreScoperte([g], t)).toBe(1); // contando persone intere sarebbe un'ora
   });
 
   it('la proposta tiene conto delle pause: con 2 persone sempre servono pause sfalsate', () => {

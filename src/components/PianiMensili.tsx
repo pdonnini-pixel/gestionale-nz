@@ -29,7 +29,7 @@ import SpostaTurnoModal from './SpostaTurnoModal';
 import { caricaTrasferte, copertureVerso, doveTrasferta, orePerData, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno, personeInPiu,
-  REGOLE_DEFAULT, minuti, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
+  REGOLE_DEFAULT, minuti, copertura, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 import {
   pianificaMese, proponiFerie, oreFerieGiorno, suggerisciFinestre, storicoTraffico, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
@@ -64,7 +64,8 @@ type Riepilogo = {
     ferieTolte?: { nome: string; data: string }[];
   };
   /** per ogni giorno del mese: apertura e persone che MODA chiede in ogni mezz'ora (senza tetto) */
-  bisogno?: Record<string, { apre: number; chiude: number; esigenza: number[] }>;
+  /** esatto: le persone che MODA chiede senza arrotondare (dal 29/10/2026; i piani creati prima non lo hanno) */
+  bisogno?: Record<string, { apre: number; chiude: number; esigenza: number[]; esatto?: number[] }>;
   /** turni e liberi delle persone nuove di una simulazione (non hanno una scheda) */
   turniNuove?: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number }[];
   liberiNuove?: { employee_id: string; data: string }[];
@@ -388,7 +389,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         persone: esito.persone,
         // «In negozio»: le persone necessarie a organico pieno (mai piu' di quelle in servizio)
         bisogno: Object.fromEntries(esito.necessari.filter((g) => !g.chiuso && g.data.startsWith(mese))
-          .map((g) => [g.data, { apre: g.apre, chiude: g.chiude, esigenza: g.fabbisogno }])),
+          .map((g) => [g.data, { apre: g.apre, chiude: g.chiude, esigenza: g.fabbisogno, esatto: g.esatto?.map((x) => Math.round(x * 100) / 100) }])),
         ...(ipotesi ? {
           ipotesi: {
             persone: persone.map(({ scheda, perGiorno }) => ({
@@ -1217,14 +1218,14 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             const statoCopertura = (d: string): ReactNode => {
               const b = pianoAperto.riepilogo.bisogno?.[d];
               if (!b || !dateMese.includes(d)) return null;
-              const tutti = [
+              const tutti: Turno[] = [
                 ...turniPiano.filter((x) => x.data === d),
                 ...(pianoAperto.riepilogo.turniNuove ?? []).filter((x) => x.data === d),
+              ].map((x) => ({ employeeId: x.employee_id, data: x.data, inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 }))
                 // chi viene qui in trasferta e copre il negozio
-                ...trasferte.filter((x) => x.data === d && x.copreDestinazione && x.destinazioneOutletId === outletId),
-              ];
+                .concat(copertureVerso(trasferte.filter((x) => x.data === d), outletId));
               const n = Math.round((b.chiude - b.apre) / 30);
-              const cop = Array.from({ length: n }, (_, i) => {
+              const lorda = Array.from({ length: n }, (_, i) => {
                 const t = b.apre + i * 30;
                 return tutti.filter((x) => minuti(x.inizio) <= t && minuti(x.fine) > t).length;
               });
@@ -1233,15 +1234,22 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 for (let i = 0; i < n; i++) if (cond(i)) { let j = i; while (j < n && cond(j)) j++; out.push(`${hhmmCorto(b.apre + i * 30)}-${hhmmCorto(b.apre + j * 30)}`); i = j; }
                 return out;
               };
-              const vuote = fasce((i) => cop[i] === 0);
+              const vuote = fasce((i) => lorda[i] === 0);
               // Mai un giorno con una persona sola (Patrizio, 28/10/2026)
-              const persone = new Set(tutti.map((x) => ('employee_id' in x ? x.employee_id : (x as { employeeId: string }).employeeId))).size;
+              const persone = new Set(tutti.map((x) => x.employeeId)).size;
               if (!vuote.length && persone === 1) return <span className="block rounded-md px-1 py-1 bg-amber-100 text-amber-900 text-[10px] font-semibold leading-tight" title="Se si ammala la mattina il negozio resta chiuso: aggiungi un collega">una persona sola</span>;
               if (vuote.length) return <span className="block rounded-md px-1 py-1 bg-red-600 text-white text-[10px] font-semibold leading-tight" title="Negozio senza nessuno in questi orari">scoperto {vuote.join(', ')}</span>;
-              const mancano = Math.max(0, ...cop.map((c, i) => (b.esigenza[i] ?? 1) - c));
-              if (mancano > 0) {
-                const dove = fasce((i) => (b.esigenza[i] ?? 1) > cop[i]);
-                return <span className="block rounded-md px-1 py-1 bg-amber-100 text-amber-900 text-[10px] font-semibold leading-tight" title="Sotto MODA: in questi orari il traffico chiede più persone di quelle in turno">sotto MODA di {mancano === 1 ? '1 persona' : `${mancano} persone`} {dove.join(', ')}</span>;
+              // Come nelle ore sotto MODA (Patrizio, 29/10/2026): chi e' in pausa non
+              // conta, e si confronta con quello che MODA chiede senza arrotondare.
+              const serve = b.esatto ?? b.esigenza;
+              const giorno: GiornoPiano = { data: d, giorno: 0, chiuso: false, apre: b.apre, chiude: b.chiude, fabbisogno: b.esigenza, esatto: b.esatto, nota: null, speciale: false };
+              const cop = copertura(giorno, tutti);
+              const manca = (i: number) => Math.max(0, (serve[i] ?? 1) - cop[i]);
+              const oreSotto = Array.from({ length: n }, (_, i) => manca(i)).reduce((a, x) => a + x, 0) / 2;
+              if (oreSotto >= 0.25) {
+                const mancano = Math.max(1, Math.round(Math.max(...Array.from({ length: n }, (_, i) => manca(i)))));
+                const dove = fasce((i) => manca(i) > 0.01);
+                return <span className="block rounded-md px-1 py-1 bg-amber-100 text-amber-900 text-[10px] font-semibold leading-tight" title="Sotto MODA: in questi orari il traffico chiede più persone di quelle in negozio, pause comprese">sotto MODA {fmt(oreSotto)} h (fino a {mancano === 1 ? '1 persona' : `${mancano} persone`}) {dove.join(', ')}</span>;
               }
               return <span className="block text-[10px] font-semibold text-emerald-700">coperto</span>;
             };

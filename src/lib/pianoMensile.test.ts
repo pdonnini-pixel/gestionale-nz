@@ -73,6 +73,16 @@ describe('fabbisogno dal traffico, senza obiettivi', () => {
     expect(oreSett('2026-11-09')).toBeLessThanOrEqual(120);
     expect(oreSett('2026-11-16')).toBeLessThanOrEqual(70); // almeno una persona sempre: 7 giorni x 10 ore
   });
+  it('le ore oltre il tetto non finiscono nelle ore vuote; il fabbisogno esatto non arrotonda', () => {
+    const d = '2026-11-01';
+    const ore = Array(24).fill(0); [30, 93, 89, 75, 85, 102, 126, 101, 49, 15].forEach((v, i) => { ore[10 + i] = v; });
+    const g = fabbisognoDaTraffico(costruisciGiorni([d], orari, [], []), new Map([[d, ore]]), 36, new Map([[d, 4]]))[0];
+    expect(g.fabbisogno.slice(16, 18)).toEqual([2, 2]); // alle 18 il traffico chiede 2 persone, non 4
+    expect(g.fabbisogno.reduce((a, b) => a + b, 0) / 2).toBeLessThan(36); // le ore tagliate restano da usare altrove
+    expect(g.esatto![6]).toBeGreaterThan(3.5); // alle 13: 3,6 persone, non 4
+    expect(g.esatto![6]).toBeLessThan(3.7);
+    expect(Math.max(...g.esatto!)).toBeLessThanOrEqual(4);
+  });
   it('le persone in più di giorni speciali ed eventi si sommano a MODA', () => {
     const extra = personeInPiu(sett, [{ data: sett[0], persone_extra: 1 }],
       [{ nome: 'Saldi', data_dal: sett[0], data_al: sett[1], outlet_ids: null, persone_extra: 2, blocca_ferie: false, straordinari: false }]);
