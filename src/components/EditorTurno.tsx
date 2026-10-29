@@ -12,6 +12,7 @@ import { formattaDataBreve } from '../lib/organico';
 import { NOMI_GIORNO_BREVI, minuti, oreLavorate, pausaMinimaPerPresenza, pausaPer, type RegoleTurni } from '../lib/turni';
 import { oreGiornata } from '../lib/pianoMensile';
 import { oreTrasferta, type Trasferta } from '../lib/trasferte';
+import { mossePossibili, type MossaTurno } from '../lib/spostaTurni';
 
 export type TurnoModificabile = {
   id: string; inizio: string; fine: string; pausa_minuti: number;
@@ -52,11 +53,22 @@ export type FerieDalCalendario = {
  */
 export type TrasfertaDalCalendario = { negozi: { id: string; nome: string }[]; esistente: Trasferta | null };
 
+/**
+ * Dare il turno a un'altra persona o affiancarla (Patrizio, 29/10/2026), con
+ * l'orario scritto nella finestra: le operazioni le fa il piano del mese.
+ */
+export type PassaggioTurno = {
+  colleghi: { id: string; nome: string }[];
+  haTurno: (id: string) => boolean;
+  avvisi: (m: MossaTurno, versoId: string, ore: { inizio: string; fine: string }) => string[];
+  esegui: (m: MossaTurno, versoId: string, ore: { inizio: string; fine: string; pausa_minuti: number }) => Promise<string | null>;
+};
+
 export default function EditorTurno({
-  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, onClose, onSalvato,
+  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, passaggio, onClose, onSalvato,
 }: {
   companyId: string; outletId: string; employeeId: string; data: string; turno: TurnoModificabile | null; planId: string | null;
-  nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario; trasferta?: TrasfertaDalCalendario;
+  nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario; trasferta?: TrasfertaDalCalendario; passaggio?: PassaggioTurno;
   onClose: () => void; onSalvato: (messaggio?: string) => void;
 }) {
   const { toast } = useToast();
@@ -165,6 +177,17 @@ export default function EditorTurno({
     } finally {
       setSalvo(false);
     }
+  };
+
+  const [collega, setCollega] = useState('');
+  const mosseCollega = collega && passaggio ? mossePossibili(passaggio.haTurno(collega), false) : [];
+  const ETICHETTE: Record<MossaTurno, string> = { sposta: 'Dai il turno', affianca: 'Metti anche a lei', scambia: 'Scambia i turni', sostituisci: 'Dai il turno al posto del suo' };
+  const passa = async (m: MossaTurno) => {
+    if (!passaggio || errore) return;
+    setSalvo(true);
+    const msg = await passaggio.esegui(m, collega, { inizio, fine, pausa_minuti: pausaVera });
+    setSalvo(false);
+    if (msg) onSalvato(msg);
   };
 
   // Trasferta (Patrizio, 28/10/2026): lavoro fuori dal negozio, con l'orario
@@ -287,6 +310,32 @@ export default function EditorTurno({
                   </div>
                 );
               })}
+          </div>
+        )}
+
+        {turno && passaggio && (
+          <div className="rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2.5 text-sm">
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-900 mb-1">Dai questo turno a un'altra persona, o mettilo anche a lei</p>
+            <p className="text-xs text-blue-900 mb-2">Con l'orario scritto in alto (lo puoi cambiare prima). Nel calendario puoi anche trascinare la casella.</p>
+            <select value={collega} onChange={(e) => setCollega(e.target.value)} aria-label="Collega"
+              className="w-full min-h-[38px] rounded-lg border border-blue-300 bg-white px-2 text-sm">
+              <option value="">Scegli la persona…</option>
+              {passaggio.colleghi.filter((c) => c.id !== employeeId).map((c) => <option key={c.id} value={c.id}>{c.nome}{passaggio.haTurno(c.id) ? ' (ha già un turno quel giorno)' : ''}</option>)}
+            </select>
+            {collega && (
+              <div className="mt-2 space-y-2">
+                {mosseCollega.map((m) => {
+                  const avvisi = errore ? [] : passaggio.avvisi(m, collega, { inizio, fine });
+                  return (
+                    <div key={m}>
+                      <button type="button" onClick={() => passa(m)} disabled={salvo || !!errore}
+                        className="min-h-[36px] px-3 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">{ETICHETTE[m]}</button>
+                      {avvisi.length > 0 && <ul className="mt-1 space-y-0.5 text-xs text-amber-800">{avvisi.map((a) => <li key={a}>• {a}</li>)}</ul>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 

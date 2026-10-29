@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Info, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { almenoDuePersone } from '../lib/pianoMensile';
 import EditorTurno from './EditorTurno';
+import SpostaTurnoModal from './SpostaTurnoModal';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import {
@@ -17,7 +18,9 @@ import {
   type PersonaOggi,
 } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
-import { fasceDelle, type Accordo } from '../lib/accordiOrario';
+import { fasceDelle, fasciaIl, type Accordo } from '../lib/accordiOrario';
+import { avvisiMossa as avvisiDellaMossa, esitoMossa, mossePossibili, type ContestoSpostamenti, type MossaTurno } from '../lib/spostaTurni';
+import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
@@ -65,6 +68,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [disponibilita, setDisponibilita] = useState<Map<string, Accordo>>(new Map());
   const [trasferte, setTrasferte] = useState<Trasferta[]>([]);
   const [editor, setEditor] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
+  // Turno trascinato e mossa da confermare (Patrizio, 29/10/2026: come nel piano del mese).
+  const [trascinato, setTrascinato] = useState<string | null>(null);
+  const [mossa, setMossa] = useState<{ turno: TurnoDb; versoId: string; versoData: string } | null>(null);
 
   const carica = useCallback(async () => {
     setCaricamento(true);
@@ -223,6 +229,37 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     carica();
   };
 
+  // Spostare, scambiare e affiancare i turni: dal calendario trascinando la
+  // casella, dalla finestra del turno con «Dai questo turno a…». I turni
+  // toccati diventano «messi a mano».
+  const nomeDi = (id: string) => nomePersona(dati.schede.find((x) => x.id === id) ?? { nome: '', cognome: '' });
+  const contestoMosse: ContestoSpostamenti = {
+    turni: attivi,
+    nomeDi,
+    inServizio: (id, d) => {
+      const p = persone.find((x) => x.scheda.id === id);
+      const k = date.indexOf(d);
+      return !!p && k >= 0 && p.perGiorno[k].outletId === outletId && p.perGiorno[k].stato === 'in_servizio';
+    },
+    inFerie: (id, d) => inFerie(id, d)?.tipo === 'giornata',
+    inTrasferta: (id, d) => trasferte.some((x) => x.employeeId === id && x.data === d),
+    puoLavorare: (id, d) => puoLavorareIl(disponibilita, id, d),
+    fascia: (id, d) => fasciaIl(disponibilita, id, d),
+    giorniMax: regole.giorniLavoroMax,
+    apertura: (d) => giorni.find((g) => g.data === d),
+    coperture: copertureVerso(trasferte, outletId).map((x) => ({ employee_id: x.employeeId, data: x.data, inizio: x.inizio, fine: x.fine })),
+    settimanaDi: () => date,
+  };
+  const eseguiMossa = async (m: MossaTurno, t: TurnoDb, versoId: string, versoData: string, ore?: { inizio: string; fine: string; pausa_minuti: number }): Promise<string | null> => {
+    try {
+      await eseguiMossaSuShifts({ companyId, outletId, planDi: (d) => pianiScelti.get(d.slice(0, 7)) ?? null, turni: attivi, mossa: m, turno: t, versoId, versoData, ore });
+      return esitoMossa(contestoMosse, m, t, versoId, versoData);
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Turno non spostato.' });
+      return null;
+    }
+  };
+
   if (caricamento && !giorni.length) return <div className="text-slate-400 py-12 text-center">Caricamento…</div>;
 
   const bozze = attivi.filter((t) => t.stato === 'bozza').length;
@@ -316,11 +353,22 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                     const vivo = t.find((x) => x.stato !== 'annullato') ?? null;
                     const annullato = t.find((x) => x.stato === 'annullato');
                     const fe = inFerie(p.scheda.id, g.data);
+                    // casella di arrivo di un turno trascinato: giorno aperto, mossa possibile
+                    const t0 = trascinato ? attivi.find((x) => x.id === trascinato) : null;
+                    const accetta = !!t0 && puoScrivere && !g.chiuso && !(t0.employee_id === p.scheda.id && t0.data === g.data)
+                      && mossePossibili(!!vivo, t0.employee_id === p.scheda.id).length > 0;
                     return (
-                      <td key={g.data} className="px-1.5 py-1.5 align-top">
+                      <td key={g.data}
+                        onDragOver={(e) => { if (accetta) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                        onDrop={(e) => { if (!accetta || !t0) return; e.preventDefault(); setTrascinato(null); setMossa({ turno: t0, versoId: p.scheda.id, versoData: g.data }); }}
+                        className={`px-1.5 py-1.5 align-top ${accetta ? 'bg-blue-50 outline-2 outline-dashed outline-blue-300 -outline-offset-2' : ''}`}>
                         <button type="button" disabled={!puoScrivere || g.chiuso}
                           onClick={() => setEditor({ employeeId: p.scheda.id, data: g.data, turno: vivo })}
-                          className={`w-full min-h-[40px] rounded-md px-1.5 py-1 text-xs text-center font-mono ${vivo
+                          title={vivo && puoScrivere ? 'Modifica il turno, oppure trascinalo su un\'altra persona o un altro giorno' : undefined}
+                          draggable={!!vivo && puoScrivere}
+                          onDragStart={(e) => { if (!vivo) return; e.dataTransfer.setData('text/plain', vivo.id); e.dataTransfer.effectAllowed = 'move'; setTrascinato(vivo.id); }}
+                          onDragEnd={() => setTrascinato(null)}
+                          className={`w-full min-h-[40px] rounded-md px-1.5 py-1 text-xs text-center font-mono ${vivo && puoScrivere ? 'cursor-grab active:cursor-grabbing ' : ''}${vivo
                             ? vivo.stato === 'pubblicato' ? 'bg-blue-100 text-blue-900' : vivo.origine === 'manuale' ? 'bg-violet-100 text-violet-900' : 'bg-blue-50 text-blue-800 border border-dashed border-blue-300'
                             : nd ? 'bg-slate-100 text-slate-500 font-sans' : g.chiuso ? 'text-slate-300' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50 font-sans'}`}>
                           {vivo ? `${vivo.inizio}-${vivo.fine}` : nd ? nd : g.chiuso ? '' : 'riposo'}
@@ -376,6 +424,14 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         <span className="ml-auto">{bozze} in bozza · {pubblicati} pubblicati{esclusiDallaProposta.length ? ` · fuori dalla proposta (senza orario fisso): ${esclusiDallaProposta.map((p) => nomePersona(p.scheda)).join(', ')}` : ''}</span>
       </div>
 
+      {mossa && (
+        <SpostaTurnoModal turno={mossa.turno} versoId={mossa.versoId} versoData={mossa.versoData}
+          arrivo={attivi.find((x) => x.employee_id === mossa.versoId && x.data === mossa.versoData && x.id !== mossa.turno.id) ?? null}
+          nomeDi={nomeDi}
+          avvisi={(m) => avvisiDellaMossa(contestoMosse, m, mossa.turno, mossa.versoId, mossa.versoData)}
+          esegui={async (m) => { const msg = await eseguiMossa(m, mossa.turno, mossa.versoId, mossa.versoData); if (msg) { toast({ type: 'success', message: msg }); carica(); } return !!msg; }}
+          onClose={() => setMossa(null)} />
+      )}
       {editor && (
         <EditorTurno
           companyId={companyId} outletId={outletId} employeeId={editor.employeeId} data={editor.data} turno={editor.turno}
@@ -383,8 +439,17 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           nome={nomePersona(dati.schede.find((s) => s.id === editor.employeeId) ?? { nome: '', cognome: '' })}
           apre={giorni.find((g) => g.data === editor.data)!.apre} chiude={giorni.find((g) => g.data === editor.data)!.chiude}
           regole={regole}
+          passaggio={editor.turno ? (() => {
+            const t = editor.turno!;
+            return {
+              colleghi: persone.map((x) => ({ id: x.scheda.id, nome: nomePersona(x.scheda) })),
+              haTurno: (id: string) => attivi.some((x) => x.employee_id === id && x.data === editor.data),
+              avvisi: (m: MossaTurno, versoId: string, ore: { inizio: string; fine: string }) => avvisiDellaMossa(contestoMosse, m, t, versoId, editor.data, ore),
+              esegui: (m: MossaTurno, versoId: string, ore: { inizio: string; fine: string; pausa_minuti: number }) => eseguiMossa(m, t, versoId, editor.data, ore),
+            };
+          })() : undefined}
           onClose={() => setEditor(null)}
-          onSalvato={() => { setEditor(null); carica(); }}
+          onSalvato={(msg) => { setEditor(null); if (msg) toast({ type: 'success', message: msg }); carica(); }}
         />
       )}
     </div>

@@ -629,3 +629,21 @@ Nei piani di Barberino di novembre (calcolati prima) il giovedì aveva una perso
 Contratto e anagrafica sempre aperti e compatti (ore a settimana in vista, tempo determinato su due righe senza testo
 che esce); note e storico, documenti del rapporto, disponibilità per i turni e netti dell'anno in sezioni che si aprono
 (`<details>`), con il riassunto nel titolo.
+
+## Spostare i turni dal calendario (29/10/2026)
+
+Patrizio: trascinare le caselle su un'altra persona (sostituire o affiancare), oppure dalla finestra «metti Susanna
+al posto di Claudia» con le stesse ore o con ore scritte a mano.
+- `src/lib/spostaTurni.ts` (puro, testato): `mossePossibili` (casella vuota: sposta / affianca; con turno: scambia /
+  sostituisci; stessa persona: solo sposta su un giorno vuoto), `dopoLaMossa`, `avvisiPerChiRiceve` (ferie, trasferta,
+  accordi e fascia, giorni della settimana oltre il massimo, non in servizio), `avvisiPerIlGiorno` (una persona sola,
+  scoperto, nessuno). Gli avvisi non bloccano.
+- Piano del mese: drag and drop HTML5 sulle caselle con un turno (solo stessa settimana, giorni aperti), riquadro
+  «Sposta il turno» con le mosse e gli avvisi; `eseguiMossa` scrive su `shifts` (update employee_id/data, insert per
+  affiancare, update incrociato per scambiare, delete o annullato per il turno sostituito), sempre `origine = 'manuale'`.
+  Nessun vincolo di unicità su shifts (verificato 29/10): lo scambio sono due update.
+- Finestra del turno (`EditorTurno`, prop `passaggio`): «Dai questo turno a…» con l'orario scritto in alto; da telefono.
+- Piano settimanale (`PianoTurni.tsx`): stesso trascinamento, stesso riquadro e stessa finestra, con le funzioni comuni
+  `avvisiMossa`/`scrittureMossa`/`esitoMossa` (`spostaTurni.ts`), `eseguiMossaSuShifts` (`spostaTurniDb.ts`) e
+  `SpostaTurnoModal`. Nella settimana a cavallo di due mesi il `plan_id` segue il mese del giorno di arrivo
+  (`planDi`), così un turno spostato dal 31 al 1° passa al piano scelto del mese nuovo.

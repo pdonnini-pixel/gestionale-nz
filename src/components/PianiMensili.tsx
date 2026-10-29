@@ -22,7 +22,10 @@ import EditorTurno from './EditorTurno';
 import { Modal } from './ui/Modal';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, caricaTraffico, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
-import { fasceDelle, testoAccordo, type Accordo } from '../lib/accordiOrario';
+import { fasceDelle, fasciaIl, testoAccordo, type Accordo } from '../lib/accordiOrario';
+import { avvisiMossa as avvisiDellaMossa, esitoMossa, giornoEsteso, mossePossibili, type ContestoSpostamenti, type MossaTurno } from '../lib/spostaTurni';
+import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
+import SpostaTurnoModal from './SpostaTurnoModal';
 import { caricaTrasferte, copertureVerso, doveTrasferta, orePerData, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno,
@@ -137,6 +140,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [trasferte, setTrasferte] = useState<Trasferta[]>([]);
   // Modifica a mano di un turno dal calendario del mese (solo HR).
   const [editorMese, setEditorMese] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
+  // Spostare un turno trascinandolo su un'altra casella (Patrizio, 29/10/2026).
+  const [trascinato, setTrascinato] = useState<string | null>(null);
+  const [mossa, setMossa] = useState<{ turno: TurnoDb; versoId: string; versoData: string } | null>(null);
   const [regolePiano, setRegolePiano] = useState<RegoleTurni>(REGOLE_DEFAULT);
   // Proposta di ferie per le ore di contratto che restano non usate.
   // Dove mettere le ore che avanzano: le finestre migliori del mese (traffico MODA).
@@ -498,6 +504,41 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     if (r.contrattoMese != null) return Math.max(0, r.contrattoMese - ferieOra - trasferteOra);
     if (r.ferie == null) return r.contratto;
     return Math.max(0, r.contratto + r.ferie - ferieOra);
+  };
+
+  // ── Spostare, scambiare, affiancare i turni (Patrizio, 29/10/2026) ──
+  // Dal calendario: si trascina la casella su un'altra persona o un altro giorno
+  // della stessa settimana; dalla finestra del turno: «Dai questo turno a…» e
+  // «Metti anche a…». I turni toccati diventano «messi a mano».
+  const nomeDi = (id: string) => nomePersona(dati.schede.find((x) => x.id === id) ?? { nome: '', cognome: '' });
+  const inServizioIl = (id: string, d: string) => {
+    const p = persone.find((x) => x.scheda.id === id);
+    const k = dateMese.indexOf(d);
+    return !!p && k >= 0 && p.perGiorno[k].outletId === outletId && p.perGiorno[k].stato === 'in_servizio';
+  };
+  const contestoMosse: ContestoSpostamenti = {
+    turni: turniPiano,
+    nomeDi,
+    inServizio: inServizioIl,
+    inFerie: (id, d) => ferieMese.some((x) => x.employee_id === id && x.data === d && x.tipo === 'giornata'),
+    inTrasferta: (id, d) => trasferte.some((x) => x.employeeId === id && x.data === d),
+    puoLavorare: (id, d) => puoLavorareIl(disponibilita, id, d),
+    fascia: (id, d) => fasciaIl(disponibilita, id, d),
+    giorniMax,
+    apertura: (d) => giorniApertura.get(d),
+    coperture: trasferte.filter((x) => x.copreDestinazione && x.destinazioneOutletId === outletId).map((x) => ({ employee_id: x.employeeId, data: x.data, inizio: x.inizio, fine: x.fine })),
+    settimanaDi: (d) => giorniDellaSettimana(lunediDi(d)),
+  };
+  const avvisiMossa = (m: MossaTurno, t: TurnoDb, versoId: string, versoData: string, ore?: { inizio: string; fine: string }) =>
+    avvisiDellaMossa(contestoMosse, m, t, versoId, versoData, ore);
+  const eseguiMossa = async (m: MossaTurno, t: TurnoDb, versoId: string, versoData: string, ore?: { inizio: string; fine: string; pausa_minuti: number }): Promise<string | null> => {
+    try {
+      await eseguiMossaSuShifts({ companyId, outletId, planDi: () => pianoAperto?.id ?? null, turni: turniPiano, mossa: m, turno: t, versoId, versoData, ore });
+      return esitoMossa(contestoMosse, m, t, versoId, versoData);
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Turno non spostato.' });
+      return null;
+    }
   };
 
   // Ore da contratto di una settimana, dal vivo (Patrizio, 28/10/2026: «ore da
@@ -1217,9 +1258,13 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               const dentro = casella(riga, d);
               if (!modificabile(riga, d)) return dentro;
               const vuota = !riga.turni.some((x) => x.data === d);
+              const suo = turniPiano.find((x) => x.employee_id === riga.id && x.data === d);
               return (
-                <button type="button" onClick={() => apriEditor(riga, d)} title={vuota ? 'Aggiungi un turno' : 'Modifica il turno'}
-                  className="group block w-full rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="button" onClick={() => apriEditor(riga, d)} title={vuota ? 'Aggiungi un turno' : 'Modifica il turno, oppure trascinalo su un\'altra persona o un altro giorno'}
+                  draggable={!!suo && !riga.nuova}
+                  onDragStart={(e) => { if (!suo) return; e.dataTransfer.setData('text/plain', suo.id); e.dataTransfer.effectAllowed = 'move'; setTrascinato(suo.id); }}
+                  onDragEnd={() => setTrascinato(null)}
+                  className={`group block w-full rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${suo && !riga.nuova ? 'cursor-grab active:cursor-grabbing' : ''}`}>
                   {vuota && !riga.liberi.has(d) && !ferieMese.some((x) => x.employee_id === riga.id && x.data === d) && !trasferte.some((x) => x.employeeId === riga.id && x.data === d)
                     ? <span className="block py-1.5 rounded-md text-slate-300 group-hover:bg-blue-50 group-hover:text-blue-600">+</span> : dentro}
                 </button>
@@ -1315,7 +1360,17 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                     </td>
                                     {giorniSett.map((d) => {
                                       const gs = new Date(`${d}T00:00:00Z`).getUTCDay() || 7;
-                                      return <td key={d} className={`px-1 py-1.5 text-center border-b border-slate-100 ${gs >= 6 ? 'bg-slate-50/60' : ''}`}>{casellaCliccabile(riga, d)}</td>;
+                                      // casella di arrivo di un turno trascinato: stessa settimana, giorno aperto
+                                      const t0 = trascinato ? turniPiano.find((x) => x.id === trascinato) : null;
+                                      const accetta = !!t0 && puoModificare && !riga.nuova && dateMese.includes(d) && !(giorniApertura.get(d)?.chiuso ?? false)
+                                        && lunediDi(d) === lunediDi(t0.data) && !(t0.employee_id === riga.id && t0.data === d)
+                                        && mossePossibili(turniPiano.some((x) => x.employee_id === riga.id && x.data === d), t0.employee_id === riga.id).length > 0;
+                                      return (
+                                        <td key={d}
+                                          onDragOver={(e) => { if (accetta) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; } }}
+                                          onDrop={(e) => { if (!accetta || !t0) return; e.preventDefault(); setTrascinato(null); setMossa({ turno: t0, versoId: riga.id, versoData: d }); }}
+                                          className={`px-1 py-1.5 text-center border-b border-slate-100 ${accetta ? 'bg-blue-50 outline-2 outline-dashed outline-blue-300 -outline-offset-2' : gs >= 6 ? 'bg-slate-50/60' : ''}`}>{casellaCliccabile(riga, d)}</td>
+                                      );
                                     })}
                                   </tr>
                                 );
@@ -1507,6 +1562,14 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           </div>
         </Modal>
       )}
+      {mossa && pianoAperto && (
+        <SpostaTurnoModal turno={mossa.turno} versoId={mossa.versoId} versoData={mossa.versoData}
+          arrivo={turniPiano.find((x) => x.employee_id === mossa.versoId && x.data === mossa.versoData && x.id !== mossa.turno.id) ?? null}
+          nomeDi={nomeDi}
+          avvisi={(m) => avvisiMossa(m, mossa.turno, mossa.versoId, mossa.versoData)}
+          esegui={async (m) => { const msg = await eseguiMossa(m, mossa.turno, mossa.versoId, mossa.versoData); if (msg) { setVersione((v) => v + 1); toast({ type: 'success', message: msg }); } return !!msg; }}
+          onClose={() => setMossa(null)} />
+      )}
       {editorMese && pianoAperto && (() => {
         const altri = turniPiano.filter((x) => x.employee_id === editorMese.employeeId && x.id !== editorMese.turno?.id);
         const ore = (x: TurnoDb) => oreLavorate({ inizio: x.inizio, fine: x.fine, pausaMinuti: x.pausa_minuti });
@@ -1549,6 +1612,15 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 })(),
               };
             })()}
+            passaggio={editorMese.turno ? (() => {
+              const t = editorMese.turno!;
+              return {
+                colleghi: persone.map((x) => ({ id: x.scheda.id, nome: nomePersona(x.scheda) })),
+                haTurno: (id: string) => turniPiano.some((x) => x.employee_id === id && x.data === editorMese.data),
+                avvisi: (m: MossaTurno, versoId: string, ore: { inizio: string; fine: string }) => avvisiMossa(m, t, versoId, editorMese.data, ore),
+                esegui: (m: MossaTurno, versoId: string, ore: { inizio: string; fine: string; pausa_minuti: number }) => eseguiMossa(m, t, versoId, editorMese.data, ore),
+              };
+            })() : undefined}
             trasferta={{
               negozi: dati.negozi.filter((n) => n.is_active !== false).map((n) => ({ id: n.id, nome: nomeNegozioDi(n.id) })),
               esistente: trasferte.find((x) => x.employeeId === editorMese.employeeId && x.data === editorMese.data) ?? null,
