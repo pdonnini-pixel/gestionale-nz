@@ -23,7 +23,9 @@ import { Modal } from './ui/Modal';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, caricaTraffico, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
 import { fasceDelle, fasciaIl, testoAccordo, type Accordo } from '../lib/accordiOrario';
-import { avvisiPerChiRiceve, avvisiPerIlGiorno, dopoLaMossa, mossePossibili, type MossaTurno } from '../lib/spostaTurni';
+import { avvisiMossa as avvisiDellaMossa, esitoMossa, giornoEsteso, mossePossibili, type ContestoSpostamenti, type MossaTurno } from '../lib/spostaTurni';
+import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
+import SpostaTurnoModal from './SpostaTurnoModal';
 import { caricaTrasferte, copertureVerso, doveTrasferta, orePerData, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno,
@@ -514,75 +516,29 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const k = dateMese.indexOf(d);
     return !!p && k >= 0 && p.perGiorno[k].outletId === outletId && p.perGiorno[k].stato === 'in_servizio';
   };
-  const giornoEsteso = (d: string) => `${NOMI_GIORNO_BREVI[new Date(`${d}T00:00:00Z`).getUTCDay() || 7]} ${Number(d.slice(8))}/${Number(d.slice(5, 7))}`;
-  const avvisiMossa = (m: MossaTurno, t: TurnoDb, versoId: string, versoData: string, ore?: { inizio: string; fine: string }): string[] => {
-    const dopo = dopoLaMossa(turniPiano, m, t, versoId, versoData, ore);
-    const out: string[] = [];
-    const settimana = giorniDellaSettimana(lunediDi(versoData));
-    const chiRiceve = (id: string, d: string, inizio: string, fine: string, escludi: string[]) => avvisiPerChiRiceve({
-      nome: nomeDi(id),
-      inFerie: ferieMese.some((x) => x.employee_id === id && x.data === d && x.tipo === 'giornata'),
-      inTrasferta: trasferte.some((x) => x.employeeId === id && x.data === d),
-      puoLavorare: puoLavorareIl(disponibilita, id, d),
-      fascia: fasciaIl(disponibilita, id, d),
-      inizio, fine,
-      giorniSettimana: new Set(turniPiano.filter((x) => x.employee_id === id && settimana.includes(x.data) && !escludi.includes(x.id) && x.data !== d).map((x) => x.data)).size,
-      giorniMax,
-      inServizio: inServizioIl(id, d),
-    });
-    out.push(...chiRiceve(versoId, versoData, ore?.inizio ?? t.inizio, ore?.fine ?? t.fine, [t.id]));
-    if (m === 'scambia') {
-      const u = turniPiano.find((x) => x.employee_id === versoId && x.data === versoData);
-      if (u) out.push(...chiRiceve(t.employee_id, t.data, u.inizio, u.fine, [u.id, t.id]));
-    }
-    for (const d of [...new Set([t.data, versoData])]) {
-      const g = giorniApertura.get(d);
-      if (g && !g.chiuso) out.push(...avvisiPerIlGiorno([...dopo, ...trasferte.filter((x) => x.copreDestinazione && x.destinazioneOutletId === outletId).map((x) => ({ employee_id: x.employeeId, data: x.data, inizio: x.inizio, fine: x.fine }))], d, g.apre, g.chiude, giornoEsteso(d)));
-    }
-    return out;
+  const contestoMosse: ContestoSpostamenti = {
+    turni: turniPiano,
+    nomeDi,
+    inServizio: inServizioIl,
+    inFerie: (id, d) => ferieMese.some((x) => x.employee_id === id && x.data === d && x.tipo === 'giornata'),
+    inTrasferta: (id, d) => trasferte.some((x) => x.employeeId === id && x.data === d),
+    puoLavorare: (id, d) => puoLavorareIl(disponibilita, id, d),
+    fascia: (id, d) => fasciaIl(disponibilita, id, d),
+    giorniMax,
+    apertura: (d) => giorniApertura.get(d),
+    coperture: trasferte.filter((x) => x.copreDestinazione && x.destinazioneOutletId === outletId).map((x) => ({ employee_id: x.employeeId, data: x.data, inizio: x.inizio, fine: x.fine })),
+    settimanaDi: (d) => giorniDellaSettimana(lunediDi(d)),
   };
+  const avvisiMossa = (m: MossaTurno, t: TurnoDb, versoId: string, versoData: string, ore?: { inizio: string; fine: string }) =>
+    avvisiDellaMossa(contestoMosse, m, t, versoId, versoData, ore);
   const eseguiMossa = async (m: MossaTurno, t: TurnoDb, versoId: string, versoData: string, ore?: { inizio: string; fine: string; pausa_minuti: number }): Promise<string | null> => {
-    const nuove = { employee_id: versoId, data: versoData, origine: 'manuale', ...(ore ?? {}) };
-    const u = turniPiano.find((x) => x.employee_id === versoId && x.data === versoData && x.id !== t.id);
     try {
-      if (m === 'affianca') {
-        const { error } = await supabase.from('shifts').insert([{
-          company_id: companyId, outlet_id: outletId, employee_id: versoId, data: versoData,
-          inizio: ore?.inizio ?? t.inizio, fine: ore?.fine ?? t.fine, pausa_minuti: ore?.pausa_minuti ?? t.pausa_minuti,
-          stato: 'bozza', origine: 'manuale', plan_id: pianoAperto?.id ?? null,
-        }]);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('shifts').update(nuove).eq('id', t.id);
-        if (error) throw error;
-        if (m === 'scambia' && u) {
-          const { error: e2 } = await supabase.from('shifts').update({ employee_id: t.employee_id, data: t.data, origine: 'manuale' }).eq('id', u.id);
-          if (e2) throw e2;
-        }
-        if (m === 'sostituisci' && u) {
-          // il turno sostituito: si toglie se non pubblicato, altrimenti si annulla
-          const { error: e3 } = u.stato !== 'pubblicato'
-            ? await supabase.from('shifts').delete().eq('id', u.id)
-            : await supabase.from('shifts').update({ stato: 'annullato', annullato_motivo: 'Sostituito dal calendario' }).eq('id', u.id);
-          if (e3) throw e3;
-        }
-      }
-      const da = `${nomeDi(t.employee_id).split(' ')[0]} ${giornoEsteso(t.data)}`;
-      const a = `${nomeDi(versoId).split(' ')[0]} ${giornoEsteso(versoData)}`;
-      return m === 'sposta' ? `Turno spostato da ${da} a ${a}.`
-        : m === 'affianca' ? `Turno messo anche a ${a}.`
-          : m === 'scambia' ? `Turni scambiati fra ${da} e ${a}.`
-            : `Turno di ${da} dato a ${a} al posto del suo.`;
+      await eseguiMossaSuShifts({ companyId, outletId, planDi: () => pianoAperto?.id ?? null, turni: turniPiano, mossa: m, turno: t, versoId, versoData, ore });
+      return esitoMossa(contestoMosse, m, t, versoId, versoData);
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Turno non spostato.' });
       return null;
     }
-  };
-  const ETICHETTE_MOSSA: Record<MossaTurno, { titolo: string; spiega: string }> = {
-    sposta: { titolo: 'Sposta', spiega: 'il turno passa a questa casella, la casella di partenza resta libera' },
-    affianca: { titolo: 'Metti anche qui', spiega: 'stesso orario anche a questa persona: lavorano insieme' },
-    scambia: { titolo: 'Scambia i turni', spiega: 'ognuna prende il turno dell\'altra' },
-    sostituisci: { titolo: 'Sostituisci', spiega: 'resta solo il turno trascinato; quello che c\'era si toglie' },
   };
 
   // Ore da contratto di una settimana, dal vivo (Patrizio, 28/10/2026: «ore da
@@ -1606,46 +1562,14 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           </div>
         </Modal>
       )}
-      {mossa && pianoAperto && (() => {
-        const { turno: t, versoId, versoData } = mossa;
-        const arrivo = turniPiano.find((x) => x.employee_id === versoId && x.data === versoData && x.id !== t.id);
-        const scelte = mossePossibili(!!arrivo, t.employee_id === versoId);
-        const chiudi = () => setMossa(null);
-        return (
-          <Modal open onClose={chiudi} title="Sposta il turno">
-            <div className="space-y-3 text-sm">
-              <p className="text-slate-700">
-                Turno di <b>{nomeDi(t.employee_id)}</b>, {giornoEsteso(t.data)}, {t.inizio}–{t.fine}
-                {' '}→ <b>{nomeDi(versoId)}</b>, {giornoEsteso(versoData)}
-                {arrivo ? <>, che ha già il turno {arrivo.inizio}–{arrivo.fine}</> : null}.
-              </p>
-              {scelte.map((m) => {
-                const avvisi = avvisiMossa(m, t, versoId, versoData);
-                return (
-                  <div key={m} className="rounded-lg border border-slate-200 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div>
-                        <p className="font-semibold text-slate-800">{ETICHETTE_MOSSA[m].titolo}</p>
-                        <p className="text-xs text-slate-500">{ETICHETTE_MOSSA[m].spiega}</p>
-                      </div>
-                      <button type="button" disabled={!!lavoro}
-                        onClick={async () => { const msg = await eseguiMossa(m, t, versoId, versoData); if (msg) { chiudi(); setVersione((v) => v + 1); toast({ type: 'success', message: msg }); } }}
-                        className="min-h-[36px] px-3 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">{ETICHETTE_MOSSA[m].titolo}</button>
-                    </div>
-                    {avvisi.length > 0 && (
-                      <ul className="mt-2 space-y-0.5 text-xs text-amber-800">
-                        {avvisi.map((a) => <li key={a}>• {a}</li>)}
-                      </ul>
-                    )}
-                  </div>
-                );
-              })}
-              <p className="text-xs text-slate-500">I turni toccati diventano «messi a mano»: il ricalcolo non li cambia. Gli avvisi non bloccano: decidi tu.</p>
-              <div className="flex justify-end"><button type="button" onClick={chiudi} className="min-h-[38px] px-4 rounded-lg border border-slate-300 text-sm">Annulla</button></div>
-            </div>
-          </Modal>
-        );
-      })()}
+      {mossa && pianoAperto && (
+        <SpostaTurnoModal turno={mossa.turno} versoId={mossa.versoId} versoData={mossa.versoData}
+          arrivo={turniPiano.find((x) => x.employee_id === mossa.versoId && x.data === mossa.versoData && x.id !== mossa.turno.id) ?? null}
+          nomeDi={nomeDi}
+          avvisi={(m) => avvisiMossa(m, mossa.turno, mossa.versoId, mossa.versoData)}
+          esegui={async (m) => { const msg = await eseguiMossa(m, mossa.turno, mossa.versoId, mossa.versoData); if (msg) { setVersione((v) => v + 1); toast({ type: 'success', message: msg }); } return !!msg; }}
+          onClose={() => setMossa(null)} />
+      )}
       {editorMese && pianoAperto && (() => {
         const altri = turniPiano.filter((x) => x.employee_id === editorMese.employeeId && x.id !== editorMese.turno?.id);
         const ore = (x: TurnoDb) => oreLavorate({ inizio: x.inizio, fine: x.fine, pausaMinuti: x.pausa_minuti });

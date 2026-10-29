@@ -39,3 +39,19 @@ describe('spostare i turni dal calendario', () => {
     expect(avvisiPerChiRiceve({ ...base, fascia: { dalle: 840, alle: 1200 } })).toEqual(['Per gli accordi della scheda Susanna quel giorno lavora solo dalle 14 alle 20.']);
   });
 });
+
+describe('scritture della mossa', () => {
+  it('scambia aggiorna i due turni, sostituisci toglie quello di arrivo, affianca inserisce', async () => {
+    const { scrittureMossa } = await import('./spostaTurni');
+    const lista = [
+      { id: 'a', employee_id: 'claudia', data: '2026-11-05', inizio: '10:00', fine: '14:00', pausa_minuti: 0, stato: 'bozza' },
+      { id: 'b', employee_id: 'susanna', data: '2026-11-05', inizio: '14:00', fine: '20:00', pausa_minuti: 30, stato: 'pubblicato' },
+    ];
+    const sc = scrittureMossa({ turni: lista }, 'scambia', lista[0], 'susanna', '2026-11-05', undefined);
+    expect(sc.aggiorna.map((x) => [x.id, x.valori.employee_id])).toEqual([['a', 'susanna'], ['b', 'claudia']]);
+    const so = scrittureMossa({ turni: lista }, 'sostituisci', lista[0], 'susanna', '2026-11-05', undefined);
+    expect(so.togli).toEqual({ id: 'b', pubblicato: true });
+    const af = scrittureMossa({ turni: lista }, 'affianca', lista[0], 'elisa', '2026-11-05', { inizio: '11:00', fine: '15:00', pausa_minuti: 0 });
+    expect(af.inserisci).toMatchObject({ employee_id: 'elisa', inizio: '11:00', origine: 'manuale' });
+  });
+});
