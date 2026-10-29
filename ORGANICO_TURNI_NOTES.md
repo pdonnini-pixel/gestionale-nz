@@ -647,3 +647,27 @@ al posto di Claudia» con le stesse ore o con ore scritte a mano.
   `avvisiMossa`/`scrittureMossa`/`esitoMossa` (`spostaTurni.ts`), `eseguiMossaSuShifts` (`spostaTurniDb.ts`) e
   `SpostaTurnoModal`. Nella settimana a cavallo di due mesi il `plan_id` segue il mese del giorno di arrivo
   (`planDi`), così un turno spostato dal 31 al 1° passa al piano scelto del mese nuovo.
+
+## Piano settimanale e piano ferie su MODA (29/10/2026)
+
+Patrizio: «allinea piano settimanale e ferie a MODA». Prima il piano settimanale e gli avvisi del
+piano ferie leggevano solo le fasce di «Orari e fabbisogno» (`outlet_staffing_needs`), contro la
+regola 1 del CLAUDE.md.
+
+- **Piano settimanale** (`PianoTurni.tsx`): il fabbisogno è `fabbisognoDaTraffico` sulle ore dei
+  candidati della settimana (contratto meno ferie, permessi e trasferte), al massimo le persone
+  disponibili quel giorno, più `personeInPiu` (giorni speciali + eventi). Vale per la proposta e per
+  la riga «Copertura». Storico da `caricaStoricoNegozio` (traffico del negozio, altrimenti media degli
+  altri), come il piano del mese. Le fasce valgono solo senza traffico.
+- **Piano ferie** (`PianoFerie.tsx`): `fabbisognoPienoDaTraffico`, cioè le «ore necessarie» del piano
+  del mese: per ogni settimana le ore di contratto di tutto l'organico, ferie non tolte, distribuite
+  come MODA, al massimo le persone in forza. Servono le persone del picco della giornata. Avviso se chi
+  resta è meno. Niente minimo di due persone nel controllo ferie: Patrizio, 29/10/2026, «per il
+  momento non lo aggiungerei».
+- **Piano del mese**: le «persone in più» dei giorni speciali prima si perdevano quando c'era il
+  traffico (contavano solo quelle degli eventi); ora `personeInPiu` le somma tutte e due.
+- Misura del 29/10/2026 su NZ, settimana 9-15/11 (ore delle fasce → ore MODA): Barberino 103 → 170
+  (5 persone, 170 h di contratto; feriali 16 h al giorno con picco 2, sabato e domenica 44-46 h con
+  picco 5), Palmanova 113 → 126, Valmontone 147 → 156. Avvisi ferie fino al 31/12: prima 0 ovunque;
+  con MODA Barberino 4 giorni (7, 8, 14, 15/11), Valmontone 6 (weekend 7-8, 14-15, 21-22/11),
+  Palmanova 0. Sono tutte ferie di sabato o domenica, dove il picco MODA chiede tutto l'organico.

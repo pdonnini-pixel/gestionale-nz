@@ -5,10 +5,15 @@
 // proposte in bozza: i turni messi a mano e quelli gia' pubblicati restano.
 // Ogni modifica fatta su un turno lo rende «manuale», e il ricalcolo non lo
 // tocca piu'. Sotto ogni giorno: se la copertura basta o cosa manca.
+//
+// Il fabbisogno viene dal traffico MODA come nel piano del mese (Patrizio,
+// 29/10/2026): le ore delle persone disponibili nella settimana distribuite
+// come gli ingressi attesi. Quello di «Orari e fabbisogno» vale solo per un
+// negozio senza traffico (né suo né la forma media degli altri).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Info, RefreshCw, Send, Trash2 } from 'lucide-react';
-import { almenoDuePersone } from '../lib/pianoMensile';
+import { almenoDuePersone, attesoDelleDate, fabbisognoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
 import EditorTurno from './EditorTurno';
 import SpostaTurnoModal from './SpostaTurnoModal';
 import { useToast } from './Toast';
@@ -17,14 +22,14 @@ import {
   personaAllaData, nomePersona, formattaDataBreve, oggiRoma, aggiungiGiorni, contaNellOrganico,
   type PersonaOggi,
 } from '../lib/organico';
-import { caricaDisponibilita, caricaGiorniFerie, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
+import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
 import { fasceDelle, fasciaIl, type Accordo } from '../lib/accordiOrario';
 import { avvisiMossa as avvisiDellaMossa, esitoMossa, mossePossibili, type ContestoSpostamenti, type MossaTurno } from '../lib/spostaTurni';
 import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
-  proponiSettimana, scopertureDelGiorno, collocaPause, eventiDelNegozio, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
+  proponiSettimana, scopertureDelGiorno, collocaPause, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
 type Props = {
@@ -52,10 +57,14 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const { toast } = useToast();
   const [lunedi, setLunedi] = useState(lunediDi(oggiRoma()));
   const date = useMemo(() => giorniDellaSettimana(lunedi), [lunedi]);
-  const [giorni, setGiorni] = useState<GiornoPiano[]>([]);
+  // Giorni con orari e fabbisogno di «Orari e fabbisogno»; quello vero si ricalcola da MODA sotto.
+  const [giorniBase, setGiorniBase] = useState<GiornoPiano[]>([]);
+  const [extra, setExtra] = useState<Map<string, number>>(new Map());
+  const [storico, setStorico] = useState<{ storico: StoricoTraffico; propria: boolean } | null>(null);
   const [haOrari, setHaOrari] = useState(true);
-  const [haFabbisogno, setHaFabbisogno] = useState(true);
-  const [stimati, setStimati] = useState(false);
+  const [haFasce, setHaFasce] = useState(true);
+  const [orariStimati, setOrariStimati] = useState(false);
+  const [fasceStimate, setFasceStimate] = useState(false);
   const [regole, setRegole] = useState<RegoleTurni>(REGOLE_DEFAULT);
   const [turni, setTurni] = useState<TurnoDb[]>([]);
   const [ferie, setFerie] = useState<Awaited<ReturnType<typeof caricaGiorniFerie>>>([]);
@@ -75,7 +84,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const carica = useCallback(async () => {
     setCaricamento(true);
     try {
-      const [o, f, s, r, t, fe, sl, ev, pi, disp, tr] = await Promise.all([
+      const [o, f, s, r, t, fe, sl, ev, pi, disp, tr, st] = await Promise.all([
         supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude, origine').eq('outlet_id', outletId),
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
@@ -92,19 +101,24 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           .in('mese', [...new Set([date[0], date[6]].map((d) => `${d.slice(0, 7)}-01`))]),
         caricaDisponibilita(companyId).catch(() => new Map<string, Accordo>()),
         caricaTrasferte(companyId, date[0], date[6]).catch(() => [] as Trasferta[]),
+        // Traffico MODA del negozio (o forma media degli altri): la fonte del fabbisogno.
+        caricaStoricoNegozio(companyId, outletId).catch(() => null),
       ]);
+      setStorico(st);
       setDisponibilita(disp);
       setTrasferte(tr);
       const pianoDelMese = new Map(((pi.data as { id: string; mese: string }[]) ?? []).map((x) => [x.mese.slice(0, 7), x.id]));
       setPianiScelti(pianoDelMese);
       const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
       const fasce = (f.data as { giorno: number; dalle: string; alle: string; persone: number }[]) ?? [];
+      const speciali = (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [];
+      const eventi = eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId);
       setHaOrari(orari.length > 0);
-      setStimati([...orari, ...fasce].some((x) => (x as { origine?: string }).origine === 'stima'));
-      setHaFabbisogno(fasce.some((x) => x.persone > 0));
-      setGiorni(costruisciGiorni(date, orari, fasce,
-        (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [],
-        eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId), dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null));
+      setOrariStimati(orari.some((x) => (x as { origine?: string }).origine === 'stima'));
+      setFasceStimate(fasce.some((x) => (x as { origine?: string }).origine === 'stima'));
+      setHaFasce(fasce.some((x) => x.persone > 0));
+      setGiorniBase(costruisciGiorni(date, orari, fasce, speciali, eventi, dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null));
+      setExtra(personeInPiu(date, speciali, eventi));
       setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
       // Si vedono i turni del piano scelto per quel mese, oppure quelli fatti settimana per settimana.
       setTurni(((t.data as TurnoDb[]) ?? [])
@@ -157,6 +171,35 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     return null;
   }, [outletId, inFerie, disponibilita, trasferte]);
 
+  // Chi entra nella proposta, con le ore che puo' lavorare in settimana.
+  const candidati = useMemo(() => persone
+    .filter((p) => p.ore != null && p.ore > 0)
+    .map((p) => ({
+      id: p.scheda.id,
+      // le ore gia' coperte da ferie e permessi approvati in settimana non si lavorano
+      ore: Math.max(0, (p.ore as number) - date.reduce((a, d) => a + Number(inFerie(p.scheda.id, d)?.ore ?? 0), 0)
+        // le ore di trasferta sono lavoro gia' fatto fuori dal negozio
+        - trasferte.filter((x) => x.employeeId === p.scheda.id).reduce((a, x) => a + oreTrasferta(x), 0)),
+      nonDisponibile: new Set(date.filter((d, i) => motivoNonDisponibile(p.perGiorno[i], p.scheda.id, d) != null)),
+      saldoOre: saldi.get(p.scheda.id) ?? 0,
+      // accordi della scheda: le fasce orarie in cui puo' lavorare
+      fasce: fasceDelle(disponibilita, p.scheda.id, date),
+    })), [persone, date, inFerie, trasferte, motivoNonDisponibile, saldi, disponibilita]);
+
+  // Il fabbisogno dal traffico MODA, come nel piano del mese: le ore di chi c'e'
+  // distribuite come gli ingressi attesi, almeno una persona, al massimo le
+  // persone disponibili quel giorno, piu' le persone in piu' di eventi e giorni speciali.
+  const moda = useMemo(() => (storico ? attesoDelleDate(storico.storico, date) : null), [storico, date]);
+  const usaModa = !!moda && moda.atteso.size > 0;
+  const giorni = useMemo(() => {
+    if (!moda || !moda.atteso.size) return giorniBase;
+    const ore = candidati.reduce((a, p) => a + p.ore, 0);
+    const maxP = new Map(date.map((d) => [d, candidati.filter((p) => !p.nonDisponibile.has(d)).length]));
+    return fabbisognoDaTraffico(giorniBase, moda.atteso, ore, maxP, extra);
+  }, [giorniBase, moda, candidati, date, extra]);
+  const haFabbisogno = usaModa || haFasce;
+  const stimati = orariStimati || (!usaModa && fasceStimate);
+
   const attivi = turni.filter((t) => t.stato !== 'annullato');
   const turniPerCalcolo: Turno[] = attivi.map((t) => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }));
   const esclusiDallaProposta = persone.filter((p) => p.ore == null || p.ore <= 0);
@@ -173,19 +216,6 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const fissi: Turno[] = turni
         .filter((t) => t.stato !== 'annullato' && !(t.origine === 'proposta' && t.stato === 'bozza'))
         .map((t) => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }));
-      const candidati = persone
-        .filter((p) => p.ore != null && p.ore > 0)
-        .map((p) => ({
-          id: p.scheda.id,
-          // le ore gia' coperte da ferie e permessi approvati in settimana non si lavorano
-          ore: Math.max(0, (p.ore as number) - date.reduce((a, d) => a + Number(inFerie(p.scheda.id, d)?.ore ?? 0), 0)
-            // le ore di trasferta sono lavoro gia' fatto fuori dal negozio
-            - trasferte.filter((x) => x.employeeId === p.scheda.id).reduce((a, x) => a + oreTrasferta(x), 0)),
-          nonDisponibile: new Set(date.filter((d, i) => motivoNonDisponibile(p.perGiorno[i], p.scheda.id, d) != null)),
-          saldoOre: saldi.get(p.scheda.id) ?? 0,
-          // accordi della scheda: le fasce orarie in cui puo' lavorare
-          fasce: fasceDelle(disponibilita, p.scheda.id, date),
-        }));
       // chi viene qui in trasferta e copre il negozio conta come presenza
       const fissiTutti = [...fissi, ...copertureVerso(trasferte, outletId)];
       const proposta = proponiSettimana({ giorni, persone: candidati, regole, fissi: fissiTutti });
@@ -302,9 +332,14 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           <button type="button" onClick={onVaiOrari} className="underline font-semibold">Inserisci gli orari</button>
         </div>
       )}
+      {haOrari && usaModa && moda && (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
+          <Info size={15} className="shrink-0 mt-0.5" /> Fabbisogno dal {storico?.propria ? 'traffico MODA del negozio' : 'traffico MODA medio degli altri negozi (questo non ha storico)'}: {moda.fonti.join(', ')}. Le ore di chi lavora in settimana, ferie tolte, si distribuiscono come gli ingressi.
+        </div>
+      )}
       {haOrari && !haFabbisogno && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
-          <Info size={15} className="shrink-0 mt-0.5" /> Il fabbisogno di {nomeNegozio} non è ancora indicato (lo decide la direzione, profilo Super Advisor): la proposta distribuisce le ore di contratto, ma non può dire se bastano.
+          <Info size={15} className="shrink-0 mt-0.5" /> {nomeNegozio} non ha traffico MODA e il fabbisogno non è ancora indicato (lo decide la direzione, profilo Super Advisor): la proposta distribuisce le ore di contratto, ma non può dire se bastano.
         </div>
       )}
       {stimati && (

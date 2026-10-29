@@ -344,6 +344,17 @@ export function costruisciGiorni(
   });
 }
 
+/**
+ * Le persone in piu' di ogni giorno: quelle del giorno speciale piu' quelle
+ * dell'evento, come in costruisciGiorni. Il fabbisogno dal traffico MODA le
+ * somma sopra quello che chiedono gli ingressi.
+ */
+export function personeInPiu(date: string[], speciali: Pick<GiornoSpeciale, 'data' | 'persone_extra'>[], eventi: EventoNegozio[] = []): Map<string, number> {
+  return new Map(date.map((d) => [d,
+    (speciali.find((s) => s.data === d)?.persone_extra ?? 0)
+    + eventiDelGiorno(eventi, d).reduce((m, e) => Math.max(m, e.persone_extra || 0), 0)]));
+}
+
 /** Ore-persona che servono nella settimana (somma del fabbisogno). */
 export function oreDaCoprire(giorni: GiornoPiano[]): number {
   return giorni.reduce((s, g) => s + g.fabbisogno.reduce((a, b) => a + b, 0) * (SLOT_MINUTI / 60), 0);
