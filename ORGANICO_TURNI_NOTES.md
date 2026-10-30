@@ -745,3 +745,23 @@ bastano vince la seconda persona sul traffico MODA del weekend.
   Nessuna ora vuota e nessun turno sotto le 4 ore, prima e dopo. Palmanova (126 ore di contratto,
   esattamente quelle che servono) e Valmontone (aperto fino alle 21 nel weekend) non hanno
   abbastanza persone. Con le ferie vere i negozi al limite tornano ad avere giorni con una persona.
+
+## Pause coperte e variante senza weekend liberi (30/10/2026)
+
+Barberino, novembre 2026, rigenerato da Patrizio dopo la regola delle due persone:
+- **Pausa da sola**: mercoledì 4/11 (Clementi e Suzzi in ferie) Manescalchi era sola 10-16 con mezz'ora di
+  pausa: negozio vuoto durante il pranzo. `copriOrarioMinimo` ora guarda la copertura con le pause tolte
+  (`copertura`), quindi mette un collega a coprire la pausa (Manescalchi 10-20 con un'ora, Pampaloni 13-17).
+  Un buco che non si chiude finisce in `irrisolti` e il motore passa ai giorni dopo (prima si fermava al primo).
+  `almenoDuePersone` resta sulla presenza lorda: con la netta il test «mai una persona sola» peggiorava.
+- **Variante senza weekend liberi peggiore delle rotazioni**: il motore non è un ottimizzatore, e un vincolo
+  in più a volte lo porta su una distribuzione migliore. `pianificaMese` con `regola = 'nessuno'` prova anche
+  le tre rotazioni e tiene la migliore (prima meno mezz'ore vuote, poi meno ore scoperte).
+- **Misura** (novembre, 7 negozi senza ferie): nessun cambiamento sulle rotazioni; la variante senza weekend
+  liberi è sempre la migliore o pari. Barberino con le ferie di novembre: ore sotto MODA 149,2 senza weekend
+  liberi, 142,1 con un sabato libero, ma questa lascia il negozio vuoto un'ora (pause) invece di mezz'ora.
+  Resta vuota la mezz'ora di pausa di venerdì 13/11: Manescalchi in ferie tutta la settimana, Pampaloni con
+  tutte le sue 20 ore usate, la pausa di Clementi non può stare dopo le 15:30. La pagina la segna in rosso.
+- **Ore che mancano**: con le ferie di novembre la settimana 2-8 ha 104 ore di contratto contro circa 126 di
+  presenza che servono per avere due persone salvo prima e ultima ora: una ventina di ore con una persona
+  sola sono inevitabili.

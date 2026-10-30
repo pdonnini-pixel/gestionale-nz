@@ -3,7 +3,7 @@ import {
   blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, sogliaDelGiorno, assegnaWeekendLiberi,
   personeMinime, pianificaMese, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
 } from './pianoMensile';
-import { REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate, coperturaLorda } from './turni';
+import { REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate, coperturaLorda, copertura } from './turni';
 
 const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
 const date = (dal: string, n: number) => Array.from({ length: n }, (_, i) => {
@@ -409,6 +409,31 @@ describe('il negozio non resta mai scoperto (Patrizio, 30/10/2026)', () => {
     const e = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso, regole: REGOLE_DEFAULT });
     for (const g of giorni.filter((x) => x.data.startsWith(mese))) {
       expect(coperturaLorda(g, e.turni).every((x) => x > 0), g.data).toBe(true);
+    }
+  });
+  it('anche durante le pause: mercoledì 4/11 con due persone in ferie chi resta va a pranzo coperta', () => {
+    const mese = '2026-11';
+    const tutte = Array.from({ length: 42 }, (_, i) => new Date(Date.UTC(2026, 9, 26 + i)).toISOString().slice(0, 10));
+    const giorni = costruisciGiorni(tutte, orari, [], []);
+    const atteso = new Map(tutte.map((d) => {
+      const gs = new Date(`${d}T00:00:00Z`).getUTCDay();
+      const ore = gs === 6 ? [15, 53, 57, 45, 49, 79, 85, 55, 40, 14] : gs === 0 ? [30, 93, 89, 75, 85, 102, 126, 101, 49, 15]
+        : gs === 5 ? [8, 11, 16, 9, 13, 14, 11, 14, 5, 3] : [6, 13, 12, 9, 11, 12, 11, 10, 6, 3];
+      return [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 20 ? ore[h - 10] : 0))];
+    }));
+    const p = (id: string, ore: number, ferie: [string, number][]) => ({ id, oreSettimana: ore, nonDisponibile: new Set(ferie.map(([d]) => d)), oreFerie: new Map(ferie) });
+    const persone = [p('a', 35, [['2026-11-04', 7]]), p('b', 40, []), p('c', 20, [['2026-11-07', 6], ['2026-11-08', 6]]), p('d', 35, [['2026-11-04', 7]])];
+    const args = { mese, giorni, persone, storicoWeekend: new Map<string, number>(), atteso, regole: REGOLE_DEFAULT };
+    const e = pianificaMese({ ...args, regola: 'nessuno' });
+    const mer = giorni.find((g) => g.data === '2026-11-04')!;
+    expect(copertura(mer, e.turni).every((x) => x > 0)).toBe(true);
+    // «nessun sabato né domenica liberi» non viene mai peggio delle rotazioni:
+    // prima meno mezz'ore vuote, a parità meno ore scoperte
+    const vuote = (x: typeof e) => giorni.filter((g) => g.data.startsWith(mese)).reduce((a, g) => a + copertura(g, x.turni).filter((c) => c < 1).length, 0);
+    for (const regola of ['solo_sabati', 'solo_domeniche', 'sabato_o_domenica'] as const) {
+      const r = pianificaMese({ ...args, regola });
+      expect(vuote(e)).toBeLessThanOrEqual(vuote(r));
+      if (vuote(e) === vuote(r)) expect(e.oreScoperte).toBeLessThanOrEqual(r.oreScoperte + 1e-9);
     }
   });
 });
