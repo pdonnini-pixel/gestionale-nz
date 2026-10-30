@@ -39,6 +39,12 @@ export interface RegoleTurni {
    */
   sogliaFeriali: number;
   sogliaWeekend: number;
+  /**
+   * Due persone in negozio (Patrizio, 30/10/2026): salvo la prima ora di
+   * apertura e l'ultima di chiusura servono almeno due persone, anche dove il
+   * traffico ne chiede una. Se le ore non bastano vince la seconda persona.
+   */
+  duePersone: boolean;
 }
 
 /** Fascia della pausa pranzo (Patrizio, 29/10/2026): 13-15, quando gli ingressi calano. */
@@ -54,6 +60,7 @@ export const REGOLE_DEFAULT: RegoleTurni = {
   giorniLavoroMax: 6,
   sogliaFeriali: 25,
   sogliaWeekend: 25,
+  duePersone: true,
 };
 
 /**
@@ -94,6 +101,7 @@ export function regoleDaRiga(r: {
   turno_min_ore?: number | string | null; turno_max_ore: number | string; pausa_oltre_ore: number | string; pausa_minuti: number | string;
   pausa_lunga_oltre_ore?: number | string | null; pausa_lunga_minuti?: number | string | null; giorni_lavoro_max: number | string;
   soglia_ingressi_feriali?: number | string | null; soglia_ingressi_weekend?: number | string | null;
+  due_persone?: boolean | null;
 } | null | undefined): RegoleTurni {
   if (!r) return REGOLE_DEFAULT;
   return {
@@ -104,6 +112,7 @@ export function regoleDaRiga(r: {
     giorniLavoroMax: Number(r.giorni_lavoro_max),
     sogliaFeriali: Number(r.soglia_ingressi_feriali ?? REGOLE_DEFAULT.sogliaFeriali),
     sogliaWeekend: Number(r.soglia_ingressi_weekend ?? REGOLE_DEFAULT.sogliaWeekend),
+    duePersone: r.due_persone ?? REGOLE_DEFAULT.duePersone,
   };
 }
 

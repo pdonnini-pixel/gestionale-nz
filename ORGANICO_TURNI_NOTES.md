@@ -715,3 +715,33 @@ Sostituisce il «fare il massimo con le persone che hai» e la sezione precedent
   Ore scoperte (persone intere) da 9,5-18 a 0-1,5 per negozio. Turni da 8 ore o più da 3-11 a 0-2.
   Pause di chi lavora a pranzo fuori dalle 13-15: da 3-8 a 0 (una a Valdichiana). Ore di contratto
   da assegnare: da 4-13 a 25-67 a settimana per negozio. 1/11 Barberino (4 persone): sotto MODA da 3,6 a 1,1.
+
+## Due persone in negozio salvo la prima e l'ultima ora (30/10/2026)
+
+Patrizio: «l'ottimale sarebbe avere sempre 2 persone in contemporanea in negozio salvo la prima
+ora di apertura e l'ultima di chiusura» (bisogni primari, negozi di 150 mq). Se le ore non
+bastano vince la seconda persona sul traffico MODA del weekend.
+
+- **Dove**: `fabbisognoDaTraffico` alza a 2 il minimo (fabbisogno, esigenza, esatto) nelle mezz'ore
+  che iniziano almeno un'ora dopo l'apertura e finiscono almeno un'ora prima della chiusura, sempre
+  col tetto delle persone disponibili. Regola `duePersone` in `RegoleTurni`, colonna
+  `outlet_shift_rules.due_persone` (migration 331, NZ, Made e Zago; NULL = accesa), casella in
+  «Regole dei turni». Vale anche per il controllo delle ferie (`PianoFerie.tsx`, Patrizio 30/10/2026: «anche le
+  ferie devono tener conto della seconda persona»).
+- **Sotto MODA**: con la regola accesa le ore «sotto MODA» e la riga «In negozio» contano anche la
+  seconda persona che manca.
+- **Misura** (novembre 2026, persone in anagrafica, senza ferie, un sabato o una domenica liberi):
+
+| Negozio | Ore con 1 persona fuori da prima/ultima ora, prima → dopo | Ore di contratto usate | Sotto MODA sul solo traffico |
+|---|---|---|---|
+| Barberino | 97,5 → 5,5 | 547 → 645 su 745 | 20,3 → 22,0 |
+| Valdichiana | 93 → 4 | 684 → 798 su 918 | 53,3 → 44,6 |
+| Palmanova | 124 → 18 | 441 → 531 su 554 | 8,9 → 21,4 |
+| Franciacorta | 88,5 → 4 | 557 → 674 su 804 | 4,1 → 5,4 |
+| Brugnato | 125,5 → 0,5 | 450 → 562 su 612 | 5,7 → 12,4 |
+| Valmontone | 113,5 → 27,5 | 570 → 665 su 694 | 55,3 → 55,7 |
+| Torino | 102 → 5 | 504 → 595 su 616 | 18,7 → 27,4 |
+
+  Nessuna ora vuota e nessun turno sotto le 4 ore, prima e dopo. Palmanova (126 ore di contratto,
+  esattamente quelle che servono) e Valmontone (aperto fino alle 21 nel weekend) non hanno
+  abbastanza persone. Con le ferie vere i negozi al limite tornano ad avere giorni con una persona.

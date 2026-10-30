@@ -17752,6 +17752,7 @@ export type Database = {
       outlet_shift_rules: {
         Row: {
           company_id: string
+          due_persone: boolean | null
           giorni_lavoro_max: number
           outlet_id: string
           pausa_lunga_minuti: number
@@ -17767,6 +17768,7 @@ export type Database = {
         }
         Insert: {
           company_id: string
+          due_persone?: boolean | null
           giorni_lavoro_max?: number
           outlet_id: string
           pausa_lunga_minuti?: number
@@ -17782,6 +17784,7 @@ export type Database = {
         }
         Update: {
           company_id?: string
+          due_persone?: boolean | null
           giorni_lavoro_max?: number
           outlet_id?: string
           pausa_lunga_minuti?: number

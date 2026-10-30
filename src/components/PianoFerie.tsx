@@ -117,6 +117,7 @@ export default function PianoFerie({ companyId }: Props) {
     if (!moda || !moda.atteso.size) return { giorni: base, presenti, moda: null };
     const regole = regoleNegozi.get(negozio) ?? regoleDaRiga(null);
     return {
+      // con la regola delle due persone del negozio, come i turni (Patrizio, 30/10/2026)
       giorni: fabbisognoDaTraffico(base, moda.atteso, regole, new Map(date.map((d) => [d, presenti(d).length])), personeInPiu(date, sp)),
       presenti,
       moda: { fonti: moda.fonti, propria: storico?.propria ?? false, soglia: regole },

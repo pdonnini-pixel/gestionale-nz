@@ -54,8 +54,10 @@ describe('fabbisogno dal traffico: ingressi diviso la soglia', () => {
   const giorni = costruisciGiorni(sett, orari, [], []);
   const atteso = new Map(sett.map((d) => [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 20 ? (giorniDellaSettimana('2026-11-09').indexOf(d) >= 5 ? 40 : 10) * (h >= 15 && h < 18 ? 2 : 1) : 0))]));
   const maxP = new Map(sett.map((d) => [d, 4]));
+  // il solo traffico, senza la regola delle due persone
+  const soloTraffico = { ...REGOLE_DEFAULT, duePersone: false };
   it('ingressi / 25, almeno una persona, al massimo le persone che ci sono', () => {
-    const f = fabbisognoDaTraffico(giorni, atteso, REGOLE_DEFAULT, maxP);
+    const f = fabbisognoDaTraffico(giorni, atteso, soloTraffico, maxP);
     expect(f[0].fabbisogno.every((x) => x === 1)).toBe(true); // lunedì: 10 o 20 ingressi, una persona
     expect(f[5].esatto![0]).toBeCloseTo(40 / 25); // sabato alle 10: 1,6 persone
     expect(f[5].fabbisogno[0]).toBe(2);
@@ -74,12 +76,23 @@ describe('fabbisogno dal traffico: ingressi diviso la soglia', () => {
   it('la domenica 1/11 di Barberino: pranzo e sera più leggeri, il tetto vale sulle persone che ci sono', () => {
     const d = '2026-11-01';
     const ore = Array(24).fill(0); [30, 93, 89, 75, 85, 102, 126, 101, 49, 15].forEach((v, i) => { ore[10 + i] = v; });
-    const g = fabbisognoDaTraffico(costruisciGiorni([d], orari, [], []), new Map([[d, ore]]), REGOLE_DEFAULT, new Map([[d, 4]]))[0];
+    const g = fabbisognoDaTraffico(costruisciGiorni([d], orari, [], []), new Map([[d, ore]]), soloTraffico, new Map([[d, 4]]))[0];
     expect(g.esatto![6]).toBeCloseTo(3); // alle 13: 75 / 25
     expect(g.esatto![16]).toBeCloseTo(49 / 25); // alle 18: 2 persone
     expect(g.esatto![12]).toBe(4); // alle 16 ne servirebbero 5: tetto 4
     expect(g.esigenza![12]).toBe(5);
     expect(g.fabbisogno[18]).toBe(1); // alle 19: 15 ingressi, una persona
+  });
+  it('due persone salvo la prima e l\'ultima ora (Patrizio, 30/10/2026)', () => {
+    const f = fabbisognoDaTraffico(giorni, atteso, REGOLE_DEFAULT, maxP);
+    // lunedì 10-20 con 10 ingressi l'ora: una persona dalle 10 alle 11 e dalle 19 alle 20, due nel resto
+    expect(f[0].fabbisogno).toEqual([1, 1, ...Array(16).fill(2), 1, 1]);
+    expect(f[0].esatto![2]).toBe(2);
+    // dove il traffico chiede di più vale il traffico
+    expect(f[5].esatto![10]).toBeCloseTo(80 / 25);
+    // con una persona sola in forza resta una
+    const uno = fabbisognoDaTraffico(giorni, atteso, REGOLE_DEFAULT, new Map(sett.map((d) => [d, 1])));
+    expect(uno[0].fabbisogno.every((x) => x === 1)).toBe(true);
   });
   it('le persone in più di giorni speciali ed eventi si sommano a MODA', () => {
     const extra = personeInPiu(sett, [{ data: sett[0], persone_extra: 1 }],

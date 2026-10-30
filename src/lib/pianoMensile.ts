@@ -176,7 +176,10 @@ export function fabbisognoDaTraffico(
     const soglia = sogliaDelGiorno(g.data, regole);
     const max = Math.max(1, maxPersone.get(g.data) ?? 1);
     const extraG = extra.get(g.data) ?? 0;
-    const persone = g.fabbisogno.map((_, i) => Math.max(1, (atteso.get(g.data)![Math.floor((g.apre + i * SLOT_MINUTI) / 60)] ?? 0) / soglia));
+    // Almeno una persona; con la regola delle due persone, due fuori dalla
+    // prima e dall'ultima ora (Patrizio, 30/10/2026).
+    const minimo = (i: number) => (regole.duePersone && g.apre + i * SLOT_MINUTI >= g.apre + 60 && g.apre + (i + 1) * SLOT_MINUTI <= g.chiude - 60 ? 2 : 1);
+    const persone = g.fabbisogno.map((_, i) => Math.max(minimo(i), (atteso.get(g.data)![Math.floor((g.apre + i * SLOT_MINUTI) / 60)] ?? 0) / soglia));
     // Il tetto vale sulle persone del traffico; quelle in piu' degli eventi si sommano sopra.
     return {
       ...g,
