@@ -511,6 +511,11 @@ export function almenoDuePersone(
     const [solo] = [...chi];
     const settimana = giorniDellaSettimana(lunediDi(g.data));
     const giorniDi = (id: string, lista: Turno[]) => new Set(lista.filter((t) => t.employeeId === id && settimana.includes(t.data)).map((t) => t.data));
+    // Comanda l'orario: nessuna mossa puo' lasciare vuota una mezz'ora della
+    // settimana che prima era coperta.
+    const giorniSett = giorni.filter((x) => settimana.includes(x.data));
+    const copertiPrima = new Set(giorniSett.filter((x) => copreTutto(x, out)).map((x) => x.data));
+    const nessunNuovoBuco = (lista: Turno[]) => giorniSett.every((x) => !copertiPrima.has(x.data) || copreTutto(x, lista));
     const candidati = [...titolari, ...riserva].filter((q) => q.id !== solo && !q.nonDisponibile.has(g.data)
       && !out.some((t) => t.employeeId === q.id && t.data === g.data)
       && lavoroMassimoGiorno(limitiPersona(q, g), regole) >= minimo)
@@ -524,16 +529,19 @@ export function almenoDuePersone(
           .map((t) => ({ t, g2: giorni.find((x) => x.data === t.data) }))
           .filter((x): x is { t: Turno; g2: GiornoPiano } => !!x.g2)
           .map(({ t, g2 }) => {
-            // senza il suo turno quel giorno si ricopre allungando i turni di chi c'e'
+            // senza il suo turno quel giorno si ricopre allungando i turni di chi c'e'.
+            // La riparazione guarda tutta la settimana: puo' prendere ore da un altro
+            // giorno, ma non deve lasciarlo scoperto (Barberino 2/11/2026: il turno
+            // 16-20 del lunedi' spariva per riparare un altro giorno).
             let senza = lista.filter((x) => x !== t);
             if (!copreTutto(g2, senza)) {
-              const riparato = copriOrarioMinimo([g2], senza, titolari.filter((x) => x.id !== q.id), [], regole);
+              const riparato = copriOrarioMinimo(giorniSett, senza, titolari.filter((x) => x.id !== q.id), [], regole);
               // la riparazione non deve aver toccato turni fissi
               senza = fissi.every((f) => riparato.includes(f)) ? riparato : senza;
             }
             return { g2, senza };
           })
-          .filter(({ g2, senza }) => persone(g2, senza).size >= 2 && copreTutto(g2, senza))
+          .filter(({ g2, senza }) => persone(g2, senza).size >= 2 && copreTutto(g2, senza) && nessunNuovoBuco(senza))
           .sort((x, y) => persone(y.g2, y.senza).size - persone(x.g2, x.senza).size)[0];
         return via ? via.senza : null;
       };
@@ -581,6 +589,7 @@ export function almenoDuePersone(
         const l2 = lista.map((x) => (x === suo ? v : x));
         if (copreTutto(g, l2)) { lista = l2; break; }
       }
+      if (!nessunNuovoBuco(lista)) continue;
       out = lista;
       break;
     }
@@ -1063,6 +1072,9 @@ export function pianificaMese(args: {
       const fissiRefSett = new Set(fissiSett);
       esito = [...almenoDuePersone(base, esito.filter((t) => !fissiRefSett.has(t)), perCopertura, riservaCopertura, regole, fissiSett), ...fissiSett];
     }
+    // Rete di sicurezza (regola 3, comanda l'orario): se qualche passo ha lasciato
+    // una mezz'ora vuota, la copertura minima ripassa sulla settimana.
+    if (oreScoperte(base, esito) > 0) esito = copriOrarioMinimo(base, esito, perCopertura, riservaCopertura, regole);
     // Poi, se ammessi, gli straordinari di chi ha un contratto: prima la
     // riserva (ore normali), poi le ore in piu' dei titolari.
     const straordDi = (id: string) => args.straordinariPersona?.get(id) ?? args.straordinariSettimana ?? 0;
