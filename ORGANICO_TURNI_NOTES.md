@@ -726,7 +726,8 @@ bastano vince la seconda persona sul traffico MODA del weekend.
   che iniziano almeno un'ora dopo l'apertura e finiscono almeno un'ora prima della chiusura, sempre
   col tetto delle persone disponibili. Regola `duePersone` in `RegoleTurni`, colonna
   `outlet_shift_rules.due_persone` (migration 331, NZ, Made e Zago; NULL = accesa), casella in
-  «Regole dei turni». Il controllo delle ferie (`PianoFerie.tsx`) la spegne: guarda solo il traffico.
+  «Regole dei turni». Vale anche per il controllo delle ferie (`PianoFerie.tsx`, Patrizio 30/10/2026: «anche le
+  ferie devono tener conto della seconda persona»).
 - **Sotto MODA**: con la regola accesa le ore «sotto MODA» e la riga «In negozio» contano anche la
   seconda persona che manca.
 - **Misura** (novembre 2026, persone in anagrafica, senza ferie, un sabato o una domenica liberi):
