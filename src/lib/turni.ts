@@ -680,10 +680,19 @@ export function ritoccaScoperture(
           if (valido(g, v, prova)) mosse.push(prova);
         }
       }
-      let meglio: { t: Turno[]; ore: number } | null = null;
+      // Nei giorni di evento con gli straordinari, a parita' di ore scoperte vince la
+      // mossa che li divide meglio fra le persone (Barberino, Black Friday 2026: 15 ore e
+      // mezza di straordinario a Pampaloni, una o tre alle colleghe).
+      const oltre = (m: Turno[]) => (oltreContratto ? persone.reduce((a, p) => a + Math.max(0, oreDi(p.id, m) - p.ore) ** 2, 0) : 0);
+      let meglio: { t: Turno[]; ore: number; oltre: number } | null = null;
       for (const m of mosse) {
         const o = scop(m);
-        if (o < base - 1e-9 && (!meglio || o < meglio.ore - 1e-9)) meglio = { t: m, ore: o };
+        if (o >= base - 1e-9) continue;
+        if (!meglio || o < meglio.ore - 1e-9) { meglio = { t: m, ore: o, oltre: oltre(m) }; continue; }
+        if (oltreContratto && Math.abs(o - meglio.ore) <= 1e-9) {
+          const q = oltre(m);
+          if (q < meglio.oltre - 1e-9) meglio = { t: m, ore: o, oltre: q };
+        }
       }
       if (!meglio) break;
       turni = meglio.t;
