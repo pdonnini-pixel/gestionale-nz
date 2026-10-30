@@ -384,6 +384,30 @@ describe('mai un giorno con una persona sola (Patrizio, 28/10/2026)', () => {
   });
 });
 
+describe('le ore libere vanno dove manca qualcuno (Brugnato, 30/10/2026)', () => {
+  it('nelle settimane intere nessuno resta con ore ferme mentre c\'è una persona sola', () => {
+    const mese = '2026-11';
+    const tutte = Array.from({ length: 42 }, (_, i) => new Date(Date.UTC(2026, 9, 26 + i)).toISOString().slice(0, 10));
+    const giorni = costruisciGiorni(tutte, orari, [], []);
+    const atteso = new Map(tutte.map((d) => {
+      const gs = new Date(`${d}T00:00:00Z`).getUTCDay();
+      const ore = gs === 6 || gs === 0 ? [12, 30, 45, 32, 60, 109, 133, 90, 40, 10] : [5, 10, 12, 9, 11, 14, 16, 12, 6, 3];
+      return [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 20 ? ore[h - 10] : 0))];
+    }));
+    const persone = [40, 30, 30].map((ore, i) => ({ id: `p${i}`, oreSettimana: ore, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }));
+    const e = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso, regole: REGOLE_DEFAULT });
+    for (const lun of ['2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23']) {
+      const sett = giorniDellaSettimana(lun);
+      const unaSola = giorni.filter((g) => sett.includes(g.data)).some((g) => copertura(g, e.turni).some((c, i, a) => i >= 2 && i < a.length - 2 && c < 2));
+      if (!unaSola) continue;
+      for (const p of persone) {
+        const lavorate = e.turni.filter((t) => t.employeeId === p.id && sett.includes(t.data)).reduce((a, t) => a + oreLavorate(t), 0);
+        expect(p.oreSettimana - lavorate, `${p.id} ${lun}`).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+});
+
 describe('il negozio non resta mai scoperto (Patrizio, 30/10/2026)', () => {
   // Barberino, novembre 2026: per dare due persone a un giorno il motore spostava
   // un turno da un altro giorno e riparava solo quello, lasciando il lunedi' 2/11

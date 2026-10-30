@@ -765,3 +765,17 @@ Barberino, novembre 2026, rigenerato da Patrizio dopo la regola delle due person
 - **Ore che mancano**: con le ferie di novembre la settimana 2-8 ha 104 ore di contratto contro circa 126 di
   presenza che servono per avere due persone salvo prima e ultima ora: una ventina di ore con una persona
   sola sono inevitabili.
+
+## Ore libere dove manca qualcuno (30/10/2026)
+
+Brugnato, novembre 2026: ogni giorno una persona sola dalle 17 alle 19 mentre Rossini (11-15) aveva 6 ore
+da assegnare e Buratta 2. Cause: `ritoccaScoperture` provava solo spostamenti di mezz'ora, e allungare di
+mezz'ora un turno già coperto da un collega non cambia niente (il ritocco si fermava); inoltre girava dentro
+`proponiSettimana`, prima dei passi che rimescolano i turni.
+- `ritoccaScoperture` prova ogni posizione e ogni lunghezza fino alle ore libere della persona.
+- `pianificaMese` fa un ultimo ritocco alla fine della settimana con il contratto vero (`candidati`, non il
+  tetto più largo della copertura nelle settimane a cavallo), poi la copertura minima ricontrolla.
+- Misura (novembre, 7 negozi senza ferie, variante senza weekend liberi), prima → dopo: ore con una persona
+  sola Barberino 6 → 3, Palmanova 22 → 14,5, Franciacorta 4 → 0, Brugnato 4,5 → 2, Valmontone 27,5 → 26,
+  Torino 13,5 → 15; sotto MODA Palmanova 37,8 → 30,3, Brugnato 13,4 → 8,2, Franciacorta 9,4 → 5,3,
+  Valmontone 69,7 → 71,8, Torino 23,4 → 24,4. Nessuna mezz'ora vuota, nessun turno sotto le 4 ore.

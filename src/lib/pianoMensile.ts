@@ -1104,6 +1104,15 @@ function pianificaMeseConRegola(args: {
     // Rete di sicurezza (regola 3, comanda l'orario): se qualche passo ha lasciato
     // una mezz'ora vuota, la copertura minima ripassa sulla settimana.
     if (oreScoperte(base, esito) > 0) esito = copriOrarioMinimo(base, esito, perCopertura, riservaCopertura, regole);
+    // Le ore di contratto ancora libere vanno dove manca qualcuno (Brugnato, novembre
+    // 2026: ore da assegnare e una persona sola dalle 17 alle 19 tutti i giorni).
+    // Il ritocco allunga o sposta i turni solo se le ore scoperte calano, entro il
+    // contratto; poi la copertura minima ricontrolla che non resti vuoto niente.
+    if (oreScoperte(gg, esito) > 0) {
+      const fissiRefSett = new Set(fissiSett);
+      esito = [...ritoccaScoperture(gg, esito.filter((t) => !fissiRefSett.has(t)), fissiSett, candidati, regole), ...fissiSett];
+      if (oreScoperte(base, esito) > 0) esito = copriOrarioMinimo(base, esito, perCopertura, riservaCopertura, regole);
+    }
     // Poi, se ammessi, gli straordinari di chi ha un contratto: prima la
     // riserva (ore normali), poi le ore in piu' dei titolari.
     const straordDi = (id: string) => args.straordinariPersona?.get(id) ?? args.straordinariSettimana ?? 0;

@@ -614,14 +614,20 @@ export function ritoccaScoperture(
       const mosse: Turno[][] = [];
       turni.forEach((t, idx) => {
         if (t.data !== g.data || (soloPersone && !soloPersone.has(t.employeeId))) return;
-        const i0 = minuti(t.inizio);
         const lavoro = oreLavorate(t) * 60;
-        const varianti = [
-          conPausa(t, i0 - SLOT_MINUTI, lavoro + SLOT_MINUTI), // prima
-          conPausa(t, i0, lavoro + SLOT_MINUTI), // dopo
-          conPausa(t, i0 - SLOT_MINUTI, lavoro), // tutto prima
-          conPausa(t, i0 + SLOT_MINUTI, lavoro), // tutto dopo
-        ];
+        // Ogni posizione e ogni lunghezza fino alle ore libere della persona, non solo
+        // mezz'ora alla volta: allungare di mezz'ora spesso non cambia niente (la persona
+        // e' gia' coperta da un collega) e il ritocco si fermava con ore di contratto
+        // ferme e una persona sola in negozio (Brugnato, novembre 2026: Rossini 11-15
+        // ogni giorno con 6 ore da assegnare e Ruggeri sola dalle 17 alle 19).
+        const libere = Math.floor(((contratto.get(t.employeeId) ?? 0) - oreDi(t.employeeId, turni)) * 2) / 2 * 60;
+        const fino = oltreContratto?.has(t.data) ? lavoro + SLOT_MINUTI : lavoro + Math.max(0, libere);
+        const l = limitiPersona(perId.get(t.employeeId), g);
+        const varianti: Turno[] = [];
+        for (let lav = lavoro; lav <= Math.min(fino, regole.turnoMaxOre * 60); lav += SLOT_MINUTI) {
+          const durata = lav + pausaPer(lav, regole);
+          for (let s0 = l.apre; s0 + durata <= l.chiude; s0 += SLOT_MINUTI) varianti.push(conPausa(t, s0, lav));
+        }
         for (const v of varianti) {
           const prova = turni.map((x, i) => (i === idx ? v : x));
           if (valido(g, v, prova)) mosse.push(prova);
