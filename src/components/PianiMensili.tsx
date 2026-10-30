@@ -50,6 +50,8 @@ type Piano = {
 };
 type Riepilogo = {
   oreScoperte?: number; oreRiserva?: number; straordinario?: number; fonte?: string; turni?: number;
+  /** ore in cui il negozio resta senza nessuno, pause comprese (piani calcolati dal 30/10/2026) */
+  oreVuote?: number;
   persone?: EsitoPianoMese['persone'];
   /** il mese settimana per settimana (piani calcolati dal 28/10/2026) */
   settimane?: SettimanaPiano[];
@@ -382,6 +384,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       const { esito, straordinariPersona, tolte } = calcolaPiano(b, regola, ipotesi, senzaFerie ? new Set(b.ferie.map((x) => `${x.employee_id}|${x.data}`)) : undefined);
       const riepilogo: Riepilogo = {
         oreScoperte: esito.oreScoperte,
+        oreVuote: esito.giorni.filter((g) => !g.chiuso && g.data.startsWith(mese))
+          .reduce((a, g) => a + copertura(g, esito.turni).filter((c) => c < 1).length / 2, 0),
         oreRiserva: esito.oreRiserva,
         straordinario: Object.values(esito.persone).reduce((a, p) => a + p.straordinario, 0),
         fonte: b.fonte,
@@ -658,8 +662,15 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const variantiSenza = varianti.filter((p) => p.riepilogo.senzaFerie);
   const regoleMancanti = REGOLE.filter((r) => !variantiCon.some((p) => p.regola_weekend === r));
   const regoleMancantiSenza = REGOLE.filter((r) => !variantiSenza.some((p) => p.regola_weekend === r));
-  const minimoDi = (lista: Piano[]) => Math.min(...lista.map((p) => p.riepilogo.oreScoperte ?? 0));
-  const minimoScoperte = minimoDi(variantiCon);
+  // La variante consigliata (Patrizio, 30/10/2026): prima quella che non lascia
+  // mai il negozio vuoto, pause comprese; a parita' quella con meno ore sotto MODA.
+  const consigliataDi = (lista: Piano[]): Piano | null => lista.filter((p) => !p.simulazione).reduce<Piano | null>((m, p) => {
+    if (!m) return p;
+    const [v, s] = [p.riepilogo.oreVuote ?? 0, p.riepilogo.oreScoperte ?? 0];
+    const [vm, sm] = [m.riepilogo.oreVuote ?? 0, m.riepilogo.oreScoperte ?? 0];
+    return v < vm - 1e-9 || (Math.abs(v - vm) <= 1e-9 && s < sm - 1e-9) ? p : m;
+  }, null);
+  const consigliataCon = consigliataDi(variantiCon);
   // La simulazione vuota: ore di oggi, chi lavora solo nel weekend lo resta.
   const simulazioneVuota = (): Simulazione => ({
     ore: {}, straord: {}, perTutti: '', nuove: [],
@@ -705,7 +716,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   }, [ferieTolte, regoleVarianti]);
   const scoperteDi = (w?: SettimanaPiano[]) => (w ?? []).reduce((a, x) => a + x.scoperte, 0);
   // Il riquadro delle ore: la variante aperta, altrimenti quella con meno ore scoperte.
-  const pianoOre = [pianoAperto, ...variantiCon.filter((p) => (p.riepilogo.oreScoperte ?? 0) <= minimoScoperte + 1e-9), ...piani]
+  const pianoOre = [pianoAperto, consigliataCon, ...piani]
     .find((p) => p?.riepilogo.settimane?.length) ?? null;
   // Le quattro varianti in un colpo solo, una alla volta: solo quelle che mancano.
   const creaVarianti = async () => { for (const r of regoleMancanti) await creaPiano(r); };
@@ -894,7 +905,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 <button type="button" onClick={() => setFerieTolte(new Set())} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">Riaccendi tutte</button>
                 {puoScrivere && (
                   <button type="button" disabled={!!lavoro}
-                    onClick={() => creaPiano(variantiCon.find((p) => (p.riepilogo.oreScoperte ?? 0) <= minimoScoperte + 1e-9)?.regola_weekend ?? 'nessuno', { ...simulazioneVuota(), ferieTolte: [...ferieTolte] })}
+                    onClick={() => creaPiano(consigliataCon?.regola_weekend ?? 'nessuno', { ...simulazioneVuota(), ferieTolte: [...ferieTolte] })}
                     className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50">
                     <FlaskConical size={13} /> Salva come simulazione
                   </button>
@@ -957,7 +968,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               const liberi = pp.map((x) => x.weekendLiberi);
               const scoperte = p.riepilogo.oreScoperte ?? 0;
               const delGruppo = gr.lista.filter((x) => !x.simulazione);
-              const migliore = !p.simulazione && delGruppo.length > 1 && scoperte <= minimoDi(delGruppo) + 1e-9;
+              const migliore = !p.simulazione && delGruppo.length > 1 && consigliataDi(delGruppo)?.id === p.id;
+              const vuote = p.riepilogo.oreVuote ?? 0;
               const selezionato = aperto === p.id;
               return (
                 <div key={p.id} role="button" tabIndex={0} onClick={() => setAperto(p.id)} onKeyDown={(e) => { if (e.key === 'Enter') setAperto(p.id); }}
@@ -966,7 +978,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                     <span className={`text-[11px] font-semibold uppercase tracking-wide rounded-full px-2 py-0.5 ${p.stato === 'scelto' ? 'bg-emerald-100 text-emerald-800' : p.simulazione ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-600'}`}>
                       {p.stato === 'scelto' ? 'Vale questo' : p.simulazione ? 'Simulazione' : 'Bozza'}
                     </span>
-                    {migliore && <span className="text-[11px] font-semibold text-blue-700">meno ore sotto MODA</span>}
+                    {migliore && <span className="text-[11px] font-semibold text-blue-700" title="Non lascia mai il negozio vuoto (o lo lascia meno delle altre) e, fra queste, ha meno ore sotto MODA">consigliata</span>}
                   </div>
                   <h4 className="mt-2 text-sm font-semibold text-slate-900 leading-snug first-letter:uppercase">{ETICHETTE_REGOLA[p.regola_weekend]}</h4>
                   {p.riepilogo.senzaFerie && <p className="text-xs text-blue-700 mt-0.5">senza ferie e permessi</p>}
@@ -981,6 +993,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                     {scoperte > 0.25 ? `${fmt(scoperte)} h` : 'Coperto'}
                     <span className="ml-1 text-xs font-normal text-slate-500">{scoperte > 0.25 ? 'ore sotto MODA' : 'tutto il mese'}</span>
                   </p>
+                  {vuote > 0 && <p className="text-xs font-semibold text-red-700">{fmt(vuote)} h con il negozio vuoto (pause comprese): vedi la riga «In negozio»</p>}
                   {p.riepilogo.settimane?.length ? (() => {
                     // Le ore scoperte settimana per settimana, a colpo d'occhio.
                     const w = p.riepilogo.settimane;
