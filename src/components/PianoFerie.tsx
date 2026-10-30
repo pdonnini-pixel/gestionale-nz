@@ -63,7 +63,7 @@ export default function PianoFerie({ companyId }: Props) {
         supabase.from('v_leave_disponibilita').select('*').eq('company_id', companyId),
         caricaGiorniFerie(companyId, oggi, fine),
         supabase.from('outlet_opening_hours').select('outlet_id, giorno, chiuso, apre, chiude').eq('company_id', companyId),
-        supabase.from('outlet_staffing_needs').select('outlet_id, giorno, dalle, alle, persone').eq('company_id', companyId),
+        supabase.from('outlet_staffing_needs').select('outlet_id, giorno, dalle, alle, persone, origine').eq('company_id', companyId),
         supabase.from('outlet_special_days').select('outlet_id, data, chiuso, apre, chiude, persone_extra, nota').eq('company_id', companyId).gte('data', oggi).lte('data', fine),
         supabase.from('outlet_shift_rules').select('*').eq('company_id', companyId),
       ]);

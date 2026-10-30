@@ -20,7 +20,7 @@
 
 import { festivitaItaliane } from './ferieRichiesta';
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, proponiSettimana,
+  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
   ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
@@ -176,13 +176,17 @@ export function fabbisognoDaTraffico(
     const soglia = sogliaDelGiorno(g.data, regole);
     const max = Math.max(1, maxPersone.get(g.data) ?? 1);
     const extraG = extra.get(g.data) ?? 0;
-    // Almeno una persona; con la regola delle due persone, due fuori dalla
-    // prima e dall'ultima ora (Patrizio, 30/10/2026).
-    const minimo = (i: number) => (regole.duePersone && g.apre + i * SLOT_MINUTI >= g.apre + 60 && g.apre + (i + 1) * SLOT_MINUTI <= g.chiude - 60 ? 2 : 1);
+    // Il minimo: le fasce confermate in «Orari e fabbisogno» (Patrizio, 30/10/2026:
+    // una persona la mattina e la sera, due nel resto, le decide lui giorno per
+    // giorno); senza fasce confermate almeno una persona e, con la regola delle due
+    // persone, due fuori dalla prima e dall'ultima ora. MODA aggiunge sopra.
+    const minimo = (i: number) => g.minimo?.[i]
+      ?? (regole.duePersone && g.apre + i * SLOT_MINUTI >= g.apre + 60 && g.apre + (i + 1) * SLOT_MINUTI <= g.chiude - 60 ? 2 : 1);
     const persone = g.fabbisogno.map((_, i) => Math.max(minimo(i), (atteso.get(g.data)![Math.floor((g.apre + i * SLOT_MINUTI) / 60)] ?? 0) / soglia));
     // Il tetto vale sulle persone del traffico; quelle in piu' degli eventi si sommano sopra.
     return {
       ...g,
+      minimo: g.fabbisogno.map((_, i) => Math.min(max, minimo(i))),
       fabbisogno: persone.map((x) => Math.min(max, Math.round(x)) + extraG),
       esigenza: persone.map((x) => Math.round(x) + extraG),
       esatto: persone.map((x) => Math.min(max, x) + extraG),
@@ -602,6 +606,86 @@ export function almenoDuePersone(
     }
   }
   return out.filter((t) => !intoccabili.has(t));
+}
+
+// ── Due turni invece di tre (Patrizio, 30/10/2026) ────────────────────────
+
+/**
+ * Nei giorni con tre o piu' persone prova a unire due turni in uno solo, della
+ * stessa persona, che va dall'inizio del primo alla fine del secondo (con la sua
+ * pausa): per esempio Rossini 12-16 e Ruggeri 16-20 diventano Ruggeri 12-20. Lo
+ * tiene solo se le ore scoperte della settimana non crescono, se il negozio non
+ * resta mai vuoto e se la persona resta nel suo contratto; le ore in piu' le
+ * toglie accorciando i suoi turni degli altri giorni dove non servono. Cosi' nei
+ * feriali con una persona la mattina e la sera bastano due turni sovrapposti, e
+ * chi resta a casa ha un giorno in piu' per il weekend.
+ */
+export function dueTurniInveceDiTre(
+  giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], regole: RegoleTurni = REGOLE_DEFAULT, fissi: Turno[] = [],
+): Turno[] {
+  const intoccabili = new Set(fissi);
+  let out = [...turni];
+  const aperti = giorni.filter((g) => !g.chiuso);
+  const vuote = (lista: Turno[]) => aperti.reduce((a, g) => a + copertura(g, lista).filter((c) => c < 1).length, 0);
+  const ore = (id: string, lista: Turno[]) => lista.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
+  const persona = new Map(persone.map((p) => [p.id, p]));
+  const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
+    const pausa = pausaPer(lavoro, regole);
+    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+  };
+  // ore in piu' di una persona: si tolgono accorciando i suoi turni degli altri
+  // giorni di mezz'ora alla volta, finche' le ore scoperte non crescono
+  const rientra = (lista: Turno[], id: string, giorno: string, tetto: number, base: number): Turno[] | null => {
+    let l = lista;
+    for (let k = 0; k < 40 && ore(id, l) > (persona.get(id)?.ore ?? 0) + 1e-9; k++) {
+      let preso = false;
+      for (const t of l.filter((x) => x.employeeId === id && x.data !== giorno && !intoccabili.has(x))) {
+        const lav = oreLavorate(t) * 60 - SLOT_MINUTI;
+        if (lav < regole.turnoMinOre * 60) continue;
+        for (const v of [conPausa(t, minuti(t.inizio) + SLOT_MINUTI, lav), conPausa(t, minuti(t.inizio), lav)]) {
+          const l2 = l.map((x) => (x === t ? v : x));
+          if (oreScoperte(aperti, l2) <= tetto + 1e-9 && vuote(l2) <= base) { l = l2; preso = true; break; }
+        }
+        if (preso) break;
+      }
+      if (!preso) return null;
+    }
+    return l;
+  };
+  for (let giro = 0; giro < 30; giro++) {
+    const scoperteOra = oreScoperte(aperti, out);
+    const vuoteOra = vuote(out);
+    let fatto = false;
+    for (const g of aperti) {
+      const delGiorno = out.filter((t) => t.data === g.data && !intoccabili.has(t));
+      if (new Set(out.filter((t) => t.data === g.data).map((t) => t.employeeId)).size < 3) continue;
+      for (const a of delGiorno) {
+        for (const b of delGiorno) {
+          if (a === b || a.employeeId === b.employeeId) continue;
+          const da = Math.min(minuti(a.inizio), minuti(b.inizio));
+          const al = Math.max(minuti(a.fine), minuti(b.fine));
+          const pausa = pausaMinimaPerPresenza(al - da, regole);
+          const lavoro = al - da - pausa;
+          if (lavoro > regole.turnoMaxOre * 60 || lavoro < regole.turnoMinOre * 60) continue;
+          const chi = a.employeeId;
+          const l = limitiPersona(persona.get(chi), g);
+          if (da < l.apre || al > l.chiude) continue;
+          const unito: Turno = { ...a, inizio: hhmm(da), fine: hhmm(al), pausaMinuti: pausa };
+          let prova = [...out.filter((t) => t !== a && t !== b), unito];
+          if (new Set(prova.filter((t) => t.data === g.data).map((t) => t.employeeId)).size < 2) continue;
+          if (oreScoperte(aperti, prova) > scoperteOra + 1e-9 || vuote(prova) > vuoteOra) continue;
+          const rientrata = rientra(prova, chi, g.data, scoperteOra, vuoteOra);
+          if (!rientrata) continue;
+          prova = rientrata;
+          out = prova; fatto = true; break;
+        }
+        if (fatto) break;
+      }
+      if (fatto) break;
+    }
+    if (!fatto) break;
+  }
+  return out;
 }
 
 // ── Le ore di contratto che avanzano (Patrizio, 20/10/2026) ──────────────
@@ -1112,6 +1196,11 @@ function pianificaMeseConRegola(args: {
       const fissiRefSett = new Set(fissiSett);
       esito = [...ritoccaScoperture(gg, esito.filter((t) => !fissiRefSett.has(t)), fissiSett, candidati, regole), ...fissiSett];
       if (oreScoperte(base, esito) > 0) esito = copriOrarioMinimo(base, esito, perCopertura, riservaCopertura, regole);
+    }
+    // Due turni invece di tre dove le fasce restano coperte (Patrizio, 30/10/2026).
+    {
+      const fissiRefSett = new Set(fissiSett);
+      esito = [...dueTurniInveceDiTre(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole, fissiSett), ...fissiSett];
     }
     // Poi, se ammessi, gli straordinari di chi ha un contratto: prima la
     // riserva (ore normali), poi le ore in piu' dei titolari.

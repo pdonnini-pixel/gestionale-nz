@@ -129,6 +129,8 @@ export interface FasciaFabbisogno {
   dalle: string;
   alle: string;
   persone: number;
+  /** 'manuale' = salvata da chi decide il fabbisogno; 'stima' = proposta dai dati, non ancora confermata */
+  origine?: string;
 }
 
 export interface GiornoSpeciale {
@@ -192,6 +194,27 @@ export interface GiornoPiano {
    * (Patrizio, 29/10/2026); la proposta dei turni usa il fabbisogno intero.
    */
   esatto?: number[];
+  /**
+   * Il minimo di persone in ogni mezz'ora (Patrizio, 30/10/2026): le fasce di
+   * «Orari e fabbisogno» confermate (una persona la mattina e la sera, due nel
+   * resto, come le decide lui), oppure la regola delle due persone salvo la prima
+   * e l'ultima ora. MODA aggiunge persone sopra. Il minimo si conta su chi e'
+   * presente: le pause sfalsate sono accettate.
+   */
+  minimo?: number[];
+}
+
+/**
+ * Quanto manca in una mezz'ora. Il minimo delle regole si conta su chi e'
+ * presente (le pause sfalsate sono accettate, Patrizio 30/10/2026); quello che
+ * MODA chiede sopra il minimo si conta su chi e' davvero in negozio, pause tolte.
+ * Senza minimo (negozio senza traffico) conta chi e' in negozio.
+ */
+export function mancanza(serve: number, minimo: number | undefined, lorda: number, netta: number): number {
+  if (minimo == null) return Math.max(0, serve - netta);
+  const sottoMinimo = Math.max(0, Math.min(serve, minimo) - lorda);
+  const sopra = serve > minimo + 1e-9 ? Math.max(0, serve - netta) : 0;
+  return Math.max(sottoMinimo, sopra);
 }
 
 export interface PersonaTurni {
@@ -371,7 +394,13 @@ export function costruisciGiorni(
         .reduce((m, f) => Math.max(m, f.persone), 0);
       return Math.max(0, base + extra);
     });
-    return { data, giorno: g, chiuso: false, apre, chiude, fabbisogno, nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari };
+    // Le fasce confermate fanno il minimo di persone del giorno; quelle stimate no.
+    const confermate = fasceGiorno.filter((f) => f.origine === 'manuale');
+    const minimo = confermate.length ? Array.from({ length: n }, (_, i) => {
+      const t = apre + i * SLOT_MINUTI;
+      return Math.max(1, confermate.filter((f) => minuti(f.dalle) <= t && t < minuti(f.alle)).reduce((m, f) => Math.max(m, f.persone), 0));
+    }) : undefined;
+    return { data, giorno: g, chiuso: false, apre, chiude, fabbisogno, nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari, ...(minimo ? { minimo } : {}) };
   });
 }
 
@@ -486,14 +515,16 @@ export function copertura(giorno: GiornoPiano, turni: Turno[]): number[] {
 /** Le mezz'ore in cui mancano persone, unite in fasce. */
 export function scopertureDelGiorno(giorno: GiornoPiano, turni: Turno[]): Scopertura[] {
   if (giorno.chiuso) return [];
-  const cop = copertura(giorno, turni);
+  const netta = copertura(giorno, turni);
+  const lorda = coperturaLorda(giorno, turni);
+  const m = (k: number) => mancanza(giorno.fabbisogno[k], giorno.minimo?.[k], lorda[k], netta[k]);
   const out: Scopertura[] = [];
   let i = 0;
-  while (i < cop.length) {
-    const manca = giorno.fabbisogno[i] - cop[i];
+  while (i < netta.length) {
+    const manca = m(i);
     if (manca <= 0) { i++; continue; }
     let j = i;
-    while (j + 1 < cop.length && giorno.fabbisogno[j + 1] - cop[j + 1] === manca) j++;
+    while (j + 1 < netta.length && m(j + 1) === manca) j++;
     out.push({
       data: giorno.data,
       dalle: hhmm(giorno.apre + i * SLOT_MINUTI),
@@ -519,8 +550,11 @@ type ArgsProposta = {
 
 /** Ore-persona che mancano, pause comprese. */
 export function oreScoperte(giorni: GiornoPiano[], turni: Turno[]): number {
-  return giorni.reduce((s, g) => s + copertura(g, turni)
-    .reduce((a, c, i) => a + Math.max(0, g.fabbisogno[i] - c), 0) * (SLOT_MINUTI / 60), 0);
+  return giorni.reduce((s, g) => {
+    const lorda = coperturaLorda(g, turni);
+    return s + copertura(g, turni)
+      .reduce((a, c, i) => a + mancanza(g.fabbisogno[i], g.minimo?.[i], lorda[i], c), 0) * (SLOT_MINUTI / 60);
+  }, 0);
 }
 
 /**
@@ -533,7 +567,8 @@ export function oreSottoModa(giorni: GiornoPiano[], turni: Turno[]): number {
   return giorni.reduce((s, g) => {
     if (g.chiuso) return s;
     const serve = g.esatto ?? g.fabbisogno;
-    return s + copertura(g, turni).reduce((a, c, i) => a + Math.max(0, (serve[i] ?? 0) - c), 0) * (SLOT_MINUTI / 60);
+    const lorda = coperturaLorda(g, turni);
+    return s + copertura(g, turni).reduce((a, c, i) => a + mancanza(serve[i] ?? 0, g.minimo?.[i], lorda[i], c), 0) * (SLOT_MINUTI / 60);
   }, 0);
 }
 

@@ -290,7 +290,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
           <div className="flex items-center justify-between gap-2 p-4 border-b border-slate-100 flex-wrap">
             <div>
               <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Fabbisogno: persone per fascia {!puoFabbisogno && <Lock size={13} className="text-slate-400" />}</h3>
-              <p className="text-xs text-slate-500">{puoFabbisogno ? 'Quante persone servono in negozio, fascia per fascia.' : 'Lo decide la direzione (profilo Super Advisor): qui lo vedi, non lo modifichi.'}</p>
+              <p className="text-xs text-slate-500">{puoFabbisogno ? 'Il minimo di persone in negozio, fascia per fascia (per esempio una la mattina e la sera, due nel resto): una volta salvato comanda nei turni, e dove il traffico MODA chiede di più le persone aumentano.' : 'Lo decide la direzione (profilo Super Advisor): qui lo vedi, non lo modifichi.'}</p>
             </div>
             {puoFabbisogno && (
               <div className="flex gap-2">
@@ -401,7 +401,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
             <label className="col-span-2 sm:col-span-3 flex items-start gap-2 text-xs text-slate-600">
               <input type="checkbox" disabled={!puoScrivere} className="mt-0.5" checked={regole.duePersone}
                 onChange={(e) => setRegole((r) => ({ ...r, duePersone: e.target.checked }))} />
-              <span>Sempre almeno due persone in negozio, salvo la prima ora di apertura e l&apos;ultima di chiusura. Se le ore non bastano, la seconda persona viene prima del traffico del weekend.</span>
+              <span>Sempre almeno due persone in negozio, salvo la prima ora di apertura e l&apos;ultima di chiusura. Se le ore non bastano, la seconda persona viene prima del traffico del weekend. Vale finché il fabbisogno per fascia non è salvato: dopo comandano le fasce.</span>
             </label>
           </div>
         </section>

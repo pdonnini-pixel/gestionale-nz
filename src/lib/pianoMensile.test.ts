@@ -461,3 +461,28 @@ describe('il negozio non resta mai scoperto (Patrizio, 30/10/2026)', () => {
     }
   });
 });
+
+describe('le fasce salvate comandano (Patrizio, 30/10/2026)', () => {
+  const tutte = Array.from({ length: 42 }, (_, i) => new Date(Date.UTC(2026, 9, 26 + i)).toISOString().slice(0, 10));
+  const atteso = new Map(tutte.map((d) => [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 20 ? 10 : 0))]));
+  const fasce = (origine: string) => [1, 2, 3, 4, 5, 6, 7].flatMap((g) => [
+    { giorno: g, dalle: '10:00', alle: '12:00', persone: 1, origine },
+    { giorno: g, dalle: '12:00', alle: '18:00', persone: 2, origine },
+    { giorno: g, dalle: '18:00', alle: '20:00', persone: 1, origine }]);
+  it('una persona 10-12 e 18-20, due 12-18; le fasce stimate no', () => {
+    const [g] = fabbisognoDaTraffico(costruisciGiorni(['2026-11-03'], orari, fasce('manuale'), []), atteso, REGOLE_DEFAULT, new Map([['2026-11-03', 4]]));
+    expect(g.fabbisogno).toEqual([1, 1, 1, 1, ...Array(12).fill(2), 1, 1, 1, 1]);
+    const [s] = fabbisognoDaTraffico(costruisciGiorni(['2026-11-03'], orari, fasce('stima'), []), atteso, REGOLE_DEFAULT, new Map([['2026-11-03', 4]]));
+    expect(s.fabbisogno).toEqual([1, 1, ...Array(16).fill(2), 1, 1]);
+  });
+  it('nei feriali tranquilli bastano due turni sovrapposti', () => {
+    const giorni = costruisciGiorni(tutte, orari, fasce('manuale'), []);
+    // 16 ore di presenza al giorno: le ore ci sono (ognuno puo' fare turni lunghi)
+    const persone = [40, 40, 30].map((ore, i) => ({ id: `p${i}`, oreSettimana: ore, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }));
+    const e = pianificaMese({ mese: '2026-11', giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso, regole: REGOLE_DEFAULT });
+    const feriali = tutte.filter((d) => d.startsWith('2026-11') && [1, 2, 3, 4, 5].includes(new Date(`${d}T00:00:00Z`).getUTCDay()));
+    const conTre = feriali.filter((d) => new Set(e.turni.filter((t) => t.data === d).map((t) => t.employeeId)).size >= 3);
+    expect(conTre.length).toBeLessThanOrEqual(feriali.length / 2);
+    for (const g of giorni.filter((x) => x.data.startsWith('2026-11'))) expect(copertura(g, e.turni).every((c) => c >= 1), g.data).toBe(true);
+  });
+});
