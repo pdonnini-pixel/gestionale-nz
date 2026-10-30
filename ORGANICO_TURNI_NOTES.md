@@ -671,3 +671,47 @@ regola 1 del CLAUDE.md.
   picco 5), Palmanova 113 → 126, Valmontone 147 → 156. Avvisi ferie fino al 31/12: prima 0 ovunque;
   con MODA Barberino 4 giorni (7, 8, 14, 15/11), Valmontone 6 (weekend 7-8, 14-15, 21-22/11),
   Palmanova 0. Sono tutte ferie di sabato o domenica, dove il picco MODA chiede tutto l'organico.
+
+## Ore oltre il tetto, sotto MODA senza arrotondare, «In negozio» con le pause (29/10/2026)
+
+Nato dal 1/11 di Barberino: tabella «4 ore sotto MODA», calendario «coperto».
+- La riga «In negozio» contava chi aveva il turno, pausa compresa; il riquadro delle ore toglieva le
+  pause. Ora anche «In negozio» usa `copertura()` (pause tolte) e lo stesso fabbisogno esatto.
+- `fabbisognoDaTraffico`: k si calcola sulla distribuzione **senza** il tetto delle persone, poi il
+  tetto taglia. Prima k cresceva finché le ore entravano col tetto, e le ore del sabato e della
+  domenica finivano nelle ore e nei giorni con meno traffico (il 1/11: 4 persone anche alle 18 con 49
+  ingressi). Le ore tagliate restano «da assegnare» o ferie.
+- `esatto` (non arrotondato, con tetto) misura necessarie e ore sotto MODA (`oreSottoModa`) e guida
+  `collocaPause`. La proposta e i controlli interni del motore (`oreScoperte`) restano interi.
+- Misura del 29/10: 1/11 Barberino, 36 h, 4 persone dalle 10 alle 20 con un'ora di pausa: da 4 a 3,6 ore
+  sotto MODA. Il traffico chiede 4 persone (4,3-5,5 senza tetto) in tutte le ore 11-18 tranne le 13
+  (3,63): la prima pausa va alle 13, le altre tre cadono dove servono tutte e quattro. Il buco è vero.
+  Settimane di novembre (necessarie intere): Barberino 170 → 135 h (feriali 16 → 10 h), Palmanova 126 →
+  117, Valmontone 156 → 133. Le varianti già create vanno ricreate per vedere i numeri nuovi.
+
+## Soglia di ingressi per addetto, pausa pranzo 13-15, turni da 7 ore e mezza (29/10/2026)
+
+Sostituisce il «fare il massimo con le persone che hai» e la sezione precedente sulle ore oltre il tetto
+(che resta valida per `esatto`, `oreSottoModa` e la riga «In negozio» con le pause).
+- **Fabbisogno** (`fabbisognoDaTraffico`): ingressi attesi nell'ora / soglia, almeno 1, tetto delle
+  persone disponibili, più `personeInPiu`. `sogliaDelGiorno`: weekend = sabato, domenica e festivi.
+  Soglie in `outlet_shift_rules.soglia_ingressi_feriali/_weekend` (migration 330, NZ, Made e Zago;
+  NULL = 25 dal codice). Si cambiano in «Regole dei turni».
+- **Da dove viene il 25**: presenze di settembre e ottobre (cartellini, 7 negozi, 2.469 ore utili) incrociate
+  con ingressi e scontrini MODA. Feriali: conversione 9-10% fino a 20 ingressi per addetto, 6,6-6,7% fra 25 e
+  30 (poche ore). Weekend: su tutte le giornate cala fino a ~30, sulle giornate con pause timbrate non cala
+  fino a 35: il 25 nel weekend è prudente. A parità di traffico, sopra 40 ingressi l'ora più persone non
+  hanno alzato la conversione. Limiti: pause non timbrate fino al 18/10, report MODA con impostazioni
+  diverse, solo scontrini (niente vendite e pezzi). Rimisurare a fine novembre.
+- **Ore non richieste dal traffico**: restano «ancora da assegnare» (Patrizio: ferie, permessi o turni).
+  `usaOreResidue` non è più chiamata dal piano del mese.
+- **Pausa pranzo 13-15** (`PAUSA_PRANZO`, `collocaPause`): per chi lavora a cavallo della fascia la pausa
+  sta dentro; altrimenti la regola delle due ore.
+- **Turni da 7 ore e mezza** (`giornoPieno`, `migliorStrategia` prova le strategie con e senza turni corti,
+  a parità vincono i corti): con più di 2 persone insieme le pause da un'ora non stanno nella fascia.
+- **Misura del 29/10** (proposta della settimana 9-15/11, traffico di novembre 2025, ore settimanali
+  dell'anagrafica, senza ferie; prima → dopo): necessarie Barberino 170 → 101, Valdichiana 207 → 141,
+  Palmanova 126 → 82, Franciacorta 182 → 92, Brugnato 140 → 81, Valmontone 156 → 116, Torino 138 → 99.
+  Ore scoperte (persone intere) da 9,5-18 a 0-1,5 per negozio. Turni da 8 ore o più da 3-11 a 0-2.
+  Pause di chi lavora a pranzo fuori dalle 13-15: da 3-8 a 0 (una a Valdichiana). Ore di contratto
+  da assegnare: da 4-13 a 25-67 a settimana per negozio. 1/11 Barberino (4 persone): sotto MODA da 3,6 a 1,1.

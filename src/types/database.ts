@@ -17758,6 +17758,8 @@ export type Database = {
           pausa_lunga_oltre_ore: number
           pausa_minuti: number
           pausa_oltre_ore: number
+          soglia_ingressi_feriali: number | null
+          soglia_ingressi_weekend: number | null
           turno_max_ore: number
           turno_min_ore: number
           updated_at: string
@@ -17771,6 +17773,8 @@ export type Database = {
           pausa_lunga_oltre_ore?: number
           pausa_minuti?: number
           pausa_oltre_ore?: number
+          soglia_ingressi_feriali?: number | null
+          soglia_ingressi_weekend?: number | null
           turno_max_ore?: number
           turno_min_ore?: number
           updated_at?: string
@@ -17784,6 +17788,8 @@ export type Database = {
           pausa_lunga_oltre_ore?: number
           pausa_minuti?: number
           pausa_oltre_ore?: number
+          soglia_ingressi_feriali?: number | null
+          soglia_ingressi_weekend?: number | null
           turno_max_ore?: number
           turno_min_ore?: number
           updated_at?: string

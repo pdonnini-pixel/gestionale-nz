@@ -142,11 +142,13 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const salvaRegole = async () => {
     if (regole.pausaLungaOltreOre < regole.pausaOltreOre) { toast({ type: 'error', message: 'La pausa lunga deve scattare dopo quella normale.' }); return; }
     if (regole.turnoMinOre > regole.turnoMaxOre) { toast({ type: 'error', message: 'Il turno minimo non può superare il turno massimo.' }); return; }
+    if (regole.sogliaFeriali < 1 || regole.sogliaWeekend < 1) { toast({ type: 'error', message: 'Gli ingressi per addetto devono essere almeno 1.' }); return; }
     setSalvo('regole');
     const { error } = await supabase.from('outlet_shift_rules').upsert([{
       outlet_id: outletId, company_id: companyId, turno_min_ore: regole.turnoMinOre, turno_max_ore: regole.turnoMaxOre,
       pausa_oltre_ore: regole.pausaOltreOre, pausa_minuti: regole.pausaMinuti,
       pausa_lunga_oltre_ore: regole.pausaLungaOltreOre, pausa_lunga_minuti: regole.pausaLungaMinuti, giorni_lavoro_max: regole.giorniLavoroMax,
+      soglia_ingressi_feriali: regole.sogliaFeriali, soglia_ingressi_weekend: regole.sogliaWeekend,
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
     setSalvo(null);
@@ -386,6 +388,9 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
               { k: 'pausaLungaOltreOre' as const, label: 'Pausa lunga da (ore lavorate)', min: 1, max: 12, step: 0.5 },
               { k: 'pausaLungaMinuti' as const, label: 'Pausa lunga (minuti)', min: 0, max: 120, step: 15 },
               { k: 'giorniLavoroMax' as const, label: 'Giorni di lavoro a settimana, al massimo', min: 1, max: 7, step: 1 },
+              // Soglia di ingressi MODA per addetto (Patrizio, 29/10/2026): 25 provvisorio, si rimisura a fine novembre.
+              { k: 'sogliaFeriali' as const, label: 'Ingressi per addetto all\'ora, feriali (provvisorio)', min: 1, max: 200, step: 1 },
+              { k: 'sogliaWeekend' as const, label: 'Ingressi per addetto all\'ora, sabato, domenica e festivi (provvisorio)', min: 1, max: 200, step: 1 },
             ]).map((c) => (
               <label key={c.k} className="text-xs text-slate-600">{c.label}<br />
                 <input type="number" min={c.min} max={c.max} step={c.step} disabled={!puoScrivere} className={`${inputCls} w-24 mt-1`} value={regole[c.k]}

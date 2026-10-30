@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, fabbisognoPienoDaTraffico, assegnaWeekendLiberi,
+  blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, sogliaDelGiorno, assegnaWeekendLiberi,
   personeMinime, pianificaMese, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
 } from './pianoMensile';
 import { REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate } from './turni';
@@ -49,29 +49,37 @@ describe('traffico atteso dalla storia', () => {
   });
 });
 
-describe('fabbisogno dal traffico, senza obiettivi', () => {
+describe('fabbisogno dal traffico: ingressi diviso la soglia', () => {
   const sett = giorniDellaSettimana('2026-11-09');
   const giorni = costruisciGiorni(sett, orari, [], []);
   const atteso = new Map(sett.map((d) => [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 20 ? (giorniDellaSettimana('2026-11-09').indexOf(d) >= 5 ? 40 : 10) * (h >= 15 && h < 18 ? 2 : 1) : 0))]));
   const maxP = new Map(sett.map((d) => [d, 4]));
-  it('usa le ore che ci sono, almeno una persona, di più dove c\'è più gente', () => {
-    const f = fabbisognoDaTraffico(giorni, atteso, 120, maxP);
-    const ore = f.reduce((s, g) => s + g.fabbisogno.reduce((a, b) => a + b, 0) / 2, 0);
-    expect(ore).toBeLessThanOrEqual(120);
-    expect(ore).toBeGreaterThan(100);
-    for (const g of f) expect(Math.min(...g.fabbisogno)).toBeGreaterThanOrEqual(1);
-    expect(Math.max(...f[5].fabbisogno)).toBeGreaterThan(Math.max(...f[0].fabbisogno)); // sabato > lunedì
-    expect(Math.max(...f[5].fabbisogno)).toBeLessThanOrEqual(4);
+  it('ingressi / 25, almeno una persona, al massimo le persone che ci sono', () => {
+    const f = fabbisognoDaTraffico(giorni, atteso, REGOLE_DEFAULT, maxP);
+    expect(f[0].fabbisogno.every((x) => x === 1)).toBe(true); // lunedì: 10 o 20 ingressi, una persona
+    expect(f[5].esatto![0]).toBeCloseTo(40 / 25); // sabato alle 10: 1,6 persone
+    expect(f[5].fabbisogno[0]).toBe(2);
+    expect(f[5].esatto![10]).toBeCloseTo(80 / 25); // alle 15: 3,2
+    for (const g of f) expect(Math.max(...g.fabbisogno)).toBeLessThanOrEqual(4);
   });
-  it('a organico pieno, settimana per settimana: ogni settimana usa le sue ore', () => {
-    const due = [...sett, ...giorniDellaSettimana('2026-11-16')];
-    const gg = costruisciGiorni(due, orari, [], []);
-    const at = new Map(due.map((d) => [d, atteso.get(sett[giorniDellaSettimana(lunediDi(d)).indexOf(d)])!]));
-    const f = fabbisognoPienoDaTraffico(gg, at, (lun) => (lun === '2026-11-09' ? 120 : 60), () => 4);
-    const oreSett = (lun: string) => f.filter((g) => lunediDi(g.data) === lun).reduce((s, g) => s + g.fabbisogno.reduce((a, b) => a + b, 0) / 2, 0);
-    expect(oreSett('2026-11-09')).toBeGreaterThan(100);
-    expect(oreSett('2026-11-09')).toBeLessThanOrEqual(120);
-    expect(oreSett('2026-11-16')).toBeLessThanOrEqual(70); // almeno una persona sempre: 7 giorni x 10 ore
+  it('soglie diverse per feriali e weekend', () => {
+    const regole = { ...REGOLE_DEFAULT, sogliaFeriali: 5, sogliaWeekend: 40 };
+    expect(sogliaDelGiorno('2026-11-09', regole)).toBe(5);
+    expect(sogliaDelGiorno('2026-11-14', regole)).toBe(40);
+    expect(sogliaDelGiorno('2026-12-08', regole)).toBe(40); // festivo infrasettimanale
+    const f = fabbisognoDaTraffico(giorni, atteso, regole, maxP);
+    expect(f[0].esatto![0]).toBeCloseTo(2); // 10 ingressi / 5
+    expect(f[5].esatto![0]).toBeCloseTo(1); // 40 / 40
+  });
+  it('la domenica 1/11 di Barberino: pranzo e sera più leggeri, il tetto vale sulle persone che ci sono', () => {
+    const d = '2026-11-01';
+    const ore = Array(24).fill(0); [30, 93, 89, 75, 85, 102, 126, 101, 49, 15].forEach((v, i) => { ore[10 + i] = v; });
+    const g = fabbisognoDaTraffico(costruisciGiorni([d], orari, [], []), new Map([[d, ore]]), REGOLE_DEFAULT, new Map([[d, 4]]))[0];
+    expect(g.esatto![6]).toBeCloseTo(3); // alle 13: 75 / 25
+    expect(g.esatto![16]).toBeCloseTo(49 / 25); // alle 18: 2 persone
+    expect(g.esatto![12]).toBe(4); // alle 16 ne servirebbero 5: tetto 4
+    expect(g.esigenza![12]).toBe(5);
+    expect(g.fabbisogno[18]).toBe(1); // alle 19: 15 ingressi, una persona
   });
   it('le persone in più di giorni speciali ed eventi si sommano a MODA', () => {
     const extra = personeInPiu(sett, [{ data: sett[0], persone_extra: 1 }],
@@ -144,8 +152,10 @@ describe('il piano del mese', () => {
   it('ore necessarie sull\'organico pieno: togliere una settimana di ferie riduce le ore scoperte', () => {
     const ferie = new Map(['2026-11-09', '2026-11-10', '2026-11-11', '2026-11-12', '2026-11-13'].map((d) => [d, 40 / 6]));
     const conFerie = persone.map((p, i) => (i === 0 ? { ...p, oreFerie: ferie, nonDisponibile: new Set(ferie.keys()) } : p));
-    const a = pianificaMese({ mese, giorni, persone: conFerie, regola: 'nessuno', storicoWeekend: new Map(), atteso });
-    const b = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    // feriali pieni (60 ingressi, 2,4 persone): una settimana di ferie lascia buchi
+    const pieno = new Map([...atteso].map(([d, o]) => [d, o.map((v) => (v === 10 ? 60 : v))]));
+    const a = pianificaMese({ mese, giorni, persone: conFerie, regola: 'nessuno', storicoWeekend: new Map(), atteso: pieno });
+    const b = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso: pieno });
     expect(b.oreScoperte).toBeLessThan(a.oreScoperte);
     // le necessarie non dipendono dalle ferie; le disponibili si'
     a.settimane.forEach((w, i) => expect(w.necessarie).toBeCloseTo(b.settimane[i].necessarie, 6));

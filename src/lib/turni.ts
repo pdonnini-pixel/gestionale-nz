@@ -32,7 +32,17 @@ export interface RegoleTurni {
   pausaLungaOltreOre: number;
   pausaLungaMinuti: number;
   giorniLavoroMax: number;
+  /**
+   * Soglia di ingressi MODA per addetto all'ora (Patrizio, 29/10/2026): in
+   * ogni ora servono ingressi / soglia persone. Due valori, feriali e sabato,
+   * domenica e festivi; 25 provvisorio, misurato su settembre-ottobre 2026.
+   */
+  sogliaFeriali: number;
+  sogliaWeekend: number;
 }
+
+/** Fascia della pausa pranzo (Patrizio, 29/10/2026): 13-15, quando gli ingressi calano. */
+export const PAUSA_PRANZO = { dalle: 13 * 60, alle: 15 * 60 };
 
 export const REGOLE_DEFAULT: RegoleTurni = {
   turnoMinOre: 4,
@@ -42,6 +52,8 @@ export const REGOLE_DEFAULT: RegoleTurni = {
   pausaLungaOltreOre: 8,
   pausaLungaMinuti: 60,
   giorniLavoroMax: 6,
+  sogliaFeriali: 25,
+  sogliaWeekend: 25,
 };
 
 /**
@@ -81,6 +93,7 @@ export function lavoroMassimoGiorno(g: { apre: number; chiude: number }, regole:
 export function regoleDaRiga(r: {
   turno_min_ore?: number | string | null; turno_max_ore: number | string; pausa_oltre_ore: number | string; pausa_minuti: number | string;
   pausa_lunga_oltre_ore?: number | string | null; pausa_lunga_minuti?: number | string | null; giorni_lavoro_max: number | string;
+  soglia_ingressi_feriali?: number | string | null; soglia_ingressi_weekend?: number | string | null;
 } | null | undefined): RegoleTurni {
   if (!r) return REGOLE_DEFAULT;
   return {
@@ -89,6 +102,8 @@ export function regoleDaRiga(r: {
     pausaLungaOltreOre: Number(r.pausa_lunga_oltre_ore ?? REGOLE_DEFAULT.pausaLungaOltreOre),
     pausaLungaMinuti: Number(r.pausa_lunga_minuti ?? REGOLE_DEFAULT.pausaLungaMinuti),
     giorniLavoroMax: Number(r.giorni_lavoro_max),
+    sogliaFeriali: Number(r.soglia_ingressi_feriali ?? REGOLE_DEFAULT.sogliaFeriali),
+    sogliaWeekend: Number(r.soglia_ingressi_weekend ?? REGOLE_DEFAULT.sogliaWeekend),
   };
 }
 
@@ -161,6 +176,13 @@ export interface GiornoPiano {
   straordinari?: boolean;
   /** persone che MODA chiederebbe in ogni mezz'ora, senza il tetto delle persone disponibili quel giorno: la differenza con chi c'e' e' personale che manca */
   esigenza?: number[];
+  /**
+   * Le persone che MODA chiede in ogni mezz'ora senza arrotondare (3,53 e non
+   * 4), con il tetto delle persone e le persone in piu'. Serve a misurare le
+   * ore sotto MODA e a mettere le pause dove il traffico e' piu' basso
+   * (Patrizio, 29/10/2026); la proposta dei turni usa il fabbisogno intero.
+   */
+  esatto?: number[];
 }
 
 export interface PersonaTurni {
@@ -409,6 +431,11 @@ export function collocaPause(giorno: GiornoPiano, turni: Turno[]): PausaCollocat
     let primo = da + PAUSA_DOPO_MINUTI;
     let ultimo = a - PAUSA_DOPO_MINUTI - durata;
     if (ultimo < primo) { primo = da; ultimo = a - durata; }
+    // Pausa pranzo fra le 13 e le 15 per chi lavora a cavallo di quella fascia
+    // (Patrizio, 29/10/2026); chi entra piu' tardi la fa dopo almeno due ore.
+    const pranzoDa = Math.max(primo, PAUSA_PRANZO.dalle);
+    const pranzoA = Math.min(ultimo, PAUSA_PRANZO.alle - durata);
+    if (pranzoDa <= pranzoA) { primo = pranzoDa; ultimo = pranzoA; }
     let scelta: { inizio: number; margine: number; somma: number } | null = null;
     for (let s = primo; s <= ultimo; s += SLOT_MINUTI) {
       let margine = Infinity;
@@ -416,7 +443,8 @@ export function collocaPause(giorno: GiornoPiano, turni: Turno[]): PausaCollocat
       for (let m = s; m < s + durata; m += SLOT_MINUTI) {
         const i = (m - giorno.apre) / SLOT_MINUTI;
         if (i < 0 || i >= cop.length) continue;
-        const resto = cop[i] - 1 - giorno.fabbisogno[i];
+        // dove c'e' il fabbisogno esatto di MODA, la pausa va dove il traffico e' piu' basso
+        const resto = cop[i] - 1 - (giorno.esatto?.[i] ?? giorno.fabbisogno[i]);
         margine = Math.min(margine, resto);
         somma += resto;
       }
@@ -484,6 +512,20 @@ type ArgsProposta = {
 export function oreScoperte(giorni: GiornoPiano[], turni: Turno[]): number {
   return giorni.reduce((s, g) => s + copertura(g, turni)
     .reduce((a, c, i) => a + Math.max(0, g.fabbisogno[i] - c), 0) * (SLOT_MINUTI / 60), 0);
+}
+
+/**
+ * Ore sotto MODA: in ogni mezz'ora le persone che il traffico chiede senza
+ * arrotondare meno chi e' davvero in negozio (le pause tolte). Mezza persona
+ * che manca per mezz'ora vale un quarto d'ora. Senza il fabbisogno esatto
+ * (negozio senza traffico) vale quello intero, come oreScoperte.
+ */
+export function oreSottoModa(giorni: GiornoPiano[], turni: Turno[]): number {
+  return giorni.reduce((s, g) => {
+    if (g.chiuso) return s;
+    const serve = g.esatto ?? g.fabbisogno;
+    return s + copertura(g, turni).reduce((a, c, i) => a + Math.max(0, (serve[i] ?? 0) - c), 0) * (SLOT_MINUTI / 60);
+  }, 0);
 }
 
 /**
@@ -645,17 +687,30 @@ export function sfrondaOreInPiu(
 function migliorStrategia(args: ArgsProposta): EsitoProposta {
   const tutti = (e: EsitoProposta) => [...(args.fissi ?? []), ...e.turni];
   let meglio: { e: EsitoProposta; ore: number } | null = null;
-  for (const ordine of ['pieni', 'buco'] as const) {
-    for (const turni of ['pesati', 'uguali'] as const) {
-      const e = proponiConStrategia(args, ordine, turni);
-      const ore = oreScoperte(args.giorni, tutti(e));
-      if (!meglio || ore < meglio.ore - 1e-9) meglio = { e, ore };
+  // Prima i turni corti nei giorni pieni: a parita' di ore scoperte vincono loro.
+  for (const corti of [true, false]) {
+    for (const ordine of ['pieni', 'buco'] as const) {
+      for (const turni of ['pesati', 'uguali'] as const) {
+        const e = proponiConStrategia(args, ordine, turni, corti);
+        const ore = oreScoperte(args.giorni, tutti(e));
+        if (!meglio || ore < meglio.ore - 1e-9) meglio = { e, ore };
+      }
     }
   }
   return meglio!.e;
 }
 
-function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni: 'pesati' | 'uguali'): EsitoProposta {
+/**
+ * Turni da 7 ore e mezza nei giorni pieni (Patrizio, 29/10/2026): con tre o
+ * piu' persone insieme le pause da un'ora non stanno nella fascia del pranzo
+ * (13-15) senza sovrapporsi; sotto le 8 ore lavorate la pausa e' di mezz'ora.
+ */
+function giornoPieno(g: GiornoPiano): boolean {
+  const pause1h = Math.floor((PAUSA_PRANZO.alle - PAUSA_PRANZO.dalle) / 60);
+  return !g.chiuso && Math.max(0, ...g.fabbisogno) > pause1h;
+}
+
+function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni: 'pesati' | 'uguali', corti = false): EsitoProposta {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const giorni = args.giorni;
   const fissi = args.fissi ?? [];
@@ -700,6 +755,7 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
       ? rest * peso(g) / insieme.reduce((a, x) => a + peso(x), 0)
       : rest / Math.max(1, Math.min(liberi.length + 1, slot));
     ore = Math.min(Math.max(ore, regole.turnoMinOre), regole.turnoMaxOre, rest);
+    if (corti && giornoPieno(g)) ore = Math.min(ore, regole.pausaLungaOltreOre - SLOT_MINUTI / 60);
     ore = arrotondaMezzOra(ore);
     let lavoro = ore * 60;
     const l = limitiPersona(p, g);

@@ -186,17 +186,16 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       fasce: fasceDelle(disponibilita, p.scheda.id, date),
     })), [persone, date, inFerie, trasferte, motivoNonDisponibile, saldi, disponibilita]);
 
-  // Il fabbisogno dal traffico MODA, come nel piano del mese: le ore di chi c'e'
-  // distribuite come gli ingressi attesi, almeno una persona, al massimo le
+  // Il fabbisogno dal traffico MODA, come nel piano del mese: ingressi attesi
+  // diviso la soglia di ingressi per addetto, almeno una persona, al massimo le
   // persone disponibili quel giorno, piu' le persone in piu' di eventi e giorni speciali.
   const moda = useMemo(() => (storico ? attesoDelleDate(storico.storico, date) : null), [storico, date]);
   const usaModa = !!moda && moda.atteso.size > 0;
   const giorni = useMemo(() => {
     if (!moda || !moda.atteso.size) return giorniBase;
-    const ore = candidati.reduce((a, p) => a + p.ore, 0);
     const maxP = new Map(date.map((d) => [d, candidati.filter((p) => !p.nonDisponibile.has(d)).length]));
-    return fabbisognoDaTraffico(giorniBase, moda.atteso, ore, maxP, extra);
-  }, [giorniBase, moda, candidati, date, extra]);
+    return fabbisognoDaTraffico(giorniBase, moda.atteso, regole, maxP, extra);
+  }, [giorniBase, moda, candidati, date, extra, regole]);
   const haFabbisogno = usaModa || haFasce;
   const stimati = orariStimati || (!usaModa && fasceStimate);
 
@@ -334,7 +333,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       )}
       {haOrari && usaModa && moda && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
-          <Info size={15} className="shrink-0 mt-0.5" /> Fabbisogno dal {storico?.propria ? 'traffico MODA del negozio' : 'traffico MODA medio degli altri negozi (questo non ha storico)'}: {moda.fonti.join(', ')}. Le ore di chi lavora in settimana, ferie tolte, si distribuiscono come gli ingressi.
+          <Info size={15} className="shrink-0 mt-0.5" /> Fabbisogno dal {storico?.propria ? 'traffico MODA del negozio' : 'traffico MODA medio degli altri negozi (questo non ha storico)'}: {moda.fonti.join(', ')}. In ogni ora servono gli ingressi diviso {regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali e ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria, si cambia nelle regole dei turni); le ore di contratto che il traffico non chiede restano per ferie e permessi.
         </div>
       )}
       {haOrari && !haFabbisogno && (
