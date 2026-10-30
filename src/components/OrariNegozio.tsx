@@ -148,7 +148,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       outlet_id: outletId, company_id: companyId, turno_min_ore: regole.turnoMinOre, turno_max_ore: regole.turnoMaxOre,
       pausa_oltre_ore: regole.pausaOltreOre, pausa_minuti: regole.pausaMinuti,
       pausa_lunga_oltre_ore: regole.pausaLungaOltreOre, pausa_lunga_minuti: regole.pausaLungaMinuti, giorni_lavoro_max: regole.giorniLavoroMax,
-      soglia_ingressi_feriali: regole.sogliaFeriali, soglia_ingressi_weekend: regole.sogliaWeekend,
+      soglia_ingressi_feriali: regole.sogliaFeriali, soglia_ingressi_weekend: regole.sogliaWeekend, due_persone: regole.duePersone,
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
     setSalvo(null);
@@ -397,6 +397,12 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                   onChange={(e) => setRegole((r) => ({ ...r, [c.k]: Number(e.target.value) || 0 }))} />
               </label>
             ))}
+            {/* Due persone in negozio (Patrizio, 30/10/2026): accesa di default, si spegne negozio per negozio. */}
+            <label className="col-span-2 sm:col-span-3 flex items-start gap-2 text-xs text-slate-600">
+              <input type="checkbox" disabled={!puoScrivere} className="mt-0.5" checked={regole.duePersone}
+                onChange={(e) => setRegole((r) => ({ ...r, duePersone: e.target.checked }))} />
+              <span>Sempre almeno due persone in negozio, salvo la prima ora di apertura e l&apos;ultima di chiusura. Se le ore non bastano, la seconda persona viene prima del traffico del weekend.</span>
+            </label>
           </div>
         </section>
       </div>
