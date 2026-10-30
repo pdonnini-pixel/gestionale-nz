@@ -21,7 +21,7 @@
 import { festivitaItaliane } from './ferieRichiesta';
 import {
   SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, proponiSettimana,
-  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, minuti, hhmm,
+  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
 
@@ -287,7 +287,9 @@ export function copriOrarioMinimo(
 ): Turno[] {
   let out = [...turni];
   const giorni = base.filter((g) => !g.chiuso);
-  const cop = (g: GiornoPiano, lista = out) => coperturaLorda(g, lista);
+  // Chi e' in pausa non e' in negozio: anche durante le pause resta qualcuno
+  // (Barberino 4/11/2026: una persona sola non poteva andare a pranzo).
+  const cop = (g: GiornoPiano, lista = out) => copertura(g, lista);
   const ore = (id: string, lista = out) => lista.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
   const giorniDi = (id: string, lista = out) => new Set(lista.filter((t) => t.employeeId === id).map((t) => t.data));
   const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
@@ -295,8 +297,11 @@ export function copriOrarioMinimo(
     return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
   };
   const nessunBuco = (lista: Turno[], date: string[]) => giorni.filter((g) => date.includes(g.data)).every((g) => cop(g, lista).every((c) => c >= 1));
+  // giorni con un buco che non si e' riusciti a chiudere: si passa ai successivi
+  const irrisolti = new Set<string>();
   const primoBuco = () => {
     for (const g of giorni) {
+      if (irrisolti.has(g.data)) continue;
       const c = cop(g);
       const i = c.findIndex((x) => x === 0);
       if (i >= 0) { let j = i; while (j < c.length && c[j] === 0) j++; return { g, a: g.apre + i * SLOT_MINUTI, b: g.apre + j * SLOT_MINUTI }; }
@@ -472,9 +477,8 @@ export function copriOrarioMinimo(
     }
     if (fatto) continue;
 
-    // Niente da fare: il buco resta e si segnala. Lo si segna coperto in una copia
-    // solo per passare al successivo.
-    break;
+    // Niente da fare: il buco resta e si segnala, e si passa al giorno dopo.
+    irrisolti.add(g.data);
   }
   return out;
 }
@@ -872,7 +876,29 @@ export interface EsitoPianoMese {
  * pianificano solo le date del mese, e le ore settimanali di contratto si
  * proporzionano ai giorni del mese aperti in quella settimana.
  */
-export function pianificaMese(args: {
+/**
+ * Il piano del mese con la regola dei weekend liberi scelta. «Nessun sabato né
+ * domenica liberi» non obbliga a nessun giorno libero, quindi anche i piani
+ * delle rotazioni lo rispettano: si prova con tutte e si tiene quello con meno
+ * ore scoperte (Barberino, novembre 2026: la variante con un sabato libero
+ * copriva meglio di quella senza, perché il motore non è un ottimizzatore e un
+ * vincolo in più a volte lo porta su una distribuzione migliore).
+ */
+export function pianificaMese(args: ArgsPianoMese): EsitoPianoMese {
+  const nessuno = pianificaMeseConRegola(args);
+  if (args.regola !== 'nessuno') return nessuno;
+  // Prima conta il negozio mai vuoto (regola 3), poi le ore scoperte.
+  const vuote = (e: EsitoPianoMese) => e.giorni.filter((g) => !g.chiuso && g.data.slice(0, 7) === args.mese)
+    .reduce((a, g) => a + copertura(g, e.turni).filter((c) => c < 1).length, 0);
+  const meglioDi = (e: EsitoPianoMese, m: EsitoPianoMese) => vuote(e) < vuote(m) || (vuote(e) === vuote(m) && e.oreScoperte < m.oreScoperte - 1e-9);
+  return (['solo_sabati', 'solo_domeniche', 'sabato_o_domenica'] as const)
+    .map((regola) => pianificaMeseConRegola({ ...args, regola }))
+    .reduce((meglio, e) => (meglioDi(e, meglio) ? e : meglio), nessuno);
+}
+
+export type ArgsPianoMese = Parameters<typeof pianificaMeseConRegola>[0];
+
+function pianificaMeseConRegola(args: {
   mese: string; // 'YYYY-MM'
   giorni: GiornoPiano[];
   persone: PersonaPiano[];
