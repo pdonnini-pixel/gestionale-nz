@@ -3,7 +3,7 @@ import {
   blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, sogliaDelGiorno, assegnaWeekendLiberi,
   personeMinime, pianificaMese, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
 } from './pianoMensile';
-import { REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate } from './turni';
+import { REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate, coperturaLorda } from './turni';
 
 const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
 const date = (dal: string, n: number) => Array.from({ length: n }, (_, i) => {
@@ -368,5 +368,34 @@ describe('mai un giorno con una persona sola (Patrizio, 28/10/2026)', () => {
       expect(new Set(e.turni.filter((t) => t.data === d).map((t) => t.employeeId)).size, d).toBeGreaterThanOrEqual(2);
     }
     expect(e.turni.every((t) => oreLavorate(t) >= 4 - 1e-9)).toBe(true);
+  });
+});
+
+describe('il negozio non resta mai scoperto (Patrizio, 30/10/2026)', () => {
+  // Barberino, novembre 2026: per dare due persone a un giorno il motore spostava
+  // un turno da un altro giorno e riparava solo quello, lasciando il lunedi' 2/11
+  // scoperto dalle 18 alle 20. Ogni mezz'ora di apertura deve avere qualcuno.
+  it('con ferie sparse, ogni mezz\'ora di novembre ha almeno una persona', () => {
+    const mese = '2026-11';
+    const tutte = Array.from({ length: 42 }, (_, i) => new Date(Date.UTC(2026, 9, 26 + i)).toISOString().slice(0, 10));
+    const giorni = costruisciGiorni(tutte, orari, [], []);
+    const atteso = new Map(tutte.map((d) => {
+      const gs = new Date(`${d}T00:00:00Z`).getUTCDay();
+      // ingressi attesi di Barberino dalle 10 alle 19 (MODA, settembre-ottobre)
+      const ore = gs === 6 ? [15, 53, 57, 45, 49, 79, 85, 55, 40, 14] : gs === 0 ? [30, 93, 89, 75, 85, 102, 126, 101, 49, 15]
+        : gs === 5 ? [8, 11, 16, 9, 13, 14, 11, 14, 5, 3] : [6, 13, 12, 9, 11, 12, 11, 10, 6, 3];
+      return [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 20 ? ore[h - 10] : 0))];
+    }));
+    const p = (id: string, ore: number, ferie: [string, number][]) => ({ id, oreSettimana: ore, nonDisponibile: new Set(ferie.map(([d]) => d)), oreFerie: new Map(ferie) });
+    const persone = [
+      p('a', 35, [['2026-11-04', 7]]),
+      p('b', 40, ['11', '12', '13', '14', '15'].map((d) => [`2026-11-${d}`, 8] as [string, number])),
+      p('c', 20, [['2026-11-07', 6], ['2026-11-08', 6]]),
+      p('d', 35, [['2026-11-04', 7]]),
+    ];
+    const e = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso, regole: REGOLE_DEFAULT });
+    for (const g of giorni.filter((x) => x.data.startsWith(mese))) {
+      expect(coperturaLorda(g, e.turni).every((x) => x > 0), g.data).toBe(true);
+    }
   });
 });
