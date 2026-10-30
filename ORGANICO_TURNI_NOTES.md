@@ -779,3 +779,23 @@ mezz'ora un turno già coperto da un collega non cambia niente (il ritocco si fe
   sola Barberino 6 → 3, Palmanova 22 → 14,5, Franciacorta 4 → 0, Brugnato 4,5 → 2, Valmontone 27,5 → 26,
   Torino 13,5 → 15; sotto MODA Palmanova 37,8 → 30,3, Brugnato 13,4 → 8,2, Franciacorta 9,4 → 5,3,
   Valmontone 69,7 → 71,8, Torino 23,4 → 24,4. Nessuna mezz'ora vuota, nessun turno sotto le 4 ore.
+
+## Le fasce di «Orari e fabbisogno» comandano (30/10/2026)
+
+Patrizio: «impostare direttamente in ogni negozio la regola della presenza di x persone nelle varie fasce
+orarie e far comandare questa regola»; il numero di una fascia è il **minimo**, MODA può chiedere di più.
+- `costruisciGiorni` mette in `GiornoPiano.minimo` le fasce con `origine = 'manuale'` (salvate da chi decide
+  il fabbisogno); le fasce `stima` non comandano. `fabbisognoDaTraffico` usa `g.minimo` al posto della regola
+  delle due persone e lo rimette nel giorno (con il tetto delle persone disponibili).
+- Pause sfalsate accettate: `mancanza(serve, minimo, lorda, netta)` conta il minimo su chi è presente e la
+  parte di MODA sopra il minimo su chi è in negozio (pause tolte). Vale per ore scoperte, ore sotto MODA,
+  scoperture e riga «In negozio».
+- `dueTurniInveceDiTre`: nei giorni con tre o più persone unisce due turni in uno della stessa persona
+  (inizio del primo, fine del secondo, con la pausa minima per la presenza), se le ore scoperte della
+  settimana non crescono, il negozio non resta vuoto, il giorno resta con due persone e la persona rientra
+  nel contratto accorciando i suoi turni degli altri giorni.
+- Misura (novembre, 7 negozi senza ferie, fasce di prova 10-12 una persona, 12-18 due, 18-chiusura una):
+  feriali con tre o più persone da 15-21 su 21 a 2-13 su 21; ore con una persona dove ne servono due a zero
+  in cinque negozi (Brugnato 20,5, Valmontone 9,5, che non hanno abbastanza ore); nessuna mezz'ora vuota,
+  nessun turno sotto le 4 ore; meno di un secondo di calcolo per negozio. Al 30/10 tutti i negozi NZ hanno
+  solo fasce stimate: comandano quando Patrizio le salva.

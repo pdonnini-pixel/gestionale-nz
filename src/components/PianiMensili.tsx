@@ -29,7 +29,7 @@ import SpostaTurnoModal from './SpostaTurnoModal';
 import { caricaTrasferte, copertureVerso, doveTrasferta, orePerData, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno, personeInPiu,
-  REGOLE_DEFAULT, minuti, copertura, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
+  REGOLE_DEFAULT, minuti, copertura, mancanza, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 import {
   pianificaMese, proponiFerie, oreFerieGiorno, suggerisciFinestre, storicoTraffico, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
@@ -65,7 +65,7 @@ type Riepilogo = {
   };
   /** per ogni giorno del mese: apertura e persone che MODA chiede in ogni mezz'ora (senza tetto) */
   /** esatto: le persone che MODA chiede senza arrotondare (dal 29/10/2026; i piani creati prima non lo hanno) */
-  bisogno?: Record<string, { apre: number; chiude: number; esigenza: number[]; esatto?: number[] }>;
+  bisogno?: Record<string, { apre: number; chiude: number; esigenza: number[]; esatto?: number[]; minimo?: number[] }>;
   /** turni e liberi delle persone nuove di una simulazione (non hanno una scheda) */
   turniNuove?: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number }[];
   liberiNuove?: { employee_id: string; data: string }[];
@@ -235,7 +235,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const tutte = settimane.flatMap(giorniDellaSettimana);
     const [o, f, s, r, ev, tr, fe, sl, storico, fuori] = await Promise.all([
       supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', outletId),
-      supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone').eq('outlet_id', outletId),
+      supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
       supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', tutte[0]).lte('data', tutte[tutte.length - 1]),
       supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
       supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari').eq('company_id', companyId).lte('data_dal', tutte[tutte.length - 1]).gte('data_al', tutte[0]),
@@ -254,7 +254,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
     if (!orari.length) { toast({ type: 'error', message: `Mancano gli orari di ${nomeNegozio}: inseriscili in «Orari e fabbisogno».` }); return null; }
     const eventi = eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId);
-    const giorni = costruisciGiorni(tutte, orari, (f.data as { giorno: number; dalle: string; alle: string; persone: number }[]) ?? [],
+    const giorni = costruisciGiorni(tutte, orari, (f.data as { giorno: number; dalle: string; alle: string; persone: number; origine: string }[]) ?? [],
       (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [], eventi, apertura);
     const regole = regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]);
 
@@ -391,7 +391,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         persone: esito.persone,
         // «In negozio»: le persone necessarie a organico pieno (mai piu' di quelle in servizio)
         bisogno: Object.fromEntries(esito.necessari.filter((g) => !g.chiuso && g.data.startsWith(mese))
-          .map((g) => [g.data, { apre: g.apre, chiude: g.chiude, esigenza: g.fabbisogno, esatto: g.esatto?.map((x) => Math.round(x * 100) / 100) }])),
+          .map((g) => [g.data, { apre: g.apre, chiude: g.chiude, esigenza: g.fabbisogno, esatto: g.esatto?.map((x) => Math.round(x * 100) / 100), minimo: g.minimo }])),
         ...(ipotesi ? {
           ipotesi: {
             persone: persone.map(({ scheda, perGiorno }) => ({
@@ -1244,9 +1244,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               // Come nelle ore sotto MODA (Patrizio, 29/10/2026): chi e' in pausa non
               // conta, e si confronta con quello che MODA chiede senza arrotondare.
               const serve = b.esatto ?? b.esigenza;
-              const giorno: GiornoPiano = { data: d, giorno: 0, chiuso: false, apre: b.apre, chiude: b.chiude, fabbisogno: b.esigenza, esatto: b.esatto, nota: null, speciale: false };
+              const giorno: GiornoPiano = { data: d, giorno: 0, chiuso: false, apre: b.apre, chiude: b.chiude, fabbisogno: b.esigenza, esatto: b.esatto, minimo: b.minimo, nota: null, speciale: false };
               const cop = copertura(giorno, tutti);
-              const manca = (i: number) => Math.max(0, (serve[i] ?? 1) - cop[i]);
+              // il minimo delle regole si conta su chi e' presente (pause sfalsate accettate)
+              const manca = (i: number) => mancanza(serve[i] ?? 1, b.minimo?.[i], lorda[i], cop[i]);
               const oreSotto = Array.from({ length: n }, (_, i) => manca(i)).reduce((a, x) => a + x, 0) / 2;
               if (oreSotto >= 0.25) {
                 const mancano = Math.max(1, Math.round(Math.max(...Array.from({ length: n }, (_, i) => manca(i)))));
