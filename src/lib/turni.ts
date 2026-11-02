@@ -491,6 +491,26 @@ export function collocaPause(giorno: GiornoPiano, turni: Turno[]): PausaCollocat
       }
     }
     if (!scelta) continue;
+    // Meglio una pausa prima o dopo che il negozio vuoto (Patrizio, 02/11/2026,
+    // Barberino domenica 15/11): se nella fascia normale la pausa lascerebbe il
+    // negozio senza nessuno, la si sposta nel punto piu' vicino del turno in cui
+    // un collega la copre (almeno mezz'ora dopo l'inizio e prima della fine).
+    const resta = (s: number) => {
+      let min = Infinity;
+      for (let m = s; m < s + durata; m += SLOT_MINUTI) {
+        const i = (m - giorno.apre) / SLOT_MINUTI;
+        if (i >= 0 && i < cop.length) min = Math.min(min, cop[i] - 1);
+      }
+      return min;
+    };
+    if (resta(scelta.inizio) < 1) {
+      const pref = scelta.inizio;
+      let alt: number | null = null;
+      for (let s = da + SLOT_MINUTI; s + durata <= a - SLOT_MINUTI; s += SLOT_MINUTI) {
+        if (resta(s) >= 1 && (alt == null || Math.abs(s - pref) < Math.abs(alt - pref))) alt = s;
+      }
+      if (alt != null) scelta = { inizio: alt, margine: 0, somma: 0 };
+    }
     for (let m = scelta.inizio; m < scelta.inizio + durata; m += SLOT_MINUTI) {
       const i = (m - giorno.apre) / SLOT_MINUTI;
       if (i >= 0 && i < cop.length) cop[i] -= 1;

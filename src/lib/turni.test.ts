@@ -368,3 +368,17 @@ describe('straordinari degli eventi a chi ne ha fatti meno (Patrizio, 02/11/2026
     expect(Math.max(...oltre) - Math.min(...oltre)).toBeLessThanOrEqual(1);
   });
 });
+
+describe('meglio una pausa prima o dopo che il negozio vuoto (Patrizio, 02/11/2026)', () => {
+  it('Barberino domenica 15/11: Clementi 12-20 va in pausa mentre c\'è ancora Pampaloni', () => {
+    const giorno = costruisciGiorni(['2026-11-15'], [{ giorno: 7, chiuso: false, apre: '10:00', chiude: '20:00' }], [{ giorno: 7, dalle: '10:00', alle: '20:00', persone: 1 }], [])[0];
+    const turni: Turno[] = [
+      { employeeId: 'Pampaloni', data: '2026-11-15', inizio: '10:00', fine: '14:00', pausaMinuti: 0 },
+      { employeeId: 'Clementi', data: '2026-11-15', inizio: '12:00', fine: '20:00', pausaMinuti: 30 },
+    ];
+    // con la regola delle due ore la pausa cadrebbe alle 14, quando Pampaloni e' gia' uscita
+    expect(copertura(giorno, turni).every((c) => c >= 1)).toBe(true);
+    const [p] = collocaPause(giorno, turni);
+    expect(minuti(p.alle)).toBeLessThanOrEqual(14 * 60);
+  });
+});
