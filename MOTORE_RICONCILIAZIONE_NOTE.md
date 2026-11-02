@@ -1014,3 +1014,45 @@ Funzioni 268 con impronta `1e2ac353ae5ad22fd23aca7168018f0b` su NZ, Made e Zago.
 Il 26/10 erano 267 (`58213f2cd085…`), il 20/10 erano 257. Una funzione in più questa
 settimana, arrivata su tutti e tre insieme. Il controllo continua a costare tre
 query.
+
+### Cosa è stato deciso e fatto, il 02/11
+
+Patrizio ha risposto a entrambe le domande: chiudere le due fatture, e del motore
+sistemare **solo** la parte che riscriveva le proposte (la regola K↔K resta fuori,
+visto che oggi il caso completo capita una volta sola).
+
+**Le due fatture sono chiuse.** `reconcile_movement` chiamata una volta per
+movimento, prendendo per ciascuna la proposta aperta della coppia: 44109_VCO sul
+bonifico del flusso CBI 138652429, 38434_VCO su quello del 138654859. Esito riletto
+sui dati: entrambe `pagato`, 97,60 versati, residuo 0, data di pagamento 27/10,
+ciascuna sul proprio movimento, movimenti ora riconciliati. Le altre due gemelle
+(50307_VCO scaduta, 55783_VCO da pagare) **non sono state toccate**: residuo 97,60
+ognuna, nessun movimento. I 50 centesimi di commissioni non finiscono sulla
+fattura, come dev'essere: sono una spesa bancaria.
+
+Backup completo delle righe prima di scrivere (quattro fatture, due movimenti,
+tutte le proposte) salvato in sessione prima della prima UPDATE.
+
+Le **84 proposte residue** su quei due movimenti sono passate a `rejected` con una
+nota datata: quei movimenti ora sono chiusi, quelle coppie non sono più possibili.
+Ottantaquattro e non otto perché il motore le riscriveva da sei notti.
+
+**La guardia sul log è la migration 333.** Un trigger BEFORE INSERT su
+`reconciliation_log`: una proposta `to_confirm` per una coppia già in elenco non
+entra; se però arriva con una confidenza più alta, la riga che c'è la adotta e si
+rinfresca la data. Quel dettaglio non è pignoleria: la regola R14 delle proposte
+azionabili vuole confidenza ≥ 70, e scartare la riga a 70 perché quella a 60 è
+arrivata prima avrebbe fatto **sparire** una proposta dall'elenco di Tesoreria.
+Pulizia travestita da peggioramento, evitata.
+
+Provata sul vivo dentro un blocco annullato da sé: tre inserimenti della stessa
+coppia (60, poi 60, poi 70) lasciano **una riga sola** con confidenza 70. Zero
+residui dopo il rollback. Le righe già scritte non si toccano: la pagina le
+deduplica per fattura da sé.
+
+**Parità: la 333 è su NZ e su Made, non ancora su Zago.** L'apply su Zago è andato
+in timeout perché il connettore ha chiesto un'approvazione e nessuno era davanti
+allo schermo; verificato subito dopo che su Zago non è entrato **niente**, né la
+funzione né il trigger, quindi non c'è uno stato a metà. Resta da applicare, e se
+restasse indietro lo direbbe il punto 7 del prossimo lunedì: le funzioni sarebbero
+269 su NZ e Made contro 268 su Zago.
