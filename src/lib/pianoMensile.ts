@@ -975,9 +975,18 @@ export function pianificaMese(args: ArgsPianoMese): EsitoPianoMese {
   const vuote = (e: EsitoPianoMese) => e.giorni.filter((g) => !g.chiuso && g.data.slice(0, 7) === args.mese)
     .reduce((a, g) => a + copertura(g, e.turni).filter((c) => c < 1).length, 0);
   const meglioDi = (e: EsitoPianoMese, m: EsitoPianoMese) => vuote(e) < vuote(m) || (vuote(e) === vuote(m) && e.oreScoperte < m.oreScoperte - 1e-9);
-  return (['solo_sabati', 'solo_domeniche', 'sabato_o_domenica'] as const)
+  const scelto = (['solo_sabati', 'solo_domeniche', 'sabato_o_domenica'] as const)
     .map((regola) => pianificaMeseConRegola({ ...args, regola }))
     .reduce((meglio, e) => (meglioDi(e, meglio) ? e : meglio), nessuno);
+  if (scelto === nessuno) return nessuno;
+  // In questa variante non si danno sabati o domeniche liberi (Patrizio, 02/11/2026,
+  // Brugnato): i turni sono quelli della rotazione migliore, ma i giorni senza turno
+  // restano giorni normali, non «libero».
+  return {
+    ...scelto,
+    weekendLiberi: new Map(),
+    persone: Object.fromEntries(Object.entries(scelto.persone).map(([id, p]) => [id, { ...p, weekendLiberi: 0 }])),
+  };
 }
 
 export type ArgsPianoMese = Parameters<typeof pianificaMeseConRegola>[0];
