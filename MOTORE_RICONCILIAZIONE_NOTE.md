@@ -940,3 +940,77 @@ parecchie migration: viste 37, impronta `8056e205d7f2de2fa64cb17612294401`;
 trigger 79, impronta `cb5d1927d5a25fa072323092e842cb19`. Identiche sui tre.
 
 Niente da decidere, niente scritto a Patrizio.
+
+---
+
+## Il controllo del 02/11/2026: due pagamenti gemelli che nessuno riesce ad attribuire
+
+Otto giri riusciti dal 26/10 al 02/11, fra 156 e 173 secondi. La durata sale
+piano (la settimana prima stava fra 146 e 158): è l'arretrato dei movimenti
+aperti che cresce, non un problema del cron.
+
+Ventuno agganci applicati, concentrati in due giorni (quattro il 27, diciassette
+il 28), e **tutti difendibili**. Nessuno è finito sulla fattura sbagliata.
+
+### I ventuno, per tipo di prova
+
+**Sette su ENEGAN**, che da sole valgono un esempio da tenere. Due addebiti SDD,
+2.196,53 e 1.794,67, con in causale l'elenco delle fatture: «FT 1057588 ... FT
+1057592 ... FT 1057597 ...». Il motore ha agganciato cinque fatture al primo e due
+al secondo, e i conti tornano al centesimo: 570,48 + 59,80 + 618,04 + 542,08 +
+405,13 = 2.195,53, più 1,00 di commissioni; 1.001,05 + 792,62 = 1.793,67, più 1,00.
+Le fatture erano già pagate, quindi solo aggancio, importi intatti.
+
+**Tre SDD con beneficiario in chiaro** (Enel due volte, Fastweb) e **due POS con
+l'esercente nel testo** (Antica Cantina, Corte delle Fucine). Niente da verificare.
+
+**Nove su causale CBI anonima**, quelle che non nominano nessuno: «ID FLUSSO CBI:
+138654543 ... IMPORTO BONIFICI: 85,40 IMPORTO COMMISSIONI: 0,50». Qui il criterio
+del punto 3 ha lavorato, e una l'ho controllata a mano perché era l'unica a
+rischio: CORPO VIGILI 45348_VCO da 85,40, che ha **due gemelle ancora aperte dello
+stesso importo**. Il ramo della distinta la salva: delle tre, solo lei ha una
+`payable_actions` di tipo `disposizione` il 27/10, le altre due non sono mai state
+disposte. Aggancio corretto, e la verifica va fatta così, non fidandosi della nota
+di log che dice «importo compatibile».
+
+### Il caso che resta aperto, e che va deciso
+
+Ogni notte, da sei giorni, il motore propone **dodici righe `to_confirm` che sono
+sempre le stesse**. Dietro c'è un caso solo, e istruttivo.
+
+Il 27/10 sono partiti **due bonifici identici** da 98,10 (97,60 più 0,50 di
+commissioni), stessa banca, stesso giorno, due flussi CBI diversi. CORPO VIGILI ha
+**quattro fatture aperte da 97,60 esatti**. Il motore vede quattro candidate per
+due movimenti, non sa scegliere e — giustamente — non applica niente: due per
+quattro fa otto coppie, proposte a confidenza 60 e 70, riscritte a ogni giro.
+
+Solo che la risposta **c'è**, scritta nei dati: delle quattro fatture, **esattamente
+due sono state disposte in distinta il 27/10** (44109_VCO e 38434_VCO); le altre due
+(50307_VCO, 55783_VCO) non sono mai state disposte. Due pagamenti, due fatture
+disposte, stesso importo: quali due sono state pagate non è ambiguo. Ambiguo è solo
+l'accoppiamento fra il movimento A e la fattura X, e quell'ambiguità **non cambia
+niente**, perché le due fatture hanno lo stesso importo, lo stesso fornitore e la
+stessa data.
+
+Intanto però due fatture pagate il 27/10 stanno nello Scadenzario come «scaduto»,
+e il log accumula dodici righe a notte.
+
+**Misurato prima di proporre il rimedio**, come vuole la regola: negli ultimi 120
+giorni ci sono nove gruppi di movimenti identici ancora aperti (43 movimenti, il
+più grande da sette), ma il caso completo «K movimenti identici ↔ esattamente K
+gemelle disposte in distinta» **oggi capita una volta sola**, questa. Gli altri otto
+gruppi non hanno gemelle disposte: sono un problema diverso e non si risolvono così.
+
+Due cose da decidere, non fatte in autonomia perché scrivono sui dati vivi e sul
+motore che gira ogni notte:
+1. chiudere 44109_VCO e 38434_VCO sui due movimenti del 27/10;
+2. insegnare al motore la regola K↔K (quando K movimenti identici trovano
+   esattamente K gemelle disposte in quella distinta, si appaiano), e smettere di
+   riscrivere ogni notte una proposta già in elenco.
+
+### Parità: seconda lettura, ancora identica
+
+Funzioni 268 con impronta `1e2ac353ae5ad22fd23aca7168018f0b` su NZ, Made e Zago.
+Il 26/10 erano 267 (`58213f2cd085…`), il 20/10 erano 257. Una funzione in più questa
+settimana, arrivata su tutti e tre insieme. Il controllo continua a costare tre
+query.
