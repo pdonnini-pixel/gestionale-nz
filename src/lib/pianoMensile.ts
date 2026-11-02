@@ -688,6 +688,85 @@ export function dueTurniInveceDiTre(
   return out;
 }
 
+// ── Sposta un turno e allunga quello di una collega (Patrizio, 02/11/2026) ──
+
+/**
+ * Il ritocco cambia un turno alla volta e tiene la mossa solo se da sola
+ * migliora: cosi' resta fermo quando servono due mosse insieme. Brugnato,
+ * martedi' 10/11/2026: Buratta 13:30-20 con 4 ore libere, Rossini 10-14,
+ * Ruggeri 12-17 e nessuno dalle 17 alle 18 accanto a Buratta. Spostare
+ * Ruggeri alla mattina da solo apre un buco alle 12, allungare Buratta da solo
+ * non serve; insieme (Ruggeri 10-14, Rossini 14-18, Buratta 12-20) coprono
+ * tutto. Qui, nei giorni ancora scoperti, si sposta il turno di una persona
+ * (stessa durata, nessuna ora in piu') e insieme si allunga o si sposta quello
+ * di una collega che ha ancora ore di contratto; si tiene la coppia che riduce
+ * di piu' le ore scoperte senza lasciare il negozio vuoto.
+ */
+export function spostaEAllunga(
+  giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], regole: RegoleTurni = REGOLE_DEFAULT, fissi: Turno[] = [],
+): Turno[] {
+  const intoccabili = new Set(fissi);
+  let out = [...turni];
+  const persona = new Map(persone.map((p) => [p.id, p]));
+  const ore = (id: string, lista: Turno[]) => lista.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
+  const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
+    const pausa = pausaPer(lavoro, regole);
+    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+  };
+  for (const g of giorni.filter((x) => !x.chiuso)) {
+    for (let giro = 0; giro < 4; giro++) {
+      const scop = (lista: Turno[]) => oreScoperte([g], lista);
+      const vuote = (lista: Turno[]) => copertura(g, lista).filter((c) => c < 1).length;
+      const base = scop(out);
+      if (base <= 1e-9) break;
+      // solo dove manca il minimo delle fasce (la seconda persona): dove manca
+      // personale per MODA sopra il minimo, spostare non aiuta e costa tempo
+      const lorda = coperturaLorda(g, out);
+      if (!g.minimo || !g.minimo.some((m, i) => lorda[i] < m)) break;
+      const vuoteBase = vuote(out);
+      const delGiorno = out.filter((t) => t.data === g.data && !intoccabili.has(t));
+      // chi ha ancora ore di contratto nella settimana
+      const conOre = delGiorno.filter((t) => ((persona.get(t.employeeId)?.ore ?? 0) - ore(t.employeeId, out)) >= SLOT_MINUTI / 60 - 1e-9);
+      if (!conOre.length) break;
+      // a parita' di copertura vince la coppia che usa meno ore (Patrizio: Buratta 12-20, non 10-20)
+      const oreTot = (lista: Turno[]) => lista.filter((t) => t.data === g.data).reduce((a, t) => a + oreLavorate(t), 0);
+      let meglio: { lista: Turno[]; s: number; h: number } | null = null;
+      for (const a of delGiorno) {
+        const la = limitiPersona(persona.get(a.employeeId), g);
+        const lavA0 = oreLavorate(a) * 60;
+        // il turno spostato puo' anche accorciarsi, mai sotto il turno minimo e mai allungarsi
+        for (let lavA = Math.min(lavA0, regole.turnoMinOre * 60); lavA <= lavA0; lavA += SLOT_MINUTI) {
+          const durA = lavA + pausaPer(lavA, regole);
+          for (let sa = la.apre; sa + durA <= la.chiude; sa += SLOT_MINUTI) {
+            if (sa === minuti(a.inizio) && lavA === lavA0) continue;
+            const a2 = conPausa(a, sa, lavA);
+            const conA = out.map((x) => (x === a ? a2 : x));
+            for (const b of conOre) {
+              if (b === a || b.employeeId === a.employeeId) continue;
+              const lb = limitiPersona(persona.get(b.employeeId), g);
+              const lavB = oreLavorate(b) * 60;
+              const libere = Math.floor(((persona.get(b.employeeId)?.ore ?? 0) - ore(b.employeeId, out)) * 2) / 2 * 60;
+              for (let lav = lavB; lav <= Math.min(lavB + libere, regole.turnoMaxOre * 60); lav += SLOT_MINUTI) {
+                const dur = lav + pausaPer(lav, regole);
+                for (let sb = lb.apre; sb + dur <= lb.chiude; sb += SLOT_MINUTI) {
+                  const prova = conA.map((x) => (x === b ? conPausa(b, sb, lav) : x));
+                  const sc = scop(prova);
+                  if (sc >= base - 1e-9) continue;
+                  const h = oreTot(prova);
+                  if ((!meglio || sc < meglio.s - 1e-9 || (Math.abs(sc - meglio.s) <= 1e-9 && h < meglio.h - 1e-9)) && vuote(prova) <= vuoteBase) meglio = { lista: prova, s: sc, h };
+                }
+              }
+            }
+          }
+        }
+      }
+      if (!meglio) break;
+      out = meglio.lista;
+    }
+  }
+  return out;
+}
+
 // ── Le ore di contratto che avanzano (Patrizio, 20/10/2026) ──────────────
 
 /**
@@ -1210,6 +1289,11 @@ function pianificaMeseConRegola(args: {
     {
       const fissiRefSett = new Set(fissiSett);
       esito = [...dueTurniInveceDiTre(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole, fissiSett), ...fissiSett];
+    }
+    // Sposta un turno e allunga quello di una collega con ore libere (Patrizio, 02/11/2026).
+    if (oreScoperte(gg, esito) > 0) {
+      const fissiRefSett = new Set(fissiSett);
+      esito = [...spostaEAllunga(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole, fissiSett), ...fissiSett];
     }
     // Poi, se ammessi, gli straordinari di chi ha un contratto: prima la
     // riserva (ore normali), poi le ore in piu' dei titolari.

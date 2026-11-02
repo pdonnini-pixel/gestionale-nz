@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, sogliaDelGiorno, assegnaWeekendLiberi,
-  personeMinime, pianificaMese, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
+  personeMinime, pianificaMese, spostaEAllunga, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
 } from './pianoMensile';
-import { REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate, coperturaLorda, copertura } from './turni';
+import { type Turno, oreScoperte, REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate, coperturaLorda, copertura } from './turni';
 
 const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
 const date = (dal: string, n: number) => Array.from({ length: n }, (_, i) => {
@@ -484,5 +484,23 @@ describe('le fasce salvate comandano (Patrizio, 30/10/2026)', () => {
     const conTre = feriali.filter((d) => new Set(e.turni.filter((t) => t.data === d).map((t) => t.employeeId)).size >= 3);
     expect(conTre.length).toBeLessThanOrEqual(feriali.length / 2);
     for (const g of giorni.filter((x) => x.data.startsWith('2026-11'))) expect(copertura(g, e.turni).every((c) => c >= 1), g.data).toBe(true);
+  });
+});
+
+describe('sposta un turno e allunga quello di una collega (Patrizio, 02/11/2026)', () => {
+  it('Brugnato martedì 10/11: Buratta 12-20, una collega la mattina e una il pomeriggio', () => {
+    const t = (e: string, i: string, f: string, p: number): Turno => ({ employeeId: e, data: '2026-11-10', inizio: i, fine: f, pausaMinuti: p });
+    // il piano di prima: Rossini 10-14, Ruggeri 12-17, Buratta 13:30-20 con 4 ore libere
+    const turni = [t('Rossini', '10:00', '14:00', 0), t('Ruggeri', '12:00', '17:00', 0), t('Buratta', '13:30', '20:00', 30),
+      { ...t('Buratta', '13:30', '20:00', 30), data: '2026-11-11' }, { ...t('Rossini', '10:00', '16:00', 0), data: '2026-11-11' }];
+    const fab = [1, 1, 1, 1, ...Array(12).fill(2), 1, 1, 1, 1];
+    const g = { data: '2026-11-10', giorno: 2, chiuso: false, apre: 600, chiude: 1200, fabbisogno: fab, esatto: fab, minimo: fab, nota: null, speciale: false };
+    const persone = [{ id: 'Buratta', ore: 13.5, nonDisponibile: new Set<string>() }, { id: 'Rossini', ore: 10, nonDisponibile: new Set<string>() }, { id: 'Ruggeri', ore: 5, nonDisponibile: new Set<string>() }];
+    expect(oreScoperte([g], turni)).toBeGreaterThan(0);
+    const dopo = spostaEAllunga([g], turni, persone);
+    expect(oreScoperte([g], dopo)).toBe(0);
+    expect(copertura(g, dopo).every((c) => c >= 1)).toBe(true);
+    // nessuno oltre il contratto
+    for (const p of persone) expect(dopo.filter((x) => x.employeeId === p.id).reduce((a, x) => a + oreLavorate(x), 0)).toBeLessThanOrEqual(p.ore + 1e-9);
   });
 });
