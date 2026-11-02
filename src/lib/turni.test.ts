@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   rispettaFasce,
   riassuntoOrari,
-  costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer, pausaMinimaPerPresenza,
+  REGOLE_DEFAULT, ritoccaScoperture, costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer, pausaMinimaPerPresenza,
   scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, oreSottoModa, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
 } from './turni';
 
@@ -344,5 +344,27 @@ describe('rispettaFasce', () => {
     expect(out[1].inizio).toBe('10:00');
     const corto = rispettaFasce([{ employeeId: 'a', data: '2026-11-02', inizio: '10:00', fine: '16:00', pausaMinuti: 0 }], [{ id: 'a', fasce }]);
     expect(corto).toEqual([]);
+  });
+});
+
+describe('straordinari degli eventi a chi ne ha fatti meno (Patrizio, 02/11/2026)', () => {
+  it('prima si allunga chi non ne ha fatti, poi si dà un turno nuovo', () => {
+    // Black Friday 2026 a Barberino: un turno nuovo intero a chi aveva un giorno libero
+    // copriva di piu' e vinceva sempre. Qui manca una persona dalle 14 alle 20.
+    const giorni = costruisciGiorni(['2026-11-27'], [{ giorno: 5, chiuso: false, apre: '10:00', chiude: '20:00' }],
+      [{ giorno: 5, dalle: '10:00', alle: '20:00', persone: 2 }], [],
+      [{ nome: 'Black Friday', data_dal: '2026-11-27', data_al: '2026-11-27', outlet_ids: null, persone_extra: 0, blocca_ferie: true, straordinari: true }]);
+    const persone = [
+      { id: 'part', ore: 0, nonDisponibile: new Set<string>() },
+      { id: 'b', ore: 4, nonDisponibile: new Set<string>() },
+      { id: 'c', ore: 4, nonDisponibile: new Set<string>() },
+    ];
+    const proposti: Turno[] = [
+      { employeeId: 'b', data: '2026-11-27', inizio: '10:00', fine: '14:00', pausaMinuti: 0 },
+      { employeeId: 'c', data: '2026-11-27', inizio: '10:00', fine: '14:00', pausaMinuti: 0 },
+    ];
+    const out = ritoccaScoperture(giorni, proposti, [], persone, REGOLE_DEFAULT, new Set(['2026-11-27']));
+    const oltre = persone.map((p) => out.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0) - p.ore);
+    expect(Math.max(...oltre) - Math.min(...oltre)).toBeLessThanOrEqual(1);
   });
 });

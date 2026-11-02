@@ -680,19 +680,23 @@ export function ritoccaScoperture(
           if (valido(g, v, prova)) mosse.push(prova);
         }
       }
-      // Nei giorni di evento con gli straordinari, a parita' di ore scoperte vince la
-      // mossa che li divide meglio fra le persone (Barberino, Black Friday 2026: 15 ore e
-      // mezza di straordinario a Pampaloni, una o tre alle colleghe).
+      // Nei giorni di evento con gli straordinari le ore in piu' vanno a chi ne ha fatte
+      // meno (Patrizio, 30/10 e 02/11/2026): fra le mosse che riducono le ore scoperte vince
+      // quella che lascia gli straordinari piu' bilanciati (somma dei quadrati delle ore
+      // oltre il contratto), e solo a parita' quella che copre di piu'. Prima vinceva la
+      // mossa che copriva di piu', cioe' un turno intero a chi aveva un giorno libero
+      // (Barberino, Black Friday 2026: Pampaloni 35,5 ore su 20, le colleghe +1/+3).
       const oltre = (m: Turno[]) => (oltreContratto ? persone.reduce((a, p) => a + Math.max(0, oreDi(p.id, m) - p.ore) ** 2, 0) : 0);
       let meglio: { t: Turno[]; ore: number; oltre: number } | null = null;
       for (const m of mosse) {
         const o = scop(m);
         if (o >= base - 1e-9) continue;
-        if (!meglio || o < meglio.ore - 1e-9) { meglio = { t: m, ore: o, oltre: oltre(m) }; continue; }
-        if (oltreContratto && Math.abs(o - meglio.ore) <= 1e-9) {
-          const q = oltre(m);
-          if (q < meglio.oltre - 1e-9) meglio = { t: m, ore: o, oltre: q };
-        }
+        const q = oltre(m);
+        const vince = !meglio
+          || (oltreContratto
+            ? q < meglio.oltre - 1e-9 || (Math.abs(q - meglio.oltre) <= 1e-9 && o < meglio.ore - 1e-9)
+            : o < meglio.ore - 1e-9);
+        if (vince) meglio = { t: m, ore: o, oltre: q };
       }
       if (!meglio) break;
       turni = meglio.t;
