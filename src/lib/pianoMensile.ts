@@ -1295,6 +1295,14 @@ function pianificaMeseConRegola(args: {
       const fissiRefSett = new Set(fissiSett);
       esito = [...spostaEAllunga(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole, fissiSett), ...fissiSett];
     }
+    // Le ore liberate dai due passi sopra (turni uniti, turni accorciati) tornano
+    // dove manca qualcuno (Patrizio, 02/11/2026, Barberino giovedi' 19/11: una
+    // persona sola dalle 16 alle 18 con Suzzi a 5 ore e mezza dal contratto).
+    if (oreScoperte(gg, esito) > 0) {
+      const fissiRefSett = new Set(fissiSett);
+      esito = [...ritoccaScoperture(gg, esito.filter((t) => !fissiRefSett.has(t)), fissiSett, candidati, regole), ...fissiSett];
+      if (oreScoperte(base, esito) > 0) esito = copriOrarioMinimo(base, esito, perCopertura, riservaCopertura, regole);
+    }
     // Poi, se ammessi, gli straordinari di chi ha un contratto: prima la
     // riserva (ore normali), poi le ore in piu' dei titolari.
     const straordDi = (id: string) => args.straordinariPersona?.get(id) ?? args.straordinariSettimana ?? 0;
