@@ -40,6 +40,15 @@ SELECT name, enabled FROM public.password_sync_peers ORDER BY name;
 Stati: `sent` (inviata), `applied` (ricevuta e applicata), `stale` (ne avevo già una più nuova),
 `no_user` (qui quella email non ha un accesso), `skipped` (manca il segreto), `error`.
 
+## applicazione (02/11/2026)
+
+- Migration 333 applicata su NZ, Made e Zago; funzioni identiche (stesso md5) sui tre.
+- Su Zago il connettore Supabase chiedeva una conferma per `DROP TRIGGER IF EXISTS` e la richiesta
+  scadeva senza arrivare a Patrizio. Il trigger lì non esisteva: applicata la stessa migration senza
+  quella riga, risultato identico.
+- `password_sync_peers` compilata su ogni tenant con gli altri due (URL REST e chiave anon pubblica).
+- Prova dall'esterno: la RPC risponde su tutti e tre e senza segreto valido dice `refused`.
+
 ## limiti noti
 
 - Un accesso creato dopo su un tenant (stessa email) prende la password comune solo al primo cambio
