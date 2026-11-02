@@ -3209,6 +3209,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "L'unico requisito richiesto dalla pagina è la lunghezza minima di 8 caratteri e che le due password inserite coincidano tra loro."
       },
       {
+        "q": "Uso anche gli altri gestionali del gruppo: devo cambiare la password su ognuno?",
+        "a": "No. Se hai un accesso con la stessa email anche negli altri gestionali (New Zago, Made Retail, Zago), la password nuova passa da sola anche lì, entro pochi secondi. Vale anche quando la reimposti con \"Password dimenticata?\" o quando un amministratore te ne genera una nuova. Negli altri gestionali non viene creato nessun accesso nuovo: chi non ha già un accesso lì continua a non averlo."
+      },
+      {
         "q": "Perché non riesco a eliminare una voce di costo o un centro di costo?",
         "a": "Per sicurezza (nessuna perdita di dati) l'eliminazione viene bloccata se la voce o il centro è ancora collegato a qualcosa: righe di budget, voci figlie, altre voci che lo usano come centro predefinito, o utenti che ne hanno l'accesso. Un messaggio indica quanti collegamenti esistono. Rimuovi prima quei collegamenti (o lascia la voce inutilizzata): così non restano dati 'orfani' che puntano a qualcosa che non esiste più."
       }
