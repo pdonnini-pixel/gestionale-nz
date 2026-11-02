@@ -118,12 +118,17 @@ function dateDelMese(mese: string): string[] {
   return Array.from({ length: n }, (_, i) => `${mese}-${String(i + 1).padStart(2, '0')}`);
 }
 
+// Il mese scelto resta quando si cambia negozio o la pagina si ricarica dopo un
+// salvataggio (Patrizio, 02/11/2026: sceglieva novembre e tornava a dicembre).
+let ultimoMeseScelto: string | null = null;
+
 export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, puoScrivere }: Props) {
   // Prima della data di apertura il negozio e' chiuso: nessun turno.
   const apertura = dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null;
   const nomeNegozioDi = (id: string) => { const n = dati.negozi.find((x) => x.id === id); return n ? (n.name ?? n.code ?? 'negozio') : 'altro negozio'; };
   const { toast } = useToast();
-  const [mese, setMese] = useState(() => meseSuccessivo(oggiRoma().slice(0, 7), 1));
+  const [mese, setMese] = useState(() => ultimoMeseScelto ?? meseSuccessivo(oggiRoma().slice(0, 7), 1));
+  useEffect(() => { ultimoMeseScelto = mese; }, [mese]);
   const [piani, setPiani] = useState<Piano[]>([]);
   const [eHr, setEHr] = useState(false);
   const [chiuso, setChiuso] = useState(false);
@@ -1225,6 +1230,20 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             ];
             const ipot = pianoAperto.riepilogo.ipotesi?.persone;
             const oreDi = (t: { inizio: string; fine: string; pausa_minuti: number }) => oreLavorate({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti });
+            // Ore anticipate (Patrizio, 02/11/2026): nelle settimane a cavallo di due mesi il
+            // piano puo' usare qui ore della stessa settimana che toccherebbero all'altro mese,
+            // per non lasciare il negozio scoperto. Non sono straordinario: valgono fino al
+            // contratto dell'intera settimana, e al piano dell'altro mese restano meno ore.
+            const anticipoSettimana = (id: string, lun: string, turni: { data: string; inizio: string; fine: string; pausa_minuti: number }[], oreSett: number | null): number => {
+              if (oreSett == null) return 0;
+              const qui = giorniDellaSettimana(lun).filter((d) => d.startsWith(mese));
+              if (qui.length >= 7) return 0;
+              const quota = contrattoSettimanaOra(id, lun, oreSett);
+              if (quota == null) return 0;
+              const prog = turni.filter((x) => qui.includes(x.data))
+                .reduce((a, x) => a + oreDi(x) - ('ore_straordinario' in x ? Number(x.ore_straordinario ?? 0) : 0), 0);
+              return Math.max(0, Math.min(prog - quota, oreSett - quota));
+            };
             const giornoCorto = (d: string) => `${Number(d.slice(8))}/${Number(d.slice(5, 7))}`;
             const settimane = [...new Set(dateMese.map(lunediDi))];
             // Copertura del giorno (Patrizio, 21/10/2026): comanda l'orario del
@@ -1367,7 +1386,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                 const straordSett = suoiSett.reduce((a, x) => a + ('ore_straordinario' in x ? Number(x.ore_straordinario ?? 0) : 0), 0);
                                 const programmate = suoiSett.reduce((a, x) => a + oreDi(x), 0) - straordSett;
                                 const daContratto = riga.nuova ? null : contrattoSettimanaOra(riga.id, lun, riga.oreSett);
-                                const scarto = daContratto == null ? 0 : programmate - daContratto;
+                                const anticipate = riga.nuova ? 0 : anticipoSettimana(riga.id, lun, riga.turni, riga.oreSett);
+                                const scarto = daContratto == null ? 0 : programmate - daContratto - anticipate;
                                 return (
                                   <tr key={riga.id} className={riga.nuova ? 'bg-violet-50/40' : ''}>
                                     <td className={`sticky left-0 z-10 px-3 py-1.5 border-b border-slate-100 ${riga.nuova ? 'text-violet-900 bg-violet-50' : 'text-slate-900 bg-white'} font-medium`}>
@@ -1379,6 +1399,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                           {Math.abs(scarto) <= 0.25 ? <span className="text-emerald-700 font-semibold">in linea</span>
                                             : scarto < 0 ? <span className="text-slate-700 font-semibold">{fmt(-scarto)} h da assegnare</span>
                                               : <span className="text-amber-800 font-semibold">{fmt(scarto)} h in più</span>}
+                                          {anticipate > 0.25 && <span className="block text-blue-800" title="Ore della stessa settimana che toccherebbero all'altro mese, usate qui per coprire il negozio: non sono straordinario">+ {fmt(anticipate)} h anticipate</span>}
                                           {straordSett > 0.25 && <span className="block text-amber-800">+ {fmt(straordSett)} h straordinario</span>}
                                         </span>
                                       ) : !riga.nuova && <span className="block text-[11px] font-normal text-slate-500">{fmt(programmate + straordSett)} h, a chiamata</span>}
@@ -1436,7 +1457,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                           const r = pianoAperto.riepilogo.persone?.[riga.id];
                           const fatte = riga.turni.reduce((a, x) => a + oreDi(x), 0);
                           const segnate = riga.turni.reduce((a, x) => a + ('ore_straordinario' in x ? Number(x.ore_straordinario ?? 0) : 0), 0);
+                          // le ore anticipate nelle settimane a cavallo non sono «in più»: si dicono a parte
+                          const anticipate = riga.nuova ? 0 : settimane.reduce((a, l) => a + anticipoSettimana(riga.id, l, riga.turni, riga.oreSett), 0);
                           const ordinarie = fatte - segnate;
+                          const perContratto = ordinarie - anticipate;
                           const suoFerie = ferieMese.filter((x) => x.employee_id === riga.id).sort((a, b) => a.data.localeCompare(b.data));
                           const oreFerie = suoFerie.reduce((a, x) => a + x.ore, 0);
                           const daLavorare = riga.nuova ? (r && !r.riserva ? r.contratto : null) : daLavorareOra(riga.id);
@@ -1444,9 +1468,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                           const giorniFerie = suoFerie.filter((x) => x.tipo !== 'ore');
                           const permessi = suoFerie.filter((x) => x.tipo === 'ore');
                           // Le ore ordinarie coprono il contratto; quelle segnate straordinario si contano a parte.
-                          const nonUsate = daLavorare != null ? Math.max(0, daLavorare - ordinarie) : 0;
+                          const nonUsate = daLavorare != null ? Math.max(0, daLavorare - perContratto) : 0;
                           // Programmate oltre il contratto: non sono straordinario finche' non si decide.
-                          const inPiu = daLavorare != null ? Math.max(0, ordinarie - daLavorare) : 0;
+                          const inPiu = daLavorare != null ? Math.max(0, perContratto - daLavorare) : 0;
                           const suoTrMese = trasferte.filter((x) => x.employeeId === riga.id && x.data.startsWith(mese)).reduce((a, x) => a + oreTrasferta(x), 0);
                           const lordo = r?.contrattoMese != null && !r.riserva ? r.contrattoMese : null;
                           return (
@@ -1506,6 +1530,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                         <span className="block">decidi se sono straordinario (apri il turno e segnalo) oppure se le togli</span>
                                       </span>
                                     ) : <span className="block text-emerald-700 font-medium">In linea con il contratto</span>}
+                                    {anticipate > 0.25 && <span className="block mt-1 text-blue-800">{fmt(anticipate)} h anticipate nella settimana a cavallo del mese: sono ore della stessa settimana che toccherebbero all'altro mese, non straordinario; al piano dell'altro mese ne restano meno</span>}
                                     {segnate > 0.25 && <span className="block mt-1 text-amber-800">Straordinario concordato: {fmt(segnate)} h, a parte</span>}
                                   </>
                                 )}
