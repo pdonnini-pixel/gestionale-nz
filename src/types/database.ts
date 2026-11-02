@@ -26838,6 +26838,21 @@ export type Database = {
         Returns: string
       }
       organico_e_hr: { Args: never; Returns: boolean }
+      organico_correggi_persona: {
+        Args: {
+          p_autore_nome: string
+          p_cognome: string
+          p_contratto_tipo: string | null
+          p_data_assunzione: string | null
+          p_employee_id: string
+          p_livello: string
+          p_nome: string
+          p_ore_settimanali: number | null
+          p_outlet_id: string | null
+          p_scadenza: string | null
+        }
+        Returns: string
+      }
       organico_nuova_persona: {
         Args: {
           p_autore_nome: string

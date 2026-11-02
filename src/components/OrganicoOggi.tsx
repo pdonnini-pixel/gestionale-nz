@@ -17,6 +17,7 @@ import {
 } from '../lib/organico';
 import { caricaOrganico, nomeNegozio, puoTenereOrganico, type DatiOrganico } from '../lib/organicoDati';
 import SegnaCambiamento from './SegnaCambiamento';
+import CorreggiPersona from './CorreggiPersona';
 
 const ConfrontoStudio = lazy(() => import('./ConfrontoStudio'));
 
@@ -69,6 +70,7 @@ export default function OrganicoOggi({ companyId }: Props) {
   const [cerca, setCerca] = useState('');
   const [mostraUsciti, setMostraUsciti] = useState(false);
   const [modale, setModale] = useState<{ employeeId?: string | null; tipo?: TipoEvento | null; nuova?: boolean } | null>(null);
+  const [daCorreggere, setDaCorreggere] = useState<string | null>(null);
 
   const carica = useCallback(async () => {
     if (!companyId) return;
@@ -228,7 +230,7 @@ export default function OrganicoOggi({ companyId }: Props) {
                   <tbody>
                     {gruppi.map((g) => (
                       <GruppoNegozio key={g.id || 'senza'} nome={g.nome} lista={g.lista} puoScrivere={puoScrivere}
-                        onModifica={(id, tipo) => setModale({ employeeId: id, tipo })} />
+                        onModifica={(id, tipo) => setModale({ employeeId: id, tipo })} onCorreggi={setDaCorreggere} />
                     ))}
                     {!gruppi.length && (
                       <tr><td colSpan={6} className="px-3 py-10 text-center text-slate-400">Nessuna persona con questi filtri.</td></tr>
@@ -296,12 +298,26 @@ export default function OrganicoOggi({ companyId }: Props) {
           nuovaPersona={modale.nuova}
         />
       )}
+
+      {daCorreggere && dati && (() => {
+        const p = persone.find((x) => x.scheda.id === daCorreggere);
+        return p ? (
+          <CorreggiPersona
+            onClose={() => setDaCorreggere(null)}
+            onSalvato={carica}
+            persona={p}
+            eventi={dati.eventi}
+            negozi={dati.negozi}
+          />
+        ) : null;
+      })()}
     </div>
   );
 }
 
-function GruppoNegozio({ nome, lista, puoScrivere, onModifica }: {
+function GruppoNegozio({ nome, lista, puoScrivere, onModifica, onCorreggi }: {
   nome: string; lista: PersonaOggi[]; puoScrivere: boolean; onModifica: (id: string, tipo: TipoEvento | null) => void;
+  onCorreggi: (id: string) => void;
 }) {
   const ore = lista.filter((p) => p.stato === 'in_servizio').reduce((s, p) => s + (p.ore ?? 0), 0);
   return (
@@ -328,11 +344,20 @@ function GruppoNegozio({ nome, lista, puoScrivere, onModifica }: {
           </td>
           <td className="px-3 py-2.5 text-slate-600 text-xs">{prossimaData(p)}</td>
           <td className="px-3 py-2.5 text-right">
-            {puoScrivere && p.stato !== 'cessato' && (
-              <button type="button" onClick={() => onModifica(p.scheda.id, p.stato === 'scaduto' ? 'proroga' : null)}
-                className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">
-                {p.stato === 'scaduto' ? 'Decidi' : 'Segna'}
-              </button>
+            {puoScrivere && (
+              <span className="inline-flex flex-wrap justify-end gap-1.5">
+                <button type="button" onClick={() => onCorreggi(p.scheda.id)}
+                  title="Correggi un errore di inserimento: nome, livello e, finché lo studio non manda i documenti, negozio, contratto, ore e date"
+                  className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">
+                  Correggi
+                </button>
+                {p.stato !== 'cessato' && (
+                  <button type="button" onClick={() => onModifica(p.scheda.id, p.stato === 'scaduto' ? 'proroga' : null)}
+                    className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">
+                    {p.stato === 'scaduto' ? 'Decidi' : 'Segna'}
+                  </button>
+                )}
+              </span>
             )}
           </td>
         </tr>
