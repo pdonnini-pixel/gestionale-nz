@@ -41,6 +41,7 @@ import {
 } from 'recharts';
 import { supabase } from '../lib/supabase';
 import { Modal as UIModal } from '../components/ui/Modal';
+import { isSellingOutlet } from '../hooks/useOutlets';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
@@ -91,6 +92,8 @@ interface OutletRow {
   name: string;
   code: string | null;
   cost_center_key: string | null;
+  // Tipo del punto: 'sede', 'magazzino', 'ufficio'... riconosce la sede su ogni tenant.
+  outlet_type?: string | null;
   is_active: boolean | null;
   mall_name: string | null;
   city: string | null;
@@ -172,7 +175,10 @@ function OutletAccordion({ name, count, countNote, total, defaultOpen = false, c
 }
 
 // ORDINAMENTO GRANITICO: outlet veri (alfabetico) → SEDE / MAGAZZINO → (Amministratori a parte).
-const isSedeOutlet = (o: OutletRow) => o.cost_center_key === 'sede_magazzino';
+// La sede si riconosce dal tipo (sede, magazzino, ufficio...), come nel resto del
+// gestionale, non da un nome: su Made e Zago la sede non si chiama 'sede_magazzino'.
+const isSedeOutlet = (o: OutletRow) =>
+  !isSellingOutlet({ outlet_type: o.outlet_type ?? null }) || o.cost_center_key === 'sede_magazzino';
 function sortOutlets(outlets: OutletRow[]): OutletRow[] {
   return [...outlets].sort((a, b) => {
     const as = isSedeOutlet(a) ? 1 : 0, bs = isSedeOutlet(b) ? 1 : 0;
@@ -462,7 +468,7 @@ export default function Dipendenti() {
         supabase.from('employee_outlet_allocations').select('*').eq('company_id', COMPANY_ID),
         supabase.from('employee_costs').select('*').eq('company_id', COMPANY_ID),
         supabase.from('cost_centers').select('*').eq('company_id', COMPANY_ID).eq('is_active', true).order('sort_order', { nullsFirst: false }),
-        supabase.from('outlets').select('id, name, code, cost_center_key, is_active, mall_name, city, payroll_filiali').eq('company_id', COMPANY_ID).eq('is_active', true).order('name'),
+        supabase.from('outlets').select('id, name, code, cost_center_key, outlet_type, is_active, mall_name, city, payroll_filiali').eq('company_id', COMPANY_ID).eq('is_active', true).order('name'),
         supabase.from('employee_documents').select('*').eq('company_id', COMPANY_ID).order('created_at', { ascending: false }),
       ]);
       const { data: slipRes } = await supabase.from('employee_cost_slips')
@@ -1551,7 +1557,7 @@ function PerOutletTab(props: {
 
       {sortOutlets(outlets).map((o) => {
         const color = getOutletColor(o.name);
-        const isSede = o.cost_center_key === 'sede_magazzino';
+        const isSede = isSedeOutlet(o);
         // NO-ZERO: solo chi ha il cedolino del mese viene elencato (amministratori esclusi: sezione dedicata)
         const persone = allEmployees.filter((e) => isPaid(e.id) && (allocByEmp[e.id] || []).some((a) => a.outlet_code === o.name));
         return (

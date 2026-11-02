@@ -1028,7 +1028,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Per outlet",
-        "body": "Elenca ogni punto vendita con il numero di dipendenti pagati nel mese, il netto totale e il costo annuo a budget. Aprendo un punto vendita vedi l'elenco delle persone assegnate con il relativo netto del mese. In fondo trovi la sezione \"Amministratori\", separata dagli altri dipendenti perché non entra nei conteggi di organico."
+        "body": "Elenca ogni punto vendita con il numero di dipendenti pagati nel mese, il netto totale e il costo annuo a budget. Aprendo un punto vendita vedi l'elenco delle persone assegnate con il relativo netto del mese. La sede (un punto di tipo sede, magazzino o ufficio) compare dopo i punti vendita con l'etichetta \"sede — no outlet\". In fondo trovi la sezione \"Amministratori\", separata dagli altri dipendenti perché non entra nei conteggi di organico."
       },
       {
         "heading": "Organico — l'anagrafica dei dipendenti",
