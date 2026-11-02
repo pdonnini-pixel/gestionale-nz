@@ -1011,6 +1011,6 @@ motore che gira ogni notte:
 ### Parità: seconda lettura, ancora identica
 
 Funzioni 268 con impronta `1e2ac353ae5ad22fd23aca7168018f0b` su NZ, Made e Zago.
-Il 26/10 erano 268 con... no: erano **267** con `58213f2cd085…`, e il 20/10 **257**.
-Una funzione in più questa settimana, arrivata su tutti e tre insieme. Il controllo
-continua a costare tre query.
+Il 26/10 erano 267 (`58213f2cd085…`), il 20/10 erano 257. Una funzione in più questa
+settimana, arrivata su tutti e tre insieme. Il controllo continua a costare tre
+query.
