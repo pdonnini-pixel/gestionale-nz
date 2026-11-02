@@ -1467,10 +1467,22 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                           const ipo = ipot?.find((x) => x.nome === riga.nome);
                           const giorniFerie = suoFerie.filter((x) => x.tipo !== 'ore');
                           const permessi = suoFerie.filter((x) => x.tipo === 'ore');
-                          // Le ore ordinarie coprono il contratto; quelle segnate straordinario si contano a parte.
-                          const nonUsate = daLavorare != null ? Math.max(0, daLavorare - perContratto) : 0;
+                          // Il contratto vale settimana per settimana (Patrizio, 02/11/2026: Manescalchi
+                          // «1 h da assegnare» nella settimana e 0,5 nel mese): le ore che mancano in una
+                          // settimana non si compensano con quelle in più di un'altra, quindi si sommano a
+                          // parte. Le ore segnate straordinario e quelle anticipate restano fuori.
+                          const perSettimana = riga.nuova || daLavorare == null ? null : settimane.map((l) => {
+                            const qui = giorniDellaSettimana(l).filter((d) => d.startsWith(mese));
+                            const prog = riga.turni.filter((x) => qui.includes(x.data))
+                              .reduce((a, x) => a + oreDi(x) - ('ore_straordinario' in x ? Number(x.ore_straordinario ?? 0) : 0), 0)
+                              - anticipoSettimana(riga.id, l, riga.turni, riga.oreSett);
+                            return prog - (contrattoSettimanaOra(riga.id, l, riga.oreSett) ?? 0);
+                          });
+                          const nonUsate = perSettimana ? perSettimana.reduce((a, d) => a + Math.max(0, -d), 0)
+                            : daLavorare != null ? Math.max(0, daLavorare - perContratto) : 0;
                           // Programmate oltre il contratto: non sono straordinario finche' non si decide.
-                          const inPiu = daLavorare != null ? Math.max(0, perContratto - daLavorare) : 0;
+                          const inPiu = perSettimana ? perSettimana.reduce((a, d) => a + Math.max(0, d), 0)
+                            : daLavorare != null ? Math.max(0, perContratto - daLavorare) : 0;
                           const suoTrMese = trasferte.filter((x) => x.employeeId === riga.id && x.data.startsWith(mese)).reduce((a, x) => a + oreTrasferta(x), 0);
                           const lordo = r?.contrattoMese != null && !r.riserva ? r.contrattoMese : null;
                           return (
@@ -1525,11 +1537,12 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                         )}
                                         {puoModificare && <span className="block mt-1 text-blue-700">oppure clicca una casella del calendario per aggiungere ore</span>}
                                       </span>
-                                    ) : inPiu > 0.25 ? (
-                                      <span className="block text-amber-800"><b>{fmt(inPiu)} h in più del contratto</b>
+                                    ) : null}
+                                    {inPiu > 0.25 ? (
+                                      <span className={`block text-amber-800 ${nonUsate > 0.25 ? 'mt-1' : ''}`}><b>{fmt(inPiu)} h in più del contratto</b>{nonUsate > 0.25 && ' in altre settimane'}
                                         <span className="block">decidi se sono straordinario (apri il turno e segnalo) oppure se le togli</span>
                                       </span>
-                                    ) : <span className="block text-emerald-700 font-medium">In linea con il contratto</span>}
+                                    ) : nonUsate <= 0.25 && <span className="block text-emerald-700 font-medium">In linea con il contratto</span>}
                                     {anticipate > 0.25 && <span className="block mt-1 text-blue-800">{fmt(anticipate)} h anticipate nella settimana a cavallo del mese: sono ore della stessa settimana che toccherebbero all'altro mese, non straordinario; al piano dell'altro mese ne restano meno</span>}
                                     {segnate > 0.25 && <span className="block mt-1 text-amber-800">Straordinario concordato: {fmt(segnate)} h, a parte</span>}
                                   </>
