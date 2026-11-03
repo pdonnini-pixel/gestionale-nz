@@ -1,10 +1,14 @@
 -- ROLLBACK 340 — torna a come era dopo la 338.
 -- Gli abbinamenti gia' liberati dal trigger non si ricreano da qui: li
--- rifa' il riscontro del mattino.
+-- rifa' il riscontro del mattino. Nessun dato viene cancellato: si tolgono
+-- solo trigger e funzioni.
 BEGIN;
 
 DROP TRIGGER IF EXISTS trg_cash_deposit_bank_reset ON public.outlet_daily_closing_deposits;
+DROP TRIGGER IF EXISTS trg_cash_deposit_first_rows ON public.outlet_daily_closing_deposits;
 DROP FUNCTION IF EXISTS public.fn_cash_deposit_bank_reset();
+DROP FUNCTION IF EXISTS public.fn_cash_deposit_first_rows();
+DROP FUNCTION IF EXISTS public.fn_cash_deposit_free_tx(uuid, uuid);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.outlet_daily_closing_deposits TO authenticated;
 
