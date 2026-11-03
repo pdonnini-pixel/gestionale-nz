@@ -109,6 +109,8 @@ Le altre regole dei turni restano quelle di `ORGANICO_TURNI_NOTES.md` (al massim
 
 ## ⚠️ REGOLA #0 — PARITÀ TENANT (NON NEGOZIABILE)
 
+> **Aggiornamento 03/11/2026 (Patrizio): «niente Made, non sviluppiamo più per tre tenant ma per due, solo New Zago e Zago».** Da questa data migration, Edge Function, Vault e RLS si applicano solo a **NZ + Zago**. Made non riceve più modifiche al database. Il frontend però esce ancora anche sul sito Made (stessa `main`): il codice nuovo deve funzionare anche dove una tabella o una colonna nuova non c'è (se manca, si torna al comportamento di prima, senza errori). Dove sotto si legge «3 tenant», vale «NZ e Zago».
+
 **OGNI modifica/fix/deploy va applicato a TUTTI E 3 i tenant: NZ + Made + Zago. Sempre. Senza eccezioni.**
 
 Concretamente, per ogni intervento:

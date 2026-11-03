@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected } from './cashClosings'
+import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected, depositTotals, depositPhotoBelongs } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -400,5 +400,26 @@ describe('cancelledCashNotCollected', () => {
   it('non propone numeri negativi', () => {
     expect(cancelledCashNotCollected({ isClosedDay: false, photoCancellations: 47.2, cashDifference: -47.2, totalReceipts: 682.4, cashLine: 10 })).toBeNull()
     expect(cancelledCashNotCollected({ isClosedDay: false, photoCancellations: 47.2, cashDifference: -47.2, totalReceipts: 30, cashLine: 87.1 })).toBeNull()
+  })
+})
+
+describe('cedolini di versamento (337)', () => {
+  it('somma gli importi e unisce le causali', () => {
+    const r = depositTotals([
+      { id: 'a', amount: '1.200,00', note: 'Versamento fino al 30/10' },
+      { id: 'b', amount: '800,50', note: '' },
+      { id: 'c', amount: '', note: ' ATM MPS ' },
+    ])
+    expect(r.total).toBe(2000.5)
+    expect(r.note).toBe('Versamento fino al 30/10 + ATM MPS')
+  })
+  it('senza cedolini il totale è zero', () => {
+    expect(depositTotals([])).toEqual({ total: 0, note: '' })
+  })
+  it('le foto senza cedolino restano del primo', () => {
+    expect(depositPhotoBelongs(null, 'a', 'a')).toBe(true)
+    expect(depositPhotoBelongs(null, 'b', 'a')).toBe(false)
+    expect(depositPhotoBelongs('b', 'b', 'a')).toBe(true)
+    expect(depositPhotoBelongs('b', 'a', 'a')).toBe(false)
   })
 })

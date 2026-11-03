@@ -42,11 +42,13 @@ import {
   eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type DeviationLine,
   closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected,
   type ClosingBlocker, type ClosingBlockField, type CancelledCashFix,
+  type DepositDraft, depositTotals, depositPhotoBelongs, BANK_STATUS_LABELS, bankStatusMark, type BankStatus,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
 type AttachmentRow = Database['public']['Tables']['outlet_daily_closing_attachments']['Row']
 type ExpenseRow = Database['public']['Tables']['outlet_daily_closing_expenses']['Row']
+type DepositRow = Database['public']['Tables']['outlet_daily_closing_deposits']['Row']
 
 interface ExpenseDraft { id: string; kind: ExpenseKind; amount: string; description: string }
 
@@ -67,7 +69,7 @@ interface FormState {
 }
 
 /** Riga a cui agganciare la prossima foto scattata. */
-interface PhotoTarget { target: AttachmentTarget; channelId?: string; expenseId?: string }
+interface PhotoTarget { target: AttachmentTarget; channelId?: string; expenseId?: string; depositId?: string }
 
 const emptyForm = (closedBy: string): FormState => ({
   total: '', amounts: {}, cashDeposit: '', cashDepositNote: '',
@@ -110,6 +112,11 @@ export default function ChiusuraCassa() {
   const [closing, setClosing] = useState<ClosingRow | null>(null)
   const [lineIds, setLineIds] = useState<Record<string, string>>({})
   const [expenses, setExpenses] = useState<ExpenseDraft[]>([])
+  // Cedolini di versamento (337): vuoto = un solo versamento nel campo unico, come prima.
+  const [deposits, setDeposits] = useState<DepositDraft[]>([])
+  const [depositRows, setDepositRows] = useState<DepositRow[]>([])
+  // La tabella dei cedolini c'è su questo tenant? Se manca resta il campo unico.
+  const [depositsAvailable, setDepositsAvailable] = useState(false)
   const [attachments, setAttachments] = useState<AttachmentRow[]>([])
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
   const [prevFloat, setPrevFloat] = useState<number | null>(null)
@@ -156,10 +163,11 @@ export default function ChiusuraCassa() {
 
   // ─── Caricamento ──────────────────────────────────────────────────────
   const loadClosingChildren = useCallback(async (closingId: string) => {
-    const [lRes, eRes, aRes] = await Promise.all([
+    const [lRes, eRes, aRes, dRes] = await Promise.all([
       supabase.from('outlet_daily_closing_lines').select('id, channel_id, amount').eq('closing_id', closingId),
       supabase.from('outlet_daily_closing_expenses').select('*').eq('closing_id', closingId).order('sort_order'),
       supabase.from('outlet_daily_closing_attachments').select('*').eq('closing_id', closingId).order('uploaded_at'),
+      supabase.from('outlet_daily_closing_deposits').select('*').eq('closing_id', closingId).order('sort_order').order('id'),
     ])
     const amounts: Record<string, string> = {}
     const ids: Record<string, string> = {}
@@ -167,6 +175,9 @@ export default function ChiusuraCassa() {
     setLineIds(ids)
     setExpenses(((eRes.data ?? []) as ExpenseRow[]).map((e) => ({ id: e.id, kind: (e.kind as ExpenseKind) ?? 'spesa', amount: Number(e.amount) ? formatAmount(Number(e.amount)) : '', description: e.description ?? '' })))
     setAttachments((aRes.data ?? []) as AttachmentRow[])
+    const dRows = dRes.error ? [] : ((dRes.data ?? []) as DepositRow[])
+    setDepositRows(dRows)
+    setDeposits(dRows.map((d) => ({ id: d.id, amount: Number(d.amount) ? formatAmount(Number(d.amount)) : '', note: d.note ?? '' })))
     return amounts
   }, [])
 
@@ -221,13 +232,17 @@ export default function ChiusuraCassa() {
       })
     } else {
       setForm(emptyForm(safeGetLs(LS_CLOSED_BY)))
-      setLineIds({}); setExpenses([]); setAttachments([])
+      setLineIds({}); setExpenses([]); setAttachments([]); setDeposits([]); setDepositRows([])
     }
     setDirty(false)
     setLoading(false)
   }, [companyId, outletId, dateIso, loadClosingChildren])
 
   useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    void supabase.from('outlet_daily_closing_deposits').select('id').limit(1)
+      .then(({ error }) => setDepositsAvailable(!error))
+  }, [])
 
   // URL firmate per le anteprime (bucket privato)
   useEffect(() => {
@@ -306,10 +321,19 @@ export default function ChiusuraCassa() {
   const update = (patch: Partial<FormState>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
   const updateAmount = (channelId: string, v: string) => { setForm((f) => ({ ...f, amounts: { ...f.amounts, [channelId]: v } })); setDirty(true) }
   const updateExpense = (id: string, patch: Partial<ExpenseDraft>) => { setExpenses((list) => list.map((e) => (e.id === id ? { ...e, ...patch } : e))); setDirty(true) }
+  /** Con più cedolini il versamento della giornata (campo unico) è sempre la loro somma. */
+  const applyDeposits = (list: DepositDraft[]) => {
+    setDeposits(list)
+    const { total, note } = depositTotals(list)
+    setForm((f) => ({ ...f, cashDeposit: total ? formatAmount(total) : '', cashDepositNote: note }))
+    setDirty(true)
+  }
+  const updateDeposit = (id: string, patch: Partial<DepositDraft>) => applyDeposits(deposits.map((d) => (d.id === id ? { ...d, ...patch } : d)))
 
   // Foto per riga
   const photosFor = (t: AttachmentTarget, id?: string) => attachments.filter((a) =>
-    a.target === t && (t === 'canale' ? a.line_id === id : t === 'spesa' ? a.expense_id === id : true))
+    a.target === t && (t === 'canale' ? a.line_id === id : t === 'spesa' ? a.expense_id === id
+      : t === 'versamento' && id ? depositPhotoBelongs(a.deposit_id, id, deposits[0]?.id) : true))
   const totalPhotos = photosFor('totale')
   /** Totale letto dalla foto dello scontrino di chiusura (l'ultima letta). */
   const photoTotal = useMemo(() => {
@@ -395,6 +419,12 @@ export default function ChiusuraCassa() {
           .eq('id', e.id)
         if (eErr) throw new Error(eErr.message)
       }
+      for (const [i, d] of deposits.entries()) {
+        const { error: dErr } = await supabase.from('outlet_daily_closing_deposits')
+          .update({ amount: parseAmount(d.amount) ?? 0, note: d.note.trim() || null, sort_order: i + 1, updated_at: new Date().toISOString() })
+          .eq('id', d.id)
+        if (dErr) throw new Error(dErr.message)
+      }
       safeSetLs(LS_CLOSED_BY, form.closedByName.trim())
       const { data: fresh } = await supabase.from('outlet_daily_closings').select('*').eq('id', c.id).single()
       if (fresh) setClosing(fresh)
@@ -439,13 +469,57 @@ export default function ChiusuraCassa() {
     setAttachments((list) => list.filter((a) => a.expense_id !== id))
   }
 
+  /**
+   * Aggiunge un cedolino di versamento. Al primo clic il versamento già scritto
+   * diventa il cedolino 1 (con le sue foto) e si apre il cedolino 2 vuoto.
+   */
+  const addDeposit = async () => {
+    if (!companyId || !editable) return
+    try {
+      const c = await ensureClosing()
+      const base = { closing_id: c.id, company_id: companyId, outlet_id: outletId }
+      const rows = deposits.length === 0
+        ? [{ ...base, amount: parseAmount(form.cashDeposit) ?? 0, note: form.cashDepositNote.trim() || null, sort_order: 1 }, { ...base, amount: 0, note: null, sort_order: 2 }]
+        : [{ ...base, amount: 0, note: null, sort_order: deposits.length + 1 }]
+      const { data, error } = await supabase.from('outlet_daily_closing_deposits').insert(rows).select('*')
+      if (error || !data) throw new Error(errMsg(error))
+      const added = (data as DepositRow[]).sort((a, b) => a.sort_order - b.sort_order)
+      setDepositRows((list) => [...list, ...added])
+      const drafts = added.map((d) => ({ id: d.id, amount: Number(d.amount) ? formatAmount(Number(d.amount)) : '', note: d.note ?? '' }))
+      // Il primo cedolino tiene quanto scritto adesso nel campo, anche se non ancora salvato.
+      if (deposits.length === 0 && drafts[0]) { drafts[0].amount = form.cashDeposit; drafts[0].note = form.cashDepositNote }
+      applyDeposits([...deposits, ...drafts])
+    } catch (e) {
+      toast({ type: 'error', message: 'Cedolino non aggiunto: ' + errMsg(e) })
+    }
+  }
+
+  const removeDeposit = async (id: string) => {
+    if (deposits.length <= 1) return
+    const isFirst = deposits[0]?.id === id
+    const { error } = await supabase.from('outlet_daily_closing_deposits').delete().eq('id', id)
+    if (error) { toast({ type: 'error', message: error.message }); return }
+    const orphan = attachments.filter((a) => a.target === 'versamento' && (a.deposit_id === id || (isFirst && !a.deposit_id)))
+    for (const a of orphan) {
+      await supabase.from('outlet_daily_closing_attachments').delete().eq('id', a.id)
+      await supabase.storage.from(BUCKET).remove([a.storage_path])
+    }
+    setAttachments((list) => list.filter((a) => !orphan.some((o) => o.id === a.id)))
+    setDepositRows((list) => list.filter((d) => d.id !== id))
+    applyDeposits(deposits.filter((d) => d.id !== id))
+  }
+
   /** Righe con importo ma senza foto: solo un avviso, la conferma resta possibile. */
   const missingOptionalPhotos = (): string[] => {
     const out: string[] = []
     for (const e of expenses) {
       if (e.kind === 'spesa' && photosFor('spesa', e.id).length === 0) out.push(`scontrino della spesa "${e.description.trim() || 'senza descrizione'}"`)
     }
-    if ((parseAmount(form.cashDeposit) ?? 0) > 0 && photosFor('versamento').length === 0) out.push('ricevuta del versamento')
+    if (deposits.length > 0) {
+      deposits.forEach((d, i) => {
+        if ((parseAmount(d.amount) ?? 0) > 0 && photosFor('versamento', d.id).length === 0) out.push(`ricevuta del versamento n. ${i + 1}`)
+      })
+    } else if ((parseAmount(form.cashDeposit) ?? 0) > 0 && photosFor('versamento').length === 0) out.push('ricevuta del versamento')
     return out
   }
 
@@ -582,6 +656,8 @@ export default function ChiusuraCassa() {
           closing_id: c.id, company_id: companyId, outlet_id: outletId,
           target: t.target, kind: kindForTarget(t.target, channelKind),
           line_id: lineId, expense_id: t.expenseId ?? null,
+          // deposit_id solo se c'è un cedolino: dove la colonna non esiste l'insert resta quello di prima.
+          ...(t.depositId ? { deposit_id: t.depositId } : {}),
           storage_path: path, mime_type: 'image/jpeg', size_bytes: blob.size, uploaded_by: userId,
         }).select('id').single()
         if (insErr || !ins) throw new Error(errMsg(insErr))
@@ -685,13 +761,22 @@ export default function ChiusuraCassa() {
         }
       } else if (t.target === 'canale' && t.channelId) {
         if (amount != null && isBlank(f.amounts[t.channelId])) { next.amounts[t.channelId] = formatAmount(amount); changed = true }
-      } else if (t.target === 'versamento') {
+      } else if (t.target === 'versamento' && !t.depositId) {
         if (amount != null && isBlank(f.cashDeposit)) { next.cashDeposit = formatAmount(amount); changed = true }
         if (!f.cashDepositNote.trim() && str(ex.bank)) { next.cashDepositNote = `Versamento ${str(ex.bank)}`; changed = true }
       }
       if (changed) setDirty(true)
       return changed ? next : f
     })
+    if (t.target === 'versamento' && t.depositId) {
+      const d = deposits.find((x) => x.id === t.depositId)
+      if (d) {
+        const patch: Partial<DepositDraft> = {}
+        if (amount != null && isBlank(d.amount)) patch.amount = formatAmount(amount)
+        if (!d.note.trim() && str(ex.bank)) patch.note = `Versamento ${str(ex.bank)}`
+        if (Object.keys(patch).length > 0) updateDeposit(d.id, patch)
+      }
+    }
     if (t.target === 'spesa' && t.expenseId) {
       setExpenses((list) => list.map((e) => {
         if (e.id !== t.expenseId) return e
@@ -710,6 +795,7 @@ export default function ChiusuraCassa() {
     if (t.target === 'totale') return parseAmount(form.total)
     if (t.target === 'canale' && t.channelId) return parseAmount(form.amounts[t.channelId])
     if (t.target === 'spesa' && t.expenseId) return parseAmount(expenses.find((e) => e.id === t.expenseId)?.amount)
+    if (t.target === 'versamento' && t.depositId) return parseAmount(deposits.find((d) => d.id === t.depositId)?.amount)
     if (t.target === 'versamento') return parseAmount(form.cashDeposit)
     return null
   }
@@ -720,6 +806,7 @@ export default function ChiusuraCassa() {
     if (t.target === 'totale') update({ total: v })
     else if (t.target === 'canale' && t.channelId) updateAmount(t.channelId, v)
     else if (t.target === 'spesa' && t.expenseId) updateExpense(t.expenseId, { amount: v })
+    else if (t.target === 'versamento' && t.depositId) updateDeposit(t.depositId, { amount: v })
     else if (t.target === 'versamento') update({ cashDeposit: v })
   }
 
@@ -761,7 +848,7 @@ export default function ChiusuraCassa() {
 
   /** Pulsante fotocamera + anteprime per una riga. */
   const PhotoStrip = ({ t, required = false, hint = true }: { t: PhotoTarget; required?: boolean; hint?: boolean }) => {
-    const list = photosFor(t.target, t.channelId ? lineIds[t.channelId] : t.expenseId)
+    const list = photosFor(t.target, t.channelId ? lineIds[t.channelId] : t.expenseId ?? t.depositId)
     return (
       <div className="flex items-center gap-2 flex-wrap mt-1.5">
         {editable && !form.isClosedDay && (
@@ -985,12 +1072,39 @@ export default function ChiusuraCassa() {
 
               {/* 3. Versamento */}
               <section className="bg-white border border-slate-200 rounded-xl p-4 mb-4 space-y-3">
-                <h2 className="font-semibold text-slate-900">3. Versamento in banca</h2>
-                <div>
-                  <input inputMode="decimal" value={form.cashDeposit} disabled={!editable} onChange={(e) => update({ cashDeposit: e.target.value })} placeholder="0,00" className={inputCls} />
-                  <input value={form.cashDepositNote} disabled={!editable} onChange={(e) => update({ cashDepositNote: e.target.value })} placeholder="Causale (es. ATM MPS)" className={`${textCls} mt-2`} />
-                  <PhotoStrip t={{ target: 'versamento' }} hint={(parseAmount(form.cashDeposit) ?? 0) > 0} />
+                <div className="flex items-center justify-between">
+                  <h2 className="font-semibold text-slate-900">3. Versamento in banca</h2>
+                  {deposits.length > 0 && <span className="text-sm text-slate-600 tabular-nums">{formatEuro(depositTotals(deposits).total)}</span>}
                 </div>
+                {deposits.length === 0 ? (
+                  <div>
+                    <input inputMode="decimal" value={form.cashDeposit} disabled={!editable} onChange={(e) => update({ cashDeposit: e.target.value })} placeholder="0,00" className={inputCls} />
+                    <input value={form.cashDepositNote} disabled={!editable} onChange={(e) => update({ cashDepositNote: e.target.value })} placeholder="Causale (es. ATM MPS)" className={`${textCls} mt-2`} />
+                    <PhotoStrip t={{ target: 'versamento' }} hint={(parseAmount(form.cashDeposit) ?? 0) > 0} />
+                  </div>
+                ) : deposits.map((d, i) => {
+                  const row = depositRows.find((r) => r.id === d.id)
+                  const st = row && Number(row.amount) > 0 && readOnly ? row.bank_status : null
+                  return (
+                    <div key={d.id} className="border border-slate-200 rounded-xl p-3 space-y-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">Cedolino {i + 1}</span>
+                        {st && <span className={`text-[11px] ${bankStatusMark(st).cls}`}>{bankStatusMark(st).mark} {BANK_STATUS_LABELS[st as BankStatus] ?? st}</span>}
+                        <div className="flex-1" />
+                        {editable && deposits.length > 1 && <button type="button" onClick={() => void removeDeposit(d.id)} title="Togli questo cedolino" className="p-2 text-red-600 rounded-lg hover:bg-red-50"><Trash2 size={18} /></button>}
+                      </div>
+                      <input inputMode="decimal" value={d.amount} disabled={!editable} onChange={(e) => updateDeposit(d.id, { amount: e.target.value })} placeholder="0,00" className={inputCls} />
+                      <input value={d.note} disabled={!editable} onChange={(e) => updateDeposit(d.id, { note: e.target.value })} placeholder="Causale (es. contanti fino al 30/10)" className={textCls} />
+                      <PhotoStrip t={{ target: 'versamento', depositId: d.id }} hint={(parseAmount(d.amount) ?? 0) > 0} />
+                    </div>
+                  )
+                })}
+                {editable && depositsAvailable && !form.isClosedDay && (
+                  <button type="button" onClick={() => void addDeposit()} className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50">
+                    <Plus size={16} />{deposits.length === 0 ? 'Ho un altro cedolino di versamento' : 'Aggiungi un altro cedolino'}
+                  </button>
+                )}
+                {deposits.length > 0 && <p className="text-[11px] text-slate-500">Ogni cedolino si cerca in banca da solo. Il versamento della giornata è la somma.</p>}
               </section>
 
               {/* 4. Fondo cassa */}

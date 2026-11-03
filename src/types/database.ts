@@ -17173,6 +17173,7 @@ export type Database = {
         Row: {
           closing_id: string
           company_id: string
+          deposit_id: string | null
           expense_id: string | null
           extracted: Json | null
           extracted_at: string | null
@@ -17192,6 +17193,7 @@ export type Database = {
         Insert: {
           closing_id: string
           company_id: string
+          deposit_id?: string | null
           expense_id?: string | null
           extracted?: Json | null
           extracted_at?: string | null
@@ -17211,6 +17213,7 @@ export type Database = {
         Update: {
           closing_id?: string
           company_id?: string
+          deposit_id?: string | null
           expense_id?: string | null
           extracted?: Json | null
           extracted_at?: string | null
@@ -17283,6 +17286,62 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_outlet_card"
             referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
+      outlet_daily_closing_deposits: {
+        Row: {
+          amount: number
+          bank_amount: number | null
+          bank_matched_at: string | null
+          bank_status: string
+          bank_transaction_id: string | null
+          closing_id: string
+          company_id: string
+          created_at: string
+          id: string
+          note: string | null
+          outlet_id: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          amount?: number
+          bank_amount?: number | null
+          bank_matched_at?: string | null
+          bank_status?: string
+          bank_transaction_id?: string | null
+          closing_id: string
+          company_id: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          outlet_id: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          bank_amount?: number | null
+          bank_matched_at?: string | null
+          bank_status?: string
+          bank_transaction_id?: string | null
+          closing_id?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          note?: string | null
+          outlet_id?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outlet_daily_closing_deposits_closing_id_fkey"
+            columns: ["closing_id"]
+            isOneToOne: false
+            referencedRelation: "outlet_daily_closings"
+            referencedColumns: ["id"]
           },
         ]
       }
