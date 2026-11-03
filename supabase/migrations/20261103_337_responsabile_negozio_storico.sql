@@ -62,6 +62,7 @@ CREATE POLICY dipendente_block ON public.outlet_referenti_storico AS RESTRICTIVE
   USING (COALESCE((SELECT public.get_my_role())::text, '') <> 'dipendente')
   WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '') <> 'dipendente');
 
+REVOKE ALL ON public.outlet_referenti_storico FROM anon;
 GRANT SELECT ON public.outlet_referenti_storico TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.outlet_referenti_storico TO service_role;
 
