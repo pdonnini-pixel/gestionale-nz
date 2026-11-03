@@ -8,8 +8,8 @@ name: Pixel check (smoke UI)
 on:
   push:
     branches: [main]
-  schedule:
-    - cron: '0 6 * * *' # ogni giorno alle 06:00 UTC
+  # Niente giro giornaliero dal 03/11/2026 (Patrizio): il repository è privato e i minuti
+  # di Actions si pagano. Resta il giro a ogni push su main e quello a mano.
   workflow_dispatch:
 
 # Se arriva un push nuovo mentre la verifica gira, quella in corso si annulla:
