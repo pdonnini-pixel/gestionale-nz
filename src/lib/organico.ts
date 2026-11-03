@@ -8,6 +8,10 @@
 //
 // La scheda non si tocca mai: il dato dello studio resta il dato vero, i
 // cambiamenti lo completano finche' lo studio non li riporta.
+// Unica eccezione: «Correggi» (CorreggiPersona, organico_correggi_persona)
+// corregge un errore di inserimento, cioe' nome, cognome e livello, e per
+// chi e' stato aggiunto in azienda e aspetta lo studio anche negozio,
+// contratto, ore e date, insieme sulla scheda e sull'assunzione.
 //
 // Funzioni pure, nessuna query. Test in organico.test.ts.
 //

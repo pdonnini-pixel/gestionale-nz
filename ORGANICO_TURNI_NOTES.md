@@ -42,6 +42,13 @@ Patrizio scrive il fabbisogno.
 - Segnando un'assenza o un'uscita, i turni dopo quella data si tolgono con la stessa regola. Le ferie
   già approvate non si toccano: la modale avvisa che vanno ritirate dalla richiesta.
 
+## Correggere un errore e negozio sempre assegnato (migration 334-336, 02/11/2026)
+
+- **«Correggi»** sulla riga di Organico di oggi (`CorreggiPersona.tsx`, `organico_correggi_persona`) corregge un errore di inserimento, non registra un cambiamento. Nome, cognome e livello per tutti; negozio, contratto, ore, inizio e scadenza solo finché l'assunzione segnata è `da_confermare`, insieme su scheda, assunzione e ripartizione. Nota datata in coda alla scheda. Nata da Angelini (livello sbagliato da Veronica).
+- **Il negozio sta in due posti**: `employees.outlet_id` (Organico, turni, ferie) ed `employee_outlet_allocations` (gruppi di Dipendenti, costi per outlet). Regola di Patrizio: **nessuno resta senza negozio**. Il trigger `trg_employees_ripartizione_da_negozio` (335, 3 tenant) crea la ripartizione al 100% quando una persona ha il negozio nella scheda e nessuna ripartizione; non sposta mai una ripartizione esistente, perché cambierebbe il negozio dei costi già registrati.
+- Recupero NZ (`NZ_ONLY_20261102_336`): le 6 persone entrate da Organico senza ripartizione (5 Roma Soratte, Caprioli Paganini Brugnato come da scheda). Nessuna aveva cedolini o costi.
+- **Zago** ha 12 persone senza ripartizione, non recuperate: i costi del personale passerebbero da «non attribuiti» ai negozi. Da decidere con Patrizio. Il trigger le sistema una per una appena se ne tocca il negozio nella scheda.
+
 ## Il confronto con lo studio
 
 `organico_riconcilia()` (chiamata all'apertura della scheda) chiude da sola i cambiamenti che
