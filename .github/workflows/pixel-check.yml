@@ -1,7 +1,7 @@
 name: Pixel check (smoke UI)
 
 # Verifica pixel sul SITO DEPLOYATO dei 3 tenant.
-# Gira: dopo ogni push su main (post-deploy), ogni giorno, e a mano.
+# Gira: dopo ogni push su main (post-deploy) e a mano.
 # Richiede i secret di repo: TEST_USER_EMAIL, TEST_USER_PASSWORD
 # (stesso utente di test presente su tutti e 3 i tenant).
 

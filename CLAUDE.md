@@ -230,7 +230,7 @@ pagine effettivamente coinvolti.
   (`tests/e2e/pixel-check.spec.ts`) sui **3 site** a ogni push su `main` e su
   richiesta (il giro giornaliero è stato tolto il 03/11/2026: repository privato,
   minuti a pagamento). Se diventa rosso, GitHub manda una mail a Patrizio:
-  l'allarme in campanella (migrazione 130) è spento dalla 340. Prima di partire **aspetta che il site serva proprio
+  l'allarme in campanella (migrazione 130) è spento dalla 341. Prima di partire **aspetta che il site serva proprio
   quel commit** (`<meta name="app-commit">` scritto dal build): un 200 lo dà
   anche la versione precedente, e un verde sul sito vecchio non vale niente.
   Dettagli in `DEPLOY_VERSIONI_NOTES.md`. Fa login con l'utente di test e controlla: login ok,

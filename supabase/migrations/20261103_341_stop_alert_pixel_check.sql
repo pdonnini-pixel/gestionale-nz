@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migrazione 340 — via l'allarme «pixel check rosso» dalla campanella
+-- Migrazione 341 — via l'allarme «pixel check rosso» dalla campanella
 -- =====================================================================
 --
 -- PERCHÉ (Patrizio, 03/11/2026, piano di sicurezza)
@@ -18,7 +18,11 @@
 -- TENANT: NZ + Zago (regola del 03/11/2026: Made non riceve più modifiche al
 -- database). Su Made il job resta e, a repository privato, non trova più
 -- nessun esito: non scrive niente.
--- Rollback in 20261103_340_stop_alert_pixel_check_ROLLBACK.sql.
+-- Rollback in 20261103_341_stop_alert_pixel_check_ROLLBACK.sql.
+-- NOTA NUMERO: applicata il 03/11/2026 alle 20:34 su NZ e Zago con il nome
+-- «20261103_340_stop_alert_pixel_check» (in supabase_migrations.schema_migrations);
+-- il 340 nel repository è della migrazione cedolini_esito_e_negozio, applicata due
+-- minuti dopo da un'altra sessione. Il file è stato rinumerato 341, il database no.
 -- =====================================================================
 DO $$
 BEGIN
