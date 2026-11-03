@@ -42,6 +42,8 @@ type PersonaAnagrafica = DipendenteRif & {
   outletId: string | null;
   outletCode: string | null;
   outletNome: string | null;
+  /** Il responsabile del suo negozio oggi, per la firma sul modulo. */
+  responsabileNome: string | null;
 };
 
 type RichiestaSalvata = {
@@ -132,7 +134,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
         supabase.from('employees')
           .select('id, matricola, nome, cognome, first_name, last_name, data_assunzione, hire_date, is_active, contratto_tipo, ore_settimanali, ore_settimanali_paghe, outlet_id')
           .eq('company_id', companyId),
-        supabase.from('outlets').select('id, code, name').eq('company_id', companyId),
+        supabase.from('outlets').select('id, code, name, referente_employee_id').eq('company_id', companyId),
         supabase.from('v_leave_disponibilita').select('*').eq('company_id', companyId),
         supabase.from('leave_requests')
           .select('id, employee_id, stato, titolo, note_dipendente, origine, outlet_code, inviata_il, created_at')
@@ -147,9 +149,13 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
         .eq('company_id', companyId).eq('blocca_ferie', true);
       setEventiSenzaFerie((ev.data as (PeriodoSenzaFerie & { outlet_ids: string[] | null })[]) ?? []);
 
-      const perOutlet = new Map<string, { code: string | null; name: string | null }>();
-      for (const o of (outlets.data as { id: string; code: string | null; name: string | null }[]) ?? []) {
-        perOutlet.set(o.id, { code: o.code, name: o.name });
+      const perOutlet = new Map<string, { code: string | null; name: string | null; referente: string | null }>();
+      for (const o of (outlets.data as { id: string; code: string | null; name: string | null; referente_employee_id: string | null }[]) ?? []) {
+        perOutlet.set(o.id, { code: o.code, name: o.name, referente: o.referente_employee_id });
+      }
+      const nomeDi = new Map<string, string>();
+      for (const d of (emp.data as Record<string, unknown>[]) ?? []) {
+        nomeDi.set(String(d.id), [d.cognome ?? d.last_name, d.nome ?? d.first_name].filter(Boolean).join(' '));
       }
 
       const persone: PersonaAnagrafica[] = ((emp.data as Record<string, unknown>[]) ?? []).map((d) => {
@@ -168,6 +174,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
           outletId,
           outletCode: o?.code ?? null,
           outletNome: o?.name ?? null,
+          responsabileNome: o?.referente ? nomeDi.get(o.referente) ?? null : null,
         };
       }).sort((a, b) => `${a.cognome ?? ''} ${a.nome ?? ''}`.localeCompare(`${b.cognome ?? ''} ${b.nome ?? ''}`, 'it'));
 
@@ -430,6 +437,7 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
         oreSettimanali: p.oreSettimanaliPaghe ?? p.oreSettimanaliAnagrafica,
         oreGiornata: o.ore,
         fonteOrario: o.fonte,
+        responsabile: p.responsabileNome,
       },
       saldi: suoi,
       giorni,

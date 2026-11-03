@@ -282,6 +282,18 @@ per ogni outlet i giorni chiusi».
   Valmontone Daniela Cacciotti, Palmanova Shadi Mir Shafiei («Shari M»), Torino Ana Solange Da
   Fonseca Mannile, Franciacorta Paola Maggiori. **Roma: «Tania A» non e' in anagrafica**, referente
   da impostare quando arriva la sua scheda.
+- **Responsabile del negozio con storico (Patrizio, 03/11/2026, migration 337)**: la «referente» si
+  chiama ora **responsabile** in interfaccia. Il responsabile di oggi resta
+  `outlets.referente_employee_id`, l'unico punto che leggono tutte le sezioni: Organico (intestazione
+  del negozio, etichetta sulla persona), Turni, Impostazioni → Utenti (nome dell'account di cassa
+  del negozio, calcolato, `user_profiles` non si tocca) e la firma del modulo ferie. Si cambia da
+  Organico (menu nell'intestazione del negozio, vale da oggi), da Turni o all'assunzione («Aggiungi
+  una persona», casella «Responsabile del negozio», vale da oggi; spenta se l'assunzione è futura). Tutte le strade
+  passano da `organico_imposta_referente_dal(negozio, persona, dal)`, che chiude il periodo
+  precedente in `outlet_referenti_storico` (niente si cancella; un cambio nello stesso giorno
+  corregge il periodo aperto; una data futura o anteriore all'inizio del responsabile di oggi è
+  rifiutata, così lo storico non si riscrive e non si contraddice con le sezioni). Se il responsabile esce o cambia negozio **non si toglie da solo**:
+  Organico lo segnala in giallo finché non se ne sceglie un altro.
 - Aperto: nessun evento caricato; le date di Black Friday, feste e saldi le inserisce Veronica.
 
 ## Pianificazione mensile: disegno concordato con Patrizio (20/10/2026)
