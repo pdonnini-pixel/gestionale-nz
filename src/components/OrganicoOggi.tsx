@@ -11,7 +11,7 @@
 // cambiamenti con i documenti dello studio (ConfrontoStudio).
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, FileUp, Plus, Search, UserPlus } from 'lucide-react';
+import { AlertTriangle, CalendarClock, FileUp, Plus, Search, UserPlus, UserRound } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
@@ -142,6 +142,35 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
       .sort((a, b) => (a.id ? 0 : 1) - (b.id ? 0 : 1) || a.nome.localeCompare(b.nome, 'it'));
   }, [visibili, negozioDi]);
 
+  // Responsabile del negozio (outlets.referente_employee_id, storico nella
+  // 337): si sceglie fra chi lavora nel negozio a quella data. Lo leggono anche
+  // Turni, Utenti (account di cassa) e il modulo ferie, quindi cambiandolo qui
+  // si aggiorna dappertutto.
+  const responsabileDi = useCallback((outletId: string): InfoResponsabile => {
+    const negozio = negozioDi(outletId);
+    const id = negozio?.referente_employee_id ?? null;
+    const persona = id ? persone.find((p) => p.scheda.id === id) : undefined;
+    const candidati = persone
+      .filter((p) => p.outletId === outletId && (p.stato === 'in_servizio' || p.stato === 'non_ancora_assunto' || p.stato === 'assente'))
+      .map((p) => ({ id: p.scheda.id, nome: nomePersona(p.scheda) }));
+    if (persona && !candidati.some((c) => c.id === persona.scheda.id)) candidati.push({ id: persona.scheda.id, nome: nomePersona(persona.scheda) });
+    candidati.sort((a, b) => a.nome.localeCompare(b.nome, 'it'));
+    // Non c'e' piu' se e' uscito o se ora lavora in un altro negozio.
+    const nonCePiu = !!persona && (!contaNellOrganico(persona) || persona.outletId !== outletId);
+    return { id, nome: persona ? nomePersona(persona.scheda) : null, dal: dati?.responsabileDal?.[outletId] ?? null, candidati, nonCePiu };
+  }, [negozioDi, persone, dati]);
+
+  const impostaResponsabile = async (outletId: string, employeeId: string) => {
+    const { error } = await supabase.rpc('organico_imposta_referente_dal', {
+      p_outlet_id: outletId, p_employee_id: employeeId || null, p_dal: oggiRoma(),
+    });
+    if (error) { toast({ type: 'error', message: `Responsabile non salvato: ${error.message}` }); return; }
+    const n = nomeNegozio(negozioDi(outletId));
+    const chi = employeeId ? persone.find((p) => p.scheda.id === employeeId) : undefined;
+    toast({ type: 'success', message: chi ? `${nomePersona(chi.scheda)} è responsabile di ${n} da oggi.` : `${n} è senza responsabile da oggi.` });
+    await carica();
+  };
+
   const nelOrganico = persone.filter(contaNellOrganico);
   const inServizio = persone.filter((p) => p.stato === 'in_servizio');
   const oreSettimana = inServizio.reduce((s, p) => s + (p.ore ?? 0), 0);
@@ -264,6 +293,8 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
                   <tbody>
                     {gruppi.map((g) => (
                       <GruppoNegozio key={g.id || 'senza'} nome={g.nome} lista={g.lista} puoScrivere={puoScrivere}
+                        responsabile={g.id ? responsabileDi(g.id) : null}
+                        onResponsabile={g.id ? (empId) => impostaResponsabile(g.id, empId) : undefined}
                         onModifica={(id, tipo) => setModale({ employeeId: id, tipo })} onCorreggi={setDaCorreggere} onScheda={onScheda} />
                     ))}
                     {!gruppi.length && (
@@ -350,16 +381,58 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
   );
 }
 
-function GruppoNegozio({ nome, lista, puoScrivere, onModifica, onCorreggi, onScheda }: {
-  nome: string; lista: PersonaOggi[]; puoScrivere: boolean; onModifica: (id: string, tipo: TipoEvento | null) => void;
+type InfoResponsabile = {
+  id: string | null;
+  nome: string | null;
+  /** da quando lo e' (storico 337) */
+  dal: string | null;
+  candidati: { id: string; nome: string }[];
+  /** il responsabile segnato e' uscito o lavora in un altro negozio */
+  nonCePiu: boolean;
+};
+
+function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile, onModifica, onCorreggi, onScheda }: {
+  nome: string; lista: PersonaOggi[]; puoScrivere: boolean;
+  responsabile: InfoResponsabile | null; onResponsabile?: (employeeId: string) => void;
+  onModifica: (id: string, tipo: TipoEvento | null) => void;
   onCorreggi: (id: string) => void; onScheda?: (id: string) => void;
 }) {
   const ore = lista.filter((p) => p.stato === 'in_servizio').reduce((s, p) => s + (p.ore ?? 0), 0);
   return (
     <>
       <tr className="bg-slate-50">
-        <td colSpan={6} className="px-3 py-2 text-xs font-bold text-slate-600 uppercase tracking-wide">
-          {nome} · {lista.length} {lista.length === 1 ? 'persona' : 'persone'} · {ore.toLocaleString('it-IT')} ore in servizio
+        <td colSpan={6} className="px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+              {nome} · {lista.length} {lista.length === 1 ? 'persona' : 'persone'} · {ore.toLocaleString('it-IT')} ore in servizio
+            </span>
+            {responsabile && (
+              <span className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
+                <UserRound size={14} className="text-slate-400" />
+                <span>Responsabile</span>
+                {puoScrivere && onResponsabile ? (
+                  <select aria-label={`Responsabile di ${nome}`} value={responsabile.id ?? ''} onChange={(e) => onResponsabile(e.target.value)}
+                    className="min-h-[32px] rounded-lg border border-slate-300 px-2 text-xs bg-white text-slate-800">
+                    <option value="">nessuno</option>
+                    {responsabile.candidati.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
+                ) : (
+                  <strong className="text-slate-800">{responsabile.nome ?? 'nessuno'}</strong>
+                )}
+                {responsabile.id && responsabile.dal && !responsabile.nonCePiu && (
+                  <span className="text-slate-400">dal {formattaDataBreve(responsabile.dal)}</span>
+                )}
+                {responsabile.nonCePiu && (
+                  <span className="inline-flex items-center gap-1 text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5">
+                    <AlertTriangle size={12} /> non lavora più qui: scegli il nuovo
+                  </span>
+                )}
+                {!responsabile.id && (
+                  <span className="text-amber-700">da scegliere</span>
+                )}
+              </span>
+            )}
+          </div>
         </td>
       </tr>
       {lista.map((p) => (
@@ -370,6 +443,9 @@ function GruppoNegozio({ nome, lista, puoScrivere, onModifica, onCorreggi, onSch
                 className="font-medium text-slate-900 hover:text-blue-700 hover:underline text-left">{nomePersona(p.scheda)}</button>
             ) : (
               <div className="font-medium text-slate-900">{nomePersona(p.scheda)}</div>
+            )}
+            {responsabile?.id === p.scheda.id && (
+              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-violet-50 text-violet-700">Responsabile</span>
             )}
             {p.scheda.matricola && <div className="text-[11px] text-slate-400 tabular-nums">matr. {p.scheda.matricola}</div>}
             {p.daConfermare.length > 0 && (

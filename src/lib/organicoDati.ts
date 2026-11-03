@@ -22,6 +22,8 @@ export interface DatiOrganico {
   schede: SchedaPersona[];
   eventi: EventoOrganico[];
   negozi: NegozioRif[];
+  /** da quando il responsabile di oggi lo e', per negozio (outlet_referenti_storico, 337) */
+  responsabileDal?: Record<string, string>;
 }
 
 /** Ruoli che tengono l'organico: «contabilita' o superiore» (Patrizio, 19/10/2026). */
@@ -67,7 +69,13 @@ export async function caricaOrganico(companyId: string): Promise<DatiOrganico> {
     ore_settimanali: num(e.ore_settimanali),
   }));
 
-  return { schede, eventi, negozi: (neg.data as NegozioRif[]) ?? [] };
+  // Lo storico dei responsabili dice solo «da quando»: se non si legge, la
+  // pagina funziona lo stesso.
+  const responsabileDal: Record<string, string> = {};
+  const st = await supabase.from('outlet_referenti_storico').select('outlet_id, dal').eq('company_id', companyId).is('al', null);
+  for (const r of (st.data as { outlet_id: string; dal: string }[] | null) ?? []) responsabileDal[r.outlet_id] = r.dal;
+
+  return { schede, eventi, negozi: (neg.data as NegozioRif[]) ?? [], responsabileDal };
 }
 
 /** Nome leggibile del negozio («FRANCIACORTA» → «Franciacorta»). */

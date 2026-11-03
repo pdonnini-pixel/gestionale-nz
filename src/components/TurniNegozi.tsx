@@ -131,7 +131,7 @@ export default function TurniNegozi({ companyId }: Props) {
     if (!scelto) return;
     const { error } = await supabase.rpc('organico_imposta_referente', { p_outlet_id: scelto.id, p_employee_id: employeeId || null });
     if (error) { toast({ type: 'error', message: error.message }); return; }
-    toast({ type: 'success', message: employeeId ? `Referente di ${nomeNegozio(scelto)} salvata.` : `${nomeNegozio(scelto)} è senza referente.` });
+    toast({ type: 'success', message: employeeId ? `Responsabile di ${nomeNegozio(scelto)} salvato: vale anche in Organico, Utenti e modulo ferie.` : `${nomeNegozio(scelto)} è senza responsabile.` });
     await carica();
   };
   const oreContratto = persone.filter((p) => p.outletId === negozio && p.stato === 'in_servizio').reduce((s, p) => s + (p.ore ?? 0), 0);
@@ -167,15 +167,15 @@ export default function TurniNegozi({ companyId }: Props) {
           {scelto && (
             <label className="flex items-center gap-2 text-sm text-slate-600">
               <UserRound size={15} className="text-slate-400" />
-              <span>Referente</span>
+              <span>Responsabile</span>
               {puoScrivere ? (
-                <select aria-label="Referente del negozio" value={scelto.referente_employee_id ?? ''} onChange={(e) => impostaReferente(e.target.value)}
+                <select aria-label="Responsabile del negozio" value={scelto.referente_employee_id ?? ''} onChange={(e) => impostaReferente(e.target.value)}
                   className="min-h-[34px] rounded-lg border border-slate-300 px-2 text-sm bg-white">
-                  <option value="">nessuna</option>
+                  <option value="">nessuno</option>
                   {sceltePossibili.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
                 </select>
               ) : (
-                <strong className="text-slate-800">{referente ? nomePersona(referente) : 'nessuna'}</strong>
+                <strong className="text-slate-800">{referente ? nomePersona(referente) : 'nessuno'}</strong>
               )}
             </label>
           )}
