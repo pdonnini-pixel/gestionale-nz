@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
   ChevronDown, ChevronUp, Check, AlertCircle, Search, Copy, Eye, EyeOff, Loader,
@@ -371,6 +371,17 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   // UNA sola volta (non e' salvata in chiaro da nessuna parte).
   const [confirmPassword, setConfirmPassword] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState<{ userId: string; email: string; password: string } | null>(null)
+  // Il modulo di modifica e il riquadro della password stanno in cima alla lista:
+  // chi clicca matita o chiave su una riga in basso non li vedrebbe comparire.
+  // Li portiamo in vista appena si aprono.
+  const formRef = useRef<HTMLDivElement>(null)
+  const passwordRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (showForm) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [showForm, editingId])
+  useEffect(() => {
+    if (newPassword) passwordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [newPassword])
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -595,7 +606,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
       {/* Form nuovo/modifica */}
       {showForm && (
-        <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 space-y-4">
+        <div ref={formRef} className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 space-y-4">
           <h4 className="text-sm font-semibold text-slate-800">
             {editingId ? 'Modifica ruolo utente' : 'Nuovo utente'}
           </h4>
@@ -670,7 +681,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
       {/* Nuova password generata: mostrata una sola volta */}
       {newPassword && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+        <div ref={passwordRef} className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-2 text-sm text-emerald-900">
               <KeyRound size={16} className="mt-0.5 shrink-0" />
