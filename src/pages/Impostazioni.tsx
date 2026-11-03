@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Settings, Users, Tag, Building2, Shield, Plus, Trash2, Pencil, Save, X,
   ChevronDown, ChevronUp, Check, AlertCircle, Search, Copy, Eye, EyeOff, Loader,
@@ -350,11 +350,26 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // ==========================================
 // SEZIONE UTENTI (CRUD)
 // ==========================================
+
+// Account di cassa: il nome mostrato e' quello del responsabile del negozio
+// (Dipendenti → Organico). Gli altri utenti restano col nome del login.
+type UtenteLista = { nome: string; cognome: string; ruolo: string; outlet_ids: string[] }
+const titolo = (t: string) => t.toLowerCase().replace(/(^|[\s'-])\p{L}/gu, c => c.toUpperCase())
+const responsabileDiCassa = (u: UtenteLista, resp: Record<string, string>): string | null =>
+  u.ruolo === 'operatore_cassa' && u.outlet_ids.length === 1 ? resp[u.outlet_ids[0]] ?? null : null
+const nomeVisibile = (u: UtenteLista, resp: Record<string, string>): string =>
+  responsabileDiCassa(u, resp) ?? `${u.nome} ${u.cognome}`.trim()
+const iniziali = (nome: string): string =>
+  nome.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase() || '?'
+
 function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const labels = useCompanyLabels()
   const { outlets: tenantOutlets } = useOutlets()
   // TODO: tighten type — Supabase rows
   const [users, setUsers] = useState<any[]>([])
+  // Responsabile di oggi per negozio (outlets.referente_employee_id, si sceglie in
+  // Dipendenti → Organico): e' il nome dell'account di cassa del negozio.
+  const [responsabili, setResponsabili] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showForm, setShowForm] = useState(false)
@@ -371,6 +386,17 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   // UNA sola volta (non e' salvata in chiaro da nessuna parte).
   const [confirmPassword, setConfirmPassword] = useState<string | null>(null)
   const [newPassword, setNewPassword] = useState<{ userId: string; email: string; password: string } | null>(null)
+  // Il modulo di modifica e il riquadro della password stanno in cima alla lista:
+  // chi clicca matita o chiave su una riga in basso non li vedrebbe comparire.
+  // Li portiamo in vista appena si aprono.
+  const formRef = useRef<HTMLDivElement>(null)
+  const passwordRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (showForm) formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [showForm, editingId])
+  useEffect(() => {
+    if (newPassword) passwordRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }, [newPassword])
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -412,7 +438,18 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         invited_at: u.invited_at || null,
         outlet_ids: accessByUser.get(u.id as string) ?? [],
       }))
-      mapped.sort((a, b) => (a.nome + a.cognome).localeCompare(b.nome + b.cognome))
+      // Il nome dell'account di cassa e' quello del responsabile del negozio:
+      // cambiando il responsabile in Organico cambia anche qui.
+      const resp: Record<string, string> = {}
+      const { data: negozi } = await supabase.from('outlets').select('id, referente_employee_id').not('referente_employee_id', 'is', null)
+      const idsResp = (negozi ?? []).map(n => n.referente_employee_id as string)
+      if (idsResp.length) {
+        const { data: emp } = await supabase.from('employees').select('id, nome, cognome, first_name, last_name').in('id', idsResp)
+        const nomeDi = new Map((emp ?? []).map(e => [e.id, titolo([e.nome ?? e.first_name, e.cognome ?? e.last_name].filter(Boolean).join(' '))]))
+        for (const n of negozi ?? []) { const nm = nomeDi.get(n.referente_employee_id as string); if (nm) resp[n.id] = nm }
+      }
+      setResponsabili(resp)
+      mapped.sort((a, b) => nomeVisibile(a, resp).localeCompare(nomeVisibile(b, resp)))
       setUsers(mapped)
     } catch (err) {
       showToast?.('Errore caricamento utenti: ' + (err as Error).message, 'error')
@@ -595,7 +632,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
       {/* Form nuovo/modifica */}
       {showForm && (
-        <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 space-y-4">
+        <div ref={formRef} className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 space-y-4">
           <h4 className="text-sm font-semibold text-slate-800">
             {editingId ? 'Modifica ruolo utente' : 'Nuovo utente'}
           </h4>
@@ -670,7 +707,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
       {/* Nuova password generata: mostrata una sola volta */}
       {newPassword && (
-        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
+        <div ref={passwordRef} className="bg-emerald-50 border border-emerald-200 rounded-xl p-4 space-y-2">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-2 text-sm text-emerald-900">
               <KeyRound size={16} className="mt-0.5 shrink-0" />
@@ -704,11 +741,17 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           <div key={u.id} className="py-3 flex items-center justify-between group">
             <div className="flex items-center gap-3 min-w-0">
               <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white text-sm font-bold shrink-0 ${u.is_active ? 'bg-blue-500' : 'bg-slate-300'}`}>
-                {u.nome[0]}{u.cognome[0]}
+                {iniziali(nomeVisibile(u, responsabili))}
               </div>
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm text-slate-900">{u.nome} {u.cognome}</span>
+                  <span className="font-medium text-sm text-slate-900">{nomeVisibile(u, responsabili)}</span>
+                  {responsabileDiCassa(u, responsabili) && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 font-semibold"
+                      title="Account di cassa del negozio: il nome è quello del responsabile, che si sceglie in Dipendenti → Organico">
+                      responsabile del negozio
+                    </span>
+                  )}
                   {!u.is_active && <span className="text-[10px] text-red-500 uppercase tracking-wide font-semibold">accesso bloccato</span>}
                   {u.is_active && !u.last_sign_in_at && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 font-semibold"

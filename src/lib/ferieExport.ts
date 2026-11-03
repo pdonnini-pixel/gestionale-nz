@@ -50,6 +50,9 @@ export type DipendenteModulo = {
    * per tutti, part time compresi.
    */
   giorniSettimana?: number | null;
+  /** Il responsabile del suo negozio oggi (outlets.referente_employee_id):
+   *  va accanto a «Firma del responsabile». Vuoto = riga senza nome. */
+  responsabile?: string | null;
 };
 
 export type ModuloFerie = {
@@ -78,6 +81,10 @@ const ETICHETTA_PER_CHI_COMPILA: Record<VoceFerie, string> = {
 };
 
 const oggi = () => new Date().toLocaleDateString('it-IT');
+
+/** «Firma del responsabile», con il nome di chi lo e' oggi nel negozio. */
+export const firmaResponsabile = (d: DipendenteModulo): string =>
+  d.responsabile ? `Firma del responsabile (${d.responsabile})` : 'Firma del responsabile';
 
 /**
  * L'orario del contratto, e basta. Quanto vale una giornata in ore e' il
@@ -347,7 +354,7 @@ export async function costruisciPdf(moduli: ModuloFerie | ModuloFerie[]) {
     doc.setFontSize(9);
     doc.setTextColor(...GRIGIO);
     doc.text('Firma del dipendente', 40, yFirme);
-    doc.text('Firma del responsabile', 310, yFirme);
+    doc.text(firmaResponsabile(m.dipendente), 310, yFirme, { maxWidth: 230 });
     doc.setDrawColor(203, 213, 225);
     doc.line(40, yFirme + 26, 270, yFirme + 26);
     doc.line(310, yFirme + 26, 540, yFirme + 26);
@@ -400,7 +407,7 @@ export async function esportaModuloExcel(moduli: ModuloFerie | ModuloFerie[]): P
     }
 
     if (m.note) aoa.push([], ['Note', m.note]);
-    aoa.push([], ['Firma del dipendente', '', 'Firma del responsabile']);
+    aoa.push([], ['Firma del dipendente', '', firmaResponsabile(m.dipendente)]);
 
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     ws['!cols'] = [{ wch: 26 }, { wch: 22 }, { wch: 16 }, { wch: 16 }, { wch: 22 }, { wch: 20 }];

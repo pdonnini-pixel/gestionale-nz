@@ -69,6 +69,8 @@ export default function SegnaCambiamento({
   const [cognome, setCognome] = useState('');
   const [contratto, setContratto] = useState('determinato');
   const [livello, setLivello] = useState('4 Livello');
+  // la persona nuova diventa responsabile del negozio (outlets.referente_employee_id)
+  const [responsabile, setResponsabile] = useState(false);
 
   const [effetti, setEffetti] = useState<{ turni: number; turniDaAnnullare: number; ferie: number } | null>(null);
   const [salvo, setSalvo] = useState(false);
@@ -82,7 +84,7 @@ export default function SegnaCambiamento({
     const t = nuovaPersona ? 'assunzione' : (tipoIniziale ?? 'assenza_lunga');
     setTipo(t);
     setMotivo(''); setAl(''); setOre(''); setNegozio(''); setNota(''); setFile(null);
-    setNome(''); setCognome(''); setContratto('determinato'); setLivello('4 Livello');
+    setNome(''); setCognome(''); setContratto('determinato'); setLivello('4 Livello'); setResponsabile(false);
     setDal(oggi);
     setEffetti(null);
   }, [open, employeeId, tipoIniziale, nuovaPersona, oggi]);
@@ -170,6 +172,19 @@ export default function SegnaCambiamento({
           p_livello: livello, p_nota: nota.trim(), p_autore_nome: autore ?? '',
         });
         if (error) throw error;
+        // Responsabile del negozio dal giorno dell'assunzione: lo storico chiude
+        // il periodo di chi lo era prima (337).
+        let avvisoResponsabile = '';
+        if (responsabile && nuovoId && dal <= oggi) {
+          const { error: errResp } = await supabase.rpc('organico_imposta_referente_dal', {
+            // Assunta in passato: e' responsabile da oggi (il periodo di chi lo era
+            // prima non si riscrive). Una data futura qui non arriva (casella spenta).
+            p_outlet_id: negozio, p_employee_id: String(nuovoId), p_dal: dal < oggi ? oggi : dal,
+          });
+          avvisoResponsabile = errResp
+            ? ` Responsabile non salvato (${errResp.message}): sceglilo dall'intestazione del negozio.`
+            : ` È responsabile di ${nomeNegozio(negozi.find((n) => n.id === negozio))}.`;
+        }
         if (file && nuovoId) {
           const doc = await caricaDocumento(String(nuovoId));
           if (doc) {
@@ -177,7 +192,7 @@ export default function SegnaCambiamento({
               .eq('employee_id', String(nuovoId)).eq('tipo', 'assunzione');
           }
         }
-        toast({ type: 'success', message: `${cognome.trim()} ${nome.trim()} aggiunta all'organico dal ${formattaDataBreve(dal)}.` });
+        toast({ type: 'success', message: `${cognome.trim()} ${nome.trim()} aggiunta all'organico dal ${formattaDataBreve(dal)}.${avvisoResponsabile}` });
       } else {
         const doc = await caricaDocumento(chi);
         const { error } = await supabase.from('employee_events').insert([{
@@ -280,6 +295,25 @@ export default function SegnaCambiamento({
               {contratto === 'determinato' && (
                 <div className="max-w-[220px]"><label className={labelCls} htmlFor="sc-al">Scadenza del contratto</label><input id="sc-al" type="date" className={inputCls} value={al} onChange={(e) => setAl(e.target.value)} /></div>
               )}
+              {(() => {
+                const n = negozi.find((x) => x.id === negozio);
+                const attuale = n?.referente_employee_id ? persone.find((p) => p.scheda.id === n.referente_employee_id) : undefined;
+                const futura = dal > oggi;
+                return (
+                  <label className={`flex items-start gap-2 text-sm ${futura ? 'text-slate-400' : 'text-slate-700 cursor-pointer'}`}>
+                    <input type="checkbox" className="mt-1" disabled={futura} checked={responsabile && !futura} onChange={(e) => setResponsabile(e.target.checked)} />
+                    <span>
+                      <strong>Responsabile del negozio</strong> da {dal < oggi ? 'oggi' : 'oggi, giorno dell\'assunzione'}
+                      {attuale ? <span className="text-slate-500"> (prende il posto di {nomePersona(attuale.scheda)})</span> : null}.
+                      <span className="block text-xs text-slate-500">
+                        {futura
+                          ? `Comincia il ${formattaDataBreve(dal)}: da quel giorno la scegli come responsabile dall'intestazione del negozio in Organico.`
+                          : 'Vale anche in Turni, nell\'account di cassa del negozio e nel modulo ferie. Si cambia quando serve dall\'intestazione del negozio in Organico.'}
+                      </span>
+                    </span>
+                  </label>
+                );
+              })()}
             </>
           ) : (
             <>

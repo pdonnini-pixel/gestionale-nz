@@ -17808,6 +17808,39 @@ export type Database = {
           },
         ]
       }
+      outlet_referenti_storico: {
+        Row: {
+          al: string | null
+          company_id: string
+          created_at: string
+          created_by: string | null
+          dal: string
+          employee_id: string | null
+          id: string
+          outlet_id: string
+        }
+        Insert: {
+          al?: string | null
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          dal: string
+          employee_id?: string | null
+          id?: string
+          outlet_id: string
+        }
+        Update: {
+          al?: string | null
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          dal?: string
+          employee_id?: string | null
+          id?: string
+          outlet_id?: string
+        }
+        Relationships: []
+      }
       outlet_shift_rules: {
         Row: {
           company_id: string
@@ -26930,6 +26963,10 @@ export type Database = {
       organico_puo_decidere_fabbisogno: { Args: never; Returns: boolean }
       organico_imposta_referente: {
         Args: { p_employee_id: string | null; p_outlet_id: string }
+        Returns: undefined
+      }
+      organico_imposta_referente_dal: {
+        Args: { p_dal: string; p_employee_id: string | null; p_outlet_id: string }
         Returns: undefined
       }
       organico_puo_scrivere: { Args: never; Returns: boolean }
