@@ -1447,7 +1447,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "3. Versamento in banca",
-        "body": "Qui registri il versamento fatto oggi, se c'è stato: importo, causale (es. ATM MPS) e la foto della ricevuta, che viene letta e proposta nel campo se era vuoto. Se oggi non hai versato, lascia 0: i contanti restano in cassa e li conti nel blocco 5."
+        "body": "Qui registri il versamento fatto oggi, se c'è stato: importo, causale (es. ATM MPS) e la foto della ricevuta, che viene letta e proposta nel campo se era vuoto. Se oggi non hai versato, lascia 0: i contanti restano in cassa e li conti nel blocco 5. Se i cedolini sono due o più (succede a fine mese: un versamento dei contanti fino al 30 e un altro di quelli fino al 2), tocca «Ho un altro cedolino di versamento»: quello già scritto diventa il cedolino 1 e si apre il cedolino 2, ognuno con il suo importo, la sua causale e la sua foto. Con «Aggiungi un altro cedolino» ne aggiungi altri, con il cestino ne togli uno. Il versamento della giornata è la somma dei cedolini, e ogni mattina il gestionale cerca in banca ogni cedolino da solo: la giornata risulta versata quando li ha trovati tutti."
       },
       {
         "heading": "4. Fondo cassa contato stasera",
@@ -1483,6 +1483,10 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Ho inserito una giornata sbagliata o di prova: come la cancello per rifarla?",
         "a": "Può farlo solo il super advisor: in fondo alla pagina, accanto ai pulsanti principali, c'è \"Cancella giornata\" (icona del cestino). Chiede conferma e un motivo facoltativo, poi toglie importi, spese, rimborsi, foto e il ricavo giornaliero che quella chiusura aveva creato: la giornata torna vuota e si può reinserire da zero. L'operazione resta tracciata tra le notifiche. Chi non è super advisor può solo chiedere la riapertura."
+      },
+      {
+        "q": "Ho due cedolini di versamento nella stessa giornata: come li scrivo?",
+        "a": "Nel blocco 3 scrivi il primo come al solito, poi tocca «Ho un altro cedolino di versamento»: compare il cedolino 2 con i suoi campi e il suo pulsante Foto. Non sommarli a mano in un solo importo: in banca arrivano come due movimenti separati e il riscontro li cerca uno per uno."
       },
       {
         "q": "Non riesco a confermare: dice che manca la foto dello scontrino di chiusura",
