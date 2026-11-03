@@ -164,7 +164,7 @@ idea:
   oggetto persistente dipende da essa, quindi un drop-e-ricrea atomico non
   perderebbe dati. La finestra in cui `http_*` non esiste dura millisecondi;
   il rischio è che un job `pg_cron` parta proprio in quell'istante
-  (`check_pixel_and_alert` gira ogni 30 minuti, i sync A-Cube a orari fissi)
+  (`check_pixel_and_alert` gira ogni 30 minuti, dal 03/11/2026 solo su Made: su NZ e Zago il job è tolto dalla migrazione 341, i sync A-Cube a orari fissi)
   e fallisca quel giro, ritentando al successivo.
 - Per **pg_net** il guadagno sarebbe comunque nullo: i suoi oggetti
   (`http_request_queue`, `_http_response`, entrambi a 0 righe) vivono già

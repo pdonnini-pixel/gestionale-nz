@@ -150,7 +150,7 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 
 ### Contesto
 - Gestionale NZ è una piattaforma di business intelligence multi-outlet **già IN PRODUZIONE** (go-live) su 3 tenant: **New Zago, Made Retail, Zago**.
-- Repo `pdonnini-pixel/gestionale-nz` (pubblico). Deploy automatico via **Netlify**.
+- Repo `pdonnini-pixel/gestionale-nz` (**privato dal 03/11/2026**, piano di sicurezza: i minuti di GitHub Actions ora si pagano, budget Actions di 200 $ al mese su tutto l'account). Deploy automatico via **Netlify**.
 - Sito live di verifica: **gestionale-nz.netlify.app** (le verifiche sui dati le fa Patrizio lì, dopo il deploy).
 
 ### Connettori collegati — opera direttamente sui 3 tenant
@@ -227,8 +227,10 @@ pagine effettivamente coinvolti.
 ### PIXEL (UI) — gira in CI, non a mano
 - La verifica pixel sul sito DEPLOYATO è **automatizzata**: il workflow
   `.github/workflows/pixel-check.yml` esegue un test Playwright
-  (`tests/e2e/pixel-check.spec.ts`) sui **3 site** a ogni push su `main`, ogni
-  giorno e su richiesta. Prima di partire **aspetta che il site serva proprio
+  (`tests/e2e/pixel-check.spec.ts`) sui **3 site** a ogni push su `main` e su
+  richiesta (il giro giornaliero è stato tolto il 03/11/2026: repository privato,
+  minuti a pagamento). Se diventa rosso, GitHub manda una mail a Patrizio:
+  l'allarme in campanella (migrazione 130) è spento dalla 341. Prima di partire **aspetta che il site serva proprio
   quel commit** (`<meta name="app-commit">` scritto dal build): un 200 lo dà
   anche la versione precedente, e un verde sul sito vecchio non vale niente.
   Dettagli in `DEPLOY_VERSIONI_NOTES.md`. Fa login con l'utente di test e controlla: login ok,
