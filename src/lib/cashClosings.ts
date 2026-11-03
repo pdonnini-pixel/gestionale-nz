@@ -131,14 +131,14 @@ export function bankStatusMark(status: string | null | undefined): { mark: strin
 }
 
 /**
- * Più cedolini di versamento nella stessa chiusura (migration 337). A fine mese
+ * Più cedolini di versamento nella stessa chiusura (migration 338). A fine mese
  * chi chiude la cassa può aver fatto due versamenti (per esempio i contanti
  * fino al 30 e quelli fino al 2): ogni cedolino è una riga con importo, causale
  * e foto, e in banca si cerca da solo. Il versamento della giornata è la somma.
  */
 export interface DepositDraft { id: string; amount: string; note: string }
 
-/** Totale e causale della giornata ricavati dai cedolini (come fa il trigger 337). */
+/** Totale e causale della giornata ricavati dai cedolini (come fa il trigger 338). */
 export function depositTotals(list: DepositDraft[]): { total: number; note: string } {
   const total = Math.round(list.reduce((s, d) => s + (parseAmount(d.amount) ?? 0), 0) * 100) / 100
   const note = list.map((d) => d.note.trim()).filter(Boolean).join(' + ')

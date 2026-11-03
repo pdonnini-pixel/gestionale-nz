@@ -403,7 +403,7 @@ describe('cancelledCashNotCollected', () => {
   })
 })
 
-describe('cedolini di versamento (337)', () => {
+describe('cedolini di versamento (338)', () => {
   it('somma gli importi e unisce le causali', () => {
     const r = depositTotals([
       { id: 'a', amount: '1.200,00', note: 'Versamento fino al 30/10' },

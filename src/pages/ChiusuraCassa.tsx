@@ -112,8 +112,12 @@ export default function ChiusuraCassa() {
   const [closing, setClosing] = useState<ClosingRow | null>(null)
   const [lineIds, setLineIds] = useState<Record<string, string>>({})
   const [expenses, setExpenses] = useState<ExpenseDraft[]>([])
-  // Cedolini di versamento (337): vuoto = un solo versamento nel campo unico, come prima.
+  // Cedolini di versamento (338): vuoto = un solo versamento nel campo unico, come prima.
   const [deposits, setDeposits] = useState<DepositDraft[]>([])
+  // Copia sempre aggiornata: la lettura della foto e i salvataggi arrivano dopo
+  // un await e non devono ripartire da una lista vecchia.
+  const depositsRef = useRef<DepositDraft[]>([])
+  const setDepositsNow = (list: DepositDraft[]) => { depositsRef.current = list; setDeposits(list) }
   const [depositRows, setDepositRows] = useState<DepositRow[]>([])
   // La tabella dei cedolini c'è su questo tenant? Se manca resta il campo unico.
   const [depositsAvailable, setDepositsAvailable] = useState(false)
@@ -177,7 +181,11 @@ export default function ChiusuraCassa() {
     setAttachments((aRes.data ?? []) as AttachmentRow[])
     const dRows = dRes.error ? [] : ((dRes.data ?? []) as DepositRow[])
     setDepositRows(dRows)
-    setDeposits(dRows.map((d) => ({ id: d.id, amount: Number(d.amount) ? formatAmount(Number(d.amount)) : '', note: d.note ?? '' })))
+    // Tabella assente (tenant senza la 338): campo unico come prima, nessun avviso.
+    if (dRes.error && !['PGRST205', '42P01'].includes(dRes.error.code ?? '')) {
+      toast({ type: 'warning', message: 'Cedolini di versamento non letti: ricarica la pagina prima di salvare.' })
+    }
+    setDepositsNow(dRows.map((d) => ({ id: d.id, amount: Number(d.amount) ? formatAmount(Number(d.amount)) : '', note: d.note ?? '' })))
     return amounts
   }, [])
 
@@ -232,7 +240,7 @@ export default function ChiusuraCassa() {
       })
     } else {
       setForm(emptyForm(safeGetLs(LS_CLOSED_BY)))
-      setLineIds({}); setExpenses([]); setAttachments([]); setDeposits([]); setDepositRows([])
+      setLineIds({}); setExpenses([]); setAttachments([]); setDepositsNow([]); setDepositRows([])
     }
     setDirty(false)
     setLoading(false)
@@ -322,13 +330,14 @@ export default function ChiusuraCassa() {
   const updateAmount = (channelId: string, v: string) => { setForm((f) => ({ ...f, amounts: { ...f.amounts, [channelId]: v } })); setDirty(true) }
   const updateExpense = (id: string, patch: Partial<ExpenseDraft>) => { setExpenses((list) => list.map((e) => (e.id === id ? { ...e, ...patch } : e))); setDirty(true) }
   /** Con più cedolini il versamento della giornata (campo unico) è sempre la loro somma. */
-  const applyDeposits = (list: DepositDraft[]) => {
-    setDeposits(list)
-    const { total, note } = depositTotals(list)
+  const applyDeposits = (fn: (prev: DepositDraft[]) => DepositDraft[]) => {
+    const next = fn(depositsRef.current)
+    setDepositsNow(next)
+    const { total, note } = depositTotals(next)
     setForm((f) => ({ ...f, cashDeposit: total ? formatAmount(total) : '', cashDepositNote: note }))
     setDirty(true)
   }
-  const updateDeposit = (id: string, patch: Partial<DepositDraft>) => applyDeposits(deposits.map((d) => (d.id === id ? { ...d, ...patch } : d)))
+  const updateDeposit = (id: string, patch: Partial<DepositDraft>) => applyDeposits((prev) => prev.map((d) => (d.id === id ? { ...d, ...patch } : d)))
 
   // Foto per riga
   const photosFor = (t: AttachmentTarget, id?: string) => attachments.filter((a) =>
@@ -419,7 +428,7 @@ export default function ChiusuraCassa() {
           .eq('id', e.id)
         if (eErr) throw new Error(eErr.message)
       }
-      for (const [i, d] of deposits.entries()) {
+      for (const [i, d] of depositsRef.current.entries()) {
         const { error: dErr } = await supabase.from('outlet_daily_closing_deposits')
           .update({ amount: parseAmount(d.amount) ?? 0, note: d.note.trim() || null, sort_order: i + 1, updated_at: new Date().toISOString() })
           .eq('id', d.id)
@@ -475,38 +484,44 @@ export default function ChiusuraCassa() {
    */
   const addDeposit = async () => {
     if (!companyId || !editable) return
+    const first = depositsRef.current.length === 0
+    const startAmount = form.cashDeposit
+    const startNote = form.cashDepositNote
     try {
       const c = await ensureClosing()
       const base = { closing_id: c.id, company_id: companyId, outlet_id: outletId }
-      const rows = deposits.length === 0
+      const rows = first
         ? [{ ...base, amount: parseAmount(form.cashDeposit) ?? 0, note: form.cashDepositNote.trim() || null, sort_order: 1 }, { ...base, amount: 0, note: null, sort_order: 2 }]
-        : [{ ...base, amount: 0, note: null, sort_order: deposits.length + 1 }]
+        : [{ ...base, amount: 0, note: null, sort_order: depositsRef.current.length + 1 }]
       const { data, error } = await supabase.from('outlet_daily_closing_deposits').insert(rows).select('*')
       if (error || !data) throw new Error(errMsg(error))
       const added = (data as DepositRow[]).sort((a, b) => a.sort_order - b.sort_order)
       setDepositRows((list) => [...list, ...added])
       const drafts = added.map((d) => ({ id: d.id, amount: Number(d.amount) ? formatAmount(Number(d.amount)) : '', note: d.note ?? '' }))
       // Il primo cedolino tiene quanto scritto adesso nel campo, anche se non ancora salvato.
-      if (deposits.length === 0 && drafts[0]) { drafts[0].amount = form.cashDeposit; drafts[0].note = form.cashDepositNote }
-      applyDeposits([...deposits, ...drafts])
+      if (first && drafts[0]) { drafts[0].amount = startAmount; drafts[0].note = startNote }
+      applyDeposits((prev) => [...prev, ...drafts])
     } catch (e) {
       toast({ type: 'error', message: 'Cedolino non aggiunto: ' + errMsg(e) })
     }
   }
 
   const removeDeposit = async (id: string) => {
-    if (deposits.length <= 1) return
-    const isFirst = deposits[0]?.id === id
-    const { error } = await supabase.from('outlet_daily_closing_deposits').delete().eq('id', id)
-    if (error) { toast({ type: 'error', message: error.message }); return }
+    if (depositsRef.current.length <= 1) return
+    const isFirst = depositsRef.current[0]?.id === id
+    // Prima le foto, poi il cedolino: se una foto non si toglie, il cedolino resta
+    // (altrimenti la sua ricevuta finirebbe sotto il cedolino 1).
     const orphan = attachments.filter((a) => a.target === 'versamento' && (a.deposit_id === id || (isFirst && !a.deposit_id)))
     for (const a of orphan) {
-      await supabase.from('outlet_daily_closing_attachments').delete().eq('id', a.id)
+      const { error: aErr } = await supabase.from('outlet_daily_closing_attachments').delete().eq('id', a.id)
+      if (aErr) { toast({ type: 'error', message: 'Foto del cedolino non tolta: ' + aErr.message }); return }
       await supabase.storage.from(BUCKET).remove([a.storage_path])
+      setAttachments((list) => list.filter((x) => x.id !== a.id))
     }
-    setAttachments((list) => list.filter((a) => !orphan.some((o) => o.id === a.id)))
+    const { error } = await supabase.from('outlet_daily_closing_deposits').delete().eq('id', id)
+    if (error) { toast({ type: 'error', message: error.message }); return }
     setDepositRows((list) => list.filter((d) => d.id !== id))
-    applyDeposits(deposits.filter((d) => d.id !== id))
+    applyDeposits((prev) => prev.filter((d) => d.id !== id))
   }
 
   /** Righe con importo ma senza foto: solo un avviso, la conferma resta possibile. */
@@ -515,8 +530,8 @@ export default function ChiusuraCassa() {
     for (const e of expenses) {
       if (e.kind === 'spesa' && photosFor('spesa', e.id).length === 0) out.push(`scontrino della spesa "${e.description.trim() || 'senza descrizione'}"`)
     }
-    if (deposits.length > 0) {
-      deposits.forEach((d, i) => {
+    if (depositsRef.current.length > 0) {
+      depositsRef.current.forEach((d, i) => {
         if ((parseAmount(d.amount) ?? 0) > 0 && photosFor('versamento', d.id).length === 0) out.push(`ricevuta del versamento n. ${i + 1}`)
       })
     } else if ((parseAmount(form.cashDeposit) ?? 0) > 0 && photosFor('versamento').length === 0) out.push('ricevuta del versamento')
@@ -744,7 +759,10 @@ export default function ChiusuraCassa() {
   }
 
   /** Precompila SOLO i campi vuoti della riga con i valori letti dalla foto. */
-  const prefillFromPhoto = (t: PhotoTarget, ex: ExtractedData) => {
+  const prefillFromPhoto = (target: PhotoTarget, ex: ExtractedData) => {
+    // Foto scattata sul campo unico ma letta dopo l'aggiunta dei cedolini: va al cedolino 1.
+    const t = target.target === 'versamento' && !target.depositId && depositsRef.current.length > 0
+      ? { ...target, depositId: depositsRef.current[0].id } : target
     const amount = extractedAmount(ex)
     setForm((f) => {
       const next = { ...f, amounts: { ...f.amounts } }
@@ -769,7 +787,7 @@ export default function ChiusuraCassa() {
       return changed ? next : f
     })
     if (t.target === 'versamento' && t.depositId) {
-      const d = deposits.find((x) => x.id === t.depositId)
+      const d = depositsRef.current.find((x) => x.id === t.depositId)
       if (d) {
         const patch: Partial<DepositDraft> = {}
         if (amount != null && isBlank(d.amount)) patch.amount = formatAmount(amount)

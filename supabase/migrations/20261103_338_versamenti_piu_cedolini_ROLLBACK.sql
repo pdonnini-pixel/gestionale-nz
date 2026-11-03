@@ -1,87 +1,13 @@
--- 337 — Piu' cedolini di versamento nella stessa chiusura cassa
---
--- Richiesta di Patrizio (03/11/2026): a fine mese chi chiude la cassa puo'
--- avere due cedolini di versamento invece di uno (per esempio un versamento
--- dei contanti fino al 30/10 e un altro, il 3/11, dei contanti fino al 2/11).
--- Finora la chiusura aveva un solo importo di versamento e il riscontro
--- cercava in banca un solo movimento con quell'importo: con due cedolini la
--- somma non corrisponde a nessun movimento e il versamento restava «mancante».
---
--- Cosa fa (solo aggiunte, nessun dato esistente cambia):
---   1. tabella outlet_daily_closing_deposits: un cedolino per riga, con il
---      suo importo, la sua causale e il suo esito in banca. RLS e permessi
---      uguali alle spese della chiusura (outlet_daily_closing_expenses).
---   2. outlet_daily_closing_attachments.deposit_id: la foto del cedolino si
---      aggancia al suo versamento (vuoto = primo versamento, come prima).
---   3. fn_cash_closing_compute: se ci sono righe, cash_deposit e
---      cash_deposit_note della chiusura sono la loro somma. Prima Nota,
---      quadratura, report serale ed export continuano a leggere cash_deposit.
---   4. match_cash_closings_with_bank, sezione D: ogni cedolino si cerca in
---      banca da solo (D1) e sulla chiusura resta il riepilogo; le chiusure
---      senza righe seguono la strada di sempre (D2, invariata).
---
--- Le chiusure con un solo versamento non creano righe: per loro non cambia
--- niente. Base: funzioni vive identiche alla 202 e alla 238 sui 3 tenant
--- (verificato il 03/11/2026).
-
+-- ROLLBACK 338 — Piu' cedolini di versamento
+-- Rimette fn_cash_closing_compute (202) e match_cash_closings_with_bank (238)
+-- e toglie il trigger sui cedolini. La tabella outlet_daily_closing_deposits
+-- e la colonna deposit_id delle foto RESTANO: contengono dati scritti dalle
+-- cassiere (REGOLA NO DATA LOSS). Attenzione: dopo il rollback le chiusure
+-- con piu' cedolini tengono in cash_deposit la somma gia' scritta, ma il
+-- riscontro torna a cercare un solo movimento.
 BEGIN;
-
--- 1. Tabella dei cedolini di versamento
-CREATE TABLE IF NOT EXISTS public.outlet_daily_closing_deposits (
-  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  closing_id          uuid NOT NULL REFERENCES public.outlet_daily_closings(id) ON DELETE CASCADE,
-  company_id          uuid NOT NULL REFERENCES public.companies(id),
-  outlet_id           uuid NOT NULL REFERENCES public.outlets(id),
-  amount              numeric(14,2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
-  note                text,
-  sort_order          integer NOT NULL DEFAULT 0,
-  bank_status         text NOT NULL DEFAULT 'in_attesa'
-                      CHECK (bank_status IN ('in_attesa', 'accreditato', 'mancante')),
-  bank_amount         numeric(14,2),
-  bank_transaction_id uuid,
-  bank_matched_at     timestamptz,
-  created_at          timestamptz NOT NULL DEFAULT now(),
-  updated_at          timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS idx_odc_deposits_closing ON public.outlet_daily_closing_deposits (closing_id, sort_order);
-CREATE INDEX IF NOT EXISTS idx_odc_deposits_pending ON public.outlet_daily_closing_deposits (bank_status) WHERE amount > 0 AND bank_status <> 'accreditato';
-
-ALTER TABLE public.outlet_daily_closing_deposits ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY odcd_select ON public.outlet_daily_closing_deposits FOR SELECT
-  USING (company_id = (SELECT get_my_company_id()) AND has_outlet_access(outlet_id));
-CREATE POLICY odcd_write ON public.outlet_daily_closing_deposits FOR ALL
-  USING (company_id = (SELECT get_my_company_id()) AND can_write_cash_closing(outlet_id)
-         AND EXISTS (SELECT 1 FROM public.outlet_daily_closings c WHERE c.id = outlet_daily_closing_deposits.closing_id AND c.status = 'bozza'))
-  WITH CHECK (company_id = (SELECT get_my_company_id()) AND can_write_cash_closing(outlet_id)
-         AND EXISTS (SELECT 1 FROM public.outlet_daily_closings c WHERE c.id = outlet_daily_closing_deposits.closing_id AND c.status = 'bozza'));
-CREATE POLICY dipendente_block ON public.outlet_daily_closing_deposits AS RESTRICTIVE FOR ALL
-  USING (COALESCE((SELECT get_my_role())::text, '') <> 'dipendente')
-  WITH CHECK (COALESCE((SELECT get_my_role())::text, '') <> 'dipendente');
-CREATE POLICY viewer_no_insert ON public.outlet_daily_closing_deposits AS RESTRICTIVE FOR INSERT
-  WITH CHECK (COALESCE((SELECT get_my_role())::text, '') <> 'viewer');
-CREATE POLICY viewer_no_update ON public.outlet_daily_closing_deposits AS RESTRICTIVE FOR UPDATE
-  USING (COALESCE((SELECT get_my_role())::text, '') <> 'viewer')
-  WITH CHECK (COALESCE((SELECT get_my_role())::text, '') <> 'viewer');
-CREATE POLICY viewer_no_delete ON public.outlet_daily_closing_deposits AS RESTRICTIVE FOR DELETE
-  USING (COALESCE((SELECT get_my_role())::text, '') <> 'viewer');
-
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.outlet_daily_closing_deposits TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.outlet_daily_closing_deposits TO service_role;
-
--- Un cambio di importo, causale o ordine ricalcola la chiusura (come le spese).
--- Gli aggiornamenti dell'esito in banca no: non devono toccare la chiusura.
 DROP TRIGGER IF EXISTS trg_cash_closing_deposits_touch ON public.outlet_daily_closing_deposits;
-CREATE TRIGGER trg_cash_closing_deposits_touch
-  AFTER INSERT OR DELETE OR UPDATE OF amount, note, sort_order ON public.outlet_daily_closing_deposits
-  FOR EACH ROW EXECUTE FUNCTION public.fn_cash_closing_lines_touch();
 
--- 2. Foto del cedolino agganciata al suo versamento
-ALTER TABLE public.outlet_daily_closing_attachments
-  ADD COLUMN IF NOT EXISTS deposit_id uuid REFERENCES public.outlet_daily_closing_deposits(id) ON DELETE SET NULL;
-CREATE INDEX IF NOT EXISTS idx_odca_deposit ON public.outlet_daily_closing_attachments (deposit_id) WHERE deposit_id IS NOT NULL;
-
--- 3. Versamento della chiusura = somma dei cedolini
 CREATE OR REPLACE FUNCTION public.fn_cash_closing_compute()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -97,8 +23,6 @@ DECLARE
   v_expenses_note  text;
   v_prev_float     numeric(14,2);
   v_prev_pending   numeric(14,2);
-  v_dep_total      numeric(14,2);
-  v_dep_note       text;
 BEGIN
   IF NEW.is_closed_day THEN
     NEW.total_receipts := 0;
@@ -122,19 +46,6 @@ BEGIN
   INTO v_expenses, v_refunds, v_expenses_note
   FROM public.outlet_daily_closing_expenses e
   WHERE e.closing_id = NEW.id;
-
-  -- Versamenti con piu' cedolini (337): se la giornata ha righe in
-  -- outlet_daily_closing_deposits, versamento e causale sono la loro somma.
-  -- Senza righe vale quanto scritto nel campo unico, come prima.
-  IF EXISTS (SELECT 1 FROM public.outlet_daily_closing_deposits d WHERE d.closing_id = NEW.id) THEN
-    SELECT COALESCE(SUM(d.amount), 0),
-           NULLIF(string_agg(NULLIF(btrim(d.note), ''), ' + ' ORDER BY d.sort_order, d.id), '')
-      INTO v_dep_total, v_dep_note
-      FROM public.outlet_daily_closing_deposits d
-     WHERE d.closing_id = NEW.id;
-    NEW.cash_deposit      := v_dep_total;
-    NEW.cash_deposit_note := v_dep_note;
-  END IF;
 
   NEW.cash_expenses       := v_expenses;
   NEW.customer_refunds    := v_refunds;
@@ -176,7 +87,6 @@ END;
 $$;
 
 
--- 4. Riscontro in banca per cedolino
 CREATE OR REPLACE FUNCTION public.match_cash_closings_with_bank(
   p_company_id uuid DEFAULT NULL,
   p_days       integer DEFAULT 60,
@@ -449,79 +359,7 @@ BEGIN
      AND (public.cash_bank_norm_code(ch.terminal_code) IS NULL
           OR c.closing_date <= current_date - CASE WHEN ch.kind = 'pos_amex' THEN 10 ELSE 5 END);
 
-  -- D1. Versamenti con piu' cedolini (337): ogni cedolino si cerca in banca
-  --     da solo, con le stesse regole del versamento unico (stesso importo,
-  --     dal giorno della chiusura a 6 giorni dopo, parola della causale o
-  --     conto del canale Contanti). Sulla chiusura resta il riepilogo.
-  FOR r IN
-    SELECT d.id AS deposit_id, c.id AS closing_id, c.company_id, c.closing_date, d.amount,
-           ch.terminal_code AS deposit_kw, ch.bank_account_id
-      FROM public.outlet_daily_closing_deposits d
-      JOIN public.outlet_daily_closings c ON c.id = d.closing_id
-      LEFT JOIN public.outlet_payment_channels ch ON ch.outlet_id = c.outlet_id AND ch.kind = 'contanti' AND ch.is_active
-     WHERE d.amount > 0
-       AND d.bank_status IN ('in_attesa', 'mancante')
-       AND c.status IN ('confermata', 'verificata')
-       AND c.closing_date >= v_from
-       AND (p_company_id IS NULL OR c.company_id = p_company_id)
-     ORDER BY c.closing_date, d.sort_order, d.id
-  LOOP
-    v_kw := NULLIF(btrim(COALESCE(r.deposit_kw, '')), '');
-    SELECT bt.id, bt.amount, bt.transaction_date INTO v_tx
-      FROM public.bank_transactions bt
-     WHERE bt.company_id = r.company_id
-       AND bt.amount = r.amount
-       AND bt.transaction_date BETWEEN r.closing_date AND r.closing_date + 6
-       AND COALESCE(bt.status, 'booked') IN ('posted', 'booked')
-       AND public.cash_bank_is_deposit(bt.description)
-       AND NOT EXISTS (SELECT 1 FROM public.closing_bank_matches m WHERE m.bank_transaction_id = bt.id)
-       AND (v_kw IS NULL OR bt.description ~* ('(' || v_kw || ')'))
-       AND (v_kw IS NOT NULL OR r.bank_account_id IS NULL OR bt.bank_account_id = r.bank_account_id)
-     ORDER BY bt.transaction_date, bt.id
-     LIMIT 1;
-    IF FOUND THEN
-      INSERT INTO public.closing_bank_matches (company_id, closing_id, line_id, bank_transaction_id, amount, match_type, reference_date, note)
-      VALUES (r.company_id, r.closing_id, NULL, v_tx.id, v_tx.amount, 'versamento', r.closing_date, 'uno dei cedolini di versamento della giornata')
-      ON CONFLICT (bank_transaction_id, closing_id) DO NOTHING;
-      UPDATE public.outlet_daily_closing_deposits
-         SET bank_status = 'accreditato', bank_amount = v_tx.amount, bank_transaction_id = v_tx.id, bank_matched_at = now()
-       WHERE id = r.deposit_id;
-      UPDATE public.bank_transactions
-         SET is_reconciled = true, reconciled_at = COALESCE(reconciled_at, now()), category = COALESCE(category, 'versamenti'),
-             note = COALESCE(note || ' | ', '') || 'versamento della chiusura cassa del ' || to_char(r.closing_date, 'DD/MM/YYYY')
-       WHERE id = v_tx.id;
-      v_dep := v_dep + 1;
-    ELSIF r.closing_date <= current_date - 7 THEN
-      UPDATE public.outlet_daily_closing_deposits SET bank_status = 'mancante' WHERE id = r.deposit_id AND bank_status = 'in_attesa';
-    END IF;
-  END LOOP;
-
-  -- Riepilogo sulla chiusura: accreditato solo se tutti i cedolini sono in
-  -- banca, mancante se almeno uno manca, altrimenti in attesa. L'importo in
-  -- banca e' la somma dei cedolini ritrovati.
-  UPDATE public.outlet_daily_closings c
-     SET deposit_bank_status = a.st, deposit_bank_amount = a.found, deposit_bank_transaction_id = a.first_tx
-    FROM (
-      SELECT d.closing_id,
-             CASE WHEN bool_and(d.bank_status = 'accreditato') THEN 'accreditato'
-                  WHEN bool_or(d.bank_status = 'mancante') THEN 'mancante'
-                  ELSE 'in_attesa' END AS st,
-             round(sum(d.bank_amount) FILTER (WHERE d.bank_status = 'accreditato'), 2) AS found,
-             (array_agg(d.bank_transaction_id ORDER BY d.sort_order, d.id) FILTER (WHERE d.bank_transaction_id IS NOT NULL))[1] AS first_tx
-        FROM public.outlet_daily_closing_deposits d
-       WHERE d.amount > 0
-       GROUP BY d.closing_id
-    ) a
-   WHERE c.id = a.closing_id
-     AND c.status IN ('confermata', 'verificata')
-     AND c.closing_date >= v_from
-     AND (p_company_id IS NULL OR c.company_id = p_company_id)
-     AND (c.deposit_bank_status IS DISTINCT FROM a.st
-          OR c.deposit_bank_amount IS DISTINCT FROM a.found
-          OR c.deposit_bank_transaction_id IS DISTINCT FROM a.first_tx);
-
-  -- D2. Versamenti con un solo cedolino (come prima): solo le chiusure senza
-  --     righe in outlet_daily_closing_deposits.
+  -- D. Versamenti di contante (invariato)
   FOR r IN
     SELECT c.id AS closing_id, c.company_id, c.outlet_id, c.closing_date, c.cash_deposit,
            ch.terminal_code AS deposit_kw, ch.bank_account_id
@@ -532,7 +370,6 @@ BEGIN
        AND c.status IN ('confermata', 'verificata')
        AND c.closing_date >= v_from
        AND (p_company_id IS NULL OR c.company_id = p_company_id)
-       AND NOT EXISTS (SELECT 1 FROM public.outlet_daily_closing_deposits d WHERE d.closing_id = c.id AND d.amount > 0)
      ORDER BY c.closing_date
   LOOP
     v_kw := NULLIF(btrim(COALESCE(r.deposit_kw, '')), '');
@@ -591,10 +428,4 @@ $$;
 
 REVOKE ALL ON FUNCTION public.match_cash_closings_with_bank(uuid, integer, numeric) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.match_cash_closings_with_bank(uuid, integer, numeric) TO service_role;
-
 COMMIT;
-
--- Verifica:
---   SELECT has_table_privilege('authenticated','public.outlet_daily_closing_deposits','select') AS auth,
---          has_table_privilege('service_role','public.outlet_daily_closing_deposits','insert') AS srv;
---   SELECT count(*) FROM public.outlet_daily_closing_deposits;   -- 0 subito dopo
