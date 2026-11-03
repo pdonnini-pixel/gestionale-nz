@@ -24,6 +24,11 @@
 //                    Risponde sempre ok, anche se l'email non esiste, per non
 //                    rivelare chi ha un accesso; al massimo una mail al minuto
 //                    per utente.
+//   - "resend_access" → rimanda all'utente l'email per scegliere la password
+//                    (link di recupero: vale anche per chi non e' mai entrato e
+//                    ha l'invito scaduto). Al massimo una al minuto.
+//   - "set_cc"     → indirizzo in copia a tutte le email di questo account
+//                    (user_profiles.email_cc, migration 338; vuoto = nessuno).
 //   - "set_password" → genera una nuova password (12 caratteri, senza simboli
 //                    ambigui) e la imposta sul login. La password viene
 //                    restituita UNA sola volta al chiamante, che la comunica
@@ -98,7 +103,8 @@ Deno.serve(async (req: Request) => {
         return jsonOk({ ok: true });
       }
       const companyName = await getCompanyName(admin, p.company_id ?? null);
-      const sent = await sendAuthEmail("recovery", u.email, emailLink(redirectTo, link.properties, "recovery"), companyName, redirectTo);
+      const cc = await getCc(admin, p.id);
+      const sent = await sendAuthEmail("recovery", u.email, emailLink(redirectTo, link.properties, "recovery"), companyName, redirectTo, "", cc);
       if (!sent) console.error("[admin-manage-user] recover: invio Resend non riuscito");
       return jsonOk({ ok: true });
     }
@@ -171,6 +177,11 @@ Deno.serve(async (req: Request) => {
         .from("user_profiles")
         .select("id, first_name, last_name, role, email")
         .eq("company_id", myCompany);
+      // L'indirizzo in copia (338) si legge a parte: se la colonna manca
+      // (tenant senza migration) l'elenco funziona lo stesso.
+      const ccDi = new Map<string, string>();
+      const { data: ccRows, error: ccErr } = await admin.from("user_profiles").select("id, email_cc").eq("company_id", myCompany);
+      if (!ccErr) for (const r of (ccRows ?? []) as Array<{ id: string; email_cc: string | null }>) if (r.email_cc) ccDi.set(r.id, r.email_cc);
       const list = [];
       for (const p of (profs ?? []) as Array<Record<string, unknown>>) {
         const { data: au } = await admin.auth.admin.getUserById(p.id as string);
@@ -182,6 +193,7 @@ Deno.serve(async (req: Request) => {
           active,
           last_sign_in_at: au?.user?.last_sign_in_at ?? null,
           invited_at: (au?.user as { invited_at?: string } | null)?.invited_at ?? null,
+          email_cc: ccDi.get(p.id as string) ?? null,
         });
       }
       return jsonOk({ users: list });
@@ -199,6 +211,8 @@ Deno.serve(async (req: Request) => {
       const redirectTo = String(body.redirectTo ?? "");
       const userMeta = { first_name: body.first_name ?? "", last_name: body.last_name ?? "" };
       const withPassword = body.delivery === "password";
+      const ccRaw = String(body.email_cc ?? "").trim().toLowerCase();
+      if (ccRaw && !validEmail(ccRaw)) return jsonError(400, "L'indirizzo in copia non è valido.");
 
       let newUserId: string;
       let password: string | null = null;
@@ -244,13 +258,17 @@ Deno.serve(async (req: Request) => {
 
       const outletErr = await assignOutlet(newUserId, role, body.outlet_id);
       if (outletErr) return jsonError(400, outletErr);
+      if (ccRaw) {
+        const { error: ccErr } = await admin.from("user_profiles").update({ email_cc: ccRaw }).eq("id", newUserId);
+        if (ccErr) console.error("[admin-manage-user] invite email_cc:", ccErr.message);
+      }
 
       // Mail di invito nostra: se Resend non risponde l'utente esiste gia',
       // lo si dice al chiamante (puo' generare la password con la chiave).
       let mail: "sent" | "failed" | undefined;
       if (inviteLink) {
         const companyName = await getCompanyName(admin, myCompany);
-        mail = (await sendAuthEmail("invite", email, inviteLink, companyName, redirectTo, String(body.first_name ?? ""))) ? "sent" : "failed";
+        mail = (await sendAuthEmail("invite", email, inviteLink, companyName, redirectTo, String(body.first_name ?? ""), ccRaw ? [ccRaw] : [])) ? "sent" : "failed";
       }
 
       return jsonOk({ ok: true, user_id: newUserId, invited: email, ...(password ? { password } : {}), ...(mail ? { mail } : {}) });
@@ -280,6 +298,47 @@ Deno.serve(async (req: Request) => {
       const active = body.active !== false;
       await admin.auth.admin.updateUserById(targetId, { ban_duration: active ? "none" : BAN_FOREVER });
       return jsonOk({ ok: true, active });
+    }
+
+    // ───────── RESEND_ACCESS (rimanda l'email per scegliere la password) ─────────
+    // Per chi non ha mai usato l'invito (scaduto o perso) o non ricorda la
+    // password. Il link e' di recupero: funziona sia per chi non e' mai entrato
+    // sia per chi ha gia' una password. Copia all'indirizzo dell'account.
+    if (action === "resend_access") {
+      const redirectTo = safeRedirect(body.redirectTo);
+      const { data: au } = await admin.auth.admin.getUserById(targetId);
+      const u = au?.user as { email?: string; last_sign_in_at?: string; recovery_sent_at?: string; banned_until?: string; user_metadata?: { first_name?: string } } | undefined;
+      if (!u?.email) return jsonError(404, "Utente senza email.");
+      if (u.banned_until && new Date(u.banned_until).getTime() > Date.now()) return jsonError(400, "L'accesso è bloccato: sbloccalo prima di rimandare l'email.");
+      if (u.recovery_sent_at && Date.now() - new Date(u.recovery_sent_at).getTime() < 60_000) {
+        return jsonError(429, "Email appena mandata: riprova fra un minuto.");
+      }
+      if (!resendConfigured()) {
+        const anon = createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!);
+        const { error: rErr } = await anon.auth.resetPasswordForEmail(u.email, redirectTo ? { redirectTo } : undefined);
+        if (rErr) return jsonError(400, `Invio non riuscito: ${rErr.message}`);
+        return jsonOk({ ok: true, mail: "sent", to: u.email, cc: [], via: "supabase" });
+      }
+      const { data: link, error: linkErr } = await admin.auth.admin.generateLink({
+        type: "recovery", email: u.email, ...(redirectTo ? { options: { redirectTo } } : {}),
+      });
+      if (linkErr || !link?.properties?.action_link) return jsonError(400, `Link non generato: ${linkErr?.message ?? "sconosciuto"}`);
+      const cc = await getCc(admin, targetId);
+      const companyName = await getCompanyName(admin, myCompany);
+      // Chi non e' mai entrato riceve il testo dell'invito, gli altri quello del recupero.
+      const kind = u.last_sign_in_at ? "recovery" : "invite";
+      const sent = await sendAuthEmail(kind, u.email, emailLink(redirectTo, link.properties, "recovery"), companyName, redirectTo, String(u.user_metadata?.first_name ?? ""), cc);
+      if (!sent) return jsonError(502, "Invio dell'email non riuscito: genera la password con la chiave e comunicala tu.");
+      return jsonOk({ ok: true, mail: "sent", to: u.email, cc });
+    }
+
+    // ───────── SET_CC (indirizzo in copia alle email dell'account) ─────────
+    if (action === "set_cc") {
+      const cc = String(body.email_cc ?? "").trim().toLowerCase();
+      if (cc && !validEmail(cc)) return jsonError(400, "L'indirizzo in copia non è valido.");
+      const { error: ccErr } = await admin.from("user_profiles").update({ email_cc: cc || null }).eq("id", targetId);
+      if (ccErr) return jsonError(400, `Indirizzo in copia non salvato: ${ccErr.message}`);
+      return jsonOk({ ok: true, email_cc: cc || null });
     }
 
     // ───────── SET_PASSWORD (nuova password comunicata a voce/mail dall'amministrazione) ─────────
@@ -356,6 +415,20 @@ function emailLink(
   return u.toString();
 }
 
+function validEmail(v: string): boolean {
+  return /^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$/i.test(v);
+}
+
+// Indirizzo in copia dell'account (user_profiles.email_cc, migration 338).
+// Senza colonna o senza valore: nessuna copia.
+// deno-lint-ignore no-explicit-any
+async function getCc(admin: any, userId: string): Promise<string[]> {
+  const { data, error } = await admin.from("user_profiles").select("email_cc").eq("id", userId).maybeSingle();
+  if (error) return [];
+  const cc = String((data as { email_cc?: string | null } | null)?.email_cc ?? "").trim();
+  return cc ? [cc] : [];
+}
+
 function escapeLike(v: string): string {
   return v.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
@@ -390,6 +463,7 @@ function accessiFrom(baseFrom: string, companyName: string): string {
 
 async function sendAuthEmail(
   kind: "invite" | "recovery", to: string, link: string, companyName: string, redirectTo: string, firstName = "",
+  cc: string[] = [],
 ): Promise<boolean> {
   const key = Deno.env.get("RESEND_API_KEY");
   const baseFrom = Deno.env.get("DISTINTA_EMAIL_FROM");
@@ -433,7 +507,7 @@ async function sendAuthEmail(
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [to], subject, html, text }),
+      body: JSON.stringify({ from, to: [to], ...(cc.length ? { cc } : {}), subject, html, text }),
     });
     if (!resp.ok) {
       console.error(`[admin-manage-user] Resend ${resp.status}:`, (await resp.text()).slice(0, 300));
