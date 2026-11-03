@@ -116,6 +116,11 @@ ${link ? `<p><a href="${esc(link)}" style="display:inline-block;background:#0f17
 <p style="color:#475569;font-size:13px">Se il problema non è risolto, riaprila con un commento sulla segnalazione stessa.</p>
 </div>`;
 
+    // Indirizzo in copia dell'account (user_profiles.email_cc, migration 338):
+    // letto a parte, cosi' senza colonna la mail parte lo stesso.
+    const { data: ccRow, error: ccErr } = await admin.from("user_profiles").select("email_cc").eq("id", notif.user_id).maybeSingle();
+    const cc = !ccErr && ccRow?.email_cc ? [String(ccRow.email_cc)] : [];
+
     const resendKey = Deno.env.get("RESEND_API_KEY");
     const from = Deno.env.get("DISTINTA_EMAIL_FROM");
     if (!resendKey || !from) return jsonError(503, "Invio email non configurato (RESEND_API_KEY / DISTINTA_EMAIL_FROM)", "EMAIL_NOT_CONFIGURED");
@@ -123,7 +128,7 @@ ${link ? `<p><a href="${esc(link)}" style="display:inline-block;background:#0f17
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { "Authorization": `Bearer ${resendKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: [to], subject: `Segnalazione risolta: ${titolo}`.slice(0, 200), text: testo, html }),
+      body: JSON.stringify({ from, to: [to], ...(cc.length ? { cc } : {}), subject: `Segnalazione risolta: ${titolo}`.slice(0, 200), text: testo, html }),
     });
     if (!r.ok) {
       const errText = await r.text();

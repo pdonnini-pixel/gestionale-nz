@@ -376,7 +376,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [search, setSearch] = useState('')
   // outlet_id: per il ruolo operatore_cassa (un account per punto vendita) e'
   // l'outlet su cui l'account puo' compilare la chiusura di cassa.
-  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
+  const [form, setForm] = useState({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '', email_cc: '' })
+  // Utente a cui si sta rimandando l'email di accesso
+  const [inviando, setInviando] = useState<string | null>(null)
   // Come riceve l'accesso un utente nuovo: password generata subito (mostrata
   // una volta, da comunicare) oppure email di invito per sceglierla da se'.
   const [delivery, setDelivery] = useState<'password' | 'email'>('password')
@@ -436,6 +438,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         is_active: u.active !== false,
         last_sign_in_at: u.last_sign_in_at || null,
         invited_at: u.invited_at || null,
+        email_cc: (u.email_cc as string) || '',
         outlet_ids: accessByUser.get(u.id as string) ?? [],
       }))
       // Il nome dell'account di cassa e' quello del responsabile del negozio:
@@ -459,7 +462,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   }
 
   const resetForm = () => {
-    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '' })
+    setForm({ nome: '', cognome: '', email: '', ruolo: 'operatore_cassa', is_active: true, outlet_id: '', email_cc: '' })
     setDelivery('password')
     setShowForm(false)
     setEditingId(null)
@@ -477,9 +480,13 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       setSaving(true)
       if (isCashRole && !form.outlet_id) { showToast?.(`Scegli il ${labels.pointOfSale.toLowerCase()} dell'account cassa`, 'error'); return }
       const outletPayload = isCashRole ? { outlet_id: form.outlet_id } : {}
+      const cc = form.email_cc.trim().toLowerCase()
+      if (cc && !/^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$/i.test(cc)) { showToast?.('L\'indirizzo in copia non è valido', 'error'); return }
       if (editingId) {
         await callAdmin('set_role', { user_id: editingId, role: form.ruolo, ...outletPayload })
-        showToast?.('Ruolo aggiornato')
+        const prima = (users.find(x => x.id === editingId)?.email_cc as string) || ''
+        if (cc !== prima) await callAdmin('set_cc', { user_id: editingId, email_cc: cc })
+        showToast?.(cc !== prima ? 'Ruolo e copia aggiornati' : 'Ruolo aggiornato')
       } else {
         if (!form.email.trim()) { showToast?.('Email obbligatoria', 'error'); return }
         const email = form.email.trim()
@@ -490,6 +497,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           role: form.ruolo,
           delivery,
           redirectTo: `${window.location.origin}/reset-password`,
+          email_cc: cc,
           ...outletPayload,
         }) as { user_id?: string; password?: string; mail?: string }
         if (delivery === 'password') {
@@ -521,9 +529,25 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       ruolo: u.ruolo,
       is_active: u.is_active,
       outlet_id: (u.outlet_ids as string[])[0] ?? '',
+      email_cc: u.email_cc ?? '',
     })
     setEditingId(u.id)
     setShowForm(true)
+  }
+
+  // Rimanda l'email per scegliere la password (invito scaduto o perso), con la
+  // copia all'indirizzo dell'account se c'e'.
+  const handleResendAccess = async (u: { id: string; email: string }) => {
+    try {
+      setInviando(u.id)
+      const res = await callAdmin('resend_access', { user_id: u.id, redirectTo: `${window.location.origin}/reset-password` }) as { cc?: string[] }
+      const copia = res?.cc?.length ? ` (in copia a ${res.cc.join(', ')})` : ''
+      showToast?.(`Email di accesso mandata a ${u.email}${copia}: il link vale una volta sola`)
+    } catch (err) {
+      showToast?.('Errore: ' + (err as Error).message, 'error')
+    } finally {
+      setInviando(null)
+    }
   }
 
   // Blocca/sblocca l'accesso (login) di un utente.
@@ -605,7 +629,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         <span>
           Qui gestisci gli <strong>accessi reali</strong> all'applicazione. <strong>Nuovo utente</strong> crea il login con una
           password generata da comunicare tu, oppure manda un'email di invito; <strong>Nuova password</strong> (icona chiave) ne genera una e te la mostra
-          una sola volta, da comunicare tu all'utente (es. account di negozio); <strong>Blocca</strong> impedisce l'accesso
+          una sola volta, da comunicare tu all'utente (es. account di negozio); <strong>Rimanda l'email</strong> (icona busta) manda di nuovo il link per scegliere la password, anche a chi ha l'invito scaduto, con la copia all'indirizzo «In copia» dell'account (si imposta dalla matita); <strong>Blocca</strong> impedisce l'accesso
           senza eliminare nulla; <strong>Elimina</strong> revoca definitivamente il login. Le azioni valgono solo per la tua azienda.
         </span>
       </div>
@@ -634,7 +658,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       {showForm && (
         <div ref={formRef} className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 space-y-4">
           <h4 className="text-sm font-semibold text-slate-800">
-            {editingId ? 'Modifica ruolo utente' : 'Nuovo utente'}
+            {editingId ? 'Modifica ruolo e copia email' : 'Nuovo utente'}
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
@@ -671,6 +695,13 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                 </select>
               </div>
             )}
+            <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">In copia alle sue email</label>
+              <input type="email" value={form.email_cc} onChange={e => setForm(p => ({ ...p, email_cc: e.target.value }))}
+                placeholder="es. l'amministrazione"
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              <p className="text-[11px] text-slate-400 mt-1">Riceve una copia di ogni email del gestionale a questo account (accesso, password, segnalazioni). Vuoto = nessuno.</p>
+            </div>
           </div>
           {isCashRole && (
             <p className="text-xs text-slate-500">
@@ -761,6 +792,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   )}
                 </div>
                 <div className="text-xs text-slate-400 truncate" title={u.email}>{u.email}</div>
+                {u.email_cc && (
+                  <div className="text-[11px] text-slate-400 truncate" title="Riceve una copia di ogni email del gestionale a questo account">in copia: {u.email_cc}</div>
+                )}
                 <div className="flex flex-wrap gap-1 mt-1">
                   {(u.outlet_ids as string[]).map((o: string) => (
                     <span key={o} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">
@@ -800,6 +834,12 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   <KeyRound size={14} />
                 </button>
               )}
+              <button onClick={() => handleResendAccess(u)} disabled={inviando === u.id || !u.is_active}
+                title={u.is_active ? `Rimanda l'email per scegliere la password${u.email_cc ? ` (in copia a ${u.email_cc})` : ''}` : 'Accesso bloccato: sbloccalo prima'}
+                aria-label="Rimanda l'email di accesso"
+                className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-40">
+                {inviando === u.id ? <Loader size={14} className="animate-spin" /> : <Mail size={14} />}
+              </button>
               <button onClick={() => handleEdit(u)} title="Modifica ruolo"
                 className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition">
                 <Pencil size={14} />
