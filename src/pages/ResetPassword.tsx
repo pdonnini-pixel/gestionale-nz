@@ -40,6 +40,12 @@ export default function ResetPassword() {
     const type = q.get('type')
     return tokenHash && (type === 'recovery' || type === 'invite') ? { tokenHash, type } : null
   })
+  // Primo accesso (invito, o link rimandato a chi non e' mai entrato): la pagina
+  // parla di scegliere la password, non di reimpostarla. Il token resta lo stesso.
+  const [primoAccesso] = useState(() => {
+    const q = new URLSearchParams(window.location.search)
+    return q.get('type') === 'invite' || q.get('scopo') === 'accesso'
+  })
   const [verifying, setVerifying] = useState(false)
 
   async function handleContinue() {
@@ -104,7 +110,7 @@ export default function ResetPassword() {
             <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4" style={{ background: tenant.accentBg }}>
               <KeyRound size={28} className="text-white" />
             </div>
-            <h1 className="text-2xl font-bold text-white">Reimposta la password</h1>
+            <h1 className="text-2xl font-bold text-white">{primoAccesso ? 'Scegli la password' : 'Reimposta la password'}</h1>
           </div>
 
           <div className="bg-white rounded-2xl shadow-2xl p-8">
@@ -113,8 +119,8 @@ export default function ResetPassword() {
                 <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-emerald-50">
                   <CheckCircle2 size={24} className="text-emerald-600" />
                 </div>
-                <h2 className="text-lg font-semibold text-slate-900">Password aggiornata</h2>
-                <p className="text-sm text-slate-500">Ti riportiamo al login…</p>
+                <h2 className="text-lg font-semibold text-slate-900">{primoAccesso ? 'Password salvata' : 'Password aggiornata'}</h2>
+                <p className="text-sm text-slate-500">{primoAccesso ? 'Ora entra con la tua email e questa password. Ti portiamo al login…' : 'Ti riportiamo al login…'}</p>
               </div>
             ) : !linkValid ? (
               <div className="text-center space-y-4">
@@ -132,7 +138,7 @@ export default function ResetPassword() {
             ) : pending && !ready ? (
               <div className="text-center space-y-4">
                 <p className="text-sm text-slate-600">
-                  {pending.type === 'invite'
+                  {primoAccesso
                     ? 'Premi «Continua» per scegliere la password del tuo accesso.'
                     : 'Premi «Continua» per scegliere la nuova password.'}
                 </p>
@@ -154,7 +160,7 @@ export default function ResetPassword() {
                   </div>
                 )}
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1.5">Nuova password</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">{primoAccesso ? 'Password' : 'Nuova password'}</label>
                   <div className="relative">
                     <input
                       type={showPw ? 'text' : 'password'}
@@ -183,7 +189,7 @@ export default function ResetPassword() {
                 </div>
                 <button type="submit" disabled={saving}
                   className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-medium transition disabled:opacity-50 disabled:cursor-not-allowed">
-                  {saving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><KeyRound size={18} /> Imposta nuova password</>}
+                  {saving ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><KeyRound size={18} /> {primoAccesso ? 'Salva la password' : 'Imposta nuova password'}</>}
                 </button>
               </form>
             )}

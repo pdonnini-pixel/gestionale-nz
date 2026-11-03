@@ -104,7 +104,8 @@ Deno.serve(async (req: Request) => {
       }
       const companyName = await getCompanyName(admin, p.company_id ?? null);
       const cc = await getCc(admin, p.id);
-      const sent = await sendAuthEmail("recovery", u.email, emailLink(redirectTo, link.properties, "recovery"), companyName, redirectTo, "", cc);
+      const saluto = await nomeSaluto(admin, p.id, "");
+      const sent = await sendAuthEmail("recovery", u.email, emailLink(redirectTo, link.properties, "recovery"), companyName, redirectTo, saluto, cc);
       if (!sent) console.error("[admin-manage-user] recover: invio Resend non riuscito");
       return jsonOk({ ok: true });
     }
@@ -268,7 +269,8 @@ Deno.serve(async (req: Request) => {
       let mail: "sent" | "failed" | undefined;
       if (inviteLink) {
         const companyName = await getCompanyName(admin, myCompany);
-        mail = (await sendAuthEmail("invite", email, inviteLink, companyName, redirectTo, String(body.first_name ?? ""), ccRaw ? [ccRaw] : [])) ? "sent" : "failed";
+        const saluto = await nomeSaluto(admin, newUserId, String(body.first_name ?? ""));
+        mail = (await sendAuthEmail("invite", email, inviteLink, companyName, redirectTo, saluto, ccRaw ? [ccRaw] : [])) ? "sent" : "failed";
       }
 
       return jsonOk({ ok: true, user_id: newUserId, invited: email, ...(password ? { password } : {}), ...(mail ? { mail } : {}) });
@@ -327,7 +329,10 @@ Deno.serve(async (req: Request) => {
       const companyName = await getCompanyName(admin, myCompany);
       // Chi non e' mai entrato riceve il testo dell'invito, gli altri quello del recupero.
       const kind = u.last_sign_in_at ? "recovery" : "invite";
-      const sent = await sendAuthEmail(kind, u.email, emailLink(redirectTo, link.properties, "recovery"), companyName, redirectTo, String(u.user_metadata?.first_name ?? ""), cc);
+      const saluto = await nomeSaluto(admin, targetId, String(u.user_metadata?.first_name ?? ""));
+      // Il token resta di recupero (type=recovery); «scopo=accesso» dice solo
+      // alla pagina di parlare di primo accesso e non di password dimenticata.
+      const sent = await sendAuthEmail(kind, u.email, emailLink(redirectTo, link.properties, "recovery", kind === "invite" ? "accesso" : ""), companyName, redirectTo, saluto, cc);
       if (!sent) return jsonError(502, "Invio dell'email non riuscito: genera la password con la chiave e comunicala tu.");
       return jsonOk({ ok: true, mail: "sent", to: u.email, cc });
     }
@@ -405,14 +410,43 @@ function safeRedirect(v: unknown): string {
 // valido o scaduto»). Senza hashed_token o redirect valido si torna al link
 // di Supabase, come prima.
 function emailLink(
-  redirectTo: unknown, props: { action_link: string; hashed_token?: string }, type: "recovery" | "invite",
+  redirectTo: unknown, props: { action_link: string; hashed_token?: string }, type: "recovery" | "invite", scopo = "",
 ): string {
   const base = safeRedirect(redirectTo);
   if (!base || !props.hashed_token) return props.action_link;
   const u = new URL(base);
   u.searchParams.set("token_hash", props.hashed_token);
   u.searchParams.set("type", type);
+  if (scopo) u.searchParams.set("scopo", scopo);
   return u.toString();
+}
+
+// Nome per il saluto della mail. Un account di cassa e' del negozio: si saluta
+// il responsabile di oggi (outlets.referente_employee_id), non il nome scritto
+// quando si e' creato il login (es. «Nuovo dipendente ROMA», 03/11/2026).
+// Per gli altri account vale il nome del profilo, poi quello passato.
+// deno-lint-ignore no-explicit-any
+async function nomeSaluto(admin: any, userId: string, ripiego: string): Promise<string> {
+  const titolo = (t: string) => t.toLowerCase().replace(/(^|[\s'-])\p{L}/gu, (c) => c.toUpperCase());
+  const { data: prof } = await admin.from("user_profiles").select("role, first_name").eq("id", userId).maybeSingle();
+  const p = prof as { role?: string; first_name?: string | null } | null;
+  if (p?.role === "operatore_cassa") {
+    const { data: acc } = await admin.from("user_outlet_access").select("outlet_id").eq("user_id", userId);
+    const outlets = ((acc ?? []) as Array<{ outlet_id: string }>).map((a) => a.outlet_id);
+    if (outlets.length === 1) {
+      const { data: o } = await admin.from("outlets").select("referente_employee_id").eq("id", outlets[0]).maybeSingle();
+      const empId = (o as { referente_employee_id?: string | null } | null)?.referente_employee_id;
+      if (empId) {
+        const { data: e } = await admin.from("employees").select("nome, first_name").eq("id", empId).maybeSingle();
+        const nome = String((e as { nome?: string | null; first_name?: string | null } | null)?.nome
+          ?? (e as { first_name?: string | null } | null)?.first_name ?? "").trim();
+        if (nome) return titolo(nome);
+      }
+    }
+    // Account di cassa senza responsabile: niente nome inventato.
+    return "";
+  }
+  return String(p?.first_name ?? "").trim() || ripiego.trim();
 }
 
 function validEmail(v: string): boolean {
