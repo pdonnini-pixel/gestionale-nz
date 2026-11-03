@@ -49,6 +49,15 @@ Patrizio scrive il fabbisogno.
 - Recupero NZ (`NZ_ONLY_20261102_336`): le 6 persone entrate da Organico senza ripartizione (5 Roma Soratte, Caprioli Paganini Brugnato come da scheda). Nessuna aveva cedolini o costi.
 - **Zago** ha 12 persone senza ripartizione, non recuperate: i costi del personale passerebbero da «non attribuiti» ai negozi. Da decidere con Patrizio. Il trigger le sistema una per una appena se ne tocca il negozio nella scheda.
 
+## Una sola scheda «Organico» (Patrizio, 03/11/2026)
+
+Le schede «Organico» (anagrafica + netti del mese) e «Organico di oggi» sono unite in una sola, «Organico» (`?view=oggi`, `OrganicoOggi.tsx`; `?view=organico` porta lì).
+- Elenco per negozio dello stato a una data; matricola sotto il nome; il nome apre la scheda del dipendente (`SchedaDipendenteModal`) con Modifica, Ripartizione, Cessa / Riattiva.
+- Un solo «Modifica» (`CorreggiPersona`): per chi aspetta lo studio passa per l'assunzione; per gli altri nome, cognome e livello, più «Tutti i dati dell'anagrafica» (`EmployeeFormModal`) per Super Advisor e Contabilità.
+- Un solo «Aggiungi una persona»: anche il pulsante «Dipendente» in testata apre quello di Organico.
+- Netti, costi, caricamento del cedolino PDF e amministratori: «Costi & cedolini». «Elenco dello studio»: dentro «Confronto con lo studio».
+- Ripartizione, cessa, riattiva, tutti i dati ed elenco dello studio solo per i ruoli che scrivono `employees` (RLS: super_advisor, contabile).
+
 ## Il confronto con lo studio
 
 `organico_riconcilia()` (chiamata all'apertura della scheda) chiude da sola i cambiamenti che

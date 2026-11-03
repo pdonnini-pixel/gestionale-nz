@@ -1,4 +1,8 @@
-// «Organico di oggi»: chi lavora davvero in azienda, negozio per negozio.
+// «Organico»: chi lavora davvero in azienda, negozio per negozio. E' la
+// scheda unica del personale (Patrizio, 03/11/2026): ha preso il posto della
+// vecchia anagrafica «Organico». Dal nome si apre la scheda del dipendente
+// (documenti, ripartizione, cessazione); «Modifica» corregge i dati; costi e
+// cedolini stanno in «Costi & cedolini».
 //
 // Parte dall'anagrafica (i documenti dello studio paghe) e ci aggiunge i
 // cambiamenti segnati da chi tiene l'organico (organico.ts). Qui si vede lo
@@ -7,7 +11,7 @@
 // cambiamenti con i documenti dello studio (ConfrontoStudio).
 
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CalendarClock, Plus, Search, UserPlus } from 'lucide-react';
+import { AlertTriangle, CalendarClock, FileUp, Plus, Search, UserPlus } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
@@ -21,7 +25,24 @@ import CorreggiPersona from './CorreggiPersona';
 
 const ConfrontoStudio = lazy(() => import('./ConfrontoStudio'));
 
-type Props = { companyId?: string };
+type Props = {
+  companyId?: string;
+  /** cresce quando la pagina ha salvato qualcosa: si ricarica */
+  versione?: number;
+  /** cresce quando la pagina chiede «Aggiungi una persona» */
+  richiestaNuova?: number;
+  /** la pagina chiede «Modifica» per una persona (dalla sua scheda) */
+  richiestaModifica?: { id: string; n: number } | null;
+  /** apre la scheda del dipendente (documenti, ripartizione, cessazione) */
+  onScheda?: (employeeId: string) => void;
+  /** apre tutti i dati dell'anagrafica (solo chi scrive l'anagrafica) */
+  onAltriDati?: (employeeId: string) => void;
+  /** carica l'elenco dipendenti mandato dallo studio (solo chi scrive l'anagrafica) */
+  onImportElenco?: () => void;
+  /** la richiesta (nuova o modifica) e' stata aperta: la pagina la azzera,
+   *  cosi' tornando sulla scheda non si riapre da sola */
+  onRichiestaGestita?: () => void;
+};
 
 const COLORE_STATO: Record<string, string> = {
   in_servizio: 'bg-emerald-50 text-emerald-800',
@@ -57,7 +78,7 @@ function prossimaData(p: PersonaOggi): string {
   return '';
 }
 
-export default function OrganicoOggi({ companyId }: Props) {
+export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova = 0, richiestaModifica = null, onScheda, onAltriDati, onImportElenco, onRichiestaGestita }: Props) {
   const { profile } = useAuth();
   const { toast } = useToast();
   const puoScrivere = puoTenereOrganico(profile?.role);
@@ -86,7 +107,13 @@ export default function OrganicoOggi({ companyId }: Props) {
     }
   }, [companyId, puoScrivere, toast]);
 
-  useEffect(() => { carica(); }, [carica]);
+  useEffect(() => { carica(); }, [carica, versione]);
+  useEffect(() => {
+    if (richiestaNuova > 0 && puoScrivere) { setSotto('organico'); setModale({ nuova: true }); onRichiestaGestita?.(); }
+  }, [richiestaNuova, puoScrivere, onRichiestaGestita]);
+  useEffect(() => {
+    if (richiestaModifica && puoScrivere) { setSotto('organico'); setDaCorreggere(richiestaModifica.id); onRichiestaGestita?.(); }
+  }, [richiestaModifica, puoScrivere, onRichiestaGestita]);
 
   const persone = useMemo(() => (dati ? organicoAllaData(dati.schede, dati.eventi, data) : []), [dati, data]);
   const negozioDi = useCallback((id: string | null) => dati?.negozi.find((n) => n.id === id), [dati]);
@@ -139,6 +166,13 @@ export default function OrganicoOggi({ companyId }: Props) {
             </button>
           ))}
         </div>
+        {sotto === 'confronto' && onImportElenco && (
+          <button type="button" onClick={onImportElenco}
+            title="Carica l'elenco dipendenti mandato dallo studio paghe e allinea l'anagrafica"
+            className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg border border-blue-200 bg-white text-sm font-medium text-blue-700 hover:bg-blue-50">
+            <FileUp size={15} /> Elenco dello studio
+          </button>
+        )}
         {puoScrivere && sotto === 'organico' && (
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => setModale({ nuova: true })}
@@ -230,7 +264,7 @@ export default function OrganicoOggi({ companyId }: Props) {
                   <tbody>
                     {gruppi.map((g) => (
                       <GruppoNegozio key={g.id || 'senza'} nome={g.nome} lista={g.lista} puoScrivere={puoScrivere}
-                        onModifica={(id, tipo) => setModale({ employeeId: id, tipo })} onCorreggi={setDaCorreggere} />
+                        onModifica={(id, tipo) => setModale({ employeeId: id, tipo })} onCorreggi={setDaCorreggere} onScheda={onScheda} />
                     ))}
                     {!gruppi.length && (
                       <tr><td colSpan={6} className="px-3 py-10 text-center text-slate-400">Nessuna persona con questi filtri.</td></tr>
@@ -308,6 +342,7 @@ export default function OrganicoOggi({ companyId }: Props) {
             persona={p}
             eventi={dati.eventi}
             negozi={dati.negozi}
+            onAltriDati={onAltriDati ? () => { setDaCorreggere(null); onAltriDati(p.scheda.id); } : undefined}
           />
         ) : null;
       })()}
@@ -315,9 +350,9 @@ export default function OrganicoOggi({ companyId }: Props) {
   );
 }
 
-function GruppoNegozio({ nome, lista, puoScrivere, onModifica, onCorreggi }: {
+function GruppoNegozio({ nome, lista, puoScrivere, onModifica, onCorreggi, onScheda }: {
   nome: string; lista: PersonaOggi[]; puoScrivere: boolean; onModifica: (id: string, tipo: TipoEvento | null) => void;
-  onCorreggi: (id: string) => void;
+  onCorreggi: (id: string) => void; onScheda?: (id: string) => void;
 }) {
   const ore = lista.filter((p) => p.stato === 'in_servizio').reduce((s, p) => s + (p.ore ?? 0), 0);
   return (
@@ -330,7 +365,13 @@ function GruppoNegozio({ nome, lista, puoScrivere, onModifica, onCorreggi }: {
       {lista.map((p) => (
         <tr key={p.scheda.id} className="border-b border-slate-100">
           <td className="px-3 py-2.5">
-            <div className="font-medium text-slate-900">{nomePersona(p.scheda)}</div>
+            {onScheda ? (
+              <button type="button" onClick={() => onScheda(p.scheda.id)} title="Apri la scheda: documenti, ripartizione, cessazione"
+                className="font-medium text-slate-900 hover:text-blue-700 hover:underline text-left">{nomePersona(p.scheda)}</button>
+            ) : (
+              <div className="font-medium text-slate-900">{nomePersona(p.scheda)}</div>
+            )}
+            {p.scheda.matricola && <div className="text-[11px] text-slate-400 tabular-nums">matr. {p.scheda.matricola}</div>}
             {p.daConfermare.length > 0 && (
               <div className="text-xs text-blue-700">{p.daConfermare.length === 1 ? '1 cambiamento' : `${p.daConfermare.length} cambiamenti`} da confermare con lo studio</div>
             )}
@@ -347,9 +388,9 @@ function GruppoNegozio({ nome, lista, puoScrivere, onModifica, onCorreggi }: {
             {puoScrivere && (
               <span className="inline-flex flex-wrap justify-end gap-1.5">
                 <button type="button" onClick={() => onCorreggi(p.scheda.id)}
-                  title="Correggi un errore di inserimento: nome, livello e, finché lo studio non manda i documenti, negozio, contratto, ore e date"
+                  title="Correggi i dati: nome, livello e, finché lo studio non manda i documenti, negozio, contratto, ore e date"
                   className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">
-                  Correggi
+                  Modifica
                 </button>
                 {p.stato !== 'cessato' && (
                   <button type="button" onClick={() => onModifica(p.scheda.id, p.stato === 'scaduto' ? 'proroga' : null)}

@@ -1,5 +1,5 @@
 // «Correggi dati»: si corregge un errore di inserimento direttamente da
-// «Organico di oggi» (un livello sbagliato, un nome scritto male, le ore
+// «Organico» (un livello sbagliato, un nome scritto male, le ore
 // battute male quando si e' aggiunta una persona). Non e' un cambiamento:
 // quello si segna con «Segna» e vale da una data.
 //
@@ -26,6 +26,11 @@ type Props = {
   persona: PersonaOggi;
   eventi: EventoOrganico[];
   negozi: NegozioRif[];
+  /** apre tutti i dati dell'anagrafica (codice fiscale, qualifica, tempo
+   *  determinato...): solo per chi scrive l'anagrafica e solo per chi ha gia'
+   *  i documenti dello studio. Per chi li aspetta passa tutto da qui, cosi'
+   *  scheda e assunzione restano allineate. */
+  onAltriDati?: () => void;
 };
 
 const LIVELLI = ['1 Livello', '2 Livello', '3 Livello', '4 Livello', '5 Livello', '6 Livello', '7 Livello'];
@@ -41,7 +46,7 @@ export function assunzioneInAttesa(eventi: EventoOrganico[], employeeId: string)
   return lista[0] ?? null;
 }
 
-export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, negozi }: Props) {
+export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, negozi, onAltriDati }: Props) {
   const { toast } = useToast();
   const { profile } = useAuth();
   const autore = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.email || '';
@@ -107,7 +112,7 @@ export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, n
   const livelli = livello && !LIVELLI.includes(livello) ? [livello, ...LIVELLI] : LIVELLI;
 
   return (
-    <Modal open onClose={onClose} title={`Correggi i dati di ${nomePersona(s)}`} maxWidthClass="max-w-2xl" closeOnBackdrop={false}>
+    <Modal open onClose={onClose} title={`Modifica i dati di ${nomePersona(s)}`} maxWidthClass="max-w-2xl" closeOnBackdrop={false}>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div><label className={labelCls} htmlFor="cp-cognome">Cognome</label><input id="cp-cognome" className={inputCls} value={cognome} onChange={(e) => setCognome(e.target.value)} /></div>
@@ -158,6 +163,11 @@ export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, n
           )}
         </div>
         <p className="text-xs text-slate-500">Ogni correzione lascia una nota datata nella scheda, con chi l'ha fatta e cosa è cambiato.</p>
+        {onAltriDati && !ass && (
+          <button type="button" onClick={onAltriDati} className="text-sm font-medium text-blue-700 hover:underline">
+            Tutti i dati dell'anagrafica (codice fiscale, qualifica, tempo determinato…)
+          </button>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2 mt-5 pt-4 border-t border-slate-200">
@@ -165,7 +175,7 @@ export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, n
         <button type="button" onClick={onClose} className="min-h-[40px] px-4 rounded-lg border border-slate-300 text-sm font-medium hover:bg-slate-50">Annulla</button>
         <button type="button" onClick={salva} disabled={!!errore || salvo}
           className="min-h-[40px] px-4 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
-          {salvo ? 'Salvo…' : 'Salva la correzione'}
+          {salvo ? 'Salvo…' : 'Salva'}
         </button>
       </div>
     </Modal>

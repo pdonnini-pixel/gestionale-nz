@@ -57,9 +57,10 @@ import {
 } from '../lib/payrollParse';
 import CaricaFilePaghe, { type FileInArrivo, segnalaEsitoPaghe, suDatiPagheAggiornati } from '../components/CaricaFilePaghe';
 import PagamentiPaghe from '../components/PagamentiPaghe';
+import { puoTenereOrganico } from '../lib/organicoDati';
 import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
 import { archiviaFile, avvisoArchiviazioneFallita, sostituisciPrecedenti } from '../lib/archivioFile';
-import { parseElenco, confrontaElenco, notaAllineamento, valoriDaRiga, outletDaFiliale, dataDalNomeFile, badgeScadenza, type EsitoConfronto, type RigaElenco, type DipendenteConfronto } from '../lib/elencoDipendenti';
+import { parseElenco, confrontaElenco, notaAllineamento, valoriDaRiga, outletDaFiliale, dataDalNomeFile, type EsitoConfronto, type RigaElenco, type DipendenteConfronto } from '../lib/elencoDipendenti';
 import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
 import ExportMenu from '../components/ExportMenu';
 // Organico granitico: fonte unica del conteggio dipendenti (vedi src/lib/headcount.ts).
@@ -102,8 +103,13 @@ interface OutletRow {
 }
 
 // Vista persistita in URL come ?view=
-type PersonaleView = 'panoramica' | 'per_outlet' | 'oggi' | 'organico' | 'costi' | 'lordi' | 'turni' | 'ferie';
-const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'oggi', 'organico', 'costi', 'lordi', 'turni', 'ferie'];
+// «Organico» e' una sola scheda (Patrizio, 03/11/2026): la vecchia anagrafica
+// (?view=organico) e «Organico di oggi» (?view=oggi) sono state unite. I link
+// vecchi a ?view=organico portano alla scheda unica.
+type PersonaleView = 'panoramica' | 'per_outlet' | 'oggi' | 'costi' | 'lordi' | 'turni' | 'ferie';
+const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'oggi', 'costi', 'lordi', 'turni', 'ferie'];
+/** Chi scrive direttamente l'anagrafica (RLS employees_write). */
+const RUOLI_ANAGRAFICA = ['super_advisor', 'contabile'];
 
 const MONTHS = [
   { num: 1, label: 'Gennaio' }, { num: 2, label: 'Febbraio' }, { num: 3, label: 'Marzo' },
@@ -355,7 +361,7 @@ export default function Dipendenti() {
 
   // view persistita in URL
   const [searchParams, setSearchParams] = useSearchParams();
-  const viewParam = searchParams.get('view');
+  const viewParam = searchParams.get('view') === 'organico' ? 'oggi' : searchParams.get('view');
   const view: PersonaleView = VALID_VIEWS.includes(viewParam as PersonaleView) ? (viewParam as PersonaleView) : 'panoramica';
   const setView = (next: PersonaleView) => {
     const p = new URLSearchParams(searchParams);
@@ -431,15 +437,20 @@ export default function Dipendenti() {
   const cedolinoEmpRef = useRef<string | null>(null);
 
   // Filtri organico
-  const [orgOutletFilter, setOrgOutletFilter] = useState('');
-  const [orgSearch, setOrgSearch] = useState('');
-  const [orgStatus, setOrgStatus] = useState<'attivi' | 'cessati' | 'tutti'>('attivi');
 
   // Cessazione dipendente (modale custom)
   const [cessaEmp, setCessaEmp] = useState<Employee | null>(null);
   const [cessaDate, setCessaDate] = useState('');
   // Scheda dipendente (netto mese per mese)
   const [schedaEmp, setSchedaEmp] = useState<Employee | null>(null);
+  // Scheda unica «Organico»: la pagina le chiede di aprire «Aggiungi una
+  // persona» o «Modifica» e di ricaricarsi dopo un salvataggio fatto qui.
+  const [organicoNuova, setOrganicoNuova] = useState(0);
+  const [organicoModifica, setOrganicoModifica] = useState<{ id: string; n: number } | null>(null);
+  const [organicoVersione, setOrganicoVersione] = useState(0);
+  const puoAnagrafica = RUOLI_ANAGRAFICA.includes(profile?.role ?? '');
+  const puoOrganico = puoTenereOrganico(profile?.role);
+  const azzeraRichiesteOrganico = useCallback(() => { setOrganicoNuova(0); setOrganicoModifica(null); }, []);
 
   // ========== LOAD ==========
   useEffect(() => {
@@ -582,6 +593,7 @@ export default function Dipendenti() {
   const reloadAll = async () => {
     if (!COMPANY_ID) return;
     await Promise.all([loadStatic(), loadYearScoped(COMPANY_ID, selectedYear)]);
+    setOrganicoVersione((v) => v + 1);
   };
   // Un file paghe salvato dalla zona in alto: KPI e schede si aggiornano subito.
   useEffect(() => suDatiPagheAggiornati(() => { void reloadAll(); }),
@@ -616,14 +628,7 @@ export default function Dipendenti() {
     .filter((s) => s.employee_id === empId && s.year === selectedYear && s.month === selectedMonth)
     .sort((a, b) => Number(b.netto || 0) - Number(a.netto || 0));
 
-  // Costo lordo aziendale = somma componenti; null se nessun componente caricato
-  const lordoCell = (empId: string): number | null => {
-    const c = costForMonth(empId);
-    if (!c) return null;
-    const parts = [c.retribuzione, c.contributi, c.inail, c.tfr, c.altri_costi];
-    if (parts.every((p) => p == null)) return null;
-    return parts.reduce<number>((s, p) => s + Number(p || 0), 0);
-  };
+
 
   // Netto mensile per outlet (via allocazioni, outlet_code == outlet.name).
   // Itera su TUTTI i dipendenti, non solo gli attivi di oggi: il netto pagato a
@@ -1013,7 +1018,9 @@ export default function Dipendenti() {
             <select value={selectedMonth} onChange={(e) => pickMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
               {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
             </select>
-            <button onClick={() => { setEditingEmployee(null); setShowEmployeeForm(true); }} className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-1.5"><Plus size={15} /> Dipendente</button>
+            {puoOrganico && (
+              <button onClick={() => { setView('oggi'); setOrganicoNuova((n) => n + 1); }} className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-1.5" title="Aggiungi una persona all'organico"><Plus size={15} /> Dipendente</button>
+            )}
             <button onClick={reloadAll} className="p-2 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50" title="Ricarica"><RefreshCw size={16} /></button>
           </div>
         }
@@ -1038,8 +1045,7 @@ export default function Dipendenti() {
         {([
           { k: 'panoramica', label: 'Panoramica', icon: BarChart3 },
           { k: 'per_outlet', label: 'Per outlet', icon: Store },
-          { k: 'oggi', label: 'Organico di oggi', icon: UserCheck },
-          { k: 'organico', label: 'Organico', icon: Users },
+          { k: 'oggi', label: 'Organico', icon: UserCheck },
           { k: 'costi', label: 'Costi & cedolini', icon: FileText },
           { k: 'lordi', label: 'Costo lordo', icon: Percent },
           { k: 'turni', label: 'Turni', icon: CalendarDays },
@@ -1117,36 +1123,6 @@ export default function Dipendenti() {
               mm={String(selectedMonth).padStart(2, '0')}
               year={selectedYear}
               nonAttribuito={nonAttribuito}
-            />
-          )}
-
-          {view === 'organico' && (
-            <OrganicoTab
-              employees={employees}
-              allocByEmp={allocByEmp}
-              nettoCell={nettoCell}
-              lordoCell={lordoCell}
-              isPaid={isPaid}
-              lordoAmministratori={lordoAmministratori}
-              outlets={outlets}
-              mm={String(selectedMonth).padStart(2, '0')}
-              year={selectedYear}
-              status={orgStatus}
-              setStatus={setOrgStatus}
-              outletFilter={orgOutletFilter}
-              setOutletFilter={setOrgOutletFilter}
-              search={orgSearch}
-              setSearch={setOrgSearch}
-              onAdd={() => { setEditingEmployee(null); setShowEmployeeForm(true); }}
-              onImportElenco={() => setShowElencoImport(true)}
-              onEdit={(e) => { setEditingEmployee(e); setShowEmployeeForm(true); }}
-              onAlloc={openAllocEditor}
-              onCedolino={triggerCedolino}
-              onCessa={openCessa}
-              onRiattiva={handleRiattiva}
-              onScheda={(e) => setSchedaEmp(e)}
-              docsForEmp={docsForEmp}
-              uploadingEmployee={uploadingEmployee}
             />
           )}
 
@@ -1233,12 +1209,21 @@ export default function Dipendenti() {
             />
           )}
 
-          {/* Organico di oggi e turni: l'anagrafica dello studio piu' i
+          {/* Organico (scheda unica) e turni: l'anagrafica dello studio piu' i
               cambiamenti segnati in azienda (organico.ts), e da li' i turni
               dei negozi. */}
           {view === 'oggi' && (
             <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
-              <OrganicoOggi companyId={COMPANY_ID} />
+              <OrganicoOggi
+                companyId={COMPANY_ID}
+                versione={organicoVersione}
+                richiestaNuova={organicoNuova}
+                richiestaModifica={organicoModifica}
+                onScheda={(id) => { const e = employees.find((x) => x.id === id); if (e) setSchedaEmp(e); }}
+                onAltriDati={puoAnagrafica ? (id) => { const e = employees.find((x) => x.id === id); if (e) { setEditingEmployee(e); setShowEmployeeForm(true); } } : undefined}
+                onImportElenco={puoAnagrafica ? () => setShowElencoImport(true) : undefined}
+                onRichiestaGestita={azzeraRichiesteOrganico}
+              />
             </Suspense>
           )}
           {view === 'turni' && (
@@ -1380,7 +1365,10 @@ export default function Dipendenti() {
           onDocsChanged={reloadAll}
           onClose={() => setSchedaEmp(null)}
           onSaved={reloadAll}
-          onEdit={() => { setEditingEmployee(schedaEmp); setSchedaEmp(null); setShowEmployeeForm(true); }}
+          onEdit={puoOrganico ? () => { const id = schedaEmp.id; setSchedaEmp(null); setView('oggi'); setOrganicoModifica({ id, n: Date.now() }); } : undefined}
+          onAlloc={puoAnagrafica ? () => { const id = schedaEmp.id; setSchedaEmp(null); openAllocEditor(id); } : undefined}
+          onCessa={puoAnagrafica && schedaEmp.is_active !== false ? () => { const e = schedaEmp; setSchedaEmp(null); openCessa(e); } : undefined}
+          onRiattiva={puoAnagrafica && schedaEmp.is_active === false ? () => { const e = schedaEmp; setSchedaEmp(null); void handleRiattiva(e); } : undefined}
         />
       )}
 
@@ -1617,184 +1605,6 @@ function PerOutletTab(props: {
       )}
 
       <AmministratoriAccordion admins={admins} nettoCell={nettoCell} lordoTot={lordoAmministratori} mm={mm} year={year} />
-    </div>
-  );
-}
-
-// ============================================================================
-// TAB 3 — ORGANICO
-// ============================================================================
-function OrganicoTab(props: {
-  employees: Employee[];
-  allocByEmp: Record<string, EmployeeOutletAllocation[]>;
-  nettoCell: (id: string) => number | null;
-  lordoCell: (id: string) => number | null;
-  isPaid: (id: string) => boolean;
-  lordoAmministratori: number;
-  outlets: OutletRow[];
-  mm: string; year: number;
-  status: 'attivi' | 'cessati' | 'tutti'; setStatus: (s: 'attivi' | 'cessati' | 'tutti') => void;
-  outletFilter: string; setOutletFilter: (s: string) => void;
-  search: string; setSearch: (s: string) => void;
-  onAdd: () => void;
-  onImportElenco: () => void;
-  onEdit: (e: Employee) => void;
-  onAlloc: (id: string) => void;
-  onCedolino: (id: string) => void;
-  onCessa: (e: Employee) => void;
-  onRiattiva: (e: Employee) => void;
-  onScheda: (e: Employee) => void;
-  docsForEmp: (id: string) => EmployeeDocument[];
-  uploadingEmployee: string | null;
-}) {
-  const { employees, allocByEmp, nettoCell, lordoCell, isPaid, lordoAmministratori, outlets, mm, year, status, setStatus, outletFilter, setOutletFilter, search, setSearch, onAdd, onImportElenco, onEdit, onAlloc, onCedolino, onCessa, onRiattiva, onScheda, docsForEmp, uploadingEmployee } = props;
-  // In forza nel mese scelto: assunto entro la fine del mese e non cessato prima del suo inizio.
-  // Senza questo controllo una nuova assunta compariva anche nei mesi precedenti all'assunzione.
-  const meseInizio = `${year}-${mm}-01`;
-  const meseFine = `${year}-${mm}-31`; // confronto fra date ISO: il 31 copre ogni fine mese
-  const oggiIso = new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' });
-  const inForzaNelMese = (e: Employee) => {
-    const inizio = e.data_assunzione || e.hire_date;
-    const fine = e.data_cessazione || e.termination_date;
-    if (inizio && inizio > meseFine) return false;
-    if (fine && fine < meseInizio) return false;
-    // Un determinato scaduto prima del mese, senza proroga registrata, non è più in forza
-    // anche se la cessazione non è stata ancora segnata: compare solo fino al mese della scadenza.
-    const scad = (e as any).scadenza_td as string | null;
-    if (e.contratto_tipo === 'determinato' && scad && scad < meseInizio) return false;
-    return true;
-  };
-  const nelFiltro = employees.filter((e) => {
-    const active = e.is_active !== false;
-    if (status === 'attivi' && !active) return false;
-    if (status === 'cessati' && active) return false;
-    if (search && !empName(e).toLowerCase().includes(search.toLowerCase()) && !(e.matricola || '').toLowerCase().includes(search.toLowerCase())) return false;
-    if (outletFilter && !(allocByEmp[e.id] || []).some((a) => a.outlet_code === outletFilter)) return false;
-    return true;
-  });
-  // Il conteggio degli esclusi rispetta gli altri filtri (stato, sede, ricerca): conta solo chi si vedrebbe cambiando mese.
-  const fuoriMese = nelFiltro.filter((e) => !inForzaNelMese(e)).length;
-  const filtered = nelFiltro.filter(inForzaNelMese);
-  const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleDateString('it-IT') : '');
-  const STATUS: { k: 'attivi' | 'cessati' | 'tutti'; label: string }[] = [
-    { k: 'attivi', label: 'Attivi' }, { k: 'cessati', label: 'Cessati' }, { k: 'tutti', label: 'Tutti' },
-  ];
-
-  // Amministratori a parte (sezione in fondo); gli altri raggruppati per sede.
-  const adminRows = filtered.filter(isAdminRole);
-  const groups: Record<string, Employee[]> = {};
-  filtered.filter((e) => !isAdminRole(e)).forEach((e) => { const k = primaryOutlet(allocByEmp[e.id] || []); (groups[k] ||= []).push(e); });
-  const orderedNames = sortGroupNames(Object.keys(groups), outlets);
-
-  const renderRow = (e: Employee) => {
-    const allocs = allocByEmp[e.id] || [];
-    const docs = docsForEmp(e.id).filter((d) => d.doc_type === 'cedolino');
-    const netto = nettoCell(e.id);
-    const lordo = lordoCell(e.id);
-    const cessato = e.is_active === false;
-    const inizio = e.data_assunzione || e.hire_date;
-    const fine = e.data_cessazione || e.termination_date;
-    return (
-      <tr key={e.id} className={`border-b border-slate-100 hover:bg-slate-50 ${cessato ? 'opacity-60' : ''}`}>
-        <td className="px-4 py-2.5 text-slate-500 tabular-nums">{e.matricola || '—'}</td>
-        <td className="px-4 py-2.5">
-          <button onClick={() => onScheda(e)} className="font-semibold text-slate-800 hover:text-blue-700 hover:underline text-left" title="Apri scheda dipendente">{empName(e)}</button>
-          {isAdminRole(e) && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
-          {cessato && <span className="ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200 text-slate-600">cessato</span>}
-          {!cessato && (() => {
-            const b = badgeScadenza((e as any).scadenza_td || null, e.contratto_tipo || null, meseInizio, meseFine, oggiIso);
-            return b ? <span className={`ml-1.5 text-[10px] font-semibold px-1.5 py-0.5 rounded ${b.tono === 'rosso' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`} title={b.tono === 'rosso' ? 'Il determinato risulta scaduto: verifica con lo studio se è stato prorogato o se il rapporto è cessato' : 'Il determinato scade in questo mese'}>{b.testo}</span> : null;
-          })()}
-        </td>
-        <td className="px-4 py-2.5 text-slate-500">
-          <div>{e.contratto_tipo || e.contract_type || 'da definire'}</div>
-          <div className="text-[11px] text-slate-400">{inizio ? `dal ${fmtDate(inizio)}` : ''}{cessato && fine ? ` · al ${fmtDate(fine)}` : ''}</div>
-        </td>
-        <td className="px-4 py-2.5 text-right">{netto == null ? <span className="text-slate-300">—</span> : <Money v={netto} />}</td>
-        <td className="px-4 py-2.5 text-right">{lordo == null ? <span className="text-slate-300">—</span> : <Money v={lordo} />}</td>
-        <td className="px-4 py-2.5 text-center">
-          <button onClick={() => onCedolino(e.id)} disabled={uploadingEmployee === e.id} className="text-slate-400 hover:text-emerald-600 inline-flex items-center gap-1 relative" title="Carica cedolino">
-            <Upload size={15} />
-            {docs.length > 0 && <span className="absolute -top-1 -right-2 w-3.5 h-3.5 rounded-full bg-emerald-500 text-white text-[8px] flex items-center justify-center">{docs.length}</span>}
-          </button>
-        </td>
-        <td className="px-4 py-2.5">
-          <div className="flex items-center justify-center gap-1.5">
-            <button onClick={() => onScheda(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Scheda dipendente"><FileText size={15} /></button>
-            <button onClick={() => onEdit(e)} className="p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Modifica"><Edit2 size={15} /></button>
-            <button onClick={() => onAlloc(e.id)} className="p-1.5 rounded text-slate-400 hover:text-violet-600 hover:bg-violet-50" title="Allocazione"><Percent size={15} /></button>
-            {cessato ? (
-              <button onClick={() => onRiattiva(e)} className="p-1.5 rounded text-slate-400 hover:text-emerald-600 hover:bg-emerald-50" title="Riattiva"><RefreshCw size={15} /></button>
-            ) : (
-              <button onClick={() => onCessa(e)} className="p-1.5 rounded text-slate-400 hover:text-red-600 hover:bg-red-50" title="Cessa"><Trash2 size={15} /></button>
-            )}
-          </div>
-        </td>
-      </tr>
-    );
-  };
-
-  return (
-    <div className="space-y-3">
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-3">
-          <h2 className="font-bold text-slate-800">Anagrafica organico</h2>
-          <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
-            {STATUS.map((s) => (
-              <button key={s.k} onClick={() => setStatus(s.k)}
-                className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${status === s.k ? 'bg-white shadow text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select value={outletFilter} onChange={(e) => setOutletFilter(e.target.value)} className="px-3 py-2 text-sm rounded-lg border border-slate-300 bg-white">
-            <option value="">Tutte le sedi</option>
-            {outlets.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
-          </select>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cerca nome…" className="px-3 py-2 text-sm rounded-lg border border-slate-300 w-44" />
-          <button onClick={onImportElenco} className="px-3 py-2 rounded-lg text-sm font-medium text-blue-700 border border-blue-200 bg-white hover:bg-blue-50 flex items-center gap-1.5" title="Carica l'elenco dipendenti mandato dallo studio paghe e allinea l'anagrafica"><FileUp size={15} /> Elenco dello studio</button>
-          <button onClick={onAdd} className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Plus size={15} /> Dipendente</button>
-        </div>
-      </div>
-
-      {fuoriMese > 0 && (
-        <div className="text-[11px] text-slate-400">
-          {fuoriMese === 1 ? '1 persona non era' : `${fuoriMese} persone non erano`} in forza a {mm}/{year} (assunte dopo, cessate prima o con il determinato già scaduto) e non {fuoriMese === 1 ? 'è mostrata' : 'sono mostrate'}: cambia mese per vederle.
-        </div>
-      )}
-      {orderedNames.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">Nessun dipendente.</div>
-      ) : orderedNames.map((name) => {
-        const emps = groups[name];
-        const paidEmps = emps.filter((e) => isPaid(e.id));
-        const totMese = paidEmps.reduce((s, e) => s + (nettoCell(e.id) || 0), 0);
-        return (
-          <OutletAccordion key={name} name={name} count={emps.length} countNote={`${paidEmps.length} con cedolino ${mm}/${year}`} total={paidEmps.length ? totMese : null}>
-            <div className="overflow-x-auto scroll-shadow-x">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs uppercase tracking-wide text-slate-500 bg-white border-b border-slate-200">
-                    <th className="px-4 py-2 text-left font-bold">Matricola</th>
-                    <th className="px-4 py-2 text-left font-bold">Dipendente</th>
-                    <th className="px-4 py-2 text-left font-bold">Contratto</th>
-                    <th className="px-4 py-2 text-right font-bold">Netto busta {mm}/{year}</th>
-                    <th className="px-4 py-2 text-right font-bold">Costo lordo {mm}/{year}</th>
-                    <th className="px-4 py-2 text-center font-bold">Cedolino</th>
-                    <th className="px-4 py-2 text-center font-bold">Azioni</th>
-                  </tr>
-                </thead>
-                <tbody>{emps.map(renderRow)}</tbody>
-              </table>
-            </div>
-          </OutletAccordion>
-        );
-      })}
-
-      {adminRows.length > 0 && (
-        <AmministratoriAccordion admins={adminRows} nettoCell={nettoCell} lordoTot={lordoAmministratori} mm={mm} year={year} />
-      )}
     </div>
   );
 }
@@ -2063,9 +1873,10 @@ function Field({ label, children, full = false }: { label: string; children: Rea
 // ============================================================================
 // SCHEDA DIPENDENTE — netto mese per mese (14 mensilità; totale = somma, mai ×12)
 // ============================================================================
-function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, companyId, docs, onDocsChanged, onClose, onSaved, onEdit }: {
+function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, companyId, docs, onDocsChanged, onClose, onSaved, onEdit, onAlloc, onCessa, onRiattiva }: {
   employee: Employee; year: number; costs: EmployeeCost[]; allocs: EmployeeOutletAllocation[]; outlets: OutletRow[];
-  companyId: string; docs: EmployeeDocument[]; onDocsChanged: () => Promise<void>; onClose: () => void; onSaved: () => Promise<void>; onEdit: () => void;
+  companyId: string; docs: EmployeeDocument[]; onDocsChanged: () => Promise<void>; onClose: () => void; onSaved: () => Promise<void>;
+  onEdit?: () => void; onAlloc?: () => void; onCessa?: () => void; onRiattiva?: () => void;
 }) {
   const { toast } = useToast();
   const emp = employee as any;
@@ -2127,7 +1938,12 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
       <div className="mb-3 rounded-xl border border-slate-200 p-3">
         <div className="flex items-center justify-between gap-2 mb-2">
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contratto e anagrafica</span>
-          <button onClick={onEdit} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Edit2 size={13} /> Modifica</button>
+          <span className="flex flex-wrap justify-end gap-1.5">
+            {onEdit && <button onClick={onEdit} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Edit2 size={13} /> Modifica</button>}
+            {onAlloc && <button onClick={onAlloc} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-violet-700 hover:bg-violet-50 inline-flex items-center gap-1" title="Come si divide il costo fra i negozi"><Percent size={13} /> Ripartizione</button>}
+            {onCessa && <button onClick={onCessa} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-red-600 hover:bg-red-50 inline-flex items-center gap-1"><Trash2 size={13} /> Cessa</button>}
+            {onRiattiva && <button onClick={onRiattiva} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center gap-1"><RefreshCw size={13} /> Riattiva</button>}
+          </span>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2.5 text-sm">
           <Cell label="Tipo contratto">{contrattoLabel(emp.contratto_tipo || (employee as any).contract_type)}</Cell>
