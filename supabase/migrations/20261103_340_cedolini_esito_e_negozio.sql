@@ -29,8 +29,13 @@
 -- 4. Cedolino del negozio giusto: la policy di scrittura controlla che
 --    negozio e azienda del cedolino siano quelli della sua chiusura.
 --
--- Nessun dato esistente cambia: al momento dell'applicazione la tabella dei
--- cedolini e' vuota (verificato su NZ il 03/11/2026).
+-- Nessun dato esistente cambia. Applicata il 03/11/2026 su NZ e Zago: su NZ
+-- c'erano 3 cedolini (Brugnato 1.270 + 2.485 e Valmontone 0 del 03/11), tutti
+-- ancora in attesa e senza movimento abbinato, quindi i trigger non li toccano.
+-- Prima dell'applicazione, prova su NZ in una transazione annullata sulla
+-- giornata reale del 01/11/2026: il secondo cedolino libera il versamento
+-- unico, il cambio d'importo azzera l'esito e libera il movimento, lo stesso
+-- importo riscritto non cambia niente.
 
 BEGIN;
 
