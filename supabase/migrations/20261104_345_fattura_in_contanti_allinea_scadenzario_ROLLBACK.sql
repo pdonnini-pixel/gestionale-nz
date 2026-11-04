@@ -7,7 +7,7 @@
 -- payable_actions resta la riga che dice cosa c'era prima. Per rimettere una
 -- fattura com'era si parte da quella traccia:
 --   SELECT payable_id, note, performed_at FROM public.payable_actions
---    WHERE action_type IN ('chiusa_in_contanti', 'metodo_corretto', 'correzione_metodo')
+--    WHERE action_type IN ('chiusa_in_contanti', 'metodo_corretto', 'data_corretta', 'correzione_metodo')
 --    ORDER BY performed_at DESC;
 
 SELECT cron.unschedule('allinea-fatture-contanti');

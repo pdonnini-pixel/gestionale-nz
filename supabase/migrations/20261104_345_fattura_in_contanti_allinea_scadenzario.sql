@@ -198,7 +198,11 @@ BEGIN
 END;
 $function$;
 
--- Appena il negozio scrive la riga, la fattura si allinea: niente attese.
+-- Scatta sulla riga di spesa. Attenzione: la policy odce_write lascia
+-- scrivere le righe solo mentre la chiusura e' in bozza, e questa funzione
+-- scarta le bozze, quindi per la cassiera fa sempre «niente da fare». Serve
+-- all'istruttoria, che scrive come service_role. Il caso del negozio lo
+-- prende il trigger sulla chiusura confermata, aggiunto dalla 346.
 CREATE OR REPLACE FUNCTION public.trg_allinea_fattura_da_cassa()
  RETURNS trigger
  LANGUAGE plpgsql
