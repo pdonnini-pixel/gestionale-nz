@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected, depositTotals, depositPhotoBelongs } from './cashClosings'
+import { EXPENSE_KINDS_OUT, EXPENSE_KIND_LABELS, parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected, depositTotals, depositPhotoBelongs } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -421,5 +421,35 @@ describe('cedolini di versamento (338)', () => {
     expect(depositPhotoBelongs(null, 'b', 'a')).toBe(false)
     expect(depositPhotoBelongs('b', 'b', 'a')).toBe(true)
     expect(depositPhotoBelongs('b', 'a', 'a')).toBe(false)
+  })
+})
+
+describe('uscite di cassa: i tre tipi di riga', () => {
+  it('spesa e pagamento di una fattura escono dalla cassa, il rimborso ha la sua voce', () => {
+    expect(EXPENSE_KINDS_OUT).toEqual(['spesa', 'pagamento_fattura'])
+    expect(EXPENSE_KINDS_OUT).not.toContain('rimborso_cliente')
+  })
+
+  it('ogni tipo ha la sua etichetta in italiano', () => {
+    expect(EXPENSE_KIND_LABELS.spesa).toBe('Spesa cassa')
+    expect(EXPENSE_KIND_LABELS.rimborso_cliente).toBe('Rimborso a cliente')
+    expect(EXPENSE_KIND_LABELS.pagamento_fattura).toBe('Fattura pagata in contanti')
+  })
+
+  it('la fattura pagata in contanti abbassa il contante atteso come una spesa (Palmanova 03/11/2026)', () => {
+    // fondo 504 + da versare 0 + contanti 0 - 75,84 di fattura - versamento 1.786,06... :
+    // il caso vero aveva il versamento, qui si isola l'effetto della riga.
+    const senza = computeQuadrature({
+      totalReceipts: 497.34, lines: [{ kind: 'pos', counts_in_total: true, amount: 497.34 }],
+      cashExpenses: 0, cashDeposit: 0, prevFloat: 504, prevPending: 75.84,
+      cashFloatDeclared: 504, cashPendingDeclared: 0,
+    })
+    expect(senza.cashDifference).toBe(-75.84)
+    const con = computeQuadrature({
+      totalReceipts: 497.34, lines: [{ kind: 'pos', counts_in_total: true, amount: 497.34 }],
+      cashExpenses: 75.84, cashDeposit: 0, prevFloat: 504, prevPending: 75.84,
+      cashFloatDeclared: 504, cashPendingDeclared: 0,
+    })
+    expect(con.cashDifference).toBe(0)
   })
 })

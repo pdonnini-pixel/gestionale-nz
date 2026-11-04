@@ -351,6 +351,35 @@ Caso di partenza, Franciacorta 12/10/2026: nota «47,20€ effettuato buono per 
 
 **Resta da decidere (Patrizio)**: i buoni al cliente. Se il buono viene speso subito, come il 12/10, il valore esce in merce e la cassa lo fa vedere. Se invece resta da spendere, i soldi restano in cassa, tutto quadra e nessuno sa che l'azienda deve quella cifra a un cliente: lì serve un registro minimo (importo, data, negozio, quando viene speso), oppure la regola che il reso si fa a soldi.
 
+### 4e. l'istruttoria dei controlli: «da controllare» lo prende in carico il gestionale (fatto il 2026-11-04)
+
+Chiesto da Patrizio il 04/11/2026 dopo il report del 3 novembre, quattro righe «da controllare»: due false (Brugnato, versamento 3.755,00 € confrontato con una ricevuta alla volta invece della somma 1.270 + 2.485), una vera e già spiegata dalla cassiera in nota (Palmanova, ammanco di 75,84 €), e quella stessa nota segnalata come problema a sé.
+
+**Le decisioni di Patrizio**: il sistema agisce, non propone; tolleranza 1,00 €; il messaggio va direttamente al singolo negozio e le risposte tornano all'amministrazione (lui in copia nascosta sull'uscita); la spesa di Palmanova registrata sul 3 novembre, senza riaprire il 28 ottobre.
+
+**Misura su 30 giorni e 210 giornate**, che ha deciso la forma del sistema: 0 bozze, 0 foto mancanti, 0 differenze sui corrispettivi, 9 differenze di cassa (8 da 10 a 50 centesimi, che si compensano fra giorni vicini: Franciacorta +0,16 il 15 e −0,16 il 16, −0,20 il 24 e +0,20 il 25), 13 note della cassiera segnalate sempre, 20 giornate con più foto dello stesso tipo. Una sola anomalia vera in un mese: quasi tutto il «da controllare» era rumore.
+
+**Il terzo tipo di riga nelle uscite di cassa** (migrazione 341): «fattura pagata in contanti». La fattura di un fornitore pagata col denaro della cassa esce dal cassetto ma il costo è già nella fattura, quindi non entra nei costi dell'outlet: `v_costi_outlet_da_fatture` prende solo `kind = 'spesa'`, mentre `fn_cash_closing_compute` somma spesa e pagamento di fattura in `cash_expenses`. Senza questa distinzione registrare i 75,84 € di Palmanova avrebbe contato due volte il costo di RICA GEST. Misura: 148 spese di cassa per 6.438,21 €, di cui 24 combaciano per importo e data con fatture pagate in contanti o con carta (da guardare una per una: il doppio conteggio potrebbe esserci già).
+
+**L'istruttoria** (migrazioni 342 e 343, edge function `closing-checks-run`): `closing_checks` tiene una riga per segnalazione con la prova e l'esito (falso allarme, sistemato, da fare, informazione), `closing_check_runs` un giro per azienda e giorno. Il cron `closing-checks-tick` gira ogni 20 minuti: parte quando il report serale è andato, e la mattina dopo dalle 8 per la giornata precedente. Impostazioni in `daily_report_settings`: `checks_recipients`, `checks_tolerance` (1,00 €), `checks_store_messages`, `checks_store_reply_to`, `checks_store_bcc`.
+
+Le regole di riconoscimento, tutte nate da casi veri:
+- più ricevute di versamento: conta la **somma**, non il confronto una per una;
+- più foto del totale (chiusura RT e scontrini POS nella stessa foto): basta che **una** combaci;
+- differenza di cassa entro la tolleranza: arrotondamento, e se un giorno vicino ha l'opposto lo dice;
+- ammanco pari agli annulli letti dalla foto: annullo in contanti, totale e contanti riportati al netto;
+- ammanco pari a una fattura pagata in contanti (metodo contanti, importo esatto, 25 giorni indietro, non già registrata): riga `pagamento_fattura` scritta con la prova; se le candidate sono più di una non si sceglie, si chiede;
+- nota della cassiera su una giornata che quadra: informazione, non anomalia;
+- **se la cassiera ha già spiegato in nota, al negozio non si riscrive**: la nota va nella mail di esito e decide chi amministra.
+
+**Il confine**: il gestionale non riscrive mai i numeri contati a mano (fondo cassa, contanti da versare). Può aggiungere una riga che un documento dimostra, correggere un campo che è copia di un documento, spegnere una segnalazione falsa. Ogni correzione lascia `undo_data` e si annulla con `undo_closing_check` (migrazione 344), dal riquadro «Controlli del gestionale» nel dettaglio di Incassi giornalieri.
+
+**Le due mail**: l'esito a chi guida e all'amministrazione in tre blocchi (da fare, sistemato, niente da fare) più le note dei negozi e il testo di quanto è stato scritto al negozio; il messaggio al negozio all'indirizzo in anagrafica outlet (ci sono tutti e sette), mittente del gestionale, rispondi-a l'amministrazione, copia nascosta a chi guida. Testi fissi per tipo di errore, in quattro pezzi: cosa si è visto, cos'era davvero, chi ha sistemato, come evitarlo.
+
+**Prove fatte** (dry run, senza scrivere né mandare niente): il 3 novembre dà «niente da fare» con Brugnato riconosciuto come falso allarme («Le ricevute sono 2 e sommano a 3.755,00 €»); il 16 ottobre dà l'arrotondamento di Franciacorta con la compensazione del 15 riconosciuta, il totale di Torino diverso dalla foto come «da fare» e la nota «Differenza teleraccolta» come informazione.
+
+**Da sapere sulla copia nascosta delle risposte**: una risposta la mette in copia chi scrive, non noi. Il negozio risponde all'amministrazione; per riceverne copia senza comparire serve un inoltro sulla casella dell'amministrazione.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?

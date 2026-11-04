@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch, Trash2, Landmark, RefreshCw, FileSpreadsheet } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Save, Loader2, Settings2, Table2, ScanSearch, Trash2, Landmark, RefreshCw, FileSpreadsheet, RotateCcw } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
@@ -37,6 +37,20 @@ interface LineBank { status: string; amount: number | null }
 interface AttachmentLite { id: string; closing_id: string; storage_path: string; kind: string; target: string; line_id: string | null; expense_id: string | null; extraction_status: string; extracted: unknown }
 interface ExpenseLite { id: string; closing_id: string; kind: string; amount: number; description: string | null; sort_order: number }
 interface BankAccountLite { id: string; bank_name: string | null; account_name: string | null }
+/** Una segnalazione presa in carico dall'istruttoria serale (migrazione 342). */
+interface ClosingCheckLite {
+  id: string; kind: string; amount: number | null; detail: string
+  outcome: 'falso_allarme' | 'sistemato' | 'da_fare' | 'informazione'
+  reason: string | null; action: string | null
+  undo_kind: string | null; undone_at: string | null
+  message_to: string | null; message_sent_at: string | null
+}
+const CHECK_OUTCOME: Record<ClosingCheckLite['outcome'], { label: string; cls: string }> = {
+  sistemato: { label: 'sistemato dal gestionale', cls: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+  falso_allarme: { label: 'niente da fare', cls: 'bg-slate-50 text-slate-600 border-slate-200' },
+  da_fare: { label: 'da fare', cls: 'bg-red-50 text-red-700 border-red-200' },
+  informazione: { label: 'nota del negozio', cls: 'bg-blue-50 text-blue-800 border-blue-200' },
+}
 
 const BUCKET = 'cash-closings'
 const ALL = 'all'
@@ -576,6 +590,9 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
   const [bankMatches, setBankMatches] = useState<Array<{ id: string; line_id: string | null; amount: number; match_type: string; reference_date: string | null; tx_date: string | null; descr: string | null }>>([])
   const [expenses, setExpenses] = useState<ExpenseLite[]>([])
   const [lineChannel, setLineChannel] = useState<Record<string, string>>({})
+  /** Esiti dell'istruttoria serale su questa giornata (migrazione 342). */
+  const [checks, setChecks] = useState<ClosingCheckLite[]>([])
+  const [undoing, setUndoing] = useState<Set<string>>(new Set())
   /** Letture rifatte da qui (pulsante "Rileggi"): sovrascrivono quelle arrivate dalla pagina. */
   const [reread, setReread] = useState<Record<string, { extraction_status: string; extracted: unknown }>>({})
   const [rereading, setRereading] = useState<Set<string>>(new Set())
@@ -596,14 +613,16 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
 
   // Spese/rimborsi e mappa riga→canale servono solo qui: si caricano all'apertura.
   useEffect(() => {
-    if (!closing) { setExpenses([]); setLineChannel({}); return }
+    if (!closing) { setExpenses([]); setLineChannel({}); setChecks([]); return }
     let cancelled = false
     ;(async () => {
-      const [eRes, lRes] = await Promise.all([
+      const [eRes, lRes, cRes] = await Promise.all([
         supabase.from('outlet_daily_closing_expenses').select('id, closing_id, kind, amount, description, sort_order').eq('closing_id', closing.id).order('sort_order'),
         supabase.from('outlet_daily_closing_lines').select('id, channel_id').eq('closing_id', closing.id),
+        supabase.from('closing_checks').select('id, kind, amount, detail, outcome, reason, action, undo_kind, undone_at, message_to, message_sent_at').eq('closing_id', closing.id).order('created_at'),
       ])
       if (cancelled) return
+      setChecks((cRes.data ?? []) as ClosingCheckLite[])
       setExpenses(((eRes.data ?? []) as ExpenseLite[]).map((e) => ({ ...e, amount: Number(e.amount) })))
       const map: Record<string, string> = {}
       for (const l of lRes.data ?? []) map[l.id] = l.channel_id
@@ -634,6 +653,22 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
     return () => { cancelled = true }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closing?.id, attachments.length])
+
+  /** Annulla una correzione fatta dall'istruttoria e rimette i valori di prima. */
+  const undoCheck = async (id: string) => {
+    setUndoing((set) => new Set(set).add(id))
+    try {
+      const { error } = await supabase.rpc('undo_closing_check', { p_check_id: id })
+      if (error) throw new Error(error.message)
+      setChecks((list) => list.map((c) => (c.id === id ? { ...c, undone_at: new Date().toISOString(), outcome: 'da_fare' } : c)))
+      toast({ type: 'success', message: 'Correzione annullata: i valori sono tornati come li aveva scritti il negozio.' })
+      await onReopened()
+    } catch (e) {
+      toast({ type: 'error', message: 'Annullo non riuscito: ' + String((e as Error).message) })
+    } finally {
+      setUndoing((set) => { const n = new Set(set); n.delete(id); return n })
+    }
+  }
 
   const reopen = async () => {
     if (!closing) return
@@ -785,6 +820,37 @@ function ClosingDetail({ outletName, date, closing, channels, lines, lineBank, a
             </div>
           )}
           {closing.notes && <div className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"><span className="text-slate-500">Note: </span>{closing.notes}</div>}
+          {checks.length > 0 && (
+            <div>
+              <div className="text-sm font-medium text-slate-700 mb-1 flex items-center gap-1"><ScanSearch size={14} />Controlli del gestionale ({checks.length})</div>
+              <div className="space-y-2">
+                {checks.map((c) => {
+                  const st = CHECK_OUTCOME[c.outcome] ?? CHECK_OUTCOME.da_fare
+                  return (
+                    <div key={c.id} className={`border rounded-lg px-3 py-2 text-xs ${st.cls}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="font-semibold">{c.detail}</span>
+                        <span className="whitespace-nowrap opacity-80">{c.undone_at ? 'correzione annullata' : st.label}</span>
+                      </div>
+                      {c.reason && <div className="mt-1 opacity-90">{c.reason}</div>}
+                      {c.action && <div className="mt-1 font-medium">{c.action}</div>}
+                      {c.message_to && (
+                        <div className="mt-1 opacity-80">
+                          {c.message_sent_at ? `Scritto al negozio (${c.message_to})` : `Messaggio al negozio non inviato (${c.message_to})`}
+                        </div>
+                      )}
+                      {canManage && c.outcome === 'sistemato' && c.undo_kind && !c.undone_at && (
+                        <button type="button" disabled={undoing.has(c.id)} onClick={() => void undoCheck(c.id)}
+                          className="mt-2 inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-300 bg-white text-slate-700 font-medium disabled:opacity-60">
+                          {undoing.has(c.id) ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}Annulla la correzione
+                        </button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           {bankMatches.length > 0 && (
             <div>
               <div className="text-sm font-medium text-slate-700 mb-1 flex items-center gap-1"><Landmark size={14} />Movimenti bancari abbinati ({bankMatches.length})</div>
