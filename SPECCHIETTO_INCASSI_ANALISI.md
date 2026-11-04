@@ -392,11 +392,13 @@ Il controllo si fa sul numero di documento, non sull'importo. Un confronto per i
 
 | gruppo | righe | euro |
 |---|---|---|
-| fattura certa (fornitore e numero scritti nella descrizione) | 54 | 2.371,88 |
+| fattura certa (fornitore e numero scritti nella descrizione) | 65 | 2.783,54 |
 | da guardare (importo e giorno combaciano, descrizione generica) | 40 | ~1.625 |
-| nessuna fattura, spesa vera | 54 | 2.441,23 |
+| nessuna fattura, spesa vera | 43 | ~2.029 |
 
-Le 54 certe sono state riclassificate da `kind = 'spesa'` a `kind = 'pagamento_fattura'` il 4 novembre 2026, con l'ok di Patrizio. Effetto misurato su NZ: la cassa non si muove (entrambi i tipi escono dal cassetto, `cash_expenses` sulle 54 giornate resta 2.371,88 € e le differenze restano a 0,00), i costi `spese_cassa` del 2026 scendono da 6.438,21 € a 4.066,33 €. Backup delle righe prima della modifica salvato in sessione. Zago non ha spese di cassa, niente da fare.
+Le 65 certe sono state riclassificate da `kind = 'spesa'` a `kind = 'pagamento_fattura'` il 4 novembre 2026, con l'ok di Patrizio: prima 54, poi le altre 11 trovate rifacendo la ricerca con il nome del fornitore oltre al numero. Effetto misurato su NZ: la cassa non si muove (entrambi i tipi escono dal cassetto, le giornate toccate restano tutte a differenza 0,00), i costi `spese_cassa` del 2026 scendono da 6.438,21 € a **3.654,67 €**. Backup delle 65 righe prima della modifica salvato in sessione. Zago non ha spese di cassa, niente da fare.
+
+**Due trappole nella ricerca**, costate un giro di verifica. Cercare solo in `payables` perde le fatture che non ci sono (AM4, Ufficio Moderno): va interrogata anche `electronic_invoices`. E scartare i numeri sotto le tre cifre perde SF_4, SF_16, SF_19, SF_84: il filtro giusto è il nome del fornitore scritto nella descrizione, non la lunghezza del numero.
 
 Le 40 «da guardare» restano come sono, per decisione di Patrizio: dentro ci sono coincidenze vere e il rischio di sbagliare non vale 1.600 €.
 
