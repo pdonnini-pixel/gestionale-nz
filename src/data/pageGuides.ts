@@ -1438,11 +1438,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "2. Spese cassa e rimborsi a cliente",
-        "body": "Ogni uscita pagata con i contanti del negozio è una riga a sé. \"Spesa cassa\" ha importo, descrizione e il pulsante per fotografare lo scontrino (facoltativo, ma senza foto potrà esserti chiesto un chiarimento). \"Rimborso a cliente\" ha importo e una nota di spiegazione obbligatoria, nessuna foto. Entrambe riducono il contante atteso in cassa. Il totale della sezione compare in alto a destra; una riga si toglie con il cestino.",
+        "body": "Ogni uscita pagata con i contanti del negozio è una riga a sé, e ci sono tre tipi. \"Spesa cassa\" ha importo, descrizione e il pulsante per fotografare lo scontrino (facoltativo, ma senza foto potrà esserti chiesto un chiarimento). \"Rimborso a cliente\" ha importo e una nota di spiegazione obbligatoria, nessuna foto. \"Fattura pagata in contanti\" serve quando con i soldi della cassa si paga la fattura di un fornitore: importo, fornitore e numero della fattura (obbligatori) e la foto della fattura; i soldi escono dal cassetto ma il costo resta quello della fattura e non viene contato due volte nei costi del negozio. Tutti e tre riducono il contante atteso in cassa. Il totale della sezione compare in alto a destra; una riga si toglie con il cestino. Importante: la spesa va scritta nella chiusura dello stesso giorno in cui si paga. Scritta giorni dopo, la cassa risulta in ammanco anche se i conti sono giusti (è il caso di Palmanova del 3 novembre 2026).",
         "steps": [
-          "Tocca \"Spesa cassa\" o \"Rimborso a cliente\" per aggiungere una riga",
-          "Scrivi importo e descrizione (per il rimborso il motivo è obbligatorio)",
-          "Per la spesa, fotografa lo scontrino con il pulsante della riga"
+          "Tocca \"Spesa cassa\", \"Rimborso a cliente\" o \"Fattura pagata in contanti\" per aggiungere una riga",
+          "Scrivi importo e descrizione (per il rimborso il motivo è obbligatorio, per la fattura fornitore e numero)",
+          "Per la spesa e per la fattura, fotografa il documento con il pulsante della riga"
         ]
       },
       {
@@ -1534,7 +1534,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/incassi-giornalieri",
     "icon": "Receipt",
     "title": "Incassi giornalieri",
-    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali corrispettivi, fatture, totale incassato, mezzi di pagamento, spese, versamenti, fondo cassa, contanti da versare, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Banca\" (super advisor e contabile) si vede il riscontro automatico con i movimenti bancari: accrediti POS e Amex per terminale, versamenti trovati, chiusure verificate. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila e i codici terminale che rendono possibile il riscontro. Compaiono solo i punti vendita che vendono: una sede o un magazzino (tipo \"Sede / magazzino\" nella scheda outlet) resta fuori da questa pagina e da Chiusura cassa.",
+    "description": "La pagina Incassi giornalieri è la vista amministrativa dello specchietto incassi: mostra mese per mese le chiusure di cassa dei punti vendita (totali corrispettivi, fatture, totale incassato, mezzi di pagamento, spese, versamenti, fondo cassa, contanti da versare, differenze, foto degli scontrini), evidenzia i giorni mancanti e permette di riaprire una chiusura confermata. Nella scheda \"Banca\" (super advisor e contabile) si vede il riscontro automatico con i movimenti bancari: accrediti POS e Amex per terminale, versamenti trovati, chiusure verificate. Nel dettaglio di ogni giornata ci sono anche i \"Controlli del gestionale\": le segnalazioni già prese in carico, con l'esito, la prova e il pulsante per annullare una correzione. Nella scheda \"Canali di incasso\" si configurano le colonne che ogni cassiera compila e i codici terminale che rendono possibile il riscontro. Compaiono solo i punti vendita che vendono: una sede o un magazzino (tipo \"Sede / magazzino\" nella scheda outlet) resta fuori da questa pagina e da Chiusura cassa.",
     "sections": [
       {
         "heading": "Riepilogo del mese",
@@ -1545,6 +1545,15 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Se la giornata è in bozza, \"Apri per modificare\" porta alla pagina Chiusura cassa di quel giorno e punto vendita",
           "Il super advisor ha anche \"Cancella giornata\": dopo una conferma esplicita cancella importi, spese, rimborsi, foto e il ricavo giornaliero proiettato, così la giornata torna vuota e può essere reinserita da zero; resta una notifica di traccia con chi, quando e il motivo",
           "Se la giornata manca, \"Compila la chiusura\" apre la stessa pagina per inserirla"
+        ]
+      },
+      {
+        "heading": "Controlli del gestionale",
+        "body": "Nel dettaglio di una giornata, sotto le note, compare il riquadro \"Controlli del gestionale\": sono le segnalazioni di quella chiusura dopo che il gestionale le ha prese in carico, una per riga, con l'esito. \"Sistemato dal gestionale\" (verde) vuol dire che ha trovato il documento che spiegava la differenza e ha scritto la correzione: accanto c'è la prova e, per super advisor e contabile, il pulsante \"Annulla la correzione\", che rimette i valori come li aveva scritti il negozio e riporta la segnalazione fra le cose da fare. \"Niente da fare\" (grigio) è un falso allarme con il motivo: per esempio due ricevute di versamento che insieme fanno la cifra scritta, o una differenza di cassa di pochi centesimi che si compensa con il giorno vicino. \"Da fare\" (rosso) resta a una persona, e sotto c'è cosa il gestionale ha già guardato. \"Nota del negozio\" (azzurro) è la spiegazione della cassiera su una giornata che quadra. Se per quella segnalazione è stato scritto al negozio, la riga lo dice con l'indirizzo. L'istruttoria gira da sé la sera, dopo il report, e la mattina dopo per la giornata precedente.",
+        "steps": [
+          "Apri la giornata dal calendario o dalla tabella del mese",
+          "Scorri fino a \"Controlli del gestionale\"",
+          "Se una correzione non ti convince, premi \"Annulla la correzione\""
         ]
       },
       {

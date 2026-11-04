@@ -154,13 +154,29 @@ export function depositPhotoBelongs(photoDepositId: string | null | undefined, d
   return depositId === firstDepositId
 }
 
-/** Riga di uscita in contanti: spesa cassa (con scontrino) o rimborso a cliente (solo nota). */
-export type ExpenseKind = 'spesa' | 'rimborso_cliente'
+/**
+ * Riga di uscita in contanti: spesa cassa (con scontrino), rimborso a cliente
+ * (solo nota) o pagamento di una fattura del fornitore con i contanti della
+ * cassa (migrazione 341).
+ *
+ * I tre tipi escono tutti dal cassetto e abbassano il contante atteso, ma solo
+ * la spesa cassa è un costo dell'outlet: il pagamento di una fattura è soldi
+ * che escono per un costo già registrato nella fattura, quindi contarlo anche
+ * qui lo conterebbe due volte (v_costi_outlet_da_fatture prende solo 'spesa').
+ *
+ * Nato da Palmanova, 3 novembre 2026: in cassa mancavano 75,84 €, erano la
+ * fattura RICA GEST del 28 ottobre pagata in contanti e non scritta.
+ */
+export type ExpenseKind = 'spesa' | 'rimborso_cliente' | 'pagamento_fattura'
 
 export const EXPENSE_KIND_LABELS: Record<ExpenseKind, string> = {
   spesa: 'Spesa cassa',
   rimborso_cliente: 'Rimborso a cliente',
+  pagamento_fattura: 'Fattura pagata in contanti',
 }
+
+/** I tipi che escono dalla cassa come una spesa (tutti tranne il rimborso). */
+export const EXPENSE_KINDS_OUT: ExpenseKind[] = ['spesa', 'pagamento_fattura']
 
 export interface ClosingExpense {
   id: string

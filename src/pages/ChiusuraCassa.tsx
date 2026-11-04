@@ -40,7 +40,7 @@ import {
   parseAmount, formatAmount, formatEuro, computeQuadrature, todayIso, addDaysIso, monthDays,
   formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount, extractedNumber,
   eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type DeviationLine,
-  closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected,
+  closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected, EXPENSE_KINDS_OUT,
   type ClosingBlocker, type ClosingBlockField, type CancelledCashFix,
   type DepositDraft, depositTotals, depositPhotoBelongs, BANK_STATUS_LABELS, bankStatusMark, type BankStatus,
 } from '../lib/cashClosings'
@@ -267,7 +267,7 @@ export default function ChiusuraCassa() {
   }, [attachments])
 
   // ─── Quadratura in tempo reale ────────────────────────────────────────
-  const expensesTotal = useMemo(() => expenses.filter((e) => e.kind === 'spesa').reduce((s, e) => s + (parseAmount(e.amount) ?? 0), 0), [expenses])
+  const expensesTotal = useMemo(() => expenses.filter((e) => EXPENSE_KINDS_OUT.includes(e.kind)).reduce((s, e) => s + (parseAmount(e.amount) ?? 0), 0), [expenses])
   const refundsTotal = useMemo(() => expenses.filter((e) => e.kind === 'rimborso_cliente').reduce((s, e) => s + (parseAmount(e.amount) ?? 0), 0), [expenses])
   const quad = useMemo(() => computeQuadrature({
     totalReceipts: form.isClosedDay ? 0 : parseAmount(form.total) ?? 0,
@@ -553,6 +553,10 @@ export default function ChiusuraCassa() {
     }
     if (expenses.some((e) => e.kind === 'rimborso_cliente' && !e.description.trim())) {
       toast({ type: 'warning', message: 'Ogni rimborso a cliente deve avere una nota di spiegazione.' })
+      return
+    }
+    if (expenses.some((e) => e.kind === 'pagamento_fattura' && !e.description.trim())) {
+      toast({ type: 'warning', message: 'Per una fattura pagata in contanti scrivi fornitore e numero della fattura.' })
       return
     }
     if (!force && !form.isClosedDay) {
@@ -1062,21 +1066,25 @@ export default function ChiusuraCassa() {
                 {expenses.length === 0 && <p className="text-xs text-slate-500">Nessuna uscita pagata con i contanti del negozio.</p>}
                 {expenses.map((e, i) => {
                   const isRefund = e.kind === 'rimborso_cliente'
+                  const isInvoice = e.kind === 'pagamento_fattura'
+                  const cornice = isRefund ? 'border-violet-200 bg-violet-50/30' : isInvoice ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200'
+                  const etichetta = isRefund ? 'bg-violet-100 text-violet-800' : isInvoice ? 'bg-amber-100 text-amber-900' : 'bg-slate-100 text-slate-700'
                   return (
-                    <div key={e.id} className={`border rounded-xl p-3 space-y-2 ${isRefund ? 'border-violet-200 bg-violet-50/30' : 'border-slate-200'}`}>
+                    <div key={e.id} className={`border rounded-xl p-3 space-y-2 ${cornice}`}>
                       <div className="flex items-center gap-2">
                         <span className="text-xs text-slate-400 w-5">{i + 1}.</span>
-                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${isRefund ? 'bg-violet-100 text-violet-800' : 'bg-slate-100 text-slate-700'}`}>{EXPENSE_KIND_LABELS[e.kind]}</span>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${etichetta}`}>{EXPENSE_KIND_LABELS[e.kind]}</span>
                         <div className="flex-1" />
                         {editable && <button type="button" onClick={() => void removeExpense(e.id)} title="Togli la riga" className="p-2 text-red-600 rounded-lg hover:bg-red-50"><Trash2 size={18} /></button>}
                       </div>
                       <input inputMode="decimal" value={e.amount} disabled={!editable} onChange={(ev) => updateExpense(e.id, { amount: ev.target.value })} placeholder="0,00" className={inputCls} />
                       <input value={e.description} disabled={!editable} onChange={(ev) => updateExpense(e.id, { description: ev.target.value })}
-                        placeholder={isRefund ? 'Motivo del rimborso (obbligatorio)' : 'Descrizione (es. cancelleria)'}
-                        className={`${textCls} ${isRefund && !e.description.trim() ? 'border-red-300' : ''}`} />
+                        placeholder={isRefund ? 'Motivo del rimborso (obbligatorio)' : isInvoice ? 'Fornitore e numero della fattura (obbligatorio)' : 'Descrizione (es. cancelleria)'}
+                        className={`${textCls} ${(isRefund || isInvoice) && !e.description.trim() ? 'border-red-300' : ''}`} />
                       {isRefund
                         ? <p className="text-[11px] text-slate-500">Nessuna foto richiesta: basta la spiegazione.</p>
                         : <PhotoStrip t={{ target: 'spesa', expenseId: e.id }} />}
+                      {isInvoice && <p className="text-[11px] text-amber-800">Fattura di un fornitore pagata con i contanti della cassa: i soldi escono dal cassetto, il costo resta quello della fattura e non viene contato due volte.</p>}
                     </div>
                   )
                 })}
@@ -1084,6 +1092,7 @@ export default function ChiusuraCassa() {
                   <div className="grid grid-cols-2 gap-2">
                     <button type="button" onClick={() => void addExpense('spesa')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-slate-300 text-slate-700 text-sm font-medium hover:bg-slate-50"><Plus size={16} />Spesa cassa</button>
                     <button type="button" onClick={() => void addExpense('rimborso_cliente')} className="flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-violet-300 text-violet-800 text-sm font-medium hover:bg-violet-50"><Plus size={16} />Rimborso a cliente</button>
+                    <button type="button" onClick={() => void addExpense('pagamento_fattura')} className="col-span-2 flex items-center justify-center gap-2 py-3 rounded-xl border border-dashed border-amber-300 text-amber-900 text-sm font-medium hover:bg-amber-50"><Plus size={16} />Fattura pagata in contanti</button>
                   </div>
                 )}
               </section>
