@@ -378,6 +378,10 @@ Le regole di riconoscimento, tutte nate da casi veri:
 
 **Prove fatte** (dry run, senza scrivere né mandare niente): il 3 novembre dà «niente da fare» con Brugnato riconosciuto come falso allarme («Le ricevute sono 2 e sommano a 3.755,00 €»); il 16 ottobre dà l'arrotondamento di Franciacorta con la compensazione del 15 riconosciuta, il totale di Torino diverso dalla foto come «da fare» e la nota «Differenza teleraccolta» come informazione.
 
+**Due cose imparate mandando la prima mail vera** (4 novembre): il saluto non si indovina dalla stringa di chi ha chiuso («Astuti Marina» dava «Ciao Astuti»), si cerca quale parola è un nome vero in anagrafica dipendenti e, se non si trova, si saluta senza nome; e la nota citata nel messaggio va tagliata alle righe che il gestionale aggiunge dopo («[gg/mm/aaaa …»), altrimenti il negozio riceve un testo illeggibile. Le edge function non hanno un controllo di tipi in CI: prima di pubblicarle conviene passarle da `tsc` con un tsconfig isolato, che avrebbe intercettato una variabile usata fuori dal suo blocco.
+
+**Prima istruttoria vera, 4 novembre sul 3 novembre**: la mail di esito è partita alle 11:00 (1 falso allarme, 1 nota) e, dopo la prova end-to-end, una seconda alle 11:34 con l'esito completo (1 sistemata, 1 falso allarme, 1 messaggio). Palmanova: riga `pagamento_fattura` da 75,84 € scritta dal gestionale, cassa da −75,84 € a 0,00, costi `spese_cassa` 2026 invariati a 6.438,21 €, messaggio inviato a `palmanovaoutlet@vicolo.com` con risposta all'amministrazione.
+
 **Da sapere sulla copia nascosta delle risposte**: una risposta la mette in copia chi scrive, non noi. Il negozio risponde all'amministrazione; per riceverne copia senza comparire serve un inoltro sulla casella dell'amministrazione.
 
 ## 5. decisioni che servono da Patrizio

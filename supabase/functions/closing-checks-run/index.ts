@@ -82,14 +82,29 @@ function giorniPrima(iso: string, n: number): string {
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
 }
-/** Primo nome di chi ha chiuso, per il saluto: «Astuti Marina» → «Marina». */
-function nomeDiSaluto(closedBy: string | null): string | null {
+/**
+ * Nome di battesimo di chi ha chiuso, per il saluto. Nelle chiusure si trova
+ * sia «Marina Astuti» sia «Astuti Marina», quindi non si indovina: si cerca
+ * quale parola è un nome vero nell'anagrafica dipendenti. Se nessuna lo è, si
+ * saluta senza nome: meglio «Ciao,» che chiamare qualcuno col cognome.
+ */
+function nomeDiSaluto(closedBy: string | null, nomiVeri: Set<string>): string | null {
   const parti = (closedBy ?? "").trim().split(/[\s,]+/).filter(Boolean);
-  if (parti.length === 0) return null;
-  // Nelle chiusure si trova sia «Marina Astuti» sia «Astuti Marina»: senza
-  // anagrafica non si indovina, quindi si usa l'ultima parola se la prima
-  // sembra un cognome scritto per primo (tutto maiuscolo o seguito da nome).
-  return parti.length > 1 && parti[0] === parti[0].toUpperCase() ? parti[parti.length - 1] : parti[0];
+  for (const p of parti) {
+    const chiave = p.toLowerCase();
+    if (nomiVeri.has(chiave)) return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+  }
+  return null;
+}
+
+/**
+ * La nota come l'ha scritta la cassiera, senza le righe che il gestionale
+ * aggiunge dopo (cominciano con «[gg/mm/aaaa»): citarle nel messaggio al
+ * negozio lo renderebbe illeggibile.
+ */
+function notaDellaCassiera(notes: string | null): string {
+  const pulita = (notes ?? "").split(/\[\d{2}\/\d{2}\/\d{4}/)[0].trim();
+  return pulita.length > 220 ? `${pulita.slice(0, 217)}…` : pulita;
 }
 
 // ─── Tipi ────────────────────────────────────────────────────────────────
@@ -124,6 +139,8 @@ interface Check {
   outlet: Outlet; closing: Closing | null;
   kind: Kind; amount: number | null; detail: string; fingerprint: string;
   outcome: Outcome; reason: string | null; action: string | null;
+  /** Versione corta e senza tecnicismi, per il messaggio al negozio. */
+  reasonBreve?: string | null;
   undo_kind: "expense_row" | "fields" | null; undo_data: Record<string, unknown> | null;
   lezione: Lezione;
 }
@@ -141,12 +158,13 @@ function testoLezione(l: Lezione, c: Check, nome: string | null): string | null 
   if (!l || !c.closing) return null;
   const saluto = nome ? `Ciao ${nome},` : "Ciao,";
   const giorno = dataIt(c.closing.closing_date);
+  const perche = c.reasonBreve ?? c.reason ?? "";
   const firma = "\n\nSe qualcosa non ti torna rispondi a questa mail: la risposta arriva all'amministrazione.\n\nGrazie,\nGestionale New Zago";
   switch (l) {
     case "spesa_in_ritardo":
-      return `${saluto}\n\nnella chiusura del ${giorno} in cassa mancavano ${eur(Math.abs(num(c.amount)))}. ${c.reason ?? ""}\n\n${c.action ?? ""} La cassa adesso torna e tu non devi fare niente.\n\nPer le prossime volte: quando paghi qualcosa con i contanti della cassa, scrivila nella chiusura dello stesso giorno, al punto 2 «Spese pagate con i contanti», e fai la foto della fattura o dello scontrino. Non serve ricordare la cifra, basta la foto. Se la spesa si scrive giorni dopo, la cassa risulta in ammanco anche quando i conti sono giusti.${firma}`;
+      return `${saluto}\n\nnella chiusura del ${giorno} in cassa mancavano ${eur(Math.abs(num(c.amount)))}. ${perche}\n\n${c.action ?? ""} La cassa adesso torna e tu non devi fare niente.\n\nPer le prossime volte: quando paghi qualcosa con i contanti della cassa, scrivila nella chiusura dello stesso giorno, al punto 2 «Spese pagate con i contanti», e fai la foto della fattura o dello scontrino. Non serve ricordare la cifra, basta la foto. Se la spesa si scrive giorni dopo, la cassa risulta in ammanco anche quando i conti sono giusti.${firma}`;
     case "annullo_nel_totale":
-      return `${saluto}\n\nnella chiusura del ${giorno} c'era una differenza di ${eur(Math.abs(num(c.amount)))}, uguale agli annulli segnati sullo scontrino di chiusura. ${c.reason ?? ""}\n\n${c.action ?? ""} Adesso torna tutto.\n\nPer le prossime volte: quando annulli uno scontrino pagato in contanti, nel punto 1 scrivi il totale e i contanti al netto dell'annullo, cioè solo i soldi che sono entrati davvero, e spiega in nota com'è andata. Lo scontrino del registratore quegli annulli li tiene ancora dentro.${firma}`;
+      return `${saluto}\n\nnella chiusura del ${giorno} c'era una differenza di ${eur(Math.abs(num(c.amount)))}, uguale agli annulli segnati sullo scontrino di chiusura. ${perche}\n\n${c.action ?? ""} Adesso torna tutto.\n\nPer le prossime volte: quando annulli uno scontrino pagato in contanti, nel punto 1 scrivi il totale e i contanti al netto dell'annullo, cioè solo i soldi che sono entrati davvero, e spiega in nota com'è andata. Lo scontrino del registratore quegli annulli li tiene ancora dentro.${firma}`;
     case "campo_diverso_dalla_foto":
       return `${saluto}\n\nnella chiusura del ${giorno} un numero scritto non combacia con la foto: ${c.detail}\n\nControlla con il documento in mano e, se serve, chiedi all'amministrazione di riaprire la giornata.\n\nPer le prossime volte: dopo aver fatto la foto, controlla che il numero scritto sia quello del documento. Il gestionale legge le foto e propone i numeri nei campi vuoti, ma l'ultima parola è la tua.${firma}`;
     case "chiusura_in_bozza":
@@ -177,7 +195,7 @@ function oggettoLezione(c: Check): string {
 // ─── L'istruttoria ──────────────────────────────────────────────────────
 async function istruisci(
   admin: SupabaseClient, s: Settings, date: string, dryRun: boolean,
-): Promise<{ checks: Check[]; outlets: number; chiusure: number }> {
+): Promise<{ checks: Check[]; outlets: number; chiusure: number; nomiVeri: Set<string> }> {
   const [{ data: outletRows }, { data: closingRows }, { data: channelRows }] = await Promise.all([
     admin.from("outlets").select("id, name, email").eq("company_id", s.company_id),
     admin.from("outlet_daily_closings")
@@ -202,6 +220,14 @@ async function istruisci(
   const atts = (attRows ?? []) as Att[];
   const expenses = (expRows ?? []) as Expense[];
 
+  // I nomi di battesimo veri, per salutare chi ha chiuso col suo nome e non
+  // col cognome: «Astuti Marina» → Marina.
+  const { data: nomiRows } = await admin.from("employees").select("nome, first_name").eq("company_id", s.company_id);
+  const nomiVeri = new Set(((nomiRows ?? []) as Array<{ nome: string | null; first_name: string | null }>)
+    .flatMap((r) => [r.nome, r.first_name])
+    .filter((n): n is string => !!n && n.trim().length > 1)
+    .map((n) => n.trim().toLowerCase()));
+
   const checks: Check[] = [];
 
   for (const outlet of outlets) {
@@ -213,7 +239,7 @@ async function istruisci(
     const mieSpese = expenses.filter((e) => e.closing_id === c.id);
     const letteDi = (target: string) => mieFoto.filter((a) => a.target === target && ["letta", "da_rivedere"].includes(a.extraction_status ?? ""));
     const rigaContanti = mieLinee.find((l) => channels.get(l.channel_id)?.kind === "contanti");
-    const nota = (c.notes ?? "").trim();
+    const nota = notaDellaCassiera(c.notes);
     const quadra = Math.abs(num(c.receipts_difference)) < 0.005 && (c.cash_difference == null || Math.abs(num(c.cash_difference)) < 0.005);
     void mieSpese;
     // Se la cassiera ha scritto una nota, quella spiegazione basta: non le si
@@ -314,6 +340,7 @@ async function istruisci(
           detail: `totale incassato e somma dei mezzi di pagamento non quadrano (differenza ${eur(diffCorr)})`,
           outcome: "sistemato",
           reason: `Lo scontrino di chiusura segna ${eur(annulli)} di annulli, esattamente la differenza: il totale era scritto lordo.`,
+          reasonBreve: "Il totale era scritto compresi gli annulli, che invece non sono soldi incassati.",
           action, undo_kind: "fields", undo_data: { total_receipts: prima },
           lezione: "annullo_nel_totale",
         });
@@ -369,6 +396,7 @@ async function istruisci(
           detail: `contante in cassa in ammanco di ${eur(Math.abs(diffCassa))}`,
           outcome: "sistemato",
           reason: `Lo scontrino di chiusura segna ${eur(annulli)} di annulli, esattamente la cifra che manca: lo scontrino annullato era in contanti, quindi quei soldi non sono mai entrati.`,
+          reasonBreve: "Lo scontrino annullato era in contanti, quindi quei soldi non sono mai entrati in cassa.",
           action, undo_kind: "fields", undo_data: { total_receipts: totPrima, line_id: rigaContanti.id, line_amount: cashPrima },
           lezione: "annullo_nel_totale",
         });
@@ -401,7 +429,8 @@ async function istruisci(
               detail: `contante in cassa in ammanco di ${eur(Math.abs(diffCassa))}`,
               outcome: "sistemato",
               reason: `È la fattura ${f.supplier_name ?? ""} ${f.invoice_number ?? ""} del ${dataIt(f.invoice_date)}, ${eur(num(f.gross_amount))}, pagata in contanti e già segnata come pagata ai fornitori${nota ? `; la cassiera l'aveva scritto in nota: «${nota}»` : ""}.`.replace(/\s+/g, " "),
-              action: "Registrata come fattura pagata con i contanti della cassa: la cassa quadra e il costo non viene contato due volte.",
+              reasonBreve: `Avevi ragione: era la fattura ${f.supplier_name ?? "del fornitore"} ${f.invoice_number ?? ""} del ${dataIt(f.invoice_date)}, pagata con i contanti della cassa.`.replace(/\s+/g, " "),
+              action: "L'abbiamo registrata noi come fattura pagata in contanti.",
               undo_kind: "expense_row", undo_data: { payable_id: f.id, amount: importo, description: descr },
               lezione: "spesa_in_ritardo",
             });
@@ -443,7 +472,7 @@ async function istruisci(
     }
   }
 
-  return { checks, outlets: outlets.length, chiusure: closings.filter((c) => !c.is_closed_day).length };
+  return { checks, outlets: outlets.length, chiusure: closings.filter((c) => !c.is_closed_day).length, nomiVeri };
 }
 
 // ─── La mail di esito ───────────────────────────────────────────────────
@@ -563,7 +592,7 @@ Deno.serve(async (req) => {
     if (!setRow) return jsonError(404, "Impostazioni del report non trovate", "NO_SETTINGS");
     const s = setRow as Settings;
 
-    const { checks, outlets, chiusure } = await istruisci(admin, s, date, dryRun);
+    const { checks, outlets, chiusure, nomiVeri } = await istruisci(admin, s, date, dryRun);
 
     // Le segnalazioni restano scritte accanto alla giornata, con la prova.
     if (!dryRun && checks.length > 0) {
@@ -594,7 +623,7 @@ Deno.serve(async (req) => {
           messaggi.push({ outlet: outlet.name, to: "(indirizzo mancante in anagrafica)", subject: "", text: "", error: "il negozio non ha un indirizzo mail in anagrafica" });
           continue;
         }
-        const nome = nomeDiSaluto(lista[0].closing?.closed_by_name ?? null);
+        const nome = nomeDiSaluto(lista[0].closing?.closed_by_name ?? null, nomiVeri);
         const testi = lista.map((c) => testoLezione(c.lezione, c, nome)).filter((t): t is string => !!t);
         if (testi.length === 0) continue;
         const subject = oggettoLezione(lista[0]);
