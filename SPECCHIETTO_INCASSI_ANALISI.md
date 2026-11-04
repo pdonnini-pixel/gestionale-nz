@@ -406,6 +406,20 @@ Le 40 «da guardare» restano come sono, per decisione di Patrizio: dentro ci so
 
 **Regola che ne esce**: una fattura pagata in contanti dal negozio va scritta in chiusura come «fattura pagata in contanti», non come spesa. È il punto 2 di Chiusura cassa e l'istruttoria serale lo sa fare da sé quando la nota della cassiera cita il numero di fattura.
 
+### 4g. il metodo di pagamento delle fatture pagate in contanti (4 novembre 2026)
+
+Delle fatture agganciate alle righe «fattura pagata in contanti», 48 risultavano pagate per **bonifico ordinario senza nessun movimento bancario**, per 1.735,29 €. Non era un errore di chi lavora: in `payable_actions` 43 righe portano azione «payment», operatore **«go-live»**, nota «pagamento go live», data **17/06/2026**, e le altre 5 le ha chiuse il file di riconciliazione di Sabrina il 9 luglio lasciando il metodo com'era. Al caricamento iniziale tutto il pregresso già pagato è stato chiuso in blocco con «bonifico ordinario» come valore di comodo, e la data di pagamento di tutte era il 17 giugno.
+
+Il guaio è più largo delle nostre 48: in tutto il gestionale le fatture «pagate per bonifico» senza movimento in banca erano **404 per 295.978,45 €**, di cui 345 (230.376,84 €) dal go-live. Restano 356 dopo questa correzione, e vanno affrontate a parte: lì il rischio è l'opposto, cambiare il metodo a una fattura pagata davvero per bonifico che il riscontro notturno non ha ancora agganciato.
+
+**Impatto sulla contabilità già chiusa: nessuno**, e si può dimostrare. Il costo lo registra lo studio dalla fattura elettronica, una volta sola. Il metodo di pagamento arriva al commercialista solo attraverso il foglio «Pagamenti fornitori» della Prima Nota, che esiste da metà settembre 2026 e riporta i pagamenti per mese: quelle 48 avevano data giugno, quindi non sono mai state in un foglio consegnato (se si rigenerasse giugno usciva «Senza riscontro»). Le chiusure di cassa da gennaio ad agosto, poi, sono entrate nel database il 15 e 16 settembre a cose fatte: prima di settembre il gestionale non aveva nessuna cassa giornaliera. Quello che resta aperto è nei libri dello studio, non qui: come sono state chiuse quelle 48 partite fornitore, dato che dalla banca non potevano.
+
+**Cosa è stato fatto il 4 novembre**, con l'ok di Patrizio:
+1. le 48 fatture hanno metodo «contanti», la data di pagamento vera della chiusura invece del 17 giugno, una nota che dice da quale negozio e da quale chiusura, e una riga in `payable_actions` con quello che c'era prima;
+2. migrazione 345: `allinea_fattura_da_cassa(expense_id)` lo fa da sé nei due versi (chiude la fattura ancora aperta, corregge il metodo di quella già pagata senza riscontro in banca), un trigger la chiama appena il negozio salva la riga e un cron notturno (`allinea-fatture-contanti`, 03:35) ripassa gli ultimi 60 giorni, perché la fattura elettronica arriva spesso dopo il pagamento.
+
+**Due recinti nel codice della 345**, che sono la parte importante: una fattura con `bank_transaction_id` non si tocca mai, perché quello è un pagamento vero; e per **chiudere** una fattura aperta servono due segnali insieme (nome del fornitore e numero di documento nella descrizione), mentre per correggere solo il metodo di una già pagata ne basta uno. Se i candidati sono più di uno non si fa niente: due fornitori con lo stesso importo nello stesso giorno capitano davvero.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?
