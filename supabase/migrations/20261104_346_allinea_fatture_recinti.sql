@@ -21,11 +21,24 @@
 -- 3. CHIUDERE UNA FATTURA APERTA E' LA COSA PIU' DELICATA, perche' la riga la
 --    scrive la cassiera, che su payables non ha nessun permesso, e dopo la
 --    chiusura il fornitore risulta pagato. Adesso serve tutto questo insieme:
---    chiusura di cassa «verificata» (il passaggio di una persona), stato della
---    fattura fra da_pagare, in_scadenza e scaduto, nessuna distinta di
---    pagamento che la contenga, nessuna rata, e il negozio della fattura, se
---    c'e' scritto, uguale a quello della cassa. Il controllo che resta e' la
---    cassa stessa: una riga finta lascia un ammanco che l'istruttoria segnala.
+--    chiusura di cassa «verificata», CASSA CHE TORNA (differenza entro un
+--    euro), stato della fattura fra da_pagare, in_scadenza e scaduto, nessuna
+--    distinta di pagamento che la contenga, nessuna rata, e il negozio della
+--    fattura, se c'e' scritto, uguale a quello della cassa.
+--    Attenzione a cosa vuol dire «verificata»: NON e' il passaggio di una
+--    persona. Lo scrive il riscontro bancario notturno (status = 'verificata',
+--    bank_verified_at, migrazioni 188, 192, 195, 197, 224, 238, 338), che
+--    guarda i versamenti e gli accrediti, non le spese. Il recinto vero e'
+--    quello della cassa: una riga finta per chiudere la fattura di un
+--    fornitore lascia un ammanco nel cassetto, e con l'ammanco la fattura non
+--    si chiude piu'. Chi scrive la riga deve aver davvero tirato fuori i
+--    soldi.
+
+-- DIPENDE DALLA 345: la 346 ridefinisce le due funzioni di allineamento, ma
+-- il trigger sulla riga di spesa, il cron «allinea-fatture-contanti», i
+-- COMMENT e la funzione trg_allinea_fattura_da_cassa stanno nella 345. Su un
+-- tenant nuovo si applicano in ordine, 345 e poi 346: la 346 da sola fallisce
+-- sul REVOKE di una funzione che non esiste ancora.
 --
 -- 4. SEGNALE TROPPO DEBOLE. Il nome bastava con due caratteri, e fornitori che
 --    iniziano con «IL», «LA», «DI» combaciavano con quasi qualunque testo. Per
@@ -69,7 +82,8 @@ DECLARE
   v_azione text;
 BEGIN
   SELECT x.id, x.company_id, x.outlet_id, x.amount, coalesce(x.description, '') AS descr,
-         d.closing_date, coalesce(d.status, '') AS stato_chiusura, coalesce(o.name, '') AS negozio,
+         d.closing_date, coalesce(d.status, '') AS stato_chiusura,
+         coalesce(d.cash_difference, 0) AS differenza_cassa, coalesce(o.name, '') AS negozio,
          upper(regexp_replace(coalesce(x.description, ''), '[^A-Za-z0-9]', '', 'g')) AS desc_norm,
          regexp_replace(coalesce(x.description, ''), '\D', '', 'g') AS desc_cifre
     INTO e
@@ -144,6 +158,12 @@ BEGIN
     END IF;
     IF e.stato_chiusura <> 'verificata' THEN
       RETURN jsonb_build_object('esito', 'aperta_ma_chiusura_non_verificata', 'payable_id', v_pay.id);
+    END IF;
+    -- Il recinto che conta: se la cassa di quel giorno non torna, i soldi
+    -- potrebbero non essere usciti davvero, e la fattura non si chiude.
+    IF abs(e.differenza_cassa) > 1.00 THEN
+      RETURN jsonb_build_object('esito', 'aperta_ma_cassa_non_torna', 'payable_id', v_pay.id,
+                                'differenza', e.differenza_cassa);
     END IF;
     IF v_pay.status::text NOT IN ('da_pagare', 'in_scadenza', 'scaduto') THEN
       RETURN jsonb_build_object('esito', 'aperta_ma_stato_da_guardare',
@@ -223,7 +243,8 @@ BEGIN
       ELSIF v_esito->>'esito' = 'metodo_corretto' THEN v_corrette := v_corrette + 1;
       ELSIF v_esito->>'esito' = 'data_corretta' THEN v_date := v_date + 1;
       ELSIF v_esito->>'esito' IN ('piu_di_una', 'aperta_ma_segnale_debole', 'segnale_troppo_debole',
-                                  'aperta_ma_chiusura_non_verificata', 'aperta_ma_stato_da_guardare')
+                                  'aperta_ma_chiusura_non_verificata', 'aperta_ma_stato_da_guardare',
+                                  'aperta_ma_cassa_non_torna')
         THEN v_dubbie := v_dubbie + 1;
       END IF;
     EXCEPTION WHEN OTHERS THEN

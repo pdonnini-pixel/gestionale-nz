@@ -10,6 +10,10 @@
 --    WHERE action_type IN ('chiusa_in_contanti', 'metodo_corretto', 'data_corretta', 'correzione_metodo')
 --    ORDER BY performed_at DESC;
 
+-- Prima di questo va fatto il ROLLBACK della 346: il suo trigger
+-- allinea_chiusura_confermata chiama allinea_fattura_da_cassa, e se la
+-- funzione non c'e' piu' ogni conferma di chiusura lascia un warning.
+
 SELECT cron.unschedule('allinea-fatture-contanti');
 
 BEGIN;

@@ -23,7 +23,9 @@
 --          descrizione, o viceversa («fatt 550 dx srl» -> 120260000000550).
 -- Con tutti e due i segnali si puo' anche CHIUDERE una fattura aperta; con uno
 -- solo si corregge soltanto il metodo di una fattura gia' pagata, che non
--- muove soldi. Se i candidati sono piu' di uno, non si tocca niente: due
+-- muove soldi. (Dalla 346 anche per il solo metodo serve il numero di
+-- documento oppure un nome di almeno quattro caratteri: due caratteri
+-- combaciavano con quasi qualunque descrizione.) Se i candidati sono piu' di uno, non si tocca niente: due
 -- fornitori con lo stesso importo nello stesso giorno capitano davvero
 -- (LAVANDERIA LA PIUMA 36,50 e un ristorante, aprile 2026).
 --

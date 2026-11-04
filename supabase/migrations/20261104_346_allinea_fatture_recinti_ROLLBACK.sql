@@ -8,7 +8,13 @@
 --
 -- Le due funzioni di allineamento restano nella versione con i recinti. Per
 -- tornare alla versione larga della 345 si riapplica quel file, ma prima si
--- legga perche' i recinti ci sono (testa della 346).
+-- legga perche' i recinti ci sono (testa della 346). E attenzione: la 345
+-- contiene un GRANT EXECUTE ... TO authenticated, quindi riapplicarla riapre
+-- le funzioni a chi ha un login. Dopo averla riapplicata va rifatto il REVOKE:
+--   REVOKE ALL ON FUNCTION public.allinea_fattura_da_cassa(uuid)
+--     FROM PUBLIC, anon, authenticated;
+--   REVOKE ALL ON FUNCTION public.allinea_fatture_pagate_in_contanti(integer)
+--     FROM PUBLIC, anon, authenticated;
 
 BEGIN;
 
