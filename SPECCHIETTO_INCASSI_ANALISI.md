@@ -384,6 +384,26 @@ Le regole di riconoscimento, tutte nate da casi veri:
 
 **Da sapere sulla copia nascosta delle risposte**: una risposta la mette in copia chi scrive, non noi. Il negozio risponde all'amministrazione; per riceverne copia senza comparire serve un inoltro sulla casella dell'amministrazione.
 
+### 4f. le spese di cassa che erano fatture (controllo del 4 novembre 2026)
+
+Le 148 spese di cassa del 2026 valevano 6.438,21 € e finivano tutte nei costi per outlet come «spese_cassa». Molte però erano il pagamento in contanti di una fattura già registrata: lo stesso costo contato due volte, una dal fornitore e una dalla cassa.
+
+Il controllo si fa sul numero di documento, non sull'importo. Un confronto per importo e data dà coincidenze false: due fornitori diversi, stessa cifra, stesso giorno. Confrontando le cifre scritte nella descrizione della spesa con i numeri di fattura in `payables` e in `electronic_invoices`, con lo stesso importo, le 148 righe si dividono così:
+
+| gruppo | righe | euro |
+|---|---|---|
+| fattura certa (fornitore e numero scritti nella descrizione) | 54 | 2.371,88 |
+| da guardare (importo e giorno combaciano, descrizione generica) | 40 | ~1.625 |
+| nessuna fattura, spesa vera | 54 | 2.441,23 |
+
+Le 54 certe sono state riclassificate da `kind = 'spesa'` a `kind = 'pagamento_fattura'` il 4 novembre 2026, con l'ok di Patrizio. Effetto misurato su NZ: la cassa non si muove (entrambi i tipi escono dal cassetto, `cash_expenses` sulle 54 giornate resta 2.371,88 € e le differenze restano a 0,00), i costi `spese_cassa` del 2026 scendono da 6.438,21 € a 4.066,33 €. Backup delle righe prima della modifica salvato in sessione. Zago non ha spese di cassa, niente da fare.
+
+Le 40 «da guardare» restano come sono, per decisione di Patrizio: dentro ci sono coincidenze vere e il rischio di sbagliare non vale 1.600 €.
+
+**Cosa resta aperto, e non riguarda la cassa**: delle fatture agganciate alle 54 righe, 41 risultano in `payables` con `payment_method = 'bonifico_ordinario'` e nessun movimento bancario collegato. Il bonifico non è mai partito, i soldi sono usciti dal cassetto del negozio: il metodo di pagamento su quelle fatture è sbagliato e lo scadenzario le vede pagate per bonifico.
+
+**Regola che ne esce**: una fattura pagata in contanti dal negozio va scritta in chiusura come «fattura pagata in contanti», non come spesa. È il punto 2 di Chiusura cassa e l'istruttoria serale lo sa fare da sé quando la nota della cassiera cita il numero di fattura.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?
