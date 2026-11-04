@@ -384,6 +384,60 @@ Le regole di riconoscimento, tutte nate da casi veri:
 
 **Da sapere sulla copia nascosta delle risposte**: una risposta la mette in copia chi scrive, non noi. Il negozio risponde all'amministrazione; per riceverne copia senza comparire serve un inoltro sulla casella dell'amministrazione.
 
+### 4f. le spese di cassa che erano fatture (controllo del 4 novembre 2026)
+
+Le 148 spese di cassa del 2026 valevano 6.438,21 € e finivano tutte nei costi per outlet come «spese_cassa». Molte però erano il pagamento in contanti di una fattura già registrata: lo stesso costo contato due volte, una dal fornitore e una dalla cassa.
+
+Il controllo si fa sul numero di documento, non sull'importo. Un confronto per importo e data dà coincidenze false: due fornitori diversi, stessa cifra, stesso giorno. Confrontando le cifre scritte nella descrizione della spesa con i numeri di fattura in `payables` e in `electronic_invoices`, con lo stesso importo, le 148 righe si dividono così:
+
+| gruppo | righe | euro |
+|---|---|---|
+| fattura certa (fornitore e numero scritti nella descrizione) | 65 | 2.783,54 |
+| da guardare (importo e giorno combaciano, descrizione generica) | 40 | ~1.625 |
+| nessuna fattura, spesa vera | 43 | ~2.029 |
+
+Le 65 certe sono state riclassificate da `kind = 'spesa'` a `kind = 'pagamento_fattura'` il 4 novembre 2026, con l'ok di Patrizio: prima 54, poi le altre 11 trovate rifacendo la ricerca con il nome del fornitore oltre al numero. Effetto misurato su NZ: la cassa non si muove (entrambi i tipi escono dal cassetto, le giornate toccate restano tutte a differenza 0,00), i costi `spese_cassa` del 2026 scendono da 6.438,21 € a **3.654,67 €**. Backup delle 65 righe prima della modifica salvato in sessione. Zago non ha spese di cassa, niente da fare.
+
+**Due trappole nella ricerca**, costate un giro di verifica. Cercare solo in `payables` perde le fatture che non ci sono (AM4, Ufficio Moderno): va interrogata anche `electronic_invoices`. E scartare i numeri sotto le tre cifre perde SF_4, SF_16, SF_19, SF_84: il filtro giusto è il nome del fornitore scritto nella descrizione, non la lunghezza del numero.
+
+Le 40 «da guardare» restano come sono, per decisione di Patrizio: dentro ci sono coincidenze vere e il rischio di sbagliare non vale 1.600 €.
+
+**Cosa resta aperto, e non riguarda la cassa**: delle fatture agganciate alle 54 righe, 41 risultano in `payables` con `payment_method = 'bonifico_ordinario'` e nessun movimento bancario collegato. Il bonifico non è mai partito, i soldi sono usciti dal cassetto del negozio: il metodo di pagamento su quelle fatture è sbagliato e lo scadenzario le vede pagate per bonifico.
+
+**Regola che ne esce**: una fattura pagata in contanti dal negozio va scritta in chiusura come «fattura pagata in contanti», non come spesa. È il punto 2 di Chiusura cassa e l'istruttoria serale lo sa fare da sé quando la nota della cassiera cita il numero di fattura.
+
+### 4g. il metodo di pagamento delle fatture pagate in contanti (4 novembre 2026)
+
+Delle fatture agganciate alle righe «fattura pagata in contanti», 48 risultavano pagate per **bonifico ordinario senza nessun movimento bancario**, per 1.735,29 €. Non era un errore di chi lavora: in `payable_actions` 43 righe portano azione «payment», operatore **«go-live»**, nota «pagamento go live», data **17/06/2026**, e le altre 5 le ha chiuse il file di riconciliazione di Sabrina il 9 luglio lasciando il metodo com'era. Al caricamento iniziale tutto il pregresso già pagato è stato chiuso in blocco con «bonifico ordinario» come valore di comodo, e la data di pagamento di tutte era il 17 giugno.
+
+Il guaio è più largo delle nostre 48: in tutto il gestionale le fatture «pagate per bonifico» senza movimento in banca erano **404 per 295.978,45 €**, di cui 345 (230.376,84 €) dal go-live. Restano 356 dopo questa correzione, e vanno affrontate a parte: lì il rischio è l'opposto, cambiare il metodo a una fattura pagata davvero per bonifico che il riscontro notturno non ha ancora agganciato.
+
+**Impatto sulla contabilità già chiusa: nessuno**, e si può dimostrare. Il costo lo registra lo studio dalla fattura elettronica, una volta sola. Il metodo di pagamento arriva al commercialista solo attraverso il foglio «Pagamenti fornitori» della Prima Nota, che esiste da metà settembre 2026 e riporta i pagamenti per mese: quelle 48 avevano data giugno, quindi non sono mai state in un foglio consegnato (se si rigenerasse giugno usciva «Senza riscontro»). Le chiusure di cassa da gennaio ad agosto, poi, sono entrate nel database il 15 e 16 settembre a cose fatte: prima di settembre il gestionale non aveva nessuna cassa giornaliera. Quello che resta aperto è nei libri dello studio, non qui: come sono state chiuse quelle 48 partite fornitore, dato che dalla banca non potevano.
+
+**Cosa è stato fatto il 4 novembre**, con l'ok di Patrizio:
+1. le 48 fatture hanno metodo «contanti», la data di pagamento vera della chiusura invece del 17 giugno, una nota che dice da quale negozio e da quale chiusura, e una riga in `payable_actions` con quello che c'era prima;
+2. migrazione 345, applicata su NZ e Zago il 4 novembre: `allinea_fattura_da_cassa(expense_id)` lo fa da sé nei due versi (chiude la fattura ancora aperta, corregge il metodo o la data di quella già pagata senza riscontro in banca), un trigger sulla riga di spesa la chiama (serve all'istruttoria, che scrive come `service_role`; per il negozio ci vuole il trigger sulla chiusura, aggiunto dalla 346) e un cron notturno (`allinea-fatture-contanti`, 03:35) ripassa gli ultimi 60 giorni, perché la fattura elettronica arriva spesso dopo il pagamento. Primo giro su tutto lo storico: 3 metodi corretti su NZ (le due fatture segnate «carta di credito» e la data di quella di Palmanova del 3 novembre), nessuna fattura chiusa, nessun caso dubbio; su Zago niente, non ha spese di cassa. Secondo giro: zero, quindi è idempotente.
+
+**Una trappola di PL/pgSQL che è costata un giro**: dentro la funzione le tabelle si chiamano `pb`, `pb2`, `d` e non `p`, `c`. Una variabile `record` di nome `p` vince sull'alias `p` di una tabella, e la query muore con «record p is not assigned yet» al primo giro, non in compilazione. Un `CREATE FUNCTION` che passa non dice niente sul fatto che la funzione giri.
+
+**Due recinti nel codice della 345**, che sono la parte importante: una fattura con `bank_transaction_id` non si tocca mai, perché quello è un pagamento vero; e per **chiudere** una fattura aperta servono due segnali insieme (nome del fornitore e numero di documento nella descrizione), mentre per correggere solo il metodo di una già pagata ne basta uno. Se i candidati sono più di uno non si fa niente: due fornitori con lo stesso importo nello stesso giorno capitano davvero.
+
+### 4h. i recinti dell'allineamento, dopo la revisione del database (migrazione 346)
+
+Il revisore del database ha dato BLOCCA sulla 345 e aveva ragione su una cosa grave e su sei importanti. Tutte sistemate il 4 novembre con la migrazione 346, applicata su NZ e Zago.
+
+**Il buco vero: le funzioni erano chiamabili senza login.** Su Supabase `PUBLIC` ha `EXECUTE` di default sulle funzioni in `public`, e i soli `GRANT` nel file non bastavano a chiuderlo. Misurato sul tenant vivo: `has_function_privilege('anon', 'allinea_fatture_pagate_in_contanti(integer)', 'execute')` era **true**, quindi da `/rest/v1/rpc` un anonimo poteva far girare lo scorrimento di tutto lo storico quando voleva, e quella funzione scrive su `payables`. Adesso `anon` e `authenticated` sono false e `service_role` true, su entrambi i tenant: il cron gira come `postgres` e non ha bisogno di permessi. **Regola che ne esce: su ogni funzione nuova `SECURITY DEFINER` in `public` serve il `REVOKE ALL ... FROM PUBLIC, anon` esplicito, il `GRANT` da solo non chiude niente.**
+
+**Il trigger non scattava mai per il negozio.** La policy `odce_write` lascia scrivere le righe di spesa solo mentre la chiusura è in bozza, e la funzione scarta le bozze: quando la cassiera salvava, l'allineamento diceva «niente da fare» e il lavoro lo faceva il cron la notte dopo. Ora c'è un secondo trigger su `outlet_daily_closings`: quando la chiusura esce dalla bozza, le sue righe si allineano subito.
+
+**Chiudere una fattura aperta** è la cosa più delicata, perché la riga la scrive la cassiera, che su `payables` non ha nessun permesso, e dopo la chiusura il fornitore risulta pagato. Ora serve tutto insieme: chiusura «verificata», **cassa che torna entro un euro**, stato della fattura fra `da_pagare`, `in_scadenza` e `scaduto`, nessuna distinta di pagamento che la contenga, nessuna rata, e il negozio della fattura uguale a quello della cassa quando è scritto.
+
+**Attenzione a cosa vuol dire «verificata», perché me l'ero raccontata male.** Non è il passaggio di una persona: lo scrive il riscontro bancario notturno (`status = 'verificata'`, `bank_verified_at`, migrazioni 188, 192, 195, 197, 224, 238, 338), che guarda versamenti e accrediti e non apre mai le spese. Nei 60 giorni misurati 388 chiusure su 421 sono verificate, cioè quasi tutte passano da sole. Il recinto vero è quello della cassa, e per questo l'ho aggiunto: una riga finta scritta per chiudere la fattura di un fornitore lascia un ammanco nel cassetto, e con l'ammanco la fattura non si chiude. Chi scrive quella riga deve aver davvero tirato fuori i soldi. Trovato dal revisore del codice, non da me.
+
+**Il segnale debole** bastava con due caratteri di nome, e fornitori che iniziano con «IL» o «LA» combaciavano con quasi qualunque testo. Per correggere il metodo di una fattura già pagata ora serve il numero di documento oppure un nome di almeno quattro caratteri. Conta perché le 356 fatture «pagate per bonifico senza movimento» di NZ sono quasi tutte bonifici veri non ancora agganciati: riscriverne una sarebbe un danno, non una correzione.
+
+Il resto: ricerca del candidato in una query sola invece di due (fra conteggio e selezione il riscontro notturno poteva agganciare un movimento, e l'`INSERT` moriva su `payable_id` NOT NULL), `EXCEPTION` per ogni riga nel ciclo del cron così un intoppo non annulla la notte, niente ballo della data quando due righe di cassa combaciano con la stessa fattura, e nella nota anche la data e il conto di prima, non solo il metodo, altrimenti il rollback non basta a rimettere le cose come stavano.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?
