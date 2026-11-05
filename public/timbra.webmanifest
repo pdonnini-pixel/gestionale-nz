@@ -1,0 +1,11 @@
+{
+  "name": "Timbratrice del negozio",
+  "short_name": "Timbra",
+  "start_url": "/timbra",
+  "scope": "/timbra",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

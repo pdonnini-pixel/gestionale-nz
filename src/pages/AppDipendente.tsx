@@ -1,0 +1,238 @@
+// App del dipendente (/app): sul telefono personale. Mostra il QR che cambia
+// ogni 30 secondi (si calcola anche senza rete), il turno di oggi e dei
+// prossimi giorni, le timbrature di oggi. Se un'uscita non risulta, la si
+// segna da qui (resta da confermare per chi segue il personale).
+//
+// Prima volta: si attiva con il codice di 8 caratteri dato dall'HR
+// (Dipendenti → Presenze → Accessi). Niente password da ricordare.
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import QRCode from 'qrcode'
+import { RefreshCw, WifiOff } from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import {
+  ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, formatMinuti, oraRoma, ordina, riepilogoGiorno, secondiAlCambio,
+  PASSO_SECONDI, type Timbratura, type TipoTimbratura,
+} from '../lib/timbrature'
+import { attivaOffline } from '../lib/presenzeOffline'
+
+const K_APP = 'nz-app-dipendente'
+const K_OGGI = 'nz-app-oggi'
+
+interface Attivazione { segreto: string; employee_id: string; nome: string }
+interface DatiOggi {
+  ora_server: string
+  persona: { id: string; nome: string; negozio: string | null }
+  turni: { data: string; inizio: string; fine: string; pausa_minuti: number | null; negozio: string | null }[]
+  timbrature: { tipo: TipoTimbratura; ora: string; origine: string }[]
+  scaricati_il?: string
+}
+
+function leggi<T>(k: string): T | null {
+  try { const s = localStorage.getItem(k); return s ? JSON.parse(s) as T : null } catch { return null }
+}
+
+export default function AppDipendente() {
+  const [params] = useSearchParams()
+  const [attivazione, setAttivazione] = useState<Attivazione | null>(() => leggi<Attivazione>(K_APP))
+  const [codice, setCodice] = useState(params.get('codice') ?? '')
+  const [errore, setErrore] = useState<string | null>(null)
+  const [occupato, setOccupato] = useState(false)
+  const [altroUtente, setAltroUtente] = useState(false)
+
+  useEffect(() => attivaOffline('/app', '/app.webmanifest'), [])
+
+  // Un telefono gia' collegato al gestionale con un altro utente (per esempio
+  // chi lavora in ufficio che prova il link): non si sovrascrive la sessione.
+  useEffect(() => {
+    if (attivazione) return
+    supabase.auth.getSession().then(({ data }) => {
+      const ruolo = (data.session?.user.app_metadata as { role?: string } | undefined)?.role
+      setAltroUtente(!!data.session && ruolo !== 'dipendente')
+    })
+  }, [attivazione])
+
+  const attiva = async () => {
+    setErrore(null); setOccupato(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('app-dipendente-attiva', { body: { codice } })
+      const r = data as { token_hash?: string; segreto?: string; employee_id?: string; nome?: string; error?: string } | null
+      if (error || !r?.token_hash || !r.segreto || !r.employee_id) {
+        let msg = r?.error
+        const ctx = (error as { context?: Response } | null)?.context
+        if (!msg && ctx && typeof ctx.json === 'function') {
+          try { msg = ((await ctx.json()) as { error?: string }).error } catch { /* risposta non leggibile */ }
+        }
+        setErrore(msg ?? 'Attivazione non riuscita. Controlla la rete e il codice.')
+        return
+      }
+      const { error: otpErr } = await supabase.auth.verifyOtp({ token_hash: r.token_hash, type: 'magiclink' })
+      if (otpErr) { setErrore('Accesso non riuscito. Chiedi un codice nuovo.'); return }
+      const a: Attivazione = { segreto: r.segreto, employee_id: r.employee_id, nome: r.nome ?? '' }
+      localStorage.setItem(K_APP, JSON.stringify(a))
+      setAttivazione(a)
+    } finally {
+      setOccupato(false)
+    }
+  }
+
+  if (!attivazione) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 gap-4 text-center">
+        <p className="text-2xl font-bold text-slate-900">Presenze</p>
+        {altroUtente ? (
+          <p className="text-slate-600 max-w-sm">Questo dispositivo è già collegato al gestionale con un altro utente. Apri il link dal tuo telefono personale.</p>
+        ) : (
+          <>
+            <p className="text-slate-600 max-w-sm">Scrivi il codice di 8 caratteri che ti ha dato chi segue il personale. Serve solo la prima volta.</p>
+            <input value={codice} onChange={(e) => setCodice(e.target.value.toUpperCase())} maxLength={9} autoCapitalize="characters"
+              autoComplete="one-time-code" placeholder="ABCD2345"
+              className="w-56 text-center text-2xl tracking-widest font-mono border-2 border-slate-300 rounded-xl py-3 focus:border-blue-600 outline-none" />
+            {errore && <p className="text-rose-600 text-sm max-w-sm">{errore}</p>}
+            <button onClick={() => void attiva()} disabled={occupato || codice.replace(/[\s-]/g, '').length !== 8}
+              className="px-8 py-3 rounded-xl bg-blue-700 text-white text-lg font-semibold disabled:opacity-40">
+              {occupato ? 'Attivo…' : 'Attiva'}
+            </button>
+          </>
+        )}
+      </div>
+    )
+  }
+  return <Principale attivazione={attivazione} />
+}
+
+function Principale({ attivazione }: { attivazione: Attivazione }) {
+  const [adesso, setAdesso] = useState(Date.now())
+  const [qr, setQr] = useState<string | null>(null)
+  const [dati, setDati] = useState<DatiOggi | null>(() => leggi<DatiOggi>(K_OGGI))
+  const [online, setOnline] = useState(navigator.onLine)
+  const [oraUscita, setOraUscita] = useState('')
+  const [messaggio, setMessaggio] = useState<{ ok: boolean; testo: string } | null>(null)
+
+  useEffect(() => { const t = setInterval(() => setAdesso(Date.now()), 1000); return () => clearInterval(t) }, [])
+  const passo = Math.floor(adesso / 1000 / PASSO_SECONDI)
+
+  // QR: si rifà a ogni passo di 30 secondi, senza rete
+  useEffect(() => {
+    let vivo = true
+    codiceQr(attivazione.segreto, attivazione.employee_id, passo * PASSO_SECONDI * 1000)
+      .then((testo) => QRCode.toDataURL(testo, { margin: 1, width: 320, errorCorrectionLevel: 'M' }))
+      .then((url) => { if (vivo) setQr(url) })
+      .catch(() => { if (vivo) setQr(null) })
+    return () => { vivo = false }
+  }, [attivazione, passo])
+
+  const aggiorna = useCallback(async () => {
+    if (!navigator.onLine) return
+    const { data, error } = await supabase.rpc('app_dipendente_oggi')
+    if (error || !data) return
+    const d = { ...(data as unknown as DatiOggi), scaricati_il: new Date().toISOString() }
+    localStorage.setItem(K_OGGI, JSON.stringify(d))
+    setDati(d)
+  }, [])
+
+  useEffect(() => {
+    void aggiorna()
+    const t = setInterval(() => void aggiorna(), 60_000)
+    const on = () => { setOnline(true); void aggiorna() }
+    const off = () => setOnline(false)
+    window.addEventListener('online', on)
+    window.addEventListener('offline', off)
+    return () => { clearInterval(t); window.removeEventListener('online', on); window.removeEventListener('offline', off) }
+  }, [aggiorna])
+
+  const oggi = dataRoma(adesso)
+  const ieri = dataRoma(adesso - 86_400_000)
+  const perGiorno = useCallback((d: string): Timbratura[] =>
+    (dati?.timbrature ?? []).filter((t) => dataRoma(Date.parse(t.ora)) === d).map((t) => ({ tipo: t.tipo, ora: t.ora })), [dati])
+  const turnoDel = useCallback((d: string) => (dati?.turni ?? []).find((t) => t.data === d) ?? null, [dati])
+
+  const rOggi = riepilogoGiorno(perGiorno(oggi), turnoDel(oggi), adesso)
+  const rIeri = riepilogoGiorno(perGiorno(ieri), turnoDel(ieri), adesso)
+  // Un'uscita da segnare: oggi a fine turno + margine, oppure ieri rimasta aperta
+  const daSegnare = rIeri.esito !== 'non_timbrato' && rIeri.esito !== 'uscito' ? ieri
+    : rOggi.esito === 'uscita_mancante' ? oggi : null
+
+  const prossimi = useMemo(() => (dati?.turni ?? []).filter((t) => t.data >= oggi).slice(0, 8), [dati, oggi])
+
+  const segnaUscita = async () => {
+    if (!daSegnare || !/^\d{2}:\d{2}$/.test(oraUscita)) return
+    setMessaggio(null)
+    const { error } = await supabase.rpc('app_dipendente_dichiara_uscita', { p_data: daSegnare, p_ora: oraUscita })
+    if (error) { setMessaggio({ ok: false, testo: error.message }); return }
+    setMessaggio({ ok: true, testo: `Uscita delle ${oraUscita} segnata: la conferma chi segue il personale.` })
+    setOraUscita('')
+    void aggiorna()
+  }
+
+  const secondi = secondiAlCambio(adesso)
+
+  return (
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center px-5 py-6 gap-5">
+      <div className="w-full max-w-sm flex items-center justify-between">
+        <div>
+          <p className="text-slate-500 text-sm">{dati?.persona.negozio ?? ''}</p>
+          <p className="text-xl font-bold text-slate-900">{dati?.persona.nome ?? attivazione.nome}</p>
+        </div>
+        {!online && <span className="flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-1 rounded-full"><WifiOff size={12} />Senza rete</span>}
+      </div>
+
+      {/* QR */}
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow p-5 flex flex-col items-center gap-2">
+        {qr ? <img src={qr} alt="Il tuo codice per timbrare" className="w-64 h-64" /> : <RefreshCw className="animate-spin text-slate-400 my-24" />}
+        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className="h-full bg-blue-600 transition-all" style={{ width: `${(secondi / PASSO_SECONDI) * 100}%` }} />
+        </div>
+        <p className="text-slate-600 text-center">Avvicina il telefono alla timbratrice del negozio</p>
+        <p className="text-slate-400 text-xs">Il codice cambia ogni 30 secondi: una foto non vale.</p>
+      </div>
+
+      {/* Uscita da segnare */}
+      {daSegnare && (
+        <div className="w-full max-w-sm bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col gap-3">
+          <p className="font-semibold text-amber-900">
+            {daSegnare === ieri ? 'Ieri non risulta la tua uscita.' : 'Il turno è finito e non risulta la tua uscita.'}
+          </p>
+          <p className="text-sm text-amber-800">Se stai ancora lavorando, timbra l'uscita quando esci. Se sei già fuori, scrivi l'ora:</p>
+          <div className="flex gap-2">
+            <input type="time" value={oraUscita} onChange={(e) => setOraUscita(e.target.value)}
+              className="flex-1 border border-amber-300 rounded-lg px-3 py-2 text-lg" />
+            <button onClick={() => void segnaUscita()} disabled={!oraUscita} className="px-4 rounded-lg bg-amber-600 text-white font-semibold disabled:opacity-40">Segna</button>
+          </div>
+        </div>
+      )}
+      {messaggio && <p className={`w-full max-w-sm text-sm ${messaggio.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{messaggio.testo}</p>}
+
+      {/* Oggi */}
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow p-4">
+        <p className="text-xs uppercase tracking-wide text-slate-400 mb-1">Oggi</p>
+        {turnoDel(oggi)
+          ? <p className="text-slate-900 font-semibold">Turno {turnoDel(oggi)!.inizio.slice(0, 5)} - {turnoDel(oggi)!.fine.slice(0, 5)}</p>
+          : <p className="text-slate-500">Nessun turno oggi</p>}
+        {perGiorno(oggi).length > 0 ? (
+          <>
+            <p className="text-sm text-slate-600 mt-1">{ordina(perGiorno(oggi)).map((t) => `${ETICHETTA_TIPO[t.tipo]} ${oraRoma(t.ora)}`).join(' · ')}</p>
+            <p className="text-sm text-slate-500 mt-1">{ETICHETTA_ESITO[rOggi.esito]} · lavorate {formatMinuti(rOggi.minutiLavorati)}{rOggi.minutiPausa ? ` · pausa ${formatMinuti(rOggi.minutiPausa)}` : ''}</p>
+          </>
+        ) : <p className="text-sm text-slate-500 mt-1">Nessuna timbratura oggi.</p>}
+      </div>
+
+      {/* Prossimi turni */}
+      <div className="w-full max-w-sm bg-white rounded-2xl shadow p-4">
+        <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">I tuoi turni</p>
+        {prossimi.length === 0 ? <p className="text-slate-500 text-sm">Nessun turno nei prossimi giorni.</p> : (
+          <ul className="divide-y divide-slate-100">
+            {prossimi.map((t) => (
+              <li key={`${t.data}-${t.inizio}`} className="py-2 flex justify-between text-sm">
+                <span className="text-slate-700 capitalize">{new Date(`${t.data}T12:00:00`).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
+                <span className="text-slate-900 font-medium tabular-nums">{t.inizio.slice(0, 5)} - {t.fine.slice(0, 5)}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        {dati?.scaricati_il && <p className="text-slate-400 text-xs mt-2">Aggiornato alle {oraRoma(dati.scaricati_il)}</p>}
+      </div>
+    </div>
+  )
+}

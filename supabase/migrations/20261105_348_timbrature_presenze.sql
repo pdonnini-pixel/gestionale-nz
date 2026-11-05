@@ -37,7 +37,11 @@
 -- NO DATA LOSS: solo ADD COLUMN, CREATE TABLE, CREATE FUNCTION. Nessuna
 -- riga esistente cambia. Timbrature, avvisi e accessi non si cancellano.
 -- REGOLA #0 (dal 03/11/2026): solo NZ e Zago.
+-- APPLICATA il 05/11/2026 su NZ (348 + 348b con i REVOKE) e su Zago, via
+-- connettore, senza le righe BEGIN/COMMIT (le mette il connettore).
 -- Rollback: 20261105_348_timbrature_presenze_ROLLBACK.sql
+-- Niente DROP ... IF EXISTS: gli oggetti sono nuovi e il connettore chiede
+-- conferma per ogni DROP, andando in timeout (come la 315).
 -- =====================================================================
 
 BEGIN;
@@ -97,7 +101,7 @@ COMMENT ON TABLE public.employee_app_access IS
 ALTER TABLE public.employee_app_access ENABLE ROW LEVEL SECURITY;
 -- Nessuna policy per authenticated, di proposito: l'accesso e' solo via RPC
 -- SECURITY DEFINER. Il service role serve alla Edge Function di attivazione.
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.employee_app_access TO service_role;
+GRANT SELECT, INSERT, UPDATE ON public.employee_app_access TO service_role;
 
 CREATE OR REPLACE FUNCTION public.timbrature_nuovo_codice()
 RETURNS text
@@ -140,7 +144,6 @@ BEGIN
   RETURN NEW;
 END;
 $$;
-DROP TRIGGER IF EXISTS trg_employees_accesso_app ON public.employees;
 CREATE TRIGGER trg_employees_accesso_app
   AFTER INSERT ON public.employees
   FOR EACH ROW WHEN (NEW.company_id IS NOT NULL)
@@ -177,7 +180,7 @@ CREATE POLICY attendance_settings_write ON public.attendance_settings
   USING (company_id = (SELECT public.get_my_company_id()) AND (SELECT public.timbrature_gestore()))
   WITH CHECK (company_id = (SELECT public.get_my_company_id()) AND (SELECT public.timbrature_gestore()));
 GRANT SELECT, INSERT, UPDATE ON public.attendance_settings TO authenticated;
-GRANT SELECT, INSERT, UPDATE, DELETE ON public.attendance_settings TO service_role;
+GRANT SELECT, INSERT, UPDATE ON public.attendance_settings TO service_role;
 
 -- ─────────────────────────────────────────────────────────────────────
 -- 4. Timbrature
@@ -247,11 +250,9 @@ DO $$
 DECLARE t text;
 BEGIN
   FOREACH t IN ARRAY ARRAY['attendance_settings', 'attendance_punches', 'attendance_notifications'] LOOP
-    EXECUTE format('DROP POLICY IF EXISTS cash_operator_block ON public.%I', t);
     EXECUTE format('CREATE POLICY cash_operator_block ON public.%I AS RESTRICTIVE FOR ALL TO authenticated '
       || 'USING (COALESCE((SELECT public.get_my_role())::text, '''') <> ''operatore_cassa'') '
       || 'WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '''') <> ''operatore_cassa'')', t);
-    EXECUTE format('DROP POLICY IF EXISTS dipendente_block ON public.%I', t);
     EXECUTE format('CREATE POLICY dipendente_block ON public.%I AS RESTRICTIVE FOR ALL TO authenticated '
       || 'USING (COALESCE((SELECT public.get_my_role())::text, '''') <> ''dipendente'') '
       || 'WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '''') <> ''dipendente'')', t);
@@ -810,6 +811,17 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.get_twilio_timbrature_template() FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.get_twilio_timbrature_template() TO service_role;
+
+-- Supabase concede in automatico i permessi alle tabelle nuove: qui si
+-- tolgono quelli che non servono (348b su NZ, nella stessa applicazione su Zago).
+-- Il segreto del QR non deve essere raggiungibile dall'API nemmeno a vuoto.
+REVOKE ALL ON public.employee_app_access FROM anon, authenticated;
+REVOKE ALL ON public.attendance_punches FROM anon;
+REVOKE ALL ON public.attendance_settings FROM anon;
+REVOKE ALL ON public.attendance_notifications FROM anon;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.attendance_punches FROM authenticated;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.attendance_notifications FROM authenticated;
+REVOKE DELETE, TRUNCATE, REFERENCES, TRIGGER ON public.attendance_settings FROM authenticated;
 
 COMMIT;
 

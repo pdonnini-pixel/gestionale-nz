@@ -28,6 +28,7 @@ import {
   CalendarDays,
   UserCheck,
   Info,
+  Fingerprint,
 } from 'lucide-react';
 import {
   BarChart,
@@ -78,6 +79,7 @@ const ApprovazioniFerie = lazy(() => import('../components/ApprovazioniFerie'));
 const PianoFerie = lazy(() => import('../components/PianoFerie'));
 const OrganicoOggi = lazy(() => import('../components/OrganicoOggi'));
 const TurniNegozi = lazy(() => import('../components/TurniNegozi'));
+const PresenzeNegozi = lazy(() => import('../components/PresenzeNegozi'));
 
 // ============================================================================
 // TYPES
@@ -106,8 +108,8 @@ interface OutletRow {
 // «Organico» e' una sola scheda (Patrizio, 03/11/2026): la vecchia anagrafica
 // (?view=organico) e «Organico di oggi» (?view=oggi) sono state unite. I link
 // vecchi a ?view=organico portano alla scheda unica.
-type PersonaleView = 'panoramica' | 'per_outlet' | 'oggi' | 'costi' | 'lordi' | 'turni' | 'ferie';
-const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'oggi', 'costi', 'lordi', 'turni', 'ferie'];
+type PersonaleView = 'panoramica' | 'per_outlet' | 'oggi' | 'costi' | 'lordi' | 'turni' | 'presenze' | 'ferie';
+const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'oggi', 'costi', 'lordi', 'turni', 'presenze', 'ferie'];
 /** Chi scrive direttamente l'anagrafica (RLS employees_write). */
 const RUOLI_ANAGRAFICA = ['super_advisor', 'contabile'];
 
@@ -1049,6 +1051,7 @@ export default function Dipendenti() {
           { k: 'costi', label: 'Costi & cedolini', icon: FileText },
           { k: 'lordi', label: 'Costo lordo', icon: Percent },
           { k: 'turni', label: 'Turni', icon: CalendarDays },
+          { k: 'presenze', label: 'Presenze', icon: Fingerprint },
           { k: 'ferie', label: 'Ferie e permessi', icon: CalendarClock },
         ] as { k: PersonaleView; label: string; icon: any }[]).map((t) => {
           const Icon = t.icon;
@@ -1229,6 +1232,12 @@ export default function Dipendenti() {
           {view === 'turni' && (
             <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
               <TurniNegozi companyId={COMPANY_ID} />
+            </Suspense>
+          )}
+
+          {view === 'presenze' && (
+            <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
+              <PresenzeNegozi companyId={COMPANY_ID} />
             </Suspense>
           )}
 

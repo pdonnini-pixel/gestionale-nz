@@ -48,10 +48,10 @@ export function secondiAlCambio(ms: number): number {
   return PASSO_SECONDI - (s % PASSO_SECONDI)
 }
 
-function esadecimaleInByte(hex: string): Uint8Array {
+function esadecimaleInByte(hex: string): Uint8Array<ArrayBuffer> {
   const pulito = hex.trim().toLowerCase()
   if (!/^([0-9a-f]{2})+$/.test(pulito)) throw new Error('Segreto non valido')
-  const out = new Uint8Array(pulito.length / 2)
+  const out = new Uint8Array(new ArrayBuffer(pulito.length / 2))
   for (let i = 0; i < out.length; i++) out[i] = parseInt(pulito.slice(i * 2, i * 2 + 2), 16)
   return out
 }
