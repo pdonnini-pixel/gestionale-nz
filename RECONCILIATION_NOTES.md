@@ -54,12 +54,15 @@
 9. **Una proposta non sopravvive alla cosa che proponeva** (Patrizio, 05/11/2026:
    «se una cosa la chiudi a mano, la levi anche da lì, se no uno ci va per errore»).
    Quando il movimento viene abbinato, o la fattura risulta pagata, annullata o è
-   una nota di credito, le sue proposte `to_confirm` passano a `rejected` con il
-   motivo in nota. Restano aperte solo per le fatture chiuse a mano senza movimento
+   una nota di credito, le sue proposte `to_confirm` passano a `superseded`
+   («superata», migration 361) con il motivo in nota. **Mai `rejected`**: quello vuol
+   dire «una persona ha detto no» e blocca per sempre la coppia, nel motore e nella
+   pagina Banche; una proposta superata invece torna proponibile se l'abbinamento
+   viene annullato. Restano aperte solo per le fatture chiuse a mano senza movimento
    (regola 1) e per le rate parziali. Lo fa il database con due trigger, quindi vale
    per ogni strada: pagina Banche, motore notturno, correzioni a mano in sessione.
    → `trg_close_proposals_on_bt_reconciled`, `trg_close_proposals_on_payable_closed`
-   (migration 360). Prima della 360 su NZ c'erano 133 proposte aperte, 125 superate.
+   (migration 360 e 361). Prima della 360 su NZ c'erano 133 proposte aperte, 125 superate.
    Ogni volta che in sessione si abbina o si chiude qualcosa a mano, si ricontrolla
    che fra le proposte aperte non resti niente di già fatto.
 
