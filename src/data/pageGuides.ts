@@ -3290,7 +3290,7 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Scrivi un titolo breve e chiaro (obbligatorio, almeno 3 caratteri), ad esempio \"il pulsante Salva non si vede in Banche\"",
           "Se vuoi, aggiungi una descrizione più dettagliata di cosa è successo o cosa vorresti",
           "Scegli la priorità: Basso, Medio o Alto",
-          "Se utile, allega uno o più file: tocca l'area per sceglierli dal dispositivo (da telefono anche una foto dalla galleria); da computer puoi anche trascinarli dentro o incollare uno screenshot con Ctrl+V (Cmd+V su Mac). Sono accettati immagini e PDF fino a 10 MB ciascuno",
+          "Se utile, allega uno o più file: tocca l'area per sceglierli dal dispositivo (da telefono anche una foto dalla galleria); da computer puoi anche trascinarli dentro o incollare uno screenshot con Ctrl+V (Cmd+V su Mac). Sono accettati immagini e PDF fino a 10 MB ciascuno. Chi ha il ruolo Sola lettura non vede l'area allegati: può aprire il ticket ma non caricare file",
           "Clicca \"Apri segnalazione\" per inviarla"
         ]
       },
@@ -3332,7 +3332,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "faq": [
       {
         "q": "Devo per forza allegare uno screenshot?",
-        "a": "No, l'allegato è facoltativo. Aiuta però chi legge la segnalazione a capire subito il problema. Da telefono tocca l'area allegati e scegli una foto dalla galleria; da computer puoi incollare uno screenshot con Ctrl+V oppure trascinare un file nell'area apposita."
+        "a": "No, l'allegato è facoltativo. Aiuta però chi legge la segnalazione a capire subito il problema. Da telefono tocca l'area allegati e scegli una foto dalla galleria; da computer puoi incollare uno screenshot con Ctrl+V oppure trascinare un file nell'area apposita. Con il ruolo Sola lettura l'area allegati non compare: descrivi il problema nel testo."
       },
       {
         "q": "Quanto tempo ci vuole prima che qualcuno veda la mia segnalazione?",
