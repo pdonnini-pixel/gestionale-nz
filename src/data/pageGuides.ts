@@ -2836,6 +2836,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Puoi modificare la scadenza (icona matita) e cambiare manualmente lo Stato riportandolo a \"Da pagare\" o a un altro stato dal menu a tendina del modulo."
       },
       {
+        "q": "Una spesa è finita in Addebito automatico con la carta, ma la devo pagare con bonifico: come la riapro?",
+        "a": "Apri la scadenza con la matita e cambia «Modalità di pagamento» (per esempio da Carta di Credito a Bonifico Ordinario), poi salva. Con bonifico, contanti, assegno o Ri.Ba. la scadenza esce dall'Addebito automatico e torna fra i pagamenti da fare; con carta, RID o SDD diventa un addebito automatico. Il cambio vale solo per quella scadenza, e il gestionale non lo riscrive più: prima la categoria marcata «si paga con carta» (per esempio Viaggi e trasferte) rimetteva la carta a ogni salvataggio. La categoria decide ancora la carta per le spese nuove che arrivano senza modalità in fattura, e quando cambi la categoria della scadenza."
+      },
+      {
         "q": "Cosa vuol dire \"Ricorrente\"?",
         "a": "È un'indicazione che la scadenza si ripete periodicamente (ad esempio ogni mese per l'IVA). Selezionandola puoi scegliere la frequenza: mensile, trimestrale, semestrale o annuale. Serve solo come promemoria, non crea automaticamente le scadenze future."
       },

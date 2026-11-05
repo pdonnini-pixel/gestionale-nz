@@ -1963,3 +1963,24 @@ Applicata su NZ e Zago il 05/11/2026. Prove in transazione annullata: sul caso C
 delle Fucine ricostruito (scadenze riaperte) la funzione chiude 2746 e 2747 da sola;
 sui movimenti aperti di NZ 0 agganci nuovi, 0,7 secondi ogni 100 movimenti (circa 3
 secondi in più a notte su 372).
+
+## Il metodo scelto a mano sulla scadenza resta (05/11/2026, migration 363, NZ e Zago)
+
+Caso: L'Undicesimo di Giusti Luigi (categoria «Viaggi e trasferte», `auto_debit_card = true`),
+fatture 306 (31 €) e 339 (27 €), da pagare con bonifico. Le scadenze erano nate a carta con
+addebito automatico perché la fattura non porta `DatiPagamento` e la categoria dice carta.
+Un `UPDATE` a `bonifico_ordinario` con `is_auto_debit = false` veniva rimesso a carta subito
+dal trigger `fn_payable_auto_debit`, che rivalutava categoria e anagrafica a ogni salvataggio.
+
+- **Regola**: categoria e anagrafica fornitore sono valori di ripiego. Valgono quando la
+  scadenza nasce (`INSERT`) o quando cambiano `cost_category_id` o `supplier_id`. Una modifica
+  fatta dopo, a mano, non viene più riscritta. Fattura (MP08, MP01, SDD, altro canale
+  dichiarato) e il resto del trigger non cambiano.
+- **Perché non «il fornitore batte la categoria»**: `suppliers.default_payment_method` ha
+  `DEFAULT 'bonifico_ordinario'`, e 206 fornitori su 308 (NZ) l'hanno così senza che nessuno
+  l'abbia scelto. Farlo vincere avrebbe tolto la carta a tutte le spese di viaggio.
+- **Interfaccia**: nella matita della scadenza (Scadenzario) c'è «Modalità di pagamento».
+  Cambiandola si scrive `payment_method` e `is_auto_debit` (vero per carta, RID, SDD) solo su
+  quella scadenza.
+- Le due scadenze sono state portate a bonifico il 05/11/2026 (valore precedente:
+  `carta_credito`, `is_auto_debit = true`, date invariate 20/11 e 20/12/2026).
