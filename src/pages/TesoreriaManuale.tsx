@@ -29,7 +29,7 @@ import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
-import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, pickActionableSuggestions, countActionableSuggestions, type SuggestionLogLike } from '../lib/reconcileMatch'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, citesInvoiceNumbers, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, pickActionableSuggestions, countActionableSuggestions, type SuggestionLogLike } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import CommissioniIncasso from './CommissioniIncasso'
 import OpenBankingAcube from '../components/OpenBankingAcube'
@@ -3425,11 +3425,21 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (benef && NON_SUPPLIER_BENEF_RE.test(benef)) continue
       const benefWords = benef ? sigWords(benef) : []
       const tokens = invoiceTokens(desc)
+      // Se la causale cita dei numeri di fattura, il gruppo può contenere solo
+      // le fatture citate (regola del 05/11/2026): un numero scritto dice quale
+      // fattura si paga, e un'altra combinazione che fa la stessa cifra è un errore.
+      // Se i numeri sono troppo corti per essere letti ("FT 1", "FATTURE 12 E 13")
+      // tokens resta vuoto: allora il numero serve solo a scegliere fra le
+      // combinazioni, come prima, per non nascondere il gruppo giusto.
+      const cites = citesInvoiceNumbers(desc) && tokens.length > 0
 
       // Pool di partenza: fatture che da sole non superano il movimento. Se la
       // causale nomina il beneficiario, solo i fornitori che gli somigliano.
       const pool0 = candidates.filter((c) => {
         if (cents(c.base) > target) return false
+        // Le note di credito (base negativa) restano: il bonifico può essere al
+        // netto di una NC che la causale non nomina (R8).
+        if (cites && c.base > 0 && !invoiceCitedIn(String(c.p.invoice_number || ''), tokens)) return false
         if (rejectedPairs.has(pairKey(m.id, c.p.id))) return false
         if (!isPaymentDatePlausible(String(m.transaction_date || ''), String(c.p.invoice_date || ''))) return false
         if (benefWords.length === 0) return true

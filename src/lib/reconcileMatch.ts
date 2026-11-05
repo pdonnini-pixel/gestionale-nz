@@ -176,6 +176,19 @@ export const invoiceTokens = (desc: string): string[] => {
   return Array.from(out)
 }
 
+// Vero se la causale cita esplicitamente un numero di fattura: una parola che
+// introduce un documento (FATTURA, FATT, FT, anche con "N." o "NUMERO"; oppure
+// SF-, SSF-, NC-, CF- col trattino) seguita da un codice con almeno una cifra. Esempi reali: "SALDO FATTURA 3676",
+// "SF-11245-11037", "SSF-IT530TD9ABEI", "CF-16-CNC3", "SF-194-NC84".
+// Non basta un numero qualunque: le causali dei bonifici istantanei portano date,
+// orari e ID lunghi ("INSTANT DEL 20/10/2026 ORE 16:15 ID. 0832500…") che numeri
+// di fattura non sono. Regola fissata da Patrizio il 05/11/2026: se in causale c'è
+// il numero, si propongono solo le fatture citate.
+export const citesInvoiceNumbers = (desc: string): boolean => {
+  const head = String(desc || '').toUpperCase().split(/ID\.?\s?BON/)[0]
+  return /(^|[^A-Z])((FATTUR[AE]|FATT|FT)\.?\s*(N\.?|N°|NR\.?|NUM\.?|NUMERO)?\s*[-.:#°]?\s*[A-Z]{0,3}[0-9]|(S?SF|NC|CF)-\s*[A-Z]{0,3}[0-9])/.test(head)
+}
+
 // Vero se il numero della fattura corrisponde a uno dei token letti in causale.
 // Confronto per prefisso in entrambi i versi: la causale può troncare il codice
 // (IT65OHAABE per IT65OHAABEY) e il numero può avere una coda (60828/PI).

@@ -1963,3 +1963,32 @@ Applicata su NZ e Zago il 05/11/2026. Prove in transazione annullata: sul caso C
 delle Fucine ricostruito (scadenze riaperte) la funzione chiude 2746 e 2747 da sola;
 sui movimenti aperti di NZ 0 agganci nuovi, 0,7 secondi ogni 100 movimenti (circa 3
 secondi in più a notte su 372).
+
+## Gruppi col solo nome: proposta, mai chiusura (05/11/2026, migration 364)
+
+Patrizio, dopo la 362: «Bonifico da 900 € e tre fatture da 300 €: le chiudi senza
+guardare il numero?». La 362 lo faceva. Funziona solo con uno scadenzario perfetto: una
+fattura vecchia aperta per errore viene chiusa al posto di quella pagata davvero. E se
+la causale cita un numero che i motori dei numeri non trovano, la 362 chiudeva altre
+fatture ignorandolo.
+
+Regole dalla 364:
+- il giro notturno chiude un gruppo di fatture **solo** se la causale ne cita i numeri
+  (motori `try_match_group_bank_transaction` e `try_match_group_numbers_bank_transaction`);
+- i gruppi trovati col solo nome sono proposte da confermare nel riquadro «Pagamenti
+  raggruppati» di Banche (`toVerifyGroups`); `try_match_group_name_bank_transaction` è
+  ora di sola lettura (e solo per il ruolo di servizio);
+- **se la causale cita un numero di fattura, la proposta può contenere solo le fatture
+  citate** (`citesInvoiceNumbers` in `src/lib/reconcileMatch.ts`, stessa espressione in
+  SQL). Se non bastano a fare la cifra non si propone niente.
+
+La 362 non ha mai chiuso niente (0 righe con la sua nota su NZ e Zago).
+
+Dopo la revisione: il vincolo «solo fatture citate» vale solo se la causale ha numeri
+leggibili (numeri di una o due cifre come «FT 1» restano solo spareggio); le note di
+credito dello stesso fornitore restano nel gruppo anche se non citate. Riconosciute
+anche «FATTURA N. 123», «FATT. N°45», «FATTURA NUMERO 55»; SF/SSF/NC/CF contano solo
+col trattino. Applicata su NZ e Zago il 05/11/2026 (migration rinumerata 364 perché il
+363 era usato da due PR aperte); verificato: giro notturno identico alla versione
+prima della 362, funzione di sola lettura che su Corte delle Fucine ricostruita segnala
+il gruppo senza chiudere niente, eseguibile solo dal ruolo di servizio.
