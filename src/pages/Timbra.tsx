@@ -160,12 +160,16 @@ export default function Timbra() {
       .then((s) => {
         stream = s
         if (fermo) { s.getTracks().forEach((t) => t.stop()); return }
-        if (videoRef.current) { videoRef.current.srcObject = s; void videoRef.current.play() }
         setErroreCamera(null)
+        // Il riquadro video puo' comparire dopo la fotocamera (permesso gia'
+        // dato, dati del negozio ancora in arrivo): si aggancia a ogni giro.
         const giro = async () => {
-          if (fermo || !videoRef.current) return
+          if (fermo) return
+          const v = videoRef.current
+          if (!v) { setTimeout(giro, 250); return }
+          if (v.srcObject !== s) { v.srcObject = s; void v.play().catch(() => undefined) }
           try {
-            const letti = videoRef.current.readyState >= 2 ? await rilevatore.detect(videoRef.current) : []
+            const letti = v.readyState >= 2 ? await rilevatore.detect(v) : []
             for (const l of letti) {
               const c = leggiCodice(l.rawValue)
               if (!c) { setAvviso('Questo QR non è un codice presenze.'); continue }
