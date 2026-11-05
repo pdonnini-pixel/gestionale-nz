@@ -50,6 +50,7 @@ async function conStore<T>(modo: IDBTransactionMode, fn: (s: IDBObjectStore) => 
     const req = fn(tx.objectStore(STORE))
     tx.oncomplete = () => { db.close(); resolve(req ? req.result : undefined) }
     tx.onerror = () => { db.close(); reject(tx.error) }
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error('Salvataggio interrotto')) }
   })
 }
 
@@ -139,10 +140,14 @@ export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
         const risposta = data as { ora_server?: string; esiti?: { id: string; esito: string }[] } | null
         if (risposta?.ora_server) aggiornaScarto(risposta.ora_server, t0, Date.now())
         const esiti = new Map((risposta?.esiti ?? []).map((e) => [e.id, e.esito]))
-        // qr_gia_usato: la stessa azione con lo stesso QR e' gia' registrata (doppio tocco)
+        // qr_gia_usato: la stessa azione con lo stesso QR e' gia' registrata (doppio tocco).
+        // Rifiuti certi: QR illeggibile o di qualcuno che non e' (piu') in azienda.
+        // Tutto il resto (errore_temporaneo, negozio_non_autorizzato, nessuna
+        // risposta) resta in coda e si riprova: una timbratura vera non sparisce.
         const fatte = (e: string | undefined) => e === 'salvata' || e === 'qr_gia_usato'
+        const RIFIUTI_CERTI = ['codice_illeggibile', 'persona_sconosciuta', 'persona_non_in_servizio', 'riga_non_valida']
         const salvate = lotto.filter((r) => fatte(esiti.get(r.id))).map((r) => r.id)
-        const rifiutate = lotto.filter((r) => esiti.has(r.id) && !fatte(esiti.get(r.id)))
+        const rifiutate = lotto.filter((r) => RIFIUTI_CERTI.includes(esiti.get(r.id) ?? ''))
         if (rifiutate.length) {
           const prima = scartate()
           const nuove = rifiutate.map((r) => ({ ...r, esito: esiti.get(r.id) ?? 'rifiutata' }))

@@ -170,7 +170,9 @@ BEGIN
                     ELSE 'qr_gia_usato' END,
       'verifica', v_verifica);
    EXCEPTION WHEN others THEN
-    v_esiti := v_esiti || jsonb_build_object('id', r->>'id', 'esito', 'riga_non_valida');
+    -- Errore non previsto (timeout, blocco): la riga resta in coda sul
+    -- telefono e si riprova, non si scarta.
+    v_esiti := v_esiti || jsonb_build_object('id', r->>'id', 'esito', 'errore_temporaneo');
    END;
   END LOOP;
 
@@ -190,6 +192,49 @@ AS $$
 $$;
 REVOKE ALL ON FUNCTION public.timbrature_mio_dipendente() FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.timbrature_mio_dipendente() TO authenticated, service_role;
+
+-- 5. Turno spezzato (9-13 e 16-20): l'avviso guarda solo l'ultimo turno della
+--    giornata. Prima bastava un altro turno entro un'ora; con la pausa lunga
+--    l'avviso partiva alle 13:30 a chi era semplicemente uscito senza timbrare.
+CREATE OR REPLACE FUNCTION public.timbrature_da_avvisare(p_now timestamptz DEFAULT now())
+RETURNS TABLE (company_id uuid, outlet_id uuid, employee_id uuid, shift_id uuid, data date, fine time,
+               nome text, telefono text, negozio text)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public
+AS $$
+  WITH oggi AS (SELECT (p_now AT TIME ZONE 'Europe/Rome')::date AS d),
+  negozi AS (
+    SELECT a.outlet_id, a.company_id, a.margine_uscita_minuti
+      FROM public.attendance_settings a WHERE a.attive AND a.avvisi_whatsapp
+  ),
+  turni AS (
+    SELECT t.*, n.margine_uscita_minuti, n.company_id AS cid,
+           ((t.data + t.fine) AT TIME ZONE 'Europe/Rome') AS fine_ts
+      FROM negozi n, oggi,
+           LATERAL public.timbrature_turni_ufficiali(n.company_id, oggi.d - 1, oggi.d) t
+     WHERE t.outlet_id = n.outlet_id
+  )
+  SELECT t.cid, t.outlet_id, t.employee_id, t.shift_id, t.data, t.fine,
+         COALESCE(e.nome, e.first_name), e.telefono_whatsapp, o.name
+    FROM turni t
+    JOIN public.employees e ON e.id = t.employee_id AND COALESCE(e.is_active, true)
+    JOIN public.outlets o ON o.id = t.outlet_id
+   WHERE t.fine_ts + make_interval(mins => t.margine_uscita_minuti) <= p_now
+     AND t.fine_ts >= p_now - interval '12 hours'
+     AND COALESCE(e.telefono_whatsapp, '') <> ''
+     AND NOT EXISTS (SELECT 1 FROM public.attendance_notifications x
+                      WHERE x.tipo = 'uscita_mancante'
+                        AND (x.shift_id = t.shift_id
+                             OR (x.employee_id = t.employee_id AND x.data = t.data AND x.fine_turno = t.fine)))
+     AND NOT EXISTS (SELECT 1 FROM public.timbrature_turni_ufficiali(t.cid, t.data, t.data) t2
+                      WHERE t2.employee_id = t.employee_id AND t2.shift_id <> t.shift_id
+                        AND t2.inizio >= t.fine)
+     AND (SELECT a.tipo FROM public.attendance_punches a
+           WHERE a.employee_id = t.employee_id AND NOT a.annullata
+             AND a.ora >= (t.data::timestamp AT TIME ZONE 'Europe/Rome') AND a.ora <= p_now
+           ORDER BY a.ora DESC LIMIT 1) IN ('entrata', 'inizio_pausa', 'fine_pausa');
+$$;
+REVOKE ALL ON FUNCTION public.timbrature_da_avvisare(timestamptz) FROM public, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.timbrature_da_avvisare(timestamptz) TO service_role;
 
 -- Verifica su ogni tenant (attese: 0 righe, e false):
 -- SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

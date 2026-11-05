@@ -11,11 +11,20 @@ const PAGINA = '/__pagina-presenze';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
-// La pagina manda l'elenco dei file gia' caricati prima che il service worker
-// fosse attivo: li salviamo, cosi' al primo giro offline ci sono gia'.
+// La pagina manda l'elenco dei file che sta usando: li salviamo, cosi' al
+// primo giro offline ci sono gia', e togliamo quelli delle versioni vecchie
+// (il cellulare del negozio resta acceso per mesi: senza pulizia la memoria
+// si riempirebbe a ogni pubblicazione).
 self.addEventListener('message', (e) => {
   const urls = (e.data && e.data.tipo === 'salva' && Array.isArray(e.data.urls)) ? e.data.urls : [];
   e.waitUntil(caches.open(CACHE).then(async (c) => {
+    const inUso = new Set();
+    for (const u of urls) {
+      try {
+        const p = new URL(u, self.location.origin);
+        if (p.origin === self.location.origin && p.pathname.startsWith('/assets/')) inUso.add(p.pathname);
+      } catch (_) { /* url non valido */ }
+    }
     for (const u of urls) {
       try {
         const url = new URL(u, self.location.origin);
@@ -24,6 +33,12 @@ self.addEventListener('message', (e) => {
         const r = await fetch(url.pathname);
         if (r.ok) await c.put(url.pathname, r);
       } catch (_) { /* si riprova al prossimo giro */ }
+    }
+    if (inUso.size > 0) {
+      for (const req of await c.keys()) {
+        const p = new URL(req.url).pathname;
+        if (p.startsWith('/assets/') && !inUso.has(p)) await c.delete(req);
+      }
     }
   }));
 });

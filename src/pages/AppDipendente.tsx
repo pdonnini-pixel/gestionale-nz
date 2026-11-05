@@ -146,10 +146,16 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   }, [aggiorna])
 
   const oggi = dataRoma(adesso)
-  const ieri = dataRoma(adesso - 86_400_000)
+  // Giorno prima calcolato sulla data (non 24 ore prima: nei giorni del cambio d'ora sbaglierebbe)
+  const ieri = (() => { const [y, m, d] = oggi.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10) })()
   const perGiorno = useCallback((d: string): Timbratura[] =>
     (dati?.timbrature ?? []).filter((t) => dataRoma(Date.parse(t.ora)) === d).map((t) => ({ tipo: t.tipo, ora: t.ora })), [dati])
-  const turnoDel = useCallback((d: string) => (dati?.turni ?? []).find((t) => t.data === d) ?? null, [dati])
+  // Con il turno spezzato vale l'intera giornata: dal primo inizio all'ultima fine
+  const turnoDel = useCallback((d: string) => {
+    const del = (dati?.turni ?? []).filter((t) => t.data === d).sort((a, b) => a.inizio.localeCompare(b.inizio))
+    if (!del.length) return null
+    return { ...del[del.length - 1], inizio: del[0].inizio }
+  }, [dati])
 
   const rOggi = riepilogoGiorno(perGiorno(oggi), turnoDel(oggi), adesso)
   const rIeri = riepilogoGiorno(perGiorno(ieri), turnoDel(ieri), adesso)

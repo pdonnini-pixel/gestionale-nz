@@ -55,12 +55,18 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
   const [nomi, setNomi] = useState<Map<string, string>>(new Map())
   const [accessi, setAccessi] = useState<Accesso[]>([])
   const [carico, setCarico] = useState(false)
+  // Sul sito di un'azienda senza la migration 348 (Made) le tabelle non ci sono:
+  // la scheda lo dice invece di riempirsi di errori.
+  const [nonDisponibile, setNonDisponibile] = useState(false)
 
+  // Riparte dall'ultimo negozio guardato (nessun negozio scritto nel codice)
   useEffect(() => {
     if (!outletId && outlets.length) {
-      setOutletId((outlets.find((o) => o.code === 'RSO') ?? outlets[0]).id)
+      const ultimo = localStorage.getItem('nz-presenze-negozio')
+      setOutletId((outlets.find((o) => o.id === ultimo) ?? outlets[0]).id)
     }
   }, [outlets, outletId])
+  useEffect(() => { if (outletId) localStorage.setItem('nz-presenze-negozio', outletId) }, [outletId])
 
   const carica = useCallback(async () => {
     if (!outletId) return
@@ -78,6 +84,8 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
         supabase.rpc('app_accessi_elenco', { p_outlet_id: outletId }),
         supabase.from('employees').select('id, nome, cognome, first_name, last_name').eq('company_id', companyId),
       ])
+      const manca = (e: { code?: string } | null) => !!e && ['PGRST205', '42P01', 'PGRST202', '42883'].includes(e.code ?? '')
+      if (manca(sRes.error) || manca(aRes.error)) { setNonDisponibile(true); return }
       if (sRes.data) setImp(sRes.data as Impostazioni)
       else setImp({ attive: false, avvisi_whatsapp: false, margine_uscita_minuti: MARGINE_USCITA_DEFAULT })
       // Turni ufficiali: quelli del piano scelto del mese, altrimenti quelli
@@ -140,6 +148,10 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
   const copia = async (testo: string) => {
     try { await navigator.clipboard.writeText(testo); toast({ type: 'success', message: 'Copiato: incollalo nel messaggio al dipendente.' }) }
     catch { toast({ type: 'warning', message: testo }) }
+  }
+
+  if (nonDisponibile) {
+    return <p className="text-slate-500 py-12 text-center">Le timbrature non sono attive per questa azienda.</p>
   }
 
   return (

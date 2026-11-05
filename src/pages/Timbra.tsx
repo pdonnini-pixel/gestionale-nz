@@ -56,15 +56,26 @@ export default function Timbra() {
   const [erroreCamera, setErroreCamera] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const ultimoCodice = useRef<{ id: string; t: number } | null>(null)
+  const occupato = useRef(false)
+  const nomiRef = useRef<Map<string, string>>(new Map())
 
   useEffect(() => attivaOffline('/timbra', '/timbra.webmanifest'), [])
   useEffect(() => schermoSempreAcceso(), [])
   useEffect(() => { void chiediMemoriaPersistente() }, [])
   useEffect(() => { const t = setInterval(() => setAdesso(Date.now()), 1000); return () => clearInterval(t) }, [])
 
-  // Sessione salvata sul telefono (si legge anche offline)
+  // Sessione salvata sul telefono. Offline il rinnovo del token fallisce e
+  // getSession() risponde null anche se l'accesso c'e': se il telefono ha gia'
+  // un negozio scelto e una sessione salvata, si lavora dalla coda.
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSessione(data.session ? 'si' : 'no'))
+    const salvata = Object.keys(localStorage).some((k) => /^sb-.+-auth-token$/.test(k))
+    const negozioScelto = !!localStorage.getItem(K_NEGOZIO)
+    supabase.auth.getSession()
+      .then(({ data, error }) => {
+        if (data.session) setSessione('si')
+        else setSessione(negozioScelto && salvata && (!navigator.onLine || !!error) ? 'si' : 'no')
+      })
+      .catch(() => setSessione(negozioScelto && salvata ? 'si' : 'no'))
   }, [])
 
   // Negozi in cui si puo' timbrare (online); offline resta quello scelto
@@ -113,6 +124,8 @@ export default function Timbra() {
 
   const oggi = dataRoma(adesso)
   const nomi = useMemo(() => new Map((dati?.persone ?? []).map((p) => [p.id, p.nome])), [dati])
+  // La fotocamera legge i nomi da qui: cosi' l'aggiornamento di ogni minuto non la riapre
+  useEffect(() => { nomiRef.current = nomi }, [nomi])
 
   // Timbrature di oggi: quelle del server piu' quelle ancora in coda
   const timbratureOggi = useMemo(() => {
@@ -128,8 +141,13 @@ export default function Timbra() {
     return m
   }, [dati, coda, oggi])
 
-  const turnoDi = useCallback((empId: string) =>
-    (dati?.turni ?? []).find((t) => t.employee_id === empId && t.data === oggi) ?? null, [dati, oggi])
+  // Con il turno spezzato vale l'intera giornata: dal primo inizio all'ultima fine
+  const turnoDi = useCallback((empId: string) => {
+    const del = (dati?.turni ?? []).filter((t) => t.employee_id === empId && t.data === oggi)
+      .sort((a, b) => a.inizio.localeCompare(b.inizio))
+    if (!del.length) return null
+    return { ...del[del.length - 1], inizio: del[0].inizio, pausa_minuti: del.reduce((s, t) => s + (t.pausa_minuti ?? 0), 0) }
+  }, [dati, oggi])
 
   // Lettura del QR con la fotocamera
   useEffect(() => {
@@ -154,7 +172,7 @@ export default function Timbra() {
               const u = ultimoCodice.current
               if (u && u.id === c.employeeId && Date.now() - u.t < 8000) continue
               setAvviso(null)
-              setSelezione({ employeeId: c.employeeId, nome: nomi.get(c.employeeId) ?? 'Persona non in elenco', codice: l.rawValue, letto: Date.now() })
+              setSelezione({ employeeId: c.employeeId, nome: nomiRef.current.get(c.employeeId) ?? 'Persona non in elenco', codice: l.rawValue, letto: Date.now() })
               return
             }
           } catch { /* fotogramma non leggibile */ }
@@ -164,7 +182,7 @@ export default function Timbra() {
       })
       .catch(() => setErroreCamera('Serve il permesso per la fotocamera: toccalo nella barra degli indirizzi e consenti.'))
     return () => { fermo = true; stream?.getTracks().forEach((t) => t.stop()) }
-  }, [outletId, selezione, fatto, frontale, nomi])
+  }, [outletId, selezione, fatto, frontale])
 
   // La scheda della persona si chiude da sola dopo 20 secondi
   useEffect(() => {
@@ -179,13 +197,22 @@ export default function Timbra() {
   }, [fatto])
 
   const timbra = async (tipo: TipoTimbratura) => {
-    if (!selezione || !outletId) return
-    const riga = await registraInCoda({ outletId, codice: selezione.codice, tipo, employeeId: selezione.employeeId, nome: selezione.nome })
-    ultimoCodice.current = { id: selezione.employeeId, t: Date.now() }
-    setFatto({ nome: selezione.nome, tipo, ora: riga.ora_dispositivo })
+    // Un solo tocco conta: il secondo, mentre si salva, si ignora
+    if (!selezione || !outletId || occupato.current) return
+    occupato.current = true
+    const sel = selezione
     setSelezione(null)
-    await aggiornaCoda()
-    void sincronizza()
+    try {
+      const riga = await registraInCoda({ outletId, codice: sel.codice, tipo, employeeId: sel.employeeId, nome: sel.nome })
+      ultimoCodice.current = { id: sel.employeeId, t: Date.now() }
+      setFatto({ nome: sel.nome, tipo, ora: riga.ora_dispositivo })
+      await aggiornaCoda()
+      void sincronizza()
+    } catch {
+      setAvviso('Timbratura NON salvata: riprova.')
+    } finally {
+      occupato.current = false
+    }
   }
 
   // ─── Schermate ───────────────────────────────────────────────────────
@@ -238,7 +265,7 @@ export default function Timbra() {
           ? <p className="text-sm text-emerald-300">Tutte le timbrature sono inviate{ultimoInvio ? ` (ultimo invio ${oraRoma(ultimoInvio)})` : ''}.</p>
           : <p className="text-sm text-amber-300">{coda.length === 1 ? '1 timbratura in attesa' : `${coda.length} timbrature in attesa`}: {online ? 'invio in corso.' : 'partono da sole appena torna la rete.'}</p>}
         {scartateOra.length > 0 && (
-          <p className="text-sm text-rose-300 mt-1 flex items-center gap-1"><AlertTriangle size={14} />{scartateOra.length} timbrature non accettate dal sistema: le vede chi segue il personale.</p>
+          <p className="text-sm text-rose-300 mt-1 flex items-center gap-1"><AlertTriangle size={14} />{scartateOra.length === 1 ? '1 timbratura rifiutata' : `${scartateOra.length} timbrature rifiutate`} (QR non riconosciuto o persona non in servizio): avvisa chi segue il personale.</p>
         )}
       </div>
 

@@ -6,10 +6,10 @@
 //   1. trova il dipendente dal codice (valido 30 giorni);
 //   2. se non ha ancora un utente lo crea (ruolo dipendente, nessuna mail:
 //      l'indirizzo e' interno e non riceve posta) e lo lega a employees.user_id;
-//   3. consuma il codice: il segreto del QR cambia, il telefono di prima smette
-//      di funzionare;
-//   4. genera un link di accesso (generateLink, nessuna mail) e ne restituisce
-//      il token_hash: il telefono lo scambia con una sessione (verifyOtp).
+//   3. genera un link di accesso (generateLink, nessuna mail): il token_hash
+//      il telefono lo scambia con una sessione (verifyOtp);
+//   4. solo allora consuma il codice: il segreto del QR cambia, il telefono di
+//      prima smette di funzionare.
 //
 // Sicurezza: chiamata pubblica (chiave anon), protetta dal codice monouso e
 // dal limite ai tentativi (app_attivazione_bloccata, migration 349).
@@ -101,16 +101,17 @@ Deno.serve(async (req: Request) => {
       if (linkErr) throw linkErr;
     }
 
-    // 3. Consuma il codice e prende il segreto nuovo
+    // 3. Accesso per il telefono, PRIMA di consumare il codice: se fallisce,
+    //    il codice resta valido e si puo' riprovare.
+    const { data: gl, error: glErr } = await admin.auth.admin.generateLink({ type: "magiclink", email });
+    const tokenHash = gl?.properties?.hashed_token;
+    if (glErr || !tokenHash) throw new Error(`Accesso non generato: ${glErr?.message ?? "sconosciuto"}`);
+
+    // 4. Consuma il codice e prende il segreto nuovo
     const { data: righe, error: consErr } = await admin.rpc("app_dipendente_consuma_codice", { p_codice: codice });
     if (consErr) throw consErr;
     const riga = Array.isArray(righe) ? righe[0] as { segreto?: string } | undefined : undefined;
     if (!riga?.segreto) return jsonError(400, "Codice già usato. Chiedi un codice nuovo.", "CODE_USED");
-
-    // 4. Sessione per il telefono
-    const { data: gl, error: glErr } = await admin.auth.admin.generateLink({ type: "magiclink", email });
-    const tokenHash = gl?.properties?.hashed_token;
-    if (glErr || !tokenHash) throw new Error(`Accesso non generato: ${glErr?.message ?? "sconosciuto"}`);
 
     await admin.from("employee_app_activation_attempts").insert({ esito: "ok" });
     return json(200, {
