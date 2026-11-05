@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock, Sparkles, UserRound } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { sqlNull } from '../lib/sqlNull';
 import { stimaOrariEFabbisogno } from '../lib/stimaNegozio';
 import { riassuntoOrari, type OrarioGiornoTipo } from '../lib/turni';
 import { useAuth } from '../hooks/useAuth';
@@ -129,7 +130,7 @@ export default function TurniNegozi({ companyId }: Props) {
     .sort((a, b) => nomePersona(a).localeCompare(nomePersona(b), 'it'));
   const impostaReferente = async (employeeId: string) => {
     if (!scelto) return;
-    const { error } = await supabase.rpc('organico_imposta_referente', { p_outlet_id: scelto.id, p_employee_id: employeeId || null });
+    const { error } = await supabase.rpc('organico_imposta_referente', { p_outlet_id: scelto.id, p_employee_id: sqlNull(employeeId || null) });
     if (error) { toast({ type: 'error', message: error.message }); return; }
     toast({ type: 'success', message: employeeId ? `Responsabile di ${nomeNegozio(scelto)} salvato: vale anche in Organico, Utenti e modulo ferie.` : `${nomeNegozio(scelto)} è senza responsabile.` });
     await carica();

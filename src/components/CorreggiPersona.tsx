@@ -17,6 +17,7 @@ import { Modal } from './ui/Modal';
 import { useToast } from './Toast';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase';
+import { sqlNull } from '../lib/sqlNull';
 import { nomePersona, type EventoOrganico, type PersonaOggi } from '../lib/organico';
 import { nomeNegozio, type NegozioRif } from '../lib/organicoDati';
 
@@ -87,11 +88,13 @@ export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, n
         p_nome: nome.trim(),
         p_cognome: cognome.trim(),
         p_livello: livello,
-        p_outlet_id: ass ? negozio : null,
-        p_contratto_tipo: ass ? contratto : null,
-        p_ore_settimanali: ass && ore ? Number(ore) : null,
-        p_data_assunzione: ass ? dal : null,
-        p_scadenza: ass && contratto !== 'indeterminato' && al ? al : null,
+        // NULL voluto quando non c'e' un'assunzione da confermare: in quel caso la
+        // funzione non legge questi campi (vedi sqlNull).
+        p_outlet_id: sqlNull(ass ? negozio : null),
+        p_contratto_tipo: sqlNull(ass ? contratto : null),
+        p_ore_settimanali: sqlNull(ass && ore ? Number(ore) : null),
+        p_data_assunzione: sqlNull(ass ? dal : null),
+        p_scadenza: sqlNull(ass && contratto !== 'indeterminato' && al ? al : null),
         p_autore_nome: autore,
       });
       if (error) throw error;
