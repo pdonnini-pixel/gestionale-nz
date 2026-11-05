@@ -5,8 +5,7 @@
 BEGIN;
 
 -- -----------------------------------------------------------------------------
--- 1) rerun_bijective_reconciliation — pavimento a 15 giorni prima della fattura,
---    con importo esatto quando il movimento precede la fattura
+-- 1) rerun_bijective_reconciliation — versione fino alla 355 (pavimento alla data fattura)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.rerun_bijective_reconciliation()
  RETURNS jsonb
@@ -86,8 +85,7 @@ END;
 $function$;
 
 -- -----------------------------------------------------------------------------
--- 2) try_match_bank_transaction — candidati fino a 15 giorni dopo il movimento,
---    scartati se prima della fattura senza nome in causale o con importo non esatto
+-- 2) try_match_bank_transaction — versione fino alla 355 (invoice_date <= transaction_date)
 -- -----------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.try_match_bank_transaction(p_bt_id uuid)
  RETURNS jsonb
