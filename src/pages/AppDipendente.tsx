@@ -11,6 +11,7 @@ import { useSearchParams } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { CalendarDays, Clock, Palmtree, QrCode, RefreshCw, WifiOff } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { getCurrentTenant } from '../lib/tenants'
 import {
   ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, formatMinuti, oraRoma, ordina, riepilogoGiorno, secondiAlCambio,
   PASSO_SECONDI, type Timbratura, type TipoTimbratura,
@@ -45,6 +46,14 @@ interface DatiOggi {
 
 function leggi<T>(k: string): T | null {
   try { const s = localStorage.getItem(k); return s ? JSON.parse(s) as T : null } catch { return null }
+}
+
+/** Nome dell'azienda in testa all'app: New Zago nell'app degli store e sul sito NZ. */
+function marchioApp(): string {
+  try {
+    const a = getCurrentTenant().alias
+    return a === 'zago' ? 'Zago' : a === 'made-retail' ? 'Made' : 'New Zago'
+  } catch { return 'Presenze' }
 }
 
 export default function AppDipendente() {
@@ -94,7 +103,10 @@ export default function AppDipendente() {
   if (!attivazione) {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 gap-4 text-center">
-        <p className="text-2xl font-bold text-slate-900">Presenze</p>
+        <div>
+          <p className="text-3xl font-bold tracking-tight text-slate-900">{marchioApp()}</p>
+          <p className="text-sm uppercase tracking-widest text-slate-500 mt-1">Presenze</p>
+        </div>
         {altroUtente ? (
           <p className="text-slate-600 max-w-sm">Questo dispositivo è già collegato al gestionale con un altro utente. Apri il link dal tuo telefono personale.</p>
         ) : (
@@ -109,7 +121,7 @@ export default function AppDipendente() {
               {occupato ? 'Attivo…' : 'Attiva'}
             </button>
             <p className="text-xs text-slate-400 max-w-sm mt-4">
-              L'app registra solo le tue timbrature (ora e negozio) e mostra i tuoi turni. Non usa la posizione, la fotocamera né altri dati del tuo telefono. Il numero per l'avviso WhatsApp lo inserisce l'azienda. L'informativa completa te la consegna l'azienda.
+              L'app registra solo le tue timbrature (ora e negozio) e mostra i tuoi turni. Non usa la posizione, la fotocamera né altri dati del tuo telefono. Se lo consenti, ti avvisa con una notifica quando non risulta la tua entrata o la tua uscita. L'informativa completa te la consegna l'azienda.
             </p>
           </>
         )}
