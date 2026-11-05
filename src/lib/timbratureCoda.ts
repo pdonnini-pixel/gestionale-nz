@@ -1,0 +1,197 @@
+// Coda offline del cellulare del negozio (timbratrice).
+//
+// Ogni timbratura si salva prima qui (IndexedDB, resta anche se il telefono si
+// spegne) e poi parte verso il server con timbrature_registra(). Il server
+// risponde riga per riga: le salvate escono dalla coda, quelle rifiutate
+// (codice illeggibile, persona sconosciuta) passano in un elenco a parte che
+// la pagina mostra, cosi' non si perdono e non bloccano le altre.
+
+import { supabase } from './supabase'
+import type { TipoTimbratura } from './timbrature'
+
+export interface RigaCoda {
+  id: string
+  outlet_id: string
+  codice: string
+  tipo: TipoTimbratura
+  ora_dispositivo: string
+  scarto_secondi: number
+  dispositivo_id: string
+  sequenza: number
+  /** Solo per la pagina: chi e' e quando, anche senza rete. */
+  employee_id: string
+  nome: string
+}
+
+export interface RigaScartata extends RigaCoda { esito: string }
+
+const DB_NOME = 'nz-timbrature'
+const STORE = 'coda'
+const K_DISPOSITIVO = 'nz-timbra-dispositivo'
+const K_SEQUENZA = 'nz-timbra-sequenza'
+const K_SCARTO = 'nz-timbra-scarto'
+const K_SCARTATE = 'nz-timbra-scartate'
+
+function apri(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NOME, 1)
+    req.onupgradeneeded = () => {
+      if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: 'id' })
+    }
+    req.onsuccess = () => resolve(req.result)
+    req.onerror = () => reject(req.error)
+  })
+}
+
+async function conStore<T>(modo: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T> | void): Promise<T | undefined> {
+  const db = await apri()
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, modo)
+    const req = fn(tx.objectStore(STORE))
+    tx.oncomplete = () => { db.close(); resolve(req ? req.result : undefined) }
+    tx.onerror = () => { db.close(); reject(tx.error) }
+    tx.onabort = () => { db.close(); reject(tx.error ?? new Error('Salvataggio interrotto')) }
+  })
+}
+
+export async function inCoda(): Promise<RigaCoda[]> {
+  const righe = (await conStore<RigaCoda[]>('readonly', (s) => s.getAll() as IDBRequest<RigaCoda[]>)) ?? []
+  return righe.sort((a, b) => a.ora_dispositivo.localeCompare(b.ora_dispositivo))
+}
+
+async function aggiungi(r: RigaCoda): Promise<void> {
+  await conStore('readwrite', (s) => { s.put(r) })
+}
+
+async function togli(ids: string[]): Promise<void> {
+  if (!ids.length) return
+  await conStore('readwrite', (s) => { for (const id of ids) s.delete(id) })
+}
+
+/** Chiede al browser di non cancellare la memoria della timbratrice. */
+export async function chiediMemoriaPersistente(): Promise<void> {
+  try { await navigator.storage?.persist?.() } catch { /* non tutti i browser */ }
+}
+
+export function idDispositivo(): string {
+  let id = localStorage.getItem(K_DISPOSITIVO)
+  if (!id) { id = crypto.randomUUID(); localStorage.setItem(K_DISPOSITIVO, id) }
+  return id
+}
+
+function prossimaSequenza(): number {
+  const n = Number(localStorage.getItem(K_SEQUENZA) ?? '0') + 1
+  localStorage.setItem(K_SEQUENZA, String(n))
+  return n
+}
+
+/** Secondi da aggiungere all'ora del telefono per avere l'ora del server. */
+export function scartoOrologio(): number {
+  return Number(localStorage.getItem(K_SCARTO) ?? '0') || 0
+}
+
+export function aggiornaScarto(oraServerIso: string, inviataAlleMs: number, ricevutaAlleMs: number): void {
+  const server = Date.parse(oraServerIso)
+  if (!Number.isFinite(server)) return
+  const meta = (inviataAlleMs + ricevutaAlleMs) / 2
+  localStorage.setItem(K_SCARTO, String(Math.round((server - meta) / 1000)))
+}
+
+export function scartate(): RigaScartata[] {
+  try { return JSON.parse(localStorage.getItem(K_SCARTATE) ?? '[]') as RigaScartata[] } catch { return [] }
+}
+
+/** Salva una timbratura in coda (subito, anche senza rete). */
+export async function registraInCoda(args: {
+  outletId: string; codice: string; tipo: TipoTimbratura; employeeId: string; nome: string
+}): Promise<RigaCoda> {
+  const riga: RigaCoda = {
+    id: crypto.randomUUID(),
+    outlet_id: args.outletId,
+    codice: args.codice,
+    tipo: args.tipo,
+    ora_dispositivo: new Date().toISOString(),
+    scarto_secondi: scartoOrologio(),
+    dispositivo_id: idDispositivo(),
+    sequenza: prossimaSequenza(),
+    employee_id: args.employeeId,
+    nome: args.nome,
+  }
+  await aggiungi(riga)
+  return riga
+}
+
+let invioInCorso: Promise<{ inviate: number; inAttesa: number }> | null = null
+
+/** Manda la coda al server. Una sola alla volta. */
+export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
+  if (invioInCorso) return invioInCorso
+  invioInCorso = (async () => {
+    let inviate = 0
+    try {
+      const righe = await inCoda()
+      for (let i = 0; i < righe.length; i += 100) {
+        const lotto = righe.slice(i, i + 100)
+        const t0 = Date.now()
+        const { data, error } = await supabase.rpc('timbrature_registra', {
+          p_righe: lotto.map(({ employee_id: _e, nome: _n, ...r }) => r),
+        })
+        if (error) break // rete o sessione: si riprova dopo, la coda resta
+        const risposta = data as { ora_server?: string; esiti?: { id: string; esito: string }[] } | null
+        if (risposta?.ora_server) aggiornaScarto(risposta.ora_server, t0, Date.now())
+        const esiti = new Map((risposta?.esiti ?? []).map((e) => [e.id, e.esito]))
+        // qr_gia_usato: la stessa azione con lo stesso QR e' gia' registrata (doppio tocco).
+        // Rifiuti certi: QR illeggibile o di qualcuno che non e' (piu') in azienda.
+        // Tutto il resto (errore_temporaneo, negozio_non_autorizzato, nessuna
+        // risposta) resta in coda e si riprova: una timbratura vera non sparisce.
+        const fatte = (e: string | undefined) => e === 'salvata' || e === 'qr_gia_usato'
+        const RIFIUTI_CERTI = ['codice_illeggibile', 'persona_sconosciuta', 'persona_non_in_servizio', 'riga_non_valida']
+        const salvate = lotto.filter((r) => fatte(esiti.get(r.id))).map((r) => r.id)
+        const rifiutate = lotto.filter((r) => RIFIUTI_CERTI.includes(esiti.get(r.id) ?? ''))
+        if (rifiutate.length) {
+          const prima = scartate()
+          const nuove = rifiutate.map((r) => ({ ...r, esito: esiti.get(r.id) ?? 'rifiutata' }))
+          localStorage.setItem(K_SCARTATE, JSON.stringify([...prima, ...nuove].slice(-200)))
+        }
+        await togli([...salvate, ...rifiutate.map((r) => r.id)])
+        inviate += salvate.length
+      }
+    } finally {
+      invioInCorso = null
+    }
+    return { inviate, inAttesa: (await inCoda()).length }
+  })()
+  return invioInCorso
+}
+
+// ─── Dati del negozio in memoria (per lavorare offline) ─────────────────
+
+export interface DatiTimbratrice {
+  ora_server: string
+  outlet: { id: string; nome: string }
+  margine_uscita_minuti: number
+  persone: { id: string; nome: string }[]
+  turni: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null }[]
+  timbrature: { id: string; employee_id: string; tipo: TipoTimbratura; ora: string }[]
+  /** Quando e' stata scaricata (ora del telefono). */
+  scaricati_il?: string
+}
+
+const kDati = (outletId: string) => `nz-timbra-dati-${outletId}`
+
+export function datiInMemoria(outletId: string): DatiTimbratrice | null {
+  try {
+    const s = localStorage.getItem(kDati(outletId))
+    return s ? JSON.parse(s) as DatiTimbratrice : null
+  } catch { return null }
+}
+
+export async function scaricaDati(outletId: string): Promise<DatiTimbratrice | null> {
+  const t0 = Date.now()
+  const { data, error } = await supabase.rpc('timbratrice_dati', { p_outlet_id: outletId })
+  if (error || !data) return null
+  const dati = { ...(data as unknown as DatiTimbratrice), scaricati_il: new Date().toISOString() }
+  aggiornaScarto(dati.ora_server, t0, Date.now())
+  localStorage.setItem(kDati(outletId), JSON.stringify(dati))
+  return dati
+}

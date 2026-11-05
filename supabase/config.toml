@@ -6,3 +6,8 @@ verify_jwt = false
 
 [functions.sdi-notifications]
 verify_jwt = false
+
+# App del dipendente: attivazione con codice monouso, chiamata dal telefono
+# prima dell'accesso (protetta dal codice e dal limite ai tentativi, migration 349)
+[functions.app-dipendente-attiva]
+verify_jwt = false

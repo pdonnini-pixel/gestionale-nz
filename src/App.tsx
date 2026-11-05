@@ -51,6 +51,10 @@ const TicketAdmin = lazy(() => import('./pages/TicketAdmin'))
 const ReportSincronizzazioni = lazy(() => import('./pages/ReportSincronizzazioni'))
 const ChiusuraCassa = lazy(() => import('./pages/ChiusuraCassa'))
 const IncassiGiornalieri = lazy(() => import('./pages/IncassiGiornalieri'))
+// Timbrature (migration 348): pagine a se', fuori dal guscio del gestionale,
+// perche' devono aprirsi anche senza rete (vedi src/lib/presenzeOffline.ts).
+const Timbra = lazy(() => import('./pages/Timbra'))
+const AppDipendente = lazy(() => import('./pages/AppDipendente'))
 
 // Rotte raggiungibili dall'account di negozio (ruolo operatore_cassa): la
 // chiusura di cassa e il proprio profilo. Tutto il resto lo rimanda alla
@@ -173,6 +177,8 @@ function AppRoutes() {
         {/* Reset password: NON sotto PublicRoute — la sessione temporanea di recupero
             verrebbe rimbalzata via. La pagina gestisce da sé i propri stati. */}
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/timbra" element={<Timbra />} />
+        <Route path="/app" element={<AppDipendente />} />
         <Route path="/onboarding" element={<ProtectedRoute><Onboarding /></ProtectedRoute>} />
         <Route element={<ProtectedRoute><OnboardingGate><CashOperatorGate><Layout /></CashOperatorGate></OnboardingGate></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
