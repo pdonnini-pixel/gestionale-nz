@@ -14,6 +14,437 @@ export type Database = {
   }
   public: {
     Tables: {
+      attendance_alerts: {
+        Row: {
+          company_id: string
+          created_at: string
+          data: string
+          destinatario: string
+          destinatario_employee_id: string | null
+          employee_id: string
+          errore: string | null
+          esito: string
+          id: string
+          ora_turno: string
+          outlet_id: string
+          shift_id: string | null
+          telefoni: number
+          tipo: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          data: string
+          destinatario: string
+          destinatario_employee_id?: string | null
+          employee_id: string
+          errore?: string | null
+          esito: string
+          id?: string
+          ora_turno: string
+          outlet_id: string
+          shift_id?: string | null
+          telefoni?: number
+          tipo: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          data?: string
+          destinatario?: string
+          destinatario_employee_id?: string | null
+          employee_id?: string
+          errore?: string | null
+          esito?: string
+          id?: string
+          ora_turno?: string
+          outlet_id?: string
+          shift_id?: string | null
+          telefoni?: number
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_alerts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_destinatario_employee_id_fkey"
+            columns: ["destinatario_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_destinatario_employee_id_fkey"
+            columns: ["destinatario_employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_destinatario_employee_id_fkey"
+            columns: ["destinatario_employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "attendance_alerts_shift_id_fkey"
+            columns: ["shift_id"]
+            isOneToOne: false
+            referencedRelation: "shifts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      employee_push_tokens: {
+        Row: {
+          aggiornato_il: string
+          attivo: boolean
+          company_id: string
+          created_at: string
+          employee_id: string
+          id: string
+          piattaforma: string
+          token: string
+          user_id: string | null
+        }
+        Insert: {
+          aggiornato_il?: string
+          attivo?: boolean
+          company_id: string
+          created_at?: string
+          employee_id: string
+          id?: string
+          piattaforma: string
+          token: string
+          user_id?: string | null
+        }
+        Update: {
+          aggiornato_il?: string
+          attivo?: boolean
+          company_id?: string
+          created_at?: string
+          employee_id?: string
+          id?: string
+          piattaforma?: string
+          token?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_push_tokens_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_push_tokens_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_push_tokens_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_push_tokens_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+        ]
+      }
+      attendance_notifications: {
+        Row: {
+          canale: string
+          company_id: string
+          created_at: string
+          data: string
+          employee_id: string
+          errore: string | null
+          esito: string
+          fine_turno: string
+          id: string
+          shift_id: string | null
+          telefono: string | null
+          tipo: string
+        }
+        Insert: {
+          canale?: string
+          company_id: string
+          created_at?: string
+          data: string
+          employee_id: string
+          errore?: string | null
+          esito: string
+          fine_turno: string
+          id?: string
+          shift_id?: string | null
+          telefono?: string | null
+          tipo?: string
+        }
+        Update: {
+          canale?: string
+          company_id?: string
+          created_at?: string
+          data?: string
+          employee_id?: string
+          errore?: string | null
+          esito?: string
+          fine_turno?: string
+          id?: string
+          shift_id?: string | null
+          telefono?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_notifications_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_notifications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_notifications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_notifications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_notifications_shift_id_fkey"
+            columns: ["shift_id"]
+            isOneToOne: false
+            referencedRelation: "shifts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_settings: {
+        Row: {
+          attive: boolean
+          avvisa_dipendente: boolean
+          avvisa_responsabile: boolean
+          avvisa_ufficio: boolean
+          avvisi_push: boolean
+          avvisi_whatsapp: boolean
+          company_id: string
+          margine_uscita_minuti: number
+          outlet_id: string
+          ritardo_attivo: boolean
+          ritardo_minuti: number
+          updated_at: string
+          updated_by: string | null
+          uscita_attivo: boolean
+        }
+        Insert: {
+          attive?: boolean
+          avvisa_dipendente?: boolean
+          avvisa_responsabile?: boolean
+          avvisa_ufficio?: boolean
+          avvisi_push?: boolean
+          avvisi_whatsapp?: boolean
+          company_id: string
+          margine_uscita_minuti?: number
+          outlet_id: string
+          ritardo_attivo?: boolean
+          ritardo_minuti?: number
+          updated_at?: string
+          updated_by?: string | null
+          uscita_attivo?: boolean
+        }
+        Update: {
+          attive?: boolean
+          avvisa_dipendente?: boolean
+          avvisa_responsabile?: boolean
+          avvisa_ufficio?: boolean
+          avvisi_push?: boolean
+          avvisi_whatsapp?: boolean
+          company_id?: string
+          margine_uscita_minuti?: number
+          outlet_id?: string
+          ritardo_attivo?: boolean
+          ritardo_minuti?: number
+          updated_at?: string
+          updated_by?: string | null
+          uscita_attivo?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_settings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_settings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_settings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "attendance_settings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "attendance_settings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
+      employee_app_access: {
+        Row: {
+          attivata_il: string | null
+          codice: string | null
+          codice_scade: string | null
+          company_id: string
+          created_at: string
+          employee_id: string
+          segreto: string
+          updated_at: string
+        }
+        Insert: {
+          attivata_il?: string | null
+          codice?: string | null
+          codice_scade?: string | null
+          company_id: string
+          created_at?: string
+          employee_id: string
+          segreto: string
+          updated_at?: string
+        }
+        Update: {
+          attivata_il?: string | null
+          codice?: string | null
+          codice_scade?: string | null
+          company_id?: string
+          created_at?: string
+          employee_id?: string
+          segreto?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_app_access_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_app_access_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_app_access_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_app_access_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+        ]
+      }
       _backup_bank_tx_dedup_20260526: {
         Row: {
           account_id: string | null
@@ -12176,87 +12607,6 @@ export type Database = {
         }
         Relationships: []
       }
-      attendance_notifications: {
-        Row: {
-          canale: string
-          company_id: string
-          created_at: string
-          data: string
-          employee_id: string
-          errore: string | null
-          esito: string
-          fine_turno: string
-          id: string
-          shift_id: string | null
-          telefono: string | null
-          tipo: string
-        }
-        Insert: {
-          canale?: string
-          company_id: string
-          created_at?: string
-          data: string
-          employee_id: string
-          errore?: string | null
-          esito: string
-          fine_turno: string
-          id?: string
-          shift_id?: string | null
-          telefono?: string | null
-          tipo?: string
-        }
-        Update: {
-          canale?: string
-          company_id?: string
-          created_at?: string
-          data?: string
-          employee_id?: string
-          errore?: string | null
-          esito?: string
-          fine_turno?: string
-          id?: string
-          shift_id?: string | null
-          telefono?: string | null
-          tipo?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "attendance_notifications_company_id_fkey"
-            columns: ["company_id"]
-            isOneToOne: false
-            referencedRelation: "companies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_notifications_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_notifications_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "v_employee_costs_by_outlet"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "attendance_notifications_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "v_leave_giorni_outlet"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "attendance_notifications_shift_id_fkey"
-            columns: ["shift_id"]
-            isOneToOne: false
-            referencedRelation: "shifts"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       attendance_punches: {
         Row: {
           annullata: boolean
@@ -12381,72 +12731,6 @@ export type Database = {
             foreignKeyName: "attendance_punches_outlet_id_fkey"
             columns: ["outlet_id"]
             isOneToOne: false
-            referencedRelation: "v_outlet_card"
-            referencedColumns: ["outlet_id"]
-          },
-        ]
-      }
-      attendance_settings: {
-        Row: {
-          attive: boolean
-          avvisi_whatsapp: boolean
-          company_id: string
-          margine_uscita_minuti: number
-          outlet_id: string
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          attive?: boolean
-          avvisi_whatsapp?: boolean
-          company_id: string
-          margine_uscita_minuti?: number
-          outlet_id: string
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          attive?: boolean
-          avvisi_whatsapp?: boolean
-          company_id?: string
-          margine_uscita_minuti?: number
-          outlet_id?: string
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "attendance_settings_company_id_fkey"
-            columns: ["company_id"]
-            isOneToOne: false
-            referencedRelation: "companies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_settings_outlet_id_fkey"
-            columns: ["outlet_id"]
-            isOneToOne: true
-            referencedRelation: "outlets"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "attendance_settings_outlet_id_fkey"
-            columns: ["outlet_id"]
-            isOneToOne: true
-            referencedRelation: "v_bp_vs_actual_outlet"
-            referencedColumns: ["outlet_id"]
-          },
-          {
-            foreignKeyName: "attendance_settings_outlet_id_fkey"
-            columns: ["outlet_id"]
-            isOneToOne: true
-            referencedRelation: "v_business_plan_outlet"
-            referencedColumns: ["outlet_id"]
-          },
-          {
-            foreignKeyName: "attendance_settings_outlet_id_fkey"
-            columns: ["outlet_id"]
-            isOneToOne: true
             referencedRelation: "v_outlet_card"
             referencedColumns: ["outlet_id"]
           },
@@ -17190,68 +17474,6 @@ export type Database = {
           xml_file_path?: string | null
         }
         Relationships: []
-      }
-      employee_app_access: {
-        Row: {
-          attivata_il: string | null
-          codice: string | null
-          codice_scade: string | null
-          company_id: string
-          created_at: string
-          employee_id: string
-          segreto: string
-          updated_at: string
-        }
-        Insert: {
-          attivata_il?: string | null
-          codice?: string | null
-          codice_scade?: string | null
-          company_id: string
-          created_at?: string
-          employee_id: string
-          segreto: string
-          updated_at?: string
-        }
-        Update: {
-          attivata_il?: string | null
-          codice?: string | null
-          codice_scade?: string | null
-          company_id?: string
-          created_at?: string
-          employee_id?: string
-          segreto?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "employee_app_access_company_id_fkey"
-            columns: ["company_id"]
-            isOneToOne: false
-            referencedRelation: "companies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "employee_app_access_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: true
-            referencedRelation: "employees"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "employee_app_access_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: true
-            referencedRelation: "v_employee_costs_by_outlet"
-            referencedColumns: ["employee_id"]
-          },
-          {
-            foreignKeyName: "employee_app_access_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: true
-            referencedRelation: "v_leave_giorni_outlet"
-            referencedColumns: ["employee_id"]
-          },
-        ]
       }
       employee_app_activation_attempts: {
         Row: {
@@ -30951,6 +31173,17 @@ export type Database = {
       }
     }
     Functions: {
+      app_push_stato: {
+        Args: { p_outlet_id: string }
+        Returns: {
+          employee_id: string
+          piattaforme: string
+        }[]
+      }
+      app_registra_push_token: {
+        Args: { p_piattaforma: string; p_token: string }
+        Returns: undefined
+      }
       _acube_cedente_name_json: {
         Args: { p_fallback: string; p_payload: Json }
         Returns: string

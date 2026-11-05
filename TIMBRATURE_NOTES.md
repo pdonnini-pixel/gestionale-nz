@@ -10,16 +10,18 @@ Decisioni di Patrizio del 05/11/2026, pilota **Roma Soratte** (RSO). Due diligen
 - **Turni ufficiali** (`timbrature_turni_ufficiali`): piano «scelto» del mese; senza piano scelto, turni senza piano pubblicati o messi a mano. Al 05/11/2026 nessun turno è «pubblicato».
 
 ## regole
-- **Margine d'uscita**: 30 minuti di default (`attendance_settings.margine_uscita_minuti`). Uscita entro il margine: non è straordinario, nessun avviso. Ancora dentro a fine turno + margine: avviso WhatsApp, una volta sola per turno (`attendance_notifications`, anche gli invii falliti, così non si manda a raffica).
+- **Margine d'uscita**: 30 minuti di default (`attendance_settings.margine_uscita_minuti`). Uscita entro il margine: non è straordinario, nessun avviso. Ancora dentro a fine turno + margine: avviso sul telefono (vedi sotto).
 - **Chi non ha timbrato niente non riceve l'avviso** (può essere in ferie). Se ha un altro turno che comincia entro un'ora, niente avviso.
 - **Le timbrature non si cancellano**: si annullano con motivo (`timbrature_annulla`). Le uscite segnate dal dipendente restano `da_confermare` finché l'HR non conferma.
 - Verifica: `ok`, `firma_non_valida`, `fuori_tempo` (ora del telefono lontana dal QR o nel futuro), `da_confermare` (arrivata oltre 36 ore dopo, o dichiarata), `manuale`. Le timbrature dubbie si salvano comunque.
 - Niente GPS, niente biometria (Garante privacy): il luogo è certo perché il cellulare è del negozio.
 
-## da fare per accendere gli avvisi WhatsApp
-1. Modello Twilio approvato da Meta con tre variabili: {{1}} nome, {{2}} negozio, {{3}} ora di fine turno.
-2. Il suo Content SID nel Vault come `twilio_whatsapp_timbrature_content_sid` (NZ e Zago).
-3. Numeri dei dipendenti in Dipendenti → Presenze → App del dipendente; poi «Avviso WhatsApp» acceso sul negozio.
+## avvisi sul telefono (migration 367, 05/11/2026, WhatsApp tolto)
+- Patrizio: niente WhatsApp, notifiche push dell'app New Zago degli store (Android e iOS, account EPPI). Istruzioni dell'app in `APP_NATIVA_NOTES.md`.
+- Due avvisi, configurabili per negozio in Dipendenti → Presenze (`attendance_settings`): **ritardo** (entrata mancante dopo `ritardo_minuti`, 15 di partenza, dall'inizio del turno; non se la persona ha ferie o permessi quel giorno) e **uscita non timbrata** (dopo `margine_uscita_minuti`, 30). Destinatari: dipendente, **responsabile del negozio** (`outlets.referente_employee_id`), ufficio (notifica nel gestionale).
+- Calcolo: `timbrature_avvisi_da_mandare()`; invio: Edge Function `timbrature-notifiche` (Firebase Cloud Messaging HTTP v1, account di servizio nel Vault come `fcm_service_account`); cron `timbrature-avvisi-tick` ogni 5 minuti. Un avviso per turno, tipo e destinatario (`attendance_alerts`), registrato anche se non riesce.
+- Telefoni: `employee_push_tokens`, scritti dall'app con `app_registra_push_token`. Un token rifiutato da Firebase si spegne da solo.
+- Le colonne e la funzione WhatsApp della 348 restano (nessun dato si cancella) ma non le usa nessuno; la Edge Function `timbrature-avvisi` non e' piu' chiamata.
 
 ## app del dipendente: turni, ferie, ore (migration 350, 05/11/2026)
 - Schede in basso: Oggi (QR), Turni (settimana e prossima), Ferie (saldo, richiesta, stato), Ore (mese, per settimana). Componenti in `src/components/app/`, conti in `src/lib/appDipendente.ts` (con test). Ogni scheda tiene in memoria l'ultimo scaricamento e si vede anche senza rete; inviare una richiesta richiede la rete.

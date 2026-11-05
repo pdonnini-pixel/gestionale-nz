@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">New Zago</string>
+    <string name="title_activity_main">New Zago</string>
+    <string name="package_name">it.eppi.newzago</string>
+    <string name="custom_url_scheme">it.eppi.newzago</string>
+</resources>
