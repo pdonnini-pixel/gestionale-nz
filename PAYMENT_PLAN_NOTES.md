@@ -1869,3 +1869,20 @@ Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
 
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
+
+## Torino Fashion Village: addebito SDD in tre terzi (05/11/2026, solo NZ, dato)
+
+Fornitore `TORINO FASHION VILLAGE S.r.l.` (P.IVA `05481690484`, affitto dell'outlet di Torino). Le fatture
+dichiarano «MP05 Bonifico, TP02, scadenza alla data fattura», ma il fornitore incassa con **addebito SDD su MPS**
+(mandato `E10.07362100484`) in **tre terzi: a vista, a 30 e a 60 giorni** (regola indicata da Patrizio).
+La prima volta, fatture 1721, 1829 e 1936 del 01/10/2026 (totale 33.184,00), gli addebiti sono stati
+20/10, 02/11 e 02/12; ogni addebito porta 1,00 di commissione a parte.
+
+- Le tre scadenze uniche al 01/10 sono state divise in tre rate (UPDATE della riga come rata 1 + INSERT di
+  rata 2 e 3, nessuna cancellazione). Rate 1 e 2 agganciate con `reconcile_movement` agli addebiti MPS del
+  20/10 e del 02/11; la rata 3 resta da pagare al 02/12/2026 (2.212,27 + 1.935,74 + 6.913,34).
+- Fornitore: `rid`, data fattura, `prima_scadenza_gg = 0`, `numero_rate = 3`, banca MPS.
+- **Limite noto**: il bridge (`sync_acube_sdi_passive_to_payable`) applica il piano del fornitore solo se la
+  fattura non dichiara termini. Le fatture TFV li dichiarano (rata unica alla data fattura), quindi la prossima
+  arriverà ancora come rata unica: va divisa a mano finché non esiste un modo per far prevalere il piano.
+  Anche con il piano, le date reali (20/10, 02/11, 02/12) non coincidono con «data fattura + 0/30/60».
