@@ -13,6 +13,14 @@ import { CalendarDays, Clock, Palmtree, QrCode, RefreshCw, WifiOff } from 'lucid
 import { supabase } from '../lib/supabase'
 import { getCurrentTenant } from '../lib/tenants'
 import LogoNewZago from '../components/app/LogoNewZago'
+// Poppins, il carattere dei negozi: incluso nell'app, funziona anche senza rete
+import '@fontsource/poppins/latin-300.css'
+import '@fontsource/poppins/latin-400.css'
+import '@fontsource/poppins/latin-500.css'
+import '@fontsource/poppins/latin-600.css'
+import '@fontsource/poppins/latin-700.css'
+
+const CARATTERE = { fontFamily: "'Poppins', ui-sans-serif, system-ui, sans-serif" }
 import {
   ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, formatMinuti, oraRoma, ordina, riepilogoGiorno, secondiAlCambio,
   PASSO_SECONDI, type Timbratura, type TipoTimbratura,
@@ -110,7 +118,7 @@ export default function AppDipendente() {
 
   if (!attivazione) {
     return (
-      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 gap-4 text-center">
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 gap-4 text-center" style={CARATTERE}>
         <div>
           <div className="flex justify-center"><Marchio grande /></div>
           <p className="text-xs uppercase tracking-[0.3em] text-slate-500 mt-3">Presenze</p>
@@ -221,7 +229,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const secondi = secondiAlCambio(adesso)
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center px-5 pt-6 pb-28 gap-5">
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center px-5 pt-6 pb-28 gap-5" style={CARATTERE}>
       <div className="w-full max-w-sm flex justify-center pb-1"><Marchio /></div>
       <div className="w-full max-w-sm flex items-center justify-between">
         <div>
@@ -248,7 +256,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
           <div className="h-full bg-[#ff0066] transition-all" style={{ width: `${(secondi / PASSO_SECONDI) * 100}%` }} />
         </div>
         <p className="text-slate-600 text-center">Avvicina il telefono alla timbratrice del negozio</p>
-        <p className="text-slate-400 text-xs">Il codice cambia ogni 30 secondi: una foto non vale.</p>
+        <p className="text-slate-400 text-xs text-center">Il codice cambia ogni 30 secondi: una foto non vale.</p>
       </div>
 
       {/* Uscita da segnare */}
