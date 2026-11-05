@@ -49,13 +49,14 @@ function leggi<T>(k: string): T | null {
   try { const s = localStorage.getItem(k); return s ? JSON.parse(s) as T : null } catch { return null }
 }
 
-/** Nome dell'azienda in testa all'app: New Zago nell'app degli store e sul sito NZ. */
+/** Logo in testa all'app: il disegno per New Zago, il nome in testo per gli altri. */
 function Marchio({ grande }: { grande?: boolean }) {
   const nome = marchioApp()
   if (nome === 'New Zago') return <LogoNewZago className={`${grande ? 'h-7' : 'h-3.5'} w-auto text-black`} />
   return <p className={`${grande ? 'text-3xl' : 'text-sm'} font-light tracking-[0.2em] uppercase text-black`}>{nome}</p>
 }
 
+/** Nome dell'azienda: New Zago nell'app degli store e sul sito NZ. */
 function marchioApp(): string {
   try {
     const a = getCurrentTenant().alias
