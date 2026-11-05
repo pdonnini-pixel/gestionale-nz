@@ -1992,3 +1992,34 @@ col trattino. Applicata su NZ e Zago il 05/11/2026 (migration rinumerata 364 per
 363 era usato da due PR aperte); verificato: giro notturno identico alla versione
 prima della 362, funzione di sola lettura che su Corte delle Fucine ricostruita segnala
 il gruppo senza chiudere niente, eseguibile solo dal ruolo di servizio.
+
+## Fattura singola: il numero in causale comanda (05/11/2026, migration 366)
+
+Stessa regola dei gruppi applicata ai motori che chiudono una fattura sola
+(`try_match_bank_transaction`, `rerun_bijective_reconciliation`,
+`try_match_amount_bank_transaction`) e alla lista «Da verificare» di Banche: se la
+causale cita un numero di fattura leggibile (`causale_cita_fattura`, codice di almeno 3
+caratteri con una cifra), vale solo la fattura con quel numero (`invoice_cited_in_text`
+da 2 cifre). Le righe sono inserite nel testo attuale delle funzioni, senza riscriverle,
+per non togliere le modifiche di altre sessioni.
+
+Misura del 05/11 su NZ: 417 chiusure automatiche, 98 con un numero in causale, una sola
+sulla fattura sbagliata: bonifico LA FAVORITA del 04/06/2026, 359,21 €, causale
+«SF-870», agganciato alla fattura 331 del 31/01 (stesso importo) invece che alla 870 del
+31/03. Tutte e due risultano pagate: è sbagliato solo il collegamento.
+
+### Incidente: guardia del profilo tolta dalla 364 gruppo_per_nome (rimessa dalla 365)
+Alle 17:26 un'altra sessione ha applicato `20261105_364_rpc_solo_con_profilo` (guardia
+`richiedi_profilo_gestionale()` in testa a 38 funzioni). Alle 17:32 la mia
+`20261105_364_gruppo_per_nome_solo_proposta` ha riscritto `rerun_group_reconciliation`
+e `try_match_group_name_bank_transaction` con CREATE OR REPLACE, togliendo la guardia
+su quelle due. La 365 l'ha rimessa (NZ e Zago, verificato). Lezione: prima di un CREATE
+OR REPLACE confrontare la definizione in produzione con quella del repository; se sono
+diverse qualcun altro ci sta lavorando, e si inseriscono solo le righe nuove.
+
+Dopo la revisione della 366: il confronto col numero citato si fa su
+`causale_per_numeri` (causale prima di «ID.BON», senza date e orari), e nella pagina i
+numeri di due cifre che seguono «FATTURA», «SF-», «NC» si leggono (`citedInvoiceTokens`).
+Applicata su NZ e Zago il 05/11/2026: impronte identiche, guardia del profilo intatta,
+permessi invariati; prova annullata su La Favorita: il giro notturno aggancia la 870.
+Scadenze aperte senza numero: 0 su 359.
