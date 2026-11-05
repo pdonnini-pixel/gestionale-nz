@@ -22,6 +22,10 @@ import type { SupabaseClient } from "jsr:@supabase/supabase-js@2";
 /** Ruoli amministrativi: chi gestisce pagamenti, distinte e fatture. */
 export const RUOLI_AMMINISTRATIVI = ["super_advisor", "contabile", "ceo", "cfo", "coo"] as const;
 
+/** Estrazione dei PDF nello Scadenzario: i ruoli amministrativi più l'approvatore
+ *  del budget (deciso da Patrizio il 05/11/2026). Solo lettura, nessun invio. */
+export const RUOLI_ESTRAZIONE = [...RUOLI_AMMINISTRATIVI, "budget_approver"] as const;
+
 export type Chiamante =
   | { ok: true; serviceRole: true; userId: null; companyId: null; role: null; email: null }
   | { ok: true; serviceRole: false; userId: string; companyId: string; role: string; email: string | null }
