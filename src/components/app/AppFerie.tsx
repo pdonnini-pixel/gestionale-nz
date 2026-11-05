@@ -3,7 +3,7 @@
 // stato delle richieste. La richiesta e' una proposta: la decide il referente
 // del negozio, come quelle registrate dall'amministrazione (leave_decidi).
 // Regole e parole: PIANO_FERIE_NOTES.md («Come si parla a chi chiede le ferie»).
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { dataRoma, oraRoma } from '../../lib/timbrature'
 import { oreInParole } from '../../lib/ferieRichiesta'
@@ -42,6 +42,7 @@ export default function AppFerie() {
   const [orePermesso, setOrePermesso] = useState('')
   const [note, setNote] = useState('')
   const [invio, setInvio] = useState(false)
+  const inCorso = useRef(false) // blocca il doppio tocco prima che lo stato si aggiorni
   const [esito, setEsito] = useState<{ ok: boolean; testo: string } | null>(null)
 
   const saldo = useMemo(() => saldiApp(dati?.saldi ?? []), [dati])
@@ -73,7 +74,8 @@ export default function AppFerie() {
   }, [righe, oggi, senzaFerie])
 
   const invia = async () => {
-    if (!righe.length || problemi.length || invio) return
+    if (!righe.length || problemi.length || inCorso.current) return
+    inCorso.current = true
     setInvio(true); setEsito(null)
     try {
       const { data, error } = await supabase.rpc('app_dipendente_chiedi_ferie', { p_giorni: righe, p_note: note.trim() || undefined })
@@ -84,6 +86,7 @@ export default function AppFerie() {
       setDal(''); setAl(''); setTipi({}); setDataPermesso(''); setOrePermesso(''); setNote('')
       void aggiorna()
     } finally {
+      inCorso.current = false
       setInvio(false)
     }
   }

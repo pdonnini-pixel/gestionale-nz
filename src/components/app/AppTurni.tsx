@@ -1,6 +1,7 @@
 // App del dipendente, scheda Turni: questa settimana e la prossima, dal piano
 // scelto del mese (stessa regola della timbratrice). Si vede anche senza rete.
 import { useCallback, useMemo } from 'react'
+import { oreInParole } from '../../lib/ferieRichiesta'
 import { supabase } from '../../lib/supabase'
 import { dataRoma, oraRoma } from '../../lib/timbrature'
 import {
@@ -41,7 +42,7 @@ export default function AppTurni() {
                 <span className="text-right">
                   {g.ferie.length > 0 && (
                     <span className="block text-emerald-700">
-                      {g.ferie.map((f) => `${f.voce === 'ferie' ? 'Ferie' : 'Permesso'}${f.tipo === 'ore' ? ` ${f.ore} ore` : f.tipo === 'mezza_giornata' ? ' mezza giornata' : ''}${f.stato === 'richiesto' ? ' (in attesa)' : ''}`).join(', ')}
+                      {g.ferie.map((f) => `${f.voce === 'ferie' ? 'Ferie' : 'Permesso'}${f.tipo === 'ore' ? ` ${oreInParole(Number(f.ore))}` : f.tipo === 'mezza_giornata' ? ' mezza giornata' : ''}${f.stato === 'richiesto' ? ' (in attesa)' : ''}`).join(', ')}
                     </span>
                   )}
                   {g.turni.length > 0

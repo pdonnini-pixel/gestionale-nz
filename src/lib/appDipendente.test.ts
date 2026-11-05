@@ -62,6 +62,18 @@ describe('scheda Ore', () => {
   })
 })
 
+describe('scheda Ore, uscita dimenticata', () => {
+  const iso = (d: string, h: string) => new Date(oraRomaInMs(d, h)).toISOString()
+  it('un giorno passato senza uscita non conta le ore fino a oggi', () => {
+    const s = oreDelPeriodo('2026-11-03', '2026-11-03',
+      [{ tipo: 'entrata', ora: iso('2026-11-03', '09:00') }, { tipo: 'inizio_pausa', ora: iso('2026-11-03', '13:00') }],
+      [{ data: '2026-11-03', inizio: '09:00', fine: '18:00', pausa_minuti: 60 }],
+      [], (x) => dataRoma(Date.parse(x)), Date.parse('2026-11-05T12:00:00Z'), 30)
+    expect(s[0].giorni[0].minutiLavorati).toBe(240)
+    expect(s[0].giorni[0].uscitaMancante).toBe(true)
+  })
+})
+
 describe('scheda Ferie', () => {
   it('due righe: Ferie e Permessi (ex festivita + ROL)', () => {
     const r = saldiApp([

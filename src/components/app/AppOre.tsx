@@ -36,7 +36,8 @@ export default function AppOre() {
     : [], [dati, dal, al])
   const totale = settimane.reduce((s, w) => s + w.minutiLavorati, 0)
   const contratto = dati?.ore_settimanali ? Number(dati.ore_settimanali) * 60 : null
-  const mesePrima = primoDelMese(aggiungiGiorni(mese, -1))
+  // I due mesi si contano da oggi, non dal mese scelto (se no i pulsanti scorrono)
+  const mesePrima = primoDelMese(aggiungiGiorni(primoDelMese(oggi), -1))
 
   return (
     <div className="w-full max-w-sm flex flex-col gap-4">
@@ -72,7 +73,7 @@ export default function AppOre() {
                 <li key={g.data} className="py-2 text-sm">
                   <div className="flex justify-between">
                     <span className="text-slate-700">{giornoBreve(g.data)}</span>
-                    <span className="tabular-nums text-slate-900">{g.timbrato ? oreDaMinuti(g.minutiLavorati) : g.ferie.length ? (g.ferie[0].voce === 'ferie' ? 'ferie' : 'permesso') : 'nessuna timbratura'}</span>
+                    <span className="tabular-nums text-slate-900">{g.uscitaMancante ? <span className="text-amber-700">{oreDaMinuti(g.minutiLavorati)}, uscita mancante</span> : g.timbrato ? oreDaMinuti(g.minutiLavorati) : g.ferie.length ? (g.ferie[0].voce === 'ferie' ? 'ferie' : 'permesso') : 'nessuna timbratura'}</span>
                   </div>
                   <div className="flex justify-between text-xs text-slate-500">
                     <span>{g.turno ? `turno ${g.turno.inizio.slice(0, 5)} - ${g.turno.fine.slice(0, 5)}` : 'nessun turno'}</span>

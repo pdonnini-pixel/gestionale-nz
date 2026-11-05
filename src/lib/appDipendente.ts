@@ -115,6 +115,8 @@ export interface GiornoOre {
   minutiOltreTurno: number
   straordinario: boolean
   timbrato: boolean
+  /** Giorno passato rimasto senza uscita: le ore dopo l'ultima timbratura non si contano. */
+  uscitaMancante: boolean
   ferie: GiornoFerieApp[]
 }
 
@@ -145,11 +147,16 @@ export function oreDelPeriodo(
     const d = dataDi(t.ora)
     perGiorno.set(d, [...(perGiorno.get(d) ?? []), { tipo: t.tipo, ora: t.ora }])
   }
+  const oggi = dataDi(new Date(adessoMs).toISOString())
   const giorni: GiornoOre[] = giorniTra(dal, al).map((data) => {
     const del = turni.filter((x) => x.data === data).sort((a, b) => a.inizio.localeCompare(b.inizio))
     const turno = del.length ? { data, inizio: del[0].inizio, fine: del[del.length - 1].fine } : null
-    const ts = perGiorno.get(data) ?? []
-    const r = riepilogoGiorno(ts, turno, adessoMs, margineMinuti)
+    const ts = [...(perGiorno.get(data) ?? [])].sort((a, b) => a.ora.localeCompare(b.ora))
+    const ultima = ts[ts.length - 1]
+    // Un giorno passato rimasto aperto (uscita dimenticata) non deve contare
+    // le ore fino a oggi: si ferma all'ultima timbratura e si segnala.
+    const aperto = data < oggi && !!ultima && ultima.tipo !== 'uscita'
+    const r = riepilogoGiorno(ts, turno, aperto ? Date.parse(ultima.ora) : adessoMs, margineMinuti)
     return {
       data,
       turno: turno ? { inizio: turno.inizio, fine: turno.fine } : null,
@@ -158,6 +165,7 @@ export function oreDelPeriodo(
       minutiOltreTurno: r.minutiOltreTurno,
       straordinario: r.straordinario,
       timbrato: ts.length > 0,
+      uscitaMancante: aperto,
       ferie: ferie.filter((f) => f.data === data),
     }
   })
