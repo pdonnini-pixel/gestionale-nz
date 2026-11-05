@@ -139,8 +139,10 @@ export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
         const risposta = data as { ora_server?: string; esiti?: { id: string; esito: string }[] } | null
         if (risposta?.ora_server) aggiornaScarto(risposta.ora_server, t0, Date.now())
         const esiti = new Map((risposta?.esiti ?? []).map((e) => [e.id, e.esito]))
-        const salvate = lotto.filter((r) => esiti.get(r.id) === 'salvata').map((r) => r.id)
-        const rifiutate = lotto.filter((r) => esiti.has(r.id) && esiti.get(r.id) !== 'salvata')
+        // qr_gia_usato: la stessa azione con lo stesso QR e' gia' registrata (doppio tocco)
+        const fatte = (e: string | undefined) => e === 'salvata' || e === 'qr_gia_usato'
+        const salvate = lotto.filter((r) => fatte(esiti.get(r.id))).map((r) => r.id)
+        const rifiutate = lotto.filter((r) => esiti.has(r.id) && !fatte(esiti.get(r.id)))
         if (rifiutate.length) {
           const prima = scartate()
           const nuove = rifiutate.map((r) => ({ ...r, esito: esiti.get(r.id) ?? 'rifiutata' }))

@@ -11,7 +11,8 @@
 //   4. genera un link di accesso (generateLink, nessuna mail) e ne restituisce
 //      il token_hash: il telefono lo scambia con una sessione (verifyOtp).
 //
-// Sicurezza: chiamata pubblica (chiave anon), protetta dal codice monouso.
+// Sicurezza: chiamata pubblica (chiave anon), protetta dal codice monouso e
+// dal limite ai tentativi (app_attivazione_bloccata, migration 349).
 // Body: { codice } → { token_hash, segreto, employee_id, nome }
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -46,18 +47,28 @@ Deno.serve(async (req: Request) => {
     const codice = String(body.codice ?? "").trim().toUpperCase().replace(/[\s-]/g, "");
     if (!/^[A-Z2-9]{8}$/.test(codice)) return jsonError(400, "Il codice è di 8 caratteri, lettere e numeri.", "BAD_CODE");
 
+    // Limite ai tentativi (migration 349): oltre 20 errori in 10 minuti si
+    // ferma tutto per 10 minuti, cosi' il codice non si indovina a forza.
+    const { data: bloccata } = await admin.rpc("app_attivazione_bloccata");
+    if (bloccata === true) return jsonError(429, "Troppi tentativi sbagliati. Riprova fra 10 minuti.", "TOO_MANY");
+    const segnaErrore = () => admin.from("employee_app_activation_attempts").insert({ esito: "errato" });
+
     // 1. Il codice esiste ed e' valido?
     const { data: acc, error: accErr } = await admin.from("employee_app_access")
       .select("employee_id, company_id, codice_scade").eq("codice", codice).maybeSingle();
     if (accErr) throw accErr;
     if (!acc || !acc.codice_scade || new Date(acc.codice_scade) <= new Date()) {
+      await segnaErrore();
       return jsonError(400, "Codice non valido o scaduto. Chiedi un codice nuovo a chi segue il personale.", "CODE_NOT_FOUND");
     }
 
     const { data: emp, error: empErr } = await admin.from("employees")
       .select("id, company_id, user_id, nome, cognome, first_name, last_name, is_active").eq("id", acc.employee_id).maybeSingle();
     if (empErr) throw empErr;
-    if (!emp || emp.is_active === false) return jsonError(400, "Questa persona non risulta in servizio.", "NOT_ACTIVE");
+    if (!emp || emp.is_active === false) {
+      await segnaErrore();
+      return jsonError(400, "Codice non valido o scaduto. Chiedi un codice nuovo a chi segue il personale.", "CODE_NOT_FOUND");
+    }
 
     const nome = String(emp.nome ?? emp.first_name ?? "").trim();
     const cognome = String(emp.cognome ?? emp.last_name ?? "").trim();
@@ -101,6 +112,7 @@ Deno.serve(async (req: Request) => {
     const tokenHash = gl?.properties?.hashed_token;
     if (glErr || !tokenHash) throw new Error(`Accesso non generato: ${glErr?.message ?? "sconosciuto"}`);
 
+    await admin.from("employee_app_activation_attempts").insert({ esito: "ok" });
     return json(200, {
       token_hash: tokenHash,
       segreto: riga.segreto,

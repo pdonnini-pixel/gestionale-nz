@@ -94,6 +94,9 @@ export default function AppDipendente() {
               className="px-8 py-3 rounded-xl bg-blue-700 text-white text-lg font-semibold disabled:opacity-40">
               {occupato ? 'Attivo…' : 'Attiva'}
             </button>
+            <p className="text-xs text-slate-400 max-w-sm mt-4">
+              L'app registra solo le tue timbrature (ora e negozio) e mostra i tuoi turni. Non usa la posizione, la fotocamera né altri dati del tuo telefono. Il numero per l'avviso WhatsApp lo inserisce l'azienda. L'informativa completa te la consegna l'azienda.
+            </p>
           </>
         )}
       </div>
