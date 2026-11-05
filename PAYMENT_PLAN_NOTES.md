@@ -1869,3 +1869,25 @@ Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
 
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
+
+## Fattura a più rate registrata prima dal PDF (05/11/2026, migration 352)
+
+Caso: SISTEMI ANTITACCHEGGIO, fattura 103 del 24/09/2026, 4.495,70, condizioni 50% all'ordine e 50% a
+installazione. Il 25/09 registrata a mano dal PDF di cortesia, acconto 2.247,85 pagato il 28/09 (distinta
+Intesa del 25/09). Il 07/10 la fattura elettronica 2026_FTA_103 arriva con due rate da 2.247,85: il bridge
+crea due scadenze nuove, la riga a mano resta aperta. Lo Scadenzario segnava 6.743,55 da pagare invece di
+2.247,85.
+
+Perché: `fn_prevent_duplicate_payable` agganciava la riga senza fattura elettronica (notula, PDF,
+proforma) solo alle fatture 1 di 1, e confrontava l'importo della rata con quello della riga, che è il totale.
+
+Correzione dati (05/11/2026, NZ): l'acconto, la riconciliazione col movimento del 28/09 e la distinta sono
+passati sulla rata 1/2 (pagata); la riga a mano è `annullato` con nota (nessuna cancellazione); resta aperta
+la rata 2/2 da 2.247,85, da pagare a installazione avvenuta.
+
+Migration 352 (NZ + Zago): alla rata 1 di una fattura a più rate si cerca **una sola** riga aperta senza
+fattura elettronica dello stesso fornitore con importo uguale al **totale** della fattura (o totale meno
+ritenuta) e stesso numero normalizzato oppure data nella finestra -200/+45 giorni. Quella riga diventa la
+rata 1 e tiene pagamenti, movimento, distinte, outlet e IBAN. Se il pagato supera la rata 1, l'eccedenza
+passa alle rate successive man mano che arrivano. Con due o più candidate non aggancia nulla.
+Misura prima dell'applicazione: su NZ l'unico caso era la 103, su Zago nessuno.
