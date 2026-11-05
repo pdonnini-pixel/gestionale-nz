@@ -51,6 +51,24 @@
    automatico solo le scadenze **già scadute** con pagamento riscontrato (singolo o a
    gruppo). Le future restano aperte. → `close_paid_fiscal_deadlines` (cron).
 
+9. **Una proposta non sopravvive alla cosa che proponeva** (Patrizio, 05/11/2026:
+   «se una cosa la chiudi a mano, la levi anche da lì, se no uno ci va per errore»).
+   Quando il movimento viene abbinato, o la fattura risulta pagata, annullata o è
+   una nota di credito, le sue proposte `to_confirm` passano a `rejected` con il
+   motivo in nota. Restano aperte solo per le fatture chiuse a mano senza movimento
+   (regola 1) e per le rate parziali. Lo fa il database con due trigger, quindi vale
+   per ogni strada: pagina Banche, motore notturno, correzioni a mano in sessione.
+   → `trg_close_proposals_on_bt_reconciled`, `trg_close_proposals_on_payable_closed`
+   (migration 360). Prima della 360 su NZ c'erano 133 proposte aperte, 125 superate.
+   Ogni volta che in sessione si abbina o si chiude qualcosa a mano, si ricontrolla
+   che fra le proposte aperte non resti niente di già fatto.
+
+10. **Distinta pagata al netto.** La distinta si abbina anche quando la banca addebita
+    il bonifico più le commissioni o quando la distinta è al netto di note di credito:
+    si confronta l'importo disposto con il netto del flusso CBI, alla fattura va il
+    netto e le NC collegate in distinta chiudono il residuo.
+    → `try_match_distinta_bank_transaction` (migration 351, caso WOLF 285 del 22/10).
+
 ## Doppioni fatture (import ripetuti go-live/SDI)
 Marcati `payables.is_placeholder = true` (NON cancellati): invisibili a scadenzario
 (vista `v_payables_operative`) e al motore. Regola di marcatura: per cluster
