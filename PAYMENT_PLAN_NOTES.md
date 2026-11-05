@@ -1983,3 +1983,12 @@ Regole dalla 364:
   SQL). Se non bastano a fare la cifra non si propone niente.
 
 La 362 non ha mai chiuso niente (0 righe con la sua nota su NZ e Zago).
+
+Dopo la revisione: il vincolo «solo fatture citate» vale solo se la causale ha numeri
+leggibili (numeri di una o due cifre come «FT 1» restano solo spareggio); le note di
+credito dello stesso fornitore restano nel gruppo anche se non citate. Riconosciute
+anche «FATTURA N. 123», «FATT. N°45», «FATTURA NUMERO 55»; SF/SSF/NC/CF contano solo
+col trattino. Applicata su NZ e Zago il 05/11/2026 (migration rinumerata 364 perché il
+363 era usato da due PR aperte); verificato: giro notturno identico alla versione
+prima della 362, funzione di sola lettura che su Corte delle Fucine ricostruita segnala
+il gruppo senza chiudere niente, eseguibile solo dal ruolo di servizio.
