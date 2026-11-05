@@ -1870,6 +1870,29 @@ Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
 
+## Pagamento anticipato con il nome in causale (05/11/2026, migration 356)
+
+Caso: OMNITEKSTORE S.R.L., fattura 6800/2026 del 16/10/2026, 335,00 €, codice TP03
+(pagamento anticipato). Bonifico BCC del 15/10/2026 alle 18:15, causale «... BEN
+OMNITEKSTORE S.R.L.», importo esatto. Sabrina lo vedeva pagato, lo Scadenzario «Scaduto».
+
+Perché: la guardia della 179 (un movimento non paga una fattura datata dopo di lui,
+nata dal caso EPPI) valeva anche per i matcher che leggono il nome in causale.
+
+Regola dalla 356, in `rerun_bijective_reconciliation` e `try_match_bank_transaction`:
+un movimento può pagare una fattura datata **fino a 15 giorni dopo** solo se la causale
+nomina il fornitore (nome o P.IVA) **e** l'importo è esatto (±0,02). Senza nome resta
+il divieto della 179; il matcher a solo importo non cambia.
+
+Misura del 05/11: oltre a OMNITEKSTORE (collegata a mano con `reconcile_movement`),
+zero coppie su NZ e Zago. La regola vale per i casi futuri.
+
+Precedenze aggiunte dopo la revisione: nel giro notturno una fattura prende prima un
+movimento successivo alla sua data e solo in mancanza l'anticipo; nel matcher a punteggio
+l'anticipo si scarta se lo stesso fornitore ha un'altra scadenza aperta dello stesso
+importo già emessa al momento del bonifico (canoni, consegne ripetute).
+Applicata su NZ e Zago il 05/11/2026, provata in transazione annullata: 0 coppie nuove.
+
 ## Torino Fashion Village: addebito SDD in tre terzi (05/11/2026, solo NZ, dato)
 
 Fornitore `TORINO FASHION VILLAGE S.r.l.` (P.IVA `05481690484`, affitto dell'outlet di Torino). Le fatture
@@ -1885,7 +1908,7 @@ La prima volta, fatture 1721, 1829 e 1936 del 01/10/2026 (totale 33.184,00), gli
 - Patrizio (05/11/2026): le prossime fatture TFV arriveranno con i termini giusti, quindi per TFV vale la
   fattura e la spunta «piano prevale» (sotto) resta **spenta**.
 
-## Il piano del fornitore può prevalere sulla fattura (migration 356, 05/11/2026, NZ e Zago)
+## Il piano del fornitore può prevalere sulla fattura (migration 358, 05/11/2026, NZ e Zago)
 
 `suppliers.plan_overrides_invoice` (boolean, default false). Nel bridge `sync_acube_sdi_passive_to_payable`,
 se è accesa e il piano è completo (base, giorni, n. rate), per le fatture dal 31/07/2026 si ignorano le rate

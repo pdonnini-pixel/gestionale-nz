@@ -1,4 +1,4 @@
--- ROLLBACK 356: torna al bridge della 214. La colonna resta (togliere una colonna
+-- ROLLBACK 358: torna al bridge della 214. La colonna resta (togliere una colonna
 -- e' distruttivo: si fa solo con conferma di Patrizio, e a quel punto:
 --   ALTER TABLE public.suppliers DROP COLUMN plan_overrides_invoice;)
 

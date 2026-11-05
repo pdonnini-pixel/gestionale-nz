@@ -1,4 +1,4 @@
--- 356: il piano del fornitore puo' prevalere sui termini scritti in fattura.
+-- 358: il piano del fornitore puo' prevalere sui termini scritti in fattura.
 --
 -- Caso: Torino Fashion Village (05/11/2026). La fattura dichiara «MP05 bonifico,
 -- scadenza alla data fattura», ma il fornitore incassa con SDD in tre terzi.
@@ -156,7 +156,7 @@ begin
     return NEW;
   end if;
 
-  -- 356: il piano del fornitore prevale sui termini scritti in fattura, solo se
+  -- 358: il piano del fornitore prevale sui termini scritti in fattura, solo se
   -- l'operatrice lo ha chiesto nella scheda del fornitore e il piano e' completo.
   -- Si azzera il conteggio delle rate lette, cosi' si entra nel ramo del piano;
   -- il metodo e' quello del fornitore, il codice MP della fattura resta come traccia.

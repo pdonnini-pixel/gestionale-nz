@@ -72,7 +72,7 @@ const EMPTY_FORM = {
   // automaticamente come "utenza" (categoria utenze), senza agganciarli a una fattura.
   is_utility: false,
   // Il piano del fornitore vale anche quando la fattura scrive termini diversi
-  // (migration 356). Spenta = valgono le scadenze scritte in fattura.
+  // (migration 358). Spenta = valgono le scadenze scritte in fattura.
   plan_overrides_invoice: false,
 };
 
@@ -163,7 +163,7 @@ export default function Fornitori() {
   type SupplierRow = Record<string, unknown> & { id: string }
   type PayableRow = Record<string, unknown> & { id: string }
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
-  // true se il database ha la colonna plan_overrides_invoice (migration 356).
+  // true se il database ha la colonna plan_overrides_invoice (migration 358).
   const hasPlanOverrideCol = suppliers.length > 0 && 'plan_overrides_invoice' in suppliers[0];
   // Conti banca (sezione Banche) per la tendina "Banca di pagamento" del fornitore
   const [bankAccounts, setBankAccounts] = useState<{ id: string; label: string }[]>([]);
@@ -784,7 +784,7 @@ export default function Fornitori() {
         note: form.note.trim() || null,
         notes: form.note.trim() || null,
         is_utility: !!form.is_utility,
-        // La colonna esiste solo dove c'è la migration 356 (NZ e Zago): altrove
+        // La colonna esiste solo dove c'è la migration 358 (NZ e Zago): altrove
         // non si invia, così il salvataggio resta quello di prima.
         ...(hasPlanOverrideCol ? { plan_overrides_invoice: !!form.payment_base && !!form.plan_overrides_invoice } : {}),
         is_active: true,
@@ -2098,7 +2098,7 @@ export default function Fornitori() {
                     : 'Vale per le fatture dal 31/07/2026 che non portano già una loro scadenza.'}
                 </p>
 
-                {/* 356: per i fornitori che scrivono in fattura termini diversi da
+                {/* 358: per i fornitori che scrivono in fattura termini diversi da
                     quelli con cui incassano davvero (es. «bonifico a vista» e poi SDD in tre rate). */}
                 {hasPlanOverrideCol && form.payment_base && (
                   <label className="mt-3 flex items-start gap-2.5 cursor-pointer">
