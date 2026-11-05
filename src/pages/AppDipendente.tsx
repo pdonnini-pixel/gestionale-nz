@@ -6,16 +6,29 @@
 // Prima volta: si attiva con il codice di 8 caratteri dato dall'HR
 // (Dipendenti → Presenze → Accessi). Niente password da ricordare.
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import QRCode from 'qrcode'
-import { RefreshCw, WifiOff } from 'lucide-react'
+import { CalendarDays, Clock, Palmtree, QrCode, RefreshCw, WifiOff } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, formatMinuti, oraRoma, ordina, riepilogoGiorno, secondiAlCambio,
   PASSO_SECONDI, type Timbratura, type TipoTimbratura,
 } from '../lib/timbrature'
 import { attivaOffline } from '../lib/presenzeOffline'
+
+// Le schede si caricano quando servono (la prima apertura resta leggera)
+const AppTurni = lazy(() => import('../components/app/AppTurni'))
+const AppFerie = lazy(() => import('../components/app/AppFerie'))
+const AppOre = lazy(() => import('../components/app/AppOre'))
+
+type Scheda = 'oggi' | 'turni' | 'ferie' | 'ore'
+const SCHEDE: { k: Scheda; label: string; Icona: typeof QrCode }[] = [
+  { k: 'oggi', label: 'Oggi', Icona: QrCode },
+  { k: 'turni', label: 'Turni', Icona: CalendarDays },
+  { k: 'ferie', label: 'Ferie', Icona: Palmtree },
+  { k: 'ore', label: 'Ore', Icona: Clock },
+]
 
 const K_APP = 'nz-app-dipendente'
 const K_OGGI = 'nz-app-oggi'
@@ -112,6 +125,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const [online, setOnline] = useState(navigator.onLine)
   const [oraUscita, setOraUscita] = useState('')
   const [messaggio, setMessaggio] = useState<{ ok: boolean; testo: string } | null>(null)
+  const [scheda, setScheda] = useState<Scheda>('oggi')
 
   useEffect(() => { const t = setInterval(() => setAdesso(Date.now()), 1000); return () => clearInterval(t) }, [])
   const passo = Math.floor(adesso / 1000 / PASSO_SECONDI)
@@ -163,7 +177,6 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const daSegnare = rIeri.esito !== 'non_timbrato' && rIeri.esito !== 'uscito' ? ieri
     : rOggi.esito === 'uscita_mancante' ? oggi : null
 
-  const prossimi = useMemo(() => (dati?.turni ?? []).filter((t) => t.data >= oggi).slice(0, 8), [dati, oggi])
 
   const segnaUscita = async () => {
     if (!daSegnare || !/^\d{2}:\d{2}$/.test(oraUscita)) return
@@ -178,7 +191,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const secondi = secondiAlCambio(adesso)
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center px-5 py-6 gap-5">
+    <div className="min-h-screen bg-slate-50 flex flex-col items-center px-5 pt-6 pb-28 gap-5">
       <div className="w-full max-w-sm flex items-center justify-between">
         <div>
           <p className="text-slate-500 text-sm">{dati?.persona.negozio ?? ''}</p>
@@ -187,6 +200,11 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
         {!online && <span className="flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-1 rounded-full"><WifiOff size={12} />Senza rete</span>}
       </div>
 
+      {scheda === 'turni' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppTurni /></Suspense>}
+      {scheda === 'ferie' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppFerie /></Suspense>}
+      {scheda === 'ore' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppOre /></Suspense>}
+
+      {scheda === 'oggi' && (<>
       {/* QR */}
       <div className="w-full max-w-sm bg-white rounded-2xl shadow p-5 flex flex-col items-center gap-2">
         {qr ? <img src={qr} alt="Il tuo codice per timbrare" className="w-64 h-64" /> : <RefreshCw className="animate-spin text-slate-400 my-24" />}
@@ -227,21 +245,18 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
         ) : <p className="text-sm text-slate-500 mt-1">Nessuna timbratura oggi.</p>}
       </div>
 
-      {/* Prossimi turni */}
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-400 mb-2">I tuoi turni</p>
-        {prossimi.length === 0 ? <p className="text-slate-500 text-sm">Nessun turno nei prossimi giorni.</p> : (
-          <ul className="divide-y divide-slate-100">
-            {prossimi.map((t) => (
-              <li key={`${t.data}-${t.inizio}`} className="py-2 flex justify-between text-sm">
-                <span className="text-slate-700 capitalize">{new Date(`${t.data}T12:00:00`).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short' })}</span>
-                <span className="text-slate-900 font-medium tabular-nums">{t.inizio.slice(0, 5)} - {t.fine.slice(0, 5)}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {dati?.scaricati_il && <p className="text-slate-400 text-xs mt-2">Aggiornato alle {oraRoma(dati.scaricati_il)}</p>}
-      </div>
+      {dati?.scaricati_il && <p className="text-slate-400 text-xs">Aggiornato alle {oraRoma(dati.scaricati_il)}</p>}
+      </>)}
+
+      {/* Schede in basso */}
+      <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 flex justify-around pb-[env(safe-area-inset-bottom)]">
+        {SCHEDE.map(({ k, label, Icona }) => (
+          <button key={k} onClick={() => setScheda(k)}
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-xs ${scheda === k ? 'text-blue-700 font-semibold' : 'text-slate-500'}`}>
+            <Icona size={22} />{label}
+          </button>
+        ))}
+      </nav>
     </div>
   )
 }

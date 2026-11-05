@@ -21,6 +21,15 @@ Decisioni di Patrizio del 05/11/2026, pilota **Roma Soratte** (RSO). Due diligen
 2. Il suo Content SID nel Vault come `twilio_whatsapp_timbrature_content_sid` (NZ e Zago).
 3. Numeri dei dipendenti in Dipendenti → Presenze → App del dipendente; poi «Avviso WhatsApp» acceso sul negozio.
 
+## app del dipendente: turni, ferie, ore (migration 350, 05/11/2026)
+- Schede in basso: Oggi (QR), Turni (settimana e prossima), Ferie (saldo, richiesta, stato), Ore (mese, per settimana). Componenti in `src/components/app/`, conti in `src/lib/appDipendente.ts` (con test). Ogni scheda tiene in memoria l'ultimo scaricamento e si vede anche senza rete; inviare una richiesta richiede la rete.
+- RPC solo per sé: `app_dipendente_ferie`, `app_dipendente_chiedi_ferie`, `app_dipendente_ritira_ferie`, `app_dipendente_periodo` (persona da `auth.uid()`, le tabelle restano chiuse al ruolo `dipendente`).
+- La richiesta nasce `inviata` con `compilata_da_nome = 'App del dipendente (nome)'` (origine resta `gestionale`: il CHECK non ha `app`), e la decidono i referenti come le altre. Ore di giornata e mezza giornata le calcola il server. Permesso: ex festività finché bastano, poi ROL.
+- Migration 351 (dalle revisioni): una data già chiesta (in attesa o approvata) non si richiede oltre la giornata; al massimo 10 richieste in attesa; lucchetto per persona; permesso diviso fra ex festività e ROL quando nessuna delle due basta da sola; eventi «niente ferie» validi anche per chi non ha un negozio in anagrafica.
+- **Avviso al referente**: lo crea il database con la richiesta (notifica nel gestionale, come `leave_decidi`). L'app **non** chiama la mail `leave-notify`: quella funzione controlla solo l'azienda di chi chiama e restituisce gli indirizzi dei referenti, quindi non va esposta al ruolo `dipendente`. Debito: irrobustirla (proprietà della richiesta, una mail per richiesta, niente `recipients` nella risposta) prima di riaccendere la mail dalle richieste dell'app.
+- Chi non ha ancora un saldo (Roma Soratte al 05/11/2026: 5 persone su 5, assunte da poco) può chiedere lo stesso: decide il referente, come dal gestionale.
+- **Accesso individuale** (Patrizio, 05/11/2026): supera la decisione del 19/10 «un accesso per negozio» di PIANO_FERIE_NOTES.md.
+
 ## aperto
 - PIN sul cellulare del negozio per chi non ha lo smartphone (non ancora fatto).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).

@@ -354,7 +354,7 @@ rispetto all'anno prima.** L'anzianità **non** è un criterio (Patrizio: «non 
 
 ### L'accesso
 
-**Un accesso per negozio** (decisione di Patrizio). Il ruolo `dipendente` esiste ed è blindato: va
+**Superato il 05/11/2026**: accesso individuale per ogni dipendente, con l'app (`/app`, vedi TIMBRATURE_NOTES.md). Prima: **un accesso per negozio** (decisione di Patrizio). Il ruolo `dipendente` esiste ed è blindato: va
 aperto alle righe delle persone di quel negozio. Con un accesso condiviso chi propone sceglie il proprio
 nome: ogni proposta lo registra, e resta una proposta finché un referente non decide.
 
