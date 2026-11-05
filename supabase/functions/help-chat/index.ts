@@ -7,7 +7,8 @@
 // Caratteristiche di sicurezza (vedi CLAUDE.md):
 // - La chiave Anthropic sta nel Vault (RPC get_anthropic_api_key), MAI nel
 //   frontend. Questa function fa da proxy.
-// - Auth: qualsiasi utente autenticato del tenant (JWT valido).
+// - Auth: JWT valido E profilo attivo in user_profiles, qualunque ruolo
+//   (_shared/verificaProfilo.ts); senza profilo 403, dal 05/11/2026.
 // - L'AI risponde SOLO su come si usa il gestionale. Non vede i dati
 //   aziendali (non tocca il DB) e ha istruzioni esplicite di NON proporre
 //   mai cancellazioni/modifiche di dati o query SQL (regola NO DATA LOSS).
@@ -23,6 +24,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { tokenDaRichiesta, verificaProfilo } from "../_shared/verificaProfilo.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -95,15 +97,9 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Auth: qualsiasi utente autenticato del tenant.
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    if (!token) return jsonError(401, "Missing authorization");
-    const isServiceRole = token === supabaseServiceKey;
-    if (!isServiceRole) {
-      const { data: userData, error: userErr } = await supabase.auth.getUser(token);
-      if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
-    }
+    // Auth: serve un profilo attivo in user_profiles, qualunque ruolo (vedi _shared/verificaProfilo.ts).
+    const chiamante = await verificaProfilo(supabase, tokenDaRichiesta(req), supabaseServiceKey);
+    if (!chiamante.ok) return jsonError(chiamante.status, chiamante.message, chiamante.code);
 
     const body = await req.json().catch(() => ({}));
     const page: string = (body.page ?? "").toString().slice(0, 120);
