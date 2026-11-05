@@ -1,5 +1,5 @@
 -- =============================================================================
--- Migrazione 363 — Gruppi trovati col solo nome: proposta, mai chiusura automatica
+-- Migrazione 364 — Gruppi trovati col solo nome: proposta, mai chiusura automatica
 -- =============================================================================
 --
 -- PERCHÉ (Patrizio, 05/11/2026, poche ore dopo la 362)
@@ -56,7 +56,7 @@ CREATE OR REPLACE FUNCTION public.try_match_group_name_bank_transaction(p_bt_id 
  SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp', 'extensions'
 AS $function$
--- 363: sola lettura. Segnala il gruppo (fornitore in causale, tutte le sue scadenze
+-- 364: sola lettura. Segnala il gruppo (fornitore in causale, tutte le sue scadenze
 -- aperte fino a 15 giorni dopo il bonifico, somma esatta) senza chiudere niente.
 -- La conferma la dà una persona dal riquadro «Pagamenti raggruppati» di Banche.
 DECLARE
@@ -69,7 +69,7 @@ BEGIN
 
   -- Causale che cita un numero di fattura: decidono i motori dei numeri, non il nome.
   v_head := split_part(regexp_replace(upper(coalesce(v_bt.description, '')), 'ID\.?\s?BON', '§', 'g'), '§', 1);
-  IF v_head ~ '(^|[^A-Z])(FATTUR[AE]|FATT|FT|S?SF|NC|CF|NR)\s*[-.:#°]?\s*[A-Z]{0,3}[0-9]' THEN
+  IF v_head ~ '(^|[^A-Z])((FATTUR[AE]|FATT|FT)\.?\s*(N\.?|N°|NR\.?|NUM\.?|NUMERO)?\s*[-.:#°]?\s*[A-Z]{0,3}[0-9]|(S?SF|NC|CF)-\s*[A-Z]{0,3}[0-9])' THEN
     RETURN jsonb_build_object('matched', false, 'reason', 'causale_con_numero_fattura');
   END IF;
 
@@ -107,5 +107,8 @@ BEGIN
                             'supplier', v_grp.sup, 'sum', v_grp.tot, 'movimento', v_mov);
 END;
 $function$;
+
+-- Nessuno la chiama dal browser né dalle Edge Function: resta solo al ruolo di servizio.
+REVOKE EXECUTE ON FUNCTION public.try_match_group_name_bank_transaction(uuid) FROM authenticated;
 
 COMMIT;

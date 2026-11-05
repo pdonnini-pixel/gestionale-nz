@@ -1964,7 +1964,7 @@ delle Fucine ricostruito (scadenze riaperte) la funzione chiude 2746 e 2747 da s
 sui movimenti aperti di NZ 0 agganci nuovi, 0,7 secondi ogni 100 movimenti (circa 3
 secondi in più a notte su 372).
 
-## Gruppi col solo nome: proposta, mai chiusura (05/11/2026, migration 363)
+## Gruppi col solo nome: proposta, mai chiusura (05/11/2026, migration 364)
 
 Patrizio, dopo la 362: «Bonifico da 900 € e tre fatture da 300 €: le chiudi senza
 guardare il numero?». La 362 lo faceva. Funziona solo con uno scadenzario perfetto: una
@@ -1972,12 +1972,12 @@ fattura vecchia aperta per errore viene chiusa al posto di quella pagata davvero
 la causale cita un numero che i motori dei numeri non trovano, la 362 chiudeva altre
 fatture ignorandolo.
 
-Regole dalla 363:
+Regole dalla 364:
 - il giro notturno chiude un gruppo di fatture **solo** se la causale ne cita i numeri
   (motori `try_match_group_bank_transaction` e `try_match_group_numbers_bank_transaction`);
 - i gruppi trovati col solo nome sono proposte da confermare nel riquadro «Pagamenti
   raggruppati» di Banche (`toVerifyGroups`); `try_match_group_name_bank_transaction` è
-  ora di sola lettura;
+  ora di sola lettura (e solo per il ruolo di servizio);
 - **se la causale cita un numero di fattura, la proposta può contenere solo le fatture
   citate** (`citesInvoiceNumbers` in `src/lib/reconcileMatch.ts`, stessa espressione in
   SQL). Se non bastano a fare la cifra non si propone niente.

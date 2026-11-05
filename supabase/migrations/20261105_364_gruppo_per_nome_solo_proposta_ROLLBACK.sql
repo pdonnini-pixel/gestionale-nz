@@ -1,4 +1,4 @@
--- ROLLBACK della migrazione 363: ripristina la 362 (gruppo per nome con chiusura
+-- ROLLBACK della migrazione 364: ripristina la 362 (gruppo per nome con chiusura
 -- automatica nel giro notturno). Nessun dato toccato. NZ + Zago.
 
 BEGIN;

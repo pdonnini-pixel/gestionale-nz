@@ -243,6 +243,15 @@ describe('citesInvoiceNumbers', () => {
     expect(citesInvoiceNumbers('Bonifico tramite corporate banking *DENIMART STUDIO SRL CF-16-CNC3, ID.BON:0832501107891705483773002800IT')).toBe(true)
     expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *F e B FLORENCE SRL SALDO FATTURA 958P-62P ID.BON:0845700174627410480546302800IT')).toBe(true)
   })
+  it('riconosce le forme con "N." e "NUMERO" battute a mano', () => {
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL SALDO FATTURA N. 123')).toBe(true)
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATT. N°45')).toBe(true)
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATTURA NUMERO 55')).toBe(true)
+  })
+  it('non scambia NR o CF isolati per un riferimento a fattura', () => {
+    expect(citesInvoiceNumbers('BONIFICO BEN ROSSI NR 5 SRL')).toBe(false)
+    expect(citesInvoiceNumbers('BONIFICO BEN BIANCHI CF 123')).toBe(false)
+  })
   it('non scambia date, orari e ID dei bonifici istantanei per numeri di fattura', () => {
     expect(citesInvoiceNumbers('Bonifico tramite corporate banking *INSTANT DEL 20/10/2026 ORE 16:15 ID. 0832500022425887483773037730IT BEN CORTE DELLE FUCINE SRL')).toBe(false)
     expect(citesInvoiceNumbers('Bonifico tramite corporate banking *INSTANT DEL 15/10/2026 ORE 18:15 ID. 0832500022392930483773037730IT BEN OMNITEKSTORE S.R.L.')).toBe(false)

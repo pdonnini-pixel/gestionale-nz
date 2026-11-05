@@ -3428,13 +3428,18 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       // Se la causale cita dei numeri di fattura, il gruppo può contenere solo
       // le fatture citate (regola del 05/11/2026): un numero scritto dice quale
       // fattura si paga, e un'altra combinazione che fa la stessa cifra è un errore.
-      const cites = citesInvoiceNumbers(desc)
+      // Se i numeri sono troppo corti per essere letti ("FT 1", "FATTURE 12 E 13")
+      // tokens resta vuoto: allora il numero serve solo a scegliere fra le
+      // combinazioni, come prima, per non nascondere il gruppo giusto.
+      const cites = citesInvoiceNumbers(desc) && tokens.length > 0
 
       // Pool di partenza: fatture che da sole non superano il movimento. Se la
       // causale nomina il beneficiario, solo i fornitori che gli somigliano.
       const pool0 = candidates.filter((c) => {
         if (cents(c.base) > target) return false
-        if (cites && !invoiceCitedIn(String(c.p.invoice_number || ''), tokens)) return false
+        // Le note di credito (base negativa) restano: il bonifico può essere al
+        // netto di una NC che la causale non nomina (R8).
+        if (cites && c.base > 0 && !invoiceCitedIn(String(c.p.invoice_number || ''), tokens)) return false
         if (rejectedPairs.has(pairKey(m.id, c.p.id))) return false
         if (!isPaymentDatePlausible(String(m.transaction_date || ''), String(c.p.invoice_date || ''))) return false
         if (benefWords.length === 0) return true
