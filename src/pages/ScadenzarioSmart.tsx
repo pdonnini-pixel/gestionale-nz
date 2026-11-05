@@ -36,6 +36,7 @@ import {
   ESTIMATE_HORIZON_MONTHS, ESTIMATE_MATCH_TOLERANCE_PCT, ESTIMATE_MATCH_TOLERANCE_ABS,
   RECURRENCE_STEP_MONTHS, normSupplier, categorizeIncome,
   documentTypeLabel, notaDistintaNC,
+  isRibaMethod, RIBA_PROVVISORIE_FILTER, provisionalRatesByInvoice, provisionalSiblingsOf,
 } from './scadenzario/helpers';
 import { StatusPill, Modal } from './scadenzario/SharedUI';
 import { EditScheduleModal, InvoiceModal, SupplierModal, type InvoiceFormState } from './scadenzario/modals';
@@ -1733,6 +1734,7 @@ const ScadenzarioSmart = () => {
         || selectedStatus === 'all' // "Tutti gli stati": include le pagate
         || selectedStatus === 'in_distinta' // gestito sopra
         || (selectedStatus === 'da_saldare' && p.status !== 'pagato')
+        || (selectedStatus === RIBA_PROVVISORIE_FILTER && p.status === 'pagato_provvisorio' && isRibaMethod(p.payment_method as string | null))
         || (selectedStatus !== 'da_saldare' && p.status === selectedStatus);
       const matchSearch = !searchTerm || (p.invoice_number || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.suppliers?.ragione_sociale || p.suppliers?.name || '').toLowerCase().includes(searchTerm.toLowerCase()) || (p.notes || '').toLowerCase().includes(searchTerm.toLowerCase());
       // Filtro data: applica SOLO se start/end sono valorizzati (string non
@@ -1825,10 +1827,15 @@ const ScadenzarioSmart = () => {
 
   // RiBa chiuse in via provvisoria alla scadenza (in attesa di distinta o
   // movimento bancario). Residuo = 0 (pagate), quindi il totale usa il lordo.
+  // Solo le RiBa: carte, contanti e addebiti diretti hanno la loro chiusura
+  // provvisoria (R15/R24) ma non vanno contati qui (05/11/2026: 92 righe, 7 RiBa).
   const provisionalInfo = useMemo(() => {
-    const list = payables.filter(p => p.status === 'pagato_provvisorio');
+    const list = payables.filter(p => p.status === 'pagato_provvisorio' && isRibaMethod(p.payment_method as string | null));
     return { count: list.length, total: list.reduce((s, p) => s + (Number(p.gross_amount) || 0), 0) };
   }, [payables]);
+  // Rate chiuse in via provvisoria, per fattura: la rata provvisoria esce dalla
+  // lista, quindi si segnala sulle rate ancora aperte della stessa fattura.
+  const provisionalByInvoice = useMemo(() => provisionalRatesByInvoice(payables), [payables]);
   const canManageRiba = profile?.role === 'super_advisor' || profile?.role === 'contabile';
   const [ribaDistintaOpen, setRibaDistintaOpen] = useState(false);
   const [ribaNcOpen, setRibaNcOpen] = useState(false);
@@ -2897,7 +2904,7 @@ const ScadenzarioSmart = () => {
       if (p.status === 'addebito_automatico' && selectedStatus !== 'addebito_automatico') return false;
       // RiBa chiuse in via provvisoria alla scadenza: contano come pagate, tolte
       // dalla lista attiva. Visibili solo col filtro dedicato 'pagato_provvisorio'.
-      if (p.status === 'pagato_provvisorio' && selectedStatus !== 'pagato_provvisorio') return false;
+      if (p.status === 'pagato_provvisorio' && selectedStatus !== 'pagato_provvisorio' && selectedStatus !== RIBA_PROVVISORIE_FILTER) return false;
       // Pagate nascoste di default.
       if (p.status === 'pagato') return false;
       // NC CHIUSA a mano (registrata in partitario): esce dalle Aperte come una pagata,
@@ -3268,7 +3275,8 @@ const ScadenzarioSmart = () => {
               <option value="in_scadenza">In scadenza</option>
               <option value="da_pagare">Da pagare</option>
               <option value="parziale">Parziale</option>
-              <option value="pagato_provvisorio">Pagato (provvisorio — RiBa)</option>
+              <option value="pagato_provvisorio">Pagato (provvisorio)</option>
+              <option value="riba_provvisorie">RiBa provvisorie</option>
               <option value="pagato">Pagato</option>
               <option value="in_distinta">In sospeso (in attesa di riscontro)</option>
               <option value="sospeso">Sospeso</option>
@@ -3303,9 +3311,9 @@ const ScadenzarioSmart = () => {
                 in attesa di distinta o riscontro bancario. Contano come pagate. */}
             {provisionalInfo.count > 0 && (
               <button
-                onClick={() => setSelectedStatus(selectedStatus === 'pagato_provvisorio' ? '' : 'pagato_provvisorio')}
-                title="RiBa chiuse in via provvisoria alla scadenza: in attesa di distinta o movimento bancario. Si confermano da sole quando arriva il riscontro."
-                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === 'pagato_provvisorio' ? 'bg-teal-500 text-white border-teal-500' : 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100'}`}>
+                onClick={() => setSelectedStatus(selectedStatus === RIBA_PROVVISORIE_FILTER ? '' : RIBA_PROVVISORIE_FILTER)}
+                title="RiBa chiuse in via provvisoria alla scadenza: in attesa di distinta o movimento bancario. Si confermano da sole quando arriva il riscontro. Carte, contanti e addebiti diretti chiusi in via provvisoria si vedono con il filtro «Pagato (provvisorio)»."
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium ${selectedStatus === RIBA_PROVVISORIE_FILTER ? 'bg-teal-500 text-white border-teal-500' : 'bg-teal-50 text-teal-700 border-teal-200 hover:bg-teal-100'}`}>
                 <Clock size={12} />
                 RiBa provvisorie: {provisionalInfo.count} ({fmt(provisionalInfo.total)} €)
               </button>
@@ -3474,7 +3482,7 @@ const ScadenzarioSmart = () => {
               )}
               {selectedStatus && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600">
-                  {selectedStatus === 'in_distinta' ? 'In sospeso' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
+                  {selectedStatus === 'in_distinta' ? 'In sospeso' : selectedStatus === RIBA_PROVVISORIE_FILTER ? 'RiBa provvisorie' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)} <button onClick={() => setSelectedStatus('')} className="text-slate-400 hover:text-slate-600"><X size={11} /></button>
                 </span>
               )}
               {(dateRange.start || dateRange.end) && (
@@ -3922,7 +3930,7 @@ const ScadenzarioSmart = () => {
                     )}
                     {selectedStatus && (
                       <button onClick={() => setSelectedStatus('')} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-100 text-xs text-slate-600 hover:bg-slate-200">
-                        Rimuovi "{selectedStatus === 'in_distinta' ? 'In distinta' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)}" <X size={11} />
+                        Rimuovi "{selectedStatus === 'in_distinta' ? 'In distinta' : selectedStatus === RIBA_PROVVISORIE_FILTER ? 'RiBa provvisorie' : ((statusConfig as Record<string, { label?: string }>)[selectedStatus]?.label || selectedStatus)}" <X size={11} />
                       </button>
                     )}
                     {(dateRange.start || dateRange.end) && (
@@ -4094,6 +4102,9 @@ const ScadenzarioSmart = () => {
                               // visibile quando le rate sono >1, così tre righe della stessa fattura
                               // non sembrano un doppione.
                               const isRata = (Number(p.installment_total) || 0) > 1
+                              // Altre rate della stessa fattura chiuse in via provvisoria
+                              // (escono dalla lista): si segnalano qui, sulla rata aperta.
+                              const provSiblings = p.status !== 'pagato_provvisorio' ? provisionalSiblingsOf(p, provisionalByInvoice) : []
                               // NC disponibili del fornitore, mostrate "a colpo d'occhio" sulla riga
                               // fattura (NON sulla riga NC stessa) e solo se la fattura e' ancora aperta:
                               // cosi' si vede che ci sono note di credito da scalare senza dover prima
@@ -4131,6 +4142,13 @@ const ScadenzarioSmart = () => {
                                       <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md bg-indigo-50 text-[10px] font-semibold text-indigo-700 border border-indigo-100">
                                         rata {String(p.installment_number)}/{String(p.installment_total)}
                                       </span>
+                                    )}
+                                    {provSiblings.length > 0 && (
+                                      <UiTooltip content={`${provSiblings.map(r => `Rata ${r.installment_number ?? ''}${r.due_date ? ` del ${fmtDate(r.due_date as string)}` : ''} (${fmt(Number(r.gross_amount) || 0)} €)`).join(' · ')} ${provSiblings.length > 1 ? 'chiuse' : 'chiusa'} in automatico alla scadenza, in attesa della distinta o dell'addebito.`}>
+                                        <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-md bg-teal-50 text-[10px] font-semibold text-teal-700 border border-teal-200">
+                                          {provSiblings.length === 1 ? '1 rata provvisoria' : `${provSiblings.length} rate provvisorie`}
+                                        </span>
+                                      </UiTooltip>
                                     )}
                                     {availNc.length > 0 && (
                                       <UiTooltip content={`Note di credito disponibili da scalare su questo fornitore: ${availNc.map(n => `NC ${n.invoice_number || 's/n'}${n.invoice_date ? ` del ${fmtDate(n.invoice_date as string)}` : ''} −${fmt(ncAmountOf(n))} €`).join(' · ')}. Seleziona la fattura per scalarle.`}>
