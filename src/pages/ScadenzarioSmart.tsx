@@ -2069,7 +2069,7 @@ const ScadenzarioSmart = () => {
     }
   }, [suppliers, modals, COMPANY_ID]);
 
-  type ScheduleData = { id: string; amount?: number; due_date?: string; status?: string; amount_paid?: number; document_type?: string }
+  type ScheduleData = { id: string; amount?: number; due_date?: string; status?: string; amount_paid?: number; document_type?: string; payment_method?: string }
   // Mapping bidirezionale status payables <-> fiscal_deadlines
   const mapStatusToFiscal = (payableStatus?: string): string => {
     switch (payableStatus) {
@@ -2107,6 +2107,19 @@ const ScadenzarioSmart = () => {
           amount_paid: newPaid,
         } as never).eq('id', scheduleData.id);
         if (error) throw new Error(error.message);
+        // Modalità di pagamento: si scrive solo se cambiata, e solo su questa scadenza.
+        // Carta = addebito automatico; RID/SDD li marca il trigger; il resto torna
+        // fra i pagamenti da disporre. Il trigger non la riscrive più (migration 363).
+        const origPm = modals.editSchedule.schedule as AnyRow | null;
+        const prevPm = String(origPm?.payment_method || '');
+        const nextPm = String(scheduleData.payment_method || '');
+        if (origPm && nextPm && nextPm !== prevPm) {
+          const { error: pmErr } = await supabase.from('payables').update({
+            payment_method: nextPm,
+            is_auto_debit: ['carta_credito', 'carta_debito', 'rid', 'sdd_core', 'sdd_b2b'].includes(nextPm),
+          } as never).eq('id', scheduleData.id);
+          if (pmErr) throw new Error(pmErr.message);
+        }
         // Tipo documento: si scrive solo se cambiato (NULL = fattura). Vale per
         // il documento intero, quindi anche per le altre rate dello stesso
         // documento (stesso fornitore, numero e data).

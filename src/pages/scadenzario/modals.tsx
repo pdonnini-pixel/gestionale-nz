@@ -8,8 +8,9 @@ import { archiviaFile } from '../../lib/archivioFile';
 import { useAuth } from '../../hooks/useAuth';
 import { SCHEDULE_MODE_GROUPS, findScheduleMode, derivePlan, computeInstallments, scheduleModeText, SCHEDULE_GROUP_TEXT } from '../../lib/paymentSchedule';
 import { PAYMENT_METHOD_ALIAS, DOCUMENT_TYPE_OPTIONS, normalizeDocumentType } from './helpers';
+import { PAYMENT_METHOD_OPTIONS, PAYMENT_METHOD_LABELS } from '../../lib/paymentMethods';
 
-export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string; document_type: string }
+export type EditSchedulePayload = { id: string; amount: number; due_date: string; status: string; document_type: string; payment_method: string }
 export type ScheduleLike = Record<string, unknown> & { id?: string; gross_amount?: number | null; due_date?: string | null; status?: string | null; invoice_number?: string | null }
 export const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { schedule: ScheduleLike; onUpdate: (s: ScheduleLike) => void; onSave: (data: EditSchedulePayload) => void }) => {
   const [formData, setFormData] = useState<EditSchedulePayload>({
@@ -23,7 +24,12 @@ export const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { s
       ? String(schedule.status)
       : 'da_pagare',
     document_type: String(schedule.document_type || 'fattura'),
+    // Modalità di pagamento della singola scadenza. Una scelta fatta qui resta:
+    // la categoria (es. «Viaggi e trasferte» = carta) non la riscrive più (migration 363).
+    payment_method: String(schedule.payment_method || ''),
   });
+  const metodoAttuale = String(schedule.payment_method || '');
+  const metodoFuoriElenco = metodoAttuale !== '' && !PAYMENT_METHOD_OPTIONS.some(g => g.items.some(i => i.value === metodoAttuale));
   // Le scadenze fiscali (id fiscal_…) non sono documenti di un fornitore.
   const isFiscal = String(schedule.id || '').startsWith('fiscal_');
 
@@ -36,6 +42,22 @@ export const EditScheduleModal = ({ schedule, onUpdate: _onUpdate, onSave }: { s
             className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
             {DOCUMENT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
+        </div>
+      )}
+      {!isFiscal && (
+        <div>
+          <label className="text-sm font-medium text-slate-700 mb-1 block">Modalità di pagamento</label>
+          <select value={formData.payment_method} onChange={e => setFormData({ ...formData, payment_method: e.target.value })}
+            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
+            {metodoAttuale === '' && <option value="">Non indicata</option>}
+            {metodoFuoriElenco && <option value={metodoAttuale}>{PAYMENT_METHOD_LABELS[metodoAttuale] || metodoAttuale}</option>}
+            {PAYMENT_METHOD_OPTIONS.map(g => (
+              <optgroup key={g.group} label={g.group}>
+                {g.items.map(i => <option key={i.value} value={i.value}>{i.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          <p className="text-xs text-slate-500 mt-1">Con carta, RID o SDD la scadenza è un addebito automatico; con bonifico o contanti torna fra i pagamenti da fare.</p>
         </div>
       )}
       <div>
