@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, isSuggestionActionable, pickActionableSuggestions, countActionableSuggestions, isClosedManualUnlinked, suggestionBase } from './reconcileMatch'
+import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, citesInvoiceNumbers, isSuggestionActionable, pickActionableSuggestions, countActionableSuggestions, isClosedManualUnlinked, suggestionBase } from './reconcileMatch'
 
 // Casi reali (New Zago, tab Banche → Riconciliazione). Vedi RICONCILIAZIONE_REGOLE.md R5/R6.
 describe('extractBeneficiary', () => {
@@ -232,6 +232,23 @@ describe('isBankOwnMovement', () => {
 
   it('regge le causali vuote', () => {
     expect(isBankOwnMovement('')).toBe(false)
+  })
+})
+
+describe('citesInvoiceNumbers', () => {
+  it('riconosce le causali che citano una fattura (casi reali NZ 2026)', () => {
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *LA FAVORITA S.R.L. SALDO FATTURA 3676 ID.BON:0845700174680205480546302800IT')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *SFORAZZINI SRL SF-11245-11037 ID.BON:0845700172770303480546302800IT')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *AMAZON PAYMENTS EUROPE SSF-IT530TD9ABEI (TUTTI I ID.BON:08457')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite corporate banking *DENIMART STUDIO SRL CF-16-CNC3, ID.BON:0832501107891705483773002800IT')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *F e B FLORENCE SRL SALDO FATTURA 958P-62P ID.BON:0845700174627410480546302800IT')).toBe(true)
+  })
+  it('non scambia date, orari e ID dei bonifici istantanei per numeri di fattura', () => {
+    expect(citesInvoiceNumbers('Bonifico tramite corporate banking *INSTANT DEL 20/10/2026 ORE 16:15 ID. 0832500022425887483773037730IT BEN CORTE DELLE FUCINE SRL')).toBe(false)
+    expect(citesInvoiceNumbers('Bonifico tramite corporate banking *INSTANT DEL 15/10/2026 ORE 18:15 ID. 0832500022392930483773037730IT BEN OMNITEKSTORE S.R.L.')).toBe(false)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *GRUPO LOGISCENTER SL UNISALDO PREVENTIVO 2989293 ID.BON:0845700003260572480546302800E')).toBe(false)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *SIAE SOCIETA ITALIANA DSIAE+SCF 2026 ID.BON:0845700173210006480546302800IT')).toBe(false)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *AMAZON PAYMENTS EUROPE SSALDO FATTURE DEC. MARZO-ID.BON:0845700003135938480546302800I')).toBe(false)
   })
 })
 

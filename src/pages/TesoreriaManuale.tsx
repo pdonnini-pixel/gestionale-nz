@@ -29,7 +29,7 @@ import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
-import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, pickActionableSuggestions, countActionableSuggestions, type SuggestionLogLike } from '../lib/reconcileMatch'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, citesInvoiceNumbers, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, pickActionableSuggestions, countActionableSuggestions, type SuggestionLogLike } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import CommissioniIncasso from './CommissioniIncasso'
 import OpenBankingAcube from '../components/OpenBankingAcube'
@@ -3425,11 +3425,16 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (benef && NON_SUPPLIER_BENEF_RE.test(benef)) continue
       const benefWords = benef ? sigWords(benef) : []
       const tokens = invoiceTokens(desc)
+      // Se la causale cita dei numeri di fattura, il gruppo può contenere solo
+      // le fatture citate (regola del 05/11/2026): un numero scritto dice quale
+      // fattura si paga, e un'altra combinazione che fa la stessa cifra è un errore.
+      const cites = citesInvoiceNumbers(desc)
 
       // Pool di partenza: fatture che da sole non superano il movimento. Se la
       // causale nomina il beneficiario, solo i fornitori che gli somigliano.
       const pool0 = candidates.filter((c) => {
         if (cents(c.base) > target) return false
+        if (cites && !invoiceCitedIn(String(c.p.invoice_number || ''), tokens)) return false
         if (rejectedPairs.has(pairKey(m.id, c.p.id))) return false
         if (!isPaymentDatePlausible(String(m.transaction_date || ''), String(c.p.invoice_date || ''))) return false
         if (benefWords.length === 0) return true
