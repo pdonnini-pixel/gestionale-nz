@@ -24,7 +24,8 @@
 -- ((SELECT get_my_role()) IS NOT NULL). Su:
 --   - ogni tabella di public con la RLS attiva, tranne user_profiles
 --     (chi non ha profilo li' non vede gia' niente, e la funzione di ruolo
---     legge proprio quella tabella);
+--     legge proprio quella tabella) e le tabelle di backup (_bkp_*,
+--     backup_*: senza GRANT, restano «RLS senza policy» per convenzione);
 --   - storage.objects.
 -- Per chi ha un profilo (tutti gli utenti veri, compresi cassa, dipendente
 -- e viewer) la condizione e' sempre vera: non cambia nulla. La service role
@@ -62,6 +63,7 @@ BEGIN
        AND c.relkind IN ('r', 'p')
        AND c.relrowsecurity
        AND c.relname <> 'user_profiles'
+       AND c.relname !~ '(^_?bkp_|_bkp_|_bkp$|^backup_)'
        AND NOT EXISTS (SELECT 1 FROM pg_policies p
                         WHERE p.schemaname = 'public'
                           AND p.tablename = c.relname
@@ -93,5 +95,6 @@ END $$;
 --   SELECT c.relname FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
 --    WHERE ns.nspname = 'public' AND c.relkind IN ('r','p') AND c.relrowsecurity
 --      AND c.relname <> 'user_profiles'
+--      AND c.relname !~ '(^_?bkp_|_bkp_|_bkp$|^backup_)'
 --      AND NOT EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = 'public'
 --                      AND p.tablename = c.relname AND p.policyname = 'solo_con_profilo');
