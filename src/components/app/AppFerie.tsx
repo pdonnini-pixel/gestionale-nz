@@ -203,7 +203,7 @@ export default function AppFerie() {
           placeholder="Nota per il referente (facoltativa)" className="border border-slate-300 rounded-lg px-3 py-2 text-sm" />
         {problemi.map((p) => <p key={p} className="text-sm text-rose-600">{p}</p>)}
         <button onClick={() => void invia()} disabled={!righe.length || problemi.length > 0 || invio || !navigator.onLine}
-          className="py-3 rounded-xl bg-blue-700 text-white font-semibold disabled:opacity-40">
+          className="py-3 rounded-xl bg-[#ff0066] text-white font-semibold disabled:opacity-40">
           {invio ? 'Invio…' : !navigator.onLine ? 'Serve la rete per inviare' : 'Invia richiesta'}
         </button>
         {esito && <p className={`text-sm ${esito.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{esito.testo}</p>}
