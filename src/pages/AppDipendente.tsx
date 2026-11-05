@@ -12,6 +12,7 @@ import QRCode from 'qrcode'
 import { CalendarDays, Clock, Palmtree, QrCode, RefreshCw, WifiOff } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { getCurrentTenant } from '../lib/tenants'
+import LogoNewZago from '../components/app/LogoNewZago'
 import {
   ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, formatMinuti, oraRoma, ordina, riepilogoGiorno, secondiAlCambio,
   PASSO_SECONDI, type Timbratura, type TipoTimbratura,
@@ -49,6 +50,12 @@ function leggi<T>(k: string): T | null {
 }
 
 /** Nome dell'azienda in testa all'app: New Zago nell'app degli store e sul sito NZ. */
+function Marchio({ grande }: { grande?: boolean }) {
+  const nome = marchioApp()
+  if (nome === 'New Zago') return <LogoNewZago className={`${grande ? 'h-7' : 'h-3.5'} w-auto text-black`} />
+  return <p className={`${grande ? 'text-3xl' : 'text-sm'} font-light tracking-[0.2em] uppercase text-black`}>{nome}</p>
+}
+
 function marchioApp(): string {
   try {
     const a = getCurrentTenant().alias
@@ -104,8 +111,8 @@ export default function AppDipendente() {
     return (
       <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 gap-4 text-center">
         <div>
-          <p className="text-3xl font-bold tracking-tight text-slate-900">{marchioApp()}</p>
-          <p className="text-sm uppercase tracking-widest text-slate-500 mt-1">Presenze</p>
+          <div className="flex justify-center"><Marchio grande /></div>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-500 mt-3">Presenze</p>
         </div>
         {altroUtente ? (
           <p className="text-slate-600 max-w-sm">Questo dispositivo è già collegato al gestionale con un altro utente. Apri il link dal tuo telefono personale.</p>
@@ -114,10 +121,10 @@ export default function AppDipendente() {
             <p className="text-slate-600 max-w-sm">Scrivi il codice di 8 caratteri che ti ha dato chi segue il personale. Serve solo la prima volta.</p>
             <input value={codice} onChange={(e) => setCodice(e.target.value.toUpperCase())} maxLength={9} autoCapitalize="characters"
               autoComplete="one-time-code" placeholder="ABCD2345"
-              className="w-56 text-center text-2xl tracking-widest font-mono border-2 border-slate-300 rounded-xl py-3 focus:border-blue-600 outline-none" />
+              className="w-56 text-center text-2xl tracking-widest font-mono border-2 border-slate-300 rounded-xl py-3 focus:border-black outline-none" />
             {errore && <p className="text-rose-600 text-sm max-w-sm">{errore}</p>}
             <button onClick={() => void attiva()} disabled={occupato || codice.replace(/[\s-]/g, '').length !== 8}
-              className="px-8 py-3 rounded-xl bg-blue-700 text-white text-lg font-semibold disabled:opacity-40">
+              className="px-8 py-3 rounded-xl bg-[#ff0066] text-white text-lg font-semibold disabled:opacity-40">
               {occupato ? 'Attivo…' : 'Attiva'}
             </button>
             <p className="text-xs text-slate-400 max-w-sm mt-4">
@@ -214,6 +221,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center px-5 pt-6 pb-28 gap-5">
+      <div className="w-full max-w-sm flex justify-center pb-1"><Marchio /></div>
       <div className="w-full max-w-sm flex items-center justify-between">
         <div>
           <p className="text-slate-500 text-sm">{dati?.persona.negozio ?? ''}</p>
@@ -236,7 +244,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
       <div className="w-full max-w-sm bg-white rounded-2xl shadow p-5 flex flex-col items-center gap-2">
         {qr ? <img src={qr} alt="Il tuo codice per timbrare" className="w-64 h-64" /> : <RefreshCw className="animate-spin text-slate-400 my-24" />}
         <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-          <div className="h-full bg-blue-600 transition-all" style={{ width: `${(secondi / PASSO_SECONDI) * 100}%` }} />
+          <div className="h-full bg-[#ff0066] transition-all" style={{ width: `${(secondi / PASSO_SECONDI) * 100}%` }} />
         </div>
         <p className="text-slate-600 text-center">Avvicina il telefono alla timbratrice del negozio</p>
         <p className="text-slate-400 text-xs">Il codice cambia ogni 30 secondi: una foto non vale.</p>
@@ -279,7 +287,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
       <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 flex justify-around pb-[env(safe-area-inset-bottom)]">
         {SCHEDE.map(({ k, label, Icona }) => (
           <button key={k} onClick={() => setScheda(k)}
-            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-xs ${scheda === k ? 'text-blue-700 font-semibold' : 'text-slate-500'}`}>
+            className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-xs ${scheda === k ? 'text-[#ff0066] font-semibold' : 'text-slate-500'}`}>
             <Icona size={22} />{label}
           </button>
         ))}

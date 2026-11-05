@@ -33,3 +33,8 @@ npx cap sync
 ## stato al 05/11/2026
 - Codice, progetti nativi, migration 367 e Edge Function: pronti (NZ e Zago).
 - Mancano: progetto Firebase e i suoi file, chiave APNs, chiave di servizio nel Vault, schede negli store, prima build. Finché manca la chiave di servizio, gli avvisi si registrano come «non riuscito» e l'ufficio (se acceso) li vede comunque nel gestionale.
+
+## marchio (05/11/2026)
+Logo creato per l'app su richiesta di Patrizio, nello stile dei negozi (scritta sottile e geometrica, bianco e nero, accento magenta `#ff0066`). È un disegno originale: il marchio Vicolo non è di New Zago e non va usato.
+- Scritta: `public/brand/newzago-logo.svg`, nel codice `src/components/app/LogoNewZago.tsx` (solo sul sito NZ e nell'app degli store; Zago e Made vedono il loro nome in testo).
+- Icona: `public/brand/newzago-icona.svg` (NZ bianco su nero, riga magenta). Le PNG di Android (`android/app/src/main/res/mipmap-*`, sfondo adattivo nero) e di iPhone (`AppIcon-512@2x.png`, senza trasparenza) e le schermate d'avvio sono generate da questi due file.
