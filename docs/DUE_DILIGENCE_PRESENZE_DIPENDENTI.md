@@ -11,8 +11,8 @@ Richiesta: sostituire People Smart (Zucchetti) con una web app semplice, che fun
 
 - **Il problema vero non è l'app, è la chiusura del mese.** Il foglio dello studio paghe allegato alle schermate lo dice chiaro: ore da far quadrare, straordinari e permessi non segnalati, presenze di Roma e Valmontone mancanti, chiamate (lavoro intermittente) registrate solo in parte, una visita medica da confermare. People Smart raccoglie timbrature, ma nessuno le confronta con il turno previsto e nessuno chiude il mese al posto delle persone.
 - **Il gestionale ha già metà del lavoro.** Turni pubblicati (`shifts`), regole delle pause, straordinario per settimana, richieste e saldi ferie (`leave_*`), organico di oggi. Manca solo la parte «cosa è successo davvero»: la timbratura.
-- **Raccomandazione: costruirla dentro il gestionale**, con un tablet economico in ogni negozio che fa da timbratrice e funziona offline, e una web app sul telefono del dipendente per vedere il turno, timbrare e chiedere ferie e permessi. Niente GPS come prova principale, niente biometria.
-- **Costi:** 9 tablet (8 negozi più la sede), circa 1.500-2.500 € una tantum; infrastruttura già pagata (Supabase e Netlify); sviluppo interno. Un SaaS costerebbe 5.400-14.400 € in 3 anni più l'integrazione con i turni, che resta comunque da fare.
+- **Raccomandazione: costruirla dentro il gestionale**, con il cellulare aziendale che ogni negozio ha già, usato come timbratrice anche offline, e una web app sul telefono del dipendente per vedere il turno, timbrare e chiedere ferie e permessi. Niente GPS come prova principale, niente biometria.
+- **Costi:** nessun hardware nuovo (si usano i cellulari aziendali dei negozi; per la sede da verificare); infrastruttura già pagata (Supabase e Netlify); sviluppo interno. Un SaaS costerebbe 5.400-14.400 € in 3 anni più l'integrazione con i turni, che resta comunque da fare.
 
 ---
 
@@ -76,14 +76,14 @@ Fonti principali: Garante, provv. 350/2016 (garanteprivacy.it, doc. 5497522); pr
 | NFC (come oggi) | Sì | Solo con app nativa | Sì | Tag copiabile | Bassa | La web app su iPhone non legge l'NFC: scartato |
 | Wi-Fi del negozio | No | Il browser non lo legge | No | | | Scartato |
 | Beacon Bluetooth | | Il browser non lo supporta | | | | Scartato |
-| **Tablet del negozio con codice che cambia** | **Sì** | **Sì** | **Sì** | Molto difficile | **Bassa** | **Consigliato** |
+| **Cellulare aziendale del negozio che legge un codice che cambia** | **Sì** | **Sì** | **Sì** | Molto difficile | **Bassa** | **Consigliato** |
 
-**Come funziona il tablet.** Un tablet Android economico fisso alla cassa o nel retro, legato a un solo negozio, sempre acceso in modalità chiosco. Il dipendente apre la web app sul suo telefono, che mostra un **QR che cambia ogni 30 secondi** (calcolato sul telefono anche senza rete, da un segreto personale). Il tablet lo legge con la fotocamera, riconosce la persona, mostra nome e turno di oggi e **un solo pulsante grande con l'azione giusta**: «Entra», poi «Inizio pausa», «Fine pausa», «Esci». Chi non ha lo smartphone usa un PIN personale sul tablet.
+**Come funziona il cellulare del negozio.** Il cellulare aziendale che ogni negozio ha già, legato a quel negozio, con la web app della timbratura installata sulla schermata Home (non bloccato in modalità chiosco, perché serve anche per telefonate e messaggi). Il dipendente apre la web app sul suo telefono, che mostra un **QR che cambia ogni 30 secondi** (calcolato sul telefono anche senza rete, da un segreto personale). Il cellulare del negozio lo legge con la fotocamera, riconosce la persona, mostra nome e turno di oggi e **un solo pulsante grande con l'azione giusta**: «Entra», poi «Inizio pausa», «Fine pausa», «Esci». Chi non ha lo smartphone usa un PIN personale sul cellulare del negozio.
 
-Perché il tablet risolve tutto insieme:
-- **Il luogo è certo**: il tablet appartiene a quel negozio, nessun GPS, nessun dato di posizione da trattare.
-- **Offline vero**: la timbratura resta salvata sul tablet (memoria del browser, firmata e numerata) e parte da sola quando torna la rete. Su Android il browser non ha i limiti di iPhone (che cancella i dati delle web app dopo 7 giorni di non uso e non sincronizza in sottofondo).
-- **L'ora è affidabile**: la mette il tablet, che è nostro, non il telefono che il dipendente può spostare. A ogni contatto col server il tablet registra lo scarto d'orologio; scarti strani si segnalano.
+Perché il cellulare del negozio risolve tutto insieme (aggiornato il 05/11/2026: all'inizio l'ipotesi era un tablet, ma i negozi non lo hanno e il cellulare aziendale c'è già):
+- **Il luogo è certo, a una condizione**: il cellulare deve restare in negozio. Un tablet fisso non si sposta, un telefono sì (in tasca al responsabile, a casa la sera). Contromisure: il telefono vive in un punto fisso in carica alla cassa; se il telefono è collegato al Wi-Fi del negozio, a ogni timbratura online si controlla che la connessione esca da quella linea (con i soli dati della SIM questo controllo non funziona); in più si può leggere la posizione GPS **del cellulare aziendale**, solo al momento della timbratura. È un dispositivo dell'azienda, non il telefono personale del dipendente, quindi il peso privacy è molto minore (resta da scrivere nell'informativa).
+- **Offline vero**: la timbratura resta salvata sul cellulare del negozio (memoria del browser, firmata e numerata) e parte da sola quando torna la rete. Su Android il browser non ha limiti particolari. Se i cellulari aziendali sono iPhone, Safari cancella i dati delle web app dopo 7 giorni **senza uso** e non invia in sottofondo: qui il telefono si usa decine di volte al giorno, quindi il primo limite non scatta, e l'invio parte ogni volta che si apre l'app con la rete. Va comunque provato sul campo per una settimana prima del via.
+- **L'ora è affidabile**: la mette il cellulare del negozio, che è nostro, non il telefono che il dipendente può spostare. A ogni contatto col server il cellulare del negozio registra lo scarto d'orologio; scarti strani si segnalano.
 - **Niente foto del badge**: il codice scade dopo 30 secondi.
 - **Stesso gesto di oggi** (mostrare un QR), quindi niente da imparare, ma con la pausa finalmente prevista.
 
@@ -91,7 +91,7 @@ Perché il tablet risolve tutto insieme:
 
 ## 6. come deve essere l'app (semplice, intuibile, veloce)
 
-**Sul tablet del negozio (timbratrice)**
+**Sul cellulare del negozio (timbratrice)**
 - Schermo fisso: ora grande, nome del negozio, «Avvicina il telefono».
 - Dopo la lettura: nome, turno di oggi, **un pulsante solo**, già quello giusto. Un secondo pulsante piccolo per i casi rari («Ho sbagliato», «Vado in trasferta»).
 - In basso, sempre visibile: chi è dentro adesso, chi è in pausa, chi doveva arrivare e non c'è. È la vista «Presenze e assenze» di People Smart, ma confrontata con il turno.
@@ -113,10 +113,10 @@ Perché il tablet risolve tutto insieme:
 
 ## 7. funzionamento senza internet, nel dettaglio
 
-- Il tablet tiene in memoria il turno della settimana e le persone del negozio (aggiornati ogni volta che c'è rete).
-- Ogni timbratura viene salvata localmente con numero progressivo, ora del tablet, firma del tablet e codice del dipendente, poi messa in coda.
+- Il cellulare del negozio tiene in memoria il turno della settimana e le persone del negozio (aggiornati ogni volta che c'è rete).
+- Ogni timbratura viene salvata localmente con numero progressivo, ora del cellulare del negozio, firma del cellulare del negozio e codice del dipendente, poi messa in coda.
 - La coda parte appena torna la rete e il server conferma riga per riga: niente doppioni anche se lo stesso invio arriva due volte.
-- Il tablet mostra sempre lo stato: «Tutto inviato» oppure «3 timbrature in attesa, partono appena torna la rete». Vale la regola fissa del gestionale: chi fa un'operazione deve sapere che è finita.
+- Il cellulare del negozio mostra sempre lo stato: «Tutto inviato» oppure «3 timbrature in attesa, partono appena torna la rete». Vale la regola fissa del gestionale: chi fa un'operazione deve sapere che è finita.
 - Il telefono del dipendente genera il QR anche offline; vede turni e saldo dell'ultima volta che era collegato, con la data dell'aggiornamento scritta.
 
 ---
@@ -138,8 +138,8 @@ I prezzi vengono da aggregatori e vanno confermati.
 **Limite comune:** nessuno conosce il piano turni del gestionale (fabbisogno da traffico MODA, due persone, pause, turno minimo). Con un SaaS i turni andrebbero mandati di là e le timbrature riportate di qua: due sistemi, due interfacce per i negozi, un'integrazione da mantenere. Se servisse un ponte immediato, Jibble gratuito copre timbratura offline e ferie con spesa zero, ma riprodurrebbe il problema di oggi: dati fuori dal gestionale.
 
 **Stima su 3 anni, circa 50 persone**
-- SaaS: 5.400-14.400 € di canoni, più tablet, più integrazione: **circa 10.000-20.000 €**.
-- Dentro il gestionale: tablet 1.500-2.500 €, eventuale licenza chiosco per Android (pochi euro a tablet, da verificare), informativa e DPIA 1.000-2.000 € (servono anche col SaaS), sviluppo interno. Il costo vivo resta **sotto i 5.000 €**, il resto è tempo.
+- SaaS: 5.400-14.400 € di canoni, più integrazione: **circa 9.000-18.000 €**.
+- Dentro il gestionale: nessun hardware (cellulari aziendali già presenti; eventuale supporto da banco e caricatore, poche decine di euro a negozio), informativa e DPIA 1.000-2.000 € (servono anche col SaaS), sviluppo interno. Il costo vivo resta **sotto i 2.500 €**, il resto è tempo.
 - Da recuperare: costo attuale di People Smart e data di scadenza del contratto Zucchetti (non li ho nei dati).
 
 ---
@@ -147,8 +147,8 @@ I prezzi vengono da aggregatori e vanno confermati.
 ## 9. decisioni che servono a Patrizio
 
 1. **Accesso individuale per ogni dipendente?** Per timbrare serve (la timbratura è personale). Cambia la scelta fatta per le ferie (accesso condiviso per negozio). Proposta: accesso individuale, primo ingresso con un codice dato dall'HR, poi il telefono resta collegato. Niente password da ricordare.
-2. **Telefono personale o solo tablet?** Proposta: tutti e due. Il telefono è comodo ma non obbligatorio: chi non vuole usarlo timbra col PIN sul tablet (è anche quanto chiede il Garante).
-3. **Acquisto di 9 tablet** (8 negozi più sede) e dove fissarli.
+2. **Telefono personale o solo cellulare del negozio?** Proposta: tutti e due. Il telefono è comodo ma non obbligatorio: chi non vuole usarlo timbra col PIN sul cellulare del negozio (è anche quanto chiede il Garante).
+3. **Cellulari aziendali**: sono Android o iPhone? Restano in negozio anche di notte? Dove li mettiamo fissi alla cassa? E per la sede c'è un telefono aziendale?
 4. **Chi corregge** un'uscita dimenticata: il dipendente propone, il referente del negozio conferma (come per le ferie)?
 5. **Lo studio paghe**: chiedere in che formato vuole le presenze (oggi le riceve dal file che prepara chi segue il personale). Se usa Zucchetti Paghe Infinity, probabilmente ha un tracciato d'importazione.
 6. **Negozio pilota**: proposta Barberino (vicino a Firenze, 4 persone), con People Smart acceso in parallelo per 3-4 settimane, così si confrontano i numeri prima di spegnere qualcosa.
@@ -160,7 +160,7 @@ I prezzi vengono da aggregatori e vanno confermati.
 | Fase | Cosa | Durata indicativa |
 |---|---|---|
 | 0 | Decisioni del punto 9, informativa e registro dei trattamenti (Lilian), formato dello studio | 1 settimana |
-| 1 | Timbratrice su tablet: tabella delle timbrature (solo aggiunte, mai cancellazioni, correzioni con traccia), registrazione dei tablet, coda offline, QR che cambia, PIN. Vista presenze di oggi nel gestionale. Pilota a Barberino | 2-3 settimane |
+| 1 | Timbratrice sul cellulare del negozio: tabella delle timbrature (solo aggiunte, mai cancellazioni, correzioni con traccia), registrazione dei cellulari dei negozi, coda offline, QR che cambia, PIN. Vista presenze di oggi nel gestionale. Pilota a Barberino | 2-3 settimane |
 | 2 | App del dipendente: oggi, turni, ferie e permessi (riusa le tabelle `leave_*` e i saldi dal tabulato). Accessi individuali col ruolo `dipendente` limitato alle proprie righe | 2 settimane |
 | 3 | Confronto turno e timbrato, anomalie solo quando servono, chiusura del mese e file per lo studio | 2 settimane |
 | 4 | Estensione agli altri negozi, un negozio a settimana, poi dismissione di People Smart | 1-2 mesi |
@@ -170,4 +170,4 @@ Note tecniche per lo sviluppo:
 - Ogni tabella nuova con RLS, GRANT espliciti e policy con `(SELECT get_my_company_id())`.
 - Le timbrature sono dato vivo dal primo giorno: si annullano con motivo, non si cancellano.
 - Guida utente in `src/data/pageGuides.ts` per le pagine nuove.
-- Da provare sul campo prima del via: lettura del QR con la fotocamera del tablet sotto le luci del negozio, durata della batteria, tempi di una timbratura (obiettivo: meno di 3 secondi).
+- Da provare sul campo prima del via: lettura del QR con la fotocamera del cellulare del negozio sotto le luci del negozio, convivenza con telefonate e messaggi (la timbratura deve aprirsi con un tocco dalla Home), durata della batteria, tempi di una timbratura (obiettivo: meno di 3 secondi).
