@@ -1869,3 +1869,20 @@ Dipendenti outlet per outlet), 169.055 € di amministratori; 0,65 s da utente.
 
 Attenzione: le regole di riparto oggi non entrano nei calcoli (CE, Confronto Outlet, Margini usano il
 consuntivo inserito in Budget & Controllo o `payables.outlet_id`). Servono a sapere a chi va ogni costo.
+
+## Pagamento anticipato con il nome in causale (05/11/2026, migration 356)
+
+Caso: OMNITEKSTORE S.R.L., fattura 6800/2026 del 16/10/2026, 335,00 €, codice TP03
+(pagamento anticipato). Bonifico BCC del 15/10/2026 alle 18:15, causale «... BEN
+OMNITEKSTORE S.R.L.», importo esatto. Sabrina lo vedeva pagato, lo Scadenzario «Scaduto».
+
+Perché: la guardia della 179 (un movimento non paga una fattura datata dopo di lui,
+nata dal caso EPPI) valeva anche per i matcher che leggono il nome in causale.
+
+Regola dalla 356, in `rerun_bijective_reconciliation` e `try_match_bank_transaction`:
+un movimento può pagare una fattura datata **fino a 15 giorni dopo** solo se la causale
+nomina il fornitore (nome o P.IVA) **e** l'importo è esatto (±0,02). Senza nome resta
+il divieto della 179; il matcher a solo importo non cambia.
+
+Misura del 05/11: oltre a OMNITEKSTORE (collegata a mano con `reconcile_movement`),
+zero coppie su NZ e Zago. La regola vale per i casi futuri.
