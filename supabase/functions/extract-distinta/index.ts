@@ -13,7 +13,8 @@
 //
 // Sicurezza (come extract-scadenza / help-chat):
 // - Chiave Anthropic nel Vault (RPC get_anthropic_api_key), mai nel frontend.
-// - Auth: qualsiasi utente autenticato del tenant (JWT valido).
+// - Auth: JWT valido E profilo attivo in user_profiles con ruolo amministrativo
+//   (_shared/verificaProfilo.ts); senza profilo 403, dal 05/11/2026.
 // - Sola LETTURA: non tocca il DB.
 //
 // Body POST: { "text": "…testo del PDF…" }
@@ -23,6 +24,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
+import { RUOLI_AMMINISTRATIVI, tokenDaRichiesta, verificaProfilo } from "../_shared/verificaProfilo.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -109,13 +111,9 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    if (!token) return jsonError(401, "Missing authorization");
-    if (token !== supabaseServiceKey) {
-      const { data: userData, error: userErr } = await supabase.auth.getUser(token);
-      if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
-    }
+    // Auth: profilo attivo con ruolo amministrativo (vedi _shared/verificaProfilo.ts).
+    const chiamante = await verificaProfilo(supabase, tokenDaRichiesta(req), supabaseServiceKey, { ruoli: RUOLI_AMMINISTRATIVI });
+    if (!chiamante.ok) return jsonError(chiamante.status, chiamante.message, chiamante.code);
 
     const body = await req.json().catch(() => ({}));
     const rawText: string = (body.text ?? "").toString();

@@ -8,7 +8,12 @@
 // Sicurezza (vedi CLAUDE.md):
 // - La API key Resend sta nei secret della function (Deno.env RESEND_API_KEY),
 //   MAI nel frontend. Questa function fa da proxy verso Resend.
-// - Auth: qualsiasi utente autenticato del tenant (JWT valido).
+// - Auth: profilo attivo in user_profiles con ruolo amministrativo
+//   (_shared/verificaProfilo.ts). Un JWT valido senza profilo riceve 403.
+// - Destinatari: solo quelli salvati nello Scadenzario
+//   (companies.settings.email_scadenzario dell'azienda del chiamante) o nel
+//   secret DISTINTA_EMAIL_TO. Un indirizzo diverso viene rifiutato: il mittente
+//   aziendale non si presta a spedire a chi vuole il chiamante.
 // - Il mittente è fisso e verificato lato dominio (DISTINTA_EMAIL_FROM), così
 //   l'operatrice non può spedire da un mittente arbitrario.
 // - Nessuna scrittura sul DB: solo lettura del profilo per validare il chiamante.
@@ -28,6 +33,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { RUOLI_AMMINISTRATIVI, tokenDaRichiesta, verificaProfilo } from "../_shared/verificaProfilo.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -70,15 +76,11 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Auth: qualsiasi utente autenticato del tenant.
-    const authHeader = req.headers.get("Authorization") ?? "";
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    if (!token) return jsonError(401, "Missing authorization");
-    const isServiceRole = token === supabaseServiceKey;
-    if (!isServiceRole) {
-      const { data: userData, error: userErr } = await supabase.auth.getUser(token);
-      if (userErr || !userData?.user) return jsonError(401, "Invalid JWT");
-    }
+    // Auth: profilo attivo con ruolo amministrativo (vedi _shared/verificaProfilo.ts).
+    const chiamante = await verificaProfilo(supabase, tokenDaRichiesta(req), supabaseServiceKey, {
+      ruoli: RUOLI_AMMINISTRATIVI,
+    });
+    if (!chiamante.ok) return jsonError(chiamante.status, chiamante.message, chiamante.code);
 
     const body = await req.json().catch(() => ({}));
     const subject: string = (body.subject ?? "").toString().slice(0, 300).trim();
@@ -89,12 +91,38 @@ Deno.serve(async (req: Request) => {
     if (!text.trim()) return jsonError(400, "Corpo della mail mancante");
 
     // Destinatari: dal frontend se validi, altrimenti dal secret di fallback.
+    const fallback = parseRecipients(Deno.env.get("DISTINTA_EMAIL_TO") ?? "");
     let recipients = parseRecipients(toRaw);
-    if (recipients.length === 0) {
-      recipients = parseRecipients(Deno.env.get("DISTINTA_EMAIL_TO") ?? "");
-    }
+    if (recipients.length === 0) recipients = fallback;
     if (recipients.length === 0) {
       return jsonError(400, "Nessun destinatario valido: imposta l'email dei destinatari nello Scadenzario.", "NO_RECIPIENTS");
+    }
+
+    // Solo destinatari salvati: quelli dello Scadenzario dell'azienda del
+    // chiamante più il fallback del secret. La service role (chiamate interne)
+    // resta libera come prima.
+    if (!chiamante.serviceRole) {
+      const { data: company, error: compErr } = await supabase
+        .from("companies")
+        .select("settings")
+        .eq("id", chiamante.companyId)
+        .maybeSingle();
+      if (compErr) {
+        console.error("[send-distinta-email] lettura destinatari salvati fallita:", compErr.message);
+        return jsonError(500, "Non riesco a leggere i destinatari salvati. Riprova.");
+      }
+      const salvati = parseRecipients(
+        ((company?.settings as { email_scadenzario?: string } | null)?.email_scadenzario ?? "").toString(),
+      );
+      const ammessi = new Set([...salvati, ...fallback].map((e) => e.toLowerCase()));
+      const nonAmmessi = recipients.filter((e) => !ammessi.has(e.toLowerCase()));
+      if (nonAmmessi.length > 0) {
+        return jsonError(
+          403,
+          "Alcuni destinatari non sono fra quelli salvati: salva prima i destinatari nello Scadenzario («Destinatari Email» → Salva).",
+          "RECIPIENT_NOT_SAVED",
+        );
+      }
     }
 
     const resendKey = Deno.env.get("RESEND_API_KEY");
