@@ -1152,9 +1152,32 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "heading": "Ferie e permessi: il piano ferie",
         "body": "Per ogni negozio, persona per persona: le ore di ferie in tasca alla data dell'ultimo tabulato dello studio, quelle già approvate o chieste dopo quella data, quante resterebbero da godere entro fine anno se non si programma altro (compreso quello che maturerà fino a dicembre) e, sotto, i permessi. Chi ha più di due settimane di ferie ancora da godere è segnato in arancione. Una riga del tempo mostra le ferie dei prossimi tre mesi: verde scuro le approvate, verde chiaro quelle in attesa. Le ore seguono l'orario di ciascuno: una giornata vale le ore settimanali diviso cinque. In fondo il riquadro «Ferie e fabbisogno» elenca i giorni in cui, con le ferie chieste e approvate, nel negozio resterebbero meno persone di quelle che servono, con i nomi di chi è in ferie: è il controllo da fare prima di approvare. Il fabbisogno viene dal traffico MODA, come nei turni: settimana per settimana, in ogni ora servono gli ingressi attesi diviso la soglia di ingressi per addetto del negozio (25 provvisorio), al massimo le persone in forza, e contano le persone del momento di punta della giornata. Vale anche la regola dei turni «Sempre almeno due persone in negozio», se accesa per il negozio: una ferie che lascia una persona sola in negozio fuori dalla prima e dall'ultima ora compare nel riquadro, anche se il traffico ne chiederebbe una. Nei negozi con molto traffico nel weekend il momento di punta del sabato e della domenica chiede spesso tutto l'organico: una ferie in quei giorni lascia il negozio sotto MODA. Un negozio nuovo usa la forma media degli altri; il fabbisogno di «Orari e fabbisogno» vale solo per un negozio senza traffico, e se manca anche quello il riquadro lo dice. Chi è assente per un periodo ha il saldo fermo."
+      },
+      {
+        "heading": "Presenze: timbrature dal cellulare del negozio",
+        "body": "La scheda «Presenze» mostra, negozio per negozio e giorno per giorno, chi doveva lavorare e cosa ha timbrato: turno, entrata, pausa, uscita, ore lavorate e pausa fatta. Il turno di riferimento è quello del piano scelto del mese (o, senza piano scelto, quelli pubblicati o messi a mano). Lo stato dice se la persona è in negozio, in pausa, uscita, oppure se l'uscita non è stata timbrata. Se è entrata dopo l'inizio del turno compare il ritardo. Se è uscita dopo la fine del turno compare quanto: entro il margine del negozio (30 minuti, se non lo cambi) non è straordinario, oltre il margine è scritto «straordinario da guardare».",
+        "steps": [
+          "Scegli il negozio e il giorno in alto.",
+          "Nel riquadro «Timbrature del negozio» accendi «Timbrature attive»: da quel momento il cellulare aziendale del negozio, aperto sull'indirizzo /timbra con l'account di cassa, fa da timbratrice.",
+          "Accendi «Avviso WhatsApp» se vuoi che chi a fine turno più il margine risulta ancora dentro riceva un messaggio (uno solo per turno). Serve il suo numero nella tabella «App del dipendente».",
+          "Le uscite segnate dal dipendente dalla sua app compaiono come «da confermare»: premi «Conferma» se l'ora è giusta.",
+          "Una timbratura sbagliata si annulla con «Annulla» e un motivo: resta nello storico, non si cancella."
+        ]
+      },
+      {
+        "heading": "App del dipendente e codice di attivazione",
+        "body": "Ogni persona riceve un codice di 8 caratteri appena viene inserita nel gestionale (vale 30 giorni). Nella tabella «App del dipendente» premi «Copia link» e mandalo alla persona: lo apre dal suo telefono, l'app si attiva e resta attiva senza password. L'app mostra un QR che cambia ogni 30 secondi (una foto non vale), il turno di oggi e dei prossimi giorni e le timbrature di oggi; se un'uscita non risulta, la persona può scrivere l'ora, che poi confermi tu. Per timbrare la persona avvicina il QR al cellulare del negozio, che mostra un solo pulsante grande con l'azione giusta: entra, vado in pausa, rientro, esco. Il cellulare del negozio funziona anche senza rete: le timbrature restano salvate e partono da sole quando la rete torna, e la pagina dice sempre quante sono ancora in attesa. Se una persona cambia telefono premi «Telefono nuovo»: il codice nuovo, una volta usato, disattiva il telefono vecchio."
       }
     ],
     "faq": [
+      {
+        "q": "Un dipendente esce 20 minuti dopo la fine del turno: è straordinario?",
+        "a": "No, se il negozio ha il margine di 30 minuti (quello di partenza): entro il margine non è straordinario e non parte l'avviso WhatsApp. Oltre il margine la scheda Presenze lo segnala come straordinario da guardare."
+      },
+      {
+        "q": "Se al negozio manca la rete, le timbrature si perdono?",
+        "a": "No. Il cellulare del negozio le salva subito e le manda da solo quando la rete torna; in alto scrive quante sono ancora in attesa."
+      },
       {
         "q": "Se segno una maternità, cambia la scheda della dipendente?",
         "a": "No. La scheda resta quella dei documenti dello studio paghe: la maternità è un cambiamento con la sua data, che vale nell'organico di oggi, nei turni e nel piano ferie. Quando lo studio la registra, si conferma nel «Confronto con lo studio»."
