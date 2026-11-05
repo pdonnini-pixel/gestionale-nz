@@ -338,7 +338,7 @@ export function parseRelaxBanking(lines: string[]): EcParsed {
 // libero («NEXI PAYMENTS SPA») il file veniva preso per un estratto commissioni.
 const RE_MPS_INTESTAZIONE = /^DATA CONT\.?\s+VALUTA\s+MOV\.?\s+DARE\s+MOV\.?\s+AVERE\b/i
 // La causale breve (CS) e' di due caratteri, cifre o lettere («09», «48», «ZP»).
-const RE_MPS_ROW = /^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+([0-9A-Z]{2})\s+(.+)$/
+const RE_MPS_ROW = /^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+([0-9A-Z]{2})(?:\s+(.*))?$/
 const RE_MPS_SALDO = /^(\d{2}\/\d{2}\/\d{4})\s+(-?\d{1,3}(?:\.\d{3})*,\d{2}-?)\s+SALDO\s+(INIZIALE|FINALE)\b/i
 const RE_MPS_PIEDE = /(?:^|\s)Riporti$|^Stampa del\b|^pag\.\s*\d+$/i
 
@@ -354,7 +354,7 @@ export function parseMpsMovimenti(lines: string[]): EcParsed {
   const chiudi = () => {
     if (!corrente) return
     const { parti, ...r } = corrente
-    r.description = norm(parti.join(' '))
+    r.description = norm(parti.join(' ')) || 'Movimento senza descrizione'
     r.flusso_cbi = flussoCbiDi(r.description)
     rows.push(r)
     corrente = null
@@ -382,7 +382,7 @@ export function parseMpsMovimenti(lines: string[]): EcParsed {
       const amount = parseAmountCell(m[3])
       if (date && amount != null && amount !== 0) {
         chiudi()
-        corrente = { date, value_date: parseDateCell(m[2]), amount, description: '', flusso_cbi: null, parti: [m[5]] }
+        corrente = { date, value_date: parseDateCell(m[2]), amount, description: '', flusso_cbi: null, parti: m[5] ? [m[5]] : [] }
         continue
       }
     }

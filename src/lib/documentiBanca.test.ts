@@ -335,6 +335,28 @@ describe('distinta RiBa MPS «Distinta Effetti Pagati»', () => {
     const somma = d!.disposizioni.reduce((a, x) => a + Math.round(x.amount * 100), 0) / 100
     expect(somma).toBe(d!.totale)
   })
+  it('una causale che continua dopo il cambio pagina resta intera', () => {
+    const righe = [
+      'Distinta Effetti Pagati',
+      'Nome supporto: 555000222',
+      'Totale distinta: 50,00 EUR',
+      '29/10/2026 31/10/2026 Ricevuta DELTA SRL 50,00',
+      'Banca 12312312312',
+      'Domiciliataria: 01030 38020',
+      'SALDO FATT 101 102',
+      'Stampa del 02/11/2026',
+      'pag. 1',
+      'BANCA DI PROVA S.P.A. NEW PasKey Base',
+      'Distinta Effetti Pagati',
+      'Nome supporto: 555000222',
+      'Data Scadenza Stato Banca Domiciliataria Importo',
+      'Rif. operazione',
+      '103',
+    ]
+    const d = leggiDistintaMps(righe)!
+    expect(d.disposizioni).toHaveLength(1)
+    expect(d.disposizioni[0].fatture).toEqual(['101', '102', '103'])
+  })
   it('la vecchia distinta di ritiro si legge ancora come prima', () => {
     expect(leggiDistintaMps(DISTINTA_MPS)?.disposizioni).toHaveLength(2)
   })
@@ -353,6 +375,11 @@ describe('numeri dalla causale, casi delle distinte di ottobre 2026', () => {
     expect(numeriDallaCausale('FATTURE26102973 - 1*').fatture).toEqual(['26102973'])
     expect(numeriDallaCausale('. REF.INVOICE MILR001929410 30.09.2026').fatture).toEqual(['1929410'])
   })
+  it('fatture separate da virgola restano fatture: solo gli importi scritti come tali si tolgono', () => {
+    expect(numeriDallaCausale('FATT 12,13,14').fatture).toEqual(['12', '13', '14'])
+    expect(numeriDallaCausale('FATTURE 23,24 E 30').fatture).toEqual(['23', '24', '30'])
+    expect(numeriDallaCausale('FT 501 IMPORTO 1.234,56').fatture).toEqual(['501'])
+  })
   it('una fattura scritta prima di «NC» con lo spazio resta una fattura', () => {
     expect(numeriDallaCausale('SALDO FATT N 4340 NC 4336')).toEqual({ fatture: ['4340'], noteCredito: ['4336'] })
   })
@@ -367,9 +394,14 @@ describe('Excel e PDF che non vanno', () => {
     const foglio = [
       ['Data contabile', 'Data valuta', 'Importo', 'Descrizione', 'Note'],
       [new Date(2026, 1, 11), new Date(2026, 1, 11), -70, 'Commissioni su bonifico'],
+      [new Date(2026, 1, 11), new Date(2026, 1, 11), -51899, 'Bonifico'],
       ['28/10/2026', '28/10/2026', 1.835, 'Versamento contante'],
+      ['26/10/2026', '26/10/2026', -70, 'Commissioni su bonifico'],
     ]
     expect(excelEstrattoDifettoso([foglio])).toBe(true)
+  })
+  it('una sola riga scritta in mezzo a date vere (un totale) non basta a rifiutare il file', () => {
+    expect(excelEstrattoDifettoso([[['Data contabile', 'Importo'], [new Date(2026, 9, 1), 10], [new Date(2026, 9, 2), -5], ['31/10/2026', 5]]])).toBe(false)
   })
   it('Excel con tutte date vere (MPS, Intesa) o tutte scritte: va bene', () => {
     expect(excelEstrattoDifettoso([[['Data contabile', 'Importo'], [new Date(2026, 9, 1), 10], [new Date(2026, 9, 2), -5]]])).toBe(false)

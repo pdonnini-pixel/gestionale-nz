@@ -342,3 +342,5 @@ BEGIN
 END;
 $function$;
 
+REVOKE ALL ON FUNCTION public.apply_riba_distinta(uuid, jsonb, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.apply_riba_distinta(uuid, jsonb, text) TO authenticated;

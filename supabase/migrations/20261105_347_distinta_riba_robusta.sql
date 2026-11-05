@@ -14,8 +14,11 @@
 --    «MILR001929410» di DHL) o la causale non ne ha, si prova l'unica rata dello
 --    stesso fornitore con lo stesso importo e scadenza entro 5 giorni (DHL scade il
 --    30/10, l'effetto il 31/10). Due rate cosi' non si scelgono: resta una domanda.
---    Se il codice della distinta non e' di nessun fornitore (un codice fiscale che non
---    abbiamo, come Arco) vale il nome: le prime due parole, con importo e scadenza.
+--    Il fornitore si riconosce solo per partita IVA (PAYMENT_PLAN_NOTES.md), mai per
+--    nome. Il ripiego non usa rate senza scadenza o gia' agganciate a un movimento
+--    della banca, e se la causale ha dei numeri la rata deve portarne almeno uno.
+-- 4. Nelle combinazioni una rata non si conta due volte e si guardano al massimo 3
+--    rate per numero. Permessi come nella 267: niente PUBLIC ne' anon.
 --
 -- Il resto della funzione e' uguale alla 267: stessi controlli, stesse scritture,
 -- stesse note. Nessun dato viene toccato da questa migration.
@@ -69,7 +72,6 @@ DECLARE
   v_dom int := 0;
   v_agg int := 0;
   v_summary jsonb;
-  v_nome text;
 BEGIN
   IF v_company IS NULL THEN
     RAISE EXCEPTION 'Nessuna azienda associata all''utente';
@@ -132,8 +134,12 @@ BEGIN
         WITH RECURSIVE nums AS (
           SELECT (e->>'ord')::int AS ord, e->>'num' AS num, (e->>'sgn')::int AS sgn FROM jsonb_array_elements(v_nums) e
         ), cand AS (
+          SELECT * FROM (
           SELECT n.ord, py.id, py.gross_amount::numeric AS g, abs(COALESCE(py.due_date, r.due) - r.due)::int AS dist,
-                 (py.bank_transaction_id IS NULL)::int AS unl
+                 (py.bank_transaction_id IS NULL)::int AS unl,
+                 -- 347: al massimo 3 rate per numero (le piu' vicine alla scadenza), perche'
+                 -- con 12 numeri le combinazioni non esplodano.
+                 row_number() OVER (PARTITION BY n.ord ORDER BY abs(COALESCE(py.due_date, r.due) - r.due), (py.bank_transaction_id IS NULL)) AS k
           FROM nums n
           JOIN public.payables py ON py.company_id = v_company
            AND COALESCE(py.status::text, '') <> 'annullato'
@@ -148,11 +154,12 @@ BEGIN
                                         AND (regexp_replace(upper(COALESCE(s.vat_number, '')), '[^0-9]', '', 'g') = r.vat
                                              OR regexp_replace(upper(COALESCE(s.partita_iva, '')), '[^0-9]', '', 'g') = r.vat)))
            AND NOT (py.id = ANY (v_used))
+          ) q WHERE q.k <= 3
         ), combo AS (
           SELECT c1.ord, ARRAY[c1.id] AS ids, c1.g AS total, c1.dist AS dist, c1.unl AS unl FROM cand c1 WHERE c1.ord = 1
           UNION ALL
           SELECT c2.ord, combo.ids || c2.id, combo.total + c2.g, combo.dist + c2.dist, combo.unl + c2.unl
-          FROM combo JOIN cand c2 ON c2.ord = combo.ord + 1
+          FROM combo JOIN cand c2 ON c2.ord = combo.ord + 1 AND NOT (c2.id = ANY (combo.ids))
         )
         -- A parita' di scadenza vince la combinazione con piu' rate gia' agganciate a un
         -- movimento della banca: due rate identiche (piani rate doppi) sono la stessa rata.
@@ -172,32 +179,24 @@ BEGIN
     -- 347: nessuna combinazione dai numeri (o nessun numero): l'unica rata del fornitore
     -- con lo stesso importo e scadenza entro 5 giorni. Due rate cosi': non si sceglie.
     IF v_best IS NULL AND v_second_dist IS NULL AND r.vat <> '' THEN
-      v_nome := (regexp_match(btrim(regexp_replace(upper(COALESCE(r.benef, '')), '[^A-Z0-9]+', ' ', 'g')), '^([A-Z0-9]{3,} [A-Z0-9]{3,})'))[1];
       SELECT array_agg(py.id) INTO v_ids
       FROM public.payables py
       WHERE py.company_id = v_company
         AND COALESCE(py.status::text, '') <> 'annullato'
         AND NOT COALESCE(py.is_placeholder, false)
         AND abs(COALESCE(py.gross_amount, 0) - r.amt) <= 0.01
-        AND abs(COALESCE(py.due_date, r.due) - r.due) <= 5
+        AND py.due_date IS NOT NULL
+        AND abs(py.due_date - r.due) <= 5
+        AND py.bank_transaction_id IS NULL
         AND (regexp_replace(upper(COALESCE(py.supplier_vat, '')), '[^0-9]', '', 'g') = r.vat
              OR py.supplier_id IN (SELECT s.id FROM public.suppliers s
                                    WHERE s.company_id = v_company
                                      AND (regexp_replace(upper(COALESCE(s.vat_number, '')), '[^0-9]', '', 'g') = r.vat
-                                          OR regexp_replace(upper(COALESCE(s.partita_iva, '')), '[^0-9]', '', 'g') = r.vat))
-             -- Il codice della distinta puo' essere un codice fiscale che non abbiamo
-             -- (Arco: 00327210183 in distinta, partita IVA 08975100150 in fattura).
-             -- Solo se nessun fornitore ha quel codice: le prime due parole del nome.
-             OR (v_nome IS NOT NULL
-                 AND NOT EXISTS (SELECT 1 FROM public.suppliers s2
-                                 WHERE s2.company_id = v_company
-                                   AND r.vat IN (regexp_replace(upper(COALESCE(s2.vat_number, '')), '[^0-9]', '', 'g'),
-                                                 regexp_replace(upper(COALESCE(s2.partita_iva, '')), '[^0-9]', '', 'g'),
-                                                 regexp_replace(upper(COALESCE(s2.codice_fiscale, '')), '[^0-9]', '', 'g'),
-                                                 regexp_replace(upper(COALESCE(s2.fiscal_code, '')), '[^0-9]', '', 'g')))
-                 AND py.supplier_id IN (SELECT s3.id FROM public.suppliers s3
-                                        WHERE s3.company_id = v_company
-                                          AND btrim(regexp_replace(upper(COALESCE(s3.name, '')), '[^A-Z0-9]+', ' ', 'g')) LIKE v_nome || '%')))
+                                          OR regexp_replace(upper(COALESCE(s.partita_iva, '')), '[^0-9]', '', 'g') = r.vat)))
+        -- Se la causale ha dei numeri, la rata deve portarne almeno uno: il ripiego serve
+        -- a scartare un codice in piu' («201» di BRT), non a cambiare fattura.
+        AND (v_n = 0 OR EXISTS (SELECT 1 FROM jsonb_array_elements(v_nums) e
+                                WHERE COALESCE(py.invoice_number, '') ~ ('(^|[^0-9])0*' || (e->>'num') || '([^0-9]|$)')))
         AND NOT (py.id = ANY (v_used));
       IF COALESCE(array_length(v_ids, 1), 0) = 1 THEN
         v_best := v_ids; v_best_dist := 0; v_best_diff := 0;
@@ -386,4 +385,5 @@ BEGIN
 END;
 $function$;
 
-GRANT EXECUTE ON FUNCTION public.apply_riba_distinta(uuid, jsonb, text) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.apply_riba_distinta(uuid, jsonb, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.apply_riba_distinta(uuid, jsonb, text) TO authenticated;

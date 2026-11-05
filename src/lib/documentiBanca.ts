@@ -448,16 +448,19 @@ const itImporto = (s: string): number | null => {
  * Si prendono solo numeri di almeno 2 cifre; date e anni («/26», «2026») no.
  */
 export function numeriDallaCausale(causale: string): { fatture: string[]; noteCredito: string[] } {
-  let t = norm(causale).toUpperCase()
+  // Una causale vera sta in poche righe: il tetto evita regex lente su testi costruiti apposta.
+  let t = norm(causale).slice(0, 500).toUpperCase()
     // Le date non sono numeri di fattura: «31/08/2026», «30- 09-26», «27 08 2026».
     .replace(/\b\d{1,2}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{2,4}\b/g, ' ')
     .replace(/\b\d{1,2}\s\d{1,2}\s(?:19|20)\d{2}\b/g, ' ')
-    // Nemmeno gli importi: «DI 345,32 EURO».
-    .replace(/\b\d{1,3}(?:\.\d{3})*,\d{2}\b/g, ' ')
+    // Nemmeno gli importi, ma solo quando sono scritti come importi («DI 345,32 EURO»):
+    // «FATT 12,13,14» sono tre fatture.
+    .replace(/\b(?:DI|EURO|EUR|IMPORTO)\s+\d{1,3}(?:\.\d{3})*,\d{2}\b/g, ' ')
+    .replace(/(?:€\s*)\d{1,3}(?:\.\d{3})*,\d{2}\b|\b\d{1,3}(?:\.\d{3})*,\d{2}\s*(?:EURO|EUR|€)/g, ' ')
   // «872FV-95NC»: il numero attaccato a FV/FT e' una fattura, a NC una nota di credito.
   const fattAttaccate: string[] = []
   const ncAttaccate: string[] = []
-  t = t.replace(/\b0*(\d{2,})(FV|FT|NC)\b/g, (_m, n: string, k: string) => {
+  t = t.replace(/\b0*(\d{2,12})(FV|FT|NC)\b/g, (_m, n: string, k: string) => {
     ;(k === 'NC' ? ncAttaccate : fattAttaccate).push(n)
     return ' '
   })
@@ -590,7 +593,9 @@ export function leggiDistintaEffettiPagati(righe: string[]): DistintaRiba | null
   }
 
   const RE_EFFETTO = /^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\S+)\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})$/
-  const RE_PIEDE = /^(Stampa del\b|pag\.\s*\d+$)/i
+  // Piede e testata ripetuta a ogni pagina: si saltano senza chiudere l'effetto,
+  // cosi' una causale che continua sulla pagina dopo resta intera.
+  const RE_PIEDE = /^(Stampa del\b|pag\.\s*\d+$|.*\bPasKey\b|Distinta\s+Effetti\s+Pagati$|(?:Ordinante|Banca addebito|Conto addebito|Data creazione|Nome supporto|Numero disposizioni|Stato distinta|Totale distinta|Descrizione|Alimentazione):|Creditore$|Data\s+Scadenza\s+Stato\b|Rif\.\s*operazione$)/i
   type Blocco = { scad: string; importo: number; benef: string; vat: string | null; causale: string; dopoDomiciliataria: boolean }
   let b: Blocco | null = null
   const chiudi = () => {
@@ -611,7 +616,7 @@ export function leggiDistintaEffettiPagati(righe: string[]): DistintaRiba | null
   }
   for (const r of testo) {
     if (!r) continue
-    if (RE_PIEDE.test(r)) { chiudi(); continue }
+    if (RE_PIEDE.test(r)) continue
     const m = RE_EFFETTO.exec(r)
     if (m) {
       const scad = itData(m[2])
@@ -704,7 +709,8 @@ export function excelEstrattoDifettoso(fogli: unknown[][][]): boolean {
       if (c instanceof Date || typeof c === 'number') date++
       else if (typeof c === 'string' && RE_TESTO_DATA.test(c.trim())) testi++
     }
-    if (date > 0 && testi > 0) return true
+    // Almeno due celle per tipo: una riga di totale scritta a mano non basta a rifiutare il file.
+    if (date >= 2 && testi >= 2) return true
   }
   return false
 }

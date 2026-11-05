@@ -306,6 +306,7 @@ describe('PDF MPS «Movimenti con data contabile»', () => {
     '087-00007 300926 NEGOZIO',
     'COD.SIA: 6181087-00007',
     '30/10/2026 28/10/2026 150,00 ZP COMMISSIONI E SPESE SU FIDEIUSSIONI',
+    '30/10/2026 30/10/2026 10,00 48',
     '424.256,99 550.993,19 Riporti',
     'Stampa del 04/11/2026',
     'pag. 1',
@@ -319,10 +320,11 @@ describe('PDF MPS «Movimenti con data contabile»', () => {
   ]
   it('una riga per movimento, causale ricucita, pagine e riporti esclusi, saldi letti', () => {
     const p = parseEcLines(righe)
-    expect(p.rows).toHaveLength(3)
+    expect(p.rows).toHaveLength(4)
     expect(p.rows[0]).toMatchObject({ date: '2026-10-01', value_date: '2026-10-01', amount: 24.78, description: 'INCASSO TRAMITE P.O.S. 087-00007 300926 NEGOZIO COD.SIA: 6181087-00007' })
     expect(p.rows[1]).toMatchObject({ date: '2026-10-30', value_date: '2026-10-28', amount: 150, description: 'COMMISSIONI E SPESE SU FIDEIUSSIONI' })
-    expect(p.rows[2]).toMatchObject({ amount: 1156, description: 'BONIFICO A VOSTRO FAVORE saldo fattura 4' })
+    expect(p.rows[2]).toMatchObject({ amount: 10, description: 'Movimento senza descrizione' })
+    expect(p.rows[3]).toMatchObject({ amount: 1156, description: 'BONIFICO A VOSTRO FAVORE saldo fattura 4' })
     expect(p.saldi).toEqual({ iniziale: 74342.64, finale: 126736.2 })
     expect(p.segnoNoto).toBeUndefined()
   })
