@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, isSuggestionActionable, pickActionableSuggestions, countActionableSuggestions, isClosedManualUnlinked, suggestionBase } from './reconcileMatch'
+import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, citesInvoiceNumbers, citedInvoiceTokens, isSuggestionActionable, pickActionableSuggestions, countActionableSuggestions, isClosedManualUnlinked, suggestionBase } from './reconcileMatch'
 
 // Casi reali (New Zago, tab Banche → Riconciliazione). Vedi RICONCILIAZIONE_REGOLE.md R5/R6.
 describe('extractBeneficiary', () => {
@@ -232,6 +232,53 @@ describe('isBankOwnMovement', () => {
 
   it('regge le causali vuote', () => {
     expect(isBankOwnMovement('')).toBe(false)
+  })
+})
+
+describe('citesInvoiceNumbers', () => {
+  it('riconosce le causali che citano una fattura (casi reali NZ 2026)', () => {
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *LA FAVORITA S.R.L. SALDO FATTURA 3676 ID.BON:0845700174680205480546302800IT')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *SFORAZZINI SRL SF-11245-11037 ID.BON:0845700172770303480546302800IT')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *AMAZON PAYMENTS EUROPE SSF-IT530TD9ABEI (TUTTI I ID.BON:08457')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite corporate banking *DENIMART STUDIO SRL CF-16-CNC3, ID.BON:0832501107891705483773002800IT')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *F e B FLORENCE SRL SALDO FATTURA 958P-62P ID.BON:0845700174627410480546302800IT')).toBe(true)
+  })
+  it('riconosce le forme con "N." e "NUMERO" battute a mano', () => {
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL SALDO FATTURA N. 123')).toBe(true)
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATT. N°456')).toBe(true)
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATTURA NUMERO 55X')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *SPM INVESTIGAZIONI SRL SF-341 ID.BON:0845700172770808480546302800IT')).toBe(true)
+  })
+  it('non scambia NR o CF isolati per un riferimento a fattura', () => {
+    expect(citesInvoiceNumbers('BONIFICO BEN ROSSI NR 5 SRL')).toBe(false)
+    expect(citesInvoiceNumbers('BONIFICO BEN BIANCHI CF 123')).toBe(false)
+  })
+  it('non considera leggibili i numeri di una o due cifre', () => {
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI FT 1')).toBe(false)
+    expect(citesInvoiceNumbers('BONIFICO VS FATTURE 12 E 13')).toBe(false)
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATT. N°45')).toBe(false)
+  })
+  it('non scambia date, orari e ID dei bonifici istantanei per numeri di fattura', () => {
+    expect(citesInvoiceNumbers('Bonifico tramite corporate banking *INSTANT DEL 20/10/2026 ORE 16:15 ID. 0832500022425887483773037730IT BEN CORTE DELLE FUCINE SRL')).toBe(false)
+    expect(citesInvoiceNumbers('Bonifico tramite corporate banking *INSTANT DEL 15/10/2026 ORE 18:15 ID. 0832500022392930483773037730IT BEN OMNITEKSTORE S.R.L.')).toBe(false)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *GRUPO LOGISCENTER SL UNISALDO PREVENTIVO 2989293 ID.BON:0845700003260572480546302800E')).toBe(false)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *SIAE SOCIETA ITALIANA DSIAE+SCF 2026 ID.BON:0845700173210006480546302800IT')).toBe(false)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *AMAZON PAYMENTS EUROPE SSALDO FATTURE DEC. MARZO-ID.BON:0845700003135938480546302800I')).toBe(false)
+  })
+})
+
+describe('citedInvoiceTokens', () => {
+  it('tiene i numeri di due cifre che seguono una parola da documento', () => {
+    const tk = citedInvoiceTokens('Bonifico tramite corporate banking *UNICA PIU SRL SALDO FATTURA 11-12, ID.BON:0832500021650252483773002800IT')
+    expect(invoiceCitedIn('11', tk)).toBe(true)
+    expect(invoiceCitedIn('12', tk)).toBe(true)
+    expect(invoiceCitedIn('13', tk)).toBe(false)
+    expect(invoiceCitedIn('30', citedInvoiceTokens('*WOLF GROUP S.R.L SALDO FATTURA 176-NC30 ID.BON:0845700003188069480546302800'))).toBe(true)
+  })
+  it('caso La Favorita: SF-870 cita la 870, non la 331', () => {
+    const tk = citedInvoiceTokens('Bonifico tramite Internet Banking *LA FAVORITA S.R.L. SF-870 ID.BON:0845700003139280480546302800IT')
+    expect(invoiceCitedIn('870', tk)).toBe(true)
+    expect(invoiceCitedIn('331', tk)).toBe(false)
   })
 })
 

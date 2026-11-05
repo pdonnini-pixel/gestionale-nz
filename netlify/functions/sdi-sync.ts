@@ -26,6 +26,9 @@ import {
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
+// Ruoli amministrativi ammessi (allineati a RUOLI_AMMINISTRATIVI delle Edge Function).
+const RUOLI_AMMINISTRATIVI: readonly string[] = ["super_advisor", "contabile", "ceo", "cfo", "coo"];
+
 const handler: Handler = async (event: HandlerEvent, _context: HandlerContext) => {
   // Solo POST
   if (event.httpMethod !== "POST") {
@@ -77,6 +80,40 @@ const handler: Handler = async (event: HandlerEvent, _context: HandlerContext) =
       statusCode: 401,
       headers,
       body: JSON.stringify({ error: "Invalid or expired token" }),
+    };
+  }
+
+  // Profilo e ruolo (05/11/2026): un JWT valido non basta. Un account
+  // autoregistrato non ha riga in user_profiles e qui, con la service role,
+  // aprirebbe la connessione mTLS e scriverebbe su electronic_invoices.
+  // Stessa logica di supabase/functions/_shared/verificaProfilo.ts.
+  const { data: prof, error: profErr } = await supabaseAdmin
+    .from("user_profiles")
+    .select("company_id, role, is_active")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (profErr) {
+    console.error("[sdi-sync] lettura profilo fallita:", profErr.message);
+    return {
+      statusCode: 500,
+      headers,
+      body: JSON.stringify({ error: "Verifica del profilo non riuscita", code: "PROFILE_LOOKUP_ERROR" }),
+    };
+  }
+  if (!prof || !prof.company_id || prof.is_active === false) {
+    console.warn(`[sdi-sync] accesso negato: utente ${user.id} senza profilo attivo`);
+    return {
+      statusCode: 403,
+      headers,
+      body: JSON.stringify({ error: "Account non abilitato al gestionale", code: "NO_PROFILE" }),
+    };
+  }
+  if (!RUOLI_AMMINISTRATIVI.includes(String(prof.role))) {
+    console.warn(`[sdi-sync] accesso negato: utente ${user.id} ruolo ${prof.role}`);
+    return {
+      statusCode: 403,
+      headers,
+      body: JSON.stringify({ error: "Il tuo ruolo non può avviare la sincronizzazione", code: "ROLE_NOT_ALLOWED" }),
     };
   }
 

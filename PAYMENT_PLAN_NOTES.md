@@ -1,5 +1,23 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🧾 S.B.A. srl: DA 2 RATE A RATA UNICA 60 GG FINE MESE (2026-11-05) - FATTO
+>
+> **Il caso.** Le fatture S.B.A. (P.IVA 03507621211) non portano `DatiPagamento`, quindi
+> le scadenze nascevano dal piano della scheda fornitore: 2 rate, prima a 60 gg fine mese,
+> seconda 30 giorni dopo. Le distinte RiBa del 2026 mostravano effetti a meta' (1301FV,
+> 1242-1246FV, 343FV, 872FV-95NC al 31/10), ma Patrizio ha confermato che l'accordo e'
+> **60 gg fine mese in un'unica scadenza**.
+>
+> **Fatto (migration `NZ_ONLY_20261105_362`, solo UPDATE, backup in
+> `_bkp_sba_rata_unica_20261105` e `_bkp_sba_fornitore_20261105`, senza accesso API).**
+> Scheda fornitore a 1 rata 60 gg fine mese. Fatture 890, 965, 983, 1056, 1067, 1092,
+> 1095, 1111 (nessun acconto, movimento, distinta o proposta collegata): rata 1 con
+> l'intero importo, rata 2 annullata. La 872 resta in due meta' perche' la prima e' gia'
+> passata in distinta il 31/10. Rollback nel file `_ROLLBACK` a fianco.
+>
+> **Da sapere.** Se una prossima distinta S.B.A. torna a meta' importo, l'accordo vero e'
+> ancora a 2 rate: segnalarlo a Patrizio prima di toccare la scheda.
+
 
 
 
@@ -1921,3 +1939,87 @@ UI: spunta nella scheda fornitore, scheda Pagamenti, visibile solo con modalità
 esiste (Made non ha la migration: la spunta non compare e il salvataggio non invia il campo).
 Prova del 05/11 su NZ in transazione annullata (fattura TFV clonata al 01/01/2027, piano data fattura 0/3):
 spunta accesa → 3 rate RID 01/01, 31/01, 02/03 con addebito automatico; spenta → rata unica come prima.
+
+## Un bonifico per più fatture, col solo nome in causale (05/11/2026, migration 362)
+
+Caso: Corte delle Fucine Srl, bonifico BCC del 20/10/2026 da 153,00 €, causale «... BEN
+CORTE DELLE FUCINE SRL». Fatture 2746 (151,00 €) e 2747 (2,00 €) del 22/10/2026.
+Nessun motore lo prendeva: i motori di gruppo vogliono i numeri delle fatture in causale.
+Collegato a mano il 05/11 con `reconcile_movement_group`.
+
+Regola dalla 362 (`try_match_group_name_bank_transaction`, solo nel giro notturno, dopo
+gli altri due motori di gruppo): fornitore nominato in causale; si prendono **tutte** le
+sue scadenze aperte con data fattura fino a 15 giorni dopo il bonifico; se sono almeno
+due e la somma è esatta (±0,02), e un solo fornitore soddisfa la regola, si chiudono.
+Niente combinazioni scelte fra le scadenze: se il fornitore ha altre fatture aperte la
+somma non torna e non succede niente. Le coppie rifiutate da una persona non si toccano.
+
+Nella stessa sessione sono state rifiutate a mano quattro proposte che puntavano al
+fornitore sbagliato (Logiscenter 06/10 e 02/11 verso Gruppo Servizi Associati, Regina
+Hotel 21/10 verso Mondoffice, Multitec 26/10 verso Amazon). Logiscenter è spagnolo: dallo
+SDI arriva solo il TD18 di integrazione IVA, che non diventa scadenza.
+
+Applicata su NZ e Zago il 05/11/2026. Prove in transazione annullata: sul caso Corte
+delle Fucine ricostruito (scadenze riaperte) la funzione chiude 2746 e 2747 da sola;
+sui movimenti aperti di NZ 0 agganci nuovi, 0,7 secondi ogni 100 movimenti (circa 3
+secondi in più a notte su 372).
+
+## Gruppi col solo nome: proposta, mai chiusura (05/11/2026, migration 364)
+
+Patrizio, dopo la 362: «Bonifico da 900 € e tre fatture da 300 €: le chiudi senza
+guardare il numero?». La 362 lo faceva. Funziona solo con uno scadenzario perfetto: una
+fattura vecchia aperta per errore viene chiusa al posto di quella pagata davvero. E se
+la causale cita un numero che i motori dei numeri non trovano, la 362 chiudeva altre
+fatture ignorandolo.
+
+Regole dalla 364:
+- il giro notturno chiude un gruppo di fatture **solo** se la causale ne cita i numeri
+  (motori `try_match_group_bank_transaction` e `try_match_group_numbers_bank_transaction`);
+- i gruppi trovati col solo nome sono proposte da confermare nel riquadro «Pagamenti
+  raggruppati» di Banche (`toVerifyGroups`); `try_match_group_name_bank_transaction` è
+  ora di sola lettura (e solo per il ruolo di servizio);
+- **se la causale cita un numero di fattura, la proposta può contenere solo le fatture
+  citate** (`citesInvoiceNumbers` in `src/lib/reconcileMatch.ts`, stessa espressione in
+  SQL). Se non bastano a fare la cifra non si propone niente.
+
+La 362 non ha mai chiuso niente (0 righe con la sua nota su NZ e Zago).
+
+Dopo la revisione: il vincolo «solo fatture citate» vale solo se la causale ha numeri
+leggibili (numeri di una o due cifre come «FT 1» restano solo spareggio); le note di
+credito dello stesso fornitore restano nel gruppo anche se non citate. Riconosciute
+anche «FATTURA N. 123», «FATT. N°45», «FATTURA NUMERO 55»; SF/SSF/NC/CF contano solo
+col trattino. Applicata su NZ e Zago il 05/11/2026 (migration rinumerata 364 perché il
+363 era usato da due PR aperte); verificato: giro notturno identico alla versione
+prima della 362, funzione di sola lettura che su Corte delle Fucine ricostruita segnala
+il gruppo senza chiudere niente, eseguibile solo dal ruolo di servizio.
+
+## Fattura singola: il numero in causale comanda (05/11/2026, migration 366)
+
+Stessa regola dei gruppi applicata ai motori che chiudono una fattura sola
+(`try_match_bank_transaction`, `rerun_bijective_reconciliation`,
+`try_match_amount_bank_transaction`) e alla lista «Da verificare» di Banche: se la
+causale cita un numero di fattura leggibile (`causale_cita_fattura`, codice di almeno 3
+caratteri con una cifra), vale solo la fattura con quel numero (`invoice_cited_in_text`
+da 2 cifre). Le righe sono inserite nel testo attuale delle funzioni, senza riscriverle,
+per non togliere le modifiche di altre sessioni.
+
+Misura del 05/11 su NZ: 417 chiusure automatiche, 98 con un numero in causale, una sola
+sulla fattura sbagliata: bonifico LA FAVORITA del 04/06/2026, 359,21 €, causale
+«SF-870», agganciato alla fattura 331 del 31/01 (stesso importo) invece che alla 870 del
+31/03. Tutte e due risultano pagate: è sbagliato solo il collegamento.
+
+### Incidente: guardia del profilo tolta dalla 364 gruppo_per_nome (rimessa dalla 365)
+Alle 17:26 un'altra sessione ha applicato `20261105_364_rpc_solo_con_profilo` (guardia
+`richiedi_profilo_gestionale()` in testa a 38 funzioni). Alle 17:32 la mia
+`20261105_364_gruppo_per_nome_solo_proposta` ha riscritto `rerun_group_reconciliation`
+e `try_match_group_name_bank_transaction` con CREATE OR REPLACE, togliendo la guardia
+su quelle due. La 365 l'ha rimessa (NZ e Zago, verificato). Lezione: prima di un CREATE
+OR REPLACE confrontare la definizione in produzione con quella del repository; se sono
+diverse qualcun altro ci sta lavorando, e si inseriscono solo le righe nuove.
+
+Dopo la revisione della 366: il confronto col numero citato si fa su
+`causale_per_numeri` (causale prima di «ID.BON», senza date e orari), e nella pagina i
+numeri di due cifre che seguono «FATTURA», «SF-», «NC» si leggono (`citedInvoiceTokens`).
+Applicata su NZ e Zago il 05/11/2026: impronte identiche, guardia del profilo intatta,
+permessi invariati; prova annullata su La Favorita: il giro notturno aggancia la 870.
+Scadenze aperte senza numero: 0 su 359.

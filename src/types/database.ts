@@ -751,6 +751,1140 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_20261007_date_estratti: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number | null
+          balance_after: number | null
+          bank_account_id: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string | null
+          corr_id: string | null
+          corr_new_transaction_date: string | null
+          corr_old_transaction_date: string | null
+          corr_statement_id: string | null
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_confirmed_at: string | null
+          statement_description: string | null
+          statement_enriched_at: string | null
+          statement_id: string | null
+          statement_source: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string | null
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          corr_id?: string | null
+          corr_new_transaction_date?: string | null
+          corr_old_transaction_date?: string | null
+          corr_statement_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_confirmed_at?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_id?: string | null
+          statement_source?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          corr_id?: string | null
+          corr_new_transaction_date?: string | null
+          corr_old_transaction_date?: string | null
+          corr_statement_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_confirmed_at?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_id?: string | null
+          statement_source?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261007_domande: {
+        Row: {
+          bank_transaction_id: string | null
+          company_id: string | null
+          context: Json | null
+          created_at: string | null
+          id: string | null
+          kind: string | null
+          question: string | null
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          riba_distinta_id: string | null
+          statement_id: string | null
+          status: string | null
+          subject_key: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          context?: Json | null
+          created_at?: string | null
+          id?: string | null
+          kind?: string | null
+          question?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          riba_distinta_id?: string | null
+          statement_id?: string | null
+          status?: string | null
+          subject_key?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          context?: Json | null
+          created_at?: string | null
+          id?: string | null
+          kind?: string | null
+          question?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          riba_distinta_id?: string | null
+          statement_id?: string | null
+          status?: string | null
+          subject_key?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261007_estratti: {
+        Row: {
+          applied_at: string | null
+          applied_summary: Json | null
+          balance_check: Json | null
+          bank_account_id: string | null
+          card_last4: string | null
+          closing_balance: number | null
+          company_id: string | null
+          content_hash: string | null
+          created_at: string | null
+          doc_kind: string | null
+          error_message: string | null
+          file_type: string | null
+          file_url: string | null
+          filename: string | null
+          id: string | null
+          import_document_id: string | null
+          opening_balance: number | null
+          period_from: string | null
+          period_month: number | null
+          period_to: string | null
+          period_year: number | null
+          settled_bank_transaction_id: string | null
+          source_label: string | null
+          statement_total: number | null
+          status: string | null
+          transaction_count: number | null
+          uploaded_by: string | null
+        }
+        Insert: {
+          applied_at?: string | null
+          applied_summary?: Json | null
+          balance_check?: Json | null
+          bank_account_id?: string | null
+          card_last4?: string | null
+          closing_balance?: number | null
+          company_id?: string | null
+          content_hash?: string | null
+          created_at?: string | null
+          doc_kind?: string | null
+          error_message?: string | null
+          file_type?: string | null
+          file_url?: string | null
+          filename?: string | null
+          id?: string | null
+          import_document_id?: string | null
+          opening_balance?: number | null
+          period_from?: string | null
+          period_month?: number | null
+          period_to?: string | null
+          period_year?: number | null
+          settled_bank_transaction_id?: string | null
+          source_label?: string | null
+          statement_total?: number | null
+          status?: string | null
+          transaction_count?: number | null
+          uploaded_by?: string | null
+        }
+        Update: {
+          applied_at?: string | null
+          applied_summary?: Json | null
+          balance_check?: Json | null
+          bank_account_id?: string | null
+          card_last4?: string | null
+          closing_balance?: number | null
+          company_id?: string | null
+          content_hash?: string | null
+          created_at?: string | null
+          doc_kind?: string | null
+          error_message?: string | null
+          file_type?: string | null
+          file_url?: string | null
+          filename?: string | null
+          id?: string | null
+          import_document_id?: string | null
+          opening_balance?: number | null
+          period_from?: string | null
+          period_month?: number | null
+          period_to?: string | null
+          period_year?: number | null
+          settled_bank_transaction_id?: string | null
+          source_label?: string | null
+          statement_total?: number | null
+          status?: string | null
+          transaction_count?: number | null
+          uploaded_by?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261007_righe_estratti: {
+        Row: {
+          amount: number | null
+          bank_transaction_id: string | null
+          booking_date: string | null
+          company_id: string | null
+          created_at: string | null
+          description: string | null
+          flusso_cbi: string | null
+          id: string | null
+          note: string | null
+          outcome: string | null
+          row_no: number | null
+          sign_known: boolean | null
+          statement_id: string | null
+          value_date: string | null
+        }
+        Insert: {
+          amount?: number | null
+          bank_transaction_id?: string | null
+          booking_date?: string | null
+          company_id?: string | null
+          created_at?: string | null
+          description?: string | null
+          flusso_cbi?: string | null
+          id?: string | null
+          note?: string | null
+          outcome?: string | null
+          row_no?: number | null
+          sign_known?: boolean | null
+          statement_id?: string | null
+          value_date?: string | null
+        }
+        Update: {
+          amount?: number | null
+          bank_transaction_id?: string | null
+          booking_date?: string | null
+          company_id?: string | null
+          created_at?: string | null
+          description?: string | null
+          flusso_cbi?: string | null
+          id?: string | null
+          note?: string | null
+          outcome?: string | null
+          row_no?: number | null
+          sign_known?: boolean | null
+          statement_id?: string | null
+          value_date?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261008_doppioni_ob: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number | null
+          balance_after: number | null
+          bank_account_id: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string | null
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_confirmed_at: string | null
+          statement_description: string | null
+          statement_enriched_at: string | null
+          statement_id: string | null
+          statement_source: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string | null
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_confirmed_at?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_id?: string | null
+          statement_source?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_confirmed_at?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_id?: string | null
+          statement_source?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261008_doppioni_ob_reclog: {
+        Row: {
+          applied_amount: number | null
+          bank_transaction_id: string | null
+          company_id: string | null
+          confidence: number | null
+          confirmed_at: string | null
+          id: string | null
+          match_type: string | null
+          notes: string | null
+          payable_id: string | null
+          performed_at: string | null
+          performed_by: string | null
+          score_amount: number | null
+          score_date: number | null
+          score_name: number | null
+          status: string | null
+        }
+        Insert: {
+          applied_amount?: number | null
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          confidence?: number | null
+          confirmed_at?: string | null
+          id?: string | null
+          match_type?: string | null
+          notes?: string | null
+          payable_id?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          score_amount?: number | null
+          score_date?: number | null
+          score_name?: number | null
+          status?: string | null
+        }
+        Update: {
+          applied_amount?: number | null
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          confidence?: number | null
+          confirmed_at?: string | null
+          id?: string | null
+          match_type?: string | null
+          notes?: string | null
+          payable_id?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          score_amount?: number | null
+          score_date?: number | null
+          score_name?: number | null
+          status?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261009_doppioni_cbm: {
+        Row: {
+          amount: number | null
+          bank_transaction_id: string | null
+          closing_id: string | null
+          company_id: string | null
+          id: string | null
+          line_id: string | null
+          match_type: string | null
+          matched_at: string | null
+          note: string | null
+          reference_date: string | null
+        }
+        Insert: {
+          amount?: number | null
+          bank_transaction_id?: string | null
+          closing_id?: string | null
+          company_id?: string | null
+          id?: string | null
+          line_id?: string | null
+          match_type?: string | null
+          matched_at?: string | null
+          note?: string | null
+          reference_date?: string | null
+        }
+        Update: {
+          amount?: number | null
+          bank_transaction_id?: string | null
+          closing_id?: string | null
+          company_id?: string | null
+          id?: string | null
+          line_id?: string | null
+          match_type?: string | null
+          matched_at?: string | null
+          note?: string | null
+          reference_date?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261009_doppioni_chiusure: {
+        Row: {
+          bank_verified_at: string | null
+          cash_deposit: number | null
+          cash_deposit_note: string | null
+          cash_difference: number | null
+          cash_expenses: number | null
+          cash_expenses_note: string | null
+          cash_float_declared: number | null
+          cash_float_expected: number | null
+          cash_float_opening: number | null
+          cash_pending_declared: number | null
+          cash_pending_opening: number | null
+          channels_total: number | null
+          closed_by_name: string | null
+          closing_date: string | null
+          company_id: string | null
+          confirmed_at: string | null
+          confirmed_by: string | null
+          created_at: string | null
+          created_by: string | null
+          customer_refunds: number | null
+          deposit_bank_amount: number | null
+          deposit_bank_status: string | null
+          deposit_bank_transaction_id: string | null
+          id: string | null
+          invoices_total: number | null
+          is_closed_day: boolean | null
+          notes: string | null
+          outlet_id: string | null
+          receipts_difference: number | null
+          reopen_reason: string | null
+          reopened_at: string | null
+          reopened_by: string | null
+          status: string | null
+          total_receipts: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          bank_verified_at?: string | null
+          cash_deposit?: number | null
+          cash_deposit_note?: string | null
+          cash_difference?: number | null
+          cash_expenses?: number | null
+          cash_expenses_note?: string | null
+          cash_float_declared?: number | null
+          cash_float_expected?: number | null
+          cash_float_opening?: number | null
+          cash_pending_declared?: number | null
+          cash_pending_opening?: number | null
+          channels_total?: number | null
+          closed_by_name?: string | null
+          closing_date?: string | null
+          company_id?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          customer_refunds?: number | null
+          deposit_bank_amount?: number | null
+          deposit_bank_status?: string | null
+          deposit_bank_transaction_id?: string | null
+          id?: string | null
+          invoices_total?: number | null
+          is_closed_day?: boolean | null
+          notes?: string | null
+          outlet_id?: string | null
+          receipts_difference?: number | null
+          reopen_reason?: string | null
+          reopened_at?: string | null
+          reopened_by?: string | null
+          status?: string | null
+          total_receipts?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          bank_verified_at?: string | null
+          cash_deposit?: number | null
+          cash_deposit_note?: string | null
+          cash_difference?: number | null
+          cash_expenses?: number | null
+          cash_expenses_note?: string | null
+          cash_float_declared?: number | null
+          cash_float_expected?: number | null
+          cash_float_opening?: number | null
+          cash_pending_declared?: number | null
+          cash_pending_opening?: number | null
+          channels_total?: number | null
+          closed_by_name?: string | null
+          closing_date?: string | null
+          company_id?: string | null
+          confirmed_at?: string | null
+          confirmed_by?: string | null
+          created_at?: string | null
+          created_by?: string | null
+          customer_refunds?: number | null
+          deposit_bank_amount?: number | null
+          deposit_bank_status?: string | null
+          deposit_bank_transaction_id?: string | null
+          id?: string | null
+          invoices_total?: number | null
+          is_closed_day?: boolean | null
+          notes?: string | null
+          outlet_id?: string | null
+          receipts_difference?: number | null
+          reopen_reason?: string | null
+          reopened_at?: string | null
+          reopened_by?: string | null
+          status?: string | null
+          total_receipts?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261009_doppioni_domande: {
+        Row: {
+          bank_transaction_id: string | null
+          company_id: string | null
+          context: Json | null
+          created_at: string | null
+          id: string | null
+          kind: string | null
+          question: string | null
+          resolution: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          riba_distinta_id: string | null
+          statement_id: string | null
+          status: string | null
+          subject_key: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          context?: Json | null
+          created_at?: string | null
+          id?: string | null
+          kind?: string | null
+          question?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          riba_distinta_id?: string | null
+          statement_id?: string | null
+          status?: string | null
+          subject_key?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          context?: Json | null
+          created_at?: string | null
+          id?: string | null
+          kind?: string | null
+          question?: string | null
+          resolution?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          riba_distinta_id?: string | null
+          statement_id?: string | null
+          status?: string | null
+          subject_key?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261009_doppioni_payables: {
+        Row: {
+          acube_uuid: string | null
+          amount_paid: number | null
+          amount_remaining: number | null
+          bank_transaction_id: string | null
+          cash_movement_id: string | null
+          closed_manually: boolean | null
+          company_id: string | null
+          cost_category_id: string | null
+          created_at: string | null
+          document_type: string | null
+          due_date: string | null
+          electronic_invoice_id: string | null
+          gross_amount: number | null
+          iban: string | null
+          id: string | null
+          import_batch_id: string | null
+          installment_number: number | null
+          installment_total: number | null
+          invoice_date: string | null
+          invoice_number: string | null
+          is_auto_debit: boolean | null
+          is_forecast: boolean | null
+          is_placeholder: boolean | null
+          is_provisional_paid: boolean | null
+          manual_close_reason: string | null
+          net_amount: number | null
+          notes: string | null
+          original_due_date: string | null
+          outlet_id: string | null
+          parent_payable_id: string | null
+          payment_bank_account_id: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code: string | null
+          payment_method_label: string | null
+          postpone_count: number | null
+          postponed_to: string | null
+          previous_status: Database["public"]["Enums"]["payable_status"] | null
+          priority: number | null
+          provisional_paid_at: string | null
+          recurring_cost_id: string | null
+          resolved_by: string | null
+          resolved_date: string | null
+          status: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          suspend_date: string | null
+          suspend_reason: string | null
+          updated_at: string | null
+          vat_amount: number | null
+          verified: boolean | null
+          verified_at: string | null
+          verified_by: string | null
+          withholding_amount: number | null
+        }
+        Insert: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          document_type?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Update: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          document_type?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Relationships: []
+      }
+      _bkp_20261009_doppioni_reclog: {
+        Row: {
+          applied_amount: number | null
+          bank_transaction_id: string | null
+          company_id: string | null
+          confidence: number | null
+          confirmed_at: string | null
+          id: string | null
+          match_type: string | null
+          notes: string | null
+          payable_id: string | null
+          performed_at: string | null
+          performed_by: string | null
+          score_amount: number | null
+          score_date: number | null
+          score_name: number | null
+          status: string | null
+        }
+        Insert: {
+          applied_amount?: number | null
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          confidence?: number | null
+          confirmed_at?: string | null
+          id?: string | null
+          match_type?: string | null
+          notes?: string | null
+          payable_id?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          score_amount?: number | null
+          score_date?: number | null
+          score_name?: number | null
+          status?: string | null
+        }
+        Update: {
+          applied_amount?: number | null
+          bank_transaction_id?: string | null
+          company_id?: string | null
+          confidence?: number | null
+          confirmed_at?: string | null
+          id?: string | null
+          match_type?: string | null
+          notes?: string | null
+          payable_id?: string | null
+          performed_at?: string | null
+          performed_by?: string | null
+          score_amount?: number | null
+          score_date?: number | null
+          score_name?: number | null
+          status?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261009_doppioni_righe: {
+        Row: {
+          amount: number | null
+          bank_amount: number | null
+          bank_matched_at: string | null
+          bank_status: string | null
+          channel_id: string | null
+          closing_id: string | null
+          company_id: string | null
+          created_at: string | null
+          id: string | null
+          outlet_id: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          amount?: number | null
+          bank_amount?: number | null
+          bank_matched_at?: string | null
+          bank_status?: string | null
+          channel_id?: string | null
+          closing_id?: string | null
+          company_id?: string | null
+          created_at?: string | null
+          id?: string | null
+          outlet_id?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          amount?: number | null
+          bank_amount?: number | null
+          bank_matched_at?: string | null
+          bank_status?: string | null
+          channel_id?: string | null
+          closing_id?: string | null
+          company_id?: string | null
+          created_at?: string | null
+          id?: string | null
+          outlet_id?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_20261009_doppioni_tx: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number | null
+          balance_after: number | null
+          bank_account_id: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string | null
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_confirmed_at: string | null
+          statement_description: string | null
+          statement_enriched_at: string | null
+          statement_id: string | null
+          statement_source: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string | null
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_confirmed_at?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_id?: string | null
+          statement_source?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_confirmed_at?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_id?: string | null
+          statement_source?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Relationships: []
+      }
       _bkp_allineamento_date_20260709: {
         Row: {
           acube_uuid: string | null
@@ -4333,6 +5467,180 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_nc_tfv_1380_02102026: {
+        Row: {
+          acube_uuid: string | null
+          amount_paid: number | null
+          amount_remaining: number | null
+          bank_transaction_id: string | null
+          bkp_at: string | null
+          cash_movement_id: string | null
+          closed_manually: boolean | null
+          company_id: string | null
+          cost_category_id: string | null
+          created_at: string | null
+          due_date: string | null
+          electronic_invoice_id: string | null
+          gross_amount: number | null
+          iban: string | null
+          id: string | null
+          import_batch_id: string | null
+          installment_number: number | null
+          installment_total: number | null
+          invoice_date: string | null
+          invoice_number: string | null
+          is_auto_debit: boolean | null
+          is_forecast: boolean | null
+          is_placeholder: boolean | null
+          is_provisional_paid: boolean | null
+          manual_close_reason: string | null
+          net_amount: number | null
+          notes: string | null
+          original_due_date: string | null
+          outlet_id: string | null
+          parent_payable_id: string | null
+          payment_bank_account_id: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code: string | null
+          payment_method_label: string | null
+          postpone_count: number | null
+          postponed_to: string | null
+          previous_status: Database["public"]["Enums"]["payable_status"] | null
+          priority: number | null
+          provisional_paid_at: string | null
+          recurring_cost_id: string | null
+          resolved_by: string | null
+          resolved_date: string | null
+          status: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          suspend_date: string | null
+          suspend_reason: string | null
+          updated_at: string | null
+          vat_amount: number | null
+          verified: boolean | null
+          verified_at: string | null
+          verified_by: string | null
+          withholding_amount: number | null
+        }
+        Insert: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          bkp_at?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Update: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          bkp_at?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Relationships: []
+      }
       _bkp_payables_20260709_preclose: {
         Row: {
           acube_uuid: string | null
@@ -5737,6 +7045,39 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_payment_date_golive_20261013: {
+        Row: {
+          bank_transaction_id: string | null
+          id: string | null
+          invoice_number: string | null
+          notes: string | null
+          payment_date: string | null
+          supplier_name: string | null
+          transaction_date: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          bank_transaction_id?: string | null
+          id?: string | null
+          invoice_number?: string | null
+          notes?: string | null
+          payment_date?: string | null
+          supplier_name?: string | null
+          transaction_date?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          bank_transaction_id?: string | null
+          id?: string | null
+          invoice_number?: string | null
+          notes?: string | null
+          payment_date?: string | null
+          supplier_name?: string | null
+          transaction_date?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       _bkp_piuforty_nc_20260709: {
         Row: {
           acube_uuid: string | null
@@ -6628,6 +7969,138 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_riba_bt_30092026: {
+        Row: {
+          account_id: string | null
+          acube_dedup_hash: string | null
+          acube_transaction_id: string | null
+          amount: number | null
+          balance_after: number | null
+          bank_account_id: string | null
+          bkp_at: string | null
+          booking_date: string | null
+          category: string | null
+          company_id: string | null
+          counterpart: string | null
+          counterpart_iban: string | null
+          counterpart_name: string | null
+          created_at: string | null
+          currency: string | null
+          description: string | null
+          id: string | null
+          import_dedup_hash: string | null
+          import_id: string | null
+          invoice_id: string | null
+          is_reconciled: boolean | null
+          merchant_name: string | null
+          note: string | null
+          payment_schedule_id: string | null
+          raw_data: Json | null
+          reconciled_at: string | null
+          reconciled_invoice_id: string | null
+          reference: string | null
+          running_balance: number | null
+          source: string | null
+          statement_description: string | null
+          statement_enriched_at: string | null
+          statement_id: string | null
+          statement_source: string | null
+          status: string | null
+          supplier_id: string | null
+          sync_run_id: string | null
+          transaction_date: string | null
+          transaction_type: string | null
+          value_date: string | null
+          yapily_transaction_id: string | null
+        }
+        Insert: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_id?: string | null
+          statement_source?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Update: {
+          account_id?: string | null
+          acube_dedup_hash?: string | null
+          acube_transaction_id?: string | null
+          amount?: number | null
+          balance_after?: number | null
+          bank_account_id?: string | null
+          bkp_at?: string | null
+          booking_date?: string | null
+          category?: string | null
+          company_id?: string | null
+          counterpart?: string | null
+          counterpart_iban?: string | null
+          counterpart_name?: string | null
+          created_at?: string | null
+          currency?: string | null
+          description?: string | null
+          id?: string | null
+          import_dedup_hash?: string | null
+          import_id?: string | null
+          invoice_id?: string | null
+          is_reconciled?: boolean | null
+          merchant_name?: string | null
+          note?: string | null
+          payment_schedule_id?: string | null
+          raw_data?: Json | null
+          reconciled_at?: string | null
+          reconciled_invoice_id?: string | null
+          reference?: string | null
+          running_balance?: number | null
+          source?: string | null
+          statement_description?: string | null
+          statement_enriched_at?: string | null
+          statement_id?: string | null
+          statement_source?: string | null
+          status?: string | null
+          supplier_id?: string | null
+          sync_run_id?: string | null
+          transaction_date?: string | null
+          transaction_type?: string | null
+          value_date?: string | null
+          yapily_transaction_id?: string | null
+        }
+        Relationships: []
+      }
       _bkp_riba_close_sabrina_20260903: {
         Row: {
           id: string | null
@@ -6742,6 +8215,180 @@ export type Database = {
           raw_invoice?: string | null
           raw_supplier?: string | null
           raw_vat?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_riba_effetti_30092026: {
+        Row: {
+          acube_uuid: string | null
+          amount_paid: number | null
+          amount_remaining: number | null
+          bank_transaction_id: string | null
+          bkp_at: string | null
+          cash_movement_id: string | null
+          closed_manually: boolean | null
+          company_id: string | null
+          cost_category_id: string | null
+          created_at: string | null
+          due_date: string | null
+          electronic_invoice_id: string | null
+          gross_amount: number | null
+          iban: string | null
+          id: string | null
+          import_batch_id: string | null
+          installment_number: number | null
+          installment_total: number | null
+          invoice_date: string | null
+          invoice_number: string | null
+          is_auto_debit: boolean | null
+          is_forecast: boolean | null
+          is_placeholder: boolean | null
+          is_provisional_paid: boolean | null
+          manual_close_reason: string | null
+          net_amount: number | null
+          notes: string | null
+          original_due_date: string | null
+          outlet_id: string | null
+          parent_payable_id: string | null
+          payment_bank_account_id: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code: string | null
+          payment_method_label: string | null
+          postpone_count: number | null
+          postponed_to: string | null
+          previous_status: Database["public"]["Enums"]["payable_status"] | null
+          priority: number | null
+          provisional_paid_at: string | null
+          recurring_cost_id: string | null
+          resolved_by: string | null
+          resolved_date: string | null
+          status: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          suspend_date: string | null
+          suspend_reason: string | null
+          updated_at: string | null
+          vat_amount: number | null
+          verified: boolean | null
+          verified_at: string | null
+          verified_by: string | null
+          withholding_amount: number | null
+        }
+        Insert: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          bkp_at?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Update: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          bkp_at?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
         }
         Relationships: []
       }
@@ -6916,6 +8563,24 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_riba_effetti_31102026: {
+        Row: {
+          bkp_at: string | null
+          riga: Json | null
+          tabella: string | null
+        }
+        Insert: {
+          bkp_at?: string | null
+          riga?: Json | null
+          tabella?: string | null
+        }
+        Update: {
+          bkp_at?: string | null
+          riga?: Json | null
+          tabella?: string | null
+        }
+        Relationships: []
+      }
       _bkp_riba_method_20260903: {
         Row: {
           prima: Json | null
@@ -7087,6 +8752,180 @@ export type Database = {
         }
         Relationships: []
       }
+      _bkp_riba_rinvii_02102026: {
+        Row: {
+          acube_uuid: string | null
+          amount_paid: number | null
+          amount_remaining: number | null
+          bank_transaction_id: string | null
+          bkp_at: string | null
+          cash_movement_id: string | null
+          closed_manually: boolean | null
+          company_id: string | null
+          cost_category_id: string | null
+          created_at: string | null
+          due_date: string | null
+          electronic_invoice_id: string | null
+          gross_amount: number | null
+          iban: string | null
+          id: string | null
+          import_batch_id: string | null
+          installment_number: number | null
+          installment_total: number | null
+          invoice_date: string | null
+          invoice_number: string | null
+          is_auto_debit: boolean | null
+          is_forecast: boolean | null
+          is_placeholder: boolean | null
+          is_provisional_paid: boolean | null
+          manual_close_reason: string | null
+          net_amount: number | null
+          notes: string | null
+          original_due_date: string | null
+          outlet_id: string | null
+          parent_payable_id: string | null
+          payment_bank_account_id: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code: string | null
+          payment_method_label: string | null
+          postpone_count: number | null
+          postponed_to: string | null
+          previous_status: Database["public"]["Enums"]["payable_status"] | null
+          priority: number | null
+          provisional_paid_at: string | null
+          recurring_cost_id: string | null
+          resolved_by: string | null
+          resolved_date: string | null
+          status: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          suspend_date: string | null
+          suspend_reason: string | null
+          updated_at: string | null
+          vat_amount: number | null
+          verified: boolean | null
+          verified_at: string | null
+          verified_by: string | null
+          withholding_amount: number | null
+        }
+        Insert: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          bkp_at?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Update: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          bkp_at?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Relationships: []
+      }
       _bkp_riletture_xml_20260910: {
         Row: {
           auto_prima: boolean | null
@@ -7243,6 +9082,357 @@ export type Database = {
           matched_at?: string | null
           note?: string | null
           reference_date?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_rls_policies_20261013: {
+        Row: {
+          cmd: string | null
+          policyname: string
+          qual: string | null
+          saved_at: string
+          tablename: string
+          with_check: string | null
+        }
+        Insert: {
+          cmd?: string | null
+          policyname: string
+          qual?: string | null
+          saved_at?: string
+          tablename: string
+          with_check?: string | null
+        }
+        Update: {
+          cmd?: string | null
+          policyname?: string
+          qual?: string | null
+          saved_at?: string
+          tablename?: string
+          with_check?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_sba_fornitore_20261105: {
+        Row: {
+          cap: string | null
+          category: string | null
+          citta: string | null
+          codice_fiscale: string | null
+          codice_sdi: string | null
+          company_id: string | null
+          comune: string | null
+          cost_center: string | null
+          created_at: string | null
+          default_cost_category_id: string | null
+          default_payment_method:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
+          default_payment_terms: number | null
+          email: string | null
+          fiscal_code: string | null
+          iban: string | null
+          id: string | null
+          indirizzo: string | null
+          is_active: boolean | null
+          is_deleted: boolean | null
+          is_utility: boolean | null
+          name: string | null
+          nazione: string | null
+          note: string | null
+          notes: string | null
+          numero_rate: number | null
+          paese: string | null
+          partita_iva: string | null
+          payment_bank_account_id: string | null
+          payment_base: string | null
+          payment_method: string | null
+          payment_terms: number | null
+          pec: string | null
+          plan_overrides_invoice: boolean | null
+          prima_scadenza_gg: number | null
+          profile_from_invoice_at: string | null
+          profile_from_invoice_fields: string[] | null
+          profile_from_invoice_id: string | null
+          provincia: string | null
+          ragione_sociale: string | null
+          regime_fiscale: string | null
+          slug: string | null
+          source: string | null
+          telefono: string | null
+          updated_at: string | null
+          vat_number: string | null
+        }
+        Insert: {
+          cap?: string | null
+          category?: string | null
+          citta?: string | null
+          codice_fiscale?: string | null
+          codice_sdi?: string | null
+          company_id?: string | null
+          comune?: string | null
+          cost_center?: string | null
+          created_at?: string | null
+          default_cost_category_id?: string | null
+          default_payment_method?:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
+          default_payment_terms?: number | null
+          email?: string | null
+          fiscal_code?: string | null
+          iban?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          is_deleted?: boolean | null
+          is_utility?: boolean | null
+          name?: string | null
+          nazione?: string | null
+          note?: string | null
+          notes?: string | null
+          numero_rate?: number | null
+          paese?: string | null
+          partita_iva?: string | null
+          payment_bank_account_id?: string | null
+          payment_base?: string | null
+          payment_method?: string | null
+          payment_terms?: number | null
+          pec?: string | null
+          plan_overrides_invoice?: boolean | null
+          prima_scadenza_gg?: number | null
+          profile_from_invoice_at?: string | null
+          profile_from_invoice_fields?: string[] | null
+          profile_from_invoice_id?: string | null
+          provincia?: string | null
+          ragione_sociale?: string | null
+          regime_fiscale?: string | null
+          slug?: string | null
+          source?: string | null
+          telefono?: string | null
+          updated_at?: string | null
+          vat_number?: string | null
+        }
+        Update: {
+          cap?: string | null
+          category?: string | null
+          citta?: string | null
+          codice_fiscale?: string | null
+          codice_sdi?: string | null
+          company_id?: string | null
+          comune?: string | null
+          cost_center?: string | null
+          created_at?: string | null
+          default_cost_category_id?: string | null
+          default_payment_method?:
+            | Database["public"]["Enums"]["payment_method"]
+            | null
+          default_payment_terms?: number | null
+          email?: string | null
+          fiscal_code?: string | null
+          iban?: string | null
+          id?: string | null
+          indirizzo?: string | null
+          is_active?: boolean | null
+          is_deleted?: boolean | null
+          is_utility?: boolean | null
+          name?: string | null
+          nazione?: string | null
+          note?: string | null
+          notes?: string | null
+          numero_rate?: number | null
+          paese?: string | null
+          partita_iva?: string | null
+          payment_bank_account_id?: string | null
+          payment_base?: string | null
+          payment_method?: string | null
+          payment_terms?: number | null
+          pec?: string | null
+          plan_overrides_invoice?: boolean | null
+          prima_scadenza_gg?: number | null
+          profile_from_invoice_at?: string | null
+          profile_from_invoice_fields?: string[] | null
+          profile_from_invoice_id?: string | null
+          provincia?: string | null
+          ragione_sociale?: string | null
+          regime_fiscale?: string | null
+          slug?: string | null
+          source?: string | null
+          telefono?: string | null
+          updated_at?: string | null
+          vat_number?: string | null
+        }
+        Relationships: []
+      }
+      _bkp_sba_rata_unica_20261105: {
+        Row: {
+          acube_uuid: string | null
+          amount_paid: number | null
+          amount_remaining: number | null
+          bank_transaction_id: string | null
+          cash_movement_id: string | null
+          closed_manually: boolean | null
+          company_id: string | null
+          cost_category_id: string | null
+          created_at: string | null
+          document_type: string | null
+          due_date: string | null
+          electronic_invoice_id: string | null
+          gross_amount: number | null
+          iban: string | null
+          id: string | null
+          import_batch_id: string | null
+          installment_number: number | null
+          installment_total: number | null
+          invoice_date: string | null
+          invoice_number: string | null
+          is_auto_debit: boolean | null
+          is_forecast: boolean | null
+          is_placeholder: boolean | null
+          is_provisional_paid: boolean | null
+          manual_close_reason: string | null
+          net_amount: number | null
+          notes: string | null
+          original_due_date: string | null
+          outlet_id: string | null
+          parent_payable_id: string | null
+          payment_bank_account_id: string | null
+          payment_date: string | null
+          payment_method: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code: string | null
+          payment_method_label: string | null
+          postpone_count: number | null
+          postponed_to: string | null
+          previous_status: Database["public"]["Enums"]["payable_status"] | null
+          priority: number | null
+          provisional_paid_at: string | null
+          recurring_cost_id: string | null
+          resolved_by: string | null
+          resolved_date: string | null
+          status: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          suspend_date: string | null
+          suspend_reason: string | null
+          updated_at: string | null
+          vat_amount: number | null
+          verified: boolean | null
+          verified_at: string | null
+          verified_by: string | null
+          withholding_amount: number | null
+        }
+        Insert: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          document_type?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
+        }
+        Update: {
+          acube_uuid?: string | null
+          amount_paid?: number | null
+          amount_remaining?: number | null
+          bank_transaction_id?: string | null
+          cash_movement_id?: string | null
+          closed_manually?: boolean | null
+          company_id?: string | null
+          cost_category_id?: string | null
+          created_at?: string | null
+          document_type?: string | null
+          due_date?: string | null
+          electronic_invoice_id?: string | null
+          gross_amount?: number | null
+          iban?: string | null
+          id?: string | null
+          import_batch_id?: string | null
+          installment_number?: number | null
+          installment_total?: number | null
+          invoice_date?: string | null
+          invoice_number?: string | null
+          is_auto_debit?: boolean | null
+          is_forecast?: boolean | null
+          is_placeholder?: boolean | null
+          is_provisional_paid?: boolean | null
+          manual_close_reason?: string | null
+          net_amount?: number | null
+          notes?: string | null
+          original_due_date?: string | null
+          outlet_id?: string | null
+          parent_payable_id?: string | null
+          payment_bank_account_id?: string | null
+          payment_date?: string | null
+          payment_method?: Database["public"]["Enums"]["payment_method"] | null
+          payment_method_code?: string | null
+          payment_method_label?: string | null
+          postpone_count?: number | null
+          postponed_to?: string | null
+          previous_status?: Database["public"]["Enums"]["payable_status"] | null
+          priority?: number | null
+          provisional_paid_at?: string | null
+          recurring_cost_id?: string | null
+          resolved_by?: string | null
+          resolved_date?: string | null
+          status?: Database["public"]["Enums"]["payable_status"] | null
+          supplier_id?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          suspend_date?: string | null
+          suspend_reason?: string | null
+          updated_at?: string | null
+          vat_amount?: number | null
+          verified?: boolean | null
+          verified_at?: string | null
+          verified_by?: string | null
+          withholding_amount?: number | null
         }
         Relationships: []
       }
@@ -10543,6 +12733,282 @@ export type Database = {
         }
         Relationships: []
       }
+      attendance_notifications: {
+        Row: {
+          canale: string
+          company_id: string
+          created_at: string
+          data: string
+          employee_id: string
+          errore: string | null
+          esito: string
+          fine_turno: string
+          id: string
+          shift_id: string | null
+          telefono: string | null
+          tipo: string
+        }
+        Insert: {
+          canale?: string
+          company_id: string
+          created_at?: string
+          data: string
+          employee_id: string
+          errore?: string | null
+          esito: string
+          fine_turno: string
+          id?: string
+          shift_id?: string | null
+          telefono?: string | null
+          tipo?: string
+        }
+        Update: {
+          canale?: string
+          company_id?: string
+          created_at?: string
+          data?: string
+          employee_id?: string
+          errore?: string | null
+          esito?: string
+          fine_turno?: string
+          id?: string
+          shift_id?: string | null
+          telefono?: string | null
+          tipo?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_notifications_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_notifications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_notifications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_notifications_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_notifications_shift_id_fkey"
+            columns: ["shift_id"]
+            isOneToOne: false
+            referencedRelation: "shifts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      attendance_punches: {
+        Row: {
+          annullata: boolean
+          annullata_da: string | null
+          annullata_il: string | null
+          annullata_motivo: string | null
+          company_id: string
+          created_at: string
+          dispositivo_id: string | null
+          employee_id: string
+          id: string
+          nota: string | null
+          ora: string
+          ora_dispositivo: string | null
+          ora_server: string
+          origine: string
+          outlet_id: string
+          passo_qr: number | null
+          registrata_da: string | null
+          scarto_secondi: number | null
+          sequenza: number | null
+          tipo: string
+          verifica: string
+        }
+        Insert: {
+          annullata?: boolean
+          annullata_da?: string | null
+          annullata_il?: string | null
+          annullata_motivo?: string | null
+          company_id: string
+          created_at?: string
+          dispositivo_id?: string | null
+          employee_id: string
+          id: string
+          nota?: string | null
+          ora: string
+          ora_dispositivo?: string | null
+          ora_server?: string
+          origine: string
+          outlet_id: string
+          passo_qr?: number | null
+          registrata_da?: string | null
+          scarto_secondi?: number | null
+          sequenza?: number | null
+          tipo: string
+          verifica: string
+        }
+        Update: {
+          annullata?: boolean
+          annullata_da?: string | null
+          annullata_il?: string | null
+          annullata_motivo?: string | null
+          company_id?: string
+          created_at?: string
+          dispositivo_id?: string | null
+          employee_id?: string
+          id?: string
+          nota?: string | null
+          ora?: string
+          ora_dispositivo?: string | null
+          ora_server?: string
+          origine?: string
+          outlet_id?: string
+          passo_qr?: number | null
+          registrata_da?: string | null
+          scarto_secondi?: number | null
+          sequenza?: number | null
+          tipo?: string
+          verifica?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_punches_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_punches_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_punches_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_punches_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "attendance_punches_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_punches_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "attendance_punches_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "attendance_punches_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
+      attendance_settings: {
+        Row: {
+          attive: boolean
+          avvisi_whatsapp: boolean
+          company_id: string
+          margine_uscita_minuti: number
+          outlet_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          attive?: boolean
+          avvisi_whatsapp?: boolean
+          company_id: string
+          margine_uscita_minuti?: number
+          outlet_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          attive?: boolean
+          avvisi_whatsapp?: boolean
+          company_id?: string
+          margine_uscita_minuti?: number
+          outlet_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendance_settings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_settings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "attendance_settings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "attendance_settings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "attendance_settings_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
       backup_176_agganci_ante_fattura: {
         Row: {
           backup_at: string | null
@@ -11709,6 +14175,7 @@ export type Database = {
           resolution: string | null
           resolved_at: string | null
           resolved_by: string | null
+          riba_distinta_id: string | null
           statement_id: string | null
           status: string
           subject_key: string
@@ -11725,6 +14192,7 @@ export type Database = {
           resolution?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
+          riba_distinta_id?: string | null
           statement_id?: string | null
           status?: string
           subject_key: string
@@ -11741,6 +14209,7 @@ export type Database = {
           resolution?: string | null
           resolved_at?: string | null
           resolved_by?: string | null
+          riba_distinta_id?: string | null
           statement_id?: string | null
           status?: string
           subject_key?: string
@@ -11755,10 +14224,31 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "bank_document_questions_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["bank_transaction_id"]
+          },
+          {
+            foreignKeyName: "bank_document_questions_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "bank_document_questions_company_id_fkey"
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_document_questions_riba_distinta_id_fkey"
+            columns: ["riba_distinta_id"]
+            isOneToOne: false
+            referencedRelation: "riba_distinte"
             referencedColumns: ["id"]
           },
           {
@@ -11879,6 +14369,20 @@ export type Database = {
             columns: ["bank_transaction_id"]
             isOneToOne: false
             referencedRelation: "bank_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["bank_transaction_id"]
+          },
+          {
+            foreignKeyName: "bank_statement_lines_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
             referencedColumns: ["id"]
           },
           {
@@ -13250,6 +15754,180 @@ export type Database = {
           },
         ]
       }
+      closing_check_runs: {
+        Row: {
+          company_id: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          mail_sent_at: string | null
+          recipients: string[]
+          request_id: number | null
+          run_date: string
+          started_at: string
+          status: string
+          summary: Json | null
+        }
+        Insert: {
+          company_id: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          mail_sent_at?: string | null
+          recipients?: string[]
+          request_id?: number | null
+          run_date: string
+          started_at?: string
+          status?: string
+          summary?: Json | null
+        }
+        Update: {
+          company_id?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          mail_sent_at?: string | null
+          recipients?: string[]
+          request_id?: number | null
+          run_date?: string
+          started_at?: string
+          status?: string
+          summary?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "closing_check_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      closing_checks: {
+        Row: {
+          action: string | null
+          amount: number | null
+          closing_date: string
+          closing_id: string | null
+          company_id: string
+          created_at: string
+          detail: string
+          fingerprint: string
+          id: string
+          kind: string
+          message_error: string | null
+          message_sent_at: string | null
+          message_text: string | null
+          message_to: string | null
+          outcome: string
+          outlet_id: string | null
+          reason: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          undo_data: Json | null
+          undo_kind: string | null
+          undone_at: string | null
+          undone_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          action?: string | null
+          amount?: number | null
+          closing_date: string
+          closing_id?: string | null
+          company_id: string
+          created_at?: string
+          detail: string
+          fingerprint: string
+          id?: string
+          kind: string
+          message_error?: string | null
+          message_sent_at?: string | null
+          message_text?: string | null
+          message_to?: string | null
+          outcome?: string
+          outlet_id?: string | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          undo_data?: Json | null
+          undo_kind?: string | null
+          undone_at?: string | null
+          undone_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action?: string | null
+          amount?: number | null
+          closing_date?: string
+          closing_id?: string | null
+          company_id?: string
+          created_at?: string
+          detail?: string
+          fingerprint?: string
+          id?: string
+          kind?: string
+          message_error?: string | null
+          message_sent_at?: string | null
+          message_text?: string | null
+          message_to?: string | null
+          outcome?: string
+          outlet_id?: string | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          undo_data?: Json | null
+          undo_kind?: string | null
+          undone_at?: string | null
+          undone_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "closing_checks_closing_id_fkey"
+            columns: ["closing_id"]
+            isOneToOne: false
+            referencedRelation: "outlet_daily_closings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_checks_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_checks_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_checks_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "closing_checks_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "closing_checks_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           created_at: string | null
@@ -13887,6 +16565,33 @@ export type Database = {
           },
         ]
       }
+      cost_center_key_fix_bkp_20261030: {
+        Row: {
+          backed_up_at: string
+          company_id: string | null
+          new_value: string | null
+          old_value: string | null
+          row_id: string
+          source_table: string
+        }
+        Insert: {
+          backed_up_at?: string
+          company_id?: string | null
+          new_value?: string | null
+          old_value?: string | null
+          row_id: string
+          source_table: string
+        }
+        Update: {
+          backed_up_at?: string
+          company_id?: string | null
+          new_value?: string | null
+          old_value?: string | null
+          row_id?: string
+          source_table?: string
+        }
+        Relationships: []
+      }
       cost_centers: {
         Row: {
           code: string
@@ -14156,6 +16861,12 @@ export type Database = {
         Row: {
           app_url: string | null
           budget_vat_rate: number
+          checks_enabled: boolean
+          checks_recipients: string[]
+          checks_store_bcc: string[]
+          checks_store_messages: boolean
+          checks_store_reply_to: string | null
+          checks_tolerance: number
           company_id: string
           enabled: boolean
           followup_enabled: boolean
@@ -14174,6 +16885,12 @@ export type Database = {
         Insert: {
           app_url?: string | null
           budget_vat_rate?: number
+          checks_enabled?: boolean
+          checks_recipients?: string[]
+          checks_store_bcc?: string[]
+          checks_store_messages?: boolean
+          checks_store_reply_to?: string | null
+          checks_tolerance?: number
           company_id: string
           enabled?: boolean
           followup_enabled?: boolean
@@ -14192,6 +16909,12 @@ export type Database = {
         Update: {
           app_url?: string | null
           budget_vat_rate?: number
+          checks_enabled?: boolean
+          checks_recipients?: string[]
+          checks_store_bcc?: string[]
+          checks_store_messages?: boolean
+          checks_store_reply_to?: string | null
+          checks_tolerance?: number
           company_id?: string
           enabled?: boolean
           followup_enabled?: boolean
@@ -14332,6 +17055,7 @@ export type Database = {
           new_value: string | null
           old_value: string | null
           reason: string | null
+          riba_distinta_id: string | null
           statement_id: string | null
           target_id: string
           target_table: string
@@ -14346,6 +17070,7 @@ export type Database = {
           new_value?: string | null
           old_value?: string | null
           reason?: string | null
+          riba_distinta_id?: string | null
           statement_id?: string | null
           target_id: string
           target_table: string
@@ -14360,6 +17085,7 @@ export type Database = {
           new_value?: string | null
           old_value?: string | null
           reason?: string | null
+          riba_distinta_id?: string | null
           statement_id?: string | null
           target_id?: string
           target_table?: string
@@ -14370,6 +17096,13 @@ export type Database = {
             columns: ["company_id"]
             isOneToOne: false
             referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "document_corrections_riba_distinta_id_fkey"
+            columns: ["riba_distinta_id"]
+            isOneToOne: false
+            referencedRelation: "riba_distinte"
             referencedColumns: ["id"]
           },
           {
@@ -14642,7 +17375,7 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
-          vat_non_detraibile?: never
+          vat_non_detraibile?: number | null
           withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
@@ -14682,7 +17415,7 @@ export type Database = {
           tipo_documento?: string | null
           updated_at?: string | null
           vat_amount?: number | null
-          vat_non_detraibile?: never
+          vat_non_detraibile?: number | null
           withholding_amount?: number
           xml_content?: string | null
           xml_file_path?: string | null
@@ -15015,6 +17748,151 @@ export type Database = {
         }
         Relationships: []
       }
+      employee_app_access: {
+        Row: {
+          attivata_il: string | null
+          codice: string | null
+          codice_scade: string | null
+          company_id: string
+          created_at: string
+          employee_id: string
+          segreto: string
+          updated_at: string
+        }
+        Insert: {
+          attivata_il?: string | null
+          codice?: string | null
+          codice_scade?: string | null
+          company_id: string
+          created_at?: string
+          employee_id: string
+          segreto: string
+          updated_at?: string
+        }
+        Update: {
+          attivata_il?: string | null
+          codice?: string | null
+          codice_scade?: string | null
+          company_id?: string
+          created_at?: string
+          employee_id?: string
+          segreto?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_app_access_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_app_access_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_app_access_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_app_access_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+        ]
+      }
+      employee_app_activation_attempts: {
+        Row: {
+          created_at: string
+          esito: string
+          id: number
+        }
+        Insert: {
+          created_at?: string
+          esito: string
+          id?: number
+        }
+        Update: {
+          created_at?: string
+          esito?: string
+          id?: number
+        }
+        Relationships: []
+      }
+      employee_availability: {
+        Row: {
+          company_id: string
+          employee_id: string
+          fasce: Json | null
+          giorni: number[]
+          nota: string | null
+          updated_at: string
+          updated_by: string | null
+          valido_al: string | null
+          valido_dal: string | null
+        }
+        Insert: {
+          company_id: string
+          employee_id: string
+          fasce?: Json | null
+          giorni: number[]
+          nota?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          valido_al?: string | null
+          valido_dal?: string | null
+        }
+        Update: {
+          company_id?: string
+          employee_id?: string
+          fasce?: Json | null
+          giorni?: number[]
+          nota?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          valido_al?: string | null
+          valido_dal?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "employee_availability_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_availability_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_availability_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_availability_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: true
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+        ]
+      }
       employee_cost_imports: {
         Row: {
           company_id: string
@@ -15157,6 +18035,13 @@ export type Database = {
             referencedRelation: "v_employee_costs_by_outlet"
             referencedColumns: ["employee_id"]
           },
+          {
+            foreignKeyName: "employee_cost_slips_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
         ]
       }
       employee_costs: {
@@ -15267,42 +18152,6 @@ export type Database = {
         }
         Relationships: []
       }
-      employee_availability: {
-        Row: {
-          company_id: string
-          employee_id: string
-          fasce: Json | null
-          giorni: number[]
-          nota: string | null
-          updated_at: string
-          updated_by: string | null
-          valido_al: string | null
-          valido_dal: string | null
-        }
-        Insert: {
-          company_id: string
-          employee_id: string
-          fasce?: Json | null
-          giorni: number[]
-          nota?: string | null
-          updated_at?: string
-          updated_by?: string | null
-          valido_al?: string | null
-          valido_dal?: string | null
-        }
-        Update: {
-          company_id?: string
-          employee_id?: string
-          fasce?: Json | null
-          giorni?: number[]
-          nota?: string | null
-          updated_at?: string
-          updated_by?: string | null
-          valido_al?: string | null
-          valido_dal?: string | null
-        }
-        Relationships: []
-      }
       employee_events: {
         Row: {
           company_id: string
@@ -15373,7 +18222,64 @@ export type Database = {
           tipo?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "employee_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_events_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_events_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_events_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_events_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_events_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "employee_events_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "employee_events_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       employee_matricole: {
         Row: {
@@ -15422,6 +18328,13 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_matricole_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
             referencedColumns: ["employee_id"]
           },
         ]
@@ -15525,7 +18438,92 @@ export type Database = {
           outlet_id?: string | null
           pausa_minuti?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "employee_trasferte_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_destinazione_outlet_id_fkey"
+            columns: ["destinazione_outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_destinazione_outlet_id_fkey"
+            columns: ["destinazione_outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_destinazione_outlet_id_fkey"
+            columns: ["destinazione_outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_destinazione_outlet_id_fkey"
+            columns: ["destinazione_outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "employee_trasferte_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       employees: {
         Row: {
@@ -16273,60 +19271,6 @@ export type Database = {
           },
         ]
       }
-      invoice_cost_overrides: {
-        Row: {
-          company_id: string
-          created_at: string
-          gruppo: string | null
-          invoice_id: string
-          note: string | null
-          outlet_id: string
-        }
-        Insert: {
-          company_id: string
-          created_at?: string
-          gruppo?: string | null
-          invoice_id: string
-          note?: string | null
-          outlet_id: string
-        }
-        Update: {
-          company_id?: string
-          created_at?: string
-          gruppo?: string | null
-          invoice_id?: string
-          note?: string | null
-          outlet_id?: string
-        }
-        Relationships: []
-      }
-      invoice_outlet_auto: {
-        Row: {
-          calcolato_il: string
-          company_id: string
-          invoice_id: string
-          outlet_contatore: string | null
-          outlet_luogo: string | null
-          outlet_nominato: string | null
-        }
-        Insert: {
-          calcolato_il?: string
-          company_id: string
-          invoice_id: string
-          outlet_contatore?: string | null
-          outlet_luogo?: string | null
-          outlet_nominato?: string | null
-        }
-        Update: {
-          calcolato_il?: string
-          company_id?: string
-          invoice_id?: string
-          outlet_contatore?: string | null
-          outlet_luogo?: string | null
-          outlet_nominato?: string | null
-        }
-        Relationships: []
-      }
       inail_rates: {
         Row: {
           company_id: string
@@ -16390,6 +19334,262 @@ export type Database = {
           {
             foreignKeyName: "inail_rates_outlet_id_fkey"
             columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
+      invoice_cost_flags: {
+        Row: {
+          company_id: string
+          created_at: string
+          invoice_id: string
+          kind: string
+          note: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          invoice_id: string
+          kind: string
+          note?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          invoice_id?: string
+          kind?: string
+          note?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_cost_flags_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_cost_flags_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: true
+            referencedRelation: "electronic_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_cost_flags_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: true
+            referencedRelation: "v_electronic_invoices_list"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      invoice_cost_overrides: {
+        Row: {
+          company_id: string
+          created_at: string
+          gruppo: string | null
+          invoice_id: string
+          note: string | null
+          outlet_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          gruppo?: string | null
+          invoice_id: string
+          note?: string | null
+          outlet_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          gruppo?: string | null
+          invoice_id?: string
+          note?: string | null
+          outlet_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_cost_overrides_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_cost_overrides_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: true
+            referencedRelation: "electronic_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_cost_overrides_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: true
+            referencedRelation: "v_electronic_invoices_list"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_cost_overrides_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_cost_overrides_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_cost_overrides_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_cost_overrides_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
+      invoice_outlet_auto: {
+        Row: {
+          calcolato_il: string
+          company_id: string
+          invoice_id: string
+          outlet_contatore: string | null
+          outlet_luogo: string | null
+          outlet_nominato: string | null
+        }
+        Insert: {
+          calcolato_il?: string
+          company_id: string
+          invoice_id: string
+          outlet_contatore?: string | null
+          outlet_luogo?: string | null
+          outlet_nominato?: string | null
+        }
+        Update: {
+          calcolato_il?: string
+          company_id?: string
+          invoice_id?: string
+          outlet_contatore?: string | null
+          outlet_luogo?: string | null
+          outlet_nominato?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invoice_outlet_auto_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: true
+            referencedRelation: "electronic_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: true
+            referencedRelation: "v_electronic_invoices_list"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_contatore_fkey"
+            columns: ["outlet_contatore"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_contatore_fkey"
+            columns: ["outlet_contatore"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_contatore_fkey"
+            columns: ["outlet_contatore"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_contatore_fkey"
+            columns: ["outlet_contatore"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_luogo_fkey"
+            columns: ["outlet_luogo"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_luogo_fkey"
+            columns: ["outlet_luogo"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_luogo_fkey"
+            columns: ["outlet_luogo"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_luogo_fkey"
+            columns: ["outlet_luogo"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_nominato_fkey"
+            columns: ["outlet_nominato"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_nominato_fkey"
+            columns: ["outlet_nominato"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_nominato_fkey"
+            columns: ["outlet_nominato"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "invoice_outlet_auto_outlet_nominato_fkey"
+            columns: ["outlet_nominato"]
             isOneToOne: false
             referencedRelation: "v_outlet_card"
             referencedColumns: ["outlet_id"]
@@ -16682,6 +19882,13 @@ export type Database = {
             referencedColumns: ["employee_id"]
           },
           {
+            foreignKeyName: "leave_accrual_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
             foreignKeyName: "leave_accrual_rows_import_id_fkey"
             columns: ["import_id"]
             isOneToOne: false
@@ -16793,7 +20000,64 @@ export type Database = {
           request_id?: string
           stato?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "leave_counterproposals_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_counterproposals_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_counterproposals_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "leave_counterproposals_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "leave_counterproposals_nuova_request_id_fkey"
+            columns: ["nuova_request_id"]
+            isOneToOne: false
+            referencedRelation: "leave_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_counterproposals_nuova_request_id_fkey"
+            columns: ["nuova_request_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["request_id"]
+          },
+          {
+            foreignKeyName: "leave_counterproposals_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "leave_requests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_counterproposals_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["request_id"]
+          },
+        ]
       }
       leave_request_days: {
         Row: {
@@ -16846,6 +20110,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "leave_requests"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_request_days_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["request_id"]
           },
         ]
       }
@@ -16903,6 +20174,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "leave_requests"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "leave_request_events_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["request_id"]
           },
         ]
       }
@@ -16984,6 +20262,13 @@ export type Database = {
             columns: ["employee_id"]
             isOneToOne: false
             referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "leave_requests_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
             referencedColumns: ["employee_id"]
           },
         ]
@@ -17488,7 +20773,15 @@ export type Database = {
           nome?: string
           user_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "organico_hr_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       outlet_attachments: {
         Row: {
@@ -17809,6 +21102,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "outlet_daily_closing_attachments_deposit_id_fkey"
+            columns: ["deposit_id"]
+            isOneToOne: false
+            referencedRelation: "outlet_daily_closing_deposits"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "outlet_daily_closing_attachments_expense_id_fkey"
             columns: ["expense_id"]
             isOneToOne: false
@@ -17905,6 +21205,41 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "outlet_daily_closings"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_daily_closing_deposits_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_daily_closing_deposits_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_daily_closing_deposits_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_daily_closing_deposits_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_daily_closing_deposits_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
           },
         ]
       }
@@ -18232,6 +21567,62 @@ export type Database = {
           },
         ]
       }
+      outlet_events: {
+        Row: {
+          blocca_ferie: boolean
+          company_id: string
+          created_at: string
+          data_al: string
+          data_dal: string
+          id: string
+          nome: string
+          nota: string | null
+          outlet_ids: string[] | null
+          persone_extra: number
+          straordinari: boolean
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          blocca_ferie?: boolean
+          company_id: string
+          created_at?: string
+          data_al: string
+          data_dal: string
+          id?: string
+          nome: string
+          nota?: string | null
+          outlet_ids?: string[] | null
+          persone_extra?: number
+          straordinari?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          blocca_ferie?: boolean
+          company_id?: string
+          created_at?: string
+          data_al?: string
+          data_dal?: string
+          id?: string
+          nome?: string
+          nota?: string | null
+          outlet_ids?: string[] | null
+          persone_extra?: number
+          straordinari?: boolean
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outlet_events_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       outlet_opening_hours: {
         Row: {
           apre: string | null
@@ -18269,7 +21660,43 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "outlet_opening_hours_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_opening_hours_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_opening_hours_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_opening_hours_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_opening_hours_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       outlet_payment_channels: {
         Row: {
@@ -18402,7 +21829,57 @@ export type Database = {
           id?: string
           outlet_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "outlet_referenti_storico_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_referenti_storico_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "outlet_referenti_storico_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "outlet_referenti_storico_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_referenti_storico_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_referenti_storico_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_referenti_storico_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       outlet_shift_rules: {
         Row: {
@@ -18453,7 +21930,43 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "outlet_shift_rules_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_shift_rules_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_shift_rules_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_shift_rules_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_shift_rules_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: true
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       outlet_simulations: {
         Row: {
@@ -18502,54 +22015,6 @@ export type Database = {
           },
         ]
       }
-      outlet_events: {
-        Row: {
-          blocca_ferie: boolean
-          company_id: string
-          created_at: string
-          data_al: string
-          data_dal: string
-          id: string
-          nome: string
-          nota: string | null
-          outlet_ids: string[] | null
-          persone_extra: number
-          straordinari: boolean
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          blocca_ferie?: boolean
-          company_id: string
-          created_at?: string
-          data_al: string
-          data_dal: string
-          id?: string
-          nome: string
-          nota?: string | null
-          outlet_ids?: string[] | null
-          persone_extra?: number
-          straordinari?: boolean
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          blocca_ferie?: boolean
-          company_id?: string
-          created_at?: string
-          data_al?: string
-          data_dal?: string
-          id?: string
-          nome?: string
-          nota?: string | null
-          outlet_ids?: string[] | null
-          persone_extra?: number
-          straordinari?: boolean
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: []
-      }
       outlet_special_days: {
         Row: {
           apre: string | null
@@ -18590,7 +22055,43 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "outlet_special_days_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_special_days_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_special_days_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_special_days_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_special_days_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       outlet_staffing_needs: {
         Row: {
@@ -18629,7 +22130,43 @@ export type Database = {
           updated_at?: string
           updated_by?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "outlet_staffing_needs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_staffing_needs_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_staffing_needs_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_staffing_needs_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_staffing_needs_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       outlet_suppliers: {
         Row: {
@@ -18749,7 +22286,109 @@ export type Database = {
           updated_at?: string
           vendite?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "outlet_traffic_hourly_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_traffic_hourly_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_traffic_hourly_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_traffic_hourly_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_traffic_hourly_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
+      outlet_travel_places: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          kind: string
+          note: string | null
+          outlet_id: string
+          place: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          kind: string
+          note?: string | null
+          outlet_id: string
+          place: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          kind?: string
+          note?: string | null
+          outlet_id?: string
+          place?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "outlet_travel_places_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_travel_places_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlet_travel_places_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_travel_places_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "outlet_travel_places_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       outlets: {
         Row: {
@@ -18794,6 +22433,7 @@ export type Database = {
           phone: string | null
           photo_url: string | null
           province: string | null
+          referente_employee_id: string | null
           region: string | null
           rent_annual: number | null
           rent_free_days: number | null
@@ -18814,7 +22454,6 @@ export type Database = {
           unit_code: string | null
           updated_at: string | null
           variable_rent_pct: number | null
-          referente_employee_id: string | null
         }
         Insert: {
           address?: string | null
@@ -18858,6 +22497,7 @@ export type Database = {
           phone?: string | null
           photo_url?: string | null
           province?: string | null
+          referente_employee_id?: string | null
           region?: string | null
           rent_annual?: number | null
           rent_free_days?: number | null
@@ -18878,7 +22518,6 @@ export type Database = {
           unit_code?: string | null
           updated_at?: string | null
           variable_rent_pct?: number | null
-          referente_employee_id?: string | null
         }
         Update: {
           address?: string | null
@@ -18922,6 +22561,7 @@ export type Database = {
           phone?: string | null
           photo_url?: string | null
           province?: string | null
+          referente_employee_id?: string | null
           region?: string | null
           rent_annual?: number | null
           rent_free_days?: number | null
@@ -18942,7 +22582,6 @@ export type Database = {
           unit_code?: string | null
           updated_at?: string | null
           variable_rent_pct?: number | null
-          referente_employee_id?: string | null
         }
         Relationships: [
           {
@@ -18958,6 +22597,27 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "suppliers"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlets_referente_employee_id_fkey"
+            columns: ["referente_employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "outlets_referente_employee_id_fkey"
+            columns: ["referente_employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "outlets_referente_employee_id_fkey"
+            columns: ["referente_employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
           },
         ]
       }
@@ -19141,6 +22801,81 @@ export type Database = {
         }
         Relationships: []
       }
+      password_sync_log: {
+        Row: {
+          at: string
+          detail: string | null
+          direction: string
+          email: string | null
+          id: number
+          peer: string | null
+          request_id: number | null
+          status: string
+        }
+        Insert: {
+          at?: string
+          detail?: string | null
+          direction: string
+          email?: string | null
+          id?: number
+          peer?: string | null
+          request_id?: number | null
+          status: string
+        }
+        Update: {
+          at?: string
+          detail?: string | null
+          direction?: string
+          email?: string | null
+          id?: number
+          peer?: string | null
+          request_id?: number | null
+          status?: string
+        }
+        Relationships: []
+      }
+      password_sync_peers: {
+        Row: {
+          anon_key: string
+          created_at: string
+          enabled: boolean
+          id: string
+          name: string
+          rest_url: string
+        }
+        Insert: {
+          anon_key: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          name: string
+          rest_url: string
+        }
+        Update: {
+          anon_key?: string
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          name?: string
+          rest_url?: string
+        }
+        Relationships: []
+      }
+      password_sync_state: {
+        Row: {
+          email: string
+          last_changed_at: string
+        }
+        Insert: {
+          email: string
+          last_changed_at: string
+        }
+        Update: {
+          email?: string
+          last_changed_at?: string
+        }
+        Relationships: []
+      }
       payable_actions: {
         Row: {
           action_type: string
@@ -19315,7 +23050,6 @@ export type Database = {
       }
       payables: {
         Row: {
-            document_type: string | null
           acube_uuid: string | null
           amount_paid: number | null
           amount_remaining: number | null
@@ -19325,6 +23059,7 @@ export type Database = {
           company_id: string
           cost_category_id: string | null
           created_at: string | null
+          document_type: string | null
           due_date: string
           electronic_invoice_id: string | null
           gross_amount: number
@@ -19372,7 +23107,6 @@ export type Database = {
           withholding_amount: number
         }
         Insert: {
-            document_type?: string | null
           acube_uuid?: string | null
           amount_paid?: number | null
           amount_remaining?: number | null
@@ -19382,6 +23116,7 @@ export type Database = {
           company_id: string
           cost_category_id?: string | null
           created_at?: string | null
+          document_type?: string | null
           due_date: string
           electronic_invoice_id?: string | null
           gross_amount: number
@@ -19429,7 +23164,6 @@ export type Database = {
           withholding_amount?: number
         }
         Update: {
-            document_type?: string | null
           acube_uuid?: string | null
           amount_paid?: number | null
           amount_remaining?: number | null
@@ -19439,6 +23173,7 @@ export type Database = {
           company_id?: string
           cost_category_id?: string | null
           created_at?: string | null
+          document_type?: string | null
           due_date?: string
           electronic_invoice_id?: string | null
           gross_amount?: number
@@ -22206,12 +25941,20 @@ export type Database = {
           scadenza?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "payroll_f24_checks_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       payroll_f24_documents: {
         Row: {
-          bank_account_id: string | null
           banca: string | null
+          bank_account_id: string | null
           codici: string | null
           company_id: string
           created_at: string
@@ -22232,8 +25975,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
-          bank_account_id?: string | null
           banca?: string | null
+          bank_account_id?: string | null
           codici?: string | null
           company_id: string
           created_at?: string
@@ -22254,8 +25997,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
-          bank_account_id?: string | null
           banca?: string | null
+          bank_account_id?: string | null
           codici?: string | null
           company_id?: string
           created_at?: string
@@ -22275,7 +26018,15 @@ export type Database = {
           totale?: number
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "payroll_f24_documents_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       payroll_f24_items: {
         Row: {
@@ -22323,7 +26074,22 @@ export type Database = {
           periodo?: string
           year?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "payroll_f24_items_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_f24_items_import_id_fkey"
+            columns: ["import_id"]
+            isOneToOne: false
+            referencedRelation: "personnel_gross_cost_imports"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       payroll_payment_links: {
         Row: {
@@ -22374,7 +26140,43 @@ export type Database = {
           tipo?: string | null
           year?: number
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "payroll_payment_links_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "bank_transactions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_payment_links_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["bank_transaction_id"]
+          },
+          {
+            foreignKeyName: "payroll_payment_links_bank_transaction_id_fkey"
+            columns: ["bank_transaction_id"]
+            isOneToOne: false
+            referencedRelation: "cash_movements"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_payment_links_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "payroll_payment_links_slip_id_fkey"
+            columns: ["slip_id"]
+            isOneToOne: true
+            referencedRelation: "employee_cost_slips"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       personnel_gross_cost: {
         Row: {
@@ -22575,6 +26377,13 @@ export type Database = {
             referencedColumns: ["employee_id"]
           },
           {
+            foreignKeyName: "personnel_gross_cost_employee_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
             foreignKeyName: "personnel_gross_cost_employee_import_id_fkey"
             columns: ["import_id"]
             isOneToOne: false
@@ -22749,6 +26558,85 @@ export type Database = {
           },
         ]
       }
+      purchase_invoice_dispatches: {
+        Row: {
+          company_id: string
+          created_at: string
+          document_type: string | null
+          electronic_invoice_id: string | null
+          file_period: string
+          id: string
+          invoice_date: string | null
+          invoice_number: string
+          net_amount: number | null
+          notes: string | null
+          sent_at: string | null
+          sent_by: string
+          source_file: string | null
+          supplier_name: string | null
+          supplier_vat: string | null
+          total_amount: number | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          document_type?: string | null
+          electronic_invoice_id?: string | null
+          file_period: string
+          id?: string
+          invoice_date?: string | null
+          invoice_number: string
+          net_amount?: number | null
+          notes?: string | null
+          sent_at?: string | null
+          sent_by: string
+          source_file?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          total_amount?: number | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          document_type?: string | null
+          electronic_invoice_id?: string | null
+          file_period?: string
+          id?: string
+          invoice_date?: string | null
+          invoice_number?: string
+          net_amount?: number | null
+          notes?: string | null
+          sent_at?: string | null
+          sent_by?: string
+          source_file?: string | null
+          supplier_name?: string | null
+          supplier_vat?: string | null
+          total_amount?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_invoice_dispatches_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_invoice_dispatches_electronic_invoice_id_fkey"
+            columns: ["electronic_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "electronic_invoices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_invoice_dispatches_electronic_invoice_id_fkey"
+            columns: ["electronic_invoice_id"]
+            isOneToOne: false
+            referencedRelation: "v_electronic_invoices_list"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       receipt_imports: {
         Row: {
           company_id: string
@@ -22823,6 +26711,7 @@ export type Database = {
           confidence: number
           confirmed_at: string | null
           id: string
+          linked_only: boolean
           match_type: string
           notes: string | null
           payable_id: string | null
@@ -22840,6 +26729,7 @@ export type Database = {
           confidence: number
           confirmed_at?: string | null
           id?: string
+          linked_only?: boolean
           match_type: string
           notes?: string | null
           payable_id?: string | null
@@ -22857,6 +26747,7 @@ export type Database = {
           confidence?: number
           confirmed_at?: string | null
           id?: string
+          linked_only?: boolean
           match_type?: string
           notes?: string | null
           payable_id?: string | null
@@ -22996,9 +26887,6 @@ export type Database = {
       }
       riba_distinta_lines: {
         Row: {
-          note: string | null
-          raw_causale: string | null
-          row_no: number | null
           company_id: string
           created_at: string
           distinta_id: string
@@ -23007,16 +26895,16 @@ export type Database = {
           matched_payable_id: string | null
           matched_payable_ids: string[] | null
           matched_supplier_id: string | null
+          note: string | null
           raw_amount: number | null
+          raw_causale: string | null
           raw_due_date: string | null
           raw_invoice: string | null
           raw_supplier: string | null
           raw_vat: string | null
+          row_no: number | null
         }
         Insert: {
-          note?: string | null
-          raw_causale?: string | null
-          row_no?: number | null
           company_id: string
           created_at?: string
           distinta_id: string
@@ -23025,16 +26913,16 @@ export type Database = {
           matched_payable_id?: string | null
           matched_payable_ids?: string[] | null
           matched_supplier_id?: string | null
+          note?: string | null
           raw_amount?: number | null
+          raw_causale?: string | null
           raw_due_date?: string | null
           raw_invoice?: string | null
           raw_supplier?: string | null
           raw_vat?: string | null
+          row_no?: number | null
         }
         Update: {
-          note?: string | null
-          raw_causale?: string | null
-          row_no?: number | null
           company_id?: string
           created_at?: string
           distinta_id?: string
@@ -23043,11 +26931,14 @@ export type Database = {
           matched_payable_id?: string | null
           matched_payable_ids?: string[] | null
           matched_supplier_id?: string | null
+          note?: string | null
           raw_amount?: number | null
+          raw_causale?: string | null
           raw_due_date?: string | null
           raw_invoice?: string | null
           raw_supplier?: string | null
           raw_vat?: string | null
+          row_no?: number | null
         }
         Relationships: [
           {
@@ -23091,77 +26982,77 @@ export type Database = {
         Row: {
           applied_at: string | null
           applied_summary: Json | null
-          bank_stato: string | null
-          content_hash: string | null
-          conto_testo: string | null
-          doc_date: string | null
-          import_document_id: string | null
-          supporto: string | null
           bank_account_id: string | null
+          bank_stato: string | null
           company_id: string
           confirmed_at: string | null
+          content_hash: string | null
+          conto_testo: string | null
           created_at: string
           created_by: string | null
           declared_total: number | null
+          doc_date: string | null
           file_name: string | null
           file_path: string | null
           id: string
+          import_document_id: string | null
           line_count: number
           matched_count: number
           matched_total: number
           note: string | null
           source_kind: string
           status: string
+          supporto: string | null
         }
         Insert: {
           applied_at?: string | null
           applied_summary?: Json | null
-          bank_stato?: string | null
-          content_hash?: string | null
-          conto_testo?: string | null
-          doc_date?: string | null
-          import_document_id?: string | null
-          supporto?: string | null
           bank_account_id?: string | null
+          bank_stato?: string | null
           company_id: string
           confirmed_at?: string | null
+          content_hash?: string | null
+          conto_testo?: string | null
           created_at?: string
           created_by?: string | null
           declared_total?: number | null
+          doc_date?: string | null
           file_name?: string | null
           file_path?: string | null
           id?: string
+          import_document_id?: string | null
           line_count?: number
           matched_count?: number
           matched_total?: number
           note?: string | null
           source_kind?: string
           status?: string
+          supporto?: string | null
         }
         Update: {
           applied_at?: string | null
           applied_summary?: Json | null
-          bank_stato?: string | null
-          content_hash?: string | null
-          conto_testo?: string | null
-          doc_date?: string | null
-          import_document_id?: string | null
-          supporto?: string | null
           bank_account_id?: string | null
+          bank_stato?: string | null
           company_id?: string
           confirmed_at?: string | null
+          content_hash?: string | null
+          conto_testo?: string | null
           created_at?: string
           created_by?: string | null
           declared_total?: number | null
+          doc_date?: string | null
           file_name?: string | null
           file_path?: string | null
           id?: string
+          import_document_id?: string | null
           line_count?: number
           matched_count?: number
           matched_total?: number
           note?: string | null
           source_kind?: string
           status?: string
+          supporto?: string | null
         }
         Relationships: [
           {
@@ -23646,7 +27537,43 @@ export type Database = {
           employee_id?: string
           plan_id?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "shift_plan_weekend_off_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shift_plan_weekend_off_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shift_plan_weekend_off_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "shift_plan_weekend_off_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "shift_plan_weekend_off_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "shift_plans"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       shift_plans: {
         Row: {
@@ -23700,7 +27627,43 @@ export type Database = {
           stato?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "shift_plans_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shift_plans_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shift_plans_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "shift_plans_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "shift_plans_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
       }
       shifts: {
         Row: {
@@ -23714,14 +27677,14 @@ export type Database = {
           id: string
           inizio: string
           nota: string | null
+          ore_straordinario: number
           origine: string
           outlet_id: string
           pausa_minuti: number
+          plan_id: string | null
           stato: string
           straordinario: boolean
-          ore_straordinario: number
           updated_at: string
-          plan_id: string | null
         }
         Insert: {
           annullato_motivo?: string | null
@@ -23734,14 +27697,14 @@ export type Database = {
           id?: string
           inizio: string
           nota?: string | null
+          ore_straordinario?: number
           origine?: string
           outlet_id: string
           pausa_minuti?: number
+          plan_id?: string | null
           stato?: string
           straordinario?: boolean
-          ore_straordinario?: number
           updated_at?: string
-          plan_id?: string | null
         }
         Update: {
           annullato_motivo?: string | null
@@ -23754,16 +27717,80 @@ export type Database = {
           id?: string
           inizio?: string
           nota?: string | null
+          ore_straordinario?: number
           origine?: string
           outlet_id?: string
           pausa_minuti?: number
+          plan_id?: string | null
           stato?: string
           straordinario?: boolean
-          ore_straordinario?: number
           updated_at?: string
-          plan_id?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "shifts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shifts_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "employees"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shifts_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_employee_costs_by_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "shifts_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
+          {
+            foreignKeyName: "shifts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "shifts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "shifts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "shifts_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "shifts_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "shift_plans"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       spm_reconcile_backup_20260806_banktx: {
         Row: {
@@ -25383,6 +29410,7 @@ export type Database = {
           company_id: string | null
           created_at: string | null
           email: string | null
+          email_cc: string | null
           first_name: string | null
           id: string
           is_active: boolean | null
@@ -25395,6 +29423,7 @@ export type Database = {
           company_id?: string | null
           created_at?: string | null
           email?: string | null
+          email_cc?: string | null
           first_name?: string | null
           id: string
           is_active?: boolean | null
@@ -25407,6 +29436,7 @@ export type Database = {
           company_id?: string | null
           created_at?: string | null
           email?: string | null
+          email_cc?: string | null
           first_name?: string | null
           id?: string
           is_active?: boolean | null
@@ -25422,6 +29452,75 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "companies"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      utility_supply_points: {
+        Row: {
+          address: string | null
+          code: string
+          company_id: string
+          created_at: string
+          id: string
+          outlet_id: string
+          source: string | null
+          updated_at: string
+        }
+        Insert: {
+          address?: string | null
+          code: string
+          company_id: string
+          created_at?: string
+          id?: string
+          outlet_id: string
+          source?: string | null
+          updated_at?: string
+        }
+        Update: {
+          address?: string | null
+          code?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          outlet_id?: string
+          source?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "utility_supply_points_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "utility_supply_points_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "utility_supply_points_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "utility_supply_points_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "utility_supply_points_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
           },
         ]
       }
@@ -26077,24 +30176,6 @@ export type Database = {
         }
         Relationships: []
       }
-      v_negozio_fattura: {
-        Row: {
-          company_id: string | null
-          fonte: string | null
-          invoice_id: string | null
-          outlet_id: string | null
-        }
-        Relationships: []
-      }
-      v_quote_negozio_fornitore: {
-        Row: {
-          company_id: string | null
-          outlet_id: string | null
-          pct: number | null
-          supplier_id: string | null
-        }
-        Relationships: []
-      }
       v_electronic_invoices_list: {
         Row: {
           acube_uuid: string | null
@@ -26451,6 +30532,13 @@ export type Database = {
             referencedRelation: "v_employee_costs_by_outlet"
             referencedColumns: ["employee_id"]
           },
+          {
+            foreignKeyName: "leave_accrual_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
         ]
       }
       v_leave_disponibilita: {
@@ -26494,6 +30582,13 @@ export type Database = {
             referencedRelation: "v_employee_costs_by_outlet"
             referencedColumns: ["employee_id"]
           },
+          {
+            foreignKeyName: "leave_accrual_rows_employee_id_fkey"
+            columns: ["employee_id"]
+            isOneToOne: false
+            referencedRelation: "v_leave_giorni_outlet"
+            referencedColumns: ["employee_id"]
+          },
         ]
       }
       v_leave_giorni_outlet: {
@@ -26514,24 +30609,38 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "leave_requests_company_id_fkey"
-            columns: ["company_id"]
+            foreignKeyName: "employees_outlet_id_fkey"
+            columns: ["outlet_id"]
             isOneToOne: false
-            referencedRelation: "companies"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "leave_requests_employee_id_fkey"
-            columns: ["employee_id"]
-            isOneToOne: false
-            referencedRelation: "employees"
+            referencedRelation: "outlets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "employees_outlet_id_fkey"
             columns: ["outlet_id"]
             isOneToOne: false
-            referencedRelation: "outlets"
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "employees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "employees_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "leave_request_days_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
             referencedColumns: ["id"]
           },
         ]
@@ -26561,6 +30670,15 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      v_negozio_fattura: {
+        Row: {
+          company_id: string | null
+          fonte: string | null
+          invoice_id: string | null
+          outlet_id: string | null
+        }
+        Relationships: []
       }
       v_outlet_card: {
         Row: {
@@ -26757,7 +30875,6 @@ export type Database = {
       }
       v_payables_operative: {
         Row: {
-            document_type: string | null
           amount_paid: number | null
           amount_remaining: number | null
           bank_transaction_id: string | null
@@ -26766,6 +30883,7 @@ export type Database = {
           company_id: string | null
           cost_category_name: string | null
           days_to_due: number | null
+          document_type: string | null
           due_date: string | null
           gross_amount: number | null
           id: string | null
@@ -27129,6 +31247,15 @@ export type Database = {
         }
         Relationships: []
       }
+      v_quote_negozio_fornitore: {
+        Row: {
+          company_id: string | null
+          outlet_id: string | null
+          pct: number | null
+          supplier_id: string | null
+        }
+        Relationships: []
+      }
       v_recent_imports: {
         Row: {
           bank_name: string | null
@@ -27482,6 +31609,59 @@ export type Database = {
         Args: { p_company_id: string }
         Returns: number
       }
+      allinea_fattura_da_cassa: {
+        Args: { p_expense_id: string }
+        Returns: Json
+      }
+      allinea_fatture_pagate_in_contanti: {
+        Args: { p_giorni?: number }
+        Returns: Json
+      }
+      app_accessi_elenco: {
+        Args: { p_outlet_id: string }
+        Returns: {
+          attivata_il: string
+          codice: string
+          codice_scade: string
+          employee_id: string
+          nome: string
+          telefono_whatsapp: string
+        }[]
+      }
+      app_accesso_nuovo_codice: {
+        Args: { p_employee_id: string }
+        Returns: string
+      }
+      app_attivazione_bloccata: { Args: never; Returns: boolean }
+      app_dipendente_chiedi_ferie: {
+        Args: { p_giorni: Json; p_note?: string }
+        Returns: string
+      }
+      app_dipendente_consuma_codice: {
+        Args: { p_codice: string }
+        Returns: {
+          cognome: string
+          company_id: string
+          employee_id: string
+          nome: string
+          segreto: string
+          user_id: string
+        }[]
+      }
+      app_dipendente_dichiara_uscita: {
+        Args: { p_data: string; p_nota?: string; p_ora: string }
+        Returns: string
+      }
+      app_dipendente_ferie: { Args: never; Returns: Json }
+      app_dipendente_oggi: { Args: never; Returns: Json }
+      app_dipendente_periodo: {
+        Args: { p_al: string; p_dal: string }
+        Returns: Json
+      }
+      app_dipendente_ritira_ferie: {
+        Args: { p_request_id: string }
+        Returns: undefined
+      }
       append_ticket_comment: {
         Args: { p_commento: Json; p_ticket_id: string }
         Returns: {
@@ -27515,10 +31695,6 @@ export type Database = {
           isSetofReturn: true
         }
       }
-      apply_credit_note_links: {
-        Args: { p_close_date?: string; p_payable_id: string }
-        Returns: number
-      }
       apply_bank_statement: {
         Args: {
           p_closing?: number
@@ -27527,6 +31703,18 @@ export type Database = {
           p_rows: Json
           p_statement_id: string
         }
+        Returns: Json
+      }
+      apply_card_statement: {
+        Args: { p_debit_date?: string; p_lines: Json; p_statement_id: string }
+        Returns: Json
+      }
+      apply_credit_note_links: {
+        Args: { p_close_date?: string; p_payable_id: string }
+        Returns: number
+      }
+      apply_riba_distinta: {
+        Args: { p_conto?: string; p_distinta_id: string; p_lines: Json }
         Returns: Json
       }
       apply_statement_enrichment: {
@@ -27538,81 +31726,6 @@ export type Database = {
         Returns: number
       }
       bank_movement_net: { Args: { p_descr: string }; Returns: number }
-      apply_card_statement: {
-        Args: { p_debit_date?: string; p_lines: Json; p_statement_id: string }
-        Returns: Json
-      }
-      leave_controproponi: {
-        Args: { p_giorni: Json; p_motivo: string; p_request_id: string }
-        Returns: string
-      }
-      leave_rispondi_controproposta: {
-        Args: { p_accetta: boolean; p_id: string; p_nota?: string }
-        Returns: string
-      }
-      organico_e_hr: { Args: never; Returns: boolean }
-      organico_correggi_persona: {
-        Args: {
-          p_autore_nome: string
-          p_cognome: string
-          p_contratto_tipo: string | null
-          p_data_assunzione: string | null
-          p_employee_id: string
-          p_livello: string
-          p_nome: string
-          p_ore_settimanali: number | null
-          p_outlet_id: string | null
-          p_scadenza: string | null
-        }
-        Returns: string
-      }
-      organico_nuova_persona: {
-        Args: {
-          p_autore_nome: string
-          p_cognome: string
-          p_contratto_tipo: string
-          p_data_assunzione: string
-          p_livello: string
-          p_nome: string
-          p_nota: string
-          p_ore_settimanali: number
-          p_outlet_id: string
-          p_scadenza: string
-        }
-        Returns: string
-      }
-      organico_puo_decidere_fabbisogno: { Args: never; Returns: boolean }
-      organico_imposta_referente: {
-        Args: { p_employee_id: string | null; p_outlet_id: string }
-        Returns: undefined
-      }
-      organico_imposta_referente_dal: {
-        Args: { p_dal: string; p_employee_id: string | null; p_outlet_id: string }
-        Returns: undefined
-      }
-      organico_puo_scrivere: { Args: never; Returns: boolean }
-      organico_riconcilia: { Args: never; Returns: number }
-      payroll_sync_now: { Args: never; Returns: Json }
-      save_payroll_f24_document: {
-        Args: { p_conferma?: boolean; p_doc: Json }
-        Returns: Json
-      }
-      save_payroll_f24_items: {
-        Args: { p_import_id: string; p_items: Json; p_month: number; p_year: number }
-        Returns: Json
-      }
-      apply_riba_distinta: {
-        Args: { p_conto?: string; p_distinta_id: string; p_lines: Json }
-        Returns: Json
-      }
-      fn_bank_doc_guess_account: {
-        Args: { p_rows: Json }
-        Returns: {
-          bank_account_id: string
-          righe: number
-          righe_trovate: number
-        }[]
-      }
       bank_transaction_canonical_hash: {
         Args: {
           p_account_id: string
@@ -27683,6 +31796,11 @@ export type Database = {
         }[]
       }
       close_utility_movements: { Args: never; Returns: Json }
+      closing_checks_dispatch: {
+        Args: { p_company_id: string; p_date: string }
+        Returns: string
+      }
+      closing_checks_tick: { Args: never; Returns: Json }
       compensate_payable_with_credit_note: {
         Args: {
           p_amount?: number
@@ -27746,14 +31864,50 @@ export type Database = {
         Args: { p_closing_id: string; p_reason?: string }
         Returns: Json
       }
+      fn_acube_total_from_riepilogo: {
+        Args: { p_payload: Json; p_xml: string }
+        Returns: number
+      }
       fn_backfill_payable_installments: {
         Args: { p_company: string }
         Returns: Json
+      }
+      fn_bank_doc_ask: {
+        Args: {
+          p_bt: string
+          p_company: string
+          p_context?: Json
+          p_key: string
+          p_kind: string
+          p_statement: string
+          p_text: string
+        }
+        Returns: boolean
+      }
+      fn_bank_doc_guess_account: {
+        Args: { p_rows: Json }
+        Returns: {
+          bank_account_id: string
+          righe: number
+          righe_trovate: number
+        }[]
       }
       fn_bank_own_movement: { Args: { p_descr: string }; Returns: boolean }
       fn_cash_card_provisional_close: {
         Args: { p_company_id?: string; p_include_backlog?: boolean }
         Returns: number
+      }
+      fn_cash_deposit_free_tx: {
+        Args: { p_closing_id: string; p_tx_id: string }
+        Returns: undefined
+      }
+      fn_categoria_dal_riparto: {
+        Args: { p_company_id: string }
+        Returns: Json
+      }
+      fn_categoria_dalle_fatture: {
+        Args: { p_company_id: string }
+        Returns: Json
       }
       fn_categorize_from_lines: {
         Args: { p_company_id: string; p_xml: string }
@@ -27771,6 +31925,13 @@ export type Database = {
           out_refs_repointed: number
         }[]
       }
+      fn_consuntivo_ricavi_da_incassi: {
+        Args: { p_company_id: string; p_prova?: boolean }
+        Returns: Json
+      }
+      fn_consuntivo_ricavi_da_incassi_tutte: { Args: never; Returns: Json }
+      fn_eur_it: { Args: { p: number }; Returns: string }
+      fn_f24_scadenza: { Args: { p_periodo: string }; Returns: string }
       fn_invoice_cedente_profile: { Args: { p_doc: string }; Returns: Json }
       fn_invoice_lines_text: { Args: { p_xml: string }; Returns: string }
       fn_invoice_withholding: {
@@ -27778,6 +31939,24 @@ export type Database = {
         Returns: number
       }
       fn_it_easter: { Args: { p_year: number }; Returns: string }
+      fn_it_num: { Args: { p: string }; Returns: number }
+      fn_negozio_per_fattura: {
+        Args: { p_company_id: string; p_limite?: number; p_tutte?: boolean }
+        Returns: Json
+      }
+      fn_negozio_per_fattura_calcolo: {
+        Args: { p_company_id: string; p_limite?: number; p_tutte?: boolean }
+        Returns: {
+          invoice_id: string
+          outlet_contatore: string
+          outlet_luogo: string
+          outlet_nominato: string
+        }[]
+      }
+      fn_negozio_per_fattura_tutte: {
+        Args: { p_tutte?: boolean }
+        Returns: Json
+      }
       fn_normalize_invoice_number: { Args: { p_num: string }; Returns: string }
       fn_parse_invoice_condizioni: { Args: { p_xml: string }; Returns: string }
       fn_parse_invoice_condizioni_json: {
@@ -27810,16 +31989,39 @@ export type Database = {
           descrizione: string
         }[]
       }
+      fn_payroll_subset: {
+        Args: { p_amts: number[]; p_ids: string[]; p_target: number }
+        Returns: string[]
+      }
+      fn_payroll_subset_k: {
+        Args: {
+          p_amts: number[]
+          p_ids: string[]
+          p_k: number
+          p_target: number
+        }
+        Returns: string[]
+      }
+      fn_payroll_sync: { Args: { p_company: string }; Returns: Json }
       fn_revenue_day_type: { Args: { p_day: string }; Returns: string }
       fn_revenue_season: { Args: { p_day: string }; Returns: string }
       fn_riba_provisional_close: {
         Args: { p_company_id?: string; p_include_backlog?: boolean }
         Returns: number
       }
+      fn_riparto_automatico: {
+        Args: { p_company_id: string; p_prova?: boolean }
+        Returns: Json
+      }
+      fn_riparto_automatico_tutte: { Args: never; Returns: Json }
       fn_sdi_mp_label: { Args: { p_mp: string }; Returns: string }
       fn_sdi_mp_to_payment_method: {
         Args: { p_mp: string; p_supplier_default?: string }
         Returns: Database["public"]["Enums"]["payment_method"]
+      }
+      fn_segna_fatture_non_costo: {
+        Args: { p_company_id: string }
+        Returns: number
       }
       fn_supplier_config_anomaly: {
         Args: { p_supplier_id: string }
@@ -27849,6 +32051,8 @@ export type Database = {
         }
         Returns: string[]
       }
+      fn_testo_fattura_ricercabile: { Args: { p_doc: string }; Returns: string }
+      fn_text_overlap: { Args: { a: string; b: string }; Returns: number }
       get_acube_credentials: {
         Args: { p_stage: string }
         Returns: {
@@ -27902,6 +32106,7 @@ export type Database = {
           server_key: string
         }[]
       }
+      get_twilio_timbrature_template: { Args: never; Returns: string }
       get_twilio_whatsapp_config: {
         Args: never
         Returns: {
@@ -28050,7 +32255,12 @@ export type Database = {
         Returns: boolean
       }
       invoice_number_keys: { Args: { p_inv: string }; Returns: string[] }
+      iva_art74_da_xml: { Args: { p_xml: string }; Returns: number }
       jwt_company_id: { Args: never; Returns: string }
+      leave_controproponi: {
+        Args: { p_giorni: Json; p_motivo: string; p_request_id: string }
+        Returns: string
+      }
       leave_decidi: {
         Args: {
           p_giorni_approvati?: string[]
@@ -28062,6 +32272,10 @@ export type Database = {
       leave_ore_settimanali_da_rateo: {
         Args: { p_rateo_annuo: number }
         Returns: number
+      }
+      leave_rispondi_controproposta: {
+        Args: { p_accetta: boolean; p_id: string; p_nota?: string }
+        Returns: string
       }
       list_bank_terminal_codes: {
         Args: { p_days?: number }
@@ -28101,6 +32315,60 @@ export type Database = {
         }
         Returns: string
       }
+      organico_correggi_persona: {
+        Args: {
+          p_autore_nome: string
+          p_cognome: string
+          p_contratto_tipo: string
+          p_data_assunzione: string
+          p_employee_id: string
+          p_livello: string
+          p_nome: string
+          p_ore_settimanali: number
+          p_outlet_id: string
+          p_scadenza: string
+        }
+        Returns: string
+      }
+      organico_e_hr: { Args: never; Returns: boolean }
+      organico_imposta_referente: {
+        Args: { p_employee_id: string; p_outlet_id: string }
+        Returns: undefined
+      }
+      organico_imposta_referente_dal: {
+        Args: { p_dal: string; p_employee_id: string; p_outlet_id: string }
+        Returns: undefined
+      }
+      organico_nuova_persona: {
+        Args: {
+          p_autore_nome: string
+          p_cognome: string
+          p_contratto_tipo: string
+          p_data_assunzione: string
+          p_livello: string
+          p_nome: string
+          p_nota: string
+          p_ore_settimanali: number
+          p_outlet_id: string
+          p_scadenza: string
+        }
+        Returns: string
+      }
+      organico_puo_decidere_fabbisogno: { Args: never; Returns: boolean }
+      organico_puo_scrivere: { Args: never; Returns: boolean }
+      organico_riconcilia: { Args: never; Returns: number }
+      password_sync_receive: {
+        Args: { p_changed_at: string; p_email: string; p_hash: string }
+        Returns: string
+      }
+      payable_closed_for_proposals: {
+        Args: {
+          p_bank_transaction_id: string
+          p_closed_manually: boolean
+          p_status: string
+        }
+        Returns: boolean
+      }
       payable_in_distinta_for_movement: {
         Args: {
           p_bank_account_id: string
@@ -28109,6 +32377,8 @@ export type Database = {
         }
         Returns: boolean
       }
+      payroll_sync_all: { Args: never; Returns: Json }
+      payroll_sync_now: { Args: never; Returns: Json }
       posso_decidere_ferie: { Args: never; Returns: boolean }
       project_cash_closing_to_daily_revenue: {
         Args: { p_closing_id: string }
@@ -28239,6 +32509,24 @@ export type Database = {
         }
         Returns: Json
       }
+      save_payroll_f24_document: {
+        Args: { p_conferma?: boolean; p_doc: Json }
+        Returns: Json
+      }
+      save_payroll_f24_items: {
+        Args: {
+          p_import_id: string
+          p_items: Json
+          p_month: number
+          p_year: number
+        }
+        Returns: Json
+      }
+      slug_cost_center: { Args: { p_name: string }; Returns: string }
+      storni_altri_giorni_da_foto: {
+        Args: { p_closing_id: string }
+        Returns: number
+      }
       supplier_confirmed_in_text: {
         Args: { p_name: string; p_text: string; p_vat: string }
         Returns: boolean
@@ -28257,6 +32545,58 @@ export type Database = {
         Returns: number
       }
       ticket_notify_endpoint: { Args: never; Returns: Record<string, unknown> }
+      timbratrice_dati: { Args: { p_outlet_id: string }; Returns: Json }
+      timbratrice_negozi: {
+        Args: never
+        Returns: {
+          nome: string
+          outlet_id: string
+        }[]
+      }
+      timbrature_annulla: {
+        Args: { p_id: string; p_motivo: string }
+        Returns: undefined
+      }
+      timbrature_avvisi_tick: { Args: never; Returns: number }
+      timbrature_conferma: { Args: { p_id: string }; Returns: undefined }
+      timbrature_da_avvisare: {
+        Args: { p_now?: string }
+        Returns: {
+          company_id: string
+          data: string
+          employee_id: string
+          fine: string
+          negozio: string
+          nome: string
+          outlet_id: string
+          shift_id: string
+          telefono: string
+        }[]
+      }
+      timbrature_firma: {
+        Args: { p_employee_id: string; p_passo: number; p_segreto: string }
+        Returns: string
+      }
+      timbrature_gestore: { Args: never; Returns: boolean }
+      timbrature_mio_dipendente: { Args: never; Returns: string }
+      timbrature_nuovo_codice: { Args: never; Returns: string }
+      timbrature_puo_timbrare: {
+        Args: { p_outlet_id: string }
+        Returns: boolean
+      }
+      timbrature_registra: { Args: { p_righe: Json }; Returns: Json }
+      timbrature_turni_ufficiali: {
+        Args: { p_al: string; p_company_id: string; p_dal: string }
+        Returns: {
+          data: string
+          employee_id: string
+          fine: string
+          inizio: string
+          outlet_id: string
+          pausa_minuti: number
+          shift_id: string
+        }[]
+      }
       try_match_amount_bank_transaction: {
         Args: { p_bt_id: string }
         Returns: Json
@@ -28270,6 +32610,10 @@ export type Database = {
         Args: { p_bt_id: string }
         Returns: Json
       }
+      try_match_group_name_bank_transaction: {
+        Args: { p_bt_id: string }
+        Returns: Json
+      }
       try_match_group_numbers_bank_transaction: {
         Args: { p_bt_id: string }
         Returns: Json
@@ -28278,10 +32622,8 @@ export type Database = {
         Args: { p_company: string; p_data: string }
         Returns: boolean
       }
-      turni_scegli_piano: {
-        Args: { p_plan_id: string }
-        Returns: undefined
-      }
+      turni_scegli_piano: { Args: { p_plan_id: string }; Returns: undefined }
+      undo_closing_check: { Args: { p_check_id: string }; Returns: Json }
       undo_reconcile_fiscal_deadline: {
         Args: { p_fiscal_id: string }
         Returns: Json
