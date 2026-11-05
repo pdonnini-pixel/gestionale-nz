@@ -1940,3 +1940,8 @@ Nella stessa sessione sono state rifiutate a mano quattro proposte che puntavano
 fornitore sbagliato (Logiscenter 06/10 e 02/11 verso Gruppo Servizi Associati, Regina
 Hotel 21/10 verso Mondoffice, Multitec 26/10 verso Amazon). Logiscenter è spagnolo: dallo
 SDI arriva solo il TD18 di integrazione IVA, che non diventa scadenza.
+
+Applicata su NZ e Zago il 05/11/2026. Prove in transazione annullata: sul caso Corte
+delle Fucine ricostruito (scadenze riaperte) la funzione chiude 2746 e 2747 da sola;
+sui movimenti aperti di NZ 0 agganci nuovi, 0,7 secondi ogni 100 movimenti (circa 3
+secondi in più a notte su 372).
