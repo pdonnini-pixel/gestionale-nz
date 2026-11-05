@@ -245,12 +245,18 @@ describe('citesInvoiceNumbers', () => {
   })
   it('riconosce le forme con "N." e "NUMERO" battute a mano', () => {
     expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL SALDO FATTURA N. 123')).toBe(true)
-    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATT. N°45')).toBe(true)
-    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATTURA NUMERO 55')).toBe(true)
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATT. N°456')).toBe(true)
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATTURA NUMERO 55X')).toBe(true)
+    expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *SPM INVESTIGAZIONI SRL SF-341 ID.BON:0845700172770808480546302800IT')).toBe(true)
   })
   it('non scambia NR o CF isolati per un riferimento a fattura', () => {
     expect(citesInvoiceNumbers('BONIFICO BEN ROSSI NR 5 SRL')).toBe(false)
     expect(citesInvoiceNumbers('BONIFICO BEN BIANCHI CF 123')).toBe(false)
+  })
+  it('non considera leggibili i numeri di una o due cifre', () => {
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI FT 1')).toBe(false)
+    expect(citesInvoiceNumbers('BONIFICO VS FATTURE 12 E 13')).toBe(false)
+    expect(citesInvoiceNumbers('BONIFICO A ROSSI SRL FATT. N°45')).toBe(false)
   })
   it('non scambia date, orari e ID dei bonifici istantanei per numeri di fattura', () => {
     expect(citesInvoiceNumbers('Bonifico tramite corporate banking *INSTANT DEL 20/10/2026 ORE 16:15 ID. 0832500022425887483773037730IT BEN CORTE DELLE FUCINE SRL')).toBe(false)

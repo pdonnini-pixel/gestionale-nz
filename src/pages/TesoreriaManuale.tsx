@@ -3340,6 +3340,9 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (benefWords.length === 0) continue
       const mv = movementNet(m)
       if (mv <= 0) continue
+      // Se la causale cita un numero di fattura leggibile, si propone solo la
+      // fattura citata (regola del 05/11/2026, stessa dei motori SQL, migration 366).
+      const citeTokens = citesInvoiceNumbers(desc) ? invoiceTokens(desc) : []
       let best: PayT | null = null
       let bestRem = 0
       let bestClosed = false
@@ -3349,6 +3352,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         if (c.base <= 0) continue
         if (rejectedPairs.has(pairKey(m.id, c.p.id))) continue
         if (!isPaymentDatePlausible(String(m.transaction_date || ''), String(c.p.invoice_date || ''))) continue
+        if (citeTokens.length > 0 && !invoiceCitedIn(String(c.p.invoice_number || ''), citeTokens)) continue
         const diff = Math.abs(c.base - mv)
         if (diff / c.base > 0.05) continue
         const supWords = new Set(sigWords(getSupplierName(c.p)))
