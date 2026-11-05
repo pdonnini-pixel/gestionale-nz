@@ -351,6 +351,11 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
   const [priorita, setPriorita] = useState<TicketPriorita>('medio')
   const [files, setFiles] = useState<File[]>([])
   const [submitting, setSubmitting] = useState(false)
+  // Il ruolo viewer (Sola lettura) non può caricare file: le policy di Storage
+  // gli negano il caricamento (media dalla 054/110, tutti i bucket dalla 359).
+  // Il campo allegati non gli si mostra, così il ticket parte pulito invece di
+  // dare l'avviso «allegati non caricati».
+  const puoAllegare = profile?.role !== 'viewer'
 
   useEffect(() => {
     if (!open) {
@@ -362,7 +367,7 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
   // Paste-screenshot: quando il modal è aperto, intercetta Cmd+V / Ctrl+V e
   // aggiunge eventuali immagini dalla clipboard alla lista allegati.
   useEffect(() => {
-    if (!open) return
+    if (!open || !puoAllegare) return
     const handlePaste = (e: ClipboardEvent) => {
       const items = e.clipboardData?.items
       if (!items) return
@@ -386,7 +391,7 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
     }
     window.addEventListener('paste', handlePaste)
     return () => window.removeEventListener('paste', handlePaste)
-  }, [open])
+  }, [open, puoAllegare])
 
   if (!open) return null
 
@@ -420,7 +425,7 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
       let ticket = inserted as unknown as Ticket
 
       // Upload allegati (se presenti) — supporta multipli
-      if (files.length > 0) {
+      if (puoAllegare && files.length > 0) {
         const uploaded: TicketAllegato[] = []
         const failures: string[] = []
         for (let i = 0; i < files.length; i++) {
@@ -580,12 +585,14 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
             </div>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Allegati <span className="text-slate-400 font-normal">(opzionale)</span>
-            </label>
-            <DropZone files={files} onChange={setFiles} />
-          </div>
+          {puoAllegare && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">
+                Allegati <span className="text-slate-400 font-normal">(opzionale)</span>
+              </label>
+              <DropZone files={files} onChange={setFiles} />
+            </div>
+          )}
         </div>
 
         <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
