@@ -17,7 +17,7 @@ import { archiviaFile, collegaFileArchiviato } from '../lib/archivioFile'
 import {
   trovaConto, contoDaiMovimenti, righeIntestazione, classificaDocumento, saldiDichiarati, periodoDelle, righePerDb, leggiEstratto,
   righeDaFoglio, fraseEsito, chiusuraCaricamento, ETICHETTA_TIPO, leggiCarta, righeCartaPerDb, fraseEsitoCarta,
-  leggiDistintaMps, fraseEsitoDistinta, motivoNonSupportato,
+  leggiDistintaMps, fraseEsitoDistinta, motivoNonSupportato, excelEstrattoDifettoso,
   type ContoLite, type ContoTrovato, type TipoDocumento, type EsitoApplicazione,
   type EsitoCarta, type EsitoDistinta, type DistintaRiba,
 } from '../lib/documentiBanca'
@@ -80,12 +80,13 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
   const applica = useCallback(async (v: Voce, conto: ContoLite) => {
     if (!companyId || !v.righe || !v.hash) return
     aggiorna(v.key, { stato: 'applicazione', conto, messaggio: undefined })
+    let statementId: string | null = null
     try {
       const periodo = periodoDelle(v.righe)
       // Lo stesso file gia' caricato: si riusa il suo estratto, niente doppio archivio.
       const { data: esistente } = await supabase.from('bank_statements')
         .select('id').eq('company_id', companyId).eq('content_hash', v.hash).maybeSingle()
-      let statementId = (esistente as { id: string } | null)?.id ?? null
+      statementId = (esistente as { id: string } | null)?.id ?? null
 
       if (!statementId) {
         const etichetta = nomeConto(conto)
@@ -124,7 +125,14 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       setChatKey((k) => k + 1)
       onRefresh?.()
     } catch (e) {
-      aggiorna(v.key, { stato: 'errore', messaggio: e instanceof Error ? e.message : String(e) })
+      const messaggio = e instanceof Error ? e.message : String(e)
+      // L'estratto non resta «in lavorazione» per sempre: si segna l'errore, e
+      // ricaricando lo stesso file si riparte da qui (05/11/2026, Excel BCC di ottobre).
+      if (statementId) {
+        await supabase.from('bank_statements').update({ status: 'error', error_message: messaggio.slice(0, 500) })
+          .eq('id', statementId).neq('status', 'completed')
+      }
+      aggiorna(v.key, { stato: 'errore', messaggio })
     }
   }, [aggiorna, companyId, onRefresh, userId])
 
@@ -270,6 +278,10 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
         aggiorna(key, { stato: 'altro', tipo: 'sconosciuto', messaggio: nonQui })
         return
       }
+      if (!dalPdf && excelEstrattoDifettoso(fogli)) {
+        aggiorna(key, { stato: 'altro', tipo: 'estratto_conto', messaggio: 'L\'Excel scaricato dalla banca è difettoso: alcune date hanno giorno e mese girati e gli importi hanno perso la virgola. Non è stato toccato niente: carica il PDF dello stesso estratto, che vale come l\'Excel.' })
+        return
+      }
       const testo = righeTesto.join('\n')
       const intestazione = righeIntestazione(righeTesto, parsed.rows)
       let conto = trovaConto(intestazione.join('\n'), accounts)
@@ -292,7 +304,7 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       if (tipo === 'distinta_riba') {
         const dist = leggiDistintaMps(righeTesto)
         if (!dist || dist.disposizioni.length === 0) {
-          aggiorna(key, { stato: 'altro', tipo, messaggio: 'Di questa distinta non riesco a leggere gli effetti: si legge la «Distinta di ritiro effetti pagati» di MPS in PDF. Le altre per ora si caricano da Scadenzario → «Carica distinta RiBa».' })
+          aggiorna(key, { stato: 'altro', tipo, messaggio: 'Di questa distinta non riesco a leggere gli effetti: si leggono le distinte MPS in PDF («Distinta Effetti Pagati» e la vecchia «Distinta di ritiro effetti pagati»). Le altre per ora si caricano da Scadenzario → «Carica distinta RiBa».' })
           return
         }
         if (dist.stato && !RE_STATO_OK.test(dist.stato)) {
@@ -375,10 +387,10 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
           <div>
             <div className="font-semibold text-emerald-800 mb-1">Si carica e si analizza</div>
             <ul className="list-disc pl-4 space-y-1">
-              <li><b>Estratti conto corrente</b> in Excel o PDF (provati sugli estratti veri di MPS, BCC Figline, BCC Mugello e Intesa). I PDF BCC («Relax Banking») valgono come l&apos;Excel: portano segno e saldi. Per gli altri PDF meglio l&apos;Excel, perché dal PDF non si legge se un movimento è un&apos;entrata o un&apos;uscita.</li>
+              <li><b>Estratti conto corrente</b> in Excel o PDF (provati sugli estratti veri di MPS, BCC Figline, BCC Mugello e Intesa). Per le BCC carica il PDF («Relax Banking»): porta segno e saldi, mentre l&apos;Excel che scarica la banca esce con date e importi sbagliati e il gestionale lo rifiuta. Per MPS e Intesa meglio l&apos;Excel, perché dal PDF non si legge se un movimento è un&apos;entrata o un&apos;uscita; il PDF MPS si legge comunque tutto, con i saldi.</li>
               <li><b>Estratti carta di credito</b> Carta Montepaschi e CartaBCC (Numia), in PDF: le spese confermano le fatture pagate con la carta e l&apos;addebito del mese si aggancia sul conto.</li>
               <li><b>Prepagata Tasca</b>, in PDF o Excel: le spese chiudono le fatture alla data della spesa.</li>
-              <li><b>Distinta di ritiro effetti pagati</b> MPS (RiBa), in PDF: ogni effetto conferma o chiude le rate del fornitore indicate nella causale.</li>
+              <li><b>Distinte RiBa MPS</b> in PDF, una per file («Distinta Effetti Pagati» e la vecchia «Distinta di ritiro effetti pagati»): ogni effetto conferma o chiude le rate del fornitore indicate nella causale.</li>
             </ul>
           </div>
           <div>
@@ -388,7 +400,8 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
               <li><b>Distinte di versamento contanti</b>: non servono, i versamenti arrivano dalle chiusure di cassa e l&apos;estratto conto li conferma.</li>
               <li><b>Prospetti dei fornitori</b> (per esempio «Analisi scadenze» di un fornitore): non sono documenti della banca e non comandano sui pagamenti.</li>
               <li><b>Estratti commissioni Nexi/Amex</b>: per ora si caricano in Banche → Commissioni.</li>
-              <li><b>Distinte RiBa diverse da quella MPS</b> e carte di altri emittenti: per ora non si leggono; il file non viene toccato e te lo dico.</li>
+              <li><b>L&apos;elenco delle distinte</b> (l&apos;Excel MPS con una riga per distinta): non contiene gli effetti, carica i PDF delle singole distinte.</li>
+              <li><b>Distinte RiBa di banche diverse da MPS</b> e carte di altri emittenti: per ora non si leggono; il file non viene toccato e te lo dico.</li>
             </ul>
           </div>
         </div>

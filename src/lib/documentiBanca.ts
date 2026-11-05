@@ -42,8 +42,9 @@ const norm = (s: unknown): string => String(s ?? '').replace(/\s+/g, ' ').trim()
 export const normIban = (s: string | null | undefined): string => String(s ?? '').replace(/[\s-]/g, '').toUpperCase()
 
 // IBAN italiano: IT + 2 cifre di controllo + CIN + ABI(5) + CAB(5) + conto(12).
-// Le banche lo stampano spesso a gruppi di quattro, quindi gli spazi sono ammessi.
-const RE_IBAN_IT = /I\s*T\s*\d\s*\d\s*[A-Z](?:\s*\d){10}(?:\s*[0-9A-Z]){12}/gi
+// Le banche lo stampano spesso a gruppi di quattro, separati da spazi o da
+// trattini (il PDF MPS: «IT04-V010-3038-0200-0000-0621-460»).
+const RE_IBAN_IT = /I[\s-]*T[\s-]*\d[\s-]*\d[\s-]*[A-Z](?:[\s-]*\d){10}(?:[\s-]*[0-9A-Z]){12}/gi
 
 /** Tutti gli IBAN italiani che compaiono nel testo, normalizzati. */
 export function ibanNelTesto(testo: string): string[] {
@@ -64,9 +65,16 @@ export function ibanNelTesto(testo: string): string[] {
 export function righeIntestazione(righe: string[], movimenti: Array<{ description?: string | null }>): string[] {
   const causali = [...new Set(movimenti.map((m) => norm(m.description)).filter((d) => d.length >= 6))]
   if (causali.length === 0) return righe
+  // Una causale lunga sta su piu' righe (PDF MPS): anche il suo pezzo e' movimento.
+  // Solo pezzi di almeno 12 caratteri, perche' un pezzo corto puo' essere anche
+  // una parola dell'intestazione.
+  const tutte = causali.join('\n')
   return righe.filter((l) => {
     const riga = norm(l)
-    return !causali.some((c) => riga.includes(c))
+    if (causali.some((c) => riga.includes(c))) return false
+    // La prima riga del movimento: date, importo e causale breve, poi l'inizio della causale.
+    const resto = riga.replace(/^\d{2}\/\d{2}\/\d{2,4}\s+(?:\d{2}\/\d{2}\/\d{2,4}\s+)?(?:-?\d{1,3}(?:\.\d{3})*,\d{2}-?\s+(?:[0-9A-Z]{2}\s+)?)?/, '')
+    return !(resto.length >= 12 && tutte.includes(resto))
   })
 }
 
@@ -440,13 +448,27 @@ const itImporto = (s: string): number | null => {
  * Si prendono solo numeri di almeno 2 cifre; date e anni («/26», «2026») no.
  */
 export function numeriDallaCausale(causale: string): { fatture: string[]; noteCredito: string[] } {
-  // Le date («SCAD. 31/08/2026») non sono numeri di fattura.
-  const t = norm(causale).toUpperCase().replace(/\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b/g, ' ')
+  let t = norm(causale).toUpperCase()
+    // Le date non sono numeri di fattura: «31/08/2026», «30- 09-26», «27 08 2026».
+    .replace(/\b\d{1,2}\s*[/.-]\s*\d{1,2}\s*[/.-]\s*\d{2,4}\b/g, ' ')
+    .replace(/\b\d{1,2}\s\d{1,2}\s(?:19|20)\d{2}\b/g, ' ')
+    // Nemmeno gli importi: «DI 345,32 EURO».
+    .replace(/\b\d{1,3}(?:\.\d{3})*,\d{2}\b/g, ' ')
+  // «872FV-95NC»: il numero attaccato a FV/FT e' una fattura, a NC una nota di credito.
+  const fattAttaccate: string[] = []
+  const ncAttaccate: string[] = []
+  t = t.replace(/\b0*(\d{2,})(FV|FT|NC)\b/g, (_m, n: string, k: string) => {
+    ;(k === 'NC' ? ncAttaccate : fattAttaccate).push(n)
+    return ' '
+  })
+  // «FATTURE26102973», «MILR001929410»: il numero attaccato alle lettere. Solo da 5 a
+  // 10 cifre: i codici lunghi («RB20260010896334» di BRT) non sono numeri di fattura.
+  t = t.replace(/[A-Z]0*(\d{5,10})\b/g, (m, n: string) => `${m[0]} ${n}`)
   const i = t.search(/\b(?:N\.?\s?C\.?|NOTA\s+(?:DI\s+)?CREDITO|NOTE\s+(?:DI\s+)?CREDITO)\b/)
   const prima = i >= 0 ? t.slice(0, i) : t
   const dopo = i >= 0 ? t.slice(i) : ''
-  const numeri = (s: string): string[] => {
-    const out: string[] = []
+  const numeri = (s: string, gia: string[]): string[] => {
+    const out: string[] = [...gia]
     // «882/26»: il numero e' la parte prima della barra; l'anno dopo la barra non conta.
     for (const m of s.replace(/(\d+)\/\d{2,4}\b/g, '$1').matchAll(/\b0*(\d{2,})\b/g)) {
       const n = m[1]
@@ -455,7 +477,7 @@ export function numeriDallaCausale(causale: string): { fatture: string[]; noteCr
     }
     return out
   }
-  return { fatture: numeri(prima), noteCredito: numeri(dopo) }
+  return { fatture: numeri(prima, fattAttaccate), noteCredito: numeri(dopo, ncAttaccate) }
 }
 
 /**
@@ -468,7 +490,7 @@ export function numeriDallaCausale(causale: string): { fatture: string[]; noteCr
  */
 export function leggiDistintaMps(righe: string[]): DistintaRiba | null {
   const testo = righe.map(norm)
-  if (!testo.some((r) => /DISTINTA\s+DI\s+RITIRO\s+EFFETTI/i.test(r))) return null
+  if (!testo.some((r) => /DISTINTA\s+DI\s+RITIRO\s+EFFETTI/i.test(r))) return leggiDistintaEffettiPagati(righe)
   const campo = (re: RegExp): string | null => {
     for (const r of testo) { const m = re.exec(r); if (m) return norm(m[1]) }
     return null
@@ -536,6 +558,83 @@ export function leggiDistintaMps(righe: string[]): DistintaRiba | null {
   return out
 }
 
+/**
+ * La «Distinta Effetti Pagati» di MPS (NEW PasKey Base), dal testo del PDF: il
+ * formato con cui MPS stampa le distinte da ottobre 2026. Testata con «Nome
+ * supporto», «Conto addebito», «Stato distinta», «Totale distinta», poi un
+ * blocco per effetto:
+ *   29/10/2026 31/10/2026 Ricevuta FORNITORE SRL 4.176,06
+ *   Banca 01234567890                         ← fine dello stato e partita IVA
+ *   Domiciliataria: 01030 38020
+ *   SALDO FATT 4214 MENO NC 4336 E 4307 8-   ← causale, anche su piu' righe
+ *   1852
+ * La causale spezzata a capo si ricuce senza spazio quando la riga finisce con
+ * un trattino («8-» + «1852» = «8-1852»). Provata sulle 9 distinte di ottobre 2026.
+ */
+export function leggiDistintaEffettiPagati(righe: string[]): DistintaRiba | null {
+  const testo = righe.map(norm)
+  if (!testo.some((r) => /^Distinta\s+Effetti\s+Pagati$/i.test(r))) return null
+  const campo = (re: RegExp): string | null => {
+    for (const r of testo) { const m = re.exec(r); if (m) return norm(m[1]) }
+    return null
+  }
+  const out: DistintaRiba = {
+    supporto: campo(/^Nome\s+supporto:\s*(\S+)/i),
+    dataCreazione: (() => { const d = campo(/^Data\s+creazione:\s*(\d{2}\/\d{2}\/\d{4})/i); return d ? itData(d) : null })(),
+    // «0103-0 38-020 -0000-0062-1460 - CONTO A PACCHETT»: le cifre sono ABI, CAB e conto.
+    conto: (() => { const c = campo(/^Conto\s+addebito:\s*([\d\s-]{15,}?)(?:\s+-\s+\D.*)?$/i); return c ? c.replace(/\D/g, '') : null })(),
+    stato: campo(/^Stato\s+distinta:\s*(.+)$/i),
+    totale: (() => { const t = campo(/^Totale\s+distinta:\s*(.+)$/i); return t ? itImporto(t) : null })(),
+    nDichiarate: (() => { const n = campo(/^Numero\s+disposizioni:\s*(\d+)/i); return n ? Number(n) : null })(),
+    disposizioni: [],
+  }
+
+  const RE_EFFETTO = /^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\S+)\s+(.+?)\s+(\d{1,3}(?:\.\d{3})*,\d{2})$/
+  const RE_PIEDE = /^(Stampa del\b|pag\.\s*\d+$)/i
+  type Blocco = { scad: string; importo: number; benef: string; vat: string | null; causale: string; dopoDomiciliataria: boolean }
+  let b: Blocco | null = null
+  const chiudi = () => {
+    if (!b) return
+    const causale = norm(b.causale)
+    const { fatture, noteCredito } = numeriDallaCausale(causale)
+    out.disposizioni.push({
+      row_no: out.disposizioni.length + 1,
+      beneficiario: b.benef || null,
+      vat: b.vat,
+      due_date: b.scad,
+      amount: b.importo,
+      causale,
+      fatture,
+      note_credito: noteCredito,
+    })
+    b = null
+  }
+  for (const r of testo) {
+    if (!r) continue
+    if (RE_PIEDE.test(r)) { chiudi(); continue }
+    const m = RE_EFFETTO.exec(r)
+    if (m) {
+      const scad = itData(m[2])
+      const importo = itImporto(m[5])
+      if (scad && importo != null) {
+        chiudi()
+        b = { scad, importo, benef: norm(m[4]), vat: null, causale: '', dopoDomiciliataria: false }
+        continue
+      }
+    }
+    if (!b) continue
+    if (!b.dopoDomiciliataria) {
+      if (/^Domiciliataria\b/i.test(r)) { b.dopoDomiciliataria = true; continue }
+      const iva = /(?:^|\s)(?:IT)?(\d{11})$/.exec(r)
+      if (iva && !b.vat) b.vat = iva[1]
+      continue
+    }
+    b.causale = b.causale.endsWith('-') ? b.causale + r : (b.causale ? `${b.causale} ${r}` : r)
+  }
+  chiudi()
+  return out
+}
+
 export type EsitoDistinta = {
   disposizioni: number
   totale: number
@@ -577,5 +676,35 @@ export function motivoNonSupportato(p: { nome: string; righe: string[]; dalPdf: 
   if (/ANALISI\s+SCADENZE\s+ATTIVE/i.test(testo)) {
     return 'È un prospetto del fornitore, non un documento della banca: non comanda sui pagamenti. Carica la distinta RiBa della banca.'
   }
+  // L'elenco delle distinte di MPS (Excel «Creazione · Supporto · N° · Stato · Rif.
+  // Operazione / Conto di Addebito»): dice quante distinte ci sono, non gli effetti.
+  if (/\bSupporto\b[\s\S]{0,80}\bRif\.?\s*Operazione\s*\/\s*Conto\s+di\s+Addebito/i.test(testo)) {
+    return 'È l\'elenco delle distinte RiBa di MPS: dice quante distinte ci sono, ma non i singoli effetti. Carica i PDF delle distinte, uno per ogni riga dell\'elenco.'
+  }
   return null
+}
+
+/**
+ * L'Excel dell'estratto conto che la BCC scarica difettoso: nella colonna «Data
+ * contabile» alcune date sono vere date e altre testo («29/10/2026»). Le prime la
+ * banca le ha scritte girando giorno e mese (02/11 diventa 11 febbraio) e negli
+ * stessi file gli importi perdono la virgola (0,70 diventa 70). Visto sugli Excel
+ * BCC di ottobre 2026: il file non si usa e si chiede il PDF dello stesso estratto.
+ */
+export function excelEstrattoDifettoso(fogli: unknown[][][]): boolean {
+  const RE_TESTO_DATA = /^\d{2}\/\d{2}\/\d{4}$/
+  for (const aoa of fogli) {
+    const iTesta = aoa.findIndex((r) => (r ?? []).some((c) => /^data\s+contabile$/i.test(norm(c))) && (r ?? []).some((c) => /^importo$/i.test(norm(c))))
+    if (iTesta < 0) continue
+    const col = (aoa[iTesta] ?? []).findIndex((c) => /^data\s+contabile$/i.test(norm(c)))
+    let date = 0
+    let testi = 0
+    for (const r of aoa.slice(iTesta + 1)) {
+      const c = (r ?? [])[col]
+      if (c instanceof Date || typeof c === 'number') date++
+      else if (typeof c === 'string' && RE_TESTO_DATA.test(c.trim())) testi++
+    }
+    if (date > 0 && testi > 0) return true
+  }
+  return false
 }
