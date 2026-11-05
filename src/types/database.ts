@@ -27156,6 +27156,16 @@ export type Database = {
       }
     }
     Functions: {
+      app_dipendente_chiedi_ferie: {
+        Args: { p_giorni: Json; p_note?: string }
+        Returns: string
+      }
+      app_dipendente_ferie: { Args: never; Returns: Json }
+      app_dipendente_periodo: { Args: { p_al: string; p_dal: string }; Returns: Json }
+      app_dipendente_ritira_ferie: {
+        Args: { p_request_id: string }
+        Returns: undefined
+      }
       app_accessi_elenco: {
         Args: { p_outlet_id: string }
         Returns: {
