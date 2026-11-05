@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migrazione 348 — Blocco dell'account di cassa sulle tabelle nate dopo la 172
+-- Migrazione 350 — Blocco dell'account di cassa sulle tabelle nate dopo la 172
 -- =====================================================================
 -- COSA MANCAVA: la 172 ha messo la policy RESTRICTIVE "cash_operator_block"
 -- solo sulle tabelle che esistevano il 04/09/2026. Le tabelle create dopo
@@ -31,6 +31,10 @@
 -- controlli delle chiusure, la cui policy di lettura gia' recinta la cassa
 -- sul proprio negozio). Le tabelle di backup (_bkp_*, *_backup_*) non hanno
 -- policy permissive: sono gia' invisibili all'API.
+--
+-- NUMERO: il file nasceva come 348; la 348 e la 349 sono della PR delle
+-- timbrature (#745), quindi qui e' 350. Sui tenant (NZ, Zago) e' registrata
+-- in supabase_migrations con il nome 20261105_348_cash_operator_block_tabelle_nuove.
 --
 -- PARITA' TENANT: dal 03/11/2026 NZ + Zago (niente Made).
 -- =====================================================================

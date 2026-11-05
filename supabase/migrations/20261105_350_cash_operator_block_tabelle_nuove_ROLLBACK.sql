@@ -1,6 +1,6 @@
--- ROLLBACK della migrazione 348: toglie "cash_operator_block" dalle 23 tabelle
--- a cui la 348 l'aveva aggiunta. Solo policy, nessun dato. Riapre all'account
--- di cassa la lettura via API di queste tabelle: usarlo solo se la 348 blocca
+-- ROLLBACK della migrazione 350: toglie "cash_operator_block" dalle 23 tabelle
+-- a cui la 350 l'aveva aggiunta. Solo policy, nessun dato. Riapre all'account
+-- di cassa la lettura via API di queste tabelle: usarlo solo se la 350 blocca
 -- qualcosa che la chiusura di cassa deve vedere.
 DO $$
 DECLARE
