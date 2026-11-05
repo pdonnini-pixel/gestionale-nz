@@ -12,11 +12,16 @@
     "test": "npx --yes vitest run src"
   },
   "dependencies": {
+    "@capacitor-firebase/messaging": "7.4.0",
+    "@capacitor/android": "7.6.9",
+    "@capacitor/core": "7.6.9",
+    "@capacitor/ios": "7.6.9",
     "@netlify/functions": "^5.2.0",
     "@supabase/supabase-js": "^2.101.1",
     "@types/qrcode": "^1.5.5",
     "exceljs": "^4.4.0",
     "fast-xml-parser": "^5.7.1",
+    "firebase": "11.10.0",
     "jspdf": "^2.5.2",
     "jspdf-autotable": "^3.8.4",
     "jszip": "^3.10.1",
@@ -32,6 +37,7 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@capacitor/cli": "7.6.9",
     "@tailwindcss/vite": "^4.2.2",
     "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",

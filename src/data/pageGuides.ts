@@ -1159,7 +1159,7 @@ export const PAGE_GUIDES: PageGuide[] = [
         "steps": [
           "Scegli il negozio e il giorno in alto.",
           "Nel riquadro «Timbrature del negozio» accendi «Timbrature attive»: da quel momento il cellulare aziendale del negozio, aperto sull'indirizzo /timbra con l'account di cassa, fa da timbratrice.",
-          "Accendi «Avviso WhatsApp» se vuoi che chi a fine turno più il margine risulta ancora dentro riceva un messaggio (uno solo per turno). Serve il suo numero nella tabella «App del dipendente».",
+          "Nel riquadro «Avvisi sul telefono (app New Zago)» accendi gli avvisi del negozio e scegli: avviso di ritardo se l'entrata manca dopo un certo numero di minuti dall'inizio del turno (15 di partenza), avviso di uscita non timbrata dopo il margine di fine turno, e chi li riceve (il dipendente, il responsabile del negozio indicato in Outlet, l'ufficio con una notifica nel gestionale). Ogni turno riceve al massimo un avviso per tipo. Gli avvisi arrivano a chi ha installato l'app New Zago dagli store e ha accettato le notifiche; nella tabella «App del dipendente» vedi chi ha le notifiche attive.",
           "Le uscite segnate dal dipendente dalla sua app compaiono come «da confermare»: premi «Conferma» se l'ora è giusta.",
           "Una timbratura sbagliata si annulla con «Annulla» e un motivo: resta nello storico, non si cancella."
         ]
@@ -1176,7 +1176,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Un dipendente esce 20 minuti dopo la fine del turno: è straordinario?",
-        "a": "No, se il negozio ha il margine di 30 minuti (quello di partenza): entro il margine non è straordinario e non parte l'avviso WhatsApp. Oltre il margine la scheda Presenze lo segnala come straordinario da guardare."
+        "a": "No, se il negozio ha il margine di 30 minuti (quello di partenza): entro il margine non è straordinario e non parte l'avviso di uscita. Oltre il margine la scheda Presenze lo segnala come straordinario da guardare."
       },
       {
         "q": "Se al negozio manca la rete, le timbrature si perdono?",

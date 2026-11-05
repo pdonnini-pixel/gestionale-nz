@@ -16,6 +16,7 @@ import {
   PASSO_SECONDI, type Timbratura, type TipoTimbratura,
 } from '../lib/timbrature'
 import { attivaOffline } from '../lib/presenzeOffline'
+import { attivaNotifiche, eAppNativa, type EsitoNotifiche } from '../lib/pushNativo'
 
 // Le schede si caricano quando servono (la prima apertura resta leggera)
 const AppTurni = lazy(() => import('../components/app/AppTurni'))
@@ -126,6 +127,15 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const [oraUscita, setOraUscita] = useState('')
   const [messaggio, setMessaggio] = useState<{ ok: boolean; testo: string } | null>(null)
   const [scheda, setScheda] = useState<Scheda>('oggi')
+  const [notifiche, setNotifiche] = useState<EsitoNotifiche | null>(null)
+
+  // App degli store: notifiche push (ritardo, uscita non timbrata). Toccando
+  // la notifica si apre la scheda indicata.
+  useEffect(() => {
+    if (!eAppNativa()) return
+    attivaNotifiche((s) => setScheda((['oggi', 'turni', 'ferie', 'ore'].includes(s) ? s : 'oggi') as Scheda))
+      .then(setNotifiche).catch(() => setNotifiche('non_disponibili'))
+  }, [])
 
   useEffect(() => { const t = setInterval(() => setAdesso(Date.now()), 1000); return () => clearInterval(t) }, [])
   const passo = Math.floor(adesso / 1000 / PASSO_SECONDI)
@@ -205,6 +215,11 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
       {scheda === 'ore' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppOre /></Suspense>}
 
       {scheda === 'oggi' && (<>
+      {notifiche === 'negate' && (
+        <p className="w-full max-w-sm text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3">
+          Le notifiche sono spente: non ti arrivano gli avvisi di entrata e uscita. Accendile nelle impostazioni del telefono, alla voce New Zago.
+        </p>
+      )}
       {/* QR */}
       <div className="w-full max-w-sm bg-white rounded-2xl shadow p-5 flex flex-col items-center gap-2">
         {qr ? <img src={qr} alt="Il tuo codice per timbrare" className="w-64 h-64" /> : <RefreshCw className="animate-spin text-slate-400 my-24" />}

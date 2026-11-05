@@ -570,6 +570,7 @@ try {
 | `PAGHE_NOTES.md` | **Obbligatorio per i file dello studio paghe** (Dipendenti → Costi & cedolini / Costo lordo, tabelle `payroll_*`): zona unica di caricamento, stipendi pagati legati alle buste, F24 del personale dal Prospetto |
 | `PIANO_FERIE_NOTES.md` | **Obbligatorio per ferie e permessi** (tabelle `leave_*`, scheda Ferie di Dipendenti): i saldi si leggono dal tabulato delle paghe, il conto è in ore, come si evita il doppio conteggio |
 | `TIMBRATURE_NOTES.md` | **Obbligatorio per timbrature e presenze** (tabelle `attendance_*`, `employee_app_access`, pagine `/timbra` e `/app`): QR firmato, coda offline, margine d'uscita di 30 minuti, avviso WhatsApp |
+| `APP_NATIVA_NOTES.md` | **Obbligatorio per l'app New Zago degli store** (Capacitor, `android/`, `ios/`, notifiche push Firebase): account EPPI, file Firebase, build e pubblicazione |
 | `ORGANICO_TURNI_NOTES.md` | **Obbligatorio per organico di oggi, turni e piano ferie** (tabelle `employee_events`, `outlet_opening_hours`, `outlet_staffing_needs`, `outlet_special_days`, `outlet_shift_rules`, `shifts`): la scheda non si modifica, si segnano i cambiamenti; il fabbisogno lo decide solo Patrizio |
 | `AZIONI_PATRIZIO_Parallele.md` | Piano azioni manuali per Patrizio (credenziali, accreditamenti) |
 | `MIGRATION_NOTES.md` | Dettagli migrazione JS→TS del frontend |
