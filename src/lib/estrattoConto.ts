@@ -329,9 +329,75 @@ export function parseRelaxBanking(lines: string[]): EcParsed {
   return { rows, columns: null, warnings, segnoNoto: true, saldi }
 }
 
+// PDF «Movimenti con data contabile dal … al …» di MPS (PasKey), lo stesso
+// estratto dell'Excel ma su decine di pagine: «contabile valuta importo CS
+// causale», con la causale che continua sulle righe sotto. Le colonne dare e
+// avere nel testo si perdono, quindi il segno resta da decidere come negli altri
+// PDF. Ogni pagina ripete l'intestazione e chiude con «Riporti» e «Stampa del».
+// Prima del 05/11/2026 non si leggeva nessuna riga: con le causali nel testo
+// libero («NEXI PAYMENTS SPA») il file veniva preso per un estratto commissioni.
+const RE_MPS_INTESTAZIONE = /^DATA CONT\.?\s+VALUTA\s+MOV\.?\s+DARE\s+MOV\.?\s+AVERE\b/i
+// La causale breve (CS) e' di due caratteri, cifre o lettere («09», «48», «ZP»).
+const RE_MPS_ROW = /^(\d{2}\/\d{2}\/\d{4})\s+(\d{2}\/\d{2}\/\d{4})\s+(\d{1,3}(?:\.\d{3})*,\d{2})\s+([0-9A-Z]{2})(?:\s+(.*))?$/
+const RE_MPS_SALDO = /^(\d{2}\/\d{2}\/\d{4})\s+(-?\d{1,3}(?:\.\d{3})*,\d{2}-?)\s+SALDO\s+(INIZIALE|FINALE)\b/i
+const RE_MPS_PIEDE = /(?:^|\s)Riporti$|^Stampa del\b|^pag\.\s*\d+$/i
+
+export function isMpsMovimenti(lines: string[]): boolean {
+  return lines.some((l) => RE_MPS_INTESTAZIONE.test(norm(l)))
+}
+
+export function parseMpsMovimenti(lines: string[]): EcParsed {
+  const rows: EcRow[] = []
+  const saldi: { iniziale: number | null; finale: number | null } = { iniziale: null, finale: null }
+  let inCorpo = false
+  let corrente: (EcRow & { parti: string[] }) | null = null
+  const chiudi = () => {
+    if (!corrente) return
+    const { parti, ...r } = corrente
+    r.description = norm(parti.join(' ')) || 'Movimento senza descrizione'
+    r.flusso_cbi = flussoCbiDi(r.description)
+    rows.push(r)
+    corrente = null
+  }
+  for (const raw of lines) {
+    const l = norm(raw)
+    if (!l) continue
+    if (RE_MPS_INTESTAZIONE.test(l)) { chiudi(); inCorpo = true; continue }
+    if (RE_MPS_PIEDE.test(l)) { chiudi(); inCorpo = false; continue }
+    // Il saldo finale arriva dopo l'ultimo «Riporti», fuori dal corpo della pagina.
+    const sa = RE_MPS_SALDO.exec(l)
+    if (sa) {
+      chiudi()
+      let t = sa[2]
+      if (t.endsWith('-')) t = '-' + t.slice(0, -1)
+      const v = parseAmountCell(t)
+      if (/INIZIALE/i.test(sa[3])) saldi.iniziale = v
+      else saldi.finale = v
+      continue
+    }
+    if (!inCorpo) continue
+    const m = RE_MPS_ROW.exec(l)
+    if (m) {
+      const date = parseDateCell(m[1])
+      const amount = parseAmountCell(m[3])
+      if (date && amount != null && amount !== 0) {
+        chiudi()
+        corrente = { date, value_date: parseDateCell(m[2]), amount, description: '', flusso_cbi: null, parti: m[5] ? [m[5]] : [] }
+        continue
+      }
+    }
+    if (corrente) corrente.parti.push(l)
+  }
+  chiudi()
+  const warnings: string[] = []
+  if (rows.length === 0) warnings.push('Nel PDF MPS non ho riconosciuto nessun movimento.')
+  return { rows, columns: null, warnings, saldi }
+}
+
 /** Estratto conto in PDF: una riga per movimento, importo in coda. */
 export function parseEcLines(lines: string[]): EcParsed {
   if (isRelaxBanking(lines)) return parseRelaxBanking(lines)
+  if (isMpsMovimenti(lines)) return parseMpsMovimenti(lines)
   const rows: EcRow[] = []
   const warnings: string[] = []
   for (const raw of lines) {

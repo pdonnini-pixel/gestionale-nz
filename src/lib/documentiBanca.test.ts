@@ -5,7 +5,7 @@ import {
   ibanNelTesto, trovaConto, classificaDocumento, saldiDichiarati, periodoDelle,
   righePerDb, leggiEstratto, fraseEsito, chiusuraCaricamento, normIban, numeroConto, righeIntestazione,
   contoDaiMovimenti, leggiDistintaMps, numeriDallaCausale, fraseEsitoDistinta, righeCartaPerDb,
-  fraseEsitoCarta, motivoNonSupportato, type ContoLite,
+  fraseEsitoCarta, motivoNonSupportato, excelEstrattoDifettoso, type ContoLite,
 } from './documentiBanca'
 
 const IBAN_A = 'IT60X0542811101000000123456'
@@ -281,5 +281,156 @@ describe('cosa non si carica qui', () => {
     expect(motivoNonSupportato({ nome: 'DISTINTA VERSAMENTO NEGOZIO.pdf', righe: ['Versamento contanti presso la filiale numero 1 di prova'], dalPdf: true })).toMatch(/versamento contanti/)
     expect(motivoNonSupportato({ nome: 'f.pdf', righe: ['ANALISI SCADENZE ATTIVE', 'Da data scadenza: 31/08/2026 fino al 31/08/2026'], dalPdf: true })).toMatch(/prospetto del fornitore/)
     expect(motivoNonSupportato({ nome: 'ec.xls', righe: ['Data Valuta Dare Avere'], dalPdf: false })).toBeNull()
+  })
+})
+
+// La «Distinta Effetti Pagati» di MPS (NEW PasKey Base), come la stampa da ottobre
+// 2026. Fornitori, partite IVA e numeri inventati.
+const DISTINTA_EFFETTI = [
+  'BANCA DI PROVA S.P.A. NEW PasKey Base',
+  'Distinta Effetti Pagati',
+  'Ordinante: AZIENDA DI PROVA S.R.L.',
+  'Conto addebito: 0542-8 11-101 -0000-0012-3456 - CONTO A PACCHETT',
+  'Data creazione: 29/10/2026',
+  'Nome supporto: 555000111',
+  'Numero disposizioni: 3',
+  'Stato distinta: Ricevuta Banca',
+  'Totale distinta: 1.300,50 EUR',
+  'Descrizione: FORNITORI SCAD. 31/10/2026',
+  'Creditore',
+  'Data Scadenza Stato Banca Domiciliataria Importo',
+  'Rif. operazione',
+  '29/10/2026 31/10/2026 Ricevuta ALFA TESSUTI S.R.L. 1.000,00',
+  'Banca 01234567890',
+  'Domiciliataria: 01030 38020',
+  'SALDO FATT N 4340 MENO NC 4336 E 4307',
+  '29/10/2026 31/10/2026 Ricevuta BETA SPEDIZIONI SPA MILANO 200,25',
+  'Banca 09876543210',
+  'Domiciliataria: 01030 38020',
+  'Rif- 8-1846 8-1847 8-1848 8-1849 8-1850 8-1851 8-',
+  '1852',
+  'Stampa del 02/11/2026',
+  'pag. 1',
+  '29/10/2026 10/11/2026 Ricevuta GAMMA SRL 100,25',
+  'Banca 11122233344',
+  'Domiciliataria: 01030 38020',
+  '872FV-95NC',
+]
+
+describe('distinta RiBa MPS «Distinta Effetti Pagati»', () => {
+  it('legge testata ed effetti, anche con la causale spezzata a capo e su due pagine', () => {
+    const d = leggiDistintaMps(DISTINTA_EFFETTI)
+    expect(d).not.toBeNull()
+    expect(d!.supporto).toBe('555000111')
+    expect(d!.dataCreazione).toBe('2026-10-29')
+    expect(d!.conto).toBe('0542811101000000123456')
+    expect(d!.stato).toBe('Ricevuta Banca')
+    expect(d!.totale).toBe(1300.5)
+    expect(d!.nDichiarate).toBe(3)
+    expect(d!.disposizioni).toHaveLength(3)
+    expect(d!.disposizioni[0]).toMatchObject({ beneficiario: 'ALFA TESSUTI S.R.L.', vat: '01234567890', due_date: '2026-10-31', amount: 1000, fatture: ['4340'], note_credito: ['4336', '4307'] })
+    expect(d!.disposizioni[1]).toMatchObject({ amount: 200.25, causale: 'Rif- 8-1846 8-1847 8-1848 8-1849 8-1850 8-1851 8-1852' })
+    expect(d!.disposizioni[1].fatture).toEqual(['1846', '1847', '1848', '1849', '1850', '1851', '1852'])
+    expect(d!.disposizioni[2]).toMatchObject({ due_date: '2026-11-10', vat: '11122233344', fatture: ['872'], note_credito: ['95'] })
+    const somma = d!.disposizioni.reduce((a, x) => a + Math.round(x.amount * 100), 0) / 100
+    expect(somma).toBe(d!.totale)
+  })
+  it('una causale che continua dopo il cambio pagina resta intera', () => {
+    const righe = [
+      'Distinta Effetti Pagati',
+      'Nome supporto: 555000222',
+      'Totale distinta: 50,00 EUR',
+      '29/10/2026 31/10/2026 Ricevuta DELTA SRL 50,00',
+      'Banca 12312312312',
+      'Domiciliataria: 01030 38020',
+      'SALDO FATT 101 102',
+      'Stampa del 02/11/2026',
+      'pag. 1',
+      'BANCA DI PROVA S.P.A. NEW PasKey Base',
+      'Distinta Effetti Pagati',
+      'Nome supporto: 555000222',
+      'Data Scadenza Stato Banca Domiciliataria Importo',
+      'Rif. operazione',
+      '103',
+    ]
+    const d = leggiDistintaMps(righe)!
+    expect(d.disposizioni).toHaveLength(1)
+    expect(d.disposizioni[0].fatture).toEqual(['101', '102', '103'])
+  })
+  it('la vecchia distinta di ritiro si legge ancora come prima', () => {
+    expect(leggiDistintaMps(DISTINTA_MPS)?.disposizioni).toHaveLength(2)
+  })
+})
+
+describe('numeri dalla causale, casi delle distinte di ottobre 2026', () => {
+  it('le date scritte con spazi o senza separatore non sono fatture', () => {
+    expect(numeriDallaCausale('201 RB20260010863656 DOC.N.000526199 DEL 30- 09-26').fatture).toEqual(['201', '526199'])
+    expect(numeriDallaCausale('fattura n 208-2026 del 27 08 2026').fatture).toEqual(['208'])
+  })
+  it('gli importi non sono fatture', () => {
+    expect(numeriDallaCausale('NS.FATTURA N. 964090 DEL 30-09-26 DI 345,32 EURO*').fatture).toEqual(['964090'])
+  })
+  it('numeri attaccati: «872FV-95NC», «FATTURE26102973», «MILR001929410»', () => {
+    expect(numeriDallaCausale('872FV-95NC')).toEqual({ fatture: ['872'], noteCredito: ['95'] })
+    expect(numeriDallaCausale('FATTURE26102973 - 1*').fatture).toEqual(['26102973'])
+    expect(numeriDallaCausale('. REF.INVOICE MILR001929410 30.09.2026').fatture).toEqual(['1929410'])
+  })
+  it('fatture separate da virgola restano fatture: solo gli importi scritti come tali si tolgono', () => {
+    expect(numeriDallaCausale('FATT 12,13,14').fatture).toEqual(['12', '13', '14'])
+    expect(numeriDallaCausale('FATTURE 23,24 E 30').fatture).toEqual(['23', '24', '30'])
+    expect(numeriDallaCausale('FT 501 IMPORTO 1.234,56').fatture).toEqual(['501'])
+  })
+  it('una fattura scritta prima di «NC» con lo spazio resta una fattura', () => {
+    expect(numeriDallaCausale('SALDO FATT N 4340 NC 4336')).toEqual({ fatture: ['4340'], noteCredito: ['4336'] })
+  })
+})
+
+describe('Excel e PDF che non vanno', () => {
+  it('l\'elenco delle distinte MPS non contiene gli effetti: si chiedono i PDF', () => {
+    const righe = ['Creazione Supporto N° Stato Rif. Operazione / Conto di Addebito Tipo Ori. Pdf Div. Importo', '555000111 1 Ricevuta Banca FORNITORE SCAD. 31/10/2026 P M EUR 338']
+    expect(motivoNonSupportato({ nome: 'RI.BA SCAD.xls', righe, dalPdf: false })).toMatch(/elenco delle distinte/)
+  })
+  it('Excel BCC con date vere e date scritte nella stessa colonna: difettoso', () => {
+    const foglio = [
+      ['Data contabile', 'Data valuta', 'Importo', 'Descrizione', 'Note'],
+      [new Date(2026, 1, 11), new Date(2026, 1, 11), -70, 'Commissioni su bonifico'],
+      [new Date(2026, 1, 11), new Date(2026, 1, 11), -51899, 'Bonifico'],
+      ['28/10/2026', '28/10/2026', 1.835, 'Versamento contante'],
+      ['26/10/2026', '26/10/2026', -70, 'Commissioni su bonifico'],
+    ]
+    expect(excelEstrattoDifettoso([foglio])).toBe(true)
+  })
+  it('una sola riga scritta in mezzo a date vere (un totale) non basta a rifiutare il file', () => {
+    expect(excelEstrattoDifettoso([[['Data contabile', 'Importo'], [new Date(2026, 9, 1), 10], [new Date(2026, 9, 2), -5], ['31/10/2026', 5]]])).toBe(false)
+  })
+  it('Excel con tutte date vere (MPS, Intesa) o tutte scritte: va bene', () => {
+    expect(excelEstrattoDifettoso([[['Data contabile', 'Importo'], [new Date(2026, 9, 1), 10], [new Date(2026, 9, 2), -5]]])).toBe(false)
+    expect(excelEstrattoDifettoso([[['Data contabile', 'Importo'], ['01/10/2026', '10,00'], ['02/10/2026', '-5,00']]])).toBe(false)
+  })
+})
+
+describe('estratto MPS in PDF, causali su piu\' righe', () => {
+  it('l\'IBAN scritto con i trattini si riconosce', () => {
+    expect(ibanNelTesto('IBAN : IT60-X054-2811-1010-0000-0123-456 - CONTO A PACCHETT')).toEqual([IBAN_A])
+  })
+  it('i pezzi di causale non decidono il tipo: «Nexi Payments» dentro un movimento', () => {
+    const righe = [
+      'IBAN : IT60-X054-2811-1010-0000-0123-456 - CONTO A PACCHETT',
+      'DATA CONT. VALUTA MOV. DARE MOV. AVERE CS. DESCRIZIONE OPERAZIONI',
+      '01/10/2026 100,00 SALDO INIZIALE',
+      '01/10/2026 01/10/2026 12,50 50 ADDEBITO DIRETTO SDD',
+      'NEXI PAYMENTS SPA CODICE MANDATO',
+      '02/10/2026 02/10/2026 40,00 09 INCASSO TRAMITE P.O.S.',
+      '087-00007 300926 NEGOZIO DI PROVA',
+      '120,00 52,50 Riporti',
+      '02/10/2026 127,50 SALDO FINALE',
+    ]
+    const parsed = leggiEstratto({ righePdf: righe })
+    expect(parsed.rows).toHaveLength(2)
+    const int = righeIntestazione(righe, parsed.rows)
+    expect(int.join(' ')).not.toMatch(/NEXI/)
+    const conto = trovaConto(int.join('\n'), conti)
+    expect(conto?.id).toBe('a-ob')
+    expect(classificaDocumento({ testo: righe.join('\n'), righe, conto, righeEstratto: parsed.rows.length, intestazione: int })).toBe('estratto_conto')
   })
 })
