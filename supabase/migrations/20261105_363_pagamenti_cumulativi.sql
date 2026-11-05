@@ -116,7 +116,10 @@ BEGIN
     WHERE cnt = v_n
       AND (abs(v_mov - tot - 0.40 * v_n) <= 0.01 OR abs(v_mov - tot) <= 0.01)
   )
-  SELECT count(*), (array_agg(ids))[1] INTO v_sets, v_lines FROM (SELECT ids FROM ok LIMIT 2) z;
+  -- Una riga per combinazione; con LIMIT 2 si sa se è una sola. (array_agg su un
+  -- uuid[] darebbe un array a due dimensioni: si prende la riga, non l'aggregato.)
+  SELECT z.ids, count(*) OVER () INTO v_lines, v_sets FROM (SELECT ids FROM ok LIMIT 2) z LIMIT 1;
+  v_sets := COALESCE(v_sets, 0);
   IF v_sets <> 1 THEN
     RETURN jsonb_build_object('matched', false, 'reason',
       CASE WHEN v_sets = 0 THEN 'no_combination' ELSE 'ambiguous' END);
@@ -155,6 +158,9 @@ BEGIN
     UPDATE public.riba_distinta_lines SET match_status = 'confirmed' WHERE id = v_line.id AND match_status = 'matched';
   END LOOP;
 
+  IF v_linked = 0 THEN
+    RAISE EXCEPTION 'effetti ritirati %: combinazione trovata ma nessuna rata da agganciare', p_bt_id;
+  END IF;
   UPDATE public.reconciliation_log SET status = 'rejected',
     notes = COALESCE(notes, '') || ' | archiviata: addebito degli effetti ritirati (363)'
   WHERE bank_transaction_id = p_bt_id AND status = 'to_confirm';
@@ -224,6 +230,7 @@ BEGIN
     IF v_sup.n > 14 THEN
       RETURN jsonb_build_object('matched', false, 'reason', 'too_many_candidates', 'candidates', v_sup.n);
     END IF;
+    v_cnt := 0; v_set_ids := NULL;
     WITH RECURSIVE combo AS (
       SELECT c.k, ARRAY[c.id] AS ids, c.amt AS tot FROM _sdd_cand c WHERE c.supplier_id = v_sup.supplier_id
       UNION ALL
@@ -231,9 +238,10 @@ BEGIN
       FROM combo JOIN _sdd_cand c ON c.supplier_id = v_sup.supplier_id AND c.k > combo.k
       WHERE combo.tot + c.amt <= v_mov + 0.01
     )
-    SELECT count(*), (array_agg(ids))[1] INTO v_cnt, v_set_ids
-    FROM (SELECT ids FROM combo WHERE abs(tot - v_mov) <= 0.01 LIMIT 2) z;
-    v_sets := v_sets + COALESCE(v_cnt, 0);
+    SELECT z.ids, count(*) OVER () INTO v_set_ids, v_cnt
+    FROM (SELECT ids FROM combo WHERE abs(tot - v_mov) <= 0.01 LIMIT 2) z LIMIT 1;
+    v_cnt := COALESCE(v_cnt, 0);
+    v_sets := v_sets + v_cnt;
     IF v_cnt = 1 THEN v_ids := v_set_ids; END IF;
     EXIT WHEN v_sets > 1;
   END LOOP;
@@ -260,6 +268,9 @@ BEGIN
     v_linked := v_linked + 1;
   END LOOP;
 
+  IF v_linked = 0 THEN
+    RAISE EXCEPTION 'addebito diretto %: combinazione trovata ma nessuna rata da agganciare', p_bt_id;
+  END IF;
   UPDATE public.reconciliation_log SET status = 'rejected',
     notes = COALESCE(notes, '') || ' | archiviata: addebito diretto cumulativo (363)'
   WHERE bank_transaction_id = p_bt_id AND status = 'to_confirm';
@@ -280,25 +291,32 @@ CREATE OR REPLACE FUNCTION public.rerun_cumulative_reconciliation()
  SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp', 'extensions'
 AS $function$
-DECLARE r RECORD; v_proc int := 0; v_eff int := 0; v_sdd int := 0; v_linked int := 0; v_res jsonb;
+DECLARE r RECORD; v_proc int := 0; v_eff int := 0; v_sdd int := 0; v_linked int := 0; v_err int := 0; v_res jsonb;
 BEGIN
   FOR r IN SELECT id FROM public.bank_transactions
            WHERE amount < 0 AND status IN ('posted', 'booked') AND COALESCE(is_reconciled, false) = false
              AND transaction_date >= current_date - 180
            ORDER BY transaction_date, id LOOP
     v_proc := v_proc + 1;
-    v_res := public.try_match_effetti_ritirati_bank_transaction(r.id);
-    IF COALESCE((v_res->>'matched')::boolean, false) THEN
-      v_eff := v_eff + 1; v_linked := v_linked + COALESCE((v_res->>'linked')::int, 0);
-      CONTINUE;
-    END IF;
-    v_res := public.try_match_sdd_sum_bank_transaction(r.id);
-    IF COALESCE((v_res->>'matched')::boolean, false) THEN
-      v_sdd := v_sdd + 1; v_linked := v_linked + COALESCE((v_res->>'linked')::int, 0);
-    END IF;
+    -- Ogni movimento nel suo blocco: un errore annulla solo quel movimento e il
+    -- giro notturno continua.
+    BEGIN
+      v_res := public.try_match_effetti_ritirati_bank_transaction(r.id);
+      IF COALESCE((v_res->>'matched')::boolean, false) THEN
+        v_eff := v_eff + 1; v_linked := v_linked + COALESCE((v_res->>'linked')::int, 0);
+        CONTINUE;
+      END IF;
+      v_res := public.try_match_sdd_sum_bank_transaction(r.id);
+      IF COALESCE((v_res->>'matched')::boolean, false) THEN
+        v_sdd := v_sdd + 1; v_linked := v_linked + COALESCE((v_res->>'linked')::int, 0);
+      END IF;
+    EXCEPTION WHEN OTHERS THEN
+      v_err := v_err + 1;
+      RAISE WARNING 'rerun_cumulative_reconciliation %: %', r.id, SQLERRM;
+    END;
   END LOOP;
   RETURN jsonb_build_object('processed', v_proc, 'effetti_ritirati', v_eff, 'addebiti_diretti', v_sdd,
-                            'rate_agganciate', v_linked);
+                            'rate_agganciate', v_linked, 'errori', v_err);
 END;
 $function$;
 
