@@ -1,5 +1,23 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🧾 S.B.A. srl: DA 2 RATE A RATA UNICA 60 GG FINE MESE (2026-11-05) - FATTO
+>
+> **Il caso.** Le fatture S.B.A. (P.IVA 03507621211) non portano `DatiPagamento`, quindi
+> le scadenze nascevano dal piano della scheda fornitore: 2 rate, prima a 60 gg fine mese,
+> seconda 30 giorni dopo. Le distinte RiBa del 2026 mostravano effetti a meta' (1301FV,
+> 1242-1246FV, 343FV, 872FV-95NC al 31/10), ma Patrizio ha confermato che l'accordo e'
+> **60 gg fine mese in un'unica scadenza**.
+>
+> **Fatto (migration `NZ_ONLY_20261105_362`, solo UPDATE, backup in
+> `_bkp_sba_rata_unica_20261105` e `_bkp_sba_fornitore_20261105`, senza accesso API).**
+> Scheda fornitore a 1 rata 60 gg fine mese. Fatture 890, 965, 983, 1056, 1067, 1092,
+> 1095, 1111 (nessun acconto, movimento, distinta o proposta collegata): rata 1 con
+> l'intero importo, rata 2 annullata. La 872 resta in due meta' perche' la prima e' gia'
+> passata in distinta il 31/10. Rollback nel file `_ROLLBACK` a fianco.
+>
+> **Da sapere.** Se una prossima distinta S.B.A. torna a meta' importo, l'accordo vero e'
+> ancora a 2 rate: segnalarlo a Patrizio prima di toccare la scheda.
+
 
 
 
@@ -1921,3 +1939,27 @@ UI: spunta nella scheda fornitore, scheda Pagamenti, visibile solo con modalità
 esiste (Made non ha la migration: la spunta non compare e il salvataggio non invia il campo).
 Prova del 05/11 su NZ in transazione annullata (fattura TFV clonata al 01/01/2027, piano data fattura 0/3):
 spunta accesa → 3 rate RID 01/01, 31/01, 02/03 con addebito automatico; spenta → rata unica come prima.
+
+## Un bonifico per più fatture, col solo nome in causale (05/11/2026, migration 362)
+
+Caso: Corte delle Fucine Srl, bonifico BCC del 20/10/2026 da 153,00 €, causale «... BEN
+CORTE DELLE FUCINE SRL». Fatture 2746 (151,00 €) e 2747 (2,00 €) del 22/10/2026.
+Nessun motore lo prendeva: i motori di gruppo vogliono i numeri delle fatture in causale.
+Collegato a mano il 05/11 con `reconcile_movement_group`.
+
+Regola dalla 362 (`try_match_group_name_bank_transaction`, solo nel giro notturno, dopo
+gli altri due motori di gruppo): fornitore nominato in causale; si prendono **tutte** le
+sue scadenze aperte con data fattura fino a 15 giorni dopo il bonifico; se sono almeno
+due e la somma è esatta (±0,02), e un solo fornitore soddisfa la regola, si chiudono.
+Niente combinazioni scelte fra le scadenze: se il fornitore ha altre fatture aperte la
+somma non torna e non succede niente. Le coppie rifiutate da una persona non si toccano.
+
+Nella stessa sessione sono state rifiutate a mano quattro proposte che puntavano al
+fornitore sbagliato (Logiscenter 06/10 e 02/11 verso Gruppo Servizi Associati, Regina
+Hotel 21/10 verso Mondoffice, Multitec 26/10 verso Amazon). Logiscenter è spagnolo: dallo
+SDI arriva solo il TD18 di integrazione IVA, che non diventa scadenza.
+
+Applicata su NZ e Zago il 05/11/2026. Prove in transazione annullata: sul caso Corte
+delle Fucine ricostruito (scadenze riaperte) la funzione chiude 2746 e 2747 da sola;
+sui movimenti aperti di NZ 0 agganci nuovi, 0,7 secondi ogni 100 movimenti (circa 3
+secondi in più a notte su 372).

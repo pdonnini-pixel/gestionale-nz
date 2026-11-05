@@ -13028,6 +13028,180 @@ export type Database = {
           },
         ]
       }
+      closing_check_runs: {
+        Row: {
+          company_id: string
+          error: string | null
+          finished_at: string | null
+          id: string
+          mail_sent_at: string | null
+          recipients: string[]
+          request_id: number | null
+          run_date: string
+          started_at: string
+          status: string
+          summary: Json | null
+        }
+        Insert: {
+          company_id: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          mail_sent_at?: string | null
+          recipients?: string[]
+          request_id?: number | null
+          run_date: string
+          started_at?: string
+          status?: string
+          summary?: Json | null
+        }
+        Update: {
+          company_id?: string
+          error?: string | null
+          finished_at?: string | null
+          id?: string
+          mail_sent_at?: string | null
+          recipients?: string[]
+          request_id?: number | null
+          run_date?: string
+          started_at?: string
+          status?: string
+          summary?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "closing_check_runs_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      closing_checks: {
+        Row: {
+          action: string | null
+          amount: number | null
+          closing_date: string
+          closing_id: string | null
+          company_id: string
+          created_at: string
+          detail: string
+          fingerprint: string
+          id: string
+          kind: string
+          message_error: string | null
+          message_sent_at: string | null
+          message_text: string | null
+          message_to: string | null
+          outcome: string
+          outlet_id: string | null
+          reason: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          undo_data: Json | null
+          undo_kind: string | null
+          undone_at: string | null
+          undone_by: string | null
+          updated_at: string
+        }
+        Insert: {
+          action?: string | null
+          amount?: number | null
+          closing_date: string
+          closing_id?: string | null
+          company_id: string
+          created_at?: string
+          detail: string
+          fingerprint: string
+          id?: string
+          kind: string
+          message_error?: string | null
+          message_sent_at?: string | null
+          message_text?: string | null
+          message_to?: string | null
+          outcome?: string
+          outlet_id?: string | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          undo_data?: Json | null
+          undo_kind?: string | null
+          undone_at?: string | null
+          undone_by?: string | null
+          updated_at?: string
+        }
+        Update: {
+          action?: string | null
+          amount?: number | null
+          closing_date?: string
+          closing_id?: string | null
+          company_id?: string
+          created_at?: string
+          detail?: string
+          fingerprint?: string
+          id?: string
+          kind?: string
+          message_error?: string | null
+          message_sent_at?: string | null
+          message_text?: string | null
+          message_to?: string | null
+          outcome?: string
+          outlet_id?: string | null
+          reason?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          undo_data?: Json | null
+          undo_kind?: string | null
+          undone_at?: string | null
+          undone_by?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "closing_checks_closing_id_fkey"
+            columns: ["closing_id"]
+            isOneToOne: false
+            referencedRelation: "outlet_daily_closings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_checks_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_checks_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "outlets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "closing_checks_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_bp_vs_actual_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "closing_checks_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_business_plan_outlet"
+            referencedColumns: ["outlet_id"]
+          },
+          {
+            foreignKeyName: "closing_checks_outlet_id_fkey"
+            columns: ["outlet_id"]
+            isOneToOne: false
+            referencedRelation: "v_outlet_card"
+            referencedColumns: ["outlet_id"]
+          },
+        ]
+      }
       companies: {
         Row: {
           created_at: string | null
@@ -28049,6 +28223,7 @@ export type Database = {
         Args: { p_plan_id: string }
         Returns: undefined
       }
+      undo_closing_check: { Args: { p_check_id: string }; Returns: Json }
       undo_reconcile_fiscal_deadline: {
         Args: { p_fiscal_id: string }
         Returns: Json
