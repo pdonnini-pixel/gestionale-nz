@@ -71,6 +71,9 @@ const EMPTY_FORM = {
   // Utenza con addebito permanente (RID/SDD): i suoi addebiti senza fattura si chiudono
   // automaticamente come "utenza" (categoria utenze), senza agganciarli a una fattura.
   is_utility: false,
+  // Il piano del fornitore vale anche quando la fattura scrive termini diversi
+  // (migration 356). Spenta = valgono le scadenze scritte in fattura.
+  plan_overrides_invoice: false,
 };
 
 const CATEGORIES = [
@@ -160,6 +163,8 @@ export default function Fornitori() {
   type SupplierRow = Record<string, unknown> & { id: string }
   type PayableRow = Record<string, unknown> & { id: string }
   const [suppliers, setSuppliers] = useState<SupplierRow[]>([]);
+  // true se il database ha la colonna plan_overrides_invoice (migration 356).
+  const hasPlanOverrideCol = suppliers.length > 0 && 'plan_overrides_invoice' in suppliers[0];
   // Conti banca (sezione Banche) per la tendina "Banca di pagamento" del fornitore
   const [bankAccounts, setBankAccounts] = useState<{ id: string; label: string }[]>([]);
   // Tutte le payables del tenant (colonne leggere, NO xml_content): aggregati
@@ -716,6 +721,7 @@ export default function Fornitori() {
       numero_rate: num('numero_rate', 1),
       payment_bank_account_id: str('payment_bank_account_id'),
       is_utility: s['is_utility'] === true,
+      plan_overrides_invoice: s['plan_overrides_invoice'] === true,
     });
     setShowModal(true);
   }
@@ -778,6 +784,9 @@ export default function Fornitori() {
         note: form.note.trim() || null,
         notes: form.note.trim() || null,
         is_utility: !!form.is_utility,
+        // La colonna esiste solo dove c'è la migration 356 (NZ e Zago): altrove
+        // non si invia, così il salvataggio resta quello di prima.
+        ...(hasPlanOverrideCol ? { plan_overrides_invoice: !!form.payment_base && !!form.plan_overrides_invoice } : {}),
         is_active: true,
         is_deleted: false,
         updated_at: new Date().toISOString(),
@@ -2016,7 +2025,12 @@ export default function Fornitori() {
                       </optgroup>
                     ))}
                   </select>
-                  <p className="mt-1 text-[11px] text-slate-400">Decide quando scadono le fatture di questo fornitore. Se una fattura porta già le sue scadenze, valgono quelle.</p>
+                  <p className="mt-1 text-[11px] text-slate-400">
+                    Decide quando scadono le fatture di questo fornitore.
+                    {form.plan_overrides_invoice && form.payment_base
+                      ? ' Vale anche per le fatture che portano scadenze diverse (spunta qui sotto).'
+                      : ' Se una fattura porta già le sue scadenze, valgono quelle.'}
+                  </p>
                 </div>
 
                 {/* Avviso: e' l'unico punto in cui ci si puo' accorgere che il
@@ -2078,7 +2092,32 @@ export default function Fornitori() {
                     a {formPlanDerived.gg} giorni, {formPlanDerived.nRate > 1 ? `${formPlanDerived.nRate} rate` : 'rata unica'}.
                   </p>
                 </div>
-                <p className="mt-1.5 text-[11px] text-slate-400">Vale per le fatture dal 31/07/2026 che non portano già una loro scadenza.</p>
+                <p className="mt-1.5 text-[11px] text-slate-400">
+                  {form.plan_overrides_invoice && form.payment_base
+                    ? 'Vale per tutte le fatture dal 31/07/2026 che arrivano dallo SDI, anche quando scrivono scadenze diverse.'
+                    : 'Vale per le fatture dal 31/07/2026 che non portano già una loro scadenza.'}
+                </p>
+
+                {/* 356: per i fornitori che scrivono in fattura termini diversi da
+                    quelli con cui incassano davvero (es. «bonifico a vista» e poi SDD in tre rate). */}
+                {hasPlanOverrideCol && form.payment_base && (
+                  <label className="mt-3 flex items-start gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!form.plan_overrides_invoice}
+                      onChange={e => setForm(f => ({ ...f, plan_overrides_invoice: e.target.checked }))}
+                      className="mt-0.5 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span className="text-sm">
+                      <span className="font-medium text-slate-700">Usa questa modalità anche se la fattura indica scadenze diverse</span>
+                      <span className="block text-[11px] text-slate-400">
+                        Per i fornitori che in fattura scrivono una scadenza ma incassano in un altro modo.
+                        Le scadenze delle nuove fatture si calcolano da questa modalità, con il metodo scelto sopra.
+                        Le fatture già arrivate non cambiano.
+                      </span>
+                    </span>
+                  </label>
+                )}
 
                 {/* Accordi fuori standard: un clic in piu' per i pochi che ne
                     hanno bisogno, invece di quattro campi per tutti. */}
