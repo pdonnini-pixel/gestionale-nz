@@ -1939,3 +1939,27 @@ UI: spunta nella scheda fornitore, scheda Pagamenti, visibile solo con modalità
 esiste (Made non ha la migration: la spunta non compare e il salvataggio non invia il campo).
 Prova del 05/11 su NZ in transazione annullata (fattura TFV clonata al 01/01/2027, piano data fattura 0/3):
 spunta accesa → 3 rate RID 01/01, 31/01, 02/03 con addebito automatico; spenta → rata unica come prima.
+
+## Un bonifico per più fatture, col solo nome in causale (05/11/2026, migration 362)
+
+Caso: Corte delle Fucine Srl, bonifico BCC del 20/10/2026 da 153,00 €, causale «... BEN
+CORTE DELLE FUCINE SRL». Fatture 2746 (151,00 €) e 2747 (2,00 €) del 22/10/2026.
+Nessun motore lo prendeva: i motori di gruppo vogliono i numeri delle fatture in causale.
+Collegato a mano il 05/11 con `reconcile_movement_group`.
+
+Regola dalla 362 (`try_match_group_name_bank_transaction`, solo nel giro notturno, dopo
+gli altri due motori di gruppo): fornitore nominato in causale; si prendono **tutte** le
+sue scadenze aperte con data fattura fino a 15 giorni dopo il bonifico; se sono almeno
+due e la somma è esatta (±0,02), e un solo fornitore soddisfa la regola, si chiudono.
+Niente combinazioni scelte fra le scadenze: se il fornitore ha altre fatture aperte la
+somma non torna e non succede niente. Le coppie rifiutate da una persona non si toccano.
+
+Nella stessa sessione sono state rifiutate a mano quattro proposte che puntavano al
+fornitore sbagliato (Logiscenter 06/10 e 02/11 verso Gruppo Servizi Associati, Regina
+Hotel 21/10 verso Mondoffice, Multitec 26/10 verso Amazon). Logiscenter è spagnolo: dallo
+SDI arriva solo il TD18 di integrazione IVA, che non diventa scadenza.
+
+Applicata su NZ e Zago il 05/11/2026. Prove in transazione annullata: sul caso Corte
+delle Fucine ricostruito (scadenze riaperte) la funzione chiude 2746 e 2747 da sola;
+sui movimenti aperti di NZ 0 agganci nuovi, 0,7 secondi ogni 100 movimenti (circa 3
+secondi in più a notte su 372).
