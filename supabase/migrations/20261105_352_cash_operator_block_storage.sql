@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migrazione 351 — L'account di cassa vede solo la cartella delle chiusure
+-- Migrazione 352 — L'account di cassa vede solo la cartella delle chiusure
 -- =====================================================================
 -- COSA MANCAVA: le policy di storage.objects dei bucket privati
 -- (balance-sheets, bank-statements, contract-documents, employee-documents,
@@ -21,6 +21,10 @@
 -- e Layout non usano Storage; 'media' lo usano solo Ticket e TicketAdmin,
 -- pagine che il ruolo non puo' aprire (CASH_OPERATOR_PATHS in App.tsx);
 -- closing-photo-extract scarica la foto con la service role (BYPASSRLS).
+--
+-- NUMERO: il file nasceva come 351; la 351 e' gia' usata dalle PR #747 e #748,
+-- quindi qui e' 352. Sui tenant (NZ, Zago) e' registrata in
+-- supabase_migrations con il nome 20261105_351_cash_operator_block_storage.
 --
 -- PARITA' TENANT: dal 03/11/2026 NZ + Zago (niente Made).
 -- =====================================================================
