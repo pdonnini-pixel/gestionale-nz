@@ -1,6 +1,6 @@
 -- ROLLBACK della migrazione 366: toglie dalle tre funzioni le righe marcate «366» e
--- lascia causale_cita_fattura (non la chiama più nessuno; per toglierla:
--- DROP FUNCTION public.causale_cita_fattura(text);). Nessun dato toccato. NZ + Zago.
+-- lascia causale_cita_fattura e causale_per_numeri (non le chiama più nessuno; per
+-- toglierle: DROP FUNCTION public.causale_cita_fattura(text), public.causale_per_numeri(text);). Nessun dato toccato. NZ + Zago.
 
 BEGIN;
 
@@ -14,17 +14,17 @@ BEGIN
       ('public.try_match_bank_transaction(uuid)'::regprocedure,
        E'    -- 366: se la causale cita un numero di fattura leggibile, vale solo la fattura citata.\n'
        || E'    IF public.causale_cita_fattura(v_bt.description)\n'
-       || E'       AND NOT public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''''), v_descr, 2) THEN\n'
+       || E'       AND NOT public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''''), public.causale_per_numeri(v_bt.description), 2) THEN\n'
        || E'      CONTINUE;\n'
        || E'    END IF;\n\n'),
       ('public.rerun_bijective_reconciliation()'::regprocedure,
        E'      -- 366: causale con numero di fattura leggibile: solo la fattura citata.\n'
        || E'      AND (NOT public.causale_cita_fattura(bt.description)\n'
-       || E'           OR public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''''), coalesce(bt.description, ''''), 2))\n'),
+       || E'           OR public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''''), public.causale_per_numeri(bt.description), 2))\n'),
       ('public.try_match_amount_bank_transaction(uuid)'::regprocedure,
        E'      -- 366: causale con numero di fattura leggibile: solo la fattura citata.\n'
        || E'      AND (NOT public.causale_cita_fattura(v_descr)\n'
-       || E'           OR public.invoice_cited_in_text(coalesce(p.invoice_number, ''''), v_descr, 2))\n')
+       || E'           OR public.invoice_cited_in_text(coalesce(p.invoice_number, ''''), public.causale_per_numeri(v_descr), 2))\n')
     ) AS t(fn, ins)
   LOOP
     v_def := pg_get_functiondef(r.fn);

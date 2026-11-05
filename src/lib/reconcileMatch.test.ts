@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, citesInvoiceNumbers, isSuggestionActionable, pickActionableSuggestions, countActionableSuggestions, isClosedManualUnlinked, suggestionBase } from './reconcileMatch'
+import { extractBeneficiary, trimBenefTail, sigWords, namesOverlap, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, citesInvoiceNumbers, citedInvoiceTokens, isSuggestionActionable, pickActionableSuggestions, countActionableSuggestions, isClosedManualUnlinked, suggestionBase } from './reconcileMatch'
 
 // Casi reali (New Zago, tab Banche → Riconciliazione). Vedi RICONCILIAZIONE_REGOLE.md R5/R6.
 describe('extractBeneficiary', () => {
@@ -264,6 +264,21 @@ describe('citesInvoiceNumbers', () => {
     expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *GRUPO LOGISCENTER SL UNISALDO PREVENTIVO 2989293 ID.BON:0845700003260572480546302800E')).toBe(false)
     expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *SIAE SOCIETA ITALIANA DSIAE+SCF 2026 ID.BON:0845700173210006480546302800IT')).toBe(false)
     expect(citesInvoiceNumbers('Bonifico tramite Internet Banking *AMAZON PAYMENTS EUROPE SSALDO FATTURE DEC. MARZO-ID.BON:0845700003135938480546302800I')).toBe(false)
+  })
+})
+
+describe('citedInvoiceTokens', () => {
+  it('tiene i numeri di due cifre che seguono una parola da documento', () => {
+    const tk = citedInvoiceTokens('Bonifico tramite corporate banking *UNICA PIU SRL SALDO FATTURA 11-12, ID.BON:0832500021650252483773002800IT')
+    expect(invoiceCitedIn('11', tk)).toBe(true)
+    expect(invoiceCitedIn('12', tk)).toBe(true)
+    expect(invoiceCitedIn('13', tk)).toBe(false)
+    expect(invoiceCitedIn('30', citedInvoiceTokens('*WOLF GROUP S.R.L SALDO FATTURA 176-NC30 ID.BON:0845700003188069480546302800'))).toBe(true)
+  })
+  it('caso La Favorita: SF-870 cita la 870, non la 331', () => {
+    const tk = citedInvoiceTokens('Bonifico tramite Internet Banking *LA FAVORITA S.R.L. SF-870 ID.BON:0845700003139280480546302800IT')
+    expect(invoiceCitedIn('870', tk)).toBe(true)
+    expect(invoiceCitedIn('331', tk)).toBe(false)
   })
 })
 

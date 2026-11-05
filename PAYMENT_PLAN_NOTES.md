@@ -2016,3 +2016,10 @@ e `try_match_group_name_bank_transaction` con CREATE OR REPLACE, togliendo la gu
 su quelle due. La 365 l'ha rimessa (NZ e Zago, verificato). Lezione: prima di un CREATE
 OR REPLACE confrontare la definizione in produzione con quella del repository; se sono
 diverse qualcun altro ci sta lavorando, e si inseriscono solo le righe nuove.
+
+Dopo la revisione della 366: il confronto col numero citato si fa su
+`causale_per_numeri` (causale prima di «ID.BON», senza date e orari), e nella pagina i
+numeri di due cifre che seguono «FATTURA», «SF-», «NC» si leggono (`citedInvoiceTokens`).
+Applicata su NZ e Zago il 05/11/2026: impronte identiche, guardia del profilo intatta,
+permessi invariati; prova annullata su La Favorita: il giro notturno aggancia la 870.
+Scadenze aperte senza numero: 0 su 359.

@@ -29,7 +29,7 @@ import { BANK_CATEGORY_OPTIONS, bankCategoryLabel } from '../lib/bankCategories'
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance'
 import { fetchCommittedPayables, COMMITTED_LABEL, type CommittedPayables } from '../lib/committedPayables'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
-import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, citesInvoiceNumbers, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, pickActionableSuggestions, countActionableSuggestions, type SuggestionLogLike } from '../lib/reconcileMatch'
+import { NON_SUPPLIER_RE, NON_SUPPLIER_BENEF_RE, extractBeneficiary, sigWords, movementNet, isRealTransfer, supplierKeyOf, invoiceTokens, invoiceCitedIn, citesInvoiceNumbers, citedInvoiceTokens, findExactCombo, hasPaymentStructure, isBankOwnMovement, isPaymentDatePlausible, pickActionableSuggestions, countActionableSuggestions, type SuggestionLogLike } from '../lib/reconcileMatch'
 import PrimaNota from './PrimaNota'
 import CommissioniIncasso from './CommissioniIncasso'
 import OpenBankingAcube from '../components/OpenBankingAcube'
@@ -3342,7 +3342,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       if (mv <= 0) continue
       // Se la causale cita un numero di fattura leggibile, si propone solo la
       // fattura citata (regola del 05/11/2026, stessa dei motori SQL, migration 366).
-      const citeTokens = citesInvoiceNumbers(desc) ? invoiceTokens(desc) : []
+      const citeTokens = citesInvoiceNumbers(desc) ? citedInvoiceTokens(desc) : []
       let best: PayT | null = null
       let bestRem = 0
       let bestClosed = false
@@ -3435,7 +3435,8 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       // Se i numeri sono troppo corti per essere letti ("FT 1", "FATTURE 12 E 13")
       // tokens resta vuoto: allora il numero serve solo a scegliere fra le
       // combinazioni, come prima, per non nascondere il gruppo giusto.
-      const cites = citesInvoiceNumbers(desc) && tokens.length > 0
+      const citeTokens = citesInvoiceNumbers(desc) ? citedInvoiceTokens(desc) : []
+      const cites = citeTokens.length > 0
 
       // Pool di partenza: fatture che da sole non superano il movimento. Se la
       // causale nomina il beneficiario, solo i fornitori che gli somigliano.
@@ -3443,7 +3444,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
         if (cents(c.base) > target) return false
         // Le note di credito (base negativa) restano: il bonifico può essere al
         // netto di una NC che la causale non nomina (R8).
-        if (cites && c.base > 0 && !invoiceCitedIn(String(c.p.invoice_number || ''), tokens)) return false
+        if (cites && c.base > 0 && !invoiceCitedIn(String(c.p.invoice_number || ''), citeTokens)) return false
         if (rejectedPairs.has(pairKey(m.id, c.p.id))) return false
         if (!isPaymentDatePlausible(String(m.transaction_date || ''), String(c.p.invoice_date || ''))) return false
         if (benefWords.length === 0) return true

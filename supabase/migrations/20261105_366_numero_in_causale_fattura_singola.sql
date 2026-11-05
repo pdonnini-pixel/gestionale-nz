@@ -22,7 +22,8 @@
 --   SSF-, NC-, CF- col trattino) seguita da un codice leggibile di almeno 3 caratteri
 --   con una cifra. Stessa espressione di citesInvoiceNumbers in src/lib/reconcileMatch.ts.
 --   Quando è vera, i motori della fattura singola considerano solo le fatture il cui
---   numero compare in causale (public.invoice_cited_in_text con almeno 2 cifre):
+--   numero compare in causale (public.invoice_cited_in_text con almeno 2 cifre, sul
+--   testo di public.causale_per_numeri: prima di «ID.BON», senza date e orari):
 --     * try_match_bank_transaction        (a punteggio, all'arrivo del movimento)
 --     * rerun_bijective_reconciliation     (giro notturno, nome + importo)
 --     * try_match_amount_bank_transaction  (flussi CBI con il solo importo)
@@ -55,6 +56,24 @@ $function$;
 REVOKE ALL ON FUNCTION public.causale_cita_fattura(text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.causale_cita_fattura(text) TO authenticated, service_role;
 
+-- Testo in cui cercare il numero della fattura: la causale prima di «ID.BON», senza
+-- date (04/06/2026, 20.10.26) e orari (16:15), che altrimenti sembrano numeri di
+-- fattura di due cifre.
+CREATE OR REPLACE FUNCTION public.causale_per_numeri(p_descr text)
+ RETURNS text
+ LANGUAGE sql
+ IMMUTABLE
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  SELECT regexp_replace(
+           regexp_replace(split_part(regexp_replace(upper(coalesce(p_descr, '')), 'ID\.?\s?BON', '§', 'g'), '§', 1),
+                          '[0-9]{1,2}[/.][0-9]{1,2}[/.][0-9]{2,4}', ' ', 'g'),
+           '[0-9]{1,2}:[0-9]{2}', ' ', 'g');
+$function$;
+
+REVOKE ALL ON FUNCTION public.causale_per_numeri(text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.causale_per_numeri(text) TO authenticated, service_role;
+
 DO $$
 DECLARE
   r record;
@@ -68,19 +87,19 @@ BEGIN
        E'    -- 356: un movimento anteriore alla fattura la paga solo se la causale nomina il\n',
        E'    -- 366: se la causale cita un numero di fattura leggibile, vale solo la fattura citata.\n'
        || E'    IF public.causale_cita_fattura(v_bt.description)\n'
-       || E'       AND NOT public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''''), v_descr, 2) THEN\n'
+       || E'       AND NOT public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''''), public.causale_per_numeri(v_bt.description), 2) THEN\n'
        || E'      CONTINUE;\n'
        || E'    END IF;\n\n'),
       ('public.rerun_bijective_reconciliation()'::regprocedure,
        E'      AND public.supplier_confirmed_in_text(\n            v_pay.supplier_name, v_pay.supplier_vat,\n',
        E'      -- 366: causale con numero di fattura leggibile: solo la fattura citata.\n'
        || E'      AND (NOT public.causale_cita_fattura(bt.description)\n'
-       || E'           OR public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''''), coalesce(bt.description, ''''), 2))\n'),
+       || E'           OR public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''''), public.causale_per_numeri(bt.description), 2))\n'),
       ('public.try_match_amount_bank_transaction(uuid)'::regprocedure,
        E'      AND (p.invoice_date IS NULL OR v_bt.transaction_date >= p.invoice_date)\n',
        E'      -- 366: causale con numero di fattura leggibile: solo la fattura citata.\n'
        || E'      AND (NOT public.causale_cita_fattura(v_descr)\n'
-       || E'           OR public.invoice_cited_in_text(coalesce(p.invoice_number, ''''), v_descr, 2))\n')
+       || E'           OR public.invoice_cited_in_text(coalesce(p.invoice_number, ''''), public.causale_per_numeri(v_descr), 2))\n')
     ) AS t(fn, anchor, ins)
   LOOP
     v_def := pg_get_functiondef(r.fn);

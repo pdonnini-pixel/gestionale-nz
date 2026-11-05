@@ -191,6 +191,24 @@ export const citesInvoiceNumbers = (desc: string): boolean => {
   return /(^|[^A-Z])((FATTUR[AE]|FATT|FT)\.?\s*(N\.?|N°|NR\.?|NUM\.?|NUMERO)?\s*[-.:#°]?\s*[A-Z]{0,3}[0-9][A-Z0-9/-]{2,}|(S?SF|NC|CF)-\s*[A-Z]{0,3}[0-9][A-Z0-9/-]{2,})/.test(head)
 }
 
+// Token dei numeri citati, per il vincolo «solo la fattura citata». Come
+// invoiceTokens, più i pezzi di due cifre che seguono una parola da documento
+// ("SALDO FATTURA 11-12" → 11, 12; "176-NC30" → 30): invoiceTokens li scarta per
+// non prendere giorni e mesi, ma lì sono numeri di fattura veri.
+export const citedInvoiceTokens = (desc: string): string[] => {
+  const out = new Set(invoiceTokens(desc))
+  const head = String(desc || '').toUpperCase().split(/ID\.?\s?BON/)[0]
+  const re = /(?:^|[^A-Z])(?:FATTUR[AE]|FATT|FT|S?SF|NC|CF)\.?\s*(?:N\.?|N°|NR\.?|NUM\.?|NUMERO)?\s*[-.:#°]?\s*([A-Z0-9][A-Z0-9/-]*)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(head)) !== null) {
+    for (const part of m[1].split('-')) {
+      const p = part.replace(/^(NC|SF|CF|FT)/, '')
+      if (p.length >= 2 && /[0-9]/.test(p)) out.add(p)
+    }
+  }
+  return Array.from(out)
+}
+
 // Vero se il numero della fattura corrisponde a uno dei token letti in causale.
 // Confronto per prefisso in entrambi i versi: la causale può troncare il codice
 // (IT65OHAABE per IT65OHAABEY) e il numero può avere una coda (60828/PI).
