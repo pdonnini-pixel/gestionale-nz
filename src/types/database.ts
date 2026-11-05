@@ -24159,6 +24159,7 @@ export type Database = {
           payment_method: string | null
           payment_terms: number | null
           pec: string | null
+          plan_overrides_invoice: boolean
           prima_scadenza_gg: number | null
           profile_from_invoice_at: string | null
           profile_from_invoice_fields: string[] | null
@@ -24207,6 +24208,7 @@ export type Database = {
           payment_method?: string | null
           payment_terms?: number | null
           pec?: string | null
+          plan_overrides_invoice?: boolean
           prima_scadenza_gg?: number | null
           profile_from_invoice_at?: string | null
           profile_from_invoice_fields?: string[] | null
@@ -24255,6 +24257,7 @@ export type Database = {
           payment_method?: string | null
           payment_terms?: number | null
           pec?: string | null
+          plan_overrides_invoice?: boolean
           prima_scadenza_gg?: number | null
           profile_from_invoice_at?: string | null
           profile_from_invoice_fields?: string[] | null

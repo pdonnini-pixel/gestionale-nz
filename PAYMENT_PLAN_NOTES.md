@@ -1892,3 +1892,32 @@ movimento successivo alla sua data e solo in mancanza l'anticipo; nel matcher a 
 l'anticipo si scarta se lo stesso fornitore ha un'altra scadenza aperta dello stesso
 importo già emessa al momento del bonifico (canoni, consegne ripetute).
 Applicata su NZ e Zago il 05/11/2026, provata in transazione annullata: 0 coppie nuove.
+
+## Torino Fashion Village: addebito SDD in tre terzi (05/11/2026, solo NZ, dato)
+
+Fornitore `TORINO FASHION VILLAGE S.r.l.` (P.IVA `05481690484`, affitto dell'outlet di Torino). Le fatture
+dichiarano «MP05 Bonifico, TP02, scadenza alla data fattura», ma il fornitore incassa con **addebito SDD su MPS**
+(mandato `E10.07362100484`) in **tre terzi: a vista, a 30 e a 60 giorni** (regola indicata da Patrizio).
+La prima volta, fatture 1721, 1829 e 1936 del 01/10/2026 (totale 33.184,00), gli addebiti sono stati
+20/10, 02/11 e 02/12; ogni addebito porta 1,00 di commissione a parte.
+
+- Le tre scadenze uniche al 01/10 sono state divise in tre rate (UPDATE della riga come rata 1 + INSERT di
+  rata 2 e 3, nessuna cancellazione). Rate 1 e 2 agganciate con `reconcile_movement` agli addebiti MPS del
+  20/10 e del 02/11; la rata 3 resta da pagare al 02/12/2026 (2.212,27 + 1.935,74 + 6.913,34).
+- Fornitore: `rid`, data fattura, `prima_scadenza_gg = 0`, `numero_rate = 3`, banca MPS.
+- Patrizio (05/11/2026): le prossime fatture TFV arriveranno con i termini giusti, quindi per TFV vale la
+  fattura e la spunta «piano prevale» (sotto) resta **spenta**.
+
+## Il piano del fornitore può prevalere sulla fattura (migration 358, 05/11/2026, NZ e Zago)
+
+`suppliers.plan_overrides_invoice` (boolean, default false). Nel bridge `sync_acube_sdi_passive_to_payable`,
+se è accesa e il piano è completo (base, giorni, n. rate), per le fatture dal 31/07/2026 si ignorano le rate
+lette dalla fattura (`n := 0`) e si entra nel ramo del piano; il metodo è quello del fornitore
+(`default_payment_method`), il codice MP della fattura resta in `payment_method_code` come traccia. Nota della
+scadenza: «Piano del fornitore, prevale sui termini in fattura (in fattura: MP05 Bonifico TP02)».
+Note di credito e autofatture TD16-19 escluse. Il ramo `fn_invoice_to_payable` (XML caricati a mano) non è
+toccato: 0 scadenze create da lì negli ultimi 90 giorni (misura del 05/11/2026).
+UI: spunta nella scheda fornitore, scheda Pagamenti, visibile solo con modalità impostata e solo dove la colonna
+esiste (Made non ha la migration: la spunta non compare e il salvataggio non invia il campo).
+Prova del 05/11 su NZ in transazione annullata (fattura TFV clonata al 01/01/2027, piano data fattura 0/3):
+spunta accesa → 3 rate RID 01/01, 31/01, 02/03 con addebito automatico; spenta → rata unica come prima.
