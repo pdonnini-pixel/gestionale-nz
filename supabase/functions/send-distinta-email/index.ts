@@ -119,7 +119,7 @@ Deno.serve(async (req: Request) => {
       if (nonAmmessi.length > 0) {
         return jsonError(
           403,
-          "Alcuni destinatari non sono fra quelli salvati: salva prima i destinatari nello Scadenzario («Destinatari Email» → Salva).",
+          "Alcuni destinatari non sono fra quelli salvati. Salvali in «Destinatari Email» (solo un amministratore può farlo) oppure usa quelli già salvati.",
           "RECIPIENT_NOT_SAVED",
         );
       }
