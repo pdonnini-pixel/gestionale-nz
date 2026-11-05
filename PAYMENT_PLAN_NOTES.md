@@ -1886,3 +1886,9 @@ il divieto della 179; il matcher a solo importo non cambia.
 
 Misura del 05/11: oltre a OMNITEKSTORE (collegata a mano con `reconcile_movement`),
 zero coppie su NZ e Zago. La regola vale per i casi futuri.
+
+Precedenze aggiunte dopo la revisione: nel giro notturno una fattura prende prima un
+movimento successivo alla sua data e solo in mancanza l'anticipo; nel matcher a punteggio
+l'anticipo si scarta se lo stesso fornitore ha un'altra scadenza aperta dello stesso
+importo già emessa al momento del bonifico (canoni, consegne ripetute).
+Applicata su NZ e Zago il 05/11/2026, provata in transazione annullata: 0 coppie nuove.

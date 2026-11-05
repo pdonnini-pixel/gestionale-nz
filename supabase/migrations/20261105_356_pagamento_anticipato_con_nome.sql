@@ -18,6 +18,10 @@
 --   tutte e due valgono:
 --     1. la causale nomina il fornitore (nome o P.IVA, supplier_confirmed_in_text);
 --     2. l'importo e' esatto (scarto massimo 2 centesimi).
+--   Precedenze (dopo la revisione): nel giro notturno una fattura prende prima un
+--   movimento successivo alla sua data; nel matcher a punteggio l'anticipo si scarta
+--   se lo stesso fornitore ha un'altra scadenza aperta dello stesso importo gia'
+--   emessa al momento del movimento.
 --   Senza nome in causale resta il divieto della 179: il caso EPPI (flusso CBI
 --   anonimo, solo importo, due mesi prima della fattura) non si puo' ripetere.
 --   try_match_amount_bank_transaction (solo importo) non si tocca.
@@ -85,7 +89,9 @@ BEGIN
             v_pay.supplier_name, v_pay.supplier_vat,
             coalesce(bt.description, '') || ' ' || coalesce(bt.counterpart, '') || ' '
             || coalesce(bt.merchant_name, '') || ' ' || coalesce(bt.statement_description, ''))
-    ORDER BY abs(bt.transaction_date - v_inv_date) ASC, bt.transaction_date DESC
+    -- 356: un movimento successivo alla fattura vince sempre su un anticipo.
+    ORDER BY (v_pay.invoice_date IS NULL OR bt.transaction_date >= v_pay.invoice_date) DESC,
+             abs(bt.transaction_date - v_inv_date) ASC, bt.transaction_date DESC
     LIMIT 1;
 
     IF NOT FOUND THEN
@@ -242,10 +248,25 @@ BEGIN
     END IF;
 
     -- 356: un movimento anteriore alla fattura la paga solo se la causale nomina il
-    -- fornitore e l'importo e' esatto (regola 179 per tutti gli altri casi).
-    IF v_pay.invoice_date IS NOT NULL AND v_pay.invoice_date > v_bt.transaction_date
-       AND NOT (v_name_in_descr AND abs(v_mov - v_pay.gross_amount) <= 0.02) THEN
-      CONTINUE;
+    -- fornitore e l'importo e' esatto (regola 179 per tutti gli altri casi), e solo
+    -- se lo stesso fornitore non ha un'altra scadenza aperta dello stesso importo gia'
+    -- emessa al momento del movimento: in quel caso il pagamento e' di quella.
+    IF v_pay.invoice_date IS NOT NULL AND v_pay.invoice_date > v_bt.transaction_date THEN
+      IF NOT (v_name_in_descr AND abs(v_mov - v_pay.gross_amount) <= 0.02) THEN
+        CONTINUE;
+      END IF;
+      IF EXISTS (
+        SELECT 1 FROM public.payables q
+        WHERE q.company_id = v_bt.company_id
+          AND q.id <> v_pay.id
+          AND q.bank_transaction_id IS NULL
+          AND q.status IN ('da_pagare', 'in_scadenza', 'scaduto')
+          AND abs(q.gross_amount - v_pay.gross_amount) <= 0.02
+          AND COALESCE(q.supplier_vat, q.supplier_name) IS NOT DISTINCT FROM COALESCE(v_pay.supplier_vat, v_pay.supplier_name)
+          AND (q.invoice_date IS NULL OR q.invoice_date <= v_bt.transaction_date)
+      ) THEN
+        CONTINUE;
+      END IF;
     END IF;
 
     IF v_pay.due_date IS NULL THEN
