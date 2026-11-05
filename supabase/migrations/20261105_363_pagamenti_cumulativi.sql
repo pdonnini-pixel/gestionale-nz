@@ -1,5 +1,5 @@
 -- ============================================================================
--- 362 — Pagamenti cumulativi: effetti ritirati e addebiti diretti di più fatture
+-- 363 — Pagamenti cumulativi: effetti ritirati e addebiti diretti di più fatture
 -- ============================================================================
 -- Nata il 05/11/2026 dal conteggio delle 92 scadenze chiuse in via provvisoria su NZ
 -- (87.985,05 €). Due casi, entrambi pagati davvero e mai agganciati al movimento:
@@ -41,9 +41,12 @@
 --   pagato e data restano quelli che ha, come in `try_match_group_bank_transaction`.
 --
 -- Misura del 05/11/2026 prima dell'applicazione (NZ): 3 movimenti (10/09, 08/10,
--- 09/10), 16 rate, 79.125,83 €.
+-- 09/10), 16 rate, 79.125,83 €. Gli affitti dell'08/10 e del 09/10 sono stati poi
+-- agganciati a mano lo stesso giorno (pagamento raggruppato): alla 363 resta il 10/09.
+-- La 362 di main (gruppo per nome e somma esatta) prende solo scadenze aperte, non
+-- le provvisorie: le due regole non si sovrappongono.
 -- Tenant: NZ e Zago (Made escluso dal 03/11/2026, vedi CLAUDE.md).
--- Rollback: 20261105_362_pagamenti_cumulativi_ROLLBACK.sql
+-- Rollback: 20261105_363_pagamenti_cumulativi_ROLLBACK.sql
 -- ============================================================================
 
 BEGIN;
@@ -153,7 +156,7 @@ BEGIN
   END LOOP;
 
   UPDATE public.reconciliation_log SET status = 'rejected',
-    notes = COALESCE(notes, '') || ' | archiviata: addebito degli effetti ritirati (362)'
+    notes = COALESCE(notes, '') || ' | archiviata: addebito degli effetti ritirati (363)'
   WHERE bank_transaction_id = p_bt_id AND status = 'to_confirm';
   UPDATE public.bank_transactions SET is_reconciled = true, reconciled_at = now(), reconciled_invoice_id = v_first
   WHERE id = p_bt_id;
@@ -216,7 +219,11 @@ BEGIN
 
   -- Una sola combinazione in tutto, fra tutti i fornitori candidati.
   FOR v_sup IN SELECT supplier_id, count(*) AS n FROM _sdd_cand GROUP BY supplier_id LOOP
-    IF v_sup.n > 14 THEN CONTINUE; END IF;
+    -- Troppe scadenze per provarle tutte: non si può dire che la combinazione sia
+    -- una sola, quindi non si aggancia niente (come gli effetti oltre 16).
+    IF v_sup.n > 14 THEN
+      RETURN jsonb_build_object('matched', false, 'reason', 'too_many_candidates', 'candidates', v_sup.n);
+    END IF;
     WITH RECURSIVE combo AS (
       SELECT c.k, ARRAY[c.id] AS ids, c.amt AS tot FROM _sdd_cand c WHERE c.supplier_id = v_sup.supplier_id
       UNION ALL
@@ -254,7 +261,7 @@ BEGIN
   END LOOP;
 
   UPDATE public.reconciliation_log SET status = 'rejected',
-    notes = COALESCE(notes, '') || ' | archiviata: addebito diretto cumulativo (362)'
+    notes = COALESCE(notes, '') || ' | archiviata: addebito diretto cumulativo (363)'
   WHERE bank_transaction_id = p_bt_id AND status = 'to_confirm';
   UPDATE public.bank_transactions SET is_reconciled = true, reconciled_at = now(), reconciled_invoice_id = v_first
   WHERE id = p_bt_id;

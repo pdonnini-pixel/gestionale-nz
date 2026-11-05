@@ -1,5 +1,5 @@
--- Rollback della 362: il giro notturno torna com'era e le tre funzioni nuove spariscono.
--- Le rate già agganciate dalla 362 restano agganciate: per staccarne una si usa
+-- Rollback della 363: il giro notturno torna com'era e le tre funzioni nuove spariscono.
+-- Le rate già agganciate dalla 363 restano agganciate: per staccarne una si usa
 -- undo_reconcile_movement sul suo reconciliation_log (note che iniziano con
 -- «auto (effetti ritirati)» o «auto (addebito diretto cumulativo)»).
 BEGIN;
