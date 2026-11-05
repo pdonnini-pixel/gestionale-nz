@@ -38,7 +38,8 @@ ALTER TABLE public._bkp_sba_rata_unica_20261105 ENABLE ROW LEVEL SECURITY;
 CREATE TABLE public._bkp_sba_fornitore_20261105 AS
 SELECT s.* FROM public.suppliers s WHERE s.id = 'd1e4ac7b-507e-45d0-85f9-23391ab5e414';
 ALTER TABLE public._bkp_sba_fornitore_20261105 ENABLE ROW LEVEL SECURITY;
--- I backup restano invisibili all'API (applicato a parte come 362b).
+-- I backup restano invisibili all'API. Su NZ il REVOKE e' stato eseguito in un secondo
+-- passaggio MCP (NZ_ONLY_20261105_362b_sba_backup_revoke), con lo stesso effetto.
 REVOKE ALL ON public._bkp_sba_rata_unica_20261105 FROM anon, authenticated;
 REVOKE ALL ON public._bkp_sba_fornitore_20261105 FROM anon, authenticated;
 

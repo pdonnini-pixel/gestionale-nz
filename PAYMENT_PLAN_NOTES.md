@@ -1,5 +1,23 @@
 # Piano di pagamento fornitore + segnalazioni anomalie — Note di implementazione
 
+> ## 🧾 S.B.A. srl: DA 2 RATE A RATA UNICA 60 GG FINE MESE (2026-11-05) - FATTO
+>
+> **Il caso.** Le fatture S.B.A. (P.IVA 03507621211) non portano `DatiPagamento`, quindi
+> le scadenze nascevano dal piano della scheda fornitore: 2 rate, prima a 60 gg fine mese,
+> seconda 30 giorni dopo. Le distinte RiBa del 2026 mostravano effetti a meta' (1301FV,
+> 1242-1246FV, 343FV, 872FV-95NC al 31/10), ma Patrizio ha confermato che l'accordo e'
+> **60 gg fine mese in un'unica scadenza**.
+>
+> **Fatto (migration `NZ_ONLY_20261105_362`, solo UPDATE, backup in
+> `_bkp_sba_rata_unica_20261105` e `_bkp_sba_fornitore_20261105`, senza accesso API).**
+> Scheda fornitore a 1 rata 60 gg fine mese. Fatture 890, 965, 983, 1056, 1067, 1092,
+> 1095, 1111 (nessun acconto, movimento, distinta o proposta collegata): rata 1 con
+> l'intero importo, rata 2 annullata. La 872 resta in due meta' perche' la prima e' gia'
+> passata in distinta il 31/10. Rollback nel file `_ROLLBACK` a fianco.
+>
+> **Da sapere.** Se una prossima distinta S.B.A. torna a meta' importo, l'accordo vero e'
+> ancora a 2 rate: segnalarlo a Patrizio prima di toccare la scheda.
+
 
 
 
