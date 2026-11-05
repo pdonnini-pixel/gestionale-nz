@@ -16,7 +16,7 @@ Decisioni di Patrizio del 05/11/2026, pilota **Roma Soratte** (RSO). Due diligen
 - Verifica: `ok`, `firma_non_valida`, `fuori_tempo` (ora del telefono lontana dal QR o nel futuro), `da_confermare` (arrivata oltre 36 ore dopo, o dichiarata), `manuale`. Le timbrature dubbie si salvano comunque.
 - Niente GPS, niente biometria (Garante privacy): il luogo è certo perché il cellulare è del negozio.
 
-## avvisi sul telefono (migration 352, 05/11/2026, WhatsApp tolto)
+## avvisi sul telefono (migration 367, 05/11/2026, WhatsApp tolto)
 - Patrizio: niente WhatsApp, notifiche push dell'app New Zago degli store (Android e iOS, account EPPI). Istruzioni dell'app in `APP_NATIVA_NOTES.md`.
 - Due avvisi, configurabili per negozio in Dipendenti → Presenze (`attendance_settings`): **ritardo** (entrata mancante dopo `ritardo_minuti`, 15 di partenza, dall'inizio del turno; non se la persona ha ferie o permessi quel giorno) e **uscita non timbrata** (dopo `margine_uscita_minuti`, 30). Destinatari: dipendente, **responsabile del negozio** (`outlets.referente_employee_id`), ufficio (notifica nel gestionale).
 - Calcolo: `timbrature_avvisi_da_mandare()`; invio: Edge Function `timbrature-notifiche` (Firebase Cloud Messaging HTTP v1, account di servizio nel Vault come `fcm_service_account`); cron `timbrature-avvisi-tick` ogni 5 minuti. Un avviso per turno, tipo e destinatario (`attendance_alerts`), registrato anche se non riesce.

@@ -1,5 +1,5 @@
 // Edge Function: timbrature-notifiche
-// Avvisi sul telefono dell'app New Zago (migration 352), al posto di WhatsApp.
+// Avvisi sul telefono dell'app New Zago (migration 367), al posto di WhatsApp.
 //   - RITARDO: il turno e' cominciato da N minuti (15 di partenza) e l'entrata
 //     non c'e'.
 //   - USCITA NON TIMBRATA: fine turno + margine (30 di partenza) e risulta

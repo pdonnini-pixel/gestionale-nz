@@ -6,7 +6,7 @@
 //      da guardare), uscita non timbrata. Le uscite segnate dal dipendente si
 //      confermano qui; una timbratura sbagliata si annulla con il motivo.
 //   2. Impostazioni del negozio: timbrature accese e avvisi sul telefono
-//      (app New Zago, migration 352): ritardo in entrata (15 minuti di
+//      (app New Zago, migration 367): ritardo in entrata (15 minuti di
 //      default), uscita non timbrata (margine di 30 minuti, che vale anche per
 //      lo straordinario), e chi li riceve: dipendente, responsabile del
 //      negozio, ufficio. WhatsApp tolto il 05/11/2026.
@@ -101,7 +101,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
         supabase.rpc('app_accessi_elenco', { p_outlet_id: outletId }),
         supabase.from('employees').select('id, nome, cognome, first_name, last_name').eq('company_id', companyId),
       ])
-      const manca = (e: { code?: string } | null) => !!e && ['PGRST205', '42P01', 'PGRST202', '42883'].includes(e.code ?? '')
+      const manca = (e: { code?: string } | null) => !!e && ['PGRST205', '42P01', 'PGRST202', '42883', '42703'].includes(e.code ?? '')
       if (manca(sRes.error) || manca(aRes.error)) { setNonDisponibile(true); return }
       setImp(sRes.data ? { ...IMP_DEFAULT, ...(sRes.data as Partial<Impostazioni>) } : IMP_DEFAULT)
       const [refRes, pushRes] = await Promise.all([

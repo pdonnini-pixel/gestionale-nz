@@ -6,7 +6,7 @@ Decisione di Patrizio del 05/11/2026: un'app vera negli store, con il marchio Ne
 - **Capacitor 7** (`capacitor.config.ts`): impacchetta lo stesso codice React del gestionale e si apre su `/app` (`src/main.tsx`). Un solo codice per sito e app.
 - **appId**: `it.eppi.newzago`, nome «New Zago».
 - **Azienda**: New Zago. Dentro l'app l'indirizzo è «localhost» e `src/lib/tenants.ts` lo tratta come NZ. Si compila con `VITE_SUPABASE_URL_NEWZAGO` e `VITE_SUPABASE_ANON_KEY_NEWZAGO` (chiave pubblica, non segreta).
-- **Notifiche**: `@capacitor-firebase/messaging` (`src/lib/pushNativo.ts`), che dà il codice Firebase sia su Android sia su iPhone. Il modulo standard di Capacitor su iPhone darebbe il codice Apple, che il server non usa. Il telefono si registra con `app_registra_push_token`; il server manda con la Edge Function `timbrature-notifiche` (migration 352).
+- **Notifiche**: `@capacitor-firebase/messaging` (`src/lib/pushNativo.ts`), che dà il codice Firebase sia su Android sia su iPhone. Il modulo standard di Capacitor su iPhone darebbe il codice Apple, che il server non usa. Il telefono si registra con `app_registra_push_token`; il server manda con la Edge Function `timbrature-notifiche` (migration 367).
 - Progetti nativi in `android/` e `ios/` (generati con `npx cap add`). I file web copiati dentro sono esclusi da git e si rigenerano con `npx cap sync`.
 - Nel browser l'app resta quella di prima (`/app`): le notifiche esistono solo nell'app degli store.
 
@@ -31,5 +31,5 @@ npx cap sync
 - Ogni modifica all'app del dipendente richiede una nuova versione negli store (il sito invece si aggiorna da solo). Si può usare la stessa procedura con cui EPPI pubblica Gooler.
 
 ## stato al 05/11/2026
-- Codice, progetti nativi, migration 352 e Edge Function: pronti (NZ e Zago).
+- Codice, progetti nativi, migration 367 e Edge Function: pronti (NZ e Zago).
 - Mancano: progetto Firebase e i suoi file, chiave APNs, chiave di servizio nel Vault, schede negli store, prima build. Finché manca la chiave di servizio, gli avvisi si registrano come «non riuscito» e l'ufficio (se acceso) li vede comunque nel gestionale.

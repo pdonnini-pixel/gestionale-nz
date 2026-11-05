@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migrazione 352 — Avvisi sul telefono (app New Zago), configurabili
+-- Migrazione 367 — Avvisi sul telefono (app New Zago), configurabili
 -- =====================================================================
 -- PERCHE': Patrizio (05/11/2026): niente WhatsApp, notifiche push dell'app
 -- New Zago (Android e iOS, pubblicata con gli account EPPI). Due avvisi:
@@ -34,7 +34,7 @@ ALTER TABLE public.attendance_settings
 COMMENT ON COLUMN public.attendance_settings.avvisi_push IS 'Avvisi sul telefono (app New Zago) accesi per questo negozio.';
 COMMENT ON COLUMN public.attendance_settings.ritardo_minuti IS 'Minuti dopo l''inizio del turno senza entrata prima dell''avviso di ritardo (15 di partenza).';
 COMMENT ON COLUMN public.attendance_settings.avvisa_ufficio IS 'Anche una notifica nel gestionale per chi segue il personale.';
-COMMENT ON COLUMN public.attendance_settings.avvisi_whatsapp IS 'Non usata dal 05/11/2026: WhatsApp tolto, si usano le notifiche dell''app (migration 352).';
+COMMENT ON COLUMN public.attendance_settings.avvisi_whatsapp IS 'Non usata dal 05/11/2026: WhatsApp tolto, si usano le notifiche dell''app (migration 367).';
 
 -- 2. Telefoni per le notifiche
 CREATE TABLE IF NOT EXISTS public.employee_push_tokens (

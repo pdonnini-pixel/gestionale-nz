@@ -1,5 +1,5 @@
 // App New Zago (Android e iOS): impacchetta la stessa app del dipendente del
-// gestionale (/app), con le notifiche push tramite Firebase (migration 352,
+// gestionale (/app), con le notifiche push tramite Firebase (migration 367,
 // Edge Function timbrature-notifiche). Pubblicata con gli account Apple e
 // Google di EPPI Srl. Istruzioni di build e pubblicazione: APP_NATIVA_NOTES.md.
 //

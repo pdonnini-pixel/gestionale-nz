@@ -4,7 +4,7 @@
 // Chiede il permesso, prende il codice Firebase del telefono (uguale su
 // Android e iPhone, per questo si usa @capacitor-firebase/messaging e non il
 // modulo standard, che su iPhone darebbe il codice Apple) e lo registra con
-// app_registra_push_token (migration 352). Toccando una notifica l'app apre
+// app_registra_push_token (migration 367). Toccando una notifica l'app apre
 // la scheda indicata (di solito «Oggi»).
 import { Capacitor } from '@capacitor/core'
 import { supabase } from './supabase'
