@@ -80,8 +80,10 @@ export default function AppFerie() {
     try {
       const { data, error } = await supabase.rpc('app_dipendente_chiedi_ferie', { p_giorni: righe, p_note: note.trim() || undefined })
       if (error) { setEsito({ ok: false, testo: error.message }); return }
-      // Avviso al referente per mail: e' un di piu', la richiesta e' gia' registrata
-      try { await supabase.functions.invoke('leave-notify', { body: { request_id: data, momento: 'richiesta' } }) } catch { /* resta l'avviso nella pagina del referente */ }
+      // L'avviso al referente lo crea il database insieme alla richiesta
+      // (notifica nel gestionale, migration 351): dal telefono non parte
+      // nessuna mail.
+      void data
       setEsito({ ok: true, testo: 'Richiesta inviata. Ti rispondono qui, in «Le tue richieste».' })
       setDal(''); setAl(''); setTipi({}); setDataPermesso(''); setOrePermesso(''); setNote('')
       void aggiorna()
