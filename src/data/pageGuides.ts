@@ -3104,7 +3104,7 @@ export const PAGE_GUIDES: PageGuide[] = [
           "In \"Richieste di riapertura dai negozi\" scrivi gli indirizzi che devono ricevere la mail quando un punto vendita chiede di riaprire una chiusura confermata: arriva con negozio, giorno, motivo e il link alla giornata. Vuoto significa che la mail va ai destinatari del report",
           "Decidi se la mail deve partire anche nei giorni senza nessuna chiusura registrata",
           "Salva, poi usa \"Invia una prova a me\": la mail di oggi arriva solo al tuo indirizzo, con [PROVA] nell'oggetto",
-          "Se vuoi anche WhatsApp, spunta \"Invia anche su WhatsApp (versione breve)\" e scrivi i numeri (uno per riga, formato +39…): insieme alla mail arriva un messaggio di poche righe con incasso e scostamento di ogni negozio, totale del giorno e del mese, negozi mancanti e anomalie. Parte dal numero WhatsApp aziendale con un modello approvato da Meta; \"Prova WhatsApp\" lo manda subito ai numeri configurati",
+          "Se vuoi anche WhatsApp, spunta \"Invia anche su WhatsApp (versione breve)\" e scrivi i numeri (uno per riga, formato +39…): insieme alla mail arriva un messaggio di poche righe con l'incasso di ogni negozio e il totale della giornata, al centesimo come nel gestionale («manca» per chi non ha ancora chiuso, «chiuso» nei giorni di chiusura, «(bozza)» se la chiusura non è confermata). Parte dal numero WhatsApp aziendale con un modello approvato da Meta; \"Prova WhatsApp\" lo manda subito ai numeri configurati",
           "La tabella \"Ultimi invii\" mostra giorno e ora, tipo (report serale, integrazione, sollecito, prova), esito (mail e, se attivo, WhatsApp) e destinatari; se un invio non è riuscito vedi il motivo"
         ]
       },
