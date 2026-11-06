@@ -35,6 +35,7 @@ import { useToast } from '../components/Toast'
 import { Modal } from '../components/ui/Modal'
 import PageHeader from '../components/PageHeader'
 import type { Database } from '../types/database'
+import { assignPosReceipts, isPayByLink, posReceiptsFrom, openPosTotal, posCarryOver, carryOverChannel, carryOverNote, type CarryOver, type PosChannelAssignment } from '../lib/posScontrini'
 import {
   type PaymentChannel, type AttachmentTarget, type ExpenseKind, type ExtractedData, CLOSING_STATUS_LABELS, EXPENSE_KIND_LABELS, kindForTarget,
   parseAmount, formatAmount, formatEuro, computeQuadrature, todayIso, addDaysIso, monthDays,
@@ -159,6 +160,10 @@ export default function ChiusuraCassa() {
   // Annullo in contanti: ammanco pari agli annulli letti dalla foto.
   const [cancelWarn, setCancelWarn] = useState<CancelledCashFix | null>(null)
   const [cancelAccepted, setCancelAccepted] = useState(false)
+  // POS non chiuso il giorno prima: scontrini «non chiusa» della chiusura precedente.
+  const [prevOpenPos, setPrevOpenPos] = useState<{ total: number; tids: string[]; date: string | null }>({ total: 0, tids: [], date: null })
+  const [carryWarn, setCarryWarn] = useState<CarryOver | null>(null)
+  const [carryAccepted, setCarryAccepted] = useState(false)
   const fondoRef = useRef<HTMLElement>(null)
   const daVersareRef = useRef<HTMLElement>(null)
 
@@ -206,6 +211,21 @@ export default function ChiusuraCassa() {
       supabase.rpc('get_outlet_day_targets', { p_company_id: companyId, p_from: monthStart, p_to: monthEnd }),
     ])
     setChannels((chRes.data ?? []) as PaymentChannel[])
+    // Chiusura precedente: c'era un POS che non ha chiuso (totali locali)?
+    // Se sì, il suo scontrino di oggi comprende anche quelle vendite.
+    const { data: prevCl } = await supabase.from('outlet_daily_closings').select('id, closing_date')
+      .eq('outlet_id', outletId).lt('closing_date', dateIso).neq('status', 'bozza').eq('is_closed_day', false)
+      .order('closing_date', { ascending: false }).limit(1)
+    if (prevCl?.[0]) {
+      // Solo l'ultima foto letta: se è stata rifatta, le vecchie non contano.
+      const { data: prevAtt } = await supabase.from('outlet_daily_closing_attachments').select('extracted')
+        .eq('closing_id', prevCl[0].id).eq('target', 'totale').in('extraction_status', ['letta', 'da_rivedere'])
+        .order('uploaded_at', { ascending: false }).limit(1)
+      const open = (prevAtt ?? []).flatMap((a) => posReceiptsFrom(a.extracted)).filter((r) => r.status === 'non_chiusa')
+      setPrevOpenPos({ total: openPosTotal(open), tids: open.map((r) => r.terminal_id ?? '').filter(Boolean), date: prevCl[0].closing_date })
+    } else {
+      setPrevOpenPos({ total: 0, tids: [], date: null })
+    }
     const prev = prevRes.data?.[0]?.cash_float_declared
     setPrevFloat(prev == null ? null : Number(prev))
     setPrevPending(prev == null ? 0 : Number(prevRes.data?.[0]?.cash_pending_declared ?? 0))
@@ -324,7 +344,7 @@ export default function ChiusuraCassa() {
     setForm((f) => (f.cashFloatOpening === v ? f : { ...f, cashFloatOpening: v }))
     setDirty(true)
   }, [derivedOpening])
-  useEffect(() => { setAllCashNow(''); setPendingAccepted(false); setPendingWarn(null); setTotalAccepted(false); setTotalWarn(null); setCancelAccepted(false); setCancelWarn(null) }, [outletId, dateIso])
+  useEffect(() => { setAllCashNow(''); setPendingAccepted(false); setPendingWarn(null); setTotalAccepted(false); setTotalWarn(null); setCancelAccepted(false); setCancelWarn(null); setCarryAccepted(false); setCarryWarn(null) }, [outletId, dateIso])
 
   const update = (patch: Partial<FormState>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
   const updateAmount = (channelId: string, v: string) => { setForm((f) => ({ ...f, amounts: { ...f.amounts, [channelId]: v } })); setDirty(true) }
@@ -378,6 +398,40 @@ export default function ChiusuraCassa() {
     }))
     setDirty(true)
     setCancelWarn(null)
+  }
+
+  /** Scontrini POS letti dall'ultima foto dello scontrino di chiusura, già messi sulle righe. */
+  const photoPos = useMemo(() => {
+    const lette = totalPhotos.filter((a) => ['letta', 'da_rivedere'].includes(a.extraction_status ?? ''))
+    const last = lette[lette.length - 1]
+    const receipts = last ? posReceiptsFrom(last.extracted) : []
+    const electronic = last ? extractedNumber(last.extracted, 'electronic') : null
+    return { receipts, electronic, byChannel: assignPosReceipts(receipts, channels) as Record<string, PosChannelAssignment> }
+  }, [totalPhotos, channels])
+  const openToday = useMemo(() => photoPos.receipts.filter((r) => r.status === 'non_chiusa'), [photoPos])
+  const posTypedByChannel = useMemo(() => {
+    const out: Record<string, number> = {}
+    for (const ch of channels) if ((ch.kind === 'pos' || ch.kind === 'pos_amex') && !isPayByLink(ch)) out[ch.id] = parseAmount(form.amounts[ch.id]) ?? 0
+    return out
+  }, [channels, form.amounts])
+  // Le righe POS superano il pagato elettronico dell'RT: POS non chiuso il giorno prima?
+  const carryHint = useMemo(() => photoPos.receipts.length === 0 ? null : posCarryOver({
+    isClosedDay: form.isClosedDay, rtElectronic: photoPos.electronic,
+    posTyped: Object.values(posTypedByChannel).reduce((s, v) => s + v, 0), previousOpen: prevOpenPos.total,
+  }), [photoPos, form.isClosedDay, posTypedByChannel, prevOpenPos.total])
+  const carryChannelId = useMemo(() => carryHint ? carryOverChannel(photoPos.byChannel, prevOpenPos.tids, posTypedByChannel, carryHint.excess) : null,
+    [carryHint, photoPos, prevOpenPos.tids, posTypedByChannel])
+  /** Toglie dalla riga POS la parte del giorno prima e lo scrive in nota. */
+  const fixCarry = (h: CarryOver) => {
+    if (!carryChannelId) { setCarryWarn(null); return }
+    const note = carryOverNote(h.excess, h.fromPreviousDay ? prevOpenPos.date : null)
+    setForm((f) => ({
+      ...f,
+      amounts: { ...f.amounts, [carryChannelId]: formatAmount(Math.round(((parseAmount(f.amounts[carryChannelId]) ?? 0) - h.excess) * 100) / 100) },
+      notes: f.notes.includes(note) ? f.notes : [f.notes.trim(), note].filter(Boolean).join('\n'),
+    }))
+    setDirty(true)
+    setCarryWarn(null)
   }
 
   // ─── Persistenza ──────────────────────────────────────────────────────
@@ -538,11 +592,12 @@ export default function ChiusuraCassa() {
     return out
   }
 
-  const confirm = async (force = false, pendingOk = false, totalOk = false, cancelOk = false) => {
+  const confirm = async (force = false, pendingOk = false, totalOk = false, cancelOk = false, carryOk = false) => {
     if (missingData.length > 0) { setBlockers(missingData); return }
     if (!totalOk && !totalAccepted && totalHint != null) { setTotalWarn(totalHint); return }
     if (!pendingOk && !pendingAccepted && pendingHint != null) { setPendingWarn(pendingHint); return }
     if (!cancelOk && !cancelAccepted && cancelHint != null) { setCancelWarn(cancelHint); return }
+    if (!carryOk && !carryAccepted && carryHint != null) { setCarryWarn(carryHint); return }
     if (!form.isClosedDay && totalPhotos.length === 0) {
       toast({ type: 'warning', message: 'Serve la foto dello scontrino di chiusura: è l\'unica obbligatoria.' })
       return
@@ -723,45 +778,6 @@ export default function ChiusuraCassa() {
   const isBlank = (v: string | undefined) => parseAmount(v) == null
   const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : '')
 
-  /**
-   * Abbina le chiusure POS lette dalla foto (pos_closures) alle righe POS del negozio:
-   * prima per ID terminale (outlet_payment_channels.pos_terminal_id, il TML stampato sulla
-   * chiusura POS; in mancanza terminal_code), poi per nome
-   * dell'acquirer nell'etichetta (MPS/Nexi, BCC, Amex). Ogni riga riceve al massimo una chiusura.
-   */
-  const posFromPhoto = (ex: ExtractedData, chs: PaymentChannel[]): Record<string, number> => {
-    const raw = Array.isArray(ex.pos_closures) ? ex.pos_closures as Array<Record<string, unknown>> : []
-    const digits = (v: unknown) => String(v ?? '').replace(/\D/g, '')
-    const norm = (v: unknown) => String(v ?? '').toLowerCase()
-    const posChannels = chs.filter((c) => c.kind === 'pos' || c.kind === 'pos_amex')
-    const used = new Set<string>()
-    const out: Record<string, number> = {}
-    const SYN: Record<string, string[]> = { mps: ['mps', 'nexi', 'monte'], nexi: ['mps', 'nexi'], bcc: ['bcc', 'iccrea', 'numia'], amex: ['amex', 'american'] }
-    for (const pc of raw) {
-      const amt = typeof pc.amount === 'number' && Number.isFinite(pc.amount) ? pc.amount : null
-      if (amt == null) continue
-      const tid = digits(pc.terminal_id)
-      const acq = `${norm(pc.acquirer)} ${norm(pc.circuit)} ${norm(pc.merchant)}`
-      const isAmex = /amex|american/.test(acq)
-      // Stesso terminale, due righe (es. «POS MPS» e «POS MPS Amex»): la chiusura Amex va sulla riga Amex
-      const byTid = tid ? posChannels.filter((c) => !used.has(c.id) && ((c.pos_terminal_id && digits(c.pos_terminal_id) === tid) || (!c.pos_terminal_id && c.terminal_code && digits(c.terminal_code) === tid))) : []
-      let ch: PaymentChannel | undefined = byTid.find((c) => isAmex === /amex/.test(norm(c.label))) ?? byTid[0]
-      if (!ch) {
-        const keys = Object.keys(SYN).filter((k) => acq.includes(k))
-        const words = new Set(keys.flatMap((k) => SYN[k]))
-        const candidates = posChannels.filter((c) => !used.has(c.id) && [...words].some((w) => norm(c.label).includes(w)))
-        ch = candidates.find((c) => isAmex === /amex/.test(norm(c.label))) ?? candidates[0]
-      }
-      // Nessun indizio (i POS Nexi/MPS spesso non stampano la banca): resta la riga POS
-      // libera dello stesso tipo, in ordine di configurazione. Con due terminali per negozio
-      // e' quasi sempre quella giusta; la cassiera controlla comunque prima di confermare.
-      if (!ch) ch = posChannels.find((c) => !used.has(c.id) && isAmex === /amex/.test(norm(c.label)))
-      if (!ch) continue
-      used.add(ch.id); out[ch.id] = amt
-    }
-    return out
-  }
-
   /** Precompila SOLO i campi vuoti della riga con i valori letti dalla foto. */
   const prefillFromPhoto = (target: PhotoTarget, ex: ExtractedData) => {
     // Foto scattata sul campo unico ma letta dopo l'aggiunta dei cedolini: va al cedolino 1.
@@ -776,10 +792,11 @@ export default function ChiusuraCassa() {
         const cash = typeof ex.cash === 'number' ? ex.cash : null
         const cashCh = channels.find((c) => c.kind === 'contanti')
         if (cash != null && cashCh && isBlank(f.amounts[cashCh.id])) { next.amounts[cashCh.id] = formatAmount(cash); changed = true }
-        // Chiusure POS nella stessa foto: ogni importo va alla riga POS del suo terminale
-        // (ID terminale POS configurato nel canale) o, in mancanza, dell'acquirer letto.
-        for (const [chId, val] of Object.entries(posFromPhoto(ex, channels))) {
-          if (isBlank(f.amounts[chId])) { next.amounts[chId] = formatAmount(val); changed = true }
+        // Chiusure POS nella stessa foto: ogni scontrino va alla riga del suo terminale
+        // (anche con una cifra letta male), poi della sua banca (POS di riserva).
+        // Più scontrini della stessa riga (POS di riserva) si sommano.
+        for (const [chId, a] of Object.entries(assignPosReceipts(posReceiptsFrom(ex), channels))) {
+          if (isBlank(f.amounts[chId])) { next.amounts[chId] = formatAmount(a.total); changed = true }
         }
       } else if (t.target === 'canale' && t.channelId) {
         if (amount != null && isBlank(f.amounts[t.channelId])) { next.amounts[t.channelId] = formatAmount(amount); changed = true }
@@ -1026,8 +1043,39 @@ export default function ChiusuraCassa() {
                     <input inputMode="decimal" value={form.amounts[ch.id] ?? ''} disabled={!editable} onChange={(e) => updateAmount(ch.id, e.target.value)} placeholder="0,00" className={inputCls} />
                     {/* Le foto per canale non si scattano più: la cassiera fa una sola foto (scontrino RT + chiusure POS). Le foto 'canale' già caricate restano visibili. */}
                     {photosFor('canale', lineIds[ch.id]).length > 0 && <PhotoStrip t={{ target: 'canale', channelId: ch.id }} />}
+                    {(photoPos.byChannel[ch.id]?.receipts.length ?? 0) > 0 && (
+                      <p className="mt-1 text-xs text-slate-500">
+                        Dalla foto: {photoPos.byChannel[ch.id].receipts.map((x, i) => (
+                          <span key={i}>{i > 0 && ' + '}{formatEuro(x.receipt.amount)}
+                            {x.receipt.terminal_id && <span className="text-slate-400"> (TML {x.receipt.terminal_id}{x.reason === 'banca' || x.reason === 'terminale_simile' ? ', altro POS della stessa banca' : ''}{x.receipt.status === 'non_chiusa' ? ', NON chiuso' : ''})</span>}
+                          </span>
+                        ))}
+                        {photoPos.byChannel[ch.id].receipts.length > 1 && <> = <strong>{formatEuro(photoPos.byChannel[ch.id].total)}</strong></>}
+                      </p>
+                    )}
                   </div>
                 ))}
+                {openToday.length > 0 && !readOnly && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <strong>POS non chiuso.</strong> Lo scontrino {openToday.map((r) => r.terminal_id ? `del TML ${r.terminal_id}` : 'POS').join(', ')} riporta solo i totali, la chiusura non è riuscita ({formatEuro(openPosTotal(openToday))}).
+                    Quelle vendite restano su oggi. Domattina, prima di vendere, chiudi quel POS: così si azzera e stasera la chiusura riporterà solo la giornata.
+                  </div>
+                )}
+                {carryHint != null && !readOnly && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 space-y-2">
+                    <p className="text-sm text-amber-900">
+                      {carryHint.fromPreviousDay
+                        ? <><strong>Il POS comprende anche ieri.</strong> Le righe POS superano il pagato elettronico del registratore ({formatEuro(photoPos.electronic)}) di <strong>{formatEuro(carryHint.excess)}</strong>, esattamente quanto il POS non chiuso del {prevOpenPos.date?.split('-').reverse().join('/')}. Quelle vendite sono già nella chiusura di quel giorno.</>
+                        : <><strong>Le righe POS superano il registratore.</strong> Il pagato elettronico dello scontrino di chiusura è {formatEuro(photoPos.electronic)}, le righe POS fanno {formatEuro(carryHint.excess)} in più. Se un POS non ha chiuso un giorno prima, la differenza sono vendite di quel giorno: vanno tolte da qui.</>}
+                    </p>
+                    {carryChannelId && (
+                      <button type="button" onClick={() => fixCarry(carryHint)}
+                        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold">
+                        <Check size={14} />Togli {formatEuro(carryHint.excess)} da {channels.find((c) => c.id === carryChannelId)?.label} e scrivilo in nota
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className={`flex items-center justify-between rounded-lg border px-3 py-2 text-sm ${quad.receiptsDifference === 0 ? okCls : koCls}`}>
                   <span>Somma mezzi di pagamento: <strong>{formatEuro(quad.channelsTotal)}</strong></span>
                   <span className="font-semibold">{quad.receiptsDifference === 0 ? <><Check size={16} className="inline" /> quadra</> : `differenza ${formatEuro(quad.receiptsDifference)}`}</span>
@@ -1371,6 +1419,27 @@ export default function ChiusuraCassa() {
             className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
             <Check size={16} />Togli l'annullo
           </button>
+        </div>
+      </Modal>
+
+      {/* POS che comprende vendite di un giorno precedente non chiuso */}
+      <Modal open={carryWarn != null} onClose={() => setCarryWarn(null)} title="Il POS comprende un altro giorno?">
+        <p className="text-sm text-slate-700 mb-3">
+          Le righe POS fanno <strong>{formatEuro(carryWarn?.excess)}</strong> in più del pagato elettronico stampato dal registratore ({formatEuro(photoPos.electronic)}).
+          {carryWarn?.fromPreviousDay
+            ? <> È esattamente quanto il POS non chiuso del {prevOpenPos.date?.split('-').reverse().join('/')}: quelle vendite sono già contate in quel giorno.</>
+            : <> Succede quando un POS non ha chiuso il giorno prima: il suo scontrino di oggi comprende anche quelle vendite.</>}
+        </p>
+        <p className="text-sm text-slate-600 mb-4">Se i POS di oggi sono davvero questi, conferma pure e spiega in nota.</p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={() => { setCarryAccepted(true); setCarryWarn(null); void confirm(false, true, true, true, true) }}
+            className="px-4 py-3 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium">I POS sono giusti, conferma</button>
+          {carryChannelId && (
+            <button onClick={() => carryWarn != null && fixCarry(carryWarn)}
+              className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
+              <Check size={16} />Togli {formatEuro(carryWarn?.excess)} dal POS
+            </button>
+          )}
         </div>
       </Modal>
 
