@@ -1533,7 +1533,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "La foto ha compilato i POS: posso fidarmi?",
-        "a": "Il gestionale legge ogni scontrino di chiusura POS presente nella foto e lo mette nella riga del terminale che riconosce dalla banca stampata (BCC, Nexi/MPS, American Express); se lo scontrino non dice la banca usa la riga POS ancora libera. Va controllato sempre con gli scontrini in mano, soprattutto se il negozio ha due terminali: se un importo è sulla riga sbagliata, correggilo a mano. Compila solo i campi vuoti, mai quelli che hai già scritto."
+        "a": "Il gestionale legge ogni scontrino di chiusura POS presente nella foto e lo mette nella riga del suo terminale, riconosciuto dal numero TML registrato in anagrafica (anche se nella foto una cifra si legge male). Lo scontrino di un POS di riserva, con un TML non registrato, va sulla riga della sua banca (Nexi/MPS, BCC, American Express), e più scontrini della stessa riga si sommano: sotto il campo compare \"Dalla foto: 288,00 + 145,56 = 433,56\" con il TML di ciascuno. Se lo scontrino non dice né terminale né banca usa la riga POS ancora libera. Va controllato sempre con gli scontrini in mano: se un importo è sulla riga sbagliata, correggilo a mano. Compila solo i campi vuoti, mai quelli che hai già scritto."
+      },
+      {
+        "q": "Ieri sera un POS non ha chiuso (manca la linea, errore di collegamento): cosa faccio?",
+        "a": "Se lo scontrino del POS riporta solo i totali (per esempio \"TOTALI LOCALI\") la chiusura non è riuscita: il gestionale lo riconosce dalla foto e mostra il riquadro giallo \"POS non chiuso\". Quelle vendite restano sul giorno in cui le hai fatte, insieme al pagato elettronico del registratore. La mattina dopo, appena arrivi e prima di vendere, chiudi quel POS: così si azzera e la sera la chiusura riporta solo la giornata. Se non lo hai fatto, lo scontrino POS della sera dopo comprende anche le vendite del giorno prima e le righe POS superano il pagato elettronico del registratore. Il gestionale se ne accorge: se la differenza è esattamente l'importo del POS rimasto aperto, il riquadro lo dice, e il pulsante toglie quella cifra dalla riga POS e scrive la spiegazione nelle note. Alla conferma compare anche un avviso al centro; se i POS di oggi sono davvero quelli puoi confermare com'è. Il riscontro con la banca non cambia: la banca accredita le vendite sul giorno in cui sono state fatte."
       },
       {
         "q": "Ho confermato per sbagliato: posso correggere?",
