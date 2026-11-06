@@ -363,13 +363,13 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
 // Regole di riempimento (Meta vieta gli "a capo" e le variabili vuote):
 //   - etichetta con «giorno»/«data»/«report» → data gg/mm/aa ([PROVA] nella prova)
 //   - etichetta con «totale» → totale della giornata (con « €» se il testo fisso non dice già «euro»)
-//   - etichetta = nome di un punto vendita → incasso di quel negozio, con « €»
+//   - etichetta = nome di un punto vendita → incasso di quel negozio al centesimo, con « €»
 //     («manca» se non ha chiuso, «chiuso» se giorno di chiusura, «(bozza)» se non confermato)
 //   - riga con la sola {{n}} → prossimo punto vendita non ancora assegnato, in ordine di nome
 //   - slot senza corrispondenza → «-»
+// Importi al centesimo, come nel gestionale (Patrizio, 06/11/2026): 7.929,88 e non 7.930.
 function eurPlain(n: number): string {
-  const sign = n < 0 ? "-" : "";
-  return `${sign}${Math.round(Math.abs(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ".")}`;
+  return eur(Number.isFinite(n) ? n : 0).replace(/ €$/, "");
 }
 function oneLine(s: string): string { const t = s.replace(/\s+/g, " ").trim(); return t || "-"; }
 function normName(s: string): string { return s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, ""); }
