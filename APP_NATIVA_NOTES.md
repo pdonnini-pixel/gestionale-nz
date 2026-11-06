@@ -21,14 +21,17 @@ Decisione di Patrizio del 05/11/2026: un'app vera negli store, con il marchio Ne
 4. **Per la revisione di Apple e Google**: un dipendente di prova attivato (codice da Presenze → App del dipendente), da indicare come account demo.
 5. **Marchio**: Apple può chiedere che un'app con il marchio di un cliente sia pubblicata dal cliente stesso. Di solito basta una lettera di New Zago che autorizza EPPI. Da verificare in revisione.
 
-## come si costruisce
-```bash
-VITE_SUPABASE_URL_NEWZAGO=https://xfvfxsvqpnpvibgeqpqp.supabase.co VITE_SUPABASE_ANON_KEY_NEWZAGO=<chiave pubblica NZ> npm run build
-npx cap sync
-```
-- Android: aprire `android/` con Android Studio → Build → Generate Signed Bundle (chiave di caricamento EPPI).
-- iOS: su un Mac, aprire `ios/App/App.xcworkspace` (o `App.xcodeproj`) con Xcode → Product → Archive → caricare su App Store Connect.
-- Ogni modifica all'app del dipendente richiede una nuova versione negli store (il sito invece si aggiorna da solo). Si può usare la stessa procedura con cui EPPI pubblica Gooler.
+## come si costruisce (sul Mac di Patrizio, lo stesso di Gooler)
+File locali, mai su GitHub (il repository è pubblico, sono in `.gitignore`):
+- `android/app/google-services.json` e `ios/App/App/GoogleService-Info.plist`, scaricati da Firebase (progetto `new-zago-presenze`);
+- `.env.app.local` con `VITE_SUPABASE_URL_NEWZAGO=https://xfvfxsvqpnpvibgeqpqp.supabase.co` e `VITE_SUPABASE_ANON_KEY_NEWZAGO=` la chiave pubblica (anon) di NZ, copiata da Supabase → Project Settings → API Keys.
+
+Poi, dalla cartella del repository: `bash tools/app/prepara-app.sh` (controlla programmi e file, `npm ci`, build in modalità `app`, `npx cap sync`).
+- Android: Android Studio → apri `android/` → Build → Generate Signed App Bundle (chiave di caricamento EPPI per New Zago) → carica l'.aab in Play Console.
+- iOS: Xcode → apri `ios/App/App.xcworkspace` → target App → team EPPI (BZ3NL6C9MT) → Product → Archive → Distribute App → App Store Connect.
+- Ogni nuova versione: alzare `versionCode`/`versionName` in `android/app/build.gradle` e la versione in Xcode.
+
+Fatti il 06/11/2026: progetto Firebase `new-zago-presenze` con app Android e iOS; chiave APNs «Notifiche New Zago» (HXRZQD2BPL, team BZ3NL6C9MT, sviluppo e produzione) caricata in Firebase; App ID `it.eppi.newzago` con Push Notifications; `fcm_service_account` nel Vault NZ (una copia caricata per errore nel Vault Zago, non usata); app «New Zago» creata in Play Console.
 
 ## stato al 05/11/2026
 - Codice, progetti nativi, migration 367 e Edge Function: pronti (NZ e Zago).

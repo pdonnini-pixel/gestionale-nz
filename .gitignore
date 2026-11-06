@@ -32,3 +32,4 @@ supabase/.temp/
 # File Firebase dell'app New Zago: fuori da git (repo pubblico), arrivano alla build
 android/app/google-services.json
 ios/App/App/GoogleService-Info.plist
+.env.app.local
