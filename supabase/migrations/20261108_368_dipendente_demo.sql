@@ -64,7 +64,6 @@ REVOKE ALL ON FUNCTION public.richieste_ferie_demo_ids() FROM public, anon;
 GRANT EXECUTE ON FUNCTION public.richieste_ferie_demo_ids() TO authenticated, service_role;
 
 -- 2. Il gestionale non vede il dipendente di prova
-DROP POLICY IF EXISTS demo_nascosto ON public.employees;
 CREATE POLICY demo_nascosto ON public.employees AS RESTRICTIVE FOR ALL TO authenticated
   USING (NOT is_demo) WITH CHECK (NOT is_demo);
 
@@ -79,7 +78,6 @@ BEGIN
     'employee_trasferte', 'leave_accrual_rows', 'leave_counterproposals', 'leave_requests',
     'personnel_gross_cost_employee', 'shift_plan_weekend_off', 'shifts'
   ] LOOP
-    EXECUTE format('DROP POLICY IF EXISTS demo_nascosto ON public.%I', t);
     EXECUTE format(
       'CREATE POLICY demo_nascosto ON public.%I AS RESTRICTIVE FOR ALL TO authenticated
          USING (employee_id IS NULL OR employee_id <> ALL ((SELECT public.dipendenti_demo_ids())::uuid[]))
@@ -88,7 +86,6 @@ BEGIN
 END;
 $$;
 
-DROP POLICY IF EXISTS demo_nascosto ON public.leave_request_days;
 CREATE POLICY demo_nascosto ON public.leave_request_days AS RESTRICTIVE FOR ALL TO authenticated
   USING (request_id <> ALL ((SELECT public.richieste_ferie_demo_ids())::uuid[]))
   WITH CHECK (request_id <> ALL ((SELECT public.richieste_ferie_demo_ids())::uuid[]));
