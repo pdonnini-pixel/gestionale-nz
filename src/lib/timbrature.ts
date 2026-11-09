@@ -14,7 +14,7 @@
 
 export const PREFISSO_QR = 'NZT1'
 export const PASSO_SECONDI = 30
-export const MARGINE_USCITA_DEFAULT = 30
+export const MARGINE_USCITA_DEFAULT = 15 // era 30 fino alla migration 372
 
 export type TipoTimbratura = 'entrata' | 'inizio_pausa' | 'fine_pausa' | 'uscita'
 export type StatoPresenza = 'fuori' | 'dentro' | 'in_pausa'
@@ -260,4 +260,50 @@ export const ETICHETTA_ESITO: Record<EsitoGiorno, string> = {
   in_pausa: 'In pausa',
   uscito: 'Uscito',
   uscita_mancante: 'Uscita non timbrata',
+}
+
+// ─── Ritardi, uscite anticipate, straordinari (migration 372) ─────────────
+// Stesse regole di timbrature_evento_da_timbratura: il telefono del negozio
+// le mostra prima di salvare (anche senza rete), il server le registra.
+
+export const CAUSALI_USCITA: Record<'personale' | 'malattia' | 'accordo', string> = {
+  personale: 'Motivo personale (permesso)',
+  malattia: 'Sto male (malattia)',
+  accordo: "D'accordo con il responsabile",
+}
+export const CAUSALI_STRAORDINARIO: Record<'assenza_collega' | 'cliente' | 'riassortimento' | 'allestimento', string> = {
+  assenza_collega: 'Concordato per assenza di un collega',
+  cliente: 'Cliente da gestire',
+  riassortimento: 'Riassortimento',
+  allestimento: 'Allestimento',
+}
+export type CausaleUscita = keyof typeof CAUSALI_USCITA
+export type CausaleStraordinario = keyof typeof CAUSALI_STRAORDINARIO
+
+export const TOLLERANZA_ENTRATA_DEFAULT = 10
+
+/** Entrata rispetto all'inizio del turno: minuti dopo l'inizio, se oltre la tolleranza e il permesso a blocchi di 15. */
+export function valutaEntrata(turno: Turno, oraMs: number, tolleranza: number): { minuti: number; oltre: boolean; permesso: number } {
+  const minuti = Math.ceil((oraMs - oraRomaInMs(turno.data, turno.inizio)) / 60000)
+  const oltre = minuti > tolleranza
+  return { minuti: Math.max(0, minuti), oltre, permesso: oltre ? Math.ceil(minuti / 15) * 15 : 0 }
+}
+
+/**
+ * Uscita rispetto alla fine del turno. «anticipata» se prima della fine (e
+ * dopo non c'e' un altro pezzo di turno), «straordinario» se oltre il
+ * margine: conta solo i minuti oltre il margine.
+ */
+export function valutaUscita(
+  turno: Turno,
+  oraMs: number,
+  margine: number,
+  altroTurnoDopo: boolean,
+): { tipo: 'anticipata' | 'straordinario' | 'normale'; minuti: number; proposti: number } {
+  const fineMs = oraRomaInMs(turno.data, turno.fine)
+  const prima = Math.floor((fineMs - oraMs) / 60000)
+  if (prima >= 1 && !altroTurnoDopo) return { tipo: 'anticipata', minuti: prima, proposti: prima }
+  const dopo = Math.floor((oraMs - fineMs) / 60000)
+  if (dopo > margine) return { tipo: 'straordinario', minuti: dopo, proposti: dopo - margine }
+  return { tipo: 'normale', minuti: Math.max(0, dopo), proposti: 0 }
 }

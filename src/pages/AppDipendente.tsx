@@ -23,7 +23,7 @@ import '@fontsource/poppins/latin-700.css'
 const CARATTERE = { fontFamily: "'Poppins', ui-sans-serif, system-ui, sans-serif" }
 import {
   ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, formatMinuti, oraRoma, ordina, riepilogoGiorno, secondiAlCambio,
-  PASSO_SECONDI, type Timbratura, type TipoTimbratura,
+  PASSO_SECONDI, TOLLERANZA_ENTRATA_DEFAULT, valutaEntrata, type Timbratura, type TipoTimbratura,
 } from '../lib/timbrature'
 import { attivaOffline } from '../lib/presenzeOffline'
 import { attivaNotifiche, eAppNativa, type EsitoNotifiche } from '../lib/pushNativo'
@@ -32,6 +32,7 @@ import { attivaNotifiche, eAppNativa, type EsitoNotifiche } from '../lib/pushNat
 const AppTurni = lazy(() => import('../components/app/AppTurni'))
 const AppFerie = lazy(() => import('../components/app/AppFerie'))
 const AppOre = lazy(() => import('../components/app/AppOre'))
+import AppEventi, { type EventoApp } from '../components/app/AppEventi'
 
 type Scheda = 'oggi' | 'turni' | 'ferie' | 'ore'
 const SCHEDE: { k: Scheda; label: string; Icona: typeof QrCode }[] = [
@@ -50,6 +51,9 @@ interface DatiOggi {
   persona: { id: string; nome: string; negozio: string | null }
   turni: { data: string; inizio: string; fine: string; pausa_minuti: number | null; negozio: string | null }[]
   timbrature: { tipo: TipoTimbratura; ora: string; origine: string }[]
+  // Dalla migration 372: assenti se il tenant non le ha ancora
+  regole?: { tolleranza: number; margine: number }
+  eventi?: EventoApp[]
   scaricati_il?: string
 }
 
@@ -293,8 +297,13 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
       )}
       {messaggio && <p className={`w-full max-w-sm text-sm ${messaggio.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{messaggio.testo}</p>}
 
+      {/* Ritardi, uscite anticipate e straordinari di oggi e ieri: il motivo si scrive qui */}
+      <AppEventi eventi={dati?.eventi ?? []} oggi={oggi} onSalvato={() => void aggiorna()} />
+
       {/* Oggi */}
-      <CardOggi turno={turnoDel(oggi)} timbrature={ordina(perGiorno(oggi))} r={rOggi} adesso={adesso} />
+      <CardOggi turno={turnoDel(oggi)} timbrature={ordina(perGiorno(oggi))} r={rOggi} adesso={adesso}
+        tolleranza={dati?.regole?.tolleranza ?? TOLLERANZA_ENTRATA_DEFAULT}
+        ritardoRegistrato={(dati?.eventi ?? []).some((e) => e.data === oggi && e.tipo === 'ritardo')} />
 
       {dati?.scaricati_il && <p className="text-slate-400 text-xs">Aggiornato alle {oraRoma(dati.scaricati_il)}</p>}
       </>)}
@@ -321,12 +330,18 @@ const STILE_ESITO: Record<string, string> = {
 }
 
 /** La giornata: stato, linea del turno con l'ora attuale, ore lavorate e timbrature. */
-function CardOggi({ turno, timbrature, r, adesso }: {
+function CardOggi({ turno, timbrature, r, adesso, tolleranza, ritardoRegistrato }: {
   turno: { data: string; inizio: string; fine: string } | null
   timbrature: Timbratura[]
   r: ReturnType<typeof riepilogoGiorno>
   adesso: number
+  tolleranza: number
+  ritardoRegistrato: boolean
 }) {
+  // Entrata dopo l'inizio ma entro la tolleranza: lo si dice, senza permesso
+  // (oltre la tolleranza c'e' il riquadro del ritardo, sopra)
+  const primaEntrata = timbrature.find((t) => t.tipo === 'entrata')
+  const entrata = turno && primaEntrata ? valutaEntrata(turno, Date.parse(primaEntrata.ora), tolleranza) : null
   const minuti = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
   const oraNow = (() => { const [h, m] = oraRoma(new Date(adesso).toISOString()).split(':').map(Number); return h * 60 + m })()
   const pctOra = turno ? Math.max(0, Math.min(1, (oraNow - minuti(turno.inizio)) / Math.max(1, minuti(turno.fine) - minuti(turno.inizio)))) : 0
@@ -346,6 +361,9 @@ function CardOggi({ turno, timbrature, r, adesso }: {
             )}
           </div>
           <div className="flex justify-between text-[11px] text-slate-400 mt-1"><span>inizio</span><span>fine</span></div>
+          {entrata && entrata.minuti > 0 && !entrata.oltre && !ritardoRegistrato && (
+            <p className="text-xs text-slate-500 mt-2">Entrata {formatMinuti(entrata.minuti)} dopo l'inizio, entro la tolleranza di {formatMinuti(tolleranza)}.</p>
+          )}
         </>
       ) : <p className="text-slate-500 mt-2">Nessun turno oggi</p>}
 

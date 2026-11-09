@@ -10,7 +10,7 @@ Decisioni di Patrizio del 05/11/2026, pilota **Roma Soratte** (RSO). Due diligen
 - **Turni ufficiali** (`timbrature_turni_ufficiali`): piano «scelto» del mese; senza piano scelto, turni senza piano pubblicati o messi a mano. Al 05/11/2026 nessun turno è «pubblicato».
 
 ## regole
-- **Margine d'uscita**: 30 minuti di default (`attendance_settings.margine_uscita_minuti`). Uscita entro il margine: non è straordinario, nessun avviso. Ancora dentro a fine turno + margine: avviso sul telefono (vedi sotto).
+- **Margine d'uscita**: 15 minuti di default dalla migration 372 (era 30; `attendance_settings.margine_uscita_minuti`, eccezione per persona in `attendance_regole_dipendente`). Uscita entro il margine: non è straordinario, nessun avviso. Ancora dentro a fine turno + margine: avviso sul telefono (vedi sotto).
 - **Chi non ha timbrato niente non riceve l'avviso** (può essere in ferie). Se ha un altro turno che comincia entro un'ora, niente avviso.
 - **Le timbrature non si cancellano**: si annullano con motivo (`timbrature_annulla`). Le uscite segnate dal dipendente restano `da_confermare` finché l'HR non conferma.
 - Verifica: `ok`, `firma_non_valida`, `fuori_tempo` (ora del telefono lontana dal QR o nel futuro), `da_confermare` (arrivata oltre 36 ore dopo, o dichiarata), `manuale`. Le timbrature dubbie si salvano comunque.
@@ -18,7 +18,7 @@ Decisioni di Patrizio del 05/11/2026, pilota **Roma Soratte** (RSO). Due diligen
 
 ## avvisi sul telefono (migration 367, 05/11/2026, WhatsApp tolto)
 - Patrizio: niente WhatsApp, notifiche push dell'app New Zago degli store (Android e iOS, account EPPI). Istruzioni dell'app in `APP_NATIVA_NOTES.md`.
-- Due avvisi, configurabili per negozio in Dipendenti → Presenze (`attendance_settings`): **ritardo** (entrata mancante dopo `ritardo_minuti`, 15 di partenza, dall'inizio del turno; non se la persona ha ferie o permessi quel giorno) e **uscita non timbrata** (dopo `margine_uscita_minuti`, 30). Destinatari: dipendente, **responsabile del negozio** (`outlets.referente_employee_id`), ufficio (notifica nel gestionale).
+- Due avvisi, configurabili per negozio in Dipendenti → Presenze (`attendance_settings`): **ritardo** (entrata mancante dopo `ritardo_minuti`, 15 di partenza, dall'inizio del turno; non se la persona ha ferie o permessi quel giorno) e **uscita non timbrata** (dopo `margine_uscita_minuti`, 15 dalla migration 372). Destinatari: dipendente, **responsabile del negozio** (`outlets.referente_employee_id`), ufficio (notifica nel gestionale).
 - Calcolo: `timbrature_avvisi_da_mandare()`; invio: Edge Function `timbrature-notifiche` (Firebase Cloud Messaging HTTP v1, account di servizio nel Vault come `fcm_service_account`); cron `timbrature-avvisi-tick` ogni 5 minuti. Un avviso per turno, tipo e destinatario (`attendance_alerts`), registrato anche se non riesce.
 - Telefoni: `employee_push_tokens`, scritti dall'app con `app_registra_push_token`. Un token rifiutato da Firebase si spegne da solo.
 - Le colonne e la funzione WhatsApp della 348 restano (nessun dato si cancella) ma non le usa nessuno; la Edge Function `timbrature-avvisi` non e' piu' chiamata.
@@ -31,6 +31,18 @@ Decisioni di Patrizio del 05/11/2026, pilota **Roma Soratte** (RSO). Due diligen
 - **Avviso al referente**: lo crea il database con la richiesta (notifica nel gestionale, come `leave_decidi`). L'app **non** chiama la mail `leave-notify`: quella funzione controlla solo l'azienda di chi chiama e restituisce gli indirizzi dei referenti, quindi non va esposta al ruolo `dipendente`. Debito: irrobustirla (proprietà della richiesta, una mail per richiesta, niente `recipients` nella risposta) prima di riaccendere la mail dalle richieste dell'app.
 - Chi non ha ancora un saldo (Roma Soratte al 05/11/2026: 5 persone su 5, assunte da poco) può chiedere lo stesso: decide il referente, come dal gestionale.
 - **Accesso individuale** (Patrizio, 05/11/2026): supera la decisione del 19/10 «un accesso per negozio» di PIANO_FERIE_NOTES.md.
+
+## ritardi, uscite anticipate, straordinari (migration 372, 09/11/2026)
+Decisioni di Patrizio del 09/11/2026.
+- **Regole**: tolleranza d'entrata 10 minuti (`attendance_settings.tolleranza_entrata_minuti`), margine d'uscita 15. Tutte e due per negozio, con eccezione per persona (`attendance_regole_dipendente`, vuoto = vale il negozio). Lettura unica: `timbrature_regole(employee, outlet)`.
+- **Registro**: `attendance_eventi`, una riga per timbratura e tipo (`UNIQUE (punch_id, tipo)`), scritta da `timbrature_evento_da_timbratura()` chiamata da `timbrature_registra` dopo ogni timbratura `ok` o `da_confermare` (un errore lì non blocca la timbratura: `RAISE WARNING`).
+  - **ritardo**: solo la prima entrata del giorno, oltre la tolleranza; `minuti_proposti` = blocchi di 15 per eccesso (12' -> 15' di permesso).
+  - **uscita_anticipata**: uscita prima dell'ultima fine del turno, se dopo non c'è un altro pezzo di turno. Causali: `personale` (permesso), `malattia` (si prende atto e basta: niente testo su permesso o certificato), `accordo` (d'accordo con il responsabile).
+  - **straordinario**: uscita oltre il margine; `minuti_proposti` = solo i minuti oltre il margine (turno 19:00, uscita 19:45, margine 15: 30'). Causali: `assenza_collega`, `cliente`, `riassortimento`, `allestimento`.
+- **Telefono del negozio** (`/timbra`): pulsanti per stato (fuori: Entra; dentro: Vado in pausa / Esco; in pausa: Rientro dalla pausa / Esco). All'uscita anticipata o oltre il margine chiede la causale prima di salvare (`valutaUscita` in `timbrature.ts`, stessa regola del server); la causale viaggia nella coda offline (`RigaCoda.causale`). All'entrata mostra il ritardo (`valutaEntrata`). Il motivo scritto **non** si chiede sul telefono condiviso.
+- **App** (scheda Oggi, `src/components/app/AppEventi.tsx`): eventi di oggi e ieri da `app_dipendente_oggi().eventi`, motivo scritto e causale cambiabile con `app_dipendente_motivo_evento()` finché `stato = 'da_confermare'`.
+- **Contano solo dopo la conferma**: permessi e straordinari restano `da_confermare`. Da fare (parte 4): elenco «Da confermare» nel gestionale per referente del negozio, area manager (utenti con gruppi di negozi) e admin; la conferma di un permesso crea la richiesta approvata in `leave_requests` (`leave_request_id`); impostazioni per negozio e per persona; con più uscite nello stesso giorno (pranzo) vale l'ultima.
+- **Tracciato per lo studio paghe**: formato da chiedere al consulente.
 
 ## aperto
 - PIN sul cellulare del negozio per chi non ha lo smartphone (non ancora fatto).
