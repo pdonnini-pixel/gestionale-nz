@@ -4,7 +4,7 @@
 // conferma». Il resto del gestionale gli e' chiuso dal database
 // (responsabile_block): qui tutto passa da funzioni che controllano i negozi.
 import { useCallback, useEffect, useState } from 'react'
-import { CheckCircle2, RefreshCw, XCircle } from 'lucide-react'
+import { AlertCircle, CalendarClock, CheckCircle2, Fingerprint, RefreshCw, XCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import PageHeader from '../components/PageHeader'
@@ -42,27 +42,37 @@ export default function Responsabile() {
   }, [])
   useEffect(() => { caricaNegozi() }, [caricaNegozi])
 
+  // Stesso contenitore e stesse schede delle altre pagine del gestionale (es. Dipendenti)
   return (
-    <div className="space-y-5">
-      <PageHeader title="Presenze e ferie" subtitle={negozi?.length ? `I tuoi negozi: ${negozi.map((n) => n.nome).join(', ')}` : 'I casi e le richieste dei tuoi negozi'} />
-      {erroreNegozi && (
-        <p className="text-sm bg-rose-50 border border-rose-200 text-rose-800 rounded-lg px-3 py-2">
-          Non riesco a leggere i tuoi negozi: controlla la connessione.{' '}
-          <button type="button" onClick={caricaNegozi} className="underline font-semibold">Riprova</button>
-        </p>
-      )}
-      {negozi && negozi.length === 0 && (
-        <p className="text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2">
-          Non hai ancora negozi assegnati: chiedi a un amministratore di spuntarti in Dipendenti → Presenze → «Chi conferma».
-        </p>
-      )}
-      <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5 w-fit">
-        {([['presenze', 'Da confermare'], ['ferie', 'Ferie e permessi']] as const).map(([k, l]) => (
-          <button key={k} type="button" onClick={() => setScheda(k)}
-            className={`text-sm px-3 py-1.5 rounded-md ${scheda === k ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>{l}</button>
-        ))}
+    <div className="min-h-screen bg-white">
+      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
+        <PageHeader title="Presenze e ferie" subtitle={negozi?.length ? `I tuoi negozi: ${negozi.map((n) => n.nome).join(', ')}` : 'I casi e le richieste dei tuoi negozi'} noDivider />
+        {erroreNegozi && (
+          <div className="text-sm text-rose-800 bg-rose-50 border border-rose-200 rounded-xl p-3.5 flex items-start gap-2.5">
+            <AlertCircle size={16} className="text-rose-600 mt-0.5 shrink-0" />
+            <div>Non riesco a leggere i tuoi negozi: controlla la connessione.{' '}
+              <button type="button" onClick={caricaNegozi} className="font-medium underline underline-offset-2">Riprova</button></div>
+          </div>
+        )}
+        {negozi && negozi.length === 0 && (
+          <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
+            <AlertCircle size={16} className="text-amber-600 mt-0.5 shrink-0" />
+            <div>Non hai ancora negozi assegnati: chiedi a un amministratore di spuntarti in Dipendenti → Presenze → «Chi conferma».</div>
+          </div>
+        )}
+        <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
+          {([
+            { k: 'presenze' as const, label: 'Da confermare', Icon: Fingerprint },
+            { k: 'ferie' as const, label: 'Ferie e permessi', Icon: CalendarClock },
+          ]).map(({ k, label, Icon }) => (
+            <button key={k} type="button" onClick={() => setScheda(k)}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all ${scheda === k ? 'bg-white shadow text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>
+              <Icon size={15} />{label}
+            </button>
+          ))}
+        </div>
+        {scheda === 'presenze' ? <DaConfermare /> : <FerieDaDecidere />}
       </div>
-      {scheda === 'presenze' ? <DaConfermare /> : <FerieDaDecidere />}
     </div>
   )
 }
@@ -109,10 +119,12 @@ function FerieDaDecidere() {
           <RefreshCw size={14} className={carico ? 'animate-spin' : ''} />Aggiorna
         </button>
       </div>
-      {richieste && richieste.length === 0 && <p className="text-slate-400 py-10 text-center">Nessuna richiesta da decidere.</p>}
+      {richieste && richieste.length === 0 && (
+        <div className="bg-white border border-slate-200 rounded-xl px-4 py-10 text-center text-sm text-slate-400">Nessuna richiesta da decidere.</div>
+      )}
       <div className="grid gap-3">
         {(richieste ?? []).map((q) => (
-          <div key={q.id} className="bg-white border border-slate-200 rounded-xl p-4 space-y-2">
+          <div key={q.id} className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-semibold text-slate-900">{q.persona}</span>
               {q.prova && <span className="text-[11px] px-1.5 rounded bg-violet-100 text-violet-700">prova</span>}
