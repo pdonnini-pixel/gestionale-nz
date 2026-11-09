@@ -296,6 +296,114 @@ export type Database = {
           },
         ]
       }
+      attendance_eventi: {
+        Row: {
+          causale: string | null
+          company_id: string
+          created_at: string
+          data: string
+          deciso_da: string | null
+          deciso_il: string | null
+          employee_id: string
+          esito: string | null
+          id: string
+          leave_request_id: string | null
+          margine_minuti: number | null
+          minuti: number
+          minuti_proposti: number
+          motivo_dipendente: string | null
+          motivo_il: string | null
+          nota_decisione: string | null
+          outlet_id: string
+          punch_id: string
+          stato: string
+          tipo: string
+          tolleranza_minuti: number | null
+          turno_fine: string | null
+          turno_inizio: string | null
+        }
+        Insert: {
+          causale?: string | null
+          company_id: string
+          created_at?: string
+          data: string
+          deciso_da?: string | null
+          deciso_il?: string | null
+          employee_id: string
+          esito?: string | null
+          id?: string
+          leave_request_id?: string | null
+          margine_minuti?: number | null
+          minuti: number
+          minuti_proposti: number
+          motivo_dipendente?: string | null
+          motivo_il?: string | null
+          nota_decisione?: string | null
+          outlet_id: string
+          punch_id: string
+          stato?: string
+          tipo: string
+          tolleranza_minuti?: number | null
+          turno_fine?: string | null
+          turno_inizio?: string | null
+        }
+        Update: {
+          causale?: string | null
+          company_id?: string
+          created_at?: string
+          data?: string
+          deciso_da?: string | null
+          deciso_il?: string | null
+          employee_id?: string
+          esito?: string | null
+          id?: string
+          leave_request_id?: string | null
+          margine_minuti?: number | null
+          minuti?: number
+          minuti_proposti?: number
+          motivo_dipendente?: string | null
+          motivo_il?: string | null
+          nota_decisione?: string | null
+          outlet_id?: string
+          punch_id?: string
+          stato?: string
+          tipo?: string
+          tolleranza_minuti?: number | null
+          turno_fine?: string | null
+          turno_inizio?: string | null
+        }
+        Relationships: []
+      }
+      attendance_regole_dipendente: {
+        Row: {
+          company_id: string
+          employee_id: string
+          margine_uscita_minuti: number | null
+          nota: string | null
+          tolleranza_entrata_minuti: number | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          company_id: string
+          employee_id: string
+          margine_uscita_minuti?: number | null
+          nota?: string | null
+          tolleranza_entrata_minuti?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          company_id?: string
+          employee_id?: string
+          margine_uscita_minuti?: number | null
+          nota?: string | null
+          tolleranza_entrata_minuti?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       attendance_settings: {
         Row: {
           attive: boolean
@@ -308,6 +416,7 @@ export type Database = {
           margine_uscita_minuti: number
           outlet_id: string
           ritardo_attivo: boolean
+          tolleranza_entrata_minuti: number
           ritardo_minuti: number
           updated_at: string
           updated_by: string | null
@@ -324,6 +433,7 @@ export type Database = {
           margine_uscita_minuti?: number
           outlet_id: string
           ritardo_attivo?: boolean
+          tolleranza_entrata_minuti?: number
           ritardo_minuti?: number
           updated_at?: string
           updated_by?: string | null
@@ -340,6 +450,7 @@ export type Database = {
           margine_uscita_minuti?: number
           outlet_id?: string
           ritardo_attivo?: boolean
+          tolleranza_entrata_minuti?: number
           ritardo_minuti?: number
           updated_at?: string
           updated_by?: string | null
@@ -31184,6 +31295,18 @@ export type Database = {
           employee_id: string
           piattaforme: string
         }[]
+      }
+      app_dipendente_motivo_evento: {
+        Args: { p_causale?: string; p_evento: string; p_motivo: string }
+        Returns: undefined
+      }
+      timbrature_evento_da_timbratura: {
+        Args: { p_causale?: string; p_punch: string }
+        Returns: undefined
+      }
+      timbrature_regole: {
+        Args: { p_emp: string; p_outlet: string }
+        Returns: { margine: number; tolleranza: number }[]
       }
       app_registra_push_token: {
         Args: { p_piattaforma: string; p_token: string }

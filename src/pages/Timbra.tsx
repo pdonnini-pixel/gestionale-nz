@@ -13,7 +13,7 @@ import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, Wifi, WifiOff, Camera, RefreshCw, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
-  CAUSALI_STRAORDINARIO, CAUSALI_USCITA, ETICHETTA_TIPO, MARGINE_USCITA_NUOVO_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT,
+  CAUSALI_STRAORDINARIO, CAUSALI_USCITA, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT,
   azioni, dataRoma, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, ordina, statoDa, valutaEntrata, valutaUscita,
   type TipoTimbratura, type Timbratura,
 } from '../lib/timbrature'
@@ -294,7 +294,7 @@ export default function Timbra() {
             const { principale, altre } = azioni(ts, turno, adesso)
             const persona = dati?.persone.find((p) => p.id === selezione.employeeId)
             const tolleranza = persona?.tolleranza ?? TOLLERANZA_ENTRATA_DEFAULT
-            const margine = persona?.margine ?? dati?.margine_uscita_minuti ?? MARGINE_USCITA_NUOVO_DEFAULT
+            const margine = persona?.margine ?? dati?.margine_uscita_minuti ?? MARGINE_USCITA_DEFAULT
             const stato = statoDa(ordina(ts).at(-1)?.tipo)
             const entrata = principale === 'entrata' && turno && !ts.some((t) => t.tipo === 'entrata') ? valutaEntrata(turno, adesso, tolleranza) : null
             const altroTurnoDopo = (dati?.turni ?? []).some((t) => t.employee_id === selezione.employeeId && t.data === oggi && oraRomaInMs(oggi, t.inizio) > adesso)

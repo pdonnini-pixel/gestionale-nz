@@ -14,7 +14,7 @@
 
 export const PREFISSO_QR = 'NZT1'
 export const PASSO_SECONDI = 30
-export const MARGINE_USCITA_DEFAULT = 30
+export const MARGINE_USCITA_DEFAULT = 15 // era 30 fino alla migration 372
 
 export type TipoTimbratura = 'entrata' | 'inizio_pausa' | 'fine_pausa' | 'uscita'
 export type StatoPresenza = 'fuori' | 'dentro' | 'in_pausa'
@@ -281,7 +281,6 @@ export type CausaleUscita = keyof typeof CAUSALI_USCITA
 export type CausaleStraordinario = keyof typeof CAUSALI_STRAORDINARIO
 
 export const TOLLERANZA_ENTRATA_DEFAULT = 10
-export const MARGINE_USCITA_NUOVO_DEFAULT = 15
 
 /** Entrata rispetto all'inizio del turno: minuti dopo l'inizio, se oltre la tolleranza e il permesso a blocchi di 15. */
 export function valutaEntrata(turno: Turno, oraMs: number, tolleranza: number): { minuti: number; oltre: boolean; permesso: number } {

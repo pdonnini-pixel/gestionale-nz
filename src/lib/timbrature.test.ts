@@ -86,27 +86,27 @@ describe('riepilogo della giornata', () => {
     expect(r.straordinario).toBe(false)
   })
 
-  it('uscita entro 30 minuti dalla fine: non e straordinario', () => {
-    const r = riepilogoGiorno(giornata('18:25'), turno, ore('20:00'))
-    expect(r.minutiOltreTurno).toBe(25)
+  it('uscita entro il margine di 15 minuti: non e straordinario', () => {
+    const r = riepilogoGiorno(giornata('18:12'), turno, ore('20:00'))
+    expect(r.minutiOltreTurno).toBe(12)
     expect(r.straordinario).toBe(false)
   })
 
-  it('uscita oltre i 30 minuti: straordinario da guardare', () => {
+  it('uscita oltre il margine: straordinario da guardare', () => {
     const r = riepilogoGiorno(giornata('18:45'), turno, ore('20:00'))
     expect(r.minutiOltreTurno).toBe(45)
     expect(r.straordinario).toBe(true)
   })
 
-  it('ancora dentro a fine turno + 30: uscita non timbrata', () => {
+  it('ancora dentro a fine turno + 15: uscita non timbrata', () => {
     const dentro = [{ tipo: 'entrata' as const, ora: iso('09:00') }]
-    expect(riepilogoGiorno(dentro, turno, ore('18:29')).esito).toBe('in_negozio')
-    expect(riepilogoGiorno(dentro, turno, ore('18:30')).esito).toBe('uscita_mancante')
+    expect(riepilogoGiorno(dentro, turno, ore('18:14')).esito).toBe('in_negozio')
+    expect(riepilogoGiorno(dentro, turno, ore('18:15')).esito).toBe('uscita_mancante')
   })
 
   it('margine diverso dal negozio', () => {
-    const r = riepilogoGiorno(giornata('18:20'), turno, ore('20:00'), 15)
-    expect(r.straordinario).toBe(true)
+    const r = riepilogoGiorno(giornata('18:20'), turno, ore('20:00'), 30)
+    expect(r.straordinario).toBe(false)
   })
 })
 
