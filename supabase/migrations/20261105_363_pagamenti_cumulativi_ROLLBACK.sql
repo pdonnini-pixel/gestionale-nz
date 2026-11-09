@@ -15,6 +15,7 @@ DECLARE
   v_util jsonb; v_riba jsonb; v_cash jsonb; v_fisc jsonb; v_cat jsonb;
   v_t0 timestamptz := clock_timestamp();
 BEGIN
+  PERFORM public.richiedi_profilo_gestionale(); -- migration 364
   SET LOCAL statement_timeout = '20min';
 
   v_disp := public.rerun_distinta_reconciliation();

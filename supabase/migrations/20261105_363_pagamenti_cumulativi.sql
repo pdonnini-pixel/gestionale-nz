@@ -321,7 +321,8 @@ END;
 $function$;
 
 -- ---------------------------------------------------------------------------
--- 4. Nel giro notturno, dopo i raggruppati e prima delle chiusure provvisorie
+-- 4. Nel giro notturno, dopo i raggruppati e prima delle chiusure provvisorie.
+--    Resta la guardia della 364 (richiedi_profilo_gestionale) subito dopo il BEGIN.
 -- ---------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.run_daily_reconciliation()
  RETURNS jsonb
@@ -334,6 +335,7 @@ DECLARE
   v_util jsonb; v_riba jsonb; v_cash jsonb; v_fisc jsonb; v_cat jsonb;
   v_t0 timestamptz := clock_timestamp();
 BEGIN
+  PERFORM public.richiedi_profilo_gestionale(); -- migration 364
   SET LOCAL statement_timeout = '20min';
 
   v_disp := public.rerun_distinta_reconciliation();
