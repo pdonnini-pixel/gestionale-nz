@@ -343,7 +343,7 @@ export default function Timbra() {
                   ))}
                   {anticipata && <p className="text-slate-400 text-sm">Il motivo lo scrivi nell'app sul tuo telefono: qui non lo legge nessuno.</p>}
                   <button onClick={conferma} disabled={!causale}
-                    className={`w-full py-6 rounded-2xl text-2xl font-bold disabled:opacity-40 ${anticipata ? 'bg-rose-600 active:bg-rose-700' : 'bg-slate-600 active:bg-slate-500'}`}>
+                    className={`w-full py-6 rounded-2xl text-2xl font-bold disabled:opacity-40 ${anticipata ? 'bg-rose-600 active:bg-rose-700' : 'bg-emerald-600 active:bg-emerald-700'}`}>
                     Conferma l'uscita
                   </button>
                   <button onClick={() => { setUscita(null); setCausale(null) }} className="text-slate-400 underline py-1">Indietro</button>
