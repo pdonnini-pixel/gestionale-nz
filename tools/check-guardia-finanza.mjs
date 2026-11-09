@@ -92,11 +92,14 @@ function filesToCheck() {
   })
 }
 
-// Righe di commento SQL intere: non contengono codice eseguibile.
+// Commenti SQL (blocchi /* */, righe intere e code di riga con --): una
+// guardia commentata non conta. Il dollar-quoting resta intatto perché i tag
+// $...$ non contengono «--» né «/*».
 const stripCommentLines = (sql) =>
   sql
+    .replace(/\/\*[\s\S]*?\*\//g, '')
     .split('\n')
-    .filter((line) => !line.trimStart().startsWith('--'))
+    .map((line) => line.replace(/--.*$/, ''))
     .join('\n')
 
 const CREATE_FUNCTION =
