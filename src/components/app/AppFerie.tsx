@@ -230,7 +230,10 @@ export default function AppFerie() {
         {righe.length > 0 && oreRichiesta > 0 && (
           <p className="text-sm text-slate-700 bg-slate-50 rounded-xl px-3 py-2">
             Chiedi {quantoRichiesta(righe.map((r) => ({ data: r.data, voce: r.voce === 'ferie' ? 'F01' : 'F02', tipo: r.tipo, ore: r.tipo === 'ore' ? Number((r as { ore?: number }).ore ?? 0) : r.tipo === 'giornata' ? giornata : giornata / 2, stato: 'richiesto' })))}
-            {saldoScelto ? <>: ti resterebbero <b>{oreInParole(saldoScelto.oggi - oreRichiesta)}</b> di {cosa === 'ferie' ? 'ferie' : 'permessi'}.</> : '.'}
+            {!saldoScelto ? '.'
+              : saldoScelto.oggi - oreRichiesta >= -0.005
+                ? <>: ti resterebbero <b>{oreInParole(saldoScelto.oggi - oreRichiesta)}</b> di {cosa === 'ferie' ? 'ferie' : 'permessi'}.</>
+                : <>: sono {oreInParole(oreRichiesta - saldoScelto.oggi)} più di quelle da usare oggi. Si contano anche quelle che maturano: decide il tuo referente.</>}
           </p>
         )}
 
@@ -265,7 +268,7 @@ export default function AppFerie() {
                     {primo ? (primo === ultimo ? giornoBreve(primo) : `dal ${giornoBreve(primo)} al ${giornoBreve(ultimo!)}`) : ''}
                   </p>
                   <p className="text-slate-500 text-xs mt-0.5">
-                    {quantoRichiesta(g)}{/ore$/.test(quantoRichiesta(g)) ? '' : ` · ${oreInParole(g.reduce((t, x) => t + Number(x.ore), 0))}`}
+                    {quantoRichiesta(g)}{/(ora|ore|nessuna)$/.test(quantoRichiesta(g)) ? '' : ` · ${oreInParole(g.reduce((t, x) => t + Number(x.ore), 0))}`}
                     {r.stato === 'approvata_parziale' ? `, approvate ${oreInParole(g.filter((x) => x.stato === 'approvato').reduce((t, x) => t + Number(x.ore), 0))}` : ''}
                     {r.decisa_da_nome ? ` · decisa da ${r.decisa_da_nome}` : ''}
                   </p>
