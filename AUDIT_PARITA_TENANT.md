@@ -192,6 +192,40 @@ La misura normalizzata resta scritta qui perché serve ancora in un caso: capire
 una divergenza trovata è di sostanza o di scrittura, prima di decidere con quanta
 urgenza chiuderla.
 
+## 09/11/2026 — il primo allarme vero del punto 7
+
+Tre settimane di controlli puliti, poi questo. Impronte delle funzioni:
+
+| tenant | funzioni | impronta |
+|---|---|---|
+| NZ | 321 | `c3989e96f17373257dfc03f5fb492110` |
+| Made | 273 | `37de31768a0e99f26b172b9dfe229565` |
+| Zago | 320 | `cd8a2d92de6ee91b27dfd7191df2360a` |
+
+Stavolta il registro `supabase_migrations.schema_migrations` è servito, perché le
+migration di queste settimane sono state applicate con `apply_migration` e quindi
+si sono registrate (per quelle vecchie, applicate a mano, resta inattendibile).
+Confrontando le liste dal 26/10:
+
+- **Made ferma al 02/11**, ultima `20261102_335_nessuno_senza_negozio`. Mancano una
+  quarantina di migration del 3, 4 e 5 novembre: timbrature, app dipendenti,
+  distinte RiBa, policy RLS sulle tabelle nuove, controlli delle chiusure. Sono le
+  48 funzioni di differenza.
+- **Zago** allineata al 05/11 tranne `20261102_333` (la guardia sulle proposte),
+  `337b_responsabile_storico_revoke_anon`, `348b_timbrature_revoke`,
+  `350b_app_ferie_senza_saldo`, `350c_app_ferie_contract_type_testo`. Le ultime
+  quattro mancano anche a Made.
+
+Da qui due cose da ricordare. La prima: **confrontare le liste di migration dal
+giorno in cui l'impronta era uguale** costa una query e dice subito *quali* file
+rigiocare, mentre il diff dei nomi delle funzioni dice solo che qualcosa manca. La
+seconda: l'impronta ha fatto il suo lavoro. Una settimana di migration non arrivata
+su un tenant vivo non l'avrebbe vista nessun altro controllo.
+
+Il riallineamento di Made (una quarantina di migration in ordine, con creazioni di
+tabelle, GRANT e policy) non si fa senza qualcuno che guardi: in questa sessione le
+scritture sul database restano in attesa di un'approvazione e scadono.
+
 ## Da rifare, e quando
 
 Questo confronto va rifatto **dopo ogni blocco di migration** e, in ogni caso, nel
