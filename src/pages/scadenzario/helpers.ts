@@ -231,3 +231,60 @@ export function categorizeIncome(desc: string | null | undefined): { tipo: strin
   if (d.includes('giroconto')) return { tipo: 'Giroconto', cls: 'bg-slate-100 text-slate-600' };
   return { tipo: 'Altro', cls: 'bg-slate-100 text-slate-600' };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RiBa chiuse in via provvisoria (05/11/2026).
+// Il controllo notturno chiude in via provvisoria non solo le RiBa (R13) ma anche
+// carte, contanti e addebiti diretti (R15/R24). Il pulsante «RiBa provvisorie»
+// deve contare solo le RiBa: il 05/11 ne mostrava 92, di cui 7 RiBa.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** true se il metodo di pagamento è una RiBa (riba, riba_30, riba_60, …). */
+export function isRibaMethod(method: string | null | undefined): boolean {
+  return /^riba(_|$)/.test(String(method ?? '').toLowerCase())
+}
+
+/** Filtro di stato dedicato alle sole RiBa chiuse in via provvisoria. */
+export const RIBA_PROVVISORIE_FILTER = 'riba_provvisorie'
+
+type ProvisionalRow = {
+  id?: string | null
+  supplier_id?: string | null
+  invoice_number?: string | null
+  status?: string | null
+  due_date?: string | null
+  gross_amount?: number | string | null
+  installment_number?: number | null
+}
+
+function invoiceKey(p: ProvisionalRow): string | null {
+  const num = String(p.invoice_number ?? '').trim()
+  if (!p.supplier_id || !num || num === '-') return null
+  return `${p.supplier_id}|${num}`
+}
+
+/**
+ * Per ogni fattura (fornitore + numero), le sue rate chiuse in via provvisoria.
+ * Serve a mostrare sulla rata ancora aperta che un'altra rata della stessa
+ * fattura risulta pagata senza riscontro (caso SHINE 1574/1579, 05/11/2026):
+ * la rata provvisoria esce dalla lista e altrimenti non si vede.
+ */
+export function provisionalRatesByInvoice<T extends ProvisionalRow>(rows: T[]): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const r of rows) {
+    if (r.status !== 'pagato_provvisorio') continue
+    const k = invoiceKey(r)
+    if (!k) continue
+    const list = out.get(k)
+    if (list) list.push(r)
+    else out.set(k, [r])
+  }
+  return out
+}
+
+/** Le rate provvisorie della stessa fattura di `row`, esclusa `row` stessa. */
+export function provisionalSiblingsOf<T extends ProvisionalRow>(row: T, byInvoice: Map<string, T[]>): T[] {
+  const k = invoiceKey(row)
+  if (!k) return []
+  return (byInvoice.get(k) || []).filter(r => r.id !== row.id)
+}
