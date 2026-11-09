@@ -23,6 +23,7 @@ const ROLE_PERMISSIONS: Record<string, string[]> = {
   coo: ['company', 'costs', 'centri'],
   contabile: ['costs', 'centri', 'report'],
   operatore_cassa: [],
+  responsabile: [],
 }
 
 // Toast helper (shared via props)
@@ -51,6 +52,9 @@ const ROLE_OPTIONS = [
   // solo la Chiusura cassa del proprio punto vendita (RLS, migrazioni 172-173).
   { value: 'operatore_cassa', label: 'Operatore cassa (negozio)', color: 'bg-sky-100 text-sky-700' },
   { value: 'viewer', label: 'Sola lettura', color: 'bg-stone-100 text-stone-700' },
+  // Responsabile di negozio o area manager: vede solo la pagina «Presenze e
+  // ferie» dei negozi spuntati in Dipendenti → Presenze → «Chi conferma» (378).
+  { value: 'responsabile', label: 'Responsabile (presenze e ferie dei suoi negozi)', color: 'bg-rose-100 text-rose-700' },
 ]
 
 // Macro gruppi del piano dei conti: i valori sono quelli salvati in

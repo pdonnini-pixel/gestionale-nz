@@ -31330,6 +31330,12 @@ export type Database = {
         }[]
       }
       ferie_richieste_prova: { Args: never; Returns: Json }
+      responsabile_ferie_elenco: { Args: { p_solo_in_attesa?: boolean }; Returns: Json }
+      responsabile_negozi: { Args: never; Returns: Json }
+      presenze_responsabile_dipendente_imposta: { Args: { p_employee: string; p_user: string }; Returns: undefined }
+      presenze_sono_io: { Args: { p_employee: string }; Returns: boolean }
+      responsabile_non_qui: { Args: never; Returns: undefined }
+      ferie_responsabile_puo: { Args: { p_request: string }; Returns: boolean }
       presenze_causale_evento: {
         Args: { p_causale: string; p_evento: string }
         Returns: undefined
@@ -32535,6 +32541,7 @@ export type Database = {
         | "viewer"
         | "operatore_cassa"
         | "dipendente"
+        | "responsabile"
     }
     CompositeTypes: {
       http_header: {
@@ -32760,6 +32767,7 @@ export const Constants = {
         "viewer",
         "operatore_cassa",
         "dipendente",
+        "responsabile",
       ],
     },
   },

@@ -54,7 +54,7 @@ export default function PresenzeConferme({ sezione }: { sezione: SezioneConferme
 
 // ─── Da confermare ───────────────────────────────────────────────────────
 
-function DaConfermare() {
+export function DaConfermare() {
   const { toast } = useToast()
   const oggi = dataRoma(Date.now())
   const [giorni, setGiorni] = useState(30)
@@ -156,7 +156,7 @@ function DaConfermare() {
                     {e.prova && <span className="ml-1.5 text-[11px] px-1.5 rounded bg-violet-100 text-violet-700">prova</span>}
                     <div className="text-xs text-slate-500">{e.negozio}</div>
                   </td>
-                  <td className="px-3 py-2.5"><span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${COLORE_TIPO[tipo]}`}>{tipo}</span></td>
+                  <td className="px-3 py-2.5"><span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${COLORE_TIPO[tipo]}`}>{tipo}</span></td>
                   <td className="px-3 py-2.5 text-slate-600 text-xs">{dettaglioTurno(e)}</td>
                   <td className="px-3 py-2.5"><span className="font-medium">{proposta(e)}</span>
                     {e.tipo === 'ritardo' && e.minuti_confermati == null && <div className="text-xs text-slate-500">{e.minuti}' arrotondati a blocchi di 15</div>}
@@ -393,7 +393,7 @@ function Riepilogo() {
 
 // ─── Chi conferma ed eccezioni per persona ───────────────────────────────
 
-interface Confermatore { user_id: string; nome: string | null; email: string | null; ruolo: string | null; amministratore: boolean; negozi: string[] }
+interface Confermatore { user_id: string; nome: string | null; email: string | null; ruolo: string | null; amministratore: boolean; negozi: string[]; dipendente_id?: string | null }
 interface Eccezione { employee_id: string; tolleranza_entrata_minuti: number | null; margine_uscita_minuti: number | null; nota: string | null }
 
 function ChiConfermaERegole() {
@@ -431,6 +431,12 @@ function ChiConfermaERegole() {
     const { error } = await supabase.rpc('presenze_confermatore_imposta', { p_user: u.user_id, p_outlet: outletId, p_attivo: attivo })
     if (error) { toast({ type: 'error', message: error.message }); return }
     setUtenti((xs) => xs?.map((x) => x.user_id !== u.user_id ? x : { ...x, negozi: attivo ? [...x.negozi, outletId] : x.negozi.filter((n) => n !== outletId) }) ?? null)
+  }
+  // Collega l'account alla sua scheda dipendente: cosi' non decide sui propri casi
+  const collega = async (u: Confermatore, employeeId: string | null) => {
+    const { error } = await supabase.rpc('presenze_responsabile_dipendente_imposta', { p_user: u.user_id, p_employee: employeeId as string })
+    if (error) { toast({ type: 'error', message: error.message }); return }
+    setUtenti((xs) => xs?.map((x) => x.user_id !== u.user_id ? x : { ...x, dipendente_id: employeeId }) ?? null)
   }
   const senzaNessuno = negozi.filter((o) => !(utenti ?? []).some((u) => !u.amministratore && u.ruolo !== 'viewer' && u.negozi.includes(o.id)))
   const numero = (s: string) => (s.trim() === '' ? null : Number(s))
@@ -473,7 +479,17 @@ function ChiConfermaERegole() {
             {(utenti ?? []).map((u) => (
               <tr key={u.user_id}>
                 <td className="py-2 pr-3"><span className="font-medium text-slate-900">{u.nome ?? u.email}</span>
-                  <div className="text-xs text-slate-500">{u.amministratore ? 'conferma sempre tutto' : u.ruolo === 'viewer' ? 'sola lettura: non può confermare' : u.ruolo}</div></td>
+                  <div className="text-xs text-slate-500">{u.amministratore ? 'conferma sempre tutto' : u.ruolo === 'viewer' ? 'sola lettura: non può confermare' : u.ruolo}</div>
+                  {!u.amministratore && u.ruolo !== 'viewer' && 'dipendente_id' in u && (
+                    <label className="block mt-1 text-xs text-slate-600">
+                      È anche il dipendente:{' '}
+                      <select value={u.dipendente_id ?? ''} onChange={(e) => void collega(u, e.target.value || null)}
+                        className={`border rounded px-1 py-0.5 text-xs ${u.dipendente_id ? 'border-slate-300' : 'border-amber-400 bg-amber-50'}`}>
+                        <option value="">non è un dipendente</option>
+                        {persone.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
+                      </select>
+                    </label>
+                  )}</td>
                 {negozi.map((o) => (
                   <td key={o.id} className="px-2 py-2 text-center">
                     <input type="checkbox" aria-label={`${u.nome ?? u.email} conferma ${o.name}`}

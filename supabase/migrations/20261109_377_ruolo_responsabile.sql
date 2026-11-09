@@ -1,0 +1,14 @@
+-- @no-transaction
+-- =====================================================================
+-- Migrazione 377 — Ruolo 'responsabile' (valore dell'enum)
+-- =====================================================================
+-- Patrizio, 09/11/2026: i responsabili di negozio e gli area manager
+-- confermano i casi delle presenze e decidono ferie e permessi dei negozi
+-- che un amministratore spunta in «Chi conferma». Il recinto (policy e
+-- funzioni) e' nella 378: il valore di un enum non e' usabile nella
+-- stessa transazione in cui nasce.
+-- NO DATA LOSS: solo un valore enum. Tenant: NZ e Zago.
+-- Rollback: un valore di enum non si toglie; senza utenti con quel ruolo
+-- non ha effetto (vedi 378_ROLLBACK).
+-- =====================================================================
+ALTER TYPE public.user_role ADD VALUE IF NOT EXISTS 'responsabile';
