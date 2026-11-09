@@ -21,8 +21,15 @@
 -- voluto, queste due erano già applicate su Zago quando la 370 è comparsa, e non
 -- toccano nessuno degli stessi oggetti. Rinumerarle avrebbe solo fatto divergere
 -- file e realtà. Il rollback di questa è quello della
--- `20261102_333_proposta_to_confirm_non_riscritta_ROLLBACK.sql`: fa `DROP TRIGGER`
--- e `DROP FUNCTION` degli stessi due oggetti, quindi non ne serve un altro.
+-- `20261102_333_proposta_to_confirm_non_riscritta_ROLLBACK.sql`, che fa `DROP
+-- TRIGGER` e `DROP FUNCTION` degli stessi due oggetti; per non far cercare in giro
+-- chi dovesse tornare indietro su Zago, accanto a questo file c'è comunque il suo
+-- `_ROLLBACK`.
+--
+-- IL CORPO QUI SOTTO È IL TESTO VIVO di NZ, copiato da `pg_get_functiondef`. Il
+-- file originale della 333 portava tre commenti in più che non erano mai finiti
+-- nel database: il 09/11 l'ho riallineato, così file e tenant dicono la stessa
+-- cosa (impronta 330ad5e1696f8ced222897d53c5f6616).
 --
 -- Nota: su Zago non si è potuta rifare la prova sul vivo della 333 (tre
 -- inserimenti della stessa coppia) perché il tenant non ha ancora movimenti

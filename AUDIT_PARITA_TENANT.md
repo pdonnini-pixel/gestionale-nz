@@ -1,5 +1,13 @@
 # Parità fra tenant — come si misura, e cosa è venuto fuori il 20/10/2026
 
+> **Chi confrontare, dal 03/11/2026: NZ e Zago, non più tre.** Quel giorno Patrizio
+> ha deciso che i tenant diventano due; **Made** è ferma alla migration
+> `20261102_335` e non riceve più modifiche al database, quindi che sia indietro non
+> è un allarme e non va rimessa in pari. Nelle sezioni scritte prima di quella data
+> si legge «i tre tenant»: sono cronaca di allora, il metodo resta identico, cambia
+> solo chi si confronta.
+
+
 Nato dalla scoperta del 19/10: la migration **114 del 24/07** era rimasta solo su NZ,
 pur scrivendo nella propria intestazione «⚠️ REGOLA #0 — applicare su NZ + Made +
 Zago». Se una migration può restare indietro tre mesi senza che nessuno se ne
@@ -257,20 +265,21 @@ scritture sul database restano in attesa di un'approvazione e scadono.
 Questo confronto va rifatto **dopo ogni blocco di migration** e, in ogni caso, nel
 controllo settimanale del motore. Costa sei query e dura un minuto.
 
-Dal 20/10/2026 non è più un buon proposito: è il **punto 7** del trigger
-«Motore riconciliazione — controllo settimanale», che ogni lunedì esegue la query
-delle funzioni sui tre tenant e scrive a Patrizio se le impronte non coincidono.
+Dal 20/10/2026 non è più un buon proposito: è un punto del trigger «Motore
+riconciliazione — controllo settimanale», che ogni lunedì esegue la query delle
+funzioni e scrive a Patrizio se le impronte non coincidono. Era il **punto 7**;
+dal 09/11/2026, riscritto il giro, è il **punto 8**, e confronta **NZ e Zago**.
 Nota nel giro: `MOTORE_RICONCILIAZIONE_NOTE.md`, sezione del 20/10/2026.
 
 Una cosa da tenere a mente leggendo quel confronto: **il valore atteso non è fisso.**
 `257` e `f3072c8ae1b5…` sono la fotografia del 20/10; ogni migration che aggiunge una
-funzione li cambia, su tutti e tre insieme. Quello che deve restare vero è che i tre
-diano lo stesso numero e la stessa impronta fra loro.
+funzione li cambia, sui tenant insieme. Quello che deve restare vero è che i tenant
+confrontati diano lo stesso numero e la stessa impronta fra loro.
 
 Nell'ordine:
-1. impronte per categoria sui tre tenant (la query in cima);
+1. impronte per categoria sui tenant confrontati, oggi NZ e Zago (la query in cima);
 2. dove un'impronta differisce, impronta **normalizzata** della categoria;
 3. solo quello che resta diverso dopo la normalizzazione è un problema.
 
 E la regola che vale sempre: **una migration non è applicata perché nel file c'è
-scritto che va applicata ai tre.** Dopo averla applicata, si rilegge l'impronta.
+scritto che va applicata.** Dopo averla applicata, si rilegge l'impronta.

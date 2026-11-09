@@ -1155,8 +1155,16 @@ mezzo falso, e la parte vera era solo Zago.
   di cassa.
 
 Esito: NZ e Zago **323 funzioni, impronta `6069f016ed2d6816ac21488f1834f691`**.
+
+Il salto da 321 a 323 nel giro di qualche ora non è un mistero e vale spiegarlo,
+perché il revisore se n'è accorto prima di me: mentre lavoravo, un'altra sessione
+ha aggiunto `dipendenti_demo_ids` e `richieste_ferie_demo_ids` (i dati finti della
+prova a Roma Soratte), e le ha messe **su entrambi** i tenant. È il
+comportamento sano: il numero sale insieme, l'impronta resta uguale.
 Su Zago la prova sul vivo della 333 non si è potuta rifare, perché `bank_transactions`
 è ancora vuota: vale quella fatta su NZ il 02/11, con il testo identico al carattere.
 
 Il giro settimanale ora confronta **due** tenant, e nel suo testo c'è scritto che
 Made indietro non è un allarme: così il prossimo lunedì non si rincorre un fantasma.
+Il controllo di parità, che era il punto 7, nel giro riscritto è il **punto 8**: i
+riferimenti al «punto 7» nelle sezioni di ottobre restano come cronaca.
