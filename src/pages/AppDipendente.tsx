@@ -262,13 +262,19 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
         </p>
       )}
       {/* QR */}
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow p-5 flex flex-col items-center gap-2">
-        {qr ? <img src={qr} alt="Il tuo codice per timbrare" className="w-64 h-64" /> : <RefreshCw className="animate-spin text-slate-400 my-24" />}
-        <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-          <div className="h-full bg-[#ff0066] transition-all" style={{ width: `${(secondi / PASSO_SECONDI) * 100}%` }} />
+      <div className="w-full max-w-sm bg-white rounded-3xl shadow-sm border border-slate-100 p-5 flex flex-col items-center">
+        <div className="w-full flex justify-between items-center">
+          <p className="font-semibold text-slate-900">Il tuo codice</p>
+          <span className="text-xs text-slate-500 tabular-nums">nuovo tra {secondi}s</span>
         </div>
-        <p className="text-slate-600 text-center">Avvicina il telefono alla timbratrice del negozio</p>
-        <p className="text-slate-400 text-xs text-center">Il codice cambia ogni 30 secondi: una foto non vale.</p>
+        <div className="mt-4 p-3 rounded-3xl bg-white ring-2 ring-[#ff0066]/15">
+          {qr ? <img src={qr} alt="Il tuo codice per timbrare" className="w-56 h-56" /> : <RefreshCw className="animate-spin text-slate-400 my-24 mx-24" />}
+        </div>
+        <div className="w-full h-1 bg-slate-100 rounded-full overflow-hidden mt-4">
+          <div className="h-full bg-[#ff0066] transition-all duration-1000 ease-linear" style={{ width: `${(secondi / PASSO_SECONDI) * 100}%` }} />
+        </div>
+        <p className="text-slate-700 text-center mt-3">Mostralo alla timbratrice del negozio</p>
+        <p className="text-slate-400 text-xs text-center mt-0.5">Cambia ogni 30 secondi: una foto non vale.</p>
       </div>
 
       {/* Uscita da segnare */}
@@ -288,18 +294,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
       {messaggio && <p className={`w-full max-w-sm text-sm ${messaggio.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{messaggio.testo}</p>}
 
       {/* Oggi */}
-      <div className="w-full max-w-sm bg-white rounded-2xl shadow p-4">
-        <p className="text-xs uppercase tracking-wide text-slate-400 mb-1">Oggi</p>
-        {turnoDel(oggi)
-          ? <p className="text-slate-900 font-semibold">Turno {turnoDel(oggi)!.inizio.slice(0, 5)} - {turnoDel(oggi)!.fine.slice(0, 5)}</p>
-          : <p className="text-slate-500">Nessun turno oggi</p>}
-        {perGiorno(oggi).length > 0 ? (
-          <>
-            <p className="text-sm text-slate-600 mt-1">{ordina(perGiorno(oggi)).map((t) => `${ETICHETTA_TIPO[t.tipo]} ${oraRoma(t.ora)}`).join(' · ')}</p>
-            <p className="text-sm text-slate-500 mt-1">{ETICHETTA_ESITO[rOggi.esito]} · lavorate {formatMinuti(rOggi.minutiLavorati)}{rOggi.minutiPausa ? ` · pausa ${formatMinuti(rOggi.minutiPausa)}` : ''}</p>
-          </>
-        ) : <p className="text-sm text-slate-500 mt-1">Nessuna timbratura oggi.</p>}
-      </div>
+      <CardOggi turno={turnoDel(oggi)} timbrature={ordina(perGiorno(oggi))} r={rOggi} adesso={adesso} />
 
       {dati?.scaricati_il && <p className="text-slate-400 text-xs">Aggiornato alle {oraRoma(dati.scaricati_il)}</p>}
       </>)}
@@ -313,6 +308,69 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
           </button>
         ))}
       </nav>
+    </div>
+  )
+}
+
+const STILE_ESITO: Record<string, string> = {
+  non_timbrato: 'bg-slate-100 text-slate-600',
+  in_negozio: 'bg-emerald-50 text-emerald-700',
+  in_pausa: 'bg-amber-50 text-amber-700',
+  uscito: 'bg-slate-800 text-white',
+  uscita_mancante: 'bg-rose-50 text-rose-700',
+}
+
+/** La giornata: stato, linea del turno con l'ora attuale, ore lavorate e timbrature. */
+function CardOggi({ turno, timbrature, r, adesso }: {
+  turno: { data: string; inizio: string; fine: string } | null
+  timbrature: Timbratura[]
+  r: ReturnType<typeof riepilogoGiorno>
+  adesso: number
+}) {
+  const minuti = (hhmm: string) => { const [h, m] = hhmm.split(':').map(Number); return h * 60 + m }
+  const oraNow = (() => { const [h, m] = oraRoma(new Date(adesso).toISOString()).split(':').map(Number); return h * 60 + m })()
+  const pctOra = turno ? Math.max(0, Math.min(1, (oraNow - minuti(turno.inizio)) / Math.max(1, minuti(turno.fine) - minuti(turno.inizio)))) : 0
+  return (
+    <div className="w-full max-w-sm bg-white rounded-3xl shadow-sm border border-slate-100 p-5">
+      <div className="flex justify-between items-center">
+        <p className="font-semibold text-slate-900">Oggi</p>
+        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${STILE_ESITO[r.esito] ?? STILE_ESITO.non_timbrato}`}>{ETICHETTA_ESITO[r.esito]}</span>
+      </div>
+      {turno ? (
+        <>
+          <p className="text-2xl font-bold text-slate-900 mt-2 tabular-nums">{turno.inizio.slice(0, 5)} - {turno.fine.slice(0, 5)}</p>
+          <div className="relative h-2 mt-3 rounded-full bg-slate-100">
+            <div className="absolute inset-y-0 left-0 rounded-full bg-[#ff0066]/25" style={{ width: `${pctOra * 100}%` }} />
+            {pctOra > 0 && pctOra < 1 && (
+              <div className="absolute -top-1 w-4 h-4 rounded-full bg-[#ff0066] border-2 border-white shadow" style={{ left: `calc(${pctOra * 100}% - 8px)` }} />
+            )}
+          </div>
+          <div className="flex justify-between text-[11px] text-slate-400 mt-1"><span>inizio</span><span>fine</span></div>
+        </>
+      ) : <p className="text-slate-500 mt-2">Nessun turno oggi</p>}
+
+      <div className="grid grid-cols-2 gap-2 mt-4">
+        <div className="rounded-2xl bg-slate-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Lavorate</p>
+          <p className="text-lg font-semibold text-slate-900 tabular-nums">{formatMinuti(r.minutiLavorati)}</p>
+        </div>
+        <div className="rounded-2xl bg-slate-50 px-3 py-2">
+          <p className="text-[11px] uppercase tracking-wide text-slate-400">Pausa</p>
+          <p className="text-lg font-semibold text-slate-900 tabular-nums">{formatMinuti(r.minutiPausa)}</p>
+        </div>
+      </div>
+
+      {timbrature.length > 0 ? (
+        <ol className="mt-4 flex flex-col gap-2">
+          {timbrature.map((t, i) => (
+            <li key={`${t.ora}-${i}`} className="flex items-center gap-3 text-sm">
+              <span className={`w-2.5 h-2.5 rounded-full ${t.tipo === 'entrata' ? 'bg-emerald-500' : t.tipo === 'uscita' ? 'bg-slate-700' : 'bg-amber-400'}`} />
+              <span className="text-slate-700 flex-1">{ETICHETTA_TIPO[t.tipo]}</span>
+              <span className="tabular-nums font-medium text-slate-900">{oraRoma(t.ora)}</span>
+            </li>
+          ))}
+        </ol>
+      ) : <p className="text-sm text-slate-500 mt-4">Nessuna timbratura oggi.</p>}
     </div>
   )
 }
