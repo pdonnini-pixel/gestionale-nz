@@ -60,7 +60,7 @@ const corsHeaders = {
 const BAN_FOREVER = "876000h"; // ~100 anni = accesso bloccato
 // Solo valori dell'enum public.user_role: "store_manager"/"operatrice" non
 // esistevano nel DB e l'invito falliva a meta' (login creato, profilo no).
-const ASSIGNABLE_ROLES = ["super_advisor", "ceo", "cfo", "coo", "contabile", "budget_approver", "viewer", "operatore_cassa"];
+const ASSIGNABLE_ROLES = ["super_advisor", "ceo", "cfo", "coo", "contabile", "budget_approver", "viewer", "operatore_cassa", "responsabile"];
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
