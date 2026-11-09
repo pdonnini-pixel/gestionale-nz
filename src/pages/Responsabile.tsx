@@ -30,14 +30,27 @@ const voce = (v: string) => ETICHETTE_VOCE_BREVI[v as VoceFerie] ?? v
 export default function Responsabile() {
   const [scheda, setScheda] = useState<'presenze' | 'ferie'>('presenze')
   const [negozi, setNegozi] = useState<{ id: string; nome: string }[] | null>(null)
+  const [erroreNegozi, setErroreNegozi] = useState(false)
 
-  useEffect(() => {
-    void supabase.rpc('responsabile_negozi').then(({ data }) => setNegozi((data as unknown as { id: string; nome: string }[]) ?? []))
+  const caricaNegozi = useCallback(() => {
+    setErroreNegozi(false)
+    void supabase.rpc('responsabile_negozi').then(({ data, error }) => {
+      // Un errore di rete non e' «nessun negozio»: lo si dice e si riprova
+      if (error) { setErroreNegozi(true); return }
+      setNegozi((data as unknown as { id: string; nome: string }[]) ?? [])
+    })
   }, [])
+  useEffect(() => { caricaNegozi() }, [caricaNegozi])
 
   return (
     <div className="space-y-5">
       <PageHeader title="Presenze e ferie" subtitle={negozi?.length ? `I tuoi negozi: ${negozi.map((n) => n.nome).join(', ')}` : 'I casi e le richieste dei tuoi negozi'} />
+      {erroreNegozi && (
+        <p className="text-sm bg-rose-50 border border-rose-200 text-rose-800 rounded-lg px-3 py-2">
+          Non riesco a leggere i tuoi negozi: controlla la connessione.{' '}
+          <button type="button" onClick={caricaNegozi} className="underline font-semibold">Riprova</button>
+        </p>
+      )}
       {negozi && negozi.length === 0 && (
         <p className="text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-3 py-2">
           Non hai ancora negozi assegnati: chiedi a un amministratore di spuntarti in Dipendenti → Presenze → «Chi conferma».
@@ -79,6 +92,8 @@ function FerieDaDecidere() {
     })
     setOccupato(null)
     if (error) { toast({ type: 'error', message: error.message }); return }
+    // Come in Ferie e permessi → Approvazioni: la mail ai referenti e' un di piu', se non parte la decisione vale lo stesso
+    try { await supabase.functions.invoke('leave-notify', { body: { request_id: q.id, momento: 'decisione' } }) } catch { /* solo l'avviso per mail */ }
     toast({ type: 'success', message: `${q.persona}: richiesta ${approva ? 'approvata' : 'respinta'}.` })
     setRespingi(null)
     void carica()
