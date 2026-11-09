@@ -6,7 +6,7 @@
 --      senza le policy della 368 tornerebbero visibili nel gestionale e
 --      nei conteggi. Si cancellano SOLO righe di dipendenti con is_demo.
 --   2. toglie le policy demo_nascosto;
---   3. rimette le sei funzioni come prima della 368 (348/351/367);
+--   3. rimette le cinque funzioni come prima della 368 (348/351/367);
 --   4. toglie le due funzioni helper. La colonna employees.is_demo resta
 --      (vuota, sempre false): toglierla e' un DROP COLUMN, da fare solo
 --      con conferma di Patrizio.
@@ -106,12 +106,6 @@ DECLARE
   d text;
   n text;
 BEGIN
-  d := pg_get_functiondef('public.timbratrice_dati(uuid)'::regprocedure);
-  n := replace(d, ' AND t.employee_id <> ALL (public.dipendenti_demo_ids())', '');
-  n := replace(n, ' AND NOT e.is_demo', '');
-  IF n = d THEN RAISE EXCEPTION 'timbratrice_dati: pezzi della 368 non trovati'; END IF;
-  EXECUTE n;
-
   d := pg_get_functiondef('public.timbrature_avvisi_da_mandare(timestamp with time zone)'::regprocedure);
   n := replace(d, 'c.a_resp AND NOT e.is_demo, c.a_uff AND NOT e.is_demo', 'c.a_resp, c.a_uff');
   IF n = d THEN RAISE EXCEPTION 'timbrature_avvisi_da_mandare: pezzi della 368 non trovati'; END IF;

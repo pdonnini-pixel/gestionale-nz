@@ -17,8 +17,9 @@
 --      L'app del dipendente legge con funzioni SECURITY DEFINER e quindi
 --      vede i suoi dati come sempre.
 --   3. Funzioni SECURITY DEFINER che leggono i dipendenti per il
---      gestionale o il telefono del negozio: lo escludono
---      (app_accessi_elenco, app_push_stato, timbratrice_dati).
+--      gestionale: lo escludono (app_accessi_elenco, app_push_stato).
+--      Il telefono del negozio (timbratrice_dati) invece lo vede, cosi'
+--      la prova copre anche la timbratura (Patrizio, 09/11/2026).
 --   4. timbrature_turni_ufficiali: i turni del dipendente di prova (senza
 --      piano) valgono sempre, anche se il negozio ha un piano scelto.
 --   5. Avvisi sul telefono: al dipendente di prova arrivano solo i suoi,
@@ -27,6 +28,7 @@
 --      notifica nel gestionale.
 -- Il dipendente di prova si crea a parte (NZ_ONLY_20261108_369).
 --
+-- APPLICATA il 09/11/2026 su NZ e Zago (20 policy demo_nascosto su entrambi).
 -- NO DATA LOSS: ADD COLUMN con default, policy e funzioni. Nessuna riga
 -- cambiata. Tenant: NZ e Zago (Made non ha le tabelle delle presenze).
 -- =====================================================================
@@ -150,26 +152,13 @@ AS $function$
           OR (s.plan_id IS NULL AND s.employee_id = ANY ((SELECT public.dipendenti_demo_ids())::uuid[])));
 $function$;
 
--- 3b, 5, 6: modifiche puntuali a funzioni lunghe, con controllo che il
+-- 5, 6: modifiche puntuali a funzioni lunghe, con controllo che il
 -- testo atteso ci sia (se non c'e' la migration si ferma)
 DO $$
 DECLARE
   d text;
   n text;
 BEGIN
-  -- timbratrice del negozio: niente dipendente di prova
-  d := pg_get_functiondef('public.timbratrice_dati(uuid)'::regprocedure);
-  n := replace(d, $x$    SELECT * FROM public.timbrature_turni_ufficiali(v_company, v_oggi - 1, v_oggi + 7) t
-     WHERE t.outlet_id = p_outlet_id$x$, $x$    SELECT * FROM public.timbrature_turni_ufficiali(v_company, v_oggi - 1, v_oggi + 7) t
-     WHERE t.outlet_id = p_outlet_id AND t.employee_id <> ALL (public.dipendenti_demo_ids())$x$);
-  n := replace(n, $x$     WHERE e.company_id = v_company
-       AND ((e.outlet_id = p_outlet_id$x$, $x$     WHERE e.company_id = v_company AND NOT e.is_demo
-       AND ((e.outlet_id = p_outlet_id$x$);
-  IF n = d OR (length(n) - length(d)) <> length(' AND t.employee_id <> ALL (public.dipendenti_demo_ids())') + length(' AND NOT e.is_demo') THEN
-    RAISE EXCEPTION 'timbratrice_dati: testo atteso non trovato';
-  END IF;
-  EXECUTE n;
-
   -- avvisi: il dipendente di prova li riceve solo lui
   d := pg_get_functiondef('public.timbrature_avvisi_da_mandare(timestamp with time zone)'::regprocedure);
   n := replace(d, $x$         o.referente_employee_id, c.a_dip, c.a_resp, c.a_uff$x$,
@@ -202,5 +191,4 @@ COMMIT;
 
 -- Verifica, su ogni tenant:
 -- SELECT count(*) FROM pg_policies WHERE policyname = 'demo_nascosto';           -- 20
--- SELECT pg_get_functiondef('public.timbratrice_dati(uuid)'::regprocedure) ~ 'is_demo';  -- true
 -- SELECT pg_get_functiondef('public.app_dipendente_chiedi_ferie(jsonb,text)'::regprocedure) ~ 'IF NOT e.is_demo';  -- true

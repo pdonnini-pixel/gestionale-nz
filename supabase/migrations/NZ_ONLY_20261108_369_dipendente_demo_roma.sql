@@ -7,7 +7,9 @@
 -- Crea: la persona (is_demo = true) e due settimane di turni inventati
 -- (09-22/11/2026, dal lunedi' al sabato 10:00-19:00 con un'ora di pausa,
 -- domenica libera). Il codice di attivazione lo crea il trigger
--- trg_employees_accesso_app.
+-- trg_employees_accesso_app. Si vede sul telefono del negozio di Roma
+-- (timbratrice), cosi' la prova copre anche la timbratura.
+-- APPLICATA il 09/11/2026 su NZ: 12 turni, codice creato.
 -- Idempotente: se il dipendente di prova esiste gia', non fa niente.
 -- Toglierlo: UPDATE public.employees SET is_active = false WHERE is_demo;
 -- =====================================================================
