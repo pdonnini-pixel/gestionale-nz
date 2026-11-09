@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizeDocumentType, documentTypeLabel, notaDistintaNC } from './helpers';
+import { normalizeDocumentType, documentTypeLabel, notaDistintaNC, isRibaMethod, provisionalRatesByInvoice, provisionalSiblingsOf } from './helpers';
 
 describe('normalizeDocumentType', () => {
   it('riconosce la proforma anche scritta come «fattura proforma»', () => {
@@ -47,3 +47,31 @@ describe('notaDistintaNC', () => {
     expect(notaDistintaNC('SALDO', '285', '2026-06-30', [])).toBe('');
   });
 });
+
+describe('RiBa provvisorie', () => {
+  it('riconosce solo i metodi RiBa', () => {
+    expect(isRibaMethod('riba_60')).toBe(true)
+    expect(isRibaMethod('riba')).toBe(true)
+    expect(isRibaMethod('RIBA_90')).toBe(true)
+    expect(isRibaMethod('carta_credito')).toBe(false)
+    expect(isRibaMethod('sdd_core')).toBe(false)
+    expect(isRibaMethod('ribalta')).toBe(false)
+    expect(isRibaMethod(null)).toBe(false)
+  })
+
+  it('raggruppa le rate provvisorie per fattura e trova quelle sorelle', () => {
+    const rows = [
+      { id: 'a1', supplier_id: 'S1', invoice_number: '100/26', status: 'pagato_provvisorio', due_date: '2026-10-31', gross_amount: 10, installment_number: 1 },
+      { id: 'a2', supplier_id: 'S1', invoice_number: '100/26', status: 'da_pagare', due_date: '2026-11-30', gross_amount: 10, installment_number: 2 },
+      { id: 'b1', supplier_id: 'S2', invoice_number: '100/26', status: 'da_pagare', due_date: '2026-11-30', gross_amount: 5, installment_number: 1 },
+      { id: 'c1', supplier_id: 'S1', invoice_number: '-', status: 'pagato_provvisorio', due_date: '2026-10-31', gross_amount: 1, installment_number: 1 },
+    ]
+    const map = provisionalRatesByInvoice(rows)
+    expect(map.size).toBe(1)
+    expect(provisionalSiblingsOf(rows[1], map).map(r => r.id)).toEqual(['a1'])
+    // la rata provvisoria non conta se stessa
+    expect(provisionalSiblingsOf(rows[0], map)).toEqual([])
+    // stesso numero di un altro fornitore: niente
+    expect(provisionalSiblingsOf(rows[2], map)).toEqual([])
+  })
+})
