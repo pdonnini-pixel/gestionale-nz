@@ -1,5 +1,13 @@
 # Parità fra tenant — come si misura, e cosa è venuto fuori il 20/10/2026
 
+> **Chi confrontare, dal 03/11/2026: NZ e Zago, non più tre.** Quel giorno Patrizio
+> ha deciso che i tenant diventano due; **Made** è ferma alla migration
+> `20261102_335` e non riceve più modifiche al database, quindi che sia indietro non
+> è un allarme e non va rimessa in pari. Nelle sezioni scritte prima di quella data
+> si legge «i tre tenant»: sono cronaca di allora, il metodo resta identico, cambia
+> solo chi si confronta.
+
+
 Nato dalla scoperta del 19/10: la migration **114 del 24/07** era rimasta solo su NZ,
 pur scrivendo nella propria intestazione «⚠️ REGOLA #0 — applicare su NZ + Made +
 Zago». Se una migration può restare indietro tre mesi senza che nessuno se ne
@@ -192,7 +200,7 @@ La misura normalizzata resta scritta qui perché serve ancora in un caso: capire
 una divergenza trovata è di sostanza o di scrittura, prima di decidere con quanta
 urgenza chiuderla.
 
-## 09/11/2026 — il primo allarme vero del punto 7
+## 09/11/2026 — un allarme vero (Zago) e uno mezzo falso (Made)
 
 Tre settimane di controlli puliti, poi questo. Impronte delle funzioni:
 
@@ -216,11 +224,37 @@ Confrontando le liste dal 26/10:
   `350b_app_ferie_senza_saldo`, `350c_app_ferie_contract_type_testo`. Le ultime
   quattro mancano anche a Made.
 
-Da qui due cose da ricordare. La prima: **confrontare le liste di migration dal
-giorno in cui l'impronta era uguale** costa una query e dice subito *quali* file
-rigiocare, mentre il diff dei nomi delle funzioni dice solo che qualcosa manca. La
-seconda: l'impronta ha fatto il suo lavoro. Una settimana di migration non arrivata
-su un tenant vivo non l'avrebbe vista nessun altro controllo.
+**Su Made l'allarme era mezzo falso**, e l'ho capito poche ore dopo leggendo il
+`CLAUDE.md` aggiornato: il **03/11/2026 Patrizio ha deciso che i tenant diventano
+due**, NZ e Zago, e Made non riceve più modifiche al database. Ferma alla
+`20261102_335` è esattamente ciò che la decisione prevede, non una migration persa.
+Da allora il confronto di parità è **fra NZ e Zago**, e il punto 8 del giro
+settimanale lo dice a chiare lettere, così nessuno rincorre il fantasma.
+
+**Su Zago era vero, ed è chiuso.** Applicata la 333 (migration 368) e chiusa
+l'ultima differenza, che era **una riga di commento** dentro
+`fn_cash_closing_compute`: 62 caratteri, codice identico riga per riga (migration
+369, patch sulla definizione viva con verifica dell'md5). Esito: NZ e Zago **323
+funzioni, impronta `6069f016ed2d6816ac21488f1834f691`**.
+
+### Tre cose da ricordare, tutte imparate quel giorno
+
+1. **Confrontare le liste di `supabase_migrations.schema_migrations`** dal giorno in
+   cui l'impronta era uguale costa una query e dice *quali* file rigiocare, dove il
+   diff dei nomi delle funzioni dice solo che qualcosa manca.
+2. **Nelle query a gruppi, ordinare per nome E firma.** La mia prima impronta per
+   lettera iniziale ordinava solo per `proname`: con funzioni omonime di firma
+   diversa (`http_get`, `http_post`, `http_delete` esistono in due versioni)
+   l'ordine dentro il gruppo è indefinito, e due tenant identici danno impronte
+   diverse. Ho inseguito per qualche minuto una divergenza nel gruppo `h` che non
+   esisteva. La query giusta ordina `p.proname, pg_get_function_identity_arguments(p.oid)`,
+   come fa quella principale.
+3. **Il testo di una funzione non si riscrive, si copia** da `pg_get_functiondef`
+   del tenant di riferimento. Riscrivendolo a mano ho perso un commento e ho dovuto
+   applicare due volte la stessa migration.
+
+E l'impronta ha fatto il suo lavoro: una funzione indietro su un tenant vivo, e una
+differenza di un commento, non le avrebbe viste nessun altro controllo.
 
 Il riallineamento di Made (una quarantina di migration in ordine, con creazioni di
 tabelle, GRANT e policy) non si fa senza qualcuno che guardi: in questa sessione le
@@ -231,20 +265,21 @@ scritture sul database restano in attesa di un'approvazione e scadono.
 Questo confronto va rifatto **dopo ogni blocco di migration** e, in ogni caso, nel
 controllo settimanale del motore. Costa sei query e dura un minuto.
 
-Dal 20/10/2026 non è più un buon proposito: è il **punto 7** del trigger
-«Motore riconciliazione — controllo settimanale», che ogni lunedì esegue la query
-delle funzioni sui tre tenant e scrive a Patrizio se le impronte non coincidono.
+Dal 20/10/2026 non è più un buon proposito: è un punto del trigger «Motore
+riconciliazione — controllo settimanale», che ogni lunedì esegue la query delle
+funzioni e scrive a Patrizio se le impronte non coincidono. Era il **punto 7**;
+dal 09/11/2026, riscritto il giro, è il **punto 8**, e confronta **NZ e Zago**.
 Nota nel giro: `MOTORE_RICONCILIAZIONE_NOTE.md`, sezione del 20/10/2026.
 
 Una cosa da tenere a mente leggendo quel confronto: **il valore atteso non è fisso.**
 `257` e `f3072c8ae1b5…` sono la fotografia del 20/10; ogni migration che aggiunge una
-funzione li cambia, su tutti e tre insieme. Quello che deve restare vero è che i tre
-diano lo stesso numero e la stessa impronta fra loro.
+funzione li cambia, sui tenant insieme. Quello che deve restare vero è che i tenant
+confrontati diano lo stesso numero e la stessa impronta fra loro.
 
 Nell'ordine:
-1. impronte per categoria sui tre tenant (la query in cima);
+1. impronte per categoria sui tenant confrontati, oggi NZ e Zago (la query in cima);
 2. dove un'impronta differisce, impronta **normalizzata** della categoria;
 3. solo quello che resta diverso dopo la normalizzazione è un problema.
 
 E la regola che vale sempre: **una migration non è applicata perché nel file c'è
-scritto che va applicata ai tre.** Dopo averla applicata, si rilegge l'impronta.
+scritto che va applicata.** Dopo averla applicata, si rilegge l'impronta.
