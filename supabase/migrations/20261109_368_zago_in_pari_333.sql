@@ -16,6 +16,14 @@
 -- Esito: su NZ e Zago `reclog_skip_duplicate_proposal` ha impronta
 -- 330ad5e1696f8ced222897d53c5f6616 e il trigger 9fa6d30a43bb1a9bb66efc6ddc2e3b2f.
 --
+-- NUMERAZIONE E ROLLBACK (nota dopo la revisione). Il numero 368 è più basso della
+-- 370, che su `main` è arrivata nel frattempo da un'altra sessione: il salto è
+-- voluto, queste due erano già applicate su Zago quando la 370 è comparsa, e non
+-- toccano nessuno degli stessi oggetti. Rinumerarle avrebbe solo fatto divergere
+-- file e realtà. Il rollback di questa è quello della
+-- `20261102_333_proposta_to_confirm_non_riscritta_ROLLBACK.sql`: fa `DROP TRIGGER`
+-- e `DROP FUNCTION` degli stessi due oggetti, quindi non ne serve un altro.
+--
 -- Nota: su Zago non si è potuta rifare la prova sul vivo della 333 (tre
 -- inserimenti della stessa coppia) perché il tenant non ha ancora movimenti
 -- bancari: `bank_transactions` è vuota. La prova resta quella fatta su NZ il

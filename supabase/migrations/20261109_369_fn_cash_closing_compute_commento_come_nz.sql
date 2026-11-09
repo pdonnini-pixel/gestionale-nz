@@ -17,6 +17,10 @@
 -- ESITO: NZ e Zago 323 funzioni con impronta complessiva
 -- 6069f016ed2d6816ac21488f1834f691, identica.
 --
+-- Numerazione: come la 368, sta sotto la 370 arrivata nel frattempo su `main` da
+-- un'altra sessione. Salto voluto, nessun oggetto in comune. Nessun file di
+-- rollback: tornare indietro vorrebbe dire togliere una riga di commento.
+--
 -- Made resta fuori dal confronto per la decisione del 03/11/2026 (due tenant, non
 -- tre): è ferma alla 20261102_335 e non riceve più modifiche al database.
 -- ============================================================================
