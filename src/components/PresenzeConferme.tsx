@@ -453,6 +453,13 @@ function ChiConfermaERegole() {
           Solo utenti del gestionale. Il referente ha un negozio, l'area manager ne ha più di uno. Gli amministratori e chi segue il personale confermano sempre tutto.
           Chi è spuntato riceve una notifica nel gestionale per ogni caso nuovo del suo negozio.
         </p>
+        {utenti && !utenti.some((u) => !u.amministratore && u.ruolo !== 'viewer') && (
+          <p className="text-sm bg-blue-50 border border-blue-200 text-blue-900 rounded-lg px-3 py-2">
+            Per ora non c'è nessuno da spuntare: gli utenti del gestionale sono amministratori, che confermano già tutti i negozi
+            (casella grigia spuntata), oppure in sola lettura, che non confermano (casella grigia vuota). Quando crei l'account di un
+            responsabile di negozio o di un area manager, compare qui con le caselle attive e scegli tu i suoi negozi.
+          </p>
+        )}
         {senzaNessuno.length > 0 && utenti && (
           <p className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg px-3 py-2">
             Senza un responsabile per le presenze: {senzaNessuno.map((o) => o.name).join(', ')}. I loro casi li vedono solo gli amministratori.
