@@ -187,15 +187,27 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
     setDati(d)
   }, [])
 
+  // Con il QR a schermo si controlla ogni 10 secondi: chi ha appena timbrato
+  // guarda subito il telefono (prova del 09/11/2026: con 60 secondi
+  // l'entrata compariva in ritardo). Altrimenti una volta al minuto.
   useEffect(() => {
     void aggiorna()
-    const t = setInterval(() => void aggiorna(), 60_000)
+    const t = setInterval(() => {
+      if (document.visibilityState === 'visible') void aggiorna()
+    }, scheda === 'oggi' ? 10_000 : 60_000)
     const on = () => { setOnline(true); void aggiorna() }
     const off = () => setOnline(false)
+    const visibile = () => { if (document.visibilityState === 'visible') void aggiorna() }
     window.addEventListener('online', on)
     window.addEventListener('offline', off)
-    return () => { clearInterval(t); window.removeEventListener('online', on); window.removeEventListener('offline', off) }
-  }, [aggiorna])
+    document.addEventListener('visibilitychange', visibile)
+    return () => {
+      clearInterval(t)
+      window.removeEventListener('online', on)
+      window.removeEventListener('offline', off)
+      document.removeEventListener('visibilitychange', visibile)
+    }
+  }, [aggiorna, scheda])
 
   const oggi = dataRoma(adesso)
   // Giorno prima calcolato sulla data (non 24 ore prima: nei giorni del cambio d'ora sbaglierebbe)
