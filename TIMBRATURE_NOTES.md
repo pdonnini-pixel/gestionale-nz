@@ -55,6 +55,7 @@ Decisioni di Patrizio del 09/11/2026: uscita «d'accordo» decisa caso per caso;
 - **Eccezioni per persona**: `presenze_regola_dipendente` (campo vuoto = come il negozio). Tolleranza e margine del negozio nella scheda «Giornata», con «usa per tutti i negozi».
 - **Interfaccia**: Dipendenti → Presenze, sotto-schede Giornata / Da confermare / Riepilogo del mese / Chi conferma e regole (`src/components/PresenzeConferme.tsx`, parametro `presenze=` nell'URL).
 - **Dalle revisioni** (migration 374 e 375): chi non è amministratore conferma al massimo i minuti proposti (ritardo: blocchi di 15; uscita e straordinario: i minuti timbrati), gli amministratori fino a 24 ore; le tabelle `attendance_eventi`, `attendance_regole_dipendente`, `attendance_confermatori` sono in sola lettura per `authenticated` e chiuse ad `anon` (si scrive solo dalle funzioni).
+- **Richieste del dipendente di prova** (migration 376, Patrizio 09/11/2026): `ferie_richieste_prova()` le restituisce a chi decide le ferie o segue il personale; Ferie e permessi → Richieste le mostra in un riquadro a parte con l'etichetta «prova». Il demo resta nascosto in tutte le tabelle (368).
 - **PR B (da fare)**: profilo `responsabile` con una pagina sua (casi e ferie dei suoi negozi) via RPC, senza accesso al resto del gestionale.
 
 ## aperto

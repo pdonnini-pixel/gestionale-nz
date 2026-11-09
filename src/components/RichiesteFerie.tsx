@@ -94,6 +94,12 @@ type Controproposta = {
   giorni: { data: string; voce: string; tipo: string; ore: number }[];
 };
 
+interface RichiestaProva {
+  id: string; persona: string; stato: string; titolo: string | null; compilata_da_nome: string | null; decisa_da_nome: string | null; created_at: string;
+  giorni: { data: string; voce: string; tipo: string; ore: number; stato: string }[];
+}
+const STATO_PROVA: Record<string, string> = { inviata: 'in attesa', approvata: 'approvata', approvata_parziale: 'approvata in parte', respinta: 'respinta', ritirata: 'ritirata', bozza: 'bozza', chiusa: 'chiusa' };
+
 export default function RichiesteFerie({ companyId, userId }: Props) {
   const { toast } = useToast();
 
@@ -102,6 +108,9 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
   const [richieste, setRichieste] = useState<RichiestaSalvata[]>([]);
   // Date proposte da chi decide al posto di quelle chieste, in attesa di risposta.
   const [controproposte, setControproposte] = useState<Controproposta[]>([]);
+  // Richieste del dipendente di prova (migration 376): nascosto ovunque, qui
+  // a parte con l'etichetta «prova», per provare il giro di presenze e ferie.
+  const [prova, setProva] = useState<RichiestaProva[]>([]);
   // Eventi dei negozi con «niente ferie» (Black Friday, feste, saldi).
   const [eventiSenzaFerie, setEventiSenzaFerie] = useState<(PeriodoSenzaFerie & { outlet_ids: string[] | null })[]>([]);
   const [azienda, setAzienda] = useState('');
@@ -207,6 +216,10 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
   }, [companyId]);
 
   useEffect(() => { void carica(); }, [carica]);
+  useEffect(() => {
+    // Sul sito senza la funzione (Made) non risponde: il riquadro semplicemente non c'e'
+    void supabase.rpc('ferie_richieste_prova').then(({ data, error }) => { if (!error && Array.isArray(data)) setProva(data as unknown as RichiestaProva[]); });
+  }, [richieste]);
 
   // ── La persona scelta ──────────────────────────────────────────────
   const persona = useMemo(
@@ -480,6 +493,20 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
 
   return (
     <div className="space-y-5">
+      {prova.length > 0 && (
+        <div className="bg-violet-50 rounded-xl border border-violet-200 p-4 space-y-2">
+          <p className="text-sm font-semibold text-violet-900">Dipendente di prova <span className="ml-1 text-[11px] px-1.5 rounded bg-violet-100 text-violet-700">prova</span></p>
+          <p className="text-xs text-violet-800">Richieste e permessi del dipendente di prova degli ultimi 60 giorni. Non contano da nessuna parte: servono a provare l'app e le conferme delle presenze.</p>
+          {prova.map((q) => (
+            <div key={q.id} className="bg-white rounded-lg border border-violet-200 px-3 py-2 text-sm flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-medium text-slate-900">{q.titolo ?? q.persona}</span>
+              <span className="text-slate-700">{q.giorni.map((g) => `${formattaData(g.data)} (${ETICHETTE_VOCE_BREVI[g.voce as VoceFerie] ?? g.voce}, ${formattaOre(g.ore)})`).join(', ')}</span>
+              <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">{STATO_PROVA[q.stato] ?? q.stato}</span>
+              <span className="text-xs text-slate-500">{q.compilata_da_nome ?? ''}{q.decisa_da_nome ? ` · deciso da ${q.decisa_da_nome}` : ''}</span>
+            </div>
+          ))}
+        </div>
+      )}
       {controproposte.length > 0 && (
         <div className="bg-amber-50 rounded-xl border border-amber-200 p-4 space-y-3">
           <p className="text-sm font-semibold text-amber-900 flex items-center gap-2"><CalendarClock size={16} /> Date proposte da chi decide, in attesa di risposta</p>

@@ -31329,6 +31329,7 @@ export type Database = {
           piattaforme: string
         }[]
       }
+      ferie_richieste_prova: { Args: never; Returns: Json }
       presenze_causale_evento: {
         Args: { p_causale: string; p_evento: string }
         Returns: undefined
