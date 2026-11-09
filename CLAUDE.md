@@ -357,11 +357,14 @@ npm test             # tutti gli unit test (vitest run)
 npx vitest run src/lib/ceHelpers.test.ts   # un singolo file di test
 node tools/check-guide-alignment.mjs       # verifica guide ↔ codice (stesso check della CI)
 node tools/check-view-security-invoker.mjs # verifica security_invoker sulle viste v_* (stesso check della CI)
+node tools/check-guardia-finanza.mjs       # verifica la guardia sulle 52 funzioni di finanza (stesso check della CI)
 ```
 
-La CI (`.github/workflows/ci.yml`) ha 3 job bloccanti sulle PR: `build` (npm run build), `guide-alignment` (vedi regola guide sopra, bypass con `[skip-guide-check]` nel messaggio di commit) e `view-security-invoker`.
+La CI (`.github/workflows/ci.yml`) ha 4 job bloccanti sulle PR: `build` (npm run build), `guide-alignment` (vedi regola guide sopra, bypass con `[skip-guide-check]` nel messaggio di commit), `view-security-invoker` e `guardia-finanza`.
 
 **Regola viste**: ogni `CREATE [OR REPLACE] VIEW public.v_*` in una migration DEVE dichiarare `WITH (security_invoker = on)` nella stessa istruzione (oppure un `ALTER VIEW ... SET (security_invoker = on)` subito dopo, nello stesso file). In PostgreSQL il `CREATE OR REPLACE VIEW` azzera i reloptions: senza l'opzione la vista torna a girare come SECURITY DEFINER e ignora la RLS delle tabelle sottostanti, esponendo i dati di tutte le aziende. È già successo tre volte (069 → 106 → 113 → 143/144 → 153); ora il job `view-security-invoker` blocca la PR.
+
+**Regola guardia delle funzioni di finanza** (dal 09/11/2026, migration 380 e 381): 52 funzioni SECURITY DEFINER di banca, fatture e riconciliazione (elenco nell'array `v_nomi` della 380) hanno in testa al corpo `PERFORM public.ruoli_operativi_non_qui(); -- migration 380`, che dall'API lascia passare solo `super_advisor`, `contabile`, `ceo`, `cfo`, `coo` (cron, service role e trigger esenti). Chi riscrive una di queste funzioni con `CREATE OR REPLACE FUNCTION` tiene la riga; `richiedi_profilo_gestionale()` tiene `PERFORM public.responsabile_non_qui();` (379). Il job `guardia-finanza` (`tools/check-guardia-finanza.mjs`) blocca la PR che la toglie.
 
 **Regola policy RLS veloci** (dal 13/10/2026, migration `20261013_305`): nelle policy le funzioni d'identità vanno SEMPRE avvolte in una sottoselect: `(SELECT get_my_company_id())`, `(SELECT get_my_role())`, `(SELECT jwt_company_id())`, `(SELECT auth.uid())`, `(SELECT auth.jwt())`. Scritte nude vengono ricalcolate per ogni riga (sono SECURITY DEFINER, non inline-abili) e rallentano tutte le pagine: prima della 305 Banche e Scadenzario impiegavano fino a 10 volte di più e PostgREST andava in timeout. Il significato è identico, cambia solo quante volte si calcolano.
 
