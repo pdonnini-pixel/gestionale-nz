@@ -137,10 +137,34 @@ for (const file of checked) {
   }
 }
 
+// La guardia stessa: una riscrittura deve restare una lista bianca che solleva
+// l'errore (niente no-op), e le due funzioni del report serale non tornano
+// all'API (migration 381).
+const GRANT_REPORT =
+  /grant\s+(?:execute|all)[^;]*?on\s+function\s+(?:public\.)?(daily_report_outlets|daily_report_is_complete)\b[^;]*?\bto\b([^;]*)/gi
+for (const file of checked) {
+  // La 380 e i rollback riportano la versione storica a lista nera: fatti apposta.
+  if (/_rollback\.sql$/i.test(file) || file.replace(/^NZ_ONLY_/, '') < '20261109_381') continue
+  const sql = stripCommentLines(readFileSync(join(MIGRATIONS_DIR, file), 'utf8'))
+  for (const m of sql.matchAll(CREATE_FUNCTION)) {
+    if (m[1].toLowerCase() !== 'ruoli_operativi_non_qui') continue
+    const corpo = corpoDa(sql, m.index) || ''
+    const ok = /raise\s+exception/i.test(corpo) && /not\s+in\s*\(\s*'super_advisor'/i.test(corpo)
+    if (!ok) {
+      problems.push({ file, nome: 'ruoli_operativi_non_qui', guardia: "serve la lista bianca NOT IN ('super_advisor', ...) con RAISE EXCEPTION", origine: 'migration 381' })
+    }
+  }
+  for (const m of sql.matchAll(GRANT_REPORT)) {
+    if (/\b(authenticated|anon|public)\b/i.test(m[2])) {
+      problems.push({ file, nome: m[1].toLowerCase(), guardia: 'vietato il GRANT ad anon, authenticated o PUBLIC', origine: 'migration 381' })
+    }
+  }
+}
+
 if (problems.length > 0) {
   console.error('\n❌ Funzioni di banca, fatture e riconciliazione riscritte senza guardia:\n')
   for (const { file, nome, guardia, origine } of problems) {
-    console.error(`   ${file}  →  public.${nome}  (manca PERFORM public.${guardia}(), ${origine})`)
+    console.error(`   ${file}  →  public.${nome}  (${guardia.includes(' ') ? guardia : `manca PERFORM public.${guardia}()`}, ${origine})`)
   }
   console.error(`
 Queste funzioni sono SECURITY DEFINER e girano come proprietario: la RLS non le
