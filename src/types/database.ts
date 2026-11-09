@@ -18210,6 +18210,7 @@ export type Database = {
           hire_date: string | null
           id: string
           is_active: boolean | null
+          is_demo: boolean
           last_name: string
           level: string | null
           livello: string | null
@@ -18257,6 +18258,7 @@ export type Database = {
           hire_date?: string | null
           id?: string
           is_active?: boolean | null
+          is_demo?: boolean
           last_name: string
           level?: string | null
           livello?: string | null
@@ -18304,6 +18306,7 @@ export type Database = {
           hire_date?: string | null
           id?: string
           is_active?: boolean | null
+          is_demo?: boolean
           last_name?: string
           level?: string | null
           livello?: string | null
@@ -31173,6 +31176,8 @@ export type Database = {
       }
     }
     Functions: {
+      dipendenti_demo_ids: { Args: never; Returns: string[] }
+      richieste_ferie_demo_ids: { Args: never; Returns: string[] }
       app_push_stato: {
         Args: { p_outlet_id: string }
         Returns: {
