@@ -296,9 +296,34 @@ export type Database = {
           },
         ]
       }
+      attendance_confermatori: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          outlet_id: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          outlet_id: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          outlet_id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       attendance_eventi: {
         Row: {
           causale: string | null
+          causale_negozio: string | null
           company_id: string
           created_at: string
           data: string
@@ -310,12 +335,14 @@ export type Database = {
           leave_request_id: string | null
           margine_minuti: number | null
           minuti: number
+          minuti_confermati: number | null
           minuti_proposti: number
           motivo_dipendente: string | null
           motivo_il: string | null
           nota_decisione: string | null
           outlet_id: string
           punch_id: string
+          scala_permesso: boolean | null
           stato: string
           tipo: string
           tolleranza_minuti: number | null
@@ -324,6 +351,7 @@ export type Database = {
         }
         Insert: {
           causale?: string | null
+          causale_negozio?: string | null
           company_id: string
           created_at?: string
           data: string
@@ -335,12 +363,14 @@ export type Database = {
           leave_request_id?: string | null
           margine_minuti?: number | null
           minuti: number
+          minuti_confermati?: number | null
           minuti_proposti: number
           motivo_dipendente?: string | null
           motivo_il?: string | null
           nota_decisione?: string | null
           outlet_id: string
           punch_id: string
+          scala_permesso?: boolean | null
           stato?: string
           tipo: string
           tolleranza_minuti?: number | null
@@ -349,6 +379,7 @@ export type Database = {
         }
         Update: {
           causale?: string | null
+          causale_negozio?: string | null
           company_id?: string
           created_at?: string
           data?: string
@@ -360,12 +391,14 @@ export type Database = {
           leave_request_id?: string | null
           margine_minuti?: number | null
           minuti?: number
+          minuti_confermati?: number | null
           minuti_proposti?: number
           motivo_dipendente?: string | null
           motivo_il?: string | null
           nota_decisione?: string | null
           outlet_id?: string
           punch_id?: string
+          scala_permesso?: boolean | null
           stato?: string
           tipo?: string
           tolleranza_minuti?: number | null
@@ -31295,6 +31328,32 @@ export type Database = {
           employee_id: string
           piattaforme: string
         }[]
+      }
+      presenze_causale_evento: {
+        Args: { p_causale: string; p_evento: string }
+        Returns: undefined
+      }
+      presenze_confermatore_imposta: {
+        Args: { p_attivo: boolean; p_outlet: string; p_user: string }
+        Returns: undefined
+      }
+      presenze_confermatori_elenco: { Args: never; Returns: Json }
+      presenze_decidi_evento: {
+        Args: { p_conferma: boolean; p_evento: string; p_minuti?: number; p_nota?: string; p_scala_permesso?: boolean }
+        Returns: string
+      }
+      presenze_eventi_elenco: {
+        Args: { p_al: string; p_dal: string; p_solo_da_confermare?: boolean }
+        Returns: Json
+      }
+      presenze_puo_confermare: { Args: { p_outlet: string }; Returns: boolean }
+      presenze_regola_dipendente: {
+        Args: { p_emp: string; p_margine: number | null; p_nota?: string; p_tolleranza: number | null }
+        Returns: undefined
+      }
+      presenze_riapri_evento: {
+        Args: { p_evento: string; p_motivo: string }
+        Returns: undefined
       }
       app_dipendente_motivo_evento: {
         Args: { p_causale?: string; p_evento: string; p_motivo: string }
