@@ -81,8 +81,8 @@ describe('scheda Ferie', () => {
       { voce: 'F02', residuo_disponibile: 10, da_fruire_disponibile: 20, ore_in_attesa: 2, saldo_alla_data: '2026-09-30', ore_giornata_dedotte: null },
       { voce: 'F03', residuo_disponibile: 5, da_fruire_disponibile: 6, ore_in_attesa: 0, saldo_alla_data: '2026-09-30', ore_giornata_dedotte: null },
     ])
-    expect(r.ferie).toEqual({ oggi: 40, conMaturazione: 100, inAttesa: 8 })
-    expect(r.permessi).toEqual({ oggi: 15, conMaturazione: 26, inAttesa: 2 })
+    expect(r.ferie).toEqual({ oggi: 40, conMaturazione: 100, inAttesa: 8, approvate: 0, totale: 48, giornata: 8 })
+    expect(r.permessi).toEqual({ oggi: 15, conMaturazione: 26, inAttesa: 2, approvate: 0, totale: 17, giornata: null })
     expect(r.aggiornatoAl).toBe('2026-09-30')
     expect(saldiApp([]).ferie).toBeNull()
   })
@@ -93,5 +93,39 @@ describe('scheda Ferie', () => {
   })
   it('le parole che legge il dipendente non sono interne', () => {
     for (const s of Object.values(STATO_RICHIESTA)) expect(s.testo).not.toMatch(PAROLE_INTERNE)
+  })
+})
+
+import { giornateCirca, giorniPianificati, quantoRichiesta, voceRichiesta } from './appDipendente'
+
+describe('richieste dell\'app: tipo e quantità', () => {
+  const g = (data: string, voce: string, tipo: string, ore: number, stato = 'richiesto') => ({ data, voce, tipo, ore, stato })
+
+  it('distingue ferie e permessi', () => {
+    expect(voceRichiesta([g('2026-11-16', 'F01', 'giornata', 8)])).toBe('Ferie')
+    expect(voceRichiesta([g('2026-11-16', 'F02', 'ore', 2)])).toBe('Permesso')
+    expect(voceRichiesta([g('2026-11-16', 'F01', 'giornata', 8), g('2026-11-17', 'F03', 'ore', 2)])).toBe('Ferie e permesso')
+  })
+
+  it('dice giornate, mezze giornate e ore', () => {
+    expect(quantoRichiesta([g('2026-11-16', 'F01', 'giornata', 8), g('2026-11-17', 'F01', 'giornata', 8)])).toBe('2 giornate')
+    expect(quantoRichiesta([g('2026-11-16', 'F01', 'giornata', 8), g('2026-11-17', 'F01', 'mezza_giornata', 4)])).toBe('1 giornata e mezza')
+    expect(quantoRichiesta([g('2026-11-16', 'F01', 'mezza_giornata', 4)])).toBe('mezza giornata')
+    expect(quantoRichiesta([g('2026-11-16', 'F02', 'ore', 1.5), g('2026-11-16', 'F03', 'ore', 0.5)])).toBe('2,00 ore')
+  })
+
+  it('pianificate: da oggi in poi, chieste o approvate, senza ritirate e respinte', () => {
+    const r = giorniPianificati([
+      { stato: 'inviata', giorni: [g('2026-11-08', 'F01', 'giornata', 8), g('2026-11-16', 'F01', 'giornata', 8)] },
+      { stato: 'approvata_parziale', giorni: [g('2026-11-20', 'F02', 'ore', 2, 'approvato'), g('2026-11-21', 'F02', 'ore', 2, 'respinto')] },
+      { stato: 'ritirata', giorni: [g('2026-11-18', 'F01', 'giornata', 8)] },
+    ], '2026-11-09')
+    expect(r.map((x) => [x.data, x.voce, x.approvato])).toEqual([['2026-11-16', 'Ferie', false], ['2026-11-20', 'Permesso', true]])
+  })
+
+  it('giornate circa', () => {
+    expect(giornateCirca(108, 8)).toBe('circa 13 giornate e mezza')
+    expect(giornateCirca(4, 8)).toBe('circa mezza giornata')
+    expect(giornateCirca(0, 8)).toBeNull()
   })
 })
