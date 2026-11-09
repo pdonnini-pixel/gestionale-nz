@@ -67,7 +67,7 @@ Decisioni di Patrizio del 09/11/2026: uscita «d'accordo» decisa caso per caso;
 - Frontend: il responsabile vede solo `/responsabile` e `/profilo` (`RESPONSABILE_PATHS` in `App.tsx`), niente ricerca né periodo; l'account si crea in Impostazioni → Utenti (`admin-manage-user` accetta il ruolo).
 
 ## aperto
-- **Manuale per i negozi**: bozza in `docs/MANUALE_NEGOZI_PRESENZE.md` (telefono del negozio: icona sulla schermata Home e Blocco app di Android). Completare i capitoli elencati lì prima di consegnarlo ai negozi.
+- **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: **entrata dimenticata** (non si aggiunge a mano nel gestionale: dall'app si segna solo l'uscita), PIN per chi non ha lo smartphone, informativa privacy.
 - PIN sul cellulare del negozio per chi non ha lo smartphone (non ancora fatto).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).
 - Tracciato mensile per lo studio paghe (formato da chiedere allo studio).
