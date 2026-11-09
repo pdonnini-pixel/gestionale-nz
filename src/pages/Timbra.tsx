@@ -300,7 +300,8 @@ export default function Timbra() {
             const altroTurnoDopo = (dati?.turni ?? []).some((t) => t.employee_id === selezione.employeeId && t.data === oggi && oraRomaInMs(oggi, t.inizio) > adesso)
             const tocchi = [principale, ...altre]
             const esci = () => {
-              if (!turno) { void timbra('uscita'); return }
+              // Senza turno, o con turno a cavallo della mezzanotte, il server non crea eventi: niente domande
+              if (!turno || turno.fine <= turno.inizio) { void timbra('uscita'); return }
               const v = valutaUscita(turno, adesso, margine, altroTurnoDopo)
               if (v.tipo === 'normale') { void timbra('uscita'); return }
               setUscita({ tipo: v.tipo, minuti: v.minuti, proposti: v.proposti, fine: turno.fine.slice(0, 5) }); setCausale(null)
@@ -318,7 +319,7 @@ export default function Timbra() {
                 void timbra('uscita', {
                   causale,
                   nota: anticipata
-                    ? `${etichetta}. ${causale === 'malattia' ? '' : 'Scrivi il motivo nell\'app sul tuo telefono.'}`.trim()
+                    ? `${etichetta}. ${causale === 'personale' ? 'Se vuoi, scrivi il motivo nell\'app sul tuo telefono.' : ''}`.trim()
                     : `Straordinario ${formatMinuti(uscita.proposti)} · ${etichetta}, da confermare.`,
                 })
               }

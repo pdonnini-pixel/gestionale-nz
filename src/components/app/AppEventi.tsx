@@ -112,7 +112,7 @@ function Evento({ e, oggi, onSalvato }: { e: EventoApp; oggi: string; onSalvato:
           <div className="flex gap-2">
             <button onClick={() => void salva()} disabled={salvo || (!!causali && !causale)}
               className="flex-1 py-2.5 rounded-xl bg-[#ff0066] text-white font-semibold disabled:opacity-40">
-              {salvo ? 'Salvo...' : 'Invia al responsabile'}
+              {salvo ? 'Salvo...' : 'Salva'}
             </button>
             {aperto && <button onClick={() => setAperto(false)} className="px-4 rounded-xl border border-slate-200 text-slate-600">Annulla</button>}
           </div>
