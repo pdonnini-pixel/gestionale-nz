@@ -156,7 +156,7 @@ export function DaConfermare() {
                     {e.prova && <span className="ml-1.5 text-[11px] px-1.5 rounded bg-violet-100 text-violet-700">prova</span>}
                     <div className="text-xs text-slate-500">{e.negozio}</div>
                   </td>
-                  <td className="px-3 py-2.5"><span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${COLORE_TIPO[tipo]}`}>{tipo}</span></td>
+                  <td className="px-3 py-2.5"><span className={`text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap ${COLORE_TIPO[tipo]}`}>{tipo}</span></td>
                   <td className="px-3 py-2.5 text-slate-600 text-xs">{dettaglioTurno(e)}</td>
                   <td className="px-3 py-2.5"><span className="font-medium">{proposta(e)}</span>
                     {e.tipo === 'ritardo' && e.minuti_confermati == null && <div className="text-xs text-slate-500">{e.minuti}' arrotondati a blocchi di 15</div>}
