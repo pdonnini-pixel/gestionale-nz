@@ -41,3 +41,9 @@ Fatti il 06/11/2026: progetto Firebase `new-zago-presenze` con app Android e iOS
 Logo creato per l'app su richiesta di Patrizio, nello stile dei negozi (scritta sottile e geometrica, bianco e nero, accento magenta `#ff0066`). È un disegno originale: il marchio Vicolo non è di New Zago e non va usato.
 - Scritta: `public/brand/newzago-logo.svg`, nel codice `src/components/app/LogoNewZago.tsx` (solo sul sito NZ e nell'app degli store; Zago e Made vedono il loro nome in testo).
 - Icona: `public/brand/newzago-icona.svg` (NZ bianco su nero, riga magenta). Le PNG di Android (`android/app/src/main/res/mipmap-*`, sfondo adattivo nero) e di iPhone (`AppIcon-512@2x.png`, senza trasparenza) e le schermate d'avvio sono generate da questi due file.
+
+## stato al 09/11/2026
+- **iPhone**: build 1.0 (2) su TestFlight, si apre (iOS 27 richiede il ciclo di vita a scene: `SceneDelegate.swift`, PR #779). Xcode 27.2 vuole iOS minimo 15 (PR #778). Prossima build: 3 (sfondo bianco dietro la barra di stato, PR #781).
+- **Android**: versione 3 (1.0) pubblicata nel **test interno** di Google Play (elenco tester «New Zago Tester»). Google Play chiede minSdk 24 e target 36 (PR #781, #782). Chiave di caricamento `newzago-upload.jks` in iCloud → «New Zago App», password nell'archivio EPPI.
+- Sul Mac: il Terminale aveva «Usa Opzione come tasto Meta» acceso (la @ non usciva: sudo e portachiavi rifiutavano la password); risolto togliendolo. Il portachiavi «login» è stato sbloccato per codesign con `security set-key-partition-list`.
+- **Da fare**: Dipendente Demo per la prova e per la revisione degli store (migration 368 e NZ_ONLY 369 pronte nella storia del branch, non applicate); schede degli store (descrizioni, screenshot, privacy); informativa privacy per i dipendenti (Lilian); accendere gli avvisi per Roma Soratte.
