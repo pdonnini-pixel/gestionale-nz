@@ -61,3 +61,20 @@ jobs:
         run: node tools/check-view-security-invoker.mjs
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
+
+  guardia-finanza:
+    # Blocca la PR se una migration riscrive (CREATE OR REPLACE FUNCTION) una
+    # delle 52 funzioni di banca, fatture e riconciliazione senza la riga
+    # PERFORM public.ruoli_operativi_non_qui() (migration 380/381), o
+    # richiedi_profilo_gestionale senza responsabile_non_qui (379).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Controllo guardia sulle funzioni di finanza
+        run: node tools/check-guardia-finanza.mjs
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
