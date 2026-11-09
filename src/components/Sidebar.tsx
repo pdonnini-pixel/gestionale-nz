@@ -103,6 +103,8 @@ function buildSections(labels: CompanyLabels): NavSection[] {
       label: 'Risorse',
       items: [
         { to: '/dipendenti', icon: UserCheck, label: 'Dipendenti', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile'] },
+        // Responsabile di negozio o area manager: solo la sua pagina (migration 378)
+        { to: '/responsabile', icon: UserCheck, label: 'Presenze e ferie', roles: ['responsabile'] },
       ],
     },
     {
@@ -252,6 +254,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
     budget_approver: 'Approvatore Budget',
     viewer: 'Sola lettura',
     operatore_cassa: 'Operatore cassa',
+    responsabile: 'Responsabile',
   }
 
   // Ruolo 'viewer' (sola lettura): vede le pagine dati, nessuna scrittura.

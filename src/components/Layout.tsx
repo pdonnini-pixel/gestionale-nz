@@ -13,7 +13,7 @@ import { getCurrentTenant } from '../lib/tenants'
 import {
   Menu, Search, ChevronRight,
   LayoutDashboard, Store, Receipt, User, Wallet,
-  UserCircle, Settings, LogOut, Building2
+  UserCircle, Settings, LogOut, Building2, UserCheck
 } from 'lucide-react'
 
 // ─── TENANT BADGE ─────────────────────────────────────────────
@@ -99,7 +99,12 @@ function BottomNav() {
   const labels = useCompanyLabels()
   const { profile } = useAuth()
   // L'account di negozio (operatore_cassa) ha due sole voci: chiusura e profilo.
-  const items = profile?.role === 'operatore_cassa'
+  const items = profile?.role === 'responsabile'
+    ? [
+        { to: '/responsabile', icon: UserCheck, label: 'Presenze e ferie', end: false },
+        { to: '/profilo', icon: User, label: 'Profilo', end: false },
+      ]
+    : profile?.role === 'operatore_cassa'
     ? [
         { to: '/chiusura-cassa', icon: Wallet, label: 'Chiusura cassa', end: false },
         { to: '/profilo', icon: User, label: 'Profilo', end: false },
@@ -243,6 +248,8 @@ export default function Layout() {
   // Account di negozio: niente ricerca globale ne' campanella (la RLS gli
   // nasconde comunque fornitori, fatture, movimenti e avvisi aziendali).
   const isCashOperator = profile?.role === 'operatore_cassa'
+  // Responsabile di negozio: niente ricerca globale (la campanella resta, con i suoi avvisi)
+  const isResponsabile = profile?.role === 'responsabile'
   // Il selettore anno/periodo globale va mostrato SOLO dove ha davvero effetto.
   // Su queste pagine cambiare anno non filtra nulla (non consumano usePeriod):
   // mostrarlo ingannava l'utente (stesso problema gia' risolto per lo Scadenzario).
@@ -266,7 +273,7 @@ export default function Layout() {
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k' && !isCashOperator && !isResponsabile) {
         e.preventDefault()
         setSearchOpen(prev => !prev)
       }
@@ -391,11 +398,11 @@ export default function Layout() {
           </div>
 
           {/* Center: Period selector (nascosto su /scadenzario — vedi sopra) */}
-          {!hidePeriodSelector && <PeriodSelector />}
+          {!hidePeriodSelector && !isResponsabile && <PeriodSelector />}
 
           {/* Right: search + notifications + avatar */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {!isCashOperator && (
+            {!isCashOperator && !isResponsabile && (
               <button
                 onClick={() => setSearchOpen(true)}
                 className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-slate-700 transition"

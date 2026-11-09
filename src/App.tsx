@@ -50,6 +50,7 @@ const Ticket = lazy(() => import('./pages/Ticket'))
 const TicketAdmin = lazy(() => import('./pages/TicketAdmin'))
 const ReportSincronizzazioni = lazy(() => import('./pages/ReportSincronizzazioni'))
 const ChiusuraCassa = lazy(() => import('./pages/ChiusuraCassa'))
+const Responsabile = lazy(() => import('./pages/Responsabile'))
 const IncassiGiornalieri = lazy(() => import('./pages/IncassiGiornalieri'))
 // Timbrature (migration 348): pagine a se', fuori dal guscio del gestionale,
 // perche' devono aprirsi anche senza rete (vedi src/lib/presenzeOffline.ts).
@@ -61,6 +62,9 @@ const AppDipendente = lazy(() => import('./pages/AppDipendente'))
 // chiusura. La difesa vera e' la RLS (migrazione 172): qui si evita solo di
 // mostrare pagine vuote a chi non deve usarle.
 const CASH_OPERATOR_PATHS = ['/chiusura-cassa', '/profilo']
+// Responsabile di negozio o area manager (migration 378): la sua pagina e il
+// profilo. Anche qui la difesa vera e' il database (responsabile_block).
+const RESPONSABILE_PATHS = ['/responsabile', '/profilo']
 
 // Spinner per lazy loading
 function PageLoader() {
@@ -150,6 +154,9 @@ function CashOperatorGate({ children }: { children: ReactNode }) {
   if (profile?.role === 'operatore_cassa' && !CASH_OPERATOR_PATHS.some((p) => location.pathname.startsWith(p))) {
     return <Navigate to="/chiusura-cassa" replace />
   }
+  if (profile?.role === 'responsabile' && !RESPONSABILE_PATHS.some((p) => location.pathname.startsWith(p))) {
+    return <Navigate to="/responsabile" replace />
+  }
   return <>{children}</>
 }
 
@@ -183,6 +190,7 @@ function AppRoutes() {
         <Route element={<ProtectedRoute><OnboardingGate><CashOperatorGate><Layout /></CashOperatorGate></OnboardingGate></ProtectedRoute>}>
           <Route index element={<Dashboard />} />
           <Route path="chiusura-cassa" element={<ChiusuraCassa />} />
+          <Route path="responsabile" element={<Responsabile />} />
           <Route path="incassi-giornalieri" element={<IncassiGiornalieri />} />
           <Route path="outlet" element={<Navigate to="/outlet/operativi" replace />} />
           <Route path="outlet/operativi" element={<Outlet />} />

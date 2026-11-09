@@ -1193,6 +1193,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "In Ferie e permessi → Richieste, nel riquadro viola «Dipendente di prova» in alto (ultimi 60 giorni). Il dipendente di prova resta fuori da organico, turni, costi e saldi: quelle richieste non contano da nessuna parte e servono solo a provare l'app e le conferme delle presenze."
       },
       {
+        "q": "Come do a un responsabile di negozio la conferma delle presenze e delle ferie?",
+        "a": "In Impostazioni → Utenti crea il suo account con il profilo «Responsabile». Poi in Dipendenti → Presenze → «Chi conferma e regole» spunta il suo nome sotto i negozi che segue (uno per il referente, più di uno per l'area manager). Se il responsabile è anche un dipendente, sotto il suo nome scegli la sua scheda in «È anche il dipendente»: così non può confermare i propri casi né approvarsi le ferie. Da quel momento vede solo la pagina «Presenze e ferie» con i casi e le richieste di quei negozi."
+      },
+      {
         "q": "Confermo un ritardo: devo anche registrare il permesso in Ferie e permessi?",
         "a": "No. La conferma crea da sola la richiesta di permesso, già approvata, con le ore confermate (ex festività finché bastano, poi ROL), e la persona la vede anche nella scheda Ferie dell'app. Se il caso viene riaperto da un amministratore, il permesso si ritira insieme."
       },
@@ -3235,6 +3239,36 @@ export const PAGE_GUIDES: PageGuide[] = [
       {
         "q": "Perché a volte nel dettaglio compare una sola banca?",
         "a": "Perché l'elenco \"Per banca\" mostra solo le banche che in quella specifica sincronizzazione hanno portato movimenti nuovi. Se in quella esecuzione i movimenti nuovi arrivavano da un solo conto, vedrai una sola banca; è normale e corretto."
+      }
+    ]
+  },
+  {
+    "path": "/responsabile",
+    "icon": "UserCheck",
+    "title": "Presenze e ferie",
+    "description": "La pagina del responsabile di negozio o dell'area manager: i casi delle presenze da confermare e le richieste di ferie e permessi dei negozi che un amministratore gli ha assegnato in Dipendenti → Presenze → «Chi conferma». In alto ci sono i negozi assegnati; il resto del gestionale non è visibile con questo profilo.",
+    "sections": [
+      {
+        "heading": "Da confermare",
+        "body": "I ritardi oltre la tolleranza, le uscite prima del turno e gli straordinari dei tuoi negozi, con turno, timbratura, proposta e motivo. «Conferma» chiude il caso: il ritardo e l'uscita per motivo personale diventano un permesso approvato, scalato dal saldo; la malattia si registra con «Prendo atto»; lo straordinario entra nelle ore del mese. «Altro» apre la decisione: puoi scegliere il motivo, ridurre i minuti (non aumentarli oltre la proposta: per quello serve un amministratore) o non confermare con una nota che la persona legge nell'app. I tuoi casi li decide un altro responsabile o un amministratore."
+      },
+      {
+        "heading": "Ferie e permessi",
+        "body": "Le richieste in attesa delle persone dei tuoi negozi, con i giorni, le ore e le ore ancora da usare. «Approva» le concede tutte; «Respingi» chiede un motivo, che la persona legge. Le tue richieste le decide qualcun altro. Con «anche quelle decise negli ultimi 30 giorni» vedi lo storico recente.",
+        "steps": [
+          "Apri «Da confermare» e decidi i casi del giorno.",
+          "Apri «Ferie e permessi» e approva o respingi le richieste in attesa."
+        ]
+      }
+    ],
+    "faq": [
+      {
+        "q": "Non vedo nessun negozio: perché?",
+        "a": "Nessun amministratore ti ha ancora assegnato un negozio. Lo fa in Dipendenti → Presenze → «Chi conferma e regole», spuntando il tuo nome sotto i negozi che segui."
+      },
+      {
+        "q": "Posso approvare solo una parte dei giorni di una richiesta?",
+        "a": "Da questa pagina no: approvi o respingi la richiesta intera. Per una decisione su singoli giorni chiedi a chi segue il personale."
       }
     ]
   },
