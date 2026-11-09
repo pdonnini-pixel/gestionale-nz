@@ -1056,3 +1056,115 @@ allo schermo; verificato subito dopo che su Zago non è entrato **niente**, né 
 funzione né il trigger, quindi non c'è uno stato a metà. Resta da applicare, e se
 restasse indietro lo direbbe il punto 7 del prossimo lunedì: le funzioni sarebbero
 269 su NZ e Made contro 268 su Zago.
+
+---
+
+## Il controllo del 09/11/2026: il motore sta bene, la parità no
+
+Otto giri riusciti dal 02 al 09 novembre, fra 164 e 187 secondi. Novantacinque
+agganci applicati, cioè dieci volte la settimana prima, perché è entrata in
+funzione la lavorazione delle distinte RiBa: 36 «Effetto RiBa», 28 «distinta
+RiBa», 10 «Addebito RiBa». Quelli non sono indovinati, l'identità sta nel
+documento della distinta.
+
+Diciannove sono del ramo «auto (distinta)», i soli da verificare uno per uno. Tre
+avevano gemelle aperte dello stesso importo, e sono proprio i tre nomi storici di
+questo problema: GRUPPO SERVIZI 315,00 (due gemelle), EPPI 3.050,00, SPM 110,00.
+
+**Qui ho sbagliato una misura, e vale raccontarlo.** La mia prima query cercava le
+disposizioni delle gemelle in una finestra -10 / +3 giorni dal movimento, e ne
+trovava due: sembravano due casi ambigui. Ma quella finestra l'avevo inventata io.
+Il criterio vero è la funzione `payable_in_distinta_for_movement`, che guarda -3 /
++20 **dalla disposizione** e lo stesso conto bancario. Interrogata su quelle
+gemelle risponde `false` per tutte: la disposizione era su un altro conto o fuori
+finestra. Candidato unico, agganci corretti. La lezione è vecchia e continua a
+ripresentarsi: per giudicare il motore si usa il criterio del motore, non una
+finestra che somiglia alla sua.
+
+Controllo d'insieme sulle 133 fatture toccate dagli agganci della settimana: zero
+pagate più del dovuto, zero residui negativi, zero «pagato» con residuo, zero
+aperte senza residuo.
+
+### Due funzioni nuove che fanno un pezzo del lavoro del 02/11
+
+È comparso lo stato `superseded`, 38 righe nella settimana, scritto da
+`fn_close_proposals_on_bt_reconciled` e `fn_close_proposals_on_payable_closed`
+(migration 360 e 361, di un'altra sessione): quando un movimento viene
+riconciliato o una fattura si chiude, le proposte che le riguardavano si chiudono
+da sé. È la metà complementare della guardia 333: la 333 impedisce di riscrivere
+una proposta, queste due chiudono quelle superate. Insieme, il log smette di
+gonfiarsi.
+
+### La parità è rotta, e stavolta sul serio
+
+| tenant | funzioni | impronta | guardia 333 |
+|---|---|---|---|
+| NZ | 321 | `c3989e96f17373257dfc03f5fb492110` | sì |
+| Made | **273** | `37de31768a0e99f26b172b9dfe229565` | sì |
+| Zago | **320** | `cd8a2d92de6ee91b27dfd7191df2360a` | no |
+
+Letto nel registro delle migration, il quadro è preciso.
+
+**Made è ferma al 02/11**, ultima applicata `20261102_335_nessuno_senza_negozio`.
+Da lì in poi, niente: una quarantina di migration del 3, 4 e 5 novembre non sono
+mai arrivate. Dentro ci sono le timbrature, l'app dei dipendenti, le distinte RiBa
+robuste, le policy RLS sulle tabelle nuove, i controlli delle chiusure. Quarantotto
+funzioni di differenza.
+
+**Zago è allineata al 05/11 tranne cinque pezzi**: la 333 (la guardia sulle
+proposte, l'apply di oggi e quello del 02/11 sono finiti in timeout sull'attesa di
+un'approvazione), più `337b_responsabile_storico_revoke_anon`,
+`348b_timbrature_revoke`, `350b_app_ferie_senza_saldo` e
+`350c_app_ferie_contract_type_testo`, che mancano anche a Made.
+
+Il punto 7 ha fatto esattamente quello per cui esiste: senza quella query, una
+settimana di lavoro mancante su un tenant vivo non l'avrebbe segnalata nessuno.
+
+### Perché non l'ho sistemato da solo
+
+Da questa sessione, oggi, le scritture sul database non passano: `apply_migration`
+chiede un'approvazione e, senza nessuno davanti allo schermo, scade dopo quattro
+minuti. È successo due volte di fila sulla stessa migration, il 02/11 e oggi.
+Verificato ogni volta che sul tenant non entrasse niente di parziale: la funzione e
+il trigger su Zago sono assenti, non a metà.
+
+Quindi le letture di questo controllo sono complete, le scritture no. Rimettere in
+pari Made significa rigiocare una quarantina di migration in ordine, fra cui
+creazioni di tabelle con GRANT e policy: non è una cosa da fare alla cieca mentre
+nessuno guarda, ed è una decisione di Patrizio.
+
+### Correzione dello stesso giorno: su Made non c'era niente da rimettere in pari
+
+Poche ore dopo quel controllo, leggendo il `CLAUDE.md` aggiornato: **il 03/11/2026
+Patrizio ha deciso che i tenant diventano due, NZ e Zago** («non sviluppiamo più
+per tre tenant ma per due»), e Made non riceve più modifiche al database. Quindi
+Made ferma alla `20261102_335` non è una migration persa: è la decisione, scritta
+nel file lo stesso giorno in cui si è fermata. Il mio allarme di stamattina era
+mezzo falso, e la parte vera era solo Zago.
+
+**Zago, invece, è ora in pari.** Con Patrizio presente:
+
+- la **333** applicata (guardia sulle proposte riscritte). Al primo invio avevo
+  riscritto a mano il corpo della funzione e si era perso un commento: un secondo
+  passaggio ha riallineato il testo al carattere. Da qui una regola pratica: il
+  testo di una funzione non si riscrive, **si copia da `pg_get_functiondef`** del
+  tenant di riferimento;
+- trovata e chiusa l'ultima differenza, che era **una riga di commento** dentro
+  `fn_cash_closing_compute` (migration 369, patch sulla definizione viva con
+  verifica dell'md5). Codice identico riga per riga: nessun effetto sulle chiusure
+  di cassa.
+
+Esito: NZ e Zago **323 funzioni, impronta `6069f016ed2d6816ac21488f1834f691`**.
+
+Il salto da 321 a 323 nel giro di qualche ora non è un mistero e vale spiegarlo,
+perché il revisore se n'è accorto prima di me: mentre lavoravo, un'altra sessione
+ha aggiunto `dipendenti_demo_ids` e `richieste_ferie_demo_ids` (i dati finti della
+prova a Roma Soratte), e le ha messe **su entrambi** i tenant. È il
+comportamento sano: il numero sale insieme, l'impronta resta uguale.
+Su Zago la prova sul vivo della 333 non si è potuta rifare, perché `bank_transactions`
+è ancora vuota: vale quella fatta su NZ il 02/11, con il testo identico al carattere.
+
+Il giro settimanale ora confronta **due** tenant, e nel suo testo c'è scritto che
+Made indietro non è un allarme: così il prossimo lunedì non si rincorre un fantasma.
+Il controllo di parità, che era il punto 7, nel giro riscritto è il **punto 8**: i
+riferimenti al «punto 7» nelle sezioni di ottobre restano come cronaca.

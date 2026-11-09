@@ -5,12 +5,15 @@
 //      uscita, ore lavorate, ritardo, uscita oltre il margine (straordinario
 //      da guardare), uscita non timbrata. Le uscite segnate dal dipendente si
 //      confermano qui; una timbratura sbagliata si annulla con il motivo.
-//   2. Impostazioni del negozio: timbrature accese, avvisi WhatsApp, margine
-//      dopo la fine del turno (30 minuti di default).
-//   3. Accessi: numero WhatsApp di ogni persona e codice per attivare l'app.
+//   2. Impostazioni del negozio: timbrature accese e avvisi sul telefono
+//      (app New Zago, migration 367): ritardo in entrata (15 minuti di
+//      default), uscita non timbrata (margine di 30 minuti, che vale anche per
+//      lo straordinario), e chi li riceve: dipendente, responsabile del
+//      negozio, ufficio. WhatsApp tolto il 05/11/2026.
+//   3. Accessi: codice per attivare l'app e telefoni con le notifiche attive.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Copy, KeyRound, RefreshCw, Smartphone } from 'lucide-react'
+import { BellRing, Copy, KeyRound, RefreshCw, Smartphone } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useOutlets } from '../hooks/useOutlets'
 import { useToast } from './Toast'
@@ -19,13 +22,25 @@ import {
   riepilogoGiorno, type EsitoGiorno, type TipoTimbratura,
 } from '../lib/timbrature'
 
-interface Impostazioni { attive: boolean; avvisi_whatsapp: boolean; margine_uscita_minuti: number }
+interface Impostazioni {
+  attive: boolean; margine_uscita_minuti: number
+  avvisi_push: boolean; ritardo_attivo: boolean; ritardo_minuti: number; uscita_attivo: boolean
+  avvisa_dipendente: boolean; avvisa_responsabile: boolean; avvisa_ufficio: boolean
+}
+const IMP_DEFAULT: Impostazioni = {
+  attive: false, margine_uscita_minuti: MARGINE_USCITA_DEFAULT,
+  avvisi_push: false, ritardo_attivo: true, ritardo_minuti: 15, uscita_attivo: true,
+  avvisa_dipendente: true, avvisa_responsabile: true, avvisa_ufficio: false,
+}
+const ESITO_AVVISO: Record<string, string> = {
+  mandato: 'arrivato sul telefono', nessun_telefono: 'non arrivato: app non installata', non_riuscito: 'non riuscito', nel_gestionale: 'nel gestionale',
+}
 interface Turno { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null }
 interface Punch {
   id: string; employee_id: string; tipo: TipoTimbratura; ora: string; origine: string; verifica: string; nota: string | null
 }
 interface Accesso {
-  employee_id: string; nome: string; telefono_whatsapp: string | null; codice: string | null
+  employee_id: string; nome: string; codice: string | null
   codice_scade: string | null; attivata_il: string | null
 }
 
@@ -48,10 +63,12 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
   const { outlets } = useOutlets()
   const [outletId, setOutletId] = useState('')
   const [giorno, setGiorno] = useState(() => dataRoma(Date.now()))
-  const [imp, setImp] = useState<Impostazioni>({ attive: false, avvisi_whatsapp: false, margine_uscita_minuti: MARGINE_USCITA_DEFAULT })
+  const [imp, setImp] = useState<Impostazioni>(IMP_DEFAULT)
+  const [responsabile, setResponsabile] = useState<string | null>(null)
+  const [conApp, setConApp] = useState<Map<string, string>>(new Map())
   const [turni, setTurni] = useState<Turno[]>([])
   const [punches, setPunches] = useState<Punch[]>([])
-  const [avvisati, setAvvisati] = useState<Map<string, string>>(new Map())
+  const [avvisi, setAvvisi] = useState<{ employee_id: string; tipo: string; destinatario: string; esito: string }[]>([])
   const [nomi, setNomi] = useState<Map<string, string>>(new Map())
   const [accessi, setAccessi] = useState<Accesso[]>([])
   const [carico, setCarico] = useState(false)
@@ -76,25 +93,30 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       const dal = new Date(oraRomaInMs(giorno, '00:00')).toISOString()
       const al = new Date(oraRomaInMs(giorno, '23:59') + 60_000).toISOString()
       const [sRes, pianoRes, tRes, pRes, nRes, aRes, eRes] = await Promise.all([
-        supabase.from('attendance_settings').select('attive, avvisi_whatsapp, margine_uscita_minuti').eq('outlet_id', outletId).maybeSingle(),
+        supabase.from('attendance_settings').select('attive, margine_uscita_minuti, avvisi_push, ritardo_attivo, ritardo_minuti, uscita_attivo, avvisa_dipendente, avvisa_responsabile, avvisa_ufficio').eq('outlet_id', outletId).maybeSingle(),
         supabase.from('shift_plans').select('id').eq('outlet_id', outletId).eq('mese', mese).eq('stato', 'scelto').maybeSingle(),
         supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, plan_id, stato, origine').eq('outlet_id', outletId).eq('data', giorno).neq('stato', 'annullato'),
         supabase.from('attendance_punches').select('id, employee_id, tipo, ora, origine, verifica, nota').eq('outlet_id', outletId).eq('annullata', false).gte('ora', dal).lt('ora', al),
-        supabase.from('attendance_notifications').select('employee_id, esito').eq('data', giorno),
+        supabase.from('attendance_alerts').select('employee_id, tipo, destinatario, esito').eq('outlet_id', outletId).eq('data', giorno),
         supabase.rpc('app_accessi_elenco', { p_outlet_id: outletId }),
         supabase.from('employees').select('id, nome, cognome, first_name, last_name').eq('company_id', companyId),
       ])
-      const manca = (e: { code?: string } | null) => !!e && ['PGRST205', '42P01', 'PGRST202', '42883'].includes(e.code ?? '')
+      const manca = (e: { code?: string } | null) => !!e && ['PGRST205', '42P01', 'PGRST202', '42883', '42703'].includes(e.code ?? '')
       if (manca(sRes.error) || manca(aRes.error)) { setNonDisponibile(true); return }
-      if (sRes.data) setImp(sRes.data as Impostazioni)
-      else setImp({ attive: false, avvisi_whatsapp: false, margine_uscita_minuti: MARGINE_USCITA_DEFAULT })
+      setImp(sRes.data ? { ...IMP_DEFAULT, ...(sRes.data as Partial<Impostazioni>) } : IMP_DEFAULT)
+      const [refRes, pushRes] = await Promise.all([
+        supabase.from('outlets').select('referente_employee_id').eq('id', outletId).maybeSingle(),
+        supabase.rpc('app_push_stato', { p_outlet_id: outletId }),
+      ])
+      setResponsabile((refRes.data as { referente_employee_id: string | null } | null)?.referente_employee_id ?? null)
+      setConApp(new Map(((pushRes.data ?? []) as { employee_id: string; piattaforme: string }[]).map((x) => [x.employee_id, x.piattaforme])))
       // Turni ufficiali: quelli del piano scelto del mese, altrimenti quelli
       // senza piano pubblicati o messi a mano (stessa regola della migration 348).
       const pianoId = (pianoRes.data as { id: string } | null)?.id ?? null
       const tutti = (tRes.data ?? []) as (Turno & { plan_id: string | null; stato: string; origine: string })[]
       setTurni(tutti.filter((t) => pianoId ? t.plan_id === pianoId : (t.plan_id === null && (t.stato === 'pubblicato' || t.origine === 'manuale'))))
       setPunches((pRes.data ?? []) as Punch[])
-      setAvvisati(new Map(((nRes.data ?? []) as { employee_id: string; esito: string }[]).map((n) => [n.employee_id, n.esito])))
+      setAvvisi((nRes.data ?? []) as { employee_id: string; tipo: string; destinatario: string; esito: string }[])
       setAccessi((aRes.data ?? []) as Accesso[])
       setNomi(new Map(((eRes.data ?? []) as { id: string; nome: string | null; cognome: string | null; first_name: string | null; last_name: string | null }[])
         .map((e) => [e.id, `${e.nome ?? e.first_name ?? ''} ${e.cognome ?? e.last_name ?? ''}`.trim()])))
@@ -135,11 +157,6 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
     const { error } = await supabase.rpc('timbrature_annulla', { p_id: id, p_motivo: motivo.trim() })
     if (error) toast({ type: 'error', message: error.message }); else { toast({ type: 'success', message: 'Timbratura annullata.' }); void carica() }
   }
-  const salvaTelefono = async (empId: string, valore: string) => {
-    const pulito = valore.trim() || null
-    const { error } = await supabase.from('employees').update({ telefono_whatsapp: pulito }).eq('id', empId)
-    if (error) toast({ type: 'error', message: `Numero non salvato: ${error.message}` }); else toast({ type: 'success', message: 'Numero salvato.' })
-  }
   const nuovoCodice = async (empId: string) => {
     const { error } = await supabase.rpc('app_accesso_nuovo_codice', { p_employee_id: empId })
     if (error) toast({ type: 'error', message: error.message }); else void carica()
@@ -167,16 +184,12 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       </div>
 
       {/* Impostazioni del negozio */}
-      <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+      <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
         <h3 className="font-semibold text-slate-900">Timbrature del negozio</h3>
         <div className="flex flex-wrap gap-6 text-sm">
           <label className="flex items-center gap-2">
             <input type="checkbox" checked={imp.attive} onChange={(e) => void salvaImp({ ...imp, attive: e.target.checked })} />
             Timbrature attive
-          </label>
-          <label className="flex items-center gap-2">
-            <input type="checkbox" checked={imp.avvisi_whatsapp} disabled={!imp.attive} onChange={(e) => void salvaImp({ ...imp, avvisi_whatsapp: e.target.checked })} />
-            Avviso WhatsApp se l'uscita non è timbrata
           </label>
           <label className="flex items-center gap-2">
             Margine dopo la fine del turno
@@ -186,8 +199,54 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
           </label>
         </div>
         <p className="text-xs text-slate-500">
-          Chi esce entro il margine non fa straordinario e non riceve l'avviso. Sul cellulare del negozio si apre <span className="font-mono">{window.location.origin}/timbra</span> con l'account di cassa.
+          Chi esce entro il margine non fa straordinario. Sul cellulare del negozio si apre <span className="font-mono">{window.location.origin}/timbra</span> con l'account di cassa.
         </p>
+
+        <div className="border-t border-slate-100 pt-4 space-y-3">
+          <h4 className="font-semibold text-slate-900 flex items-center gap-2"><BellRing size={15} />Avvisi sul telefono (app New Zago)</h4>
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={imp.avvisi_push} disabled={!imp.attive} onChange={(e) => void salvaImp({ ...imp, avvisi_push: e.target.checked })} />
+            Avvisi accesi per questo negozio
+          </label>
+          <div className={`grid gap-3 sm:grid-cols-2 text-sm ${imp.avvisi_push ? '' : 'opacity-50 pointer-events-none'}`}>
+            <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+              <label className="flex items-center gap-2 font-medium">
+                <input type="checkbox" checked={imp.ritardo_attivo} onChange={(e) => void salvaImp({ ...imp, ritardo_attivo: e.target.checked })} />
+                Ritardo in entrata
+              </label>
+              <label className="flex items-center gap-2 text-slate-600">
+                dopo
+                <input type="number" min={0} max={240} value={imp.ritardo_minuti}
+                  onChange={(e) => setImp({ ...imp, ritardo_minuti: Number(e.target.value) })}
+                  onBlur={() => void salvaImp(imp)} className="w-16 border border-slate-300 rounded px-2 py-1" />
+                minuti dall'inizio del turno senza entrata
+              </label>
+            </div>
+            <div className="border border-slate-200 rounded-lg p-3 space-y-2">
+              <label className="flex items-center gap-2 font-medium">
+                <input type="checkbox" checked={imp.uscita_attivo} onChange={(e) => void salvaImp({ ...imp, uscita_attivo: e.target.checked })} />
+                Uscita non timbrata
+              </label>
+              <p className="text-slate-600">dopo {imp.margine_uscita_minuti} minuti dalla fine del turno (il margine qui sopra)</p>
+            </div>
+          </div>
+          <div className={`flex flex-wrap gap-6 text-sm ${imp.avvisi_push ? '' : 'opacity-50 pointer-events-none'}`}>
+            <span className="text-slate-500">Chi li riceve:</span>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={imp.avvisa_dipendente} onChange={(e) => void salvaImp({ ...imp, avvisa_dipendente: e.target.checked })} />
+              il dipendente
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={imp.avvisa_responsabile} onChange={(e) => void salvaImp({ ...imp, avvisa_responsabile: e.target.checked })} />
+              il responsabile del negozio{responsabile ? ` (${nomi.get(responsabile) ?? 'indicato in Outlet'})` : ' (non indicato: si sceglie in Outlet)'}
+            </label>
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={imp.avvisa_ufficio} onChange={(e) => void salvaImp({ ...imp, avvisa_ufficio: e.target.checked })} />
+              l'ufficio (notifica nel gestionale)
+            </label>
+          </div>
+          <p className="text-xs text-slate-500">Ogni turno riceve al massimo un avviso di ritardo e uno di uscita. Gli avvisi arrivano a chi ha installato l'app New Zago e ha accettato le notifiche.</p>
+        </div>
       </section>
 
       {/* Presenze del giorno */}
@@ -233,7 +292,11 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
                         uscita {formatMinuti(r.minutiOltreTurno)} dopo il turno{r.straordinario ? ': straordinario da guardare' : ', entro il margine'}
                       </span>
                     )}
-                    {avvisati.has(emp) && <span className="text-xs text-slate-500">avviso WhatsApp {avvisati.get(emp) === 'sent' ? 'mandato' : 'non partito'}</span>}
+                    {avvisi.filter((a) => a.employee_id === emp && a.destinatario !== 'ufficio').map((a) => (
+                      <span key={`${a.tipo}-${a.destinatario}`} className="text-xs text-slate-500">
+                        avviso di {a.tipo === 'ritardo' ? 'ritardo' : 'uscita'} {a.destinatario === 'responsabile' ? 'al responsabile' : 'al dipendente'}: {ESITO_AVVISO[a.esito] ?? a.esito}
+                      </span>
+                    ))}
                   </div>
                 </td>
               </tr>
@@ -246,17 +309,17 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
         <h3 className="font-semibold text-slate-900 flex items-center gap-2"><Smartphone size={16} />App del dipendente</h3>
         <p className="text-xs text-slate-500">
-          Ogni persona riceve il suo codice quando viene inserita nel gestionale. Mandale il link: lo apre dal suo telefono e l'app resta attiva. Il numero serve per l'avviso WhatsApp.
+          Ogni persona riceve il suo codice quando viene inserita nel gestionale. Mandale il link: lo apre dal suo telefono e l'app resta attiva. Con l'app New Zago installata dagli store riceve anche gli avvisi.
         </p>
         <table className="w-full text-sm">
           <tbody className="divide-y divide-slate-100">
             {accessi.map((a) => (
               <tr key={a.employee_id}>
                 <td className="py-2 pr-3 font-medium text-slate-900">{a.nome}</td>
-                <td className="py-2 pr-3">
-                  <input defaultValue={a.telefono_whatsapp ?? ''} placeholder="+39 333 1234567" onBlur={(e) => {
-                    if ((e.target.value.trim() || null) !== (a.telefono_whatsapp ?? null)) void salvaTelefono(a.employee_id, e.target.value)
-                  }} className="w-44 border border-slate-300 rounded px-2 py-1" />
+                <td className="py-2 pr-3 text-xs">
+                  {conApp.has(a.employee_id)
+                    ? <span className="text-emerald-700">notifiche attive ({conApp.get(a.employee_id)})</span>
+                    : <span className="text-slate-400">notifiche non attive</span>}
                 </td>
                 <td className="py-2 pr-3 text-slate-600">
                   {a.codice ? (

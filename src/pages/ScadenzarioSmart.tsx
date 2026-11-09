@@ -215,6 +215,8 @@ const ScadenzarioSmart = () => {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [paymentPlan, setPaymentPlan] = useState<Record<string, PlanEntry>>({});
   const [emailRecipients, setEmailRecipients] = useState('');
+  // Destinatari come sono salvati in companies.settings: Annulla nel modale torna qui.
+  const [savedEmailRecipients, setSavedEmailRecipients] = useState('');
   const [showEmailConfig, setShowEmailConfig] = useState(false);
   // Conferma custom (vietati confirm/alert/prompt nativi)
   const [confirmDialog, setConfirmDialog] = useState<{ message: string; resolve: (v: boolean) => void } | null>(null);
@@ -1096,6 +1098,7 @@ const ScadenzarioSmart = () => {
       const settings = companyData?.settings as { email_scadenzario?: string } | null;
       if (settings?.email_scadenzario) {
         setEmailRecipients(settings.email_scadenzario);
+        setSavedEmailRecipients(settings.email_scadenzario);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -2575,8 +2578,19 @@ const ScadenzarioSmart = () => {
       const { data, error } = await supabase.functions.invoke('send-distinta-email', {
         body: { subject: confirmResult.emailSubject, body: confirmResult.emailBody, to: emailRecipients },
       });
-      const errMsg = (error as { message?: string } | null)?.message
-        || (data as { error?: string } | null)?.error;
+      // Su una risposta non 2xx invoke() dà un messaggio generico: il testo vero
+      // (es. «salva prima i destinatari», «ruolo non ammesso») sta nel corpo.
+      let errMsg = (data as { error?: string } | null)?.error;
+      if (error) {
+        errMsg = (error as { message?: string }).message || errMsg;
+        try {
+          const ctx = (error as unknown as { context?: Response }).context;
+          if (ctx && typeof ctx.json === 'function') {
+            const errBody = await ctx.json();
+            if (errBody?.error) errMsg = errBody.error;
+          }
+        } catch { /* corpo non JSON */ }
+      }
       if (error || errMsg) throw new Error(errMsg || 'Invio non riuscito');
       setEmailSent(true);
       toast({ type: 'success', message: `Email della distinta inviata a ${emailRecipients}.` });
@@ -4935,15 +4949,32 @@ const ScadenzarioSmart = () => {
 
       {/* Email Config Modal */}
       {showEmailConfig && (
-        <Modal open={true} onClose={() => setShowEmailConfig(false)} title="Destinatari Email">
+        <Modal open={true} onClose={() => { setEmailRecipients(savedEmailRecipients); setShowEmailConfig(false); }} title="Destinatari Email">
           <div className="space-y-3">
             <input type="text" value={emailRecipients} onChange={e => setEmailRecipients(e.target.value)}
               placeholder="admin@azienda.com, contabile@azienda.com"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none" />
             <div className="flex gap-3 pt-2">
-              <button onClick={() => setShowEmailConfig(false)} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
+              <button onClick={() => { setEmailRecipients(savedEmailRecipients); setShowEmailConfig(false); }} className="flex-1 py-2.5 rounded-lg border border-slate-200 text-sm font-medium hover:bg-slate-50">Annulla</button>
               <button onClick={async () => {
-                if (COMPANY_ID) await supabase.from('companies').update({ settings: { email_scadenzario: emailRecipients } } as never).eq('id', COMPANY_ID);
+                // L'invio dal server accetta solo i destinatari salvati qui:
+                // se il salvataggio non riesce va detto, altrimenti l'invio fallisce dopo.
+                if (COMPANY_ID) {
+                  // Si uniscono le altre chiavi di settings: prima l'update le cancellava.
+                  const { data: cur } = await supabase.from('companies').select('settings').eq('id', COMPANY_ID).maybeSingle();
+                  const curSettings = ((cur as { settings?: Record<string, unknown> | null } | null)?.settings) ?? {};
+                  const { data: saved, error: saveErr } = await supabase.from('companies')
+                    .update({ settings: { ...curSettings, email_scadenzario: emailRecipients } } as never)
+                    .eq('id', COMPANY_ID)
+                    .select('id');
+                  if (saveErr || !saved || saved.length === 0) {
+                    // La RLS di companies ammette l'aggiornamento solo all'amministratore:
+                    // per gli altri ruoli l'update tocca 0 righe senza errore.
+                    toast({ type: 'error', message: saveErr ? 'Destinatari non salvati: ' + saveErr.message : 'Destinatari non salvati: solo un amministratore può cambiarli. Chiedi a lui di salvarli.' });
+                    return;
+                  }
+                  setSavedEmailRecipients(emailRecipients);
+                }
                 setShowEmailConfig(false);
               }} className="flex-1 py-2.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Salva</button>
             </div>

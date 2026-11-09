@@ -2,7 +2,11 @@
 // pagina, manifest per «Aggiungi a schermata Home», salvataggio dei file gia'
 // caricati. Il resto del gestionale non viene toccato (scope dedicato).
 
+import { Capacitor } from '@capacitor/core'
+
 export function attivaOffline(scope: '/timbra' | '/app', manifest: string): () => void {
+  // Nell'app degli store i file sono gia' sul telefono: niente service worker
+  if (Capacitor.isNativePlatform()) return () => {}
   const link = document.createElement('link')
   link.rel = 'manifest'
   link.href = manifest

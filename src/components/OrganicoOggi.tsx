@@ -15,6 +15,7 @@ import { AlertTriangle, CalendarClock, FileUp, Plus, Search, UserPlus, UserRound
 import { useAuth } from '../hooks/useAuth';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
+import { sqlNull } from '../lib/sqlNull';
 import {
   organicoAllaData, decisioniDaPrendere, contaNellOrganico, formattaDataBreve, nomePersona, oggiRoma,
   descriviEvento, ETICHETTE_STATO_OGGI, type PersonaOggi, type TipoEvento,
@@ -162,7 +163,7 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
 
   const impostaResponsabile = async (outletId: string, employeeId: string) => {
     const { error } = await supabase.rpc('organico_imposta_referente_dal', {
-      p_outlet_id: outletId, p_employee_id: employeeId || null, p_dal: oggiRoma(),
+      p_outlet_id: outletId, p_employee_id: sqlNull(employeeId || null), p_dal: oggiRoma(),
     });
     if (error) { toast({ type: 'error', message: `Responsabile non salvato: ${error.message}` }); return; }
     const n = nomeNegozio(negozioDi(outletId));
