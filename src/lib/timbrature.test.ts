@@ -109,3 +109,21 @@ describe('riepilogo della giornata', () => {
     expect(r.straordinario).toBe(true)
   })
 })
+
+import { oraRomaInMs as _ms, valutaEntrata, valutaUscita } from './timbrature'
+
+describe('ritardi, uscite anticipate e straordinari', () => {
+  const turno = { data: '2026-11-09', inizio: '10:00', fine: '19:00' }
+  it('ritardo: entro la tolleranza si vede, oltre diventa permesso a blocchi di 15', () => {
+    expect(valutaEntrata(turno, _ms('2026-11-09', '10:06'), 10)).toEqual({ minuti: 6, oltre: false, permesso: 0 })
+    expect(valutaEntrata(turno, _ms('2026-11-09', '10:12'), 10)).toEqual({ minuti: 12, oltre: true, permesso: 15 })
+    expect(valutaEntrata(turno, _ms('2026-11-09', '10:31'), 10)).toEqual({ minuti: 31, oltre: true, permesso: 45 })
+    expect(valutaEntrata(turno, _ms('2026-11-09', '09:50'), 10).oltre).toBe(false)
+  })
+  it('uscita anticipata, normale o straordinario (solo i minuti oltre il margine)', () => {
+    expect(valutaUscita(turno, _ms('2026-11-09', '15:45'), 15, false)).toEqual({ tipo: 'anticipata', minuti: 195, proposti: 195 })
+    expect(valutaUscita(turno, _ms('2026-11-09', '15:45'), 15, true).tipo).toBe('normale')
+    expect(valutaUscita(turno, _ms('2026-11-09', '19:10'), 15, false).tipo).toBe('normale')
+    expect(valutaUscita(turno, _ms('2026-11-09', '19:45'), 15, false)).toEqual({ tipo: 'straordinario', minuti: 45, proposti: 30 })
+  })
+})

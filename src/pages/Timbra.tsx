@@ -13,7 +13,8 @@ import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, Wifi, WifiOff, Camera, RefreshCw, AlertTriangle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
-  AZIONE_TIPO, ETICHETTA_TIPO, azioni, dataRoma, leggiCodice, oraRoma, ordina, statoDa,
+  CAUSALI_STRAORDINARIO, CAUSALI_USCITA, ETICHETTA_TIPO, MARGINE_USCITA_NUOVO_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT,
+  azioni, dataRoma, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, ordina, statoDa, valutaEntrata, valutaUscita,
   type TipoTimbratura, type Timbratura,
 } from '../lib/timbrature'
 import {
@@ -30,14 +31,16 @@ const Rilevatore = (globalThis as unknown as { BarcodeDetector?: CostruttoreRile
 const K_NEGOZIO = 'nz-timbra-negozio'
 
 interface Selezione { employeeId: string; nome: string; codice: string; letto: number }
-interface Fatto { nome: string; tipo: TipoTimbratura; ora: string }
+interface Fatto { nome: string; tipo: TipoTimbratura; ora: string; nota?: string }
+interface UscitaDaConfermare { tipo: 'anticipata' | 'straordinario'; minuti: number; proposti: number; fine: string }
 
-const COLORE: Record<TipoTimbratura, string> = {
-  entrata: 'bg-emerald-600 active:bg-emerald-700',
-  inizio_pausa: 'bg-amber-500 active:bg-amber-600',
-  fine_pausa: 'bg-sky-600 active:bg-sky-700',
-  uscita: 'bg-rose-600 active:bg-rose-700',
+const ETICHETTA_PULSANTE: Record<TipoTimbratura, string> = {
+  entrata: 'Entra',
+  inizio_pausa: 'Vado in pausa',
+  fine_pausa: 'Rientro dalla pausa',
+  uscita: 'Esco',
 }
+
 
 export default function Timbra() {
   const navigate = useNavigate()
@@ -51,6 +54,8 @@ export default function Timbra() {
   const [adesso, setAdesso] = useState(Date.now())
   const [selezione, setSelezione] = useState<Selezione | null>(null)
   const [fatto, setFatto] = useState<Fatto | null>(null)
+  const [uscita, setUscita] = useState<UscitaDaConfermare | null>(null)
+  const [causale, setCausale] = useState<string | null>(null)
   const [avviso, setAvviso] = useState<string | null>(null)
   const [frontale, setFrontale] = useState(true)
   const [erroreCamera, setErroreCamera] = useState<string | null>(null)
@@ -190,26 +195,27 @@ export default function Timbra() {
 
   // La scheda della persona si chiude da sola dopo 20 secondi
   useEffect(() => {
-    if (!selezione) return
+    if (!selezione) { setUscita(null); setCausale(null); return }
+    // Ogni tocco (scelta del motivo) rida' 20 secondi
     const t = setTimeout(() => setSelezione(null), 20_000)
     return () => clearTimeout(t)
-  }, [selezione])
+  }, [selezione, uscita, causale])
   useEffect(() => {
     if (!fatto) return
     const t = setTimeout(() => setFatto(null), 3500)
     return () => clearTimeout(t)
   }, [fatto])
 
-  const timbra = async (tipo: TipoTimbratura) => {
+  const timbra = async (tipo: TipoTimbratura, opzioni?: { causale?: string; nota?: string }) => {
     // Un solo tocco conta: il secondo, mentre si salva, si ignora
     if (!selezione || !outletId || occupato.current) return
     occupato.current = true
     const sel = selezione
     setSelezione(null)
     try {
-      const riga = await registraInCoda({ outletId, codice: sel.codice, tipo, employeeId: sel.employeeId, nome: sel.nome })
+      const riga = await registraInCoda({ outletId, codice: sel.codice, tipo, employeeId: sel.employeeId, nome: sel.nome, causale: opzioni?.causale })
       ultimoCodice.current = { id: sel.employeeId, t: Date.now() }
-      setFatto({ nome: sel.nome, tipo, ora: riga.ora_dispositivo })
+      setFatto({ nome: sel.nome, tipo, ora: riga.ora_dispositivo, nota: opzioni?.nota })
       await aggiornaCoda()
       void sincronizza()
     } catch {
@@ -279,12 +285,71 @@ export default function Timbra() {
             <CheckCircle2 size={96} className="text-emerald-400" />
             <p className="text-3xl font-bold">{ETICHETTA_TIPO[fatto.tipo]} registrata</p>
             <p className="text-xl text-slate-300">{fatto.nome}, alle {oraRoma(fatto.ora)}</p>
+            {fatto.nota && <p className="text-base text-amber-200 max-w-sm">{fatto.nota}</p>}
           </div>
         ) : selezione ? (
           (() => {
             const ts = timbratureOggi.get(selezione.employeeId) ?? []
             const turno = turnoDi(selezione.employeeId)
             const { principale, altre } = azioni(ts, turno, adesso)
+            const persona = dati?.persone.find((p) => p.id === selezione.employeeId)
+            const tolleranza = persona?.tolleranza ?? TOLLERANZA_ENTRATA_DEFAULT
+            const margine = persona?.margine ?? dati?.margine_uscita_minuti ?? MARGINE_USCITA_NUOVO_DEFAULT
+            const stato = statoDa(ordina(ts).at(-1)?.tipo)
+            const entrata = principale === 'entrata' && turno && !ts.some((t) => t.tipo === 'entrata') ? valutaEntrata(turno, adesso, tolleranza) : null
+            const altroTurnoDopo = (dati?.turni ?? []).some((t) => t.employee_id === selezione.employeeId && t.data === oggi && oraRomaInMs(oggi, t.inizio) > adesso)
+            const tocchi = [principale, ...altre]
+            const esci = () => {
+              if (!turno) { void timbra('uscita'); return }
+              const v = valutaUscita(turno, adesso, margine, altroTurnoDopo)
+              if (v.tipo === 'normale') { void timbra('uscita'); return }
+              setUscita({ tipo: v.tipo, minuti: v.minuti, proposti: v.proposti, fine: turno.fine.slice(0, 5) }); setCausale(null)
+            }
+            const entra = () => void timbra('entrata', entrata?.oltre
+              ? { nota: `${entrata.minuti} minuti di ritardo: ${formatMinuti(entrata.permesso)} di permesso, da confermare.` }
+              : undefined)
+
+            if (uscita) {
+              const anticipata = uscita.tipo === 'anticipata'
+              const voci = Object.entries(anticipata ? CAUSALI_USCITA : CAUSALI_STRAORDINARIO)
+              const conferma = () => {
+                if (!causale) return
+                const etichetta = (anticipata ? CAUSALI_USCITA : CAUSALI_STRAORDINARIO)[causale as never] as string
+                void timbra('uscita', {
+                  causale,
+                  nota: anticipata
+                    ? `${etichetta}. ${causale === 'malattia' ? '' : 'Scrivi il motivo nell\'app sul tuo telefono.'}`.trim()
+                    : `Straordinario ${formatMinuti(uscita.proposti)} · ${etichetta}, da confermare.`,
+                })
+              }
+              return (
+                <div className="w-full max-w-md flex flex-col gap-3">
+                  <p className="text-3xl font-bold text-center">{selezione.nome}</p>
+                  <div className={`rounded-2xl p-4 border ${anticipata ? 'bg-rose-950/60 border-rose-700 text-rose-200' : 'bg-emerald-950/60 border-emerald-700 text-emerald-200'}`}>
+                    <p className="text-lg font-bold">
+                      {anticipata ? `Esci ${formatMinuti(uscita.minuti)} prima della fine del turno` : `Esci ${formatMinuti(uscita.minuti)} dopo il turno`}
+                    </p>
+                    <p className="text-sm mt-1">
+                      {anticipata ? `Il turno finisce alle ${uscita.fine}. Perché esci?` : `Oltre i ${margine} minuti di margine: ${formatMinuti(uscita.proposti)} di straordinario. Perché?`}
+                    </p>
+                  </div>
+                  {voci.map(([k, etichetta]) => (
+                    <button key={k} onClick={() => setCausale(k)}
+                      className={`w-full flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-left text-lg ${causale === k ? 'border-[#ff0066] bg-[#ff0066]/15' : 'border-slate-600'}`}>
+                      <span className={`w-5 h-5 rounded-full shrink-0 ${causale === k ? 'border-[6px] border-[#ff0066]' : 'border-2 border-slate-400'}`} />
+                      {etichetta}
+                    </button>
+                  ))}
+                  {anticipata && <p className="text-slate-400 text-sm">Il motivo lo scrivi nell'app sul tuo telefono: qui non lo legge nessuno.</p>}
+                  <button onClick={conferma} disabled={!causale}
+                    className={`w-full py-6 rounded-2xl text-2xl font-bold disabled:opacity-40 ${anticipata ? 'bg-rose-600 active:bg-rose-700' : 'bg-slate-600 active:bg-slate-500'}`}>
+                    Conferma l'uscita
+                  </button>
+                  <button onClick={() => { setUscita(null); setCausale(null) }} className="text-slate-400 underline py-1">Indietro</button>
+                </div>
+              )
+            }
+
             return (
               <div className="w-full max-w-md flex flex-col gap-4">
                 <div className="text-center">
@@ -292,14 +357,27 @@ export default function Timbra() {
                   <p className="text-slate-300 mt-1">{turno ? `Turno di oggi ${turno.inizio.slice(0, 5)} - ${turno.fine.slice(0, 5)}` : 'Nessun turno oggi'}</p>
                   {ts.length > 0 && <p className="text-slate-400 text-sm mt-1">{ordina(ts).map((t) => `${ETICHETTA_TIPO[t.tipo]} ${oraRoma(t.ora)}`).join(' · ')}</p>}
                 </div>
-                <button onClick={() => void timbra(principale)} className={`w-full py-8 rounded-2xl text-3xl font-bold ${COLORE[principale]}`}>
-                  {AZIONE_TIPO[principale]}
-                </button>
-                {altre.map((t) => (
-                  <button key={t} onClick={() => void timbra(t)} className="w-full py-4 rounded-xl text-lg font-semibold bg-slate-700 active:bg-slate-600">
-                    {AZIONE_TIPO[t]}
-                  </button>
-                ))}
+                {entrata && entrata.minuti > 0 && (
+                  entrata.oltre ? (
+                    <div className="rounded-2xl p-4 border bg-amber-950/60 border-amber-600 text-amber-200">
+                      <p className="text-lg font-bold">{entrata.minuti} minuti di ritardo</p>
+                      <p className="text-sm mt-1">Oltre i {tolleranza} minuti di tolleranza: {formatMinuti(entrata.permesso)} di permesso, da confermare.</p>
+                    </div>
+                  ) : <p className="text-center text-sm text-slate-300">{entrata.minuti} minuti dopo l'inizio, entro la tolleranza.</p>
+                )}
+                {stato === 'fuori' ? (
+                  <button onClick={entra} className="w-full py-8 rounded-2xl text-3xl font-bold bg-emerald-600 active:bg-emerald-700">Entra</button>
+                ) : (
+                  <>
+                    {stato === 'in_pausa' && (
+                      <button onClick={() => void timbra('fine_pausa')} className="w-full py-7 rounded-2xl text-2xl font-bold bg-sky-600 active:bg-sky-700">{ETICHETTA_PULSANTE.fine_pausa}</button>
+                    )}
+                    {stato === 'dentro' && tocchi.includes('inizio_pausa') && (
+                      <button onClick={() => void timbra('inizio_pausa')} className="w-full py-7 rounded-2xl text-2xl font-bold bg-amber-500 active:bg-amber-600">{ETICHETTA_PULSANTE.inizio_pausa}</button>
+                    )}
+                    <button onClick={esci} className="w-full py-7 rounded-2xl text-2xl font-bold bg-rose-600 active:bg-rose-700">{ETICHETTA_PULSANTE.uscita}</button>
+                  </>
+                )}
                 <button onClick={() => setSelezione(null)} className="text-slate-400 underline py-2">Annulla</button>
               </div>
             )
