@@ -14,7 +14,8 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   // Sfondo bianco anche dietro la barra di stato (prima si vedeva una banda nera su iPhone)
   backgroundColor: '#ffffff',
-  android: { allowMixedContent: false },
+  // Android 15+ disegna sotto la barra di stato: Capacitor aggiunge i margini
+  android: { allowMixedContent: false, adjustMarginsForEdgeToEdge: 'auto' },
   server: { androidScheme: 'https' },
   plugins: {
     FirebaseMessaging: { presentationOptions: ['badge', 'sound', 'alert'] },
