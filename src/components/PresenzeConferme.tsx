@@ -64,6 +64,7 @@ function DaConfermare() {
   const [assente, setAssente] = useState(false)
   const [carico, setCarico] = useState(false)
   const [aperto, setAperto] = useState<EventoPresenze | null>(null)
+  const [occupato, setOccupato] = useState(false)
 
   const carica = useCallback(async () => {
     setCarico(true)
@@ -86,13 +87,21 @@ function DaConfermare() {
     return true
   }
   const confermaUno = async (e: EventoPresenze) => {
-    if (await decidi(e, true)) { toast({ type: 'success', message: `${e.persona}: ${e.causale === 'malattia' ? 'malattia registrata' : 'confermato'}.` }); void carica() }
+    if (occupato) return
+    setOccupato(true)
+    try {
+      if (await decidi(e, true)) toast({ type: 'success', message: `${e.persona}: ${e.causale === 'malattia' ? 'malattia registrata' : 'confermato'}.` })
+    } finally { setOccupato(false); void carica() }
   }
   const confermaRitardi = async () => {
+    if (occupato) return
+    if (!window.confirm(`Confermare ${ritardiAperti.length} ritardi? Per ognuno nasce un permesso approvato che si scala dal saldo.`)) return
+    setOccupato(true)
     let ok = 0
-    for (const e of ritardiAperti) if (await decidi(e, true)) ok++
-    toast({ type: 'success', message: `Confermati ${ok} ritardi su ${ritardiAperti.length}: i permessi sono in Ferie e permessi.` })
-    void carica()
+    try {
+      for (const e of ritardiAperti) if (await decidi(e, true)) ok++
+    } finally { setOccupato(false); void carica() }
+    toast({ type: ok === ritardiAperti.length ? 'success' : 'warning', message: `Confermati ${ok} ritardi su ${ritardiAperti.length}: i permessi sono in Ferie e permessi.` })
   }
 
   if (assente) return <p className="text-slate-500 py-12 text-center">La conferma dei casi non è ancora attiva per questa azienda.</p>
@@ -114,7 +123,7 @@ function DaConfermare() {
           <RefreshCw size={14} className={carico ? 'animate-spin' : ''} />Aggiorna
         </button>
         {ritardiAperti.length > 1 && (
-          <button onClick={() => void confermaRitardi()} className="ml-auto text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-50">
+          <button onClick={() => void confermaRitardi()} disabled={occupato} className="ml-auto disabled:opacity-40 text-sm border border-slate-300 rounded-lg px-3 py-2 hover:bg-slate-50">
             Conferma tutti i ritardi ({ritardiAperti.length})
           </button>
         )}
@@ -161,7 +170,7 @@ function DaConfermare() {
                     {e.stato === 'da_confermare' ? (
                       <div className="flex gap-2 justify-end">
                         {confermaDiretta(e) && (
-                          <button onClick={() => void confermaUno(e)} className="flex items-center gap-1 bg-emerald-600 text-white text-xs font-semibold rounded-lg px-3 py-1.5 hover:bg-emerald-700">
+                          <button onClick={() => void confermaUno(e)} disabled={occupato} className="disabled:opacity-40 flex items-center gap-1 bg-emerald-600 text-white text-xs font-semibold rounded-lg px-3 py-1.5 hover:bg-emerald-700">
                             <Check size={13} />{e.causale === 'malattia' ? 'Prendo atto' : 'Conferma'}
                           </button>
                         )}
@@ -308,12 +317,16 @@ function Riepilogo() {
   const [assente, setAssente] = useState(false)
 
   useEffect(() => {
+    if (!/^\d{4}-\d{2}$/.test(mese)) return
+    let vivo = true
     const dal = `${mese}-01`
     const al = aggiungiGiorni(`${aggiungiGiorni(dal, 32).slice(0, 7)}-01`, -1)
     void supabase.rpc('presenze_eventi_elenco', { p_dal: dal, p_al: al, p_solo_da_confermare: false }).then(({ data, error }) => {
+      if (!vivo) return
       if (error) { if (nonDisponibile(error.message)) setAssente(true); else toast({ type: 'error', message: error.message }); return }
       setEventi(data as unknown as EventoPresenze[])
     })
+    return () => { vivo = false }
   }, [mese, toast])
 
   const negozi = useMemo(() => [...new Map((eventi ?? []).map((e) => [e.outlet_id, e.negozio])).entries()], [eventi])
@@ -390,6 +403,7 @@ function ChiConfermaERegole() {
   const [eccezioni, setEccezioni] = useState<Eccezione[]>([])
   const [persone, setPersone] = useState<{ id: string; nome: string }[]>([])
   const [assente, setAssente] = useState(false)
+  const [vietato, setVietato] = useState(false)
   const [nuova, setNuova] = useState({ emp: '', tolleranza: '', margine: '', nota: '' })
 
   const carica = useCallback(async () => {
@@ -398,7 +412,12 @@ function ChiConfermaERegole() {
       supabase.from('attendance_regole_dipendente').select('employee_id, tolleranza_entrata_minuti, margine_uscita_minuti, nota'),
       supabase.from('employees').select('id, nome, cognome, first_name, last_name, is_active').eq('is_active', true),
     ])
-    if (u.error) { if (nonDisponibile(u.error.message)) setAssente(true); else toast({ type: 'error', message: u.error.message }); return }
+    if (u.error) {
+      if (nonDisponibile(u.error.message)) setAssente(true)
+      else if (/non autorizzato/i.test(u.error.message)) setVietato(true)
+      else toast({ type: 'error', message: u.error.message })
+      return
+    }
     setUtenti(u.data as unknown as Confermatore[])
     setEccezioni((ecc.data ?? []) as Eccezione[])
     setPersone(((emp.data ?? []) as { id: string; nome: string | null; cognome: string | null; first_name: string | null; last_name: string | null }[])
@@ -424,6 +443,7 @@ function ChiConfermaERegole() {
   const nomeDi = (id: string) => persone.find((p) => p.id === id)?.nome ?? 'persona'
 
   if (assente) return <p className="text-slate-500 py-12 text-center">Chi conferma e le eccezioni non sono ancora attivi per questa azienda.</p>
+  if (vietato) return <p className="text-slate-500 py-12 text-center">Chi conferma e le eccezioni li gestiscono gli amministratori e chi segue il personale.</p>
 
   return (
     <div className="space-y-6">
@@ -477,7 +497,11 @@ function ChiConfermaERegole() {
             ))}
             <tr>
               <td className="py-2 pr-2">
-                <select value={nuova.emp} onChange={(e) => setNuova({ ...nuova, emp: e.target.value })} className="border border-slate-300 rounded px-2 py-1 w-full">
+                <select value={nuova.emp} onChange={(e) => {
+                  // Chi ha gia' un'eccezione parte dai valori salvati: un campo lasciato vuoto la toglierebbe
+                  const g = eccezioni.find((x) => x.employee_id === e.target.value)
+                  setNuova({ emp: e.target.value, tolleranza: g?.tolleranza_entrata_minuti?.toString() ?? '', margine: g?.margine_uscita_minuti?.toString() ?? '', nota: g?.nota ?? '' })
+                }} className="border border-slate-300 rounded px-2 py-1 w-full">
                   <option value="">Scegli una persona…</option>
                   {persone.map((p) => <option key={p.id} value={p.id}>{p.nome}</option>)}
                 </select>

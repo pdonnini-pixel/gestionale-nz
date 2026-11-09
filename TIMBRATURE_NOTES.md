@@ -54,6 +54,7 @@ Decisioni di Patrizio del 09/11/2026: uscita «d'accordo» decisa caso per caso;
 - **Elenco**: `presenze_eventi_elenco(dal, al, solo_da_confermare)` per i negozi che posso confermare, compreso il dipendente demo marcato `prova` (serve a provare il giro). Riepilogo del mese calcolato nel browser (`riepilogoMese` in `src/lib/presenzeConferme.ts`, con test) ed esportato in Excel.
 - **Eccezioni per persona**: `presenze_regola_dipendente` (campo vuoto = come il negozio). Tolleranza e margine del negozio nella scheda «Giornata», con «usa per tutti i negozi».
 - **Interfaccia**: Dipendenti → Presenze, sotto-schede Giornata / Da confermare / Riepilogo del mese / Chi conferma e regole (`src/components/PresenzeConferme.tsx`, parametro `presenze=` nell'URL).
+- **Dalle revisioni** (migration 374 e 375): chi non è amministratore conferma al massimo i minuti proposti (ritardo: blocchi di 15; uscita e straordinario: i minuti timbrati), gli amministratori fino a 24 ore; le tabelle `attendance_eventi`, `attendance_regole_dipendente`, `attendance_confermatori` sono in sola lettura per `authenticated` e chiuse ad `anon` (si scrive solo dalle funzioni).
 - **PR B (da fare)**: profilo `responsabile` con una pagina sua (casi e ferie dei suoi negozi) via RPC, senza accesso al resto del gestionale.
 
 ## aperto

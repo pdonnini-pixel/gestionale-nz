@@ -46,6 +46,12 @@ export function testoEvento(e: EventoApp): { titolo: string; dettaglio: string }
       : 'Confermato.'
     return { titolo, dettaglio }
   }
+  if (e.stato === 'respinto') {
+    const titolo = e.tipo === 'ritardo' ? `Entrata con ${formatMinuti(e.minuti)} di ritardo`
+      : e.tipo === 'straordinario' ? `Uscita ${formatMinuti(e.minuti)} dopo la fine del turno`
+      : `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
+    return { titolo, dettaglio: e.tipo === 'straordinario' ? 'Straordinario non confermato dal responsabile.' : 'Non confermato dal responsabile.' }
+  }
   if (e.tipo === 'ritardo') {
     return {
       titolo: `Entrata con ${formatMinuti(e.minuti)} di ritardo`,
