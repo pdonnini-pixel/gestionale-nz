@@ -40,6 +40,16 @@
 -- ricerca della proposta gemella filtra comunque per `company_id`.
 -- ============================================================================
 
+-- NOTA DEL 09/11/2026: il corpo qui sotto è stato riallineato al testo davvero
+-- applicato sui tenant. Nella versione originale di questo file c'erano tre
+-- commenti in più dentro la funzione («prima volta che questa coppia viene
+-- proposta», «Già in elenco…», «niente riga nuova») che il 02/11 non sono finiti
+-- nel payload inviato a NZ e Made: il file e il database dicevano cose diverse.
+-- Trovato dal revisore mentre leggeva la 368. Chi rigioca questo file ora ottiene
+-- esattamente ciò che vive su NZ e Zago (impronta 330ad5e1696f8ced222897d53c5f6616),
+-- e il controllo di parità non segnala niente.
+-- ============================================================================
+
 CREATE OR REPLACE FUNCTION public.reclog_skip_duplicate_proposal()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -67,10 +77,9 @@ BEGIN
    LIMIT 1;
 
   IF v_id IS NULL THEN
-    RETURN NEW;  -- prima volta che questa coppia viene proposta
+    RETURN NEW;
   END IF;
 
-  -- Già in elenco. Se la lettura nuova è più sicura, la riga esistente la adotta.
   IF COALESCE(NEW.confidence, 0) > COALESCE(v_conf, 0) THEN
     UPDATE public.reconciliation_log
        SET confidence = NEW.confidence,
@@ -81,7 +90,7 @@ BEGIN
      WHERE id = v_id;
   END IF;
 
-  RETURN NULL;  -- niente riga nuova
+  RETURN NULL;
 END;
 $function$;
 
