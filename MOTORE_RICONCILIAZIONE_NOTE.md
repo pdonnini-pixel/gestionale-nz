@@ -1132,3 +1132,31 @@ Quindi le letture di questo controllo sono complete, le scritture no. Rimettere 
 pari Made significa rigiocare una quarantina di migration in ordine, fra cui
 creazioni di tabelle con GRANT e policy: non è una cosa da fare alla cieca mentre
 nessuno guarda, ed è una decisione di Patrizio.
+
+### Correzione dello stesso giorno: su Made non c'era niente da rimettere in pari
+
+Poche ore dopo quel controllo, leggendo il `CLAUDE.md` aggiornato: **il 03/11/2026
+Patrizio ha deciso che i tenant diventano due, NZ e Zago** («non sviluppiamo più
+per tre tenant ma per due»), e Made non riceve più modifiche al database. Quindi
+Made ferma alla `20261102_335` non è una migration persa: è la decisione, scritta
+nel file lo stesso giorno in cui si è fermata. Il mio allarme di stamattina era
+mezzo falso, e la parte vera era solo Zago.
+
+**Zago, invece, è ora in pari.** Con Patrizio presente:
+
+- la **333** applicata (guardia sulle proposte riscritte). Al primo invio avevo
+  riscritto a mano il corpo della funzione e si era perso un commento: un secondo
+  passaggio ha riallineato il testo al carattere. Da qui una regola pratica: il
+  testo di una funzione non si riscrive, **si copia da `pg_get_functiondef`** del
+  tenant di riferimento;
+- trovata e chiusa l'ultima differenza, che era **una riga di commento** dentro
+  `fn_cash_closing_compute` (migration 369, patch sulla definizione viva con
+  verifica dell'md5). Codice identico riga per riga: nessun effetto sulle chiusure
+  di cassa.
+
+Esito: NZ e Zago **323 funzioni, impronta `6069f016ed2d6816ac21488f1834f691`**.
+Su Zago la prova sul vivo della 333 non si è potuta rifare, perché `bank_transactions`
+è ancora vuota: vale quella fatta su NZ il 02/11, con il testo identico al carattere.
+
+Il giro settimanale ora confronta **due** tenant, e nel suo testo c'è scritto che
+Made indietro non è un allarme: così il prossimo lunedì non si rincorre un fantasma.
