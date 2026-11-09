@@ -12,6 +12,8 @@ const config: CapacitorConfig = {
   appId: 'it.eppi.newzago',
   appName: 'New Zago',
   webDir: 'dist',
+  // Sfondo bianco anche dietro la barra di stato (prima si vedeva una banda nera su iPhone)
+  backgroundColor: '#ffffff',
   android: { allowMixedContent: false },
   server: { androidScheme: 'https' },
   plugins: {
