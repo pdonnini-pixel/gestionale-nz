@@ -1189,6 +1189,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "No, se il negozio ha il margine di 30 minuti. Con il margine di partenza, 15 minuti, sì: conta la parte oltre il margine, cioè 5 minuti, e il cellulare del negozio chiede il motivo dello straordinario. Entro il margine non è straordinario e non parte l'avviso di uscita. Lo straordinario conta solo dopo la conferma del responsabile."
       },
       {
+        "q": "Dove vedo le richieste e i permessi del dipendente di prova?",
+        "a": "In Ferie e permessi → Richieste, nel riquadro viola «Dipendente di prova» in alto (ultimi 60 giorni). Il dipendente di prova resta fuori da organico, turni, costi e saldi: quelle richieste non contano da nessuna parte e servono solo a provare l'app e le conferme delle presenze."
+      },
+      {
         "q": "Confermo un ritardo: devo anche registrare il permesso in Ferie e permessi?",
         "a": "No. La conferma crea da sola la richiesta di permesso, già approvata, con le ore confermate (ex festività finché bastano, poi ROL), e la persona la vede anche nella scheda Ferie dell'app. Se il caso viene riaperto da un amministratore, il permesso si ritira insieme."
       },
