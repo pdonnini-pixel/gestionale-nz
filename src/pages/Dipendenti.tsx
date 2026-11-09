@@ -80,6 +80,7 @@ const PianoFerie = lazy(() => import('../components/PianoFerie'));
 const OrganicoOggi = lazy(() => import('../components/OrganicoOggi'));
 const TurniNegozi = lazy(() => import('../components/TurniNegozi'));
 const PresenzeNegozi = lazy(() => import('../components/PresenzeNegozi'));
+const PresenzeConferme = lazy(() => import('../components/PresenzeConferme'));
 
 // ============================================================================
 // TYPES
@@ -393,6 +394,17 @@ export default function Dipendenti() {
   const setFerieTab = (next: 'richieste' | 'piano' | 'approvazioni' | 'ratei') => {
     const p = new URLSearchParams(searchParams);
     p.set('ferie', next);
+    setSearchParams(p);
+  };
+
+  // Dentro "Presenze": la giornata, i casi da confermare, il riepilogo del
+  // mese, chi conferma e le eccezioni (migration 373). Anche questa nell'URL.
+  const presenzeParam = searchParams.get('presenze');
+  const presenzeTab: 'giornata' | 'conferme' | 'riepilogo' | 'regole' =
+    presenzeParam === 'conferme' || presenzeParam === 'riepilogo' || presenzeParam === 'regole' ? presenzeParam : 'giornata';
+  const setPresenzeTab = (next: 'giornata' | 'conferme' | 'riepilogo' | 'regole') => {
+    const p = new URLSearchParams(searchParams);
+    p.set('presenze', next);
     setSearchParams(p);
   };
 
@@ -1236,9 +1248,28 @@ export default function Dipendenti() {
           )}
 
           {view === 'presenze' && (
-            <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
-              <PresenzeNegozi companyId={COMPANY_ID} />
-            </Suspense>
+            <>
+              <div className="flex items-center gap-1 rounded-lg border border-slate-200 p-0.5 w-fit mb-4">
+                {([
+                  { k: 'giornata' as const, label: 'Giornata' },
+                  { k: 'conferme' as const, label: 'Da confermare' },
+                  { k: 'riepilogo' as const, label: 'Riepilogo del mese' },
+                  { k: 'regole' as const, label: 'Chi conferma e regole' },
+                ]).map((t) => (
+                  <button
+                    key={t.k}
+                    type="button"
+                    onClick={() => setPresenzeTab(t.k)}
+                    className={`text-sm px-3 py-1.5 rounded-md ${presenzeTab === t.k ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+              <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
+                {presenzeTab === 'giornata' ? <PresenzeNegozi companyId={COMPANY_ID} /> : <PresenzeConferme sezione={presenzeTab} />}
+              </Suspense>
+            </>
           )}
 
           {view === 'ferie' && (

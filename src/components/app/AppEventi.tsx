@@ -20,6 +20,9 @@ export interface EventoApp {
   motivo: string | null
   stato: 'da_confermare' | 'confermato' | 'respinto'
   esito: string | null
+  // Dalla migration 373 (decisione del responsabile)
+  minuti_confermati?: number | null
+  nota_decisione?: string | null
 }
 
 const STATO: Record<EventoApp['stato'], { testo: string; stile: string }> = {
@@ -31,6 +34,24 @@ const STATO: Record<EventoApp['stato'], { testo: string; stile: string }> = {
 /** Titolo e spiegazione dell'evento, nelle parole dell'app. */
 export function testoEvento(e: EventoApp): { titolo: string; dettaglio: string } {
   const turno = e.turno_inizio && e.turno_fine ? `turno ${e.turno_inizio.slice(0, 5)} - ${e.turno_fine.slice(0, 5)}` : ''
+  if (e.stato === 'confermato') {
+    const min = formatMinuti(e.minuti_confermati ?? e.minuti_proposti)
+    const titolo = e.tipo === 'ritardo' ? `Entrata con ${formatMinuti(e.minuti)} di ritardo`
+      : e.tipo === 'straordinario' ? `${min} di straordinario`
+      : `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
+    const dettaglio = e.esito === 'permesso' ? `${min} di permesso scalati dal saldo. Li trovi anche nella scheda Ferie.`
+      : e.esito === 'malattia' ? 'Uscita per malattia registrata.'
+      : e.esito === 'ore_non_lavorate' ? `D'accordo con il responsabile: ${min} non lavorati, senza permesso.`
+      : e.esito === 'straordinario' ? `${min} di straordinario confermati.`
+      : 'Confermato.'
+    return { titolo, dettaglio }
+  }
+  if (e.stato === 'respinto') {
+    const titolo = e.tipo === 'ritardo' ? `Entrata con ${formatMinuti(e.minuti)} di ritardo`
+      : e.tipo === 'straordinario' ? `Uscita ${formatMinuti(e.minuti)} dopo la fine del turno`
+      : `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
+    return { titolo, dettaglio: e.tipo === 'straordinario' ? 'Straordinario non confermato dal responsabile.' : 'Non confermato dal responsabile.' }
+  }
   if (e.tipo === 'ritardo') {
     return {
       titolo: `Entrata con ${formatMinuti(e.minuti)} di ritardo`,
@@ -96,6 +117,9 @@ function Evento({ e, oggi, onSalvato }: { e: EventoApp; oggi: string; onSalvato:
         <p className="text-sm text-slate-800 mt-2"><span className="text-slate-500">Motivo:</span> {causali[e.causale]}</p>
       )}
       {e.motivo && !mostraModulo && <p className="text-sm text-slate-800 mt-1 bg-slate-50 rounded-xl px-3 py-2">«{e.motivo}»</p>}
+      {e.nota_decisione && e.stato !== 'da_confermare' && (
+        <p className="text-sm text-slate-600 mt-2">Il responsabile: «{e.nota_decisione}»</p>
+      )}
 
       {mostraModulo ? (
         <div className="mt-3 flex flex-col gap-2">

@@ -18,17 +18,17 @@ import { supabase } from '../lib/supabase'
 import { useOutlets } from '../hooks/useOutlets'
 import { useToast } from './Toast'
 import {
-  ETICHETTA_ESITO, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, dataRoma, formatMinuti, oraRoma, oraRomaInMs, ordina,
+  ETICHETTA_ESITO, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT, dataRoma, formatMinuti, oraRoma, oraRomaInMs, ordina,
   riepilogoGiorno, type EsitoGiorno, type TipoTimbratura,
 } from '../lib/timbrature'
 
 interface Impostazioni {
-  attive: boolean; margine_uscita_minuti: number
+  attive: boolean; margine_uscita_minuti: number; tolleranza_entrata_minuti: number
   avvisi_push: boolean; ritardo_attivo: boolean; ritardo_minuti: number; uscita_attivo: boolean
   avvisa_dipendente: boolean; avvisa_responsabile: boolean; avvisa_ufficio: boolean
 }
 const IMP_DEFAULT: Impostazioni = {
-  attive: false, margine_uscita_minuti: MARGINE_USCITA_DEFAULT,
+  attive: false, margine_uscita_minuti: MARGINE_USCITA_DEFAULT, tolleranza_entrata_minuti: TOLLERANZA_ENTRATA_DEFAULT,
   avvisi_push: false, ritardo_attivo: true, ritardo_minuti: 15, uscita_attivo: true,
   avvisa_dipendente: true, avvisa_responsabile: true, avvisa_ufficio: false,
 }
@@ -93,7 +93,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       const dal = new Date(oraRomaInMs(giorno, '00:00')).toISOString()
       const al = new Date(oraRomaInMs(giorno, '23:59') + 60_000).toISOString()
       const [sRes, pianoRes, tRes, pRes, nRes, aRes, eRes] = await Promise.all([
-        supabase.from('attendance_settings').select('attive, margine_uscita_minuti, avvisi_push, ritardo_attivo, ritardo_minuti, uscita_attivo, avvisa_dipendente, avvisa_responsabile, avvisa_ufficio').eq('outlet_id', outletId).maybeSingle(),
+        supabase.from('attendance_settings').select('attive, margine_uscita_minuti, tolleranza_entrata_minuti, avvisi_push, ritardo_attivo, ritardo_minuti, uscita_attivo, avvisa_dipendente, avvisa_responsabile, avvisa_ufficio').eq('outlet_id', outletId).maybeSingle(),
         supabase.from('shift_plans').select('id').eq('outlet_id', outletId).eq('mese', mese).eq('stato', 'scelto').maybeSingle(),
         supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, plan_id, stato, origine').eq('outlet_id', outletId).eq('data', giorno).neq('stato', 'annullato'),
         supabase.from('attendance_punches').select('id, employee_id, tipo, ora, origine, verifica, nota').eq('outlet_id', outletId).eq('annullata', false).gte('ora', dal).lt('ora', al),
@@ -132,6 +132,15 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
     const { error } = await supabase.from('attendance_settings').upsert({ outlet_id: outletId, company_id: companyId, ...nuove, updated_at: new Date().toISOString() }, { onConflict: 'outlet_id' })
     if (error) { toast({ type: 'error', message: `Impostazioni non salvate: ${error.message}` }); void carica() }
     else toast({ type: 'success', message: 'Impostazioni salvate.' })
+  }
+  // Tolleranza e margine uguali in tutti i negozi (il resto delle impostazioni non cambia)
+  const regoleATutti = async () => {
+    const ora = new Date().toISOString()
+    const { error } = await supabase.from('attendance_settings').upsert(
+      outlets.map((o) => ({ outlet_id: o.id, company_id: companyId, tolleranza_entrata_minuti: imp.tolleranza_entrata_minuti, margine_uscita_minuti: imp.margine_uscita_minuti, updated_at: ora })),
+      { onConflict: 'outlet_id' })
+    if (error) toast({ type: 'error', message: `Non salvate: ${error.message}` })
+    else toast({ type: 'success', message: `Tolleranza ${imp.tolleranza_entrata_minuti}' e margine ${imp.margine_uscita_minuti}' in tutti i negozi.` })
   }
 
   const righe = useMemo(() => {
@@ -192,6 +201,12 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
             Timbrature attive
           </label>
           <label className="flex items-center gap-2">
+            Tolleranza all'entrata
+            <input type="number" min={0} max={120} value={imp.tolleranza_entrata_minuti}
+              onChange={(e) => setImp({ ...imp, tolleranza_entrata_minuti: Number(e.target.value) })}
+              onBlur={() => void salvaImp(imp)} className="w-16 border border-slate-300 rounded px-2 py-1" /> minuti
+          </label>
+          <label className="flex items-center gap-2">
             Margine dopo la fine del turno
             <input type="number" min={0} max={240} value={imp.margine_uscita_minuti}
               onChange={(e) => setImp({ ...imp, margine_uscita_minuti: Number(e.target.value) })}
@@ -199,7 +214,10 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
           </label>
         </div>
         <p className="text-xs text-slate-500">
-          Chi esce entro il margine non fa straordinario. Sul cellulare del negozio si apre <span className="font-mono">{window.location.origin}/timbra</span> con l'account di cassa.
+          Entro la tolleranza non è un ritardo; oltre, il permesso va a blocchi di 15 minuti per eccesso. Chi esce entro il margine non fa straordinario; oltre, conta la parte oltre il margine.
+          Le eccezioni per persona sono in «Chi conferma e regole».{' '}
+          <button type="button" onClick={() => void regoleATutti()} className="text-blue-700 underline">Usa tolleranza e margine per tutti i negozi</button>.
+          Sul cellulare del negozio si apre <span className="font-mono">{window.location.origin}/timbra</span> con l'account di cassa.
         </p>
 
         <div className="border-t border-slate-100 pt-4 space-y-3">
