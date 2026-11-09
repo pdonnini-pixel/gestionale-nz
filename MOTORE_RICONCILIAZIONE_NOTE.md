@@ -1056,3 +1056,79 @@ allo schermo; verificato subito dopo che su Zago non è entrato **niente**, né 
 funzione né il trigger, quindi non c'è uno stato a metà. Resta da applicare, e se
 restasse indietro lo direbbe il punto 7 del prossimo lunedì: le funzioni sarebbero
 269 su NZ e Made contro 268 su Zago.
+
+---
+
+## Il controllo del 09/11/2026: il motore sta bene, la parità no
+
+Otto giri riusciti dal 02 al 09 novembre, fra 164 e 187 secondi. Novantacinque
+agganci applicati, cioè dieci volte la settimana prima, perché è entrata in
+funzione la lavorazione delle distinte RiBa: 36 «Effetto RiBa», 28 «distinta
+RiBa», 10 «Addebito RiBa». Quelli non sono indovinati, l'identità sta nel
+documento della distinta.
+
+Diciannove sono del ramo «auto (distinta)», i soli da verificare uno per uno. Tre
+avevano gemelle aperte dello stesso importo, e sono proprio i tre nomi storici di
+questo problema: GRUPPO SERVIZI 315,00 (due gemelle), EPPI 3.050,00, SPM 110,00.
+
+**Qui ho sbagliato una misura, e vale raccontarlo.** La mia prima query cercava le
+disposizioni delle gemelle in una finestra -10 / +3 giorni dal movimento, e ne
+trovava due: sembravano due casi ambigui. Ma quella finestra l'avevo inventata io.
+Il criterio vero è la funzione `payable_in_distinta_for_movement`, che guarda -3 /
++20 **dalla disposizione** e lo stesso conto bancario. Interrogata su quelle
+gemelle risponde `false` per tutte: la disposizione era su un altro conto o fuori
+finestra. Candidato unico, agganci corretti. La lezione è vecchia e continua a
+ripresentarsi: per giudicare il motore si usa il criterio del motore, non una
+finestra che somiglia alla sua.
+
+Controllo d'insieme sulle 133 fatture toccate dagli agganci della settimana: zero
+pagate più del dovuto, zero residui negativi, zero «pagato» con residuo, zero
+aperte senza residuo.
+
+### Due funzioni nuove che fanno un pezzo del lavoro del 02/11
+
+È comparso lo stato `superseded`, 38 righe nella settimana, scritto da
+`fn_close_proposals_on_bt_reconciled` e `fn_close_proposals_on_payable_closed`
+(migration 360 e 361, di un'altra sessione): quando un movimento viene
+riconciliato o una fattura si chiude, le proposte che le riguardavano si chiudono
+da sé. È la metà complementare della guardia 333: la 333 impedisce di riscrivere
+una proposta, queste due chiudono quelle superate. Insieme, il log smette di
+gonfiarsi.
+
+### La parità è rotta, e stavolta sul serio
+
+| tenant | funzioni | impronta | guardia 333 |
+|---|---|---|---|
+| NZ | 321 | `c3989e96f17373257dfc03f5fb492110` | sì |
+| Made | **273** | `37de31768a0e99f26b172b9dfe229565` | sì |
+| Zago | **320** | `cd8a2d92de6ee91b27dfd7191df2360a` | no |
+
+Letto nel registro delle migration, il quadro è preciso.
+
+**Made è ferma al 02/11**, ultima applicata `20261102_335_nessuno_senza_negozio`.
+Da lì in poi, niente: una quarantina di migration del 3, 4 e 5 novembre non sono
+mai arrivate. Dentro ci sono le timbrature, l'app dei dipendenti, le distinte RiBa
+robuste, le policy RLS sulle tabelle nuove, i controlli delle chiusure. Quarantotto
+funzioni di differenza.
+
+**Zago è allineata al 05/11 tranne cinque pezzi**: la 333 (la guardia sulle
+proposte, l'apply di oggi e quello del 02/11 sono finiti in timeout sull'attesa di
+un'approvazione), più `337b_responsabile_storico_revoke_anon`,
+`348b_timbrature_revoke`, `350b_app_ferie_senza_saldo` e
+`350c_app_ferie_contract_type_testo`, che mancano anche a Made.
+
+Il punto 7 ha fatto esattamente quello per cui esiste: senza quella query, una
+settimana di lavoro mancante su un tenant vivo non l'avrebbe segnalata nessuno.
+
+### Perché non l'ho sistemato da solo
+
+Da questa sessione, oggi, le scritture sul database non passano: `apply_migration`
+chiede un'approvazione e, senza nessuno davanti allo schermo, scade dopo quattro
+minuti. È successo due volte di fila sulla stessa migration, il 02/11 e oggi.
+Verificato ogni volta che sul tenant non entrasse niente di parziale: la funzione e
+il trigger su Zago sono assenti, non a metà.
+
+Quindi le letture di questo controllo sono complete, le scritture no. Rimettere in
+pari Made significa rigiocare una quarantina di migration in ordine, fra cui
+creazioni di tabelle con GRANT e policy: non è una cosa da fare alla cieca mentre
+nessuno guarda, ed è una decisione di Patrizio.
