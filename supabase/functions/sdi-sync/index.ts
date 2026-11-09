@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { RUOLI_AMMINISTRATIVI, tokenDaRichiesta, verificaProfilo } from "../_shared/verificaProfilo.ts";
 
 /**
  * SDI Sync — sdi-sync
@@ -336,22 +337,26 @@ Deno.serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Verifica utente
-    const token = authHeader.replace("Bearer ", "");
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
+    // Verifica utente: profilo attivo e ruolo amministrativo (09/11/2026,
+    // revisione di sicurezza). Prima bastava app_metadata.company_id, quindi
+    // anche un account di negozio o un dipendente dell'app poteva avviare la
+    // sincronizzazione SDI. Stessa guardia della Netlify Function sdi-sync e
+    // di _shared/verificaProfilo.ts. Il token della service role resta
+    // respinto, come prima (getUser falliva).
+    const chiamante = await verificaProfilo(supabase, tokenDaRichiesta(req), supabaseServiceKey, {
+      ruoli: RUOLI_AMMINISTRATIVI,
+      ammettiServiceRole: false,
+    });
+    if (!chiamante.ok || chiamante.serviceRole) {
+      const negato = chiamante.ok
+        ? { status: 401, message: "Missing authorization", code: "MISSING_AUTH" }
+        : chiamante;
+      return new Response(JSON.stringify({ error: negato.message, code: negato.code }), {
+        status: negato.status,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    if (!user.app_metadata?.company_id) {
-      return new Response(JSON.stringify({ error: "No company assigned" }), {
-        status: 403,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    const user = { email: chiamante.email };
 
     // Multi-tenant: ogni progetto Supabase ha una sola company. Risolviamo
     // company_id e P.IVA dalla tabella `companies` invece di hardcodare NZ.

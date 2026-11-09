@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { RUOLI_AMMINISTRATIVI, tokenDaRichiesta, verificaProfilo } from "../_shared/verificaProfilo.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -30,29 +31,29 @@ Deno.serve(async (req: Request) => {
     }
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
-    const token = authHeader.replace('Bearer ', '');
-
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: `Bearer ${token}` } },
-    });
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: 'Non autenticato' }), {
-        status: 401,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-    const companyId = user.app_metadata?.company_id;
-    if (!companyId) {
-      return new Response(JSON.stringify({ error: 'company_id mancante' }), {
-        status: 403,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
-    }
-
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const admin = createClient(supabaseUrl, serviceKey);
+
+    // Profilo attivo e ruolo amministrativo (09/11/2026, revisione di
+    // sicurezza): prima bastava app_metadata.company_id, quindi anche un
+    // account di negozio (operatore_cassa) o un dipendente dell'app poteva
+    // ricategorizzare i movimenti con la service role. Stessa guardia delle
+    // altre funzioni (_shared/verificaProfilo.ts). La service role non serve:
+    // la chiama solo la pagina AI Categorie.
+    const chiamante = await verificaProfilo(admin, tokenDaRichiesta(req), serviceKey, {
+      ruoli: RUOLI_AMMINISTRATIVI,
+      ammettiServiceRole: false,
+    });
+    if (!chiamante.ok || chiamante.serviceRole) {
+      const negato = chiamante.ok
+        ? { status: 401, message: "Missing authorization", code: "MISSING_AUTH" }
+        : chiamante;
+      return new Response(JSON.stringify({ error: negato.message, code: negato.code }), {
+        status: negato.status,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const companyId = chiamante.companyId;
 
     if (req.method === 'GET') {
       const { data: movements } = await admin
