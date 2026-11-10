@@ -57,3 +57,7 @@ Logo creato per l'app su richiesta di Patrizio, nello stile dei negozi (scritta 
 ## versione 1.2 (10/11/2026)
 - **Android** `versionCode 6`, `versionName 1.2`; **iPhone** build 5, versione 1.2.
 - Dentro: schermata «Questo telefono non è più attivo» quando l'app è stata attivata su un altro telefono (migration 387); la rete si controlla chiamando il server, non con `navigator.onLine` (sul Mac diceva «Senza rete» con la rete).
+
+## versione 1.3 (10/11/2026)
+- **Android** `versionCode 7`, `versionName 1.3`; **iPhone** build 6, versione 1.3.
+- Dentro: alla registrazione delle notifiche l'app manda l'impronta del suo segreto (`p_impronta`, migration 388). Il server accende le notifiche solo sul telefono attivo, anche quando lo stesso telefono si riattiva con un codice nuovo e l'app si riapre dopo più di 15 minuti (con la 1.2 in quel caso restavano spente).
