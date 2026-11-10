@@ -47,3 +47,9 @@ Logo creato per l'app su richiesta di Patrizio, nello stile dei negozi (scritta 
 - **Android**: versione 3 (1.0) pubblicata nel **test interno** di Google Play (elenco tester «New Zago Tester»). Google Play chiede minSdk 24 e target 36 (PR #781, #782). Chiave di caricamento `newzago-upload.jks` in iCloud → «New Zago App», password nell'archivio EPPI.
 - Sul Mac: il Terminale aveva «Usa Opzione come tasto Meta» acceso (la @ non usciva: sudo e portachiavi rifiutavano la password); risolto togliendolo. Il portachiavi «login» è stato sbloccato per codesign con `security set-key-partition-list`.
 - **Da fare**: Dipendente Demo per la prova e per la revisione degli store (migration 368 e NZ_ONLY 369 pronte nella storia del branch, non applicate); schede degli store (descrizioni, screenshot, privacy); informativa privacy per i dipendenti (Lilian); accendere gli avvisi per Roma Soratte.
+
+## versione 1.1 (10/11/2026)
+- **Android** `versionCode 5`, `versionName 1.1`; **iPhone** build 4, versione 1.1 (prima: Android 4, iPhone 3).
+- Dentro: riquadro giallo «Non risulta la tua entrata di oggi» con «Sono entrato alle» (migration 382), caso «Entrata segnata» nella scheda Oggi, «Sto male» al posto di «Sto male (malattia)» e testo del permesso salvo certificato (386), straordinario «conta tutto» (386), tolleranza unica di 10 minuti nelle ore (386).
+- Il server è già aggiornato: le versioni vecchie dell'app funzionano, cambiano solo le parole e il riquadro giallo, che manca.
+- Se App Store Connect o Play Console rifiutano il numero perché già usato da una build fatta sul Mac e non registrata qui, alzarlo di uno e scriverlo qui.
