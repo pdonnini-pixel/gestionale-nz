@@ -1381,6 +1381,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                     </th>
                                   );
                                 })}
+                                <th className="px-2 py-2 text-right bg-slate-100 border-b border-l border-slate-200 font-semibold min-w-[96px]">
+                                  <span className="block text-[10px] uppercase tracking-wide">Totale</span>
+                                  <span className="block text-[10px] font-normal normal-case">ore della settimana</span>
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1423,12 +1427,40 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                           className={`px-1 py-1.5 text-center border-b border-slate-100 ${accetta ? 'bg-blue-50 outline-2 outline-dashed outline-blue-300 -outline-offset-2' : gs >= 6 ? 'bg-slate-50/60' : ''}`}>{casellaCliccabile(riga, d)}</td>
                                       );
                                     })}
+                                    {/* Totale della settimana accanto ai turni (Patrizio, 10/11/2026) */}
+                                    <td className="px-2 py-1.5 text-right align-top border-b border-l border-slate-100 bg-slate-50/60 tabular-nums">
+                                      <span className="block text-sm font-semibold text-slate-900">{fmt(programmate)} h</span>
+                                      {daContratto != null ? (
+                                        <>
+                                          <span className="block text-[10px] text-slate-500">di {fmt(daContratto)} h da contratto</span>
+                                          {Math.abs(scarto) <= 0.25 ? <span className="block text-[10px] text-emerald-700 font-semibold">in linea</span>
+                                            : scarto < 0 ? <span className="block text-[10px] text-slate-700 font-semibold">{fmt(-scarto)} h da assegnare</span>
+                                              : <span className="block text-[10px] text-amber-800 font-semibold">{fmt(scarto)} h in più</span>}
+                                        </>
+                                      ) : !riga.nuova && <span className="block text-[10px] text-slate-500">a chiamata</span>}
+                                      {anticipate > 0.25 && <span className="block text-[10px] text-blue-800">+ {fmt(anticipate)} h anticipate</span>}
+                                      {straordSett > 0.25 && <span className="block text-[10px] text-amber-800">+ {fmt(straordSett)} h straord.</span>}
+                                    </td>
                                   </tr>
                                 );
                               })}
                               <tr className="bg-slate-50/70">
                                 <td className="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">In negozio</td>
                                 {giorniSett.map((d) => <td key={d} className="px-1 py-1.5 text-center align-top">{statoCopertura(d)}</td>)}
+                                <td className="px-2 py-1.5 text-right align-top border-l border-slate-200 tabular-nums" title="Ore nei turni di tutte le persone in questa settimana, pause escluse">
+                                  {(() => {
+                                    const tutti = righe.flatMap((r) => r.turni.filter((x) => nelMese.includes(x.data)));
+                                    const straord = tutti.reduce((a, x) => a + ('ore_straordinario' in x ? Number(x.ore_straordinario ?? 0) : 0), 0);
+                                    const ore = tutti.reduce((a, x) => a + oreDi(x), 0) - straord;
+                                    return (
+                                      <>
+                                        <span className="block text-sm font-semibold text-slate-900">{fmt(ore)} h</span>
+                                        <span className="block text-[10px] text-slate-500">tutto il negozio</span>
+                                        {straord > 0.25 && <span className="block text-[10px] text-amber-800">+ {fmt(straord)} h straord.</span>}
+                                      </>
+                                    );
+                                  })()}
+                                </td>
                               </tr>
                             </tbody>
                           </table>
