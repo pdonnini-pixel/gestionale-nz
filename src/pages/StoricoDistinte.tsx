@@ -82,6 +82,9 @@ export default function StoricoDistinte() {
   const { toast } = useToast()
   const COMPANY_ID = profile?.company_id
   const [rows, setRows] = useState<DispRow[]>([])
+  // Distinte di rimborso (migration 390): riga → persona rimborsata. Letto a parte,
+  // così dove le colonne non esistono lo Storico resta quello di sempre.
+  const [rimborsi, setRimborsi] = useState<Record<string, string>>({})
   const [bankNames, setBankNames] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState<Record<string, boolean>>({})
@@ -190,6 +193,25 @@ export default function StoricoDistinte() {
         const merged = [...((data || []) as unknown as DispRow[]), ...fiscalRows]
         merged.sort((a, b) => (a.performed_at < b.performed_at ? 1 : -1))
         setRows(merged)
+        // Il nome di chi è rimborsato lo legge solo l'amministrazione (RLS): gli altri
+        // profili vedono «una persona». Dove la 390 non c'è, entrambe le letture
+        // danno errore e lo Storico resta quello di sempre.
+        const [{ data: rimb, error: rimbErr }, { data: persone }] = await Promise.all([
+          supabase
+            .from('payable_actions')
+            .select('id, rimborso_group_id, payables!inner(company_id)')
+            .eq('action_type', 'disposizione')
+            .eq('payables.company_id', COMPANY_ID)
+            .not('rimborso_group_id', 'is', null),
+          supabase.from('payable_reimbursements').select('id, beneficiary_name').eq('company_id', COMPANY_ID),
+        ])
+        if (active && !rimbErr && rimb) {
+          const nomi: Record<string, string> = {}
+          for (const p of (persone || []) as unknown as { id: string; beneficiary_name: string | null }[]) nomi[p.id] = (p.beneficiary_name || '').trim()
+          const m: Record<string, string> = {}
+          for (const r of rimb as unknown as { id: string; rimborso_group_id: string }[]) m[r.id] = nomi[r.rimborso_group_id] || 'una persona'
+          setRimborsi(m)
+        }
       } catch (e) {
         console.warn('[storico-distinte]', e)
       } finally {
@@ -369,7 +391,15 @@ export default function StoricoDistinte() {
                               const deletable = canDeleteRow(r)
                               return (
                                 <tr key={r.id} className="border-b border-slate-50 last:border-0">
-                                  <td className="py-2 px-4 text-slate-800">{r.payables?.supplier_name || '—'}</td>
+                                  <td className="py-2 px-4 text-slate-800">
+                                    {r.payables?.supplier_name || '—'}
+                                    {rimborsi[r.id] && (
+                                      <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 text-[11px] font-medium"
+                                        title="Fattura anticipata da questa persona: si chiude con il bonifico di rimborso a lei, non con un pagamento al fornitore">
+                                        Rimborso a {rimborsi[r.id]}
+                                      </span>
+                                    )}
+                                  </td>
                                   <td className="py-2 px-4 text-slate-500">{r.payables?.invoice_number || '—'}</td>
                                   <td className="py-2 px-4 text-slate-500">{bankNames[r.bank_account_id || ''] || 'Banca non indicata'}</td>
                                   <td className="py-2 px-4 text-right font-medium text-slate-800">€ {fmt(amt)}</td>
