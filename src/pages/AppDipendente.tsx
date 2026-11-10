@@ -238,7 +238,9 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   // Entrata dimenticata (migration 382): turno cominciato da piu' della tolleranza, nessuna timbratura
   const tolleranzaOggi = dati?.regole?.tolleranza ?? TOLLERANZA_ENTRATA_DEFAULT
   const turnoOggi = turnoDel(oggi)
-  const entrataDaSegnare = !!dati && entrataMancante(turnoOggi, perGiorno(oggi), adesso, tolleranzaOggi)
+  // Dopo un'entrata dichiarata non confermata non se ne segna un'altra (migration 383)
+  const entrataRespinta = (dati?.eventi ?? []).some((e) => e.data === oggi && e.tipo === 'entrata_dichiarata' && e.stato === 'respinto')
+  const entrataDaSegnare = !!dati && !entrataRespinta && entrataMancante(turnoOggi, perGiorno(oggi), adesso, tolleranzaOggi)
   const oreEntrata = entrataDaSegnare && turnoOggi ? oreEntrataDichiarabili(turnoOggi, adesso) : []
   const sceltaEntrata = oraEntrata && oreEntrata.includes(oraEntrata) ? oraEntrata
     : turnoOggi && oreEntrata.includes(turnoOggi.inizio.slice(0, 5)) ? turnoOggi.inizio.slice(0, 5) : (oreEntrata[0] ?? '')
