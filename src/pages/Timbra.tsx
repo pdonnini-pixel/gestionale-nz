@@ -10,11 +10,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CheckCircle2, Wifi, WifiOff, Camera, RefreshCw, AlertTriangle } from 'lucide-react'
+import { CheckCircle2, Wifi, WifiOff, Camera, RefreshCw, AlertTriangle, Delete, KeyRound } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   CAUSALI_STRAORDINARIO, CAUSALI_USCITA, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT,
-  azioni, dataRoma, entrataMancante, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, oreEntrataDichiarabili, ordina, statoDa,
+  azioni, codicePin, dataRoma, entrataMancante, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, oreEntrataDichiarabili, ordina, statoDa,
   valutaEntrata, valutaUscita,
   type TipoTimbratura, type Timbratura,
 } from '../lib/timbrature'
@@ -33,6 +33,9 @@ const K_NEGOZIO = 'nz-timbra-negozio'
 
 interface Selezione { employeeId: string; nome: string; codice: string; letto: number }
 interface Fatto { nome: string; tipo: TipoTimbratura; ora: string; nota?: string }
+/** Timbratura con il PIN (migration 384): prima il nome, poi le 4 cifre. */
+type StatoPin = { fase: 'nomi' } | { fase: 'cifre'; employeeId: string; nome: string; cifre: string; errore?: string; controllo?: boolean }
+
 /** Timbratura di oggi; dichiarata = entrata segnata a posteriori, da confermare (migration 382). */
 type TimbraturaOggi = Timbratura & { dichiarata?: boolean }
 interface UscitaDaConfermare { tipo: 'anticipata' | 'straordinario'; minuti: number; proposti: number; fine: string }
@@ -63,6 +66,7 @@ export default function Timbra() {
   const [oraDichiarata, setOraDichiarata] = useState<string | null>(null)
   const [entroAdesso, setEntroAdesso] = useState(false)
   const [segnata, setSegnata] = useState<string | null>(null)
+  const [pin, setPin] = useState<StatoPin | null>(null)
   const [avviso, setAvviso] = useState<string | null>(null)
   const [frontale, setFrontale] = useState(true)
   const [erroreCamera, setErroreCamera] = useState<string | null>(null)
@@ -163,7 +167,7 @@ export default function Timbra() {
 
   // Lettura del QR con la fotocamera
   useEffect(() => {
-    if (!outletId || selezione || fatto) return
+    if (!outletId || selezione || fatto || pin) return
     if (!Rilevatore) { setErroreCamera('Questo telefono non legge i QR dal browser. Usa Chrome aggiornato.'); return }
     let fermo = false
     let stream: MediaStream | null = null
@@ -198,7 +202,7 @@ export default function Timbra() {
       })
       .catch(() => setErroreCamera('Serve il permesso per la fotocamera: toccalo nella barra degli indirizzi e consenti.'))
     return () => { fermo = true; stream?.getTracks().forEach((t) => t.stop()) }
-  }, [outletId, selezione, fatto, frontale])
+  }, [outletId, selezione, fatto, frontale, !!pin])
 
   // La scheda della persona si chiude da sola dopo 20 secondi
   useEffect(() => {
@@ -207,6 +211,12 @@ export default function Timbra() {
     const t = setTimeout(() => setSelezione(null), 20_000)
     return () => clearTimeout(t)
   }, [selezione, uscita, causale, oraDichiarata, entroAdesso])
+  // La schermata del PIN si chiude da sola dopo 30 secondi senza tocchi
+  useEffect(() => {
+    if (!pin) return
+    const t = setTimeout(() => setPin(null), 30_000)
+    return () => clearTimeout(t)
+  }, [pin])
   useEffect(() => {
     if (!fatto) return
     const t = setTimeout(() => setFatto(null), 3500)
@@ -243,6 +253,26 @@ export default function Timbra() {
     }
   }
 
+  // PIN: alla quarta cifra si controlla subito (con la rete); senza rete si va
+  // avanti e il PIN lo controlla il server all'invio, come la firma del QR.
+  const cifraPin = async (c: string) => {
+    if (!pin || pin.fase !== 'cifre' || pin.controllo) return
+    const cifre = c === 'canc' ? pin.cifre.slice(0, -1) : (pin.cifre + c).slice(0, 4)
+    if (cifre.length < 4) { setPin({ ...pin, cifre, errore: undefined }); return }
+    const scelto = { employeeId: pin.employeeId, nome: pin.nome, codice: codicePin(pin.employeeId, cifre), letto: Date.now() }
+    if (!navigator.onLine) { setPin(null); setSelezione(scelto); return }
+    setPin({ ...pin, cifre, controllo: true, errore: undefined })
+    const { data, error } = await supabase.rpc('timbratrice_verifica_pin', { p_outlet_id: outletId, p_employee: pin.employeeId, p_pin: cifre })
+    if (error) { setPin(null); setSelezione(scelto); return } // rete instabile: controlla il server all'invio
+    if (data === 'ok') { setPin(null); setSelezione(scelto); return }
+    setPin({
+      ...pin, cifre: '', controllo: false,
+      errore: data === 'pin_bloccato' ? 'PIN bloccato dopo 5 tentativi sbagliati: chiedi un PIN nuovo a chi segue il personale.'
+        : data === 'pin_non_attivo' ? 'Per te non c\'è un PIN attivo: chiedilo a chi segue il personale.'
+        : 'PIN sbagliato, riprova.',
+    })
+  }
+
   // ─── Schermate ───────────────────────────────────────────────────────
   const guscio = (contenuto: React.ReactNode) => (
     <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center gap-4">{contenuto}</div>
@@ -270,6 +300,7 @@ export default function Timbra() {
   if (!outletId) return guscio(<RefreshCw className="animate-spin" />)
 
   const scartateOra = scartate().filter((s) => s.outlet_id === outletId)
+  const conPin = (dati?.persone ?? []).filter((p) => p.pin)
   const dentro = [...timbratureOggi.entries()]
     .map(([emp, ts]) => ({ emp, stato: statoDa(ordina(ts).at(-1)?.tipo) }))
     .filter((x) => x.stato !== 'fuori')
@@ -293,12 +324,47 @@ export default function Timbra() {
           ? <p className="text-sm text-emerald-300">Tutte le timbrature sono inviate{ultimoInvio ? ` (ultimo invio ${oraRoma(ultimoInvio)})` : ''}.</p>
           : <p className="text-sm text-amber-300">{coda.length === 1 ? '1 timbratura in attesa' : `${coda.length} timbrature in attesa`}: {online ? 'invio in corso.' : 'partono da sole appena torna la rete.'}</p>}
         {scartateOra.length > 0 && (
-          <p className="text-sm text-rose-300 mt-1 flex items-center gap-1"><AlertTriangle size={14} />{scartateOra.length === 1 ? '1 timbratura rifiutata' : `${scartateOra.length} timbrature rifiutate`} (QR non riconosciuto o persona non in servizio): avvisa chi segue il personale.</p>
+          <p className="text-sm text-rose-300 mt-1 flex items-center gap-1"><AlertTriangle size={14} />{scartateOra.length === 1 ? '1 timbratura rifiutata' : `${scartateOra.length} timbrature rifiutate`} (QR o PIN non riconosciuto, PIN bloccato o persona non in servizio): avvisa chi segue il personale.</p>
         )}
       </div>
 
       <main className="flex-1 flex flex-col items-center justify-center px-5 py-4">
-        {fatto ? (
+        {pin && !fatto && !selezione ? (
+          pin.fase === 'nomi' ? (
+            <div className="w-full max-w-md flex flex-col gap-3">
+              <p className="text-2xl font-bold text-center">Chi sei?</p>
+              <div className="grid grid-cols-2 gap-2">
+                {conPin.map((p) => (
+                  <button key={p.id} onClick={() => setPin({ fase: 'cifre', employeeId: p.id, nome: p.nome, cifre: '' })}
+                    className="py-4 px-3 rounded-2xl bg-slate-700 active:bg-slate-600 text-lg font-semibold">{p.nome}</button>
+                ))}
+              </div>
+              <button onClick={() => setPin(null)} className="text-slate-400 underline py-2">Annulla</button>
+            </div>
+          ) : (
+            <div className="w-full max-w-xs flex flex-col items-center gap-4">
+              <p className="text-2xl font-bold text-center">{pin.nome}</p>
+              <p className="text-slate-300">Scrivi il tuo PIN</p>
+              <div className="flex gap-3">
+                {[0, 1, 2, 3].map((i) => (
+                  <span key={i} className={`w-4 h-4 rounded-full ${i < pin.cifre.length ? 'bg-white' : 'border-2 border-slate-500'}`} />
+                ))}
+              </div>
+              {pin.errore && <p className="text-rose-300 text-center text-sm">{pin.errore}</p>}
+              {pin.controllo && <RefreshCw className="animate-spin text-slate-400" size={18} />}
+              <div className="grid grid-cols-3 gap-3 w-full">
+                {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'canc'].map((c) => c === '' ? <span key="vuoto" /> : (
+                  <button key={c} onClick={() => void cifraPin(c)} disabled={pin.controllo}
+                    aria-label={c === 'canc' ? 'Cancella' : c}
+                    className="h-16 rounded-2xl bg-slate-700 active:bg-slate-600 text-3xl font-bold flex items-center justify-center disabled:opacity-40">
+                    {c === 'canc' ? <Delete size={26} /> : c}
+                  </button>
+                ))}
+              </div>
+              <button onClick={() => setPin({ fase: 'nomi' })} className="text-slate-400 underline py-1">Non sono io</button>
+            </div>
+          )
+        ) : fatto ? (
           <div className="flex flex-col items-center gap-3 text-center">
             <CheckCircle2 size={96} className="text-emerald-400" />
             <p className="text-3xl font-bold">{ETICHETTA_TIPO[fatto.tipo]} registrata</p>
@@ -450,6 +516,11 @@ export default function Timbra() {
             <button onClick={() => setFrontale((f) => !f)} className="flex items-center gap-1.5 text-slate-400 text-sm underline">
               <Camera size={14} />Cambia fotocamera
             </button>
+            {conPin.length > 0 && (
+              <button onClick={() => setPin({ fase: 'nomi' })} className="mt-2 w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-slate-600 text-lg">
+                <KeyRound size={18} />Non ho lo smartphone: timbro con il PIN
+              </button>
+            )}
           </div>
         )}
       </main>

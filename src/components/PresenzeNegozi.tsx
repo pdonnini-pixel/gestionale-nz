@@ -49,6 +49,8 @@ interface Punch {
 interface Accesso {
   employee_id: string; nome: string; codice: string | null
   codice_scade: string | null; attivata_il: string | null
+  /** Dalla migration 384: PIN sul telefono del negozio per chi non ha lo smartphone. */
+  pin_attivo?: boolean; pin_bloccato?: boolean
 }
 
 const COLORE_ESITO: Record<EsitoGiorno, string> = {
@@ -81,6 +83,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
   const [carico, setCarico] = useState(false)
   const [haConfermatori, setHaConfermatori] = useState(true)
   const [aggiungi, setAggiungi] = useState<{ emp: string; nome: string } | null>(null)
+  const [pinNuovo, setPinNuovo] = useState<{ nome: string; pin: string } | null>(null)
   // Sul sito di un'azienda senza la migration 348 (Made) le tabelle non ci sono:
   // la scheda lo dice invece di riempirsi di errori.
   const [nonDisponibile, setNonDisponibile] = useState(false)
@@ -185,6 +188,19 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
   const nuovoCodice = async (empId: string) => {
     const { error } = await supabase.rpc('app_accesso_nuovo_codice', { p_employee_id: empId })
     if (error) toast({ type: 'error', message: error.message }); else void carica()
+  }
+  // PIN per chi non ha lo smartphone (migration 384): si vede una volta sola
+  const creaPin = async (a: Accesso) => {
+    if (a.pin_attivo && !window.confirm(`Creare un PIN nuovo per ${a.nome}? Quello di prima smette di funzionare.`)) return
+    const { data, error } = await supabase.rpc('timbrature_pin_nuovo', { p_employee: a.employee_id })
+    if (error) { toast({ type: 'error', message: error.message }); return }
+    setPinNuovo({ nome: a.nome, pin: String(data) })
+    void carica()
+  }
+  const togliPin = async (a: Accesso) => {
+    if (!window.confirm(`Togliere il PIN di ${a.nome}? Potrà timbrare solo con il QR dell'app.`)) return
+    const { error } = await supabase.rpc('timbrature_pin_togli', { p_employee: a.employee_id })
+    if (error) toast({ type: 'error', message: error.message }); else { toast({ type: 'success', message: 'PIN tolto.' }); void carica() }
   }
   const linkApp = (codice: string) => `${window.location.origin}/app?codice=${codice}`
   const copia = async (testo: string) => {
@@ -318,6 +334,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
                         {ETICHETTA_VERIFICA[p.verifica] && <span className="text-xs px-1.5 rounded bg-amber-100 text-amber-800">{ETICHETTA_VERIFICA[p.verifica]}</span>}
                         {p.origine === 'dichiarata' && <span className="text-xs text-slate-500">segnata dal dipendente</span>}
                         {p.origine === 'manuale' && <span className="text-xs text-slate-500">inserita a mano</span>}
+                        {p.origine === 'pin' && <span className="text-xs text-slate-500">con il PIN</span>}
                         {p.verifica === 'da_confermare' && <button onClick={() => void conferma(p.id)} className="text-xs text-blue-700 underline">Conferma</button>}
                         <button onClick={() => void annulla(p.id)} className="text-xs text-slate-400 hover:text-rose-600 underline">Annulla</button>
                       </div>
@@ -352,6 +369,17 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
         </table>
       </section>
 
+      {pinNuovo && (
+        <Modal open onClose={() => setPinNuovo(null)} title={`PIN di ${pinNuovo.nome}`} maxWidthClass="max-w-sm">
+          <div className="space-y-4 text-sm text-center">
+            <p className="text-5xl font-bold tracking-[0.3em] tabular-nums text-slate-900">{pinNuovo.pin}</p>
+            <p className="text-slate-600">Consegnalo alla persona, a voce o su un foglio. Non si rivede più: se lo dimentica, se ne crea uno nuovo.
+              Sul telefono del negozio tocca «Non ho lo smartphone: timbro con il PIN», sceglie il suo nome e scrive il PIN.</p>
+            <button onClick={() => setPinNuovo(null)} className="bg-slate-900 text-white font-semibold rounded-lg px-4 py-2">Fatto</button>
+          </div>
+        </Modal>
+      )}
+
       {aggiungi && (
         <AggiungiTimbratura persona={aggiungi} giorno={giorno} outletId={outletId}
           onClose={() => setAggiungi(null)} onFatto={() => { setAggiungi(null); void carica() }} />
@@ -362,6 +390,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
         <h3 className="font-semibold text-slate-900 flex items-center gap-2"><Smartphone size={16} />App del dipendente</h3>
         <p className="text-xs text-slate-500">
           Ogni persona riceve il suo codice quando viene inserita nel gestionale. Mandale il link: lo apre dal suo telefono e l'app resta attiva. Con l'app New Zago installata dagli store riceve anche gli avvisi.
+          Chi non ha lo smartphone timbra sul telefono del negozio con un PIN di 4 cifre: premi «Crea PIN» e consegnaglielo (lo vedi una volta sola). Dopo 5 PIN sbagliati si blocca: ne crei uno nuovo.
         </p>
         <table className="w-full text-sm">
           <tbody className="divide-y divide-slate-100">
@@ -383,6 +412,17 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
                   ) : a.attivata_il ? (
                     <span className="text-emerald-700">App attiva dal {new Date(a.attivata_il).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })}</span>
                   ) : <span className="text-slate-400">nessun codice</span>}
+                </td>
+                <td className="py-2 pr-3 text-xs whitespace-nowrap">
+                  {a.pin_attivo === undefined ? null : a.pin_attivo ? (
+                    <span className="flex items-center gap-2">
+                      <span className={a.pin_bloccato ? 'text-rose-700' : 'text-emerald-700'}>{a.pin_bloccato ? 'PIN bloccato' : 'PIN attivo'}</span>
+                      <button onClick={() => void creaPin(a)} className="text-blue-700 underline">PIN nuovo</button>
+                      <button onClick={() => void togliPin(a)} className="text-slate-500 underline">Togli</button>
+                    </span>
+                  ) : (
+                    <button onClick={() => void creaPin(a)} className="text-blue-700 underline">Crea PIN</button>
+                  )}
                 </td>
                 <td className="py-2 text-right">
                   <button onClick={() => void nuovoCodice(a.employee_id)} className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-900 ml-auto">

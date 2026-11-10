@@ -78,9 +78,17 @@ Decisioni di Patrizio del 10/11/2026 (mockup approvati).
 - **Limiti dalle revisioni** (migration 383): dal telefono del negozio la dichiarazione vale solo con il QR di adesso (al massimo 15 minuti) e il turno in quel negozio; dopo un'entrata dichiarata non confermata la stessa giornata non se ne dichiara un'altra (app e telefono; l'app nasconde il riquadro giallo); «Conferma» in Giornata rifiuta le proprie timbrature anche senza caso.
 - Provato il 10/11/2026 su NZ in transazioni annullate con il dipendente demo di Roma Soratte: dichiarazione dall'app e dal telefono del negozio (QR firmato), seconda dichiarazione rifiutata, conferma in orario (nessun ritardo), conferma alle 10:20 (ritardo di 20 minuti, 30 di permesso da confermare), ora fuori dai limiti rifiutata, riapertura rifiutata, rifiuto senza nota rifiutato, rifiuto con nota (timbratura annullata), aggiunta a mano.
 
+## PIN per chi non ha lo smartphone (migration 384, 10/11/2026)
+Richiesta di Patrizio del 10/11/2026.
+- **Crea**: Dipendenti → Presenze → App del dipendente → «Crea PIN» (`timbrature_pin_nuovo`, solo `timbrature_gestore`, non per sé). 4 cifre a caso (senza 0000, 1234 e simili), mostrate una volta sola; nel database solo `employee_app_access.pin_hash` (bcrypt), tabella chiusa all'API. «PIN nuovo» lo rifà, «Togli» lo spegne (`timbrature_pin_togli`).
+- **Timbra**: sul telefono del negozio «Non ho lo smartphone: timbro con il PIN» (compare solo se qualcuno del negozio ha il PIN, `timbratrice_dati.persone[].pin`), nome, tastierino. Con la rete il PIN si controlla subito (`timbratrice_verifica_pin`); poi il flusso è quello del QR, con codice `NZP1.<employee_id>.<pin>` che `timbrature_registra` controlla di nuovo. Senza rete va in coda e si controlla all'invio: PIN sbagliato = rifiutata (`pin_errato`, `pin_bloccato`, `pin_non_attivo` sono rifiuti certi in `timbratureCoda.ts`).
+- **Blocco**: 5 PIN sbagliati di fila e il PIN si blocca finché non se ne crea uno nuovo (`pin_tentativi`); un PIN giusto azzera il conto.
+- **Valore**: `origine = 'pin'`, `verifica = 'ok'` come il QR; il PIN non porta l'ora dentro, quindi se arriva al server più di 2 ore dopo resta `da_confermare`. Entrata dimenticata, ritardi, uscite e straordinari funzionano come con il QR.
+- **Limiti noti**: chi ha il telefono del negozio può consumare i tentativi di un collega e bloccargli il PIN (disservizio, non accesso); il PIN resta in chiaro nella coda del telefono del negozio finché non parte; con un'estrazione della tabella i PIN di 4 cifre si ricavano (la tabella non è esposta).
+- Provato il 10/11/2026 su NZ in transazione annullata: PIN creato di 4 cifre e cifrato, verifica giusta e sbagliata, timbratura `pin/ok`, codice vuoto rifiutato come illeggibile, blocco dopo 5 errori anche con il PIN giusto, dipendente che non può verificare né creare PIN.
+
 ## aperto
-- **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: PIN per chi non ha lo smartphone, informativa privacy (l'entrata dimenticata è fatta con la migration 382).
-- PIN sul cellulare del negozio per chi non ha lo smartphone (non ancora fatto).
+- **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: informativa privacy (entrata dimenticata con la migration 382, PIN con la 384).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).
 - Tracciato mensile per lo studio paghe (formato da chiedere allo studio).
 - Sede: ha un cellulare aziendale ma nessun account di cassa; serve un account per la timbratrice della sede.

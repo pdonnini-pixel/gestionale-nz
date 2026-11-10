@@ -74,6 +74,11 @@ export async function codiceQr(segretoHex: string, employeeId: string, ms: numbe
   return `${PREFISSO_QR}.${employeeId}.${passo}.${await firma(segretoHex, employeeId, passo)}`
 }
 
+/** Codice di chi timbra con il PIN sul telefono del negozio (migration 384): lo controlla il server. */
+export function codicePin(employeeId: string, pin: string): string {
+  return `NZP1.${employeeId}.${pin}`
+}
+
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 /** Legge un QR del dipendente. Null se non e' un nostro codice. */

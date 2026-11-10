@@ -1,6 +1,6 @@
 # manuale delle presenze per i negozi
 
-Manuale di funzionamento da dare a ogni negozio (versione del 10/11/2026, su indicazione di Patrizio). È scritto come il racconto di una giornata in negozio, dall'apertura alla chiusura, più il giorno dopo; in fondo le appendici. Il PDF con le schermate si rigenera da questo testo; persone e dati delle schermate sono inventati.
+Manuale di funzionamento da dare a ogni negozio (versione del 10/11/2026 con il PIN, su indicazione di Patrizio). È scritto come il racconto di una giornata in negozio, dall'apertura alla chiusura, più il giorno dopo; in fondo le appendici. Il PDF con le schermate si rigenera da questo testo; persone e dati delle schermate sono inventati.
 
 **Chi c'è nel racconto** (negozio di Roma Soratte, giovedì 5 novembre)
 - **Sara Conti**, referente del negozio: turno 09:30-19:30, apre e chiude.
@@ -86,6 +86,8 @@ Le quattro schede in basso:
 **Entrata dimenticata**: se il turno è cominciato da più della tolleranza e oggi non c'è nessuna timbratura, nella scheda Oggi compare il riquadro giallo: si sceglie l'ora («Sono entrato alle») e si tocca **Segna**. Serve la rete, e vale solo per oggi. Poi la conferma il responsabile.
 **Uscita dimenticata**: se il turno è finito e l'uscita non risulta, l'app lo dice e chiede l'ora a cui si è usciti; poi la conferma chi segue il personale.
 
+**Chi non ha lo smartphone**: timbra sul telefono del negozio con un PIN di 4 cifre, che riceve da chi segue il personale. Sotto la fotocamera tocca **Non ho lo smartphone: timbro con il PIN**, sceglie il suo nome e scrive il PIN; poi i pulsanti sono quelli di sempre (Entra, Vado in pausa, Esco). Il PIN non si dice a nessuno: dopo 5 PIN sbagliati si blocca e serve un PIN nuovo. Chi non ha l'app non riceve gli avvisi e chiede ferie e permessi al responsabile.
+
 ## appendice C · gli avvisi sul telefono
 
 Due avvisi, per ogni turno al massimo uno per tipo:
@@ -105,7 +107,8 @@ Dove si accendono e si spengono: nel gestionale, Dipendenti → Presenze → Gio
 - **Entrata dimenticata**: si segna l'ora dal telefono del negozio, al primo QR della giornata, oppure dall'app (riquadro giallo). La conferma il responsabile. Se nessuno l'ha segnata, chi segue il personale la aggiunge in Dipendenti → Presenze → Giornata con «Aggiungi timbratura» e il motivo.
 - **Il telefono del negozio non ha rete**: si timbra come sempre; le timbrature partono da sole quando la rete torna, in alto c'è scritto quante sono in attesa. Non spegnere il telefono e non cancellare i dati di Chrome finché non risultano tutte inviate.
 - **Il telefono del negozio è scarico o rotto**: ciascuno segna l'entrata dall'app (riquadro giallo) e, a fine turno, l'uscita. Chi non riesce annota su un foglio nome, entrata, pause e uscita e lo manda al responsabile, che lo passa a chi segue il personale: le timbrature mancanti le aggiunge lui.
-- **Telefono personale scarico, o persona senza smartphone**: per ora va avvisato il responsabile, che lo segnala a chi segue il personale.
+- **Telefono personale scarico**: si timbra con il PIN, se chi segue il personale l'ha creato; altrimenti va avvisato il responsabile, che lo segnala a chi segue il personale.
+- **PIN dimenticato o bloccato**: chiedere un PIN nuovo a chi segue il personale (Dipendenti → Presenze → App del dipendente → «PIN nuovo»); quello vecchio smette di valere.
 - **Timbratura sbagliata** (per esempio «Esco» al posto di «Vado in pausa»): avvisare il responsabile; chi segue il personale la annulla con il motivo, e resta nello storico.
 - **Telefono personale nuovo**: chiedere a chi segue il personale un codice nuovo; il telefono vecchio smette di funzionare.
 
@@ -115,7 +118,6 @@ Il sistema registra solo le timbrature (ora e negozio) e i turni. Niente posizio
 
 ## da sistemare prima della consegna
 
-- Persone senza smartphone: il codice PIN sul telefono del negozio non è ancora fatto.
 - Informativa privacy (a cura di Lilian).
 
 Riferimenti tecnici: `TIMBRATURE_NOTES.md`, `docs/PROVA_REALE_ROMA_SORATTE.md`.

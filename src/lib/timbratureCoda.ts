@@ -154,7 +154,8 @@ export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
         // Tutto il resto (errore_temporaneo, negozio_non_autorizzato, nessuna
         // risposta) resta in coda e si riprova: una timbratura vera non sparisce.
         const fatte = (e: string | undefined) => e === 'salvata' || e === 'qr_gia_usato'
-        const RIFIUTI_CERTI = ['codice_illeggibile', 'persona_sconosciuta', 'persona_non_in_servizio', 'riga_non_valida']
+        // PIN sbagliato o bloccato (migration 384): riprovare non serve
+        const RIFIUTI_CERTI = ['codice_illeggibile', 'persona_sconosciuta', 'persona_non_in_servizio', 'riga_non_valida', 'pin_errato', 'pin_bloccato', 'pin_non_attivo']
         const salvate = lotto.filter((r) => fatte(esiti.get(r.id))).map((r) => r.id)
         const rifiutate = lotto.filter((r) => RIFIUTI_CERTI.includes(esiti.get(r.id) ?? ''))
         if (rifiutate.length) {
@@ -180,7 +181,7 @@ export interface DatiTimbratrice {
   outlet: { id: string; nome: string }
   margine_uscita_minuti: number
   /** tolleranza e margine valgono per la persona (eccezione o regola del negozio): migration 372. */
-  persone: { id: string; nome: string; tolleranza?: number; margine?: number }[]
+  persone: { id: string; nome: string; tolleranza?: number; margine?: number; pin?: boolean }[]
   turni: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null }[]
   /** dichiarata: entrata segnata a posteriori, ancora da confermare (migration 382). */
   timbrature: { id: string; employee_id: string; tipo: TipoTimbratura; ora: string; dichiarata?: boolean }[]
