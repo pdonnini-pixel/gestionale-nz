@@ -1150,6 +1150,17 @@ export const PAGE_GUIDES: PageGuide[] = [
         ]
       },
       {
+        "heading": "Turni: traffico MODA",
+        "body": "La scheda «Traffico MODA» della pagina Turni carica i report MODA degli ingressi per ora, da cui il piano del mese e il piano settimanale calcolano quante persone servono (ingressi dell'ora diviso la soglia del negozio in «Regole dei turni»). Il report è la «Statistica Situazione Vendite con Conversion Rate» di MODA, raggruppata per Negozio, Giorno e Ora, senza IVA, escluse vendite libere, buoni e acconti, stampata in PDF: può contenere tutti i negozi e qualunque periodo, anche nove mesi insieme. Si trascina il PDF e il gestionale fa tutto da solo: legge gli ingressi (colonna N.P.) e gli scontrini di ogni ora, riconosce il negozio dal nome, controlla che la somma delle ore torni con il totale del giorno stampato nel report e salva i giorni nuovi. Il giorno in cui il report è stato stampato non si carica, perché a negozio aperto non è finito: arriverà con il report successivo. Chiede una conferma solo in tre casi: un giorno già caricato con numeri diversi (accanto al file c'è l'elenco, giorno per giorno, con gli ingressi di oggi e quelli del report, e si sceglie «Sostituisci con il report» o «Lascia com'è»), un giorno in cui i totali del report non tornano, un negozio del report che il gestionale non riconosce (si sceglie a quale negozio corrisponde, o «non caricare»). Più file insieme si lavorano uno alla volta e alla fine un riquadro verde dice «Finito, tutti i dati sono aggiornati», oppure cosa resta da fare. Sotto c'è la tabella «Giorni di traffico caricati»: per ogni negozio e mese i giorni con il traffico su quelli da caricare (fino a ieri, dall'apertura del negozio), in verde i mesi completi, in giallo quelli a metà, con i giorni mancanti passando sopra la casella; i giorni di chiusura del negozio (settimana tipo e giorni speciali chiusi) non contano come mancanti. I mesi appena caricati sono contornati di blu. Caricare i report spetta a contabilità o superiore; gli altri vedono solo la tabella. Gli importi delle vendite non si salvano. «Sostituisci con il report» riscrive le ore che il report contiene e non cancella niente: un'ora che c'è solo nel gestionale resta com'era. Il riquadro finale è verde solo se non resta niente; se hai lasciato dei giorni com'erano, se manca il giorno di stampa o se un negozio non è stato caricato, lo scrive. Puoi cambiare scheda mentre un report lungo si carica: tornando su «Traffico MODA» trovi l'esito.",
+        "steps": [
+          "Da MODA stampa in PDF la «Statistica Situazione Vendite con Conversion Rate» per Negozio, Giorno e Ora, senza IVA, escluse vendite libere, buoni e acconti (va bene anche il file che manda Sabrina).",
+          "Apri Dipendenti → Turni → «Traffico MODA» e trascina il PDF nel riquadro, o premi «sceglili dal computer».",
+          "Aspetta il riquadro finale: se è verde non c'è altro da fare.",
+          "Se accanto al file compare un riquadro giallo, leggi i giorni che cambierebbero e premi «Sostituisci con il report» o «Lascia com'è»; se c'è un negozio da scegliere, sceglilo nel menu.",
+          "Controlla nella tabella che il mese sia completo."
+        ]
+      },
+      {
         "heading": "Ferie e permessi: il piano ferie",
         "body": "Per ogni negozio, persona per persona: le ore di ferie in tasca alla data dell'ultimo tabulato dello studio, quelle già approvate o chieste dopo quella data, quante resterebbero da godere entro fine anno se non si programma altro (compreso quello che maturerà fino a dicembre) e, sotto, i permessi. Chi ha più di due settimane di ferie ancora da godere è segnato in arancione. Una riga del tempo mostra le ferie dei prossimi tre mesi: verde scuro le approvate, verde chiaro quelle in attesa. Le ore seguono l'orario di ciascuno: una giornata vale le ore settimanali diviso cinque. In fondo il riquadro «Ferie e fabbisogno» elenca i giorni in cui, con le ferie chieste e approvate, nel negozio resterebbero meno persone di quelle che servono, con i nomi di chi è in ferie: è il controllo da fare prima di approvare. Il fabbisogno viene dal traffico MODA, come nei turni: settimana per settimana, in ogni ora servono gli ingressi attesi diviso la soglia di ingressi per addetto del negozio (25 provvisorio), al massimo le persone in forza, e contano le persone del momento di punta della giornata. Vale anche la regola dei turni «Sempre almeno due persone in negozio», se accesa per il negozio: una ferie che lascia una persona sola in negozio fuori dalla prima e dall'ultima ora compare nel riquadro, anche se il traffico ne chiederebbe una. Nei negozi con molto traffico nel weekend il momento di punta del sabato e della domenica chiede spesso tutto l'organico: una ferie in quei giorni lascia il negozio sotto MODA. Un negozio nuovo usa la forma media degli altri; il fabbisogno di «Orari e fabbisogno» vale solo per un negozio senza traffico, e se manca anche quello il riquadro lo dice. Chi è assente per un periodo ha il saldo fermo."
       },
@@ -1181,6 +1192,14 @@ export const PAGE_GUIDES: PageGuide[] = [
       }
     ],
     "faq": [
+      {
+        "q": "Ogni quanto si caricano i report MODA?",
+        "a": "Una volta al mese, a mese chiuso, con il report del mese appena finito (Lilian lo chiede a Sabrina). Si può caricare anche un periodo lungo in una volta: i giorni già presenti e uguali vengono saltati, quelli nuovi si aggiungono."
+      },
+      {
+        "q": "Ho caricato un report e dice che un giorno cambierebbe: cosa faccio?",
+        "a": "Leggi il confronto accanto al file: per ogni giorno ci sono gli ingressi già caricati e quelli del report. Se il report è quello giusto (senza IVA, escluse vendite libere, buoni e acconti) premi «Sostituisci con il report»; se è stato stampato con impostazioni diverse premi «Lascia com'è». Capita anche quando un vecchio caricamento aveva un errore: il report vince."
+      },
       {
         "q": "Un dipendente può chiedere le ferie dal telefono?",
         "a": "Sì, dalla scheda «Ferie» dell'app del dipendente: sceglie i giorni (giornata intera o mezza) oppure le ore di permesso. La richiesta arriva in Ferie e permessi → Approvazioni come quelle registrate a mano, e la decide il referente; la persona vede la risposta nell'app."
