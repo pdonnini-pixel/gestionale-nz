@@ -15,6 +15,11 @@
 //   kind 'report' quando tutti i negozi hanno confermato (modalità a
 //   completamento) oppure kind 'followup' (integrazione) se il report del
 //   giorno era già partito: body aggiunge closing_id e outlet_name.
+//   L'integrazione parte SOLO se il negozio mancava dall'ultimo messaggio
+//   inviato o se il suo incasso è cambiato: una chiusura riaperta e
+//   riconfermata uguale non manda niente (log «saltato»). Quando parte, mail
+//   e WhatsApp dicono che è un secondo messaggio, quale sostituisce e cosa
+//   è cambiato (Patrizio, 10/11/2026).
 // - Impostazioni → «Invia una prova a me»: JWT di super_advisor/contabile,
 //   body { kind: 'test' }: la mail va SOLO all'indirizzo di chi la chiede.
 //
@@ -252,13 +257,61 @@ function band(actual: number, target: number, tol: number): string {
 function deltaStyle(n: number): string { return Math.abs(n) < 0.005 ? "" : n > 0 ? "color:#047857;font-weight:600" : "color:#b91c1c;font-weight:600"; }
 function pct(part: number, whole: number): string { return whole > 0 ? `${Math.round((part / whole) * 100)} %` : "—"; }
 
-// Integrazione: la chiusura di un negozio arrivata dopo il report del giorno.
-interface Followup { outletName: string; outletTotal: number | null; reportSentAt: string | null }
-function timeIt(iso: string | null): string {
+// Integrazione: secondo messaggio sulla stessa giornata, dopo che il report è già partito.
+// reason 'late' = il negozio mancava (o era in bozza) nell'ultimo messaggio inviato;
+// reason 'changed' = c'era già, ma ha corretto la chiusura e l'incasso è diverso.
+interface Followup {
+  outletId: string | null; outletName: string; outletTotal: number | null;
+  reason: "late" | "changed";
+  prevSentAt: string | null;        // quando è partito il messaggio che questo sostituisce
+  prevOutletTotal: number | null;   // incasso del negozio in quel messaggio (null se non noto)
+  prevDayTotal: number | null;      // totale della giornata in quel messaggio
+  dayTotal: number;
+}
+// Fotografia per negozio salvata nel log (summary.per_outlet): serve a capire, alla
+// conferma successiva, se quel negozio ha davvero cambiato qualcosa.
+type OutletSnap = { s: string; t: number };
+interface PrevSummary { total?: number | null; pending?: string[] | null; per_outlet?: Record<string, OutletSnap> | null }
+function rowTotal(row: RowData): number {
+  return row.closing && !row.closing.is_closed_day ? Math.round(num(row.closing.total_receipts) * 100) / 100 : 0;
+}
+function snapshot(r: ReportData): Record<string, OutletSnap> {
+  const out: Record<string, OutletSnap> = {};
+  for (const row of r.rows) out[row.outlet.id] = { s: row.status, t: rowTotal(row) };
+  return out;
+}
+// Decide se l'integrazione ha qualcosa da dire rispetto all'ultimo messaggio inviato.
+// null = niente di nuovo (chiusura riaperta e riconfermata uguale): non si manda niente.
+function followupReason(prev: PrevSummary | null, row: RowData | undefined, dayTotal: number): "late" | "changed" | null {
+  if (!prev) return "late";
+  if (row && prev.per_outlet) {
+    const before = prev.per_outlet[row.outlet.id];
+    if (!before || before.s === "manca" || before.s === "bozza") return "late";
+    return before.s !== row.status || Math.abs(before.t - rowTotal(row)) >= 0.005 ? "changed" : null;
+  }
+  // Log scritti prima di questa regola (senza per_outlet): negozio fra i mancanti → era in ritardo;
+  // altrimenti conta solo se il totale della giornata è cambiato.
+  if (row && (prev.pending ?? []).some((p) => p === row.outlet.name || p === `${row.outlet.name} (in bozza)`)) return "late";
+  return prev.total == null || Math.abs(num(prev.total) - dayTotal) >= 0.005 ? "changed" : null;
+}
+// «09/11 alle 20:29» in ora italiana: l'integrazione può arrivare il giorno dopo, l'ora da sola non basta.
+function whenIt(iso: string | null): string {
   if (!iso) return "";
-  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Rome", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(iso));
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/Rome", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(new Date(iso));
   const get = (t: string) => p.find((x) => x.type === t)?.value ?? "";
-  return `${get("hour")}:${get("minute")}`;
+  return `${get("day")}/${get("month")} alle ${get("hour")}:${get("minute")}`;
+}
+// Cosa è cambiato, in una frase (senza punto finale): vale per mail e WhatsApp.
+function followupWhat(f: Followup): string {
+  if (f.reason === "late") return `${f.outletName} ha confermato la chiusura in ritardo${f.outletTotal != null ? ` (${eur(f.outletTotal)})` : ""}`;
+  if (f.prevOutletTotal != null && f.outletTotal != null && Math.abs(f.prevOutletTotal - f.outletTotal) >= 0.005) return `${f.outletName} ha corretto l'incasso da ${eur(f.prevOutletTotal)} a ${eur(f.outletTotal)}`;
+  return `${f.outletName} ha corretto la chiusura`;
+}
+function followupReplaces(f: Followup): string {
+  return f.prevSentAt ? `sostituisce quello inviato il ${whenIt(f.prevSentAt)}` : "sostituisce quello già inviato";
+}
+function dayTotalChange(f: Followup): string {
+  return f.prevDayTotal != null && Math.abs(f.prevDayTotal - f.dayTotal) >= 0.005 ? `Totale della giornata da ${eur(f.prevDayTotal)} a ${eur(f.dayTotal)}` : "";
 }
 
 function renderHtml(r: ReportData, followup: Followup | null = null): { subject: string; html: string; text: string } {
@@ -268,13 +321,13 @@ function renderHtml(r: ReportData, followup: Followup | null = null): { subject:
   const mtdDelta = b.mtd - b.toDateTarget;
   const count = `${r.done}/${r.rows.length}`;
   const subject = followup
-    ? `Integrazione incassi ${dateIt(r.date, false)} · ${r.companyName}: ${followup.outletName} ha confermato${followup.outletTotal != null ? ` (${eur(followup.outletTotal)})` : ""}, totale ${eur(r.totals.total)}${hasBudget ? ` (${delta(dayDelta)} vs obiettivo)` : ""}`
+    ? `SECONDO MESSAGGIO · Integrazione incassi ${dateIt(r.date, false)} · ${r.companyName}: ${followupWhat(followup)}, totale ${eur(r.totals.total)}${hasBudget ? ` (${delta(dayDelta)} vs obiettivo)` : ""}`
     : `Incassi ${dateIt(r.date, false)} · ${r.companyName}: ${count} chiusure, totale ${eur(r.totals.total)}${hasBudget ? ` (${delta(dayDelta)} vs obiettivo)` : ""}`;
   const followupHtml = followup
-    ? `<p style="margin:0 0 14px;padding:10px 12px;background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;font-size:13px"><strong>Integrazione:</strong> ${esc(followup.outletName)} ha confermato la chiusura dopo l'invio del report${followup.reportSentAt ? ` delle ${timeIt(followup.reportSentAt)}` : ""}. Sotto il quadro aggiornato della giornata.</p>`
+    ? `<div style="margin:0 0 14px;padding:12px 14px;background:#fffbeb;border:2px solid #f59e0b;border-radius:8px;font-size:13px;line-height:1.5"><div style="font-size:14px;font-weight:700;color:#b45309">SECONDO MESSAGGIO sugli incassi di ${esc(dateIt(r.date))}</div>Questo messaggio ${esc(followupReplaces(followup))}.<br><strong>Cosa è cambiato:</strong> ${esc(followupWhat(followup))}.${dayTotalChange(followup) ? ` ${esc(dayTotalChange(followup))}.` : ""}<br>Sotto il quadro aggiornato della giornata, con la riga di ${esc(followup.outletName)} in evidenza.</div>`
     : "";
   const followupText = followup
-    ? `INTEGRAZIONE: ${followup.outletName} ha confermato la chiusura dopo l'invio del report${followup.reportSentAt ? ` delle ${timeIt(followup.reportSentAt)}` : ""}. Sotto il quadro aggiornato della giornata.`
+    ? `SECONDO MESSAGGIO sugli incassi di ${dateIt(r.date)}: ${followupReplaces(followup)}. Cosa è cambiato: ${followupWhat(followup)}.${dayTotalChange(followup) ? ` ${dayTotalChange(followup)}.` : ""} Sotto il quadro aggiornato della giornata.`
     : "";
   const td = (v: string, align = "right", extra = "") => `<td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:${align};font-variant-numeric:tabular-nums;${extra}">${v}</td>`;
   const th = (v: string, align = "right") => `<th style="padding:6px 8px;border-bottom:2px solid #cbd5e1;text-align:${align};font-size:12px;color:#475569;white-space:nowrap">${v}</th>`;
@@ -289,7 +342,8 @@ function renderHtml(r: ReportData, followup: Followup | null = null): { subject:
     const diff = c.cash_difference == null ? "—" : eur(num(c.cash_difference));
     const diffStyle = c.cash_difference != null && Math.abs(num(c.cash_difference)) >= 0.005 ? "color:#b91c1c;font-weight:600" : "";
     const st = c.status === "bozza" ? `<span style="color:#b45309;font-weight:600">bozza</span>` : `<span style="color:#047857">confermata</span>`;
-    return `<tr>${td(`<strong>${esc(row.outlet.name)}</strong>`, "left")}${td(st, "left")}${td(`<strong>${eur(num(c.total_receipts))}</strong>${num(c.invoices_total) ? `<br><span style="font-size:11px;color:#64748b">+ fatture ${eur(num(c.invoices_total))}</span>` : ""}`)}${td(tgt)}${td(dd == null ? "—" : `${delta(dd)}${ddBand ? `<br><span style="font-size:11px;color:#64748b">${ddBand}</span>` : ""}`, "right", dd == null ? "" : deltaStyle(dd))}${td(eur(row.cash))}${td(eur(row.pos))}${td(eur(row.other))}${td(eur(num(c.cash_expenses) + num(c.customer_refunds)))}${td(eur(num(c.cash_deposit)))}${td(c.cash_float_declared == null ? "—" : `${eur(num(c.cash_float_declared))}${c.cash_pending_declared != null && num(c.cash_pending_declared) > 0 ? `<br><span style="font-size:11px;color:#64748b">+ da versare ${eur(num(c.cash_pending_declared))}</span>` : ""}`)}${td(diff, "right", diffStyle)}</tr>`;
+    const upd = followup != null && followup.outletId === row.outlet.id;
+    return `<tr${upd ? ` style="background:#fffbeb"` : ""}>${td(`<strong>${esc(row.outlet.name)}</strong>${upd ? `<br><span style="font-size:11px;font-weight:700;color:#b45309">${followup!.reason === "late" ? "arrivata dopo" : "corretta"}</span>` : ""}`, "left")}${td(st, "left")}${td(`<strong>${eur(num(c.total_receipts))}</strong>${num(c.invoices_total) ? `<br><span style="font-size:11px;color:#64748b">+ fatture ${eur(num(c.invoices_total))}</span>` : ""}`)}${td(tgt)}${td(dd == null ? "—" : `${delta(dd)}${ddBand ? `<br><span style="font-size:11px;color:#64748b">${ddBand}</span>` : ""}`, "right", dd == null ? "" : deltaStyle(dd))}${td(eur(row.cash))}${td(eur(row.pos))}${td(eur(row.other))}${td(eur(num(c.cash_expenses) + num(c.customer_refunds)))}${td(eur(num(c.cash_deposit)))}${td(c.cash_float_declared == null ? "—" : `${eur(num(c.cash_float_declared))}${c.cash_pending_declared != null && num(c.cash_pending_declared) > 0 ? `<br><span style="font-size:11px;color:#64748b">+ da versare ${eur(num(c.cash_pending_declared))}</span>` : ""}`)}${td(diff, "right", diffStyle)}</tr>`;
   }).join("");
   const t = r.totals;
   const totalRow = `<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(count, "left")}${td(eur(t.total))}${td(hasBudget ? eur(b.dayTarget) : "—")}${td(hasBudget ? delta(dayDelta) : "—", "right", hasBudget ? deltaStyle(dayDelta) : "")}${td(eur(t.cash))}${td(eur(t.pos))}${td(eur(t.other))}${td(eur(t.expenses + t.refunds))}${td(eur(t.deposit))}${td("")}${td("")}</tr>`;
@@ -339,7 +393,8 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
       const dd = row.budget ? ` (${delta(num(row.closing.total_receipts) - row.budget.dayTarget)}, ${band(num(row.closing.total_receipts), row.budget.dayTarget, 0.30)})` : "";
       const inv = num(row.closing.invoices_total) ? ` + fatture ${eur(num(row.closing.invoices_total))}` : "";
       const pend = row.closing.cash_pending_declared != null && num(row.closing.cash_pending_declared) > 0 ? `, da versare ${eur(num(row.closing.cash_pending_declared))}` : "";
-      return `${row.outlet.name}: ${eur(num(row.closing.total_receipts))}${inv}${tgt}${dd} · contanti ${eur(row.cash)}, POS ${eur(row.pos)}, altri ${eur(row.other)}, versamento ${eur(num(row.closing.cash_deposit))}${pend} ${row.closing.status === "bozza" ? "[BOZZA]" : ""}`;
+      const upd = followup != null && followup.outletId === row.outlet.id ? (followup.reason === "late" ? " [ARRIVATA DOPO]" : " [CORRETTA]") : "";
+      return `${row.outlet.name}${upd}: ${eur(num(row.closing.total_receipts))}${inv}${tgt}${dd} · contanti ${eur(row.cash)}, POS ${eur(row.pos)}, altri ${eur(row.other)}, versamento ${eur(num(row.closing.cash_deposit))}${pend} ${row.closing.status === "bozza" ? "[BOZZA]" : ""}`;
     }),
     "",
     ...(hasBudget ? [`Mese vs obiettivo (giorno ${b.dayOfMonth} di ${b.daysInMonth}):`, ...r.rows.filter((row) => row.budget).map((row) => `- ${row.outlet.name}: incassato ${eur(row.budget!.mtd)} su obiettivo a oggi ${eur(row.budget!.toDateTarget)} (${delta(row.budget!.mtd - row.budget!.toDateTarget)}), budget mese ${eur(row.budget!.monthGross)} raggiunto al ${pct(row.budget!.mtd, row.budget!.monthGross)}`), `- Totale: ${eur(b.mtd)} su ${eur(b.toDateTarget)} (${delta(mtdDelta)}), budget mese ${eur(b.monthGross)}, proiezione ${eur(b.projection)}`, ""] : []),
@@ -367,6 +422,8 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
 //     («manca» se non ha chiuso, «chiuso» se giorno di chiusura, «(bozza)» se non confermato)
 //   - riga con la sola {{n}} → prossimo punto vendita non ancora assegnato, in ordine di nome
 //   - slot senza corrispondenza → «-»
+//   - integrazione: dopo la data «SECONDO MESSAGGIO, sostituisce quello inviato il gg/mm alle hh:mm:
+//     cosa è cambiato»; accanto all'importo del negozio «(arrivato dopo)» o «(corretto, prima X €)»
 // Importi al centesimo, come nel gestionale (Patrizio, 06/11/2026): 7.929,88 e non 7.930.
 function eurPlain(n: number): string {
   return eur(Number.isFinite(n) ? n : 0).replace(/ €$/, "");
@@ -374,15 +431,18 @@ function eurPlain(n: number): string {
 function oneLine(s: string): string { const t = s.replace(/\s+/g, " ").trim(); return t || "-"; }
 function normName(s: string): string { return s.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g, ""); }
 // Gli importi portano sempre il simbolo dell'euro, tranne dove il testo fisso del modello dice già «euro».
-function rowAmount(row: RowData): string {
+function rowAmount(row: RowData, followup: Followup | null = null): string {
   const c = row.closing;
+  const upd = followup != null && followup.outletId === row.outlet.id
+    ? (followup.reason === "late" ? " (arrivato dopo)" : followup.prevOutletTotal != null ? ` (corretto, prima ${eur(followup.prevOutletTotal)})` : " (corretto)")
+    : "";
   if (!c) return "manca";
-  if (c.is_closed_day) return "chiuso";
-  return `${eurPlain(num(c.total_receipts))} €${c.status === "bozza" ? " (bozza)" : ""}`;
+  if (c.is_closed_day) return `chiuso${upd}`;
+  return `${eurPlain(num(c.total_receipts))} €${c.status === "bozza" ? " (bozza)" : ""}${upd}`;
 }
 function whatsappVariables(r: ReportData, kind: string, templateBody: string, followup: Followup | null = null): Record<string, string> {
   const [y, m, d] = r.date.split("-");
-  const dateStr = `${d}/${m}/${y.slice(2)}${kind === "test" ? " [PROVA]" : ""}${followup ? ` (integrazione: ${followup.outletName} ha confermato)` : ""}`;
+  const dateStr = `${d}/${m}/${y.slice(2)}${kind === "test" ? " [PROVA]" : ""}${followup ? ` · SECONDO MESSAGGIO, ${followupReplaces(followup)}: ${followupWhat(followup)}` : ""}`;
   const vars: Record<string, string> = {};
   const used = new Set<string>();
   const rows = [...r.rows].sort((a, b) => a.outlet.name.localeCompare(b.outlet.name, "it"));
@@ -396,12 +456,12 @@ function whatsappVariables(r: ReportData, kind: string, templateBody: string, fo
     if (/giorno|data|report/i.test(label)) { vars[n] = dateStr; continue; }
     if (/totale/i.test(label)) { vars[n] = /euro|€/i.test(label) ? eurPlain(r.totals.total) : `${eurPlain(r.totals.total)} €`; continue; }
     const row = rows.find((x) => normName(x.outlet.name) === normName(label));
-    if (row) { vars[n] = rowAmount(row); used.add(row.outlet.id); } else vars[n] = "-";
+    if (row) { vars[n] = rowAmount(row, followup); used.add(row.outlet.id); } else vars[n] = "-";
   }
   const rest = rows.filter((x) => !used.has(x.outlet.id));
   for (const n of bare) {
     const row = rest.shift();
-    vars[n] = row ? `${row.outlet.name} ${rowAmount(row)}` : "-";
+    vars[n] = row ? `${row.outlet.name} ${rowAmount(row, followup)}` : "-";
   }
   for (const k of Object.keys(vars)) vars[k] = oneLine(vars[k]);
   return vars;
@@ -523,14 +583,33 @@ Deno.serve(async (req: Request) => {
     }
 
     const report = await buildReport(admin, companyId, reportDate, appUrl, vatRate);
-    // Integrazione: quale negozio ha confermato dopo il report, e a che ora era partito il report.
+    const summary: Record<string, unknown> = { closings: report.done, outlets: report.rows.length, pending: report.pending, total: report.totals.total, anomalies: report.anomalies.length, month_to_date: report.monthToDate, day_target: report.budget.dayTarget, to_date_target: report.budget.toDateTarget, followup_outlet: null, per_outlet: snapshot(report) };
+    // Integrazione: quale negozio ha confermato dopo il report e cosa è cambiato rispetto
+    // all'ultimo messaggio inviato per quella giornata (report o integrazione precedente).
     let followup: Followup | null = null;
     if (kind === "followup") {
       const row = report.rows.find((x) => (closingId && x.closing?.id === closingId) || (outletName && x.outlet.name === outletName));
-      const { data: sentRow } = await admin.from("daily_report_log").select("sent_at").eq("company_id", companyId).eq("report_date", reportDate).eq("kind", "report").eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle();
-      followup = { outletName: row?.outlet.name ?? outletName ?? "un punto vendita", outletTotal: row?.closing ? num(row.closing.total_receipts) : null, reportSentAt: (sentRow?.sent_at as string | null) ?? null };
+      const { data: sentRow } = await admin.from("daily_report_log").select("sent_at, summary").eq("company_id", companyId).eq("report_date", reportDate).in("kind", ["report", "followup"]).eq("status", "sent").order("sent_at", { ascending: false }).limit(1).maybeSingle();
+      const prev = (sentRow?.summary as PrevSummary | null) ?? null;
+      const reason = followupReason(sentRow ? (prev ?? {}) : null, row, report.totals.total);
+      summary.followup_outlet = row?.outlet.name ?? outletName ?? null;
+      if (reason == null) {
+        // Chiusura riaperta e riconfermata senza cambiare l'incasso: nessun secondo messaggio.
+        await finish("skipped", { summary, error: "chiusura riconfermata senza variazioni: nessun secondo messaggio" });
+        console.log(`[daily-cash-report-send] company=${companyId} date=${reportDate} kind=followup saltato: ${summary.followup_outlet ?? "?"} riconfermato senza variazioni`);
+        return jsonOk({ data: { status: "skipped", summary } });
+      }
+      const before = row ? prev?.per_outlet?.[row.outlet.id] : undefined;
+      followup = {
+        outletId: row?.outlet.id ?? null, outletName: row?.outlet.name ?? outletName ?? "un punto vendita",
+        outletTotal: row?.closing && !row.closing.is_closed_day ? rowTotal(row) : null, reason,
+        prevSentAt: (sentRow?.sent_at as string | null) ?? null,
+        prevOutletTotal: reason === "changed" && before ? before.t : null,
+        prevDayTotal: prev?.total != null ? num(prev.total) : null,
+        dayTotal: report.totals.total,
+      };
+      summary.followup_reason = reason;
     }
-    const summary = { closings: report.done, outlets: report.rows.length, pending: report.pending, total: report.totals.total, anomalies: report.anomalies.length, month_to_date: report.monthToDate, day_target: report.budget.dayTarget, to_date_target: report.budget.toDateTarget, followup_outlet: followup?.outletName ?? null };
     const noData = report.done === 0;
     if (noData && kind === "report" && settings && settings.send_on_empty === false) {
       await finish("skipped", { summary, error: "nessuna chiusura registrata e invio senza dati disattivato" });
