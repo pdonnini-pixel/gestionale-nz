@@ -53,3 +53,7 @@ Logo creato per l'app su richiesta di Patrizio, nello stile dei negozi (scritta 
 - Dentro: riquadro giallo «Non risulta la tua entrata di oggi» con «Sono entrato alle» (migration 382), caso «Entrata segnata» nella scheda Oggi, «Sto male» al posto di «Sto male (malattia)» e testo del permesso salvo certificato (386), straordinario «conta tutto» (386), tolleranza unica di 10 minuti nelle ore (386).
 - Il server è già aggiornato: le versioni vecchie dell'app funzionano, cambiano solo le parole e il riquadro giallo, che manca.
 - Se App Store Connect o Play Console rifiutano il numero perché già usato da una build fatta sul Mac e non registrata qui, alzarlo di uno e scriverlo qui.
+
+## versione 1.2 (10/11/2026)
+- **Android** `versionCode 6`, `versionName 1.2`; **iPhone** build 5, versione 1.2.
+- Dentro: schermata «Questo telefono non è più attivo» quando l'app è stata attivata su un altro telefono (migration 387); la rete si controlla chiamando il server, non con `navigator.onLine` (sul Mac diceva «Senza rete» con la rete).
