@@ -126,6 +126,14 @@ const RE_TRANSFER = /IMPORTO BONIFICI|DISPOSIZIONE|BONIFICO|BEU INTERN BANK/i
 // commissioni: e' un pagamento, mai una spesa bancaria, per quanto dica l'etichetta.
 // Diverso da «Commissioni su bonifico», che e' l'addebito della sola commissione.
 const RE_DISPOSIZIONE_CBI = /IMPORTO BONIFICI/i
+// Addebito della SOLA commissione di un bonifico: la causale comincia con
+// «Commissioni su bonifico» (BCC, 0,45-0,75 EUR) o «COMM. BEU INTER.» (Intesa,
+// 1,00 EUR). Le parole «bonifico» e «a favore di» che seguono descrivono il
+// bonifico a cui la commissione si riferisce, non un pagamento da agganciare.
+// Vale anche senza etichetta `category`: la chiusura notturna la scrive il
+// giorno dopo, e la Prima Nota non deve mostrarle «da chiarire» nel frattempo
+// (10/11/2026: 41 righe su 46 erano commissioni arrivate dopo la chiusura).
+const RE_COMMISSIONE_BONIFICO = /^\s*(?:COMMISSIONI SU BONIFIC|COMM\.\s*BEU\b)/i
 // Bonifico in ENTRATA da un cliente privato per un acquisto in negozio o online
 // (corrispettivo pagato con bonifico): "BON. IST./SEPA ... ORD: NOME ... RI: Acquisto merce".
 const RE_BONIFICO_IN = /\bBON\.\s*(IST|SEPA)\b|BONIFICO/i
@@ -166,6 +174,7 @@ export function classifyMovement(m: PnMovement): MovementKind {
   if (RE_SDD_SERVIZI.test(d)) return 'spese_banca'
   if (m.amount > 0 && RE_POS.test(d)) return 'pos'
   if (m.amount > 0 && RE_VERSAMENTO.test(d)) return 'versamento'
+  if (m.amount < 0 && RE_COMMISSIONE_BONIFICO.test(d)) return 'spese_banca'
   if (RE_SPESE_BANCA.test(d) && !RE_TRANSFER.test(d)) return 'spese_banca'
   const byCat = m.category ? CATEGORY_KIND[m.category] : undefined
   // L'etichetta `category` scritta in banca dati non vince sulla struttura del
