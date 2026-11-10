@@ -35,6 +35,8 @@ export default function TurniNegozi({ companyId }: Props) {
   const [sotto, setSotto] = useState<'mese' | 'piano' | 'orari' | 'eventi' | 'trasferte' | 'traffico'>('mese');
   const [versione, setVersione] = useState(0);
   const [stimo, setStimo] = useState(false);
+  const [trafficoVisto, setTrafficoVisto] = useState(false);
+  useEffect(() => { if (sotto === 'traffico') setTrafficoVisto(true); }, [sotto]);
 
   const carica = useCallback(async () => {
     if (!companyId) return;
@@ -201,8 +203,12 @@ export default function TurniNegozi({ companyId }: Props) {
       {sotto === 'trasferte' && companyId && dati && (
         <TrasferteNegozi companyId={companyId} dati={dati} puoScrivere={puoScrivere} />
       )}
-      {sotto === 'traffico' && (
-        <TrafficoModa companyId={companyId} negozi={dati.negozi} puoScrivere={puoScrivere} />
+      {/* Resta montata dopo la prima apertura: un report lungo continua a caricarsi
+          e il suo esito (con le eventuali conferme) e' ancora li' quando si torna. */}
+      {trafficoVisto && (
+        <div hidden={sotto !== 'traffico'}>
+          <TrafficoModa companyId={companyId} negozi={dati.negozi} puoScrivere={puoScrivere} />
+        </div>
       )}
       {scelto && sotto === 'mese' && (
         <PianiMensili key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}

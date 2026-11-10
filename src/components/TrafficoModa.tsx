@@ -25,7 +25,7 @@ import { oggiRoma, aggiungiGiorni } from '../lib/organico';
 
 type Props = { companyId: string; negozi: NegozioRif[]; puoScrivere: boolean };
 
-type NonAbbinato = { codice: string; descrizione: string; giorni: GiornoModa[] };
+type NonAbbinato = { codice: string; descrizione: string; giorni: GiornoModa[]; nonTornano: string[] };
 type Attesa = {
   /** giorni che cambierebbero numeri gia' presenti, o con i totali che non tornano */
   diversi: (EsitoGiorno & { totaleNonTorna?: boolean })[];
@@ -38,13 +38,38 @@ type Voce = {
   stato: 'in_coda' | 'lettura' | 'salvataggio' | 'salvato' | 'da_confermare' | 'errore';
   nota?: string;
   attesa?: Attesa;
+  /** cose rimaste fuori anche a file finito (giorno di stampa, giorni lasciati com'erano, negozi non caricati): il riquadro finale le dice */
+  resta?: string[];
+  /** giorni scritti nel database da questo file (anche prima della conferma) */
+  giorniSalvati?: number;
 };
 
 const fmt = (n: number) => n.toLocaleString('it-IT');
 const dataIt = (d: string) => d.split('-').reverse().join('/');
 const giorni = (n: number) => (n === 1 ? '1 giorno' : `${fmt(n)} giorni`);
 
+/** Giorni di chiusura: settimana tipo chiusa (1 = lunedi') e giorni speciali chiusi. Non sono giorni «mancanti». */
+type Chiusure = { settimana: Map<string, Set<number>>; date: Map<string, Set<string>> };
+const giornoIso = (d: string) => { const g = new Date(`${d}T00:00:00Z`).getUTCDay(); return g === 0 ? 7 : g; };
+
 /** Le date con traffico per negozio, lette a pagine (mille righe per richiesta). */
+async function caricaChiusure(companyId: string): Promise<Chiusure> {
+  const [o, s] = await Promise.all([
+    supabase.from('outlet_opening_hours').select('outlet_id, giorno, chiuso').eq('company_id', companyId).eq('chiuso', true),
+    supabase.from('outlet_special_days').select('outlet_id, data, chiuso').eq('company_id', companyId).eq('chiuso', true),
+  ]);
+  const out: Chiusure = { settimana: new Map(), date: new Map() };
+  for (const r of (o.data as { outlet_id: string; giorno: number }[] | null) ?? []) {
+    if (!out.settimana.has(r.outlet_id)) out.settimana.set(r.outlet_id, new Set());
+    out.settimana.get(r.outlet_id)!.add(Number(r.giorno));
+  }
+  for (const r of (s.data as { outlet_id: string; data: string }[] | null) ?? []) {
+    if (!out.date.has(r.outlet_id)) out.date.set(r.outlet_id, new Set());
+    out.date.get(r.outlet_id)!.add(r.data);
+  }
+  return out;
+}
+
 async function caricaCopertura(companyId: string): Promise<Map<string, Set<string>>> {
   const out = new Map<string, Set<string>>();
   for (let da = 0; ; da += 1000) {
@@ -82,6 +107,7 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
   const [drag, setDrag] = useState(false);
   const [copertura, setCopertura] = useState<Map<string, Set<string>> | null>(null);
   const [erroreCopertura, setErroreCopertura] = useState<string | null>(null);
+  const [chiusure, setChiusure] = useState<Chiusure>({ settimana: new Map(), date: new Map() });
   /** i mesi arrivati con i file di questa sessione: la tabella li mette in evidenza */
   const [appena, setAppena] = useState<Set<string>>(new Set());
   const inputRef = useRef<HTMLInputElement>(null);
@@ -90,23 +116,49 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
   const prossimo = useRef(1);
 
   const ricaricaCopertura = useCallback(async () => {
-    try { setCopertura(await caricaCopertura(companyId)); setErroreCopertura(null); }
+    try {
+      const [c, ch] = await Promise.all([caricaCopertura(companyId), caricaChiusure(companyId)]);
+      setCopertura(c); setChiusure(ch); setErroreCopertura(null);
+    }
     catch (e) { setErroreCopertura(e instanceof Error ? e.message : 'errore'); }
   }, [companyId]);
   useEffect(() => { void ricaricaCopertura(); }, [ricaricaCopertura]);
 
   const aggiorna = (id: number, p: Partial<Voce>) => setVoci((vs) => vs.map((v) => (v.id === id ? { ...v, ...p } : v)));
 
-  /** Scrive le righe (inserisce o sostituisce l'ora del negozio). */
-  const salvaRighe = async (righe: RigaTrafficoDb[], nomeFile: string) => {
+  /** I giorni appena salvati entrano nella tabella senza rileggere tutto il database. */
+  const segnaCopertura = (esiti: EsitoGiorno[]) => setCopertura((c) => {
+    const out = new Map([...(c ?? new Map<string, Set<string>>())].map(([k, v]) => [k, new Set(v)]));
+    for (const e of esiti) {
+      if (!out.has(e.outletId)) out.set(e.outletId, new Set());
+      out.get(e.outletId)!.add(e.data);
+    }
+    return out;
+  });
+
+  /**
+   * Scrive i giorni (inserisce o sostituisce le ore del report), a blocchi di
+   * giorni interi: se un blocco fallisce, i giorni prima sono salvati per
+   * intero e l'errore dice quanti.
+   */
+  const salvaGiorni = async (esiti: EsitoGiorno[], nomeFile: string) => {
     const adesso = new Date().toISOString();
-    for (let i = 0; i < righe.length; i += 500) {
+    let fatti = 0;
+    for (let i = 0; i < esiti.length;) {
+      const blocco: EsitoGiorno[] = [];
+      let righe = 0;
+      while (i < esiti.length && (blocco.length === 0 || righe + esiti[i].righe.length <= 500)) { righe += esiti[i].righe.length; blocco.push(esiti[i++]); }
       const { error } = await supabase.from('outlet_traffic_hourly').upsert(
-        righe.slice(i, i + 500).map((r) => ({ ...r, company_id: companyId, fonte: 'moda', file_name: nomeFile.slice(0, 200), updated_at: adesso })),
+        blocco.flatMap((e) => e.righe).map((r) => ({ ...r, company_id: companyId, fonte: 'moda', file_name: nomeFile.slice(0, 200), updated_at: adesso })),
         { onConflict: 'outlet_id,data,ora' },
       );
-      if (error) throw error;
+      if (error) {
+        segnaCopertura(esiti.slice(0, fatti));
+        throw new Error(`Salvataggio interrotto: ${error.message}. ${fatti ? `${giorni(fatti)} erano già salvati per intero; ricarica lo stesso file per completare.` : 'Nessun giorno salvato.'}`);
+      }
+      fatti += blocco.length;
     }
+    segnaCopertura(esiti);
   };
 
   /**
@@ -124,7 +176,7 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
     const diversi = esiti
       .filter((e) => e.stato === 'diverso' || (e.stato === 'nuovo' && nonTornano.has(chiave(e))))
       .map((e) => ({ ...e, totaleNonTorna: nonTornano.has(chiave(e)) }));
-    await salvaRighe(salvati.flatMap((e) => e.righe), nomeFile);
+    await salvaGiorni(salvati, nomeFile);
     return { salvati, uguali: esiti.filter((e) => e.stato === 'uguale').length, diversi };
   };
 
@@ -134,9 +186,9 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
       const neg = new Set(salvati.map((e) => e.outletId)).size;
       const ore = salvati.reduce((a, e) => a + e.righe.length, 0);
       const mesi = [...new Set(salvati.map((e) => e.data.slice(0, 7)))].sort();
-      parti.push(`salvati ${giorni(salvati.length)} (${fmt(ore)} ore) di ${neg === 1 ? '1 negozio' : `${neg} negozi`}, ${mesi.map(meseLeggibile).join(', ')}`);
+      parti.push(`${salvati.length === 1 ? 'salvato' : 'salvati'} ${giorni(salvati.length)} (${fmt(ore)} ore) di ${neg === 1 ? '1 negozio' : `${neg} negozi`}, ${mesi.map(meseLeggibile).join(', ')}`);
     }
-    if (uguali) parti.push(`${giorni(uguali)} c'erano già, uguali`);
+    if (uguali) parti.push(uguali === 1 ? "1 giorno c'era già, uguale" : `${giorni(uguali)} c'erano già, uguali`);
     return parti.join('; ');
   };
 
@@ -156,14 +208,18 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
       const coppie: { outletId: string; giorno: GiornoModa }[] = [];
       const nonAbbinati: NonAbbinato[] = [];
       const abbinati = new Map<string, string>();
+      const sbagliati = totaliCheNonTornano(r);
       for (const n of r.negozi) {
         const o = abbinaNegozio(n.codice, n.descrizione, negozi.map((x) => ({ id: x.id, name: x.name ?? '', code: x.code ?? null })));
         const gg = n.giorni.filter((g) => g.ore.length && g.data !== incompleto);
-        if (!o) { if (gg.length) nonAbbinati.push({ codice: n.codice, descrizione: n.descrizione, giorni: gg }); continue; }
+        if (!o) {
+          if (gg.length) nonAbbinati.push({ codice: n.codice, descrizione: n.descrizione, giorni: gg, nonTornano: sbagliati.filter((t) => t.codice === n.codice).map((t) => t.data) });
+          continue;
+        }
         abbinati.set(n.codice, o.id);
         for (const g of gg) coppie.push({ outletId: o.id, giorno: g });
       }
-      for (const t of totaliCheNonTornano(r)) {
+      for (const t of sbagliati) {
         const id = abbinati.get(t.codice);
         if (id) nonTornano.add(`${id}|${t.data}`);
       }
@@ -176,15 +232,17 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
       note.push(`${periodo}: ${fatto || 'nessun giorno nuovo'}`);
       if (incompleto) note.push(`il ${dataIt(incompleto)} non è caricato: il report è stato stampato quel giorno${r.stampa?.ora ? ` alle ${r.stampa.ora}` : ''}, a negozio aperto. Arriverà con il report successivo`);
       if (!r.impostazioniStandard) note.push('attenzione: il report non è «senza IVA, escluse vendite libere, buoni e acconti» come al solito; gli ingressi valgono lo stesso, gli scontrini possono essere diversi');
+      const resta: string[] = [];
+      if (incompleto) resta.push(`manca il ${dataIt(incompleto)} (giorno di stampa del report): arriverà con il report successivo`);
+      if (!r.impostazioniStandard) resta.push('un report è stato stampato con impostazioni diverse dal solito: gli scontrini possono non essere confrontabili');
       if (diversi.length || nonAbbinati.length) {
-        aggiorna(v.id, { stato: 'da_confermare', nota: note.join('. ') + '.', attesa: { diversi, nonAbbinati, scelte: {} } });
+        aggiorna(v.id, { stato: 'da_confermare', nota: note.join('. ') + '.', attesa: { diversi, nonAbbinati, scelte: {} }, resta, giorniSalvati: salvati.length });
       } else {
-        aggiorna(v.id, { stato: 'salvato', nota: note.join('. ') + '.' });
+        aggiorna(v.id, { stato: 'salvato', nota: note.join('. ') + '.', resta, giorniSalvati: salvati.length });
       }
     } catch (e) {
       aggiorna(v.id, { stato: 'errore', nota: e instanceof Error ? e.message : 'Lettura non riuscita.' });
     }
-    await ricaricaCopertura();
   };
 
   const leggi = (files: FileList | File[]) => {
@@ -206,48 +264,63 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
     const { diversi, nonAbbinati, scelte } = v.attesa;
     aggiorna(v.id, { stato: 'salvataggio' });
     try {
-      await salvaRighe(diversi.flatMap((e) => e.righe), v.file.name);
+      await salvaGiorni(diversi, v.file.name);
       segnaMesi(diversi);
       const scelti = nonAbbinati.filter((n) => scelte[n.codice]);
-      const altri = await elabora(scelti.flatMap((n) => n.giorni.map((g) => ({ outletId: scelte[n.codice], giorno: g }))), v.file.name, new Set());
+      const altri = await elabora(
+        scelti.flatMap((n) => n.giorni.map((g) => ({ outletId: scelte[n.codice], giorno: g }))),
+        v.file.name,
+        new Set(scelti.flatMap((n) => n.nonTornano.map((d) => `${scelte[n.codice]}|${d}`))),
+      );
       segnaMesi(altri.salvati);
       const saltati = nonAbbinati.filter((n) => !scelte[n.codice]);
+      const giorniSalvati = (v.giorniSalvati ?? 0) + diversi.length + altri.salvati.length;
+      const resta = [...(v.resta ?? []), ...(saltati.length ? [`${saltati.map((n) => `${n.codice} «${n.descrizione}»`).join(', ')} non ${saltati.length === 1 ? 'è stato caricato' : 'sono stati caricati'}: nessun negozio scelto`] : [])];
       const parti = [
         diversi.length ? `sostituiti ${giorni(diversi.length)}` : '',
         frase(altri.salvati, altri.uguali),
         saltati.length ? `non caricati, senza negozio: ${saltati.map((n) => `${n.codice} «${n.descrizione}»`).join(', ')}` : '',
       ].filter(Boolean);
       if (altri.diversi.length) {
-        aggiorna(v.id, { stato: 'da_confermare', nota: `${v.nota ?? ''} Poi: ${parti.join('; ')}.`, attesa: { diversi: altri.diversi, nonAbbinati: [], scelte: {} } });
+        aggiorna(v.id, { stato: 'da_confermare', nota: `${v.nota ?? ''} Poi: ${parti.join('; ')}.`, attesa: { diversi: altri.diversi, nonAbbinati: [], scelte: {} }, resta, giorniSalvati });
       } else {
-        aggiorna(v.id, { stato: 'salvato', nota: `${v.nota ?? ''} Poi: ${parti.join('; ') || 'niente da cambiare'}.`, attesa: undefined });
+        aggiorna(v.id, { stato: 'salvato', nota: `${v.nota ?? ''} Poi: ${parti.join('; ') || 'niente da cambiare'}.`, attesa: undefined, resta, giorniSalvati });
       }
     } catch (e) {
       aggiorna(v.id, { stato: 'errore', nota: e instanceof Error ? e.message : 'Salvataggio non riuscito.' });
     }
-    await ricaricaCopertura();
   };
 
-  const lasciaCosi = (v: Voce) => aggiorna(v.id, {
-    stato: 'salvato', attesa: undefined,
-    nota: `${v.nota ?? ''} I giorni già presenti sono rimasti come erano${v.attesa?.nonAbbinati.length ? '; i negozi non riconosciuti non sono stati caricati' : ''}.`,
-  });
+  /** «Lascia com'è»: niente si cambia, ma il riquadro finale lo ricorda. */
+  const lasciaCosi = (v: Voce) => {
+    const a = v.attesa;
+    const resta = [...(v.resta ?? [])];
+    if (a?.diversi.length) resta.push(a.diversi.length === 1 ? '1 giorno già caricato è rimasto come prima, diverso dal report' : `${a.diversi.length} giorni già caricati sono rimasti come prima, diversi dal report`);
+    if (a?.nonAbbinati.length) resta.push(`${a.nonAbbinati.map((n) => `${n.codice} «${n.descrizione}»`).join(', ')} non ${a.nonAbbinati.length === 1 ? 'è stato caricato' : 'sono stati caricati'}: nessun negozio scelto`);
+    aggiorna(v.id, { stato: 'salvato', attesa: undefined, resta, nota: `${v.nota ?? ''} Hai scelto di lasciare com'era.` });
+  };
 
   // ── Chiusura del caricamento ─────────────────────────────────────────────
   const inCorso = voci.some((v) => v.stato === 'in_coda' || v.stato === 'lettura' || v.stato === 'salvataggio');
   const daConfermare = voci.filter((v) => v.stato === 'da_confermare').length;
   const errori = voci.filter((v) => v.stato === 'errore').length;
   const salvati = voci.filter((v) => v.stato === 'salvato').length;
+  const resta = [...new Set(voci.filter((v) => v.stato === 'salvato').flatMap((v) => v.resta ?? []))];
+  const caricati = `${salvati === 1 ? '1 report lavorato' : `${salvati} report lavorati`}. I piani dei turni usano già il traffico nuovo; i mesi arrivati sono evidenziati nella tabella qui sotto.`;
+  const maiuscola = (t: string) => (t ? t[0].toUpperCase() + t.slice(1) : t);
   const chiusura = voci.length === 0 || inCorso ? null
     : daConfermare === 0 && errori === 0
-      ? { ok: true, titolo: 'Finito, tutti i dati sono aggiornati', testo: `${salvati === 1 ? '1 report caricato' : `${salvati} report caricati`}. I piani dei turni usano già il traffico nuovo; i mesi arrivati sono evidenziati nella tabella qui sotto.` }
+      ? resta.length === 0
+        ? { ok: true, titolo: 'Finito, tutti i dati sono aggiornati', testo: caricati }
+        : { ok: false, titolo: 'Finito, con qualcosa rimasto fuori', testo: `${caricati} ${resta.map(maiuscola).join('. ')}.` }
       : {
         ok: false,
-        titolo: salvati ? 'Quasi finito' : 'Niente di salvato',
+        titolo: voci.some((v) => (v.giorniSalvati ?? 0) > 0) ? 'Quasi finito' : 'Niente di salvato ancora',
         testo: [
           daConfermare ? `${daConfermare === 1 ? '1 report aspetta' : `${daConfermare} report aspettano`} la tua conferma: cambierebbe giorni già caricati, o c'è un negozio da scegliere (il dettaglio è accanto al file)` : '',
           errori ? `${errori === 1 ? '1 file non è riuscito' : `${errori} file non sono riusciti`}: il motivo è scritto accanto` : '',
-        ].filter(Boolean).join('; ') + '.',
+          ...resta,
+        ].filter(Boolean).map(maiuscola).join('. ') + '.',
       };
 
   // Appena finito, la tabella si mostra sui mesi arrivati.
@@ -278,12 +351,17 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
     const [a, m] = mese.split('-').map(Number);
     const fine = [new Date(Date.UTC(a, m, 0)).toISOString().slice(0, 10), ieri].sort()[0];
     if (inizio > fine) return { testo: '', titolo: 'negozio non ancora aperto', tono: 'vuoto' as const };
+    const chiuso = (d: string) => !!chiusure.settimana.get(n.id)?.has(giornoIso(d)) || !!chiusure.date.get(n.id)?.has(d);
     let attesi = 0; let caricati = 0;
-    for (let d = inizio; d <= fine; d = aggiungiGiorni(d, 1)) { attesi++; if (presenti.has(d)) caricati++; }
-    const mancano = giorniMancanti(mese, new Set([...presenti, ...[...Array(31)].map((_, i) => `${mese}-${String(i + 1).padStart(2, '0')}`).filter((d) => d < inizio)]), fine);
+    const nonDovuti = new Set<string>();
+    for (let d = `${mese}-01`; d <= fine; d = aggiungiGiorni(d, 1)) {
+      if (d < inizio || (chiuso(d) && !presenti.has(d))) { nonDovuti.add(d); continue; }
+      attesi++; if (presenti.has(d)) caricati++;
+    }
+    const mancano = giorniMancanti(mese, new Set([...presenti, ...nonDovuti]), fine);
     return {
       testo: caricati ? `${caricati}/${attesi}` : '–',
-      titolo: caricati === attesi ? `${meseLeggibile(mese)}: tutti i giorni` : `${meseLeggibile(mese)}: ${caricati} giorni su ${attesi}${mancano ? `; mancano ${mancano}` : ''}`,
+      titolo: caricati >= attesi ? `${meseLeggibile(mese)}: tutti i giorni${nonDovuti.size && inizio === `${mese}-01` ? ' (esclusi quelli di chiusura)' : ''}` : `${meseLeggibile(mese)}: ${caricati} giorni su ${attesi}${mancano ? `; mancano ${mancano}` : ''}`,
       tono: caricati === 0 ? 'vuoto' as const : caricati >= attesi ? 'pieno' as const : 'parziale' as const,
     };
   };
@@ -347,11 +425,12 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
                             {v.attesa.diversi.map((e) => (
                               <li key={`${e.outletId}|${e.data}`}>
                                 {nomeNegozio(negozi.find((n) => n.id === e.outletId))}, {dataIt(e.data)}:{' '}
-                                {e.totaleNonTorna
-                                  ? `nel report la somma delle ore non torna con il totale del giorno (${fmt(e.ingressiFile)} ingressi nelle ore)`
-                                  : e.ingressiDb === e.ingressiFile
-                                    ? `ingressi uguali (${fmt(e.ingressiFile)}), cambiano scontrini o ore`
-                                    : `${fmt(e.ingressiDb)} ingressi oggi, ${fmt(e.ingressiFile)} nel report`}
+                                {[
+                                  e.totaleNonTorna ? `nel report la somma delle ore (${fmt(e.ingressiFile)} ingressi) non torna con il totale del giorno` : '',
+                                  e.stato === 'nuovo' ? 'giorno non ancora caricato'
+                                    : e.ingressiDb === e.ingressiFile ? `ingressi uguali (${fmt(e.ingressiFile)}), cambiano scontrini o ore`
+                                      : `${fmt(e.ingressiDb)} ingressi già caricati, ${fmt(e.ingressiFile)} nel report`,
+                                ].filter(Boolean).join('; ')}
                               </li>
                             ))}
                           </ul>
