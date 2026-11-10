@@ -142,7 +142,9 @@ function saldoAllaData(rows: PnTxSnapshot[], snap: PnTxSnapshot | null, day: str
 
 const cents = (n: number): number => Math.round(n * 100)
 const GIORNI_ANTICIPO = 10
-const MAX_CANDIDATI = 12
+// Pochi candidati e un solo saldo alla volta: con tante righe una somma che
+// torna al centesimo si trova anche per caso, e una differenza vera sparirebbe.
+const MAX_CANDIDATI = 8
 
 /**
  * Movimenti che la banca poteva avere già nel saldo dello scarico `snap` pur
@@ -163,33 +165,31 @@ function candidatiAnticipati(rows: PnTxSnapshot[], snap: PnTxSnapshot | null): P
 const bits = (m: number): number => { let n = 0; for (let x = m; x; x &= x - 1) n++; return n }
 
 /**
- * Cerca i movimenti già contati dalla banca nei due saldi che spiegano la
- * differenza al centesimo: somma(anticipati finali) − somma(anticipati
- * iniziali) = differenza. Fra le combinazioni possibili vince la più piccola.
- * Null se nessuna combinazione torna: allora la differenza è vera.
+ * Fra i candidati di UN saldo, il gruppo più piccolo la cui somma è `target`
+ * al centesimo. Null se nessuno torna: allora la differenza è vera.
+ */
+function gruppoCheSomma(cand: PnTxSnapshot[], target: number): PnTxSnapshot[] | null {
+  const t = cents(target)
+  const somme = new Array<number>(1 << cand.length).fill(0)
+  let best = 0
+  for (let m = 1; m < somme.length; m++) {
+    const low = m & -m
+    somme[m] = somme[m ^ low] + cents(cand[31 - Math.clz32(low)].amount)
+    if (somme[m] === t && (!best || bits(m) < bits(best))) best = m
+  }
+  return best ? cand.filter((_, i) => best & (1 << i)) : null
+}
+
+/**
+ * Cerca i movimenti già contati dalla banca che spiegano la differenza al
+ * centesimo: prima nel saldo finale (somma = differenza), poi in quello
+ * iniziale (somma = −differenza). Mai i due insieme.
  */
 function cercaAnticipati(candIni: PnTxSnapshot[], candFin: PnTxSnapshot[], differenza: number): { ini: PnTxSnapshot[]; fin: PnTxSnapshot[] } | null {
-  const target = cents(differenza)
-  const somme = (c: PnTxSnapshot[]): number[] => {
-    const out = new Array<number>(1 << c.length).fill(0)
-    for (let m = 1; m < out.length; m++) { const low = m & -m; out[m] = out[m ^ low] + cents(c[31 - Math.clz32(low)].amount) }
-    return out
-  }
-  const sIni = somme(candIni)
-  const sFin = somme(candFin)
-  // somma → maschera più piccola, lato iniziale
-  const perSomma = new Map<number, number>()
-  sIni.forEach((v, m) => { const cur = perSomma.get(v); if (cur == null || bits(m) < bits(cur)) perSomma.set(v, m) })
-  let best: { mi: number; mf: number; n: number } | null = null
-  sFin.forEach((v, mf) => {
-    const mi = perSomma.get(v - target)
-    if (mi == null) return
-    const n = bits(mi) + bits(mf)
-    if (n > 0 && (!best || n < best.n)) best = { mi, mf, n }
-  })
-  if (!best) return null
-  const { mi, mf } = best as { mi: number; mf: number; n: number }
-  return { ini: candIni.filter((_, i) => mi & (1 << i)), fin: candFin.filter((_, i) => mf & (1 << i)) }
+  const fin = gruppoCheSomma(candFin, differenza)
+  if (fin) return { ini: [], fin }
+  const ini = gruppoCheSomma(candIni, -differenza)
+  return ini ? { ini, fin: [] } : null
 }
 
 /**
@@ -199,10 +199,12 @@ function cercaAnticipati(candIni: PnTxSnapshot[], candFin: PnTxSnapshot[], diffe
  * l'inizio dell'ultimo tratto in cui lo scarto accumulato non torna a zero.
  */
 function scaricoDoveNasce(rows: PnTxSnapshot[], ini: PnTxSnapshot, fin: PnTxSnapshot): string | null {
-  const gruppi = new Map<string, { snap: number; tot: number }>()
+  const gruppi = new Map<string, { snap: number | null; tot: number }>()
   for (const r of rows) {
-    if (!r.fetched_at || r.snapshot == null || r.fetched_at <= (ini.fetched_at as string) || r.fetched_at > (fin.fetched_at as string)) continue
-    const g = gruppi.get(r.fetched_at) ?? { snap: r.snapshot, tot: 0 }
+    if (!r.fetched_at || r.fetched_at <= (ini.fetched_at as string) || r.fetched_at > (fin.fetched_at as string)) continue
+    // Anche le righe senza saldo contano nel totale dello scarico
+    const g = gruppi.get(r.fetched_at) ?? { snap: null as number | null, tot: 0 }
+    if (g.snap == null && r.snapshot != null) g.snap = r.snapshot
     g.tot += r.amount
     gruppi.set(r.fetched_at, g)
   }
@@ -210,7 +212,8 @@ function scaricoDoveNasce(rows: PnTxSnapshot[], ini: PnTxSnapshot, fin: PnTxSnap
   let cum = 0
   let nasce: string | null = null
   for (const f of Array.from(gruppi.keys()).sort()) {
-    const g = gruppi.get(f) as { snap: number; tot: number }
+    const g = gruppi.get(f) as { snap: number | null; tot: number }
+    if (g.snap == null) return null
     cum += cents(g.snap) - cents(prev) - cents(g.tot)
     if (cum === 0) nasce = null
     else if (nasce == null) nasce = f
@@ -264,6 +267,10 @@ export function quadraturaConto(bank_account_id: string, rows: PnTxSnapshot[], p
       anticipati_finale = trovati.fin
       saldo_iniziale = r2(saldo_iniziale - sum(trovati.ini))
       saldo_finale = r2(saldo_finale - sum(trovati.fin))
+      // Un anticipato datato entro la data era stato aggiunto come «arrivato dopo
+      // lo scarico»: la banca lo aveva già nel saldo, quindi esce da quell'elenco.
+      inizio.rettifica.piu = inizio.rettifica.piu.filter(r => !trovati.ini.includes(r))
+      fine.rettifica.piu = fine.rettifica.piu.filter(r => !trovati.fin.includes(r))
       saldo_finale_calcolato = r2(saldo_iniziale + sum(movimenti))
       differenza = r2(saldo_finale - saldo_finale_calcolato)
     } else if (ini && fin) {

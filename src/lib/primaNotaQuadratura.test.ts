@@ -215,6 +215,8 @@ describe('quadraturaConto: movimenti già nel saldo della banca ma consegnati do
   it('per data operazione: stessi quattro movimenti, quadra', () => {
     const q = quadraturaConto('bcc', righe('operazione'), '2026-10-29', '2026-10-31')
     expect(q.anticipati_finale.map(m => m.id).sort()).toEqual(carta)
+    // non restano fra gli «arrivati dopo lo scarico»: la banca li aveva già nel saldo
+    expect(q.rettifica_finale.piu.map(m => m.id)).toEqual(['c5abb04f'])
     expect(q.differenza).toBe(0)
     expect(q.stato).toBe('quadra')
   })
@@ -237,5 +239,23 @@ describe('quadraturaConto: movimenti già nel saldo della banca ma consegnati do
   it('senza data operazione non si prova a spiegare niente', () => {
     const rows = righe('contabile').map(x => ({ ...x, op_date: null }))
     expect(quadraturaConto('bcc', rows, '2026-10-29', '2026-10-31').stato).toBe('non_quadra')
+  })
+})
+
+describe('quadraturaConto: una differenza vera non si spiega per caso', () => {
+  it('mai più di 8 candidati e mai i due saldi insieme', () => {
+    // 20 movimenti arrivati dopo lo scarico finale, tutti con operazione precedente: 1, 2, 4, 8… centesimi
+    // coprirebbero qualunque importo. Con il tetto a 8 si arriva al massimo a 2,55.
+    const base: PnTxSnapshot[] = [
+      { id: 'a', bank_account_id: 'x', date: '2026-09-30', op_date: '2026-09-30', amount: 0.5, fetched_at: '2026-09-30T10:00:00Z', snapshot: 1000 },
+      { id: 'b', bank_account_id: 'x', date: '2026-10-30', op_date: '2026-10-30', amount: 100, fetched_at: '2026-10-30T10:00:00Z', snapshot: 1090 },
+    ]
+    const dopo: PnTxSnapshot[] = Array.from({ length: 20 }, (_, i) => ({
+      id: `z${String(i).padStart(2, '0')}`, bank_account_id: 'x', date: '2026-11-03', op_date: '2026-10-29', amount: -(2 ** i) / 100, fetched_at: '2026-11-03T10:00:00Z', snapshot: 0,
+    }))
+    const q = quadraturaConto('x', [...base, ...dopo], '2026-10-01', '2026-10-31')
+    expect(q.differenza).toBe(-10)
+    expect(q.stato).toBe('non_quadra')
+    expect(q.anticipati_finale).toEqual([])
   })
 })
