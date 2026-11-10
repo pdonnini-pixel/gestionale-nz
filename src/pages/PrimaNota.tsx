@@ -225,6 +225,8 @@ export default function PrimaNota() {
   // Quadratura: movimenti di una finestra larga intorno al periodo (per i saldi della banca) e chiusure di cassa del periodo
   const [winRaw, setWinRaw] = useState<WinRow[]>([])
   const [closings, setClosings] = useState<PnClosingLite[]>([])
+  // Spiegazione della differenza di quadratura (si apre dal riquadro rosso)
+  const [quadSpiega, setQuadSpiega] = useState(false)
   // Dipendenti: buste paga dei mesi candidati (mese prima e mese del pagamento)
   const [slips, setSlips] = useState<PnSlip[]>([])
   // Carte: estratti del periodo (bank_statements doc_kind carta), righe importate, fatture pagate con carta, movimenti banca che le saldano
@@ -1031,7 +1033,7 @@ export default function PrimaNota() {
 
   // Quadratura con l'estratto conto, per conto, e del contante
   const quadratura = useMemo<QuadraturaConto[]>(() => {
-    const rows: PnTxSnapshot[] = winRaw.map(r => ({ id: r.id, bank_account_id: r.bank_account_id, date: basisDate(r), amount: r.amount, fetched_at: r.fetched_at, snapshot: r.snapshot }))
+    const rows: PnTxSnapshot[] = winRaw.map(r => ({ id: r.id, bank_account_id: r.bank_account_id, date: basisDate(r), op_date: r.transaction_date, amount: r.amount, fetched_at: r.fetched_at, snapshot: r.snapshot }))
     return quadraturaConti(rows, dateStart, dateEnd)
       .sort((a, b) => (bankAccounts.find(x => x.id === a.bank_account_id)?.bank_name ?? '').localeCompare(bankAccounts.find(x => x.id === b.bank_account_id)?.bank_name ?? '', 'it'))
   }, [winRaw, basisDate, dateStart, dateEnd, bankAccounts])
@@ -1053,8 +1055,15 @@ export default function PrimaNota() {
   // Confini del periodo per data operazione: il saldo iniziale è al giorno prima, quello finale all'ultimo giorno
   const quadPeriodo = useMemo(() => ({ giornoPrima: fmtDate(prevDay(dateStart)), ultimoGiorno: fmtDate(dateEnd) }), [dateStart, dateEnd])
   const sumRows = (rows: PnTxSnapshot[]) => rows.reduce((s, r) => s + r.amount, 0)
-  const rettificaLabel = (r: { piu: PnTxSnapshot[]; meno: PnTxSnapshot[] }) =>
-    [r.piu.length ? `+ ${r.piu.length} mov. arrivati dopo lo scarico (${fmt(sumRows(r.piu))})` : '', r.meno.length ? `− ${r.meno.length} mov. già nello scarico ma datati dopo (${fmt(sumRows(r.meno))})` : ''].filter(Boolean).join('; ')
+  // «anticipati»: movimenti che la banca aveva già contato nel saldo dello scarico e ha consegnato dopo (pagamenti con carta)
+  const rettificaLabel = (r: { piu: PnTxSnapshot[]; meno: PnTxSnapshot[] }, anticipati: PnTxSnapshot[] = [], giorno = '') => {
+    // Datati dopo il giorno del saldo: si tolgono. Datati entro: erano fra gli «arrivati dopo», non si aggiungono.
+    const dopo = anticipati.filter(a => a.date > giorno)
+    const entro = anticipati.filter(a => a.date <= giorno)
+    return [r.piu.length ? `+ ${r.piu.length} mov. arrivati dopo lo scarico (${fmt(sumRows(r.piu))})` : '', r.meno.length ? `− ${r.meno.length} mov. già nello scarico ma datati dopo (${fmt(sumRows(r.meno))})` : '',
+      dopo.length ? `− ${dopo.length} mov. che la banca aveva già contato nel saldo e ha registrato dopo (${fmt(sumRows(dopo))})` : '',
+      entro.length ? `${entro.length} mov. arrivati dopo lo scarico ma già contati dalla banca nel saldo, non aggiunti (${fmt(sumRows(entro))})` : ''].filter(Boolean).join('; ')
+  }
 
   // Righe formato Prima Nota standardizzato (una per movimento, fatture in causale)
   const rows = useMemo(() => movements.map(m => ({ ...buildRow(m, fmtDate, contropartitaOf(m), negozioOf(m)), 'Saldo progressivo': saldoById.get(m.id) ?? '' })), [movements, saldoById, contropartitaOf, negozioOf])
@@ -1121,7 +1130,7 @@ export default function PrimaNota() {
         { kind: 'meta', cells: ['Periodo', `${periodoLabel} (dal ${fmtDate(dateStart)} al ${fmtDate(dateEnd)}, per ${dataUsata})`] },
         { kind: 'blank', cells: [] },
         { kind: 'header', cells: ['Data operazione', 'Data contabile', 'Tipo movimento', 'Contropartita', 'Negozio', 'P.IVA', 'N. fatture', 'Causale', 'Categoria', 'Entrate', 'Uscite', 'Saldo', 'Di cui fattura'] },
-        { kind: 'open', cells: [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''] },
+        { kind: 'open', cells: [`Saldo iniziale al ${quadPeriodo.giornoPrima}`, q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale, q.anticipati_iniziale, prevDay(dateStart)) ? ' ' + rettificaLabel(q.rettifica_iniziale, q.anticipati_iniziale, prevDay(dateStart)) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', '', q.saldo_iniziale ?? ''] },
         ...ms.flatMap((m): StyledRow[] => {
           const r = buildRow(m, fmtDate, contropartitaOf(m), negozioOf(m))
           const riba = ribaCountOf(m) > 0
@@ -1155,7 +1164,7 @@ export default function PrimaNota() {
           return out
         }),
         { kind: 'close', cells: [`Saldo finale al ${quadPeriodo.ultimoGiorno} (calcolato)`, `${ms.length} movimenti`, '', '', '', '', '', '', '', q.entrate, q.uscite, q.saldo_finale_calcolato ?? ''] },
-        { kind: 'close', cells: [`Saldo finale al ${quadPeriodo.ultimoGiorno} (banca)`, q.saldo_scarico_finale != null ? `banca al ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${rettificaLabel(q.rettifica_finale) ? ' ' + rettificaLabel(q.rettifica_finale) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', '', q.saldo_finale ?? ''] },
+        { kind: 'close', cells: [`Saldo finale al ${quadPeriodo.ultimoGiorno} (banca)`, q.saldo_scarico_finale != null ? `banca al ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}${rettificaLabel(q.rettifica_finale, q.anticipati_finale, dateEnd) ? ' ' + rettificaLabel(q.rettifica_finale, q.anticipati_finale, dateEnd) : ''}` : 'saldo banca non disponibile', '', '', '', '', '', '', '', '', '', q.saldo_finale ?? ''] },
         { kind: q.stato === 'quadra' ? 'ok' : q.stato === 'non_quadra' ? 'ko' : 'warn', cells: ['Differenza', q.stato === 'quadra' ? 'quadra' : q.stato === 'non_quadra' ? 'NON QUADRA' : 'saldi banca non disponibili', '', '', '', '', '', '', '', '', '', q.differenza ?? ''] },
       ]
       const name = sheetName(acc?.bank_name ?? 'Conto', used)
@@ -1458,6 +1467,44 @@ export default function PrimaNota() {
         </div>
       )}
 
+      {/* Differenza di quadratura: cosa vuol dire e cosa fare (si apre dal riquadro rosso) */}
+      <Modal open={quadSpiega} onClose={() => setQuadSpiega(false)} title="La quadratura non torna: cosa fare" maxWidthClass="max-w-2xl">
+        <div className="space-y-4 text-sm text-slate-700">
+          {quadratura.filter(q => q.stato === 'non_quadra').map(q => {
+            const d = q.differenza ?? 0
+            return (
+              <div key={q.bank_account_id} className="rounded-lg border border-red-200 bg-red-50/60 p-3 space-y-1.5">
+                <div className="font-semibold text-slate-900">{accountName(q.bank_account_id)}</div>
+                <div>
+                  Saldo della banca al {quadPeriodo.ultimoGiorno}: <strong className="tabular-nums">{fmt(q.saldo_finale ?? 0)}</strong>. Saldo iniziale più i movimenti che abbiamo: <strong className="tabular-nums">{fmt(q.saldo_finale_calcolato ?? 0)}</strong>. Differenza: <strong className="tabular-nums text-red-700">{fmt(d)}</strong>.
+                </div>
+                <div>
+                  {d < 0
+                    ? `Da noi risultano ${fmt(Math.abs(d))} in più della banca: manca un'uscita che la banca ha già contato, oppure un'entrata è registrata due volte.`
+                    : `Da noi risultano ${fmt(Math.abs(d))} in meno della banca: manca un'entrata che la banca ha già contato, oppure un'uscita è registrata due volte.`}
+                </div>
+                {q.nasce_allo_scarico && (
+                  <div>La differenza compare con lo scarico del <strong>{fmtDateTime(q.nasce_allo_scarico)}</strong>: sull'estratto della banca si cerca da quel giorno in poi.</div>
+                )}
+              </div>
+            )
+          })}
+          <div>
+            <div className="font-semibold text-slate-900 mb-1">Cosa ha già controllato il gestionale</div>
+            <p>Ha cercato fra i movimenti arrivati nei dieci giorni successivi quelli che la banca aveva già contato nel saldo (succede con i pagamenti con carta, registrati qualche giorno dopo l'operazione). Nessuna combinazione spiega questa differenza al centesimo, quindi non è una questione di date.</p>
+          </div>
+          <div>
+            <div className="font-semibold text-slate-900 mb-1">Cosa fare, in ordine</div>
+            <ol className="list-decimal pl-5 space-y-1">
+              <li>Scheda <strong>Conti Bancari</strong>: premi «Aggiorna conti e movimenti», poi torna qui e ricarica con il pulsante accanto ai filtri. Se mancava un movimento, arriva e la riga diventa verde.</li>
+              <li>Se la differenza resta, apri l'estratto o l'home banking di quel conto e confronta i movimenti dal giorno indicato sopra: cerca un importo uguale alla differenza, o due o tre che la sommano.</li>
+              <li>Se non lo trovi, apri una segnalazione dalla pagina <strong>Ticket</strong> scrivendo conto, mese e importo della differenza: il movimento va recuperato dalla banca, non si inserisce a mano.</li>
+            </ol>
+          </div>
+          <p className="text-slate-500">Il file si può esportare lo stesso: nel foglio di quel conto la riga «Differenza» porta scritto «NON QUADRA» con l'importo, così lo studio lo vede.</p>
+        </div>
+      </Modal>
+
       {/* Quadratura con l'estratto conto: saldo iniziale banca + movimenti nostri = saldo finale banca.
           I saldi vengono dallo scarico A-Cube, non dai movimenti: se quadra, l'export è completo. */}
       {!loading && movements.length > 0 && (
@@ -1465,7 +1512,7 @@ export default function PrimaNota() {
           <div className="px-3 py-2 border-b border-slate-100 flex items-center gap-2 text-sm font-semibold text-slate-800">
             <Scale size={14} /> Quadratura con l'estratto conto
             {quadratura.every(q => q.stato === 'quadra') && <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">tutti i conti quadrano</span>}
-            {quadratura.some(q => q.stato === 'non_quadra') && <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded bg-red-100 text-red-700">c'è una differenza</span>}
+            {quadratura.some(q => q.stato === 'non_quadra') && <button type="button" onClick={() => setQuadSpiega(true)} className="ml-auto text-xs font-medium px-2 py-0.5 rounded bg-red-100 text-red-700 hover:bg-red-200 underline decoration-dotted underline-offset-2">c'è una differenza: cosa fare</button>}
           </div>
           <TableScroll>
             <table className="w-full text-xs">
@@ -1490,8 +1537,8 @@ export default function PrimaNota() {
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {q.saldo_iniziale != null ? fmt(q.saldo_iniziale) : <span className="text-slate-400">n.d.</span>}
                       {q.saldo_scarico_iniziale != null && (
-                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}. ${rettificaLabel(q.rettifica_iniziale) || 'Nessuna rettifica.'}`}>
-                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_iniziale)}{(q.rettifica_iniziale.piu.length + q.rettifica_iniziale.meno.length) > 0 && ` · ${q.rettifica_iniziale.piu.length + q.rettifica_iniziale.meno.length} rettifiche`}</span>
+                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}. ${rettificaLabel(q.rettifica_iniziale, q.anticipati_iniziale, prevDay(dateStart)) || 'Nessuna rettifica.'}`}>
+                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_iniziale)}{(q.rettifica_iniziale.piu.length + q.rettifica_iniziale.meno.length + q.anticipati_iniziale.length) > 0 && ` · ${q.rettifica_iniziale.piu.length + q.rettifica_iniziale.meno.length + q.anticipati_iniziale.length} rettifiche`}</span>
                         </Tooltip>
                       )}
                     </td>
@@ -1504,14 +1551,14 @@ export default function PrimaNota() {
                     <td className="px-3 py-1.5 text-right tabular-nums">
                       {q.saldo_finale != null ? fmt(q.saldo_finale) : <span className="text-slate-400">n.d.</span>}
                       {q.saldo_scarico_finale != null && (
-                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}. ${rettificaLabel(q.rettifica_finale) || 'Nessuna rettifica.'}`}>
-                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_finale)}{(q.rettifica_finale.piu.length + q.rettifica_finale.meno.length) > 0 && ` · ${q.rettifica_finale.piu.length + q.rettifica_finale.meno.length} rettifiche`}</span>
+                        <Tooltip content={`Saldo letto dalla banca allo scarico del ${fmtDateTime(q.scaricato_finale)}: ${fmt(q.saldo_scarico_finale)}. ${rettificaLabel(q.rettifica_finale, q.anticipati_finale, dateEnd) || 'Nessuna rettifica.'}`}>
+                          <span className="block text-slate-400 cursor-help">banca al {fmtDateTime(q.scaricato_finale)}{(q.rettifica_finale.piu.length + q.rettifica_finale.meno.length + q.anticipati_finale.length) > 0 && ` · ${q.rettifica_finale.piu.length + q.rettifica_finale.meno.length + q.anticipati_finale.length} rettifiche`}</span>
                         </Tooltip>
                       )}
                     </td>
                     <td className="px-3 py-1.5 text-right">
                       {q.stato === 'quadra' && <span className="inline-block px-2 py-0.5 rounded font-medium bg-emerald-100 text-emerald-700">0,00 · quadra</span>}
-                      {q.stato === 'non_quadra' && <span className="inline-block px-2 py-0.5 rounded font-medium bg-red-100 text-red-700">{fmt(q.differenza ?? 0)}</span>}
+                      {q.stato === 'non_quadra' && <button type="button" onClick={() => setQuadSpiega(true)} title="Perché non quadra e cosa fare" className="inline-block px-2 py-0.5 rounded font-medium bg-red-100 text-red-700 hover:bg-red-200 underline decoration-dotted underline-offset-2">{fmt(q.differenza ?? 0)}</button>}
                       {q.stato === 'senza_saldi' && <Tooltip content="La banca non ha fornito il saldo allo scarico per questo periodo (movimenti importati prima di marzo 2026 o senza dati A-Cube)"><span className="inline-block px-2 py-0.5 rounded bg-slate-100 text-slate-500 cursor-help">saldi n.d.</span></Tooltip>}
                     </td>
                   </tr>
@@ -2221,7 +2268,7 @@ export default function PrimaNota() {
                   <tr key={`open-${q.bank_account_id}`} className="border-t-2 border-slate-200 bg-slate-50/80">
                     <td colSpan={4} className="px-3 py-2 font-semibold text-slate-800">{accountName(q.bank_account_id)} · saldo iniziale al {quadPeriodo.giornoPrima}</td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums whitespace-nowrap">{q.saldo_iniziale != null ? fmt(q.saldo_iniziale) : <span className="text-slate-400 font-normal">n.d.</span>}</td>
-                    <td colSpan={6} className="px-3 py-2 text-xs text-slate-400">{q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale) ? ' · ' + rettificaLabel(q.rettifica_iniziale) : ''}` : 'la banca non ha fornito il saldo per questo periodo'}</td>
+                    <td colSpan={6} className="px-3 py-2 text-xs text-slate-400">{q.saldo_scarico_iniziale != null ? `banca al ${fmtDateTime(q.scaricato_iniziale)}: ${fmt(q.saldo_scarico_iniziale)}${rettificaLabel(q.rettifica_iniziale, q.anticipati_iniziale, prevDay(dateStart)) ? ' · ' + rettificaLabel(q.rettifica_iniziale, q.anticipati_iniziale, prevDay(dateStart)) : ''}` : 'la banca non ha fornito il saldo per questo periodo'}</td>
                   </tr>
                 )] : [(
                   <tr key={`open-${q.bank_account_id}`} className="border-t-2 border-slate-200 bg-slate-50/80">
@@ -2238,9 +2285,9 @@ export default function PrimaNota() {
                     <td colSpan={6} className="px-3 py-2 text-xs">
                       {q.saldo_finale != null ? (<>
                         <span className="text-slate-600">banca: <strong className="tabular-nums">{fmt(q.saldo_finale)}</strong></span>
-                        <span className="text-slate-400"> (al {fmtDateTime(q.scaricato_finale)}: {fmt(q.saldo_scarico_finale ?? 0)}{rettificaLabel(q.rettifica_finale) ? ' · ' + rettificaLabel(q.rettifica_finale) : ''})</span>
+                        <span className="text-slate-400"> (al {fmtDateTime(q.scaricato_finale)}: {fmt(q.saldo_scarico_finale ?? 0)}{rettificaLabel(q.rettifica_finale, q.anticipati_finale, dateEnd) ? ' · ' + rettificaLabel(q.rettifica_finale, q.anticipati_finale, dateEnd) : ''})</span>
                         {q.stato === 'quadra' && <span className="ml-2 inline-block px-2 py-0.5 rounded font-medium bg-emerald-100 text-emerald-700">quadra</span>}
-                        {q.stato === 'non_quadra' && <span className="ml-2 inline-block px-2 py-0.5 rounded font-medium bg-red-100 text-red-700">differenza {fmt(q.differenza ?? 0)}</span>}
+                        {q.stato === 'non_quadra' && <button type="button" onClick={() => setQuadSpiega(true)} title="Perché non quadra e cosa fare" className="ml-2 inline-block px-2 py-0.5 rounded font-medium bg-red-100 text-red-700 hover:bg-red-200 underline decoration-dotted underline-offset-2">differenza {fmt(q.differenza ?? 0)}</button>}
                       </>) : <span className="text-slate-400">saldo banca non disponibile</span>}
                     </td>
                   </tr>
