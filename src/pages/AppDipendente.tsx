@@ -22,7 +22,7 @@ import '@fontsource/poppins/latin-700.css'
 
 const CARATTERE = { fontFamily: "'Poppins', ui-sans-serif, system-ui, sans-serif" }
 import {
-  ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, entrataMancante, formatMinuti, oraRoma, oreEntrataDichiarabili, ordina,
+  ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, entrataMancante, impronta, formatMinuti, oraRoma, oreEntrataDichiarabili, ordina,
   riepilogoGiorno, secondiAlCambio,
   PASSO_SECONDI, TOLLERANZA_ENTRATA_DEFAULT, valutaEntrata, type Timbratura, type TipoTimbratura,
 } from '../lib/timbrature'
@@ -56,6 +56,8 @@ interface DatiOggi {
   // Dalla migration 372: assenti se il tenant non le ha ancora
   regole?: { tolleranza: number; margine: number }
   eventi?: EventoApp[]
+  /** Dalla migration 387: impronta del segreto attuale, per capire se questo telefono e' ancora quello attivo. */
+  impronta?: string
   scaricati_il?: string
 }
 
@@ -163,6 +165,8 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const [messaggio, setMessaggio] = useState<{ ok: boolean; testo: string } | null>(null)
   const [scheda, setScheda] = useState<Scheda>('oggi')
   const [notifiche, setNotifiche] = useState<EsitoNotifiche | null>(null)
+  const [miaImpronta, setMiaImpronta] = useState<string | null>(null)
+  useEffect(() => { void impronta(attivazione.segreto).then(setMiaImpronta).catch(() => setMiaImpronta(null)) }, [attivazione])
 
   // App degli store: notifiche push (ritardo, uscita non timbrata). Toccando
   // la notifica si apre la scheda indicata.
@@ -185,10 +189,13 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
     return () => { vivo = false }
   }, [attivazione, passo])
 
+  // Si prova sempre a chiamare il server: navigator.onLine sul Mac e su alcuni
+  // telefoni dice «offline» anche con la rete (prova del 10/11/2026). La rete
+  // c'e' quando il server risponde.
   const aggiorna = useCallback(async () => {
-    if (!navigator.onLine) return
     const { data, error } = await supabase.rpc('app_dipendente_oggi')
-    if (error || !data) return
+    if (error || !data) { if (/fetch|network|Failed/i.test(error?.message ?? '') || !navigator.onLine) setOnline(false); return }
+    setOnline(true)
     const d = { ...(data as unknown as DatiOggi), scaricati_il: new Date().toISOString() }
     localStorage.setItem(K_OGGI, JSON.stringify(d))
     setDati(d)
@@ -269,6 +276,19 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   }
 
   const secondi = secondiAlCambio(adesso)
+
+  // L'app e' stata attivata su un altro telefono (migration 387): niente QR, che non varrebbe piu'
+  if (dati?.impronta && miaImpronta && dati.impronta !== miaImpronta) {
+    return (
+      <div className="min-h-screen bg-white flex flex-col items-center justify-center p-6 gap-4 text-center" style={CARATTERE}>
+        <Marchio grande />
+        <p className="text-xl font-semibold text-slate-900 max-w-sm">Questo telefono non è più attivo</p>
+        <p className="text-slate-600 max-w-sm">L'app è stata attivata su un altro telefono. Per timbrare da questo, chiedi un codice nuovo a chi segue il personale: l'altro telefono smetterà di funzionare.</p>
+        <button onClick={() => { localStorage.removeItem(K_APP); localStorage.removeItem(K_OGGI); window.location.reload() }}
+          className="px-8 py-3 rounded-xl bg-[#ff0066] text-white text-lg font-semibold">Ho un codice nuovo</button>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col items-center px-5 pt-6 pb-28 gap-5" style={CARATTERE}>

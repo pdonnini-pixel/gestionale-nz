@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHmac } from 'node:crypto'
 import {
-  azioni, codiceQr, entrataMancante, oreEntrataDichiarabili, firma, leggiCodice, oraRomaInMs, passoDa, riepilogoGiorno, secondiAlCambio, statoDa,
+  azioni, codiceQr, entrataMancante, impronta, oreEntrataDichiarabili, firma, leggiCodice, oraRomaInMs, passoDa, riepilogoGiorno, secondiAlCambio, statoDa,
 } from './timbrature'
 
 const SEGRETO = '00112233445566778899aabbccddeeff00112233'
@@ -141,5 +141,13 @@ describe('entrata dimenticata (migration 382)', () => {
     expect(ore[0]).toBe('09:00')
     expect(ore).toContain('10:00')
     expect(ore.at(-1)).toBe('10:30')
+  })
+})
+
+describe('impronta del segreto (migration 387)', () => {
+  it('uguale allo SHA-256 del testo, primi 16 caratteri', async () => {
+    const seg = '9f3c1a7e5b2d4f6a8c0e1b3d5f7a9c2e4b6d8f0a'
+    const { createHash } = await import('node:crypto')
+    expect(await impronta(seg)).toBe(createHash('sha256').update(seg, 'utf8').digest('hex').slice(0, 16))
   })
 })
