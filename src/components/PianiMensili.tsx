@@ -154,7 +154,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [regolePiano, setRegolePiano] = useState<RegoleTurni>(REGOLE_DEFAULT);
   // Proposta di ferie per le ore di contratto che restano non usate.
   // Dove mettere le ore che avanzano: le finestre migliori del mese (traffico MODA).
-  const [dove, setDove] = useState<{ employeeId: string; nome: string; ore: number; finestre: FinestraSuggerita[] | null } | null>(null);
+  const [dove, setDove] = useState<{ employeeId: string; nome: string; ore: number; finestre: FinestraSuggerita[] | null; residui?: Record<string, number> } | null>(null);
   const [proposta, setProposta] = useState<{ employeeId: string; nome: string; ore: number; giorni: FeriaProposta[] } | null>(null);
   const [giorniApertura, setGiorniApertura] = useState<Map<string, { apre: number; chiude: number; chiuso: boolean }>>(new Map());
 
@@ -580,8 +580,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       && !ferieMese.some((x) => x.employee_id === employeeId && x.data === d);
   };
 
-  const apriDove = async (employeeId: string, nome: string, ore: number) => {
-    setDove({ employeeId, nome, ore, finestre: null });
+  // residui: per lunedi' della settimana, le ore di contratto che restano in quella
+  // settimana (Patrizio, 10/11/2026): le proposte non le superano mai.
+  const apriDove = async (employeeId: string, nome: string, ore: number, residui?: Record<string, number>) => {
+    setDove({ employeeId, nome, ore, finestre: null, residui });
     try {
       const [tr, oo, sp, ev] = await Promise.all([
         caricaTraffico(companyId, outletId),
@@ -599,9 +601,12 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       const finestre = suggerisciFinestre({
         giorni, atteso, regole: regolePiano, ore,
         turni: turniPiano.map((t) => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti })),
-        possibile: (d) => giornoSenzaImpegni(employeeId, d),
+        // un giorno in piu' solo se la settimana ha ancora giorni di lavoro
+        possibile: (d) => giornoSenzaImpegni(employeeId, d)
+          && turniPiano.filter((x) => x.employee_id === employeeId && giorniDellaSettimana(lunediDi(d)).includes(x.data)).length < giorniMax,
+        oreSettimana: residui ? (d) => residui[lunediDi(d)] ?? 0 : undefined,
       });
-      setDove({ employeeId, nome, ore, finestre });
+      setDove({ employeeId, nome, ore, finestre, residui });
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Suggerimenti non calcolati.' });
       setDove(null);
@@ -1376,6 +1381,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                     </th>
                                   );
                                 })}
+                                <th className="px-2 py-2 text-right bg-slate-100 border-b border-l border-slate-200 font-semibold min-w-[96px]">
+                                  <span className="block text-[10px] uppercase tracking-wide">Totale</span>
+                                  <span className="block text-[10px] font-normal normal-case">ore della settimana</span>
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1418,12 +1427,40 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                           className={`px-1 py-1.5 text-center border-b border-slate-100 ${accetta ? 'bg-blue-50 outline-2 outline-dashed outline-blue-300 -outline-offset-2' : gs >= 6 ? 'bg-slate-50/60' : ''}`}>{casellaCliccabile(riga, d)}</td>
                                       );
                                     })}
+                                    {/* Totale della settimana accanto ai turni (Patrizio, 10/11/2026) */}
+                                    <td className="px-2 py-1.5 text-right align-top border-b border-l border-slate-100 bg-slate-50/60 tabular-nums">
+                                      <span className="block text-sm font-semibold text-slate-900">{fmt(programmate)} h</span>
+                                      {daContratto != null ? (
+                                        <>
+                                          <span className="block text-[10px] text-slate-500">di {fmt(daContratto)} h da contratto</span>
+                                          {Math.abs(scarto) <= 0.25 ? <span className="block text-[10px] text-emerald-700 font-semibold">in linea</span>
+                                            : scarto < 0 ? <span className="block text-[10px] text-slate-700 font-semibold">{fmt(-scarto)} h da assegnare</span>
+                                              : <span className="block text-[10px] text-amber-800 font-semibold">{fmt(scarto)} h in più</span>}
+                                        </>
+                                      ) : !riga.nuova && <span className="block text-[10px] text-slate-500">a chiamata</span>}
+                                      {anticipate > 0.25 && <span className="block text-[10px] text-blue-800">+ {fmt(anticipate)} h anticipate</span>}
+                                      {straordSett > 0.25 && <span className="block text-[10px] text-amber-800">+ {fmt(straordSett)} h straord.</span>}
+                                    </td>
                                   </tr>
                                 );
                               })}
                               <tr className="bg-slate-50/70">
                                 <td className="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600">In negozio</td>
                                 {giorniSett.map((d) => <td key={d} className="px-1 py-1.5 text-center align-top">{statoCopertura(d)}</td>)}
+                                <td className="px-2 py-1.5 text-right align-top border-l border-slate-200 tabular-nums" title="Ore nei turni di tutte le persone in questa settimana, pause escluse">
+                                  {(() => {
+                                    const tutti = righe.flatMap((r) => r.turni.filter((x) => nelMese.includes(x.data)));
+                                    const straord = tutti.reduce((a, x) => a + ('ore_straordinario' in x ? Number(x.ore_straordinario ?? 0) : 0), 0);
+                                    const ore = tutti.reduce((a, x) => a + oreDi(x), 0) - straord;
+                                    return (
+                                      <>
+                                        <span className="block text-sm font-semibold text-slate-900">{fmt(ore)} h</span>
+                                        <span className="block text-[10px] text-slate-500">tutto il negozio</span>
+                                        {straord > 0.25 && <span className="block text-[10px] text-amber-800">+ {fmt(straord)} h straord.</span>}
+                                      </>
+                                    );
+                                  })()}
+                                </td>
                               </tr>
                             </tbody>
                           </table>
@@ -1525,7 +1562,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                                           : 'al negozio non servivano: il traffico di quei giorni era già coperto'}</span>
                                         {puoModificare && !pianoAperto.simulazione && !riga.nuova && nonUsate >= 1 && (
                                           <span className="mt-1.5 flex flex-wrap gap-1.5">
-                                            <button type="button" onClick={() => apriDove(riga.id, riga.nome, nonUsate)}
+                                            <button type="button" onClick={() => apriDove(riga.id, riga.nome, nonUsate,
+                                              perSettimana ? Object.fromEntries(settimane.map((l, i) => [l, Math.max(0, -perSettimana[i])])) : undefined)}
                                               className="inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-lg bg-blue-600 text-white hover:bg-blue-700">
                                               Dove metterle
                                             </button>
@@ -1565,11 +1603,25 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         <Modal open onClose={() => setDove(null)} title={`Dove mettere le ore di ${dove.nome}`}>
           <div className="space-y-4">
             <p className="text-sm text-slate-600">
-              Restano <b>{fmt(dove.ore)} ore</b>. Queste sono le finestre del mese con più ingressi MODA per persona già in negozio, nei giorni in cui {dove.nome.split(' ')[0]} può lavorare e non ha un turno.
+              Restano <b>{fmt(dove.ore)} ore</b>. Queste sono le finestre del mese con più ingressi MODA per persona già in negozio, nei giorni in cui {dove.nome.split(' ')[0]} può lavorare e non ha un turno,
+              solo nelle settimane in cui ha ancora ore di contratto e mai più di quelle che restano in quella settimana: il contratto vale settimana per settimana.
               Scegli se aggiungerle come <b>ore di contratto</b> del mese (riducono le ore non usate) o come <b>straordinario</b> (si contano a parte).
             </p>
+            {dove.residui && (
+              <ul className="text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
+                {Object.entries(dove.residui).filter(([, h]) => h > 0.25).map(([l, h]) => (
+                  <li key={l}>settimana dal {Number(l.slice(8))}/{Number(l.slice(5, 7))}: <b>{fmt(h)} h</b>{h < regolePiano.turnoMinOre - 1e-9 ? ' (meno del turno minimo)' : ''}</li>
+                ))}
+              </ul>
+            )}
             {dove.finestre == null ? <p className="text-sm text-slate-400">Calcolo sul traffico MODA…</p>
-              : !dove.finestre.length ? <p className="text-sm text-slate-500">Nessun giorno libero adatto in questo mese.</p> : (
+              : !dove.finestre.length ? (
+                <p className="text-sm text-slate-500">
+                  {dove.residui
+                    ? `Nessun turno possibile senza superare il contratto della settimana: dove restano ore sono meno del turno minimo di ${fmt(regolePiano.turnoMinOre)} h, oppure non c'è un giorno libero in cui ${dove.nome.split(' ')[0]} possa lavorare. Queste ore si danno come ferie o permesso, oppure si allunga un turno che c'è già in quella settimana cliccando la casella.`
+                    : 'Nessun giorno libero adatto in questo mese.'}
+                </p>
+              ) : (
                 <ul className="space-y-2">
                   {dove.finestre.map((f, k) => {
                     const t = tipoDelGiorno(f.data);
@@ -1584,7 +1636,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                           </span>
                           <span className="text-sm text-slate-700 tabular-nums">{f.inizio}–{f.fine} · <b>{fmt(f.ore)} h</b>{f.pausaMinuti ? ` · pausa ${f.pausaMinuti}'` : ''}</span>
                         </div>
-                        <p className="text-xs text-slate-500 mt-0.5">circa {fmt(f.ingressiPerPersona)} ingressi l'ora per persona in negozio</p>
+                        <p className="text-xs text-slate-500 mt-0.5">circa {fmt(f.ingressiPerPersona)} ingressi l'ora per persona in negozio
+                          {dove.residui && ` · in quella settimana restano ${fmt(dove.residui[lunediDi(f.data)] ?? 0)} h di contratto`}</p>
                         <div className="mt-2 flex flex-wrap gap-2">
                           <button type="button" disabled={lavoro === 'dove'} onClick={() => aggiungiFinestra(f, false)}
                             className="text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50">Aggiungi come ore di contratto</button>

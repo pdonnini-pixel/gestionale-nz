@@ -867,6 +867,13 @@ export function suggerisciFinestre(args: {
   possibile: (data: string) => boolean; ore: number; regole?: RegoleTurni; quante?: number;
   /** accordi della persona: la fascia in cui puo' lavorare, per data */
   fasce?: Map<string, Fascia>;
+  /**
+   * Ore di contratto che restano nella settimana del giorno (Patrizio, 10/11/2026:
+   * «Dove metterle» proponeva domenica 20/12 in una settimana gia' piena, e solo
+   * dopo il riepilogo segnava le ore in piu'). Il contratto vale settimana per
+   * settimana: la finestra non supera mai quello che resta in quella settimana.
+   */
+  oreSettimana?: (data: string) => number;
 }): FinestraSuggerita[] {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const voluto = Math.min(regole.turnoMaxOre, Math.max(regole.turnoMinOre, Math.round(args.ore * 2) / 2)) * 60;
@@ -874,7 +881,8 @@ export function suggerisciFinestre(args: {
   for (const g of args.giorni) {
     if (g.chiuso || !args.possibile(g.data)) continue;
     const l = limitiPersona({ fasce: args.fasce }, g);
-    const lavoro = Math.min(voluto, lavoroMassimoGiorno(l, regole));
+    const restaSett = args.oreSettimana ? Math.floor(args.oreSettimana(g.data) * 2 + 1e-9) / 2 * 60 : Infinity;
+    const lavoro = Math.min(voluto, lavoroMassimoGiorno(l, regole), restaSett);
     if (lavoro < regole.turnoMinOre * 60) continue;
     const pausa = pausaPer(lavoro, regole);
     const durata = lavoro + pausa;
