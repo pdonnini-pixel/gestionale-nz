@@ -155,12 +155,13 @@ export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
         // risposta) resta in coda e si riprova: una timbratura vera non sparisce.
         const fatte = (e: string | undefined) => e === 'salvata' || e === 'qr_gia_usato'
         // PIN sbagliato o bloccato (migration 384): riprovare non serve
-        const RIFIUTI_CERTI = ['codice_illeggibile', 'persona_sconosciuta', 'persona_non_in_servizio', 'riga_non_valida', 'pin_errato', 'pin_bloccato', 'pin_non_attivo']
+        const RIFIUTI_CERTI = ['codice_illeggibile', 'persona_sconosciuta', 'persona_non_in_servizio', 'riga_non_valida', 'pin_errato', 'pin_bloccato', 'pin_non_attivo', 'pin_altro_negozio']
         const salvate = lotto.filter((r) => fatte(esiti.get(r.id))).map((r) => r.id)
         const rifiutate = lotto.filter((r) => RIFIUTI_CERTI.includes(esiti.get(r.id) ?? ''))
         if (rifiutate.length) {
           const prima = scartate()
-          const nuove = rifiutate.map((r) => ({ ...r, esito: esiti.get(r.id) ?? 'rifiutata' }))
+          // Il PIN non resta in chiaro fra le rifiutate (migration 384)
+          const nuove = rifiutate.map((r) => ({ ...r, codice: r.codice.startsWith('NZP1.') ? r.codice.replace(/\.\d{4}$/, '.****') : r.codice, esito: esiti.get(r.id) ?? 'rifiutata' }))
           localStorage.setItem(K_SCARTATE, JSON.stringify([...prima, ...nuove].slice(-200)))
         }
         await togli([...salvate, ...rifiutate.map((r) => r.id)])

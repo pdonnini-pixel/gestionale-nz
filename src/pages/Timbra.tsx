@@ -31,7 +31,7 @@ const Rilevatore = (globalThis as unknown as { BarcodeDetector?: CostruttoreRile
 
 const K_NEGOZIO = 'nz-timbra-negozio'
 
-interface Selezione { employeeId: string; nome: string; codice: string; letto: number }
+interface Selezione { employeeId: string; nome: string; codice: string; letto: number; pinDaControllare?: boolean }
 interface Fatto { nome: string; tipo: TipoTimbratura; ora: string; nota?: string }
 /** Timbratura con il PIN (migration 384): prima il nome, poi le 4 cifre. */
 type StatoPin = { fase: 'nomi' } | { fase: 'cifre'; employeeId: string; nome: string; cifre: string; errore?: string; controllo?: boolean }
@@ -67,6 +67,8 @@ export default function Timbra() {
   const [entroAdesso, setEntroAdesso] = useState(false)
   const [segnata, setSegnata] = useState<string | null>(null)
   const [pin, setPin] = useState<StatoPin | null>(null)
+  const pinCorrente = useRef<string | null>(null)
+  useEffect(() => { pinCorrente.current = pin?.fase === 'cifre' ? pin.employeeId : null }, [pin])
   const [avviso, setAvviso] = useState<string | null>(null)
   const [frontale, setFrontale] = useState(true)
   const [erroreCamera, setErroreCamera] = useState<string | null>(null)
@@ -243,7 +245,8 @@ export default function Timbra() {
         return
       }
       ultimoCodice.current = { id: sel.employeeId, t: Date.now() }
-      setFatto({ nome: sel.nome, tipo, ora: riga.ora_dispositivo, nota: opzioni?.nota })
+      const notaPin = sel.pinDaControllare ? 'Senza rete: il PIN si controlla quando torna la rete.' : ''
+      setFatto({ nome: sel.nome, tipo, ora: riga.ora_dispositivo, nota: [opzioni?.nota, notaPin].filter(Boolean).join(' ') || undefined })
       await aggiornaCoda()
       void sincronizza()
     } catch {
@@ -260,15 +263,18 @@ export default function Timbra() {
     const cifre = c === 'canc' ? pin.cifre.slice(0, -1) : (pin.cifre + c).slice(0, 4)
     if (cifre.length < 4) { setPin({ ...pin, cifre, errore: undefined }); return }
     const scelto = { employeeId: pin.employeeId, nome: pin.nome, codice: codicePin(pin.employeeId, cifre), letto: Date.now() }
-    if (!navigator.onLine) { setPin(null); setSelezione(scelto); return }
+    if (!navigator.onLine) { setPin(null); setSelezione({ ...scelto, pinDaControllare: true }); return }
     setPin({ ...pin, cifre, controllo: true, errore: undefined })
     const { data, error } = await supabase.rpc('timbratrice_verifica_pin', { p_outlet_id: outletId, p_employee: pin.employeeId, p_pin: cifre })
-    if (error) { setPin(null); setSelezione(scelto); return } // rete instabile: controlla il server all'invio
+    // Risposta arrivata dopo che la schermata e' cambiata: non vale piu'
+    if (pinCorrente.current !== pin.employeeId) return
+    if (error) { setPin(null); setSelezione({ ...scelto, pinDaControllare: true }); return } // rete instabile: controlla il server all'invio
     if (data === 'ok') { setPin(null); setSelezione(scelto); return }
     setPin({
       ...pin, cifre: '', controllo: false,
       errore: data === 'pin_bloccato' ? 'PIN bloccato dopo 5 tentativi sbagliati: chiedi un PIN nuovo a chi segue il personale.'
         : data === 'pin_non_attivo' ? 'Per te non c\'è un PIN attivo: chiedilo a chi segue il personale.'
+        : data === 'pin_altro_negozio' ? 'Con il PIN si timbra solo nel proprio negozio: avvisa il responsabile.'
         : 'PIN sbagliato, riprova.',
     })
   }
@@ -361,7 +367,7 @@ export default function Timbra() {
                   </button>
                 ))}
               </div>
-              <button onClick={() => setPin({ fase: 'nomi' })} className="text-slate-400 underline py-1">Non sono io</button>
+              <button onClick={() => setPin({ fase: 'nomi' })} disabled={pin.controllo} className="text-slate-400 underline py-1 disabled:opacity-40">Non sono io</button>
             </div>
           )
         ) : fatto ? (
