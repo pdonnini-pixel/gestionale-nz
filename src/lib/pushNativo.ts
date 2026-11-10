@@ -16,10 +16,10 @@ export function eAppNativa(): boolean {
 
 export type EsitoNotifiche = 'attive' | 'negate' | 'non_disponibili'
 
-// mioSegreto: il segreto dell'attivazione di questo telefono. Se ne passa
+// segretoAttuale: legge il segreto dell'attivazione di questo telefono. Se ne passa
 // l'impronta, cosi' il server accende le notifiche solo sul telefono attivo
 // (migration 388): un telefono disattivato da un codice nuovo resta muto.
-export async function attivaNotifiche(onApri: (scheda: string) => void, mioSegreto?: string): Promise<EsitoNotifiche> {
+export async function attivaNotifiche(onApri: (scheda: string) => void, segretoAttuale?: () => string | undefined): Promise<EsitoNotifiche> {
   if (!Capacitor.isNativePlatform()) return 'non_disponibili'
   const { FirebaseMessaging } = await import('@capacitor-firebase/messaging')
 
@@ -36,7 +36,9 @@ export async function attivaNotifiche(onApri: (scheda: string) => void, mioSegre
 
   const registra = async (token: string) => {
     const piattaforma = Capacitor.getPlatform() === 'ios' ? 'ios' : 'android'
-    const p_impronta = mioSegreto ? await impronta(mioSegreto).catch(() => undefined) : undefined
+    // Letto al momento della registrazione: dopo una riattivazione vale il segreto nuovo
+    const segreto = segretoAttuale?.()
+    const p_impronta = segreto ? await impronta(segreto).catch(() => undefined) : undefined
     await supabase.rpc('app_registra_push_token', { p_token: token, p_piattaforma: piattaforma, p_impronta })
   }
   const { token } = await FirebaseMessaging.getToken()

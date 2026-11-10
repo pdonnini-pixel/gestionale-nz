@@ -152,6 +152,7 @@ export type Database = {
       }
       employee_push_tokens: {
         Row: {
+          disattivato_per_cambio: boolean
           aggiornato_il: string
           attivo: boolean
           company_id: string
@@ -163,6 +164,7 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          disattivato_per_cambio?: boolean
           aggiornato_il?: string
           attivo?: boolean
           company_id: string
@@ -174,6 +176,7 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          disattivato_per_cambio?: boolean
           aggiornato_il?: string
           attivo?: boolean
           company_id?: string
