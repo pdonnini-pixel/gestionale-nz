@@ -14,7 +14,8 @@ import { CheckCircle2, Wifi, WifiOff, Camera, RefreshCw, AlertTriangle } from 'l
 import { supabase } from '../lib/supabase'
 import {
   CAUSALI_STRAORDINARIO, CAUSALI_USCITA, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT,
-  azioni, dataRoma, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, ordina, statoDa, valutaEntrata, valutaUscita,
+  azioni, dataRoma, entrataMancante, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, oreEntrataDichiarabili, ordina, statoDa,
+  valutaEntrata, valutaUscita,
   type TipoTimbratura, type Timbratura,
 } from '../lib/timbrature'
 import {
@@ -32,6 +33,8 @@ const K_NEGOZIO = 'nz-timbra-negozio'
 
 interface Selezione { employeeId: string; nome: string; codice: string; letto: number }
 interface Fatto { nome: string; tipo: TipoTimbratura; ora: string; nota?: string }
+/** Timbratura di oggi; dichiarata = entrata segnata a posteriori, da confermare (migration 382). */
+type TimbraturaOggi = Timbratura & { dichiarata?: boolean }
 interface UscitaDaConfermare { tipo: 'anticipata' | 'straordinario'; minuti: number; proposti: number; fine: string }
 
 const ETICHETTA_PULSANTE: Record<TipoTimbratura, string> = {
@@ -56,6 +59,10 @@ export default function Timbra() {
   const [fatto, setFatto] = useState<Fatto | null>(null)
   const [uscita, setUscita] = useState<UscitaDaConfermare | null>(null)
   const [causale, setCausale] = useState<string | null>(null)
+  // Entrata dimenticata: ora scelta e «No, entro adesso»
+  const [oraDichiarata, setOraDichiarata] = useState<string | null>(null)
+  const [entroAdesso, setEntroAdesso] = useState(false)
+  const [segnata, setSegnata] = useState<string | null>(null)
   const [avviso, setAvviso] = useState<string | null>(null)
   const [frontale, setFrontale] = useState(true)
   const [erroreCamera, setErroreCamera] = useState<string | null>(null)
@@ -134,15 +141,15 @@ export default function Timbra() {
 
   // Timbrature di oggi: quelle del server piu' quelle ancora in coda
   const timbratureOggi = useMemo(() => {
-    const m = new Map<string, Timbratura[]>()
+    const m = new Map<string, TimbraturaOggi[]>()
     const visti = new Set<string>()
-    const metti = (id: string, emp: string, t: Timbratura) => {
+    const metti = (id: string, emp: string, t: TimbraturaOggi) => {
       if (visti.has(id) || dataRoma(Date.parse(t.ora)) !== oggi) return
       visti.add(id)
       m.set(emp, [...(m.get(emp) ?? []), t])
     }
-    for (const t of dati?.timbrature ?? []) metti(t.id, t.employee_id, { tipo: t.tipo, ora: t.ora })
-    for (const c of coda) metti(c.id, c.employee_id, { tipo: c.tipo, ora: c.ora_dispositivo })
+    for (const t of dati?.timbrature ?? []) metti(t.id, t.employee_id, { tipo: t.tipo, ora: t.ora, dichiarata: t.dichiarata })
+    for (const c of coda) metti(c.id, c.employee_id, { tipo: c.tipo, ora: c.ora_dichiarata ?? c.ora_dispositivo, dichiarata: !!c.ora_dichiarata })
     return m
   }, [dati, coda, oggi])
 
@@ -195,25 +202,36 @@ export default function Timbra() {
 
   // La scheda della persona si chiude da sola dopo 20 secondi
   useEffect(() => {
-    if (!selezione) { setUscita(null); setCausale(null); return }
-    // Ogni tocco (scelta del motivo) rida' 20 secondi
+    if (!selezione) { setUscita(null); setCausale(null); setOraDichiarata(null); setEntroAdesso(false); setSegnata(null); return }
+    // Ogni tocco (scelta del motivo o dell'ora) rida' 20 secondi
     const t = setTimeout(() => setSelezione(null), 20_000)
     return () => clearTimeout(t)
-  }, [selezione, uscita, causale])
+  }, [selezione, uscita, causale, oraDichiarata, entroAdesso])
   useEffect(() => {
     if (!fatto) return
     const t = setTimeout(() => setFatto(null), 3500)
     return () => clearTimeout(t)
   }, [fatto])
 
-  const timbra = async (tipo: TipoTimbratura, opzioni?: { causale?: string; nota?: string }) => {
+  const timbra = async (tipo: TipoTimbratura, opzioni?: { causale?: string; nota?: string; oraDichiarata?: string }) => {
     // Un solo tocco conta: il secondo, mentre si salva, si ignora
     if (!selezione || !outletId || occupato.current) return
     occupato.current = true
     const sel = selezione
     setSelezione(null)
     try {
-      const riga = await registraInCoda({ outletId, codice: sel.codice, tipo, employeeId: sel.employeeId, nome: sel.nome, causale: opzioni?.causale })
+      const riga = await registraInCoda({
+        outletId, codice: sel.codice, tipo, employeeId: sel.employeeId, nome: sel.nome,
+        causale: opzioni?.causale, oraDichiarata: opzioni?.oraDichiarata,
+      })
+      if (riga.ora_dichiarata) {
+        // Entrata dimenticata: la scheda resta aperta per pausa o uscita
+        await aggiornaCoda()
+        setSelezione({ ...sel, letto: Date.now() })
+        setSegnata(oraRoma(riga.ora_dichiarata))
+        void sincronizza()
+        return
+      }
       ultimoCodice.current = { id: sel.employeeId, t: Date.now() }
       setFatto({ nome: sel.nome, tipo, ora: riga.ora_dispositivo, nota: opzioni?.nota })
       await aggiornaCoda()
@@ -299,6 +317,7 @@ export default function Timbra() {
             const entrata = principale === 'entrata' && turno && !ts.some((t) => t.tipo === 'entrata') ? valutaEntrata(turno, adesso, tolleranza) : null
             const altroTurnoDopo = (dati?.turni ?? []).some((t) => t.employee_id === selezione.employeeId && t.data === oggi && oraRomaInMs(oggi, t.inizio) > adesso)
             const tocchi = [principale, ...altre]
+            const mancante = stato === 'fuori' && !entroAdesso && entrataMancante(turno, ts, adesso, tolleranza)
             const esci = () => {
               // Senza turno, o con turno a cavallo della mezzanotte, il server non crea eventi: niente domande
               if (!turno || turno.fine <= turno.inizio) { void timbra('uscita'); return }
@@ -309,6 +328,39 @@ export default function Timbra() {
             const entra = () => void timbra('entrata', entrata?.oltre
               ? { nota: `${entrata.minuti} minuti di ritardo: ${formatMinuti(entrata.permesso)} di permesso, da confermare.` }
               : undefined)
+
+            if (mancante && turno) {
+              const ore = oreEntrataDichiarabili(turno, adesso)
+              const proposta = turno.inizio.slice(0, 5)
+              const scelta = oraDichiarata ?? (ore.includes(proposta) ? proposta : ore[0])
+              const segna = () => void timbra('entrata', { oraDichiarata: new Date(oraRomaInMs(oggi, scelta)).toISOString() })
+              return (
+                <div className="w-full max-w-md flex flex-col gap-3">
+                  <div className="text-center">
+                    <p className="text-3xl font-bold">{selezione.nome}</p>
+                    <p className="text-slate-300 mt-1">Turno di oggi {turno.inizio.slice(0, 5)} - {turno.fine.slice(0, 5)}</p>
+                  </div>
+                  <div className="rounded-2xl p-4 border bg-amber-950/60 border-amber-600 text-amber-200">
+                    <p className="text-lg font-bold">Non risulta la tua entrata di oggi.</p>
+                    <p className="text-sm mt-1">Se eri già in negozio, scegli l'ora a cui sei entrato: la conferma il responsabile.</p>
+                  </div>
+                  <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-600 px-4 py-3">
+                    <span className="text-lg text-slate-300">Ero già entrato alle</span>
+                    <select value={scelta} onChange={(e) => setOraDichiarata(e.target.value)}
+                      className="bg-slate-800 text-white text-2xl font-bold tabular-nums rounded-xl px-3 py-2 border border-slate-500">
+                      {ore.map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </label>
+                  <button onClick={segna} className="w-full py-6 rounded-2xl text-2xl font-bold bg-emerald-600 active:bg-emerald-700">
+                    Segna l'entrata delle {scelta}
+                  </button>
+                  <button onClick={() => setEntroAdesso(true)} className="w-full py-4 rounded-2xl text-xl font-semibold bg-slate-700 active:bg-slate-600">
+                    No, entro adesso
+                  </button>
+                  <button onClick={() => setSelezione(null)} className="text-slate-400 underline py-1">Annulla</button>
+                </div>
+              )
+            }
 
             if (uscita) {
               const anticipata = uscita.tipo === 'anticipata'
@@ -356,8 +408,11 @@ export default function Timbra() {
                 <div className="text-center">
                   <p className="text-3xl font-bold">{selezione.nome}</p>
                   <p className="text-slate-300 mt-1">{turno ? `Turno di oggi ${turno.inizio.slice(0, 5)} - ${turno.fine.slice(0, 5)}` : 'Nessun turno oggi'}</p>
-                  {ts.length > 0 && <p className="text-slate-400 text-sm mt-1">{ordina(ts).map((t) => `${ETICHETTA_TIPO[t.tipo]} ${oraRoma(t.ora)}`).join(' · ')}</p>}
+                  {ts.length > 0 && <p className="text-slate-400 text-sm mt-1">{ordina(ts).map((t) => `${ETICHETTA_TIPO[t.tipo]} ${oraRoma(t.ora)}${t.dichiarata ? ' (segnata, da confermare)' : ''}`).join(' · ')}</p>}
                 </div>
+                {segnata && (
+                  <p className="text-center text-emerald-300 text-sm">Entrata delle {segnata} segnata: la conferma il responsabile.</p>
+                )}
                 {entrata && entrata.minuti > 0 && (
                   entrata.oltre ? (
                     <div className="rounded-2xl p-4 border bg-amber-950/60 border-amber-600 text-amber-200">

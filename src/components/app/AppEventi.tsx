@@ -1,5 +1,5 @@
-// App del dipendente, scheda Oggi: ritardi, uscite anticipate e straordinari
-// di oggi e di ieri (migration 372). Il telefono del negozio li registra; qui
+// App del dipendente, scheda Oggi: ritardi, uscite anticipate, straordinari
+// ed entrate segnate a posteriori di oggi e di ieri (migration 372 e 382). Il telefono del negozio li registra; qui
 // il dipendente scrive il motivo (e cambia la scelta fatta al negozio finché
 // il responsabile non ha deciso). Permessi e straordinari contano solo dopo
 // la conferma del responsabile.
@@ -11,7 +11,7 @@ import { giornoBreve } from '../../lib/appDipendente'
 export interface EventoApp {
   id: string
   data: string
-  tipo: 'ritardo' | 'uscita_anticipata' | 'straordinario'
+  tipo: 'ritardo' | 'uscita_anticipata' | 'straordinario' | 'entrata_dichiarata'
   minuti: number
   minuti_proposti: number
   turno_inizio: string | null
@@ -32,8 +32,15 @@ const STATO: Record<EventoApp['stato'], { testo: string; stile: string }> = {
 }
 
 /** Titolo e spiegazione dell'evento, nelle parole dell'app. */
-export function testoEvento(e: EventoApp): { titolo: string; dettaglio: string } {
+export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string; dettaglio: string } {
   const turno = e.turno_inizio && e.turno_fine ? `turno ${e.turno_inizio.slice(0, 5)} - ${e.turno_fine.slice(0, 5)}` : ''
+  // Entrata dimenticata e segnata a posteriori (migration 382)
+  if (e.tipo === 'entrata_dichiarata') {
+    const titolo = ora ? `Entrata delle ${ora} segnata` : 'Entrata segnata'
+    if (e.stato === 'confermato') return { titolo, dettaglio: 'Confermata dal responsabile.' }
+    if (e.stato === 'respinto') return { titolo, dettaglio: 'Non confermata: la giornata resta senza entrata, se ne occupa chi segue il personale.' }
+    return { titolo, dettaglio: `${turno}. Vale come entrata quando il responsabile la conferma.` }
+  }
   if (e.stato === 'confermato') {
     const min = formatMinuti(e.minuti_confermati ?? e.minuti_proposti)
     const titolo = e.tipo === 'ritardo' ? `Entrata con ${formatMinuti(e.minuti)} di ritardo`
@@ -71,22 +78,26 @@ export function testoEvento(e: EventoApp): { titolo: string; dettaglio: string }
   }
 }
 
-export default function AppEventi({ eventi, oggi, onSalvato }: { eventi: EventoApp[]; oggi: string; onSalvato: () => void }) {
+export default function AppEventi({ eventi, oggi, onSalvato, oraEntrata }: {
+  eventi: EventoApp[]; oggi: string; onSalvato: () => void
+  /** Ora dell'entrata dichiarata per giorno (YYYY-MM-DD → HH:MM), per il titolo. */
+  oraEntrata?: (data: string) => string | null
+}) {
   if (!eventi.length) return null
   return (
     <div className="w-full max-w-sm flex flex-col gap-3">
-      {[...eventi].reverse().map((e) => <Evento key={e.id} e={e} oggi={oggi} onSalvato={onSalvato} />)}
+      {[...eventi].reverse().map((e) => <Evento key={e.id} e={e} oggi={oggi} onSalvato={onSalvato} ora={oraEntrata?.(e.data) ?? null} />)}
     </div>
   )
 }
 
-function Evento({ e, oggi, onSalvato }: { e: EventoApp; oggi: string; onSalvato: () => void }) {
+function Evento({ e, oggi, onSalvato, ora }: { e: EventoApp; oggi: string; onSalvato: () => void; ora: string | null }) {
   const [aperto, setAperto] = useState(false)
   const [motivo, setMotivo] = useState(e.motivo ?? '')
   const [causale, setCausale] = useState(e.causale ?? '')
   const [salvo, setSalvo] = useState(false)
   const [errore, setErrore] = useState<string | null>(null)
-  const { titolo, dettaglio } = testoEvento(e)
+  const { titolo, dettaglio } = testoEvento(e, ora)
   const modificabile = e.stato === 'da_confermare'
   const causali: Record<string, string> | null = e.tipo === 'uscita_anticipata' ? CAUSALI_USCITA
     : e.tipo === 'straordinario' ? CAUSALI_STRAORDINARIO : null
@@ -130,7 +141,8 @@ function Evento({ e, oggi, onSalvato }: { e: EventoApp; oggi: string; onSalvato:
             </label>
           ))}
           <textarea value={motivo} onChange={(x) => setMotivo(x.target.value)} maxLength={500} rows={2}
-            placeholder={e.tipo === 'ritardo' ? 'Motivo del ritardo (facoltativo)' : 'Vuoi aggiungere qualcosa? (facoltativo)'}
+            placeholder={e.tipo === 'ritardo' ? 'Motivo del ritardo (facoltativo)'
+              : e.tipo === 'entrata_dichiarata' ? 'Perché non hai timbrato? (facoltativo)' : 'Vuoi aggiungere qualcosa? (facoltativo)'}
             className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm" />
           {errore && <p className="text-sm text-rose-600">{errore}</p>}
           <div className="flex gap-2">
@@ -143,7 +155,7 @@ function Evento({ e, oggi, onSalvato }: { e: EventoApp; oggi: string; onSalvato:
         </div>
       ) : modificabile && (
         <button onClick={() => setAperto(true)} className="mt-3 text-sm font-semibold text-[#ff0066]">
-          {e.motivo ? 'Cambia il motivo' : e.tipo === 'ritardo' ? 'Aggiungi un motivo' : 'Aggiungi o cambia il motivo'}
+          {e.motivo ? 'Cambia il motivo' : e.tipo === 'ritardo' || e.tipo === 'entrata_dichiarata' ? 'Aggiungi un motivo' : 'Aggiungi o cambia il motivo'}
         </button>
       )}
     </div>

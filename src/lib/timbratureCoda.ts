@@ -20,6 +20,10 @@ export interface RigaCoda {
   sequenza: number
   /** Motivo scelto sul telefono del negozio (uscita anticipata o straordinario, migration 372). */
   causale?: string
+  /** Entrata dimenticata (migration 382): l'ora dichiarata, ISO. Il server la
+   *  accetta solo con il QR valido e nessuna timbratura prima nella giornata;
+   *  altrimenti salva l'entrata all'ora del QR. */
+  ora_dichiarata?: string
   /** Solo per la pagina: chi e' e quando, anche senza rete. */
   employee_id: string
   nome: string
@@ -106,6 +110,7 @@ export function scartate(): RigaScartata[] {
 /** Salva una timbratura in coda (subito, anche senza rete). */
 export async function registraInCoda(args: {
   outletId: string; codice: string; tipo: TipoTimbratura; employeeId: string; nome: string; causale?: string
+  oraDichiarata?: string
 }): Promise<RigaCoda> {
   const riga: RigaCoda = {
     id: crypto.randomUUID(),
@@ -117,6 +122,7 @@ export async function registraInCoda(args: {
     dispositivo_id: idDispositivo(),
     sequenza: prossimaSequenza(),
     ...(args.causale ? { causale: args.causale } : {}),
+    ...(args.oraDichiarata && args.tipo === 'entrata' ? { ora_dichiarata: args.oraDichiarata } : {}),
     employee_id: args.employeeId,
     nome: args.nome,
   }
@@ -176,7 +182,8 @@ export interface DatiTimbratrice {
   /** tolleranza e margine valgono per la persona (eccezione o regola del negozio): migration 372. */
   persone: { id: string; nome: string; tolleranza?: number; margine?: number }[]
   turni: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null }[]
-  timbrature: { id: string; employee_id: string; tipo: TipoTimbratura; ora: string }[]
+  /** dichiarata: entrata segnata a posteriori, ancora da confermare (migration 382). */
+  timbrature: { id: string; employee_id: string; tipo: TipoTimbratura; ora: string; dichiarata?: boolean }[]
   /** Quando e' stata scaricata (ora del telefono). */
   scaricati_il?: string
 }
