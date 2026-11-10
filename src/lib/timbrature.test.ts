@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHmac } from 'node:crypto'
 import {
-  azioni, codiceQr, firma, leggiCodice, oraRomaInMs, passoDa, riepilogoGiorno, secondiAlCambio, statoDa,
+  azioni, codiceQr, entrataMancante, oreEntrataDichiarabili, firma, leggiCodice, oraRomaInMs, passoDa, riepilogoGiorno, secondiAlCambio, statoDa,
 } from './timbrature'
 
 const SEGRETO = '00112233445566778899aabbccddeeff00112233'
@@ -125,5 +125,21 @@ describe('ritardi, uscite anticipate e straordinari', () => {
     expect(valutaUscita(turno, _ms('2026-11-09', '15:45'), 15, true).tipo).toBe('normale')
     expect(valutaUscita(turno, _ms('2026-11-09', '19:10'), 15, false).tipo).toBe('normale')
     expect(valutaUscita(turno, _ms('2026-11-09', '19:45'), 15, false)).toEqual({ tipo: 'straordinario', minuti: 45, proposti: 30 })
+  })
+})
+
+describe('entrata dimenticata (migration 382)', () => {
+  const turno = { data: '2026-11-05', inizio: '10:00:00', fine: '19:00:00' }
+  it('manca solo oltre la tolleranza e senza timbrature', () => {
+    expect(entrataMancante(turno, [], oraRomaInMs('2026-11-05', '10:09'), 10)).toBe(false)
+    expect(entrataMancante(turno, [], oraRomaInMs('2026-11-05', '10:11'), 10)).toBe(true)
+    expect(entrataMancante(turno, [{ tipo: 'uscita', ora: new Date(oraRomaInMs('2026-11-05', '10:05')).toISOString() }], oraRomaInMs('2026-11-05', '19:06'), 10)).toBe(false)
+    expect(entrataMancante(null, [], oraRomaInMs('2026-11-05', '19:06'), 10)).toBe(false)
+  })
+  it("ore dichiarabili: dall'inizio del turno meno un'ora ad adesso, ogni 5 minuti", () => {
+    const ore = oreEntrataDichiarabili(turno, oraRomaInMs('2026-11-05', '10:32'))
+    expect(ore[0]).toBe('09:00')
+    expect(ore).toContain('10:00')
+    expect(ore.at(-1)).toBe('10:30')
   })
 })

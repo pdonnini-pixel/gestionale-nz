@@ -1,6 +1,6 @@
 # manuale delle presenze per i negozi
 
-Manuale di funzionamento da dare a ogni negozio (versione del 09/11/2026, su indicazione di Patrizio). È scritto come il racconto di una giornata in negozio, dall'apertura alla chiusura, più il giorno dopo; in fondo le appendici. Il PDF con le schermate si rigenera da questo testo; persone e dati delle schermate sono inventati.
+Manuale di funzionamento da dare a ogni negozio (versione del 10/11/2026, su indicazione di Patrizio). È scritto come il racconto di una giornata in negozio, dall'apertura alla chiusura, più il giorno dopo; in fondo le appendici. Il PDF con le schermate si rigenera da questo testo; persone e dati delle schermate sono inventati.
 
 **Chi c'è nel racconto** (negozio di Roma Soratte, giovedì 5 novembre)
 - **Sara Conti**, referente del negozio: turno 09:30-19:30, apre e chiude.
@@ -19,9 +19,14 @@ Sara apre l'app New Zago sul suo telefono, scheda **Oggi**, e avvicina il QR all
 Il telefono del negozio riconosce Sara, mostra il suo turno e propone l'unica azione possibile: **Entra**. Sara tocca, compare «Entrata registrata, Sara Conti, alle 09:24», e dopo pochi secondi il telefono torna in attesa. **Annulla** torna indietro senza timbrare.
 
 ### 09:52 · Giulia arriva in ritardo
-Il turno di Giulia iniziava alle 09:30: 22 minuti dopo, oltre i 10 di tolleranza. Prima di «Entra» il telefono lo dice: «22 minuti di ritardo, oltre i 10 minuti di tolleranza: 30' di permesso, da confermare». Il permesso va **a blocchi di 15 minuti per eccesso** (12 minuti diventano 15, 22 diventano 30).
-Entro la tolleranza non è un ritardo: entrando alle 09:38 con turno alle 09:30, il telefono scrive solo «8 minuti dopo l'inizio, entro la tolleranza», senza permesso.
+Il turno di Giulia iniziava alle 09:30 e lei non ha ancora timbrato niente. Passata la tolleranza, il telefono pensa prima a un'entrata dimenticata: «Non risulta la tua entrata di oggi», con l'ora da scegliere. Giulia è appena arrivata, quindi tocca **No, entro adesso**.
+A quel punto il telefono dice il ritardo prima di «Entra»: «22 minuti di ritardo, oltre i 10 minuti di tolleranza: 30' di permesso, da confermare». Il permesso va **a blocchi di 15 minuti per eccesso** (12 minuti diventano 15, 22 diventano 30).
+Entro la tolleranza non è un ritardo: entrando alle 09:38 con turno alle 09:30, il telefono propone subito «Entra» e scrive solo «8 minuti dopo l'inizio, entro la tolleranza», senza permesso.
 Nell'app di Giulia compare il riquadro del ritardo, «da confermare». Giulia può toccare **Aggiungi un motivo** e scrivere il perché (per esempio «Treno in ritardo»): il responsabile lo legge prima di decidere. **Il permesso non conta finché il responsabile non lo conferma.**
+
+### 10:15 · Luca è entrato ma non ha timbrato
+Luca è arrivato alle 10:00, ha aiutato subito una cliente e si è dimenticato del QR. Quindici minuti dopo l'inizio del turno, senza entrata, parte l'avviso (vedi appendice C): sul telefono di Luca arriva «Non risulta la tua entrata», e a Sara, referente del negozio, «Luca: entrata non timbrata».
+Nell'app di Luca, scheda **Oggi**, compare il riquadro giallo «Non risulta la tua entrata di oggi». Da lì potrebbe scegliere l'ora («Sono entrato alle 10:00») e toccare **Segna**. Luca però non guarda il telefono fino a sera.
 
 ### 13:02 · Sara va in pausa
 Sara avvicina il QR: ora che è in negozio, il telefono propone **Vado in pausa** ed **Esco**. Tocca «Vado in pausa». In basso, nell'elenco di chi è in negozio, Sara compare «in pausa».
@@ -37,8 +42,10 @@ Il turno di Giulia finisce alle 18:30. Quando tocca **Esco**, il telefono le chi
 - **D'accordo con il responsabile**: il responsabile decide caso per caso se scalare il permesso.
 Giulia sceglie «Motivo personale» e tocca **Conferma l'uscita**. Il motivo scritto non si chiede sul telefono del negozio, che è di tutti: Giulia aggiunge «Visita medica» dall'app, nel riquadro dell'uscita.
 
-### 19:06 · Luca esce a fine turno
-Il turno di Luca finiva alle 19:00: è uscito 6 minuti dopo, dentro il margine di 15. Tocca **Esco** e il telefono registra subito, senza domande: non è straordinario.
+### 19:06 · Luca segna l'entrata dimenticata ed esce
+Luca avvicina il QR per uscire. Il telefono non trova la sua entrata e glielo dice: «Non risulta la tua entrata di oggi. Se eri già in negozio, scegli l'ora a cui sei entrato: la conferma il responsabile». L'ora si sceglie fra l'inizio del turno meno un'ora e adesso; la prima proposta è l'inizio del turno.
+Luca lascia le 10:00 e tocca **Segna l'entrata delle 10:00**. Sul telefono compare «Entrata 10:00 (segnata, da confermare)» e restano i pulsanti di sempre: Luca tocca **Esco**. È uscito 6 minuti dopo la fine del turno, dentro il margine di 15: il telefono registra subito, senza domande, perché non è straordinario.
+L'entrata segnata vale subito per pausa e uscita, ma conta solo quando il responsabile la conferma.
 
 ### 19:40 · Marco resta per il riassortimento
 Il turno di Marco finiva alle 19:00: esce 40 minuti dopo. Oltre il margine di 15 minuti, il telefono chiede il motivo dello straordinario (concordato per assenza di un collega, cliente da gestire, riassortimento, allestimento) e dice quanto conta: **solo la parte oltre il margine**, cioè 25 minuti. Marco sceglie «Riassortimento» e conferma. Anche lo straordinario conta solo **dopo la conferma** del responsabile.
@@ -48,7 +55,8 @@ Sara è l'ultima: timbra **Esco** (12 minuti dopo la fine del turno, dentro il m
 
 ### il giorno dopo · Sara conferma i casi
 Sara è anche la responsabile del negozio: entra nel gestionale con il suo account (profilo «Responsabile») e trova la pagina **Presenze e ferie**.
-- **Da confermare**: il ritardo e l'uscita di Giulia, lo straordinario di Marco, con turno, timbratura, proposta e motivo. **Conferma** chiude il caso: il permesso si scala da solo; la malattia si registra con «Prendo atto». **Altro** apre la decisione: si possono ridurre i minuti, scegliere il motivo o non confermare con una nota che la persona legge nell'app.
+- **Da confermare**: l'entrata segnata da Luca («Entrata dichiarata», segnata alle 19:06 dal telefono del negozio, in orario), il ritardo e l'uscita di Giulia, lo straordinario di Marco, con turno, timbratura, proposta e motivo. **Conferma** chiude il caso: il permesso si scala da solo; la malattia si registra con «Prendo atto». **Altro** apre la decisione: si possono ridurre i minuti, scegliere il motivo o non confermare con una nota che la persona legge nell'app.
+- **Entrata dichiarata**: confermata, vale come entrata. Se l'ora segnata fosse oltre la tolleranza (per esempio 10:25), alla conferma nascerebbe anche il ritardo, da confermare come gli altri. Con «Altro» Sara può correggere l'ora oppure non confermarla: in quel caso l'entrata non vale, la giornata resta senza entrata e se ne occupa chi segue il personale.
 - **Ferie e permessi**: la richiesta di ferie che Luca ha mandato dall'app, con le ore che gli restano. **Approva** o **Respingi** con il motivo.
 - I casi e le ferie di Sara li decide un altro responsabile o un amministratore.
 
@@ -75,24 +83,38 @@ Le quattro schede in basso:
 - **Ferie**: le ore di ferie e di permessi ancora da usare, quelle già pianificate, la richiesta di giornate, mezze giornate o ore, lo stato delle richieste.
 - **Ore**: le ore lavorate del mese contro quelle di turno.
 
+**Entrata dimenticata**: se il turno è cominciato da più della tolleranza e oggi non c'è nessuna timbratura, nella scheda Oggi compare il riquadro giallo: si sceglie l'ora («Sono entrato alle») e si tocca **Segna**. Serve la rete, e vale solo per oggi. Poi la conferma il responsabile.
 **Uscita dimenticata**: se il turno è finito e l'uscita non risulta, l'app lo dice e chiede l'ora a cui si è usciti; poi la conferma chi segue il personale.
-**Notifiche**: con l'app New Zago installata dagli store arrivano gli avvisi di entrata mancante e di uscita non timbrata.
 
-## appendice C · cosa fare se
+## appendice C · gli avvisi sul telefono
 
+Due avvisi, per ogni turno al massimo uno per tipo:
+- **Entrata non timbrata**: 15 minuti dopo l'inizio del turno senza entrata (non parte se quel giorno la persona è in ferie o in permesso). Al dipendente dice anche che può timbrare con il QR o segnare l'ora dall'app.
+- **Uscita non timbrata**: passato il margine dopo la fine del turno, se la persona risulta ancora dentro.
+
+Chi li riceve:
+- **il dipendente**, sull'app New Zago installata dagli store, se ha accettato le notifiche;
+- **il referente del negozio**, sulla sua app da dipendente;
+- **chi conferma il negozio** (responsabile, area manager), con una notifica nel gestionale;
+- **l'ufficio**, con una notifica nel gestionale.
+
+Dove si accendono e si spengono: nel gestionale, Dipendenti → Presenze → Giornata, riquadro «Avvisi sul telefono (app New Zago)», negozio per negozio. Nei negozi nuovi gli avvisi partono **già accesi** per tutti, tranne l'ufficio: chi non li vuole li spegne lì. I minuti dell'avviso di entrata si cambiano nello stesso riquadro.
+
+## appendice D · cosa fare se
+
+- **Entrata dimenticata**: si segna l'ora dal telefono del negozio, al primo QR della giornata, oppure dall'app (riquadro giallo). La conferma il responsabile. Se nessuno l'ha segnata, chi segue il personale la aggiunge in Dipendenti → Presenze → Giornata con «Aggiungi timbratura» e il motivo.
 - **Il telefono del negozio non ha rete**: si timbra come sempre; le timbrature partono da sole quando la rete torna, in alto c'è scritto quante sono in attesa. Non spegnere il telefono e non cancellare i dati di Chrome finché non risultano tutte inviate.
-- **Il telefono del negozio è scarico o rotto**: annotare su un foglio nome, entrata, pause e uscita di ciascuno e mandarlo al responsabile, che lo passa a chi segue il personale. L'uscita mancante si può segnare dall'app; per l'entrata mancante, per ora, va avvisato chi segue il personale.
+- **Il telefono del negozio è scarico o rotto**: ciascuno segna l'entrata dall'app (riquadro giallo) e, a fine turno, l'uscita. Chi non riesce annota su un foglio nome, entrata, pause e uscita e lo manda al responsabile, che lo passa a chi segue il personale: le timbrature mancanti le aggiunge lui.
 - **Telefono personale scarico, o persona senza smartphone**: per ora va avvisato il responsabile, che lo segnala a chi segue il personale.
 - **Timbratura sbagliata** (per esempio «Esco» al posto di «Vado in pausa»): avvisare il responsabile; chi segue il personale la annulla con il motivo, e resta nello storico.
 - **Telefono personale nuovo**: chiedere a chi segue il personale un codice nuovo; il telefono vecchio smette di funzionare.
 
-## appendice D · privacy
+## appendice E · privacy
 
 Il sistema registra solo le timbrature (ora e negozio) e i turni. Niente posizione, niente impronte o riconoscimento del viso: il luogo è certo perché il telefono che timbra è quello del negozio. L'informativa completa la consegna l'azienda.
 
 ## da sistemare prima della consegna
 
-- Entrata dimenticata: oggi non si può aggiungere a mano nel gestionale (dall'app si segna solo l'uscita).
 - Persone senza smartphone: il codice PIN sul telefono del negozio non è ancora fatto.
 - Informativa privacy (a cura di Lilian).
 

@@ -22,7 +22,8 @@ import '@fontsource/poppins/latin-700.css'
 
 const CARATTERE = { fontFamily: "'Poppins', ui-sans-serif, system-ui, sans-serif" }
 import {
-  ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, formatMinuti, oraRoma, ordina, riepilogoGiorno, secondiAlCambio,
+  ETICHETTA_ESITO, ETICHETTA_TIPO, codiceQr, dataRoma, entrataMancante, formatMinuti, oraRoma, oreEntrataDichiarabili, ordina,
+  riepilogoGiorno, secondiAlCambio,
   PASSO_SECONDI, TOLLERANZA_ENTRATA_DEFAULT, valutaEntrata, type Timbratura, type TipoTimbratura,
 } from '../lib/timbrature'
 import { attivaOffline } from '../lib/presenzeOffline'
@@ -50,7 +51,8 @@ interface DatiOggi {
   ora_server: string
   persona: { id: string; nome: string; negozio: string | null }
   turni: { data: string; inizio: string; fine: string; pausa_minuti: number | null; negozio: string | null }[]
-  timbrature: { tipo: TipoTimbratura; ora: string; origine: string }[]
+  /** verifica dalla migration 382: 'da_confermare' per l'entrata segnata a posteriori. */
+  timbrature: { tipo: TipoTimbratura; ora: string; origine: string; verifica?: string }[]
   // Dalla migration 372: assenti se il tenant non le ha ancora
   regole?: { tolleranza: number; margine: number }
   eventi?: EventoApp[]
@@ -157,6 +159,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const [dati, setDati] = useState<DatiOggi | null>(() => leggi<DatiOggi>(K_OGGI))
   const [online, setOnline] = useState(navigator.onLine)
   const [oraUscita, setOraUscita] = useState('')
+  const [oraEntrata, setOraEntrata] = useState<string | null>(null)
   const [messaggio, setMessaggio] = useState<{ ok: boolean; testo: string } | null>(null)
   const [scheda, setScheda] = useState<Scheda>('oggi')
   const [notifiche, setNotifiche] = useState<EsitoNotifiche | null>(null)
@@ -232,6 +235,29 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
     : rOggi.esito === 'uscita_mancante' ? oggi : null
 
 
+  // Entrata dimenticata (migration 382): turno cominciato da piu' della tolleranza, nessuna timbratura
+  const tolleranzaOggi = dati?.regole?.tolleranza ?? TOLLERANZA_ENTRATA_DEFAULT
+  const turnoOggi = turnoDel(oggi)
+  // Dopo un'entrata dichiarata non confermata non se ne segna un'altra (migration 383)
+  const entrataRespinta = (dati?.eventi ?? []).some((e) => e.data === oggi && e.tipo === 'entrata_dichiarata' && e.stato === 'respinto')
+  const entrataDaSegnare = !!dati && !entrataRespinta && entrataMancante(turnoOggi, perGiorno(oggi), adesso, tolleranzaOggi)
+  const oreEntrata = entrataDaSegnare && turnoOggi ? oreEntrataDichiarabili(turnoOggi, adesso) : []
+  const sceltaEntrata = oraEntrata && oreEntrata.includes(oraEntrata) ? oraEntrata
+    : turnoOggi && oreEntrata.includes(turnoOggi.inizio.slice(0, 5)) ? turnoOggi.inizio.slice(0, 5) : (oreEntrata[0] ?? '')
+  const segnaEntrata = async () => {
+    if (!sceltaEntrata) return
+    setMessaggio(null)
+    const { error } = await supabase.rpc('app_dipendente_dichiara_entrata', { p_ora: sceltaEntrata })
+    if (error) { setMessaggio({ ok: false, testo: error.message }); return }
+    setMessaggio({ ok: true, testo: `Entrata delle ${sceltaEntrata} segnata: la conferma il responsabile.` })
+    setOraEntrata(null)
+    void aggiorna()
+  }
+  const oraEntrataDichiarata = (d: string) => {
+    const t = (dati?.timbrature ?? []).find((x) => x.tipo === 'entrata' && x.origine === 'dichiarata' && dataRoma(Date.parse(x.ora)) === d)
+    return t ? oraRoma(t.ora) : null
+  }
+
   const segnaUscita = async () => {
     if (!daSegnare || !/^\d{2}:\d{2}$/.test(oraUscita)) return
     setMessaggio(null)
@@ -265,6 +291,27 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
           Le notifiche sono spente: non ti arrivano gli avvisi di entrata e uscita. Accendile nelle impostazioni del telefono, alla voce New Zago.
         </p>
       )}
+      {/* Entrata da segnare */}
+      {entrataDaSegnare && turnoOggi && (
+        <div className="w-full max-w-sm bg-amber-50 border border-amber-200 rounded-2xl p-4 flex flex-col gap-3">
+          <p className="font-semibold text-amber-900">Non risulta la tua entrata di oggi</p>
+          <p className="text-sm text-amber-800">
+            Turno {turnoOggi.inizio.slice(0, 5)} - {turnoOggi.fine.slice(0, 5)}. Se sei in negozio, avvicina il QR al telefono del negozio.
+            Se eri già entrato, segna l'ora: la conferma il responsabile.
+          </p>
+          <div className="flex gap-2 items-center">
+            <span className="text-sm text-amber-900">Sono entrato alle</span>
+            <select value={sceltaEntrata} onChange={(e) => setOraEntrata(e.target.value)}
+              className="flex-1 border border-amber-300 rounded-lg px-3 py-2 text-lg font-semibold tabular-nums bg-white">
+              {oreEntrata.map((o) => <option key={o} value={o}>{o}</option>)}
+            </select>
+            <button onClick={() => void segnaEntrata()} disabled={!online || !sceltaEntrata}
+              className="px-4 py-2.5 rounded-lg bg-[#ff0066] text-white font-semibold disabled:opacity-40">Segna</button>
+          </div>
+          {!online && <p className="text-xs text-amber-800">Serve la rete per segnarla.</p>}
+        </div>
+      )}
+
       {/* QR */}
       <div className="w-full max-w-sm bg-white rounded-3xl shadow-sm border border-slate-100 p-5 flex flex-col items-center">
         <div className="w-full flex justify-between items-center">
@@ -298,7 +345,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
       {messaggio && <p className={`w-full max-w-sm text-sm ${messaggio.ok ? 'text-emerald-700' : 'text-rose-600'}`}>{messaggio.testo}</p>}
 
       {/* Ritardi, uscite anticipate e straordinari di oggi e ieri: il motivo si scrive qui */}
-      <AppEventi eventi={dati?.eventi ?? []} oggi={oggi} onSalvato={() => void aggiorna()} />
+      <AppEventi eventi={dati?.eventi ?? []} oggi={oggi} onSalvato={() => void aggiorna()} oraEntrata={oraEntrataDichiarata} />
 
       {/* Oggi */}
       <CardOggi turno={turnoDel(oggi)} timbrature={ordina(perGiorno(oggi))} r={rOggi} adesso={adesso}

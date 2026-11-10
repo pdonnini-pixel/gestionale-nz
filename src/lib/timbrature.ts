@@ -307,3 +307,29 @@ export function valutaUscita(
   if (dopo > margine) return { tipo: 'straordinario', minuti: dopo, proposti: dopo - margine }
   return { tipo: 'normale', minuti: Math.max(0, dopo), proposti: 0 }
 }
+
+// ─── Entrata dimenticata (migration 382) ──────────────────────────────
+
+/**
+ * L'entrata di oggi manca: il turno e' cominciato da piu' della tolleranza e
+ * oggi non c'e' nessuna timbratura. Prima di quel momento si propone il
+ * solito «Entra». Stessa condizione del server (timbrature_registra,
+ * app_dipendente_dichiara_entrata), che rifiuta la dichiarazione se c'e' gia'
+ * una timbratura nella giornata.
+ */
+export function entrataMancante(turno: Turno | null, timbratureOggi: Timbratura[], adessoMs: number, tolleranza: number): boolean {
+  if (!turno || turno.fine <= turno.inizio || timbratureOggi.length > 0) return false
+  return adessoMs - oraRomaInMs(turno.data, turno.inizio) > tolleranza * 60_000
+}
+
+/**
+ * Ore che si possono dichiarare: dall'inizio del turno meno un'ora fino ad
+ * adesso, ogni 5 minuti («HH:MM», ora di Roma). La prima proposta e'
+ * l'inizio del turno.
+ */
+export function oreEntrataDichiarabili(turno: Turno, adessoMs: number): string[] {
+  const inizio = oraRomaInMs(turno.data, turno.inizio)
+  const out: string[] = []
+  for (let t = inizio - 60 * 60_000; t <= adessoMs; t += 5 * 60_000) out.push(oraRoma(t))
+  return out
+}

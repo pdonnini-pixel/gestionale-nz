@@ -9,11 +9,15 @@
 //      (app New Zago, migration 367): ritardo in entrata (15 minuti di
 //      default), uscita non timbrata (margine di 30 minuti, che vale anche per
 //      lo straordinario), e chi li riceve: dipendente, responsabile del
-//      negozio, ufficio. WhatsApp tolto il 05/11/2026.
+//      negozio, ufficio. WhatsApp tolto il 05/11/2026. Dalla migration 382 gli
+//      avvisi sono accesi di base e c'e' un destinatario in piu': chi conferma
+//      il negozio. Chi segue il personale aggiunge una timbratura a mano
+//      (entrata dimenticata e mai segnata), con il motivo.
 //   3. Accessi: codice per attivare l'app e telefoni con le notifiche attive.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { BellRing, Copy, KeyRound, RefreshCw, Smartphone } from 'lucide-react'
+import { BellRing, Copy, KeyRound, Plus, RefreshCw, Smartphone } from 'lucide-react'
+import { Modal } from './ui/Modal'
 import { supabase } from '../lib/supabase'
 import { useOutlets } from '../hooks/useOutlets'
 import { useToast } from './Toast'
@@ -26,11 +30,14 @@ interface Impostazioni {
   attive: boolean; margine_uscita_minuti: number; tolleranza_entrata_minuti: number
   avvisi_push: boolean; ritardo_attivo: boolean; ritardo_minuti: number; uscita_attivo: boolean
   avvisa_dipendente: boolean; avvisa_responsabile: boolean; avvisa_ufficio: boolean
+  /** Dalla migration 382. */
+  avvisa_confermatori: boolean
 }
 const IMP_DEFAULT: Impostazioni = {
   attive: false, margine_uscita_minuti: MARGINE_USCITA_DEFAULT, tolleranza_entrata_minuti: TOLLERANZA_ENTRATA_DEFAULT,
-  avvisi_push: false, ritardo_attivo: true, ritardo_minuti: 15, uscita_attivo: true,
-  avvisa_dipendente: true, avvisa_responsabile: true, avvisa_ufficio: false,
+  // Avvisi accesi di base (Patrizio, 10/11/2026): si spengono qui
+  avvisi_push: true, ritardo_attivo: true, ritardo_minuti: 15, uscita_attivo: true,
+  avvisa_dipendente: true, avvisa_responsabile: true, avvisa_ufficio: false, avvisa_confermatori: true,
 }
 const ESITO_AVVISO: Record<string, string> = {
   mandato: 'arrivato sul telefono', nessun_telefono: 'non arrivato: app non installata', non_riuscito: 'non riuscito', nel_gestionale: 'nel gestionale',
@@ -72,6 +79,8 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
   const [nomi, setNomi] = useState<Map<string, string>>(new Map())
   const [accessi, setAccessi] = useState<Accesso[]>([])
   const [carico, setCarico] = useState(false)
+  const [haConfermatori, setHaConfermatori] = useState(true)
+  const [aggiungi, setAggiungi] = useState<{ emp: string; nome: string } | null>(null)
   // Sul sito di un'azienda senza la migration 348 (Made) le tabelle non ci sono:
   // la scheda lo dice invece di riempirsi di errori.
   const [nonDisponibile, setNonDisponibile] = useState(false)
@@ -93,7 +102,8 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       const dal = new Date(oraRomaInMs(giorno, '00:00')).toISOString()
       const al = new Date(oraRomaInMs(giorno, '23:59') + 60_000).toISOString()
       const [sRes, pianoRes, tRes, pRes, nRes, aRes, eRes] = await Promise.all([
-        supabase.from('attendance_settings').select('attive, margine_uscita_minuti, tolleranza_entrata_minuti, avvisi_push, ritardo_attivo, ritardo_minuti, uscita_attivo, avvisa_dipendente, avvisa_responsabile, avvisa_ufficio').eq('outlet_id', outletId).maybeSingle(),
+        // Tutte le colonne: avvisa_confermatori (382) puo' mancare dove la migration non c'e'
+        supabase.from('attendance_settings').select('*').eq('outlet_id', outletId).maybeSingle(),
         supabase.from('shift_plans').select('id').eq('outlet_id', outletId).eq('mese', mese).eq('stato', 'scelto').maybeSingle(),
         supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, plan_id, stato, origine').eq('outlet_id', outletId).eq('data', giorno).neq('stato', 'annullato'),
         supabase.from('attendance_punches').select('id, employee_id, tipo, ora, origine, verifica, nota').eq('outlet_id', outletId).eq('annullata', false).gte('ora', dal).lt('ora', al),
@@ -103,7 +113,11 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       ])
       const manca = (e: { code?: string } | null) => !!e && ['PGRST205', '42P01', 'PGRST202', '42883', '42703'].includes(e.code ?? '')
       if (manca(sRes.error) || manca(aRes.error)) { setNonDisponibile(true); return }
-      setImp(sRes.data ? { ...IMP_DEFAULT, ...(sRes.data as Partial<Impostazioni>) } : IMP_DEFAULT)
+      setHaConfermatori(!sRes.data || 'avvisa_confermatori' in (sRes.data as object))
+      if (sRes.data) {
+        const d = sRes.data as Record<string, unknown>
+        setImp(Object.fromEntries(Object.entries(IMP_DEFAULT).map(([k, v]) => [k, d[k] ?? v])) as unknown as Impostazioni)
+      } else setImp(IMP_DEFAULT)
       const [refRes, pushRes] = await Promise.all([
         supabase.from('outlets').select('referente_employee_id').eq('id', outletId).maybeSingle(),
         supabase.rpc('app_push_stato', { p_outlet_id: outletId }),
@@ -129,7 +143,9 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
 
   const salvaImp = async (nuove: Impostazioni) => {
     setImp(nuove)
-    const { error } = await supabase.from('attendance_settings').upsert({ outlet_id: outletId, company_id: companyId, ...nuove, updated_at: new Date().toISOString() }, { onConflict: 'outlet_id' })
+    const { avvisa_confermatori, ...resto } = nuove
+    const riga = { outlet_id: outletId, company_id: companyId, ...resto, ...(haConfermatori ? { avvisa_confermatori } : {}), updated_at: new Date().toISOString() }
+    const { error } = await supabase.from('attendance_settings').upsert(riga, { onConflict: 'outlet_id' })
     if (error) { toast({ type: 'error', message: `Impostazioni non salvate: ${error.message}` }); void carica() }
     else toast({ type: 'success', message: 'Impostazioni salvate.' })
   }
@@ -158,7 +174,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
 
   const conferma = async (id: string) => {
     const { error } = await supabase.rpc('timbrature_conferma', { p_id: id })
-    if (error) toast({ type: 'error', message: error.message }); else { toast({ type: 'success', message: 'Uscita confermata.' }); void carica() }
+    if (error) toast({ type: 'error', message: error.message }); else { toast({ type: 'success', message: 'Timbratura confermata.' }); void carica() }
   }
   const annulla = async (id: string) => {
     const motivo = window.prompt('Perché annulli questa timbratura? (resta nello storico)')
@@ -258,12 +274,21 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
               <input type="checkbox" checked={imp.avvisa_responsabile} onChange={(e) => void salvaImp({ ...imp, avvisa_responsabile: e.target.checked })} />
               il responsabile del negozio{responsabile ? ` (${nomi.get(responsabile) ?? 'indicato in Outlet'})` : ' (non indicato: si sceglie in Outlet)'}
             </label>
+            {haConfermatori && (
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={imp.avvisa_confermatori} onChange={(e) => void salvaImp({ ...imp, avvisa_confermatori: e.target.checked })} />
+                chi conferma il negozio (notifica nel gestionale)
+              </label>
+            )}
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={imp.avvisa_ufficio} onChange={(e) => void salvaImp({ ...imp, avvisa_ufficio: e.target.checked })} />
               l'ufficio (notifica nel gestionale)
             </label>
           </div>
-          <p className="text-xs text-slate-500">Ogni turno riceve al massimo un avviso di ritardo e uno di uscita. Gli avvisi arrivano a chi ha installato l'app New Zago e ha accettato le notifiche.</p>
+          <p className="text-xs text-slate-500">
+            Ogni turno riceve al massimo un avviso di ritardo e uno di uscita. Gli avvisi sul telefono arrivano a chi ha installato l'app New Zago e ha accettato le notifiche.
+            Chi conferma il negozio sono le persone spuntate in «Chi conferma e regole». Nei negozi nuovi gli avvisi partono accesi, tranne l'ufficio.
+          </p>
         </div>
       </section>
 
@@ -292,11 +317,15 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
                         <span className="tabular-nums">{ETICHETTA_TIPO[p.tipo]} {oraRoma(p.ora)}</span>
                         {ETICHETTA_VERIFICA[p.verifica] && <span className="text-xs px-1.5 rounded bg-amber-100 text-amber-800">{ETICHETTA_VERIFICA[p.verifica]}</span>}
                         {p.origine === 'dichiarata' && <span className="text-xs text-slate-500">segnata dal dipendente</span>}
+                        {p.origine === 'manuale' && <span className="text-xs text-slate-500">inserita a mano</span>}
                         {p.verifica === 'da_confermare' && <button onClick={() => void conferma(p.id)} className="text-xs text-blue-700 underline">Conferma</button>}
                         <button onClick={() => void annulla(p.id)} className="text-xs text-slate-400 hover:text-rose-600 underline">Annulla</button>
                       </div>
                     ))}
                     {ts.length === 0 && <span className="text-slate-400">nessuna</span>}
+                    <button onClick={() => setAggiungi({ emp, nome })} className="flex items-center gap-1 text-xs text-blue-700 hover:underline w-fit">
+                      <Plus size={12} />Aggiungi timbratura
+                    </button>
                   </div>
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{r.minutiLavorati ? formatMinuti(r.minutiLavorati) : ''}</td>
@@ -310,7 +339,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
                         uscita {formatMinuti(r.minutiOltreTurno)} dopo il turno{r.straordinario ? ': straordinario da guardare' : ', entro il margine'}
                       </span>
                     )}
-                    {avvisi.filter((a) => a.employee_id === emp && a.destinatario !== 'ufficio').map((a) => (
+                    {avvisi.filter((a) => a.employee_id === emp && (a.destinatario === 'dipendente' || a.destinatario === 'responsabile')).map((a) => (
                       <span key={`${a.tipo}-${a.destinatario}`} className="text-xs text-slate-500">
                         avviso di {a.tipo === 'ritardo' ? 'ritardo' : 'uscita'} {a.destinatario === 'responsabile' ? 'al responsabile' : 'al dipendente'}: {ESITO_AVVISO[a.esito] ?? a.esito}
                       </span>
@@ -322,6 +351,11 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
           </tbody>
         </table>
       </section>
+
+      {aggiungi && (
+        <AggiungiTimbratura persona={aggiungi} giorno={giorno} outletId={outletId}
+          onClose={() => setAggiungi(null)} onFatto={() => { setAggiungi(null); void carica() }} />
+      )}
 
       {/* Accessi */}
       <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
@@ -362,5 +396,52 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
         </table>
       </section>
     </div>
+  )
+}
+
+/** Timbratura aggiunta a mano da chi segue il personale (migration 382): resta «inserita a mano», con chi e quando. */
+function AggiungiTimbratura({ persona, giorno, outletId, onClose, onFatto }: {
+  persona: { emp: string; nome: string }; giorno: string; outletId: string; onClose: () => void; onFatto: () => void
+}) {
+  const { toast } = useToast()
+  const [tipo, setTipo] = useState<TipoTimbratura>('entrata')
+  const [ora, setOra] = useState('')
+  const [motivo, setMotivo] = useState('')
+  const [occupato, setOccupato] = useState(false)
+  const salva = async () => {
+    if (!/^\d{2}:\d{2}$/.test(ora) || !motivo.trim()) return
+    setOccupato(true)
+    const { error } = await supabase.rpc('timbrature_aggiungi', {
+      p_employee: persona.emp, p_outlet: outletId, p_tipo: tipo, p_ora: new Date(oraRomaInMs(giorno, ora)).toISOString(), p_motivo: motivo.trim(),
+    })
+    setOccupato(false)
+    if (error) { toast({ type: 'error', message: error.message }); return }
+    toast({ type: 'success', message: `${ETICHETTA_TIPO[tipo]} delle ${ora} aggiunta.` })
+    onFatto()
+  }
+  const giornoTesto = new Date(`${giorno}T12:00:00Z`).toLocaleDateString('it-IT', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'Europe/Rome' })
+  return (
+    <Modal open onClose={onClose} title={`Aggiungi timbratura · ${persona.nome}, ${giornoTesto}`} maxWidthClass="max-w-md">
+      <div className="space-y-4 text-sm">
+        <p className="text-slate-600">Per i casi che nessuno ha segnalato. Resta segnata «inserita a mano», con chi e quando. Non passa dal responsabile.</p>
+        <label className="flex flex-col gap-1">Tipo
+          <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoTimbratura)} className="border border-slate-300 rounded-lg px-3 py-2">
+            {(['entrata', 'inizio_pausa', 'fine_pausa', 'uscita'] as TipoTimbratura[]).map((t) => <option key={t} value={t}>{ETICHETTA_TIPO[t]}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">Ora
+          <input type="time" value={ora} onChange={(e) => setOra(e.target.value)} className="border border-slate-300 rounded-lg px-3 py-2 w-32" />
+        </label>
+        <label className="flex flex-col gap-1">Motivo (obbligatorio)
+          <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={2} maxLength={500}
+            placeholder="Per esempio: dimenticata, confermato dal responsabile al telefono" className="border border-slate-300 rounded-lg px-3 py-2" />
+        </label>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="border border-slate-300 rounded-lg px-4 py-2">Annulla</button>
+          <button onClick={() => void salva()} disabled={occupato || !/^\d{2}:\d{2}$/.test(ora) || !motivo.trim()}
+            className="bg-slate-900 text-white font-semibold rounded-lg px-4 py-2 disabled:opacity-40">Aggiungi</button>
+        </div>
+      </div>
+    </Modal>
   )
 }

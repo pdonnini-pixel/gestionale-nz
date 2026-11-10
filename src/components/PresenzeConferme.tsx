@@ -13,7 +13,7 @@ import { useToast } from './Toast'
 import { Modal } from './ui/Modal'
 import { CAUSALI_STRAORDINARIO, CAUSALI_USCITA, dataRoma, formatMinuti, oraRoma } from '../lib/timbrature'
 import {
-  ETICHETTA_CAUSALE, ETICHETTA_ESITO_EVENTO, confermaDiretta, etichettaTipo, riepilogoMese, type EventoPresenze,
+  ETICHETTA_CAUSALE, ETICHETTA_ESITO_EVENTO, confermaDiretta, esitoEntrataDichiarata, etichettaTipo, riepilogoMese, type EventoPresenze,
 } from '../lib/presenzeConferme'
 
 export type SezioneConferme = 'conferme' | 'riepilogo' | 'regole'
@@ -21,6 +21,7 @@ export type SezioneConferme = 'conferme' | 'riepilogo' | 'regole'
 const COLORE_TIPO: Record<string, string> = {
   Ritardo: 'bg-amber-100 text-amber-800', 'Uscita prima': 'bg-rose-100 text-rose-800',
   Malattia: 'bg-indigo-100 text-indigo-800', Straordinario: 'bg-emerald-100 text-emerald-800',
+  'Entrata dichiarata': 'bg-sky-100 text-sky-800',
 }
 const STATO: Record<string, string> = {
   da_confermare: 'bg-orange-50 text-orange-700', confermato: 'bg-emerald-50 text-emerald-700', respinto: 'bg-slate-100 text-slate-600',
@@ -33,6 +34,7 @@ const nonDisponibile = (msg: string) => /does not exist|could not find|schema ca
 /** Proposta del caso in parole. */
 function proposta(e: EventoPresenze): string {
   const min = formatMinuti(e.minuti_confermati ?? e.minuti_proposti)
+  if (e.tipo === 'entrata_dichiarata') return `entrata alle ${e.ora ? oraRoma(e.ora) : ''}`
   if (e.tipo === 'ritardo') return `${min} di permesso`
   if (e.tipo === 'straordinario') return `${min} di straordinario`
   if (e.causale === 'malattia') return 'uscita per malattia'
@@ -41,6 +43,10 @@ function proposta(e: EventoPresenze): string {
 }
 function dettaglioTurno(e: EventoPresenze): string {
   const ora = e.ora ? oraRoma(e.ora) : ''
+  if (e.tipo === 'entrata_dichiarata') {
+    const dove = e.canale === 'negozio' ? 'dal telefono del negozio' : e.canale === 'app' ? "dall'app" : ''
+    return `turno ${e.turno_inizio?.slice(0, 5) ?? ''} · segnata${e.segnata_il ? ` alle ${oraRoma(e.segnata_il)}` : ''} ${dove}`.trim()
+  }
   if (e.tipo === 'ritardo') return `turno ${e.turno_inizio?.slice(0, 5) ?? ''} · entrata ${ora}${e.tolleranza != null ? ` · tolleranza ${e.tolleranza}'` : ''}`
   if (e.tipo === 'straordinario') return `turno fino alle ${e.turno_fine?.slice(0, 5) ?? ''} · uscita ${ora}${e.margine != null ? ` · margine ${e.margine}'` : ''}`
   return `turno fino alle ${e.turno_fine?.slice(0, 5) ?? ''} · uscita ${ora}`
@@ -129,7 +135,7 @@ export function DaConfermare() {
         )}
       </div>
       <p className="text-xs text-slate-500">
-        Ritardi oltre la tolleranza, uscite prima del turno e straordinari dei negozi che confermi. Contano solo dopo la conferma: il permesso confermato
+        Ritardi oltre la tolleranza, uscite prima del turno, straordinari ed entrate dimenticate e segnate dopo, dei negozi che confermi. Contano solo dopo la conferma: il permesso confermato
         compare da solo in Ferie e permessi, approvato, e si scala dal saldo.
       </p>
 
@@ -160,9 +166,15 @@ export function DaConfermare() {
                   <td className="px-3 py-2.5 text-slate-600 text-xs">{dettaglioTurno(e)}</td>
                   <td className="px-3 py-2.5"><span className="font-medium">{proposta(e)}</span>
                     {e.tipo === 'ritardo' && e.minuti_confermati == null && <div className="text-xs text-slate-500">{e.minuti}' arrotondati a blocchi di 15</div>}
+                    {e.tipo === 'entrata_dichiarata' && e.stato === 'da_confermare' && (() => {
+                      const x = esitoEntrataDichiarata(e.minuti, e.tolleranza)
+                      return <div className={`text-xs ${x.ritardo ? 'text-amber-700' : 'text-slate-500'}`}>{x.testo}</div>
+                    })()}
                   </td>
                   <td className="px-3 py-2.5 max-w-xs">
-                    {e.causale ? <div>{ETICHETTA_CAUSALE[e.causale] ?? e.causale}</div> : e.tipo !== 'ritardo' ? <div className="text-amber-700 text-xs">motivo non scelto</div> : null}
+                    {e.causale ? <div>{ETICHETTA_CAUSALE[e.causale] ?? e.causale}</div>
+                      : e.tipo === 'uscita_anticipata' || e.tipo === 'straordinario' ? <div className="text-amber-700 text-xs">motivo non scelto</div>
+                      : e.tipo === 'entrata_dichiarata' && !e.motivo ? <div className="text-xs text-slate-400">nessun testo</div> : null}
                     {e.causale_negozio && e.causale_negozio !== e.causale && <div className="text-xs text-slate-500">al negozio: {ETICHETTA_CAUSALE[e.causale_negozio]}</div>}
                     {e.motivo && <div className="text-xs bg-slate-50 rounded px-2 py-1 mt-1">«{e.motivo}»</div>}
                   </td>
@@ -206,12 +218,36 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
   const [nota, setNota] = useState('')
   const [occupato, setOccupato] = useState(false)
   const aperto = e.stato === 'da_confermare'
+  const entrata = e.tipo === 'entrata_dichiarata'
+  const oraSegnata = e.ora ? oraRoma(e.ora) : ''
+  const [oraEntrata, setOraEntrata] = useState(oraSegnata)
+  // Minuti dopo l'inizio del turno con l'ora scelta (per dire se nasce il ritardo)
+  const minutiEntrata = (() => {
+    if (!entrata || !e.turno_inizio || !/^\d{2}:\d{2}$/.test(oraEntrata)) return e.minuti
+    const [h, m] = oraEntrata.split(':').map(Number); const [hi, mi] = e.turno_inizio.split(':').map(Number)
+    return Math.max(0, h * 60 + m - (hi * 60 + mi))
+  })()
   const causali: Record<string, string> | null = e.tipo === 'uscita_anticipata' ? CAUSALI_USCITA : e.tipo === 'straordinario' ? CAUSALI_STRAORDINARIO : null
   const malattia = causale === 'malattia'
   const accordo = causale === 'accordo'
   const permesso = e.tipo === 'ritardo' || causale === 'personale' || (accordo && scala === true)
 
+  const decidiEntrata = async (conferma: boolean) => {
+    setOccupato(true)
+    try {
+      const { data, error } = await supabase.rpc('presenze_decidi_entrata', {
+        p_evento: e.id, p_conferma: conferma,
+        p_ora: conferma && oraEntrata && oraEntrata !== oraSegnata ? oraEntrata : undefined, p_nota: nota || undefined,
+      })
+      if (error) { toast({ type: 'error', message: error.message }); return }
+      toast({ type: 'success', message: !conferma ? 'Non confermata: la giornata resta senza entrata, la persona lo vede nell\'app.'
+        : data === 'entrata_confermata_ritardo' ? 'Entrata confermata. È nato il ritardo: lo trovi nell\'elenco da confermare.' : 'Entrata confermata.' })
+      onFatto()
+    } finally { setOccupato(false) }
+  }
+
   const esegui = async (conferma: boolean) => {
+    if (entrata) { await decidiEntrata(conferma); return }
     setOccupato(true)
     try {
       if (causali && causale && causale !== e.causale) {
@@ -243,7 +279,27 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
         <p className="text-slate-600">{dettaglioTurno(e)}{e.prova ? ' · dipendente di prova' : ''}</p>
         {e.motivo && <p className="bg-slate-50 rounded-lg px-3 py-2">Motivo scritto dalla persona: «{e.motivo}»</p>}
 
-        {aperto ? (
+        {aperto && entrata ? (
+          <>
+            <label className="flex items-center gap-2">
+              Entrata alle
+              <input type="time" value={oraEntrata} onChange={(x) => setOraEntrata(x.target.value)}
+                className="border border-slate-300 rounded px-2 py-1 font-semibold tabular-nums" />
+              {oraEntrata !== oraSegnata && <span className="text-xs text-slate-400">segnata {oraSegnata}</span>}
+            </label>
+            <p className={`text-xs ${esitoEntrataDichiarata(minutiEntrata, e.tolleranza).ritardo ? 'text-amber-700' : 'text-slate-500'}`}>
+              {esitoEntrataDichiarata(minutiEntrata, e.tolleranza).testo}. Puoi correggere l'ora: fra l'inizio del turno meno un'ora e quando è stata segnata.
+            </p>
+            <p className="text-xs text-slate-500">Non confermata, l'entrata non vale: la giornata resta senza entrata e se ne occupa chi segue il personale.</p>
+            <textarea value={nota} onChange={(x) => setNota(x.target.value)} rows={2} maxLength={500}
+              placeholder="Nota (obbligatoria se non confermi: la persona la legge nell'app)" className="w-full border border-slate-300 rounded-lg px-3 py-2" />
+            <div className="flex gap-2 justify-end">
+              <button disabled={occupato || !nota.trim()} onClick={() => void esegui(false)} className="border border-slate-300 rounded-lg px-4 py-2 disabled:opacity-40">Non confermare</button>
+              <button disabled={occupato || !/^\d{2}:\d{2}$/.test(oraEntrata)} onClick={() => void esegui(true)}
+                className="bg-emerald-600 text-white font-semibold rounded-lg px-4 py-2 disabled:opacity-40">Conferma</button>
+            </div>
+          </>
+        ) : aperto ? (
           <>
             {causali && (
               <div className="space-y-1.5">
@@ -288,10 +344,15 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
         ) : (
           <>
             <p><span className={`text-xs px-2 py-0.5 rounded-full ${STATO[e.stato]}`}>{ETICHETTA_ESITO_EVENTO[e.esito ?? ''] ?? e.stato}</span>
-              {e.minuti_confermati != null && e.esito !== 'malattia' && <span className="ml-2">{formatMinuti(e.minuti_confermati)}</span>}</p>
+              {e.minuti_confermati != null && e.esito !== 'malattia' && !entrata && <span className="ml-2">{formatMinuti(e.minuti_confermati)}</span>}</p>
             {e.causale && <p>Motivo: {ETICHETTA_CAUSALE[e.causale]}{e.causale_negozio && e.causale_negozio !== e.causale ? ` (al negozio: ${ETICHETTA_CAUSALE[e.causale_negozio]})` : ''}</p>}
             {e.nota_decisione && <p className="bg-slate-50 rounded-lg px-3 py-2">Nota: {e.nota_decisione}</p>}
             <p className="text-xs text-slate-500">Deciso da {e.deciso_da ?? '—'}{e.deciso_il ? ` il ${new Date(e.deciso_il).toLocaleString('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' })}` : ''}.</p>
+            {entrata ? (
+              <p className="text-xs text-slate-500 border-t border-slate-100 pt-3">
+                Un'entrata decisa non si riapre: per correggerla, in Dipendenti → Presenze → Giornata si annulla la timbratura o se ne aggiunge una a mano.
+              </p>
+            ) : (
             <div className="border-t border-slate-100 pt-3 space-y-2">
               <p className="text-xs text-slate-500">Solo gli amministratori possono riaprire un caso deciso. {e.leave_request_id ? 'Il permesso creato dalla conferma si ritira insieme.' : ''}</p>
               <textarea value={nota} onChange={(x) => setNota(x.target.value)} rows={2} maxLength={500} placeholder="Motivo della riapertura" className="w-full border border-slate-300 rounded-lg px-3 py-2" />
@@ -299,6 +360,7 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
                 <button disabled={occupato || !nota.trim()} onClick={() => void riapri()} className="flex items-center gap-1.5 border border-slate-300 rounded-lg px-4 py-2 disabled:opacity-40"><RotateCcw size={14} />Riapri</button>
               </div>
             </div>
+            )}
           </>
         )}
       </div>

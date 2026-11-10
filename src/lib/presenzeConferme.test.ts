@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { confermaDiretta, etichettaTipo, riepilogoMese, type EventoPresenze } from './presenzeConferme'
+import { confermaDiretta, esitoEntrataDichiarata, etichettaTipo, riepilogoMese, type EventoPresenze } from './presenzeConferme'
 
 const base: EventoPresenze = {
   id: 'x', data: '2026-11-09', tipo: 'ritardo', outlet_id: 'o', negozio: 'Roma Soratte', employee_id: 'g', persona: 'Giulia Rossi',
@@ -10,6 +10,19 @@ const base: EventoPresenze = {
 const ev = (x: Partial<EventoPresenze>): EventoPresenze => ({ ...base, ...x })
 
 describe('casi delle presenze', () => {
+  it("entrata dichiarata: in orario, entro la tolleranza, oltre con il ritardo", () => {
+    expect(esitoEntrataDichiarata(0, 10)).toEqual({ ritardo: false, permesso: 0, testo: 'in orario' })
+    expect(esitoEntrataDichiarata(8, 10).ritardo).toBe(false)
+    expect(esitoEntrataDichiarata(25, 10)).toEqual({ ritardo: true, permesso: 30, testo: "25' dopo: alla conferma nasce il ritardo (30' di permesso)" })
+    expect(etichettaTipo({ tipo: 'entrata_dichiarata', causale: null })).toBe('Entrata dichiarata')
+  })
+
+  it("riepilogo: l'entrata dichiarata confermata non conta come straordinario", () => {
+    const r = riepilogoMese([ev({ tipo: 'entrata_dichiarata', stato: 'confermato', esito: 'entrata_confermata', minuti_proposti: 0, minuti_confermati: 0 })])
+    expect(r[0].straordinari).toBe(0)
+    expect(r[0].ritardi).toBe(0)
+  })
+
   it('etichetta: la malattia ha la sua', () => {
     expect(etichettaTipo({ tipo: 'uscita_anticipata', causale: 'malattia' })).toBe('Malattia')
     expect(etichettaTipo({ tipo: 'uscita_anticipata', causale: 'accordo' })).toBe('Uscita prima')

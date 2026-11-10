@@ -6,7 +6,8 @@
 //     ancora dentro.
 // Destinatari, configurabili per negozio in Dipendenti → Presenze: il
 // dipendente, il responsabile del negozio (outlets.referente_employee_id),
-// l'ufficio (notifica nel gestionale).
+// chi conferma il negozio (attendance_confermatori, notifica nel gestionale,
+// migration 382), l'ufficio (notifica nel gestionale).
 //
 // Chi la chiama: il cron timbrature-avvisi-tick ogni 5 minuti, con il segreto
 // condiviso x-autofix-cron, solo se c'e' qualcuno da avvisare.
@@ -35,6 +36,8 @@ interface Riga {
   data: string; ora_turno: string; tipo: "ritardo" | "uscita_mancante";
   nome: string; negozio: string; responsabile_id: string | null;
   avvisa_dipendente: boolean; avvisa_responsabile: boolean; avvisa_ufficio: boolean;
+  /** Dalla migration 382: assente prima. */
+  avvisa_confermatori?: boolean;
 }
 
 interface ServiceAccount { project_id: string; client_email: string; private_key: string }
@@ -73,7 +76,7 @@ function testo(r: Riga, per: "dipendente" | "responsabile"): { titolo: string; c
   const nome = r.nome.split(" ")[0] || r.nome;
   if (r.tipo === "ritardo") {
     return per === "dipendente"
-      ? { titolo: "Non risulta la tua entrata", corpo: `Il tuo turno a ${r.negozio} è cominciato alle ${ora}. Se sei già in negozio, timbra l'entrata.` }
+      ? { titolo: "Non risulta la tua entrata", corpo: `Il tuo turno a ${r.negozio} è cominciato alle ${ora}. Se sei già in negozio, timbra con il QR o segna l'ora dall'app.` }
       : { titolo: `${nome}: entrata non timbrata`, corpo: `${r.nome} doveva entrare alle ${ora} a ${r.negozio} e non ha ancora timbrato.` };
   }
   return per === "dipendente"
@@ -175,8 +178,29 @@ Deno.serve(async (req: Request) => {
         });
         await registra("ufficio", null, { esito: error ? "non_riuscito" : "nel_gestionale", telefoni: 0, errore: error?.message ?? null });
       }
+      // Chi conferma il negozio (382): notifica nel gestionale a ognuno, tranne
+      // a chi e' la persona stessa (collegata come dipendente)
+      let confermatori = 0;
+      if (r.avvisa_confermatori) {
+        const [{ data: conf }, { data: io }] = await Promise.all([
+          admin.from("attendance_confermatori").select("user_id").eq("outlet_id", r.outlet_id),
+          admin.from("responsabile_dipendente").select("user_id").eq("employee_id", r.employee_id),
+        ]);
+        const { data: emp } = await admin.from("employees").select("user_id").eq("id", r.employee_id).maybeSingle();
+        const esclusi = new Set<string>([...((io ?? []) as { user_id: string }[]).map((x) => x.user_id), ...(emp?.user_id ? [emp.user_id as string] : [])]);
+        const utenti = [...new Set(((conf ?? []) as { user_id: string }[]).map((x) => x.user_id))].filter((u) => !esclusi.has(u));
+        if (utenti.length) {
+          const m = testo(r, "responsabile");
+          const { error } = await admin.from("notifications").insert(utenti.map((u) => ({
+            company_id: r.company_id, user_id: u, title: m.titolo, message: m.corpo, category: "info", severity: "warning",
+            action_url: "/dipendenti?view=presenze", action_label: "Apri le presenze", reference_type: "attendance_alert",
+          })));
+          await registra("confermatori", null, { esito: error ? "non_riuscito" : "nel_gestionale", telefoni: 0, errore: error?.message ?? null });
+          confermatori = utenti.length;
+        }
+      }
       // Nessun destinatario acceso: si registra lo stesso, cosi' non si ricalcola ogni 5 minuti
-      if (!r.avvisa_dipendente && !(r.avvisa_responsabile && r.responsabile_id && r.responsabile_id !== r.employee_id) && !r.avvisa_ufficio) {
+      if (!r.avvisa_dipendente && !(r.avvisa_responsabile && r.responsabile_id && r.responsabile_id !== r.employee_id) && !r.avvisa_ufficio && !confermatori) {
         await registra("dipendente", r.employee_id, { esito: "nessun_telefono", telefoni: 0, errore: "Nessun destinatario acceso" });
       }
     }
