@@ -115,12 +115,13 @@ export default function Timbra() {
   const sincronizza = useCallback(async () => {
     if (!outletId) return
     const esito = await inviaCoda()
+    if (esito.inviate > 0) setUltimoInvio(new Date().toISOString())
     const nuovi = await scaricaDati(outletId)
     if (nuovi) {
       setDati(nuovi)
       setOnline(true)
-      if (esito.inviate > 0 || esito.inAttesa === 0) setUltimoInvio(new Date().toISOString())
-    } else setOnline(false)
+      if (esito.inAttesa === 0) setUltimoInvio(new Date().toISOString())
+    } else setOnline(esito.inviate > 0)
     await aggiornaCoda()
   }, [outletId, aggiornaCoda])
 

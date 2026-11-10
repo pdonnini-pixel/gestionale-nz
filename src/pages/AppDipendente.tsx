@@ -118,6 +118,8 @@ export default function AppDipendente() {
       if (otpErr) { setErrore('Accesso non riuscito. Chiedi un codice nuovo.'); return }
       const a: Attivazione = { segreto: r.segreto, employee_id: r.employee_id, nome: r.nome ?? '' }
       localStorage.setItem(K_APP, JSON.stringify(a))
+      // Via i dati della giornata salvati con il segreto vecchio: l'impronta non tornerebbe (387)
+      localStorage.removeItem(K_OGGI)
       setAttivazione(a)
     } finally {
       setOccupato(false)
