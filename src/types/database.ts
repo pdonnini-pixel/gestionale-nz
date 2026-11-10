@@ -442,6 +442,7 @@ export type Database = {
           attive: boolean
           avvisa_dipendente: boolean
           avvisa_responsabile: boolean
+          avvisa_confermatori: boolean
           avvisa_ufficio: boolean
           avvisi_push: boolean
           avvisi_whatsapp: boolean
@@ -459,6 +460,7 @@ export type Database = {
           attive?: boolean
           avvisa_dipendente?: boolean
           avvisa_responsabile?: boolean
+          avvisa_confermatori?: boolean
           avvisa_ufficio?: boolean
           avvisi_push?: boolean
           avvisi_whatsapp?: boolean
@@ -476,6 +478,7 @@ export type Database = {
           attive?: boolean
           avvisa_dipendente?: boolean
           avvisa_responsabile?: boolean
+          avvisa_confermatori?: boolean
           avvisa_ufficio?: boolean
           avvisi_push?: boolean
           avvisi_whatsapp?: boolean
@@ -31345,6 +31348,10 @@ export type Database = {
         Returns: undefined
       }
       presenze_confermatori_elenco: { Args: never; Returns: Json }
+      presenze_decidi_entrata: {
+        Args: { p_conferma: boolean; p_evento: string; p_nota?: string; p_ora?: string }
+        Returns: string
+      }
       presenze_decidi_evento: {
         Args: { p_conferma: boolean; p_evento: string; p_minuti?: number; p_nota?: string; p_scala_permesso?: boolean }
         Returns: string
@@ -31462,6 +31469,10 @@ export type Database = {
           segreto: string
           user_id: string
         }[]
+      }
+      app_dipendente_dichiara_entrata: {
+        Args: { p_nota?: string; p_ora: string }
+        Returns: string
       }
       app_dipendente_dichiara_uscita: {
         Args: { p_data: string; p_nota?: string; p_ora: string }
@@ -32367,6 +32378,10 @@ export type Database = {
           nome: string
           outlet_id: string
         }[]
+      }
+      timbrature_aggiungi: {
+        Args: { p_employee: string; p_motivo: string; p_ora: string; p_outlet: string; p_tipo: string }
+        Returns: string
       }
       timbrature_annulla: {
         Args: { p_id: string; p_motivo: string }

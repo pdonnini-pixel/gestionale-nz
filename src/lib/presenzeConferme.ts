@@ -1,8 +1,8 @@
-// Presenze → conferma dei casi (migration 373): tipi e conti puri, senza
-// rete, per l'elenco «Da confermare» e il riepilogo del mese.
+// Presenze → conferma dei casi (migration 373, entrata dichiarata 382): tipi e
+// conti puri, senza rete, per l'elenco «Da confermare» e il riepilogo del mese.
 import { CAUSALI_STRAORDINARIO, CAUSALI_USCITA } from './timbrature'
 
-export type TipoEvento = 'ritardo' | 'uscita_anticipata' | 'straordinario'
+export type TipoEvento = 'ritardo' | 'uscita_anticipata' | 'straordinario' | 'entrata_dichiarata'
 export type StatoEvento = 'da_confermare' | 'confermato' | 'respinto'
 
 export interface EventoPresenze {
@@ -32,6 +32,9 @@ export interface EventoPresenze {
   deciso_da: string | null
   nota_decisione: string | null
   leave_request_id: string | null
+  /** Entrata dichiarata (382): quando e' stata segnata e da dove. */
+  segnata_il?: string | null
+  canale?: 'negozio' | 'app' | null
 }
 
 export const ETICHETTA_CAUSALE: Record<string, string> = { ...CAUSALI_USCITA, ...CAUSALI_STRAORDINARIO }
@@ -42,12 +45,15 @@ export const ETICHETTA_ESITO_EVENTO: Record<string, string> = {
   ore_non_lavorate: 'ore non lavorate, senza permesso',
   straordinario: 'straordinario confermato',
   respinto: 'non confermato',
+  entrata_confermata: 'entrata confermata',
+  entrata_non_confermata: 'entrata non confermata',
 }
 
 /** Come si mostra il caso nell'elenco: etichetta del tipo (la malattia ha la sua). */
 export function etichettaTipo(e: Pick<EventoPresenze, 'tipo' | 'causale'>): string {
   if (e.tipo === 'ritardo') return 'Ritardo'
   if (e.tipo === 'straordinario') return 'Straordinario'
+  if (e.tipo === 'entrata_dichiarata') return 'Entrata dichiarata'
   return e.causale === 'malattia' ? 'Malattia' : 'Uscita prima'
 }
 
@@ -81,7 +87,7 @@ export function riepilogoMese(eventi: EventoPresenze[]): RiepilogoPersona[] {
       m.set(e.employee_id, r)
     }
     if (e.stato === 'da_confermare') { r.daConfermare++; continue }
-    if (e.stato !== 'confermato') continue
+    if (e.stato !== 'confermato' || e.tipo === 'entrata_dichiarata') continue
     const min = e.minuti_confermati ?? e.minuti_proposti
     if (e.tipo === 'ritardo') { r.ritardi++; r.permessoRitardi += min }
     else if (e.tipo === 'uscita_anticipata') {
@@ -95,4 +101,16 @@ export function riepilogoMese(eventi: EventoPresenze[]): RiepilogoPersona[] {
     }
   }
   return [...m.values()].sort((a, b) => a.negozio.localeCompare(b.negozio) || a.persona.localeCompare(b.persona))
+}
+
+/**
+ * Entrata dichiarata: minuti dopo l'inizio del turno e, se oltre la
+ * tolleranza, il permesso che nasce alla conferma (blocchi di 15 per eccesso,
+ * come il ritardo timbrato). minuti = ora dichiarata - inizio del turno.
+ */
+export function esitoEntrataDichiarata(minuti: number, tolleranza: number | null): { ritardo: boolean; permesso: number; testo: string } {
+  const tol = tolleranza ?? 10
+  if (minuti <= tol) return { ritardo: false, permesso: 0, testo: minuti > 0 ? `${minuti}' dopo, entro la tolleranza` : 'in orario' }
+  const permesso = Math.ceil(minuti / 15) * 15
+  return { ritardo: true, permesso, testo: `${minuti}' dopo: alla conferma nasce il ritardo (${permesso}' di permesso)` }
 }
