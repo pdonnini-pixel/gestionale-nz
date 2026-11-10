@@ -148,7 +148,7 @@ export default function AppOre() {
                     <span>{g.turno ? `turno ${g.turno.inizio.slice(0, 5)} - ${g.turno.fine.slice(0, 5)}` : 'nessun turno'}</span>
                     <span>
                       {g.minutiPausa ? `pausa ${formatMinuti(g.minutiPausa)}` : ''}
-                      {g.minutiOltreTurno > 0 ? `${g.minutiPausa ? ' · ' : ''}${formatMinuti(g.minutiOltreTurno)} dopo il turno${g.straordinario ? '' : ', nel margine'}` : ''}
+                      {g.minutiOltreTurno > 0 ? `${g.minutiPausa ? ' · ' : ''}${formatMinuti(g.minutiOltreTurno)} dopo il turno${g.straordinario ? '' : ', nella tolleranza'}` : ''}
                     </span>
                   </div>
                 </li>

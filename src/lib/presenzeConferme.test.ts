@@ -23,8 +23,8 @@ describe('casi delle presenze', () => {
     expect(r[0].ritardi).toBe(0)
   })
 
-  it('etichetta: la malattia ha la sua', () => {
-    expect(etichettaTipo({ tipo: 'uscita_anticipata', causale: 'malattia' })).toBe('Malattia')
+  it('etichetta: «sto male» ha la sua', () => {
+    expect(etichettaTipo({ tipo: 'uscita_anticipata', causale: 'malattia' })).toBe('Sto male')
     expect(etichettaTipo({ tipo: 'uscita_anticipata', causale: 'accordo' })).toBe('Uscita prima')
   })
 

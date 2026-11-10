@@ -47,7 +47,7 @@ export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string
       : e.tipo === 'straordinario' ? `${min} di straordinario`
       : `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
     const dettaglio = e.esito === 'permesso' ? `${min} di permesso scalati dal saldo. Li trovi anche nella scheda Ferie.`
-      : e.esito === 'malattia' ? 'Uscita per malattia registrata.'
+      : e.esito === 'malattia' ? 'Malattia registrata, con il certificato medico.'
       : e.esito === 'ore_non_lavorate' ? `D'accordo con il responsabile: ${min} non lavorati, senza permesso.`
       : e.esito === 'straordinario' ? `${min} di straordinario confermati.`
       : 'Confermato.'
@@ -67,14 +67,14 @@ export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string
   }
   if (e.tipo === 'uscita_anticipata') {
     const titolo = `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
-    if (e.causale === 'malattia') return { titolo, dettaglio: `${turno}. Uscita per malattia registrata.` }
+    if (e.causale === 'malattia') return { titolo, dettaglio: `${turno}. Sto male: se il responsabile conferma è un permesso di ${formatMinuti(e.minuti_proposti)}; diventa malattia solo con il certificato medico, da portare al responsabile.` }
     if (e.causale === 'accordo') return { titolo, dettaglio: `${turno}. D'accordo con il responsabile: la conferma lui.` }
     if (e.causale === 'personale') return { titolo, dettaglio: `${turno}. Se il responsabile conferma, ti vengono scalati ${formatMinuti(e.minuti_proposti)} di permesso.` }
     return { titolo, dettaglio: `${turno}. Scegli il motivo dell'uscita.` }
   }
   return {
     titolo: `${formatMinuti(e.minuti_proposti)} di straordinario`,
-    dettaglio: `${turno}. Uscita ${formatMinuti(e.minuti)} dopo la fine del turno: conta la parte oltre il margine, se il responsabile conferma.`,
+    dettaglio: `${turno}. Uscita ${formatMinuti(e.minuti)} dopo la fine del turno: conta tutto, se il responsabile conferma.`,
   }
 }
 

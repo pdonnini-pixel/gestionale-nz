@@ -31447,6 +31447,9 @@ export type Database = {
           codice_scade: string
           employee_id: string
           nome: string
+          pin_attivo: boolean
+          pin_bloccato: boolean
+          pin_creato_il: string | null
           telefono_whatsapp: string
         }[]
       }
@@ -32379,6 +32382,12 @@ export type Database = {
           outlet_id: string
         }[]
       }
+      timbratrice_verifica_pin: {
+        Args: { p_employee: string; p_outlet_id: string; p_pin: string }
+        Returns: string
+      }
+      timbrature_pin_nuovo: { Args: { p_employee: string }; Returns: string }
+      timbrature_pin_togli: { Args: { p_employee: string }; Returns: undefined }
       timbrature_aggiungi: {
         Args: { p_employee: string; p_motivo: string; p_ora: string; p_outlet: string; p_tipo: string }
         Returns: string

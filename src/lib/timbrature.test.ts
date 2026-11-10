@@ -86,9 +86,9 @@ describe('riepilogo della giornata', () => {
     expect(r.straordinario).toBe(false)
   })
 
-  it('uscita entro il margine di 15 minuti: non e straordinario', () => {
-    const r = riepilogoGiorno(giornata('18:12'), turno, ore('20:00'))
-    expect(r.minutiOltreTurno).toBe(12)
+  it('uscita entro la tolleranza di 10 minuti: non e straordinario', () => {
+    const r = riepilogoGiorno(giornata('18:08'), turno, ore('20:00'))
+    expect(r.minutiOltreTurno).toBe(8)
     expect(r.straordinario).toBe(false)
   })
 
@@ -98,10 +98,10 @@ describe('riepilogo della giornata', () => {
     expect(r.straordinario).toBe(true)
   })
 
-  it('ancora dentro a fine turno + 15: uscita non timbrata', () => {
+  it('ancora dentro a fine turno + 10: uscita non timbrata', () => {
     const dentro = [{ tipo: 'entrata' as const, ora: iso('09:00') }]
-    expect(riepilogoGiorno(dentro, turno, ore('18:14')).esito).toBe('in_negozio')
-    expect(riepilogoGiorno(dentro, turno, ore('18:15')).esito).toBe('uscita_mancante')
+    expect(riepilogoGiorno(dentro, turno, ore('18:09')).esito).toBe('in_negozio')
+    expect(riepilogoGiorno(dentro, turno, ore('18:10')).esito).toBe('uscita_mancante')
   })
 
   it('margine diverso dal negozio', () => {
@@ -120,11 +120,11 @@ describe('ritardi, uscite anticipate e straordinari', () => {
     expect(valutaEntrata(turno, _ms('2026-11-09', '10:31'), 10)).toEqual({ minuti: 31, oltre: true, permesso: 45 })
     expect(valutaEntrata(turno, _ms('2026-11-09', '09:50'), 10).oltre).toBe(false)
   })
-  it('uscita anticipata, normale o straordinario (solo i minuti oltre il margine)', () => {
+  it('uscita anticipata, normale o straordinario (si paga tutto, dalla fine del turno)', () => {
     expect(valutaUscita(turno, _ms('2026-11-09', '15:45'), 15, false)).toEqual({ tipo: 'anticipata', minuti: 195, proposti: 195 })
     expect(valutaUscita(turno, _ms('2026-11-09', '15:45'), 15, true).tipo).toBe('normale')
     expect(valutaUscita(turno, _ms('2026-11-09', '19:10'), 15, false).tipo).toBe('normale')
-    expect(valutaUscita(turno, _ms('2026-11-09', '19:45'), 15, false)).toEqual({ tipo: 'straordinario', minuti: 45, proposti: 30 })
+    expect(valutaUscita(turno, _ms('2026-11-09', '19:45'), 15, false)).toEqual({ tipo: 'straordinario', minuti: 45, proposti: 45 })
   })
 })
 
