@@ -348,8 +348,8 @@ dal suo `data_dal` (es. da chiamata a part-time determinato), così le ore conta
 - **Traffico** in `outlet_traffic_hourly` (ingressi, scontrini per ora). Caricati il 20/10/2026 su NZ
   i 13 report MODA dello zip di Patrizio (set-dic 2025 per 6 negozi, 1-24/09/2026 per 7): totali
   per negozio verificati uguali al pezzo ai PDF. Vendite non caricate. Torino ha aperto a marzo 2026,
-  Valmontone a ottobre 2025. Mancano i report gennaio-agosto 2026 (arrivano): servono un caricamento
-  in pagina, che oggi non c'e'.
+  Valmontone a ottobre 2025. Mancano i report gennaio-agosto 2026 (arrivano). **Dal 10/11/2026 si
+  caricano in pagina**: Turni → «Traffico MODA» (sezione in fondo a questa nota).
 - **Motore** `src/lib/pianoMensile.ts`: tipo di giorno dal calendario (festivi, Black Friday =
   ultimo venerdi' di novembre, il suo weekend, feriali 22-30/12, vigilie), traffico atteso per tipo e
   mese dalla storia del negozio (ripiego: stesso tipo in tutta la storia, poi tipo vicino; negozio
@@ -827,3 +827,33 @@ orarie e far comandare questa regola»; il numero di una fascia è il **minimo**
   in cinque negozi (Brugnato 20,5, Valmontone 9,5, che non hanno abbastanza ore); nessuna mezz'ora vuota,
   nessun turno sotto le 4 ore; meno di un secondo di calcolo per negozio. Al 30/10 tutti i negozi NZ hanno
   solo fasce stimate: comandano quando Patrizio le salva.
+
+## Caricamento dei report MODA in pagina (10/11/2026)
+
+Turni → scheda **«Traffico MODA»** (`src/components/TrafficoModa.tsx`, lettore `src/lib/trafficoModa.ts`,
+test con numeri inventati in `trafficoModa.test.ts`). Prima i report li caricava Claude a mano (20 e 29/10).
+
+- **Il report**: MODA «Statistica Situazione Vendite con Conversion Rate», raggruppamenti Negozio, Giorno,
+  Ora, senza IVA, escluse vendite libere, buoni e acconti; PDF di Crystal Reports stampato con «Microsoft:
+  Print To PDF». Codici MODA visti: BARB, BRU5 (Brugnato 5 Terre), FIR2 (Valdichiana - Foiano), FRANV
+  (Franciacorta Village), PALMA, TOR, VALMO.
+- **Lettura per posizione**: ogni numero si assegna alla colonna con il bordo destro piu' vicino (la
+  seconda riga d'intestazione: primo «N.» = N.P. = ingressi, secondo «N.» = Scontr). Leggere i numeri in
+  ordine sbaglia: un'ora senza vendite ha solo N.P., un reso ha lo scontrino senza ingressi. Si salvano
+  ingressi e scontrini; gli importi no.
+- **Controlli**: somma delle ore = totale del giorno stampato nel report (altrimenti conferma); il giorno
+  di stampa, se e' nel report, non si carica (a negozio aperto non e' finito); impostazioni diverse dal
+  solito = avviso. Negozio riconosciuto per codice o per una parola del nome (`abbinaNegozio`); se nessuno
+  o piu' di uno, lo sceglie chi carica.
+- **Regola fissa dei caricamenti**: i giorni nuovi si salvano da soli (upsert su outlet_id, data, ora);
+  conferma solo per giorni gia' presenti con numeri diversi, totali che non tornano o negozio da
+  scegliere. Il confronto e' sul database. Nessuna cancellazione: si sostituiscono solo le ore del report.
+  Tabella «Giorni di traffico caricati» per negozio e mese, mesi appena arrivati contornati di blu.
+- **Verifica del 10/11/2026** sui PDF veri mandati da Sabrina: ottobre 1-28, 1.966 ore su 1.966 uguali al
+  database, tutti i totali tornano; gennaio-settembre (558 pagine), 1-24 settembre 1.715 ore uguali su
+  1.716. L'unica diversa e' Torino 19/09 ore 20: nel database 1 ingresso, nel report quel «1» e' uno
+  scontrino (reso) e il totale del giorno (383) torna solo con 0. Era un errore del caricamento a mano:
+  ricaricando il report gennaio-settembre la pagina lo propone come giorno da sostituire.
+- Nessuna migration: tabella, vincolo unico e RLS (`organico_puo_scrivere`, contabilita' o superiore)
+  c'erano gia' su NZ e Zago (e anche su Made).
+

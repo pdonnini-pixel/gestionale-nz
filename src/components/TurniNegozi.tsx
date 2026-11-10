@@ -2,7 +2,8 @@
 // fabbisogno da cui si parte. Il negozio si sceglie qui; l'organico (chi
 // c'e' e con che orario) arriva dall'organico di oggi. Qui si sceglie anche
 // la referente del negozio, e nella scheda «Eventi» si segnano Black
-// Friday, feste e saldi, che valgono per piu' negozi insieme.
+// Friday, feste e saldi, che valgono per piu' negozi insieme. In «Traffico
+// MODA» si caricano i report degli ingressi per ora, da cui viene il fabbisogno.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock, Sparkles, UserRound } from 'lucide-react';
@@ -19,6 +20,7 @@ import OrariNegozio from './OrariNegozio';
 import EventiNegozi from './EventiNegozi';
 import PianiMensili from './PianiMensili';
 import TrasferteNegozi from './TrasferteNegozi';
+import TrafficoModa from './TrafficoModa';
 
 type Props = { companyId?: string };
 
@@ -30,7 +32,7 @@ export default function TurniNegozi({ companyId }: Props) {
 
   const [dati, setDati] = useState<DatiOrganico | null>(null);
   const [negozio, setNegozio] = useState('');
-  const [sotto, setSotto] = useState<'mese' | 'piano' | 'orari' | 'eventi' | 'trasferte'>('mese');
+  const [sotto, setSotto] = useState<'mese' | 'piano' | 'orari' | 'eventi' | 'trasferte' | 'traffico'>('mese');
   const [versione, setVersione] = useState(0);
   const [stimo, setStimo] = useState(false);
 
@@ -141,13 +143,13 @@ export default function TurniNegozi({ companyId }: Props) {
     <div className="space-y-4">
       {/* Prima cosa si fa (le quattro schede), poi su quale negozio. */}
       <nav className="flex gap-1 border-b border-slate-200 overflow-x-auto" aria-label="Sezioni dei turni">
-        {([{ k: 'mese' as const, label: 'Piano del mese' }, { k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }, { k: 'eventi' as const, label: 'Eventi' }, { k: 'trasferte' as const, label: 'Trasferte' }]).map((t) => (
+        {([{ k: 'mese' as const, label: 'Piano del mese' }, { k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }, { k: 'eventi' as const, label: 'Eventi' }, { k: 'trasferte' as const, label: 'Trasferte' }, { k: 'traffico' as const, label: 'Traffico MODA' }]).map((t) => (
           <button key={t.k} type="button" onClick={() => setSotto(t.k)} aria-current={sotto === t.k ? 'page' : undefined}
             className={`whitespace-nowrap px-4 py-2.5 text-sm font-medium border-b-2 -mb-px ${sotto === t.k ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>{t.label}</button>
         ))}
       </nav>
 
-      {sotto !== 'eventi' && sotto !== 'trasferte' && (
+      {sotto !== 'eventi' && sotto !== 'trasferte' && sotto !== 'traffico' && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Negozio">
             {negozi.map((n) => (
@@ -198,6 +200,9 @@ export default function TurniNegozi({ companyId }: Props) {
       )}
       {sotto === 'trasferte' && companyId && dati && (
         <TrasferteNegozi companyId={companyId} dati={dati} puoScrivere={puoScrivere} />
+      )}
+      {sotto === 'traffico' && (
+        <TrafficoModa companyId={companyId} negozi={dati.negozi} puoScrivere={puoScrivere} />
       )}
       {scelto && sotto === 'mese' && (
         <PianiMensili key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}
