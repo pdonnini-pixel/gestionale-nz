@@ -31382,7 +31382,7 @@ export type Database = {
         Returns: { margine: number; tolleranza: number }[]
       }
       app_registra_push_token: {
-        Args: { p_piattaforma: string; p_token: string }
+        Args: { p_impronta?: string; p_piattaforma: string; p_token: string }
         Returns: undefined
       }
       _acube_cedente_name_json: {

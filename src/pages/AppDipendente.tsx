@@ -174,9 +174,9 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   // la notifica si apre la scheda indicata.
   useEffect(() => {
     if (!eAppNativa()) return
-    attivaNotifiche((s) => setScheda((['oggi', 'turni', 'ferie', 'ore'].includes(s) ? s : 'oggi') as Scheda))
+    attivaNotifiche((s) => setScheda((['oggi', 'turni', 'ferie', 'ore'].includes(s) ? s : 'oggi') as Scheda), attivazione.segreto)
       .then(setNotifiche).catch(() => setNotifiche('non_disponibili'))
-  }, [])
+  }, [attivazione.segreto])
 
   useEffect(() => { const t = setInterval(() => setAdesso(Date.now()), 1000); return () => clearInterval(t) }, [])
   const passo = Math.floor(adesso / 1000 / PASSO_SECONDI)
