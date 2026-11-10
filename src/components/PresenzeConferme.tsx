@@ -20,7 +20,7 @@ export type SezioneConferme = 'conferme' | 'riepilogo' | 'regole'
 
 const COLORE_TIPO: Record<string, string> = {
   Ritardo: 'bg-amber-100 text-amber-800', 'Uscita prima': 'bg-rose-100 text-rose-800',
-  Malattia: 'bg-indigo-100 text-indigo-800', Straordinario: 'bg-emerald-100 text-emerald-800',
+  'Sto male': 'bg-indigo-100 text-indigo-800', Straordinario: 'bg-emerald-100 text-emerald-800',
   'Entrata dichiarata': 'bg-sky-100 text-sky-800',
 }
 const STATO: Record<string, string> = {
@@ -37,7 +37,7 @@ function proposta(e: EventoPresenze): string {
   if (e.tipo === 'entrata_dichiarata') return `entrata alle ${e.ora ? oraRoma(e.ora) : ''}`
   if (e.tipo === 'ritardo') return `${min} di permesso`
   if (e.tipo === 'straordinario') return `${min} di straordinario`
-  if (e.causale === 'malattia') return 'uscita per malattia'
+  if (e.causale === 'malattia') return `${min} di permesso`
   if (e.causale === 'accordo') return `${min}, d'accordo`
   return `${min} di permesso`
 }
@@ -96,7 +96,7 @@ export function DaConfermare() {
     if (occupato) return
     setOccupato(true)
     try {
-      if (await decidi(e, true)) toast({ type: 'success', message: `${e.persona}: ${e.causale === 'malattia' ? 'malattia registrata' : 'confermato'}.` })
+      if (await decidi(e, true)) toast({ type: 'success', message: `${e.persona}: confermato.` })
     } finally { setOccupato(false); void carica() }
   }
   const confermaRitardi = async () => {
@@ -183,7 +183,7 @@ export function DaConfermare() {
                       <div className="flex gap-2 justify-end">
                         {confermaDiretta(e) && (
                           <button onClick={() => void confermaUno(e)} disabled={occupato} className="disabled:opacity-40 flex items-center gap-1 bg-emerald-600 text-white text-xs font-semibold rounded-lg px-3 py-1.5 hover:bg-emerald-700">
-                            <Check size={13} />{e.causale === 'malattia' ? 'Prendo atto' : 'Conferma'}
+                            <Check size={13} />Conferma
                           </button>
                         )}
                         <button onClick={() => setAperto(e)} className="text-xs border border-slate-300 rounded-lg px-3 py-1.5 hover:bg-slate-50">
@@ -230,7 +230,9 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
   const causali: Record<string, string> | null = e.tipo === 'uscita_anticipata' ? CAUSALI_USCITA : e.tipo === 'straordinario' ? CAUSALI_STRAORDINARIO : null
   const malattia = causale === 'malattia'
   const accordo = causale === 'accordo'
-  const permesso = e.tipo === 'ritardo' || causale === 'personale' || (accordo && scala === true)
+  // «Sto male» (386): permesso, oppure malattia se c'e' il certificato medico (scala = false)
+  const malattiaCertificata = malattia && scala === false
+  const permesso = e.tipo === 'ritardo' || causale === 'personale' || (accordo && scala === true) || (malattia && !malattiaCertificata)
 
   const decidiEntrata = async (conferma: boolean) => {
     setOccupato(true)
@@ -256,10 +258,10 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
       }
       const { error } = await supabase.rpc('presenze_decidi_evento', {
         p_evento: e.id, p_conferma: conferma, p_minuti: conferma ? minuti : undefined,
-        p_scala_permesso: accordo ? scala ?? undefined : undefined, p_nota: nota || undefined,
+        p_scala_permesso: accordo || malattia ? scala ?? undefined : undefined, p_nota: nota || undefined,
       })
       if (error) { toast({ type: 'error', message: error.message }); return }
-      toast({ type: 'success', message: conferma ? (permesso ? 'Confermato: il permesso è in Ferie e permessi.' : 'Confermato.') : 'Non confermato: la persona lo vede nell\'app con il tuo motivo.' })
+      toast({ type: 'success', message: conferma ? (permesso ? 'Confermato: il permesso è in Ferie e permessi.' : malattiaCertificata ? 'Registrata come malattia.' : 'Confermato.') : 'Non confermato: la persona lo vede nell\'app con il tuo motivo.' })
       onFatto()
     } finally { setOccupato(false) }
   }
@@ -319,7 +321,14 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
                 <label className="flex items-center gap-2"><input type="radio" checked={scala === false} onChange={() => setScala(false)} />non si scalano (restano ore non lavorate)</label>
               </div>
             )}
-            {!malattia && (
+            {malattia && (
+              <div className="space-y-1.5">
+                <p className="font-medium text-slate-900">Sto male</p>
+                <label className="flex items-center gap-2"><input type="radio" checked={scala !== false} onChange={() => setScala(true)} />senza certificato medico: è un permesso</label>
+                <label className="flex items-center gap-2"><input type="radio" checked={scala === false} onChange={() => setScala(false)} />ha il certificato medico: è malattia</label>
+              </div>
+            )}
+            {!malattiaCertificata && (
               <label className="flex items-center gap-2">
                 {e.tipo === 'straordinario' ? 'Straordinario' : permesso ? 'Permesso' : 'Minuti'}
                 <input type="number" min={1} max={1440} value={minuti} onChange={(x) => setMinuti(Number(x.target.value))}
@@ -328,7 +337,7 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
               </label>
             )}
             <p className="text-xs text-slate-500">
-              {malattia ? 'Si registra come malattia del giorno, dall\'ora dell\'uscita. Nessun permesso scalato.'
+              {malattiaCertificata ? 'Con il certificato medico si registra come malattia del giorno, dall\'ora dell\'uscita. Nessun permesso scalato.'
                 : permesso ? 'Alla conferma nasce un permesso approvato in Ferie e permessi (ex festività finché bastano, poi ROL), scalato dal saldo.'
                 : e.tipo === 'straordinario' ? 'Alla conferma entra nelle ore di straordinario del mese della persona.'
                 : accordo ? 'Scegli se scalare il permesso.' : ''}
@@ -337,8 +346,8 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
               placeholder="Nota (obbligatoria se non confermi: la persona la legge nell'app)" className="w-full border border-slate-300 rounded-lg px-3 py-2" />
             <div className="flex gap-2 justify-end">
               <button disabled={occupato || !nota.trim()} onClick={() => void esegui(false)} className="border border-slate-300 rounded-lg px-4 py-2 disabled:opacity-40">Non confermare</button>
-              <button disabled={occupato || (!!causali && !causale) || (accordo && scala === null) || (!malattia && !(minuti > 0))} onClick={() => void esegui(true)}
-                className="bg-emerald-600 text-white font-semibold rounded-lg px-4 py-2 disabled:opacity-40">{malattia ? 'Prendo atto' : 'Conferma'}</button>
+              <button disabled={occupato || (!!causali && !causale) || (accordo && scala === null) || (!malattiaCertificata && !(minuti > 0))} onClick={() => void esegui(true)}
+                className="bg-emerald-600 text-white font-semibold rounded-lg px-4 py-2 disabled:opacity-40">Conferma</button>
             </div>
           </>
         ) : (
@@ -567,15 +576,14 @@ function ChiConfermaERegole() {
 
       <section className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
         <h3 className="font-semibold text-slate-900">Eccezioni per persona</h3>
-        <p className="text-xs text-slate-500">La tolleranza all'entrata e il margine all'uscita del negozio si cambiano nella scheda «Giornata». Qui le eccezioni per singola persona: il campo vuoto vuol dire «come il negozio».</p>
+        <p className="text-xs text-slate-500">La tolleranza del negozio (una sola, per entrata e uscita) si cambia nella scheda «Giornata». Qui le eccezioni per singola persona: il campo vuoto vuol dire «come il negozio».</p>
         <table className="w-full text-sm">
-          <thead className="text-slate-500 text-xs uppercase"><tr><th className="text-left py-2">Persona</th><th className="text-left py-2">Tolleranza</th><th className="text-left py-2">Margine</th><th className="text-left py-2">Perché</th><th /></tr></thead>
+          <thead className="text-slate-500 text-xs uppercase"><tr><th className="text-left py-2">Persona</th><th className="text-left py-2">Tolleranza (entrata e uscita)</th><th className="text-left py-2">Perché</th><th /></tr></thead>
           <tbody className="divide-y divide-slate-100">
             {eccezioni.filter((x) => x.tolleranza_entrata_minuti != null || x.margine_uscita_minuti != null).map((x) => (
               <tr key={x.employee_id}>
                 <td className="py-2 font-medium">{nomeDi(x.employee_id)}</td>
                 <td className="py-2">{x.tolleranza_entrata_minuti != null ? `${x.tolleranza_entrata_minuti}'` : <span className="text-slate-400">del negozio</span>}</td>
-                <td className="py-2">{x.margine_uscita_minuti != null ? `${x.margine_uscita_minuti}'` : <span className="text-slate-400">del negozio</span>}</td>
                 <td className="py-2 text-xs">{x.nota}</td>
                 <td className="py-2 text-right"><button onClick={() => void salvaEccezione(x.employee_id, null, null, x.nota)} className="text-xs text-slate-500 underline">Togli</button></td>
               </tr>
@@ -592,11 +600,10 @@ function ChiConfermaERegole() {
                 </select>
               </td>
               <td className="py-2 pr-2"><input type="number" min={0} max={120} placeholder="min" value={nuova.tolleranza} onChange={(e) => setNuova({ ...nuova, tolleranza: e.target.value })} className="w-20 border border-slate-300 rounded px-2 py-1" /></td>
-              <td className="py-2 pr-2"><input type="number" min={0} max={240} placeholder="min" value={nuova.margine} onChange={(e) => setNuova({ ...nuova, margine: e.target.value })} className="w-20 border border-slate-300 rounded px-2 py-1" /></td>
               <td className="py-2 pr-2"><input value={nuova.nota} maxLength={300} placeholder="per esempio: treno da Orte" onChange={(e) => setNuova({ ...nuova, nota: e.target.value })} className="w-full border border-slate-300 rounded px-2 py-1" /></td>
               <td className="py-2 text-right">
-                <button disabled={!nuova.emp || (nuova.tolleranza === '' && nuova.margine === '')}
-                  onClick={() => void salvaEccezione(nuova.emp, numero(nuova.tolleranza), numero(nuova.margine), nuova.nota || null)}
+                <button disabled={!nuova.emp || nuova.tolleranza === ''}
+                  onClick={() => void salvaEccezione(nuova.emp, numero(nuova.tolleranza), numero(nuova.tolleranza), nuova.nota || null)}
                   className="text-xs bg-slate-900 text-white rounded-lg px-3 py-1.5 disabled:opacity-40">Aggiungi</button>
               </td>
             </tr>

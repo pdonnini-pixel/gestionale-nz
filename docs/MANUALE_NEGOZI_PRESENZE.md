@@ -2,31 +2,31 @@
 
 Manuale di funzionamento da dare a ogni negozio (versione del 10/11/2026 con il PIN, su indicazione di Patrizio). È scritto come il racconto di una giornata in negozio, dall'apertura alla chiusura, più il giorno dopo; in fondo le appendici. Il PDF con le schermate si rigenera da questo testo; persone e dati delle schermate sono inventati.
 
-**Chi c'è nel racconto** (negozio di Roma Soratte, giovedì 5 novembre)
-- **Sara Conti**, referente del negozio: turno 09:30-19:30, apre e chiude.
-- **Giulia Rossi**: turno 09:30-18:30.
-- **Luca Ferri** e **Marco Neri**: turno 10:00-19:00.
+**Chi c'è nel racconto** (negozio di Roma Soratte, giovedì 5 novembre; il negozio è aperto dalle 10:00 alle 20:00)
+- **Sara Conti**, referente del negozio: turno 10:00-19:00, apre il negozio.
+- **Giulia Rossi** e **Luca Ferri**: turno 10:00-19:00.
+- **Marco Neri**: turno 11:00-20:00, chiude il negozio. Non ha lo smartphone: timbra con il PIN (appendice B).
 
-Regole del negozio usate nel racconto: **tolleranza all'entrata 10 minuti**, **margine all'uscita 15 minuti** (chi segue il personale le può cambiare per il negozio o per una singola persona).
+Regola del negozio usata nel racconto: **tolleranza di 10 minuti, uguale all'entrata e all'uscita** (chi segue il personale la può cambiare per il negozio o per una singola persona). Entro la tolleranza non è un ritardo e non è straordinario.
 
 ## la giornata in negozio
 
-### 09:22 · Sara apre il negozio e accende il telefono
+### 09:52 · Sara apre il negozio e accende il telefono
 Il telefono del negozio è sempre in carica, bloccato sulla timbratrice (vedi appendice A). Sara lo sblocca: si apre da solo sulla fotocamera, in attesa del primo QR. In alto: il negozio, l'ora, e se le timbrature sono tutte inviate. In basso: chi è già in negozio (per ora nessuno).
 
-### 09:24 · Sara timbra l'entrata
+### 09:54 · Sara timbra l'entrata
 Sara apre l'app New Zago sul suo telefono, scheda **Oggi**, e avvicina il QR alla fotocamera del telefono del negozio. Il QR cambia ogni 30 secondi: una foto del QR non vale.
-Il telefono del negozio riconosce Sara, mostra il suo turno e propone l'unica azione possibile: **Entra**. Sara tocca, compare «Entrata registrata, Sara Conti, alle 09:24», e dopo pochi secondi il telefono torna in attesa. **Annulla** torna indietro senza timbrare.
-
-### 09:52 · Giulia arriva in ritardo
-Il turno di Giulia iniziava alle 09:30 e lei non ha ancora timbrato niente. Passata la tolleranza, il telefono pensa prima a un'entrata dimenticata: «Non risulta la tua entrata di oggi», con l'ora da scegliere. Giulia è appena arrivata, quindi tocca **No, entro adesso**.
-A quel punto il telefono dice il ritardo prima di «Entra»: «22 minuti di ritardo, oltre i 10 minuti di tolleranza: 30' di permesso, da confermare». Il permesso va **a blocchi di 15 minuti per eccesso** (12 minuti diventano 15, 22 diventano 30).
-Entro la tolleranza non è un ritardo: entrando alle 09:38 con turno alle 09:30, il telefono propone subito «Entra» e scrive solo «8 minuti dopo l'inizio, entro la tolleranza», senza permesso.
-Nell'app di Giulia compare il riquadro del ritardo, «da confermare». Giulia può toccare **Aggiungi un motivo** e scrivere il perché (per esempio «Treno in ritardo»): il responsabile lo legge prima di decidere. **Il permesso non conta finché il responsabile non lo conferma.**
+Il telefono del negozio riconosce Sara, mostra il suo turno e propone l'unica azione possibile: **Entra**. Sara tocca, compare «Entrata registrata, Sara Conti, alle 09:54», e dopo pochi secondi il telefono torna in attesa. **Annulla** torna indietro senza timbrare. Entrare qualche minuto prima del turno non conta come straordinario.
 
 ### 10:15 · Luca è entrato ma non ha timbrato
 Luca è arrivato alle 10:00, ha aiutato subito una cliente e si è dimenticato del QR. Quindici minuti dopo l'inizio del turno, senza entrata, parte l'avviso (vedi appendice C): sul telefono di Luca arriva «Non risulta la tua entrata», e a Sara, referente del negozio, «Luca: entrata non timbrata».
 Nell'app di Luca, scheda **Oggi**, compare il riquadro giallo «Non risulta la tua entrata di oggi». Da lì potrebbe scegliere l'ora («Sono entrato alle 10:00») e toccare **Segna**. Luca però non guarda il telefono fino a sera.
+
+### 10:22 · Giulia arriva in ritardo
+Il turno di Giulia iniziava alle 10:00 e lei non ha ancora timbrato niente. Passata la tolleranza, il telefono pensa prima a un'entrata dimenticata: «Non risulta la tua entrata di oggi», con l'ora da scegliere. Giulia è appena arrivata, quindi tocca **No, entro adesso**.
+A quel punto il telefono dice il ritardo prima di «Entra»: «22 minuti di ritardo, oltre i 10 minuti di tolleranza: 30' di permesso, da confermare». Il permesso va **a blocchi di 15 minuti per eccesso** (12 minuti diventano 15, 22 diventano 30).
+Entro la tolleranza non è un ritardo: entrando alle 10:08 con turno alle 10:00, il telefono propone subito «Entra» e scrive solo «8 minuti dopo l'inizio, entro la tolleranza», senza permesso.
+Nell'app di Giulia compare il riquadro del ritardo, «da confermare». Giulia può toccare **Aggiungi un motivo** e scrivere il perché (per esempio «Treno in ritardo»): il responsabile lo legge prima di decidere. **Il permesso non conta finché il responsabile non lo conferma.**
 
 ### 13:02 · Sara va in pausa
 Sara avvicina il QR: ora che è in negozio, il telefono propone **Vado in pausa** ed **Esco**. Tocca «Vado in pausa». In basso, nell'elenco di chi è in negozio, Sara compare «in pausa».
@@ -36,26 +36,28 @@ Per chi è in pausa il telefono propone **Rientro dalla pausa** ed **Esco**. Sar
 La pausa si timbra sempre, all'uscita e al rientro. Chi per errore esce con «Esco» e poi rientra con «Entra» non sbaglia: conta l'ultima uscita della giornata, e l'uscita di prima si chiude da sola.
 
 ### 17:00 · Giulia esce prima per una visita
-Il turno di Giulia finisce alle 18:30. Quando tocca **Esco**, il telefono le chiede il motivo prima di salvare:
-- **Motivo personale (permesso)**: se il responsabile conferma, i minuti (qui 1 ora e 30) si scalano dal saldo dei permessi;
-- **Sto male (malattia)**: si registra la malattia;
+Il turno di Giulia finisce alle 19:00. Quando tocca **Esco**, il telefono le chiede il motivo prima di salvare:
+- **Motivo personale (permesso)**: se il responsabile conferma, i minuti (qui 2 ore) si scalano dal saldo dei permessi;
+- **Sto male**: è un permesso come il motivo personale. Diventa malattia solo con il certificato medico: chi esce perché sta male va dal medico appena uscito, si fa fare il certificato e lo porta al responsabile;
 - **D'accordo con il responsabile**: il responsabile decide caso per caso se scalare il permesso.
 Giulia sceglie «Motivo personale» e tocca **Conferma l'uscita**. Il motivo scritto non si chiede sul telefono del negozio, che è di tutti: Giulia aggiunge «Visita medica» dall'app, nel riquadro dell'uscita.
 
-### 19:06 · Luca segna l'entrata dimenticata ed esce
+### 19:05 · Luca segna l'entrata dimenticata ed esce
 Luca avvicina il QR per uscire. Il telefono non trova la sua entrata e glielo dice: «Non risulta la tua entrata di oggi. Se eri già in negozio, scegli l'ora a cui sei entrato: la conferma il responsabile». L'ora si sceglie fra l'inizio del turno meno un'ora e adesso; la prima proposta è l'inizio del turno.
-Luca lascia le 10:00 e tocca **Segna l'entrata delle 10:00**. Sul telefono compare «Entrata 10:00 (segnata, da confermare)» e restano i pulsanti di sempre: Luca tocca **Esco**. È uscito 6 minuti dopo la fine del turno, dentro il margine di 15: il telefono registra subito, senza domande, perché non è straordinario.
+Luca lascia le 10:00 e tocca **Segna l'entrata delle 10:00**. Sul telefono compare «Entrata 10:00 (segnata, da confermare)» e restano i pulsanti di sempre: Luca tocca **Esco**. È uscito 5 minuti dopo la fine del turno, dentro la tolleranza di 10: il telefono registra subito, senza domande, perché non è straordinario.
 L'entrata segnata vale subito per pausa e uscita, ma conta solo quando il responsabile la conferma.
 
-### 19:40 · Marco resta per il riassortimento
-Il turno di Marco finiva alle 19:00: esce 40 minuti dopo. Oltre il margine di 15 minuti, il telefono chiede il motivo dello straordinario (concordato per assenza di un collega, cliente da gestire, riassortimento, allestimento) e dice quanto conta: **solo la parte oltre il margine**, cioè 25 minuti. Marco sceglie «Riassortimento» e conferma. Anche lo straordinario conta solo **dopo la conferma** del responsabile.
+### 19:08 · Sara esce
+Sara tocca **Esco** 8 minuti dopo la fine del turno, dentro la tolleranza: nessuna domanda. In negozio resta Marco, che chiude.
 
-### 19:42 · Sara chiude il negozio
-Sara è l'ultima: timbra **Esco** (12 minuti dopo la fine del turno, dentro il margine). Il telefono torna in attesa e l'elenco «Adesso in negozio» è vuoto: tutti sono usciti. Il telefono resta acceso, in carica, sulla timbratrice.
+### 20:40 · Marco chiude il negozio dopo il riassortimento
+Il turno di Marco finiva alle 20:00, con la chiusura del negozio: esce 40 minuti dopo. Oltre la tolleranza di 10 minuti, il telefono chiede il motivo dello straordinario (concordato per assenza di un collega, cliente da gestire, riassortimento, allestimento) e dice quanto conta: **lo straordinario si paga tutto, dalla fine del turno**, cioè 40 minuti. Marco sceglie «Riassortimento» e conferma. Anche lo straordinario conta solo **dopo la conferma** del responsabile.
+Il telefono torna in attesa e l'elenco «Adesso in negozio» è vuoto: tutti sono usciti. Il telefono resta acceso, in carica, sulla timbratrice.
 
 ### il giorno dopo · Sara conferma i casi
 Sara è anche la responsabile del negozio: entra nel gestionale con il suo account (profilo «Responsabile») e trova la pagina **Presenze e ferie**.
-- **Da confermare**: l'entrata segnata da Luca («Entrata dichiarata», segnata alle 19:06 dal telefono del negozio, in orario), il ritardo e l'uscita di Giulia, lo straordinario di Marco, con turno, timbratura, proposta e motivo. **Conferma** chiude il caso: il permesso si scala da solo; la malattia si registra con «Prendo atto». **Altro** apre la decisione: si possono ridurre i minuti, scegliere il motivo o non confermare con una nota che la persona legge nell'app.
+- **Da confermare**: lo straordinario di Marco (40 minuti), l'entrata segnata da Luca («Entrata dichiarata», segnata alle 19:05 dal telefono del negozio, in orario), l'uscita e il ritardo di Giulia, con turno, timbratura, proposta e motivo. **Conferma** chiude il caso: il permesso si scala da solo. **Altro** apre la decisione: si possono ridurre i minuti, scegliere il motivo o non confermare con una nota che la persona legge nell'app.
+- **Sto male**: con **Conferma** è un permesso. Se la persona porta il certificato medico, con **Altro** Sara sceglie «ha il certificato medico: è malattia» e il permesso non si scala.
 - **Entrata dichiarata**: confermata, vale come entrata. Se l'ora segnata fosse oltre la tolleranza (per esempio 10:25), alla conferma nascerebbe anche il ritardo, da confermare come gli altri. Con «Altro» Sara può correggere l'ora oppure non confermarla: in quel caso l'entrata non vale, la giornata resta senza entrata e se ne occupa chi segue il personale.
 - **Ferie e permessi**: la richiesta di ferie che Luca ha mandato dall'app, con le ore che gli restano. **Approva** o **Respingi** con il motivo.
 - I casi e le ferie di Sara li decide un altro responsabile o un amministratore.
@@ -92,7 +94,7 @@ Le quattro schede in basso:
 
 Due avvisi, per ogni turno al massimo uno per tipo:
 - **Entrata non timbrata**: 15 minuti dopo l'inizio del turno senza entrata (non parte se quel giorno la persona è in ferie o in permesso). Al dipendente dice anche che può timbrare con il QR o segnare l'ora dall'app.
-- **Uscita non timbrata**: passato il margine dopo la fine del turno, se la persona risulta ancora dentro.
+- **Uscita non timbrata**: passata la tolleranza dopo la fine del turno, se la persona risulta ancora dentro.
 
 Chi li riceve:
 - **il dipendente**, sull'app New Zago installata dagli store, se ha accettato le notifiche;

@@ -10,7 +10,7 @@ Decisioni di Patrizio del 05/11/2026, pilota **Roma Soratte** (RSO). Due diligen
 - **Turni ufficiali** (`timbrature_turni_ufficiali`): piano «scelto» del mese; senza piano scelto, turni senza piano pubblicati o messi a mano. Al 05/11/2026 nessun turno è «pubblicato».
 
 ## regole
-- **Margine d'uscita**: 15 minuti di default dalla migration 372 (era 30; `attendance_settings.margine_uscita_minuti`, eccezione per persona in `attendance_regole_dipendente`). Uscita entro il margine: non è straordinario, nessun avviso. Ancora dentro a fine turno + margine: avviso sul telefono (vedi sotto).
+- **Margine d'uscita**: dalla migration 386 coincide con la tolleranza, 10 minuti (era 15 dalla 372, prima 30; `attendance_settings.margine_uscita_minuti`, eccezione per persona in `attendance_regole_dipendente`). Uscita entro il margine: non è straordinario, nessun avviso. Ancora dentro a fine turno + margine: avviso sul telefono (vedi sotto).
 - **Chi non ha timbrato niente non riceve l'avviso** (può essere in ferie). Se ha un altro turno che comincia entro un'ora, niente avviso.
 - **Le timbrature non si cancellano**: si annullano con motivo (`timbrature_annulla`). Le uscite segnate dal dipendente restano `da_confermare` finché l'HR non conferma.
 - Verifica: `ok`, `firma_non_valida`, `fuori_tempo` (ora del telefono lontana dal QR o nel futuro), `da_confermare` (arrivata oltre 36 ore dopo, o dichiarata), `manuale`. Le timbrature dubbie si salvano comunque.
@@ -87,6 +87,13 @@ Richiesta di Patrizio del 10/11/2026.
 - **Solo nel proprio negozio** (385, `timbrature_pin_del_negozio`): il PIN vale per chi è di quel negozio in anagrafica o ci ha un turno ufficiale quel giorno; dal telefono di un altro negozio risponde `pin_altro_negozio` e non consuma tentativi. Entrata dimenticata, ritardi, uscite e straordinari funzionano come con il QR.
 - **Limiti noti**: chi ha il telefono del negozio può consumare i tentativi di un collega del negozio e bloccargli il PIN (disservizio, non accesso); il PIN resta in chiaro nella coda del telefono del negozio finché non parte (fra le rifiutate è mascherato); con un'estrazione della tabella i PIN di 4 cifre si ricavano (la tabella non è esposta); creazione e rimozione del PIN tengono solo l'ultimo autore (`pin_creato_da`), senza storico: debito.
 - Provato il 10/11/2026 su NZ in transazione annullata: PIN creato di 4 cifre e cifrato, verifica giusta e sbagliata, timbratura `pin/ok`, codice vuoto rifiutato come illeggibile, blocco dopo 5 errori anche con il PIN giusto, dipendente che non può verificare né creare PIN.
+
+## tolleranza unica, straordinario intero, «sto male» (migration 386, 10/11/2026)
+Decisioni di Patrizio del 10/11/2026 (sostituiscono le regole di 372 e 373 dove diverse):
+- **Tolleranza unica**: «lo stesso margine di tolleranza per entrata e uscita», 10 minuti. Il margine d'uscita segue sempre la tolleranza (trigger `trg_margine_come_tolleranza` su `attendance_settings` e `attendance_regole_dipendente`); nella Giornata c'è un solo campo «Tolleranza (entrata e uscita)», e un solo campo nelle eccezioni per persona. Roma Soratte era 10 / 15, ora 10 / 10. Senza impostazioni: 10 (`timbrature_regole`, `MARGINE_USCITA_DEFAULT`).
+- **Straordinario intero**: «lo straordinario va pagato tutto». Oltre la tolleranza `minuti_proposti = minuti`, cioè tutti i minuti dopo la fine del turno (turno fino alle 20:00, uscita 20:40: 40 minuti, non 25). Stessa regola nel telefono del negozio (`valutaUscita`).
+- **«Sto male»** (causale `malattia`, etichetta «Sto male»): non è malattia, lo diventa solo con il certificato medico. «Conferma» crea un permesso (come il motivo personale); in «Altro» chi conferma sceglie «ha il certificato medico: è malattia» (`presenze_decidi_evento` con `p_scala_permesso = false`, esito `malattia`, nessun permesso). Nel riepilogo «malattie» sono solo quelle con certificato.
+- Provato il 10/11/2026 su NZ in transazione annullata: «sto male» confermato = permesso creato; con certificato = malattia; uscita 19:40 con turno fino alle 19:00 = 40 minuti proposti.
 
 ## aperto
 - **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: informativa privacy (entrata dimenticata con la migration 382, PIN con la 384).

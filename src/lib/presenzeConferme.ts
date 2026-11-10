@@ -41,7 +41,7 @@ export const ETICHETTA_CAUSALE: Record<string, string> = { ...CAUSALI_USCITA, ..
 
 export const ETICHETTA_ESITO_EVENTO: Record<string, string> = {
   permesso: 'permesso creato',
-  malattia: 'malattia registrata',
+  malattia: 'malattia (con certificato)',
   ore_non_lavorate: 'ore non lavorate, senza permesso',
   straordinario: 'straordinario confermato',
   respinto: 'non confermato',
@@ -49,12 +49,12 @@ export const ETICHETTA_ESITO_EVENTO: Record<string, string> = {
   entrata_non_confermata: 'entrata non confermata',
 }
 
-/** Come si mostra il caso nell'elenco: etichetta del tipo (la malattia ha la sua). */
+/** Come si mostra il caso nell'elenco: etichetta del tipo («sto male» ha la sua). */
 export function etichettaTipo(e: Pick<EventoPresenze, 'tipo' | 'causale'>): string {
   if (e.tipo === 'ritardo') return 'Ritardo'
   if (e.tipo === 'straordinario') return 'Straordinario'
   if (e.tipo === 'entrata_dichiarata') return 'Entrata dichiarata'
-  return e.causale === 'malattia' ? 'Malattia' : 'Uscita prima'
+  return e.causale === 'malattia' ? 'Sto male' : 'Uscita prima'
 }
 
 /** Cosa serve per confermare con un tocco solo; altrimenti si apre la decisione. */

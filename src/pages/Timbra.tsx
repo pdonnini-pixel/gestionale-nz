@@ -455,7 +455,7 @@ export default function Timbra() {
                       {anticipata ? `Esci ${formatMinuti(uscita.minuti)} prima della fine del turno` : `Esci ${formatMinuti(uscita.minuti)} dopo il turno`}
                     </p>
                     <p className="text-sm mt-1">
-                      {anticipata ? `Il turno finisce alle ${uscita.fine}. Perché esci?` : `Oltre i ${margine} minuti di margine: ${formatMinuti(uscita.proposti)} di straordinario. Perché?`}
+                      {anticipata ? `Il turno finisce alle ${uscita.fine}. Perché esci?` : `Oltre i ${margine} minuti di tolleranza: ${formatMinuti(uscita.proposti)} di straordinario. Perché?`}
                     </p>
                   </div>
                   {voci.map(([k, etichetta]) => (

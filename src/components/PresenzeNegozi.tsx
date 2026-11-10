@@ -159,7 +159,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       outlets.map((o) => ({ outlet_id: o.id, company_id: companyId, tolleranza_entrata_minuti: imp.tolleranza_entrata_minuti, margine_uscita_minuti: imp.margine_uscita_minuti, updated_at: ora })),
       { onConflict: 'outlet_id' })
     if (error) toast({ type: 'error', message: `Non salvate: ${error.message}` })
-    else toast({ type: 'success', message: `Tolleranza ${imp.tolleranza_entrata_minuti}' e margine ${imp.margine_uscita_minuti}' in tutti i negozi.` })
+    else toast({ type: 'success', message: `Tolleranza di ${imp.tolleranza_entrata_minuti}' in tutti i negozi.` })
   }
 
   const righe = useMemo(() => {
@@ -233,22 +233,17 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
             Timbrature attive
           </label>
           <label className="flex items-center gap-2">
-            Tolleranza all'entrata
+            Tolleranza (entrata e uscita)
+            {/* Una sola tolleranza (Patrizio, 10/11/2026, migration 386): il margine d'uscita la segue */}
             <input type="number" min={0} max={120} value={imp.tolleranza_entrata_minuti}
-              onChange={(e) => setImp({ ...imp, tolleranza_entrata_minuti: Number(e.target.value) })}
-              onBlur={() => void salvaImp(imp)} className="w-16 border border-slate-300 rounded px-2 py-1" /> minuti
-          </label>
-          <label className="flex items-center gap-2">
-            Margine dopo la fine del turno
-            <input type="number" min={0} max={240} value={imp.margine_uscita_minuti}
-              onChange={(e) => setImp({ ...imp, margine_uscita_minuti: Number(e.target.value) })}
+              onChange={(e) => setImp({ ...imp, tolleranza_entrata_minuti: Number(e.target.value), margine_uscita_minuti: Number(e.target.value) })}
               onBlur={() => void salvaImp(imp)} className="w-16 border border-slate-300 rounded px-2 py-1" /> minuti
           </label>
         </div>
         <p className="text-xs text-slate-500">
-          Entro la tolleranza non è un ritardo; oltre, il permesso va a blocchi di 15 minuti per eccesso. Chi esce entro il margine non fa straordinario; oltre, conta la parte oltre il margine.
+          Entro la tolleranza non è un ritardo e non è straordinario. Oltre, all'entrata il permesso va a blocchi di 15 minuti per eccesso; all'uscita lo straordinario si paga tutto, dalla fine del turno.
           Le eccezioni per persona sono in «Chi conferma e regole».{' '}
-          <button type="button" onClick={() => void regoleATutti()} className="text-blue-700 underline">Usa tolleranza e margine per tutti i negozi</button>.
+          <button type="button" onClick={() => void regoleATutti()} className="text-blue-700 underline">Usa questa tolleranza per tutti i negozi</button>.
           Sul cellulare del negozio si apre <span className="font-mono">{window.location.origin}/timbra</span> con l'account di cassa.
         </p>
 
@@ -277,7 +272,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
                 <input type="checkbox" checked={imp.uscita_attivo} onChange={(e) => void salvaImp({ ...imp, uscita_attivo: e.target.checked })} />
                 Uscita non timbrata
               </label>
-              <p className="text-slate-600">dopo {imp.margine_uscita_minuti} minuti dalla fine del turno (il margine qui sopra)</p>
+              <p className="text-slate-600">dopo {imp.margine_uscita_minuti} minuti dalla fine del turno (la tolleranza qui sopra)</p>
             </div>
           </div>
           <div className={`flex flex-wrap gap-6 text-sm ${imp.avvisi_push ? '' : 'opacity-50 pointer-events-none'}`}>
@@ -353,7 +348,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
                     {r.minutiRitardo > 0 && <span className="text-xs text-amber-700">entrata {formatMinuti(r.minutiRitardo)} dopo il turno</span>}
                     {r.minutiOltreTurno > 0 && (
                       <span className={`text-xs ${r.straordinario ? 'text-rose-700 font-medium' : 'text-slate-500'}`}>
-                        uscita {formatMinuti(r.minutiOltreTurno)} dopo il turno{r.straordinario ? ': straordinario da guardare' : ', entro il margine'}
+                        uscita {formatMinuti(r.minutiOltreTurno)} dopo il turno{r.straordinario ? ': straordinario da guardare' : ', entro la tolleranza'}
                       </span>
                     )}
                     {avvisi.filter((a) => a.employee_id === emp && (a.destinatario === 'dipendente' || a.destinatario === 'responsabile')).map((a) => (

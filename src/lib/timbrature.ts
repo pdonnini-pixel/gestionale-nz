@@ -14,7 +14,8 @@
 
 export const PREFISSO_QR = 'NZT1'
 export const PASSO_SECONDI = 30
-export const MARGINE_USCITA_DEFAULT = 15 // era 30 fino alla migration 372
+// Tolleranza unica, entrata e uscita, 10 minuti (migration 386; era 15, prima ancora 30)
+export const MARGINE_USCITA_DEFAULT = 10
 
 export type TipoTimbratura = 'entrata' | 'inizio_pausa' | 'fine_pausa' | 'uscita'
 export type StatoPresenza = 'fuori' | 'dentro' | 'in_pausa'
@@ -273,7 +274,8 @@ export const ETICHETTA_ESITO: Record<EsitoGiorno, string> = {
 
 export const CAUSALI_USCITA: Record<'personale' | 'malattia' | 'accordo', string> = {
   personale: 'Motivo personale (permesso)',
-  malattia: 'Sto male (malattia)',
+  // «Sto male» e' un permesso; diventa malattia solo con il certificato medico (migration 386)
+  malattia: 'Sto male',
   accordo: "D'accordo con il responsabile",
 }
 export const CAUSALI_STRAORDINARIO: Record<'assenza_collega' | 'cliente' | 'riassortimento' | 'allestimento', string> = {
@@ -297,7 +299,7 @@ export function valutaEntrata(turno: Turno, oraMs: number, tolleranza: number): 
 /**
  * Uscita rispetto alla fine del turno. «anticipata» se prima della fine (e
  * dopo non c'e' un altro pezzo di turno), «straordinario» se oltre il
- * margine: conta solo i minuti oltre il margine.
+ * margine: conta tutto, dalla fine del turno (migration 386: lo straordinario si paga tutto).
  */
 export function valutaUscita(
   turno: Turno,
@@ -309,7 +311,7 @@ export function valutaUscita(
   const prima = Math.floor((fineMs - oraMs) / 60000)
   if (prima >= 1 && !altroTurnoDopo) return { tipo: 'anticipata', minuti: prima, proposti: prima }
   const dopo = Math.floor((oraMs - fineMs) / 60000)
-  if (dopo > margine) return { tipo: 'straordinario', minuti: dopo, proposti: dopo - margine }
+  if (dopo > margine) return { tipo: 'straordinario', minuti: dopo, proposti: dopo }
   return { tipo: 'normale', minuti: Math.max(0, dopo), proposti: 0 }
 }
 
