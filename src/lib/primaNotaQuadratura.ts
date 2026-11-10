@@ -18,7 +18,14 @@
 //     esce dalla quadratura («arrivati dopo lo scarico»);
 //   - un movimento datato PRIMA del periodo ma scaricato dentro il periodo
 //     (es. una competenza retrodatata) è nel saldo finale ma non nel saldo
-//     iniziale: si aggiunge («di periodi precedenti, arrivati nel periodo»).
+//     iniziale: si aggiunge («di periodi precedenti, arrivati nel periodo»);
+//   - un movimento che la banca ha GIÀ tolto (o aggiunto) nel saldo dello
+//     scarico ma ci consegna giorni dopo, tipico dei pagamenti con carta:
+//     l'operazione è del 29/10, il saldo del 30/10 la conta già, il movimento
+//     arriva il 03/11 con data contabile 03/11. Caso BCC ottobre 2026: quattro
+//     pagamenti carta per 129,91. Si riconoscono dai numeri (vedi
+//     cercaAnticipati) e si mostrano («già nel saldo della banca, registrati
+//     dopo»), così la quadratura non segnala una differenza che non c'è.
 //
 // Contante: la banca vede solo versamenti e prelievi. Il resto del contante
 // (incassato nei negozi, speso in cassa, versato) sta nelle chiusure di cassa,
@@ -33,6 +40,8 @@ export type PnTxSnapshot = {
   date: string
   amount: number
   description?: string | null
+  /** Data dell'operazione (transaction_date), qualunque sia la data scelta: serve a riconoscere i movimenti che la banca aveva già nel saldo prima di consegnarli. */
+  op_date?: string | null
   /** raw_data.fetchedAt (ISO) */
   fetched_at: string | null
   /** raw_data.extra.accountBalanceSnapshot */
@@ -70,6 +79,19 @@ export type QuadraturaConto = {
   saldo_finale_calcolato: number | null
   differenza: number | null
   stato: 'quadra' | 'non_quadra' | 'senza_saldi'
+  /**
+   * Movimenti che la banca aveva già contato nel saldo dello scarico (iniziale
+   * o finale) ma ha consegnato dopo: spiegano al centesimo la differenza che
+   * altrimenti resterebbe, e sono già dentro saldo_iniziale / saldo_finale.
+   */
+  anticipati_iniziale: PnTxSnapshot[]
+  anticipati_finale: PnTxSnapshot[]
+  /**
+   * Solo se non quadra: lo scarico in cui il saldo della banca si stacca dai
+   * movimenti arrivati (e non si riallinea più entro il periodo). Dice in che
+   * giorno cercare sull'estratto.
+   */
+  nasce_allo_scarico: string | null
 }
 
 const r2 = (n: number): number => Math.round(n * 100) / 100
@@ -118,6 +140,85 @@ function saldoAllaData(rows: PnTxSnapshot[], snap: PnTxSnapshot | null, day: str
   return { saldo: r2(snap.snapshot + sum(piu) - sum(meno)), rettifica: { piu, meno } }
 }
 
+const cents = (n: number): number => Math.round(n * 100)
+const GIORNI_ANTICIPO = 10
+const MAX_CANDIDATI = 12
+
+/**
+ * Movimenti che la banca poteva avere già nel saldo dello scarico `snap` pur
+ * consegnandoli dopo: operazione fatta entro il giorno dello scarico, arrivati
+ * nei dieci giorni successivi.
+ */
+function candidatiAnticipati(rows: PnTxSnapshot[], snap: PnTxSnapshot | null): PnTxSnapshot[] {
+  if (!snap || !snap.fetched_at) return []
+  const f = snap.fetched_at
+  const giorno = f.slice(0, 10)
+  const limite = new Date(new Date(f).getTime() + GIORNI_ANTICIPO * 86400000).toISOString()
+  return rows
+    .filter(r => r.fetched_at && r.fetched_at > f && r.fetched_at <= limite && r.op_date && r.op_date <= giorno && cents(r.amount) !== 0)
+    .sort((a, b) => (a.fetched_at as string).localeCompare(b.fetched_at as string) || a.id.localeCompare(b.id))
+    .slice(0, MAX_CANDIDATI)
+}
+
+const bits = (m: number): number => { let n = 0; for (let x = m; x; x &= x - 1) n++; return n }
+
+/**
+ * Cerca i movimenti già contati dalla banca nei due saldi che spiegano la
+ * differenza al centesimo: somma(anticipati finali) − somma(anticipati
+ * iniziali) = differenza. Fra le combinazioni possibili vince la più piccola.
+ * Null se nessuna combinazione torna: allora la differenza è vera.
+ */
+function cercaAnticipati(candIni: PnTxSnapshot[], candFin: PnTxSnapshot[], differenza: number): { ini: PnTxSnapshot[]; fin: PnTxSnapshot[] } | null {
+  const target = cents(differenza)
+  const somme = (c: PnTxSnapshot[]): number[] => {
+    const out = new Array<number>(1 << c.length).fill(0)
+    for (let m = 1; m < out.length; m++) { const low = m & -m; out[m] = out[m ^ low] + cents(c[31 - Math.clz32(low)].amount) }
+    return out
+  }
+  const sIni = somme(candIni)
+  const sFin = somme(candFin)
+  // somma → maschera più piccola, lato iniziale
+  const perSomma = new Map<number, number>()
+  sIni.forEach((v, m) => { const cur = perSomma.get(v); if (cur == null || bits(m) < bits(cur)) perSomma.set(v, m) })
+  let best: { mi: number; mf: number; n: number } | null = null
+  sFin.forEach((v, mf) => {
+    const mi = perSomma.get(v - target)
+    if (mi == null) return
+    const n = bits(mi) + bits(mf)
+    if (n > 0 && (!best || n < best.n)) best = { mi, mf, n }
+  })
+  if (!best) return null
+  const { mi, mf } = best as { mi: number; mf: number; n: number }
+  return { ini: candIni.filter((_, i) => mi & (1 << i)), fin: candFin.filter((_, i) => mf & (1 << i)) }
+}
+
+/**
+ * Lo scarico in cui nasce una differenza non spiegata: si segue la catena
+ * degli scarichi fra il saldo iniziale e quello finale (saldo di uno scarico −
+ * saldo del precedente − movimenti arrivati con quello scarico) e si prende
+ * l'inizio dell'ultimo tratto in cui lo scarto accumulato non torna a zero.
+ */
+function scaricoDoveNasce(rows: PnTxSnapshot[], ini: PnTxSnapshot, fin: PnTxSnapshot): string | null {
+  const gruppi = new Map<string, { snap: number; tot: number }>()
+  for (const r of rows) {
+    if (!r.fetched_at || r.snapshot == null || r.fetched_at <= (ini.fetched_at as string) || r.fetched_at > (fin.fetched_at as string)) continue
+    const g = gruppi.get(r.fetched_at) ?? { snap: r.snapshot, tot: 0 }
+    g.tot += r.amount
+    gruppi.set(r.fetched_at, g)
+  }
+  let prev = ini.snapshot as number
+  let cum = 0
+  let nasce: string | null = null
+  for (const f of Array.from(gruppi.keys()).sort()) {
+    const g = gruppi.get(f) as { snap: number; tot: number }
+    cum += cents(g.snap) - cents(prev) - cents(g.tot)
+    if (cum === 0) nasce = null
+    else if (nasce == null) nasce = f
+    prev = g.snap
+  }
+  return nasce
+}
+
 /**
  * Quadratura di un conto sul periodo [periodStart, periodEnd] per la data
  * scelta (operazione o contabile), come la vuole lo studio.
@@ -147,15 +248,36 @@ export function quadraturaConto(bank_account_id: string, rows: PnTxSnapshot[], p
   const entrate = r2(movimenti.filter(r => r.amount > 0).reduce((s, r) => s + r.amount, 0))
   const uscite = r2(movimenti.filter(r => r.amount < 0).reduce((s, r) => s - r.amount, 0))
 
-  const saldo_finale_calcolato = inizio.saldo == null ? null : r2(inizio.saldo + sum(movimenti))
-  const differenza = fine.saldo == null || saldo_finale_calcolato == null ? null : r2(fine.saldo - saldo_finale_calcolato)
+  let saldo_iniziale = inizio.saldo
+  let saldo_finale = fine.saldo
+  let saldo_finale_calcolato = saldo_iniziale == null ? null : r2(saldo_iniziale + sum(movimenti))
+  let differenza = saldo_finale == null || saldo_finale_calcolato == null ? null : r2(saldo_finale - saldo_finale_calcolato)
+  let anticipati_iniziale: PnTxSnapshot[] = []
+  let anticipati_finale: PnTxSnapshot[] = []
+  let nasce_allo_scarico: string | null = null
+  if (differenza != null && Math.abs(differenza) >= 0.005 && saldo_iniziale != null && saldo_finale != null) {
+    // La banca conta già nel saldo movimenti che consegna dopo: se bastano loro
+    // a spiegare la differenza al centesimo, i saldi si portano alla data vera.
+    const trovati = cercaAnticipati(candidatiAnticipati(rows, ini), candidatiAnticipati(rows, fin), differenza)
+    if (trovati) {
+      anticipati_iniziale = trovati.ini
+      anticipati_finale = trovati.fin
+      saldo_iniziale = r2(saldo_iniziale - sum(trovati.ini))
+      saldo_finale = r2(saldo_finale - sum(trovati.fin))
+      saldo_finale_calcolato = r2(saldo_iniziale + sum(movimenti))
+      differenza = r2(saldo_finale - saldo_finale_calcolato)
+    } else if (ini && fin) {
+      nasce_allo_scarico = scaricoDoveNasce(rows, ini, fin)
+    }
+  }
   const stato: QuadraturaConto['stato'] = differenza == null ? 'senza_saldi' : Math.abs(differenza) < 0.005 ? 'quadra' : 'non_quadra'
 
   return {
     bank_account_id,
-    saldo_scarico_iniziale: ini?.snapshot ?? null, scaricato_iniziale: ini?.fetched_at ?? null, rettifica_iniziale: inizio.rettifica, saldo_iniziale: inizio.saldo,
-    saldo_scarico_finale: fin?.snapshot ?? null, scaricato_finale: fin?.fetched_at ?? null, rettifica_finale: fine.rettifica, saldo_finale: fine.saldo,
+    saldo_scarico_iniziale: ini?.snapshot ?? null, scaricato_iniziale: ini?.fetched_at ?? null, rettifica_iniziale: inizio.rettifica, saldo_iniziale,
+    saldo_scarico_finale: fin?.snapshot ?? null, scaricato_finale: fin?.fetched_at ?? null, rettifica_finale: fine.rettifica, saldo_finale,
     movimenti, n_movimenti: movimenti.length, entrate, uscite, saldo_finale_calcolato, differenza, stato,
+    anticipati_iniziale, anticipati_finale, nasce_allo_scarico,
   }
 }
 

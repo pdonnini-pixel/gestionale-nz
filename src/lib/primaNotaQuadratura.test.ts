@@ -179,3 +179,63 @@ describe('quadraturaContante', () => {
     expect(q.cassa?.differenza).toBeNull()
   })
 })
+
+describe('quadraturaConto: movimenti già nel saldo della banca ma consegnati dopo (BCC, fine ottobre 2026)', () => {
+  // Righe vere del conto BCC. Quattro pagamenti con carta del 29/10: la banca li
+  // toglie dal saldo già nello scarico del 30/10, ma li consegna il 03/11 con
+  // data contabile 03/11. Senza riconoscerli, ottobre mostra −129,91.
+  const r = (id: string, op: string, pd: string, amount: number, f: string, snapshot: number, basis: 'contabile' | 'operazione'): PnTxSnapshot =>
+    ({ id, bank_account_id: 'bcc', date: basis === 'contabile' ? pd : op, op_date: op, amount, fetched_at: f, snapshot })
+  const righe = (b: 'contabile' | 'operazione'): PnTxSnapshot[] => [
+    r('53aa99c8', '2026-10-27', '2026-10-28', -500, '2026-10-28T08:39:03Z', 34578.96, b),
+    r('3d162927', '2026-10-29', '2026-10-29', 572.35, '2026-10-30T03:23:26Z', 35021.4, b),
+    r('22aba1ea', '2026-10-30', '2026-10-30', 158, '2026-10-30T14:24:58Z', 35199.3, b),
+    r('4ec21c03', '2026-10-30', '2026-10-30', 19.9, '2026-10-30T14:24:58Z', 35199.3, b),
+    r('af3c3239', '2026-11-02', '2026-11-02', 39.9, '2026-11-02T14:30:28Z', 35239.2, b),
+    r('19a34b5a', '2026-10-29', '2026-11-03', -74.66, '2026-11-03T09:01:15Z', 35183.42, b),
+    r('4664db9e', '2026-10-29', '2026-11-03', -14.8, '2026-11-03T09:01:15Z', 35183.42, b),
+    r('71da7a23', '2026-10-29', '2026-11-03', -32.6, '2026-11-03T09:01:15Z', 35183.42, b),
+    r('73971fa8', '2026-10-29', '2026-11-03', -7.85, '2026-11-03T09:01:15Z', 35183.42, b),
+    r('c5abb04f', '2026-10-30', '2026-11-03', -15, '2026-11-03T09:01:15Z', 35183.42, b),
+    r('19f5beef', '2026-11-03', '2026-11-03', -40.78, '2026-11-03T09:01:15Z', 35183.42, b),
+  ]
+  const carta = ['19a34b5a', '4664db9e', '71da7a23', '73971fa8']
+  it('per data contabile: fine ottobre quadra, con i quattro pagamenti carta indicati', () => {
+    const q = quadraturaConto('bcc', righe('contabile'), '2026-10-29', '2026-10-31')
+    expect(q.saldo_iniziale).toBe(34578.96)
+    expect(q.saldo_finale_calcolato).toBe(35329.21)
+    expect(q.saldo_scarico_finale).toBe(35199.3)
+    expect(q.anticipati_finale.map(m => m.id).sort()).toEqual(carta)
+    expect(q.anticipati_iniziale).toEqual([])
+    expect(q.saldo_finale).toBe(35329.21)
+    expect(q.differenza).toBe(0)
+    expect(q.stato).toBe('quadra')
+    expect(q.nasce_allo_scarico).toBeNull()
+  })
+  it('per data operazione: stessi quattro movimenti, quadra', () => {
+    const q = quadraturaConto('bcc', righe('operazione'), '2026-10-29', '2026-10-31')
+    expect(q.anticipati_finale.map(m => m.id).sort()).toEqual(carta)
+    expect(q.differenza).toBe(0)
+    expect(q.stato).toBe('quadra')
+  })
+  it('il mese dopo parte dallo stesso saldo: i quattro movimenti rettificano il saldo iniziale', () => {
+    const q = quadraturaConto('bcc', righe('contabile'), '2026-11-01', '2026-11-03')
+    expect(q.saldo_scarico_iniziale).toBe(35199.3)
+    expect(q.anticipati_iniziale.map(m => m.id).sort()).toEqual(carta)
+    expect(q.saldo_iniziale).toBe(35329.21)
+    expect(q.differenza).toBe(0)
+    expect(q.stato).toBe('quadra')
+  })
+  it('una differenza che nessuna combinazione spiega resta rossa, con lo scarico in cui nasce', () => {
+    const rows = righe('contabile').map(x => (x.id === '19a34b5a' ? { ...x, amount: -70 } : x))
+    const q = quadraturaConto('bcc', rows, '2026-10-29', '2026-10-31')
+    expect(q.stato).toBe('non_quadra')
+    expect(q.differenza).toBe(-129.91)
+    expect(q.anticipati_finale).toEqual([])
+    expect(q.nasce_allo_scarico).toBe('2026-10-30T03:23:26Z')
+  })
+  it('senza data operazione non si prova a spiegare niente', () => {
+    const rows = righe('contabile').map(x => ({ ...x, op_date: null }))
+    expect(quadraturaConto('bcc', rows, '2026-10-29', '2026-10-31').stato).toBe('non_quadra')
+  })
+})
