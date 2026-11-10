@@ -351,6 +351,21 @@ describe('dove mettere le ore che avanzano', () => {
     // poche ore: il turno resta di almeno 4 ore
     expect(suggerisciFinestre({ giorni, atteso, turni, possibile: () => true, ore: 2.9 })[0].ore).toBe(4);
   });
+
+  it('non propone ore oltre il contratto della settimana (Patrizio, 10/11/2026, domenica 20/12)', () => {
+    const date = date30();
+    const giorni = costruisciGiorni(date, orari, [], []);
+    const atteso = new Map(date.map((d) => [d, Array.from({ length: 24 }, (_, h) => (d === '2026-11-27' ? (h >= 15 ? 80 : 30) : 10))]));
+    // la settimana del Black Friday (23-29/11) e' gia' piena: il 27 non si propone anche se ha piu' traffico
+    const piena = (d: string) => (d >= '2026-11-23' && d <= '2026-11-29' ? 0 : d >= '2026-11-16' && d <= '2026-11-22' ? 5.2 : 3);
+    const f = suggerisciFinestre({ giorni, atteso, turni: [], possibile: () => true, ore: 18.8, oreSettimana: piena });
+    expect(f.length).toBeGreaterThan(0);
+    // solo nella settimana 16-22, l'unica con almeno 4 ore, e mai oltre le 5 ore che restano
+    expect(f.every((x) => x.data >= '2026-11-16' && x.data <= '2026-11-22')).toBe(true);
+    expect(f.every((x) => x.ore <= 5)).toBe(true);
+    // nessuna settimana con almeno 4 ore: nessuna proposta
+    expect(suggerisciFinestre({ giorni, atteso, turni: [], possibile: () => true, ore: 18.8, oreSettimana: () => 3.5 })).toHaveLength(0);
+  });
 });
 
 describe('turno massimo di 10 ore (Patrizio, 28/10/2026)', () => {
