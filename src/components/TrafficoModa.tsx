@@ -102,7 +102,7 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
     const adesso = new Date().toISOString();
     for (let i = 0; i < righe.length; i += 500) {
       const { error } = await supabase.from('outlet_traffic_hourly').upsert(
-        righe.slice(i, i + 500).map((r) => ({ ...r, company_id: companyId, fonte: 'moda', file_name: nomeFile, updated_at: adesso })),
+        righe.slice(i, i + 500).map((r) => ({ ...r, company_id: companyId, fonte: 'moda', file_name: nomeFile.slice(0, 200), updated_at: adesso })),
         { onConflict: 'outlet_id,data,ora' },
       );
       if (error) throw error;
