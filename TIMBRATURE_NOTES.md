@@ -101,6 +101,13 @@ Dalla prova di Patrizio del 10/11/2026 (dipendente demo attivato prima su iPhone
 - **Telefono del negozio**: le timbrature salvate dal server con il QR non valido compaiono fra quelle rifiutate (riga rossa, esito `qr_non_valido`), invece di lasciare solo «registrata».
 - **Rete**: `navigator.onLine` sul Mac (Chrome) diceva «offline» con la rete funzionante, e la timbratrice non scaricava persone e turni («Persona non in elenco»). Ora timbratrice e app provano sempre il server: «In rete» quando risponde, «Senza rete» quando non risponde. Il controllo del PIN aspetta al massimo 6 secondi, poi va avanti e il PIN si controlla all'invio.
 
+## notifiche solo sul telefono attivo (migration 388, 10/11/2026)
+Dalla prova di Patrizio: il dipendente demo attivato sull'Android aveva ancora l'iPhone vecchio fra i telefoni con le notifiche, e l'iPhone si riregistra a ogni apertura dell'app.
+- `app_dipendente_consuma_codice`: chi si attiva con un codice nuovo spegne le notifiche di tutti i suoi telefoni (`employee_push_tokens.attivo = false`, `disattivato_per_cambio = true`). Il telefono appena attivato si riregistra subito dopo e le riaccende.
+- `app_registra_push_token(p_token, p_piattaforma, p_impronta)`: con l'impronta del segreto (app dalla 1.3, `pushNativo.ts`) il telefono si accende solo se l'impronta è quella attuale. Senza impronta (app 1.2 e prima) un telefono spento per cambio si riaccende solo nei 15 minuti dopo l'attivazione.
+- Una tantum: spenti i telefoni registrati per la prima volta prima dell'ultima attivazione della persona (`created_at < attivata_il`, non `aggiornato_il`: l'iPhone si riregistra a ogni apertura).
+- La funzione di invio (`timbrature-notifiche`) non cambia: manda già solo ai token `attivo`.
+
 ## aperto
 - **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: informativa privacy (entrata dimenticata con la migration 382, PIN con la 384).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).

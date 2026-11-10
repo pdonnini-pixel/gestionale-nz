@@ -6,7 +6,7 @@
 // Prima volta: si attiva con il codice di 8 caratteri dato dall'HR
 // (Dipendenti → Presenze → Accessi). Niente password da ricordare.
 
-import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { CalendarDays, Clock, Palmtree, QrCode, RefreshCw, WifiOff } from 'lucide-react'
@@ -172,9 +172,11 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
 
   // App degli store: notifiche push (ritardo, uscita non timbrata). Toccando
   // la notifica si apre la scheda indicata.
+  const segretoRef = useRef(attivazione.segreto)
+  segretoRef.current = attivazione.segreto
   useEffect(() => {
     if (!eAppNativa()) return
-    attivaNotifiche((s) => setScheda((['oggi', 'turni', 'ferie', 'ore'].includes(s) ? s : 'oggi') as Scheda))
+    attivaNotifiche((s) => setScheda((['oggi', 'turni', 'ferie', 'ore'].includes(s) ? s : 'oggi') as Scheda), () => segretoRef.current)
       .then(setNotifiche).catch(() => setNotifiche('non_disponibili'))
   }, [])
 
