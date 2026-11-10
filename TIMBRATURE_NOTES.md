@@ -95,6 +95,12 @@ Decisioni di Patrizio del 10/11/2026 (sostituiscono le regole di 372 e 373 dove 
 - **«Sto male»** (causale `malattia`, etichetta «Sto male»): non è malattia, lo diventa solo con il certificato medico. «Conferma» crea un permesso (come il motivo personale); in «Altro» chi conferma sceglie «ha il certificato medico: è malattia» (`presenze_decidi_evento` con `p_scala_permesso = false`, esito `malattia`, nessun permesso). Nel riepilogo «malattie» sono solo quelle con certificato.
 - Provato il 10/11/2026 su NZ in transazione annullata: «sto male» confermato = permesso creato; con certificato = malattia; uscita 19:40 con turno fino alle 19:00 = 40 minuti proposti.
 
+## telefono non più attivo e rete vera (migration 387, 10/11/2026)
+Dalla prova di Patrizio del 10/11/2026 (dipendente demo attivato prima su iPhone, poi su Android).
+- **Telefono non più attivo**: un codice nuovo cambia il segreto del QR, quindi il telefono di prima mostra un QR che il server rifiuta (`firma_non_valida`). `app_dipendente_oggi` restituisce `impronta` (primi 16 caratteri dello SHA-256 del segreto, `impronta()` in `timbrature.ts`); se non coincide con quella del segreto in memoria l'app non mostra più il QR e scrive «Questo telefono non è più attivo», con «Ho un codice nuovo».
+- **Telefono del negozio**: le timbrature salvate dal server con il QR non valido compaiono fra quelle rifiutate (riga rossa, esito `qr_non_valido`), invece di lasciare solo «registrata».
+- **Rete**: `navigator.onLine` sul Mac (Chrome) diceva «offline» con la rete funzionante, e la timbratrice non scaricava persone e turni («Persona non in elenco»). Ora timbratrice e app provano sempre il server: «In rete» quando risponde, «Senza rete» quando non risponde. Il controllo del PIN aspetta al massimo 6 secondi, poi va avanti e il PIN si controlla all'invio.
+
 ## aperto
 - **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: informativa privacy (entrata dimenticata con la migration 382, PIN con la 384).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).

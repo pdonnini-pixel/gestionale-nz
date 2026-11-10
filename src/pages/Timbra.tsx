@@ -110,14 +110,18 @@ export default function Timbra() {
 
   const aggiornaCoda = useCallback(async () => setCoda(await inCoda()), [])
 
+  // Si prova sempre: navigator.onLine sul Mac dice «offline» anche con la rete
+  // (prova del 10/11/2026). «In rete» = il server ha risposto.
   const sincronizza = useCallback(async () => {
     if (!outletId) return
-    if (navigator.onLine) {
-      const esito = await inviaCoda()
-      if (esito.inviate > 0 || esito.inAttesa === 0) setUltimoInvio(new Date().toISOString())
-      const nuovi = await scaricaDati(outletId)
-      if (nuovi) setDati(nuovi)
-    }
+    const esito = await inviaCoda()
+    if (esito.inviate > 0) setUltimoInvio(new Date().toISOString())
+    const nuovi = await scaricaDati(outletId)
+    if (nuovi) {
+      setDati(nuovi)
+      setOnline(true)
+      if (esito.inAttesa === 0) setUltimoInvio(new Date().toISOString())
+    } else setOnline(esito.inviate > 0)
     await aggiornaCoda()
   }, [outletId, aggiornaCoda])
 
@@ -263,9 +267,12 @@ export default function Timbra() {
     const cifre = c === 'canc' ? pin.cifre.slice(0, -1) : (pin.cifre + c).slice(0, 4)
     if (cifre.length < 4) { setPin({ ...pin, cifre, errore: undefined }); return }
     const scelto = { employeeId: pin.employeeId, nome: pin.nome, codice: codicePin(pin.employeeId, cifre), letto: Date.now() }
-    if (!navigator.onLine) { setPin(null); setSelezione({ ...scelto, pinDaControllare: true }); return }
     setPin({ ...pin, cifre, controllo: true, errore: undefined })
-    const { data, error } = await supabase.rpc('timbratrice_verifica_pin', { p_outlet_id: outletId, p_employee: pin.employeeId, p_pin: cifre })
+    // Senza risposta entro 6 secondi si va avanti: il PIN lo controlla il server all'invio
+    const { data, error } = await Promise.race([
+      supabase.rpc('timbratrice_verifica_pin', { p_outlet_id: outletId, p_employee: pin.employeeId, p_pin: cifre }),
+      new Promise<{ data: null; error: Error }>((r) => setTimeout(() => r({ data: null, error: new Error('tempo scaduto') }), 6000)),
+    ])
     // Risposta arrivata dopo che la schermata e' cambiata: non vale piu'
     if (pinCorrente.current !== pin.employeeId) return
     if (error) { setPin(null); setSelezione({ ...scelto, pinDaControllare: true }); return } // rete instabile: controlla il server all'invio
@@ -316,7 +323,7 @@ export default function Timbra() {
       {/* Testata: negozio, ora, stato dell'invio */}
       <header className="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
         <div>
-          <p className="text-slate-400 text-sm">{dati?.outlet.nome ?? 'Negozio'}</p>
+          <p className="text-slate-400 text-sm">{dati?.outlet.nome ?? negozi?.find((n) => n.outlet_id === outletId)?.nome ?? 'Negozio'}</p>
           <p className="text-5xl font-bold tabular-nums leading-none mt-1">{oraRoma(adesso)}</p>
           <p className="text-slate-400 text-sm mt-1">{new Date(adesso).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
@@ -330,7 +337,7 @@ export default function Timbra() {
           ? <p className="text-sm text-emerald-300">Tutte le timbrature sono inviate{ultimoInvio ? ` (ultimo invio ${oraRoma(ultimoInvio)})` : ''}.</p>
           : <p className="text-sm text-amber-300">{coda.length === 1 ? '1 timbratura in attesa' : `${coda.length} timbrature in attesa`}: {online ? 'invio in corso.' : 'partono da sole appena torna la rete.'}</p>}
         {scartateOra.length > 0 && (
-          <p className="text-sm text-rose-300 mt-1 flex items-center gap-1"><AlertTriangle size={14} />{scartateOra.length === 1 ? '1 timbratura rifiutata' : `${scartateOra.length} timbrature rifiutate`} (QR o PIN non riconosciuto, PIN bloccato o persona non in servizio): avvisa chi segue il personale.</p>
+          <p className="text-sm text-rose-300 mt-1 flex items-center gap-1"><AlertTriangle size={14} />{scartateOra.length === 1 ? '1 timbratura rifiutata' : `${scartateOra.length} timbrature rifiutate`} (QR non valido, per esempio da un telefono non più attivo, PIN sbagliato o bloccato, persona non in servizio): avvisa chi segue il personale.</p>
         )}
       </div>
 

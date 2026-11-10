@@ -146,9 +146,11 @@ export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
           p_righe: lotto.map(({ employee_id: _e, nome: _n, ...r }) => r),
         })
         if (error) break // rete o sessione: si riprova dopo, la coda resta
-        const risposta = data as { ora_server?: string; esiti?: { id: string; esito: string }[] } | null
+        const risposta = data as { ora_server?: string; esiti?: { id: string; esito: string; verifica?: string }[] } | null
         if (risposta?.ora_server) aggiornaScarto(risposta.ora_server, t0, Date.now())
         const esiti = new Map((risposta?.esiti ?? []).map((e) => [e.id, e.esito]))
+        // Salvate ma con il QR non valido (telefono non piu' attivo, migration 387): si segnalano come le rifiutate
+        const dubbie = new Set((risposta?.esiti ?? []).filter((e) => e.esito === 'salvata' && e.verifica === 'firma_non_valida').map((e) => e.id))
         // qr_gia_usato: la stessa azione con lo stesso QR e' gia' registrata (doppio tocco).
         // Rifiuti certi: QR illeggibile o di qualcuno che non e' (piu') in azienda.
         // Tutto il resto (errore_temporaneo, negozio_non_autorizzato, nessuna
@@ -158,10 +160,11 @@ export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
         const RIFIUTI_CERTI = ['codice_illeggibile', 'persona_sconosciuta', 'persona_non_in_servizio', 'riga_non_valida', 'pin_errato', 'pin_bloccato', 'pin_non_attivo', 'pin_altro_negozio']
         const salvate = lotto.filter((r) => fatte(esiti.get(r.id))).map((r) => r.id)
         const rifiutate = lotto.filter((r) => RIFIUTI_CERTI.includes(esiti.get(r.id) ?? ''))
-        if (rifiutate.length) {
+        const daSegnalare = [...rifiutate, ...lotto.filter((r) => dubbie.has(r.id))]
+        if (daSegnalare.length) {
           const prima = scartate()
           // Il PIN non resta in chiaro fra le rifiutate (migration 384)
-          const nuove = rifiutate.map((r) => ({ ...r, codice: r.codice.startsWith('NZP1.') ? r.codice.replace(/\.\d{4}$/, '.****') : r.codice, esito: esiti.get(r.id) ?? 'rifiutata' }))
+          const nuove = daSegnalare.map((r) => ({ ...r, codice: r.codice.startsWith('NZP1.') ? r.codice.replace(/\.\d{4}$/, '.****') : r.codice, esito: dubbie.has(r.id) ? 'qr_non_valido' : esiti.get(r.id) ?? 'rifiutata' }))
           localStorage.setItem(K_SCARTATE, JSON.stringify([...prima, ...nuove].slice(-200)))
         }
         await togli([...salvate, ...rifiutate.map((r) => r.id)])

@@ -70,6 +70,16 @@ export async function firma(segretoHex: string, employeeId: string, passo: numbe
   return byteInEsadecimale(mac).slice(0, 16)
 }
 
+/**
+ * Impronta del segreto: primi 16 caratteri esadecimali dello SHA-256 del
+ * testo del segreto. Stessa formula di app_dipendente_oggi().impronta
+ * (migration 387): se non coincide, questo telefono non e' piu' quello attivo.
+ */
+export async function impronta(segretoHex: string): Promise<string> {
+  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(segretoHex))
+  return byteInEsadecimale(h).slice(0, 16)
+}
+
 export async function codiceQr(segretoHex: string, employeeId: string, ms: number): Promise<string> {
   const passo = passoDa(ms)
   return `${PREFISSO_QR}.${employeeId}.${passo}.${await firma(segretoHex, employeeId, passo)}`
