@@ -58,6 +58,12 @@ describe('classifyMovement: tipo di movimento dalla causale, dall\'aggancio e da
     expect(classifyMovement(mv({ amount: -16.9, description: 'Causale: ADD.DIRETTO CARTA CREDITO - Descrizione: ADDEBITO SDD N. 648302 A FAVORE NEXI', category: 'commissioni_incasso' }))).toBe('carta')
     // commissioni sul bonifico: la parola «bonifico» non le trasforma in un pagamento da chiarire
     expect(classifyMovement(mv({ amount: -0.75, description: 'Commissioni su bonifico tramite co', category: 'spese_banca' }))).toBe('spese_banca')
+    // Stessa riga appena arrivata dalla banca, prima che la chiusura notturna le dia l'etichetta
+    expect(classifyMovement(mv({ amount: -0.75, description: 'Commissioni su bonifico tramite in' }))).toBe('spese_banca')
+    // Intesa: la commissione cita il bonifico «a favore di», ma e' la sola commissione
+    expect(classifyMovement(mv({ amount: -1, description: 'COMM. BEU INTER. Bonifico da Voi disposto a favore di: BENEFICIARI DIVERSI - COMMISSIONI 0126110659606970 0306917721347207S90546505465IT' }))).toBe('spese_banca')
+    // Un bonifico vero senza fattura resta da chiarire
+    expect(classifyMovement(mv({ amount: -1200, description: 'Bonifico da Voi disposto a favore di: ROSSI SRL - saldo' }))).toBe('da_chiarire')
     // Flusso CBI con l'etichetta sbagliata in banca dati: e' un bonifico vero
     // (13/07/2026, 56.031,89 + 1,75 di commissioni), non una spesa bancaria.
     expect(classifyMovement(mv({ amount: -56033.64, category: 'spese_banca', description: 'Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 135688081 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 56.031,89 IMPORTO COMMISSIONI: 1,75 ORD.ORIG:' }))).toBe('da_chiarire')

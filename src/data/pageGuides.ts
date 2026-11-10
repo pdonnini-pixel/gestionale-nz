@@ -882,6 +882,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "In Banche → Prima Nota, vista \"Pagamenti fornitori\": una riga per ogni fattura pagata nel periodo, con conto e data del movimento, imponibile, IVA, importo pagato, metodo, categoria e conto CE. Comprende contanti, carta e note di credito compensate. Nell'Excel non c'è: per lo studio il file ha i fogli per conto e per carta, gli incassi per outlet e i dipendenti; questa vista si scarica in CSV."
       },
       {
+        "q": "Le commissioni sui bonifici compaiono fra i movimenti \"Da chiarire\"?",
+        "a": "No. L'addebito della sola commissione di un bonifico (\"Commissioni su bonifico\" delle BCC, \"COMM. BEU INTER.\" di Intesa) è riconosciuto dalla causale come \"Spese e commissioni bancarie\" appena arriva dalla banca, senza che nessuno debba fare niente. Resta \"Da chiarire\" solo il bonifico vero che non ha ancora una fattura agganciata."
+      },
+      {
         "q": "Dove finiscono i versamenti ai fondi pensione dei dipendenti e i pegni a garanzia delle fideiussioni?",
         "a": "I bonifici ai fondi di previdenza complementare (per esempio Azimut o Mediolanum Vita) hanno il loro tipo di movimento, \"Previdenza complementare\": è costo del personale, ma resta distinto dagli stipendi netti. Un'uscita con causale \"pegno denaro\" o \"costituzione pegno\" è riconosciuta come \"Giroconto / prelievo\": sono soldi vincolati a garanzia di una fideiussione, non una spesa. Un bonifico in entrata che cita il pagamento di una fattura è un \"Incasso cliente (bonifico)\". Nessuno dei tre resta più fra i \"Da chiarire\"."
       },
