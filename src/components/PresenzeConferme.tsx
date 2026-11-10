@@ -48,7 +48,7 @@ function dettaglioTurno(e: EventoPresenze): string {
     return `turno ${e.turno_inizio?.slice(0, 5) ?? ''} · segnata${e.segnata_il ? ` alle ${oraRoma(e.segnata_il)}` : ''} ${dove}`.trim()
   }
   if (e.tipo === 'ritardo') return `turno ${e.turno_inizio?.slice(0, 5) ?? ''} · entrata ${ora}${e.tolleranza != null ? ` · tolleranza ${e.tolleranza}'` : ''}`
-  if (e.tipo === 'straordinario') return `turno fino alle ${e.turno_fine?.slice(0, 5) ?? ''} · uscita ${ora}${e.margine != null ? ` · margine ${e.margine}'` : ''}`
+  if (e.tipo === 'straordinario') return `turno fino alle ${e.turno_fine?.slice(0, 5) ?? ''} · uscita ${ora}${e.margine != null ? ` · tolleranza ${e.margine}'` : ''}`
   return `turno fino alle ${e.turno_fine?.slice(0, 5) ?? ''} · uscita ${ora}`
 }
 
@@ -308,7 +308,7 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
                 <p className="font-medium text-slate-900">Motivo</p>
                 {Object.entries(causali).map(([k, v]) => (
                   <label key={k} className={`flex items-center gap-2 border rounded-lg px-3 py-2 ${causale === k ? 'border-slate-900 bg-slate-50' : 'border-slate-200'}`}>
-                    <input type="radio" checked={causale === k} onChange={() => setCausale(k)} />{v}
+                    <input type="radio" checked={causale === k} onChange={() => { setCausale(k); setScala(null) }} />{v}
                     {e.causale_negozio === k && <span className="text-xs text-slate-400 ml-auto">scelto al negozio</span>}
                   </label>
                 ))}

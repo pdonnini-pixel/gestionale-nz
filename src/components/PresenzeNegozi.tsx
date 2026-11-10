@@ -2,12 +2,12 @@
 //
 // Per chi segue il personale:
 //   1. Presenze del giorno, negozio per negozio: turno, entrata, pausa,
-//      uscita, ore lavorate, ritardo, uscita oltre il margine (straordinario
+//      uscita, ore lavorate, ritardo, uscita oltre la tolleranza (straordinario
 //      da guardare), uscita non timbrata. Le uscite segnate dal dipendente si
 //      confermano qui; una timbratura sbagliata si annulla con il motivo.
 //   2. Impostazioni del negozio: timbrature accese e avvisi sul telefono
 //      (app New Zago, migration 367): ritardo in entrata (15 minuti di
-//      default), uscita non timbrata (margine di 30 minuti, che vale anche per
+//      default), uscita non timbrata (tolleranza unica di 10 minuti dalla migration 386, che vale anche per
 //      lo straordinario), e chi li riceve: dipendente, responsabile del
 //      negozio, ufficio. WhatsApp tolto il 05/11/2026. Dalla migration 382 gli
 //      avvisi sono accesi di base e c'e' un destinatario in piu': chi conferma
