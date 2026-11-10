@@ -602,7 +602,7 @@ Deno.serve(async (req: Request) => {
       const before = row ? prev?.per_outlet?.[row.outlet.id] : undefined;
       followup = {
         outletId: row?.outlet.id ?? null, outletName: row?.outlet.name ?? outletName ?? "un punto vendita",
-        outletTotal: row?.closing ? rowTotal(row) : null, reason,
+        outletTotal: row?.closing && !row.closing.is_closed_day ? rowTotal(row) : null, reason,
         prevSentAt: (sentRow?.sent_at as string | null) ?? null,
         prevOutletTotal: reason === "changed" && before ? before.t : null,
         prevDayTotal: prev?.total != null ? num(prev.total) : null,
