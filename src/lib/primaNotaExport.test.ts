@@ -304,3 +304,28 @@ describe('colonna Negozio (Monica, 08/10/2026)', () => {
     expect(quoteMovimento([{ importo: 50, quote: null }])).toEqual([])
   })
 })
+
+describe('previdenza complementare, pegno e incasso di una fattura (ottobre 2026)', () => {
+  it('i versamenti ai fondi pensione hanno il loro tipo, anche con l etichetta sbagliata in banca dati', () => {
+    expect(classifyMovement(mv({ amount: -344.63, description: 'BEU INTERN BANK 0126101341267857 NOTPROVIDED Bonifico da Voi disposto a favore di: AZIMUT SUSTAINABLE FUTURE FONDO PENSIONE APE RTO 07362100484 NEW ZAGO S.R.L. 202603' }))).toBe('previdenza')
+    expect(classifyMovement(mv({ amount: -75.06, description: 'BEU INTERN BANK 0126101341281707 NOTPROVIDED Bonifico da Voi disposto a favore di: Mediolanum Vita S.P.A. 07362100484NEW ZAGO SRL 2026T3' }))).toBe('previdenza')
+    expect(classifyMovement(mv({ amount: -568.63, category: 'spese_banca', description: 'Bonifico tramite Internet Banking *AZIMUT SUSTAINABLE FUTUR07362100484 NEW ZAGO S.R.ID.BON:0845700003093180480546302800IT' }))).toBe('previdenza')
+    expect(KIND_LABELS.previdenza).toBe('Previdenza complementare')
+  })
+  it('una fattura agganciata vince sempre', () => {
+    expect(classifyMovement(mv({ amount: -100, description: 'Bonifico a favore di: MEDIOLANUM VITA S.P.A.', payables: [pay('1', 'A', '01234567890')] }))).toBe('fornitore')
+  })
+  it('«pegno denaro» è un giroconto, non un pagamento da chiarire', () => {
+    expect(classifyMovement(mv({ amount: -44100, description: 'Causale: DISPOSIZIONE - Descrizione: PEGNO DENARO' }))).toBe('giroconto')
+  })
+  it('un bonifico in entrata che salda una fattura è un incasso cliente', () => {
+    expect(classifyMovement(mv({ amount: 81, description: 'Causale: BONIFICO PER ORDINE/CONTO - Descrizione: FILIALE DISPONENTE 00560 BON. SEPA 0881100010187150480546305463IT DEL 30.10.26 ORD: BECATTINI ALESSIA BIC: ICRAITRRMJ0 INF:RI: Pagamento fattura n.2' }))).toBe('incasso_cliente')
+  })
+  it('un accredito per nota di credito su una fattura è un rimborso, non un incasso', () => {
+    expect(classifyMovement(mv({ amount: 50, description: 'BON. SEPA ORD: FORNITORE SRL INF:RI: Nota di credito 12 su fattura 340' }))).toBe('rimborso')
+  })
+  it('i bonifici a fornitore senza fattura restano da chiarire', () => {
+    expect(classifyMovement(mv({ amount: -123, description: 'Bonifico tramite Internet Banking *INSTANT DEL 21/10/2026 ORE 15:25 BEN REGINA HOTEL S.R.L.' }))).toBe('da_chiarire')
+    expect(classifyMovement(mv({ amount: -640.5, description: 'Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 138650283 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 640,00 IMPORTO COMMISSIONI: 0,50 ORD.ORIG:' }))).toBe('da_chiarire')
+  })
+})

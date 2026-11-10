@@ -154,6 +154,7 @@ const KIND_BADGE: Record<MovementKind, string> = {
   fornitore: 'bg-red-50 text-red-700',
   f24: 'bg-amber-100 text-amber-800',
   stipendi: 'bg-violet-100 text-violet-700',
+  previdenza: 'bg-violet-50 text-violet-700',
   pos: 'bg-emerald-100 text-emerald-700',
   versamento: 'bg-emerald-50 text-emerald-700',
   carta: 'bg-sky-100 text-sky-700',

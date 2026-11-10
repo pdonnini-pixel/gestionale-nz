@@ -59,6 +59,7 @@ export type MovementKind =
   | 'fornitore'
   | 'f24'
   | 'stipendi'
+  | 'previdenza'
   | 'pos'
   | 'versamento'
   | 'carta'
@@ -75,6 +76,7 @@ export const KIND_LABELS: Record<MovementKind, string> = {
   fornitore: 'Pagamento fornitore',
   f24: 'F24 / imposte',
   stipendi: 'Stipendi',
+  previdenza: 'Previdenza complementare',
   pos: 'Incasso POS',
   versamento: 'Versamento contanti',
   carta: 'Carta di credito',
@@ -95,6 +97,10 @@ export const KIND_LABELS: Record<MovementKind, string> = {
 // poi la causale, poi l'etichetta.
 const RE_F24 = /\bF24\b|\bI24\b|DELEGA UNIFICATA|DELEGHE MOD|IMPOSTE,?\s*TASSE|IMPOSTE\/TASSE/i
 const RE_STIPENDI = /EMOLUMENT|STIPEND|SALARI\b/i
+// Versamenti trimestrali ai fondi di previdenza complementare dei dipendenti
+// (Patrizio, 10/11/2026): costo del personale, ma distinto dai netti. La banca
+// a volte tronca «FONDO PENSIONE», quindi contano anche i nomi dei fondi.
+const RE_PREVIDENZA = /FONDO PENSIONE|PREVIDENZA COMPLEMENTARE|MEDIOLANUM VITA|AZIMUT SUSTAINABLE FUTUR/i
 const RE_POS = /INCASSO TRAMITE P\.?O\.?S|ACCREDITO POS|PAGOBANCOMAT|NUMIA|AMERICAN EXPRESS|ACCREDITO PER INCASSI/i
 const RE_VERSAMENTO = /VERS\.?\s*(CONTANT|SPORT)|VERSAMENTO (DA ATM|CONTANTE)|VERSAMENTO CONTANTE/i
 // Ricarica della carta PREPAGATA (Tasca): non e' una spesa ne' un estratto di
@@ -104,7 +110,7 @@ export const RE_RICARICA_PREPAGATA = /RICARICA\s+(?:CARTA\s+)?PREPAGATA|PREPAGAT
 const RE_CARTA = /CARTA DEL CREDITO COOPERATIVO|RICARICA CARTA|ADD\.?\s*DIRETTO CARTA|ADDEBITO DIRETTO CARTA|POSIZIONE CARTA|ESTRATTO CONTO CARTA|CARTA DI CREDITO/i
 const RE_FINANZIAMENTO = /RATA DI MUTUO|RIMBORSO FINANZ|RATA FINANZ|MUTUO/i
 const RE_SPESE_BANCA = /COMMISSION|COMM\.|COMM\/SPESE|CANONE RAPPORTO|CANONE SET DI BASE|CANONE HOME BANKING|CANONE MENSILE|FIDEJUSSION|FIDEIUSSION|FONDO DI GARANZIA|A FAVORE NEXI PAYMENTS|A FAVORE GLOBAL BLUE|SPESE TENUTA|BOLL[OI]\b|IMPOSTA DI BOLLO|COMPETENZE/i
-const RE_GIROCONTO = /GIROCONTO|PASSAGGIO CONTANTI|PREL\.?\s*CONT|PRELEVAMENTO|COSTITUZIONE PEGNO/i
+const RE_GIROCONTO = /GIROCONTO|PASSAGGIO CONTANTI|PREL\.?\s*CONT|PRELEVAMENTO|COSTITUZIONE PEGNO|PEGNO DENARO/i
 // SDD di servizi bancari (commissioni POS, rimborsi tax free): spese, non fornitori.
 const RE_SDD_SERVIZI = /A FAVORE NEXI PAYMENTS|A FAVORE GLOBAL BLUE/i
 // Addebito delle commissioni di incasso (Amex, Nexi): un SDD per punto vendita.
@@ -123,9 +129,10 @@ const RE_DISPOSIZIONE_CBI = /IMPORTO BONIFICI/i
 // Bonifico in ENTRATA da un cliente privato per un acquisto in negozio o online
 // (corrispettivo pagato con bonifico): "BON. IST./SEPA ... ORD: NOME ... RI: Acquisto merce".
 const RE_BONIFICO_IN = /\bBON\.\s*(IST|SEPA)\b|BONIFICO/i
-const RE_ACQUISTO = /ACQUIST|ABITO|MERCE|ORDINE|\bODL\b|TAGLIA|SPEDIZION/i
+// «Pagamento fattura n. 2»: un cliente che salda con bonifico una fattura emessa dal negozio.
+const RE_ACQUISTO = /ACQUIST|ABITO|MERCE|ORDINE|\bODL\b|TAGLIA|SPEDIZION|\bFATTURA\b|\bFATT\./i
 // Rimborso o restituzione in entrata (fornitore, corriere, assicurazione)
-const RE_RIMBORSO = /RIMBORS|RESTITUZ|STORNO|LIQUIDAZIONE TRANSATTIVA|RIACCREDIT/i
+const RE_RIMBORSO = /RIMBORS|RESTITUZ|STORNO|LIQUIDAZIONE TRANSATTIVA|RIACCREDIT|NOTA (DI )?CREDITO/i
 
 const CATEGORY_KIND: Record<string, MovementKind> = {
   incassi_pos: 'pos',
@@ -148,6 +155,7 @@ export function classifyMovement(m: PnMovement): MovementKind {
   const d = String(m.description || '')
   if (RE_F24.test(d)) return 'f24'
   if (RE_STIPENDI.test(d)) return 'stipendi'
+  if (m.amount < 0 && RE_PREVIDENZA.test(d)) return 'previdenza'
   if (RE_FINANZIAMENTO.test(d)) return 'finanziamento'
   if (RE_GIROCONTO.test(d)) return 'giroconto'
   if (RE_RICARICA_PREPAGATA.test(d)) return 'ricarica_prepagata'
