@@ -2023,3 +2023,49 @@ numeri di due cifre che seguono «FATTURA», «SF-», «NC» si leggono (`citedI
 Applicata su NZ e Zago il 05/11/2026: impronte identiche, guardia del profilo intatta,
 permessi invariati; prova annullata su La Favorita: il giro notturno aggancia la 870.
 Scadenze aperte senza numero: 0 su 359.
+
+> ## 🤝 DISTINTA DI RIMBORSO: FATTURE ANTICIPATE DA UNA PERSONA (2026-11-10) - FATTO
+>
+> **Caso (Sabrina, mail del 02/11 e 09/11/2026).** Il magazziniere in trasferta paga di tasca
+> propria ristoranti e albergo e si fa fare la fattura intestata a New Zago: le fatture arrivano
+> dal cassetto, nascono «carta con addebito automatico» e aspettano un estratto carta aziendale
+> che non le conterrà mai. Il rimborso è UN bonifico alla persona, per la somma di fatture di
+> fornitori diversi. Gli scontrini (non fatture) vanno in busta paga e non passano di qui.
+>
+> **Perché non bastava la distinta di prima.** Il beneficiario di ogni riga era il fornitore, il
+> livello distinta chiude una fattura per movimento (importo del movimento = importo della
+> fattura) e `reconcile_movement_group` rifiuta fornitori diversi (R6).
+>
+> **Come funziona (migration `20261110_390`, NZ + Zago).**
+> - Anteprima distinta dello Scadenzario → spunta «È un rimborso a una persona», nome e IBAN.
+>   Controlli in `src/lib/distintaRimborso.ts`: una sola banca, niente scadenze fiscali, niente
+>   note di credito, IBAN formalmente valido. La mail dispone un solo bonifico.
+> - `payable_reimbursements`: una riga per distinta di rimborso (nome, IBAN, banca, totale, chi
+>   l'ha creata). Dati di una persona fisica: SELECT solo ai profili amministrativi, INSERT a
+>   contabile e super advisor, nessun UPDATE né DELETE. `payable_actions.rimborso_group_id` lega
+>   le disposizioni alla distinta. Salvataggio tutto o niente.
+> - `try_match_rimborso_bank_transaction`: movimento in uscita = somma della distinta (stesse
+>   tolleranze del livello distinta), stessa banca, finestra −3/+20 giorni, tutte le fatture
+>   ancora aperte, **nome della persona nella causale** (due parole, o l'unica), una sola
+>   distinta candidata. Chiude tutte le fatture e riconcilia il movimento. Prima nel trigger sui
+>   movimenti e in `rerun_distinta_reconciliation`. Non eseguibile dall'API.
+> - `payable_in_distinta_for_movement` ignora le disposizioni di rimborso: non confermano il
+>   fornitore come beneficiario.
+> - `fn_cash_card_provisional_close` salta le fatture in distinta di rimborso: non sono uscite
+>   dalla carta aziendale.
+>
+> **Misura che ha deciso il criterio.** L'IBAN della controparte nei bonifici in uscita non
+> arriva mai dalle banche (0 su 337 negli ultimi 90 giorni su NZ), il nome del beneficiario sta
+> sempre nella causale: quindi si confronta il nome, e l'IBAN solo se un giorno comparirà.
+>
+> **Verifica (transazione annullata sui dati vivi NZ).** Le sei fatture di ottobre del
+> magazziniere (136,78): il bonifico con il nome giusto le chiude tutte, uno dello stesso importo
+> a un altro beneficiario no, un addebito da 15,00 non chiude la fattura da 15,00, la chiusura
+> provvisoria delle carte le salta.
+>
+> **Debiti noti.** Una fattura TD19 (integrazione) non ha scadenza e non entra in distinta: il
+> suo rimborso è un bonifico a parte. Togliere una riga dallo Storico a distinta già inviata
+> cambia la somma e la pagina non avvisa (lo dice la guida). Due distinte candidate con la stessa
+> somma: nessun aggancio e nessuna proposta scritta. Gli altri motori (per nome fornitore o
+> importo) non escludono le fatture in rimborso. Su Made la funzione non c'è: il salvataggio
+> risponde «non ancora disponibile».

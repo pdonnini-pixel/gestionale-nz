@@ -44,23 +44,33 @@ COMMENT ON TABLE public.payable_reimbursements IS
 
 ALTER TABLE public.payable_reimbursements ENABLE ROW LEVEL SECURITY;
 
-DROP POLICY IF EXISTS payable_reimbursements_select ON public.payable_reimbursements;
-CREATE POLICY payable_reimbursements_select ON public.payable_reimbursements
-  FOR SELECT TO authenticated
-  USING (
-    company_id = (SELECT get_my_company_id())
-    AND (SELECT get_my_role())::text IN ('super_advisor', 'contabile', 'ceo', 'cfo', 'coo')
-  );
+-- Policy create solo se mancano (migration rieseguibile senza cancellare niente).
+DO $pol$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public'
+                 AND tablename = 'payable_reimbursements' AND policyname = 'payable_reimbursements_select') THEN
+    CREATE POLICY payable_reimbursements_select ON public.payable_reimbursements
+      FOR SELECT TO authenticated
+      USING (
+        company_id = (SELECT get_my_company_id())
+        AND (SELECT get_my_role())::text IN ('super_advisor', 'contabile', 'ceo', 'cfo', 'coo')
+      );
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public'
+                 AND tablename = 'payable_reimbursements' AND policyname = 'payable_reimbursements_insert') THEN
+    CREATE POLICY payable_reimbursements_insert ON public.payable_reimbursements
+      FOR INSERT TO authenticated
+      WITH CHECK (
+        company_id = (SELECT get_my_company_id())
+        AND (SELECT get_my_role())::text IN ('super_advisor', 'contabile')
+        AND created_by IS NOT DISTINCT FROM (SELECT auth.uid())
+      );
+  END IF;
+END;
+$pol$;
 
-DROP POLICY IF EXISTS payable_reimbursements_insert ON public.payable_reimbursements;
-CREATE POLICY payable_reimbursements_insert ON public.payable_reimbursements
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    company_id = (SELECT get_my_company_id())
-    AND (SELECT get_my_role())::text IN ('super_advisor', 'contabile')
-    AND created_by IS NOT DISTINCT FROM (SELECT auth.uid())
-  );
-
+-- Solo lettura e inserimento: una distinta di rimborso salvata non si tocca più.
+REVOKE ALL ON public.payable_reimbursements FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT ON public.payable_reimbursements TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.payable_reimbursements TO service_role;
 
