@@ -86,7 +86,8 @@ describe('proponiSettimana', () => {
         expect(oreLavorate(t)).toBeGreaterThanOrEqual(1);
         expect(oreLavorate(t)).toBeLessThanOrEqual(10);
         expect(t.inizio >= '10:00' && t.fine <= '20:00').toBe(true);
-        expect(t.pausaMinuti).toBe(oreLavorate(t) >= 8 ? 60 : oreLavorate(t) >= 6 ? 30 : 0);
+        // nessuna pausa fino a 6 ore comprese, 30' oltre 6, un'ora da 8 (Patrizio, 11/11/2026)
+        expect(t.pausaMinuti).toBe(pausaPer(oreLavorate(t) * 60));
       }
     }
   });

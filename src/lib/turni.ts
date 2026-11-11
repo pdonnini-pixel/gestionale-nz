@@ -550,21 +550,43 @@ export function proponiSettimana(args: ArgsProposta): EsitoProposta {
   // in cui ci sono piu' persone del fabbisogno. Le ore di contratto che
   // avanzano non diventano turni in piu': diventano ferie e permessi, e si
   // tolgono prima a chi ne ha maturati di piu'.
-  const piena = migliorStrategia(args);
   // Senza fabbisogno non si sa cosa serve: si resta sulle ore di contratto.
-  if (oreDaCoprire(args.giorni) <= 0) return piena;
+  if (oreDaCoprire(args.giorni) <= 0) return migliorStrategia(args);
   const regole = args.regole ?? REGOLE_DEFAULT;
   const fissi = args.fissi ?? [];
   const saldo = new Map(args.persone.map((p) => [p.id, p.saldoOre ?? 0]));
-  // Sfrondare libera ore di contratto che il ritocco usa per chiudere i
-  // buchi rimasti; poi si sfronda di nuovo quello che il ritocco ha lasciato in piu'.
-  const sfrondati = sfrondaOreInPiu(args.giorni, piena.turni, fissi, regole, saldo);
-  let ritoccati = ritoccaScoperture(args.giorni, sfrondati, fissi, args.persone, regole);
-  // Nei giorni di evento, se mancano ancora persone, si va oltre il
-  // contratto: sono straordinari (Patrizio, 20/10/2026), e si dicono.
   const giorniStraordinari = new Set(args.giorni.filter((g) => g.straordinari && !g.chiuso).map((g) => g.data));
-  if (giorniStraordinari.size) ritoccati = ritoccaScoperture(args.giorni, ritoccati, fissi, args.persone, regole, giorniStraordinari);
-  const turni = sfrondaOreInPiu(args.giorni, ritoccati, fissi, regole, saldo);
+  const rifinisci = (grezzi: Turno[]): Turno[] => {
+    // Sfrondare libera ore di contratto che il ritocco usa per chiudere i
+    // buchi rimasti; poi si sfronda di nuovo quello che il ritocco ha lasciato in piu'.
+    const sfrondati = sfrondaOreInPiu(args.giorni, grezzi, fissi, regole, saldo);
+    let ritoccati = ritoccaScoperture(args.giorni, sfrondati, fissi, args.persone, regole);
+    // Chi ha gia' tutti i giorni di lavoro non puo' entrare nel giorno scoperto: gli
+    // si sposta li' il turno di un altro giorno (Roma Soratte, 11/11/2026).
+    ritoccati = spostaUnGiorno(args.giorni, ritoccati, fissi, args.persone, regole);
+    // Nei giorni di evento, se mancano ancora persone, si va oltre il
+    // contratto: sono straordinari (Patrizio, 20/10/2026), e si dicono.
+    if (giorniStraordinari.size) ritoccati = ritoccaScoperture(args.giorni, ritoccati, fissi, args.persone, regole, giorniStraordinari);
+    return sfrondaOreInPiu(args.giorni, ritoccati, fissi, regole, saldo);
+  };
+  // Ogni strategia va fino in fondo (sfrondo, ritocco, spostamenti) e si tiene la
+  // settimana finita migliore: prima meno mezz'ore senza nessuno (comanda l'orario),
+  // poi meno ore scoperte, poi la mancanza meglio distribuita. Fino all'11/11/2026 si
+  // sceglieva la strategia sulla proposta grezza e si rifiniva solo quella: a Roma
+  // Soratte vinceva quella dei turni da 4 ore, che nei feriali mette in turno tutte
+  // e quattro le persone, finisce i giorni di lavoro di ognuna il giovedi' e lascia
+  // il venerdi' vuoto dalle 17 con ore di contratto ancora libere.
+  let meglio: { turni: Turno[]; vuote: number; ore: number; q: number } | null = null;
+  for (const [ordine, lunghezza] of STRATEGIE) {
+    const turni = rifinisci(proponiConStrategia(args, ordine, lunghezza).turni);
+    const tutti = [...fissi, ...turni];
+    const m = { turni, vuote: mezzOreVuote(args.giorni, tutti), ore: oreScoperte(args.giorni, tutti), q: mancanzaQuadrata(args.giorni, tutti) };
+    if (!meglio || m.vuote < meglio.vuote
+      || (m.vuote === meglio.vuote && (m.ore < meglio.ore - 1e-9 || (Math.abs(m.ore - meglio.ore) <= 1e-9 && m.q < meglio.q - 1e-9)))) meglio = m;
+    // tutto coperto: le strategie che restano non possono fare meglio
+    if (meglio.vuote === 0 && meglio.ore <= 1e-9) break;
+  }
+  const turni = meglio!.turni;
   const tutti = [...fissi, ...turni];
   const ore: EsitoProposta['ore'] = {};
   for (const p of args.persone) {
@@ -572,6 +594,76 @@ export function proponiSettimana(args: ArgsProposta): EsitoProposta {
     ore[p.id] = { contratto: p.ore, pianificate, straordinario: Math.max(0, pianificate - p.ore) };
   }
   return { turni, scoperture: args.giorni.flatMap((g) => scopertureDelGiorno(g, tutti)), ore };
+}
+
+/** Mezz'ore di apertura in cui non c'e' nessuno: non devono esistere (comanda l'orario, Patrizio 21/10/2026). */
+export function mezzOreVuote(giorni: GiornoPiano[], turni: Turno[]): number {
+  return giorni.reduce((a, g) => a + (g.chiuso ? 0 : coperturaLorda(g, turni).filter((c) => c < 1).length), 0);
+}
+
+type Ordine = 'pieni' | 'buco';
+type Lunghezza = 'pesati' | 'uguali' | 'lunghi';
+// «lunghi» in fondo: a parita' restano le strategie di prima.
+const STRATEGIE: [Ordine, Lunghezza][] = [['pieni', 'pesati'], ['pieni', 'uguali'], ['buco', 'pesati'], ['buco', 'uguali'], ['pieni', 'lunghi'], ['buco', 'lunghi']];
+
+/**
+ * Sposta un turno da un giorno all'altro (Roma Soratte, 11/11/2026). Il ritocco
+ * lavora un giorno alla volta: se nel giorno scoperto chi non lavora ha gia' tutti
+ * i suoi giorni di lavoro (sei turni corti in sei giorni), non puo' aggiungere
+ * nessuno e il buco resta, anche con ore di contratto libere. Qui a una persona
+ * che quel giorno non lavora si toglie il turno di un altro giorno e le si da' un
+ * turno nel giorno scoperto; poi il ritocco risistema i due giorni con le ore di
+ * tutti. Si tiene lo spostamento che lascia meno mezz'ore vuote e, a parita', meno
+ * ore scoperte nella settimana; mai se le peggiora. I turni fissi non si toccano.
+ */
+export function spostaUnGiorno(
+  giorni: GiornoPiano[], proposti: Turno[], fissi: Turno[], persone: PersonaTurni[], regole: RegoleTurni,
+): Turno[] {
+  let turni = [...proposti];
+  const aperti = giorni.filter((g) => !g.chiuso);
+  const misura = (t: Turno[]) => { const tutti = [...fissi, ...t]; return { vuote: mezzOreVuote(aperti, tutti), ore: oreScoperte(aperti, tutti) }; };
+  const meglioDi = (a: { vuote: number; ore: number }, b: { vuote: number; ore: number }) => a.vuote < b.vuote || (a.vuote === b.vuote && a.ore < b.ore - 1e-9);
+  const minimo = regole.turnoMinOre * 60;
+  for (let giro = 0; giro < 20; giro++) {
+    const base = misura(turni);
+    if (base.ore <= 1e-9) break;
+    let meglio: { t: Turno[]; m: { vuote: number; ore: number } } | null = null;
+    for (const g of aperti) {
+      if (oreScoperte([g], [...fissi, ...turni]) <= 1e-9) continue;
+      for (const p of persone) {
+        if (p.ore <= 0 || p.nonDisponibile.has(g.data) || [...fissi, ...turni].some((t) => t.employeeId === p.id && t.data === g.data)) continue;
+        const l = limitiPersona(p, g);
+        if (lavoroMassimoGiorno(l, regole) < minimo) continue;
+        const giorniSuoi = new Set([...fissi, ...turni].filter((t) => t.employeeId === p.id).map((t) => t.data)).size;
+        // chi ha ancora un giorno libero lo aggiunge gia' il ritocco: qui solo chi li ha finiti
+        if (giorniSuoi < regole.giorniLavoroMax) continue;
+        for (const via of turni.filter((t) => t.employeeId === p.id && t.data !== g.data)) {
+          const g2 = aperti.find((x) => x.data === via.data);
+          if (!g2) continue;
+          const senza = turni.filter((t) => t !== via);
+          const cop = coperturaLorda(g, [...fissi, ...senza]);
+          // il turno minimo dove nel giorno scoperto manca di piu'; il ritocco poi lo allunga
+          let inizio: { s: number; v: number } | null = null;
+          for (let s = l.apre; s + minimo + pausaPer(minimo, regole) <= l.chiude; s += SLOT_MINUTI) {
+            let v = 0;
+            for (let k = 0; k < cop.length; k++) {
+              const m = g.apre + k * SLOT_MINUTI;
+              if (m >= s && m < s + minimo) v += Math.max(0, g.fabbisogno[k] - cop[k]) ** 2 + (cop[k] < 1 ? 100 : 0);
+            }
+            if (!inizio || v > inizio.v) inizio = { s, v };
+          }
+          if (!inizio || inizio.v <= 0) continue;
+          const nuovo: Turno = { employeeId: p.id, data: g.data, inizio: hhmm(inizio.s), fine: hhmm(inizio.s + minimo + pausaPer(minimo, regole)), pausaMinuti: pausaPer(minimo, regole) };
+          const prova = ritoccaScoperture([g, g2], [...senza, nuovo], fissi, persone, regole);
+          const m = misura(prova);
+          if (meglioDi(m, base) && (!meglio || meglioDi(m, meglio.m))) meglio = { t: prova, m };
+        }
+      }
+    }
+    if (!meglio) break;
+    turni = meglio.t;
+  }
+  return turni;
 }
 
 /**
@@ -738,7 +830,7 @@ export function mancanzaQuadrata(giorni: GiornoPiano[], turni: Turno[]): number 
   }, 0);
 }
 
-function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni: 'pesati' | 'uguali'): EsitoProposta {
+function proponiConStrategia(args: ArgsProposta, ordine: Ordine, turni: Lunghezza): EsitoProposta {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const giorni = args.giorni;
   const fissi = args.fissi ?? [];
@@ -766,7 +858,25 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
     && (restanti.get(p.id) ?? 0) >= regole.turnoMinOre - 1e-9
     && lavoroMassimoGiorno(limitiPersona(p, g), regole) >= regole.turnoMinOre * 60;
 
-  const durata = (p: PersonaTurni, g: GiornoPiano): { lavoro: number; pausa: number } => {
+  const durata = (p: PersonaTurni, g: GiornoPiano, buco?: number): { lavoro: number; pausa: number } => {
+    // Turni «lunghi» (Roma Soratte, 11/11/2026): il turno e' lungo quanto il buco in
+    // cui cade (le mezz'ore di fila in cui manca qualcuno), fino al turno massimo e
+    // alle ore che restano alla persona. Meno turni piu' lunghi usano meno giorni di
+    // lavoro: con quattro turni da 4 ore in ogni feriale le persone finiscono i sei
+    // giorni prima della fine della settimana e l'ultimo giorno resta scoperto.
+    if (turni === 'lunghi' && buco != null) {
+      const c = cop.get(g.data)!;
+      let a = buco; let b = buco;
+      while (a > 0 && g.fabbisogno[a - 1] - c[a - 1] > 0) a--;
+      while (b + 1 < c.length && g.fabbisogno[b + 1] - c[b + 1] > 0) b++;
+      const l = limitiPersona(p, g);
+      const spazio = Math.min((b - a + 1) * SLOT_MINUTI, l.chiude - l.apre);
+      const minimo = regole.turnoMinOre * 60;
+      let lavoro = Math.min(regole.turnoMaxOre * 60, arrotondaMezzOra(restanti.get(p.id) ?? 0) * 60);
+      while (lavoro > minimo && lavoro + pausaPer(lavoro, regole) > spazio) lavoro -= SLOT_MINUTI;
+      while (lavoro > 0 && lavoro + pausaPer(lavoro, regole) > l.chiude - l.apre) lavoro -= SLOT_MINUTI;
+      return { lavoro, pausa: pausaPer(lavoro, regole) };
+    }
     // Le ore che restano si dividono sui giorni che la persona puo' ancora
     // lavorare in proporzione a quanto serve in ciascuno: turni lunghi nei
     // giorni pieni (sabato, domenica), corti in quelli tranquilli. Dividerle
@@ -867,7 +977,7 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
     // Il turno ha la lunghezza giusta per le ore di contratto della persona
     // (accorciarlo sul buco lascerebbe ore pagate e non usate, perche' i
     // giorni di lavoro finiscono prima delle ore) e copre la mezz'ora del buco.
-    const { lavoro, pausa } = durata(p, best.g);
+    const { lavoro, pausa } = durata(p, best.g, best.i);
     if (lavoro < regole.turnoMinOre * 60 - 1e-9) { bloccati.add(`${best.g.data}|${best.i}`); continue; }
     assegna(p, best.g, inizioNelBuco(p, best.g, best.i, lavoro + pausa), lavoro, pausa);
   }
