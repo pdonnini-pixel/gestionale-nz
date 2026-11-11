@@ -1398,7 +1398,11 @@ function pianificaMeseConRegola(args: {
     if (!args.rapido) {
       const fissiRefSett = new Set(fissiSett);
       esito = [...ottimizzaSettimana(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole,
-        { giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto }, fissiSett), ...fissiSett];
+        {
+          giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto,
+          // i giorni gia' lavorati nei giorni dell'altro mese della stessa settimana contano nel massimo
+          giorniGia: new Map(candidati.map((c) => [c.id, giorniDellaSettimana(lun).filter((d) => !nelMese(d) && (args.oreFuoriMese?.get(c.id)?.get(d) ?? 0) > 0).length])),
+        }, fissiSett), ...fissiSett];
       for (const [k, n] of coppieFeriali(esito)) coppieViste.set(k, (coppieViste.get(k) ?? 0) + n);
     }
     // Rete di sicurezza: nessun turno fuori dagli accordi della scheda.

@@ -985,7 +985,7 @@ feriali e 35 weekend, traffico di Valmontone di novembre 2025: Roma Soratte non 
 - `src/lib/stampaOrario.ts`: PDF vettoriale (logo New Zago disegnato, niente immagini); per gli
   altri tenant il nome dell'azienda al posto del logo.
 - `src/lib/guidaNegozio.ts`, `src/lib/regoleNuoveDb.ts`.
-- Migration 392 (riempi_contratto, employee_giorno_libero, turni ufficiali solo pubblicati nel piano
+- Migration 395 (riempi_contratto, employee_giorno_libero, turni ufficiali solo pubblicati nel piano
   scelto) e 393 (vice responsabile, storico, blocco ferie del lunedì con trigger su `leave_request_days`).
 
 ### Misure del motore nuovo (Roma Soratte, dati veri, 11/11/2026)
@@ -1007,5 +1007,5 @@ Il piano costruito a mano per le stesse settimane dava 0 scoperte con 130 e 156 
 **Attenzione alle bozze messe a mano senza piano.** `timbrature_turni_ufficiali` considera ancora
 ufficiale un turno senza piano con `origine = 'manuale'` anche in bozza (decisione del 05/11): una
 bozza da approvare caricata da fuori va messa con `origine = 'proposta'`. Dentro un piano scelto,
-dalla 392, vale solo il pubblicato.
+dalla 395, vale solo il pubblicato.
 

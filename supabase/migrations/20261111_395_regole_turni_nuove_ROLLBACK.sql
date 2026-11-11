@@ -1,4 +1,4 @@
--- ROLLBACK della 392. La colonna riempi_contratto e la tabella
+-- ROLLBACK della 395. La colonna riempi_contratto e la tabella
 -- employee_giorno_libero restano (contengono scelte fatte dalle persone):
 -- si riporta solo la funzione dei turni ufficiali a com'era prima.
 

@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migrazione 392 — Turni: ore fino al contratto, giorno libero fisso,
+-- Migrazione 395 — Turni: ore fino al contratto, giorno libero fisso,
 --                  orario pubblicato settimana per settimana
 -- =====================================================================
 -- PERCHE': decisioni di Patrizio dell'11/11/2026, nate dal piano di Roma
@@ -106,7 +106,7 @@ AS $function$
    WHERE s.company_id = p_company_id
      AND s.data BETWEEN p_dal AND p_al
      AND s.stato <> 'annullato'
-     -- piano scelto: l'orario si pubblica settimana per settimana (392), vale solo il pubblicato
+     -- piano scelto: l'orario si pubblica settimana per settimana (395), vale solo il pubblicato
      AND ((p.id IS NOT NULL AND s.plan_id = p.id AND s.stato = 'pubblicato')
           OR (p.id IS NULL AND s.plan_id IS NULL AND (s.stato = 'pubblicato' OR s.origine = 'manuale'))
           OR (s.plan_id IS NULL AND s.employee_id = ANY ((SELECT public.dipendenti_demo_ids())::uuid[])));

@@ -47,6 +47,8 @@ export interface RegoleNuove {
   guida?: string[];
   /** le ore di contratto che il traffico non chiede vanno comunque in turno, prima venerdi', sabato e domenica */
   riempiContratto?: boolean;
+  /** giorni gia' lavorati da ognuno nei giorni dell'altro mese della stessa settimana: contano nel massimo dei giorni */
+  giorniGia?: Map<string, number>;
   /** giri di ricerca per partenza (default in proporzione a persone e giorni) */
   giri?: number;
 }
@@ -155,6 +157,8 @@ interface Quadro {
    * settimane a cavallo del mese). Oltre si va solo nei giorni di evento.
    */
   tetto: number[];
+  /** ore oltre il contratto che la partenza aveva gia' fuori dai giorni di evento */
+  oltreLibero: number[];
   // precalcolati e appoggi del conto, per non allocare a ogni giro
   iso: number[];
   libero: number[];
@@ -240,8 +244,9 @@ function costo(q: Quadro, st: Stato): number {
   for (let p = 0; p < P; p++) {
     const oltre = ore[p] - persone[p].ore;
     if (oltre > 1e-9) {
-      // oltre il tetto solo con le ore dei giorni di evento
-      if (ore[p] - q.tetto[p] > oreEvento[p] + 1e-9) return Infinity;
+      // oltre il contratto solo con le ore dei giorni di evento, piu' quelle che la partenza
+      // aveva gia' fuori dagli eventi (straordinari ammessi, anticipo a cavallo del mese)
+      if (oltre - oreEvento[p] > q.oltreLibero[p] + 1e-9) return Infinity;
       c += oltre * PESI.straordinario + oltre * oltre * PESI.straordinarioQuadro;
     }
     if (giorniLavoro[p] > regole.giorniLavoroMax) return Infinity;
@@ -598,6 +603,12 @@ export function ottimizzaSettimana(
       return { ...l, max: Math.floor(lavoroMassimoGiorno(l, regole) / SLOT_MINUTI) * SLOT_MINUTI };
     })),
   } as Quadro;
+  const eventi = new Set(giorni.filter((g) => g.straordinari && !g.chiuso).map((g) => g.data));
+  q.oltreLibero = persone.map((p, i) => {
+    const suoi = [...turni, ...fissi].filter((t) => t.employeeId === p.id && giorni.some((g) => g.data === t.data));
+    const inEvento = suoi.filter((t) => eventi.has(t.data)).reduce((a, t) => a + oreLavorate(t), 0);
+    return Math.max(0, q.tetto[i] - p.ore - inEvento);
+  });
   const guidaIds = (nuove.guida ?? []).length >= 2 ? nuove.guida! : [];
   q.iso = giorni.map((g) => giornoIso(g.data));
   q.libero = persone.map((p) => nuove.giornoLibero?.get(p.id) ?? 0);
@@ -607,7 +618,7 @@ export function ottimizzaSettimana(
   // la regola del lunedi' vale se almeno una delle due quel giorno potrebbe lavorare
   q.guidaPossibile = giorni.map((_, d) => persone.some((_p, i) => q.eGuida[i] && q.limiti[i][d].max >= minLavoro));
   q.weekendDovuto = persone.map((p, i) => giorni.map((_, d) => !q.giornoFisso[i][d] && p.ore >= regole.turnoMinOre && q.limiti[i][d].max >= minLavoro));
-  q.giorniFissi = persone.map((_, i) => q.giornoFisso[i].filter(Boolean).length);
+  q.giorniFissi = persone.map((p, i) => q.giornoFisso[i].filter(Boolean).length + (nuove.giorniGia?.get(p.id) ?? 0));
   q.coppiePrima = persone.flatMap((a) => persone.map((b) => nuove.coppiePrima?.get(coppia(a.id, b.id)) ?? 0));
   q.bufOre = persone.map(() => 0); q.bufEvento = persone.map(() => 0); q.bufGiorni = persone.map(() => 0);
   q.bufCoppie = new Array(persone.length * persone.length).fill(0);

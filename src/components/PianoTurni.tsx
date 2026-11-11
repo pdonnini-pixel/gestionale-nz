@@ -89,7 +89,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [storico, setStorico] = useState<{ storico: StoricoTraffico; propria: boolean; fonte?: 'propria' | 'riferimento' | 'media'; riferimentoId?: string | null } | null>(null);
   // Ore gia' nei turni dei giorni dell'altro mese della stessa settimana, per persona.
   const [oreFuori, setOreFuori] = useState<Map<string, number>>(new Map());
-  // Giorno libero fisso di ognuno (migration 392); dove la tabella manca la riga non compare.
+  const [giorniFuori, setGiorniFuori] = useState<Map<string, number>>(new Map());
+  // Giorno libero fisso di ognuno (migration 395); dove la tabella manca la riga non compare.
   const [giorniLiberi, setGiorniLiberi] = useState<Map<string, GiornoLibero>>(new Map());
   const [haGiorniLiberi, setHaGiorniLiberi] = useState(false);
   const [storicoPronto, setStoricoPronto] = useState(false);
@@ -181,12 +182,15 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       setGiorniLiberi(gl.mappa);
       setHaGiorniLiberi(gl.disponibile);
       const portate = new Map<string, number>();
-      for (const x of ((fu.data as unknown as { employee_id: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
+      const giorniPortati = new Map<string, Set<string>>();
+      for (const x of ((fu.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
         const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
         if (x.plan_id && pl?.stato !== 'scelto') continue;
         portate.set(x.employee_id, (portate.get(x.employee_id) ?? 0) + oreLavorate({ inizio: t5(x.inizio), fine: t5(x.fine), pausaMinuti: x.pausa_minuti ?? 0 }));
+        giorniPortati.set(x.employee_id, (giorniPortati.get(x.employee_id) ?? new Set<string>()).add(x.data));
       }
       setOreFuori(portate);
+      setGiorniFuori(new Map([...giorniPortati].map(([id, g]) => [id, g.size])));
       setDisponibilita(disp);
       setTrasferte(tr);
       const pianoDelMese = new Map(((pi.data as { id: string; mese: string }[]) ?? []).map((x) => [x.mese.slice(0, 7), x.id]));
@@ -285,6 +289,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const turniPerCalcolo: Turno[] = attivi.map((t) => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }));
   const esclusiDallaProposta = persone.filter((p) => p.ore == null || p.ore <= 0);
 
+  const meseFuori = fuori.length ? NOMI_MESE_LUNGHI[Number(fuori[0].slice(5, 7))] : '';
   // Responsabile e vice del negozio: il lunedi' almeno una delle due in turno.
   const negozio = dati.negozi.find((n) => n.id === outletId);
   const guida = guidaDelNegozio(negozio);
@@ -374,7 +379,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const liberi = scegliGiorniLiberi(candidati.map((c) => c.id), new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])), guida);
       const coppiePrima = await caricaCoppiePrima(companyId, outletId, date[0]);
       const sistemati = ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidati, regole,
-        { giornoLibero: liberi, guida, coppiePrima, riempiContratto: !!regole.riempiContratto }, fissiTutti);
+        { giornoLibero: liberi, guida, coppiePrima, riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori }, fissiTutti);
       if (haGiorniLiberi) await salvaGiorniLiberiDiSistema(companyId, liberi, giorniLiberi).catch(() => undefined);
       const esito = { ...proposta, turni: sistemati, scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, [...sistemati, ...fissiTutti])) };
       if (esito.turni.length) {
@@ -414,11 +419,12 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     setLavoro(true);
     try {
       const prima = date.map((d) => aggiungiGiorni(d, -7));
+      const ultimoPrima = prima[prima.length - 1];
       const [sh, pi] = await Promise.all([
         supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, stato')
-          .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', prima[0]).lte('data', prima[6]).neq('stato', 'annullato'),
+          .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', prima[0]).lte('data', ultimoPrima).neq('stato', 'annullato'),
         supabase.from('shift_plans').select('id, mese').eq('outlet_id', outletId).eq('stato', 'scelto')
-          .in('mese', [...new Set([prima[0], prima[6]].map((d) => `${d.slice(0, 7)}-01`))]),
+          .in('mese', [...new Set([prima[0], ultimoPrima].map((d) => `${d.slice(0, 7)}-01`))]),
       ]);
       if (sh.error) throw sh.error;
       if (pi.error) throw pi.error;
@@ -499,7 +505,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     }
   };
 
-  if (!storicoPronto || (caricamento && !giorni.length)) return <div className="text-slate-400 py-12 text-center">Caricamento…</div>;
+  // Cambiando settimana le persone si ricalcolano subito sui giorni nuovi, mentre orari e
+  // turni arrivano dopo la lettura: finche' i giorni non sono quelli del pezzo scelto si aspetta.
+  if (!storicoPronto || (caricamento && !giorni.length) || giorni.length !== date.length || giorni[0]?.data !== date[0]) return <div className="text-slate-400 py-12 text-center">Caricamento…</div>;
 
   const bozze = attivi.filter((t) => t.stato === 'bozza').length;
   const pubblicati = attivi.filter((t) => t.stato === 'pubblicato').length;
@@ -550,7 +558,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
 
       {fuori.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
-          <Info size={15} className="shrink-0 mt-0.5" /> Questa settimana è a cavallo di due mesi: qui vedi i giorni di {NOMI_MESE_LUNGHI[Number(date[0].slice(5, 7))]}. Le ore già nei turni dei giorni di {NOMI_MESE_LUNGHI[Number(fuori[0].slice(5, 7))]} contano nella colonna Ore, così il contratto della settimana resta uno solo.
+          <Info size={15} className="shrink-0 mt-0.5" /> Questa settimana è a cavallo di due mesi: qui vedi i giorni di {NOMI_MESE_LUNGHI[Number(date[0].slice(5, 7))]}. Le ore già nei turni dei giorni di {meseFuori} contano nella colonna Ore, così il contratto della settimana resta uno solo.
         </div>
       )}
       {deroghe.length > 0 && (
@@ -563,7 +571,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       )}
       {mancaGuida && attivi.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
-          <Info size={15} className="shrink-0 mt-0.5" /> {mancaGuida} di {nomeNegozio}: finché non è scelta, la regola del lunedì (una fra responsabile e vice in negozio per il versamento) non si può controllare. Si sceglie in alto, accanto al nome del negozio.
+          <Info size={15} className="shrink-0 mt-0.5" /> {nomeNegozio}: {mancaGuida.charAt(0).toLowerCase() + mancaGuida.slice(1)}. Finché non ci sono tutte e due, la regola del lunedì (una fra responsabile e vice in negozio per il versamento) non si può controllare. Si scelgono in alto, accanto al nome del negozio.
         </div>
       )}
 
@@ -676,8 +684,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                   })}
                   <td className={`px-3 py-2 text-right tabular-nums ${p.ore != null && pianificate > p.ore + 0.01 ? 'text-amber-800 font-semibold' : 'text-emerald-800'}`}>
                     {pianificate.toLocaleString('it-IT')}{p.ore != null ? `/${p.ore}` : ''}
-                    {portate > 0.01 && (
-                      <span className="block text-[11px] font-normal text-slate-500 whitespace-nowrap">di cui {portate.toLocaleString('it-IT')} h in {NOMI_MESE_LUNGHI[Number(fuori[0].slice(5, 7))]}</span>
+                    {portate > 0.01 && fuori.length > 0 && (
+                      <span className="block text-[11px] font-normal text-slate-500 whitespace-nowrap">di cui {portate.toLocaleString('it-IT')} h in {meseFuori}</span>
                     )}
                     {p.ore != null && pianificate - p.ore > 0.25 && (
                       <span className="block text-[11px] font-normal text-amber-800 whitespace-nowrap">{(pianificate - p.ore).toLocaleString('it-IT')} h straordinario</span>

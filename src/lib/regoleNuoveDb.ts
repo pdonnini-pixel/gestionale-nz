@@ -1,7 +1,7 @@
 // Lettura e scrittura di quello che serve alle regole dei turni dell'11/11/2026
 // (Patrizio, Roma Soratte): il giorno libero fisso di ognuno e le coppie dei
 // feriali delle settimane prima. Dove la tabella non c'e' (tenant senza la
-// migration 392) si torna al comportamento di prima, senza errori a video.
+// migration 395) si torna al comportamento di prima, senza errori a video.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';

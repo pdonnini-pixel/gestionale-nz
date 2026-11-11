@@ -89,7 +89,7 @@ type BaseMese = {
   senzaLiberi: Set<string>; saldi: Map<string, number>; storicoWeekend: Map<string, number>; ferie: GiornoFerie[]; fonte: string;
   /** ore dei turni veri nei giorni dell'altro mese delle settimane a cavallo, per persona e data */
   oreFuoriMese: Map<string, Map<string, number>>;
-  /** giorno libero fisso di ognuno (migration 392) e se la tabella c'e' */
+  /** giorno libero fisso di ognuno (migration 395) e se la tabella c'e' */
   giorniLiberi: Map<string, GiornoLibero>; haGiorniLiberi: boolean;
   /** coppie dei feriali nelle tre settimane prima del mese */
   coppiePrima: Map<string, number>;
@@ -464,9 +464,21 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       // Si lavora sul mese e si pubblica settimana per settimana (Patrizio, 11/11/2026): il primo
       // piano vero del mese diventa quello che vale, cosi' le sue settimane si aprono nel piano
       // settimanale. Alle ragazze non arriva niente finche' la settimana non si pubblica.
-      if (!ipotesi && !piani.some((x) => !x.simulazione && x.stato === 'scelto')) {
-        await supabase.rpc('turni_scegli_piano', { p_plan_id: planId });
+      // Non se il mese ha gia' turni fatti dal piano settimanale: sceglierlo li toglierebbe dalla
+      // vista e dai turni ufficiali. E solo dove c'e' la migration 395 (del piano scelto vale solo
+      // il pubblicato): altrove le bozze arriverebbero subito alle persone.
+      let sceltoDaSolo = false;
+      if (!ipotesi && b.haGiorniLiberi && !piani.some((x) => !x.simulazione && x.stato === 'scelto')) {
+        const gia = await supabase.from('shifts').select('id', { count: 'exact', head: true })
+          .eq('outlet_id', outletId).is('plan_id', null).neq('stato', 'annullato').gte('data', dateMese[0]).lte('data', dateMese[dateMese.length - 1]);
+        if (!gia.error && (gia.count ?? 0) === 0) {
+          const sc = await supabase.rpc('turni_scegli_piano', { p_plan_id: planId });
+          sceltoDaSolo = !sc.error;
+        } else if (!gia.error) {
+          toast({ type: 'warning', duration: 12000, message: `Il mese ha già ${gia.count} turni fatti dal piano settimanale: il piano nuovo resta in bozza. Se deve valere lui, premi «Scegli questo» (i turni settimanali non si vedranno più nel piano settimanale).` });
+        }
       }
+      if (sceltoDaSolo) toast({ type: 'success', message: 'È il piano che vale per il mese: le sue settimane si aprono nel piano settimanale, da pubblicare una alla volta.' });
       if (ipotesi) setSim(null);
       await carica();
       setAperto(planId);
@@ -763,7 +775,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   // Il riquadro delle ore: la variante aperta, altrimenti quella con meno ore scoperte.
   const pianoOre = [pianoAperto, consigliataCon, ...piani]
     .find((p) => p?.riepilogo.settimane?.length) ?? null;
-  // Le quattro varianti in un colpo solo, una alla volta: solo quelle che mancano.
+  // Il piano del mese (una sola variante dall'11/11/2026): si crea quello che manca.
   const creaVarianti = async () => { for (const r of regoleMancanti) await creaPiano(r); };
   const creaVariantiSenza = async () => { for (const r of regoleMancantiSenza) await creaPiano(r, undefined, true); };
   const bozzeAperto = turniPiano.filter((t) => t.stato === 'bozza').length;
@@ -994,7 +1006,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           <CalendarDays size={28} className="mx-auto text-slate-400" />
           <h3 className="mt-2 text-base font-semibold text-slate-800">Nessun piano per {NOMI_MESE[Number(mese.slice(5))]}</h3>
           <p className="mt-1 text-sm text-slate-500 max-w-xl mx-auto">
-            «Crea le varianti del mese» prepara quattro piani, uno per ogni regola dei sabati e delle domeniche liberi, sul traffico MODA di {nomeNegozio.charAt(0) + nomeNegozio.slice(1).toLowerCase()} e sulle ore di chi lavora. Poi si confrontano qui e la responsabile HR sceglie quello che vale.
+            «Crea il piano del mese» prepara i turni di tutto il mese, con sabato e domenica lavorati da tutti, sul traffico MODA di {nomeNegozio.charAt(0) + nomeNegozio.slice(1).toLowerCase()} e sulle ore di chi lavora. Poi le settimane si aprono nel piano settimanale, dove si ritoccano e si pubblicano una alla volta.
           </p>
         </section>
       ) : (

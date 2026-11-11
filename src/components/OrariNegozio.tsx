@@ -70,7 +70,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [regole, setRegole] = useState<RegoleTurni>(REGOLE_DEFAULT);
   // Negozio da cui prendere il traffico MODA se questo non ne ha (Patrizio, 11/11/2026). undefined = colonna assente (tenant senza la 391).
   const [trafficoDa, setTrafficoDa] = useState<string | null | undefined>(undefined);
-  // «Ore fino al contratto» (migration 392): dove la colonna non c'e' la scelta non compare e non si salva.
+  // «Ore fino al contratto» (migration 395): dove la colonna non c'e' la scelta non compare e non si salva.
   const [haRiempi, setHaRiempi] = useState(false);
   const [trafficoSalvato, setTrafficoSalvato] = useState<string | null | undefined>(undefined);
   const [speciali, setSpeciali] = useState<RigaSpeciale[]>([]);

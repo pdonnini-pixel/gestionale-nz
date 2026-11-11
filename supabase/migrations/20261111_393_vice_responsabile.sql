@@ -142,6 +142,19 @@ DROP POLICY IF EXISTS dipendente_block ON public.outlet_vice_storico;
 CREATE POLICY dipendente_block ON public.outlet_vice_storico AS RESTRICTIVE FOR ALL TO authenticated
   USING (COALESCE((SELECT public.get_my_role())::text, '') <> 'dipendente')
   WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '') <> 'dipendente');
+-- La 378 non mette i recinti sulle tabelle nuove: vanno scritti qui.
+DROP POLICY IF EXISTS responsabile_block ON public.outlet_vice_storico;
+CREATE POLICY responsabile_block ON public.outlet_vice_storico AS RESTRICTIVE FOR ALL TO authenticated
+  USING (COALESCE((SELECT public.get_my_role())::text, '') <> 'responsabile')
+  WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '') <> 'responsabile');
+DROP POLICY IF EXISTS solo_con_profilo ON public.outlet_vice_storico;
+CREATE POLICY solo_con_profilo ON public.outlet_vice_storico AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((SELECT public.get_my_role()) IS NOT NULL)
+  WITH CHECK ((SELECT public.get_my_role()) IS NOT NULL);
+DROP POLICY IF EXISTS demo_nascosto ON public.outlet_vice_storico;
+CREATE POLICY demo_nascosto ON public.outlet_vice_storico AS RESTRICTIVE FOR ALL TO authenticated
+  USING (employee_id IS NULL OR employee_id <> ALL ((SELECT public.dipendenti_demo_ids())::uuid[]))
+  WITH CHECK (employee_id IS NULL OR employee_id <> ALL ((SELECT public.dipendenti_demo_ids())::uuid[]));
 
 REVOKE ALL ON public.outlet_vice_storico FROM anon;
 GRANT SELECT ON public.outlet_vice_storico TO authenticated;
@@ -233,6 +246,10 @@ BEGIN
   END IF;
   IF p_employee_id IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM public.employees WHERE id = p_employee_id AND company_id = v_company) THEN
+    RAISE EXCEPTION 'Persona non trovata.';
+  END IF;
+  -- il dipendente di prova non conta da nessuna parte (368)
+  IF p_employee_id IS NOT NULL AND p_employee_id = ANY ((SELECT public.dipendenti_demo_ids())::uuid[]) THEN
     RAISE EXCEPTION 'Persona non trovata.';
   END IF;
   IF p_employee_id IS NOT NULL AND p_employee_id = v_resp THEN
@@ -384,9 +401,8 @@ AS $$
   )
   SELECT 'Lunedì '
          || (SELECT string_agg(to_char(x, 'DD/MM'), ', ' ORDER BY x) FROM unnest(c.date) AS x)
-         || ' è già in ferie o in permesso '
-         || COALESCE(NULLIF(btrim(COALESCE(e.nome, e.first_name, '') || ' ' || COALESCE(e.cognome, e.last_name, '')), ''),
-                     'l''altra fra responsabile e vice')
+         -- senza il nome: il messaggio arriva anche all'app, e chi e' l'altra lo sanno gia'
+         || ' è già assente l''altra fra responsabile e vice del negozio'
          || ': il lunedì una fra responsabile e vice deve essere in negozio per il versamento. '
          || CASE WHEN COALESCE(p_solo_approvate, false)
                  THEN CASE WHEN cardinality(c.date) = 1 THEN 'Quel lunedì non si può approvare.'
@@ -394,7 +410,7 @@ AS $$
                  ELSE CASE WHEN cardinality(c.date) = 1 THEN 'Togli quel lunedì dalla richiesta.'
                            ELSE 'Togli quei lunedì dalla richiesta.' END
             END
-    FROM c LEFT JOIN public.employees e ON e.id = c.altra_id;
+    FROM c;
 $$;
 
 REVOKE ALL ON FUNCTION public.ferie_lunedi_testo(uuid, date[], boolean) FROM public, anon, authenticated;
@@ -416,7 +432,9 @@ DECLARE
   v_ruolo text := COALESCE((SELECT public.get_my_role())::text, '');
 BEGIN
   IF COALESCE(auth.role(), '') IN ('authenticated', 'anon') THEN
-    IF v_ruolo IN ('', 'operatore_cassa', 'dipendente') THEN
+    -- solo chi tiene l'organico (come organico_puo_scrivere): un responsabile di negozio
+    -- o un profilo di sola lettura non deve poter scoprire le ferie di un altro negozio
+    IF v_ruolo NOT IN ('super_advisor', 'ceo', 'cfo', 'coo', 'contabile') THEN
       RAISE EXCEPTION 'Non disponibile con questo profilo' USING ERRCODE = '42501';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM public.employees e
@@ -445,7 +463,9 @@ DECLARE
   v_ruolo text := COALESCE((SELECT public.get_my_role())::text, '');
 BEGIN
   IF COALESCE(auth.role(), '') IN ('authenticated', 'anon') THEN
-    IF v_ruolo IN ('', 'operatore_cassa', 'dipendente') THEN
+    -- solo chi tiene l'organico (come organico_puo_scrivere): un responsabile di negozio
+    -- o un profilo di sola lettura non deve poter scoprire le ferie di un altro negozio
+    IF v_ruolo NOT IN ('super_advisor', 'ceo', 'cfo', 'coo', 'contabile') THEN
       RAISE EXCEPTION 'Non disponibile con questo profilo' USING ERRCODE = '42501';
     END IF;
     IF NOT EXISTS (SELECT 1 FROM public.employees e
@@ -490,7 +510,8 @@ BEGIN
         FROM righe_nuove n
         JOIN public.leave_requests q ON q.id = n.request_id
        WHERE extract(isodow FROM n.data) = 1
-         AND n.data >= v_oggi
+         -- solo i lunedi' futuri: un permesso confermato oggi dalle presenze e' un fatto gia' avvenuto
+         AND n.data > v_oggi
          AND (n.stato = 'approvato'
               OR (n.stato = 'richiesto'
                   AND q.stato IN ('inviata', 'approvata', 'approvata_parziale', 'chiusa')))
@@ -515,7 +536,8 @@ BEGIN
         JOIN public.leave_requests q ON q.id = n.request_id
        WHERE (v.stato, v.data, v.tipo, v.ore) IS DISTINCT FROM (n.stato, n.data, n.tipo, n.ore)
          AND extract(isodow FROM n.data) = 1
-         AND n.data >= v_oggi
+         -- solo i lunedi' futuri: un permesso confermato oggi dalle presenze e' un fatto gia' avvenuto
+         AND n.data > v_oggi
          AND (n.stato = 'approvato'
               OR (n.stato = 'richiesto'
                   AND q.stato IN ('inviata', 'approvata', 'approvata_parziale', 'chiusa')))
