@@ -45,6 +45,12 @@ export interface RegoleTurni {
    * traffico ne chiede una. Se le ore non bastano vince la seconda persona.
    */
   duePersone: boolean;
+  /**
+   * Ore fino al contratto (Patrizio, 11/11/2026, scelta del negozio): le ore di
+   * contratto che il traffico non chiede vanno comunque in turno, prima venerdi',
+   * sabato e domenica. Spenta = restano da assegnare (regola del 29/10/2026).
+   */
+  riempiContratto?: boolean;
 }
 
 export const REGOLE_DEFAULT: RegoleTurni = {
@@ -131,6 +137,7 @@ export function regoleDaRiga(r: {
   pausa_lunga_oltre_ore?: number | string | null; pausa_lunga_minuti?: number | string | null; giorni_lavoro_max: number | string;
   soglia_ingressi_feriali?: number | string | null; soglia_ingressi_weekend?: number | string | null;
   due_persone?: boolean | null;
+  riempi_contratto?: boolean | null;
 } | null | undefined): RegoleTurni {
   if (!r) return REGOLE_DEFAULT;
   return {
@@ -142,6 +149,7 @@ export function regoleDaRiga(r: {
     sogliaFeriali: Number(r.soglia_ingressi_feriali ?? REGOLE_DEFAULT.sogliaFeriali),
     sogliaWeekend: Number(r.soglia_ingressi_weekend ?? REGOLE_DEFAULT.sogliaWeekend),
     duePersone: r.due_persone ?? REGOLE_DEFAULT.duePersone,
+    riempiContratto: r.riempi_contratto ?? false,
   };
 }
 
