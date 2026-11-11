@@ -69,7 +69,8 @@ export default function EditorTurno({
 }: {
   companyId: string; outletId: string; employeeId: string; data: string; turno: TurnoModificabile | null; planId: string | null;
   nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario; trasferta?: TrasfertaDalCalendario; passaggio?: PassaggioTurno;
-  onClose: () => void; onSalvato: (messaggio?: string) => void;
+  /** chi apre la finestra puo' rileggere i dati prima di chiuderla: finche' non ha finito i pulsanti restano fermi */
+  onClose: () => void; onSalvato: (messaggio?: string) => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const hh = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -112,9 +113,9 @@ export default function EditorTurno({
     const { error } = turno
       ? await supabase.from('shifts').update(riga).eq('id', turno.id)
       : await supabase.from('shifts').insert([{ ...riga, company_id: companyId, outlet_id: outletId, employee_id: employeeId, data, stato: 'bozza', plan_id: planId }]);
+    if (error) { setSalvo(false); toast({ type: 'error', message: error.message }); return; }
+    await onSalvato();
     setSalvo(false);
-    if (error) { toast({ type: 'error', message: error.message }); return; }
-    onSalvato();
   };
 
   // Il turno di un piano non pubblicato si toglie; uno pubblicato si annulla.
@@ -129,9 +130,9 @@ export default function EditorTurno({
     if (!turno) return;
     setSalvo(true);
     const error = await togliTurno('Tolto a mano');
+    if (error) { setSalvo(false); toast({ type: 'error', message: error.message }); return; }
+    await onSalvato();
     setSalvo(false);
-    if (error) { toast({ type: 'error', message: error.message }); return; }
-    onSalvato();
   };
 
   // Ferie e permessi inseriti dal calendario (Patrizio, 28/10/2026): giornata,
@@ -264,6 +265,7 @@ export default function EditorTurno({
         <p className="text-sm text-slate-600">
           {errore ?? <>Presenza {fmt((minuti(fine) - minuti(inizio)) / 60)} ore: <b>{fmt(ore)} ore di lavoro</b> e {pausaVera} minuti di pausa, che non si pagano.</>}
           {' '}Il turno diventa «messo a mano»: il ricalcolo non lo cambia.
+          {!turno && ' Oggi la persona è a riposo: scrivi l’orario e salva per darle un turno.'}
         </p>
         {pausa < pausaMinima && !errore && (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
@@ -421,7 +423,7 @@ export default function EditorTurno({
 
         <div className="flex flex-wrap justify-between gap-2 pt-2 border-t border-slate-200">
           {turno ? (
-            <button type="button" onClick={togli} disabled={salvo} className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50"><Trash2 size={15} /> Togli il turno</button>
+            <button type="button" onClick={togli} disabled={salvo} className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50"><Trash2 size={15} /> Metti riposo (togli il turno)</button>
           ) : <span />}
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="min-h-[40px] px-4 rounded-lg border border-slate-300 text-sm">Annulla</button>

@@ -61,6 +61,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [giorniBase, setGiorniBase] = useState<GiornoPiano[]>([]);
   const [extra, setExtra] = useState<Map<string, number>>(new Map());
   const [storico, setStorico] = useState<{ storico: StoricoTraffico; propria: boolean } | null>(null);
+  const [storicoPronto, setStoricoPronto] = useState(false);
   const [haOrari, setHaOrari] = useState(true);
   const [haFasce, setHaFasce] = useState(true);
   const [orariStimati, setOrariStimati] = useState(false);
@@ -81,16 +82,52 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [trascinato, setTrascinato] = useState<string | null>(null);
   const [mossa, setMossa] = useState<{ turno: TurnoDb; versoId: string; versoData: string } | null>(null);
 
+  // Il traffico MODA del negozio (o la forma media degli altri) non dipende dalla
+  // settimana ed e' lungo da leggere (decine di pagine): si carica una volta per
+  // negozio, non a ogni modifica. Prima stava in carica() e ogni «Salva» lasciava
+  // la tabella sui dati vecchi per 4 secondi (Patrizio, 11/11/2026: «mi chiede 2
+  // volte il salva»; a Roma Soratte ne e' nato un turno doppio).
+  useEffect(() => {
+    let vivo = true;
+    setStoricoPronto(false);
+    caricaStoricoNegozio(companyId, outletId).catch(() => null).then((st) => {
+      if (!vivo) return;
+      setStorico(st);
+      setStoricoPronto(true);
+    });
+    return () => { vivo = false; };
+  }, [companyId, outletId]);
+
+  // I turni della settimana: quelli del piano scelto per quel mese, oppure quelli
+  // fatti settimana per settimana.
+  const leggiTurni = useCallback(async (pianoDelMese: Map<string, string>): Promise<TurnoDb[]> => {
+    const { data, error } = await supabase.from('shifts')
+      .select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id, straordinario, ore_straordinario')
+      .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]).order('inizio');
+    if (error) throw error;
+    return ((data as TurnoDb[]) ?? [])
+      .filter((x) => (x.plan_id ?? null) === (pianoDelMese.get(x.data.slice(0, 7)) ?? null))
+      .map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) }));
+  }, [companyId, outletId, date]);
+
+  // Dopo una modifica ai turni si rileggono solo i turni: una richiesta, la
+  // tabella e' aggiornata subito.
+  const ricaricaTurni = useCallback(async () => {
+    try {
+      setTurni(await leggiTurni(pianiScelti));
+    } catch (e) {
+      toast({ type: 'error', message: `Turni non ricaricati: ${e instanceof Error ? e.message : 'errore'}` });
+    }
+  }, [leggiTurni, pianiScelti, toast]);
+
   const carica = useCallback(async () => {
     setCaricamento(true);
     try {
-      const [o, f, s, r, t, fe, sl, ev, pi, disp, tr, st] = await Promise.all([
+      const [o, f, s, r, fe, sl, ev, pi, disp, tr] = await Promise.all([
         supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude, origine').eq('outlet_id', outletId),
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]),
         supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
-        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id, straordinario, ore_straordinario')
-          .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', date[0]).lte('data', date[6]).order('inizio'),
         caricaGiorniFerie(companyId, date[0], date[6]),
         supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
         // Eventi della settimana (Black Friday, feste, saldi): piu' persone e straordinari se mancano
@@ -101,14 +138,12 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           .in('mese', [...new Set([date[0], date[6]].map((d) => `${d.slice(0, 7)}-01`))]),
         caricaDisponibilita(companyId).catch(() => new Map<string, Accordo>()),
         caricaTrasferte(companyId, date[0], date[6]).catch(() => [] as Trasferta[]),
-        // Traffico MODA del negozio (o forma media degli altri): la fonte del fabbisogno.
-        caricaStoricoNegozio(companyId, outletId).catch(() => null),
       ]);
-      setStorico(st);
       setDisponibilita(disp);
       setTrasferte(tr);
       const pianoDelMese = new Map(((pi.data as { id: string; mese: string }[]) ?? []).map((x) => [x.mese.slice(0, 7), x.id]));
       setPianiScelti(pianoDelMese);
+      const turniLetti = await leggiTurni(pianoDelMese);
       const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
       const fasce = (f.data as { giorno: number; dalle: string; alle: string; persone: number }[]) ?? [];
       const speciali = (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [];
@@ -120,10 +155,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       setGiorniBase(costruisciGiorni(date, orari, fasce, speciali, eventi, dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null));
       setExtra(personeInPiu(date, speciali, eventi));
       setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
-      // Si vedono i turni del piano scelto per quel mese, oppure quelli fatti settimana per settimana.
-      setTurni(((t.data as TurnoDb[]) ?? [])
-        .filter((x) => (x.plan_id ?? null) === (pianoDelMese.get(x.data.slice(0, 7)) ?? null))
-        .map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) })));
+      setTurni(turniLetti);
       setFerie(fe);
       const m = new Map<string, number>();
       for (const x of ((sl.data as { employee_id: string | null; residuo_disponibile: number | null }[]) ?? [])) {
@@ -135,7 +167,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     } finally {
       setCaricamento(false);
     }
-  }, [companyId, outletId, date, toast]);
+  }, [companyId, outletId, date, toast, leggiTurni]);
 
   useEffect(() => { carica(); }, [carica]);
 
@@ -239,7 +271,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           : `Proposta fatta: ${esito.turni.length} turni, tutto coperto.${perFerie}`,
         duration: 10000,
       });
-      await carica();
+      await ricaricaTurni();
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Proposta non riuscita.' });
     } finally {
@@ -255,7 +287,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     setLavoro(false);
     if (error) { toast({ type: 'error', message: error.message }); return; }
     toast({ type: 'success', message: `Turni della settimana pubblicati per ${nomeNegozio}.` });
-    carica();
+    ricaricaTurni();
   };
 
   // Spostare, scambiare e affiancare i turni: dal calendario trascinando la
@@ -289,7 +321,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     }
   };
 
-  if (caricamento && !giorni.length) return <div className="text-slate-400 py-12 text-center">Caricamento…</div>;
+  if (!storicoPronto || (caricamento && !giorni.length)) return <div className="text-slate-400 py-12 text-center">Caricamento…</div>;
 
   const bozze = attivi.filter((t) => t.stato === 'bozza').length;
   const pubblicati = attivi.filter((t) => t.stato === 'pubblicato').length;
@@ -462,7 +494,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           arrivo={attivi.find((x) => x.employee_id === mossa.versoId && x.data === mossa.versoData && x.id !== mossa.turno.id) ?? null}
           nomeDi={nomeDi}
           avvisi={(m) => avvisiDellaMossa(contestoMosse, m, mossa.turno, mossa.versoId, mossa.versoData)}
-          esegui={async (m) => { const msg = await eseguiMossa(m, mossa.turno, mossa.versoId, mossa.versoData); if (msg) { toast({ type: 'success', message: msg }); carica(); } return !!msg; }}
+          esegui={async (m) => { const msg = await eseguiMossa(m, mossa.turno, mossa.versoId, mossa.versoData); if (msg) { toast({ type: 'success', message: msg }); await ricaricaTurni(); } return !!msg; }}
           onClose={() => setMossa(null)} />
       )}
       {editor && (
@@ -482,7 +514,12 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             };
           })() : undefined}
           onClose={() => setEditor(null)}
-          onSalvato={(msg) => { setEditor(null); if (msg) toast({ type: 'success', message: msg }); carica(); }}
+          onSalvato={async (msg) => {
+            // prima i turni aggiornati, poi si chiude: la tabella non mostra mai il dato vecchio
+            await ricaricaTurni();
+            setEditor(null);
+            if (msg) toast({ type: 'success', message: msg });
+          }}
         />
       )}
     </div>
