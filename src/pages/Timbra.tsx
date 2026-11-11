@@ -11,6 +11,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CheckCircle2, Wifi, WifiOff, Camera, RefreshCw, AlertTriangle, Delete, KeyRound } from 'lucide-react'
+import '@fontsource/poppins/latin-300.css'
+import '@fontsource/poppins/latin-400.css'
+import '@fontsource/poppins/latin-500.css'
+import '@fontsource/poppins/latin-600.css'
+import LogoNewZago from '../components/app/LogoNewZago'
+import { getCurrentTenant } from '../lib/tenants'
 import { supabase } from '../lib/supabase'
 import {
   CAUSALI_STRAORDINARIO, CAUSALI_USCITA, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT,
@@ -288,25 +294,25 @@ export default function Timbra() {
 
   // ─── Schermate ───────────────────────────────────────────────────────
   const guscio = (contenuto: React.ReactNode) => (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col items-center justify-center p-6 text-center gap-4">{contenuto}</div>
+    <div className="min-h-screen bg-black text-white flex flex-col items-center justify-center p-6 text-center gap-4 font-[Poppins,sans-serif]"><MarchioTimbra />{contenuto}</div>
   )
 
   if (sessione === '?') return guscio(<RefreshCw className="animate-spin" />)
   if (sessione === 'no') return guscio(<>
     <p className="text-2xl font-semibold">Questo telefono non è collegato</p>
-    <p className="text-slate-300">Accedi una volta con l'account di cassa del negozio. Poi la timbratrice resta pronta, anche senza rete.</p>
+    <p className="text-white/70">Accedi una volta con l'account di cassa del negozio. Poi la timbratrice resta pronta, anche senza rete.</p>
     <button onClick={() => navigate('/login', { state: { from: '/timbra' } })} className="mt-2 px-6 py-3 rounded-xl bg-blue-600 text-lg font-semibold">Accedi</button>
   </>)
   if (!outletId && negozi && negozi.length === 0) return guscio(<>
     <p className="text-2xl font-semibold">Timbrature non attive</p>
-    <p className="text-slate-300">Le timbrature non sono ancora accese per questo negozio. Chi segue il personale le accende in Dipendenti → Presenze.</p>
+    <p className="text-white/70">Le timbrature non sono ancora accese per questo negozio. Chi segue il personale le accende in Dipendenti → Presenze.</p>
   </>)
   if (!outletId && negozi && negozi.length > 1) return guscio(<>
     <p className="text-2xl font-semibold">In quale negozio è questo telefono?</p>
     <div className="flex flex-col gap-2 w-full max-w-sm">
       {negozi.map((n) => (
         <button key={n.outlet_id} onClick={() => { setOutletId(n.outlet_id); localStorage.setItem(K_NEGOZIO, n.outlet_id) }}
-          className="px-4 py-3 rounded-xl bg-slate-700 text-lg">{n.nome}</button>
+          className="px-4 py-3 rounded-xl bg-white/10 active:bg-white/20 text-lg">{n.nome}</button>
       ))}
     </div>
   </>)
@@ -319,22 +325,23 @@ export default function Timbra() {
     .filter((x) => x.stato !== 'fuori')
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white flex flex-col">
+    <div className="min-h-screen bg-black text-white flex flex-col font-[Poppins,sans-serif]">
       {/* Testata: negozio, ora, stato dell'invio */}
       <header className="px-5 pt-5 pb-3 flex items-start justify-between gap-3">
         <div>
-          <p className="text-slate-400 text-sm">{dati?.outlet.nome ?? negozi?.find((n) => n.outlet_id === outletId)?.nome ?? 'Negozio'}</p>
-          <p className="text-5xl font-bold tabular-nums leading-none mt-1">{oraRoma(adesso)}</p>
-          <p className="text-slate-400 text-sm mt-1">{new Date(adesso).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', weekday: 'long', day: 'numeric', month: 'long' })}</p>
+          <MarchioTimbra />
+          <p className="text-white/60 text-xs uppercase tracking-[0.25em] mt-3">{dati?.outlet.nome ?? negozi?.find((n) => n.outlet_id === outletId)?.nome ?? 'Negozio'}</p>
+          <p className="text-6xl font-light tabular-nums leading-none mt-2">{oraRoma(adesso)}</p>
+          <p className="text-white/50 text-sm mt-1.5 first-letter:uppercase">{new Date(adesso).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', weekday: 'long', day: 'numeric', month: 'long' })}</p>
         </div>
-        <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${online ? 'bg-emerald-900 text-emerald-200' : 'bg-amber-900 text-amber-200'}`}>
+        <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full ${online ? 'bg-white/10 text-white/80' : 'bg-amber-900 text-amber-200'}`}>
           {online ? <Wifi size={14} /> : <WifiOff size={14} />}{online ? 'In rete' : 'Senza rete'}
         </div>
       </header>
 
       <div className="px-5">
         {coda.length === 0
-          ? <p className="text-sm text-emerald-300">Tutte le timbrature sono inviate{ultimoInvio ? ` (ultimo invio ${oraRoma(ultimoInvio)})` : ''}.</p>
+          ? <p className="text-sm text-white/50">Tutte le timbrature sono inviate{ultimoInvio ? ` (ultimo invio ${oraRoma(ultimoInvio)})` : ''}.</p>
           : <p className="text-sm text-amber-300">{coda.length === 1 ? '1 timbratura in attesa' : `${coda.length} timbrature in attesa`}: {online ? 'invio in corso.' : 'partono da sole appena torna la rete.'}</p>}
         {scartateOra.length > 0 && (
           <p className="text-sm text-rose-300 mt-1 flex items-center gap-1"><AlertTriangle size={14} />{scartateOra.length === 1 ? '1 timbratura rifiutata' : `${scartateOra.length} timbrature rifiutate`} (QR non valido, per esempio da un telefono non più attivo, PIN sbagliato o bloccato, persona non in servizio): avvisa chi segue il personale.</p>
@@ -349,39 +356,39 @@ export default function Timbra() {
               <div className="grid grid-cols-2 gap-2">
                 {conPin.map((p) => (
                   <button key={p.id} onClick={() => setPin({ fase: 'cifre', employeeId: p.id, nome: p.nome, cifre: '' })}
-                    className="py-4 px-3 rounded-2xl bg-slate-700 active:bg-slate-600 text-lg font-semibold">{p.nome}</button>
+                    className="py-4 px-3 rounded-2xl bg-white/10 active:bg-white/20 text-lg font-medium">{p.nome}</button>
                 ))}
               </div>
-              <button onClick={() => setPin(null)} className="text-slate-400 underline py-2">Annulla</button>
+              <button onClick={() => setPin(null)} className="text-white/50 underline py-2">Annulla</button>
             </div>
           ) : (
             <div className="w-full max-w-xs flex flex-col items-center gap-4">
               <p className="text-2xl font-bold text-center">{pin.nome}</p>
-              <p className="text-slate-300">Scrivi il tuo PIN</p>
+              <p className="text-white/70">Scrivi il tuo PIN</p>
               <div className="flex gap-3">
                 {[0, 1, 2, 3].map((i) => (
-                  <span key={i} className={`w-4 h-4 rounded-full ${i < pin.cifre.length ? 'bg-white' : 'border-2 border-slate-500'}`} />
+                  <span key={i} className={`w-4 h-4 rounded-full ${i < pin.cifre.length ? 'bg-[#ff0066]' : 'border-2 border-white/40'}`} />
                 ))}
               </div>
               {pin.errore && <p className="text-rose-300 text-center text-sm">{pin.errore}</p>}
-              {pin.controllo && <RefreshCw className="animate-spin text-slate-400" size={18} />}
+              {pin.controllo && <RefreshCw className="animate-spin text-white/50" size={18} />}
               <div className="grid grid-cols-3 gap-3 w-full">
                 {['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'canc'].map((c) => c === '' ? <span key="vuoto" /> : (
                   <button key={c} onClick={() => void cifraPin(c)} disabled={pin.controllo}
                     aria-label={c === 'canc' ? 'Cancella' : c}
-                    className="h-16 rounded-2xl bg-slate-700 active:bg-slate-600 text-3xl font-bold flex items-center justify-center disabled:opacity-40">
+                    className="h-16 rounded-2xl bg-white/10 active:bg-white/20 text-3xl font-light flex items-center justify-center disabled:opacity-40">
                     {c === 'canc' ? <Delete size={26} /> : c}
                   </button>
                 ))}
               </div>
-              <button onClick={() => setPin({ fase: 'nomi' })} disabled={pin.controllo} className="text-slate-400 underline py-1 disabled:opacity-40">Non sono io</button>
+              <button onClick={() => setPin({ fase: 'nomi' })} disabled={pin.controllo} className="text-white/50 underline py-1 disabled:opacity-40">Non sono io</button>
             </div>
           )
         ) : fatto ? (
           <div className="flex flex-col items-center gap-3 text-center">
-            <CheckCircle2 size={96} className="text-emerald-400" />
+            <CheckCircle2 size={96} className="text-[#ff0066]" />
             <p className="text-3xl font-bold">{ETICHETTA_TIPO[fatto.tipo]} registrata</p>
-            <p className="text-xl text-slate-300">{fatto.nome}, alle {oraRoma(fatto.ora)}</p>
+            <p className="text-xl text-white/70">{fatto.nome}, alle {oraRoma(fatto.ora)}</p>
             {fatto.nota && <p className="text-base text-amber-200 max-w-sm">{fatto.nota}</p>}
           </div>
         ) : selezione ? (
@@ -417,26 +424,26 @@ export default function Timbra() {
                 <div className="w-full max-w-md flex flex-col gap-3">
                   <div className="text-center">
                     <p className="text-3xl font-bold">{selezione.nome}</p>
-                    <p className="text-slate-300 mt-1">Turno di oggi {turno.inizio.slice(0, 5)} - {turno.fine.slice(0, 5)}</p>
+                    <p className="text-white/70 mt-1">Turno di oggi {turno.inizio.slice(0, 5)} - {turno.fine.slice(0, 5)}</p>
                   </div>
                   <div className="rounded-2xl p-4 border bg-amber-950/60 border-amber-600 text-amber-200">
                     <p className="text-lg font-bold">Non risulta la tua entrata di oggi.</p>
                     <p className="text-sm mt-1">Se eri già in negozio, scegli l'ora a cui sei entrato: la conferma il responsabile.</p>
                   </div>
-                  <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-600 px-4 py-3">
-                    <span className="text-lg text-slate-300">Ero già entrato alle</span>
+                  <label className="flex items-center justify-between gap-3 rounded-2xl border border-white/25 px-4 py-3">
+                    <span className="text-lg text-white/70">Ero già entrato alle</span>
                     <select value={scelta} onChange={(e) => setOraDichiarata(e.target.value)}
-                      className="bg-slate-800 text-white text-2xl font-bold tabular-nums rounded-xl px-3 py-2 border border-slate-500">
+                      className="bg-white/10 text-white text-2xl font-semibold tabular-nums rounded-xl px-3 py-2 border border-white/30">
                       {ore.map((o) => <option key={o} value={o}>{o}</option>)}
                     </select>
                   </label>
-                  <button onClick={segna} className="w-full py-6 rounded-2xl text-2xl font-bold bg-emerald-600 active:bg-emerald-700">
+                  <button onClick={segna} className="w-full py-6 rounded-2xl text-2xl font-semibold bg-[#ff0066] active:bg-[#d90057]">
                     Segna l'entrata delle {scelta}
                   </button>
-                  <button onClick={() => setEntroAdesso(true)} className="w-full py-4 rounded-2xl text-xl font-semibold bg-slate-700 active:bg-slate-600">
+                  <button onClick={() => setEntroAdesso(true)} className="w-full py-4 rounded-2xl text-xl font-semibold bg-white/10 active:bg-white/20">
                     No, entro adesso
                   </button>
-                  <button onClick={() => setSelezione(null)} className="text-slate-400 underline py-1">Annulla</button>
+                  <button onClick={() => setSelezione(null)} className="text-white/50 underline py-1">Annulla</button>
                 </div>
               )
             }
@@ -467,17 +474,17 @@ export default function Timbra() {
                   </div>
                   {voci.map(([k, etichetta]) => (
                     <button key={k} onClick={() => setCausale(k)}
-                      className={`w-full flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-left text-lg ${causale === k ? 'border-[#ff0066] bg-[#ff0066]/15' : 'border-slate-600'}`}>
-                      <span className={`w-5 h-5 rounded-full shrink-0 ${causale === k ? 'border-[6px] border-[#ff0066]' : 'border-2 border-slate-400'}`} />
+                      className={`w-full flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-left text-lg ${causale === k ? 'border-[#ff0066] bg-[#ff0066]/15' : 'border-white/25'}`}>
+                      <span className={`w-5 h-5 rounded-full shrink-0 ${causale === k ? 'border-[6px] border-[#ff0066]' : 'border-2 border-white/40'}`} />
                       {etichetta}
                     </button>
                   ))}
-                  {anticipata && <p className="text-slate-400 text-sm">Il motivo lo scrivi nell'app sul tuo telefono: qui non lo legge nessuno.</p>}
+                  {anticipata && <p className="text-white/50 text-sm">Il motivo lo scrivi nell'app sul tuo telefono: qui non lo legge nessuno.</p>}
                   <button onClick={conferma} disabled={!causale}
                     className={`w-full py-6 rounded-2xl text-2xl font-bold disabled:opacity-40 ${anticipata ? 'bg-rose-600 active:bg-rose-700' : 'bg-emerald-600 active:bg-emerald-700'}`}>
                     Conferma l'uscita
                   </button>
-                  <button onClick={() => { setUscita(null); setCausale(null) }} className="text-slate-400 underline py-1">Indietro</button>
+                  <button onClick={() => { setUscita(null); setCausale(null) }} className="text-white/50 underline py-1">Indietro</button>
                 </div>
               )
             }
@@ -486,11 +493,11 @@ export default function Timbra() {
               <div className="w-full max-w-md flex flex-col gap-4">
                 <div className="text-center">
                   <p className="text-3xl font-bold">{selezione.nome}</p>
-                  <p className="text-slate-300 mt-1">{turno ? `Turno di oggi ${turno.inizio.slice(0, 5)} - ${turno.fine.slice(0, 5)}` : 'Nessun turno oggi'}</p>
-                  {ts.length > 0 && <p className="text-slate-400 text-sm mt-1">{ordina(ts).map((t) => `${ETICHETTA_TIPO[t.tipo]} ${oraRoma(t.ora)}${t.dichiarata ? ' (segnata, da confermare)' : ''}`).join(' · ')}</p>}
+                  <p className="text-white/70 mt-1">{turno ? `Turno di oggi ${turno.inizio.slice(0, 5)} - ${turno.fine.slice(0, 5)}` : 'Nessun turno oggi'}</p>
+                  {ts.length > 0 && <p className="text-white/50 text-sm mt-1">{ordina(ts).map((t) => `${ETICHETTA_TIPO[t.tipo]} ${oraRoma(t.ora)}${t.dichiarata ? ' (segnata, da confermare)' : ''}`).join(' · ')}</p>}
                 </div>
                 {segnata && (
-                  <p className="text-center text-emerald-300 text-sm">Entrata delle {segnata} segnata: la conferma il responsabile.</p>
+                  <p className="text-center text-white/70 text-sm">Entrata delle {segnata} segnata: la conferma il responsabile.</p>
                 )}
                 {entrata && entrata.minuti > 0 && (
                   entrata.oltre ? (
@@ -498,49 +505,55 @@ export default function Timbra() {
                       <p className="text-lg font-bold">{entrata.minuti} minuti di ritardo</p>
                       <p className="text-sm mt-1">Oltre i {tolleranza} minuti di tolleranza: {formatMinuti(entrata.permesso)} di permesso, da confermare.</p>
                     </div>
-                  ) : <p className="text-center text-sm text-slate-300">{entrata.minuti} minuti dopo l'inizio, entro la tolleranza.</p>
+                  ) : <p className="text-center text-sm text-white/70">{entrata.minuti} minuti dopo l'inizio, entro la tolleranza.</p>
                 )}
                 {stato === 'fuori' ? (
-                  <button onClick={entra} className="w-full py-8 rounded-2xl text-3xl font-bold bg-emerald-600 active:bg-emerald-700">Entra</button>
+                  <button onClick={entra} className="w-full py-8 rounded-2xl text-3xl font-semibold tracking-wide bg-[#ff0066] active:bg-[#d90057]">Entra</button>
                 ) : (
                   <>
                     {stato === 'in_pausa' && (
-                      <button onClick={() => void timbra('fine_pausa')} className="w-full py-7 rounded-2xl text-2xl font-bold bg-sky-600 active:bg-sky-700">{ETICHETTA_PULSANTE.fine_pausa}</button>
+                      <button onClick={() => void timbra('fine_pausa')} className="w-full py-7 rounded-2xl text-2xl font-semibold bg-[#ff0066] active:bg-[#d90057]">{ETICHETTA_PULSANTE.fine_pausa}</button>
                     )}
                     {stato === 'in_pausa' && turno && (turno.pausa_minuti ?? 0) > 0 && (() => {
                       const fatti = minutiPausaFatti(ts, adesso)
                       const oltre = fatti - (turno.pausa_minuti ?? 0)
-                      return <p className={`text-center text-sm ${oltre > tolleranza ? 'text-amber-300' : 'text-slate-300'}`}>
+                      return <p className={`text-center text-sm ${oltre > tolleranza ? 'text-amber-300' : 'text-white/70'}`}>
                         Pausa: {formatMinuti(fatti)} su {formatMinuti(turno.pausa_minuti ?? 0)} del turno{oltre > tolleranza ? `, ${formatMinuti(oltre)} in più: lo vede il responsabile` : ''}.
                       </p>
                     })()}
                     {stato === 'dentro' && tocchi.includes('inizio_pausa') && (
                       <>
-                        <button onClick={() => void timbra('inizio_pausa')} className="w-full py-7 rounded-2xl text-2xl font-bold bg-amber-500 active:bg-amber-600">{ETICHETTA_PULSANTE.inizio_pausa}</button>
-                        {(() => { const r = pausaResidua(ts, turno, adesso); return r !== null && haGiaFattoPausa(ts) ? <p className="text-center text-sm text-slate-300">Restano {formatMinuti(r)} di pausa.</p> : null })()}
+                        <button onClick={() => void timbra('inizio_pausa')} className="w-full py-7 rounded-2xl text-2xl font-semibold bg-white text-black active:bg-white/80">{ETICHETTA_PULSANTE.inizio_pausa}</button>
+                        {(() => { const r = pausaResidua(ts, turno, adesso); return r !== null && haGiaFattoPausa(ts) ? <p className="text-center text-sm text-white/70">Restano {formatMinuti(r)} di pausa.</p> : null })()}
                       </>
                     )}
-                    <button onClick={esci} className="w-full py-7 rounded-2xl text-2xl font-bold bg-rose-600 active:bg-rose-700">{ETICHETTA_PULSANTE.uscita}</button>
+                    <button onClick={esci} className="w-full py-7 rounded-2xl text-2xl font-semibold border-2 border-white active:bg-white/10">{ETICHETTA_PULSANTE.uscita}</button>
                   </>
                 )}
-                <button onClick={() => setSelezione(null)} className="text-slate-400 underline py-2">Annulla</button>
+                <button onClick={() => setSelezione(null)} className="text-white/50 underline py-2">Annulla</button>
               </div>
             )
           })()
         ) : (
           <div className="w-full max-w-md flex flex-col items-center gap-3">
-            <div className="relative w-full aspect-square rounded-2xl overflow-hidden bg-black">
+            <div className="relative w-full aspect-square rounded-3xl overflow-hidden bg-neutral-900 ring-1 ring-white/10">
               <video ref={videoRef} playsInline muted className={`w-full h-full object-cover ${frontale ? '-scale-x-100' : ''}`} />
-              <div className="absolute inset-10 border-4 border-white/70 rounded-2xl pointer-events-none" />
+              <div className="absolute inset-10 pointer-events-none">
+                {/* Angoli magenta, come il segno del marchio */}
+                <span className="absolute top-0 left-0 w-10 h-10 border-t-4 border-l-4 border-[#ff0066] rounded-tl-xl" />
+                <span className="absolute top-0 right-0 w-10 h-10 border-t-4 border-r-4 border-[#ff0066] rounded-tr-xl" />
+                <span className="absolute bottom-0 left-0 w-10 h-10 border-b-4 border-l-4 border-[#ff0066] rounded-bl-xl" />
+                <span className="absolute bottom-0 right-0 w-10 h-10 border-b-4 border-r-4 border-[#ff0066] rounded-br-xl" />
+              </div>
             </div>
-            <p className="text-xl font-semibold">Avvicina il QR del tuo telefono</p>
+            <p className="text-xl font-light">Avvicina il <span className="font-semibold">QR</span> del tuo telefono</p>
             {avviso && <p className="text-amber-300 text-sm">{avviso}</p>}
             {erroreCamera && <p className="text-rose-300 text-sm">{erroreCamera}</p>}
-            <button onClick={() => setFrontale((f) => !f)} className="flex items-center gap-1.5 text-slate-400 text-sm underline">
+            <button onClick={() => setFrontale((f) => !f)} className="flex items-center gap-1.5 text-white/50 text-sm underline">
               <Camera size={14} />Cambia fotocamera
             </button>
             {conPin.length > 0 && (
-              <button onClick={() => setPin({ fase: 'nomi' })} className="mt-2 w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-slate-600 text-lg">
+              <button onClick={() => setPin({ fase: 'nomi' })} className="mt-2 w-full flex items-center justify-center gap-2 py-4 rounded-2xl border border-white/25 text-base text-white/80 active:bg-white/10">
                 <KeyRound size={18} />Non ho lo smartphone: timbro con il PIN
               </button>
             )}
@@ -550,18 +563,26 @@ export default function Timbra() {
 
       {/* Chi c'e' adesso */}
       <footer className="px-5 pb-6">
-        <p className="text-slate-400 text-xs uppercase tracking-wide mb-2">Adesso in negozio</p>
+        <p className="text-white/50 text-xs uppercase tracking-[0.25em] mb-2">Adesso in negozio</p>
         {dentro.length === 0
-          ? <p className="text-slate-500 text-sm">Nessuno ha timbrato l'entrata.</p>
+          ? <p className="text-white/60 text-sm">Nessuno ha timbrato l'entrata.</p>
           : <div className="flex flex-wrap gap-2">
               {dentro.map((d) => (
-                <span key={d.emp} className={`px-3 py-1 rounded-full text-sm ${d.stato === 'in_pausa' ? 'bg-amber-900 text-amber-100' : 'bg-emerald-900 text-emerald-100'}`}>
+                <span key={d.emp} className={`px-3 py-1 rounded-full text-sm ${d.stato === 'in_pausa' ? 'bg-[#ff0066]/20 text-[#ff80b3]' : 'bg-white/10 text-white'}`}>
                   {nomi.get(d.emp) ?? 'Collega'}{d.stato === 'in_pausa' ? ' (in pausa)' : ''}
                 </span>
               ))}
             </div>}
-        {dati?.scaricati_il && <p className="text-slate-600 text-xs mt-3">Elenco e turni aggiornati alle {oraRoma(dati.scaricati_il)}</p>}
+        {dati?.scaricati_il && <p className="text-white/50 text-xs mt-3">Elenco e turni aggiornati alle {oraRoma(dati.scaricati_il)}</p>}
       </footer>
     </div>
   )
+}
+
+/** Marchio in testa alla timbratrice: il logo New Zago sul sito NZ, il nome in testo per gli altri. */
+function MarchioTimbra() {
+  let alias = 'newzago'
+  try { alias = getCurrentTenant().alias } catch { /* tenant non configurato */ }
+  if (alias === 'newzago') return <LogoNewZago className="h-5 w-auto text-white" />
+  return <p className="text-lg font-light tracking-[0.3em] uppercase">{alias === 'zago' ? 'Zago' : 'Made'}</p>
 }
