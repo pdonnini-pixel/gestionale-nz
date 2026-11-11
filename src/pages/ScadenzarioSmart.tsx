@@ -253,7 +253,8 @@ const ScadenzarioSmart = () => {
   const [emailManualConfirmed, setEmailManualConfirmed] = useState(false);
   // DISTINTA DI RIMBORSO (migration 390): fatture intestate all'azienda ma pagate di
   // tasca propria da una persona. Un solo bonifico a lei chiude tutte le fatture della
-  // distinta, anche di fornitori diversi. Nome e IBAN li sa solo chi compila.
+  // distinta, anche di fornitori diversi. Il nome serve sempre (è quello che l'aggancio
+  // cerca nella causale); l'IBAN è facoltativo, lo ha già chi esegue il bonifico.
   const [rimborso, setRimborso] = useState<{ attivo: boolean } & DatiRimborso>({ attivo: false, nome: '', iban: '' });
   // Persone già rimborsate in passato: il loro IBAN si ripropone da solo.
   const [rimborsiNoti, setRimborsiNoti] = useState<DatiRimborso[]>([]);
@@ -2299,8 +2300,8 @@ const ScadenzarioSmart = () => {
         const visti = new Map<string, DatiRimborso>();
         for (const row of data as unknown as { beneficiary_name: string | null; beneficiary_iban: string | null }[]) {
           const nome = (row.beneficiary_name || '').trim();
-          if (!nome || !row.beneficiary_iban || visti.has(nome.toLowerCase())) continue;
-          visti.set(nome.toLowerCase(), { nome, iban: row.beneficiary_iban });
+          if (!nome || visti.has(nome.toLowerCase())) continue;
+          visti.set(nome.toLowerCase(), { nome, iban: row.beneficiary_iban || '' });
         }
         setRimborsiNoti([...visti.values()]);
       })();
@@ -2475,7 +2476,7 @@ const ScadenzarioSmart = () => {
         const { data: testata, error: testErr } = await supabase.from('payable_reimbursements').insert({
           company_id: COMPANY_ID,
           beneficiary_name: nome,
-          beneficiary_iban: normalizzaIban(rimborso.iban),
+          beneficiary_iban: normalizzaIban(rimborso.iban) || null,
           bank_account_id: payableItems[0]?.bankId || null,
           total_amount: totaleRimborso(rimborsoRighe),
         } as never).select('id').single();
@@ -5517,8 +5518,8 @@ const ScadenzarioSmart = () => {
                         </datalist>
                       </div>
                       <div>
-                        <label className="text-xs font-medium text-slate-700 block mb-1" htmlFor="rimborso-iban">Il suo IBAN</label>
-                        <input id="rimborso-iban" type="text" value={rimborso.iban} placeholder="IT…"
+                        <label className="text-xs font-medium text-slate-700 block mb-1" htmlFor="rimborso-iban">Il suo IBAN (facoltativo)</label>
+                        <input id="rimborso-iban" type="text" value={rimborso.iban} placeholder="Se lo ha già chi fa il bonifico, lascia vuoto"
                           onChange={e => cambiaRimborso({ iban: e.target.value })}
                           className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-violet-500" />
                       </div>

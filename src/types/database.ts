@@ -22790,7 +22790,7 @@ export type Database = {
       payable_reimbursements: {
         Row: {
           bank_account_id: string | null
-          beneficiary_iban: string
+          beneficiary_iban: string | null
           beneficiary_name: string
           company_id: string
           created_at: string
@@ -22800,7 +22800,7 @@ export type Database = {
         }
         Insert: {
           bank_account_id?: string | null
-          beneficiary_iban: string
+          beneficiary_iban?: string | null
           beneficiary_name: string
           company_id: string
           created_at?: string
@@ -22810,7 +22810,7 @@ export type Database = {
         }
         Update: {
           bank_account_id?: string | null
-          beneficiary_iban?: string
+          beneficiary_iban?: string | null
           beneficiary_name?: string
           company_id?: string
           created_at?: string

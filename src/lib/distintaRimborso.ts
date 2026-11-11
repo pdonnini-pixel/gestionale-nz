@@ -51,7 +51,9 @@ export function controllaRimborso(dati: DatiRimborso, righe: RigaRimborso[]): st
   if (new Set(righe.map(r => r.bankId)).size > 1) return 'Il rimborso è un solo bonifico: tutte le fatture devono partire dalla stessa banca.'
   if (righe.some(r => !(r.importo > 0))) return 'Ogni fattura deve avere un importo maggiore di zero.'
   if ((dati.nome || '').trim().length < 3) return 'Scrivi nome e cognome di chi riceve il rimborso.'
-  if (!ibanValido(dati.iban)) return 'L’IBAN di chi riceve il rimborso non è valido: controllalo.'
+  // L'IBAN è facoltativo: il bonifico lo fa l'amministrazione, che lo ha già.
+  // Se viene scritto, deve essere un IBAN vero.
+  if (normalizzaIban(dati.iban) && !ibanValido(dati.iban)) return 'L’IBAN scritto non è valido: correggilo oppure lascialo vuoto.'
   return null
 }
 
@@ -85,7 +87,7 @@ export function emailRimborso(args: {
   const body =
     `Buongiorno,\n\ndi seguito il rimborso da eseguire in data odierna (${dataStr}) con UN SOLO bonifico.\n\n` +
     `Beneficiario: ${nome}\n` +
-    `IBAN beneficiario: ${normalizzaIban(dati.iban)}\n` +
+    (normalizzaIban(dati.iban) ? `IBAN beneficiario: ${normalizzaIban(dati.iban)}\n` : '') +
     `Importo del bonifico: ${fmt(totale)} €\n` +
     `Da: ${banca.nome}${banca.iban ? ` (IBAN ${banca.iban})` : ''}\n` +
     `Causale: ${causaleRimborso(righe)}\n\n` +

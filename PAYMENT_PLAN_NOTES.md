@@ -2037,7 +2037,7 @@ Scadenze aperte senza numero: 0 su 359.
 > fattura) e `reconcile_movement_group` rifiuta fornitori diversi (R6).
 >
 > **Come funziona (migration `20261110_390`, NZ + Zago).**
-> - Anteprima distinta dello Scadenzario → spunta «È un rimborso a una persona», nome e IBAN.
+> - Anteprima distinta dello Scadenzario → spunta «È un rimborso a una persona», nome (obbligatorio) e IBAN (facoltativo dalla migration 391: la distinta va all'amministrazione, che fa il bonifico e l'IBAN lo ha già).
 >   Controlli in `src/lib/distintaRimborso.ts`: una sola banca, niente scadenze fiscali, niente
 >   note di credito, IBAN formalmente valido. La mail dispone un solo bonifico.
 > - `payable_reimbursements`: una riga per distinta di rimborso (nome, IBAN, banca, totale, chi

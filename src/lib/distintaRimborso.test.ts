@@ -30,9 +30,18 @@ describe('controllaRimborso', () => {
   it('passa quando è tutto a posto', () => {
     expect(controllaRimborso(dati, righe)).toBeNull()
   })
-  it('chiede nome e IBAN', () => {
+  it('chiede il nome e rifiuta un IBAN sbagliato', () => {
     expect(controllaRimborso({ nome: '', iban: IBAN_OK }, righe)).toMatch(/nome e cognome/)
     expect(controllaRimborso({ nome: 'Mario Rossi', iban: 'IT00' }, righe)).toMatch(/IBAN/)
+  })
+  it('l’IBAN può restare vuoto: lo conosce chi fa il bonifico', () => {
+    expect(controllaRimborso({ nome: 'Mario Rossi', iban: '' }, righe)).toBeNull()
+    const { body } = emailRimborso({
+      dataStr: '10/11/2026', dati: { nome: 'Mario Rossi', iban: ' ' },
+      banca: { nome: 'Banca Prova', iban: '' }, righe, fmt: n => n.toFixed(2),
+    })
+    expect(body).not.toContain('IBAN beneficiario')
+    expect(body).toContain('Beneficiario: Mario Rossi')
   })
   it('vuole una sola banca, scelta per tutte le fatture', () => {
     expect(controllaRimborso(dati, [...righe, { fornitore: 'X', fattura: '9', importo: 1, bankId: 'b2' }])).toMatch(/stessa banca/)
