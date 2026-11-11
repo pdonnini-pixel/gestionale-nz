@@ -895,3 +895,14 @@ test con numeri inventati in `trafficoModa.test.ts`). Prima i report li caricava
 - Misure sugli stessi dati (novembre): Roma Soratte con traffico Valmontone 65 ore sotto MODA (prima 334),
   0 ore vuote; Valdichiana da 17,2 a 13,1, Valmontone da 31,7 a 29,0, Torino invariato (3,7), sul motore online.
 - Riposi scelti a mano dalla finestra della casella, anche nelle simulazioni (`shift_plan_weekend_off`).
+
+## Orari e fabbisogno: un solo salvataggio (11/11/2026)
+
+Caso: l'11/11 alle 10:40 Patrizio ha scritto le fasce di Roma Soratte e ha premuto «Salva regole». Ogni riquadro salvava solo il suo, quindi nel database è arrivata la riga di `outlet_shift_rules` e nessuna di `outlet_staffing_needs`; cambiando negozio le fasce sono sparite senza avviso.
+
+Da allora in `src/components/OrariNegozio.tsx`:
+- qualunque «Salva» salva tutto quello che è cambiato (orari, fabbisogno, regole) e dice cosa ha salvato e cosa no (`salva`, `aperte`);
+- una barra gialla resta in alto finché c'è qualcosa di non salvato;
+- chi cambia negozio o scheda con modifiche aperte viene fermato (`guardia`, passata da `TurniNegozi.tsx`): salva ed esci, esci senza salvare, resta;
+- aggiungere o togliere un giorno speciale rilegge solo i giorni, senza cancellare le modifiche aperte negli altri riquadri;
+- due fasce dello stesso giorno con lo stesso inizio danno un messaggio chiaro invece dell'errore del vincolo `UNIQUE (outlet_id, giorno, dalle)`.
