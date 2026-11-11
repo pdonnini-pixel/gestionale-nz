@@ -166,9 +166,10 @@ describe('regole del 12/11/2026: pause da 10 e 30 minuti, domenica, straordinari
     expect(dopo.some((t) => t.pausaMinuti === 10)).toBe(true);
   });
 
-  it('la domenica la responsabile fa l\'apertura', () => {
-    const dom = giorni.find((g) => giornoIso(g.data) === 7)!;
-    expect(dopo.find((t) => t.employeeId === 'anna' && t.data === dom.data)?.inizio).toBe('10:00');
+  it('sabato e domenica la responsabile entra all\'apertura ed esce dopo nove ore: 10-19', () => {
+    for (const g of giorni.filter((x) => giornoIso(x.data) >= 6)) {
+      expect(dopo.find((t) => t.employeeId === 'anna' && t.data === g.data)).toMatchObject({ inizio: '10:00', fine: '19:00', pausaMinuti: 30 });
+    }
     expect(derogheSettimana({ giorni, turni: dopo, persone: persone().map((p) => ({ ...p, nome: p.id })), regole, giornoLibero, guida: { responsabile: 'anna', vice: null } })
       .filter((d) => d.regola === 'domenica_apertura')).toEqual([]);
   });

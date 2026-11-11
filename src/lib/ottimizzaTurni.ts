@@ -50,7 +50,10 @@ export interface RegoleNuove {
    * 12/11/2026). Spento nelle simulazioni, dove gli straordinari li decide chi simula.
    */
   straordinariWeekend?: boolean;
-  /** la responsabile del negozio: la domenica fa l'apertura (Patrizio, 12/11/2026) */
+  /**
+   * La responsabile del negozio: il sabato e la domenica entra all'apertura ed esce dopo nove ore
+   * (10-19 in un negozio che apre alle 10; Patrizio, 12/11/2026).
+   */
   responsabile?: string | null;
   /** le ore di contratto che il traffico non chiede vanno comunque in turno, prima venerdi', sabato e domenica */
   riempiContratto?: boolean;
@@ -121,6 +124,9 @@ export function scegliGiorniLiberi(ids: string[], gia: Map<string, number> = new
 
 // ── Il conto ─────────────────────────────────────────────────────────────
 
+/** Sabato e domenica la responsabile resta nove ore dall'apertura: 10-19 (Patrizio, 12/11/2026). */
+export const PRESENZA_RESPONSABILE_WEEKEND = 9 * 60;
+
 /** Quanto pesa ogni regola: ogni riga vale piu' di tutto quello che sta sotto. */
 export const PESI = {
   vuota: 10_000_000_000,    // mezz'ora di apertura senza nessuno
@@ -129,7 +135,7 @@ export const PESI = {
   // Nel weekend lavorano tutti anche a costo del minimo delle fasce di un feriale
   // (Patrizio, 11/11/2026), ma mai lasciando un giorno vuoto o con una persona sola.
   weekendLibero: 4_000_000, // persona che puo' lavorare e non ha turno il sabato o la domenica
-  domenicaApertura: 4_000_000, // la responsabile che la domenica non fa l'apertura
+  domenicaApertura: 4_000_000, // la responsabile che il sabato o la domenica non fa il suo orario (apertura + 9 ore)
   sottoMinimo: 100_000,     // persona che manca al minimo delle fasce, per mezz'ora
   scoperta: 10_000,         // persona che manca al traffico MODA, per mezz'ora
   scopertaEsatta: 1_000,    // lo stesso senza arrotondare, per mezz'ora di persona
@@ -165,8 +171,9 @@ interface Quadro {
   minLavoro: number;
   /** ore lavorate per ogni presenza (indice = presenza / mezz'ora) */
   lav: number[];
-  /** indice della responsabile fra le persone, o -1 */
+  /** indice della responsabile fra le persone, o -1, e la sua presenza di sabato e domenica per giorno */
   resp: number;
+  respPresenza: number[];
   straordWeekend: boolean;
   /**
    * Le ore che ognuno puo' fare: il contratto, oppure quelle che aveva gia' nei
@@ -248,9 +255,9 @@ function costo(q: Quadro, st: Stato): number {
     }
     if (quanti + q.fissePersone[d].size === 1) c += PESI.unaSola;
     if (iso === 1 && q.guidaAttiva && !guidaPresente && q.guidaPossibile[d]) c += PESI.lunediSenzaGuida;
-    if (iso === 7 && q.resp >= 0 && q.weekendDovuto[q.resp][d]) {
+    if (iso >= 6 && q.resp >= 0 && q.weekendDovuto[q.resp][d]) {
       const x = st[q.resp][riga];
-      if (!x || x.s > q.limiti[q.resp][d].apre) c += PESI.domenicaApertura;
+      if (!x || x.s !== q.limiti[q.resp][d].apre || x.w !== q.respPresenza[d]) c += PESI.domenicaApertura;
     }
     if (iso >= 6) {
       for (let p = 0; p < P; p++) if (!st[p][riga] && q.weekendDovuto[p][d]) c += PESI.weekendLibero;
@@ -725,6 +732,7 @@ export function ottimizzaSettimana(
   } as Quadro;
   const guidaIds = (nuove.guida ?? []).length >= 2 ? nuove.guida! : [];
   q.iso = giorni.map((g) => giornoIso(g.data));
+  q.respPresenza = giorni.map((_, d) => (q.resp >= 0 ? Math.min(PRESENZA_RESPONSABILE_WEEKEND, q.limiti[q.resp][d].max) : 0));
   q.libero = persone.map((p) => nuove.giornoLibero?.get(p.id) ?? 0);
   q.eGuida = persone.map((p) => guidaIds.includes(p.id));
   q.guidaAttiva = guidaIds.length >= 2;
@@ -831,10 +839,11 @@ export function derogheSettimana(args: {
       && !del.some((t) => t.employeeId === args.guida!.responsabile || t.employeeId === args.guida!.vice)) {
       out.push({ regola: 'lunedi_guida', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: né la responsabile né la vice sono in turno (versamento in banca)` });
     }
-    // la domenica l'apertura la fa la responsabile (Patrizio, 12/11/2026)
+    // sabato e domenica la responsabile entra all'apertura ed esce dopo nove ore (Patrizio, 12/11/2026)
     const resp = args.guida?.responsabile ? args.persone.find((p) => p.id === args.guida!.responsabile) : undefined;
-    if (iso === 7 && resp && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) <= g.apre)) {
-      out.push({ regola: 'domenica_apertura', data: g.data, employeeId: resp.id, testo: `${giornoTesto(g.data)}: ${resp.nome}, la responsabile, non fa l'apertura` });
+    const fineResp = Math.min(g.chiude, g.apre + PRESENZA_RESPONSABILE_WEEKEND);
+    if (iso >= 6 && resp && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineResp)) {
+      out.push({ regola: 'domenica_apertura', data: g.data, employeeId: resp.id, testo: `${giornoTesto(g.data)}: ${resp.nome}, la responsabile, non fa ${hhmm(g.apre)}-${hhmm(fineResp)}` });
     }
     for (const p of args.persone) {
       const suo = del.filter((t) => t.employeeId === p.id);
