@@ -22714,6 +22714,7 @@ export type Database = {
           performed_at: string | null
           performed_by: string | null
           requested_at: string | null
+          rimborso_group_id: string | null
         }
         Insert: {
           action_type: string
@@ -22731,6 +22732,7 @@ export type Database = {
           performed_at?: string | null
           performed_by?: string | null
           requested_at?: string | null
+          rimborso_group_id?: string | null
         }
         Update: {
           action_type?: string
@@ -22748,6 +22750,7 @@ export type Database = {
           performed_at?: string | null
           performed_by?: string | null
           requested_at?: string | null
+          rimborso_group_id?: string | null
         }
         Relationships: [
           {
@@ -22786,6 +22789,39 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      payable_reimbursements: {
+        Row: {
+          bank_account_id: string | null
+          beneficiary_iban: string | null
+          beneficiary_name: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          id: string
+          total_amount: number
+        }
+        Insert: {
+          bank_account_id?: string | null
+          beneficiary_iban?: string | null
+          beneficiary_name: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          total_amount: number
+        }
+        Update: {
+          bank_account_id?: string | null
+          beneficiary_iban?: string | null
+          beneficiary_name?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          total_amount?: number
+        }
+        Relationships: []
       }
       payable_credit_note_links: {
         Row: {

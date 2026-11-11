@@ -24,6 +24,7 @@ import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme';
 import { supabase } from '../lib/supabase';
 import { todayYMD } from '../lib/dateLocal';
 import { fetchCommittedByAccount, type CommittedByAccount } from '../lib/committedBalance';
+import { controllaRimborso, emailRimborso, normalizzaIban, totaleRimborso, type DatiRimborso, type RigaRimborso } from '../lib/distintaRimborso';
 import { useAuth } from '../hooks/useAuth';
 import RibaDistintaModal from '../components/RibaDistintaModal';
 import RibaCreditNotesModal from '../components/RibaCreditNotesModal';
@@ -250,6 +251,14 @@ const ScadenzarioSmart = () => {
   const [emailSent, setEmailSent] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
   const [emailManualConfirmed, setEmailManualConfirmed] = useState(false);
+  // DISTINTA DI RIMBORSO (migration 390): fatture intestate all'azienda ma pagate di
+  // tasca propria da una persona. Un solo bonifico a lei chiude tutte le fatture della
+  // distinta, anche di fornitori diversi. Il nome serve sempre (è quello che l'aggancio
+  // cerca nella causale); l'IBAN è facoltativo, lo ha già chi esegue il bonifico.
+  const [rimborso, setRimborso] = useState<{ attivo: boolean } & DatiRimborso>({ attivo: false, nome: '', iban: '' });
+  // Persone già rimborsate in passato: il loro IBAN si ripropone da solo.
+  const [rimborsiNoti, setRimborsiNoti] = useState<DatiRimborso[]>([]);
+  const rimborsiNotiCaricati = useRef(false);
   // Modale "Rimuovi dalla distinta" (conferma)
   const [removeDistintaModal, setRemoveDistintaModal] = useState<{ payableId: string; invoiceNumber: string } | null>(null);
   const [selectedMethodGroup, setSelectedMethodGroup] = useState<any>(null);
@@ -2236,6 +2245,69 @@ const ScadenzarioSmart = () => {
     }
   }, [payables, toast, fetchData]);
 
+  // ───── DISTINTA DI RIMBORSO ─────
+  // Le righe dell'anteprima nella forma che serve ai controlli e alla mail del rimborso.
+  const rimborsoRighe = useMemo<RigaRimborso[]>(() => {
+    if (!confirmResult) return [];
+    return confirmResult.results.map((r, i) => ({
+      fornitore: r.fornitore, fattura: r.fattura, importo: r.importo, bankId: r.bankId || '',
+      conNoteCredito: Boolean(confirmResult.items[i]?.ncIds?.length),
+      fiscale: Boolean(confirmResult.items[i]?.isFiscal),
+    }));
+  }, [confirmResult]);
+  const rimborsoErrore = rimborso.attivo ? controllaRimborso(rimborso, rimborsoRighe) : null;
+  // Oggetto e testo della mail: quelli del rimborso (un bonifico alla persona) quando
+  // il rimborso è acceso e completo, altrimenti quelli della distinta ai fornitori.
+  const distintaEmail = useMemo(() => {
+    if (!confirmResult) return { subject: '', body: '' };
+    if (rimborso.attivo && !rimborsoErrore) {
+      const banca = confirmResult.banks[0];
+      return emailRimborso({
+        dataStr: new Date().toLocaleDateString('it-IT'),
+        dati: rimborso,
+        banca: { nome: banca?.bankName || 'N/D', iban: banca?.iban || '' },
+        righe: rimborsoRighe,
+        fmt,
+      });
+    }
+    return { subject: confirmResult.emailSubject, body: confirmResult.emailBody };
+  }, [confirmResult, rimborso, rimborsoErrore, rimborsoRighe]);
+
+  // Ogni modifica al rimborso cambia la mail: il passo «invia la mail» riparte.
+  const cambiaRimborso = (patch: Partial<{ attivo: boolean } & DatiRimborso>) => {
+    setRimborso(prev => {
+      const next = { ...prev, ...patch };
+      // Nome già rimborsato in passato e IBAN ancora vuoto: lo ripropongo.
+      if (patch.nome !== undefined && !next.iban.trim()) {
+        const noto = rimborsiNoti.find(n => n.nome.trim().toLowerCase() === next.nome.trim().toLowerCase());
+        if (noto) next.iban = noto.iban;
+      }
+      return next;
+    });
+    setEmailSent(false);
+    setEmailManualConfirmed(false);
+    if (patch.attivo && !rimborsiNotiCaricati.current) {
+      rimborsiNotiCaricati.current = true;
+      void (async () => {
+        // Dove la tabella non c'è (migration 390 non applicata) la lettura dà errore:
+        // si resta senza suggerimenti, niente di più.
+        const { data, error } = await supabase
+          .from('payable_reimbursements')
+          .select('beneficiary_name, beneficiary_iban, created_at')
+          .order('created_at', { ascending: false })
+          .limit(200);
+        if (error || !data) return;
+        const visti = new Map<string, DatiRimborso>();
+        for (const row of data as unknown as { beneficiary_name: string | null; beneficiary_iban: string | null }[]) {
+          const nome = (row.beneficiary_name || '').trim();
+          if (!nome || visti.has(nome.toLowerCase())) continue;
+          visti.set(nome.toLowerCase(), { nome, iban: row.beneficiary_iban || '' });
+        }
+        setRimborsiNoti([...visti.values()]);
+      })();
+    }
+  };
+
   // "Crea distinta" (bottom bar): costruisce SOLO l'anteprima (recap + email).
   // NESSUNA scrittura su DB qui: il salvataggio avviene solo con "Conferma distinta"
   // nel modale. Cosi' chiudere senza confermare non lascia righe "In distinta".
@@ -2341,6 +2413,7 @@ const ScadenzarioSmart = () => {
       setConfirmResult({ results, banks, totaleComplessivo, emailBody, emailSubject, items } as unknown as NonNullable<ConfirmResult>);
       setDistintaSaved(false);
       setConfirmDiscardDistinta(false);
+      setRimborso({ attivo: false, nome: '', iban: '' });
       // Nuova anteprima → il gate email riparte da zero: la mail va (ri)mandata.
       setEmailSent(false);
       setEmailManualConfirmed(false);
@@ -2362,6 +2435,10 @@ const ScadenzarioSmart = () => {
     if (!confirmResult || distintaSaved) return;
     const items = confirmResult.items || [];
     if (items.length === 0) return;
+    if (rimborso.attivo && rimborsoErrore) {
+      toast({ type: 'warning', message: rimborsoErrore });
+      return;
+    }
     setIsSaving(true);
     try {
       // Le fatture fornitori vanno in payable_actions; le scadenze fiscali (id `fiscal_…`)
@@ -2376,6 +2453,63 @@ const ScadenzarioSmart = () => {
 
       let inserted = 0, skipped = 0;
       const errors: string[] = [];
+      if (rimborso.attivo) {
+        // RIMBORSO: tutte le righe o nessuna. Il bonifico è uno e vale la somma: una
+        // riga saltata lascerebbe una distinta che il movimento non può più chiudere.
+        const nome = rimborso.nome.trim();
+        for (const it of payableItems) {
+          const pay = payables.find(p => p.id === it.payableId);
+          const remaining = Number(pay?.amount_remaining) || 0;
+          const pending = pendingByPayable.has(it.payableId)
+            ? (pendingByPayable.get(it.payableId) as number)
+            : (Number(pay?.disposizione_amount_pending) || 0);
+          if ((Number(it.amount) || 0) <= 0 || pending + (Number(it.amount) || 0) > remaining + 0.01) {
+            toast({ type: 'error', message: `La fattura ${pay?.invoice_number || ''} è già in una distinta o l'importo supera il residuo: toglila e ricrea la distinta di rimborso. Non è stato salvato niente.` });
+            setIsSaving(false);
+            return;
+          }
+          pendingByPayable.set(it.payableId, pending + (Number(it.amount) || 0));
+        }
+        // Chi viene rimborsato sta in una tabella a parte (nome e IBAN di una persona:
+        // li legge solo l'amministrazione). 42P01 / PGRST205: la tabella non esiste su
+        // questo gestionale.
+        const { data: testata, error: testErr } = await supabase.from('payable_reimbursements').insert({
+          company_id: COMPANY_ID,
+          beneficiary_name: nome,
+          beneficiary_iban: normalizzaIban(rimborso.iban) || null,
+          bank_account_id: payableItems[0]?.bankId || null,
+          total_amount: totaleRimborso(rimborsoRighe),
+        } as never).select('id').single();
+        if (testErr || !testata) {
+          const manca = testErr?.code === '42P01' || testErr?.code === 'PGRST205';
+          toast({ type: 'error', message: manca
+            ? 'La distinta di rimborso non è ancora disponibile su questo gestionale. Non è stato salvato niente.'
+            : `Distinta di rimborso non salvata: ${testErr?.message || 'errore sconosciuto'}` });
+          setIsSaving(false);
+          return;
+        }
+        const gruppo = (testata as { id: string }).id;
+        const { error: rimbErr } = await supabase.from('payable_actions').insert(payableItems.map(it => ({
+          payable_id: it.payableId,
+          action_type: 'disposizione',
+          old_status: it.status,
+          new_status: it.status,
+          amount: it.amount,
+          bank_account_id: it.bankId || null,
+          note: `Rimborso a ${nome}. ${it.note}`,
+          rimborso_group_id: gruppo,
+        })) as never);
+        if (rimbErr) {
+          // Le righe si salvano tutte insieme o nessuna: qui nessuna fattura è in distinta.
+          toast({ type: 'error', message: `Distinta di rimborso non salvata, nessuna fattura è stata messa in distinta: ${rimbErr.message}` });
+          setIsSaving(false);
+          return;
+        }
+        for (const it of payableItems) {
+          await supabase.from('payables').update({ payment_bank_account_id: it.bankId || null } as never).eq('id', it.payableId).is('payment_bank_account_id', null);
+        }
+        inserted = payableItems.length;
+      } else
       for (const it of payableItems) {
         // Guardia: (pending corrente + questo) non deve superare il residuo della fattura.
         // Blocca i doppioni e le disposizioni oltre il dovuto (niente da disporre).
@@ -2462,6 +2596,8 @@ const ScadenzarioSmart = () => {
       setIsSaving(false);
       if (errors.length > 0) {
         toast({ type: 'error', message: `Distinta salvata con errori: ${inserted} aggiunte, ${errors.length} fallite.` });
+      } else if (rimborso.attivo) {
+        toast({ type: 'success', message: `Distinta di rimborso confermata: ${inserted} fatture, un bonifico di ${fmt(totaleRimborso(rimborsoRighe))} € a ${rimborso.nome.trim()}. Si chiudono da sole quando il bonifico arriva in banca.` });
       } else if (skipped > 0) {
         toast({ type: 'success', message: `Distinta confermata: ${inserted} aggiunte${skipped > 0 ? `, ${skipped} già in distinta (saltate)` : ''}.` });
       } else {
@@ -2475,6 +2611,7 @@ const ScadenzarioSmart = () => {
       // pagina o ricaricando, l'anteprima non viene ricostruita/ripristinata.
       setConfirmResult(null);
       setDistintaSaved(false);
+      setRimborso({ attivo: false, nome: '', iban: '' });
       if (DRAFT_KEY) { try { localStorage.removeItem(DRAFT_KEY); } catch { /* storage non disponibile */ } }
       fetchData();
     } catch (error) {
@@ -2569,6 +2706,10 @@ const ScadenzarioSmart = () => {
   // spunta manuale).
   const sendDistintaEmail = async () => {
     if (!confirmResult || sendingEmail) return;
+    if (rimborsoErrore) {
+      toast({ type: 'warning', message: rimborsoErrore });
+      return;
+    }
     if (!emailRecipients || !emailRecipients.trim()) {
       toast({ type: 'warning', message: 'Imposta prima l\'email dei destinatari.' });
       return;
@@ -2576,7 +2717,7 @@ const ScadenzarioSmart = () => {
     setSendingEmail(true);
     try {
       const { data, error } = await supabase.functions.invoke('send-distinta-email', {
-        body: { subject: confirmResult.emailSubject, body: confirmResult.emailBody, to: emailRecipients },
+        body: { subject: distintaEmail.subject, body: distintaEmail.body, to: emailRecipients },
       });
       // Su una risposta non 2xx invoke() dà un messaggio generico: il testo vero
       // (es. «salva prima i destinatari», «ruolo non ammesso») sta nel corpo.
@@ -2609,8 +2750,8 @@ const ScadenzarioSmart = () => {
   const openDistintaGmail = () => {
     if (!confirmResult) return;
     const to = encodeURIComponent(emailRecipients || '');
-    const su = encodeURIComponent(confirmResult.emailSubject);
-    const body = encodeURIComponent(confirmResult.emailBody);
+    const su = encodeURIComponent(distintaEmail.subject);
+    const body = encodeURIComponent(distintaEmail.body);
     const url = `https://mail.google.com/mail/?view=cm&fs=1${emailRecipients ? `&to=${to}` : ''}&su=${su}&body=${body}`;
     if (url.length > 8000) {
       toast({ type: 'warning', message: 'Testo troppo lungo per Gmail: usa "Copia testo" e incollalo nella mail.' });
@@ -5353,6 +5494,48 @@ const ScadenzarioSmart = () => {
               </div>
             )}
 
+            {/* Distinta di rimborso: le fatture le ha pagate una persona di tasca propria */}
+            {!distintaSaved && (
+              <div className={`rounded-xl border p-3 ${rimborso.attivo ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-white'}`}>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input type="checkbox" className="mt-0.5" checked={rimborso.attivo}
+                    onChange={e => cambiaRimborso({ attivo: e.target.checked })} />
+                  <span>
+                    <span className="text-sm font-semibold text-slate-800">È un rimborso a una persona</span>
+                    <span className="block text-xs text-slate-500">Queste fatture le ha già pagate qualcuno di tasca propria (per esempio in trasferta). Si fa un solo bonifico a lui o a lei, e quando arriva in banca le fatture si chiudono tutte, anche se sono di fornitori diversi.</span>
+                  </span>
+                </label>
+                {rimborso.attivo && (
+                  <div className="mt-3 space-y-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-xs font-medium text-slate-700 block mb-1" htmlFor="rimborso-nome">Chi riceve il rimborso</label>
+                        <input id="rimborso-nome" type="text" list="rimborso-nomi-noti" value={rimborso.nome} placeholder="Nome e cognome"
+                          onChange={e => cambiaRimborso({ nome: e.target.value })}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm focus:ring-2 focus:ring-violet-500" />
+                        <datalist id="rimborso-nomi-noti">
+                          {rimborsiNoti.map(n => <option key={n.nome} value={n.nome} />)}
+                        </datalist>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-slate-700 block mb-1" htmlFor="rimborso-iban">Il suo IBAN (facoltativo)</label>
+                        <input id="rimborso-iban" type="text" value={rimborso.iban} placeholder="Se lo ha già chi fa il bonifico, lascia vuoto"
+                          onChange={e => cambiaRimborso({ iban: e.target.value })}
+                          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm font-mono focus:ring-2 focus:ring-violet-500" />
+                      </div>
+                    </div>
+                    {rimborsoErrore ? (
+                      <p className="text-xs text-rose-700 flex items-center gap-1.5"><AlertTriangle size={13} className="shrink-0" /> {rimborsoErrore}</p>
+                    ) : (
+                      <p className="text-xs text-violet-800 font-medium flex items-center gap-1.5">
+                        <CheckCircle2 size={13} className="shrink-0" /> Un solo bonifico di {fmt(totaleRimborso(rimborsoRighe))} € a {rimborso.nome.trim()}, per {rimborsoRighe.length} {rimborsoRighe.length === 1 ? 'fattura' : 'fatture'}.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Dettaglio per banca */}
             {confirmResult.banks.map((bank, bIdx) => {
               const bankColors = [
@@ -5416,7 +5599,7 @@ const ScadenzarioSmart = () => {
                           </div>
                           <div className="text-sm font-bold text-slate-900 ml-4">{fmt(p.importo)} €</div>
                         </div>
-                        {(p.ibanBeneficiario || p.pivaBeneficiario) && (
+                        {!rimborso.attivo && (p.ibanBeneficiario || p.pivaBeneficiario) && (
                           <div className="mt-1.5 flex items-center gap-3 text-xs">
                             {p.ibanBeneficiario && (
                               <span className="text-slate-500 font-mono bg-slate-50 px-2 py-0.5 rounded">IBAN: {p.ibanBeneficiario}</span>
@@ -5454,16 +5637,16 @@ const ScadenzarioSmart = () => {
                 {emailRecipients && <span className="text-xs text-slate-500 truncate max-w-[45%]">A: {emailRecipients}</span>}
               </div>
               <div className="p-3">
-                <textarea readOnly value={confirmResult.emailBody} rows={8}
+                <textarea readOnly value={distintaEmail.body} rows={8}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-xs font-mono bg-slate-50 mb-3" />
                 {/* Invio server: via primaria, funziona anche senza Gmail */}
-                <button onClick={sendDistintaEmail} disabled={sendingEmail || emailSent || distintaSaved || !emailRecipients}
+                <button onClick={sendDistintaEmail} disabled={sendingEmail || emailSent || distintaSaved || !emailRecipients || Boolean(rimborsoErrore)}
                   className={`w-full py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition ${emailSent ? 'bg-emerald-100 text-emerald-700 cursor-default' : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50'}`}>
                   {emailSent ? <><CheckCircle2 size={15} /> Email inviata</> : (sendingEmail ? <><Loader2 size={15} className="animate-spin" /> Invio in corso…</> : <><Send size={14} /> Invia email ai destinatari</>)}
                 </button>
                 {/* Alternative (fallback): Gmail nel browser / copia testo */}
                 <div className="flex gap-2 mt-2">
-                  <button onClick={() => { navigator.clipboard.writeText(confirmResult.emailBody); toast({ type: 'success', message: 'Testo della distinta copiato.' }); }}
+                  <button onClick={() => { navigator.clipboard.writeText(distintaEmail.body); toast({ type: 'success', message: 'Testo della distinta copiato.' }); }}
                     className="flex-1 py-2 bg-slate-100 text-slate-600 rounded-lg text-xs font-medium hover:bg-slate-200 flex items-center justify-center gap-2">
                     <Download size={13} /> Copia testo
                   </button>
@@ -5496,7 +5679,7 @@ const ScadenzarioSmart = () => {
                 Manca un solo passaggio: premi <span className="font-bold">"Conferma distinta"</span> qui sotto per salvarla. L’email inviata da sola non la crea.
               </div>
             )}
-            <button onClick={confirmDistinta} disabled={isSaving || distintaSaved || !(emailSent || emailManualConfirmed)}
+            <button onClick={confirmDistinta} disabled={isSaving || distintaSaved || Boolean(rimborsoErrore) || !(emailSent || emailManualConfirmed)}
               className={`w-full py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition ${distintaSaved ? 'bg-emerald-100 text-emerald-700 cursor-default' : `bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 ${!distintaSaved && (emailSent || emailManualConfirmed) ? 'ring-2 ring-amber-400 ring-offset-2 animate-pulse' : ''}`}`}>
               {distintaSaved ? <><CheckCircle2 size={16} /> Distinta confermata</> : (isSaving ? 'Salvataggio...' : <><CheckCircle2 size={16} /> 2. Conferma distinta</>)}
             </button>
