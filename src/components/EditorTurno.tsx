@@ -187,8 +187,8 @@ export default function EditorTurno({
     if (!passaggio || errore) return;
     setSalvo(true);
     const msg = await passaggio.esegui(m, collega, { inizio, fine, pausa_minuti: pausaVera });
+    if (msg) await onSalvato(msg);
     setSalvo(false);
-    if (msg) onSalvato(msg);
   };
 
   // Trasferta (Patrizio, 28/10/2026): lavoro fuori dal negozio, con l'orario
@@ -265,7 +265,7 @@ export default function EditorTurno({
         <p className="text-sm text-slate-600">
           {errore ?? <>Presenza {fmt((minuti(fine) - minuti(inizio)) / 60)} ore: <b>{fmt(ore)} ore di lavoro</b> e {pausaVera} minuti di pausa, che non si pagano.</>}
           {' '}Il turno diventa «messo a mano»: il ricalcolo non lo cambia.
-          {!turno && ' Oggi la persona è a riposo: scrivi l’orario e salva per darle un turno.'}
+          {!turno && !ferie?.giaInFerie && !trasferta?.esistente && ' Oggi la persona è a riposo: scrivi l’orario e salva per darle un turno.'}
         </p>
         {pausa < pausaMinima && !errore && (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
