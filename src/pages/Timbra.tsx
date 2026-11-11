@@ -14,7 +14,7 @@ import { CheckCircle2, Wifi, WifiOff, Camera, RefreshCw, AlertTriangle, Delete, 
 import { supabase } from '../lib/supabase'
 import {
   CAUSALI_STRAORDINARIO, CAUSALI_USCITA, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT,
-  azioni, codicePin, dataRoma, entrataMancante, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, oreEntrataDichiarabili, ordina, statoDa,
+  azioni, codicePin, haGiaFattoPausa, minutiPausaFatti, pausaResidua, dataRoma, entrataMancante, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, oreEntrataDichiarabili, ordina, statoDa,
   valutaEntrata, valutaUscita,
   type TipoTimbratura, type Timbratura,
 } from '../lib/timbrature'
@@ -507,8 +507,18 @@ export default function Timbra() {
                     {stato === 'in_pausa' && (
                       <button onClick={() => void timbra('fine_pausa')} className="w-full py-7 rounded-2xl text-2xl font-bold bg-sky-600 active:bg-sky-700">{ETICHETTA_PULSANTE.fine_pausa}</button>
                     )}
+                    {stato === 'in_pausa' && turno && (turno.pausa_minuti ?? 0) > 0 && (() => {
+                      const fatti = minutiPausaFatti(ts, adesso)
+                      const oltre = fatti - (turno.pausa_minuti ?? 0)
+                      return <p className={`text-center text-sm ${oltre > tolleranza ? 'text-amber-300' : 'text-slate-300'}`}>
+                        Pausa: {formatMinuti(fatti)} su {formatMinuti(turno.pausa_minuti ?? 0)} del turno{oltre > tolleranza ? `, ${formatMinuti(oltre)} in più: lo vede il responsabile` : ''}.
+                      </p>
+                    })()}
                     {stato === 'dentro' && tocchi.includes('inizio_pausa') && (
-                      <button onClick={() => void timbra('inizio_pausa')} className="w-full py-7 rounded-2xl text-2xl font-bold bg-amber-500 active:bg-amber-600">{ETICHETTA_PULSANTE.inizio_pausa}</button>
+                      <>
+                        <button onClick={() => void timbra('inizio_pausa')} className="w-full py-7 rounded-2xl text-2xl font-bold bg-amber-500 active:bg-amber-600">{ETICHETTA_PULSANTE.inizio_pausa}</button>
+                        {(() => { const r = pausaResidua(ts, turno, adesso); return r !== null && haGiaFattoPausa(ts) ? <p className="text-center text-sm text-slate-300">Restano {formatMinuti(r)} di pausa.</p> : null })()}
+                      </>
                     )}
                     <button onClick={esci} className="w-full py-7 rounded-2xl text-2xl font-bold bg-rose-600 active:bg-rose-700">{ETICHETTA_PULSANTE.uscita}</button>
                   </>

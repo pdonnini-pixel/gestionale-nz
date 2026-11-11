@@ -2,7 +2,7 @@
 // conti puri, senza rete, per l'elenco «Da confermare» e il riepilogo del mese.
 import { CAUSALI_STRAORDINARIO, CAUSALI_USCITA } from './timbrature'
 
-export type TipoEvento = 'ritardo' | 'uscita_anticipata' | 'straordinario' | 'entrata_dichiarata'
+export type TipoEvento = 'ritardo' | 'uscita_anticipata' | 'straordinario' | 'entrata_dichiarata' | 'pausa_lunga'
 export type StatoEvento = 'da_confermare' | 'confermato' | 'respinto'
 
 export interface EventoPresenze {
@@ -54,12 +54,15 @@ export function etichettaTipo(e: Pick<EventoPresenze, 'tipo' | 'causale'>): stri
   if (e.tipo === 'ritardo') return 'Ritardo'
   if (e.tipo === 'straordinario') return 'Straordinario'
   if (e.tipo === 'entrata_dichiarata') return 'Entrata dichiarata'
+  if (e.tipo === 'pausa_lunga') return 'Pausa più lunga'
   return e.causale === 'malattia' ? 'Sto male' : 'Uscita prima'
 }
 
 /** Cosa serve per confermare con un tocco solo; altrimenti si apre la decisione. */
 export function confermaDiretta(e: Pick<EventoPresenze, 'tipo' | 'causale'>): boolean {
   if (e.tipo === 'uscita_anticipata') return e.causale === 'personale' || e.causale === 'malattia'
+  // 392: va scelto se scalare il permesso
+  if (e.tipo === 'pausa_lunga') return false
   return true
 }
 
@@ -90,7 +93,11 @@ export function riepilogoMese(eventi: EventoPresenze[]): RiepilogoPersona[] {
     if (e.stato !== 'confermato' || e.tipo === 'entrata_dichiarata') continue
     const min = e.minuti_confermati ?? e.minuti_proposti
     if (e.tipo === 'ritardo') { r.ritardi++; r.permessoRitardi += min }
-    else if (e.tipo === 'uscita_anticipata') {
+    else if (e.tipo === 'pausa_lunga') {
+      // 392: permesso (con quelli delle uscite) oppure ore non lavorate
+      if (e.esito === 'permesso') r.permessoUscite += min
+      else if (e.esito === 'ore_non_lavorate') r.oreNonLavorate += min
+    } else if (e.tipo === 'uscita_anticipata') {
       if (e.esito === 'malattia') r.malattie.push({ data: e.data, ora: e.ora })
       else if (e.esito === 'permesso') r.permessoUscite += min
       else if (e.esito === 'ore_non_lavorate') r.oreNonLavorate += min

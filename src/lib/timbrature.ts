@@ -117,10 +117,34 @@ export function haGiaFattoPausa(timbrature: Timbratura[]): boolean {
   return timbrature.some((t) => t.tipo === 'inizio_pausa')
 }
 
+/** Minuti di pausa gia' fatti nella giornata (somma delle pause, quella in corso fino ad adesso). */
+export function minutiPausaFatti(timbrature: Timbratura[], adessoMs: number): number {
+  let ms = 0
+  let da: number | null = null
+  for (const t of ordina(timbrature)) {
+    if (t.tipo === 'inizio_pausa') da = Date.parse(t.ora)
+    else if (da !== null && (t.tipo === 'fine_pausa' || t.tipo === 'uscita' || t.tipo === 'entrata')) { ms += Date.parse(t.ora) - da; da = null }
+  }
+  if (da !== null) ms += Math.max(0, adessoMs - da)
+  return Math.round(ms / 60000)
+}
+
+/**
+ * Minuti di pausa che restano (11/11/2026): la pausa del turno si puo' fare in
+ * piu' momenti, ma in tutto non oltre quella scritta nel gestionale. Senza
+ * turno vale una pausa sola, come prima (null = nessun limite noto).
+ */
+export function pausaResidua(timbrature: Timbratura[], turno: Turno | null, adessoMs: number): number | null {
+  if (!turno) return haGiaFattoPausa(timbrature) ? 0 : null
+  return Math.max(0, (turno.pausa_minuti ?? 0) - minutiPausaFatti(timbrature, adessoMs))
+}
+
 /**
  * L'azione proposta col pulsante grande e quelle secondarie.
  * Fuori → Entra. In pausa → Rientro. Dentro → Esco, oppure Vado in pausa se il
- * turno prevede la pausa, non e' ancora fatta e manca piu' di un'ora alla fine.
+ * turno prevede la pausa, non ne e' ancora stata fatta nessuna e manca piu' di
+ * un'ora alla fine. Finche' resta pausa da fare «Vado in pausa» resta fra le
+ * altre azioni; finita la pausa del turno non c'e' piu'.
  */
 export function azioni(
   timbrature: Timbratura[],
@@ -131,13 +155,14 @@ export function azioni(
   const stato = statoDa(ord.length ? ord[ord.length - 1].tipo : null)
   if (stato === 'fuori') return { principale: 'entrata', altre: [] }
   if (stato === 'in_pausa') return { principale: 'fine_pausa', altre: ['uscita'] }
-  const pausaPrevista = (turno?.pausa_minuti ?? 0) > 0
+  const residua = pausaResidua(ord, turno, adessoMs)
+  const puoPausa = residua === null || residua > 0
   const fineMs = turno ? oraRomaInMs(turno.data, turno.fine) : null
   const lontanoDallaFine = fineMs === null || fineMs - adessoMs > 60 * 60 * 1000
-  if (pausaPrevista && !haGiaFattoPausa(ord) && lontanoDallaFine) {
+  if (turno && puoPausa && !haGiaFattoPausa(ord) && lontanoDallaFine) {
     return { principale: 'inizio_pausa', altre: ['uscita'] }
   }
-  return { principale: 'uscita', altre: haGiaFattoPausa(ord) ? [] : ['inizio_pausa'] }
+  return { principale: 'uscita', altre: puoPausa ? ['inizio_pausa'] : [] }
 }
 
 // ─── Ora di Roma ───────────────────────────────────────────────────────

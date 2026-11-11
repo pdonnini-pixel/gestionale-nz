@@ -33,6 +33,7 @@ Sara avvicina il QR: ora che è in negozio, il telefono propone **Vado in pausa*
 
 ### 13:58 · Sara rientra dalla pausa
 Per chi è in pausa il telefono propone **Rientro dalla pausa** ed **Esco**. Sara tocca «Rientro dalla pausa».
+La pausa del turno (scritta nel gestionale, qui un'ora) si può fare anche in più volte: per esempio 15 minuti a metà mattina e 45 a pranzo. Finché ne resta, il telefono propone ancora «Vado in pausa» e scrive quanti minuti restano; finita la pausa del turno non la propone più. Se al rientro le pause della giornata superano quella del turno di più dei 10 minuti di tolleranza, il responsabile trova il caso «Pausa più lunga» e decide se scalare i minuti in più come permesso.
 La pausa si timbra sempre, all'uscita e al rientro. Chi per errore esce con «Esco» e poi rientra con «Entra» non sbaglia: conta l'ultima uscita della giornata, e l'uscita di prima si chiude da sola.
 
 ### 17:00 · Giulia esce prima per una visita
