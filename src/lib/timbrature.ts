@@ -258,6 +258,8 @@ export function riepilogoGiorno(
 
   let lavoro = 0
   let pausa = 0
+  // pausa da cui la persona e' rientrata (o in corso): solo questa puo' restare nelle ore come pausa pagata
+  let pausaRientrata = 0
   let dentroDa: number | null = null
   let pausaDa: number | null = null
   for (const t of ord) {
@@ -267,7 +269,7 @@ export function riepilogoGiorno(
       if (dentroDa !== null) lavoro += ms - dentroDa
       dentroDa = null; pausaDa = ms
     } else if (t.tipo === 'fine_pausa') {
-      if (pausaDa !== null) pausa += ms - pausaDa
+      if (pausaDa !== null) { pausa += ms - pausaDa; pausaRientrata += ms - pausaDa }
       pausaDa = null; dentroDa = ms
     } else if (t.tipo === 'uscita') {
       if (dentroDa !== null) lavoro += ms - dentroDa
@@ -276,10 +278,11 @@ export function riepilogoGiorno(
     }
   }
   if (dentroDa !== null) lavoro += Math.max(0, adessoMs - dentroDa)
-  if (pausaDa !== null) pausa += Math.max(0, adessoMs - pausaDa)
+  if (pausaDa !== null) { pausa += Math.max(0, adessoMs - pausaDa); pausaRientrata += Math.max(0, adessoMs - pausaDa) }
   // La pausa pagata del turno resta nelle ore: al massimo i minuti concessi, mai piu' di quelli timbrati.
   // Quello che va oltre e' pausa come le altre (e oltre la tolleranza diventa il caso «pausa piu' lunga»).
-  const pagata = Math.min(pausa, Math.max(0, turno?.pausa_pagata_minuti ?? 0) * 60000)
+  // Chi esce dalla pausa senza rientrare non ha fatto una pausa: e' uscita prima, e quei minuti non si rimettono.
+  const pagata = Math.min(pausaRientrata, Math.max(0, turno?.pausa_pagata_minuti ?? 0) * 60000)
   lavoro += pagata
 
   const entrata = ord.find((t) => t.tipo === 'entrata')?.ora ?? null

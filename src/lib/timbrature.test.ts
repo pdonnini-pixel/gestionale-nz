@@ -208,6 +208,29 @@ describe('pausa pagata: si timbra ma non si toglie dalle ore', () => {
     expect(r.minutiPausaPagata).toBe(0)
     expect(r.minutiLavorati).toBe(8 * 60)
   })
+  it('uscita durante la pausa, senza rientro: non e\' una pausa, i minuti non si rimettono', () => {
+    const r = riepilogoGiorno([
+      { tipo: 'entrata' as const, ora: iso('10:00') },
+      { tipo: 'inizio_pausa' as const, ora: iso('17:50') },
+      { tipo: 'uscita' as const, ora: iso('18:00') },
+    ], turno, ore('20:00'))
+    expect(r.minutiPausa).toBe(10)
+    expect(r.minutiPausaPagata).toBe(0)
+    expect(r.minutiLavorati).toBe(7 * 60 + 50)
+  })
+
+  it('pausa in due momenti: 6 e 9 minuti, se ne rimettono 10 e 5 si tolgono', () => {
+    const r = riepilogoGiorno([
+      { tipo: 'entrata' as const, ora: iso('10:00') },
+      { tipo: 'inizio_pausa' as const, ora: iso('12:00') }, { tipo: 'fine_pausa' as const, ora: iso('12:06') },
+      { tipo: 'inizio_pausa' as const, ora: iso('15:00') }, { tipo: 'fine_pausa' as const, ora: iso('15:09') },
+      { tipo: 'uscita' as const, ora: iso('18:00') },
+    ], turno, ore('20:00'))
+    expect(r.minutiPausa).toBe(15)
+    expect(r.minutiPausaPagata).toBe(10)
+    expect(r.minutiLavorati).toBe(8 * 60 - 5)
+  })
+
   it('il turno senza pausa pagata resta com\'era: la pausa timbrata si toglie tutta', () => {
     for (const t of [{ ...turno, pausa_pagata_minuti: 0 }, { data: turno.data, inizio: turno.inizio, fine: turno.fine, pausa_minuti: 30 }, null]) {
       const r = riepilogoGiorno(giornata('13:10'), t, ore('20:00'))
