@@ -34,7 +34,7 @@ Turni
 - I turni della settimana e di quelle dopo.
 
 Ferie e permessi
-- I saldi di ferie, permessi ed ex festività, in ore.
+- I saldi di ferie e permessi, in ore.
 - Le richieste, anche di mezza giornata, e la loro risposta.
 
 Le mie ore

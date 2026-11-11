@@ -430,7 +430,7 @@ export default function Timbra() {
                     <p className="text-lg font-bold">Non risulta la tua entrata di oggi.</p>
                     <p className="text-sm mt-1">Se eri già in negozio, scegli l'ora a cui sei entrato: la conferma il responsabile.</p>
                   </div>
-                  <label className="flex items-center justify-between gap-3 rounded-2xl border border-slate-600 px-4 py-3">
+                  <label className="flex items-center justify-between gap-3 rounded-2xl border border-white/25 px-4 py-3">
                     <span className="text-lg text-white/70">Ero già entrato alle</span>
                     <select value={scelta} onChange={(e) => setOraDichiarata(e.target.value)}
                       className="bg-white/10 text-white text-2xl font-semibold tabular-nums rounded-xl px-3 py-2 border border-white/30">
@@ -440,7 +440,7 @@ export default function Timbra() {
                   <button onClick={segna} className="w-full py-6 rounded-2xl text-2xl font-semibold bg-[#ff0066] active:bg-[#d90057]">
                     Segna l'entrata delle {scelta}
                   </button>
-                  <button onClick={() => setEntroAdesso(true)} className="w-full py-4 rounded-2xl text-xl font-semibold bg-slate-700 active:bg-slate-600">
+                  <button onClick={() => setEntroAdesso(true)} className="w-full py-4 rounded-2xl text-xl font-semibold bg-white/10 active:bg-white/20">
                     No, entro adesso
                   </button>
                   <button onClick={() => setSelezione(null)} className="text-white/50 underline py-1">Annulla</button>
@@ -474,8 +474,8 @@ export default function Timbra() {
                   </div>
                   {voci.map(([k, etichetta]) => (
                     <button key={k} onClick={() => setCausale(k)}
-                      className={`w-full flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-left text-lg ${causale === k ? 'border-[#ff0066] bg-[#ff0066]/15' : 'border-slate-600'}`}>
-                      <span className={`w-5 h-5 rounded-full shrink-0 ${causale === k ? 'border-[6px] border-[#ff0066]' : 'border-2 border-slate-400'}`} />
+                      className={`w-full flex items-center gap-3 rounded-2xl border px-4 py-3.5 text-left text-lg ${causale === k ? 'border-[#ff0066] bg-[#ff0066]/15' : 'border-white/25'}`}>
+                      <span className={`w-5 h-5 rounded-full shrink-0 ${causale === k ? 'border-[6px] border-[#ff0066]' : 'border-2 border-white/40'}`} />
                       {etichetta}
                     </button>
                   ))}
@@ -565,7 +565,7 @@ export default function Timbra() {
       <footer className="px-5 pb-6">
         <p className="text-white/50 text-xs uppercase tracking-[0.25em] mb-2">Adesso in negozio</p>
         {dentro.length === 0
-          ? <p className="text-white/40 text-sm">Nessuno ha timbrato l'entrata.</p>
+          ? <p className="text-white/60 text-sm">Nessuno ha timbrato l'entrata.</p>
           : <div className="flex flex-wrap gap-2">
               {dentro.map((d) => (
                 <span key={d.emp} className={`px-3 py-1 rounded-full text-sm ${d.stato === 'in_pausa' ? 'bg-[#ff0066]/20 text-[#ff80b3]' : 'bg-white/10 text-white'}`}>
@@ -573,7 +573,7 @@ export default function Timbra() {
                 </span>
               ))}
             </div>}
-        {dati?.scaricati_il && <p className="text-white/30 text-xs mt-3">Elenco e turni aggiornati alle {oraRoma(dati.scaricati_il)}</p>}
+        {dati?.scaricati_il && <p className="text-white/50 text-xs mt-3">Elenco e turni aggiornati alle {oraRoma(dati.scaricati_il)}</p>}
       </footer>
     </div>
   )
