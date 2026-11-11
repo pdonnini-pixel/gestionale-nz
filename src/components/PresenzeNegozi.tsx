@@ -131,7 +131,8 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       // senza piano pubblicati o messi a mano (stessa regola della migration 348).
       const pianoId = (pianoRes.data as { id: string } | null)?.id ?? null
       const tutti = (tRes.data ?? []) as (Turno & { plan_id: string | null; stato: string; origine: string })[]
-      setTurni(tutti.filter((t) => pianoId ? t.plan_id === pianoId : (t.plan_id === null && (t.stato === 'pubblicato' || t.origine === 'manuale'))))
+      // come timbrature_turni_ufficiali (392): del piano scelto valgono solo i turni pubblicati
+      setTurni(tutti.filter((t) => pianoId ? (t.plan_id === pianoId && t.stato === 'pubblicato') : (t.plan_id === null && (t.stato === 'pubblicato' || t.origine === 'manuale'))))
       setPunches((pRes.data ?? []) as Punch[])
       setAvvisi((nRes.data ?? []) as { employee_id: string; tipo: string; destinatario: string; esito: string }[])
       setAccessi((aRes.data ?? []) as Accesso[])
