@@ -526,7 +526,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
               // Turno minimo: 4 ore per regola (Patrizio, 20/10/2026); si cambia solo qui, negozio per negozio.
               { k: 'turnoMinOre' as const, label: 'Turno minimo nella giornata (ore)', min: 1, max: 12, step: 0.5 },
               { k: 'turnoMaxOre' as const, label: 'Turno massimo (ore)', min: 1, max: 12, step: 0.5 },
-              { k: 'pausaOltreOre' as const, label: 'Pausa da (ore lavorate)', min: 1, max: 12, step: 0.5 },
+              { k: 'pausaOltreOre' as const, label: 'Pausa oltre (ore lavorate)', min: 1, max: 12, step: 0.5 },
               { k: 'pausaMinuti' as const, label: 'Pausa (minuti)', min: 0, max: 120, step: 15 },
               { k: 'pausaLungaOltreOre' as const, label: 'Pausa lunga da (ore lavorate)', min: 1, max: 12, step: 0.5 },
               { k: 'pausaLungaMinuti' as const, label: 'Pausa lunga (minuti)', min: 0, max: 120, step: 15 },

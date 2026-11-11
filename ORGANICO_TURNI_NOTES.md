@@ -906,3 +906,14 @@ Da allora in `src/components/OrariNegozio.tsx`:
 - chi cambia negozio o scheda con modifiche aperte viene fermato (`guardia`, passata da `TurniNegozi.tsx`): salva ed esci, esci senza salvare, resta;
 - aggiungere o togliere un giorno speciale rilegge solo i giorni, senza cancellare le modifiche aperte negli altri riquadri;
 - due fasce dello stesso giorno con lo stesso inizio danno un messaggio chiaro invece dell'errore del vincolo `UNIQUE (outlet_id, giorno, dalle)`.
+
+## Pausa: nessuna fino a 6 ore lavorate comprese (11/11/2026)
+
+- Regola di Patrizio: fino a 6 ore di lavoro comprese nessuna pausa, oltre 6 e sotto 8 mezz'ora, da 8 un'ora.
+  10-16 = 6 ore senza pausa, 10-18 = 7,5 + 30', 10-19 = 8 + 1 h, 10-20 = 9 + 1 h. Prima la mezz'ora scattava già
+  a 6 ore esatte (`pausaPer` con `>=`, ora `>` sulla soglia normale; quella da 8 resta `>=`).
+- Finestra del turno: `presenzaGiusta` lavora a mezz'ore; una presenza che non torna (6 e mezza, 8 e mezza) si
+  allunga di mezz'ora (10-16:30 → 10-17, 10-18:30 → 10-19), alla chiusura anticipando l'inizio.
+- Copertura: resta l'opzione 2 decisa da Patrizio. Chi ha il turno conta in negozio per tutto il turno, perché
+  la pausa la prendono le ragazze quando il negozio è vuoto; le presenze verificano che la facciano.
+- I turni già salvati non cambiano: le loro ore si contano con la pausa scritta nel turno.

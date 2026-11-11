@@ -142,7 +142,7 @@ export default function TrasferteNegozi({ companyId, dati, puoScrivere }: { comp
             ? <label className="text-xs font-semibold text-slate-600">Luogo<input type="text" value={nuova.luogo} onChange={(e) => setNuova({ ...nuova, luogo: e.target.value })} className="mt-1 w-full min-h-[38px] rounded-lg border border-slate-300 bg-white px-2" /></label>
             : <label className="flex items-center gap-2 text-xs text-slate-700 self-end pb-2"><input type="checkbox" disabled={!nuova.dove} checked={nuova.copre} onChange={(e) => setNuova({ ...nuova, copre: e.target.checked })} /> Le ore coprono anche quel negozio</label>}
           <label className="text-xs font-semibold text-slate-600">Motivo<input type="text" value={nuova.motivo} onChange={(e) => setNuova({ ...nuova, motivo: e.target.value })} className="mt-1 w-full min-h-[38px] rounded-lg border border-slate-300 bg-white px-2" /></label>
-          <p className="text-xs text-slate-500 sm:col-span-2 self-center">La pausa si conta da sola (30 minuti da 6 ore di lavoro, un'ora da 8) e non si paga. Il negozio di riferimento è quello della persona.</p>
+          <p className="text-xs text-slate-500 sm:col-span-2 self-center">La pausa si conta da sola (nessuna fino a 6 ore di lavoro, 30 minuti oltre 6, un'ora da 8) e non si paga. Il negozio di riferimento è quello della persona.</p>
           <div className="flex gap-2 justify-end">
             <button type="button" onClick={() => setNuova(null)} className="min-h-[38px] px-3 rounded-lg border border-slate-300 text-sm">Annulla</button>
             <button type="button" onClick={salvaNuova} disabled={salvo} className="min-h-[38px] px-3 rounded-lg bg-indigo-600 text-white text-sm font-semibold disabled:opacity-50">Salva</button>
