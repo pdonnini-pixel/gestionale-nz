@@ -5,7 +5,7 @@
 // la conferma del responsabile.
 import { useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { CAUSALI_STRAORDINARIO, CAUSALI_USCITA, formatMinuti } from '../../lib/timbrature'
+import { AVVISO_CAMPO_LIBERO, CAUSALI_STRAORDINARIO, CAUSALI_USCITA, MAX_MOTIVO, formatMinuti } from '../../lib/timbrature'
 import { giornoBreve } from '../../lib/appDipendente'
 
 export interface EventoApp {
@@ -75,7 +75,7 @@ export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string
   }
   if (e.tipo === 'uscita_anticipata') {
     const titolo = `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
-    if (e.causale === 'malattia') return { titolo, dettaglio: `${turno}. Sto male: se il responsabile conferma è un permesso di ${formatMinuti(e.minuti_proposti)}; diventa malattia solo con il certificato medico, da portare al responsabile.` }
+    if (e.causale === 'malattia') return { titolo, dettaglio: `${turno}. Sto male (causale non più in uso): se il responsabile conferma è un permesso di ${formatMinuti(e.minuti_proposti)}; diventa malattia solo con il certificato medico, da portare al responsabile.` }
     if (e.causale === 'accordo') return { titolo, dettaglio: `${turno}. D'accordo con il responsabile: la conferma lui.` }
     if (e.causale === 'personale') return { titolo, dettaglio: `${turno}. Se il responsabile conferma, ti vengono scalati ${formatMinuti(e.minuti_proposti)} di permesso.` }
     return { titolo, dettaglio: `${turno}. Scegli il motivo dell'uscita.` }
@@ -148,10 +148,11 @@ function Evento({ e, oggi, onSalvato, ora }: { e: EventoApp; oggi: string; onSal
               {v}
             </label>
           ))}
-          <textarea value={motivo} onChange={(x) => setMotivo(x.target.value)} maxLength={500} rows={2}
+          <textarea value={motivo} onChange={(x) => setMotivo(x.target.value)} maxLength={MAX_MOTIVO} rows={2}
             placeholder={e.tipo === 'ritardo' ? 'Motivo del ritardo (facoltativo)'
               : e.tipo === 'entrata_dichiarata' ? 'Perché non hai timbrato? (facoltativo)' : 'Vuoi aggiungere qualcosa? (facoltativo)'}
             className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm" />
+          <p className="text-xs text-slate-500">{AVVISO_CAMPO_LIBERO}</p>
           {errore && <p className="text-sm text-rose-600">{errore}</p>}
           <div className="flex gap-2">
             <button onClick={() => void salva()} disabled={salvo || (!!causali && !causale)}

@@ -233,7 +233,7 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
   const malattia = causale === 'malattia'
   const accordo = causale === 'accordo'
   const pausaLunga = e.tipo === 'pausa_lunga'
-  // «Sto male» (386): permesso, oppure malattia se c'e' il certificato medico (scala = false)
+  // «Sto male» (386, solo casi registrati prima della 402): permesso, oppure malattia se c'e' il certificato medico (scala = false)
   const malattiaCertificata = malattia && scala === false
   const permesso = e.tipo === 'ritardo' || causale === 'personale' || ((accordo || pausaLunga) && scala === true) || (malattia && !malattiaCertificata)
 

@@ -124,6 +124,13 @@ Decisione di Patrizio sul modello in prova a Roma Soratte: «la timbratura deve 
 - **Ordine**: 399 → 401 → `NZ_ONLY 400` (che accende Roma Soratte e si ferma se la 401 manca), insieme alla pubblicazione del frontend.
 - Provata in locale su un Postgres vuoto con le tabelle e le quattro funzioni ridotte all'osso: colonna, trigger, ricalcolo all'accensione e allo spegnimento, funzioni, riesecuzione e rollback. **Non provata sui database veri.**
 
+## via «Sto male», avviso nei campi liberi (migration 402, 11/11/2026)
+Pacchetto privacy di Lilian (versione 1.1): New Zago ha deciso di togliere la causale «Sto male», che portava un dato sulla salute nelle presenze. La malattia segue i canali aziendali (certificato all'ufficio del personale), non l'app.
+- `CAUSALI_USCITA` = solo `personale` e `accordo` (telefono del negozio, app, decisione del responsabile). Server: `timbrature_evento_da_timbratura`, `app_dipendente_motivo_evento`, `presenze_causale_evento` non accettano più `malattia`.
+- I casi già registrati con `malattia` restano (etichetta «Sto male (causale non più in uso)») e `presenze_decidi_evento` li sa ancora decidere.
+- Campi liberi del dipendente (motivo nell'app, nota della richiesta di ferie): massimo 200 caratteri (`MAX_MOTIVO`) e sotto l'avviso `AVVISO_CAMPO_LIBERO` (niente diagnosi, sintomi, certificati, salute o famiglia).
+- Manuale: l'esempio di Giulia non scrive più «Visita medica».
+
 ## aperto
 - **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: informativa privacy (entrata dimenticata con la migration 382, PIN con la 384).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).
