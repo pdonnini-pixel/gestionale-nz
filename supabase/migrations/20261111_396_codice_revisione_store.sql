@@ -11,7 +11,8 @@
 --    scade al primo uso. Non cambia il segreto (tutti i telefoni dei
 --    revisori restano attivi insieme) e non spegne le notifiche.
 -- Il codice si scrive a parte, solo sul dipendente di prova del tenant
--- dell'app (NZ), con una scadenza; non sta nel repository.
+-- dell'app (NZ), con una scadenza; non sta nel repository. La Edge Function
+-- app-dipendente-attiva cerca anche questo codice (stesso PR).
 -- Tenant: NZ e Zago. Rollback: 20261111_396_codice_revisione_store_ROLLBACK.sql
 -- =====================================================================
 BEGIN;
@@ -33,9 +34,6 @@ $x$, $x$  IF v_emp IS NULL THEN
      WHERE a.codice_revisione = upper(trim(p_codice)) AND a.codice_revisione_scade > now()
        AND COALESCE(e.is_demo, false);
     IF v_emp IS NULL THEN RETURN; END IF;
-    UPDATE public.employee_app_access a
-       SET segreto = encode(extensions.gen_random_bytes(20), 'hex'), updated_at = now()
-     WHERE a.employee_id = v_emp AND a.segreto IS NULL;
     RETURN QUERY
     SELECT e.id, e.company_id, a.segreto,
            COALESCE(e.nome, e.first_name), COALESCE(e.cognome, e.last_name), e.user_id

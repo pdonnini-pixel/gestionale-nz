@@ -50,7 +50,7 @@ Testo da incollare:
 
 > L'app è riservata ai dipendenti dei negozi New Zago (EPPI S.r.l.) e si attiva con un codice di 8 caratteri rilasciato dall'ufficio del personale. Per la revisione è attivo un dipendente di prova: inserire il codice qui sotto nella schermata iniziale. Il codice resta valido 30 giorni e può essere usato più volte. La timbratura vera avviene inquadrando il QR dell'app con il telefono del negozio, che non fa parte di questa app: nella revisione si possono vedere tutte le schede (Oggi, Turni, Ferie, Ore) con dati di prova.
 
-Codice per i revisori: **[da completare]** (serve il codice riusabile, da preparare prima dell'invio). Apple non vuole né nome utente né password: basta il codice, nel campo «Note».
+Codice per i revisori: c'è (migration 396), 8 caratteri, valido fino al 10/01/2027 e riusabile su più telefoni insieme. **Non si scrive in questo file** (il repository è pubblico): si copia dalla chat o lo si rigenera. Apple non vuole né nome utente né password: basta il codice, nel campo «Note».
 
 ## privacy
 - Informativa privacy (URL obbligatorio in tutti e due gli store): **[da completare]**, la prepara Lilian. Va pubblicata a un indirizzo web stabile (per esempio una pagina del sito EPPI o New Zago).
