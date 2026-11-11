@@ -128,14 +128,42 @@ export async function caricaChiusurePerStima(companyId: string, settimane = 8): 
 }
 
 /**
- * Lo storico MODA per il fabbisogno di un negozio: il suo traffico, oppure,
- * se non ne ha (negozio nuovo), la forma media di tutti gli altri. Stessa
- * fonte del piano del mese.
+ * Lo storico MODA per il fabbisogno di un negozio. Stessa fonte per piano del
+ * mese, piano settimanale e piano ferie:
+ * 1. il traffico del negozio, se ne ha;
+ * 2. altrimenti quello del negozio di riferimento scelto in «Regole dei turni»
+ *    (Patrizio, 11/11/2026: Roma Soratte usa il MODA di Valmontone);
+ * 3. altrimenti la media degli altri negozi, ora per ora. Fino all'11/11/2026
+ *    il codice sommava gli ingressi di tutti i negozi invece di farne la media
+ *    (alle 11 di un feriale 88,8 ingressi invece di 10-25).
  */
-export async function caricaStoricoNegozio(companyId: string, outletId: string): Promise<{ storico: StoricoTraffico; propria: boolean }> {
+export async function caricaStoricoNegozio(companyId: string, outletId: string): Promise<{ storico: StoricoTraffico; propria: boolean; fonte: 'propria' | 'riferimento' | 'media'; riferimentoId: string | null }> {
   const righe = await caricaTraffico(companyId, outletId);
-  const propria = righe.length > 0;
-  return { storico: storicoTraffico(propria ? righe : await caricaTraffico(companyId, null)), propria };
+  if (righe.length > 0) return { storico: storicoTraffico(righe), propria: true, fonte: 'propria', riferimentoId: null };
+  // Dove la colonna non c'e' (tenant senza la migration 391) si torna alla media.
+  const r = await supabase.from('outlet_shift_rules').select('traffico_da_outlet_id').eq('outlet_id', outletId).maybeSingle();
+  const rif = r.error ? null : ((r.data as { traffico_da_outlet_id?: string | null } | null)?.traffico_da_outlet_id ?? null);
+  if (rif && rif !== outletId) {
+    const delRif = await caricaTraffico(companyId, rif);
+    if (delRif.length > 0) return { storico: storicoTraffico(delRif), propria: false, fonte: 'riferimento', riferimentoId: rif };
+  }
+  return { storico: storicoTraffico(mediaFraNegozi(await caricaTraffico(companyId, null))), propria: false, fonte: 'media', riferimentoId: null };
+}
+
+/** Ingressi medi per negozio, data e ora: la somma dei negozi aperti quel giorno diviso il loro numero. */
+export function mediaFraNegozi(righe: { data: string; ora: number; ingressi: number; outlet_id?: string }[]): { data: string; ora: number; ingressi: number }[] {
+  const somma = new Map<string, number>();
+  const negozi = new Map<string, Set<string>>();
+  for (const x of righe) {
+    const k = `${x.data}|${x.ora}`;
+    somma.set(k, (somma.get(k) ?? 0) + Math.max(0, x.ingressi));
+    if (!negozi.has(x.data)) negozi.set(x.data, new Set());
+    negozi.get(x.data)!.add(x.outlet_id ?? '');
+  }
+  return [...somma].map(([k, v]) => {
+    const [data, ora] = k.split('|');
+    return { data, ora: Number(ora), ingressi: v / Math.max(1, negozi.get(data)!.size) };
+  });
 }
 
 /**
@@ -143,14 +171,14 @@ export async function caricaStoricoNegozio(companyId: string, outletId: string):
  * null. Si legge a pagine: il server restituisce al massimo mille righe per
  * richiesta e un negozio ne ha una per ora aperta di ogni giorno.
  */
-export async function caricaTraffico(companyId: string, outletId: string | null): Promise<{ data: string; ora: number; ingressi: number }[]> {
-  const out: { data: string; ora: number; ingressi: number }[] = [];
+export async function caricaTraffico(companyId: string, outletId: string | null): Promise<{ data: string; ora: number; ingressi: number; outlet_id: string }[]> {
+  const out: { data: string; ora: number; ingressi: number; outlet_id: string }[] = [];
   for (let da = 0; ; da += 1000) {
-    let q = supabase.from('outlet_traffic_hourly').select('data, ora, ingressi').eq('company_id', companyId);
+    let q = supabase.from('outlet_traffic_hourly').select('data, ora, ingressi, outlet_id').eq('company_id', companyId);
     if (outletId) q = q.eq('outlet_id', outletId);
     const { data, error } = await q.order('data').order('ora').order('outlet_id').range(da, da + 999);
     if (error) throw error;
-    const righe = (data as { data: string; ora: number; ingressi: number }[]) ?? [];
+    const righe = (data as { data: string; ora: number; ingressi: number; outlet_id: string }[]) ?? [];
     out.push(...righe);
     if (righe.length < 1000) break;
   }

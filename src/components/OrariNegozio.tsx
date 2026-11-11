@@ -68,6 +68,9 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [fasce, setFasce] = useState<RigaFascia[]>([]);
   const [fasceIniziali, setFasceIniziali] = useState<string[]>([]);
   const [regole, setRegole] = useState<RegoleTurni>(REGOLE_DEFAULT);
+  // Negozio da cui prendere il traffico MODA se questo non ne ha (Patrizio, 11/11/2026). undefined = colonna assente (tenant senza la 391).
+  const [trafficoDa, setTrafficoDa] = useState<string | null | undefined>(undefined);
+  const [trafficoSalvato, setTrafficoSalvato] = useState<string | null | undefined>(undefined);
   const [speciali, setSpeciali] = useState<RigaSpeciale[]>([]);
   const [nuovoSpeciale, setNuovoSpeciale] = useState<RigaSpeciale>({ data: '', chiuso: true, apre: '', chiude: '', persone_extra: 0, nota: '' });
   const [suTutti, setSuTutti] = useState(false);
@@ -108,6 +111,16 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     const regoleLette = regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]);
     setRegole(regoleLette);
     setBase({ orari: JSON.stringify(orariLetti), fasce: improntaFasce(ff), regole: JSON.stringify(regoleLette) });
+    let letto: string | null | undefined;
+    if (r.data != null) {
+      letto = 'traffico_da_outlet_id' in (r.data as object) ? ((r.data as { traffico_da_outlet_id: string | null }).traffico_da_outlet_id ?? null) : undefined;
+    } else {
+      // Negozio senza regole salvate: si controlla se la colonna c'e' (sul tenant Made no, migration 391 assente).
+      const prova = await supabase.from('outlet_shift_rules').select('traffico_da_outlet_id').limit(1);
+      letto = prova.error ? undefined : null;
+    }
+    setTrafficoDa(letto);
+    setTrafficoSalvato(letto);
     setCaricamento(false);
   }, [outletId]);
 
@@ -134,9 +147,9 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     if (caricamento) return out;
     if (puoScrivere && JSON.stringify(orari) !== base.orari) out.push('orari');
     if (puoFabbisogno && improntaFasce(fasce) !== base.fasce) out.push('fasce');
-    if (puoScrivere && JSON.stringify(regole) !== base.regole) out.push('regole');
+    if (puoScrivere && (JSON.stringify(regole) !== base.regole || trafficoDa !== trafficoSalvato)) out.push('regole');
     return out;
-  }, [caricamento, puoScrivere, puoFabbisogno, orari, fasce, regole, base]);
+  }, [caricamento, puoScrivere, puoFabbisogno, orari, fasce, regole, base, trafficoDa, trafficoSalvato]);
 
   // Ognuna scrive la sua parte e torna il motivo se non ci riesce (null = salvata).
   const scriviOrari = async (): Promise<string | null> => {
@@ -200,10 +213,12 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       pausa_oltre_ore: regole.pausaOltreOre, pausa_minuti: regole.pausaMinuti,
       pausa_lunga_oltre_ore: regole.pausaLungaOltreOre, pausa_lunga_minuti: regole.pausaLungaMinuti, giorni_lavoro_max: regole.giorniLavoroMax,
       soglia_ingressi_feriali: regole.sogliaFeriali, soglia_ingressi_weekend: regole.sogliaWeekend, due_persone: regole.duePersone,
+      ...(trafficoDa !== undefined ? { traffico_da_outlet_id: trafficoDa } : {}),
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
     if (error) return error.message;
     setBase((b) => ({ ...b, regole: JSON.stringify(regole) }));
+    setTrafficoSalvato(trafficoDa);
     return null;
   };
 
@@ -531,6 +546,16 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                 onChange={(e) => setRegole((r) => ({ ...r, duePersone: e.target.checked }))} />
               <span>Sempre almeno due persone in negozio, salvo la prima ora di apertura e l&apos;ultima di chiusura. Se le ore non bastano, la seconda persona viene prima del traffico del weekend. Vale finché il fabbisogno per fascia non è salvato: dopo comandano le fasce.</span>
             </label>
+            {trafficoDa !== undefined && altriNegozi.length > 0 && (
+              <label className="col-span-2 sm:col-span-3 text-xs text-slate-600">Traffico MODA di riferimento (solo se questo negozio non ha traffico suo)<br />
+                <select disabled={!puoScrivere} className={`${inputCls} mt-1`} value={trafficoDa ?? ''}
+                  onChange={(e) => setTrafficoDa(e.target.value || null)}>
+                  <option value="">media degli altri negozi</option>
+                  {altriNegozi.map((n) => <option key={n.id} value={n.id}>{n.nome}</option>)}
+                </select>
+                <span className="block mt-1 text-slate-500">Per un negozio nuovo: il fabbisogno dei turni usa gli ingressi MODA del negozio scelto finché non arrivano quelli suoi.</span>
+              </label>
+            )}
           </div>
         </section>
       </div>

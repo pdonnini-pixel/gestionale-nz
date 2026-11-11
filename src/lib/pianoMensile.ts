@@ -779,6 +779,66 @@ export function spostaEAllunga(
  * Dal 29/10/2026 il piano del mese non la usa piu': con la soglia di ingressi
  * le ore che il traffico non chiede restano da assegnare, e le decide l'HR.
  */
+/**
+ * Nessun riposo il sabato e la domenica (Patrizio, 11/11/2026): nella variante
+ * «nessun sabato né domenica liberi» chi puo' lavorare quel giorno e non ha un
+ * turno ci porta uno dei suoi turni feriali della stessa settimana, con le stesse
+ * ore, messo dove mancano piu' persone. Il giorno feriale da cui parte non deve
+ * restare scoperto ne' con una persona sola; fra i turni possibili vince quello
+ * che lascia meno ore scoperte. I turni fissi non si toccano. Se nessun turno si
+ * puo' spostare, la persona resta senza turno quel giorno.
+ */
+export function weekendSenzaRiposi(
+  giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], regole: RegoleTurni = REGOLE_DEFAULT, fissi: Turno[] = [],
+): Turno[] {
+  let out = [...turni];
+  const tutti = () => [...out, ...fissi];
+  const perId = new Map(persone.map((p) => [p.id, p]));
+  for (const g of giorni) {
+    if (g.chiuso || giornoIso(g.data) < 6) continue;
+    for (const p of persone) {
+      if (p.ore <= 0 || p.nonDisponibile.has(g.data) || tutti().some((t) => t.employeeId === p.id && t.data === g.data)) continue;
+      const l = limitiPersona(perId.get(p.id), g);
+      let meglio: { lista: Turno[]; ore: number; sotto: boolean } | null = null;
+      for (const t of out.filter((x) => x.employeeId === p.id && giornoIso(x.data) < 6)) {
+        const da = giorni.find((x) => x.data === t.data);
+        if (!da) continue;
+        const senza = out.filter((x) => x !== t);
+        // il feriale da cui parte resta coperto e con almeno due persone, se le aveva
+        const copDa = coperturaLorda(da, [...senza, ...fissi]);
+        const personeDa = new Set([...senza, ...fissi].filter((x) => x.data === da.data).map((x) => x.employeeId)).size;
+        const personePrima = new Set(tutti().filter((x) => x.data === da.data).map((x) => x.employeeId)).size;
+        if (copDa.some((c) => c < 1) || (personePrima >= 2 && personeDa < 2)) continue;
+        // meglio uno spostamento che lascia il feriale sopra il minimo delle fasce; se non ce
+        // ne sono, vince comunque il weekend senza riposi (Patrizio, 11/11/2026)
+        const copPrima = coperturaLorda(da, tutti());
+        const sotto = copDa.some((c, k) => da.minimo != null && c < da.minimo[k] && copPrima[k] >= da.minimo[k]);
+        const lavoro = Math.min(oreLavorate(t) * 60, lavoroMassimoGiorno(l, regole));
+        if (lavoro < regole.turnoMinOre * 60 - 1e-9) continue;
+        const durata = lavoro + pausaPer(lavoro, regole);
+        const cop = coperturaLorda(g, tutti());
+        let inizio: { s: number; v: number } | null = null;
+        for (let s0 = l.apre; s0 + durata <= l.chiude; s0 += SLOT_MINUTI) {
+          let v = 0;
+          for (let k = 0; k < cop.length; k++) {
+            const m = g.apre + k * SLOT_MINUTI;
+            if (m >= s0 && m < s0 + durata) v += Math.max(0, g.fabbisogno[k] - cop[k]) ** 2;
+          }
+          if (!inizio || v > inizio.v) inizio = { s: s0, v };
+        }
+        if (!inizio) continue;
+        const pausa = pausaPer(lavoro, regole);
+        const nuovo: Turno = { employeeId: p.id, data: g.data, inizio: hhmm(inizio.s), fine: hhmm(inizio.s + lavoro + pausa), pausaMinuti: pausa };
+        const lista = [...senza, nuovo];
+        const ore = oreScoperte(giorni, [...lista, ...fissi]);
+        if (!meglio || (meglio.sotto && !sotto) || (meglio.sotto === sotto && ore < meglio.ore - 1e-9)) meglio = { lista, ore, sotto };
+      }
+      if (meglio) out = meglio.lista;
+    }
+  }
+  return out;
+}
+
 export function usaOreResidue(
   giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], atteso: Map<string, number[]>, regole: RegoleTurni = REGOLE_DEFAULT,
 ): Turno[] {
@@ -1056,24 +1116,11 @@ export interface EsitoPianoMese {
  * vincolo in più a volte lo porta su una distribuzione migliore).
  */
 export function pianificaMese(args: ArgsPianoMese): EsitoPianoMese {
-  const nessuno = pianificaMeseConRegola(args);
-  if (args.regola !== 'nessuno') return nessuno;
-  // Prima conta il negozio mai vuoto (regola 3), poi le ore scoperte.
-  const vuote = (e: EsitoPianoMese) => e.giorni.filter((g) => !g.chiuso && g.data.slice(0, 7) === args.mese)
-    .reduce((a, g) => a + copertura(g, e.turni).filter((c) => c < 1).length, 0);
-  const meglioDi = (e: EsitoPianoMese, m: EsitoPianoMese) => vuote(e) < vuote(m) || (vuote(e) === vuote(m) && e.oreScoperte < m.oreScoperte - 1e-9);
-  const scelto = (['solo_sabati', 'solo_domeniche', 'sabato_o_domenica'] as const)
-    .map((regola) => pianificaMeseConRegola({ ...args, regola }))
-    .reduce((meglio, e) => (meglioDi(e, meglio) ? e : meglio), nessuno);
-  if (scelto === nessuno) return nessuno;
-  // In questa variante non si danno sabati o domeniche liberi (Patrizio, 02/11/2026,
-  // Brugnato): i turni sono quelli della rotazione migliore, ma i giorni senza turno
-  // restano giorni normali, non «libero».
-  return {
-    ...scelto,
-    weekendLiberi: new Map(),
-    persone: Object.fromEntries(Object.entries(scelto.persone).map(([id, p]) => [id, { ...p, weekendLiberi: 0 }])),
-  };
+  // «Nessun sabato né domenica liberi» e' davvero senza riposi nel weekend
+  // (Patrizio, 11/11/2026, weekendSenzaRiposi): non si sceglie piu' la migliore
+  // fra le rotazioni (02/11/2026, Brugnato), che lasciava sabati e domeniche
+  // senza turno anche in questa variante.
+  return pianificaMeseConRegola(args);
 }
 
 export type ArgsPianoMese = Parameters<typeof pianificaMeseConRegola>[0];
@@ -1310,6 +1357,13 @@ function pianificaMeseConRegola(args: {
       const fissiRefSett = new Set(fissiSett);
       esito = [...ritoccaScoperture(gg, esito.filter((t) => !fissiRefSett.has(t)), fissiSett, candidati, regole), ...fissiSett];
       if (oreScoperte(base, esito) > 0) esito = copriOrarioMinimo(base, esito, perCopertura, riservaCopertura, regole);
+    }
+    // «Nessun sabato né domenica liberi» vuol dire che nel weekend lavorano tutti
+    // (Patrizio, 11/11/2026, Roma Soratte): chi resta senza turno il sabato o la
+    // domenica ci porta un suo turno feriale della stessa settimana.
+    if (args.regola === 'nessuno') {
+      const fissiRefSett = new Set(fissiSett);
+      esito = [...weekendSenzaRiposi(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole, fissiSett), ...fissiSett];
     }
     // Poi, se ammessi, gli straordinari di chi ha un contratto: prima la
     // riserva (ore normali), poi le ore in piu' dei titolari.

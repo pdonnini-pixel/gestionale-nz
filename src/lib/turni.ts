@@ -682,15 +682,28 @@ export function sfrondaOreInPiu(
 
 function migliorStrategia(args: ArgsProposta): EsitoProposta {
   const tutti = (e: EsitoProposta) => [...(args.fissi ?? []), ...e.turni];
-  let meglio: { e: EsitoProposta; ore: number } | null = null;
+  // A parita' di ore scoperte vince la strategia che distribuisce meglio quello che
+  // manca (somma dei quadrati): una persona sola tutta la domenica pesa piu' di
+  // mezza persona in meno su piu' giorni (Patrizio, 11/11/2026, Roma Soratte).
+  let meglio: { e: EsitoProposta; ore: number; q: number } | null = null;
   for (const ordine of ['pieni', 'buco'] as const) {
     for (const turni of ['pesati', 'uguali'] as const) {
       const e = proponiConStrategia(args, ordine, turni);
       const ore = oreScoperte(args.giorni, tutti(e));
-      if (!meglio || ore < meglio.ore - 1e-9) meglio = { e, ore };
+      const q = mancanzaQuadrata(args.giorni, tutti(e));
+      if (!meglio || ore < meglio.ore - 1e-9 || (Math.abs(ore - meglio.ore) <= 1e-9 && q < meglio.q - 1e-9)) meglio = { e, ore, q };
     }
   }
   return meglio!.e;
+}
+
+/** Persone mancanti al quadrato, mezz'ora per mezz'ora: piu' e' bassa, piu' la mancanza e' distribuita. */
+export function mancanzaQuadrata(giorni: GiornoPiano[], turni: Turno[]): number {
+  return giorni.reduce((s, g) => {
+    if (g.chiuso) return s;
+    const c = copertura(g, turni);
+    return s + g.fabbisogno.reduce((a, f, i) => a + Math.max(0, f - c[i]) ** 2, 0);
+  }, 0);
 }
 
 function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni: 'pesati' | 'uguali'): EsitoProposta {
@@ -762,6 +775,34 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
     ricalcola(g);
   };
 
+  // Dove parte il turno che copre la mezz'ora i (Patrizio, 11/11/2026, Roma Soratte):
+  // prima partiva dall'inizio del buco, e quando le ore non bastano il buco comincia
+  // sempre all'apertura, quindi tutti i turni partivano alle 10 (10-15, 10-15, 10-15)
+  // e il pomeriggio restava a una persona. Ora fra gli inizi che coprono la mezz'ora
+  // vince quello che copre piu' persone mancanti, contando di piu' dove ne mancano di
+  // piu' (la seconda persona del pomeriggio prima della quarta del mattino); a parita'
+  // il piu' presto.
+  const inizioNelBuco = (p: PersonaTurni, g: GiornoPiano, i: number, span: number): number => {
+    const c = cop.get(g.data)!;
+    const l = limitiPersona(p, g);
+    const t = g.apre + i * SLOT_MINUTI;
+    let meglio: { s: number; v: number } | null = null;
+    for (let s = Math.max(l.apre, t - span + SLOT_MINUTI); s <= t && s + span <= l.chiude; s += SLOT_MINUTI) {
+      let v = 0;
+      for (let k = 0; k < c.length; k++) {
+        const m = g.apre + k * SLOT_MINUTI;
+        const manca = g.fabbisogno[k] - c[k];
+        if (m >= s && m < s + span && manca > 0) v += manca * manca;
+      }
+      if (!meglio || v > meglio.v) meglio = { s, v };
+    }
+    if (meglio) return meglio.s;
+    // il turno non sta intorno alla mezz'ora (fascia della persona): come prima, dall'inizio del buco
+    let r0 = i;
+    while (r0 > 0 && g.fabbisogno[r0 - 1] - c[r0 - 1] > 0) r0--;
+    return g.apre + r0 * SLOT_MINUTI;
+  };
+
   // chi puo' lavorare quel giorno e, con i suoi accordi, anche in quella mezz'ora
   const scegli = (g: GiornoPiano, i: number) => persone
     .filter((p) => puoLavorare(p, g) && (() => { const l = limitiPersona(p, g); const t = g.apre + i * SLOT_MINUTI; return t >= l.apre && t < l.chiude; })())
@@ -772,7 +813,7 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
   // 1. I buchi, dal piu' grande
   const bloccati = new Set<string>();
   for (let giro = 0; giro < 1000; giro++) {
-    let best: { g: GiornoPiano; i: number; manca: number } | null = null;
+    let best: { g: GiornoPiano; i: number; manca: number; c: number } | null = null;
     for (const g of giorni) {
       if (g.chiuso) continue;
       const c = cop.get(g.data)!;
@@ -783,22 +824,20 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
         // Ordine «buco»: il buco piu' grande della settimana.
         const pg = ordine === 'pieni' ? g.fabbisogno.reduce((a, b) => a + b, 0) : 0;
         const pb = !best ? -1 : ordine === 'pieni' ? best.g.fabbisogno.reduce((a, b) => a + b, 0) : 0;
-        if (!best || pg > pb || (pg === pb && manca > best.manca)) best = { g, i, manca };
+        // a parita' di persone mancanti, prima dove ce ne sono di meno (11/11/2026):
+        // la prima persona della domenica prima della seconda del martedi'
+        if (!best || pg > pb || (pg === pb && (manca > best.manca || (manca === best.manca && c[i] < best.c)))) best = { g, i, manca, c: c[i] };
       }
     }
     if (!best) break;
     const p = scegli(best.g, best.i);
     if (!p) { bloccati.add(`${best.g.data}|${best.i}`); continue; }
-    const c = cop.get(best.g.data)!;
-    let r0 = best.i;
-    while (r0 > 0 && best.g.fabbisogno[r0 - 1] - c[r0 - 1] > 0) r0--;
     // Il turno ha la lunghezza giusta per le ore di contratto della persona
     // (accorciarlo sul buco lascerebbe ore pagate e non usate, perche' i
-    // giorni di lavoro finiscono prima delle ore) e parte dall'inizio del buco;
-    // se il buco e' a fine giornata, finisce alla chiusura.
+    // giorni di lavoro finiscono prima delle ore) e copre la mezz'ora del buco.
     const { lavoro, pausa } = durata(p, best.g);
     if (lavoro < regole.turnoMinOre * 60 - 1e-9) { bloccati.add(`${best.g.data}|${best.i}`); continue; }
-    assegna(p, best.g, best.g.apre + r0 * SLOT_MINUTI, lavoro, pausa);
+    assegna(p, best.g, inizioNelBuco(p, best.g, best.i, lavoro + pausa), lavoro, pausa);
   }
 
   // 2. Le ore di contratto rimaste: nei giorni e nelle fasce dove serve di piu'
