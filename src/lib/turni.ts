@@ -73,6 +73,31 @@ export function pausaMinimaPerPresenza(presenzaMinuti: number, regole: RegoleTur
   return regole.pausaLungaMinuti;
 }
 
+/**
+ * L'orario scritto a mano diventato coerente con la regola della pausa (Patrizio,
+ * 11/11/2026): la pausa dipende dalle ore di LAVORO (30' da 6 ore, un'ora da 8) e
+ * la presenza e' lavoro piu' pausa. 6 ore di lavoro = 6 ore e mezza di presenza,
+ * 7 e mezza = 8, 8 = 9, 9 = 10. Una presenza che cade fra due di questi casi
+ * (6 ore, 8 e mezza) non si riduce di lavoro: il turno si allunga fino alla
+ * presenza giusta (12-18 diventa 12-18:30), alla fine se il negozio e' ancora
+ * aperto, altrimenti anticipando l'inizio. Se non c'e' posto resta com'e', con
+ * la pausa minima per quella presenza.
+ */
+export function presenzaGiusta(inizioMin: number, fineMin: number, regole: RegoleTurni = REGOLE_DEFAULT, apre = 0, chiude = 24 * 60): { inizio: number; fine: number; pausa: number; lavoro: number; allungato: boolean } {
+  const presenza = fineMin - inizioMin;
+  if (presenza <= 0) return { inizio: inizioMin, fine: fineMin, pausa: 0, lavoro: 0, allungato: false };
+  // il lavoro piu' corto (a quarti d'ora) che con la sua pausa arriva almeno alla presenza scritta
+  let lavoro = 0;
+  while (lavoro + pausaPer(lavoro, regole) < presenza) lavoro += 15;
+  const pausa = pausaPer(lavoro, regole);
+  const giusta = lavoro + pausa;
+  if (giusta === presenza) return { inizio: inizioMin, fine: fineMin, pausa, lavoro, allungato: false };
+  if (inizioMin + giusta <= chiude) return { inizio: inizioMin, fine: inizioMin + giusta, pausa, lavoro, allungato: true };
+  if (fineMin - giusta >= apre) return { inizio: fineMin - giusta, fine: fineMin, pausa, lavoro, allungato: true };
+  const minima = pausaMinimaPerPresenza(presenza, regole);
+  return { inizio: inizioMin, fine: fineMin, pausa: minima, lavoro: presenza - minima, allungato: false };
+}
+
 /** Pausa (minuti) per un turno di `lavoroMinuti` lavorati: 30 da 6 ore, 60 da 8 (vedi `pausaMinimaPerPresenza`). */
 export function pausaPer(lavoroMinuti: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
   if (lavoroMinuti >= regole.pausaLungaOltreOre * 60) return regole.pausaLungaMinuti;

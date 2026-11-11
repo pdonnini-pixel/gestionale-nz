@@ -9,7 +9,7 @@ import { Modal } from './ui/Modal';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import { formattaDataBreve } from '../lib/organico';
-import { NOMI_GIORNO_BREVI, minuti, oreLavorate, pausaMinimaPerPresenza, pausaPer, type RegoleTurni } from '../lib/turni';
+import { NOMI_GIORNO_BREVI, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, pausaPer, presenzaGiusta, type RegoleTurni } from '../lib/turni';
 import { oreGiornata } from '../lib/pianoMensile';
 import { oreTrasferta, type Trasferta } from '../lib/trasferte';
 import { mossePossibili, type MossaTurno } from '../lib/spostaTurni';
@@ -79,6 +79,20 @@ export default function EditorTurno({
   const [inizio, setInizio] = useState(turno?.inizio ?? hh(apre));
   const [fine, setFine] = useState(turno?.fine ?? hh(Math.min(chiude, apre + regole.turnoMaxOre * 60 + pausaPer(regole.turnoMaxOre * 60, regole))));
   const [pausa, setPausa] = useState(turno?.pausa_minuti ?? 0);
+  const [allungato, setAllungato] = useState<string | null>(null);
+  // La pausa si scrive da sola mentre si compila l'orario, e all'uscita dal campo
+  // il turno si allunga alla presenza giusta (Patrizio, 11/11/2026: 6 ore di lavoro
+  // = 6 ore e mezza di presenza, 8 = 9). Una pausa piu' lunga scritta a mano resta.
+  const scriviOrario = (i: string, f: string, allunga: boolean) => {
+    setInizio(i); setFine(f);
+    if (!i || !f || f <= i) return;
+    const g = presenzaGiusta(minuti(i), minuti(f), regole, apre, chiude);
+    setPausa(g.pausa);
+    if (allunga && g.allungato) {
+      setInizio(hhmm(g.inizio)); setFine(hhmm(g.fine));
+      setAllungato(`Con ${fmt(g.lavoro / 60)} ore di lavoro la pausa è di ${g.pausa} minuti: il turno diventa ${hhmm(g.inizio)}-${hhmm(g.fine)}.`);
+    } else if (!g.allungato) setAllungato(null);
+  };
   // Straordinario a ore: allungando un turno di un'ora, straordinario e' solo
   // quell'ora (Patrizio, 21/10/2026). Si propone la differenza rispetto alle ore
   // ordinarie che il turno aveva; si puo' correggere a mano.
@@ -284,8 +298,8 @@ export default function EditorTurno({
     <Modal open onClose={onClose} title={`${nome} · ${NOMI_GIORNO_BREVI[giornoSett]} ${formattaDataBreve(data)}`}>
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-3">
-          <label className="text-xs font-semibold text-slate-600">Inizio<input type="time" step={1800} value={inizio} onChange={(e) => setInizio(e.target.value)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
-          <label className="text-xs font-semibold text-slate-600">Fine<input type="time" step={1800} value={fine} onChange={(e) => setFine(e.target.value)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
+          <label className="text-xs font-semibold text-slate-600">Inizio<input type="time" step={1800} value={inizio} onChange={(e) => scriviOrario(e.target.value, fine, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
+          <label className="text-xs font-semibold text-slate-600">Fine<input type="time" step={1800} value={fine} onChange={(e) => scriviOrario(inizio, e.target.value, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
           <label className="text-xs font-semibold text-slate-600">Pausa (min)<input type="number" min={0} max={180} step={15} value={pausa} onChange={(e) => setPausa(Number(e.target.value) || 0)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
         </div>
         <p className="text-sm text-slate-600">
@@ -293,6 +307,9 @@ export default function EditorTurno({
           {' '}Il turno diventa «messo a mano»: il ricalcolo non lo cambia.
           {!turno && !ferie?.giaInFerie && !trasferta?.esistente && ' Oggi la persona è a riposo: scrivi l’orario e salva per darle un turno.'}
         </p>
+        {allungato && !errore && (
+          <p className="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">{allungato}</p>
+        )}
         {pausa < pausaMinima && !errore && (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
             La regola vuole almeno {pausaMinima} minuti di pausa (30 da 6 ore di lavoro, un'ora da 8): li conto io, la pausa scritta non basta.
