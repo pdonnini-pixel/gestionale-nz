@@ -187,21 +187,29 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
   const normVat = (v: unknown): string =>
     String(v ?? '').replace(/[^0-9A-Za-z]/g, '').replace(/^IT/i, '').toLowerCase();
 
+  // Nome ridotto alle sue parole, in ordine alfabetico, per il confronto.
+  const normNome = (v: unknown): string =>
+    String(v ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean).sort().join(' ');
+
   const applyExtracted = (ext: ExtractedScadenza) => {
     const filled: string[] = [];
-    // 1) Fornitore: match per P.IVA sull'anagrafica (regola aggancio per P.IVA).
+    // 1) Fornitore: match per P.IVA o codice fiscale sull'anagrafica (regola
+    // aggancio per P.IVA). Il documento di una persona fisica o di una ditta
+    // individuale porta spesso il solo codice fiscale.
     let matchedSupplier: SupplierLite | undefined;
     if (ext.supplierVat) {
       const target = normVat(ext.supplierVat);
+      const campi = ['partita_iva', 'vat_number', 'codice_fiscale', 'fiscal_code'];
       matchedSupplier = suppliers.find(s =>
-        normVat((s as { partita_iva?: unknown }).partita_iva) === target ||
-        normVat((s as { vat_number?: unknown }).vat_number) === target,
+        campi.some(c => { const v = normVat((s as Record<string, unknown>)[c]); return v !== '' && v === target; }),
       );
     }
-    // Fallback: match per nome esatto (case-insensitive) se manca la P.IVA.
+    // Ripiego: stesso nome, senza badare a maiuscole, punteggiatura e ordine
+    // delle parole («ZANAZZI GIULIO» = «Giulio Zanazzi»).
     if (!matchedSupplier && ext.supplierName) {
-      const nm = ext.supplierName.trim().toLowerCase();
-      matchedSupplier = suppliers.find(s => `${s.ragione_sociale || s.name || ''}`.trim().toLowerCase() === nm);
+      const nm = normNome(ext.supplierName);
+      if (nm) matchedSupplier = suppliers.find(s => normNome(s.ragione_sociale) === nm || normNome(s.name) === nm);
     }
 
     // 2) Scadenze dal documento (se presenti e quadrano con l'importo).

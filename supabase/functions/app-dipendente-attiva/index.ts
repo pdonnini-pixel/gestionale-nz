@@ -9,7 +9,9 @@
 //   3. genera un link di accesso (generateLink, nessuna mail): il token_hash
 //      il telefono lo scambia con una sessione (verifyOtp);
 //   4. solo allora consuma il codice: il segreto del QR cambia, il telefono di
-//      prima smette di funzionare.
+//      prima smette di funzionare. Il codice per i revisori degli store
+//      (migration 396, solo dipendente di prova) non si consuma e non cambia
+//      il segreto: piu' telefoni restano attivi insieme.
 //
 // Sicurezza: chiamata pubblica (chiave anon), protetta dal codice monouso e
 // dal limite ai tentativi (app_attivazione_bloccata, migration 349).
@@ -54,18 +56,31 @@ Deno.serve(async (req: Request) => {
     const segnaErrore = () => admin.from("employee_app_activation_attempts").insert({ esito: "errato" });
 
     // 1. Il codice esiste ed e' valido?
-    const { data: acc, error: accErr } = await admin.from("employee_app_access")
+    //    Prima il codice normale, poi quello per i revisori degli store
+    //    (migration 396: riusabile, solo per il dipendente di prova).
+    const normale = await admin.from("employee_app_access")
       .select("employee_id, company_id, codice_scade").eq("codice", codice).maybeSingle();
-    if (accErr) throw accErr;
+    if (normale.error) throw normale.error;
+    let acc = normale.data;
+    let revisione = false;
+    if (!acc) {
+      const { data: rev, error: revErr } = await admin.from("employee_app_access")
+        .select("employee_id, company_id, codice_revisione_scade").eq("codice_revisione", codice).maybeSingle();
+      // Colonna assente (tenant senza la 396): si resta al codice normale
+      if (!revErr && rev) {
+        acc = { employee_id: rev.employee_id, company_id: rev.company_id, codice_scade: rev.codice_revisione_scade };
+        revisione = true;
+      }
+    }
     if (!acc || !acc.codice_scade || new Date(acc.codice_scade) <= new Date()) {
       await segnaErrore();
       return jsonError(400, "Codice non valido o scaduto. Chiedi un codice nuovo a chi segue il personale.", "CODE_NOT_FOUND");
     }
 
     const { data: emp, error: empErr } = await admin.from("employees")
-      .select("id, company_id, user_id, nome, cognome, first_name, last_name, is_active").eq("id", acc.employee_id).maybeSingle();
+      .select("id, company_id, user_id, nome, cognome, first_name, last_name, is_active, is_demo").eq("id", acc.employee_id).maybeSingle();
     if (empErr) throw empErr;
-    if (!emp || emp.is_active === false) {
+    if (!emp || emp.is_active === false || (revisione && emp.is_demo !== true)) {
       await segnaErrore();
       return jsonError(400, "Codice non valido o scaduto. Chiedi un codice nuovo a chi segue il personale.", "CODE_NOT_FOUND");
     }

@@ -61,3 +61,10 @@ Logo creato per l'app su richiesta di Patrizio, nello stile dei negozi (scritta 
 ## versione 1.3 (10/11/2026)
 - **Android** `versionCode 7`, `versionName 1.3`; **iPhone** build 6, versione 1.3.
 - Dentro: alla registrazione delle notifiche l'app manda l'impronta del suo segreto (`p_impronta`, migration 388). Il server accende le notifiche solo sul telefono attivo, anche quando lo stesso telefono si riattiva con un codice nuovo e l'app si riapre dopo più di 15 minuti (con la 1.2 in quel caso restavano spente).
+
+## codice per i revisori degli store (migration 396, 11/11/2026)
+- `employee_app_access.codice_revisione` e `codice_revisione_scade`: vale solo per un dipendente `is_demo`, non si consuma, non cambia il segreto e non spegne le notifiche, così più telefoni dei revisori restano attivi insieme. Lo cercano `app-dipendente-attiva` (Edge Function, NZ e Zago, versione 3) e `app_dipendente_consuma_codice`.
+- Scritto l'11/11/2026 sul demo di NZ, scade il 10/01/2027. Il valore non sta nel repository. Per rigenerarlo: `UPDATE employee_app_access SET codice_revisione = timbrature_nuovo_codice(), codice_revisione_scade = now() + interval '60 days' WHERE employee_id = <id del demo> ` (solo se `employees.is_demo`).
+- Attenzione: un codice normale generato per il demo dal gestionale cambia il segreto e spegne il QR sui telefoni dei revisori. Durante la revisione non generarne.
+- Prova dell'11/11: due attivazioni di seguito con lo stesso codice danno lo stesso segreto; un codice inventato non attiva niente.
+
