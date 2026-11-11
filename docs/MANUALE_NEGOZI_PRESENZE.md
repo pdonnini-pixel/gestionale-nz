@@ -36,12 +36,12 @@ Per chi è in pausa il telefono propone **Rientro dalla pausa** ed **Esco**. Sar
 La pausa del turno (scritta nel gestionale, qui un'ora) si può fare anche in più volte: per esempio 15 minuti a metà mattina e 45 a pranzo. Finché ne resta, il telefono propone ancora «Vado in pausa» e scrive quanti minuti restano; finita la pausa del turno non la propone più. Se al rientro le pause della giornata superano quella del turno di più dei 10 minuti di tolleranza, il responsabile trova il caso «Pausa più lunga» e decide se scalare i minuti in più come permesso.
 La pausa si timbra sempre, all'uscita e al rientro. Chi per errore esce con «Esco» e poi rientra con «Entra» non sbaglia: conta l'ultima uscita della giornata, e l'uscita di prima si chiude da sola.
 
-### 17:00 · Giulia esce prima per una visita
+### 17:00 · Giulia esce prima per un impegno personale
 Il turno di Giulia finisce alle 19:00. Quando tocca **Esco**, il telefono le chiede il motivo prima di salvare:
 - **Motivo personale (permesso)**: se il responsabile conferma, i minuti (qui 2 ore) si scalano dal saldo dei permessi;
-- **Sto male**: è un permesso come il motivo personale. Diventa malattia solo con il certificato medico: chi esce perché sta male va dal medico appena uscito, si fa fare il certificato e lo porta al responsabile;
 - **D'accordo con il responsabile**: il responsabile decide caso per caso se scalare il permesso.
-Giulia sceglie «Motivo personale» e tocca **Conferma l'uscita**. Il motivo scritto non si chiede sul telefono del negozio, che è di tutti: Giulia aggiunge «Visita medica» dall'app, nel riquadro dell'uscita.
+Giulia sceglie «Motivo personale» e tocca **Conferma l'uscita**. Il motivo scritto non si chiede sul telefono del negozio, che è di tutti: se vuole, Giulia aggiunge una riga dall'app, nel riquadro dell'uscita.
+**Chi esce perché sta male** sceglie «Motivo personale» o «D'accordo con il responsabile» e poi segue la procedura aziendale per la malattia, con il certificato. Nei campi liberi dell'app non si scrivono diagnosi, sintomi, certificati o altre informazioni sulla salute o sulla famiglia: l'app lo ricorda sotto ogni campo.
 
 ### 19:05 · Luca segna l'entrata dimenticata ed esce
 Luca avvicina il QR per uscire. Il telefono non trova la sua entrata e glielo dice: «Non risulta la tua entrata di oggi. Se eri già in negozio, scegli l'ora a cui sei entrato: la conferma il responsabile». L'ora si sceglie fra l'inizio del turno meno un'ora e adesso; la prima proposta è l'inizio del turno.
@@ -58,7 +58,6 @@ Il telefono torna in attesa e l'elenco «Adesso in negozio» è vuoto: tutti son
 ### il giorno dopo · Sara conferma i casi
 Sara è anche la responsabile del negozio: entra nel gestionale con il suo account (profilo «Responsabile») e trova la pagina **Presenze e ferie**.
 - **Da confermare**: lo straordinario di Marco (40 minuti), l'entrata segnata da Luca («Entrata dichiarata», segnata alle 19:05 dal telefono del negozio, in orario), l'uscita e il ritardo di Giulia, con turno, timbratura, proposta e motivo. **Conferma** chiude il caso: il permesso si scala da solo. **Altro** apre la decisione: si possono ridurre i minuti, scegliere il motivo o non confermare con una nota che la persona legge nell'app.
-- **Sto male**: con **Conferma** è un permesso. Se la persona porta il certificato medico, con **Altro** Sara sceglie «ha il certificato medico: è malattia» e il permesso non si scala.
 - **Entrata dichiarata**: confermata, vale come entrata. Se l'ora segnata fosse oltre la tolleranza (per esempio 10:25), alla conferma nascerebbe anche il ritardo, da confermare come gli altri. Con «Altro» Sara può correggere l'ora oppure non confermarla: in quel caso l'entrata non vale, la giornata resta senza entrata e se ne occupa chi segue il personale.
 - **Ferie e permessi**: la richiesta di ferie che Luca ha mandato dall'app, con le ore che gli restano. **Approva** o **Respingi** con il motivo.
 - I casi e le ferie di Sara li decide un altro responsabile o un amministratore.

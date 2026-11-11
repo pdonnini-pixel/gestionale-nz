@@ -1,6 +1,6 @@
 // Presenze → conferma dei casi (migration 373, entrata dichiarata 382): tipi e
 // conti puri, senza rete, per l'elenco «Da confermare» e il riepilogo del mese.
-import { CAUSALI_STRAORDINARIO, CAUSALI_USCITA } from './timbrature'
+import { CAUSALE_STORICA_MALATTIA, CAUSALI_STRAORDINARIO, CAUSALI_USCITA } from './timbrature'
 
 export type TipoEvento = 'ritardo' | 'uscita_anticipata' | 'straordinario' | 'entrata_dichiarata' | 'pausa_lunga'
 export type StatoEvento = 'da_confermare' | 'confermato' | 'respinto'
@@ -37,7 +37,7 @@ export interface EventoPresenze {
   canale?: 'negozio' | 'app' | null
 }
 
-export const ETICHETTA_CAUSALE: Record<string, string> = { ...CAUSALI_USCITA, ...CAUSALI_STRAORDINARIO }
+export const ETICHETTA_CAUSALE: Record<string, string> = { ...CAUSALI_USCITA, ...CAUSALI_STRAORDINARIO, malattia: CAUSALE_STORICA_MALATTIA }
 
 export const ETICHETTA_ESITO_EVENTO: Record<string, string> = {
   permesso: 'permesso creato',
@@ -49,7 +49,7 @@ export const ETICHETTA_ESITO_EVENTO: Record<string, string> = {
   entrata_non_confermata: 'entrata non confermata',
 }
 
-/** Come si mostra il caso nell'elenco: etichetta del tipo («sto male» ha la sua). */
+/** Come si mostra il caso nell'elenco: etichetta del tipo (i vecchi «sto male», prima della 402, hanno la loro). */
 export function etichettaTipo(e: Pick<EventoPresenze, 'tipo' | 'causale'>): string {
   if (e.tipo === 'ritardo') return 'Ritardo'
   if (e.tipo === 'straordinario') return 'Straordinario'
