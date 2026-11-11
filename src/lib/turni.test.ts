@@ -3,7 +3,7 @@ import {
   rispettaFasce,
   riassuntoOrari,
   REGOLE_DEFAULT, ritoccaScoperture, costruisciGiorni, proponiSettimana, giorniDellaSettimana, lunediDi, giornoIso, oreLavorate, pausaPer, pausaMinimaPerPresenza,
-  scopertureDelGiorno, oreDaCoprire, minuti, collocaPause, copertura, oreScoperte, oreSottoModa, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
+  scopertureDelGiorno, oreDaCoprire, minuti, copertura, oreScoperte, oreSottoModa, eventiDelNegozio, type EventoNegozio, type OrarioGiornoTipo, type FasciaFabbisogno, type PersonaTurni, type Turno,
 } from './turni';
 
 const LUN = '2026-10-19';
@@ -184,71 +184,29 @@ describe('pausaPer', () => {
   });
 });
 
-describe('pause: chi e\' in pausa non e\' in negozio', () => {
+describe('la pausa ha solo la durata, non un orario (Patrizio, 11/11/2026)', () => {
   const LUN = '2026-10-19';
   const giorno = (persone: number) => costruisciGiorni([LUN], [{ giorno: 1, chiuso: false, apre: '10:00', chiude: '20:00' }], [{ giorno: 1, dalle: '10:00', alle: '20:00', persone }], [])[0];
 
-  it('una persona sola: la pausa lascia il negozio scoperto, e lo si dice', () => {
-    const t = [{ employeeId: 'a', data: LUN, inizio: '10:00', fine: '19:00', pausaMinuti: 60 }];
-    const [p] = collocaPause(giorno(1), t);
-    // almeno due ore di lavoro prima e due dopo
-    expect(minuti(p.dalle)).toBeGreaterThanOrEqual(minuti('12:00'));
-    expect(minuti(p.alle)).toBeLessThanOrEqual(minuti('17:00'));
-    const s = scopertureDelGiorno(giorno(1), t);
-    expect(s.some((x) => x.dalle === p.dalle && x.alle === p.alle)).toBe(true);
+  it('chi ha il turno conta in negozio per tutto il turno: la pausa non scopre nessuna fascia', () => {
+    const t = [{ employeeId: 'a', data: LUN, inizio: '10:00', fine: '20:00', pausaMinuti: 60 }];
+    expect(copertura(giorno(1), t).every((c) => c === 1)).toBe(true);
+    expect(scopertureDelGiorno(giorno(1), t)).toEqual([]);
   });
 
-  it('due persone che si sovrappongono: le pause cadono dove c\'e\' l\'altra', () => {
-    const t = [
-      { employeeId: 'a', data: LUN, inizio: '10:00', fine: '16:30', pausaMinuti: 30 },
-      { employeeId: 'b', data: LUN, inizio: '13:30', fine: '20:00', pausaMinuti: 30 },
-    ];
-    const g = giorno(1);
-    const cop = copertura(g, t);
-    expect(cop.every((c) => c >= 1)).toBe(true);
-    expect(scopertureDelGiorno(g, t)).toEqual([]);
-    const pause = collocaPause(g, t);
-    expect(pause).toHaveLength(2);
-    expect(pause[0].dalle).not.toBe(pause[1].dalle);
+  it('la pausa conta solo nelle ore: 9 ore fra entrata e uscita sono 8 di lavoro', () => {
+    expect(oreLavorate({ inizio: '10:00', fine: '19:00', pausaMinuti: 60 })).toBe(8);
+    expect(oreLavorate({ inizio: '10:00', fine: '16:30', pausaMinuti: 30 })).toBe(6);
   });
 
-  it('con il fabbisogno esatto la pausa va dove il traffico è più basso e mezza persona vale mezza', () => {
-    const g = { ...giorno(2), esatto: Array.from({ length: 20 }, (_, i) => (i === 8 || i === 9 ? 1.4 : 2)) }; // 14-15 piu' vuota
-    const t = [{ employeeId: 'a', data: LUN, inizio: '10:00', fine: '20:00', pausaMinuti: 60 }, { employeeId: 'b', data: LUN, inizio: '10:00', fine: '20:00', pausaMinuti: 0 }];
-    expect(collocaPause(g, t)[0].dalle).toBe('14:00');
-    expect(oreSottoModa([g], t)).toBeCloseTo(0.4); // 0,4 persone per un'ora
-    expect(oreScoperte([g], t)).toBe(1); // contando persone intere sarebbe un'ora
+  it('ore sotto MODA senza pause: mezza persona vale mezza', () => {
+    const g = { ...giorno(2), esatto: Array.from({ length: 20 }, (_, i) => (i === 8 || i === 9 ? 2.4 : 2)) }; // 14-15 chiede 2,4 persone
+    const t = [{ employeeId: 'a', data: LUN, inizio: '10:00', fine: '20:00', pausaMinuti: 60 }, { employeeId: 'b', data: LUN, inizio: '10:00', fine: '20:00', pausaMinuti: 60 }];
+    expect(oreSottoModa([g], t)).toBeCloseTo(0.4); // 0,4 persone per un'ora, le pause non tolgono niente
+    expect(oreScoperte([g], t)).toBe(0);
   });
 
-  it('pausa pranzo fra le 13 e le 15 per chi lavora a cavallo; chi entra dopo la fa dopo due ore', () => {
-    const g = giorno(1);
-    const t = [
-      { employeeId: 'a', data: LUN, inizio: '10:00', fine: '18:00', pausaMinuti: 30 },
-      { employeeId: 'b', data: LUN, inizio: '10:00', fine: '19:00', pausaMinuti: 60 },
-      { employeeId: 'c', data: LUN, inizio: '14:00', fine: '20:00', pausaMinuti: 30 },
-    ];
-    const pause = new Map(collocaPause(g, t).map((p) => [p.employeeId, p]));
-    for (const id of ['a', 'b']) {
-      expect(minuti(pause.get(id)!.dalle)).toBeGreaterThanOrEqual(minuti('13:00'));
-      expect(minuti(pause.get(id)!.alle)).toBeLessThanOrEqual(minuti('15:00'));
-    }
-    expect(minuti(pause.get('c')!.dalle)).toBeGreaterThanOrEqual(minuti('16:00'));
-  });
-
-  it('giorno pieno: turni da 7 ore e mezza, pause da mezz\'ora tutte nella fascia del pranzo', () => {
-    const dom = '2026-11-01';
-    const fasce = [['10:00', '11:00', 1], ['11:00', '13:00', 4], ['13:00', '15:00', 3], ['15:00', '18:00', 4], ['18:00', '19:00', 2], ['19:00', '20:00', 1]]
-      .map(([dalle, alle, persone]) => ({ giorno: 7, dalle: String(dalle), alle: String(alle), persone: Number(persone) }));
-    const g = costruisciGiorni([dom], [{ giorno: 7, chiuso: false, apre: '10:00', chiude: '20:00' }], fasce, [])[0];
-    const esito = proponiSettimana({ giorni: [g], persone: ['a', 'b', 'c', 'd'].map((id) => persona(id, 36)) });
-    expect(esito.turni.filter((t) => oreLavorate(t) <= 7.5).length).toBeGreaterThanOrEqual(3);
-    for (const p of collocaPause(g, esito.turni)) {
-      expect(minuti(p.dalle)).toBeGreaterThanOrEqual(minuti('13:00'));
-      expect(minuti(p.alle)).toBeLessThanOrEqual(minuti('15:00'));
-    }
-  });
-
-  it('la proposta tiene conto delle pause: con 2 persone sempre servono pause sfalsate', () => {
+  it('con 2 persone sempre la proposta copre tutto il giorno', () => {
     const date = giorniDellaSettimana('2026-10-19');
     const g7 = costruisciGiorni(date, [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' })),
       [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 })), []);
@@ -364,21 +322,10 @@ describe('straordinari degli eventi a chi ne ha fatti meno (Patrizio, 02/11/2026
       { employeeId: 'c', data: '2026-11-27', inizio: '10:00', fine: '14:00', pausaMinuti: 0 },
     ];
     const out = ritoccaScoperture(giorni, proposti, [], persone, REGOLE_DEFAULT, new Set(['2026-11-27']));
-    const oltre = persone.map((p) => out.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0) - p.ore);
-    expect(Math.max(...oltre) - Math.min(...oltre)).toBeLessThanOrEqual(1);
-  });
-});
-
-describe('meglio una pausa prima o dopo che il negozio vuoto (Patrizio, 02/11/2026)', () => {
-  it('Barberino domenica 15/11: Clementi 12-20 va in pausa mentre c\'è ancora Pampaloni', () => {
-    const giorno = costruisciGiorni(['2026-11-15'], [{ giorno: 7, chiuso: false, apre: '10:00', chiude: '20:00' }], [{ giorno: 7, dalle: '10:00', alle: '20:00', persone: 1 }], [])[0];
-    const turni: Turno[] = [
-      { employeeId: 'Pampaloni', data: '2026-11-15', inizio: '10:00', fine: '14:00', pausaMinuti: 0 },
-      { employeeId: 'Clementi', data: '2026-11-15', inizio: '12:00', fine: '20:00', pausaMinuti: 30 },
-    ];
-    // con la regola delle due ore la pausa cadrebbe alle 14, quando Pampaloni e' gia' uscita
-    expect(copertura(giorno, turni).every((c) => c >= 1)).toBe(true);
-    const [p] = collocaPause(giorno, turni);
-    expect(minuti(p.alle)).toBeLessThanOrEqual(14 * 60);
+    // Le due colleghe allungano in parti uguali. Dall'11/11/2026 la pausa non toglie
+    // nessuno dal negozio: senza buchi da pausa non serve un turno nuovo a chi era libera.
+    const oltre = ['b', 'c'].map((id) => out.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0) - 4);
+    expect(Math.abs(oltre[0] - oltre[1])).toBeLessThanOrEqual(1);
+    expect(oreScoperte(giorni, out)).toBe(0);
   });
 });
