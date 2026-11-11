@@ -1060,4 +1060,7 @@ dei colleghi dello stesso livello, gennaio-maggio 2026; da confermare con lo stu
 
 Ancora da fare: lo straordinario scritto anche quando si salva il **piano del mese**
 (`PianiMensili`), la stampa del mese intero dal gestionale, il blocco di ferie e permessi nei giorni
-forti con l'eccezione accordata dal responsabile, la pausa pagata letta dalle timbrature.
+forti con l'eccezione accordata dal responsabile.
+
+La pausa pagata nelle timbrature è fatta con la migration 401 (colonna `shifts.pausa_pagata_minuti`
+calcolata da un trigger, ore timbrate che non la tolgono): vedi `TIMBRATURE_NOTES.md`.

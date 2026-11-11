@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHmac } from 'node:crypto'
 import {
-  azioni, codiceQr, minutiPausaFatti, pausaResidua, entrataMancante, impronta, oreEntrataDichiarabili, firma, leggiCodice, oraRomaInMs, passoDa, riepilogoGiorno, secondiAlCambio, statoDa,
+  azioni, codiceQr, minutiPausaFatti, pausaConcessa, pausaResidua, entrataMancante, impronta, oreEntrataDichiarabili, firma, leggiCodice, oraRomaInMs, passoDa, riepilogoGiorno, secondiAlCambio, statoDa,
 } from './timbrature'
 
 const SEGRETO = '00112233445566778899aabbccddeeff00112233'
@@ -169,5 +169,66 @@ describe('impronta del segreto (migration 387)', () => {
     const seg = '9f3c1a7e5b2d4f6a8c0e1b3d5f7a9c2e4b6d8f0a'
     const { createHash } = await import('node:crypto')
     expect(await impronta(seg)).toBe(createHash('sha256').update(seg, 'utf8').digest('hex').slice(0, 16))
+  })
+})
+
+// Patrizio, 11/11/2026 (migration 401): nei negozi con la pausa corta pagata il turno oltre 6 e
+// fino a 8 ore ha dieci minuti che si timbrano ma non si tolgono dalle ore.
+describe('pausa pagata: si timbra ma non si toglie dalle ore', () => {
+  const turno = { data: '2026-11-16', inizio: '10:00', fine: '18:00', pausa_minuti: 0, pausa_pagata_minuti: 10 }
+  const ore = (hhmm: string) => oraRomaInMs('2026-11-16', hhmm)
+  const iso = (hhmm: string) => new Date(ore(hhmm)).toISOString()
+  const giornata = (rientro: string) => [
+    { tipo: 'entrata' as const, ora: iso('10:00') },
+    { tipo: 'inizio_pausa' as const, ora: iso('13:00') },
+    { tipo: 'fine_pausa' as const, ora: iso(rientro) },
+    { tipo: 'uscita' as const, ora: iso('18:00') },
+  ]
+
+  it('pausa di 8 minuti: si vede, e il turno vale 8 ore', () => {
+    const r = riepilogoGiorno(giornata('13:08'), turno, ore('20:00'))
+    expect(r.minutiPausa).toBe(8)
+    expect(r.minutiPausaPagata).toBe(8)
+    expect(r.minutiLavorati).toBe(8 * 60)
+  })
+  it('pausa di 10 minuti: 8 ore piene', () => {
+    const r = riepilogoGiorno(giornata('13:10'), turno, ore('20:00'))
+    expect(r.minutiPausa).toBe(10)
+    expect(r.minutiPausaPagata).toBe(10)
+    expect(r.minutiLavorati).toBe(8 * 60)
+  })
+  it('pausa di 25 minuti: restano pagati solo i 10 concessi, gli altri 15 si tolgono', () => {
+    const r = riepilogoGiorno(giornata('13:25'), turno, ore('20:00'))
+    expect(r.minutiPausa).toBe(25)
+    expect(r.minutiPausaPagata).toBe(10)
+    expect(r.minutiLavorati).toBe(8 * 60 - 15)
+  })
+  it('senza pausa timbrata non si aggiunge niente', () => {
+    const r = riepilogoGiorno([{ tipo: 'entrata', ora: iso('10:00') }, { tipo: 'uscita', ora: iso('18:00') }], turno, ore('20:00'))
+    expect(r.minutiPausaPagata).toBe(0)
+    expect(r.minutiLavorati).toBe(8 * 60)
+  })
+  it('il turno senza pausa pagata resta com\'era: la pausa timbrata si toglie tutta', () => {
+    for (const t of [{ ...turno, pausa_pagata_minuti: 0 }, { data: turno.data, inizio: turno.inizio, fine: turno.fine, pausa_minuti: 30 }, null]) {
+      const r = riepilogoGiorno(giornata('13:10'), t, ore('20:00'))
+      expect(r.minutiPausaPagata).toBe(0)
+      expect(r.minutiLavorati).toBe(8 * 60 - 10)
+    }
+  })
+  it('la timbratrice propone la pausa anche se il turno ha solo quella pagata, e conta i minuti che restano', () => {
+    expect(pausaConcessa(turno)).toBe(10)
+    expect(pausaConcessa({ pausa_minuti: 30, pausa_pagata_minuti: 0 })).toBe(30)
+    expect(pausaConcessa({ pausa_minuti: 30 })).toBe(30)
+    expect(pausaConcessa(null)).toBe(0)
+    const dentro = [{ tipo: 'entrata' as const, ora: iso('10:00') }]
+    expect(azioni(dentro, turno, ore('13:00'))).toEqual({ principale: 'inizio_pausa', altre: ['uscita'] })
+    expect(pausaResidua(dentro, turno, ore('13:00'))).toBe(10)
+    const fatta = [...dentro, { tipo: 'inizio_pausa' as const, ora: iso('13:00') }, { tipo: 'fine_pausa' as const, ora: iso('13:06') }]
+    expect(pausaResidua(fatta, turno, ore('14:00'))).toBe(4)
+    expect(azioni(fatta, turno, ore('14:00')).altre).toContain('inizio_pausa')
+    const finita = [...dentro, { tipo: 'inizio_pausa' as const, ora: iso('13:00') }, { tipo: 'fine_pausa' as const, ora: iso('13:10') }]
+    expect(azioni(finita, turno, ore('14:00'))).toEqual({ principale: 'uscita', altre: [] })
+    // un turno senza nessuna pausa non la propone, come prima
+    expect(azioni(dentro, { ...turno, pausa_pagata_minuti: 0 }, ore('13:00')).principale).toBe('uscita')
   })
 })

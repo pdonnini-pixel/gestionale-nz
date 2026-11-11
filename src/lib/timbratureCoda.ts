@@ -186,7 +186,8 @@ export interface DatiTimbratrice {
   margine_uscita_minuti: number
   /** tolleranza e margine valgono per la persona (eccezione o regola del negozio): migration 372. */
   persone: { id: string; nome: string; tolleranza?: number; margine?: number; pin?: boolean }[]
-  turni: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null }[]
+  /** pausa_pagata_minuti: pausa che si timbra ma non si toglie dalle ore (migration 401); puo' mancare. */
+  turni: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; pausa_pagata_minuti?: number | null }[]
   /** dichiarata: entrata segnata a posteriori, ancora da confermare (migration 382). */
   timbrature: { id: string; employee_id: string; tipo: TipoTimbratura; ora: string; dichiarata?: boolean }[]
   /** Quando e' stata scaricata (ora del telefono). */

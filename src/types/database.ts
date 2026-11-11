@@ -27548,6 +27548,7 @@ export type Database = {
           origine: string
           outlet_id: string
           pausa_minuti: number
+          pausa_pagata_minuti: number
           plan_id: string | null
           stato: string
           straordinario: boolean
@@ -27569,6 +27570,7 @@ export type Database = {
           origine?: string
           outlet_id: string
           pausa_minuti?: number
+          pausa_pagata_minuti?: number
           plan_id?: string | null
           stato?: string
           straordinario?: boolean
@@ -27590,6 +27592,7 @@ export type Database = {
           origine?: string
           outlet_id?: string
           pausa_minuti?: number
+          pausa_pagata_minuti?: number
           plan_id?: string | null
           stato?: string
           straordinario?: boolean

@@ -50,7 +50,7 @@ interface Attivazione { segreto: string; employee_id: string; nome: string }
 interface DatiOggi {
   ora_server: string
   persona: { id: string; nome: string; negozio: string | null }
-  turni: { data: string; inizio: string; fine: string; pausa_minuti: number | null; negozio: string | null }[]
+  turni: { data: string; inizio: string; fine: string; pausa_minuti: number | null; pausa_pagata_minuti?: number | null; negozio: string | null }[]
   /** verifica dalla migration 382: 'da_confermare' per l'entrata segnata a posteriori. */
   timbrature: { tipo: TipoTimbratura; ora: string; origine: string; verifica?: string }[]
   // Dalla migration 372: assenti se il tenant non le ha ancora
@@ -236,7 +236,8 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const turnoDel = useCallback((d: string) => {
     const del = (dati?.turni ?? []).filter((t) => t.data === d).sort((a, b) => a.inizio.localeCompare(b.inizio))
     if (!del.length) return null
-    return { ...del[del.length - 1], inizio: del[0].inizio }
+    // con il turno spezzato la pausa concessa e' la somma di quelle dei pezzi
+    return { ...del[del.length - 1], inizio: del[0].inizio, pausa_minuti: del.reduce((s, t) => s + (t.pausa_minuti ?? 0), 0), pausa_pagata_minuti: del.reduce((s, t) => s + (t.pausa_pagata_minuti ?? 0), 0) }
   }, [dati])
 
   const rOggi = riepilogoGiorno(perGiorno(oggi), turnoDel(oggi), adesso)

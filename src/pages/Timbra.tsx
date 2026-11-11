@@ -14,7 +14,7 @@ import { CheckCircle2, Wifi, WifiOff, Camera, RefreshCw, AlertTriangle, Delete, 
 import { supabase } from '../lib/supabase'
 import {
   CAUSALI_STRAORDINARIO, CAUSALI_USCITA, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT,
-  azioni, codicePin, haGiaFattoPausa, minutiPausaFatti, pausaResidua, dataRoma, entrataMancante, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, oreEntrataDichiarabili, ordina, statoDa,
+  azioni, codicePin, haGiaFattoPausa, minutiPausaFatti, pausaConcessa, pausaResidua, dataRoma, entrataMancante, formatMinuti, leggiCodice, oraRoma, oraRomaInMs, oreEntrataDichiarabili, ordina, statoDa,
   valutaEntrata, valutaUscita,
   type TipoTimbratura, type Timbratura,
 } from '../lib/timbrature'
@@ -168,7 +168,7 @@ export default function Timbra() {
     const del = (dati?.turni ?? []).filter((t) => t.employee_id === empId && t.data === oggi)
       .sort((a, b) => a.inizio.localeCompare(b.inizio))
     if (!del.length) return null
-    return { ...del[del.length - 1], inizio: del[0].inizio, pausa_minuti: del.reduce((s, t) => s + (t.pausa_minuti ?? 0), 0) }
+    return { ...del[del.length - 1], inizio: del[0].inizio, pausa_minuti: del.reduce((s, t) => s + (t.pausa_minuti ?? 0), 0), pausa_pagata_minuti: del.reduce((s, t) => s + (t.pausa_pagata_minuti ?? 0), 0) }
   }, [dati, oggi])
 
   // Lettura del QR con la fotocamera
@@ -507,11 +507,11 @@ export default function Timbra() {
                     {stato === 'in_pausa' && (
                       <button onClick={() => void timbra('fine_pausa')} className="w-full py-7 rounded-2xl text-2xl font-bold bg-sky-600 active:bg-sky-700">{ETICHETTA_PULSANTE.fine_pausa}</button>
                     )}
-                    {stato === 'in_pausa' && turno && (turno.pausa_minuti ?? 0) > 0 && (() => {
+                    {stato === 'in_pausa' && turno && pausaConcessa(turno) > 0 && (() => {
                       const fatti = minutiPausaFatti(ts, adesso)
-                      const oltre = fatti - (turno.pausa_minuti ?? 0)
+                      const oltre = fatti - pausaConcessa(turno)
                       return <p className={`text-center text-sm ${oltre > tolleranza ? 'text-amber-300' : 'text-slate-300'}`}>
-                        Pausa: {formatMinuti(fatti)} su {formatMinuti(turno.pausa_minuti ?? 0)} del turno{oltre > tolleranza ? `, ${formatMinuti(oltre)} in più: lo vede il responsabile` : ''}.
+                        Pausa: {formatMinuti(fatti)} su {formatMinuti(pausaConcessa(turno))} del turno{oltre > tolleranza ? `, ${formatMinuti(oltre)} in più: lo vede il responsabile` : ''}.
                       </p>
                     })()}
                     {stato === 'dentro' && tocchi.includes('inizio_pausa') && (

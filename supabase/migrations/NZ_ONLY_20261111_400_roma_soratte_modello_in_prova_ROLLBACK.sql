@@ -1,4 +1,5 @@
--- ROLLBACK della NZ_ONLY 400: Roma Soratte torna alle regole di prima.
+-- ROLLBACK della NZ_ONLY 400: Roma Soratte torna alle regole di prima. Con la 401 applicata il
+-- trigger delle regole riporta a 0 la pausa pagata dei turni da oggi in avanti.
 BEGIN;
 UPDATE public.outlet_shift_rules
    SET pausa_minuti = 30, pausa_lunga_minuti = 60, pausa_corta_pagata = NULL, giorni_pieni = NULL, updated_at = now()
