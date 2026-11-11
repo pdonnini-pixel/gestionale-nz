@@ -158,7 +158,7 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
     candidati.sort((a, b) => a.nome.localeCompare(b.nome, 'it'));
     // Non c'e' piu' se e' uscito o se ora lavora in un altro negozio.
     const nonCePiu = !!persona && (!contaNellOrganico(persona) || persona.outletId !== outletId);
-    return { id, nome: persona ? nomePersona(persona.scheda) : null, dal: dati?.responsabileDal?.[outletId] ?? null, candidati, nonCePiu };
+    return { id, nome: persona ? nomePersona(persona.scheda) : null, dal: dati?.responsabileDal?.[outletId] ?? null, candidati, nonCePiu, viceId: negozio?.vice_referente_employee_id ?? null };
   }, [negozioDi, persone, dati]);
 
   const impostaResponsabile = async (outletId: string, employeeId: string) => {
@@ -390,6 +390,8 @@ type InfoResponsabile = {
   candidati: { id: string; nome: string }[];
   /** il responsabile segnato e' uscito o lavora in un altro negozio */
   nonCePiu: boolean;
+  /** la vice responsabile del negozio (migration 393), se c'e' */
+  viceId?: string | null;
 };
 
 function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile, onModifica, onCorreggi, onScheda }: {
@@ -447,6 +449,9 @@ function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile,
             )}
             {responsabile?.id === p.scheda.id && (
               <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-violet-50 text-violet-700">Responsabile</span>
+            )}
+            {!!responsabile?.viceId && responsabile.viceId === p.scheda.id && responsabile.id !== p.scheda.id && (
+              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">Vice responsabile</span>
             )}
             {p.scheda.matricola && <div className="text-[11px] text-slate-400 tabular-nums">matr. {p.scheda.matricola}</div>}
             {p.daConfermare.length > 0 && (

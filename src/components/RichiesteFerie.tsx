@@ -339,6 +339,19 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
 
     setSalvataggio(true);
     try {
+      // Regola del lunedi' (migration 393): responsabile e vice non possono
+      // essere assenti insieme di lunedi'. Si chiede al database PRIMA di
+      // scrivere, cosi' non resta una richiesta senza giorni. Dove la funzione
+      // non c'e' si va avanti come prima; il blocco vero resta nel database.
+      const interi = giorniScelti.filter((g) => g.tipo === 'giornata').map((g) => g.data);
+      if (nuovoStato === 'inviata' && interi.length) {
+        const { data: motivo, error: errMotivo } = await supabase.rpc('ferie_lunedi_motivo' as never, { p_employee_id: persona.id, p_date: interi } as never);
+        if (!errMotivo && typeof motivo === 'string' && motivo) {
+          toast({ type: 'error', message: motivo, duration: 12000 });
+          return;
+        }
+      }
+
       let requestId = bozzaId;
 
       if (requestId) {
