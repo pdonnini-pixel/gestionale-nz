@@ -8,10 +8,17 @@
 //    possono segnare in un colpo su tutti i negozi. Black Friday, feste e
 //    saldi (piu' personale, niente ferie) non stanno qui: sono «Eventi».
 //  - Regole: turno minimo e massimo, pausa, giorni di lavoro a settimana.
+//
+// Un solo salvataggio (Patrizio, 11/11/2026): qualunque «Salva» della pagina
+// salva tutto quello che e' stato cambiato (orari, fabbisogno, regole), non
+// solo il suo riquadro. Prima ogni riquadro salvava il suo: le fasce scritte e
+// poi «Salva regole» restavano fuori, e cambiando negozio sparivano senza
+// avviso. Chi esce con modifiche aperte viene fermato e sceglie.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import { Copy, Lock, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
 import { useToast } from './Toast';
+import { Modal } from './ui/Modal';
 import { supabase } from '../lib/supabase';
 import {
   NOMI_GIORNO, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreDaCoprire,
@@ -34,6 +41,8 @@ type Props = {
   /** gli altri negozi, per segnare la stessa chiusura su tutti */
   altriNegozi?: { id: string; nome: string }[];
   onSalvato?: () => void;
+  /** chi cambia negozio o scheda la chiama prima: false = si resta qui */
+  guardia?: MutableRefObject<(() => Promise<boolean>) | null>;
 };
 
 type RigaOrario = { giorno: number; chiuso: boolean; apre: string; chiude: string };
@@ -46,7 +55,14 @@ const inputCls = 'min-h-[36px] rounded-lg border border-slate-300 px-2 text-sm d
 let chiaveSeq = 0;
 const nuovaChiave = () => `n${++chiaveSeq}`;
 
-export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScrivere, puoFabbisogno, oreContratto, personeInServizio, altriNegozi = [], onSalvato }: Props) {
+type Sezione = 'orari' | 'fasce' | 'regole';
+const NOME_SEZIONE: Record<Sezione, string> = { orari: 'orari', fasce: 'fabbisogno', regole: 'regole dei turni' };
+type SpecialeDb = { id: string; data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null };
+const righeSpeciali = (dati: unknown): RigaSpeciale[] => ((dati as SpecialeDb[] | null) ?? [])
+  .map((x) => ({ id: x.id, data: x.data, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude), persone_extra: x.persone_extra, nota: x.nota ?? '' }));
+const improntaFasce = (f: RigaFascia[]) => JSON.stringify(f.map((x) => [x.id ?? '', x.giorno, x.dalle, x.alle, x.persone]));
+
+export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScrivere, puoFabbisogno, oreContratto, personeInServizio, altriNegozi = [], onSalvato, guardia }: Props) {
   const { toast } = useToast();
   const [orari, setOrari] = useState<RigaOrario[]>(settimanaVuota());
   const [fasce, setFasce] = useState<RigaFascia[]>([]);
@@ -61,6 +77,10 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [stimaSalvata, setStimaSalvata] = useState<{ orari: boolean; fasce: boolean }>({ orari: false, fasce: false });
   // Proposta dai dati appena calcolata, non ancora salvata.
   const [proposta, setProposta] = useState<string[] | null>(null);
+  // Com'erano orari, fabbisogno e regole all'ultimo caricamento o salvataggio:
+  // quello che e' diverso e' una modifica ancora da salvare.
+  const [base, setBase] = useState<Record<Sezione, string>>({ orari: '', fasce: '', regole: '' });
+  const [chiedeUscita, setChiedeUscita] = useState<((esce: boolean) => void) | null>(null);
 
   const carica = useCallback(async () => {
     setCaricamento(true);
@@ -70,27 +90,35 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       supabase.from('outlet_special_days').select('*').eq('outlet_id', outletId).gte('data', oggiRoma()).order('data'),
       supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
     ]);
-    const base = settimanaVuota();
+    const orariLetti = settimanaVuota();
     setStimaSalvata({
       orari: ((o.data as { origine?: string }[]) ?? []).some((x) => x.origine === 'stima'),
       fasce: ((f.data as { origine?: string }[]) ?? []).some((x) => x.origine === 'stima'),
     });
     setProposta(null);
     for (const x of (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? []) {
-      base[x.giorno - 1] = { giorno: x.giorno, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude) };
+      orariLetti[x.giorno - 1] = { giorno: x.giorno, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude) };
     }
-    setOrari(base);
+    setOrari(orariLetti);
     const ff = ((f.data as { id: string; giorno: number; dalle: string; alle: string; persone: number }[]) ?? [])
       .map((x) => ({ id: x.id, giorno: x.giorno, dalle: t5(x.dalle), alle: t5(x.alle), persone: x.persone, chiave: x.id }));
     setFasce(ff);
     setFasceIniziali(ff.map((x) => x.id!));
-    setSpeciali(((s.data as { id: string; data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [])
-      .map((x) => ({ id: x.id, data: x.data, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude), persone_extra: x.persone_extra, nota: x.nota ?? '' })));
-    setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
+    setSpeciali(righeSpeciali(s.data));
+    const regoleLette = regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]);
+    setRegole(regoleLette);
+    setBase({ orari: JSON.stringify(orariLetti), fasce: improntaFasce(ff), regole: JSON.stringify(regoleLette) });
     setCaricamento(false);
   }, [outletId]);
 
   useEffect(() => { carica(); }, [carica]);
+
+  // Dopo un giorno aggiunto o tolto si rileggono solo i giorni: ricaricare
+  // tutto cancellerebbe orari, fasce e regole cambiati e non ancora salvati.
+  const ricaricaSpeciali = async () => {
+    const { data } = await supabase.from('outlet_special_days').select('*').eq('outlet_id', outletId).gte('data', oggiRoma()).order('data');
+    setSpeciali(righeSpeciali(data));
+  };
 
   const oreServono = useMemo(() => {
     const date = giorniDellaSettimana(lunediDi(oggiRoma()));
@@ -100,50 +128,73 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const erroreOrari = orari.find((o) => !o.chiuso && (!o.apre || !o.chiude || o.chiude <= o.apre));
   const erroreFasce = fasce.find((f) => !f.dalle || !f.alle || f.alle <= f.dalle || f.persone < 0);
 
-  const salvaOrari = async () => {
-    if (erroreOrari) { toast({ type: 'error', message: `${NOMI_GIORNO[erroreOrari.giorno]}: indica apertura e chiusura, oppure segna chiuso.` }); return; }
-    setSalvo('orari');
+  // Cosa e' stato cambiato e non ancora salvato (solo quello che si puo' salvare).
+  const aperte = useMemo(() => {
+    const out: Sezione[] = [];
+    if (caricamento) return out;
+    if (puoScrivere && JSON.stringify(orari) !== base.orari) out.push('orari');
+    if (puoFabbisogno && improntaFasce(fasce) !== base.fasce) out.push('fasce');
+    if (puoScrivere && JSON.stringify(regole) !== base.regole) out.push('regole');
+    return out;
+  }, [caricamento, puoScrivere, puoFabbisogno, orari, fasce, regole, base]);
+
+  // Ognuna scrive la sua parte e torna il motivo se non ci riesce (null = salvata).
+  const scriviOrari = async (): Promise<string | null> => {
+    if (erroreOrari) return `${NOMI_GIORNO[erroreOrari.giorno]}: indica apertura e chiusura, oppure segna chiuso.`;
     const { error } = await supabase.from('outlet_opening_hours').upsert(orari.map((o) => ({
       company_id: companyId, outlet_id: outletId, giorno: o.giorno, chiuso: o.chiuso,
       apre: o.chiuso ? null : o.apre, chiude: o.chiuso ? null : o.chiude, origine: 'manuale', updated_at: new Date().toISOString(),
     })), { onConflict: 'outlet_id,giorno' });
-    setSalvo(null);
-    if (error) { toast({ type: 'error', message: error.message }); return; }
-    toast({ type: 'success', message: `Orari di ${nomeNegozio} salvati.` });
-    onSalvato?.();
+    if (error) return error.message;
+    setBase((b) => ({ ...b, orari: JSON.stringify(orari) }));
+    setStimaSalvata((x) => ({ ...x, orari: false }));
+    return null;
   };
 
-  const salvaFasce = async () => {
-    if (erroreFasce) { toast({ type: 'error', message: `${NOMI_GIORNO[erroreFasce.giorno]}: una fascia ha orari non validi.` }); return; }
-    setSalvo('fasce');
+  const scriviFasce = async (): Promise<string | null> => {
+    if (erroreFasce) return `${NOMI_GIORNO[erroreFasce.giorno]}: una fascia ha orari non validi.`;
+    const doppia = fasce.find((f, i) => fasce.some((g, j) => j !== i && g.giorno === f.giorno && g.dalle === f.dalle));
+    if (doppia) return `${NOMI_GIORNO[doppia.giorno]}: due fasce iniziano alle ${doppia.dalle}, cambia l'orario di una delle due.`;
+    // Quello che arriva nel database si segna subito, riga per riga: se una
+    // scrittura fallisce a meta', la pagina sa quali fasce sono gia' salvate.
+    const scritte = fasce.map((f) => ({ ...f }));
+    let rimaste = fasceIniziali;
+    let motivo: string | null = null;
     try {
       const tolte = fasceIniziali.filter((id) => !fasce.some((f) => f.id === id));
       if (tolte.length) {
         const { error } = await supabase.from('outlet_staffing_needs').delete().in('id', tolte);
         if (error) throw error;
+        rimaste = rimaste.filter((id) => !tolte.includes(id));
       }
-      for (const f of fasce) {
+      // Prima le fasce gia' salvate, poi le nuove.
+      for (const f of [...scritte.filter((x) => x.id), ...scritte.filter((x) => !x.id)]) {
         const riga = { company_id: companyId, outlet_id: outletId, giorno: f.giorno, dalle: f.dalle, alle: f.alle, persone: f.persone, origine: 'manuale', updated_at: new Date().toISOString() };
-        const { error } = f.id
-          ? await supabase.from('outlet_staffing_needs').update(riga).eq('id', f.id)
-          : await supabase.from('outlet_staffing_needs').insert([riga]);
-        if (error) throw error;
+        if (f.id) {
+          const { error } = await supabase.from('outlet_staffing_needs').update(riga).eq('id', f.id);
+          if (error) throw error;
+        } else {
+          const { data, error } = await supabase.from('outlet_staffing_needs').insert([riga]).select('id').single();
+          if (error) throw error;
+          f.id = (data as { id: string }).id;
+          rimaste = [...rimaste, f.id];
+        }
       }
-      toast({ type: 'success', message: `Fabbisogno di ${nomeNegozio} salvato.` });
-      await carica();
-      onSalvato?.();
     } catch (e) {
-      toast({ type: 'error', message: e instanceof Error ? e.message : 'Fabbisogno non salvato.' });
-    } finally {
-      setSalvo(null);
+      motivo = e instanceof Error ? e.message : (e as { message?: string })?.message ?? 'errore';
     }
+    setFasce(scritte);
+    setFasceIniziali(rimaste);
+    if (motivo) return motivo;
+    setBase((b) => ({ ...b, fasce: improntaFasce(scritte) }));
+    setStimaSalvata((x) => ({ ...x, fasce: false }));
+    return null;
   };
 
-  const salvaRegole = async () => {
-    if (regole.pausaLungaOltreOre < regole.pausaOltreOre) { toast({ type: 'error', message: 'La pausa lunga deve scattare dopo quella normale.' }); return; }
-    if (regole.turnoMinOre > regole.turnoMaxOre) { toast({ type: 'error', message: 'Il turno minimo non può superare il turno massimo.' }); return; }
-    if (regole.sogliaFeriali < 1 || regole.sogliaWeekend < 1) { toast({ type: 'error', message: 'Gli ingressi per addetto devono essere almeno 1.' }); return; }
-    setSalvo('regole');
+  const scriviRegole = async (): Promise<string | null> => {
+    if (regole.pausaLungaOltreOre < regole.pausaOltreOre) return 'la pausa lunga deve scattare dopo quella normale.';
+    if (regole.turnoMinOre > regole.turnoMaxOre) return 'il turno minimo non può superare il turno massimo.';
+    if (regole.sogliaFeriali < 1 || regole.sogliaWeekend < 1) return 'gli ingressi per addetto devono essere almeno 1.';
     const { error } = await supabase.from('outlet_shift_rules').upsert([{
       outlet_id: outletId, company_id: companyId, turno_min_ore: regole.turnoMinOre, turno_max_ore: regole.turnoMaxOre,
       pausa_oltre_ore: regole.pausaOltreOre, pausa_minuti: regole.pausaMinuti,
@@ -151,10 +202,68 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       soglia_ingressi_feriali: regole.sogliaFeriali, soglia_ingressi_weekend: regole.sogliaWeekend, due_persone: regole.duePersone,
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
+    if (error) return error.message;
+    setBase((b) => ({ ...b, regole: JSON.stringify(regole) }));
+    return null;
+  };
+
+  // Un solo salvataggio: il riquadro del pulsante premuto piu' tutto quello che
+  // e' stato cambiato negli altri. Dice cosa ha salvato e cosa no, e perche'.
+  const salva = async (richieste: Sezione[]): Promise<boolean> => {
+    const sezioni = (['orari', 'regole', 'fasce'] as Sezione[]).filter((x) => richieste.includes(x) || aperte.includes(x));
+    setSalvo('salva');
+    const fatte: string[] = [];
+    let tutto = true;
+    for (const x of sezioni) {
+      const motivo = await (x === 'orari' ? scriviOrari() : x === 'fasce' ? scriviFasce() : scriviRegole());
+      if (motivo) { tutto = false; toast({ type: 'error', message: `${nomeNegozio}, ${NOME_SEZIONE[x]} non salvato: ${motivo}`, duration: 12000 }); }
+      else fatte.push(NOME_SEZIONE[x]);
+    }
     setSalvo(null);
-    if (error) { toast({ type: 'error', message: error.message }); return; }
-    toast({ type: 'success', message: 'Regole salvate.' });
-    onSalvato?.();
+    if (fatte.length) {
+      toast({ type: 'success', message: `${nomeNegozio}: salvato ${fatte.join(', ')}.${tutto ? ' Non resta niente da salvare.' : ''}` });
+      onSalvato?.();
+    }
+    if (tutto) setProposta(null);
+    return tutto;
+  };
+
+  // Uscita con modifiche aperte. Chi cambia negozio o scheda passa dalla
+  // guardia e sceglie; se la pagina viene tolta per un'altra strada (altra
+  // sezione di Dipendenti, altra pagina) almeno un avviso lo dice.
+  const aperteRef = useRef(aperte);
+  aperteRef.current = aperte;
+  const nomeRef = useRef(nomeNegozio);
+  nomeRef.current = nomeNegozio;
+  const toastRef = useRef(toast);
+  toastRef.current = toast;
+  const uscitaDecisa = useRef(false);
+  useEffect(() => {
+    if (!guardia) return;
+    guardia.current = () => (aperteRef.current.length === 0
+      ? Promise.resolve(true)
+      : new Promise<boolean>((fine) => setChiedeUscita(() => fine)));
+    return () => { guardia.current = null; };
+  }, [guardia]);
+  useEffect(() => () => {
+    if (aperteRef.current.length && !uscitaDecisa.current) {
+      toastRef.current({ type: 'error', duration: 15000, message: `${nomeRef.current}: le modifiche a ${aperteRef.current.map((x) => NOME_SEZIONE[x]).join(', ')} non sono state salvate.` });
+    }
+  }, []);
+  useEffect(() => {
+    if (!aperte.length) return;
+    const avvisa = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', avvisa);
+    return () => window.removeEventListener('beforeunload', avvisa);
+  }, [aperte.length]);
+  const rispondiUscita = async (scelta: 'salva' | 'scarta' | 'resta') => {
+    const fine = chiedeUscita;
+    if (!fine) return;
+    let esce = scelta === 'scarta';
+    if (scelta === 'salva') esce = await salva([]);
+    if (esce) uscitaDecisa.current = true;
+    setChiedeUscita(null);
+    fine(esce);
   };
 
   const aggiungiSpeciale = async () => {
@@ -175,14 +284,14 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     if (suTutti) toast({ type: 'success', message: `${formattaDataBreve(s.data)} segnato su ${negozi.length} negozi.` });
     setNuovoSpeciale({ data: '', chiuso: true, apre: '', chiude: '', persone_extra: 0, nota: '' });
     setSuTutti(false);
-    await carica();
+    await ricaricaSpeciali();
     onSalvato?.();
   };
 
   const togliSpeciale = async (id: string) => {
     const { error } = await supabase.from('outlet_special_days').delete().eq('id', id);
     if (error) { toast({ type: 'error', message: error.message }); return; }
-    await carica();
+    await ricaricaSpeciali();
     onSalvato?.();
   };
 
@@ -213,9 +322,28 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   if (caricamento) return <div className="text-slate-400 py-12 text-center">Caricamento…</div>;
 
   const mancano = oreServono - oreContratto;
+  const salvando = salvo === 'salva';
+  const elencoAperte = aperte.map((x) => NOME_SEZIONE[x]).join(', ');
 
   return (
     <div className="space-y-4">
+      {aperte.length > 0 && (
+        <div role="status" className="sticky top-2 z-20 rounded-xl border border-amber-300 bg-amber-50 shadow-sm p-3 flex flex-wrap items-center justify-between gap-2 text-sm text-amber-900">
+          <span><strong>Modifiche non ancora salvate</strong> per {nomeNegozio}: {elencoAperte}.</span>
+          <button type="button" onClick={() => salva([])} disabled={salvando}
+            className="inline-flex items-center gap-1.5 min-h-[40px] px-4 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
+            <Save size={15} /> {salvando ? 'Salvo…' : 'Salva tutto'}
+          </button>
+        </div>
+      )}
+      <Modal open={chiedeUscita !== null} onClose={() => rispondiUscita('resta')} title="Modifiche non salvate" closeOnBackdrop={false}>
+        <p className="text-sm text-slate-700">Per {nomeNegozio} hai cambiato {elencoAperte || 'qualcosa'} senza salvare. Se esci adesso queste modifiche si perdono.</p>
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={() => rispondiUscita('resta')} className="min-h-[40px] px-3.5 rounded-lg border border-slate-300 text-sm font-medium hover:bg-slate-50">Resta qui</button>
+          <button type="button" onClick={() => rispondiUscita('scarta')} disabled={salvando} className="min-h-[40px] px-3.5 rounded-lg border border-slate-300 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50">Esci senza salvare</button>
+          <button type="button" onClick={() => rispondiUscita('salva')} disabled={salvando} className="min-h-[40px] px-3.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">{salvando ? 'Salvo…' : 'Salva ed esci'}</button>
+        </div>
+      </Modal>
       {puoScrivere && (
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-slate-600">Non sai da dove partire? La proposta legge le chiusure di cassa del negozio e le ore di contratto di chi ci lavora.</p>
@@ -255,7 +383,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
             {puoScrivere && (
               <div className="flex gap-2">
                 <button type="button" onClick={copiaOrariLunedi} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50"><Copy size={13} /> Lunedì su tutti</button>
-                <button type="button" onClick={salvaOrari} disabled={salvo === 'orari'} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Save size={13} /> Salva orari</button>
+                <button type="button" onClick={() => salva(['orari'])} disabled={salvando} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Save size={13} /> Salva orari</button>
               </div>
             )}
           </div>
@@ -295,7 +423,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
             {puoFabbisogno && (
               <div className="flex gap-2">
                 <button type="button" onClick={copiaFasceLunedi} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50"><Copy size={13} /> Lunedì su tutti</button>
-                <button type="button" onClick={salvaFasce} disabled={salvo === 'fasce'} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Save size={13} /> Salva fabbisogno</button>
+                <button type="button" onClick={() => salva(['fasce'])} disabled={salvando} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Save size={13} /> Salva fabbisogno</button>
               </div>
             )}
           </div>
@@ -375,7 +503,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
               <p className="text-xs text-slate-500">Valgono per la proposta automatica di questo negozio.</p>
             </div>
             {puoScrivere && (
-              <button type="button" onClick={salvaRegole} disabled={salvo === 'regole'} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Save size={13} /> Salva regole</button>
+              <button type="button" onClick={() => salva(['regole'])} disabled={salvando} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Save size={13} /> Salva regole</button>
             )}
           </div>
           <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
