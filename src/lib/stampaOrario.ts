@@ -165,12 +165,14 @@ export function etichettaPausa(pausaMinuti: number): string {
   return m === 0 ? `pausa ${h} h` : `pausa ${h} h ${m}'`;
 }
 
-/** Seconda riga della cella: «7,5 ore · pausa 30'». */
+/**
+ * Seconda riga della cella: solo le ore («8 ore»). La pausa non si scrive sul foglio
+ * (Patrizio, 11/11/2026: «solamente l'orario, senza scrivere pausa o non pausa»).
+ */
 export function dettaglioTurno(turno: TurnoStampa): string {
   const ore = oreTurno(turno);
-  const pausa = etichettaPausa(turno.pausaMinuti || turno.pausaPagataMinuti || 0);
   const tonde = Math.round(ore * 60) % 30 === 0;
-  return `${formattaOre(ore)}${tonde ? (ore === 1 ? ' ora' : ' ore') : ''}${pausa ? ` · ${pausa}` : ''}`;
+  return `${formattaOre(ore)}${tonde ? (ore === 1 ? ' ora' : ' ore') : ''}`;
 }
 
 // ─── Totali, chi apre e chi chiude ───────────────────────────────────────────

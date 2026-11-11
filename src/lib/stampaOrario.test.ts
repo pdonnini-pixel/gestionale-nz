@@ -117,10 +117,10 @@ describe('ore e pause', () => {
     expect(oreTurno(turno('10:00', '16:00', 0))).toBe(6);
     expect(oreTurno(turno('9:00', '13:00:00', 0))).toBe(4);
   });
-  it('descrive il turno con la durata della pausa', () => {
+  it('descrive il turno con le sole ore, senza scrivere la pausa', () => {
     expect(etichettaPausa(0)).toBe('');
-    expect(dettaglioTurno(turno('10:00', '18:00', 30))).toBe("7,5 ore · pausa 30'");
-    expect(dettaglioTurno(turno('10:00', '20:00', 60))).toBe('9 ore · pausa 1 h');
+    expect(dettaglioTurno(turno('10:00', '18:00', 30))).toBe('7,5 ore');
+    expect(dettaglioTurno(turno('10:00', '20:00', 60))).toBe('9 ore');
     expect(dettaglioTurno(turno('10:00', '16:00', 0))).toBe('6 ore');
     expect(dettaglioTurno(turno('10:00', '11:00', 0))).toBe('1 ora');
   });
