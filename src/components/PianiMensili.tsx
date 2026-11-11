@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, FlaskConical, Lock, Plus, Send, Trash2 } from 'lucide-react';
+import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, caricaCoppiePrima, guidaDelNegozio, type GiornoLibero } from '../lib/regoleNuoveDb';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import EditorTurno from './EditorTurno';
@@ -88,11 +89,18 @@ type BaseMese = {
   senzaLiberi: Set<string>; saldi: Map<string, number>; storicoWeekend: Map<string, number>; ferie: GiornoFerie[]; fonte: string;
   /** ore dei turni veri nei giorni dell'altro mese delle settimane a cavallo, per persona e data */
   oreFuoriMese: Map<string, Map<string, number>>;
+  /** giorno libero fisso di ognuno (migration 392) e se la tabella c'e' */
+  giorniLiberi: Map<string, GiornoLibero>; haGiorniLiberi: boolean;
+  /** coppie dei feriali nelle tre settimane prima del mese */
+  coppiePrima: Map<string, number>;
 };
 const ID_NUOVA = 'nuova-';
 type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string; straordinario?: boolean; ore_straordinario?: number };
 
-const REGOLE: RegolaWeekend[] = ['sabato_o_domenica', 'solo_sabati', 'solo_domeniche', 'nessuno'];
+// Nel weekend lavorano tutti, in tutti i negozi (Patrizio, 11/11/2026): il piano del
+// mese ha una sola variante. Le rotazioni di sabati e domeniche liberi restano nel
+// motore per i piani gia' salvati, ma non si propongono piu'.
+const REGOLE: RegolaWeekend[] = ['nessuno'];
 // Nei turni contano le ferie approvate e anche quelle chieste e in attesa
 // (Patrizio, 20/10/2026: «prendile in considerazione»): una richiesta
 // respinta torna disponibile al ricalcolo, un giorno respinto no.
@@ -297,8 +305,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       m.set(x.data, (m.get(x.data) ?? 0) + oreLavorate({ inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 }));
       oreFuoriMese.set(x.employee_id, m);
     }
+    const [gl, coppiePrima] = await Promise.all([caricaGiorniLiberi(companyId), caricaCoppiePrima(companyId, outletId, `${mese}-01`)]);
     return {
       tutte, giorni, regole, atteso, extra, senzaLiberi, saldi, storicoWeekend, oreFuoriMese,
+      giorniLiberi: gl.mappa, haGiorniLiberi: gl.disponibile, coppiePrima,
       ferie: fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)),
       fonte: atteso.size
         ? `${tr.fonte === 'propria' ? 'traffico MODA del negozio' : tr.fonte === 'riferimento' ? `traffico MODA di ${nomeRif} (negozio di riferimento: questo non ha storico)` : 'media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}; ${regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali, ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria)`
@@ -376,6 +386,12 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         oreFuoriMese: conTrasferteFuori(b.oreFuoriMese),
         // le trasferte verso questo negozio segnate «coprono il negozio»
         fissi: copertureVerso(trasferte, outletId),
+        // regole dell'11/11/2026: giorno libero fisso, lunedi' con responsabile o vice, coppie a rotazione
+        nuove: {
+          giornoLibero: new Map([...b.giorniLiberi].map(([id, g]) => [id, g.giorno])),
+          guida: guidaDelNegozio(dati.negozi.find((n) => n.id === outletId)),
+          coppiePrima: b.coppiePrima,
+        },
       });
       return { esito, straordinariPersona, tolte };
   };
@@ -440,6 +456,17 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         if (error) throw error;
       }
       toast({ type: 'success', message: `${ipotesi ? 'Simulazione' : 'Piano'} creat${ipotesi ? 'a' : 'o'}: ${esito.turni.length} turni, ${fmt(esito.oreScoperte)} ore sotto MODA nel mese${riepilogo.straordinario ? `, ${fmt(riepilogo.straordinario)} ore di straordinario` : ''}.` });
+      // I giorni liberi scelti dal sistema per chi non ne aveva: si salvano, cosi' restano gli stessi il mese dopo.
+      if (!ipotesi && b.haGiorniLiberi && esito.giorniLiberi) {
+        const veri = new Map([...esito.giorniLiberi].filter(([id]) => !id.startsWith(ID_NUOVA)));
+        await salvaGiorniLiberiDiSistema(companyId, veri, b.giorniLiberi).catch(() => undefined);
+      }
+      // Si lavora sul mese e si pubblica settimana per settimana (Patrizio, 11/11/2026): il primo
+      // piano vero del mese diventa quello che vale, cosi' le sue settimane si aprono nel piano
+      // settimanale. Alle ragazze non arriva niente finche' la settimana non si pubblica.
+      if (!ipotesi && !piani.some((x) => !x.simulazione && x.stato === 'scelto')) {
+        await supabase.rpc('turni_scegli_piano', { p_plan_id: planId });
+      }
       if (ipotesi) setSim(null);
       await carica();
       setAperto(planId);
@@ -644,6 +671,13 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     try {
       const { data: u } = await supabase.auth.getUser();
       const negozio = dati.negozi.find((n) => n.id === outletId);
+      // Responsabile e vice non in ferie insieme di lunedi' (migration 393): si chiede prima,
+      // cosi' non resta una richiesta inviata senza giorni. Dove la funzione manca si prosegue.
+      const interi = proposta.giorni.filter((g) => g.tipo === 'giornata').map((g) => g.data);
+      if (interi.length) {
+        const { data: motivo, error: errMotivo } = await supabase.rpc('ferie_lunedi_motivo' as never, { p_employee_id: proposta.employeeId, p_date: interi } as never);
+        if (!errMotivo && typeof motivo === 'string' && motivo) throw new Error(motivo);
+      }
       const { data, error } = await supabase.from('leave_requests').insert({
         company_id: companyId, employee_id: proposta.employeeId, outlet_code: negozio?.code ?? null,
         stato: 'inviata', origine: 'gestionale', titolo: 'Proposta dal piano del mese',
@@ -761,14 +795,14 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             {regoleMancanti.length > 0 && (
               <button type="button" onClick={creaVarianti} disabled={!!lavoro}
                 className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50">
-                <Plus size={15} /> {lavoro && lavoro !== 'simulazione' && !lavoro.startsWith('disp-') && !lavoro.startsWith('senza-') ? 'Calcolo le varianti…' : variantiCon.length ? `Varianti con ferie mancanti (${regoleMancanti.length})` : 'Crea le varianti con ferie e permessi'}
+                <Plus size={15} /> {lavoro && lavoro !== 'simulazione' && !lavoro.startsWith('disp-') && !lavoro.startsWith('senza-') ? 'Calcolo il piano…' : 'Crea il piano del mese (con ferie e permessi)'}
               </button>
             )}
             {regoleMancantiSenza.length > 0 && (
               <button type="button" onClick={creaVariantiSenza} disabled={!!lavoro}
                 title="Il calendario dell'organico pieno, come se nessuno avesse ferie o permessi: le ferie si inseriscono poi dal calendario"
                 className="inline-flex items-center gap-1.5 text-sm px-4 py-2 rounded-lg border border-blue-300 bg-white text-blue-800 font-semibold hover:bg-blue-50 disabled:opacity-50">
-                <Plus size={15} /> {lavoro?.startsWith('senza-') ? 'Calcolo le varianti…' : variantiSenza.length ? `Varianti senza ferie mancanti (${regoleMancantiSenza.length})` : 'Crea le varianti senza ferie'}
+                <Plus size={15} /> {lavoro?.startsWith('senza-') ? 'Calcolo il piano…' : 'Crea il piano senza ferie'}
               </button>
             )}
             <button type="button" onClick={() => setSim(sim ? null : simulazioneVuota())} disabled={!!lavoro}

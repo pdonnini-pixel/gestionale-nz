@@ -21703,6 +21703,7 @@ export type Database = {
         Row: {
           company_id: string
           due_persone: boolean | null
+          riempi_contratto: boolean | null
           traffico_da_outlet_id: string | null
           giorni_lavoro_max: number
           outlet_id: string
@@ -21720,6 +21721,7 @@ export type Database = {
         Insert: {
           company_id: string
           due_persone?: boolean | null
+          riempi_contratto?: boolean | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id: string
@@ -21737,6 +21739,7 @@ export type Database = {
         Update: {
           company_id?: string
           due_persone?: boolean | null
+          riempi_contratto?: boolean | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id?: string

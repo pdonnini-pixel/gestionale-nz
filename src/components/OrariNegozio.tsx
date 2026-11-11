@@ -70,6 +70,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [regole, setRegole] = useState<RegoleTurni>(REGOLE_DEFAULT);
   // Negozio da cui prendere il traffico MODA se questo non ne ha (Patrizio, 11/11/2026). undefined = colonna assente (tenant senza la 391).
   const [trafficoDa, setTrafficoDa] = useState<string | null | undefined>(undefined);
+  // «Ore fino al contratto» (migration 392): dove la colonna non c'e' la scelta non compare e non si salva.
+  const [haRiempi, setHaRiempi] = useState(false);
   const [trafficoSalvato, setTrafficoSalvato] = useState<string | null | undefined>(undefined);
   const [speciali, setSpeciali] = useState<RigaSpeciale[]>([]);
   const [nuovoSpeciale, setNuovoSpeciale] = useState<RigaSpeciale>({ data: '', chiuso: true, apre: '', chiude: '', persone_extra: 0, nota: '' });
@@ -121,6 +123,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     }
     setTrafficoDa(letto);
     setTrafficoSalvato(letto);
+    if (r.data != null) setHaRiempi('riempi_contratto' in (r.data as object));
+    else setHaRiempi(!(await supabase.from('outlet_shift_rules').select('riempi_contratto').limit(1)).error);
     setCaricamento(false);
   }, [outletId]);
 
@@ -214,6 +218,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       pausa_lunga_oltre_ore: regole.pausaLungaOltreOre, pausa_lunga_minuti: regole.pausaLungaMinuti, giorni_lavoro_max: regole.giorniLavoroMax,
       soglia_ingressi_feriali: regole.sogliaFeriali, soglia_ingressi_weekend: regole.sogliaWeekend, due_persone: regole.duePersone,
       ...(trafficoDa !== undefined ? { traffico_da_outlet_id: trafficoDa } : {}),
+      ...(haRiempi ? { riempi_contratto: !!regole.riempiContratto } : {}),
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
     if (error) return error.message;
@@ -546,6 +551,14 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                 onChange={(e) => setRegole((r) => ({ ...r, duePersone: e.target.checked }))} />
               <span>Sempre almeno due persone in negozio, salvo la prima ora di apertura e l&apos;ultima di chiusura. Se le ore non bastano, la seconda persona viene prima del traffico del weekend. Vale finché il fabbisogno per fascia non è salvato: dopo comandano le fasce.</span>
             </label>
+            {/* Ore fino al contratto (Patrizio, 11/11/2026): scelta del negozio, spenta di default. */}
+            {haRiempi && (
+              <label className="col-span-2 sm:col-span-3 flex items-start gap-2 text-xs text-slate-600">
+                <input type="checkbox" disabled={!puoScrivere} className="mt-0.5" checked={!!regole.riempiContratto}
+                  onChange={(e) => setRegole((r) => ({ ...r, riempiContratto: e.target.checked }))} />
+                <span>Ore fino al contratto: le ore di contratto che il traffico non chiede vanno comunque in turno, prima venerdì, sabato e domenica. Spenta, quelle ore restano da assegnare (ferie, permessi o turni a mano). Utile dove le persone sono appena assunte e non hanno ferie da scalare.</span>
+              </label>
+            )}
             {trafficoDa !== undefined && altriNegozi.length > 0 && (
               <label className="col-span-2 sm:col-span-3 text-xs text-slate-600">Traffico MODA di riferimento (solo se questo negozio non ha traffico suo)<br />
                 <select disabled={!puoScrivere} className={`${inputCls} mt-1`} value={trafficoDa ?? ''}
