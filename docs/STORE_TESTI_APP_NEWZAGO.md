@@ -54,7 +54,7 @@ Codice per i revisori: c'è (migration 396), 8 caratteri, valido fino al 10/01/2
 
 ## privacy
 - Informativa privacy (URL obbligatorio in tutti e due gli store): **[da completare]**, la prepara Lilian. Va pubblicata a un indirizzo web stabile (per esempio una pagina del sito EPPI o New Zago).
-- Assistenza: **newzago@vicolo.com** (Patrizio, 11/11/2026). Google chiede una mail: questa. Apple chiede un **indirizzo web** di assistenza, non una mail: serve una pagina pubblica con il contatto (può stare insieme all'informativa privacy).
+- Assistenza tecnica dell'app: **info@eppiflorence.it** (EPPI, che pubblica l'app; Patrizio, 11/11/2026). Google chiede una mail: questa. Apple chiede un **indirizzo web** di assistenza, non una mail: serve una pagina pubblica con il contatto (può stare insieme all'informativa privacy).
 
 ### Google: Sicurezza dei dati
 | Domanda | Risposta |
