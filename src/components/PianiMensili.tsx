@@ -28,7 +28,7 @@ import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import SpostaTurnoModal from './SpostaTurnoModal';
 import { caricaTrasferte, copertureVerso, doveTrasferta, orePerData, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
-  NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno, personeInPiu,
+  NOMI_GIORNO_BREVI, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, giornoIso, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno, personeInPiu,
   REGOLE_DEFAULT, minuti, copertura, mancanza, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 import {
@@ -284,9 +284,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       if (x.employee_id) saldi.set(x.employee_id, (saldi.get(x.employee_id) ?? 0) + Number(x.residuo_disponibile ?? 0));
     }
     const storicoWeekend = new Map<string, number>();
-    for (const x of ((storico.data as unknown as { employee_id: string; shift_plans: { stato: string; outlet_id: string } | { stato: string; outlet_id: string }[] }[]) ?? [])) {
+    for (const x of ((storico.data as unknown as { employee_id: string; data: string; shift_plans: { stato: string; outlet_id: string } | { stato: string; outlet_id: string }[] }[]) ?? [])) {
       const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
-      if (pl?.stato === 'scelto') storicoWeekend.set(x.employee_id, (storicoWeekend.get(x.employee_id) ?? 0) + 1);
+      // solo sabati e domeniche: i riposi infrasettimanali scelti a mano non contano nella rotazione
+      if (pl?.stato === 'scelto' && giornoIso(x.data) >= 6) storicoWeekend.set(x.employee_id, (storicoWeekend.get(x.employee_id) ?? 0) + 1);
     }
     const oreFuoriMese = new Map<string, Map<string, number>>();
     for (const x of ((fuori.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
@@ -1210,7 +1211,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-2 text-[11px] text-slate-600 border-b border-slate-100">
             <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-600" /> turno pubblicato</span>
             <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-blue-100 border border-blue-300" /> turno in bozza</span>
-            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100" /> libero nel weekend</span>
+            <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-100" /> riposo (weekend libero a rotazione o scelto a mano)</span>
             <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-100" /> ferie o permesso</span>
             <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-slate-200" /> non in servizio in questo negozio</span>
             <span className="inline-flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-600" /> In negozio: scoperto</span>
@@ -1346,7 +1347,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 );
               }
               if (f) return <span className="block rounded-md px-1 py-1.5 bg-amber-100 text-amber-900 font-medium">{fTesto}</span>;
-              if (riga.liberi.has(d)) return <span className="block rounded-md px-1 py-1.5 bg-emerald-100 text-emerald-900 font-medium">libero</span>;
+              if (riga.liberi.has(d)) return <span className="block rounded-md px-1 py-1.5 bg-emerald-100 text-emerald-900 font-medium">riposo</span>;
               if (!riga.inServizio(d)) return <span className="block rounded-md py-1.5 bg-slate-100 text-slate-400" title="Non in servizio in questo negozio">non in servizio</span>;
               if (!riga.nuova && !puoLavorareIl(disponibilita, riga.id, d)) return <span className="block py-1.5 text-[10px] text-slate-400">non disponibile</span>;
               return <span className="block py-1.5 text-slate-300">–</span>;
@@ -1740,6 +1741,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               negozi: dati.negozi.filter((n) => n.is_active !== false).map((n) => ({ id: n.id, nome: nomeNegozioDi(n.id) })),
               esistente: trasferte.find((x) => x.employeeId === editorMese.employeeId && x.data === editorMese.data) ?? null,
             }}
+            riposo={pianoAperto.simulazione ? undefined : { attivo: liberiPiano.some((x) => x.employee_id === editorMese.employeeId && x.data === editorMese.data) }}
             onClose={() => setEditorMese(null)}
             onSalvato={(msg) => { setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: msg ?? 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
           />

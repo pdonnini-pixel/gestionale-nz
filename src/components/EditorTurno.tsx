@@ -65,10 +65,12 @@ export type PassaggioTurno = {
 };
 
 export default function EditorTurno({
-  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, passaggio, onClose, onSalvato,
+  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, passaggio, riposo, onClose, onSalvato,
 }: {
   companyId: string; outletId: string; employeeId: string; data: string; turno: TurnoModificabile | null; planId: string | null;
   nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario; trasferta?: TrasfertaDalCalendario; passaggio?: PassaggioTurno;
+  /** giorno di riposo scelto dalla responsabile HR nel piano del mese (Patrizio, 11/11/2026) */
+  riposo?: { attivo: boolean };
   onClose: () => void; onSalvato: (messaggio?: string) => void;
 }) {
   const { toast } = useToast();
@@ -132,6 +134,29 @@ export default function EditorTurno({
     setSalvo(false);
     if (error) { toast({ type: 'error', message: error.message }); return; }
     onSalvato();
+  };
+
+  // Giorno di riposo scelto a mano (Patrizio, 11/11/2026): oltre ai sabati e alle
+  // domeniche liberi della rotazione, la responsabile HR segna lei i giorni di
+  // riposo di ognuno. Si registra come gli altri liberi del piano; il turno del
+  // giorno, se c'e', si toglie e le sue ore tornano da assegnare.
+  const segnaRiposo = async () => {
+    if (!planId) return;
+    setSalvo(true);
+    const e1 = turno ? await togliTurno('Giorno di riposo') : null;
+    const { error } = e1 ? { error: e1 } : await supabase.from('shift_plan_weekend_off')
+      .upsert([{ company_id: companyId, plan_id: planId, employee_id: employeeId, data }], { onConflict: 'plan_id,employee_id,data' });
+    setSalvo(false);
+    if (error) { toast({ type: 'error', message: error.message }); return; }
+    onSalvato(`Giorno di riposo per ${nome.split(' ')[0]}${turno ? ': il turno è tolto e le sue ore tornano da assegnare' : ''}.`);
+  };
+  const togliRiposo = async () => {
+    if (!planId) return;
+    setSalvo(true);
+    const { error } = await supabase.from('shift_plan_weekend_off').delete().eq('plan_id', planId).eq('employee_id', employeeId).eq('data', data);
+    setSalvo(false);
+    if (error) { toast({ type: 'error', message: error.message }); return; }
+    onSalvato(`Riposo tolto: ${nome.split(' ')[0]} torna disponibile per un turno in questo giorno.`);
   };
 
   // Ferie e permessi inseriti dal calendario (Patrizio, 28/10/2026): giornata,
@@ -335,6 +360,25 @@ export default function EditorTurno({
                   );
                 })}
               </div>
+            )}
+          </div>
+        )}
+
+        {riposo && planId && !ferie?.giaInFerie && (
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 text-sm text-emerald-900">
+            <p className="text-xs font-semibold uppercase tracking-wide mb-1">Giorno di riposo</p>
+            {riposo.attivo ? (
+              <>
+                <p>Oggi {nome.split(' ')[0]} è a riposo.</p>
+                <button type="button" onClick={togliRiposo} disabled={salvo}
+                  className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-emerald-400 bg-white text-sm font-semibold hover:bg-emerald-100 disabled:opacity-50"><Trash2 size={14} /> Togli il riposo</button>
+              </>
+            ) : (
+              <>
+                <p className="text-xs">Scegli tu il giorno di riposo: {turno ? 'il turno di questo giorno si toglie e le sue ore tornano da assegnare.' : 'in questo giorno non si mettono turni.'}</p>
+                <button type="button" onClick={segnaRiposo} disabled={salvo}
+                  className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-emerald-400 bg-white text-sm font-semibold hover:bg-emerald-100 disabled:opacity-50">Segna come giorno di riposo</button>
+              </>
             )}
           </div>
         )}
