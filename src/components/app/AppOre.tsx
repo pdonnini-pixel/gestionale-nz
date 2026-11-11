@@ -18,7 +18,8 @@ interface Periodo {
   ferie: GiornoFerieApp[]
 }
 
-const ore = (min: number) => (min / 60).toLocaleString('it-IT', { maximumFractionDigits: 1 })
+// due decimali: con la pausa da 10 minuti le ore non cadono sulla mezz'ora (7,83)
+const ore = (min: number) => (min / 60).toLocaleString('it-IT', { maximumFractionDigits: 2 })
 
 export default function AppOre() {
   const oggi = dataRoma(Date.now())

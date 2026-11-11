@@ -34,7 +34,8 @@ export type ContoMese = {
   settimana?: { daLavorare: number | null; ordinarieAltri: number; straordinarioAltri: number; etichetta: string };
 };
 
-const fmt = (n: number) => n.toLocaleString('it-IT', { maximumFractionDigits: 1 });
+// due decimali: con la pausa da 10 minuti le ore non cadono sulla mezz'ora (7,83)
+const fmt = (n: number) => n.toLocaleString('it-IT', { maximumFractionDigits: 2 });
 
 /**
  * Per inserire ferie e permessi dal calendario del mese (Patrizio, 28/10/2026):
@@ -313,7 +314,7 @@ export default function EditorTurno({
         <div className="grid grid-cols-3 gap-3">
           <label className="text-xs font-semibold text-slate-600">Inizio<input type="time" step={1800} value={inizio} onChange={(e) => scriviOrario(e.target.value, fine, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
           <label className="text-xs font-semibold text-slate-600">Fine<input type="time" step={1800} value={fine} onChange={(e) => scriviOrario(inizio, e.target.value, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
-          <label className="text-xs font-semibold text-slate-600">Pausa (min)<input type="number" min={0} max={180} step={15} value={pausa} onChange={(e) => { pausaAMano.current = true; setPausa(Number(e.target.value) || 0); }} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
+          <label className="text-xs font-semibold text-slate-600">Pausa (min)<input type="number" min={0} max={180} step={5} value={pausa} onChange={(e) => { pausaAMano.current = true; setPausa(Number(e.target.value) || 0); }} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
         </div>
         <p className="text-sm text-slate-600">
           {errore ?? <>Presenza {fmt((minuti(fine) - minuti(inizio)) / 60)} ore: <b>{fmt(ore)} ore di lavoro</b> e {pausaVera} minuti di pausa, che non si pagano.</>}

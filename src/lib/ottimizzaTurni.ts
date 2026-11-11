@@ -773,8 +773,9 @@ export function ottimizzaSettimana(
   const speciale = (d: number) => !!giorni[d].straordinari || (q.iso[d] >= 6 && q.straordWeekend);
   q.tetto = persone.map((p, i) => Math.max(p.ore, q.oreFisse[i] + partenza[i].reduce((a, x) => a + (x ? q.lav[x.w / SLOT_MINUTI] : 0), 0)));
   q.oltreLibero = persone.map((p, i) => {
-    const inSpeciale = partenza[i].reduce((a, x, d) => a + (x && speciale(d) ? q.lav[x.w / SLOT_MINUTI] : 0), 0)
-      + fissi.filter((t) => t.employeeId === p.id).reduce((a, t) => { const d = giorni.findIndex((g) => g.data === t.data); return a + (d >= 0 && speciale(d) ? oreLavorate(t) : 0); }, 0);
+    // solo i turni che il conto muove: le ore dei turni fissi nei giorni speciali il conto non le
+    // mette fra quelle «di evento», quindi non si tolgono nemmeno qui (altrimenti la partenza sarebbe fuori regola)
+    const inSpeciale = partenza[i].reduce((a, x, d) => a + (x && speciale(d) ? q.lav[x.w / SLOT_MINUTI] : 0), 0);
     return Math.max(0, q.tetto[i] - p.ore - inSpeciale);
   });
   const c0 = costo(q, partenza);
@@ -842,7 +843,7 @@ export function derogheSettimana(args: {
     // sabato e domenica la responsabile entra all'apertura ed esce dopo nove ore (Patrizio, 12/11/2026)
     const resp = args.guida?.responsabile ? args.persone.find((p) => p.id === args.guida!.responsabile) : undefined;
     const fineResp = Math.min(g.chiude, g.apre + PRESENZA_RESPONSABILE_WEEKEND);
-    if (iso >= 6 && resp && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineResp)) {
+    if (iso >= 6 && resp && resp.ore >= regole.turnoMinOre && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineResp)) {
       out.push({ regola: 'domenica_apertura', data: g.data, employeeId: resp.id, testo: `${giornoTesto(g.data)}: ${resp.nome}, la responsabile, non fa ${hhmm(g.apre)}-${hhmm(fineResp)}` });
     }
     for (const p of args.persone) {

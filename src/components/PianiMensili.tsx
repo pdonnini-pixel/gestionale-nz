@@ -107,8 +107,8 @@ const REGOLE: RegolaWeekend[] = ['nessuno'];
 const STATI_FERIE_APPROVATE = ['inviata', 'approvata', 'approvata_parziale', 'chiusa'];
 const GIORNI_FERIE_VALIDI = ['richiesto', 'approvato'];
 const t5 = (t: string) => t.slice(0, 5);
-// Un decimale; le ore che non cadono sulla mezz'ora (pausa da 10 minuti) restano arrotondate al decimo.
-const fmt = (n: number | undefined) => (n ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 1 });
+// Due decimali: con la pausa da 10 minuti un turno vale 7,83 ore, e a un decimale i conti non tornerebbero.
+const fmt = (n: number | undefined) => (n ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 2 });
 
 const NOMI_GIORNI_LUNGHI = ['', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
 function testoGiorni(giorni: number[]): string {

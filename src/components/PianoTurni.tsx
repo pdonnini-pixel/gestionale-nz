@@ -393,8 +393,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const fatte = (id: string) => [...sistemati, ...fissiTutti].filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
       const libere = candidati.reduce((a, c) => a + Math.max(0, c.ore - fatte(c.id)), 0);
       const straord = candidati.reduce((a, c) => a + Math.max(0, fatte(c.id) - c.ore), 0);
-      const perFerie = (libere > 0.25 ? ` ${oreInChiaro(libere)} ore di contratto non servono: restano per ferie e permessi, le vedi nella colonna Ore.` : '')
-        + (straord > 0.25 ? ` Servono ${oreInChiaro(straord)} ore di straordinario (sabato, domenica o giorni di evento).` : '');
+      const perFerie = (libere > 0.25 ? ` Non servono ${oreInChiaro(libere)}${Math.round(libere * 60) % 30 === 0 ? ' ore' : ''} di contratto: restano per ferie e permessi, le vedi nella colonna Ore.` : '')
+        + (straord > 0.25 ? ` Straordinario: ${oreInChiaro(straord)}${Math.round(straord * 60) % 30 === 0 ? ' ore' : ''} (sabato, domenica o giorni di evento).` : '');
       toast({
         type: esito.scoperture.length ? 'warning' : 'success',
         message: esito.scoperture.length
