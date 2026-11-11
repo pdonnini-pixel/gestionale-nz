@@ -21,6 +21,8 @@ export interface TurnoStampa {
   fine: string;
   /** Pausa non pagata, in minuti (0 = nessuna pausa). */
   pausaMinuti: number;
+  /** Pausa timbrata ma non tolta dalle ore (i 10 minuti dei turni oltre 6 e fino a 8 ore). */
+  pausaPagataMinuti?: number;
   /** Ore di straordinario dentro questo turno, se ce ne sono. */
   oreStraordinario?: number;
 }
@@ -166,7 +168,7 @@ export function etichettaPausa(pausaMinuti: number): string {
 /** Seconda riga della cella: «7,5 ore · pausa 30'». */
 export function dettaglioTurno(turno: TurnoStampa): string {
   const ore = oreTurno(turno);
-  const pausa = etichettaPausa(turno.pausaMinuti);
+  const pausa = etichettaPausa(turno.pausaMinuti || turno.pausaPagataMinuti || 0);
   const tonde = Math.round(ore * 60) % 30 === 0;
   return `${formattaOre(ore)}${tonde ? (ore === 1 ? ' ora' : ' ore') : ''}${pausa ? ` · ${pausa}` : ''}`;
 }
