@@ -53,6 +53,21 @@ export interface RegoleTurni {
    * sabato e domenica. Spenta = restano da assegnare (regola del 29/10/2026).
    */
   riempiContratto?: boolean;
+  /**
+   * Pausa corta pagata (Patrizio, 11/11/2026, scelta del negozio, in prova a Roma Soratte): la
+   * pausa si decide sulle ore di TURNO, non di lavoro. Fino a 6 ore nessuna; oltre 6 e fino a 8
+   * la pausa corta (`pausaMinuti`) si timbra ma NON si toglie dalle ore (10-18 = 8 ore); sopra
+   * le 8 ore la pausa lunga si timbra e si toglie (10-19 = 8 ore e mezza). Sul turno resta scritta
+   * in `pausaMinuti` solo la pausa che si toglie: quella pagata si ricava con `pausaPagataDelTurno`.
+   */
+  pausaCortaPagata?: boolean;
+  /**
+   * Giorni a massima intensita' (Patrizio, 11/11/2026, scelta del negozio, in prova a Roma
+   * Soratte): sabato, domenica, festivi e giorni di evento lavorano tutti. La prima mezz'ora
+   * una persona, poi tutte fino a un'ora dalla chiusura, nell'ultima ora una. Gli straordinari
+   * sono ammessi in quei giorni.
+   */
+  giorniPieni?: boolean;
 }
 
 export const REGOLE_DEFAULT: RegoleTurni = {
@@ -74,6 +89,8 @@ export const REGOLE_DEFAULT: RegoleTurni = {
  * 7 ore di presenza = 6 lavorate e mezz'ora di pausa; 9 di presenza = 8 e un'ora).
  */
 export function pausaMinimaPerPresenza(presenzaMinuti: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  // pausa corta pagata: si toglie solo la pausa lunga, sopra le 8 ore di turno
+  if (regole.pausaCortaPagata) return presenzaMinuti > regole.pausaLungaOltreOre * 60 ? regole.pausaLungaMinuti : 0;
   // La pausa piu' corta che rispetta la regola per le ore che restano di lavoro.
   for (const p of [0, regole.pausaMinuti, regole.pausaLungaMinuti].sort((a, b) => a - b)) {
     if (pausaPer(presenzaMinuti - p, regole) <= p) return p;
@@ -93,6 +110,11 @@ export function pausaMinimaPerPresenza(presenzaMinuti: number, regole: RegoleTur
 export function presenzaGiusta(inizioMin: number, fineMin: number, regole: RegoleTurni = REGOLE_DEFAULT, apre = 0, chiude = 24 * 60): { inizio: number; fine: number; pausa: number; lavoro: number; allungato: boolean } {
   const presenza = fineMin - inizioMin;
   if (presenza <= 0) return { inizio: inizioMin, fine: fineMin, pausa: 0, lavoro: 0, allungato: false };
+  if (regole.pausaCortaPagata) {
+    // la pausa dipende dal turno: ogni orario torna, niente si allunga
+    const pausa = pausaMinimaPerPresenza(presenza, regole);
+    return { inizio: inizioMin, fine: fineMin, pausa, lavoro: presenza - pausa, allungato: false };
+  }
   // Una presenza e' giusta se una delle pause possibili, tolta, lascia un lavoro che
   // vuole proprio quella pausa. Se no si prova mezz'ora in piu' alla volta: 10-16:30
   // (6 ore e mezza) diventa 10-17 (6 e mezza + 30'), 10-18:30 diventa 10-19 (8 + 1 ora).
@@ -115,9 +137,22 @@ export function pausaPer(lavoroMinuti: number, regole: RegoleTurni = REGOLE_DEFA
   // Fino a 6 ore di lavoro comprese nessuna pausa, oltre 6 mezz'ora, da 8 un'ora
   // (Patrizio, 11/11/2026: 10-16 = 6 ore senza pausa, 10-18 = 7 e mezza + 30',
   // 10-19 = 8 + un'ora). Prima la mezz'ora scattava gia' a 6 ore esatte.
+  // pausa corta pagata: 8 ore di lavoro sono un turno di 8 ore senza niente da togliere;
+  // oltre, il turno supera le 8 ore e si toglie la pausa lunga (8,5 di lavoro = 9 di turno)
+  if (regole.pausaCortaPagata) return lavoroMinuti > regole.pausaLungaOltreOre * 60 ? regole.pausaLungaMinuti : 0;
   if (lavoroMinuti >= regole.pausaLungaOltreOre * 60) return regole.pausaLungaMinuti;
   if (lavoroMinuti > regole.pausaOltreOre * 60) return regole.pausaMinuti;
   return 0;
+}
+
+/**
+ * Minuti di pausa pagata di un turno: timbrata ma non tolta dalle ore. Solo nei negozi con la
+ * pausa corta pagata, per i turni oltre le 6 ore e fino a 8 che non hanno una pausa da togliere.
+ */
+export function pausaPagataDelTurno(t: Pick<Turno, 'inizio' | 'fine' | 'pausaMinuti'>, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  if (!regole.pausaCortaPagata || (t.pausaMinuti || 0) > 0) return 0;
+  const presenza = minuti(t.fine) - minuti(t.inizio);
+  return presenza > regole.pausaOltreOre * 60 && presenza <= regole.pausaLungaOltreOre * 60 ? regole.pausaMinuti : 0;
 }
 
 /**
@@ -140,6 +175,8 @@ export function regoleDaRiga(r: {
   soglia_ingressi_feriali?: number | string | null; soglia_ingressi_weekend?: number | string | null;
   due_persone?: boolean | null;
   riempi_contratto?: boolean | null;
+  pausa_corta_pagata?: boolean | null;
+  giorni_pieni?: boolean | null;
 } | null | undefined): RegoleTurni {
   if (!r) return REGOLE_DEFAULT;
   return {
@@ -152,6 +189,8 @@ export function regoleDaRiga(r: {
     sogliaWeekend: Number(r.soglia_ingressi_weekend ?? REGOLE_DEFAULT.sogliaWeekend),
     duePersone: r.due_persone ?? REGOLE_DEFAULT.duePersone,
     riempiContratto: r.riempi_contratto ?? false,
+    pausaCortaPagata: r.pausa_corta_pagata ?? false,
+    giorniPieni: r.giorni_pieni ?? false,
   };
 }
 
@@ -356,10 +395,10 @@ export function giorniDellaSettimana(lunedi: string): string[] {
 
 /**
  * Le ore scritte per chi legge: «40», «7,5», e quando non cadono sulla mezz'ora «7 h 50'»
- * (con la pausa da 10 minuti un turno 10-18 vale 7 ore e 50; Patrizio, 12/11/2026).
+ * (con la pausa da 10 minuti un turno 10-18 vale 7 ore e 50; Patrizio, 11/11/2026).
  */
 /**
- * I giorni «a organico pieno» (Patrizio, 11/11/2026, per tutti i negozi): sabato, domenica,
+ * I giorni «a massima intensità» (Patrizio, 11/11/2026; valgono nei negozi con `giorniPieni`): sabato, domenica,
  * festivi e giorni di un evento del negozio (Black Friday e gli altri inseriti fra gli eventi).
  * La prima mezz'ora una persona, poi tutte fino a un'ora dalla chiusura, in chiusura una.
  */

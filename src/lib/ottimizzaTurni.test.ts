@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  costruisciGiorni, giorniDellaSettimana, giornoIso, minuti, oreLavorate, oreScoperte, pausaMinimaPerPresenza, proponiSettimana, regoleDaRiga,
+  costruisciGiorni, giorniDellaSettimana, giornoIso, giornoPieno, minuti, oreLavorate, oreScoperte, pausaMinimaPerPresenza, pausaPagataDelTurno, pausaPer, presenzaGiusta, proponiSettimana, regoleDaRiga,
   type GiornoPiano, type PersonaTurni, type Turno,
 } from './turni';
 import { fabbisognoDaTraffico, almenoDuePersone } from './pianoMensile';
-import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, coppia, derogheSettimana } from './ottimizzaTurni';
+import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, coppia, derogheSettimana, ripartisciStraordinari } from './ottimizzaTurni';
 
 // Un negozio inventato sul modello di quello da cui sono nate le regole
 // (Patrizio, 11/11/2026): aperto 10-20, fasce 1-2-1, quattro persone.
@@ -54,8 +54,8 @@ describe('ottimizzaSettimana: le regole dell\'11/11/2026 pesate insieme', () => 
   const prima = proposta(giorni);
   const dopo = ottimizzaSettimana(giorni, prima, persone(), regole, { giornoLibero, guida: ['anna', 'carla'], responsabile: 'anna' });
 
-  it('la proposta di partenza lascia ore scoperte, la settimana sistemata no', () => {
-    expect(oreScoperte(giorni, prima)).toBeGreaterThan(0);
+  it('la settimana sistemata non ha ore scoperte e non peggiora la proposta di partenza', () => {
+    expect(oreScoperte(giorni, dopo)).toBeLessThanOrEqual(oreScoperte(giorni, prima));
     expect(oreScoperte(giorni, dopo)).toBe(0);
   });
 
@@ -153,7 +153,7 @@ describe('ottimizzaSettimana: turni fissi, eventi, partenze strane', () => {
   });
 });
 
-describe('regole del 12/11/2026: pause da 10 e 30 minuti, domenica, straordinari del weekend', () => {
+describe('regole del 11/11/2026: pause da 10 e 30 minuti, domenica, straordinari del weekend', () => {
   const giorni = settimana('2026-11-16');
   const dopo = ottimizzaSettimana(giorni, proposta(giorni), persone(), regole, { giornoLibero, responsabile: 'anna', straordinariWeekend: true });
 
@@ -243,5 +243,103 @@ describe('deroghe', () => {
     expect(regoleViste.has('weekend')).toBe(true);
     expect(regoleViste.has('giorno_libero')).toBe(true);
     expect(d.filter((x) => x.regola === 'troppi_giorni').map((x) => x.employeeId)).toEqual([]);
+  });
+});
+
+// Il negozio in prova (Patrizio, 11/11/2026, Roma Soratte): due scelte del negozio, spente altrove.
+describe('negozio in prova: pausa corta pagata e giorni a massima intensità', () => {
+  const pilota = regoleDaRiga({
+    turno_min_ore: 4, turno_max_ore: 10, pausa_oltre_ore: 6, pausa_minuti: 10, pausa_lunga_oltre_ore: 8, pausa_lunga_minuti: 30,
+    giorni_lavoro_max: 6, soglia_ingressi_feriali: 25, soglia_ingressi_weekend: 35, due_persone: false,
+    pausa_corta_pagata: true, giorni_pieni: true,
+  });
+  const m = (o: string) => minuti(o);
+  const t = (inizio: string, fine: string, pausaMinuti = 0) => ({ inizio, fine, pausaMinuti });
+
+  it('negli altri negozi le due scelte sono spente', () => {
+    expect(regole.pausaCortaPagata).toBe(false);
+    expect(regole.giorniPieni).toBe(false);
+  });
+
+  it('fino a 6 ore niente, oltre 6 e fino a 8 dieci minuti pagati, sopra le 8 mezz\'ora tolta', () => {
+    // 10-16: 6 ore, nessuna pausa
+    expect(pausaMinimaPerPresenza(6 * 60, pilota)).toBe(0);
+    expect(pausaPagataDelTurno(t('10:00', '16:00'), pilota)).toBe(0);
+    // 10-18: 8 ore piene, dieci minuti timbrati ma non tolti
+    expect(pausaMinimaPerPresenza(8 * 60, pilota)).toBe(0);
+    expect(pausaPagataDelTurno(t('10:00', '18:00'), pilota)).toBe(10);
+    expect(oreLavorate(t('10:00', '18:00', pausaMinimaPerPresenza(8 * 60, pilota)))).toBe(8);
+    expect(pausaPagataDelTurno(t('10:00', '16:30'), pilota)).toBe(10);
+    // 10-19: 8 ore e mezza, mezz'ora tolta e nessuna pausa pagata
+    expect(pausaMinimaPerPresenza(9 * 60, pilota)).toBe(30);
+    expect(pausaPagataDelTurno(t('10:00', '19:00', 30), pilota)).toBe(0);
+    // 10:30-19: 8 ore; 10-20: 9 ore e mezza
+    expect(oreLavorate(t('10:30', '19:00', pausaMinimaPerPresenza(8.5 * 60, pilota)))).toBe(8);
+    expect(oreLavorate(t('10:00', '20:00', pausaMinimaPerPresenza(10 * 60, pilota)))).toBe(9.5);
+    // dal lavoro alla pausa: 8 ore di lavoro sono un turno di 8 ore, 8 e mezza un turno di 9
+    expect(pausaPer(8 * 60, pilota)).toBe(0);
+    expect(pausaPer(8.5 * 60, pilota)).toBe(30);
+    // nessun orario scritto a mano viene allungato
+    expect(presenzaGiusta(m('10:00'), m('18:30'), pilota, m('10:00'), m('20:00'))).toMatchObject({ fine: m('18:30'), pausa: 30, lavoro: 480, allungato: false });
+    // dove la scelta e' spenta non c'e' pausa pagata
+    expect(pausaPagataDelTurno(t('10:00', '18:00'), regole)).toBe(0);
+  });
+
+  const date = giorniDellaSettimana('2026-11-23');
+  const eventi = [{ nome: 'Black Friday', data_dal: '2026-11-27', data_al: '2026-11-29', outlet_ids: null, persone_extra: 0, blocca_ferie: true, straordinari: true }];
+  const base = costruisciGiorni(date, orari, fasce, [], eventi);
+  const atteso = new Map(date.map((d) => { const g = giornoIso(d); return [d, [...Array(10).fill(0), ...ingressi[g >= 5 ? g : 1]]] as [string, number[]]; }));
+  const maxP = new Map(date.map((d) => [d, 4]));
+  const giorni = fabbisognoDaTraffico(base, atteso, pilota, maxP);
+
+  it('sabato, domenica e giorni di evento: una persona la prima mezz\'ora, tutte fino a un\'ora dalla chiusura, poi una', () => {
+    const forte = [1, ...Array(17).fill(4), 1, 1];
+    for (const i of [4, 5, 6]) expect(giorni[i].fabbisogno).toEqual(forte);
+    // il giovedi' resta sulle fasce e sul traffico
+    expect(Math.max(...giorni[3].fabbisogno)).toBeLessThan(4);
+    // dove la scelta e' spenta il sabato segue il traffico
+    expect(fabbisognoDaTraffico(base, atteso, regole, maxP)[5].fabbisogno).not.toEqual(forte);
+  });
+
+  it('la settimana del Black Friday: tutte presenti nei tre giorni, responsabile 10-19, ore sulle mezz\'ore', () => {
+    const prima = almenoDuePersone(giorni, proponiSettimana({ giorni, persone: persone(), regole: pilota, fissi: [] }).turni, persone(), [], pilota, []);
+    const dopo = ottimizzaSettimana(giorni, prima, persone(), pilota, {
+      giornoLibero, guida: [], responsabile: 'anna', straordinariWeekend: true,
+      giorniPieni: new Set(giorni.filter((g) => giornoPieno(g)).map((g) => g.data)),
+    });
+    expect(oreScoperte(giorni, dopo)).toBe(0);
+    for (const d of date.slice(4)) {
+      expect(new Set(dopo.filter((x) => x.data === d).map((x) => x.employeeId)).size).toBe(4);
+      expect(dopo.find((x) => x.data === d && x.employeeId === 'anna')).toMatchObject({ inizio: '10:00', fine: '19:00', pausaMinuti: 30 });
+      // all'apertura una persona sola per mezz'ora
+      expect(dopo.filter((x) => x.data === d && x.inizio === '10:00').length).toBe(1);
+    }
+    for (const x of dopo) expect((oreLavorate(x) * 2) % 1).toBe(0);
+    // nei feriali nessuno supera il contratto: lo straordinario sta nei giorni forti
+    for (const id of Object.keys(ORE)) {
+      const feriali = dopo.filter((x) => x.employeeId === id && !date.slice(4).includes(x.data)).reduce((a, x) => a + oreLavorate(x), 0);
+      expect(feriali).toBeLessThanOrEqual(ORE[id]);
+    }
+  });
+});
+
+describe('ripartisciStraordinari: a ore e mezz\'ore, solo nei giorni forti', () => {
+  const t = (employeeId: string, data: string, inizio: string, fine: string, pausaMinuti = 0): Turno => ({ employeeId, data, inizio, fine, pausaMinuti });
+  const forti = new Set(['2026-11-21', '2026-11-22']);
+  it('5 ore oltre il contratto: 2 e mezza il sabato e 2 e mezza la domenica', () => {
+    const turni = [t('a', '2026-11-16', '10:00', '18:00'), t('a', '2026-11-17', '12:00', '20:00'), t('a', '2026-11-19', '10:00', '18:00'), t('a', '2026-11-20', '10:00', '14:00'),
+      t('a', '2026-11-21', '10:00', '19:00', 30), t('a', '2026-11-22', '10:00', '19:00', 30)];
+    const r = ripartisciStraordinari(turni, new Map([['a', 40]]), forti);
+    expect([...r.values()]).toEqual([2.5, 2.5]);
+    expect(r.get(turni[4])).toBe(2.5);
+  });
+  it('3 ore: un\'ora e mezza a giorno; mezz\'ora dispari al primo giorno; niente sotto il contratto', () => {
+    const base = [t('b', '2026-11-16', '12:00', '20:00'), t('b', '2026-11-18', '10:00', '18:00'), t('b', '2026-11-21', '10:30', '20:00', 30), t('b', '2026-11-22', '10:30', '19:00', 30)];
+    expect([...ripartisciStraordinari(base, new Map([['b', 30]]), forti).values()]).toEqual([1.5, 1.5]);
+    expect([...ripartisciStraordinari(base, new Map([['b', 29.5]]), forti).values()]).toEqual([2, 1.5]);
+    expect(ripartisciStraordinari(base, new Map([['b', 33]]), forti).size).toBe(0);
+  });
+  it('senza turni nei giorni forti non scrive niente', () => {
+    expect(ripartisciStraordinari([t('c', '2026-11-16', '10:00', '20:00', 30)], new Map([['c', 4]]), forti).size).toBe(0);
   });
 });

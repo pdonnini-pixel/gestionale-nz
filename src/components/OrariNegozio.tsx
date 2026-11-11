@@ -72,6 +72,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [trafficoDa, setTrafficoDa] = useState<string | null | undefined>(undefined);
   // «Ore fino al contratto» (migration 395): dove la colonna non c'e' la scelta non compare e non si salva.
   const [haRiempi, setHaRiempi] = useState(false);
+  // colonne della migration 399: dove mancano (tenant Made) le due scelte non si mostrano e non si salvano
+  const [haProva, setHaProva] = useState(false);
   const [trafficoSalvato, setTrafficoSalvato] = useState<string | null | undefined>(undefined);
   const [speciali, setSpeciali] = useState<RigaSpeciale[]>([]);
   const [nuovoSpeciale, setNuovoSpeciale] = useState<RigaSpeciale>({ data: '', chiuso: true, apre: '', chiude: '', persone_extra: 0, nota: '' });
@@ -125,6 +127,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     setTrafficoSalvato(letto);
     if (r.data != null) setHaRiempi('riempi_contratto' in (r.data as object));
     else setHaRiempi(!(await supabase.from('outlet_shift_rules').select('riempi_contratto').limit(1)).error);
+    if (r.data != null) setHaProva('giorni_pieni' in (r.data as object));
+    else setHaProva(!(await supabase.from('outlet_shift_rules').select('giorni_pieni').limit(1)).error);
     setCaricamento(false);
   }, [outletId]);
 
@@ -219,6 +223,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       soglia_ingressi_feriali: regole.sogliaFeriali, soglia_ingressi_weekend: regole.sogliaWeekend, due_persone: regole.duePersone,
       ...(trafficoDa !== undefined ? { traffico_da_outlet_id: trafficoDa } : {}),
       ...(haRiempi ? { riempi_contratto: !!regole.riempiContratto } : {}),
+      ...(haProva ? { pausa_corta_pagata: !!regole.pausaCortaPagata, giorni_pieni: !!regole.giorniPieni } : {}),
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
     if (error) return error.message;
@@ -558,6 +563,21 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                   onChange={(e) => setRegole((r) => ({ ...r, riempiContratto: e.target.checked }))} />
                 <span>Ore fino al contratto: le ore di contratto che il traffico non chiede vanno comunque in turno, prima venerdì, sabato e domenica. Spenta, quelle ore restano da assegnare (ferie, permessi o turni a mano). Utile dove le persone sono appena assunte e non hanno ferie da scalare.</span>
               </label>
+            )}
+            {/* Modello in prova (Patrizio, 11/11/2026, Roma Soratte): due scelte del negozio, spente di default. */}
+            {haProva && (
+              <>
+                <label className="col-span-2 sm:col-span-3 flex items-start gap-2 text-xs text-slate-600">
+                  <input type="checkbox" disabled={!puoScrivere} className="mt-0.5" checked={!!regole.pausaCortaPagata}
+                    onChange={(e) => setRegole((r) => ({ ...r, pausaCortaPagata: e.target.checked }))} />
+                  <span>Pausa corta pagata: la pausa si decide sulle ore di turno. Fino a 6 ore nessuna; oltre 6 e fino a 8 la pausa corta si timbra ma non si toglie dalle ore (10-18 vale 8 ore); sopra le 8 ore la pausa lunga si timbra e si toglie (10-19 vale 8 ore e mezza). Spenta, ogni pausa si toglie dalle ore.</span>
+                </label>
+                <label className="col-span-2 sm:col-span-3 flex items-start gap-2 text-xs text-slate-600">
+                  <input type="checkbox" disabled={!puoScrivere} className="mt-0.5" checked={!!regole.giorniPieni}
+                    onChange={(e) => setRegole((r) => ({ ...r, giorniPieni: e.target.checked }))} />
+                  <span>Giorni a massima intensità: sabato, domenica, festivi e giorni di evento lavorano tutti. All&apos;apertura una persona sola per mezz&apos;ora, poi tutte fino a un&apos;ora dalla chiusura, nell&apos;ultima ora una. La responsabile entra all&apos;apertura ed esce dopo nove ore. In quei giorni sono ammessi gli straordinari. Spenta, il weekend segue il traffico.</span>
+                </label>
+              </>
             )}
             {trafficoDa !== undefined && altriNegozi.length > 0 && (
               <label className="col-span-2 sm:col-span-3 text-xs text-slate-600">Traffico MODA di riferimento (solo se questo negozio non ha traffico suo)<br />

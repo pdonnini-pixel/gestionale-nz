@@ -1009,49 +1009,55 @@ ufficiale un turno senza piano con `origine = 'manuale'` anche in bozza (decisio
 bozza da approvare caricata da fuori va messa con `origine = 'proposta'`. Dentro un piano scelto,
 dalla 395, vale solo il pubblicato.
 
-## Pause da 10 e 30 minuti, domenica della responsabile, straordinari del weekend (12/11/2026)
+## Modello in prova a Roma Soratte: i quattordici punti (11/11/2026)
 
-Decisioni di Patrizio del 12/11/2026, prima di pubblicare il lavoro dell'11/11.
+Patrizio, 11/11/2026: le regole nuove si provano **solo a Roma Soratte**; gli altri sette negozi
+restano come sono, pause salvate comprese. Dopo la prova decide lui se diventa il modello di tutti.
+Questa sezione sostituisce le decisioni prese lo stesso giorno su «pause da 10 e 30 minuti tolte
+dalle ore» e «domenica due persone all'apertura», che non valgono più.
 
-- **Pause**: 10 minuti al posto dei 30, 30 minuti al posto dell'ora. Soglie invariate: nessuna
-  pausa fino a 6 ore lavorate, la corta oltre 6, la lunga da 8. «10 minuti non stanno nella griglia
-  a mezz'ora, però così è.»
-- **Sabato e domenica** la responsabile entra alle 10 ed esce alle 19 (precisato da Patrizio dopo la
-  prima simulazione, che le dava l'apertura solo la domenica e orari diversi); «anche con
-  straordinari». **Domenica**: all'apertura almeno due
-  persone, alla chiusura dopo le 19 ne basta una; apertura e picco insieme, mai in tre al picco.
-- **Straordinari**: «non devi accorciare i turni per restare ai contratti»; quando c'è bisogno, solo
-  il sabato, la domenica e i giorni speciali come il Black Friday; spalmati sulle persone,
-  responsabile compresa.
-
-Conti a mano sull'ultimo PDF (stessi orari, pause nuove): ogni persona sopra il contratto di 40
-minuti fino a 1 ora e 40 nelle settimane normali (16-22/11: 135 h 20' invece di 130), Black Friday
-da 26 a 34 ore di straordinario. È la ragione per cui gli orari non si potevano solo «ricalcolare».
+I punti, nell'ordine in cui comandano:
+1. **Comanda il negozio**: orario di apertura e chiusura e giorni chiusi da «Orari e fabbisogno»;
+   il negozio non resta mai senza una persona.
+2. **Lunedì** responsabile o vice in negozio (sole a poter fare il versamento). Gli altri giorni
+   possono mancare tutte e due.
+3. **Giorni a massima intensità**: sabato, domenica, festivi e giorni speciali (Black Friday e
+   quelli fra gli eventi). Lavorano tutte, senza ferie, permessi o riposi; un'eccezione la accorda
+   un responsabile (utente con la funzione di Veronica o di Denise). All'apertura una persona sola
+   per mezz'ora al massimo, alla chiusura per un'ora al massimo. La responsabile fa 10-19.
+4. **Giorno libero fisso** e niente coppie fisse, per quanto possibile.
+5. **Pause**: fino a 6 ore di turno nessuna; oltre 6 e fino a 8 dieci minuti timbrati e NON tolti
+   (10-18 = 8 ore); sopra le 8 mezz'ora timbrata e tolta (10-19 = 8,5; 10-20 = 9,5).
+6. **Straordinari** solo nei giorni forti, oppure per la persona in più chiesta dalla direzione per
+   **ricarico del magazzino o allestimento** (anche in un feriale, segnata col suo motivo). Si
+   contano a ore e mezz'ore.
+7. **Contratto a settimana**; il mese finisce l'ultimo giorno e il successivo si porta dietro le ore.
+8. **Stampa** della settimana o del mese con la grafica dell'azienda; sul foglio solo orario e ore,
+   **niente pause** («questo lo definiamo successivamente»).
 
 Nel codice:
-- `REGOLE_DEFAULT` 10 e 30 minuti. Le regole salvate degli otto negozi restano a 30 e 60: Patrizio
-  il 12/11/2026 ha detto di non cambiarle per ora («al momento no»). Si cambiano da «Regole dei
-  turni», negozio per negozio, quando lo decide; finché restano così in quel negozio valgono 30 e 60.
-- `ottimizzaSettimana` lavora sulla **presenza** (inizio e durata a mezz'ore): le ore lavorate sono
-  la presenza meno `pausaMinimaPerPresenza`. La proposta di prima esce con fini fuori griglia
-  (10:00-17:40): il primo gesto del motore è riportarla sulle mezz'ore (10:00-18:00, 7 h 50').
-- Straordinari: nei feriali le ore non superano il contratto; quelle di sabato, domenica e giorni
-  di evento possono andare oltre (`straordinariWeekend`). Il costo cresce con il quadrato, così si
-  distribuiscono.
-- Sabato e domenica della responsabile: `PRESENZA_RESPONSABILE_WEEKEND` (nove ore dall'apertura) e
-  `PESI.domenicaApertura` (stesso livello di «weekend tutti»), deroga `domenica_apertura`. Domenica:
-  minimo due persone nella prima ora in `fabbisognoDaTraffico`.
-- Ricerca: 60.000 giri con quattro persone (sotto restava qualche ora scoperta che si poteva
-  coprire), più `riparaScoperture` (chi è in turno allunga, toglie le stesse ore a un altro suo
-  giorno, una collega chiude il buco). Circa 0,4 secondi a settimana.
+- Due scelte del negozio in `outlet_shift_rules` (migration 399, NULL = spente): `pausa_corta_pagata`
+  e `giorni_pieni`. `RegoleTurni.pausaCortaPagata` e `.giorniPieni`. Roma Soratte le accende con la
+  `NZ_ONLY_…_400`, che porta anche le sue pause a 10 e 30: **va applicata insieme alla pubblicazione
+  del frontend**, altrimenti il frontend vecchio toglierebbe i 10 minuti dalle ore.
+- Pausa corta pagata: in `pausaMinuti` del turno resta solo la pausa che si toglie; quella pagata
+  si ricava con `pausaPagataDelTurno` (turno oltre 6 e fino a 8 ore senza pausa tolta). `pausaPer`,
+  `pausaMinimaPerPresenza` e `presenzaGiusta` in questa modalità ragionano sulle ore di turno.
+  `oreLavorate` non cambia.
+- Giorni forti: `giornoPieno` (sabato, domenica, festivi, eventi) vale solo con `regole.giorniPieni`.
+  `fabbisognoDaTraffico` mette 1 persona la prima mezz'ora, tutte fino a un'ora dalla chiusura, 1
+  dopo. Responsabile 10-19 (`PRESENZA_RESPONSABILE_WEEKEND`) e `straordinariWeekend` solo lì.
+  Negli altri negozi il weekend segue fasce e traffico come prima.
+- Straordinario: `shifts.straordinario_motivo` (`giorno_forte`, `ricarico`, `allestimento`);
+  `ripartisciStraordinari` scrive lo straordinario della settimana sui turni dei giorni forti a
+  mezz'ore quando si salva la proposta settimanale; il motivo si sceglie nella finestra del turno.
+- Stampa: `dettaglioTurno` scrive solo le ore.
 
-Misure con il motore (Roma Soratte, dati veri, regole salvate del negozio, responsabile Angelini):
-| Settimana | Ore | Straordinari | Scoperte | Domenica |
-|---|---|---|---|---|
-| 16-22/11 | 130 h 20' su 130 | 20 minuti | 0 | Angelini 10-19 sabato e domenica, due all'apertura la domenica |
-| 23-29/11 (Black Friday) | 165 h 10' | 35 h 10' (8 h 20', 9 h 10', 9 h, 8 h 40') | 0 | Angelini 10-19 sabato e domenica, due all'apertura la domenica |
+Misura a mano su Roma Soratte, novembre 2026 (quattro persone, 40 + 30 + 30 + 30): 17 ore di
+straordinario in una settimana normale, 34,5 in quella del Black Friday, 29,5 nella 9-15 (feriali
+già fatti dalle ragazze). Stima del costo: circa 21-22 € l'ora, circa 1.720 € a novembre (costo
+dei colleghi dello stesso livello, gennaio-maggio 2026; da confermare con lo studio paghe).
 
-**Da guardare al primo piano di ogni negozio**: gli straordinari del weekend non hanno un tetto.
-Dove le ore di contratto non bastano (misure del 30/10: Palmanova e Valmontone) il motore ora copre
-il traffico del weekend con straordinari ogni settimana. Gli altri negozi non sono stati misurati.
-
+Ancora da fare: lo straordinario scritto anche quando si salva il **piano del mese**
+(`PianiMensili`), la stampa del mese intero dal gestionale, il blocco di ferie e permessi nei giorni
+forti con l'eccezione accordata dal responsabile, la pausa pagata letta dalle timbrature.

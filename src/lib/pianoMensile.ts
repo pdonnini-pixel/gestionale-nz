@@ -177,11 +177,12 @@ export function fabbisognoDaTraffico(
   return giorni.map((g) => {
     if (g.chiuso) return g;
     const max = Math.max(1, maxPersone.get(g.data) ?? 1);
-    // Sabato, domenica, festivi e giorni di evento (Patrizio, 11/11/2026, per tutti i negozi): non
+    // Sabato, domenica, festivi e giorni di evento nei negozi con i giorni a massima intensita'
+    // (Patrizio, 11/11/2026, in prova a Roma Soratte): non
     // comanda il traffico ma una regola fissa. La prima mezz'ora una persona sola (apre la
     // responsabile), poi tutte le persone del negozio fino a un'ora dalla chiusura, e nell'ultima
     // ora una persona (al massimo due: le altre in piu' il conto le scoraggia).
-    if (giornoPieno(g)) {
+    if (regole.giorniPieni && giornoPieno(g)) {
       const persone = g.fabbisogno.map((_, i) => {
         const inizio = g.apre + i * SLOT_MINUTI;
         return i === 0 || inizio >= g.chiude - 60 ? 1 : max;
@@ -1414,10 +1415,11 @@ function pianificaMeseConRegola(args: {
       esito = [...ottimizzaSettimana(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole,
         {
           giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto,
-          responsabile: args.nuove?.responsabile ?? null,
-          giorniPieni: new Set(gg.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)),
+          // responsabile 10-19, tutti presenti e straordinari: solo dove il negozio ha i giorni a massima intensita'
+          responsabile: regole.giorniPieni ? (args.nuove?.responsabile ?? null) : null,
+          giorniPieni: regole.giorniPieni ? new Set(gg.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)) : undefined,
           // nei piani veri; in simulazione (fabbisogno fisso o straordinari scelti) decidono le ipotesi
-          straordinariWeekend: !args.fabbisognoFisso && !args.straordinariPersona && args.straordinariSettimana == null,
+          straordinariWeekend: !!regole.giorniPieni && !args.fabbisognoFisso && !args.straordinariPersona && args.straordinariSettimana == null,
           // i giorni gia' lavorati nei giorni dell'altro mese della stessa settimana contano nel massimo
           giorniGia: new Map(candidati.map((c) => [c.id, giorniDellaSettimana(lun).filter((d) => !nelMese(d) && (args.oreFuoriMese?.get(c.id)?.get(d) ?? 0) > 0).length])),
         }, fissiSett), ...fissiSett];

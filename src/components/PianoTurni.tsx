@@ -23,7 +23,7 @@ import {
   type PersonaOggi,
 } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, nomeNegozio as nomeDelNegozio, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
-import { ottimizzaSettimana, scegliGiorniLiberi, derogheSettimana } from '../lib/ottimizzaTurni';
+import { ottimizzaSettimana, scegliGiorniLiberi, derogheSettimana, ripartisciStraordinari } from '../lib/ottimizzaTurni';
 import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, impostaGiornoLibero, caricaCoppiePrima, guidaDelNegozio, type GiornoLibero } from '../lib/regoleNuoveDb';
 import { cosaMancaAllaGuida, etichettaRuoloGuida, ruoloGuida } from '../lib/guidaNegozio';
 import { getCurrentTenant } from '../lib/tenants';
@@ -48,7 +48,7 @@ type Props = {
 type TurnoDb = {
   id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null;
   origine: 'proposta' | 'manuale'; stato: 'bozza' | 'pubblicato' | 'annullato'; annullato_motivo: string | null;
-  straordinario?: boolean; ore_straordinario?: number; updated_at?: string;
+  straordinario?: boolean; ore_straordinario?: number; straordinario_motivo?: string | null; updated_at?: string;
 };
 
 const t5 = (t: string) => t.slice(0, 5);
@@ -110,6 +110,13 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const [disponibilita, setDisponibilita] = useState<Map<string, Accordo>>(new Map());
   const [trasferte, setTrasferte] = useState<Trasferta[]>([]);
   const [editor, setEditor] = useState<{ employeeId: string; data: string; turno: TurnoDb | null } | null>(null);
+  // Il motivo dello straordinario (migration 399): dove la colonna manca non si legge e non si scrive.
+  const [haMotivo, setHaMotivo] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    supabase.from('shifts').select('straordinario_motivo').limit(1).then((r) => { if (vivo) setHaMotivo(!r.error); });
+    return () => { vivo = false; };
+  }, [companyId]);
   // Turno trascinato e mossa da confermare (Patrizio, 29/10/2026: come nel piano del mese).
   const [trascinato, setTrascinato] = useState<string | null>(null);
   const [mossa, setMossa] = useState<{ turno: TurnoDb; versoId: string; versoData: string } | null>(null);
@@ -134,13 +141,13 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // fatti settimana per settimana.
   const leggiTurni = useCallback(async (pianoDelMese: Map<string, string>): Promise<TurnoDb[]> => {
     const { data, error } = await supabase.from('shifts')
-      .select('id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id, straordinario, ore_straordinario, updated_at')
+      .select(`id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id, straordinario, ore_straordinario, updated_at${haMotivo ? ', straordinario_motivo' : ''}`)
       .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', date[0]).lte('data', ultimo).order('inizio');
     if (error) throw error;
-    return ((data as TurnoDb[]) ?? [])
+    return ((data as unknown as TurnoDb[]) ?? [])
       .filter((x) => (x.plan_id ?? null) === (pianoDelMese.get(x.data.slice(0, 7)) ?? null))
       .map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) }));
-  }, [companyId, outletId, date, ultimo]);
+  }, [companyId, outletId, date, ultimo, haMotivo]);
 
   // Dopo una modifica ai turni si rileggono solo i turni: una richiesta, la
   // tabella e' aggiornata subito.
@@ -379,14 +386,19 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const liberi = scegliGiorniLiberi(candidati.map((c) => c.id), new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])), guida);
       const coppiePrima = await caricaCoppiePrima(companyId, outletId, date[0]);
       const sistemati = ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidati, regole,
-        { giornoLibero: liberi, guida, coppiePrima, riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori, responsabile: negozio?.referente_employee_id ?? null, straordinariWeekend: true, giorniPieni: new Set(giorni.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)) }, fissiTutti);
+        { giornoLibero: liberi, guida, coppiePrima, riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori, responsabile: regole.giorniPieni ? (negozio?.referente_employee_id ?? null) : null, straordinariWeekend: !!regole.giorniPieni, giorniPieni: regole.giorniPieni ? new Set(giorni.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)) : undefined }, fissiTutti);
       if (haGiorniLiberi) await salvaGiorniLiberiDiSistema(companyId, liberi, giorniLiberi).catch(() => undefined);
       const esito = { ...proposta, turni: sistemati, scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, [...sistemati, ...fissiTutti])) };
       if (esito.turni.length) {
+        // nei negozi con i giorni a massima intensita' lo straordinario della settimana si scrive sui turni dei giorni forti
+        const straordDi = regole.giorniPieni
+          ? ripartisciStraordinari(esito.turni, new Map(candidati.map((c) => [c.id, c.ore])), new Set(giorni.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)))
+          : new Map<Turno, number>();
         const { error } = await supabase.from('shifts').insert(esito.turni.map((t) => ({
           company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data,
           inizio: t.inizio, fine: t.fine, pausa_minuti: t.pausaMinuti, origine: 'proposta', stato: 'bozza',
           plan_id: pianiScelti.get(t.data.slice(0, 7)) ?? null,
+          ...(straordDi.has(t) ? { straordinario: true, ore_straordinario: straordDi.get(t)!, ...(haMotivo ? { straordinario_motivo: 'giorno_forte' } : {}) } : {}),
         })));
         if (error) throw error;
       }
@@ -742,7 +754,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           planId={pianiScelti.get(editor.data.slice(0, 7)) ?? null}
           nome={nomePersona(dati.schede.find((s) => s.id === editor.employeeId) ?? { nome: '', cognome: '' })}
           apre={giorni.find((g) => g.data === editor.data)!.apre} chiude={giorni.find((g) => g.data === editor.data)!.chiude}
-          regole={regole}
+          regole={regole} conMotivo={haMotivo} giornoForte={!!regole.giorniPieni && giornoPieno(giorni.find((g) => g.data === editor.data)!)}
           passaggio={editor.turno ? (() => {
             const t = editor.turno!;
             return {

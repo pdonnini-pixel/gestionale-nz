@@ -47,12 +47,12 @@ export interface RegoleNuove {
   guida?: string[];
   /**
    * Straordinari anche il sabato e la domenica, quando servono a coprire il traffico (Patrizio,
-   * 12/11/2026). Spento nelle simulazioni, dove gli straordinari li decide chi simula.
+   * 11/11/2026). Spento nelle simulazioni, dove gli straordinari li decide chi simula.
    */
   straordinariWeekend?: boolean;
   /**
    * La responsabile del negozio: il sabato e la domenica entra all'apertura ed esce dopo nove ore
-   * (10-19 in un negozio che apre alle 10; Patrizio, 12/11/2026).
+   * (10-19 in un negozio che apre alle 10; Patrizio, 11/11/2026).
    */
   responsabile?: string | null;
   /** le ore di contratto che il traffico non chiede vanno comunque in turno, prima venerdi', sabato e domenica */
@@ -126,7 +126,7 @@ export function scegliGiorniLiberi(ids: string[], gia: Map<string, number> = new
 
 // ── Il conto ─────────────────────────────────────────────────────────────
 
-/** Sabato e domenica la responsabile resta nove ore dall'apertura: 10-19 (Patrizio, 12/11/2026). */
+/** Sabato e domenica la responsabile resta nove ore dall'apertura: 10-19 (Patrizio, 11/11/2026). */
 export const PRESENZA_RESPONSABILE_WEEKEND = 9 * 60;
 
 /** Quanto pesa ogni regola: ogni riga vale piu' di tutto quello che sta sotto. */
@@ -151,7 +151,7 @@ export const PESI = {
 } as const;
 
 // Inizio e presenza in minuti, tutti e due sulla griglia delle mezz'ore. Le ore lavorate
-// sono la presenza meno la pausa: con la pausa da 10 minuti (Patrizio, 12/11/2026) un turno
+// sono la presenza meno la pausa: con la pausa da 10 minuti (Patrizio, 11/11/2026) un turno
 // 10-18 vale 7 ore e 50, e l'orario scritto resta tondo.
 interface Pezzo { s: number; w: number }
 type Stato = (Pezzo | null)[][];          // [persona][giorno]
@@ -229,7 +229,7 @@ function costo(q: Quadro, st: Stato): number {
       inTurno[quanti++] = p;
       const h = q.lav[x.w / SLOT_MINUTI];
       ore[p] += h;
-      // straordinari: nei giorni di evento e, quando serve, il sabato e la domenica (Patrizio, 12/11/2026)
+      // straordinari: nei giorni di evento e, quando serve, il sabato e la domenica (Patrizio, 11/11/2026)
       if (g.straordinari || (q.pieno[d] && q.straordWeekend)) oreEvento[p] += h;
       giorniLavoro[p] += 1;
       c += PESI.turno;
@@ -551,7 +551,7 @@ function mancaNelGiorno(q: Quadro, st: Stato, d: number): number {
  * Dove restano ore scoperte: chi e' gia' in turno quel giorno allunga, togliendo le stesse
  * ore a un altro suo turno della settimana; se li' resta un buco lo chiude una collega
  * allungando il suo. Sono tre caselle mosse insieme, che la ricerca a caso trova di rado
- * (misura del 12/11/2026, Roma Soratte: domenica dalle 17 alle 19 con una persona a 3 ore
+ * (misura del 11/11/2026, Roma Soratte: domenica dalle 17 alle 19 con una persona a 3 ore
  * dal contratto e nessuno che potesse restare).
  */
 function riparaScoperture(q: Quadro, st: Stato, c0: number): number {
@@ -787,7 +787,7 @@ export function ottimizzaSettimana(
   // una partenza che il conto non sa leggere (piu' giorni del massimo gia' nei turni fissi) resta com'e'
   if (!Number.isFinite(c0)) return turni;
   // il conto costa in proporzione alle persone: i giri calano con loro, cosi' il tempo resta quello
-  // (misura del 12/11/2026 su Roma Soratte: sotto i 60.000 giri restava qualche ora scoperta che si poteva coprire)
+  // (misura del 11/11/2026 su Roma Soratte: sotto i 60.000 giri restava qualche ora scoperta che si poteva coprire)
   const giri = nuove.giri ?? Math.max(12_000, Math.min(60_000, Math.round(240_000 / persone.length)));
   const seme = semeDi(`${giorni[0].data}|${persone.map((p) => p.id).join(',')}`);
   let meglio = { st: partenza, c: c0 };
@@ -845,15 +845,16 @@ export function derogheSettimana(args: {
       && !del.some((t) => t.employeeId === args.guida!.responsabile || t.employeeId === args.guida!.vice)) {
       out.push({ regola: 'lunedi_guida', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: né la responsabile né la vice sono in turno (versamento in banca)` });
     }
-    // sabato e domenica la responsabile entra all'apertura ed esce dopo nove ore (Patrizio, 12/11/2026)
+    // sabato e domenica la responsabile entra all'apertura ed esce dopo nove ore (Patrizio, 11/11/2026)
     const resp = args.guida?.responsabile ? args.persone.find((p) => p.id === args.guida!.responsabile) : undefined;
     const fineResp = Math.min(g.chiude, g.apre + PRESENZA_RESPONSABILE_WEEKEND);
-    if (giornoPieno(g) && resp && resp.ore >= regole.turnoMinOre && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineResp)) {
+    const pieno = regole.giorniPieni ? giornoPieno(g) : iso >= 6;
+    if (regole.giorniPieni && pieno && resp && resp.ore >= regole.turnoMinOre && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineResp)) {
       out.push({ regola: 'domenica_apertura', data: g.data, employeeId: resp.id, testo: `${giornoTesto(g.data)}: ${resp.nome}, la responsabile, non fa ${hhmm(g.apre)}-${hhmm(fineResp)}` });
     }
     for (const p of args.persone) {
       const suo = del.filter((t) => t.employeeId === p.id);
-      if (giornoPieno(g) && !suo.length && p.ore >= regole.turnoMinOre && !p.nonDisponibile.has(g.data)) {
+      if (pieno && !suo.length && p.ore >= regole.turnoMinOre && !p.nonDisponibile.has(g.data)) {
         out.push({ regola: 'weekend', data: g.data, employeeId: p.id, testo: `${p.nome} non lavora ${giornoTesto(g.data)}: nel weekend lavorano tutti` });
       }
       if (suo.length && args.giornoLibero?.get(p.id) === iso) {
@@ -868,6 +869,42 @@ export function derogheSettimana(args: {
   for (const p of args.persone) {
     const suoi = args.turni.filter((t) => t.employeeId === p.id && date.has(t.data));
     if (new Set(suoi.map((t) => t.data)).size > regole.giorniLavoroMax) out.push({ regola: 'troppi_giorni', data: null, employeeId: p.id, testo: `${p.nome} lavora più di ${regole.giorniLavoroMax} giorni` });
+  }
+  return out;
+}
+
+/** I motivi di uno straordinario (Patrizio, 11/11/2026): giorno forte, oppure una persona in piu' chiesta dalla direzione. */
+export const MOTIVI_STRAORDINARIO = [
+  { id: 'giorno_forte', nome: 'Giorno forte (sabato, domenica, festivo, evento)' },
+  { id: 'ricarico', nome: 'Ricarico del magazzino' },
+  { id: 'allestimento', nome: 'Allestimento' },
+] as const;
+export type MotivoStraordinario = typeof MOTIVI_STRAORDINARIO[number]['id'];
+
+/**
+ * Lo straordinario della settimana scritto sui turni dei giorni forti, a ore e mezz'ore
+ * (Patrizio, 11/11/2026: «2 ore, 2 ore e mezza, 3 ore»). Per ogni persona le ore oltre il
+ * contratto si dividono fra i suoi turni di sabato, domenica, festivi ed eventi, mezz'ora alla
+ * volta cominciando dal primo giorno, mai piu' delle ore del turno. Quello che non sta nei giorni
+ * forti non si scrive: nei feriali lo straordinario lo decide una persona.
+ */
+export function ripartisciStraordinari(turni: Turno[], contratto: Map<string, number>, giorniPieni: Set<string>): Map<Turno, number> {
+  const out = new Map<Turno, number>();
+  for (const [id, ore] of contratto) {
+    const suoi = turni.filter((t) => t.employeeId === id);
+    let mezze = Math.floor((suoi.reduce((a, t) => a + oreLavorate(t), 0) - ore) * 2 + 1e-9);
+    const forti = suoi.filter((t) => giorniPieni.has(t.data)).sort((a, b) => a.data.localeCompare(b.data));
+    if (mezze <= 0 || !forti.length) continue;
+    const date = forti.map(() => 0);
+    while (mezze > 0) {
+      let dato = false;
+      for (let i = 0; i < forti.length && mezze > 0; i++) {
+        if ((date[i] + 1) / 2 > oreLavorate(forti[i]) + 1e-9) continue;
+        date[i]++; mezze--; dato = true;
+      }
+      if (!dato) break;
+    }
+    forti.forEach((t, i) => { if (date[i] > 0) out.set(t, date[i] / 2); });
   }
   return out;
 }

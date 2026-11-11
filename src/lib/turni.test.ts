@@ -155,7 +155,7 @@ describe('scopertureDelGiorno', () => {
 });
 
 describe('pausaPer', () => {
-  it('nessuna pausa fino a 6 ore lavorate comprese, 10 minuti oltre 6, mezz\'ora da 8 (Patrizio, 12/11/2026)', () => {
+  it('nessuna pausa fino a 6 ore lavorate comprese, 10 minuti oltre 6, mezz\'ora da 8 (Patrizio, 11/11/2026)', () => {
     expect(pausaPer(5.5 * 60)).toBe(0);
     expect(pausaPer(6 * 60)).toBe(0);
     expect(pausaPer(6.5 * 60)).toBe(10);
@@ -340,7 +340,7 @@ describe('orario scritto a mano e pausa (Patrizio, 11/11/2026)', () => {
     // 10-16 sono 6 ore di lavoro: fino a 6 ore comprese nessuna pausa
     expect(presenzaGiusta(m('10:00'), m('16:00'))).toMatchObject({ pausa: 0, lavoro: 360, allungato: false });
     expect(pausaPer(360)).toBe(0);
-    // con le pause da 10 e 30 minuti (Patrizio, 12/11/2026) ogni orario a mezz'ore torna:
+    // con le pause da 10 e 30 minuti (Patrizio, 11/11/2026) ogni orario a mezz'ore torna:
     // 10-16:30 sono 6 ore e 20 di lavoro e 10 minuti di pausa
     expect(presenzaGiusta(m('10:00'), m('16:30'), REGOLE_DEFAULT, m('10:00'), m('20:00'))).toMatchObject({ fine: m('16:30'), pausa: 10, lavoro: 380, allungato: false });
     // 10-18: 7 ore e 50 di lavoro e 10 minuti di pausa

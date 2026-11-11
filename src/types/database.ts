@@ -21704,6 +21704,8 @@ export type Database = {
           company_id: string
           due_persone: boolean | null
           riempi_contratto: boolean | null
+          pausa_corta_pagata: boolean | null
+          giorni_pieni: boolean | null
           traffico_da_outlet_id: string | null
           giorni_lavoro_max: number
           outlet_id: string
@@ -21722,6 +21724,8 @@ export type Database = {
           company_id: string
           due_persone?: boolean | null
           riempi_contratto?: boolean | null
+          pausa_corta_pagata?: boolean | null
+          giorni_pieni?: boolean | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id: string
@@ -21740,6 +21744,8 @@ export type Database = {
           company_id?: string
           due_persone?: boolean | null
           riempi_contratto?: boolean | null
+          pausa_corta_pagata?: boolean | null
+          giorni_pieni?: boolean | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id?: string
@@ -27538,6 +27544,7 @@ export type Database = {
           inizio: string
           nota: string | null
           ore_straordinario: number
+          straordinario_motivo: string | null
           origine: string
           outlet_id: string
           pausa_minuti: number
@@ -27558,6 +27565,7 @@ export type Database = {
           inizio: string
           nota?: string | null
           ore_straordinario?: number
+          straordinario_motivo?: string | null
           origine?: string
           outlet_id: string
           pausa_minuti?: number
@@ -27578,6 +27586,7 @@ export type Database = {
           inizio?: string
           nota?: string | null
           ore_straordinario?: number
+          straordinario_motivo?: string | null
           origine?: string
           outlet_id?: string
           pausa_minuti?: number

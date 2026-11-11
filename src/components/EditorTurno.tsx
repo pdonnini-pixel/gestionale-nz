@@ -9,14 +9,15 @@ import { Modal } from './ui/Modal';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import { formattaDataBreve } from '../lib/organico';
-import { NOMI_GIORNO_BREVI, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, pausaPer, presenzaGiusta, type RegoleTurni } from '../lib/turni';
+import { NOMI_GIORNO_BREVI, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, pausaPagataDelTurno, pausaPer, presenzaGiusta, type RegoleTurni } from '../lib/turni';
+import { MOTIVI_STRAORDINARIO } from '../lib/ottimizzaTurni';
 import { oreGiornata } from '../lib/pianoMensile';
 import { oreTrasferta, type Trasferta } from '../lib/trasferte';
 import { mossePossibili, type MossaTurno } from '../lib/spostaTurni';
 
 export type TurnoModificabile = {
   id: string; inizio: string; fine: string; pausa_minuti: number;
-  origine: string; stato: string; straordinario?: boolean; ore_straordinario?: number;
+  origine: string; stato: string; straordinario?: boolean; ore_straordinario?: number; straordinario_motivo?: string | null;
 };
 
 /**
@@ -66,8 +67,12 @@ export type PassaggioTurno = {
 };
 
 export default function EditorTurno({
-  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, passaggio, riposo, onClose, onSalvato,
+  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, passaggio, riposo, conMotivo, giornoForte, onClose, onSalvato,
 }: {
+  /** la colonna del motivo dello straordinario c'e' (migration 399) */
+  conMotivo?: boolean;
+  /** il giorno e' a massima intensita' in questo negozio: il motivo proposto e' «giorno forte» */
+  giornoForte?: boolean;
   companyId: string; outletId: string; employeeId: string; data: string; turno: TurnoModificabile | null; planId: string | null;
   nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario; trasferta?: TrasfertaDalCalendario; passaggio?: PassaggioTurno;
   /** giorno di riposo scelto dalla responsabile HR nel piano del mese (Patrizio, 11/11/2026) */
@@ -107,6 +112,8 @@ export default function EditorTurno({
   const ordinariePrima = turno ? oreLavorate({ inizio: turno.inizio, fine: turno.fine, pausaMinuti: turno.pausa_minuti }) - oreStraordPrima : 0;
   const [straordinario, setStraordinario] = useState(oreStraordPrima > 0);
   const [oreStraordScritte, setOreStraordScritte] = useState<string | null>(oreStraordPrima > 0 ? String(oreStraordPrima) : null);
+  // Perche' lo straordinario (Patrizio, 11/11/2026): giorno forte, oppure la persona in piu' chiesta dalla direzione.
+  const [motivoStraord, setMotivoStraord] = useState<string>(turno?.straordinario_motivo ?? (giornoForte ? 'giorno_forte' : 'ricarico'));
   const [salvo, setSalvo] = useState(false);
 
   // La pausa non e' mai lavoro (Patrizio, 21/10/2026): nessuna fino a 6 ore lavorate, 30' oltre 6, un'ora
@@ -139,7 +146,7 @@ export default function EditorTurno({
       const g = presenzaGiusta(minuti(inizio), minuti(fine), regole, apre, chiude);
       [i, f, p] = [hhmm(g.inizio), hhmm(g.fine), Math.max(pausaAMano.current ? pausa : 0, g.pausa)];
     }
-    const riga = { inizio: i, fine: f, pausa_minuti: p, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord };
+    const riga = { inizio: i, fine: f, pausa_minuti: p, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord, ...(conMotivo ? { straordinario_motivo: oreStraord > 0 ? motivoStraord : null } : {}) };
     const { error } = turno
       ? await supabase.from('shifts').update(riga).eq('id', turno.id)
       : await supabase.from('shifts').insert([{ ...riga, company_id: companyId, outlet_id: outletId, employee_id: employeeId, data, stato: 'bozza', plan_id: planId }]);
@@ -346,6 +353,18 @@ export default function EditorTurno({
               className="w-20 min-h-[36px] rounded-lg border border-amber-300 px-2 text-right tabular-nums" />
             <span className="text-xs text-slate-500">su {fmt(oreTurno)} h del turno; il resto è ordinario</span>
           </label>
+        )}
+        {straordinario && conMotivo && (
+          <label className="flex items-center gap-2 text-sm text-slate-700 -mt-2 pl-3">
+            Motivo:
+            <select aria-label="Motivo dello straordinario" value={motivoStraord} onChange={(e) => setMotivoStraord(e.target.value)}
+              className="min-h-[36px] rounded-lg border border-amber-300 px-2 bg-white">
+              {MOTIVI_STRAORDINARIO.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+            </select>
+          </label>
+        )}
+        {!errore && pausaPagataDelTurno({ inizio, fine, pausaMinuti: pausaVera }, regole) > 0 && (
+          <p className="text-xs text-slate-500">Pausa di {pausaPagataDelTurno({ inizio, fine, pausaMinuti: pausaVera }, regole)} minuti: si timbra ma non si toglie dalle ore.</p>
         )}
 
         {conto && (contoDi(conto.settimana) || contoDi(conto)) && (
