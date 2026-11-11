@@ -12,7 +12,7 @@
 // negozio senza traffico (né suo né la forma media degli altri).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Info, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Copy, Info, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { almenoDuePersone, attesoDelleDate, fabbisognoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
 import EditorTurno from './EditorTurno';
 import SpostaTurnoModal from './SpostaTurnoModal';
@@ -29,7 +29,7 @@ import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
-  proponiSettimana, scopertureDelGiorno, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
+  proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
 type Props = {
@@ -279,6 +279,54 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     }
   };
 
+  // Una settimana ancora vuota parte dalla settimana prima (Patrizio, 11/11/2026):
+  // stesse persone, stesso giorno della settimana, stessi orari, in bozza e «messi a
+  // mano». Si saltano chi quel giorno non c'e' (ferie, fuori servizio, accordi), i
+  // giorni chiusi e gli orari che non stanno nell'apertura del giorno.
+  const copiaPrecedente = async () => {
+    if (!puoScrivere) return;
+    setLavoro(true);
+    try {
+      const prima = date.map((d) => aggiungiGiorni(d, -7));
+      const [sh, pi] = await Promise.all([
+        supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, stato')
+          .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', prima[0]).lte('data', prima[6]).neq('stato', 'annullato'),
+        supabase.from('shift_plans').select('id, mese').eq('outlet_id', outletId).eq('stato', 'scelto')
+          .in('mese', [...new Set([prima[0], prima[6]].map((d) => `${d.slice(0, 7)}-01`))]),
+      ]);
+      if (sh.error) throw sh.error;
+      const pianoPrima = new Map(((pi.data as { id: string; mese: string }[]) ?? []).map((x) => [x.mese.slice(0, 7), x.id]));
+      // gli stessi turni che la settimana prima mostra: del piano scelto del mese, o quelli settimanali
+      const sorgente = ((sh.data as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null }[]) ?? [])
+        .filter((t) => (t.plan_id ?? null) === (pianoPrima.get(t.data.slice(0, 7)) ?? null));
+      const nuovi = sorgente.flatMap((t) => {
+        const d = aggiungiGiorni(t.data, 7);
+        const g = giorni.find((x) => x.data === d);
+        const c = candidati.find((x) => x.id === t.employee_id);
+        const [ini, fin] = [t5(t.inizio), t5(t.fine)];
+        if (!g || g.chiuso || !c || c.nonDisponibile.has(d) || minuti(ini) < g.apre || minuti(fin) > g.chiude) return [];
+        if (attivi.some((x) => x.employee_id === t.employee_id && x.data === d)) return [];
+        return [{
+          company_id: companyId, outlet_id: outletId, employee_id: t.employee_id, data: d, inizio: ini, fine: fin,
+          pausa_minuti: t.pausa_minuti ?? 0, origine: 'manuale', stato: 'bozza', plan_id: pianiScelti.get(d.slice(0, 7)) ?? null,
+        }];
+      });
+      if (!nuovi.length) {
+        toast({ type: 'warning', message: sorgente.length ? 'Nessun turno della settimana prima si può copiare: le persone non ci sono o gli orari non stanno nell’apertura.' : 'La settimana prima non ha turni da copiare.' });
+        return;
+      }
+      const { error } = await supabase.from('shifts').insert(nuovi);
+      if (error) throw error;
+      const saltati = sorgente.length - nuovi.length;
+      toast({ type: 'success', message: `Copiati ${nuovi.length} turni dalla settimana prima, in bozza.${saltati > 0 ? ` ${saltati} non copiati: persona assente, giorno chiuso o orario fuori dall'apertura.` : ''} Ritoccali e pubblica.` });
+      await ricaricaTurni();
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Copia non riuscita.' });
+    } finally {
+      setLavoro(false);
+    }
+  };
+
   const pubblica = async () => {
     setLavoro(true);
     // Solo i turni che si vedono: quelli del piano scelto del mese o quelli settimanali, non le varianti scartate.
@@ -343,6 +391,12 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         </div>
         {puoScrivere && (
           <div className="flex flex-wrap gap-2">
+            {attivi.length === 0 && (
+              <button type="button" onClick={copiaPrecedente} disabled={lavoro}
+                className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg border border-blue-300 bg-blue-50 text-blue-800 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50">
+                <Copy size={15} /> Copia la settimana prima
+              </button>
+            )}
             <button type="button" onClick={proponi} disabled={lavoro || !haOrari}
               className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg border border-slate-300 bg-white text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
               <RefreshCw size={15} /> {attivi.length ? 'Ricalcola la proposta' : 'Proponi i turni'}
