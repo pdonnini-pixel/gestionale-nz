@@ -24,6 +24,7 @@ import {
   ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
+import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, type RegoleNuove } from './ottimizzaTurni';
 
 // ── Tipo di giorno ───────────────────────────────────────────────────────
 
@@ -1099,6 +1100,8 @@ export interface EsitoPianoMese {
   }>;
   /** ore fatte dalle persone a chiamata */
   oreRiserva: number;
+  /** il giorno libero fisso di ognuno usato nel piano (1-7): quello gia' deciso o quello scelto dal sistema */
+  giorniLiberi?: Map<string, number>;
 }
 
 /**
@@ -1157,6 +1160,15 @@ function pianificaMeseConRegola(args: {
    * e non entrano nei turni del piano.
    */
   fissi?: Turno[];
+  /**
+   * Le regole dell'11/11/2026 (Patrizio, Roma Soratte): giorno libero fisso di
+   * ognuno (chi non ce l'ha lo riceve dal sistema), responsabile e vice per il
+   * lunedi', coppie dei feriali delle settimane prima del mese. Le pesa tutte
+   * insieme `ottimizzaSettimana`, come ultimo passo di ogni settimana.
+   */
+  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima'>;
+  /** salta l'ultimo passo (confronti veloci fra due calcoli, es. con e senza una ferie) */
+  rapido?: boolean;
 }): EsitoPianoMese {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const nelMese = (d: string) => d.slice(0, 7) === args.mese;
@@ -1271,6 +1283,11 @@ function pianificaMeseConRegola(args: {
     giorniNecessari.push(...fabbisognoDaTraffico(gg, args.atteso, regole, maxPieno, args.extra));
   }
 
+  // Il giorno libero fisso: chi non ce l'ha lo riceve qui, e il piano lo restituisce.
+  const guida = (args.nuove?.guida ?? []).filter((id) => contrattuali.some((p) => p.id === id));
+  const giorniLiberi = scegliGiorniLiberi(contrattuali.map((p) => p.id), args.nuove?.giornoLibero, guida);
+  const coppieViste = new Map(args.nuove?.coppiePrima ?? []);
+
   // 3. Le settimane.
   const turni: Turno[] = [];
   for (const lun of settimane) {
@@ -1374,6 +1391,16 @@ function pianificaMeseConRegola(args: {
       const altri = esito.filter((t) => !ids.has(t.employeeId));
       esito = [...altri, ...ritoccaScoperture(gg, esito.filter((t) => ids.has(t.employeeId)), altri, conExtra, regole)];
     }
+    // Ultimo passo (Patrizio, 11/11/2026): tutte le regole pesate insieme. Nel
+    // weekend lavorano tutti, ognuno ha il suo giorno libero fisso, le coppie dei
+    // feriali cambiano, il lunedi' c'e' la responsabile o la vice; con «ore fino al
+    // contratto» le ore libere vanno in turno. Mai peggio di quello che c'era.
+    if (!args.rapido) {
+      const fissiRefSett = new Set(fissiSett);
+      esito = [...ottimizzaSettimana(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole,
+        { giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto }, fissiSett), ...fissiSett];
+      for (const [k, n] of coppieFeriali(esito)) coppieViste.set(k, (coppieViste.get(k) ?? 0) + n);
+    }
     // Rete di sicurezza: nessun turno fuori dagli accordi della scheda.
     const fissiRef = new Set(fissiSett);
     turni.push(...rispettaFasce(esito.filter((t) => !fissiRef.has(t)), args.persone, regole));
@@ -1447,5 +1474,6 @@ function pianificaMeseConRegola(args: {
     giorni: giorniMese,
     persone,
     oreRiserva: riserva.reduce((a, p) => a + persone[p.id].pianificate, 0),
+    giorniLiberi,
   };
 }
