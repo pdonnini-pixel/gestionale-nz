@@ -984,7 +984,8 @@ Franciacorta 5,8 → 3 (18 → 5), Palmanova 2 → 7,6 (16 → 9), Roma Soratte 
 ora nei feriali perché ora quasi tutti lavorano sabato e domenica, come vuole la variante. Le altre varianti:
 «un sabato o una domenica» 195,8 → 124,9 ore sotto MODA, «una domenica» 219,3 → 145,5.
 
-Tempi: una settimana 15-300 ms (prima 6-30), un mese 0,2-1 secondo a variante (prima 0,1-0,2).
+Tempi: una settimana 15-300 ms (prima 6-30), un mese 0,1-1 secondo a variante (prima 0,1-0,2); appena una
+strategia copre tutto le altre non si provano. Da rimisurare se un negozio supera le 6-7 persone.
 
 Aperto, da decidere con Patrizio: nella variante senza riposi restano 26 riposi di sabato o domenica al mese
 sugli 8 negozi. Toglierli tutti accorciando i feriali senza limite porta le ore sotto MODA da 120 a 269

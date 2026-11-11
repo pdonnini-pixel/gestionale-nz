@@ -583,6 +583,8 @@ export function proponiSettimana(args: ArgsProposta): EsitoProposta {
     const m = { turni, vuote: mezzOreVuote(args.giorni, tutti), ore: oreScoperte(args.giorni, tutti), q: mancanzaQuadrata(args.giorni, tutti) };
     if (!meglio || m.vuote < meglio.vuote
       || (m.vuote === meglio.vuote && (m.ore < meglio.ore - 1e-9 || (Math.abs(m.ore - meglio.ore) <= 1e-9 && m.q < meglio.q - 1e-9)))) meglio = m;
+    // tutto coperto: le strategie che restano non possono fare meglio
+    if (meglio.vuote === 0 && meglio.ore <= 1e-9) break;
   }
   const turni = meglio!.turni;
   const tutti = [...fissi, ...turni];
