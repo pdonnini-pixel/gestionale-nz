@@ -41,8 +41,8 @@ const fileInBase64 = (file: File): Promise<string> =>
   });
 
 /**
- * Estrae dal file i dati di una scadenza. Supporta PDF (testo estratto via
- * pdfjs). Lancia ScadenzaExtractError con un messaggio leggibile in caso di
+ * Estrae dal file i dati di una scadenza. Supporta PDF: manda il documento
+ * intero (fino a 4 MB) e il testo estratto via pdfjs. Lancia ScadenzaExtractError con un messaggio leggibile in caso di
  * problemi (file senza testo, servizio non disponibile, ecc.).
  */
 export async function extractScadenzaFromPdf(file: File): Promise<ExtractedScadenza> {

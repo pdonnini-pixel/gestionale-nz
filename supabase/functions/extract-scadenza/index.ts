@@ -50,6 +50,7 @@ const MAX_TEXT_CHARS = 24000;
 // PDF intero: fino a circa 4,5 MB di file (6 milioni di caratteri in base64).
 // Oltre, o se l'API lo rifiuta (più di 100 pagine), si usa il solo testo.
 const MAX_PDF_BASE64_CHARS = 6_000_000;
+const MAX_BODY_BYTES = 8_000_000;
 
 // Data di oggi a Roma (non UTC): serve per calcolare le scadenze «a N giorni».
 function oggiRoma(): string {
@@ -171,6 +172,10 @@ Deno.serve(async (req: Request) => {
     const chiamante = await verificaProfilo(supabase, tokenDaRichiesta(req), supabaseServiceKey, { ruoli: RUOLI_ESTRAZIONE });
     if (!chiamante.ok) return jsonError(chiamante.status, chiamante.message, chiamante.code);
 
+    // Corpo oltre gli 8 MB: non si legge nemmeno (il PDF ammesso sta sotto i 6).
+    if (Number(req.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) {
+      return jsonError(413, "Documento troppo grande. Inserisci i dati a mano.", "TOO_LARGE");
+    }
     const body = await req.json().catch(() => ({}));
     const rawText: string = (body.text ?? "").toString();
     const text = rawText.replace(/\u0000/g, " ").trim().slice(0, MAX_TEXT_CHARS);
@@ -212,7 +217,13 @@ Deno.serve(async (req: Request) => {
 
     let letturaDa: "pdf" | "testo" = pdf ? "pdf" : "testo";
     let r = await chiama(!!pdf);
-    if (!r.ok && pdf && haTesto) {
+    // Solo 400 e 413 dipendono dal PDF: un 429 o un 5xx non si ripete, costerebbe doppio.
+    const pdfRifiutato = !r.ok && !!pdf && (r.status === 400 || r.status === 413);
+    if (pdfRifiutato && !haTesto) {
+      console.error(`[extract-scadenza] Anthropic API ${r.status} col PDF, nessun testo di ripiego:`, (await r.text()).slice(0, 300));
+      return jsonError(422, "Non riesco a leggere questo PDF (troppe pagine o file non valido). Inserisci i dati a mano.", "PDF_NOT_READABLE");
+    }
+    if (pdfRifiutato) {
       // Il PDF non è passato (troppe pagine, file rovinato…): si riprova col testo.
       console.error(`[extract-scadenza] Anthropic API ${r.status} col PDF, riprovo col testo:`, (await r.text()).slice(0, 300));
       letturaDa = "testo";
@@ -234,7 +245,8 @@ Deno.serve(async (req: Request) => {
 
     const jsonStr = extractJson(raw);
     if (!jsonStr) {
-      console.error("[extract-scadenza] No JSON in reply:", raw.slice(0, 500));
+      // Solo la lunghezza: la risposta può contenere dati del documento (IBAN, importi).
+      console.error(`[extract-scadenza] No JSON in reply (${raw.length} caratteri, da=${letturaDa})`);
       return jsonError(502, "Non sono riuscito a leggere i dati dal documento. Inseriscili a mano.", "PARSE_ERROR");
     }
 
@@ -297,6 +309,6 @@ Deno.serve(async (req: Request) => {
     return jsonOk({ data });
   } catch (error) {
     console.error(`[extract-scadenza] Error:`, error);
-    return jsonError(500, (error as Error).message);
+    return jsonError(500, "Estrazione non riuscita. Riprova tra poco o inserisci i dati a mano.");
   }
 });
