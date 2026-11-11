@@ -987,6 +987,20 @@ ora nei feriali perché ora quasi tutti lavorano sabato e domenica, come vuole l
 Tempi: una settimana 15-300 ms (prima 6-30), un mese 0,1-1 secondo a variante (prima 0,1-0,2); appena una
 strategia copre tutto le altre non si provano. Da rimisurare se un negozio supera le 6-7 persone.
 
-Aperto, da decidere con Patrizio: nella variante senza riposi restano 26 riposi di sabato o domenica al mese
-sugli 8 negozi. Toglierli tutti accorciando i feriali senza limite porta le ore sotto MODA da 120 a 269
-(misurato): il motore oggi si ferma dove i feriali ci perderebbero.
+### Il weekend vince comunque (Patrizio, 12/11/2026)
+
+Alla domanda «il weekend vince anche se i feriali perdono ore?» Patrizio ha risposto «vince comunque». Nella
+variante «nessun sabato né domenica liberi» il ripiego di `weekendSenzaRiposi` non ha più il limite delle ore
+scoperte: chi resta senza turno il sabato o la domenica riceve il turno minimo, con le ore prese accorciando gli
+altri suoi turni della settimana (anche quello dell'altro giorno del weekend); se un taglio lascia una mezz'ora
+vuota la coprono i colleghi di quel giorno (`ritoccaScoperture`), altrimenti quel taglio non si fa. Restano
+fermi: nessuna mezz'ora vuota, turno minimo, al massimo 6 giorni, turni fissi intoccabili, ore della persona
+invariate.
+
+Misura sugli stessi dati (8 negozi, novembre): riposi di sabato o domenica 56 → 7, ore sotto MODA 185,2 → 135,7,
+ore sotto il minimo delle fasce 99 → 98,5, nessuna mezz'ora vuota, nessun giorno con una persona sola. I 7 che
+restano: 5 sono domenica 1/11, unico giorno di novembre di una settimana di ottobre, dove quelle persone non
+hanno ore di questo mese; 2 sono a Roma Soratte nella settimana di apertura (5-8/11), con due soli turni da 10
+ore che non si possono accorciare senza lasciare il negozio vuoto. Per negozio (ore sotto MODA): Barberino 23,8,
+Brugnato 50,4, Franciacorta 3, Palmanova 17,3, Roma Soratte 24,4, Torino 6,2, Valdichiana 5,3, Valmontone 5,3.
+Palmanova (prima 2) e Barberino (prima 17,3) sono i due che pagano nei feriali.

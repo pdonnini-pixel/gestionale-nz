@@ -890,11 +890,10 @@ export function weekendSenzaRiposi(
       if (meglio) { out = meglio.lista; continue; }
       // Nessun turno intero si puo' spostare (pochi turni lunghi nei feriali: toglierne
       // uno lascerebbe il giorno scoperto o con una persona sola). Allora le ore del
-      // turno minimo si prendono accorciando i suoi turni feriali di mezz'ora alla
-      // volta, dove costa meno ore scoperte e senza svuotare nessuna mezz'ora. Solo se
-      // la settimana non ci perde: le ore scoperte non devono crescere (misura
-      // dell'11/11/2026 sugli 8 negozi, novembre: senza questo limite i riposi nel
-      // weekend scendono da 62 a 22 ma le ore sotto MODA salgono da 100 a 269).
+      // turno minimo si prendono accorciando gli altri suoi turni della settimana di mezz'ora alla
+      // volta, dove costa meno ore scoperte e senza svuotare nessuna mezz'ora. Il
+      // weekend vince comunque (Patrizio, 12/11/2026), anche se i feriali perdono
+      // ore: restano fermi solo l'orario mai vuoto, il turno minimo e i giorni di lavoro.
       const minimo = regole.turnoMinOre * 60;
       const suoi = (lista: Turno[]) => [...lista, ...fissi].filter((t) => t.employeeId === p.id);
       if (new Set(suoi(out).map((t) => t.data)).size >= regole.giorniLavoroMax || lavoroMassimoGiorno(l, regole) < minimo) continue;
@@ -908,7 +907,8 @@ export function weekendSenzaRiposi(
       let prova = out;
       for (let k = 0; k < 40 && libere(prova) < minimo - 1e-9; k++) {
         let taglio: { lista: Turno[]; ore: number } | null = null;
-        for (const t of prova.filter((x) => x.employeeId === p.id && giornoIso(x.data) < 6)) {
+        // i suoi turni della settimana, anche quello dell'altro giorno del weekend
+        for (const t of prova.filter((x) => x.employeeId === p.id && x.data !== g.data)) {
           const lav = oreLavorate(t) * 60 - SLOT_MINUTI;
           if (lav < minimo - 1e-9) continue;
           const pausa = pausaPer(lav, regole);
@@ -916,8 +916,13 @@ export function weekendSenzaRiposi(
             { ...t, fine: hhmm(minuti(t.inizio) + lav + pausa), pausaMinuti: pausa },
             { ...t, inizio: hhmm(minuti(t.fine) - lav - pausa), pausaMinuti: pausa },
           ]) {
-            const l2 = prova.map((x) => (x === t ? v : x));
-            if (vuote(l2) > vuotePrima) continue;
+            let l2 = prova.map((x) => (x === t ? v : x));
+            // se il taglio lascia una mezz'ora vuota, la coprono i colleghi di quel giorno
+            if (vuote(l2) > vuotePrima) {
+              const gt = giorni.find((x) => x.data === t.data);
+              if (gt) l2 = ritoccaScoperture([gt], l2, fissi, persone.filter((x) => x.id !== p.id), regole);
+              if (vuote(l2) > vuotePrima) continue;
+            }
             const ore = oreScoperte(giorni, [...l2, ...fissi]);
             if (!taglio || ore < taglio.ore - 1e-9) taglio = { lista: l2, ore };
           }
@@ -939,11 +944,7 @@ export function weekendSenzaRiposi(
       }
       if (!inizio) continue;
       const conTurno = [...prova, { employeeId: p.id, data: g.data, inizio: hhmm(inizio.s), fine: hhmm(inizio.s + durata), pausaMinuti: pausaPer(minimo, regole) }];
-      // Un turno accorciato sotto la soglia della pausa perde anche la mezz'ora di pausa
-      // in negozio: quella non e' lavoro tolto ai feriali e non conta come perdita.
-      const pause = (lista: Turno[]) => suoi(lista).reduce((a, t) => a + (t.pausaMinuti || 0), 0) / 60;
-      const pauseTolte = Math.max(0, pause(out) - pause(conTurno));
-      if (oreScoperte(giorni, [...conTurno, ...fissi]) <= oreScoperte(giorni, tutti()) + pauseTolte + 1e-9) out = conTurno;
+      out = conTurno;
     }
   }
   return out;
