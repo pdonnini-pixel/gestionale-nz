@@ -917,3 +917,75 @@ Da allora in `src/components/OrariNegozio.tsx`:
 - Copertura: resta l'opzione 2 decisa da Patrizio. Chi ha il turno conta in negozio per tutto il turno, perché
   la pausa la prendono le ragazze quando il negozio è vuoto; le presenze verificano che la facciano.
 - I turni già salvati non cambiano: le loro ore si contano con la pausa scritta nel turno.
+
+## La proposta settimanale non lascia mai il negozio vuoto (11/11/2026)
+
+Caso misurato: Roma Soratte, settimana 16-22/11/2026, traffico MODA di Valmontone, fasce salvate, 4 persone
+(40, 30, 30, 30 ore). «Proponi i turni» metteva tutte e quattro in turno da 4 ore dal lunedì al giovedì, ognuna
+arrivava a 6 giorni di lavoro e il venerdì dalle 17 alle 20 non c'era nessuno: 7 ore scoperte con 10 ore di
+contratto libere.
+
+Perché succedeva:
+- `proponiSettimana` sceglieva la strategia sulla proposta grezza e rifiniva solo quella. Le strategie dividono
+  le ore di ognuno sui giorni che gli restano, quindi con fasce basse nei feriali escono turni da 4 ore: quattro
+  persone al giorno, 20 giorni-persona nei feriali contro i 16 che restano dopo sabato e domenica. Il limite dei
+  6 giorni si controllava solo al momento di assegnare, mai nel decidere quanto lungo fare il turno.
+- `ritoccaScoperture` lavora un giorno alla volta: nel giorno scoperto non poteva aggiungere chi aveva già 6 giorni.
+- Il piano settimanale non passava da `copriOrarioMinimo`, che il piano del mese aveva già.
+
+Cosa è cambiato (`src/lib/turni.ts`, `src/lib/pianoMensile.ts`, `src/components/PianoTurni.tsx`):
+- Strategia `lunghi`: il turno è lungo quanto il buco in cui cade (fino al turno massimo e alle ore della
+  persona). Sei strategie invece di quattro (`STRATEGIE`).
+- Ogni strategia va fino in fondo (sfrondo, ritocco, spostamenti, straordinari degli eventi) e vince la settimana
+  finita con meno mezz'ore vuote (`mezzOreVuote`), poi meno ore scoperte, poi la mancanza meglio distribuita.
+- `spostaUnGiorno`: a chi ha finito i giorni di lavoro si toglie il turno di un altro giorno e lo si porta nel
+  giorno scoperto; il ritocco risistema i due giorni. Si tiene solo se le mezz'ore vuote e le ore scoperte calano.
+- `proponiPianoSettimana`: il pulsante «Proponi i turni» fa proposta, `almenoDuePersone`, poi `copriOrarioMinimo`
+  e `ritoccaScoperture` come il piano del mese. I turni fissi non si toccano (se la copertura ne cambierebbe uno,
+  si resta com'era).
+- `weekendSenzaRiposi` (variante «nessun sabato né domenica liberi»): con pochi turni lunghi togliere un feriale
+  lasciava il giorno vuoto e lo spostamento saltava. Ora chi resta quel giorno si risistema (`ritoccaScoperture`
+  sul solo giorno, senza le ore di chi parte); se nemmeno così si può, il turno minimo del weekend si fa
+  accorciando i suoi turni feriali, solo se le ore scoperte della settimana non crescono (ore totali invariate).
+- `dueTurniInveceDiTre`: il turno unito passa da `presenzaGiusta`. Prima 10-14 più 14-18:30 diventava 10-18:30
+  con un'ora di pausa su 7 ore e mezza; ora 10-19 (8 + 1 h) o i due turni restano divisi.
+
+Misure dell'11/11/2026 con le funzioni vere, 8 negozi, traffico MODA di novembre 2025 di ogni negozio (Torino:
+tutta la storia; Roma Soratte: Valmontone), fasce e regole salvate, persone in forza con le ore di contratto,
+senza ferie.
+
+Piano settimanale, 4 settimane (2-29/11), somma su 32 settimane-negozio:
+
+| | prima | dopo |
+|---|---|---|
+| ore di apertura senza nessuno | 39 | 0 |
+| ore sotto il minimo delle fasce | 149 | 55 |
+| ore scoperte | 179 | 63 |
+| ore sotto MODA | 202,4 | 86,3 |
+| giorni con una persona sola | 0 | 0 |
+| ore pianificate | 3.981,5 | 4.076 |
+
+Nessuna settimana-negozio peggiora. Quello che resta scoperto è Brugnato (3 persone, 100 ore tutte usate) e la
+settimana del Black Friday. Roma Soratte 16-22/11: da 7 ore scoperte a 0, 126 ore su 130.
+
+Piano del mese, novembre, «nessun sabato né domenica liberi»:
+
+| | prima | dopo |
+|---|---|---|
+| ore di apertura senza nessuno | 0 | 0 |
+| ore sotto il minimo delle fasce | 99 | 82,5 |
+| ore sotto MODA | 185,2 | 119,8 |
+| riposi di sabato o domenica | 56 | 26 |
+| ore pianificate | 4.151,5 | 4.209 |
+
+Per negozio (ore sotto MODA, riposi nel weekend): Barberino 17,3 → 23,8 (6 → 0), Brugnato 57,9 → 47,4 (0 → 3),
+Franciacorta 5,8 → 3 (18 → 5), Palmanova 2 → 7,6 (16 → 9), Roma Soratte 63,6 → 21 (3 → 5), Torino 5,5 → 6,4
+(7 → 4), Valdichiana 13,7 → 5,3 (0 → 0), Valmontone 19,4 → 5,3 (6 → 0). Barberino e Palmanova perdono qualche
+ora nei feriali perché ora quasi tutti lavorano sabato e domenica, come vuole la variante. Le altre varianti:
+«un sabato o una domenica» 195,8 → 124,9 ore sotto MODA, «una domenica» 219,3 → 145,5.
+
+Tempi: una settimana 15-300 ms (prima 6-30), un mese 0,2-1 secondo a variante (prima 0,1-0,2).
+
+Aperto, da decidere con Patrizio: nella variante senza riposi restano 26 riposi di sabato o domenica al mese
+sugli 8 negozi. Toglierli tutti accorciando i feriali senza limite porta le ore sotto MODA da 120 a 269
+(misurato): il motore oggi si ferma dove i feriali ci perderebbero.

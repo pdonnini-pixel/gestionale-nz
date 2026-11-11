@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   blackFriday, tipoDelGiorno, storicoTraffico, trafficoAtteso, fabbisognoDaTraffico, sogliaDelGiorno, assegnaWeekendLiberi,
-  personeMinime, pianificaMese, spostaEAllunga, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
+  personeMinime, pianificaMese, proponiPianoSettimana, dueTurniInveceDiTre, attesoDelleDate, spostaEAllunga, usaOreResidue, proponiFerie, suggerisciFinestre, oreGiornata, oreFerieGiorno, giorniLavorativiSettimana, type RigaTraffico,
 } from './pianoMensile';
-import { type Turno, oreScoperte, REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate, coperturaLorda, copertura } from './turni';
+import { type Turno, type PersonaTurni, type RegoleTurni, oreScoperte, mezzOreVuote, spostaUnGiorno, proponiSettimana, pausaPer, REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate, coperturaLorda, copertura } from './turni';
 
 const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
 const date = (dal: string, n: number) => Array.from({ length: n }, (_, i) => {
@@ -522,5 +522,135 @@ describe('sposta un turno e allunga quello di una collega (Patrizio, 02/11/2026)
     expect(copertura(g, dopo).every((c) => c >= 1)).toBe(true);
     // nessuno oltre il contratto
     for (const p of persone) expect(dopo.filter((x) => x.employeeId === p.id).reduce((a, x) => a + oreLavorate(x), 0)).toBeLessThanOrEqual(p.ore + 1e-9);
+  });
+});
+
+describe('la proposta settimanale non lascia mai il negozio vuoto (Roma Soratte, 11/11/2026)', () => {
+  // Il caso misurato l'11/11/2026: Roma Soratte, settimana 16-22/11/2026, traffico MODA
+  // di Valmontone di novembre 2025 (negozio di riferimento), fasce salvate da Patrizio,
+  // quattro persone senza vincoli da 40, 30, 30 e 30 ore. La proposta metteva tutte e
+  // quattro in turno da 4 ore dal lunedi' al giovedi', ognuna arrivava a 6 giorni di
+  // lavoro e il venerdi' dalle 17 alle 20 non c'era nessuno, con 10 ore di contratto libere.
+  const regole: RegoleTurni = { ...REGOLE_DEFAULT, sogliaFeriali: 25, sogliaWeekend: 35, duePersone: false };
+  const LUN = '2026-11-16';
+  const settimana = giorniDellaSettimana(LUN);
+  const feriali = [['10:00', '12:00', 1], ['12:00', '18:00', 2], ['18:00', '20:00', 1]] as const;
+  const weekend = [['10:00', '11:00', 1], ['11:00', '19:00', 2], ['19:00', '20:00', 1]] as const;
+  const fasce = [1, 2, 3, 4, 5, 6, 7].flatMap((g) => (g >= 6 ? weekend : feriali).map(([dalle, alle, persone]) => ({ giorno: g, dalle, alle, persone, origine: 'manuale' })));
+  // ingressi medi per ora dalle 10 alle 19, Valmontone, novembre 2025 (outlet_traffic_hourly)
+  const moda: Record<string, number[]> = {
+    feriale: [7.31, 18, 20.5, 16.5, 20.88, 19.44, 16.75, 15.69, 12.31, 5.44],
+    venerdi: [7.67, 18.67, 16.33, 15, 23.67, 20, 24, 18.33, 18, 12],
+    sabato: [18.33, 53.33, 61.67, 56, 76.67, 69.67, 99.33, 103, 67.33, 28],
+    domenica: [25.5, 96.75, 108.75, 75.25, 107.5, 113.25, 164, 182, 132.25, 46.5],
+  };
+  const righe: RigaTraffico[] = date('2025-11-03', 21).flatMap((d) => moda[tipoDelGiorno(d).tipo].map((ingressi, i) => ({ data: d, ora: 10 + i, ingressi })));
+  const { atteso } = attesoDelleDate(storicoTraffico(righe), settimana);
+  const persone: PersonaTurni[] = [['p1', 40], ['p2', 30], ['p3', 30], ['p4', 30]].map(([id, ore]) => ({ id: id as string, ore: ore as number, nonDisponibile: new Set<string>() }));
+  const giorni = fabbisognoDaTraffico(
+    costruisciGiorni(settimana, orari, fasce, [], [], '2026-11-05'), atteso, regole, new Map(settimana.map((d) => [d, persone.length])),
+  );
+  const t = (employeeId: string, giorno: number, inizio: string, fine: string, pausaMinuti = 0): Turno => ({ employeeId, data: settimana[giorno], inizio, fine, pausaMinuti });
+  // la proposta di prima, cosi' come usciva
+  const prima: Turno[] = [
+    t('p1', 0, '16:00', '20:00'), t('p2', 0, '14:00', '18:00'), t('p3', 0, '10:00', '14:00'), t('p4', 0, '12:00', '16:00'),
+    t('p1', 1, '14:00', '18:00'), t('p2', 1, '16:00', '20:00'), t('p3', 1, '10:00', '14:00'), t('p4', 1, '12:00', '16:00'),
+    t('p1', 2, '16:00', '20:00'), t('p2', 2, '10:00', '14:00'), t('p3', 2, '12:00', '16:00'), t('p4', 2, '14:00', '18:00'),
+    t('p1', 3, '14:00', '18:00'), t('p2', 3, '12:00', '16:00'), t('p3', 3, '16:00', '20:00'), t('p4', 3, '10:00', '14:00'),
+    t('p3', 4, '10:00', '17:00', 30), t('p4', 4, '12:00', '17:00'),
+    t('p1', 5, '11:00', '19:00', 30), t('p2', 5, '14:00', '18:00'), t('p4', 5, '10:00', '20:00', 60),
+    t('p1', 6, '10:00', '20:00', 60), t('p2', 6, '11:00', '19:00', 30), t('p3', 6, '11:00', '19:00', 30),
+  ];
+  const regoleRispettate = (turni: Turno[]) => {
+    for (const p of persone) {
+      const suoi = turni.filter((x) => x.employeeId === p.id);
+      expect(suoi.reduce((a, x) => a + oreLavorate(x), 0), `ore di ${p.id}`).toBeLessThanOrEqual(p.ore + 1e-9);
+      expect(new Set(suoi.map((x) => x.data)).size, `un turno al giorno, ${p.id}`).toBe(suoi.length);
+      expect(suoi.length, `giorni di ${p.id}`).toBeLessThanOrEqual(regole.giorniLavoroMax);
+      for (const x of suoi) {
+        expect(oreLavorate(x), `${p.id} ${x.data}`).toBeGreaterThanOrEqual(regole.turnoMinOre);
+        expect(oreLavorate(x), `${p.id} ${x.data}`).toBeLessThanOrEqual(regole.turnoMaxOre);
+        expect(x.pausaMinuti, `pausa ${p.id} ${x.data}`).toBe(pausaPer(oreLavorate(x) * 60, regole));
+        expect(x.inizio >= '10:00' && x.fine <= '20:00', `${p.id} ${x.data} ${x.inizio}-${x.fine}`).toBe(true);
+      }
+    }
+  };
+
+  it('il caso di partenza: venerdì vuoto dalle 17 alle 20 con ore di contratto libere', () => {
+    expect(mezzOreVuote(giorni, prima)).toBe(6);
+    expect(oreScoperte(giorni, prima)).toBe(7);
+    expect(prima.reduce((a, x) => a + oreLavorate(x), 0)).toBe(120);
+  });
+
+  it('proponiSettimana: nessuna mezz\'ora senza nessuno e nessuna fascia scoperta', () => {
+    const e = proponiSettimana({ giorni, persone, regole });
+    expect(mezzOreVuote(giorni, e.turni)).toBe(0);
+    expect(e.scoperture).toEqual([]);
+    regoleRispettate(e.turni);
+  });
+
+  it('proponiPianoSettimana (il pulsante «Proponi i turni»): tutto coperto, due persone ogni giorno, regole rispettate', () => {
+    const e = proponiPianoSettimana({ giorni, persone, regole });
+    expect(mezzOreVuote(giorni, e.turni)).toBe(0);
+    expect(e.scoperture).toEqual([]);
+    for (const g of giorni) expect(new Set(e.turni.filter((x) => x.data === g.data).map((x) => x.employeeId)).size, g.data).toBeGreaterThanOrEqual(2);
+    regoleRispettate(e.turni);
+  });
+
+  it('spostaUnGiorno: chi ha finito i giorni di lavoro porta un turno nel giorno scoperto', () => {
+    const dopo = spostaUnGiorno(giorni, prima, [], persone, regole);
+    expect(mezzOreVuote(giorni, dopo)).toBe(0);
+    expect(oreScoperte(giorni, dopo)).toBeLessThan(7);
+    regoleRispettate(dopo);
+  });
+
+  it('un turno fisso non si tocca e resta dopo la copertura', () => {
+    const fisso = t('p1', 4, '10:00', '14:00');
+    const e = proponiPianoSettimana({ giorni, persone, regole, fissi: [fisso] });
+    expect(e.turni.some((x) => x.employeeId === 'p1' && x.data === fisso.data)).toBe(false);
+    expect(mezzOreVuote(giorni, [...e.turni, fisso])).toBe(0);
+    regoleRispettate([...e.turni, fisso]);
+  });
+
+  it('con una persona in meno il venerdì la settimana resta senza mezz\'ore vuote', () => {
+    const conAssenza = persone.map((p) => (p.id === 'p1' ? { ...p, nonDisponibile: new Set([settimana[4]]) } : p));
+    const e = proponiPianoSettimana({ giorni, persone: conAssenza, regole });
+    expect(mezzOreVuote(giorni, e.turni)).toBe(0);
+    expect(e.turni.some((x) => x.employeeId === 'p1' && x.data === settimana[4])).toBe(false);
+    regoleRispettate(e.turni);
+  });
+
+  it('il piano del mese (nessun sabato né domenica liberi) copre la stessa settimana e tiene due persone il venerdì pomeriggio', () => {
+    const tutte = date('2026-10-26', 42);
+    const righeMese = attesoDelleDate(storicoTraffico(righe), tutte).atteso;
+    const giorniMese = costruisciGiorni(tutte, orari, fasce, [], [], '2026-11-05');
+    const e = pianificaMese({
+      mese: '2026-11', giorni: giorniMese, regola: 'nessuno', storicoWeekend: new Map(), atteso: righeMese, regole,
+      persone: persone.map((p) => ({ id: p.id, oreSettimana: p.ore, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() })),
+    });
+    const sett = e.giorni.filter((g) => settimana.includes(g.data));
+    const turni = e.turni.filter((x) => settimana.includes(x.data));
+    expect(mezzOreVuote(sett, turni)).toBe(0);
+    const ven = sett.find((g) => g.data === settimana[4])!;
+    // dalle 12 alle 18 le fasce chiedono due persone
+    expect(coperturaLorda(ven, turni).slice(4, 16).every((c) => c >= 2)).toBe(true);
+    regoleRispettate(turni);
+  });
+});
+
+describe('due turni uniti: la pausa segue le ore lavorate', () => {
+  it('una presenza di 8 ore e mezza non resta con un\'ora di pausa su 7 ore e mezza', () => {
+    const regole: RegoleTurni = { ...REGOLE_DEFAULT, duePersone: false };
+    const giorno = '2026-11-17';
+    const g = costruisciGiorni([giorno], orari, [{ giorno: 2, dalle: '10:00', alle: '20:00', persone: 1 }], []);
+    const turni: Turno[] = [
+      { employeeId: 'a', data: giorno, inizio: '10:00', fine: '14:00', pausaMinuti: 0 },
+      { employeeId: 'b', data: giorno, inizio: '14:00', fine: '18:30', pausaMinuti: 0 },
+      { employeeId: 'c', data: giorno, inizio: '12:00', fine: '20:00', pausaMinuti: 30 },
+    ];
+    const persone: PersonaTurni[] = ['a', 'b', 'c'].map((id) => ({ id, ore: 40, nonDisponibile: new Set<string>() }));
+    const dopo = dueTurniInveceDiTre(g, turni, persone, regole);
+    for (const x of dopo) expect(x.pausaMinuti, `${x.employeeId} ${x.inizio}-${x.fine}`).toBe(pausaPer(oreLavorate(x) * 60, regole));
+    expect(mezzOreVuote(g, dopo)).toBe(0);
   });
 });

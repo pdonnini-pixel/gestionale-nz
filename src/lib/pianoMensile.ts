@@ -20,9 +20,9 @@
 
 import { festivitaItaliane } from './ferieRichiesta';
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
-  ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
-  type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
+  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, presenzaGiusta, proponiSettimana,
+  ritoccaScoperture, mezzOreVuote, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
+  type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia, type EsitoProposta,
 } from './turni';
 
 // ── Tipo di giorno ───────────────────────────────────────────────────────
@@ -608,6 +608,52 @@ export function almenoDuePersone(
   return out.filter((t) => !intoccabili.has(t));
 }
 
+// ── La proposta del piano settimanale ─────────────────────────────────────
+
+/**
+ * La proposta di una settimana come la fa «Proponi i turni» del piano
+ * settimanale: la proposta sul fabbisogno, poi mai un giorno con una persona
+ * sola, e in fondo le stesse reti di sicurezza del piano del mese (comanda
+ * l'orario, Patrizio 21/10/2026): se resta una mezz'ora di apertura senza
+ * nessuno la copertura minima la chiude prendendo ore e giorni dove ci sono gia'
+ * due persone, e le ore di contratto ancora libere vanno dove manca qualcuno.
+ * Fino all'11/11/2026 il piano settimanale si fermava ai primi due passi e a Roma
+ * Soratte lasciava il venerdi' vuoto dalle 17 alle 20. I turni fissi (messi a
+ * mano, pubblicati, trasferte che coprono il negozio) contano e non si toccano.
+ */
+export function proponiPianoSettimana(args: {
+  giorni: GiornoPiano[]; persone: PersonaTurni[]; regole?: RegoleTurni; fissi?: Turno[];
+}): EsitoProposta {
+  const regole = args.regole ?? REGOLE_DEFAULT;
+  const fissi = args.fissi ?? [];
+  const { giorni, persone } = args;
+  const tutti = (t: Turno[]) => [...fissi, ...t];
+  let turni = proponiSettimana({ giorni, persone, regole, fissi }).turni;
+  turni = almenoDuePersone(giorni, turni, persone, [], regole, fissi);
+  // La copertura minima lavora su una persona per mezz'ora e non conosce i turni
+  // fissi: li vede come turni di chi non e' fra le persone, quindi non li cambia.
+  const base = giorni.map((g) => ({ ...g, fabbisogno: g.fabbisogno.map(() => 1) }));
+  const senzaFissi = (lista: Turno[]) => { const f = new Set(fissi); return lista.filter((t) => !f.has(t)); };
+  const copri = (t: Turno[]) => {
+    if (mezzOreVuote(giorni, tutti(t)) === 0) return t;
+    const coperti = copriOrarioMinimo(base, tutti(t), persone, [], regole);
+    // se per coprire ha toccato un turno fisso, si resta com'era
+    return fissi.every((f) => coperti.includes(f)) ? senzaFissi(coperti) : t;
+  };
+  turni = copri(turni);
+  if (oreScoperte(giorni, tutti(turni)) > 1e-9) {
+    const ritoccati = copri(ritoccaScoperture(giorni, turni, fissi, persone, regole));
+    if (mezzOreVuote(giorni, tutti(ritoccati)) <= mezzOreVuote(giorni, tutti(turni))) turni = ritoccati;
+  }
+  turni = rispettaFasce(turni, persone, regole).sort((a, b) => a.data.localeCompare(b.data) || a.inizio.localeCompare(b.inizio));
+  const ore: EsitoProposta['ore'] = {};
+  for (const p of persone) {
+    const pianificate = tutti(turni).filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0);
+    ore[p.id] = { contratto: p.ore, pianificate, straordinario: Math.max(0, pianificate - p.ore) };
+  }
+  return { turni, scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, tutti(turni))), ore };
+}
+
 // ── Due turni invece di tre (Patrizio, 30/10/2026) ────────────────────────
 
 /**
@@ -662,13 +708,15 @@ export function dueTurniInveceDiTre(
       for (const a of delGiorno) {
         for (const b of delGiorno) {
           if (a === b || a.employeeId === b.employeeId) continue;
-          const da = Math.min(minuti(a.inizio), minuti(b.inizio));
-          const al = Math.max(minuti(a.fine), minuti(b.fine));
-          const pausa = pausaMinimaPerPresenza(al - da, regole);
-          const lavoro = al - da - pausa;
-          if (lavoro > regole.turnoMaxOre * 60 || lavoro < regole.turnoMinOre * 60) continue;
           const chi = a.employeeId;
           const l = limitiPersona(persona.get(chi), g);
+          // Una presenza che non torna con la pausa (8 ore e mezza: 7 e mezza di lavoro
+          // vogliono 30', 8 ne vogliono 60) si allunga di mezz'ora dentro l'orario, come
+          // nell'editor (presenzaGiusta); se non c'e' posto i due turni restano divisi.
+          const pg = presenzaGiusta(Math.min(minuti(a.inizio), minuti(b.inizio)), Math.max(minuti(a.fine), minuti(b.fine)), regole, l.apre, l.chiude);
+          const da = pg.inizio; const al = pg.fine; const pausa = pg.pausa; const lavoro = pg.lavoro;
+          if (pausaPer(lavoro, regole) !== pausa) continue;
+          if (lavoro > regole.turnoMaxOre * 60 || lavoro < regole.turnoMinOre * 60) continue;
           if (da < l.apre || al > l.chiude) continue;
           const unito: Turno = { ...a, inizio: hhmm(da), fine: hhmm(al), pausaMinuti: pausa };
           let prova = [...out.filter((t) => t !== a && t !== b), unito];
@@ -803,7 +851,13 @@ export function weekendSenzaRiposi(
       for (const t of out.filter((x) => x.employeeId === p.id && giornoIso(x.data) < 6)) {
         const da = giorni.find((x) => x.data === t.data);
         if (!da) continue;
-        const senza = out.filter((x) => x !== t);
+        let senza = out.filter((x) => x !== t);
+        // Se senza il suo turno il feriale resta con una mezz'ora vuota, chi ci lavora si
+        // risistema (stesso giorno, entro le sue ore): con due o tre turni lunghi basta
+        // spesso anticipare o allungare un turno, e lo spostamento torna possibile.
+        if (coperturaLorda(da, [...senza, ...fissi]).some((c) => c < 1)) {
+          senza = ritoccaScoperture([da], senza, fissi, persone.filter((x) => x.id !== p.id), regole);
+        }
         // il feriale da cui parte resta coperto e con almeno due persone, se le aveva
         const copDa = coperturaLorda(da, [...senza, ...fissi]);
         const personeDa = new Set([...senza, ...fissi].filter((x) => x.data === da.data).map((x) => x.employeeId)).size;
@@ -833,7 +887,63 @@ export function weekendSenzaRiposi(
         const ore = oreScoperte(giorni, [...lista, ...fissi]);
         if (!meglio || (meglio.sotto && !sotto) || (meglio.sotto === sotto && ore < meglio.ore - 1e-9)) meglio = { lista, ore, sotto };
       }
-      if (meglio) out = meglio.lista;
+      if (meglio) { out = meglio.lista; continue; }
+      // Nessun turno intero si puo' spostare (pochi turni lunghi nei feriali: toglierne
+      // uno lascerebbe il giorno scoperto o con una persona sola). Allora le ore del
+      // turno minimo si prendono accorciando i suoi turni feriali di mezz'ora alla
+      // volta, dove costa meno ore scoperte e senza svuotare nessuna mezz'ora. Solo se
+      // la settimana non ci perde: le ore scoperte non devono crescere (misura
+      // dell'11/11/2026 sugli 8 negozi, novembre: senza questo limite i riposi nel
+      // weekend scendono da 62 a 22 ma le ore sotto MODA salgono da 100 a 269).
+      const minimo = regole.turnoMinOre * 60;
+      const suoi = (lista: Turno[]) => [...lista, ...fissi].filter((t) => t.employeeId === p.id);
+      if (new Set(suoi(out).map((t) => t.data)).size >= regole.giorniLavoroMax || lavoroMassimoGiorno(l, regole) < minimo) continue;
+      // Le ore vengono dai suoi turni, non da quelle di contratto ancora libere: quelle
+      // che il traffico non chiede restano da assegnare (Patrizio, 29/10/2026).
+      const oreSue = (lista: Turno[]) => suoi(lista).reduce((a, t) => a + oreLavorate(t), 0) * 60;
+      const prima = oreSue(out);
+      const libere = (lista: Turno[]) => prima - oreSue(lista);
+      const vuote = (lista: Turno[]) => mezzOreVuote(giorni, [...lista, ...fissi]);
+      const vuotePrima = vuote(out);
+      let prova = out;
+      for (let k = 0; k < 40 && libere(prova) < minimo - 1e-9; k++) {
+        let taglio: { lista: Turno[]; ore: number } | null = null;
+        for (const t of prova.filter((x) => x.employeeId === p.id && giornoIso(x.data) < 6)) {
+          const lav = oreLavorate(t) * 60 - SLOT_MINUTI;
+          if (lav < minimo - 1e-9) continue;
+          const pausa = pausaPer(lav, regole);
+          for (const v of [
+            { ...t, fine: hhmm(minuti(t.inizio) + lav + pausa), pausaMinuti: pausa },
+            { ...t, inizio: hhmm(minuti(t.fine) - lav - pausa), pausaMinuti: pausa },
+          ]) {
+            const l2 = prova.map((x) => (x === t ? v : x));
+            if (vuote(l2) > vuotePrima) continue;
+            const ore = oreScoperte(giorni, [...l2, ...fissi]);
+            if (!taglio || ore < taglio.ore - 1e-9) taglio = { lista: l2, ore };
+          }
+        }
+        if (!taglio) break;
+        prova = taglio.lista;
+      }
+      if (libere(prova) < minimo - 1e-9) continue;
+      const cop = coperturaLorda(g, [...prova, ...fissi]);
+      const durata = minimo + pausaPer(minimo, regole);
+      let inizio: { s: number; v: number } | null = null;
+      for (let s0 = l.apre; s0 + durata <= l.chiude; s0 += SLOT_MINUTI) {
+        let v = 0;
+        for (let k = 0; k < cop.length; k++) {
+          const m = g.apre + k * SLOT_MINUTI;
+          if (m >= s0 && m < s0 + durata) v += Math.max(0, g.fabbisogno[k] - cop[k]) ** 2;
+        }
+        if (!inizio || v > inizio.v) inizio = { s: s0, v };
+      }
+      if (!inizio) continue;
+      const conTurno = [...prova, { employeeId: p.id, data: g.data, inizio: hhmm(inizio.s), fine: hhmm(inizio.s + durata), pausaMinuti: pausaPer(minimo, regole) }];
+      // Un turno accorciato sotto la soglia della pausa perde anche la mezz'ora di pausa
+      // in negozio: quella non e' lavoro tolto ai feriali e non conta come perdita.
+      const pause = (lista: Turno[]) => suoi(lista).reduce((a, t) => a + (t.pausaMinuti || 0), 0) / 60;
+      const pauseTolte = Math.max(0, pause(out) - pause(conTurno));
+      if (oreScoperte(giorni, [...conTurno, ...fissi]) <= oreScoperte(giorni, tutti()) + pauseTolte + 1e-9) out = conTurno;
     }
   }
   return out;

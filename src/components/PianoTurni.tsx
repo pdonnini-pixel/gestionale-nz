@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Copy, Info, RefreshCw, Send, Trash2 } from 'lucide-react';
-import { almenoDuePersone, attesoDelleDate, fabbisognoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
+import { proponiPianoSettimana, attesoDelleDate, fabbisognoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
 import EditorTurno from './EditorTurno';
 import SpostaTurnoModal from './SpostaTurnoModal';
 import { useToast } from './Toast';
@@ -29,7 +29,7 @@ import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
   NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
-  proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
+  scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
 type Props = {
@@ -249,9 +249,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         .map((t) => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }));
       // chi viene qui in trasferta e copre il negozio conta come presenza
       const fissiTutti = [...fissi, ...copertureVerso(trasferte, outletId)];
-      const proposta = proponiSettimana({ giorni, persone: candidati, regole, fissi: fissiTutti });
-      // Mai un giorno con una persona sola (Patrizio, 28/10/2026); i turni a mano non si toccano.
-      const esito = { ...proposta, turni: almenoDuePersone(giorni, proposta.turni, candidati, [], regole, fissiTutti) };
+      // La proposta, mai un giorno con una persona sola (Patrizio, 28/10/2026) e mai una
+      // mezz'ora di apertura senza nessuno (21/10/2026); i turni a mano non si toccano.
+      const esito = proponiPianoSettimana({ giorni, persone: candidati, regole, fissi: fissiTutti });
       if (esito.turni.length) {
         const { error } = await supabase.from('shifts').insert(esito.turni.map((t) => ({
           company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data,
