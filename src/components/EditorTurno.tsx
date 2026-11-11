@@ -143,9 +143,10 @@ export default function EditorTurno({
   const segnaRiposo = async () => {
     if (!planId) return;
     setSalvo(true);
-    const e1 = turno ? await togliTurno('Giorno di riposo') : null;
-    const { error } = e1 ? { error: e1 } : await supabase.from('shift_plan_weekend_off')
+    // prima il riposo, poi il turno: se qualcosa si ferma la persona non resta senza turno e senza riposo
+    const { error: e1 } = await supabase.from('shift_plan_weekend_off')
       .upsert([{ company_id: companyId, plan_id: planId, employee_id: employeeId, data }], { onConflict: 'plan_id,employee_id,data' });
+    const error = e1 ?? (turno ? await togliTurno('Giorno di riposo') : null);
     setSalvo(false);
     if (error) { toast({ type: 'error', message: error.message }); return; }
     onSalvato(`Giorno di riposo per ${nome.split(' ')[0]}${turno ? ': il turno è tolto e le sue ore tornano da assegnare' : ''}.`);
@@ -369,7 +370,7 @@ export default function EditorTurno({
             <p className="text-xs font-semibold uppercase tracking-wide mb-1">Giorno di riposo</p>
             {riposo.attivo ? (
               <>
-                <p>Oggi {nome.split(' ')[0]} è a riposo.</p>
+                <p>In questo giorno {nome.split(' ')[0]} è a riposo.</p>
                 <button type="button" onClick={togliRiposo} disabled={salvo}
                   className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-emerald-400 bg-white text-sm font-semibold hover:bg-emerald-100 disabled:opacity-50"><Trash2 size={14} /> Togli il riposo</button>
               </>
