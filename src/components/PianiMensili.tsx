@@ -21,7 +21,7 @@ import { useToast } from './Toast';
 import EditorTurno from './EditorTurno';
 import { Modal } from './ui/Modal';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
-import { caricaDisponibilita, caricaGiorniFerie, caricaTraffico, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
+import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
 import { fasceDelle, fasciaIl, testoAccordo, type Accordo } from '../lib/accordiOrario';
 import { avvisiMossa as avvisiDellaMossa, esitoMossa, giornoEsteso, mossePossibili, type ContestoSpostamenti, type MossaTurno } from '../lib/spostaTurni';
 import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
@@ -32,8 +32,8 @@ import {
   REGOLE_DEFAULT, minuti, copertura, mancanza, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 import {
-  pianificaMese, proponiFerie, oreFerieGiorno, suggerisciFinestre, storicoTraffico, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
-  type EsitoPianoMese, type SettimanaPiano, type FeriaProposta, type FinestraSuggerita, type PersonaPiano, type RegolaWeekend, type RigaTraffico,
+  pianificaMese, proponiFerie, oreFerieGiorno, suggerisciFinestre, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
+  type EsitoPianoMese, type SettimanaPiano, type FeriaProposta, type FinestraSuggerita, type PersonaPiano, type RegolaWeekend,
 } from '../lib/pianoMensile';
 
 type Props = {
@@ -246,7 +246,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', tutte[0]).lte('data', tutte[tutte.length - 1]),
       supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
       supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari').eq('company_id', companyId).lte('data_dal', tutte[tutte.length - 1]).gte('data_al', tutte[0]),
-      caricaTraffico(companyId, outletId),
+      caricaStoricoNegozio(companyId, outletId),
       // anche i giorni dell'altro mese nelle settimane a cavallo: tolgono ore alla settimana
       caricaGiorniFerie(companyId, tutte[0], tutte[tutte.length - 1]),
       supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
@@ -265,10 +265,10 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [], eventi, apertura);
     const regole = regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]);
 
-    // Traffico: quello del negozio; se non ne ha (negozio nuovo), la forma media degli altri.
-    const righe: RigaTraffico[] = tr;
-    const propria = righe.length > 0;
-    const st = storicoTraffico(propria ? righe : await caricaTraffico(companyId, null));
+    // Traffico: quello del negozio; se non ne ha (negozio nuovo), quello del negozio di
+    // riferimento delle regole, altrimenti la media degli altri (caricaStoricoNegozio).
+    const st = tr.storico;
+    const nomeRif = tr.riferimentoId ? nomeNegozioDi(tr.riferimentoId) : '';
     const atteso = new Map<string, number[]>();
     const fonti = new Set<string>();
     for (const d of tutte) {
@@ -301,7 +301,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       tutte, giorni, regole, atteso, extra, senzaLiberi, saldi, storicoWeekend, oreFuoriMese,
       ferie: fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)),
       fonte: atteso.size
-        ? `${propria ? 'traffico MODA del negozio' : 'forma media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}; ${regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali, ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria)`
+        ? `${tr.fonte === 'propria' ? 'traffico MODA del negozio' : tr.fonte === 'riferimento' ? `traffico MODA di ${nomeRif} (negozio di riferimento: questo non ha storico)` : 'media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}; ${regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali, ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria)`
         : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
     };
   };
@@ -587,12 +587,12 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     setDove({ employeeId, nome, ore, finestre: null, residui });
     try {
       const [tr, oo, sp, ev] = await Promise.all([
-        caricaTraffico(companyId, outletId),
+        caricaStoricoNegozio(companyId, outletId),
         supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', outletId),
         supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', dateMese[0]).lte('data', dateMese[dateMese.length - 1]),
         supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari').eq('company_id', companyId).lte('data_dal', dateMese[dateMese.length - 1]).gte('data_al', dateMese[0]),
       ]);
-      const st = storicoTraffico(tr.length ? tr : await caricaTraffico(companyId, null));
+      const st = tr.storico;
       const atteso = new Map<string, number[]>();
       for (const d of dateMese) { const a = trafficoAtteso(st, d); if (a) atteso.set(d, a.ore); }
       const giorni = costruisciGiorni(dateMese,
@@ -1741,7 +1741,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               negozi: dati.negozi.filter((n) => n.is_active !== false).map((n) => ({ id: n.id, nome: nomeNegozioDi(n.id) })),
               esistente: trasferte.find((x) => x.employeeId === editorMese.employeeId && x.data === editorMese.data) ?? null,
             }}
-            riposo={pianoAperto.simulazione ? undefined : { attivo: liberiPiano.some((x) => x.employee_id === editorMese.employeeId && x.data === editorMese.data) }}
+            riposo={{ attivo: liberiPiano.some((x) => x.employee_id === editorMese.employeeId && x.data === editorMese.data) }}
             onClose={() => setEditorMese(null)}
             onSalvato={(msg) => { setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: msg ?? 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
           />

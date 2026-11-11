@@ -876,3 +876,22 @@ test con numeri inventati in `trafficoModa.test.ts`). Prima i report li caricava
 - Le schede delle varianti salvate prima dell'11/11 tengono i numeri del calcolo vecchio (ore sotto MODA e
   ore vuote nel riepilogo); la riga «In negozio» si ricalcola subito. Per allinearle si ricreano.
 
+
+## Roma Soratte: traffico di riferimento, weekend senza riposi, turni nel buco (11/11/2026)
+
+- **Errore trovato**: per un negozio senza traffico suo la «forma media degli altri» sommava gli ingressi di
+  tutti i negozi (`storicoTraffico` raggruppa per data). Alle 11 dei feriali di novembre: 88,8 ingressi invece
+  di 9,7-25,6. Roma Soratte aveva così fabbisogno di 4 persone tutto il giorno e 334 ore sotto MODA.
+- **Traffico di riferimento**: `outlet_shift_rules.traffico_da_outlet_id` (migration 391, NZ e Zago), scelto in
+  «Regole dei turni». Roma Soratte = Valmontone (Patrizio). Senza riferimento: media vera (`mediaFraNegozi`).
+  Un solo punto per tutte le pagine: `caricaStoricoNegozio` in `organicoDati.ts`.
+- **Weekend senza riposi**: la variante «nessun sabato né domenica liberi» non sceglie più la migliore fra le
+  rotazioni (regola del 02/11): `weekendSenzaRiposi` porta nel weekend un turno feriale della stessa settimana
+  di chi resta senza turno il sabato o la domenica, se il feriale resta coperto e con due persone.
+- **Turni nel buco**: in `proponiConStrategia` il turno partiva dall'inizio del buco, quindi con poche ore tutti
+  partivano all'apertura (10-15, 10-15, 10-15). Ora parte dove copre più persone mancanti (`inizioNelBuco`); a
+  parità di persone mancanti vince la mezz'ora con meno persone, e fra le strategie a parità di ore scoperte
+  quella con la mancanza più distribuita (`mancanzaQuadrata`).
+- Misure sugli stessi dati (novembre): Roma Soratte con traffico Valmontone 65 ore sotto MODA (prima 334),
+  0 ore vuote; Valdichiana da 17,2 a 13,1, Valmontone da 31,7 a 29,0, Torino invariato (3,7), sul motore online.
+- Riposi scelti a mano dalla finestra della casella, anche nelle simulazioni (`shift_plan_weekend_off`).

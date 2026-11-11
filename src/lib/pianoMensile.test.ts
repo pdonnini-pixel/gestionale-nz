@@ -224,7 +224,11 @@ describe('il piano del mese', () => {
     const fissi = [{ employeeId: 'ext', data: '2026-11-04', inizio: '10:00', fine: '19:00', pausaMinuti: 60 }];
     const coperto = pianificaMese({ mese, giorni, persone: conTrasferta, regola: 'nessuno', storicoWeekend: new Map(), atteso, fissi });
     expect(coperto.turni.some((t) => t.employeeId === 'ext')).toBe(false);
-    expect(coperto.oreScoperte).toBeLessThanOrEqual(con.oreScoperte);
+    // con la collega in più le ore scoperte non crescono (nella rotazione: in «nessun
+    // sabato né domenica liberi» i turni si spostano nel weekend dall'11/11/2026)
+    const conRot = pianificaMese({ mese, giorni, persone: conTrasferta, regola: 'sabato_o_domenica', storicoWeekend: new Map(), atteso });
+    const copertoRot = pianificaMese({ mese, giorni, persone: conTrasferta, regola: 'sabato_o_domenica', storicoWeekend: new Map(), atteso, fissi });
+    expect(copertoRot.oreScoperte).toBeLessThanOrEqual(conRot.oreScoperte);
   });
   it('simulazione: fabbisogno fisso, ore ipotetiche e straordinari ammessi', () => {
     // fabbisogno di «Orari e fabbisogno»: 2 persone tutto il giorno = 140 ore a settimana
@@ -466,13 +470,12 @@ describe('il negozio non resta mai scoperto (Patrizio, 30/10/2026)', () => {
     const e = pianificaMese({ ...args, regola: 'nessuno' });
     const mer = giorni.find((g) => g.data === '2026-11-04')!;
     expect(copertura(mer, e.turni).every((x) => x > 0)).toBe(true);
-    // «nessun sabato né domenica liberi» non viene mai peggio delle rotazioni:
-    // prima meno mezz'ore vuote, a parità meno ore scoperte
-    const vuote = (x: typeof e) => giorni.filter((g) => g.data.startsWith(mese)).reduce((a, g) => a + copertura(g, x.turni).filter((c) => c < 1).length, 0);
-    for (const regola of ['solo_sabati', 'solo_domeniche', 'sabato_o_domenica'] as const) {
-      const r = pianificaMese({ ...args, regola });
-      expect(vuote(e)).toBeLessThanOrEqual(vuote(r));
-      if (vuote(e) === vuote(r)) expect(e.oreScoperte).toBeLessThanOrEqual(r.oreScoperte + 1e-9);
+    // «nessun sabato né domenica liberi» (Patrizio, 11/11/2026): chi puo' lavorare
+    // ha un turno ogni sabato e ogni domenica del mese
+    for (const g of giorni.filter((x) => x.data.startsWith(mese) && !x.chiuso && [0, 6].includes(new Date(`${x.data}T00:00:00Z`).getUTCDay()))) {
+      for (const q of persone.filter((x) => !x.nonDisponibile.has(g.data))) {
+        expect(e.turni.some((t) => t.employeeId === q.id && t.data === g.data), `${q.id} ${g.data}`).toBe(true);
+      }
     }
   });
 });
