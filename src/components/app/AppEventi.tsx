@@ -1,5 +1,5 @@
 // App del dipendente, scheda Oggi: ritardi, uscite anticipate, straordinari
-// ed entrate segnate a posteriori di oggi e di ieri (migration 372 e 382). Il telefono del negozio li registra; qui
+// entrate segnate a posteriori e pause più lunghe di oggi e di ieri (migration 372, 382 e 392). Il telefono del negozio li registra; qui
 // il dipendente scrive il motivo (e cambia la scelta fatta al negozio finché
 // il responsabile non ha deciso). Permessi e straordinari contano solo dopo
 // la conferma del responsabile.
@@ -11,7 +11,7 @@ import { giornoBreve } from '../../lib/appDipendente'
 export interface EventoApp {
   id: string
   data: string
-  tipo: 'ritardo' | 'uscita_anticipata' | 'straordinario' | 'entrata_dichiarata'
+  tipo: 'ritardo' | 'uscita_anticipata' | 'straordinario' | 'entrata_dichiarata' | 'pausa_lunga'
   minuti: number
   minuti_proposti: number
   turno_inizio: string | null
@@ -45,10 +45,11 @@ export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string
     const min = formatMinuti(e.minuti_confermati ?? e.minuti_proposti)
     const titolo = e.tipo === 'ritardo' ? `Entrata con ${formatMinuti(e.minuti)} di ritardo`
       : e.tipo === 'straordinario' ? `${min} di straordinario`
+      : e.tipo === 'pausa_lunga' ? `Pausa ${formatMinuti(e.minuti)} più lunga di quella del turno`
       : `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
     const dettaglio = e.esito === 'permesso' ? `${min} di permesso scalati dal saldo. Li trovi anche nella scheda Ferie.`
       : e.esito === 'malattia' ? 'Malattia registrata, con il certificato medico.'
-      : e.esito === 'ore_non_lavorate' ? `D'accordo con il responsabile: ${min} non lavorati, senza permesso.`
+      : e.esito === 'ore_non_lavorate' ? (e.tipo === 'pausa_lunga' ? `${min} non lavorati, senza permesso.` : `D'accordo con il responsabile: ${min} non lavorati, senza permesso.`)
       : e.esito === 'straordinario' ? `${min} di straordinario confermati.`
       : 'Confermato.'
     return { titolo, dettaglio }
@@ -56,6 +57,7 @@ export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string
   if (e.stato === 'respinto') {
     const titolo = e.tipo === 'ritardo' ? `Entrata con ${formatMinuti(e.minuti)} di ritardo`
       : e.tipo === 'straordinario' ? `Uscita ${formatMinuti(e.minuti)} dopo la fine del turno`
+      : e.tipo === 'pausa_lunga' ? `Pausa ${formatMinuti(e.minuti)} più lunga di quella del turno`
       : `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
     return { titolo, dettaglio: e.tipo === 'straordinario' ? 'Straordinario non confermato dal responsabile.' : 'Non confermato dal responsabile.' }
   }
@@ -63,6 +65,12 @@ export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string
     return {
       titolo: `Entrata con ${formatMinuti(e.minuti)} di ritardo`,
       dettaglio: `${turno}. Oltre la tolleranza: ${formatMinuti(e.minuti_proposti)} di permesso, se il responsabile conferma.`,
+    }
+  }
+  if (e.tipo === 'pausa_lunga') {
+    return {
+      titolo: `Pausa ${formatMinuti(e.minuti)} più lunga di quella del turno`,
+      dettaglio: `${turno}. Il responsabile decide se scalarli come permesso o lasciarli ore non lavorate. Se c'è un motivo, scrivilo qui.`,
     }
   }
   if (e.tipo === 'uscita_anticipata') {

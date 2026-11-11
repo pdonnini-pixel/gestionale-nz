@@ -37,6 +37,7 @@ function proposta(e: EventoPresenze): string {
   if (e.tipo === 'entrata_dichiarata') return `entrata alle ${e.ora ? oraRoma(e.ora) : ''}`
   if (e.tipo === 'ritardo') return `${min} di permesso`
   if (e.tipo === 'straordinario') return `${min} di straordinario`
+  if (e.tipo === 'pausa_lunga') return `${min} di pausa in più`
   if (e.causale === 'malattia') return `${min} di permesso`
   if (e.causale === 'accordo') return `${min}, d'accordo`
   return `${min} di permesso`
@@ -49,6 +50,7 @@ function dettaglioTurno(e: EventoPresenze): string {
   }
   if (e.tipo === 'ritardo') return `turno ${e.turno_inizio?.slice(0, 5) ?? ''} · entrata ${ora}${e.tolleranza != null ? ` · tolleranza ${e.tolleranza}'` : ''}`
   if (e.tipo === 'straordinario') return `turno fino alle ${e.turno_fine?.slice(0, 5) ?? ''} · uscita ${ora}${e.margine != null ? ` · tolleranza ${e.margine}'` : ''}`
+  if (e.tipo === 'pausa_lunga') return `turno ${e.turno_inizio?.slice(0, 5) ?? ''} - ${e.turno_fine?.slice(0, 5) ?? ''} · rientro dalla pausa ${ora}${e.tolleranza != null ? ` · tolleranza ${e.tolleranza}'` : ''}`
   return `turno fino alle ${e.turno_fine?.slice(0, 5) ?? ''} · uscita ${ora}`
 }
 
@@ -135,7 +137,7 @@ export function DaConfermare() {
         )}
       </div>
       <p className="text-xs text-slate-500">
-        Ritardi oltre la tolleranza, uscite prima del turno, straordinari ed entrate dimenticate e segnate dopo, dei negozi che confermi. Contano solo dopo la conferma: il permesso confermato
+        Ritardi oltre la tolleranza, uscite prima del turno, pause più lunghe di quella del turno, straordinari ed entrate dimenticate e segnate dopo, dei negozi che confermi. Contano solo dopo la conferma: il permesso confermato
         compare da solo in Ferie e permessi, approvato, e si scala dal saldo.
       </p>
 
@@ -230,9 +232,10 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
   const causali: Record<string, string> | null = e.tipo === 'uscita_anticipata' ? CAUSALI_USCITA : e.tipo === 'straordinario' ? CAUSALI_STRAORDINARIO : null
   const malattia = causale === 'malattia'
   const accordo = causale === 'accordo'
+  const pausaLunga = e.tipo === 'pausa_lunga'
   // «Sto male» (386): permesso, oppure malattia se c'e' il certificato medico (scala = false)
   const malattiaCertificata = malattia && scala === false
-  const permesso = e.tipo === 'ritardo' || causale === 'personale' || (accordo && scala === true) || (malattia && !malattiaCertificata)
+  const permesso = e.tipo === 'ritardo' || causale === 'personale' || ((accordo || pausaLunga) && scala === true) || (malattia && !malattiaCertificata)
 
   const decidiEntrata = async (conferma: boolean) => {
     setOccupato(true)
@@ -258,7 +261,7 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
       }
       const { error } = await supabase.rpc('presenze_decidi_evento', {
         p_evento: e.id, p_conferma: conferma, p_minuti: conferma ? minuti : undefined,
-        p_scala_permesso: accordo || malattia ? scala ?? undefined : undefined, p_nota: nota || undefined,
+        p_scala_permesso: accordo || malattia || pausaLunga ? scala ?? undefined : undefined, p_nota: nota || undefined,
       })
       if (error) { toast({ type: 'error', message: error.message }); return }
       toast({ type: 'success', message: conferma ? (permesso ? 'Confermato: il permesso è in Ferie e permessi.' : malattiaCertificata ? 'Registrata come malattia.' : 'Confermato.') : 'Non confermato: la persona lo vede nell\'app con il tuo motivo.' })
@@ -314,9 +317,9 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
                 ))}
               </div>
             )}
-            {accordo && (
+            {(accordo || pausaLunga) && (
               <div className="space-y-1.5">
-                <p className="font-medium text-slate-900">Le ore non lavorate</p>
+                <p className="font-medium text-slate-900">{pausaLunga ? 'I minuti di pausa in più' : 'Le ore non lavorate'}</p>
                 <label className="flex items-center gap-2"><input type="radio" checked={scala === true} onChange={() => setScala(true)} />si scalano come permesso</label>
                 <label className="flex items-center gap-2"><input type="radio" checked={scala === false} onChange={() => setScala(false)} />non si scalano (restano ore non lavorate)</label>
               </div>
@@ -340,13 +343,13 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
               {malattiaCertificata ? 'Con il certificato medico si registra come malattia del giorno, dall\'ora dell\'uscita. Nessun permesso scalato.'
                 : permesso ? 'Alla conferma nasce un permesso approvato in Ferie e permessi (ex festività finché bastano, poi ROL), scalato dal saldo.'
                 : e.tipo === 'straordinario' ? 'Alla conferma entra nelle ore di straordinario del mese della persona.'
-                : accordo ? 'Scegli se scalare il permesso.' : ''}
+                : accordo || pausaLunga ? 'Scegli se scalare il permesso. Le ore lavorate tolgono già tutta la pausa.' : ''}
             </p>
             <textarea value={nota} onChange={(x) => setNota(x.target.value)} rows={2} maxLength={500}
               placeholder="Nota (obbligatoria se non confermi: la persona la legge nell'app)" className="w-full border border-slate-300 rounded-lg px-3 py-2" />
             <div className="flex gap-2 justify-end">
               <button disabled={occupato || !nota.trim()} onClick={() => void esegui(false)} className="border border-slate-300 rounded-lg px-4 py-2 disabled:opacity-40">Non confermare</button>
-              <button disabled={occupato || (!!causali && !causale) || (accordo && scala === null) || (!malattiaCertificata && !(minuti > 0))} onClick={() => void esegui(true)}
+              <button disabled={occupato || (!!causali && !causale) || ((accordo || pausaLunga) && scala === null) || (!malattiaCertificata && !(minuti > 0))} onClick={() => void esegui(true)}
                 className="bg-emerald-600 text-white font-semibold rounded-lg px-4 py-2 disabled:opacity-40">Conferma</button>
             </div>
           </>
@@ -408,7 +411,7 @@ function Riepilogo() {
 
   const scarica = async () => {
     const XLSX = await import('xlsx')
-    const aoa: (string | number)[][] = [['Negozio', 'Persona', 'Ritardi', 'Permessi da ritardi (min)', 'Permessi da uscite (min)', 'Ore non lavorate senza permesso (min)', 'Uscite per malattia', 'Straordinari (min)', 'Straordinari per motivo', 'Ancora da confermare']]
+    const aoa: (string | number)[][] = [['Negozio', 'Persona', 'Ritardi', 'Permessi da ritardi (min)', 'Permessi da uscite e pause (min)', 'Ore non lavorate senza permesso (min)', 'Uscite per malattia', 'Straordinari (min)', 'Straordinari per motivo', 'Ancora da confermare']]
     for (const r of righe) aoa.push([r.negozio, r.persona, r.ritardi, r.permessoRitardi, r.permessoUscite, r.oreNonLavorate, malattieTesto(r), r.straordinari, causaliTesto(r), r.daConfermare])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Presenze')
@@ -436,7 +439,7 @@ function Riepilogo() {
           <thead className="bg-slate-50 text-slate-500 text-xs uppercase">
             <tr>
               <th className="text-left px-3 py-2">Persona</th><th className="text-right px-3 py-2">Ritardi</th><th className="text-right px-3 py-2">Permessi da ritardi</th>
-              <th className="text-right px-3 py-2">Permessi da uscite</th><th className="text-right px-3 py-2">Senza permesso</th><th className="text-left px-3 py-2">Malattia</th>
+              <th className="text-right px-3 py-2">Permessi da uscite e pause</th><th className="text-right px-3 py-2">Senza permesso</th><th className="text-left px-3 py-2">Malattia</th>
               <th className="text-right px-3 py-2">Straordinari</th><th className="text-left px-3 py-2">Per motivo</th>
             </tr>
           </thead>

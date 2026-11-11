@@ -108,6 +108,13 @@ Dalla prova di Patrizio: il dipendente demo attivato sull'Android aveva ancora l
 - Una tantum: spenti i telefoni registrati per la prima volta prima dell'ultima attivazione della persona (`created_at < attivata_il`, non `aggiornato_il`: l'iPhone si riregistra a ogni apertura).
 - La funzione di invio (`timbrature-notifiche`) non cambia: manda già solo ai token `attivo`.
 
+## pausa in più momenti (migration 392, 11/11/2026)
+Decisione di Patrizio: la pausa del turno si può fare in più momenti, in tutto non oltre `shifts.pausa_minuti`; la prima timbratura della giornata resta l'entrata (dopo l'inizio del turno vale la regola del ritardo); l'uscita oltre la fine resta la regola dello straordinario.
+- Timbratrice (`azioni`, `pausaResidua`, `minutiPausaFatti` in `src/lib/timbrature.ts`): «Vado in pausa» finché resta pausa, con i minuti che restano; finita la pausa del turno non c'è più. Turno senza pausa: niente pausa. Senza turno: una pausa sola, come prima.
+- Server (`timbrature_evento_da_timbratura`): a ogni `fine_pausa` somma le pause della giornata fino a quel rientro; se superano la pausa del turno di più della tolleranza nasce `attendance_eventi.tipo = 'pausa_lunga'` con i minuti in più (al netto dei casi non respinti di rientri precedenti).
+- Decisione (`presenze_decidi_evento`): `p_scala_permesso` true → permesso «Pausa più lunga del …», false → ore non lavorate; senza scelta errore. Nel riepilogo del mese i permessi vanno con quelli delle uscite («Permessi da uscite e pause»).
+- Rollback: chiude i casi aperti come «superata» (nessuna cancellazione) e ripristina le funzioni.
+
 ## aperto
 - **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: informativa privacy (entrata dimenticata con la migration 382, PIN con la 384).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).

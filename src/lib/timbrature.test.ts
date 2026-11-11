@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createHmac } from 'node:crypto'
 import {
-  azioni, codiceQr, entrataMancante, impronta, oreEntrataDichiarabili, firma, leggiCodice, oraRomaInMs, passoDa, riepilogoGiorno, secondiAlCambio, statoDa,
+  azioni, codiceQr, minutiPausaFatti, pausaResidua, entrataMancante, impronta, oreEntrataDichiarabili, firma, leggiCodice, oraRomaInMs, passoDa, riepilogoGiorno, secondiAlCambio, statoDa,
 } from './timbrature'
 
 const SEGRETO = '00112233445566778899aabbccddeeff00112233'
@@ -63,6 +63,26 @@ describe('azioni proposte', () => {
     ]
     expect(azioni(fatte, turno, ore('17:58'))).toEqual({ principale: 'uscita', altre: [] })
     expect(azioni([{ tipo: 'entrata', ora: iso('09:00') }], turno, ore('17:30')).principale).toBe('uscita')
+  })
+  it('pausa in piu momenti, fino alla pausa del turno (11/11/2026)', () => {
+    const prima = [
+      { tipo: 'entrata' as const, ora: iso('09:00') },
+      { tipo: 'inizio_pausa' as const, ora: iso('11:00') },
+      { tipo: 'fine_pausa' as const, ora: iso('11:15') },
+    ]
+    expect(minutiPausaFatti(prima, ore('12:00'))).toBe(15)
+    expect(pausaResidua(prima, turno, ore('12:00'))).toBe(45)
+    expect(azioni(prima, turno, ore('13:00'))).toEqual({ principale: 'uscita', altre: ['inizio_pausa'] })
+    const tutta = [...prima, { tipo: 'inizio_pausa' as const, ora: iso('13:00') }, { tipo: 'fine_pausa' as const, ora: iso('13:45') }]
+    expect(pausaResidua(tutta, turno, ore('15:00'))).toBe(0)
+    expect(azioni(tutta, turno, ore('15:00'))).toEqual({ principale: 'uscita', altre: [] })
+  })
+  it('turno senza pausa: niente pausa; senza turno una sola', () => {
+    const dentro = [{ tipo: 'entrata' as const, ora: iso('09:00') }]
+    expect(azioni(dentro, { ...turno, fine: '13:00', pausa_minuti: 0 }, ore('11:00'))).toEqual({ principale: 'uscita', altre: [] })
+    expect(azioni(dentro, null, ore('11:00'))).toEqual({ principale: 'uscita', altre: ['inizio_pausa'] })
+    const fatta = [...dentro, { tipo: 'inizio_pausa' as const, ora: iso('11:00') }, { tipo: 'fine_pausa' as const, ora: iso('11:10') }]
+    expect(azioni(fatta, null, ore('12:00'))).toEqual({ principale: 'uscita', altre: [] })
   })
 })
 
