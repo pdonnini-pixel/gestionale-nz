@@ -917,3 +917,46 @@ Da allora in `src/components/OrariNegozio.tsx`:
 - Copertura: resta l'opzione 2 decisa da Patrizio. Chi ha il turno conta in negozio per tutto il turno, perché
   la pausa la prendono le ragazze quando il negozio è vuoto; le presenze verificano che la facciano.
 - I turni già salvati non cambiano: le loro ore si contano con la pausa scritta nel turno.
+
+## Regole nuove decise su Roma Soratte, ancora da portare nel motore (11/11/2026)
+
+Decise da Patrizio l'11/11/2026 guardando il piano 9-15/11 fatto a mano dalle ragazze di Roma
+Soratte. **Il motore non le applica ancora**: le settimane 16-22, 23-29 e lunedì 30/11 di Roma
+Soratte sono state costruite a mano con queste regole, misurate con `oreScoperte` e
+`oreSottoModa`, e caricate in bozza.
+
+1. **Sabato e domenica lavorano tutti.** Vale per tutti i negozi; chi fa i turni può poi
+   spostarli a mano.
+2. **Niente coppie fisse.** Le persone che lavorano insieme nei feriali cambiano da una settimana
+   all'altra: non si sa come vanno d'accordo. Il motore deve guardare le settimane prima.
+3. **Giorno libero fisso.** Ogni persona ha, il più possibile, lo stesso giorno libero ogni
+   settimana, per potersi organizzare. Lo sceglie il sistema; poi si può cambiare. Gli altri
+   giorni liberi ruotano: con tutti i liberi fissi anche le coppie sarebbero fisse.
+   Roma Soratte, novembre 2026: Bianchi lunedì, Gentili martedì, Angelini mercoledì, Basile giovedì.
+4. **Ore fino al contratto, scelta per negozio.** Dove è accesa, le ore che il traffico non chiede
+   si mettono comunque in turno, prima venerdì, sabato e domenica. Dove è spenta resta la regola
+   del 29/10/2026 (le ore restano da assegnare). Serve dove le persone sono appena assunte e non
+   hanno ferie da scalare.
+5. **Feriali con due turni lunghi** (10-18 e 12-20 con le fasce 1-2-1) invece di tre o quattro
+   corti: nessun buco al cambio turno e le ore risparmiate vanno al weekend.
+6. **Straordinari negli eventi**: come già deciso il 30/10 e il 02/11, a chi ne ha fatti meno.
+
+Misure dell'11/11/2026, Roma Soratte, traffico di Valmontone di novembre 2025:
+- piano delle ragazze 9-15/11: 130 ore pianificate, 11,5 scoperte (lunedì 8,5 ore oltre il
+  fabbisogno, domenica 21 ore su 28);
+- 16-22/11 con le regole nuove: 130 ore, 0 scoperte;
+- 23-29/11 (Black Friday): 156 ore di cui 26 di straordinario, 0 scoperte; senza straordinari 34 scoperte.
+
+**La proposta automatica oggi non ci arriva.** Sulla settimana 16-22 `proponiSettimana` lascia il
+venerdì senza nessuno dalle 17 alle 20 con 10 ore di contratto libere (tutti in turno corto da
+lunedì a giovedì, poi finiscono i 6 giorni); `pianificaMese` lascia il venerdì con una persona
+sola dalle 14 alle 18 e mette 10 ore in più il sabato. Prima di aggiungere queste regole va
+deciso se il cuore della proposta resta a ritocchi successivi o diventa una ricerca che pesa
+tutte le regole insieme, con misura su tutti i negozi prima e dopo.
+
+**Attenzione alle bozze messe a mano.** `timbrature_turni_ufficiali` considera ufficiale un turno
+senza piano con `origine = 'manuale'` anche se è in bozza: vale subito per l'app del dipendente,
+per le timbrature e per gli avvisi di ritardo. Una bozza che deve restare tale fino
+all'approvazione va caricata con `origine = 'proposta'` (diventa ufficiale quando si pubblica).
+Così sono state caricate le bozze di Roma Soratte; il pulsante «Proponi turni» su quelle
+settimane le sostituirebbe.
