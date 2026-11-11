@@ -1,8 +1,9 @@
 // Estrazione automatica dei dati di una scadenza da un documento (PDF).
 //
-// Flusso: il PDF viene letto lato client (pdfjs, nessun upload del file), il
-// testo estratto viene inviato all'edge function `extract-scadenza` che chiede a
-// Claude i campi strutturati (fornitore, P.IVA, numero/data documento, importo da
+// Flusso: all'edge function `extract-scadenza` arriva il PDF intero (fino a 4 MB)
+// insieme al testo letto qui con pdfjs. Il PDF intero serve perché il fornitore
+// sta spesso solo nel logo o nell'intestazione grafica, e perché le scansioni
+// non hanno testo. La funzione chiede a Claude i campi strutturati (fornitore, P.IVA, numero/data documento, importo da
 // pagare, metodo, IBAN, scadenze). Il risultato pre-compila il form "Aggiungi
 // scadenza"; l'operatrice verifica e corregge sempre prima di salvare.
 //
@@ -28,6 +29,17 @@ export type ExtractedScadenza = {
 
 export class ScadenzaExtractError extends Error {}
 
+/** Oltre questa dimensione il PDF non viaggia intero: si manda solo il testo. */
+const MAX_PDF_BYTES = 4 * 1024 * 1024;
+
+const fileInBase64 = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || '').replace(/^data:[^,]*,/, ''));
+    reader.onerror = () => reject(reader.error ?? new Error('lettura non riuscita'));
+    reader.readAsDataURL(file);
+  });
+
 /**
  * Estrae dal file i dati di una scadenza. Supporta PDF (testo estratto via
  * pdfjs). Lancia ScadenzaExtractError con un messaggio leggibile in caso di
@@ -40,19 +52,31 @@ export async function extractScadenzaFromPdf(file: File): Promise<ExtractedScade
     throw new ScadenzaExtractError('Formato non supportato: carica un PDF.');
   }
 
+  // Il testo è un aiuto, non più un requisito: se pdfjs non lo estrae (scansione,
+  // file particolare) il documento si legge lo stesso dalle pagine.
   let text = '';
+  let erroreTesto = '';
   try {
     text = await extractTextFromPdf(file);
   } catch (e) {
-    throw new ScadenzaExtractError('Non riesco a leggere il PDF: ' + ((e as Error)?.message || 'file non valido') + '.');
+    erroreTesto = (e as Error)?.message || 'file non valido';
+  }
+  const haTesto = !!text && text.replace(/\s/g, '').length >= 20;
+
+  let pdfBase64: string | null = null;
+  if (file.size <= MAX_PDF_BYTES) {
+    try { pdfBase64 = await fileInBase64(file); } catch { pdfBase64 = null; }
   }
 
-  // PDF "immagine" (scansione senza testo selezionabile): pdfjs non estrae nulla.
-  if (!text || text.replace(/\s/g, '').length < 20) {
-    throw new ScadenzaExtractError('Il PDF non contiene testo leggibile (forse è una scansione). Inserisci i dati a mano.');
+  if (!pdfBase64 && !haTesto) {
+    throw new ScadenzaExtractError(erroreTesto
+      ? `Non riesco a leggere il PDF: ${erroreTesto}.`
+      : 'Il PDF supera i 4 MB e non contiene testo leggibile (forse è una scansione). Inserisci i dati a mano.');
   }
 
-  const { data, error } = await supabase.functions.invoke('extract-scadenza', { body: { text } });
+  const { data, error } = await supabase.functions.invoke('extract-scadenza', {
+    body: { ...(haTesto ? { text } : {}), ...(pdfBase64 ? { pdfBase64 } : {}) },
+  });
   if (error) {
     // supabase.functions.invoke incapsula il corpo di errore nella FunctionsHttpError.
     let msg = error.message || 'Estrazione non riuscita.';

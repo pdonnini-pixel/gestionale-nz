@@ -181,7 +181,7 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [pdfLoading, setPdfLoading] = useState(false);
   const [pdfError, setPdfError] = useState<string | null>(null);
-  const [pdfInfo, setPdfInfo] = useState<{ fields: string[]; supplierMatched: boolean; confidence: number | null; creditNote: boolean } | null>(null);
+  const [pdfInfo, setPdfInfo] = useState<{ fields: string[]; missing: string[]; supplierMatched: boolean; confidence: number | null; creditNote: boolean } | null>(null);
 
   // Normalizza P.IVA/CF per il confronto (solo alfanumerici, via "IT").
   const normVat = (v: unknown): string =>
@@ -236,8 +236,17 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
       return next;
     });
 
+    // Quello che il documento non ha dato va detto: un «Compilati» verde con il
+    // nominativo vuoto faceva credere che la lettura fosse riuscita.
+    const missing: string[] = [];
+    if (!matchedSupplier && !ext.supplierName) missing.push('nominativo');
+    if (!ext.invoiceNumber) missing.push('numero documento');
+    if (!ext.invoiceDate) missing.push('data documento');
+    if (!(gross > 0)) missing.push('importo');
+
     setPdfInfo({
       fields: filled,
+      missing,
       supplierMatched: !!matchedSupplier,
       confidence: ext.confidence,
       creditNote: ext.isCreditNote,
@@ -315,6 +324,9 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
                 {pdfInfo.confidence != null && pdfInfo.confidence < 0.6 ? ' Attenzione: lettura poco sicura.' : ''}
               </span>
             </div>
+            {pdfInfo.missing.length > 0 && (
+              <p className="text-[11px] text-amber-700 font-medium flex items-start gap-1.5"><AlertCircle size={13} className="shrink-0 mt-px" /> Non trovati nel documento: {pdfInfo.missing.join(', ')}. Vanno inseriti a mano.</p>
+            )}
             {pdfInfo.fields.includes('nominativo (nuovo)') && (
               <p className="text-[11px] text-amber-600 flex items-start gap-1.5"><AlertCircle size={13} className="shrink-0 mt-px" /> Nominativo non a sistema: verrà creato. Controlla nome e tipo.</p>
             )}
