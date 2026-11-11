@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  costruisciGiorni, giorniDellaSettimana, giornoIso, oreLavorate, oreScoperte, proponiSettimana, regoleDaRiga,
+  costruisciGiorni, giorniDellaSettimana, giornoIso, minuti, oreLavorate, oreScoperte, pausaMinimaPerPresenza, proponiSettimana, regoleDaRiga,
   type GiornoPiano, type PersonaTurni, type Turno,
 } from './turni';
 import { fabbisognoDaTraffico, almenoDuePersone } from './pianoMensile';
@@ -9,7 +9,7 @@ import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, coppia, derogheS
 // Un negozio inventato sul modello di quello da cui sono nate le regole
 // (Patrizio, 11/11/2026): aperto 10-20, fasce 1-2-1, quattro persone.
 const regole = regoleDaRiga({
-  turno_min_ore: 4, turno_max_ore: 10, pausa_oltre_ore: 6, pausa_minuti: 30, pausa_lunga_oltre_ore: 8, pausa_lunga_minuti: 60,
+  turno_min_ore: 4, turno_max_ore: 10, pausa_oltre_ore: 6, pausa_minuti: 10, pausa_lunga_oltre_ore: 8, pausa_lunga_minuti: 30,
   giorni_lavoro_max: 6, soglia_ingressi_feriali: 25, soglia_ingressi_weekend: 35, due_persone: false,
 });
 const orari = [1, 2, 3, 4, 5, 6, 7].map((giorno) => ({ giorno, chiuso: false, apre: '10:00', chiude: '20:00' }));
@@ -27,7 +27,9 @@ const ingressi: Record<number, number[]> = {
   1: [7, 18, 21, 17, 21, 19, 17, 16, 12, 5], 5: [8, 19, 16, 15, 24, 20, 24, 18, 18, 12],
   6: [18, 53, 62, 56, 77, 70, 99, 103, 67, 28], 7: [26, 97, 109, 75, 108, 113, 164, 182, 132, 47],
 };
-const ORE: Record<string, number> = { anna: 40, bea: 30, carla: 30, dora: 30 };
+// 136 ore di contratto per circa 129 ore di presenza da coprire: con le pause da 10 e 30 minuti
+// un'ora lavorata copre poco piu' di un'ora di negozio, e la domenica servono due persone all'apertura
+const ORE: Record<string, number> = { anna: 40, bea: 32, carla: 32, dora: 32 };
 const persone = (): PersonaTurni[] => Object.entries(ORE).map(([id, ore]) => ({ id, ore, nonDisponibile: new Set<string>(), saldoOre: 0 }));
 
 function settimana(lunedi: string, eventi: { nome: string; data_dal: string; data_al: string; outlet_ids: null; persone_extra: number; blocca_ferie: boolean; straordinari: boolean }[] = []): GiornoPiano[] {
@@ -50,7 +52,7 @@ const giornoLibero = new Map([['carla', 1], ['dora', 2], ['anna', 3], ['bea', 4]
 describe('ottimizzaSettimana: le regole dell\'11/11/2026 pesate insieme', () => {
   const giorni = settimana('2026-11-16');
   const prima = proposta(giorni);
-  const dopo = ottimizzaSettimana(giorni, prima, persone(), regole, { giornoLibero, guida: ['anna', 'carla'] });
+  const dopo = ottimizzaSettimana(giorni, prima, persone(), regole, { giornoLibero, guida: ['anna', 'carla'], responsabile: 'anna' });
 
   it('la proposta di partenza lascia ore scoperte, la settimana sistemata no', () => {
     expect(oreScoperte(giorni, prima)).toBeGreaterThan(0);
@@ -93,19 +95,23 @@ describe('ottimizzaSettimana: le regole dell\'11/11/2026 pesate insieme', () => 
   });
 
   it('stessa settimana, stesso risultato', () => {
-    const ancora = ottimizzaSettimana(giorni, prima, persone(), regole, { giornoLibero, guida: ['anna', 'carla'] });
+    const ancora = ottimizzaSettimana(giorni, prima, persone(), regole, { giornoLibero, guida: ['anna', 'carla'], responsabile: 'anna' });
     expect(ancora).toEqual(dopo);
   });
 
   it('ore fino al contratto: tutte a contratto pieno, senza perdere copertura', () => {
-    const pieno = ottimizzaSettimana(giorni, prima, persone(), regole, { giornoLibero, guida: ['anna', 'carla'], riempiContratto: true });
-    for (const id of Object.keys(ORE)) expect(oreDi(pieno, id)).toBe(ORE[id]);
+    const pieno = ottimizzaSettimana(giorni, prima, persone(), regole, { giornoLibero, guida: ['anna', 'carla'], responsabile: 'anna', riempiContratto: true });
+    // con la pausa da 10 minuti le ore non cadono sempre sulla mezz'ora: restano meno di 30 minuti liberi
+    for (const id of Object.keys(ORE)) {
+      expect(oreDi(pieno, id)).toBeLessThanOrEqual(ORE[id] + 1e-9);
+      expect(oreDi(pieno, id)).toBeGreaterThan(ORE[id] - 0.5);
+    }
     expect(oreScoperte(giorni, pieno)).toBe(0);
     for (const t of pieno) expect(giornoLibero.get(t.employeeId)).not.toBe(giornoIso(t.data));
   });
 
   it('senza «ore fino al contratto» le ore che il traffico non chiede restano libere', () => {
-    expect(Object.keys(ORE).reduce((a, id) => a + oreDi(dopo, id), 0)).toBeLessThan(130);
+    expect(Object.keys(ORE).reduce((a, id) => a + oreDi(dopo, id), 0)).toBeLessThan(136);
   });
 });
 
@@ -147,6 +153,40 @@ describe('ottimizzaSettimana: turni fissi, eventi, partenze strane', () => {
   });
 });
 
+describe('regole del 12/11/2026: pause da 10 e 30 minuti, domenica, straordinari del weekend', () => {
+  const giorni = settimana('2026-11-16');
+  const dopo = ottimizzaSettimana(giorni, proposta(giorni), persone(), regole, { giornoLibero, responsabile: 'anna', straordinariWeekend: true });
+
+  it('gli orari restano sulle mezz\'ore e la pausa e\' quella della presenza', () => {
+    for (const t of dopo) {
+      expect(minuti(t.inizio) % 30).toBe(0);
+      expect(minuti(t.fine) % 30).toBe(0);
+      expect(t.pausaMinuti).toBe(pausaMinimaPerPresenza(minuti(t.fine) - minuti(t.inizio), regole));
+    }
+    expect(dopo.some((t) => t.pausaMinuti === 10)).toBe(true);
+  });
+
+  it('la domenica la responsabile fa l\'apertura', () => {
+    const dom = giorni.find((g) => giornoIso(g.data) === 7)!;
+    expect(dopo.find((t) => t.employeeId === 'anna' && t.data === dom.data)?.inizio).toBe('10:00');
+    expect(derogheSettimana({ giorni, turni: dopo, persone: persone().map((p) => ({ ...p, nome: p.id })), regole, giornoLibero, guida: { responsabile: 'anna', vice: null } })
+      .filter((d) => d.regola === 'domenica_apertura')).toEqual([]);
+  });
+
+  it('nei feriali nessuno supera il contratto: oltre si va solo con le ore di sabato e domenica', () => {
+    for (const id of Object.keys(ORE)) {
+      const feriali = dopo.filter((t) => t.employeeId === id && giornoIso(t.data) <= 5).reduce((a, t) => a + oreLavorate(t), 0);
+      expect(feriali).toBeLessThanOrEqual(ORE[id] + 1e-9);
+    }
+    expect(oreScoperte(giorni, dopo)).toBe(0);
+  });
+
+  it('senza straordinari del weekend (simulazioni) nessuno supera il contratto', () => {
+    const senza = ottimizzaSettimana(giorni, proposta(giorni), persone(), regole, { giornoLibero, responsabile: 'anna' });
+    for (const id of Object.keys(ORE)) expect(oreDi(senza, id)).toBeLessThanOrEqual(ORE[id] + 1e-9);
+  });
+});
+
 describe('giorno libero fisso scelto dal sistema', () => {
   it('uno a testa da lunedì a venerdì, distribuiti; chi ce l\'ha lo tiene', () => {
     const g = scegliGiorniLiberi(['a', 'b', 'c', 'd', 'e'], new Map([['c', 5]]));
@@ -178,13 +218,15 @@ describe('coppie dei feriali', () => {
   });
 
   it('una coppia già vista nelle settimane prima pesa: a parità si cambia', () => {
-    const giorni = settimana('2026-11-16');
-    const base = ottimizzaSettimana(giorni, [], persone(), regole, { giornoLibero });
-    const viste = coppieFeriali(base);
-    const piuVista = [...viste].sort((x, y) => y[1] - x[1])[0];
-    const dopo = ottimizzaSettimana(giorni, [], persone(), regole, { giornoLibero, coppiePrima: new Map([[piuVista[0], 10]]) });
-    expect(coppieFeriali(dopo).get(piuVista[0]) ?? 0).toBeLessThanOrEqual(piuVista[1]);
-    expect(oreScoperte(giorni, dopo)).toBe(0);
+    // un lunedì solo, due persone tutto il giorno, tre persone uguali: fra le coppie possibili
+    // non esce quella che ha già lavorato insieme nelle settimane prima
+    const lun = settimana('2026-11-16').slice(0, 1).map((g) => ({ ...g, fabbisogno: g.fabbisogno.map(() => 2), minimo: g.fabbisogno.map(() => 2), esatto: undefined }));
+    const tre: PersonaTurni[] = ['x', 'y', 'z'].map((id) => ({ id, ore: 10, nonDisponibile: new Set<string>() }));
+    for (const vista of [coppia('x', 'y'), coppia('x', 'z'), coppia('y', 'z')]) {
+      const dopo = ottimizzaSettimana(lun, [], tre, regole, { coppiePrima: new Map([[vista, 5]]) });
+      expect(oreScoperte(lun, dopo)).toBe(0);
+      expect(coppieFeriali(dopo).has(vista), vista).toBe(false);
+    }
   });
 });
 

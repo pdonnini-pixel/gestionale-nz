@@ -57,9 +57,9 @@ export const REGOLE_DEFAULT: RegoleTurni = {
   turnoMinOre: 4,
   turnoMaxOre: 10,
   pausaOltreOre: 6,
-  pausaMinuti: 30,
+  pausaMinuti: 10,
   pausaLungaOltreOre: 8,
-  pausaLungaMinuti: 60,
+  pausaLungaMinuti: 30,
   giorniLavoroMax: 6,
   sogliaFeriali: 25,
   sogliaWeekend: 25,
@@ -350,6 +350,18 @@ export function giorniDellaSettimana(lunedi: string): string[] {
     d.setUTCDate(d.getUTCDate() + i);
     return d.toISOString().slice(0, 10);
   });
+}
+
+/**
+ * Le ore scritte per chi legge: «40», «7,5», e quando non cadono sulla mezz'ora «7 h 50'»
+ * (con la pausa da 10 minuti un turno 10-18 vale 7 ore e 50; Patrizio, 12/11/2026).
+ */
+export function oreInChiaro(ore: number): string {
+  const minutiTot = Math.round(ore * 60);
+  if (minutiTot % 30 === 0) return (minutiTot / 60).toLocaleString('it-IT');
+  const segno = minutiTot < 0 ? '-' : '';
+  const m = Math.abs(minutiTot);
+  return `${segno}${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')}'`;
 }
 
 export function oreLavorate(t: Pick<Turno, 'inizio' | 'fine' | 'pausaMinuti'>): number {

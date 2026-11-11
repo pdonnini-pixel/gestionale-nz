@@ -181,8 +181,12 @@ export function fabbisognoDaTraffico(
     // una persona la mattina e la sera, due nel resto, le decide lui giorno per
     // giorno); senza fasce confermate almeno una persona e, con la regola delle due
     // persone, due fuori dalla prima e dall'ultima ora. MODA aggiunge sopra.
-    const minimo = (i: number) => g.minimo?.[i]
+    const minimoBase = (i: number) => g.minimo?.[i]
       ?? (regole.duePersone && g.apre + i * SLOT_MINUTI >= g.apre + 60 && g.apre + (i + 1) * SLOT_MINUTI <= g.chiude - 60 ? 2 : 1);
+    // La domenica all'apertura servono almeno due persone (Patrizio, 12/11/2026): la prima
+    // ora, anche dove le fasce ne chiedono una. In chiusura, dopo l'ultima ora piena, ne basta una.
+    const domenica = giornoIso(g.data) === 7;
+    const minimo = (i: number) => (domenica && i * SLOT_MINUTI < 60 ? Math.max(2, minimoBase(i)) : minimoBase(i));
     const persone = g.fabbisogno.map((_, i) => Math.max(minimo(i), (atteso.get(g.data)![Math.floor((g.apre + i * SLOT_MINUTI) / 60)] ?? 0) / soglia));
     // Il tetto vale sulle persone del traffico; quelle in piu' degli eventi si sommano sopra.
     return {
@@ -1166,7 +1170,7 @@ function pianificaMeseConRegola(args: {
    * lunedi', coppie dei feriali delle settimane prima del mese. Le pesa tutte
    * insieme `ottimizzaSettimana`, come ultimo passo di ogni settimana.
    */
-  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima'>;
+  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima' | 'responsabile'>;
   /** salta l'ultimo passo (confronti veloci fra due calcoli, es. con e senza una ferie) */
   rapido?: boolean;
 }): EsitoPianoMese {
@@ -1400,6 +1404,9 @@ function pianificaMeseConRegola(args: {
       esito = [...ottimizzaSettimana(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole,
         {
           giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto,
+          responsabile: args.nuove?.responsabile ?? null,
+          // nei piani veri; in simulazione (fabbisogno fisso o straordinari scelti) decidono le ipotesi
+          straordinariWeekend: !args.fabbisognoFisso && !args.straordinariPersona && args.straordinariSettimana == null,
           // i giorni gia' lavorati nei giorni dell'altro mese della stessa settimana contano nel massimo
           giorniGia: new Map(candidati.map((c) => [c.id, giorniDellaSettimana(lun).filter((d) => !nelMese(d) && (args.oreFuoriMese?.get(c.id)?.get(d) ?? 0) > 0).length])),
         }, fissiSett), ...fissiSett];

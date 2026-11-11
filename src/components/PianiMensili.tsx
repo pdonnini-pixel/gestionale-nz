@@ -107,6 +107,7 @@ const REGOLE: RegolaWeekend[] = ['nessuno'];
 const STATI_FERIE_APPROVATE = ['inviata', 'approvata', 'approvata_parziale', 'chiusa'];
 const GIORNI_FERIE_VALIDI = ['richiesto', 'approvato'];
 const t5 = (t: string) => t.slice(0, 5);
+// Un decimale; le ore che non cadono sulla mezz'ora (pausa da 10 minuti) restano arrotondate al decimo.
 const fmt = (n: number | undefined) => (n ?? 0).toLocaleString('it-IT', { maximumFractionDigits: 1 });
 
 const NOMI_GIORNI_LUNGHI = ['', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato', 'domenica'];
@@ -390,6 +391,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         nuove: {
           giornoLibero: new Map([...b.giorniLiberi].map(([id, g]) => [id, g.giorno])),
           guida: guidaDelNegozio(dati.negozi.find((n) => n.id === outletId)),
+          responsabile: dati.negozi.find((n) => n.id === outletId)?.referente_employee_id ?? null,
           coppiePrima: b.coppiePrima,
         },
       });

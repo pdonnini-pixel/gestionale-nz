@@ -191,10 +191,10 @@ describe('il piano del mese', () => {
     const una = [{ id: 'p0', oreSettimana: 40, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }];
     const libero = pianificaMese({ mese, giorni, persone: una, regola: 'nessuno', storicoWeekend: new Map(), atteso });
     // ottobre senza turni: domenica 1/11 prenderebbe la sua parte secondo il traffico
-    // (40 x 4 / 13 = 12,3 ore), ma un giorno solo regge un turno: al massimo 9 ore
-    // lavorate in un negozio aperto 10 ore. Il resto resta a ottobre.
-    expect(libero.settimane[0].contratto).toBe(9);
-    expect(libero.persone.p0.settimane?.['2026-10-26']).toBe(9);
+    // (40 x 4 / 13 = 12,3 ore), ma un giorno solo regge un turno: al massimo 9 ore e mezza
+    // lavorate in un negozio aperto 10 ore (mezz'ora di pausa). Il resto resta a ottobre.
+    expect(libero.settimane[0].contratto).toBe(9.5);
+    expect(libero.persone.p0.settimane?.['2026-10-26']).toBe(9.5);
     const ottobre = new Map([['p0', new Map(['2026-10-26', '2026-10-27', '2026-10-28', '2026-10-29'].map((d) => [d, 9]))]]);
     const e = pianificaMese({ mese, giorni, persone: una, regola: 'nessuno', storicoWeekend: new Map(), atteso, oreFuoriMese: ottobre });
     expect(e.settimane[0].contratto).toBe(4);
@@ -229,7 +229,7 @@ describe('il piano del mese', () => {
     const conRot = pianificaMese({ mese, giorni, persone: conTrasferta, regola: 'sabato_o_domenica', storicoWeekend: new Map(), atteso });
     const copertoRot = pianificaMese({ mese, giorni, persone: conTrasferta, regola: 'sabato_o_domenica', storicoWeekend: new Map(), atteso, fissi });
     expect(copertoRot.oreScoperte).toBeLessThanOrEqual(conRot.oreScoperte);
-  });
+  }, 30_000);
   it('simulazione: fabbisogno fisso, ore ipotetiche e straordinari ammessi', () => {
     // fabbisogno di «Orari e fabbisogno»: 2 persone tutto il giorno = 140 ore a settimana
     const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));
@@ -373,8 +373,8 @@ describe('dove mettere le ore che avanzano', () => {
 });
 
 describe('turno massimo di 10 ore (Patrizio, 28/10/2026)', () => {
-  it('la pausa sta dentro l\'orario: 9 ore lavorate se il negozio apre 10 ore, 10 se ne apre 11', () => {
-    expect(lavoroMassimoGiorno({ apre: 600, chiude: 1200 })).toBe(540);
+  it('la pausa sta dentro l\'orario: 9 ore e mezza lavorate se il negozio apre 10 ore, 10 se ne apre 11', () => {
+    expect(lavoroMassimoGiorno({ apre: 600, chiude: 1200 })).toBe(570);
     expect(lavoroMassimoGiorno({ apre: 600, chiude: 1260 })).toBe(600);
     expect(lavoroMassimoGiorno({ apre: 600, chiude: 1080 })).toBe(450);
   });

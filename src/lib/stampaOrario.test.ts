@@ -109,7 +109,7 @@ describe('ore e pause', () => {
     expect(formattaOre(7.5)).toBe('7,5');
     expect(formattaOre(8)).toBe('8');
     expect(formattaOre(0)).toBe('0');
-    expect(formattaOre(6.6666)).toBe('6,67');
+    expect(formattaOre(6.6666)).toBe("6 h 40'");
   });
   it('non conta la pausa nelle ore lavorate', () => {
     expect(oreTurno(turno('10:00', '18:00', 30))).toBe(7.5);

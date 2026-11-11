@@ -132,7 +132,10 @@ export function nomeFileOrario(dati: OrarioStampa): string {
 
 /** Numero all'italiana: virgola e niente decimali inutili (7,5 · 8 · 0). */
 export function formattaOre(ore: number): string {
-  return String(Math.round(ore * 100) / 100).replace('.', ',');
+  // sulla mezz'ora «7,5», altrimenti ore e minuti: «7 h 50'» (pausa da 10 minuti)
+  const minutiTot = Math.round(ore * 60);
+  if (minutiTot % 30 === 0) return String(minutiTot / 60).replace('.', ',');
+  return `${Math.floor(minutiTot / 60)} h ${String(minutiTot % 60).padStart(2, '0')}'`;
 }
 
 /** 'HH:MM' anche quando arriva '9:00' o '10:00:00'. */
@@ -164,7 +167,8 @@ export function etichettaPausa(pausaMinuti: number): string {
 export function dettaglioTurno(turno: TurnoStampa): string {
   const ore = oreTurno(turno);
   const pausa = etichettaPausa(turno.pausaMinuti);
-  return `${formattaOre(ore)} ${ore === 1 ? 'ora' : 'ore'}${pausa ? ` · ${pausa}` : ''}`;
+  const tonde = Math.round(ore * 60) % 30 === 0;
+  return `${formattaOre(ore)}${tonde ? (ore === 1 ? ' ora' : ' ore') : ''}${pausa ? ` · ${pausa}` : ''}`;
 }
 
 // ─── Totali, chi apre e chi chiude ───────────────────────────────────────────
@@ -654,7 +658,7 @@ function disegnaRigaPersona(
       scrivi(doc, dettaglioTurno(t), x, yTurno + 11.1 * s, { size: 7.5 * s, colore: GRIGIO, maxL });
       const straord = t.oreStraordinario ?? 0;
       if (straord > 0) {
-        scrivi(doc, `${formattaOre(straord)} h di straordinario`, x, yTurno + 14.9 * s, {
+        scrivi(doc, `${formattaOre(straord)}${Math.round(straord * 60) % 30 === 0 ? ' h' : ''} di straordinario`, x, yTurno + 14.9 * s, {
           size: 7 * s, bold: true, colore: ROSA_SCURO, maxL,
         });
       }

@@ -1009,3 +1009,44 @@ ufficiale un turno senza piano con `origine = 'manuale'` anche in bozza (decisio
 bozza da approvare caricata da fuori va messa con `origine = 'proposta'`. Dentro un piano scelto,
 dalla 395, vale solo il pubblicato.
 
+## Pause da 10 e 30 minuti, domenica della responsabile, straordinari del weekend (12/11/2026)
+
+Decisioni di Patrizio del 12/11/2026, prima di pubblicare il lavoro dell'11/11.
+
+- **Pause**: 10 minuti al posto dei 30, 30 minuti al posto dell'ora. Soglie invariate: nessuna
+  pausa fino a 6 ore lavorate, la corta oltre 6, la lunga da 8. «10 minuti non stanno nella griglia
+  a mezz'ora, però così è.»
+- **Domenica**: la responsabile fa l'apertura, «anche con straordinari»; all'apertura almeno due
+  persone, alla chiusura dopo le 19 ne basta una; apertura e picco insieme, mai in tre al picco.
+- **Straordinari**: «non devi accorciare i turni per restare ai contratti»; quando c'è bisogno, solo
+  il sabato, la domenica e i giorni speciali come il Black Friday; spalmati sulle persone,
+  responsabile compresa.
+
+Conti a mano sull'ultimo PDF (stessi orari, pause nuove): ogni persona sopra il contratto di 40
+minuti fino a 1 ora e 40 nelle settimane normali (16-22/11: 135 h 20' invece di 130), Black Friday
+da 26 a 34 ore di straordinario. È la ragione per cui gli orari non si potevano solo «ricalcolare».
+
+Nel codice:
+- `REGOLE_DEFAULT` 10 e 30 minuti; migration 396 porta a 10 e 30 le regole salvate dei negozi.
+- `ottimizzaSettimana` lavora sulla **presenza** (inizio e durata a mezz'ore): le ore lavorate sono
+  la presenza meno `pausaMinimaPerPresenza`. La proposta di prima esce con fini fuori griglia
+  (10:00-17:40): il primo gesto del motore è riportarla sulle mezz'ore (10:00-18:00, 7 h 50').
+- Straordinari: nei feriali le ore non superano il contratto; quelle di sabato, domenica e giorni
+  di evento possono andare oltre (`straordinariWeekend`). Il costo cresce con il quadrato, così si
+  distribuiscono.
+- Domenica: `PESI.domenicaApertura` (stesso livello di «weekend tutti»), minimo due persone nella
+  prima ora in `fabbisognoDaTraffico`, deroga `domenica_apertura`.
+- Ricerca: 60.000 giri con quattro persone (sotto restava qualche ora scoperta che si poteva
+  coprire), più `riparaScoperture` (chi è in turno allunga, toglie le stesse ore a un altro suo
+  giorno, una collega chiude il buco). Circa 0,4 secondi a settimana.
+
+Misure con il motore (Roma Soratte, dati veri, regole salvate del negozio, responsabile Angelini):
+| Settimana | Ore | Straordinari | Scoperte | Domenica |
+|---|---|---|---|---|
+| 16-22/11 | 129 h 50' su 130 | nessuno | 0 | Angelini 10-19, due all'apertura, quattro dalle 16 alle 19 |
+| 23-29/11 (Black Friday) | 164 h 30' | 34 h 30' (9 h 10', 9 h 40', 8 h 40', 7 h) | 0 | Angelini 10-20, due all'apertura |
+
+**Da guardare al primo piano di ogni negozio**: gli straordinari del weekend non hanno un tetto.
+Dove le ore di contratto non bastano (misure del 30/10: Palmanova e Valmontone) il motore ora copre
+il traffico del weekend con straordinari ogni settimana. Gli altri negozi non sono stati misurati.
+

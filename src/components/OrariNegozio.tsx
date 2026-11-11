@@ -532,9 +532,9 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
               { k: 'turnoMinOre' as const, label: 'Turno minimo nella giornata (ore)', min: 1, max: 12, step: 0.5 },
               { k: 'turnoMaxOre' as const, label: 'Turno massimo (ore)', min: 1, max: 12, step: 0.5 },
               { k: 'pausaOltreOre' as const, label: 'Pausa oltre (ore lavorate)', min: 1, max: 12, step: 0.5 },
-              { k: 'pausaMinuti' as const, label: 'Pausa (minuti)', min: 0, max: 120, step: 15 },
+              { k: 'pausaMinuti' as const, label: 'Pausa (minuti)', min: 0, max: 120, step: 5 },
               { k: 'pausaLungaOltreOre' as const, label: 'Pausa lunga da (ore lavorate)', min: 1, max: 12, step: 0.5 },
-              { k: 'pausaLungaMinuti' as const, label: 'Pausa lunga (minuti)', min: 0, max: 120, step: 15 },
+              { k: 'pausaLungaMinuti' as const, label: 'Pausa lunga (minuti)', min: 0, max: 120, step: 5 },
               { k: 'giorniLavoroMax' as const, label: 'Giorni di lavoro a settimana, al massimo', min: 1, max: 7, step: 1 },
               // Soglia di ingressi MODA per addetto (Patrizio, 29/10/2026): 25 provvisorio, si rimisura a fine novembre.
               { k: 'sogliaFeriali' as const, label: 'Ingressi per addetto all\'ora, feriali (provvisorio)', min: 1, max: 200, step: 1 },

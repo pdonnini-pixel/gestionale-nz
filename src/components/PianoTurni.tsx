@@ -32,7 +32,7 @@ import { avvisiMossa as avvisiDellaMossa, esitoMossa, mossePossibili, type Conte
 import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
-  NOMI_GIORNO, NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
+  NOMI_GIORNO, NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
@@ -301,7 +301,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     persone: candidati.map((c) => ({ ...c, nome: nomePersona(dati.schede.find((s) => s.id === c.id) ?? { nome: '', cognome: '' }) })),
     regole,
     giornoLibero: new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])),
-    guida: { responsabile: guida[0] ?? null, vice: guida[1] ?? null },
+    guida: { responsabile: negozio?.referente_employee_id ?? null, vice: negozio?.vice_referente_employee_id ?? null },
   }) : []), [attivi.length, giorni, turni, candidati, regole, giorniLiberi, guida.join('|'), dati.schede]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cambiaGiornoLibero = async (employeeId: string, giorno: number | null) => {
@@ -379,7 +379,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const liberi = scegliGiorniLiberi(candidati.map((c) => c.id), new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])), guida);
       const coppiePrima = await caricaCoppiePrima(companyId, outletId, date[0]);
       const sistemati = ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidati, regole,
-        { giornoLibero: liberi, guida, coppiePrima, riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori }, fissiTutti);
+        { giornoLibero: liberi, guida, coppiePrima, riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori, responsabile: negozio?.referente_employee_id ?? null, straordinariWeekend: true }, fissiTutti);
       if (haGiorniLiberi) await salvaGiorniLiberiDiSistema(companyId, liberi, giorniLiberi).catch(() => undefined);
       const esito = { ...proposta, turni: sistemati, scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, [...sistemati, ...fissiTutti])) };
       if (esito.turni.length) {
@@ -393,8 +393,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const fatte = (id: string) => [...sistemati, ...fissiTutti].filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
       const libere = candidati.reduce((a, c) => a + Math.max(0, c.ore - fatte(c.id)), 0);
       const straord = candidati.reduce((a, c) => a + Math.max(0, fatte(c.id) - c.ore), 0);
-      const perFerie = (libere > 0.25 ? ` ${libere.toLocaleString('it-IT')} ore di contratto non servono: restano per ferie e permessi, le vedi nella colonna Ore.` : '')
-        + (straord > 0.25 ? ` Per l'evento servono ${straord.toLocaleString('it-IT')} ore di straordinario.` : '');
+      const perFerie = (libere > 0.25 ? ` ${oreInChiaro(libere)} ore di contratto non servono: restano per ferie e permessi, le vedi nella colonna Ore.` : '')
+        + (straord > 0.25 ? ` Servono ${oreInChiaro(straord)} ore di straordinario (sabato, domenica o giorni di evento).` : '');
       toast({
         type: esito.scoperture.length ? 'warning' : 'success',
         message: esito.scoperture.length
@@ -683,17 +683,17 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                     );
                   })}
                   <td className={`px-3 py-2 text-right tabular-nums ${p.ore != null && pianificate > p.ore + 0.01 ? 'text-amber-800 font-semibold' : 'text-emerald-800'}`}>
-                    {pianificate.toLocaleString('it-IT')}{p.ore != null ? `/${p.ore}` : ''}
+                    {oreInChiaro(pianificate)}{p.ore != null ? ` / ${p.ore}` : ''}
                     {portate > 0.01 && fuori.length > 0 && (
-                      <span className="block text-[11px] font-normal text-slate-500 whitespace-nowrap">di cui {portate.toLocaleString('it-IT')} h in {meseFuori}</span>
+                      <span className="block text-[11px] font-normal text-slate-500 whitespace-nowrap">di cui {oreInChiaro(portate)} in {meseFuori}</span>
                     )}
                     {p.ore != null && pianificate - p.ore > 0.25 && (
-                      <span className="block text-[11px] font-normal text-amber-800 whitespace-nowrap">{(pianificate - p.ore).toLocaleString('it-IT')} h straordinario</span>
+                      <span className="block text-[11px] font-normal text-amber-800 whitespace-nowrap">{oreInChiaro(pianificate - p.ore)}{Math.round((pianificate - p.ore) * 60) % 30 === 0 ? ' h' : ''} straordinario</span>
                     )}
                     {p.ore != null && p.ore - pianificate > 0.25 && (
                       <span className="block text-[11px] font-normal text-slate-500 whitespace-nowrap"
                         title={fuori.length && !portate ? 'Ore di contratto della settimana ancora libere: il resto della settimana è nell\'altro mese' : 'Ore di contratto che il negozio non usa questa settimana: si coprono con ferie o permessi'}>
-                        {(p.ore - pianificate).toLocaleString('it-IT')} h {fuori.length && !portate ? 'per il resto della settimana' : 'ferie/permessi'}{saldi.get(p.scheda.id) ? ` · maturate ${Math.round(saldi.get(p.scheda.id)!).toLocaleString('it-IT')} h` : ''}
+                        {oreInChiaro(p.ore - pianificate)}{Math.round((p.ore - pianificate) * 60) % 30 === 0 ? ' h' : ''} {fuori.length && !portate ? 'per il resto della settimana' : 'ferie/permessi'}{saldi.get(p.scheda.id) ? ` · maturate ${Math.round(saldi.get(p.scheda.id)!).toLocaleString('it-IT')} h` : ''}
                       </span>
                     )}
                   </td>
@@ -715,7 +715,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                   </td>
                 );
               })}
-              <td className="px-3 py-2 text-right text-xs tabular-nums font-semibold">{totaleOre.toLocaleString('it-IT')}/{totaleContratto.toLocaleString('it-IT')}</td>
+              <td className="px-3 py-2 text-right text-xs tabular-nums font-semibold">{oreInChiaro(totaleOre)} / {totaleContratto.toLocaleString('it-IT')}</td>
             </tr>
           </tbody>
         </table>

@@ -34,7 +34,7 @@
 // Funzioni pure, nessuna query. Test in ottimizzaTurni.test.ts.
 
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, hhmm, minuti, oreLavorate, pausaPer, lavoroMassimoGiorno, limitiPersona,
+  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno,
 } from './turni';
 
@@ -45,6 +45,13 @@ export interface RegoleNuove {
   coppiePrima?: Map<string, number>;
   /** responsabile e vice del negozio: il lunedi' almeno una delle due ha un turno. Vuoto o una sola = regola spenta. */
   guida?: string[];
+  /**
+   * Straordinari anche il sabato e la domenica, quando servono a coprire il traffico (Patrizio,
+   * 12/11/2026). Spento nelle simulazioni, dove gli straordinari li decide chi simula.
+   */
+  straordinariWeekend?: boolean;
+  /** la responsabile del negozio: la domenica fa l'apertura (Patrizio, 12/11/2026) */
+  responsabile?: string | null;
   /** le ore di contratto che il traffico non chiede vanno comunque in turno, prima venerdi', sabato e domenica */
   riempiContratto?: boolean;
   /** giorni gia' lavorati da ognuno nei giorni dell'altro mese della stessa settimana: contano nel massimo dei giorni */
@@ -122,6 +129,7 @@ export const PESI = {
   // Nel weekend lavorano tutti anche a costo del minimo delle fasce di un feriale
   // (Patrizio, 11/11/2026), ma mai lasciando un giorno vuoto o con una persona sola.
   weekendLibero: 4_000_000, // persona che puo' lavorare e non ha turno il sabato o la domenica
+  domenicaApertura: 4_000_000, // la responsabile che la domenica non fa l'apertura
   sottoMinimo: 100_000,     // persona che manca al minimo delle fasce, per mezz'ora
   scoperta: 10_000,         // persona che manca al traffico MODA, per mezz'ora
   scopertaEsatta: 1_000,    // lo stesso senza arrotondare, per mezz'ora di persona
@@ -134,7 +142,10 @@ export const PESI = {
   coppiaRipetuta: 60,       // coppia che si ripete nella stessa settimana
 } as const;
 
-interface Pezzo { s: number; w: number }  // inizio (minuti) e minuti lavorati
+// Inizio e presenza in minuti, tutti e due sulla griglia delle mezz'ore. Le ore lavorate
+// sono la presenza meno la pausa: con la pausa da 10 minuti (Patrizio, 12/11/2026) un turno
+// 10-18 vale 7 ore e 50, e l'orario scritto resta tondo.
+interface Pezzo { s: number; w: number }
 type Stato = (Pezzo | null)[][];          // [persona][giorno]
 
 interface Quadro {
@@ -149,8 +160,14 @@ interface Quadro {
   /** ore fisse gia' nei turni di ogni nostra persona, e giorni in cui ha gia' un turno fisso */
   oreFisse: number[];
   giornoFisso: boolean[][];
+  /** `max` e `minLavoro` sono presenze: la piu' lunga e la piu' corta che stanno nel turno massimo e minimo */
   limiti: { apre: number; chiude: number; max: number }[][];
   minLavoro: number;
+  /** ore lavorate per ogni presenza (indice = presenza / mezz'ora) */
+  lav: number[];
+  /** indice della responsabile fra le persone, o -1 */
+  resp: number;
+  straordWeekend: boolean;
   /**
    * Le ore che ognuno puo' fare: il contratto, oppure quelle che aveva gia' nei
    * turni di partenza se erano di piu' (straordinari ammessi, ore anticipate nelle
@@ -172,7 +189,10 @@ interface Quadro {
   bufOre: number[]; bufEvento: number[]; bufGiorni: number[]; bufCoppie: number[]; bufCop: number[]; bufInTurno: number[];
 }
 
-function durata(w: number, regole: RegoleTurni): number { return w + pausaPer(w, regole); }
+/** Minuti lavorati in una presenza: la presenza meno la pausa che le spetta. */
+function lavoroDi(presenza: number, regole: RegoleTurni): number { return presenza - pausaMinimaPerPresenza(presenza, regole); }
+// La presenza e' gia' la durata del turno: resta la funzione per leggibilita'.
+function durata(w: number, _regole: RegoleTurni): number { return w; }
 
 function costo(q: Quadro, st: Stato): number {
   const { giorni, persone, regole } = q;
@@ -197,15 +217,16 @@ function costo(q: Quadro, st: Stato): number {
       const x = st[p][riga];
       if (!x) continue;
       inTurno[quanti++] = p;
-      const h = x.w / 60;
+      const h = q.lav[x.w / SLOT_MINUTI];
       ore[p] += h;
-      if (g.straordinari) oreEvento[p] += h;
+      // straordinari: nei giorni di evento e, quando serve, il sabato e la domenica (Patrizio, 12/11/2026)
+      if (g.straordinari || (iso >= 6 && q.straordWeekend)) oreEvento[p] += h;
       giorniLavoro[p] += 1;
       c += PESI.turno;
       if (q.eGuida[p]) guidaPresente = true;
       if (q.libero[p] === iso) c += PESI.giornoLibero;
       let a = (x.s - g.apre) / SLOT_MINUTI; if (a < 0) a = 0;
-      let b = (x.s + x.w + pausaPer(x.w, regole) - g.apre) / SLOT_MINUTI; if (b > n) b = n;
+      let b = (x.s + x.w - g.apre) / SLOT_MINUTI; if (b > n) b = n;
       for (let k = a; k < b; k++) cop[k] += 1;
     }
     const minimo = g.minimo; const esatto = g.esatto; const fabb = g.fabbisogno;
@@ -227,12 +248,16 @@ function costo(q: Quadro, st: Stato): number {
     }
     if (quanti + q.fissePersone[d].size === 1) c += PESI.unaSola;
     if (iso === 1 && q.guidaAttiva && !guidaPresente && q.guidaPossibile[d]) c += PESI.lunediSenzaGuida;
+    if (iso === 7 && q.resp >= 0 && q.weekendDovuto[q.resp][d]) {
+      const x = st[q.resp][riga];
+      if (!x || x.s > q.limiti[q.resp][d].apre) c += PESI.domenicaApertura;
+    }
     if (iso >= 6) {
       for (let p = 0; p < P; p++) if (!st[p][riga] && q.weekendDovuto[p][d]) c += PESI.weekendLibero;
     } else {
       for (let i = 0; i < quanti; i++) for (let j = i + 1; j < quanti; j++) {
         const a = st[inTurno[i]][riga]!; const b = st[inTurno[j]][riga]!;
-        const fa = a.s + a.w + pausaPer(a.w, regole); const fb = b.s + b.w + pausaPer(b.w, regole);
+        const fa = a.s + a.w; const fb = b.s + b.w;
         if ((fa < fb ? fa : fb) - (a.s > b.s ? a.s : b.s) >= 60) coppieSett[inTurno[i] * P + inTurno[j]] += 1;
       }
     }
@@ -408,7 +433,7 @@ function possibili(q: Quadro, p: number, d: number, passoInizio: number, lunghez
 function costruisci(q: Quadro): Stato {
   const st: Stato = q.persone.map(() => q.giorni.map(() => null));
   let c = costo(q, st);
-  const lunghezze = [q.minLavoro, 300, 360, 450, 480, 540, 600];
+  const lunghezze = [q.minLavoro, 300, 360, 480, 540, 600];
   for (;;) {
     let meglio: { p: number; d: number; x: Pezzo; c: number } | null = null;
     for (let p = 0; p < q.persone.length; p++) for (let d = 0; d < q.giorni.length; d++) {
@@ -441,6 +466,20 @@ function rifinisci(q: Quadro, st: Stato, c0: number, passate = 6): number {
       }
       st[p][d] = scelto;
     }
+    // scambio dei turni fra due persone nello stesso giorno: serve alle regole che guardano
+    // chi lavora con chi (coppie, giorno libero fisso, apertura della domenica)
+    for (let d = 0; d < q.giorni.length; d++) {
+      if (q.giorni[d].chiuso) continue;
+      for (let p = 0; p < q.persone.length; p++) for (let p2 = p + 1; p2 < q.persone.length; p2++) {
+        const x = st[p][d]; const y = st[p2][d];
+        if ((!x && !y) || q.giornoFisso[p][d] || q.giornoFisso[p2][d]) continue;
+        const a = y ? dentro(q, p, d, y.s, y.w) : null; const b2 = x ? dentro(q, p2, d, x.s, x.w) : null;
+        if ((y && (!a || a.s !== y.s || a.w !== y.w)) || (x && (!b2 || b2.s !== x.s || b2.w !== x.w))) continue;
+        st[p][d] = a; st[p2][d] = b2;
+        const cn = costo(q, st);
+        if (cn < c - 1e-9) { c = cn; mosso = true; } else { st[p][d] = x; st[p2][d] = y; }
+      }
+    }
     if (!mosso) break;
   }
   return c;
@@ -453,7 +492,7 @@ function rifinisci(q: Quadro, st: Stato, c0: number, passate = 6): number {
  */
 function riparaWeekend(q: Quadro, st: Stato, c0: number): number {
   let c = c0;
-  const lunghezze = [q.minLavoro, 300, 360, 450, 480, 540];
+  const lunghezze = [q.minLavoro, 300, 360, 480, 540, 600];
   for (let d = 0; d < q.giorni.length; d++) {
     if (q.giorni[d].chiuso || giornoIso(q.giorni[d].data) < 6) continue;
     for (let p = 0; p < q.persone.length; p++) {
@@ -484,6 +523,75 @@ function riparaWeekend(q: Quadro, st: Stato, c0: number): number {
   return c;
 }
 
+/** Persone che mancano nel giorno, sommate sulle mezz'ore: serve a sapere dove riparare. */
+function mancaNelGiorno(q: Quadro, st: Stato, d: number): number {
+  const g = q.giorni[d];
+  if (g.chiuso) return 0;
+  let manca = 0;
+  for (let k = 0; k < g.fabbisogno.length; k++) {
+    const m = g.apre + k * SLOT_MINUTI;
+    let ci = q.fissa[d][k];
+    for (let p = 0; p < q.persone.length; p++) { const x = st[p][d]; if (x && m >= x.s && m < x.s + x.w) ci += 1; }
+    if (ci < g.fabbisogno[k]) manca += g.fabbisogno[k] - ci;
+  }
+  return manca;
+}
+
+/**
+ * Dove restano ore scoperte: chi e' gia' in turno quel giorno allunga, togliendo le stesse
+ * ore a un altro suo turno della settimana; se li' resta un buco lo chiude una collega
+ * allungando il suo. Sono tre caselle mosse insieme, che la ricerca a caso trova di rado
+ * (misura del 12/11/2026, Roma Soratte: domenica dalle 17 alle 19 con una persona a 3 ore
+ * dal contratto e nessuno che potesse restare).
+ */
+function riparaScoperture(q: Quadro, st: Stato, c0: number): number {
+  let c = c0;
+  const variante = (x: Pezzo, w: number, daInizio: boolean): Pezzo => (daInizio ? { s: x.s + x.w - w, w } : { s: x.s, w });
+  for (let giro = 0; giro < 6; giro++) {
+    let meglio: { celle: [number, number, Pezzo | null][]; c: number } | null = null;
+    for (let d1 = 0; d1 < q.giorni.length; d1++) {
+      if (mancaNelGiorno(q, st, d1) <= 0) continue;
+      for (let p = 0; p < q.persone.length; p++) {
+        const x = st[p][d1];
+        if (!x) continue;
+        for (let k = 1; k <= 6; k++) for (const prima of [true, false]) {
+          const x1 = dentro(q, p, d1, prima ? x.s - k * SLOT_MINUTI : x.s, x.w + k * SLOT_MINUTI);
+          if (!x1 || x1.w !== x.w + k * SLOT_MINUTI) continue;
+          st[p][d1] = x1;
+          for (let d2 = 0; d2 < q.giorni.length; d2++) {
+            const y = st[p][d2];
+            if (!y || d2 === d1 || y.w - k * SLOT_MINUTI < q.minLavoro) continue;
+            for (const taglioInizio of [true, false]) {
+              const y1 = variante(y, y.w - k * SLOT_MINUTI, taglioInizio);
+              st[p][d2] = y1;
+              const c1 = costo(q, st);
+              if (c1 < (meglio?.c ?? c) - 1e-9) meglio = { celle: [[p, d1, x1], [p, d2, y1]], c: c1 };
+              for (let p3 = 0; p3 < q.persone.length; p3++) {
+                const z = st[p3][d2];
+                if (!z || p3 === p) continue;
+                for (const zPrima of [true, false]) {
+                  const z1 = dentro(q, p3, d2, zPrima ? z.s - k * SLOT_MINUTI : z.s, z.w + k * SLOT_MINUTI);
+                  if (!z1 || z1.w !== z.w + k * SLOT_MINUTI) continue;
+                  st[p3][d2] = z1;
+                  const c2 = costo(q, st);
+                  if (c2 < (meglio?.c ?? c) - 1e-9) meglio = { celle: [[p, d1, x1], [p, d2, y1], [p3, d2, z1]], c: c2 };
+                  st[p3][d2] = z;
+                }
+              }
+              st[p][d2] = y;
+            }
+          }
+          st[p][d1] = x;
+        }
+      }
+    }
+    if (!meglio) break;
+    for (const [p, d, x] of meglio.celle) st[p][d] = x;
+    c = meglio.c;
+  }
+  return c;
+}
+
 /**
  * Ore fino al contratto (Patrizio, 11/11/2026, scelta del negozio): le ore che il
  * traffico non chiede si mettono comunque in turno. Prima si allungano i turni di
@@ -493,13 +601,13 @@ function riparaWeekend(q: Quadro, st: Stato, c0: number): number {
  * vince quella dove ci sono meno persone in piu'.
  */
 function riempiOre(q: Quadro, st: Stato): void {
-  const oreDi = (p: number) => q.oreFisse[p] + st[p].reduce((a, x) => a + (x ? x.w / 60 : 0), 0);
+  const oreDi = (p: number) => q.oreFisse[p] + st[p].reduce((a, x) => a + (x ? q.lav[x.w / SLOT_MINUTI] : 0), 0);
   const ordine = q.giorni.map((_, d) => d).sort((a, b) => Number(giornoIso(q.giorni[b].data) >= 5) - Number(giornoIso(q.giorni[a].data) >= 5));
   for (let giro = 0; giro < 200; giro++) {
     let mosso = false;
     for (let p = 0; p < q.persone.length; p++) {
       const libere = q.persone[p].ore - oreDi(p);
-      if (libere < SLOT_MINUTI / 60 - 1e-9) continue;
+      if (libere < 1 / 6 - 1e-9) continue;
       // 1. allunga un turno: prima il fine settimana
       const scelta: { v: { d: number; x: Pezzo; c: number } | null } = { v: null };
       for (const fine of [true, false]) {
@@ -510,7 +618,7 @@ function riempiOre(q: Quadro, st: Stato): void {
           const termine = x.s + durata(x.w, q.regole);
           const w = x.w + SLOT_MINUTI;
           for (const n of [dentro(q, p, d, x.s, w), dentro(q, p, d, termine - durata(w, q.regole), w)]) {
-            if (!n || n.w !== w) continue;
+            if (!n || n.w !== w || q.lav[n.w / SLOT_MINUTI] - q.lav[x.w / SLOT_MINUTI] > libere + 1e-9) continue;
             st[p][d] = n;
             const c = costo(q, st);
             st[p][d] = x;
@@ -520,7 +628,7 @@ function riempiOre(q: Quadro, st: Stato): void {
         if (scelta.v) break;
       }
       // 2. un turno nuovo, se le ore libere bastano per il turno minimo
-      if (!scelta.v && libere >= q.minLavoro / 60 - 1e-9) {
+      if (!scelta.v && libere >= q.lav[q.minLavoro / SLOT_MINUTI] - 1e-9) {
         for (const fine of [true, false]) {
           for (const d of ordine) {
             if ((giornoIso(q.giorni[d].data) >= 5) !== fine || st[p][d] || q.giorni[d].chiuso) continue;
@@ -560,7 +668,7 @@ function cerca(q: Quadro, partenza: Stato, giri: number, r: () => number): { st:
     } else annulla(st, reg);
   }
   meglio.c = rifinisci(q, meglio.st, meglio.c);
-  const riparato = riparaWeekend(q, meglio.st, meglio.c);
+  const riparato = riparaScoperture(q, meglio.st, riparaWeekend(q, meglio.st, meglio.c));
   if (riparato < meglio.c - 1e-9) meglio.c = rifinisci(q, meglio.st, riparato);
   return meglio;
 }
@@ -578,14 +686,26 @@ export function ottimizzaSettimana(
   const aperti = giorni.filter((g) => !g.chiuso);
   if (!aperti.length || !persone.length) return turni;
   const indice = new Map(persone.map((p, i) => [p.id, i]));
-  const minLavoro = regole.turnoMinOre * 60;
+  // La presenza piu' corta che vale il turno minimo, e la tabella delle ore lavorate per presenza.
+  const passi = Math.ceil(24 * 60 / SLOT_MINUTI);
+  const lavMin = Array.from({ length: passi + 1 }, (_, i) => lavoroDi(i * SLOT_MINUTI, regole));
+  let minLavoro = regole.turnoMinOre * 60;
+  while (minLavoro < 24 * 60 && lavMin[Math.ceil(minLavoro / SLOT_MINUTI)] < regole.turnoMinOre * 60 - 1e-9) minLavoro += SLOT_MINUTI;
+  minLavoro = Math.ceil(minLavoro / SLOT_MINUTI) * SLOT_MINUTI;
+  /** La presenza piu' lunga che sta nell'orario e nel turno massimo. */
+  const presenzaMassima = (giornata: number) => {
+    let d = Math.floor(giornata / SLOT_MINUTI) * SLOT_MINUTI;
+    while (d > 0 && lavMin[d / SLOT_MINUTI] > regole.turnoMaxOre * 60 + 1e-9) d -= SLOT_MINUTI;
+    return d;
+  };
   // I turni che non sono di queste persone, o che sono in piu' nello stesso giorno, restano com'erano.
   const altri = turni.filter((t) => !indice.has(t.employeeId) || !giorni.some((g) => g.data === t.data));
   const tuttiFissi = [...fissi, ...altri];
   const q = {
     giorni, persone, regole, nuove, minLavoro,
-    tetto: persone.map((p) => Math.max(p.ore, turni.filter((t) => t.employeeId === p.id && giorni.some((g) => g.data === t.data)).reduce((a, t) => a + oreLavorate(t), 0)
-      + fissi.filter((t) => t.employeeId === p.id && giorni.some((g) => g.data === t.data)).reduce((a, t) => a + oreLavorate(t), 0))),
+    lav: lavMin.map((m) => m / 60),
+    resp: nuove.responsabile ? (indice.get(nuove.responsabile) ?? -1) : -1,
+    straordWeekend: !!nuove.straordinariWeekend,
     fissa: giorni.map((g) => {
       const cop = g.fabbisogno.map(() => 0);
       for (const t of tuttiFissi) {
@@ -600,15 +720,9 @@ export function ottimizzaSettimana(
     limiti: persone.map((p) => giorni.map((g) => {
       if (g.chiuso || p.nonDisponibile.has(g.data)) return { apre: 0, chiude: 0, max: 0 };
       const l = limitiPersona(p, g);
-      return { ...l, max: Math.floor(lavoroMassimoGiorno(l, regole) / SLOT_MINUTI) * SLOT_MINUTI };
+      return { ...l, max: presenzaMassima(l.chiude - l.apre) };
     })),
   } as Quadro;
-  const eventi = new Set(giorni.filter((g) => g.straordinari && !g.chiuso).map((g) => g.data));
-  q.oltreLibero = persone.map((p, i) => {
-    const suoi = [...turni, ...fissi].filter((t) => t.employeeId === p.id && giorni.some((g) => g.data === t.data));
-    const inEvento = suoi.filter((t) => eventi.has(t.data)).reduce((a, t) => a + oreLavorate(t), 0);
-    return Math.max(0, q.tetto[i] - p.ore - inEvento);
-  });
   const guidaIds = (nuove.guida ?? []).length >= 2 ? nuove.guida! : [];
   q.iso = giorni.map((g) => giornoIso(g.data));
   q.libero = persone.map((p) => nuove.giornoLibero?.get(p.id) ?? 0);
@@ -630,22 +744,37 @@ export function ottimizzaSettimana(
     const p = indice.get(t.employeeId); const d = giorni.findIndex((g) => g.data === t.data);
     if (p == null || d < 0) continue;
     if (partenza[p][d]) { fuoriStato.push(t); continue; }
-    const w = Math.round(oreLavorate(t) * 60 / SLOT_MINUTI) * SLOT_MINUTI;
-    // un turno che il conto non sa rappresentare (pausa diversa dalla regola, fuori limiti) resta fisso
+    // L'orario si porta sulla griglia delle mezz'ore: l'inizio all'indietro, la fine in avanti
+    // (un 10:00-17:40 della proposta diventa 10:00-18:00, con la sua pausa da 10 minuti).
     const l = q.limiti[p][d];
-    if (w < minLavoro || w > l.max || t.pausaMinuti !== pausaPer(w, regole) || minuti(t.inizio) < l.apre || minuti(t.fine) > l.chiude) { fuoriStato.push(t); continue; }
-    partenza[p][d] = { s: minuti(t.inizio), w };
+    const s = Math.max(l.apre, Math.floor(minuti(t.inizio) / SLOT_MINUTI) * SLOT_MINUTI);
+    const fine = Math.min(l.chiude, Math.ceil(minuti(t.fine) / SLOT_MINUTI) * SLOT_MINUTI);
+    const w = fine - s;
+    // un turno che il conto non sa rappresentare (fuori dai limiti della persona) resta fisso
+    if (w < minLavoro || w > l.max || minuti(t.inizio) < l.apre || minuti(t.fine) > l.chiude) { fuoriStato.push(t); continue; }
+    partenza[p][d] = { s, w };
   }
   if (fuoriStato.length) {
     // rari: si ricomincia tenendoli fra i fissi, cosi' il conto li vede
     const tenuti = new Set(fuoriStato);
     return [...ottimizzaSettimana(giorni, turni.filter((t) => !tenuti.has(t) && !altri.includes(t)), persone, regole, nuove, [...tuttiFissi, ...fuoriStato]), ...fuoriStato, ...altri];
   }
+  // Il tetto delle ore: il contratto, o le ore della partenza se erano di piu'. Oltre il
+  // contratto si va con le ore dei giorni di evento, del sabato e della domenica; quelle che
+  // la partenza aveva gia' in piu' nei feriali (straordinari ammessi, anticipo) restano.
+  const speciale = (d: number) => !!giorni[d].straordinari || (q.iso[d] >= 6 && q.straordWeekend);
+  q.tetto = persone.map((p, i) => Math.max(p.ore, q.oreFisse[i] + partenza[i].reduce((a, x) => a + (x ? q.lav[x.w / SLOT_MINUTI] : 0), 0)));
+  q.oltreLibero = persone.map((p, i) => {
+    const inSpeciale = partenza[i].reduce((a, x, d) => a + (x && speciale(d) ? q.lav[x.w / SLOT_MINUTI] : 0), 0)
+      + fissi.filter((t) => t.employeeId === p.id).reduce((a, t) => { const d = giorni.findIndex((g) => g.data === t.data); return a + (d >= 0 && speciale(d) ? oreLavorate(t) : 0); }, 0);
+    return Math.max(0, q.tetto[i] - p.ore - inSpeciale);
+  });
   const c0 = costo(q, partenza);
   // una partenza che il conto non sa leggere (piu' giorni del massimo gia' nei turni fissi) resta com'e'
   if (!Number.isFinite(c0)) return turni;
   // il conto costa in proporzione alle persone: i giri calano con loro, cosi' il tempo resta quello
-  const giri = nuove.giri ?? Math.max(6_000, Math.min(20_000, Math.round(100_000 / persone.length)));
+  // (misura del 12/11/2026 su Roma Soratte: sotto i 60.000 giri restava qualche ora scoperta che si poteva coprire)
+  const giri = nuove.giri ?? Math.max(12_000, Math.min(60_000, Math.round(240_000 / persone.length)));
   const seme = semeDi(`${giorni[0].data}|${persone.map((p) => p.id).join(',')}`);
   let meglio = { st: partenza, c: c0 };
   // due partenze: i turni gia' proposti e la settimana costruita da zero
@@ -654,17 +783,14 @@ export function ottimizzaSettimana(
     const esito = cerca(q, inizio, giri, casuale(seme + k * 7919));
     if (esito.c < meglio.c - 1e-9) meglio = esito;
   }
-  if (!(meglio.c < c0 - 1e-9)) {
-    if (!nuove.riempiContratto) return turni;
-    meglio = { st: copia(partenza), c: c0 };
-  }
+  // se la ricerca non migliora si tengono i turni di partenza, riportati sulla griglia
+  if (!(meglio.c < c0 - 1e-9)) meglio = { st: copia(partenza), c: c0 };
   if (nuove.riempiContratto) riempiOre(q, meglio.st);
   const out: Turno[] = [];
   for (let p = 0; p < persone.length; p++) for (let d = 0; d < giorni.length; d++) {
     const x = meglio.st[p][d];
     if (!x) continue;
-    const pausa = pausaPer(x.w, regole);
-    out.push({ employeeId: persone[p].id, data: giorni[d].data, inizio: hhmm(x.s), fine: hhmm(x.s + x.w + pausa), pausaMinuti: pausa });
+    out.push({ employeeId: persone[p].id, data: giorni[d].data, inizio: hhmm(x.s), fine: hhmm(x.s + x.w), pausaMinuti: pausaMinimaPerPresenza(x.w, regole) });
   }
   return [...out, ...altri];
 }
@@ -672,7 +798,7 @@ export function ottimizzaSettimana(
 // ── Le deroghe ───────────────────────────────────────────────────────────
 
 export interface Deroga {
-  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto';
+  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto';
   data: string | null;
   employeeId: string | null;
   testo: string;
@@ -704,6 +830,11 @@ export function derogheSettimana(args: {
     if (iso === 1 && args.guida?.responsabile && args.guida.vice
       && !del.some((t) => t.employeeId === args.guida!.responsabile || t.employeeId === args.guida!.vice)) {
       out.push({ regola: 'lunedi_guida', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: né la responsabile né la vice sono in turno (versamento in banca)` });
+    }
+    // la domenica l'apertura la fa la responsabile (Patrizio, 12/11/2026)
+    const resp = args.guida?.responsabile ? args.persone.find((p) => p.id === args.guida!.responsabile) : undefined;
+    if (iso === 7 && resp && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) <= g.apre)) {
+      out.push({ regola: 'domenica_apertura', data: g.data, employeeId: resp.id, testo: `${giornoTesto(g.data)}: ${resp.nome}, la responsabile, non fa l'apertura` });
     }
     for (const p of args.persone) {
       const suo = del.filter((t) => t.employeeId === p.id);
