@@ -34,7 +34,7 @@
 // Funzioni pure, nessuna query. Test in ottimizzaTurni.test.ts.
 
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona,
+  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, giornoPieno, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno,
 } from './turni';
 
@@ -57,6 +57,8 @@ export interface RegoleNuove {
   responsabile?: string | null;
   /** le ore di contratto che il traffico non chiede vanno comunque in turno, prima venerdi', sabato e domenica */
   riempiContratto?: boolean;
+  /** i giorni a organico pieno (sabato, domenica, festivi, eventi); senza, valgono sabato e domenica */
+  giorniPieni?: Set<string>;
   /** giorni gia' lavorati da ognuno nei giorni dell'altro mese della stessa settimana: contano nel massimo dei giorni */
   giorniGia?: Map<string, number>;
   /** giri di ricerca per partenza (default in proporzione a persone e giorni) */
@@ -175,6 +177,7 @@ interface Quadro {
   resp: number;
   respPresenza: number[];
   straordWeekend: boolean;
+  pieno: boolean[];
   /**
    * Le ore che ognuno puo' fare: il contratto, oppure quelle che aveva gia' nei
    * turni di partenza se erano di piu' (straordinari ammessi, ore anticipate nelle
@@ -227,7 +230,7 @@ function costo(q: Quadro, st: Stato): number {
       const h = q.lav[x.w / SLOT_MINUTI];
       ore[p] += h;
       // straordinari: nei giorni di evento e, quando serve, il sabato e la domenica (Patrizio, 12/11/2026)
-      if (g.straordinari || (iso >= 6 && q.straordWeekend)) oreEvento[p] += h;
+      if (g.straordinari || (q.pieno[d] && q.straordWeekend)) oreEvento[p] += h;
       giorniLavoro[p] += 1;
       c += PESI.turno;
       if (q.eGuida[p]) guidaPresente = true;
@@ -255,11 +258,11 @@ function costo(q: Quadro, st: Stato): number {
     }
     if (quanti + q.fissePersone[d].size === 1) c += PESI.unaSola;
     if (iso === 1 && q.guidaAttiva && !guidaPresente && q.guidaPossibile[d]) c += PESI.lunediSenzaGuida;
-    if (iso >= 6 && q.resp >= 0 && q.weekendDovuto[q.resp][d]) {
+    if (q.pieno[d] && q.resp >= 0 && q.weekendDovuto[q.resp][d]) {
       const x = st[q.resp][riga];
       if (!x || x.s !== q.limiti[q.resp][d].apre || x.w !== q.respPresenza[d]) c += PESI.domenicaApertura;
     }
-    if (iso >= 6) {
+    if (q.pieno[d]) {
       for (let p = 0; p < P; p++) if (!st[p][riga] && q.weekendDovuto[p][d]) c += PESI.weekendLibero;
     } else {
       for (let i = 0; i < quanti; i++) for (let j = i + 1; j < quanti; j++) {
@@ -732,6 +735,8 @@ export function ottimizzaSettimana(
   } as Quadro;
   const guidaIds = (nuove.guida ?? []).length >= 2 ? nuove.guida! : [];
   q.iso = giorni.map((g) => giornoIso(g.data));
+  // sabato, domenica, festivi e giorni di evento: lavorano tutti, la responsabile fa il suo orario
+  q.pieno = giorni.map((g) => (nuove.giorniPieni ? nuove.giorniPieni.has(g.data) : giornoIso(g.data) >= 6));
   q.respPresenza = giorni.map((_, d) => (q.resp >= 0 ? Math.min(PRESENZA_RESPONSABILE_WEEKEND, q.limiti[q.resp][d].max) : 0));
   q.libero = persone.map((p) => nuove.giornoLibero?.get(p.id) ?? 0);
   q.eGuida = persone.map((p) => guidaIds.includes(p.id));
@@ -770,7 +775,7 @@ export function ottimizzaSettimana(
   // Il tetto delle ore: il contratto, o le ore della partenza se erano di piu'. Oltre il
   // contratto si va con le ore dei giorni di evento, del sabato e della domenica; quelle che
   // la partenza aveva gia' in piu' nei feriali (straordinari ammessi, anticipo) restano.
-  const speciale = (d: number) => !!giorni[d].straordinari || (q.iso[d] >= 6 && q.straordWeekend);
+  const speciale = (d: number) => !!giorni[d].straordinari || (q.pieno[d] && q.straordWeekend);
   q.tetto = persone.map((p, i) => Math.max(p.ore, q.oreFisse[i] + partenza[i].reduce((a, x) => a + (x ? q.lav[x.w / SLOT_MINUTI] : 0), 0)));
   q.oltreLibero = persone.map((p, i) => {
     // solo i turni che il conto muove: le ore dei turni fissi nei giorni speciali il conto non le
@@ -843,12 +848,12 @@ export function derogheSettimana(args: {
     // sabato e domenica la responsabile entra all'apertura ed esce dopo nove ore (Patrizio, 12/11/2026)
     const resp = args.guida?.responsabile ? args.persone.find((p) => p.id === args.guida!.responsabile) : undefined;
     const fineResp = Math.min(g.chiude, g.apre + PRESENZA_RESPONSABILE_WEEKEND);
-    if (iso >= 6 && resp && resp.ore >= regole.turnoMinOre && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineResp)) {
+    if (giornoPieno(g) && resp && resp.ore >= regole.turnoMinOre && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineResp)) {
       out.push({ regola: 'domenica_apertura', data: g.data, employeeId: resp.id, testo: `${giornoTesto(g.data)}: ${resp.nome}, la responsabile, non fa ${hhmm(g.apre)}-${hhmm(fineResp)}` });
     }
     for (const p of args.persone) {
       const suo = del.filter((t) => t.employeeId === p.id);
-      if (iso >= 6 && !suo.length && p.ore >= regole.turnoMinOre && !p.nonDisponibile.has(g.data)) {
+      if (giornoPieno(g) && !suo.length && p.ore >= regole.turnoMinOre && !p.nonDisponibile.has(g.data)) {
         out.push({ regola: 'weekend', data: g.data, employeeId: p.id, testo: `${p.nome} non lavora ${giornoTesto(g.data)}: nel weekend lavorano tutti` });
       }
       if (suo.length && args.giornoLibero?.get(p.id) === iso) {

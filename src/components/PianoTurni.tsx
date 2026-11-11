@@ -32,7 +32,7 @@ import { avvisiMossa as avvisiDellaMossa, esitoMossa, mossePossibili, type Conte
 import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
-  NOMI_GIORNO, NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
+  NOMI_GIORNO, NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, giornoPieno, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
@@ -379,7 +379,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const liberi = scegliGiorniLiberi(candidati.map((c) => c.id), new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])), guida);
       const coppiePrima = await caricaCoppiePrima(companyId, outletId, date[0]);
       const sistemati = ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidati, regole,
-        { giornoLibero: liberi, guida, coppiePrima, riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori, responsabile: negozio?.referente_employee_id ?? null, straordinariWeekend: true }, fissiTutti);
+        { giornoLibero: liberi, guida, coppiePrima, riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori, responsabile: negozio?.referente_employee_id ?? null, straordinariWeekend: true, giorniPieni: new Set(giorni.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)) }, fissiTutti);
       if (haGiorniLiberi) await salvaGiorniLiberiDiSistema(companyId, liberi, giorniLiberi).catch(() => undefined);
       const esito = { ...proposta, turni: sistemati, scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, [...sistemati, ...fissiTutti])) };
       if (esito.turni.length) {

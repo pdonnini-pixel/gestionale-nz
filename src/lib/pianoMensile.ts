@@ -20,11 +20,13 @@
 
 import { festivitaItaliane } from './ferieRichiesta';
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
+  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, giornoPieno, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
   ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
 import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, type RegoleNuove } from './ottimizzaTurni';
+
+export { giornoPieno };
 
 // ── Tipo di giorno ───────────────────────────────────────────────────────
 
@@ -173,20 +175,28 @@ export function fabbisognoDaTraffico(
   extra: Map<string, number> = new Map(),
 ): GiornoPiano[] {
   return giorni.map((g) => {
-    if (g.chiuso || !atteso.has(g.data)) return g;
-    const soglia = sogliaDelGiorno(g.data, regole);
+    if (g.chiuso) return g;
     const max = Math.max(1, maxPersone.get(g.data) ?? 1);
+    // Sabato, domenica, festivi e giorni di evento (Patrizio, 11/11/2026, per tutti i negozi): non
+    // comanda il traffico ma una regola fissa. La prima mezz'ora una persona sola (apre la
+    // responsabile), poi tutte le persone del negozio fino a un'ora dalla chiusura, e nell'ultima
+    // ora una persona (al massimo due: le altre in piu' il conto le scoraggia).
+    if (giornoPieno(g)) {
+      const persone = g.fabbisogno.map((_, i) => {
+        const inizio = g.apre + i * SLOT_MINUTI;
+        return i === 0 || inizio >= g.chiude - 60 ? 1 : max;
+      });
+      return { ...g, minimo: persone, fabbisogno: persone, esigenza: persone, esatto: persone };
+    }
+    if (!atteso.has(g.data)) return g;
+    const soglia = sogliaDelGiorno(g.data, regole);
     const extraG = extra.get(g.data) ?? 0;
     // Il minimo: le fasce confermate in «Orari e fabbisogno» (Patrizio, 30/10/2026:
     // una persona la mattina e la sera, due nel resto, le decide lui giorno per
     // giorno); senza fasce confermate almeno una persona e, con la regola delle due
     // persone, due fuori dalla prima e dall'ultima ora. MODA aggiunge sopra.
-    const minimoBase = (i: number) => g.minimo?.[i]
+    const minimo = (i: number) => g.minimo?.[i]
       ?? (regole.duePersone && g.apre + i * SLOT_MINUTI >= g.apre + 60 && g.apre + (i + 1) * SLOT_MINUTI <= g.chiude - 60 ? 2 : 1);
-    // La domenica all'apertura servono almeno due persone (Patrizio, 12/11/2026): la prima
-    // ora, anche dove le fasce ne chiedono una. In chiusura, dopo l'ultima ora piena, ne basta una.
-    const domenica = giornoIso(g.data) === 7;
-    const minimo = (i: number) => (domenica && i * SLOT_MINUTI < 60 ? Math.max(2, minimoBase(i)) : minimoBase(i));
     const persone = g.fabbisogno.map((_, i) => Math.max(minimo(i), (atteso.get(g.data)![Math.floor((g.apre + i * SLOT_MINUTI) / 60)] ?? 0) / soglia));
     // Il tetto vale sulle persone del traffico; quelle in piu' degli eventi si sommano sopra.
     return {
@@ -1405,6 +1415,7 @@ function pianificaMeseConRegola(args: {
         {
           giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto,
           responsabile: args.nuove?.responsabile ?? null,
+          giorniPieni: new Set(gg.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)),
           // nei piani veri; in simulazione (fabbisogno fisso o straordinari scelti) decidono le ipotesi
           straordinariWeekend: !args.fabbisognoFisso && !args.straordinariPersona && args.straordinariSettimana == null,
           // i giorni gia' lavorati nei giorni dell'altro mese della stessa settimana contano nel massimo

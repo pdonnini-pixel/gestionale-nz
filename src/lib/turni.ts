@@ -19,6 +19,8 @@
 //
 // Funzioni pure, nessuna query. Test in turni.test.ts.
 
+import { festivitaItaliane } from './ferieRichiesta';
+
 export const SLOT_MINUTI = 30;
 
 export interface RegoleTurni {
@@ -356,6 +358,18 @@ export function giorniDellaSettimana(lunedi: string): string[] {
  * Le ore scritte per chi legge: «40», «7,5», e quando non cadono sulla mezz'ora «7 h 50'»
  * (con la pausa da 10 minuti un turno 10-18 vale 7 ore e 50; Patrizio, 12/11/2026).
  */
+/**
+ * I giorni «a organico pieno» (Patrizio, 11/11/2026, per tutti i negozi): sabato, domenica,
+ * festivi e giorni di un evento del negozio (Black Friday e gli altri inseriti fra gli eventi).
+ * La prima mezz'ora una persona, poi tutte fino a un'ora dalla chiusura, in chiusura una.
+ */
+const festiviPerAnno = new Map<number, Record<string, string>>();
+export function giornoPieno(g: Pick<GiornoPiano, 'data' | 'evento'>): boolean {
+  const anno = Number(g.data.slice(0, 4));
+  if (!festiviPerAnno.has(anno)) festiviPerAnno.set(anno, festivitaItaliane(anno));
+  return giornoIso(g.data) >= 6 || !!festiviPerAnno.get(anno)![g.data] || !!g.evento;
+}
+
 export function oreInChiaro(ore: number): string {
   const minutiTot = Math.round(ore * 60);
   if (minutiTot % 30 === 0) return (minutiTot / 60).toLocaleString('it-IT');
