@@ -50,7 +50,7 @@ type Piano = {
 };
 type Riepilogo = {
   oreScoperte?: number; oreRiserva?: number; straordinario?: number; fonte?: string; turni?: number;
-  /** ore in cui il negozio resta senza nessuno, pause comprese (piani calcolati dal 30/10/2026) */
+  /** ore in cui il negozio resta senza nessuno (piani calcolati dal 30/10/2026; fino all'11/11/2026 contavano anche le pause) */
   oreVuote?: number;
   persone?: EsitoPianoMese['persone'];
   /** il mese settimana per settimana (piani calcolati dal 28/10/2026) */
@@ -673,7 +673,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const regoleMancanti = REGOLE.filter((r) => !variantiCon.some((p) => p.regola_weekend === r));
   const regoleMancantiSenza = REGOLE.filter((r) => !variantiSenza.some((p) => p.regola_weekend === r));
   // La variante consigliata (Patrizio, 30/10/2026): prima quella che non lascia
-  // mai il negozio vuoto, pause comprese; a parita' quella con meno ore sotto MODA.
+  // mai il negozio vuoto; a parita' quella con meno ore sotto MODA.
   const consigliataDi = (lista: Piano[]): Piano | null => lista.filter((p) => !p.simulazione).reduce<Piano | null>((m, p) => {
     if (!m) return p;
     const [v, s] = [p.riepilogo.oreVuote ?? 0, p.riepilogo.oreScoperte ?? 0];
@@ -804,7 +804,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         <section className="rounded-xl border border-violet-200 bg-violet-50/40 p-4 space-y-3">
           <div>
             <h3 className="text-sm font-semibold text-violet-900 flex items-center gap-1.5"><FlaskConical size={15} /> Simulazione per {nomeNegozio}</h3>
-            <p className="text-xs text-slate-600">Scrivi le ore a settimana che vuoi provare (vuoto = come oggi) e, per ognuno, quante ore di straordinario può fare a settimana (vuoto = non ne fa). Puoi aggiungere persone nuove, che esistono solo nella simulazione. L'organico non cambia. Come i piani veri, la simulazione distribuisce le ore di chi c'è (con le ore che scrivi qui) come gli ingressi MODA del negozio, sempre almeno una persona, con le stesse regole: turno minimo di 4 ore, pause, giorni di lavoro, sabati e domeniche liberi. Si confronta con gli altri piani, ma non si sceglie né si pubblica.</p>
+            <p className="text-xs text-slate-600">Scrivi le ore a settimana che vuoi provare (vuoto = come oggi) e, per ognuno, quante ore di straordinario può fare a settimana (vuoto = non ne fa). Puoi aggiungere persone nuove, che esistono solo nella simulazione. L'organico non cambia. Come i piani veri, la simulazione distribuisce le ore di chi c'è (con le ore che scrivi qui) come gli ingressi MODA del negozio, sempre almeno una persona, con le stesse regole: turno minimo di 4 ore, durata delle pause, giorni di lavoro, sabati e domeniche liberi. Si confronta con gli altri piani, ma non si sceglie né si pubblica.</p>
           </div>
           <div className="overflow-x-auto">
             <table className="text-sm">
@@ -1003,7 +1003,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                     {scoperte > 0.25 ? `${fmt(scoperte)} h` : 'Coperto'}
                     <span className="ml-1 text-xs font-normal text-slate-500">{scoperte > 0.25 ? 'ore sotto MODA' : 'tutto il mese'}</span>
                   </p>
-                  {vuote > 0 && <p className="text-xs font-semibold text-red-700">{fmt(vuote)} h con il negozio vuoto (pause comprese): vedi la riga «In negozio»</p>}
+                  {vuote > 0 && <p className="text-xs font-semibold text-red-700">{fmt(vuote)} h con il negozio vuoto: vedi la riga «In negozio»</p>}
                   {p.riepilogo.settimane?.length ? (() => {
                     // Le ore scoperte settimana per settimana, a colpo d'occhio.
                     const w = p.riepilogo.settimane;
@@ -1059,7 +1059,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           <p>MODA comanda: le ore da contratto di tutte le persone del negozio, senza togliere ferie e permessi, si distribuiscono come entrano i clienti, e questo dice quante persone servono mezz'ora per mezz'ora. Le ore sotto MODA sono gli orari in cui i turni hanno meno persone di quelle che il traffico chiede, per le ferie o per le regole dei turni; spegnendo una ferie nella prova si vede quante se ne recuperano.</p>
           <p>Le ore di contratto di chi lavora nel negozio, meno ferie e permessi, si distribuiscono come gli ingressi registrati da MODA: più persone quando entra più gente, sempre almeno una. I giorni speciali (festivi, Black Friday, settimane di Natale) si riconoscono dal calendario; gli eventi del negozio si aggiungono dalla scheda «Eventi».</p>
           <p>Comanda l'orario del negozio: in ogni mezz'ora di apertura c'è almeno una persona, i giorni chiusi sono solo quelli del calendario (e quelli prima della data di apertura). MODA decide dove servono la seconda e la terza persona; se le ore non bastano, la riga «In negozio» lo segnala come personale mancante.</p>
-          <p>Ogni turno dura almeno 4 ore (si cambia solo nelle regole del negozio). La pausa non è lavoro e non si paga: almeno 30 minuti da 6 ore di lavoro, un'ora da 8 (9 ore di presenza = 8 di lavoro). Al massimo 6 giorni su 7. Chi è a chiamata copre solo i buchi che restano, nei giorni in cui può lavorare.</p>
+          <p>Ogni turno dura almeno 4 ore (si cambia solo nelle regole del negozio). La pausa non è lavoro e non si paga: almeno 30 minuti da 6 ore di lavoro, un'ora da 8 (9 ore fra entrata e uscita = 8 di lavoro). La pausa ha solo la durata, non un orario: la si fa quando il negozio lo permette, quindi nel calcolo chi ha il turno conta in negozio per tutto il turno. Al massimo 6 giorni su 7. Chi è a chiamata copre solo i buchi che restano, nei giorni in cui può lavorare.</p>
         </div>
       </details>
 
@@ -1278,18 +1278,17 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               const persone = new Set(tutti.map((x) => x.employeeId)).size;
               if (!vuote.length && persone === 1) return <span className="block rounded-md px-1 py-1 bg-amber-100 text-amber-900 text-[10px] font-semibold leading-tight" title="Se si ammala la mattina il negozio resta chiuso: aggiungi un collega">una persona sola</span>;
               if (vuote.length) return <span className="block rounded-md px-1 py-1 bg-red-600 text-white text-[10px] font-semibold leading-tight" title="Negozio senza nessuno in questi orari">scoperto {vuote.join(', ')}</span>;
-              // Come nelle ore sotto MODA (Patrizio, 29/10/2026): chi e' in pausa non
-              // conta, e si confronta con quello che MODA chiede senza arrotondare.
+              // Come nelle ore sotto MODA (Patrizio, 29/10/2026): si confronta con quello
+              // che MODA chiede senza arrotondare. La pausa non toglie nessuno (11/11/2026).
               const serve = b.esatto ?? b.esigenza;
               const giorno: GiornoPiano = { data: d, giorno: 0, chiuso: false, apre: b.apre, chiude: b.chiude, fabbisogno: b.esigenza, esatto: b.esatto, minimo: b.minimo, nota: null, speciale: false };
               const cop = copertura(giorno, tutti);
-              // il minimo delle regole si conta su chi e' presente (pause sfalsate accettate)
               const manca = (i: number) => mancanza(serve[i] ?? 1, b.minimo?.[i], lorda[i], cop[i]);
               const oreSotto = Array.from({ length: n }, (_, i) => manca(i)).reduce((a, x) => a + x, 0) / 2;
               if (oreSotto >= 0.25) {
                 const mancano = Math.max(1, Math.round(Math.max(...Array.from({ length: n }, (_, i) => manca(i)))));
                 const dove = fasce((i) => manca(i) > 0.01);
-                return <span className="block rounded-md px-1 py-1 bg-amber-100 text-amber-900 text-[10px] font-semibold leading-tight" title="Sotto MODA: in questi orari il traffico chiede più persone di quelle in negozio, pause comprese">sotto MODA {fmt(oreSotto)} h (fino a {mancano === 1 ? '1 persona' : `${mancano} persone`}) {dove.join(', ')}</span>;
+                return <span className="block rounded-md px-1 py-1 bg-amber-100 text-amber-900 text-[10px] font-semibold leading-tight" title="Sotto MODA: in questi orari il traffico chiede più persone di quelle che hanno il turno">sotto MODA {fmt(oreSotto)} h (fino a {mancano === 1 ? '1 persona' : `${mancano} persone`}) {dove.join(', ')}</span>;
               }
               return <span className="block text-[10px] font-semibold text-emerald-700">coperto</span>;
             };
@@ -1596,7 +1595,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               </>
             );
           })()}
-          <p className="px-4 py-2 text-xs text-slate-500">Il dettaglio della settimana, con le pause e la copertura ora per ora, è nel «Piano settimanale»: per i mesi con un piano scelto mostra i turni di quel piano.</p>
+          <p className="px-4 py-2 text-xs text-slate-500">Il dettaglio della settimana, con la durata delle pause e la copertura ora per ora, è nel «Piano settimanale»: per i mesi con un piano scelto mostra i turni di quel piano.</p>
         </section>
       )}
       {dove && (

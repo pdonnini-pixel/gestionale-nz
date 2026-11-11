@@ -857,3 +857,22 @@ test con numeri inventati in `trafficoModa.test.ts`). Prima i report li caricava
 - Nessuna migration: tabella, vincolo unico e RLS (`organico_puo_scrivere`, contabilita' o superiore)
   c'erano gia' su NZ e Zago (e anche su Made).
 
+## La pausa ha solo la durata, mai un orario (11/11/2026)
+
+- Regola di Patrizio: «la pausa va indicata solo come durata, non deve stare in una fascia predefinita» e
+  «ignora totalmente le pause»: le ragazze la fanno quando il negozio è vuoto e lo permette, a loro
+  discrezione. Conta solo nelle ore: 8 ore di lavoro = 9 ore fra entrata e uscita (`pausaPer`, invariato).
+- Codice: `copertura()` in `turni.ts` ora è la copertura di chi ha il turno (`coperturaLorda`); tolti
+  `collocaPause`, `PAUSA_PRANZO`, `PAUSA_DOPO_MINUTI`, `giornoPieno` e la strategia «corti» dei turni da 7 ore
+  e mezza. `mancanza` resta, con lorda e netta che ora coincidono. Il piano settimanale mostra
+  «pausa 30'» / «pausa 1 h» invece di «pausa 13:00-13:30». Superano le sezioni del 20/10 (collocaPause),
+  29/10 (pausa pranzo 13-15, turni da 7 ore e mezza, «In negozio» con le pause), 30/10 (pause coperte,
+  pause sfalsate accettate) e 02/11 (pausa prima o dopo).
+- Misura dell'11/11 sui turni salvati (stessi turni, cambia solo il conteggio): novembre dei 7 negozi con la
+  variante «nessun sabato né domenica liberi» e dicembre di Barberino (piano scelto). Ore sotto MODA da 159,9
+  a 130,2 (Valdichiana 16,9 → 5,5, Valmontone 34,1 → 24,5, Barberino nov 57,3 → 48,9, gli altri invariati);
+  ore vuote 5 prima e dopo (Barberino novembre, mezz'ore senza turni). I piani rifatti da zero possono
+  scendere ancora: il motore non aggiunge più ore per coprire le pause.
+- Le schede delle varianti salvate prima dell'11/11 tengono i numeri del calcolo vecchio (ore sotto MODA e
+  ore vuote nel riepilogo); la riga «In negozio» si ricalcola subito. Per allinearle si ricreano.
+

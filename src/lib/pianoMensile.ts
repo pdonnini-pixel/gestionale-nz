@@ -291,8 +291,8 @@ export function copriOrarioMinimo(
 ): Turno[] {
   let out = [...turni];
   const giorni = base.filter((g) => !g.chiuso);
-  // Chi e' in pausa non e' in negozio: anche durante le pause resta qualcuno
-  // (Barberino 4/11/2026: una persona sola non poteva andare a pranzo).
+  // La pausa non toglie nessuno dalla copertura (Patrizio, 11/11/2026): la fa
+  // ognuna quando il negozio lo permette.
   const cop = (g: GiornoPiano, lista = out) => copertura(g, lista);
   const ore = (id: string, lista = out) => lista.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
   const giorniDi = (id: string, lista = out) => new Set(lista.filter((t) => t.employeeId === id).map((t) => t.data));

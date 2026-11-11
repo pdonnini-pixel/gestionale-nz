@@ -450,7 +450,7 @@ describe('il negozio non resta mai scoperto (Patrizio, 30/10/2026)', () => {
       expect(coperturaLorda(g, e.turni).every((x) => x > 0), g.data).toBe(true);
     }
   });
-  it('anche durante le pause: mercoledì 4/11 con due persone in ferie chi resta va a pranzo coperta', () => {
+  it('mercoledì 4/11 con due persone in ferie il negozio resta coperto tutto il giorno', () => {
     const mese = '2026-11';
     const tutte = Array.from({ length: 42 }, (_, i) => new Date(Date.UTC(2026, 9, 26 + i)).toISOString().slice(0, 10));
     const giorni = costruisciGiorni(tutte, orari, [], []);
