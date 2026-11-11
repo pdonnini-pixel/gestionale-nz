@@ -5,7 +5,7 @@
 // Friday, feste e saldi, che valgono per piu' negozi insieme. In «Traffico
 // MODA» si caricano i report degli ingressi per ora, da cui viene il fabbisogno.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Clock, Sparkles, UserRound } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { sqlNull } from '../lib/sqlNull';
@@ -34,6 +34,13 @@ export default function TurniNegozi({ companyId }: Props) {
   const [negozio, setNegozio] = useState('');
   const [sotto, setSotto] = useState<'mese' | 'piano' | 'orari' | 'eventi' | 'trasferte' | 'traffico'>('mese');
   const [versione, setVersione] = useState(0);
+  // «Orari e fabbisogno» con modifiche non salvate: prima di cambiare negozio
+  // o scheda si chiede (salva, lascia perdere, resta).
+  const guardiaOrari = useRef<(() => Promise<boolean>) | null>(null);
+  const seSiPuo = async (fai: () => void) => {
+    if (guardiaOrari.current && !(await guardiaOrari.current())) return;
+    fai();
+  };
   const [stimo, setStimo] = useState(false);
   const [trafficoVisto, setTrafficoVisto] = useState(false);
   useEffect(() => { if (sotto === 'traffico') setTrafficoVisto(true); }, [sotto]);
@@ -74,6 +81,7 @@ export default function TurniNegozi({ companyId }: Props) {
   // cassa (sede, negozi non ancora aperti) restano fuori: li si inserisce a mano.
   const stimaTutti = async () => {
     if (!companyId) return;
+    if (guardiaOrari.current && !(await guardiaOrari.current())) return;
     setStimo(true);
     try {
       const [chiusure, conOrari, conFasce] = await Promise.all([
@@ -146,7 +154,7 @@ export default function TurniNegozi({ companyId }: Props) {
       {/* Prima cosa si fa (le quattro schede), poi su quale negozio. */}
       <nav className="flex gap-1 border-b border-slate-200 overflow-x-auto" aria-label="Sezioni dei turni">
         {([{ k: 'mese' as const, label: 'Piano del mese' }, { k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }, { k: 'eventi' as const, label: 'Eventi' }, { k: 'trasferte' as const, label: 'Trasferte' }, { k: 'traffico' as const, label: 'Traffico MODA' }]).map((t) => (
-          <button key={t.k} type="button" onClick={() => setSotto(t.k)} aria-current={sotto === t.k ? 'page' : undefined}
+          <button key={t.k} type="button" onClick={() => { if (t.k !== sotto) seSiPuo(() => setSotto(t.k)); }} aria-current={sotto === t.k ? 'page' : undefined}
             className={`whitespace-nowrap px-4 py-2.5 text-sm font-medium border-b-2 -mb-px ${sotto === t.k ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>{t.label}</button>
         ))}
       </nav>
@@ -155,7 +163,7 @@ export default function TurniNegozi({ companyId }: Props) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Negozio">
             {negozi.map((n) => (
-              <button key={n.id} type="button" role="tab" aria-selected={negozio === n.id} onClick={() => setNegozio(n.id)}
+              <button key={n.id} type="button" role="tab" aria-selected={negozio === n.id} onClick={() => { if (n.id !== negozio) seSiPuo(() => setNegozio(n.id)); }}
                 className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${negozio === n.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-400'}`}>
                 {nomeNegozio(n)} <span className={`ml-0.5 text-xs ${negozio === n.id ? 'text-slate-300' : 'text-slate-400'}`}>{n.persone}</span>
               </button>
@@ -220,7 +228,7 @@ export default function TurniNegozi({ companyId }: Props) {
       )}
       {scelto && sotto === 'orari' && (
         <OrariNegozio key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}
-          puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} oreContratto={oreContratto}
+          puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} oreContratto={oreContratto} guardia={guardiaOrari}
           altriNegozi={negozi.filter((n) => n.id !== scelto.id).map((n) => ({ id: n.id, nome: nomeNegozio(n) }))}
           personeInServizio={persone.filter((p) => p.outletId === negozio && p.stato === 'in_servizio').length} />
       )}
