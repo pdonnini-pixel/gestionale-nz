@@ -16,6 +16,8 @@ export interface NegozioRif {
   opening_date: string | null;
   /** la referente del negozio (outlets.referente_employee_id) */
   referente_employee_id?: string | null;
+  /** la vice responsabile (outlets.vice_referente_employee_id, migration 393) */
+  vice_referente_employee_id?: string | null;
 }
 
 export interface DatiOrganico {
@@ -24,6 +26,8 @@ export interface DatiOrganico {
   negozi: NegozioRif[];
   /** da quando il responsabile di oggi lo e', per negozio (outlet_referenti_storico, 337) */
   responsabileDal?: Record<string, string>;
+  /** il database ha la vice responsabile (migration 393): dove manca, il selettore non compare */
+  viceDisponibile?: boolean;
 }
 
 /** Ruoli che tengono l'organico: «contabilita' o superiore» (Patrizio, 19/10/2026). */
@@ -34,13 +38,27 @@ export const puoDecidereFabbisogno = (ruolo: string | null | undefined): boolean
 
 const num = (v: unknown): number | null => (v == null || v === '' ? null : Number(v));
 
+/**
+ * I negozi con responsabile e vice. Dove la colonna della vice non c'e'
+ * ancora (migration 393 non applicata) si rilegge senza: la pagina funziona
+ * come prima e `conVice` dice di non mostrare il selettore.
+ */
+async function leggiNegozi(companyId: string): Promise<{ data: NegozioRif[] | null; error: { message: string } | null; conVice: boolean }> {
+  const conVice = await supabase.from('outlets')
+    .select('id, code, name, is_active, opening_date, referente_employee_id, vice_referente_employee_id' as 'id')
+    .eq('company_id', companyId).order('name');
+  if (!conVice.error) return { data: conVice.data as unknown as NegozioRif[], error: null, conVice: true };
+  const senza = await supabase.from('outlets').select('id, code, name, is_active, opening_date, referente_employee_id').eq('company_id', companyId).order('name');
+  return { data: senza.data as NegozioRif[] | null, error: senza.error, conVice: false };
+}
+
 export async function caricaOrganico(companyId: string): Promise<DatiOrganico> {
   const [emp, ev, neg] = await Promise.all([
     supabase.from('employees')
       .select('id, nome, cognome, first_name, last_name, matricola, outlet_id, contratto_tipo, ore_settimanali, ore_settimanali_paghe, data_assunzione, hire_date, scadenza_td, data_cessazione, termination_date, is_active, livello, qualifica, role_description')
       .eq('company_id', companyId),
     supabase.from('employee_events').select('*').eq('company_id', companyId).order('data_dal'),
-    supabase.from('outlets').select('id, code, name, is_active, opening_date, referente_employee_id').eq('company_id', companyId).order('name'),
+    leggiNegozi(companyId),
   ]);
   if (emp.error) throw emp.error;
   if (ev.error) throw ev.error;
@@ -75,7 +93,7 @@ export async function caricaOrganico(companyId: string): Promise<DatiOrganico> {
   const st = await supabase.from('outlet_referenti_storico').select('outlet_id, dal').eq('company_id', companyId).is('al', null);
   for (const r of (st.data as { outlet_id: string; dal: string }[] | null) ?? []) responsabileDal[r.outlet_id] = r.dal;
 
-  return { schede, eventi, negozi: (neg.data as NegozioRif[]) ?? [], responsabileDal };
+  return { schede, eventi, negozi: neg.data ?? [], responsabileDal, viceDisponibile: neg.conVice };
 }
 
 /** Nome leggibile del negozio («FRANCIACORTA» → «Franciacorta»). */

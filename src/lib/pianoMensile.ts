@@ -20,10 +20,13 @@
 
 import { festivitaItaliane } from './ferieRichiesta';
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
+  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, giornoPieno, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
   ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
+import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, type RegoleNuove } from './ottimizzaTurni';
+
+export { giornoPieno };
 
 // ── Tipo di giorno ───────────────────────────────────────────────────────
 
@@ -172,9 +175,22 @@ export function fabbisognoDaTraffico(
   extra: Map<string, number> = new Map(),
 ): GiornoPiano[] {
   return giorni.map((g) => {
-    if (g.chiuso || !atteso.has(g.data)) return g;
-    const soglia = sogliaDelGiorno(g.data, regole);
+    if (g.chiuso) return g;
     const max = Math.max(1, maxPersone.get(g.data) ?? 1);
+    // Sabato, domenica, festivi e giorni di evento nei negozi con i giorni a massima intensita'
+    // (Patrizio, 11/11/2026, in prova a Roma Soratte): non
+    // comanda il traffico ma una regola fissa. La prima mezz'ora una persona sola (apre la
+    // responsabile), poi tutte le persone del negozio fino a un'ora dalla chiusura, e nell'ultima
+    // ora una persona (al massimo due: le altre in piu' il conto le scoraggia).
+    if (regole.giorniPieni && giornoPieno(g)) {
+      const persone = g.fabbisogno.map((_, i) => {
+        const inizio = g.apre + i * SLOT_MINUTI;
+        return i === 0 || inizio >= g.chiude - 60 ? 1 : max;
+      });
+      return { ...g, minimo: persone, fabbisogno: persone, esigenza: persone, esatto: persone };
+    }
+    if (!atteso.has(g.data)) return g;
+    const soglia = sogliaDelGiorno(g.data, regole);
     const extraG = extra.get(g.data) ?? 0;
     // Il minimo: le fasce confermate in «Orari e fabbisogno» (Patrizio, 30/10/2026:
     // una persona la mattina e la sera, due nel resto, le decide lui giorno per
@@ -1099,6 +1115,8 @@ export interface EsitoPianoMese {
   }>;
   /** ore fatte dalle persone a chiamata */
   oreRiserva: number;
+  /** il giorno libero fisso di ognuno usato nel piano (1-7): quello gia' deciso o quello scelto dal sistema */
+  giorniLiberi?: Map<string, number>;
 }
 
 /**
@@ -1157,6 +1175,15 @@ function pianificaMeseConRegola(args: {
    * e non entrano nei turni del piano.
    */
   fissi?: Turno[];
+  /**
+   * Le regole dell'11/11/2026 (Patrizio, Roma Soratte): giorno libero fisso di
+   * ognuno (chi non ce l'ha lo riceve dal sistema), responsabile e vice per il
+   * lunedi', coppie dei feriali delle settimane prima del mese. Le pesa tutte
+   * insieme `ottimizzaSettimana`, come ultimo passo di ogni settimana.
+   */
+  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima' | 'responsabile'>;
+  /** salta l'ultimo passo (confronti veloci fra due calcoli, es. con e senza una ferie) */
+  rapido?: boolean;
 }): EsitoPianoMese {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const nelMese = (d: string) => d.slice(0, 7) === args.mese;
@@ -1271,6 +1298,11 @@ function pianificaMeseConRegola(args: {
     giorniNecessari.push(...fabbisognoDaTraffico(gg, args.atteso, regole, maxPieno, args.extra));
   }
 
+  // Il giorno libero fisso: chi non ce l'ha lo riceve qui, e il piano lo restituisce.
+  const guida = (args.nuove?.guida ?? []).filter((id) => contrattuali.some((p) => p.id === id));
+  const giorniLiberi = scegliGiorniLiberi(contrattuali.map((p) => p.id), args.nuove?.giornoLibero, guida);
+  const coppieViste = new Map(args.nuove?.coppiePrima ?? []);
+
   // 3. Le settimane.
   const turni: Turno[] = [];
   for (const lun of settimane) {
@@ -1374,6 +1406,25 @@ function pianificaMeseConRegola(args: {
       const altri = esito.filter((t) => !ids.has(t.employeeId));
       esito = [...altri, ...ritoccaScoperture(gg, esito.filter((t) => ids.has(t.employeeId)), altri, conExtra, regole)];
     }
+    // Ultimo passo (Patrizio, 11/11/2026): tutte le regole pesate insieme. Nel
+    // weekend lavorano tutti, ognuno ha il suo giorno libero fisso, le coppie dei
+    // feriali cambiano, il lunedi' c'e' la responsabile o la vice; con «ore fino al
+    // contratto» le ore libere vanno in turno. Mai peggio di quello che c'era.
+    if (!args.rapido) {
+      const fissiRefSett = new Set(fissiSett);
+      esito = [...ottimizzaSettimana(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole,
+        {
+          giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto,
+          // responsabile 10-19, tutti presenti e straordinari: solo dove il negozio ha i giorni a massima intensita'
+          responsabile: regole.giorniPieni ? (args.nuove?.responsabile ?? null) : null,
+          giorniPieni: regole.giorniPieni ? new Set(gg.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)) : undefined,
+          // nei piani veri; in simulazione (fabbisogno fisso o straordinari scelti) decidono le ipotesi
+          straordinariWeekend: !!regole.giorniPieni && !args.fabbisognoFisso && !args.straordinariPersona && args.straordinariSettimana == null,
+          // i giorni gia' lavorati nei giorni dell'altro mese della stessa settimana contano nel massimo
+          giorniGia: new Map(candidati.map((c) => [c.id, giorniDellaSettimana(lun).filter((d) => !nelMese(d) && (args.oreFuoriMese?.get(c.id)?.get(d) ?? 0) > 0).length])),
+        }, fissiSett), ...fissiSett];
+      for (const [k, n] of coppieFeriali(esito)) coppieViste.set(k, (coppieViste.get(k) ?? 0) + n);
+    }
     // Rete di sicurezza: nessun turno fuori dagli accordi della scheda.
     const fissiRef = new Set(fissiSett);
     turni.push(...rispettaFasce(esito.filter((t) => !fissiRef.has(t)), args.persone, regole));
@@ -1447,5 +1498,6 @@ function pianificaMeseConRegola(args: {
     giorni: giorniMese,
     persone,
     oreRiserva: riserva.reduce((a, p) => a + persone[p.id].pianificate, 0),
+    giorniLiberi,
   };
 }

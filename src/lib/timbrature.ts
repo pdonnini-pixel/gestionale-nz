@@ -35,7 +35,22 @@ export const AZIONE_TIPO: Record<TipoTimbratura, string> = {
 }
 
 export interface Timbratura { tipo: TipoTimbratura; ora: string }
-export interface Turno { data: string; inizio: string; fine: string; pausa_minuti?: number | null }
+export interface Turno {
+  data: string; inizio: string; fine: string
+  /** pausa che si toglie dalle ore */
+  pausa_minuti?: number | null
+  /**
+   * Pausa pagata (Patrizio, 11/11/2026, migration 401): si timbra come l'altra, perche' serve
+   * sapere quando la persona non era in negozio e per quanto, ma non si toglie dalle ore. Solo
+   * nei negozi con la pausa corta pagata; dove la colonna manca vale 0.
+   */
+  pausa_pagata_minuti?: number | null
+}
+
+/** Minuti di pausa che il turno concede in tutto: quella che si toglie piu' quella pagata. */
+export function pausaConcessa(turno: Pick<Turno, 'pausa_minuti' | 'pausa_pagata_minuti'> | null | undefined): number {
+  return (turno?.pausa_minuti ?? 0) + (turno?.pausa_pagata_minuti ?? 0)
+}
 
 // ─── QR ────────────────────────────────────────────────────────────────
 
@@ -136,7 +151,7 @@ export function minutiPausaFatti(timbrature: Timbratura[], adessoMs: number): nu
  */
 export function pausaResidua(timbrature: Timbratura[], turno: Turno | null, adessoMs: number): number | null {
   if (!turno) return haGiaFattoPausa(timbrature) ? 0 : null
-  return Math.max(0, (turno.pausa_minuti ?? 0) - minutiPausaFatti(timbrature, adessoMs))
+  return Math.max(0, pausaConcessa(turno) - minutiPausaFatti(timbrature, adessoMs))
 }
 
 /**
@@ -214,8 +229,12 @@ export interface RiepilogoGiorno {
   esito: EsitoGiorno
   entrata: string | null
   uscita: string | null
+  /** Tutta la pausa timbrata, pagata o no: quanto la persona e' stata fuori dal negozio. */
   minutiPausa: number
+  /** Ore di lavoro: la pausa timbrata non conta, salvo i minuti di pausa pagata del turno. */
   minutiLavorati: number
+  /** Minuti di pausa timbrata rimasti nelle ore di lavoro (pausa pagata del turno). */
+  minutiPausaPagata: number
   /** Minuti dopo la fine del turno (uscita timbrata). */
   minutiOltreTurno: number
   /** Oltre il margine: da guardare come straordinario. Entro il margine no. */
@@ -232,13 +251,15 @@ export function riepilogoGiorno(
 ): RiepilogoGiorno {
   const ord = ordina(timbrature)
   const vuoto: RiepilogoGiorno = {
-    esito: 'non_timbrato', entrata: null, uscita: null, minutiPausa: 0, minutiLavorati: 0,
+    esito: 'non_timbrato', entrata: null, uscita: null, minutiPausa: 0, minutiLavorati: 0, minutiPausaPagata: 0,
     minutiOltreTurno: 0, straordinario: false, minutiRitardo: 0,
   }
   if (!ord.length) return vuoto
 
   let lavoro = 0
   let pausa = 0
+  // pausa da cui la persona e' rientrata (o in corso): solo questa puo' restare nelle ore come pausa pagata
+  let pausaRientrata = 0
   let dentroDa: number | null = null
   let pausaDa: number | null = null
   for (const t of ord) {
@@ -248,7 +269,7 @@ export function riepilogoGiorno(
       if (dentroDa !== null) lavoro += ms - dentroDa
       dentroDa = null; pausaDa = ms
     } else if (t.tipo === 'fine_pausa') {
-      if (pausaDa !== null) pausa += ms - pausaDa
+      if (pausaDa !== null) { pausa += ms - pausaDa; pausaRientrata += ms - pausaDa }
       pausaDa = null; dentroDa = ms
     } else if (t.tipo === 'uscita') {
       if (dentroDa !== null) lavoro += ms - dentroDa
@@ -257,7 +278,12 @@ export function riepilogoGiorno(
     }
   }
   if (dentroDa !== null) lavoro += Math.max(0, adessoMs - dentroDa)
-  if (pausaDa !== null) pausa += Math.max(0, adessoMs - pausaDa)
+  if (pausaDa !== null) { pausa += Math.max(0, adessoMs - pausaDa); pausaRientrata += Math.max(0, adessoMs - pausaDa) }
+  // La pausa pagata del turno resta nelle ore: al massimo i minuti concessi, mai piu' di quelli timbrati.
+  // Quello che va oltre e' pausa come le altre (e oltre la tolleranza diventa il caso «pausa piu' lunga»).
+  // Chi esce dalla pausa senza rientrare non ha fatto una pausa: e' uscita prima, e quei minuti non si rimettono.
+  const pagata = Math.min(pausaRientrata, Math.max(0, turno?.pausa_pagata_minuti ?? 0) * 60000)
+  lavoro += pagata
 
   const entrata = ord.find((t) => t.tipo === 'entrata')?.ora ?? null
   const ultima = ord[ord.length - 1]
@@ -281,6 +307,7 @@ export function riepilogoGiorno(
     uscita,
     minutiPausa: Math.round(pausa / 60000),
     minutiLavorati: Math.round(lavoro / 60000),
+    minutiPausaPagata: Math.round(pagata / 60000),
     minutiOltreTurno: oltre,
     straordinario: oltre > margineMinuti,
     minutiRitardo: ritardo,

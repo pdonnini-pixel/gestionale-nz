@@ -1,7 +1,7 @@
 // «Turni»: il piano settimanale di ogni negozio e, sotto, gli orari e il
 // fabbisogno da cui si parte. Il negozio si sceglie qui; l'organico (chi
 // c'e' e con che orario) arriva dall'organico di oggi. Qui si sceglie anche
-// la referente del negozio, e nella scheda «Eventi» si segnano Black
+// la referente del negozio e la sua vice, e nella scheda «Eventi» si segnano Black
 // Friday, feste e saldi, che valgono per piu' negozi insieme. In «Traffico
 // MODA» si caricano i report degli ingressi per ora, da cui viene il fabbisogno.
 
@@ -42,6 +42,7 @@ export default function TurniNegozi({ companyId }: Props) {
     fai();
   };
   const [stimo, setStimo] = useState(false);
+  const [viceSpento, setViceSpento] = useState(false);
   const [trafficoVisto, setTrafficoVisto] = useState(false);
   useEffect(() => { if (sotto === 'traffico') setTrafficoVisto(true); }, [sotto]);
 
@@ -147,6 +148,27 @@ export default function TurniNegozi({ companyId }: Props) {
     toast({ type: 'success', message: employeeId ? `Responsabile di ${nomeNegozio(scelto)} salvato: vale anche in Organico, Utenti e modulo ferie.` : `${nomeNegozio(scelto)} è senza responsabile.` });
     await carica();
   };
+  // Vice responsabile (migration 393): fa il versamento quando la responsabile
+  // non c'e'. Stesse persone, tolta la responsabile. Dove il database non ha
+  // ancora la colonna o la funzione, il selettore non compare.
+  const vice = scelto?.vice_referente_employee_id ? dati.schede.find((s) => s.id === scelto.vice_referente_employee_id) : undefined;
+  const scelteVice = [...delNegozio.map((p) => p.scheda), ...(vice && !delNegozio.some((p) => p.scheda.id === vice.id) ? [vice] : [])]
+    .filter((s) => s.id !== scelto?.referente_employee_id)
+    .sort((a, b) => nomePersona(a).localeCompare(nomePersona(b), 'it'));
+  const impostaVice = async (employeeId: string) => {
+    if (!scelto) return;
+    const { error } = await supabase.rpc('organico_imposta_vice' as never, { p_outlet_id: scelto.id, p_employee_id: sqlNull(employeeId || null) } as never);
+    if (error) {
+      // Funzione non ancora nel database: si toglie il selettore, senza errori a video.
+      const e = error as { code?: string; message?: string };
+      if (e.code === 'PGRST202' || e.code === '42883' || /could not find the function/i.test(e.message ?? '')) { setViceSpento(true); return; }
+      toast({ type: 'error', message: error.message });
+      return;
+    }
+    toast({ type: 'success', message: employeeId ? `Vice responsabile di ${nomeNegozio(scelto)} salvato: il lunedì una fra responsabile e vice deve essere in negozio per il versamento.` : `${nomeNegozio(scelto)} è senza vice responsabile.` });
+    await carica();
+  };
+  const mostraVice = !!dati.viceDisponibile && !viceSpento;
   const oreContratto = persone.filter((p) => p.outletId === negozio && p.stato === 'in_servizio').reduce((s, p) => s + (p.ore ?? 0), 0);
 
   return (
@@ -189,6 +211,21 @@ export default function TurniNegozi({ companyId }: Props) {
                 </select>
               ) : (
                 <strong className="text-slate-800">{referente ? nomePersona(referente) : 'nessuno'}</strong>
+              )}
+            </label>
+          )}
+          {scelto && mostraVice && (
+            <label className="flex items-center gap-2 text-sm text-slate-600" title="Fa il versamento quando la responsabile non c'è: il lunedì una delle due deve essere in negozio">
+              <UserRound size={15} className="text-slate-400" />
+              <span>Vice responsabile</span>
+              {puoScrivere ? (
+                <select aria-label="Vice responsabile del negozio" value={scelto.vice_referente_employee_id ?? ''} onChange={(e) => impostaVice(e.target.value)}
+                  className="min-h-[34px] rounded-lg border border-slate-300 px-2 text-sm bg-white">
+                  <option value="">nessuno</option>
+                  {scelteVice.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
+                </select>
+              ) : (
+                <strong className="text-slate-800">{vice ? nomePersona(vice) : 'nessuno'}</strong>
               )}
             </label>
           )}

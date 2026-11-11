@@ -82,7 +82,7 @@ export function minutiTurno(inizio: string, fine: string, pausaMinuti?: number |
 
 // ─── Turni ──────────────────────────────────────────────────────────────
 
-export interface TurnoApp { data: string; inizio: string; fine: string; pausa_minuti: number | null; negozio?: string | null }
+export interface TurnoApp { data: string; inizio: string; fine: string; pausa_minuti: number | null; /** pausa timbrata ma non tolta dalle ore (migration 401); puo' mancare */ pausa_pagata_minuti?: number | null; negozio?: string | null }
 export interface GiornoFerieApp { data: string; tipo: string; ore: number; stato: string; voce: 'ferie' | 'permesso' }
 
 export interface GiornoTurni {
@@ -150,7 +150,7 @@ export function oreDelPeriodo(
   const oggi = dataDi(new Date(adessoMs).toISOString())
   const giorni: GiornoOre[] = giorniTra(dal, al).map((data) => {
     const del = turni.filter((x) => x.data === data).sort((a, b) => a.inizio.localeCompare(b.inizio))
-    const turno = del.length ? { data, inizio: del[0].inizio, fine: del[del.length - 1].fine } : null
+    const turno = del.length ? { data, inizio: del[0].inizio, fine: del[del.length - 1].fine, pausa_pagata_minuti: del.reduce((s, x) => s + (x.pausa_pagata_minuti ?? 0), 0) } : null
     const ts = [...(perGiorno.get(data) ?? [])].sort((a, b) => a.ora.localeCompare(b.ora))
     const ultima = ts[ts.length - 1]
     // Un giorno passato rimasto aperto (uscita dimenticata) non deve contare

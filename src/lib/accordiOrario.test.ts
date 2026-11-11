@@ -21,8 +21,8 @@ describe('accordi con il dipendente', () => {
   });
 
   it('ore possibili a settimana contro il contratto', () => {
-    // senza vincoli, negozio aperto 10 ore: 6 giorni da 9 ore lavorate
-    expect(orePossibiliSettimana(null, aperto10)).toBe(54);
+    // senza vincoli, negozio aperto 10 ore: 6 giorni da 9 ore e mezza lavorate (mezz'ora di pausa)
+    expect(orePossibiliSettimana(null, aperto10)).toBe(57);
     // solo dalle 16 alle 20 tutti i giorni: 4 ore al giorno, 6 giorni = 24
     const sera = accordo({ fasce: Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((g) => [g, [{ dalle: '16:00', alle: '20:00' }]])) });
     expect(orePossibiliSettimana(sera, aperto10)).toBe(24);

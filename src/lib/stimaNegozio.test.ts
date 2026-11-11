@@ -46,7 +46,9 @@ describe('stimaOrariEFabbisogno', () => {
     expect(s.fasce.every((f) => f.persone >= 1 && f.persone <= 7)).toBe(true);
     const tetto = stimaOrariEFabbisogno(chiusure(), 1000, 4);
     expect(tetto.fasce.every((f) => f.persone <= 4)).toBe(true);
-    expect(tetto.fasce.find((f) => f.giorno === 6)!.persone).toBe(4);
+    // il sabato e' aperto 11 ore: con la pausa di mezz'ora un turno massimo occupa 10 ore e mezza,
+    // quindi per coprire la giornata servono chi apre e chi chiude, e il tetto si dimezza
+    expect(tetto.fasce.find((f) => f.giorno === 6)!.persone).toBe(2);
   });
 
   it('senza dati: orario standard e due persone, e lo dice', () => {

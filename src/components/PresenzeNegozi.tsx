@@ -42,7 +42,7 @@ const IMP_DEFAULT: Impostazioni = {
 const ESITO_AVVISO: Record<string, string> = {
   mandato: 'arrivato sul telefono', nessun_telefono: 'non arrivato: app non installata', non_riuscito: 'non riuscito', nel_gestionale: 'nel gestionale',
 }
-interface Turno { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null }
+interface Turno { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; /** pausa timbrata ma non tolta dalle ore (migration 401); manca dove la migration non c'e' */ pausa_pagata_minuti?: number | null }
 interface Punch {
   id: string; employee_id: string; tipo: TipoTimbratura; ora: string; origine: string; verifica: string; nota: string | null
 }
@@ -108,7 +108,8 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
         // Tutte le colonne: avvisa_confermatori (382) puo' mancare dove la migration non c'e'
         supabase.from('attendance_settings').select('*').eq('outlet_id', outletId).maybeSingle(),
         supabase.from('shift_plans').select('id').eq('outlet_id', outletId).eq('mese', mese).eq('stato', 'scelto').maybeSingle(),
-        supabase.from('shifts').select('id, employee_id, data, inizio, fine, pausa_minuti, plan_id, stato, origine').eq('outlet_id', outletId).eq('data', giorno).neq('stato', 'annullato'),
+        // Tutte le colonne: pausa_pagata_minuti (401) puo' mancare dove la migration non c'e'
+        supabase.from('shifts').select('*').eq('outlet_id', outletId).eq('data', giorno).neq('stato', 'annullato'),
         supabase.from('attendance_punches').select('id, employee_id, tipo, ora, origine, verifica, nota').eq('outlet_id', outletId).eq('annullata', false).gte('ora', dal).lt('ora', al),
         supabase.from('attendance_alerts').select('employee_id, tipo, destinatario, esito').eq('outlet_id', outletId).eq('data', giorno),
         supabase.rpc('app_accessi_elenco', { p_outlet_id: outletId }),
@@ -131,7 +132,8 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       // senza piano pubblicati o messi a mano (stessa regola della migration 348).
       const pianoId = (pianoRes.data as { id: string } | null)?.id ?? null
       const tutti = (tRes.data ?? []) as (Turno & { plan_id: string | null; stato: string; origine: string })[]
-      setTurni(tutti.filter((t) => pianoId ? t.plan_id === pianoId : (t.plan_id === null && (t.stato === 'pubblicato' || t.origine === 'manuale'))))
+      // come timbrature_turni_ufficiali (395): del piano scelto valgono solo i turni pubblicati
+      setTurni(tutti.filter((t) => pianoId ? (t.plan_id === pianoId && t.stato === 'pubblicato') : (t.plan_id === null && (t.stato === 'pubblicato' || t.origine === 'manuale'))))
       setPunches((pRes.data ?? []) as Punch[])
       setAvvisi((nRes.data ?? []) as { employee_id: string; tipo: string; destinatario: string; esito: string }[])
       setAccessi((aRes.data ?? []) as Accesso[])
@@ -170,7 +172,8 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
       const primo = turno[0] ?? null
       const ultimo = turno[turno.length - 1] ?? null
       const ts = ordina(punches.filter((p) => p.employee_id === emp))
-      const r = riepilogoGiorno(ts, ultimo ? { ...ultimo, inizio: primo!.inizio } : null, adesso, imp.margine_uscita_minuti)
+      // con il turno spezzato la pausa pagata e' la somma di quella dei pezzi
+      const r = riepilogoGiorno(ts, ultimo ? { ...ultimo, inizio: primo!.inizio, pausa_pagata_minuti: turno.reduce((s, t) => s + (t.pausa_pagata_minuti ?? 0), 0) } : null, adesso, imp.margine_uscita_minuti)
       return { emp, nome: nomi.get(emp) ?? 'Persona', turno: primo && ultimo ? `${primo.inizio.slice(0, 5)} - ${ultimo.fine.slice(0, 5)}` : '', ts, r }
     }).sort((a, b) => a.nome.localeCompare(b.nome))
   }, [turni, punches, nomi, imp.margine_uscita_minuti])
@@ -341,7 +344,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
                   </div>
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">{r.minutiLavorati ? formatMinuti(r.minutiLavorati) : ''}</td>
-                <td className="px-3 py-2 text-right tabular-nums">{r.minutiPausa ? formatMinuti(r.minutiPausa) : ''}</td>
+                <td className="px-3 py-2 text-right tabular-nums">{r.minutiPausa ? formatMinuti(r.minutiPausa) : ''}{r.minutiPausaPagata ? <span className="block text-[11px] text-slate-500">{formatMinuti(r.minutiPausaPagata)} non tolti dalle ore</span> : null}</td>
                 <td className="px-3 py-2">
                   <div className="flex flex-col gap-1 items-start">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${COLORE_ESITO[r.esito]}`}>{ETICHETTA_ESITO[r.esito]}</span>

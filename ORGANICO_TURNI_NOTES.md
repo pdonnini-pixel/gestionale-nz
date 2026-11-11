@@ -917,3 +917,150 @@ Da allora in `src/components/OrariNegozio.tsx`:
 - Copertura: resta l'opzione 2 decisa da Patrizio. Chi ha il turno conta in negozio per tutto il turno, perché
   la pausa la prendono le ragazze quando il negozio è vuoto; le presenze verificano che la facciano.
 - I turni già salvati non cambiano: le loro ore si contano con la pausa scritta nel turno.
+
+## Regole dell'11/11/2026: weekend tutti, giorno libero fisso, vice responsabile, mese e settimana (11/11/2026)
+
+Tutto nasce dal piano 9-15/11 fatto a mano dalle ragazze di Roma Soratte, che Patrizio ha chiesto
+di confrontare con le regole. Qui c'è il filo intero: cosa si è visto, cosa ha deciso, cosa è nel
+codice, cosa è stato fatto sui dati.
+
+### Cosa si è visto nel piano fatto a mano (Roma Soratte, 9-15/11)
+Misure con `oreScoperte` e `oreSottoModa`, fabbisogno salvato del negozio (fasce 1-2-1, soglia 25
+feriali e 35 weekend, traffico di Valmontone di novembre 2025: Roma Soratte non ne ha di suo).
+- Regole rispettate: ore di contratto esatte (40, 30, 30, 30), nessun turno sotto le 4 ore, 6 giorni
+  a testa, mai una persona sola, negozio mai vuoto.
+- 130 ore pianificate su 128 necessarie, ma **11,5 ore scoperte**: lunedì 8,5 ore oltre il fabbisogno
+  (quattro persone in turno, fino a quattro insieme alle 14), domenica 21 ore su 28 (due persone
+  dove ne servono quattro fra le 16:30 e le 19:00), tre buchi al cambio turno nei feriali.
+- Aperture e chiusure sbilanciate (una persona chiude 4 volte, un'altra apre 4 volte).
+- Lezione: le ore bastavano, erano nel posto sbagliato. Nei feriali due turni lunghi che si
+  incrociano (10-18 e 12-20) coprono le fasce senza buchi e liberano ore per la domenica.
+
+### Decisioni di Patrizio, nell'ordine in cui le ha prese
+1. **Sabato e domenica lavorano tutti**, in tutti i negozi; «posso scegliere di spostare i turni».
+2. **Niente coppie fisse**: «non si sa come vanno d'accordo».
+3. **Stesso giorno libero, il più possibile**, «per potersi organizzare metodicamente». Lo sceglie
+   il sistema, «poi semmai viene cambiata».
+4. **Ore fino al contratto, per negozio**: prima venerdì, sabato e domenica. Nata perché a Roma
+   Soratte le persone sono assunte dal 2 novembre e non hanno ferie da scalare.
+5. **Black Friday solo da venerdì**: l'evento era 23-29/11 per tutti i negozi, ora è 27-29/11
+   (modificato l'11/11/2026 in `outlet_events`; da lunedì a giovedì ferie di nuovo richiedibili e
+   niente straordinari). Gli straordinari proposti vanno evidenziati: «potrebbero non essere accettati».
+6. **Vice responsabile** in ogni negozio, per il versamento in banca: il lunedì una fra responsabile
+   e vice deve esserci. Il versamento si fa «sempre al bisogno» ed è in cassa continua (nessuna
+   fascia oraria). Ferie insieme vietate **solo se cade un lunedì**. «Crea lo strumento e poi si
+   vanno a inserire» i nomi.
+7. **Si lavora sul mese e si pubblica la settimana**: «le settimane fatte in un'unica volta dal
+   sistema mensile», poi modifiche «mantenendo le regole ed evidenziandole quando si va in deroga».
+8. **La settimana finisce all'ultimo giorno del mese** e quella dopo «si porta dietro le ore della
+   settimana dello scorso mese»: nata dalla settimana 30/11-06/12, dove un lunedì aggiunto a mano
+   sopra il piano di dicembre faceva vedere 47,5 ore su 40 che non erano straordinari.
+9. **Stampa della settimana** con la grafica New Zago, da dare o mandare per mail (la mail la manda
+   Patrizio). Sul foglio: colonna Ore visibile a tutte, righe «apre» e «chiude», nessuna nota in
+   fondo su pause, cambi turno e straordinari. Mock-up approvato l'11/11/2026.
+10. **Cancellare i piani esistenti di tutti i negozi** e ripartire dal motore nuovo.
+
+### Dove le regole si scontrano, e come si è risolto
+- Giorno libero fisso contro coppie a rotazione: con tutti i liberi fissi le coppie dei feriali
+  sono sempre le stesse. Un solo giorno fisso a testa; gli altri liberi ruotano.
+- Weekend tutti contro minimo delle fasce: se le ore non bastano vince il weekend (coerente con
+  `weekendSenzaRiposi` dell'11/11), ma mai lasciando un giorno vuoto o con una persona sola.
+- Weekend tutti contro ore di contratto: la persona a tempo pieno finisce a 6 giorni su 7 con
+  turni corti nel weekend; le part-time fanno weekend lungo e due feriali. È il prezzo, detto a Patrizio.
+- Ore fino al contratto contro «niente turni in più» (29/10): scelta per negozio, default spenta.
+
+### Nel codice
+- `src/lib/ottimizzaTurni.ts`: `ottimizzaSettimana` (ricerca con seme fisso da due partenze, i
+  turni già proposti e la settimana costruita da zero; poi discesa casella per casella e
+  riparazione del weekend), `PESI`, `scegliGiorniLiberi`, `coppieFeriali`, `derogheSettimana`.
+  Mai peggio della partenza; le ore già oltre il contratto nei turni di partenza (straordinari
+  ammessi, anticipo nelle settimane a cavallo) restano possibili, oltre si va solo nei giorni di evento.
+  Tempi: circa 0,2 secondi a settimana con quattro persone (il conto non alloca; i giri calano con le persone).
+- `pianificaMese`: ultimo passo di ogni settimana, argomento `nuove` (giorno libero, guida, coppie
+  prima), restituisce `giorniLiberi`. Tutti i test di prima passano senza modifiche.
+- Piano settimanale (`PianoTurni.tsx`): pezzi di settimana per mese (`mese`, `date`, `fuori`,
+  `oreFuori`), riquadro delle deroghe, «Stampa / PDF», «libero fisso» sotto il nome, etichetta di
+  responsabile e vice, proposta che passa dal motore nuovo.
+- Piano del mese (`PianiMensili.tsx`): una sola variante, il primo piano vero diventa «scelto».
+- `src/lib/stampaOrario.ts`: PDF vettoriale (logo New Zago disegnato, niente immagini); per gli
+  altri tenant il nome dell'azienda al posto del logo.
+- `src/lib/guidaNegozio.ts`, `src/lib/regoleNuoveDb.ts`.
+- Migration 395 (riempi_contratto, employee_giorno_libero, turni ufficiali solo pubblicati nel piano
+  scelto) e 393 (vice responsabile, storico, blocco ferie del lunedì con trigger su `leave_request_days`).
+
+### Misure del motore nuovo (Roma Soratte, dati veri, 11/11/2026)
+| Settimana | Proposta di prima | Motore nuovo | Con «ore fino al contratto» |
+|---|---|---|---|
+| 16-22/11 | 7 ore scoperte, venerdì vuoto dalle 17 alle 20, 120 ore | 0 scoperte, weekend tutti, giorni fissi rispettati | 0 scoperte, 130 ore su 130 |
+| 23-29/11 (Black Friday) | 21,5 ore scoperte | 0 scoperte, 157 ore di cui 27 di straordinario, tutti da venerdì a domenica | uguale |
+
+Il piano costruito a mano per le stesse settimane dava 0 scoperte con 130 e 156 ore: il motore ci arriva.
+
+### Sui dati (New Zago, 11/11/2026)
+- Roma Soratte, novembre: caricate in bozza (`origine = 'proposta'`, senza piano) le settimane 9-15
+  (il piano delle ragazze, ricopiato dalla schermata di Patrizio), 16-22, 23-29 (con gli
+  straordinari del Black Friday nei turni) e lunedì 30. 64 turni. Giorni liberi fissi di novembre:
+  Bianchi lunedì, Gentili martedì, Angelini mercoledì, Basile giovedì.
+- Verifica presenze: nessuna delle quattro aveva attivato l'app, nessuna timbratura vera (solo il
+  dipendente di prova), avvisi di ritardo accesi. Ordine giusto: prima attivano l'app, poi si pubblica.
+
+**Attenzione alle bozze messe a mano senza piano.** `timbrature_turni_ufficiali` considera ancora
+ufficiale un turno senza piano con `origine = 'manuale'` anche in bozza (decisione del 05/11): una
+bozza da approvare caricata da fuori va messa con `origine = 'proposta'`. Dentro un piano scelto,
+dalla 395, vale solo il pubblicato.
+
+## Modello in prova a Roma Soratte: i quattordici punti (11/11/2026)
+
+Patrizio, 11/11/2026: le regole nuove si provano **solo a Roma Soratte**; gli altri sette negozi
+restano come sono, pause salvate comprese. Dopo la prova decide lui se diventa il modello di tutti.
+Questa sezione sostituisce le decisioni prese lo stesso giorno su «pause da 10 e 30 minuti tolte
+dalle ore» e «domenica due persone all'apertura», che non valgono più.
+
+I punti, nell'ordine in cui comandano:
+1. **Comanda il negozio**: orario di apertura e chiusura e giorni chiusi da «Orari e fabbisogno»;
+   il negozio non resta mai senza una persona.
+2. **Lunedì** responsabile o vice in negozio (sole a poter fare il versamento). Gli altri giorni
+   possono mancare tutte e due.
+3. **Giorni a massima intensità**: sabato, domenica, festivi e giorni speciali (Black Friday e
+   quelli fra gli eventi). Lavorano tutte, senza ferie, permessi o riposi; un'eccezione la accorda
+   un responsabile (utente con la funzione di Veronica o di Denise). All'apertura una persona sola
+   per mezz'ora al massimo, alla chiusura per un'ora al massimo. La responsabile fa 10-19.
+4. **Giorno libero fisso** e niente coppie fisse, per quanto possibile.
+5. **Pause**: fino a 6 ore di turno nessuna; oltre 6 e fino a 8 dieci minuti timbrati e NON tolti
+   (10-18 = 8 ore); sopra le 8 mezz'ora timbrata e tolta (10-19 = 8,5; 10-20 = 9,5).
+6. **Straordinari** solo nei giorni forti, oppure per la persona in più chiesta dalla direzione per
+   **ricarico del magazzino o allestimento** (anche in un feriale, segnata col suo motivo). Si
+   contano a ore e mezz'ore.
+7. **Contratto a settimana**; il mese finisce l'ultimo giorno e il successivo si porta dietro le ore.
+8. **Stampa** della settimana o del mese con la grafica dell'azienda; sul foglio solo orario e ore,
+   **niente pause** («questo lo definiamo successivamente»).
+
+Nel codice:
+- Due scelte del negozio in `outlet_shift_rules` (migration 399, NULL = spente): `pausa_corta_pagata`
+  e `giorni_pieni`. `RegoleTurni.pausaCortaPagata` e `.giorniPieni`. Roma Soratte le accende con la
+  `NZ_ONLY_…_400`, che porta anche le sue pause a 10 e 30: **va applicata insieme alla pubblicazione
+  del frontend**, altrimenti il frontend vecchio toglierebbe i 10 minuti dalle ore.
+- Pausa corta pagata: in `pausaMinuti` del turno resta solo la pausa che si toglie; quella pagata
+  si ricava con `pausaPagataDelTurno` (turno oltre 6 e fino a 8 ore senza pausa tolta). `pausaPer`,
+  `pausaMinimaPerPresenza` e `presenzaGiusta` in questa modalità ragionano sulle ore di turno.
+  `oreLavorate` non cambia.
+- Giorni forti: `giornoPieno` (sabato, domenica, festivi, eventi) vale solo con `regole.giorniPieni`.
+  `fabbisognoDaTraffico` mette 1 persona la prima mezz'ora, tutte fino a un'ora dalla chiusura, 1
+  dopo. Responsabile 10-19 (`PRESENZA_RESPONSABILE_WEEKEND`) e `straordinariWeekend` solo lì.
+  Negli altri negozi il weekend segue fasce e traffico come prima.
+- Straordinario: `shifts.straordinario_motivo` (`giorno_forte`, `ricarico`, `allestimento`);
+  `ripartisciStraordinari` scrive lo straordinario della settimana sui turni dei giorni forti a
+  mezz'ore quando si salva la proposta settimanale; il motivo si sceglie nella finestra del turno.
+- Stampa: `dettaglioTurno` scrive solo le ore.
+
+Misura a mano su Roma Soratte, novembre 2026 (quattro persone, 40 + 30 + 30 + 30): 17 ore di
+straordinario in una settimana normale, 34,5 in quella del Black Friday, 29,5 nella 9-15 (feriali
+già fatti dalle ragazze). Stima del costo: circa 21-22 € l'ora, circa 1.720 € a novembre (costo
+dei colleghi dello stesso livello, gennaio-maggio 2026; da confermare con lo studio paghe).
+
+Ancora da fare: lo straordinario scritto anche quando si salva il **piano del mese**
+(`PianiMensili`), la stampa del mese intero dal gestionale, il blocco di ferie e permessi nei giorni
+forti con l'eccezione accordata dal responsabile.
+
+La pausa pagata nelle timbrature è fatta con la migration 401 (colonna `shifts.pausa_pagata_minuti`
+calcolata da un trigger, ore timbrate che non la tolgono): vedi `TIMBRATURE_NOTES.md`.
