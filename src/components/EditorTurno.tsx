@@ -82,7 +82,7 @@ export default function EditorTurno({
   const [allungato, setAllungato] = useState<string | null>(null);
   // La pausa si scrive da sola mentre si compila l'orario, e all'uscita dal campo
   // il turno si allunga alla presenza giusta (Patrizio, 11/11/2026: 6 ore di lavoro
-  // = 6 ore e mezza di presenza, 8 = 9). Una pausa piu' lunga scritta a mano resta.
+  // = 6 ore di presenza, 7 e mezza = 8, 8 = 9). Una pausa piu' lunga scritta a mano resta.
   // L'orario aperto: finche' nessuno lo cambia, un turno esistente non si tocca.
   const ultimoOrario = useRef(`${turno?.inizio ?? ''}|${turno?.fine ?? ''}`);
   const pausaAMano = useRef(false);
@@ -108,7 +108,7 @@ export default function EditorTurno({
   const [oreStraordScritte, setOreStraordScritte] = useState<string | null>(oreStraordPrima > 0 ? String(oreStraordPrima) : null);
   const [salvo, setSalvo] = useState(false);
 
-  // La pausa non e' mai lavoro (Patrizio, 21/10/2026): 30' da 6 ore lavorate, un'ora
+  // La pausa non e' mai lavoro (Patrizio, 21/10/2026): nessuna fino a 6 ore lavorate, 30' oltre 6, un'ora
   // da 8. Si impone la minima per la presenza scritta; la si puo' allungare, non accorciare.
   const pausaMinima = fine > inizio ? pausaMinimaPerPresenza(minuti(fine) - minuti(inizio), regole) : 0;
   const pausaVera = Math.max(pausa, pausaMinima);
@@ -325,7 +325,7 @@ export default function EditorTurno({
         )}
         {pausa < pausaMinima && !errore && (
           <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            La regola vuole almeno {pausaMinima} minuti di pausa (30 da 6 ore di lavoro, un'ora da 8): li conto io, la pausa scritta non basta.
+            La regola vuole almeno {pausaMinima} minuti di pausa (nessuna fino a 6 ore di lavoro, 30 oltre 6, un'ora da 8): li conto io, la pausa scritta non basta.
           </p>
         )}
 

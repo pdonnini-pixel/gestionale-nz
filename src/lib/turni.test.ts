@@ -155,9 +155,10 @@ describe('scopertureDelGiorno', () => {
 });
 
 describe('pausaPer', () => {
-  it('30 minuti da 6 ore lavorate, un\'ora da 8, in aggiunta alle ore (Patrizio, 21/10/2026)', () => {
+  it('nessuna pausa fino a 6 ore lavorate comprese, 30 minuti oltre 6, un\'ora da 8 (Patrizio, 11/11/2026)', () => {
     expect(pausaPer(5.5 * 60)).toBe(0);
-    expect(pausaPer(6 * 60)).toBe(30);
+    expect(pausaPer(6 * 60)).toBe(0);
+    expect(pausaPer(6.5 * 60)).toBe(30);
     expect(pausaPer(7.5 * 60)).toBe(30);
     expect(pausaPer(8 * 60)).toBe(60);
   });
@@ -333,19 +334,23 @@ describe('straordinari degli eventi a chi ne ha fatti meno (Patrizio, 02/11/2026
 describe('orario scritto a mano e pausa (Patrizio, 11/11/2026)', () => {
   const m = (h: string) => minuti(h);
   it('la pausa dipende dal lavoro e il turno si allunga alla presenza giusta', () => {
-    // 12-18 sono 6 ore di presenza: con 6 ore di lavoro serve mezz'ora, il turno diventa 12-18:30
-    expect(presenzaGiusta(m('12:00'), m('18:00'), REGOLE_DEFAULT, m('10:00'), m('20:00'))).toMatchObject({ inizio: m('12:00'), fine: m('18:30'), pausa: 30, lavoro: 360, allungato: true });
-    // 7 ore e mezza di lavoro: 8 di presenza, nessun allungamento
+    // 10-16 sono 6 ore di lavoro: fino a 6 ore comprese nessuna pausa
+    expect(presenzaGiusta(m('10:00'), m('16:00'))).toMatchObject({ pausa: 0, lavoro: 360, allungato: false });
+    expect(pausaPer(360)).toBe(0);
+    // 10-16:30 non torna (6 e mezza di lavoro vogliono mezz'ora): diventa 10-17
+    expect(presenzaGiusta(m('10:00'), m('16:30'), REGOLE_DEFAULT, m('10:00'), m('20:00'))).toMatchObject({ fine: m('17:00'), pausa: 30, lavoro: 390, allungato: true });
+    // 10-18: 7 ore e mezza di lavoro e 30 minuti di pausa
     expect(presenzaGiusta(m('10:00'), m('18:00'))).toMatchObject({ pausa: 30, lavoro: 450, allungato: false });
-    // 8 ore e mezza di presenza: con 8 di lavoro serve un'ora, il turno diventa di 9 ore
+    // 10-18:30 non torna: con 8 di lavoro serve un'ora, il turno diventa 10-19
     expect(presenzaGiusta(m('10:00'), m('18:30'), REGOLE_DEFAULT, m('10:00'), m('20:00'))).toMatchObject({ fine: m('19:00'), pausa: 60, lavoro: 480, allungato: true });
-    // 10 ore di presenza: 9 di lavoro e un'ora di pausa
+    // 10-19: 8 ore di lavoro e un'ora di pausa; 10-20: 9 e un'ora
+    expect(presenzaGiusta(m('10:00'), m('19:00'))).toMatchObject({ pausa: 60, lavoro: 480, allungato: false });
     expect(presenzaGiusta(m('10:00'), m('20:00'))).toMatchObject({ pausa: 60, lavoro: 540, allungato: false });
     // sotto le 6 ore nessuna pausa
     expect(presenzaGiusta(m('10:00'), m('15:30'))).toMatchObject({ pausa: 0, lavoro: 330, allungato: false });
     // minuti qualsiasi: 12:10-18:00 sono 5 ore e 50 di lavoro, senza pausa
     expect(presenzaGiusta(m('12:10'), m('18:00'))).toMatchObject({ pausa: 0, lavoro: 350, allungato: false });
     // alla chiusura non si allunga la fine: si anticipa l'inizio
-    expect(presenzaGiusta(m('14:00'), m('20:00'), REGOLE_DEFAULT, m('10:00'), m('20:00'))).toMatchObject({ inizio: m('13:30'), fine: m('20:00'), pausa: 30, allungato: true });
+    expect(presenzaGiusta(m('13:30'), m('20:00'), REGOLE_DEFAULT, m('10:00'), m('20:00'))).toMatchObject({ inizio: m('13:00'), fine: m('20:00'), pausa: 30, allungato: true });
   });
 });

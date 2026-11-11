@@ -25,7 +25,7 @@ export interface RegoleTurni {
   /** turno minimo nella giornata: 4 ore (Patrizio, 20/10/2026). I pezzi da un'ora consumavano un giorno di lavoro e lasciavano ore di contratto non usate. */
   turnoMinOre: number;
   turnoMaxOre: number;
-  /** da quante ore lavorate scatta la pausa (6 ore esatte comprese) */
+  /** oltre quante ore lavorate scatta la pausa: fino a 6 ore comprese nessuna pausa (Patrizio, 11/11/2026) */
   pausaOltreOre: number;
   pausaMinuti: number;
   /** da quante ore lavorate la pausa diventa lunga (8 ore esatte comprese) */
@@ -62,7 +62,7 @@ export const REGOLE_DEFAULT: RegoleTurni = {
 
 /**
  * Pausa (minuti) per un turno di `lavoroMinuti` lavorati, in aggiunta alle ore
- * lavorate e mai pagata: 30 minuti da 6 ore, un'ora da 8 (Patrizio, 21/10/2026:
+ * lavorate e mai pagata: nessuna fino a 6 ore, 30 minuti oltre 6, un'ora da 8 (Patrizio, 21/10 e 11/11/2026:
  * 7 ore di presenza = 6 lavorate e mezz'ora di pausa; 9 di presenza = 8 e un'ora).
  */
 export function pausaMinimaPerPresenza(presenzaMinuti: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
@@ -75,33 +75,40 @@ export function pausaMinimaPerPresenza(presenzaMinuti: number, regole: RegoleTur
 
 /**
  * L'orario scritto a mano diventato coerente con la regola della pausa (Patrizio,
- * 11/11/2026): la pausa dipende dalle ore di LAVORO (30' da 6 ore, un'ora da 8) e
- * la presenza e' lavoro piu' pausa. 6 ore di lavoro = 6 ore e mezza di presenza,
- * 7 e mezza = 8, 8 = 9, 9 = 10. Una presenza che cade fra due di questi casi
- * (6 ore, 8 e mezza) non si riduce di lavoro: il turno si allunga fino alla
- * presenza giusta (12-18 diventa 12-18:30), alla fine se il negozio e' ancora
- * aperto, altrimenti anticipando l'inizio. Se non c'e' posto resta com'e', con
- * la pausa minima per quella presenza.
+ * 11/11/2026): la pausa dipende dalle ore di LAVORO (nessuna fino a 6 ore comprese,
+ * 30' oltre 6, un'ora da 8) e la presenza e' lavoro piu' pausa: 6 ore = 6 di
+ * presenza, 7 e mezza = 8, 8 = 9, 9 = 10. Una presenza che non torna (6 e mezza,
+ * 8 e mezza) non si riduce di lavoro: il turno si allunga di mezz'ora, alla fine se
+ * il negozio e' ancora aperto, altrimenti anticipando l'inizio. Se non c'e' posto
+ * resta com'e', con la pausa minima per quella presenza.
  */
 export function presenzaGiusta(inizioMin: number, fineMin: number, regole: RegoleTurni = REGOLE_DEFAULT, apre = 0, chiude = 24 * 60): { inizio: number; fine: number; pausa: number; lavoro: number; allungato: boolean } {
   const presenza = fineMin - inizioMin;
   if (presenza <= 0) return { inizio: inizioMin, fine: fineMin, pausa: 0, lavoro: 0, allungato: false };
-  // il lavoro piu' corto (al minuto) che con la sua pausa arriva almeno alla presenza scritta
-  let lavoro = 0;
-  while (lavoro + pausaPer(lavoro, regole) < presenza) lavoro += 1;
-  const pausa = pausaPer(lavoro, regole);
-  const giusta = lavoro + pausa;
-  if (giusta === presenza) return { inizio: inizioMin, fine: fineMin, pausa, lavoro, allungato: false };
-  if (inizioMin + giusta <= chiude) return { inizio: inizioMin, fine: inizioMin + giusta, pausa, lavoro, allungato: true };
-  if (fineMin - giusta >= apre) return { inizio: fineMin - giusta, fine: fineMin, pausa, lavoro, allungato: true };
+  // Una presenza e' giusta se una delle pause possibili, tolta, lascia un lavoro che
+  // vuole proprio quella pausa. Se no si prova mezz'ora in piu' alla volta: 10-16:30
+  // (6 ore e mezza) diventa 10-17 (6 e mezza + 30'), 10-18:30 diventa 10-19 (8 + 1 ora).
+  const pause = [...new Set([0, regole.pausaMinuti, regole.pausaLungaMinuti])].sort((a, b) => a - b);
+  for (let giusta = presenza; giusta <= presenza + 120; giusta += 30) {
+    const pausa = pause.find((p) => pausaPer(giusta - p, regole) === p);
+    if (pausa == null) continue;
+    const lavoro = giusta - pausa;
+    if (giusta === presenza) return { inizio: inizioMin, fine: fineMin, pausa, lavoro, allungato: false };
+    if (inizioMin + giusta <= chiude) return { inizio: inizioMin, fine: inizioMin + giusta, pausa, lavoro, allungato: true };
+    if (fineMin - giusta >= apre) return { inizio: fineMin - giusta, fine: fineMin, pausa, lavoro, allungato: true };
+    break;
+  }
   const minima = pausaMinimaPerPresenza(presenza, regole);
   return { inizio: inizioMin, fine: fineMin, pausa: minima, lavoro: presenza - minima, allungato: false };
 }
 
-/** Pausa (minuti) per un turno di `lavoroMinuti` lavorati: 30 da 6 ore, 60 da 8 (vedi `pausaMinimaPerPresenza`). */
+/** Pausa (minuti) per un turno di `lavoroMinuti` lavorati: 0 fino a 6 ore, 30 oltre 6, 60 da 8 (vedi `pausaMinimaPerPresenza`). */
 export function pausaPer(lavoroMinuti: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  // Fino a 6 ore di lavoro comprese nessuna pausa, oltre 6 mezz'ora, da 8 un'ora
+  // (Patrizio, 11/11/2026: 10-16 = 6 ore senza pausa, 10-18 = 7 e mezza + 30',
+  // 10-19 = 8 + un'ora). Prima la mezz'ora scattava gia' a 6 ore esatte.
   if (lavoroMinuti >= regole.pausaLungaOltreOre * 60) return regole.pausaLungaMinuti;
-  if (lavoroMinuti >= regole.pausaOltreOre * 60) return regole.pausaMinuti;
+  if (lavoroMinuti > regole.pausaOltreOre * 60) return regole.pausaMinuti;
   return 0;
 }
 
