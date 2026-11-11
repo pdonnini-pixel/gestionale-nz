@@ -89,7 +89,13 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     setSpeciali(((s.data as { id: string; data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [])
       .map((x) => ({ id: x.id, data: x.data, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude), persone_extra: x.persone_extra, nota: x.nota ?? '' })));
     setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
-    setTrafficoDa(r.data == null ? null : 'traffico_da_outlet_id' in (r.data as object) ? ((r.data as { traffico_da_outlet_id: string | null }).traffico_da_outlet_id ?? null) : undefined);
+    if (r.data != null) {
+      setTrafficoDa('traffico_da_outlet_id' in (r.data as object) ? ((r.data as { traffico_da_outlet_id: string | null }).traffico_da_outlet_id ?? null) : undefined);
+    } else {
+      // Negozio senza regole salvate: si controlla se la colonna c'e' (sul tenant Made no, migration 391 assente).
+      const prova = await supabase.from('outlet_shift_rules').select('traffico_da_outlet_id').limit(1);
+      setTrafficoDa(prova.error ? undefined : null);
+    }
     setCaricamento(false);
   }, [outletId]);
 

@@ -477,6 +477,8 @@ describe('il negozio non resta mai scoperto (Patrizio, 30/10/2026)', () => {
         expect(e.turni.some((t) => t.employeeId === q.id && t.data === g.data), `${q.id} ${g.data}`).toBe(true);
       }
     }
+    // e spostando i turni nel weekend il negozio non resta mai vuoto
+    expect(giorni.filter((g) => g.data.startsWith(mese) && !g.chiuso).every((g) => copertura(g, e.turni).every((c) => c >= 1))).toBe(true);
   });
 });
 

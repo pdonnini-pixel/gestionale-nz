@@ -799,7 +799,7 @@ export function weekendSenzaRiposi(
     for (const p of persone) {
       if (p.ore <= 0 || p.nonDisponibile.has(g.data) || tutti().some((t) => t.employeeId === p.id && t.data === g.data)) continue;
       const l = limitiPersona(perId.get(p.id), g);
-      let meglio: { lista: Turno[]; ore: number } | null = null;
+      let meglio: { lista: Turno[]; ore: number; sotto: boolean } | null = null;
       for (const t of out.filter((x) => x.employeeId === p.id && giornoIso(x.data) < 6)) {
         const da = giorni.find((x) => x.data === t.data);
         if (!da) continue;
@@ -809,6 +809,10 @@ export function weekendSenzaRiposi(
         const personeDa = new Set([...senza, ...fissi].filter((x) => x.data === da.data).map((x) => x.employeeId)).size;
         const personePrima = new Set(tutti().filter((x) => x.data === da.data).map((x) => x.employeeId)).size;
         if (copDa.some((c) => c < 1) || (personePrima >= 2 && personeDa < 2)) continue;
+        // meglio uno spostamento che lascia il feriale sopra il minimo delle fasce; se non ce
+        // ne sono, vince comunque il weekend senza riposi (Patrizio, 11/11/2026)
+        const copPrima = coperturaLorda(da, tutti());
+        const sotto = copDa.some((c, k) => da.minimo != null && c < da.minimo[k] && copPrima[k] >= da.minimo[k]);
         const lavoro = Math.min(oreLavorate(t) * 60, lavoroMassimoGiorno(l, regole));
         if (lavoro < regole.turnoMinOre * 60 - 1e-9) continue;
         const durata = lavoro + pausaPer(lavoro, regole);
@@ -827,7 +831,7 @@ export function weekendSenzaRiposi(
         const nuovo: Turno = { employeeId: p.id, data: g.data, inizio: hhmm(inizio.s), fine: hhmm(inizio.s + lavoro + pausa), pausaMinuti: pausa };
         const lista = [...senza, nuovo];
         const ore = oreScoperte(giorni, [...lista, ...fissi]);
-        if (!meglio || ore < meglio.ore - 1e-9) meglio = { lista, ore };
+        if (!meglio || (meglio.sotto && !sotto) || (meglio.sotto === sotto && ore < meglio.ore - 1e-9)) meglio = { lista, ore, sotto };
       }
       if (meglio) out = meglio.lista;
     }
