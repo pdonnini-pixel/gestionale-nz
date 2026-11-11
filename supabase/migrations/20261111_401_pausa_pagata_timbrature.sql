@@ -10,7 +10,9 @@
 -- si timbra come le altre e NON si toglie dalle ore. Se dura di piu', la parte
 -- in piu' segue la regola della «pausa piu' lunga» (392): decide il responsabile.
 --
--- DIPENDE DALLA 399 (colonna pausa_corta_pagata). Ordine: 399 → 401 → NZ_ONLY 400.
+-- DIPENDE DALLA 392 (ramo fine_pausa di timbrature_evento_da_timbratura, gia' su main e applicata su NZ
+-- e Zago: verificato in lettura l'11/11/2026, le quattro funzioni sono identiche sui due tenant) e DALLA 399
+-- (colonna pausa_corta_pagata). Ordine: 392 → 399 → 401 → NZ_ONLY 400.
 --
 -- COME:
 --   1. shifts.pausa_pagata_minuti: i minuti di pausa che si timbrano e non si
@@ -66,8 +68,9 @@ AS $function$
        AND extract(epoch FROM (p_fine - p_inizio)) / 60.0 <= COALESCE(r.pausa_lunga_oltre_ore, 8) * 60
   ), 0::smallint);
 $function$;
-REVOKE ALL ON FUNCTION public.pausa_pagata_del_turno(uuid, time, time, integer) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.pausa_pagata_del_turno(uuid, time, time, integer) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.pausa_pagata_del_turno(uuid, time, time, integer) FROM PUBLIC, anon, authenticated;
+-- la usano solo i trigger (SECURITY DEFINER) e le migration: authenticated non ne ha bisogno
+GRANT EXECUTE ON FUNCTION public.pausa_pagata_del_turno(uuid, time, time, integer) TO service_role;
 
 CREATE OR REPLACE FUNCTION public.shifts_pausa_pagata()
  RETURNS trigger
