@@ -392,13 +392,16 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       if (esito.turni.length) {
         // nei negozi con i giorni a massima intensita' lo straordinario della settimana si scrive sui turni dei giorni forti
         const straordDi = regole.giorniPieni
-          ? ripartisciStraordinari(esito.turni, new Map(candidati.map((c) => [c.id, c.ore])), new Set(giorni.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)))
+          // il contratto che resta dopo i turni gia' fissati (a mano, pubblicati, trasferte): la proposta non li contiene
+          ? ripartisciStraordinari(esito.turni, new Map(candidati.map((c) => [c.id, c.ore - fissiTutti.filter((f) => f.employeeId === c.id).reduce((x, f) => x + oreLavorate(f), 0)])), new Set(giorni.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)))
           : new Map<Turno, number>();
         const { error } = await supabase.from('shifts').insert(esito.turni.map((t) => ({
           company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data,
           inizio: t.inizio, fine: t.fine, pausa_minuti: t.pausaMinuti, origine: 'proposta', stato: 'bozza',
           plan_id: pianiScelti.get(t.data.slice(0, 7)) ?? null,
-          ...(straordDi.has(t) ? { straordinario: true, ore_straordinario: straordDi.get(t)!, ...(haMotivo ? { straordinario_motivo: 'giorno_forte' } : {}) } : {}),
+          // le stesse chiavi su tutte le righe: con chiavi diverse l'insert manda NULL dove mancano, e le colonne sono NOT NULL
+          straordinario: straordDi.has(t), ore_straordinario: straordDi.get(t) ?? 0,
+          ...(haMotivo ? { straordinario_motivo: straordDi.has(t) ? 'giorno_forte' : null } : {}),
         })));
         if (error) throw error;
       }
