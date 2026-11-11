@@ -833,8 +833,11 @@ export function spostaEAllunga(
  * turno ci porta uno dei suoi turni feriali della stessa settimana, con le stesse
  * ore, messo dove mancano piu' persone. Il giorno feriale da cui parte non deve
  * restare scoperto ne' con una persona sola; fra i turni possibili vince quello
- * che lascia meno ore scoperte. I turni fissi non si toccano. Se nessun turno si
- * puo' spostare, la persona resta senza turno quel giorno.
+ * che lascia meno ore scoperte. I turni fissi non si toccano. Se nessun turno
+ * intero si puo' spostare, il turno minimo del weekend si fa accorciando gli altri
+ * suoi turni della settimana: il weekend vince comunque (Patrizio, 12/11/2026). La
+ * persona resta senza turno solo se ha gia' tutti i giorni di lavoro o se ogni
+ * taglio lascerebbe una mezz'ora vuota.
  */
 export function weekendSenzaRiposi(
   giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], regole: RegoleTurni = REGOLE_DEFAULT, fissi: Turno[] = [],
