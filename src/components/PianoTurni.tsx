@@ -295,6 +295,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           .in('mese', [...new Set([prima[0], prima[6]].map((d) => `${d.slice(0, 7)}-01`))]),
       ]);
       if (sh.error) throw sh.error;
+      if (pi.error) throw pi.error;
+      // i turni gia' nella settimana si rileggono dal database, non dalla pagina:
+      // due persone che copiano insieme non creano doppioni
+      const giaQui = await leggiTurni(pianiScelti);
       const pianoPrima = new Map(((pi.data as { id: string; mese: string }[]) ?? []).map((x) => [x.mese.slice(0, 7), x.id]));
       // gli stessi turni che la settimana prima mostra: del piano scelto del mese, o quelli settimanali
       const sorgente = ((sh.data as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null }[]) ?? [])
@@ -305,7 +309,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         const c = candidati.find((x) => x.id === t.employee_id);
         const [ini, fin] = [t5(t.inizio), t5(t.fine)];
         if (!g || g.chiuso || !c || c.nonDisponibile.has(d) || minuti(ini) < g.apre || minuti(fin) > g.chiude) return [];
-        if (attivi.some((x) => x.employee_id === t.employee_id && x.data === d)) return [];
+        if (giaQui.some((x) => x.stato !== 'annullato' && x.employee_id === t.employee_id && x.data === d)) return [];
         return [{
           company_id: companyId, outlet_id: outletId, employee_id: t.employee_id, data: d, inizio: ini, fine: fin,
           pausa_minuti: t.pausa_minuti ?? 0, origine: 'manuale', stato: 'bozza', plan_id: pianiScelti.get(d.slice(0, 7)) ?? null,
