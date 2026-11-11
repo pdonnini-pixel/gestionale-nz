@@ -3,7 +3,7 @@
 // mese» la responsabile HR entra nella casella e sistema le ore; se con la
 // dipendente si concordano ore in piu', il turno si segna come straordinario).
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { Modal } from './ui/Modal';
 import { useToast } from './Toast';
@@ -83,11 +83,17 @@ export default function EditorTurno({
   // La pausa si scrive da sola mentre si compila l'orario, e all'uscita dal campo
   // il turno si allunga alla presenza giusta (Patrizio, 11/11/2026: 6 ore di lavoro
   // = 6 ore e mezza di presenza, 8 = 9). Una pausa piu' lunga scritta a mano resta.
+  // L'orario aperto: finche' nessuno lo cambia, un turno esistente non si tocca.
+  const ultimoOrario = useRef(`${turno?.inizio ?? ''}|${turno?.fine ?? ''}`);
+  const pausaAMano = useRef(false);
   const scriviOrario = (i: string, f: string, allunga: boolean) => {
+    if (allunga && `${i}|${f}` === ultimoOrario.current) return;
     setInizio(i); setFine(f);
     if (!i || !f || f <= i) return;
     const g = presenzaGiusta(minuti(i), minuti(f), regole, apre, chiude);
-    setPausa(g.pausa);
+    // una pausa scritta a mano piu' lunga di quella giusta resta
+    setPausa((p) => (pausaAMano.current ? Math.max(p, g.pausa) : g.pausa));
+    if (allunga) ultimoOrario.current = `${hhmm(g.inizio)}|${hhmm(g.fine)}`;
     if (allunga && g.allungato) {
       setInizio(hhmm(g.inizio)); setFine(hhmm(g.fine));
       setAllungato(`Con ${fmt(g.lavoro / 60)} ore di lavoro la pausa è di ${g.pausa} minuti: il turno diventa ${hhmm(g.inizio)}-${hhmm(g.fine)}.`);
@@ -125,7 +131,14 @@ export default function EditorTurno({
   const salva = async () => {
     if (errore) return;
     setSalvo(true);
-    const riga = { inizio, fine, pausa_minuti: pausaVera, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord };
+    // Salvando senza uscire dal campo il turno si allunga lo stesso (11/11/2026);
+    // un turno aperto e salvato senza cambiare l'orario resta com'era.
+    let [i, f, p] = [inizio, fine, pausaVera];
+    if (`${inizio}|${fine}` !== ultimoOrario.current) {
+      const g = presenzaGiusta(minuti(inizio), minuti(fine), regole, apre, chiude);
+      [i, f, p] = [hhmm(g.inizio), hhmm(g.fine), Math.max(pausaAMano.current ? pausa : 0, g.pausa)];
+    }
+    const riga = { inizio: i, fine: f, pausa_minuti: p, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord };
     const { error } = turno
       ? await supabase.from('shifts').update(riga).eq('id', turno.id)
       : await supabase.from('shifts').insert([{ ...riga, company_id: companyId, outlet_id: outletId, employee_id: employeeId, data, stato: 'bozza', plan_id: planId }]);
@@ -300,7 +313,7 @@ export default function EditorTurno({
         <div className="grid grid-cols-3 gap-3">
           <label className="text-xs font-semibold text-slate-600">Inizio<input type="time" step={1800} value={inizio} onChange={(e) => scriviOrario(e.target.value, fine, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
           <label className="text-xs font-semibold text-slate-600">Fine<input type="time" step={1800} value={fine} onChange={(e) => scriviOrario(inizio, e.target.value, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
-          <label className="text-xs font-semibold text-slate-600">Pausa (min)<input type="number" min={0} max={180} step={15} value={pausa} onChange={(e) => setPausa(Number(e.target.value) || 0)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
+          <label className="text-xs font-semibold text-slate-600">Pausa (min)<input type="number" min={0} max={180} step={15} value={pausa} onChange={(e) => { pausaAMano.current = true; setPausa(Number(e.target.value) || 0); }} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
         </div>
         <p className="text-sm text-slate-600">
           {errore ?? <>Presenza {fmt((minuti(fine) - minuti(inizio)) / 60)} ore: <b>{fmt(ore)} ore di lavoro</b> e {pausaVera} minuti di pausa, che non si pagano.</>}

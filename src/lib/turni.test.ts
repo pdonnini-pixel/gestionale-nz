@@ -343,6 +343,8 @@ describe('orario scritto a mano e pausa (Patrizio, 11/11/2026)', () => {
     expect(presenzaGiusta(m('10:00'), m('20:00'))).toMatchObject({ pausa: 60, lavoro: 540, allungato: false });
     // sotto le 6 ore nessuna pausa
     expect(presenzaGiusta(m('10:00'), m('15:30'))).toMatchObject({ pausa: 0, lavoro: 330, allungato: false });
+    // minuti qualsiasi: 12:10-18:00 sono 5 ore e 50 di lavoro, senza pausa
+    expect(presenzaGiusta(m('12:10'), m('18:00'))).toMatchObject({ pausa: 0, lavoro: 350, allungato: false });
     // alla chiusura non si allunga la fine: si anticipa l'inizio
     expect(presenzaGiusta(m('14:00'), m('20:00'), REGOLE_DEFAULT, m('10:00'), m('20:00'))).toMatchObject({ inizio: m('13:30'), fine: m('20:00'), pausa: 30, allungato: true });
   });

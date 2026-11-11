@@ -86,9 +86,9 @@ export function pausaMinimaPerPresenza(presenzaMinuti: number, regole: RegoleTur
 export function presenzaGiusta(inizioMin: number, fineMin: number, regole: RegoleTurni = REGOLE_DEFAULT, apre = 0, chiude = 24 * 60): { inizio: number; fine: number; pausa: number; lavoro: number; allungato: boolean } {
   const presenza = fineMin - inizioMin;
   if (presenza <= 0) return { inizio: inizioMin, fine: fineMin, pausa: 0, lavoro: 0, allungato: false };
-  // il lavoro piu' corto (a quarti d'ora) che con la sua pausa arriva almeno alla presenza scritta
+  // il lavoro piu' corto (al minuto) che con la sua pausa arriva almeno alla presenza scritta
   let lavoro = 0;
-  while (lavoro + pausaPer(lavoro, regole) < presenza) lavoro += 15;
+  while (lavoro + pausaPer(lavoro, regole) < presenza) lavoro += 1;
   const pausa = pausaPer(lavoro, regole);
   const giusta = lavoro + pausa;
   if (giusta === presenza) return { inizio: inizioMin, fine: fineMin, pausa, lavoro, allungato: false };
