@@ -21821,6 +21821,7 @@ export type Database = {
           caldi_fasce_festivi: string | null
           caldi_guida_apre_chiude: boolean | null
           caldi_ore_apertura: number | null
+          lunedi_due_persone: boolean | null
           traffico_da_outlet_id: string | null
           giorni_lavoro_max: number
           outlet_id: string
@@ -21848,6 +21849,7 @@ export type Database = {
           caldi_fasce_festivi?: string | null
           caldi_guida_apre_chiude?: boolean | null
           caldi_ore_apertura?: number | null
+          lunedi_due_persone?: boolean | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id: string
@@ -21875,6 +21877,7 @@ export type Database = {
           caldi_fasce_festivi?: string | null
           caldi_guida_apre_chiude?: boolean | null
           caldi_ore_apertura?: number | null
+          lunedi_due_persone?: boolean | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id?: string

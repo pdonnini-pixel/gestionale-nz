@@ -91,7 +91,17 @@ export interface RegoleTurni {
   caldiGuidaApreChiude?: boolean;
   /** quante ore resta chi fa l'apertura nei giorni caldi (9: 10-19 in un negozio che apre alle 10) */
   caldiOreApertura?: number;
+  /**
+   * Il lunedi' a due persone (Patrizio, 12/11/2026): il lunedi' viene dopo il weekend pesante, quindi
+   * lavorano al massimo due persone, e da un lunedi' all'altro non le stesse. Il tetto vince sulle
+   * fasce e su MODA; un lunedi' festivo o dentro un evento segue le regole dei giorni caldi.
+   * Scelta del negozio (`outlet_shift_rules.lunedi_due_persone`, migration 408), spenta di default.
+   */
+  lunediDue?: boolean;
 }
+
+/** Quante persone al massimo il lunedi', dove la scelta del negozio e' accesa. */
+export const LUNEDI_MAX_PERSONE = 2;
 
 /** Per legge il riposo settimanale e' di almeno un giorno: nessuna regola puo' scendere sotto. */
 export const RIPOSO_LEGALE = 1;
@@ -206,6 +216,7 @@ export function regoleDaRiga(r: {
   riposi_min_settimana?: number | string | null; straordinari_pari?: boolean | null;
   caldi_tutti_al_lavoro?: boolean | null; caldi_straordinari?: boolean | null; caldi_fasce_festivi?: string | null;
   caldi_guida_apre_chiude?: boolean | null; caldi_ore_apertura?: number | string | null;
+  lunedi_due_persone?: boolean | null;
 } | null | undefined): RegoleTurni {
   if (!r) return REGOLE_DEFAULT;
   return {
@@ -227,6 +238,7 @@ export function regoleDaRiga(r: {
     ...(r.caldi_fasce_festivi != null ? { caldiFasceFestivi: (r.caldi_fasce_festivi === 'domenica' ? 7 : 6) as 6 | 7 } : {}),
     ...(r.caldi_guida_apre_chiude != null ? { caldiGuidaApreChiude: !!r.caldi_guida_apre_chiude } : {}),
     ...(r.caldi_ore_apertura != null ? { caldiOreApertura: Number(r.caldi_ore_apertura) } : {}),
+    ...(r.lunedi_due_persone != null ? { lunediDue: !!r.lunedi_due_persone } : {}),
   };
 }
 
@@ -386,6 +398,10 @@ export interface GiornoPiano {
   fasceEvento?: boolean;
   /** riposi minimi chiesti dal periodo speciale di questo giorno (mai sotto uno) */
   riposiMin?: number;
+  /** lunedi' con il tetto di due persone (scelta del negozio): fasce e MODA sono gia' tagliate a due */
+  lunediDue?: boolean;
+  /** le fasce salvate di questo lunedi' chiedevano piu' del tetto: comanda il tetto, la pagina lo segnala */
+  lunediFasceOltre?: boolean;
 }
 
 /**

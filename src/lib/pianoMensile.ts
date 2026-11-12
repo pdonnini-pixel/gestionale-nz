@@ -20,11 +20,11 @@
 
 import { festivitaItaliane } from './ferieRichiesta';
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, giornoPieno, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
+  SLOT_MINUTI, REGOLE_DEFAULT, LUNEDI_MAX_PERSONE, eFestivo, giornoIso, giornoPieno, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
   ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
-import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, sceltePerLaSettimana, ripartisciStraordinari, type RegoleNuove } from './ottimizzaTurni';
+import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, coppiaDelGiorno, sceltePerLaSettimana, ripartisciStraordinari, type RegoleNuove } from './ottimizzaTurni';
 
 export { giornoPieno };
 
@@ -174,7 +174,9 @@ export function fabbisognoDaTraffico(
   maxPersone: Map<string, number>,
   extra: Map<string, number> = new Map(),
 ): GiornoPiano[] {
-  return giorni.map((g) => {
+  return giorni.map((g) => tettoDelLunedi(fabbisognoDelGiorno(g), regole));
+
+  function fabbisognoDelGiorno(g: GiornoPiano): GiornoPiano {
     if (g.chiuso) return g;
     const max = Math.max(1, maxPersone.get(g.data) ?? 1);
     // Giorni caldi (Patrizio, 12/11/2026, sostituisce lo schema fisso dell'11/11): le persone le
@@ -204,7 +206,26 @@ export function fabbisognoDaTraffico(
       esigenza: persone.map((x) => Math.round(x) + extraG),
       esatto: persone.map((x) => Math.min(max, x) + extraG),
     };
-  });
+  }
+}
+
+/**
+ * Il lunedi' a due persone (Patrizio, 12/11/2026): dove il negozio l'ha acceso, il lunedi' non
+ * chiede mai piu' di due persone, ne' dalle fasce ne' da MODA. Non vale per un lunedi' festivo,
+ * caldo o dentro un evento, che segue le sue regole. Se le fasce salvate chiedevano di piu' il
+ * giorno lo porta scritto (`lunediFasceOltre`), cosi' la pagina lo segnala.
+ */
+export function tettoDelLunedi(g: GiornoPiano, regole: RegoleTurni): GiornoPiano {
+  if (!regole.lunediDue || g.chiuso || giornoIso(g.data) !== 1 || g.caldo || g.evento || eFestivo(g.data)) return g;
+  const taglia = (v?: number[]) => v?.map((x) => Math.min(LUNEDI_MAX_PERSONE, x));
+  const oltre = (g.minimo ?? []).some((x) => x > LUNEDI_MAX_PERSONE);
+  return {
+    ...g, lunediDue: true, ...(oltre ? { lunediFasceOltre: true } : {}),
+    fabbisogno: taglia(g.fabbisogno)!,
+    ...(g.minimo ? { minimo: taglia(g.minimo) } : {}),
+    ...(g.esigenza ? { esigenza: taglia(g.esigenza) } : {}),
+    ...(g.esatto ? { esatto: taglia(g.esatto) } : {}),
+  };
 }
 
 /**
@@ -1180,7 +1201,7 @@ function pianificaMeseConRegola(args: {
    * lunedi', coppie dei feriali delle settimane prima del mese. Le pesa tutte
    * insieme `ottimizzaSettimana`, come ultimo passo di ogni settimana.
    */
-  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima' | 'responsabile' | 'vice' | 'riposi'>;
+  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima' | 'responsabile' | 'vice' | 'riposi' | 'lunediPrima'>;
   /** salta l'ultimo passo (confronti veloci fra due calcoli, es. con e senza una ferie) */
   rapido?: boolean;
 }): EsitoPianoMese {
@@ -1218,6 +1239,14 @@ function pianificaMeseConRegola(args: {
   };
   const altroMesePianificato = (lun: string) => giorniDellaSettimana(lun).filter((d) => !nelMese(d))
     .some((d) => [...(args.oreFuoriMese?.values() ?? [])].some((m) => (m.get(d) ?? 0) > 0));
+  // Pezzi di settimana nei negozi con le regole nuove (Patrizio, 12/11/2026, lunedi' 30/11 a Roma
+  // Soratte: quattro turni da 4 ore, uno a testa, solo per «stare in linea» con la quota del
+  // pezzo). Li' il contratto e' quello della settimana intera: nel pezzo il motore puo' usarne
+  // quanto i giorni ne reggono, ne mette solo quanto serve, e la quota del pezzo diventa quello
+  // che ha messo; il resto resta ai giorni dell'altro mese. Con «ore fino al contratto» resta la
+  // quota in proporzione, altrimenti il pezzo si prenderebbe tutte le ore della settimana.
+  const pezzoLibero = (!!regole.giorniPieni || regole.riposiMinSettimana != null || !!regole.lunediDue) && !regole.riempiContratto;
+  const quotaPezzi = new Map<string, Map<string, number>>();
   const contrattoSett = (p: PersonaPiano, lun: string) => {
     const date = giorniDellaSettimana(lun);
     const fuori = date.filter((d) => !nelMese(d));
@@ -1240,6 +1269,7 @@ function pianificaMeseConRegola(args: {
       .reduce((a, g) => a + lavoroMassimoGiorno(limitiPersona(p, g), regole) / 60, 0);
     // almeno un turno minimo, se la persona ha ore: una quota da 3 ore non
     // diventerebbe mai un turno (minimo 4 ore) e il giorno resterebbe scoperto
+    if (pezzoLibero) return qui > 0 ? (quotaPezzi.get(lun)?.get(p.id) ?? Math.min(intere, capienza)) : 0;
     return qui > 0 ? Math.min(intere, capienza, Math.max(regole.turnoMinOre, intere * qui / tot)) : 0;
   };
   const ferieSett = (p: PersonaPiano, lun: string) => args.giorni
@@ -1305,6 +1335,8 @@ function pianificaMeseConRegola(args: {
     ? new Map(args.nuove?.giornoLibero ?? [])
     : scegliGiorniLiberi(contrattuali.map((p) => p.id), args.nuove?.giornoLibero, guida);
   const coppieViste = new Map(args.nuove?.coppiePrima ?? []);
+  // le coppie dei lunedi' gia' fatti, dalla piu' recente: il lunedi' dopo non devono essere le stesse (12/11/2026)
+  const lunediVisti = [...(args.nuove?.lunediPrima ?? [])];
 
   // 3. Le settimane.
   const turni: Turno[] = [];
@@ -1419,6 +1451,7 @@ function pianificaMeseConRegola(args: {
       esito = [...ottimizzaSettimana(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole,
         {
           giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto,
+          lunediPrima: lunediVisti,
           // giorni caldi, apertura e chiusura fra responsabile e vice, riposi e straordinari pari: le
           // scelte del negozio (12/11/2026). Dove sono spente l'oggetto e' vuoto e resta tutto com'era.
           // In simulazione (fabbisogno fisso o straordinari scelti) gli straordinari li decidono le ipotesi.
@@ -1431,11 +1464,18 @@ function pianificaMeseConRegola(args: {
           giorniGia: new Map(candidati.map((c) => [c.id, giorniDellaSettimana(lun).filter((d) => !nelMese(d) && (args.oreFuoriMese?.get(c.id)?.get(d) ?? 0) > 0).length])),
         }, fissiSett), ...fissiSett];
       for (const [k, n] of coppieFeriali(esito)) coppieViste.set(k, (coppieViste.get(k) ?? 0) + n);
+      if (date.includes(lun)) { const k = coppiaDelGiorno(esito, lun); if (k) lunediVisti.unshift(k); }
     }
     // Rete di sicurezza: nessun turno fuori dagli accordi della scheda.
     const fissiRef = new Set(fissiSett);
     const dellaSettimana = rispettaFasce(esito.filter((t) => !fissiRef.has(t)), args.persone, regole);
     turni.push(...dellaSettimana);
+    // pezzo di settimana con l'altro mese ancora da fare: la quota del pezzo e' quello che ci sta dentro
+    if (pezzoLibero && date.length < 7 && !altroMesePianificato(lun)) {
+      quotaPezzi.set(lun, new Map(contrattuali.map((p) => [p.id,
+        [...dellaSettimana, ...fissiSett].filter((t) => t.employeeId === p.id && date.includes(t.data)).reduce((x, t) => x + oreLavorate(t), 0)
+          + ferieSett(p, lun) + trasfSett(p, lun)])));
+    }
     // Lo straordinario della settimana scritto sui turni dei giorni caldi, a ore e mezz'ore (12/11/2026):
     // nei negozi con i giorni caldi, non in simulazione (li' gli straordinari li decide chi simula).
     const forti = new Set(gg.filter((g) => !g.chiuso && (g.straordinariCaldo || (g.caldo && g.straordinari))).map((g) => g.data));
@@ -1445,6 +1485,7 @@ function pianificaMeseConRegola(args: {
     }
   }
 
+  quote.clear(); // le quote dei pezzi di settimana ora sono quelle pianificate
   const persone: EsitoPianoMese['persone'] = {};
   for (const p of args.persone) {
     const pianificate = turni.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0);

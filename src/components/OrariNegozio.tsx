@@ -86,6 +86,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [haProva, setHaProva] = useState(false);
   // colonne della migration 405 (riposi, straordinari pari, scelte dei giorni caldi): come sopra
   const [ha403, setHa403] = useState(false);
+  // la scelta «lunedì a due persone» c'è solo dove è arrivata la migration 408
+  const [haLunediDue, setHaLunediDue] = useState(false);
   // Persone per fascia: quale giorno si sta guardando (0 = i feriali insieme), e se i feriali si scrivono insieme.
   const [giornoFasce, setGiornoFasce] = useState<number>(0);
   const [ferialiInsieme, setFerialiInsieme] = useState(true);
@@ -151,6 +153,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     else setHaProva(!(await supabase.from('outlet_shift_rules').select('giorni_pieni').limit(1)).error);
     if (r.data != null) setHa403('riposi_min_settimana' in (r.data as object));
     else setHa403(!(await supabase.from('outlet_shift_rules').select('riposi_min_settimana' as 'giorni_pieni').limit(1)).error);
+    if (r.data != null) setHaLunediDue('lunedi_due_persone' in (r.data as object));
+    else setHaLunediDue(!(await supabase.from('outlet_shift_rules').select('lunedi_due_persone' as 'giorni_pieni').limit(1)).error);
     setCaricamento(false);
   }, [outletId]);
 
@@ -259,6 +263,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
         caldi_fasce_festivi: regole.caldiFasceFestivi == null ? null : regole.caldiFasceFestivi === 7 ? 'domenica' : 'sabato',
         caldi_guida_apre_chiude: regole.caldiGuidaApreChiude ?? null, caldi_ore_apertura: regole.caldiOreApertura ?? null,
       } : {}),
+      ...(haLunediDue ? { lunedi_due_persone: regole.lunediDue ? true : null } : {}),
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
     if (error) return error.message;
@@ -609,6 +614,14 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
             </Riga>
           )}
           <p className="text-xs text-slate-500 mb-2">I riposi si distribuiscono fra tutte: non tre a una persona e uno a un’altra. Sotto 1 non si scende mai.</p>
+          {haLunediDue && (
+            <>
+              <Riga etichetta="Il lunedì lavorano al massimo due persone"><Interruttore acceso={!!regole.lunediDue} disabled={!puoScrivere} etichetta="Il lunedì al massimo due persone" onCambia={(v) => setRegole((r) => ({ ...r, lunediDue: v }))} /></Riga>
+              {regole.lunediDue && (
+                <p className="text-xs text-slate-500 mb-2">Dopo il weekend il lunedì sono in due, e non le stesse due del lunedì prima; una è sempre la responsabile o la vice. Per le altre il lunedì vale come riposo. Se le fasce del lunedì o gli ingressi chiedono una terza persona, vince il tetto di due e la pagina dei turni lo segnala. Un lunedì festivo o dentro un evento segue le regole dei giorni caldi.</p>
+              )}
+            </>
+          )}
           <RiposiNegozio companyId={companyId} persone={persone} puoScrivere={puoScrivere} />
         </Scheda>
 

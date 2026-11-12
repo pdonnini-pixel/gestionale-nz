@@ -16,8 +16,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, FlaskConical, Lock, Plus, Send, Trash2 } from 'lucide-react';
-import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, caricaCoppiePrima, guidaDelNegozio, caricaRiposi, caricaEventi, type GiornoLibero, type RiposiPersone } from '../lib/regoleNuoveDb';
+import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, caricaCoppiePrima, caricaLunediPrima, guidaDelNegozio, caricaRiposi, caricaEventi, type GiornoLibero, type RiposiPersone } from '../lib/regoleNuoveDb';
 import { eventoDaRiga } from '../lib/eventiTurni';
+import { riallineaStraordinariForti } from '../lib/straordinariDb';
 import { guidaConRipiego } from '../lib/guidaNegozio';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
@@ -97,6 +98,7 @@ type BaseMese = {
   riposi: RiposiPersone;
   /** coppie dei feriali nelle tre settimane prima del mese */
   coppiePrima: Map<string, number>;
+  lunediPrima: string[];
 };
 const ID_NUOVA = 'nuova-';
 type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string; straordinario?: boolean; ore_straordinario?: number };
@@ -165,6 +167,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [trascinato, setTrascinato] = useState<string | null>(null);
   const [mossa, setMossa] = useState<{ turno: TurnoDb; versoId: string; versoData: string } | null>(null);
   const [regolePiano, setRegolePiano] = useState<RegoleTurni>(REGOLE_DEFAULT);
+  const [giorniForti, setGiorniForti] = useState<Set<string>>(new Set());
   // Proposta di ferie per le ore di contratto che restano non usate.
   // Dove mettere le ore che avanzano: le finestre migliori del mese (traffico MODA).
   const [dove, setDove] = useState<{ employeeId: string; nome: string; ore: number; finestre: FinestraSuggerita[] | null; residui?: Record<string, number> } | null>(null);
@@ -216,7 +219,23 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', dateMese[0]).lte('data', dateMese[dateMese.length - 1]),
         ]);
         if (!vivo) return;
-        setRegolePiano(regoleDaRiga(rr.data as Parameters<typeof regoleDaRiga>[0]));
+        const regoleQui = regoleDaRiga(rr.data as Parameters<typeof regoleDaRiga>[0]);
+        setRegolePiano(regoleQui);
+        // i giorni in cui lo straordinario e' ammesso (giorni caldi ed eventi): servono a
+        // ricalcolarlo dopo una modifica a mano (Patrizio, 12/11/2026); solo dove ci sono i giorni caldi
+        let forti = new Set<string>();
+        if (regoleQui.giorniPieni) {
+          try {
+            const ev = await caricaEventi(companyId, dateMese[0], dateMese[dateMese.length - 1]);
+            forti = new Set(costruisciGiorni(dateMese,
+              (oo.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [], [],
+              (sp.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [],
+              eventiDelNegozio(ev.righe.map(eventoDaRiga) as EventoNegozio[], outletId), apertura, opzioniGiorni(regoleQui))
+              .filter((g) => !g.chiuso && (g.straordinariCaldo || g.straordinari)).map((g) => g.data));
+          } catch { /* senza eventi non si ricalcola */ }
+        }
+        if (!vivo) return;
+        setGiorniForti(forti);
         setGiorniApertura(new Map(costruisciGiorni(dateMese,
           (oo.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [], [],
           (sp.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [], [], apertura)
@@ -312,11 +331,12 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       m.set(x.data, (m.get(x.data) ?? 0) + oreLavorate({ inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 }));
       oreFuoriMese.set(x.employee_id, m);
     }
-    const [gl, coppiePrima, riposi] = await Promise.all([caricaGiorniLiberi(companyId), caricaCoppiePrima(companyId, outletId, `${mese}-01`),
+    const [gl, coppiePrima, lunediPrima, riposi] = await Promise.all([caricaGiorniLiberi(companyId), caricaCoppiePrima(companyId, outletId, `${mese}-01`),
+      regole.lunediDue ? caricaLunediPrima(companyId, outletId, `${mese}-01`) : Promise.resolve([] as string[]),
       caricaRiposi(companyId).catch((): RiposiPersone => ({ preferiti: new Map(), mai: new Map(), disponibile: false }))]);
     return {
       tutte, giorni, regole, atteso, extra, senzaLiberi, saldi, storicoWeekend, oreFuoriMese,
-      giorniLiberi: gl.mappa, haGiorniLiberi: gl.disponibile, coppiePrima, riposi,
+      giorniLiberi: gl.mappa, haGiorniLiberi: gl.disponibile, coppiePrima, lunediPrima, riposi,
       ferie: fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)),
       fonte: atteso.size
         ? `${tr.fonte === 'propria' ? 'traffico MODA del negozio' : tr.fonte === 'riferimento' ? `traffico MODA di ${nomeRif} (negozio di riferimento: questo non ha storico)` : 'media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}; ${regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali, ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria)`
@@ -356,6 +376,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       responsabile: g.responsabile,
       vice: g.vice,
       coppiePrima: b.coppiePrima,
+      lunediPrima: b.lunediPrima,
       ...(preferiti.size || b.riposi.mai.size ? { riposi: { preferiti, mai: b.riposi.mai } } : {}),
     };
   };
@@ -637,6 +658,33 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     return Math.max(0, lorde - via);
   };
 
+  // Dopo una modifica a mano ai turni del piano lo straordinario «giorno forte» si ricalcola
+  // settimana per settimana e si riscrive (Patrizio, 12/11/2026). In un pezzo di settimana
+  // che finisce nel mese dopo e' straordinario solo quello che supera la settimana intera.
+  const riallineaStraordinari = async () => {
+    if (!pianoAperto || !regolePiano.giorniPieni || !giorniForti.size) return;
+    try {
+      for (const lun of [...new Set(dateMese.map(lunediDi))]) {
+        const settimana = giorniDellaSettimana(lun);
+        const date = settimana.filter((d) => d.startsWith(mese));
+        if (!date.some((d) => giorniForti.has(d))) continue;
+        const inCoda = date.length < 7 && settimana[0].startsWith(mese);
+        const contratto = new Map<string, number>();
+        for (const p of persone) {
+          const oreSett = oreOggi(p.perGiorno);
+          const quota = contrattoSettimanaOra(p.scheda.id, lun, oreSett);
+          if (quota == null || oreSett == null) continue;
+          const via = ferieMese.filter((x) => x.employee_id === p.scheda.id && date.includes(x.data)).reduce((a, x) => a + x.ore, 0)
+            + trasferte.filter((x) => x.employeeId === p.scheda.id && date.includes(x.data)).reduce((a, x) => a + oreTrasferta(x), 0);
+          contratto.set(p.scheda.id, inCoda ? Math.max(quota, oreSett - via) : quota);
+        }
+        await riallineaStraordinariForti({ companyId, outletId, date, planDi: () => pianoAperto.id, contratto, giorniForti });
+      }
+    } catch (e) {
+      toast({ type: 'error', message: `Straordinario dei giorni forti non ricalcolato: ${e instanceof Error ? e.message : 'errore'}` });
+    }
+  };
+
   // Un giorno in cui la persona puo' ricevere un turno o una proposta di ferie:
   // in servizio qui, disponibile, negozio aperto, senza turno, libero o ferie.
   const giornoSenzaImpegni = (employeeId: string, d: string) => {
@@ -693,6 +741,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     if (error) { toast({ type: 'error', message: error.message }); return; }
     toast({ type: 'success', message: `Turno aggiunto a ${dove.nome} come ${straordinario ? 'straordinario' : 'ore di contratto'}: il riepilogo è aggiornato.` });
     setDove(null);
+    await riallineaStraordinari();
     setVersione((v) => v + 1);
   };
 
@@ -1758,7 +1807,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           arrivo={turniPiano.find((x) => x.employee_id === mossa.versoId && x.data === mossa.versoData && x.id !== mossa.turno.id) ?? null}
           nomeDi={nomeDi}
           avvisi={(m) => avvisiMossa(m, mossa.turno, mossa.versoId, mossa.versoData)}
-          esegui={async (m) => { const msg = await eseguiMossa(m, mossa.turno, mossa.versoId, mossa.versoData); if (msg) { setVersione((v) => v + 1); toast({ type: 'success', message: msg }); } return !!msg; }}
+          esegui={async (m) => { const msg = await eseguiMossa(m, mossa.turno, mossa.versoId, mossa.versoData); if (msg) { await riallineaStraordinari(); setVersione((v) => v + 1); toast({ type: 'success', message: msg }); } return !!msg; }}
           onClose={() => setMossa(null)} />
       )}
       {editorMese && pianoAperto && (() => {
@@ -1818,7 +1867,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             }}
             riposo={{ attivo: liberiPiano.some((x) => x.employee_id === editorMese.employeeId && x.data === editorMese.data) }}
             onClose={() => setEditorMese(null)}
-            onSalvato={(msg) => { setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: msg ?? 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
+            onSalvato={async (msg) => { await riallineaStraordinari(); setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: msg ?? 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
           />
         );
       })()}

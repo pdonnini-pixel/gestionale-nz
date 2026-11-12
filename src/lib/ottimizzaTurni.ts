@@ -34,7 +34,7 @@
 // Funzioni pure, nessuna query. Test in ottimizzaTurni.test.ts.
 
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, RIPOSO_LEGALE, giornoIso, giornoPieno, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona,
+  SLOT_MINUTI, REGOLE_DEFAULT, RIPOSO_LEGALE, LUNEDI_MAX_PERSONE, giornoIso, giornoPieno, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno,
 } from './turni';
 
@@ -84,6 +84,12 @@ export interface RegoleNuove {
   guidaCaldi?: { ids: string[]; ore: number; alterna: boolean; giorni: Set<string> };
   /** i giorni caldi in cui sono ammessi gli straordinari; senza, valgono i `giorniPieni` */
   giorniStraordinari?: Set<string>;
+  /**
+   * Il lunedi' a due persone (Patrizio, 12/11/2026): le coppie dei lunedi' precedenti, dalla piu'
+   * recente (chiave `coppia(a, b)`). La coppia di questo lunedi' non deve essere quella di prima.
+   * Il tetto delle due persone sta sul giorno (`GiornoPiano.lunediDue`).
+   */
+  lunediPrima?: string[];
 }
 
 /** La chiave di una coppia di persone, uguale in tutti e due gli ordini. */
@@ -113,6 +119,18 @@ export function coppieFeriali(turni: Turno[]): Map<string, number> {
     }
   }
   return out;
+}
+
+/** Le due persone in turno in un giorno, come chiave di coppia; null se non sono esattamente due. */
+export function coppiaDelGiorno(turni: Turno[], data: string): string | null {
+  const chi = [...new Set(turni.filter((t) => t.data === data).map((t) => t.employeeId))];
+  return chi.length === 2 ? coppia(chi[0], chi[1]) : null;
+}
+
+/** Le coppie dei lunedi' di questi turni, dal lunedi' piu' recente: solo i lunedi' con due persone esatte. */
+export function coppieDeiLunedi(turni: Turno[]): string[] {
+  const lunedi = [...new Set(turni.map((t) => t.data).filter((d) => giornoIso(d) === 1))].sort().reverse();
+  return lunedi.map((d) => coppiaDelGiorno(turni, d)).filter((k): k is string => !!k);
 }
 
 /**
@@ -226,6 +244,10 @@ export const PESI = {
   riposoVietato: 30_000,    // persona a riposo in un giorno in cui non riposa mai
   riposoMancante: 25_000,   // riposo che manca per arrivare al minimo del negozio, a persona
   riposoInPiu: 400,         // riposi oltre il minimo, al quadrato: si distribuiscono fra tutte
+  // ── Lunedi' a due persone (Patrizio, 12/11/2026): il tetto vince sulle fasce e su MODA (che sul
+  // giorno sono gia' tagliate a due), non sul negozio vuoto, sulla persona sola o sulla guida del lunedi'.
+  lunediTroppi: 50_000_000, // persona oltre le due, il lunedi'
+  lunediStessaCoppia: 60_000, // stessa coppia del lunedi' prima (meta' per quello prima ancora)
   // pesa meno di un riposo: con un evento prima i riposi a testa, poi gli straordinari pari (Patrizio, 12/11/2026)
   straordinarioPari: 200,   // distanza al quadrato dalla media degli straordinari
 } as const;
@@ -290,6 +312,9 @@ interface Quadro {
   weekendDovuto: boolean[][];
   giorniFissi: number[];
   coppiePrima: number[];
+  /** lunedi' con il tetto di due persone, e quanto pesa ogni coppia perche' gia' vista nei lunedi' prima */
+  lunDue: boolean[];
+  lunPrima: number[];
   bufOre: number[]; bufEvento: number[]; bufGiorni: number[]; bufCoppie: number[]; bufCop: number[]; bufInTurno: number[];
 }
 
@@ -351,6 +376,12 @@ function costo(q: Quadro, st: Stato): number {
       if (ci > serve) c += (ci - serve) * PESI.inPiu;
     }
     if (quanti + q.fissePersone[d].size === 1) c += PESI.unaSola;
+    if (q.lunDue[d]) {
+      // i fissi che sono anche nostre persone non hanno un pezzo nello stato: nessuno contato due volte
+      const tot = quanti + q.fissePersone[d].size;
+      if (tot > LUNEDI_MAX_PERSONE) c += (tot - LUNEDI_MAX_PERSONE) * PESI.lunediTroppi;
+      else if (quanti === 2 && q.fissePersone[d].size === 0) c += q.lunPrima[inTurno[0] * P + inTurno[1]] * PESI.lunediStessaCoppia;
+    }
     if (iso === 1 && q.guidaAttiva && !guidaPresente && q.guidaPossibile[d]) c += PESI.lunediSenzaGuida;
     // giorni caldi: chi apre fa il suo orario dall'apertura, chi chiude arriva alla chiusura
     const ap = q.apreP[d];
@@ -899,6 +930,14 @@ function prepara(
   // sabato, domenica, festivi e giorni di evento: lavorano tutti, la responsabile fa il suo orario
   q.pieno = giorni.map((g) => (nuove.giorniPieni ? nuove.giorniPieni.has(g.data) : giornoIso(g.data) >= 6));
   q.straordCaldo = giorni.map((g, d) => (nuove.giorniStraordinari ? nuove.giorniStraordinari.has(g.data) : q.pieno[d]));
+  q.lunDue = giorni.map((g) => !!g.lunediDue && !g.chiuso);
+  q.lunPrima = new Array(persone.length * persone.length).fill(0);
+  (nuove.lunediPrima ?? []).forEach((k, quando) => {
+    const [a, b] = k.split('|').map((id) => indice.get(id) ?? -1);
+    if (a < 0 || b < 0) return;
+    const peso = quando === 0 ? 1 : quando === 1 ? 0.5 : 0.25;
+    q.lunPrima[a * persone.length + b] += peso; q.lunPrima[b * persone.length + a] += peso;
+  });
   q.puo = persone.map((p, i) => giorni.map((g, d) => !g.chiuso && p.ore >= regole.turnoMinOre && q.limiti[i][d].max >= minLavoro));
   // Chi apre e chi chiude nei giorni caldi. Senza `guidaCaldi` vale la regola dell'11/11: apre la
   // responsabile in tutti i giorni pieni. Con la vice e `alterna`, una apre e l'altra chiude, e
@@ -1030,7 +1069,7 @@ export function ottimizzaSettimana(
 // ── Le deroghe ───────────────────────────────────────────────────────────
 
 export interface Deroga {
-  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'caldo_chiusura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto' | 'riposi' | 'riposo_vietato';
+  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'caldo_chiusura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto' | 'riposi' | 'riposo_vietato' | 'lunedi_troppi' | 'lunedi_fasce' | 'lunedi_coppia';
   data: string | null;
   employeeId: string | null;
   testo: string;
@@ -1050,6 +1089,8 @@ export function derogheSettimana(args: {
   guida?: { responsabile: string | null; vice: string | null };
   /** riposi del 12/11/2026: minimo del negozio, giorni preferiti e giorni in cui non si riposa mai */
   riposi?: { min?: number; preferiti?: Map<string, number[]>; mai?: Map<string, number[]> };
+  /** le coppie dei lunedi' precedenti, dalla piu' recente (lunedi' a due persone, 12/11/2026) */
+  lunediPrima?: string[];
 }): Deroga[] {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const out: Deroga[] = [];
@@ -1064,6 +1105,13 @@ export function derogheSettimana(args: {
     if (iso === 1 && args.guida?.responsabile && args.guida.vice
       && !del.some((t) => t.employeeId === args.guida!.responsabile || t.employeeId === args.guida!.vice)) {
       out.push({ regola: 'lunedi_guida', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: né la responsabile né la vice sono in turno (versamento in banca)` });
+    }
+    // lunedi' a due persone (Patrizio, 12/11/2026): al massimo due, e non la coppia del lunedi' prima
+    if (g.lunediDue) {
+      const chi = [...new Set(del.map((t) => t.employeeId))];
+      if (chi.length > LUNEDI_MAX_PERSONE) out.push({ regola: 'lunedi_troppi', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: ${chi.length} persone in turno, il lunedì dopo il weekend al massimo ${LUNEDI_MAX_PERSONE}` });
+      else if (chi.length === 2 && args.lunediPrima?.[0] === coppia(chi[0], chi[1])) out.push({ regola: 'lunedi_coppia', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: lavorano le stesse due persone del lunedì prima` });
+      if (g.lunediFasceOltre) out.push({ regola: 'lunedi_fasce', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: le fasce salvate chiedono più di ${LUNEDI_MAX_PERSONE} persone, ma il lunedì comanda il tetto di ${LUNEDI_MAX_PERSONE}` });
     }
     // giorni caldi: una fra responsabile e vice fa l'apertura e resta le sue ore; con la regola
     // «una apre, l'altra chiude» l'altra arriva alla chiusura (Patrizio, 11 e 12/11/2026)
@@ -1125,12 +1173,12 @@ export type MotivoStraordinario = typeof MOTIVI_STRAORDINARIO[number]['id'];
  * volta cominciando dal primo giorno, mai piu' delle ore del turno. Quello che non sta nei giorni
  * forti non si scrive: nei feriali lo straordinario lo decide una persona.
  */
-export function ripartisciStraordinari(turni: Turno[], contratto: Map<string, number>, giorniPieni: Set<string>): Map<Turno, number> {
+export function ripartisciStraordinari(turni: Turno[], contratto: Map<string, number>, giorniPieni: Set<string>, esclusi?: Set<Turno>): Map<Turno, number> {
   const out = new Map<Turno, number>();
   for (const [id, ore] of contratto) {
     const suoi = turni.filter((t) => t.employeeId === id);
     let mezze = Math.floor((suoi.reduce((a, t) => a + oreLavorate(t), 0) - ore) * 2 + 1e-9);
-    const forti = suoi.filter((t) => giorniPieni.has(t.data)).sort((a, b) => a.data.localeCompare(b.data));
+    const forti = suoi.filter((t) => giorniPieni.has(t.data) && !esclusi?.has(t)).sort((a, b) => a.data.localeCompare(b.data));
     if (mezze <= 0 || !forti.length) continue;
     const date = forti.map(() => 0);
     while (mezze > 0) {
@@ -1142,6 +1190,46 @@ export function ripartisciStraordinari(turni: Turno[], contratto: Map<string, nu
       if (!dato) break;
     }
     forti.forEach((t, i) => { if (date[i] > 0) out.set(t, date[i] / 2); });
+  }
+  return out;
+}
+
+/** Un turno salvato, con lo straordinario che porta scritto. */
+export interface TurnoSalvato extends Turno {
+  id: string;
+  oreStraordinario: number;
+  /** `giorno_forte`, `ricarico`, `allestimento`, oppure niente */
+  motivo?: string | null;
+}
+
+/** Lo straordinario deciso da una persona per ricarico o allestimento: il sistema non lo tocca. */
+const straordinarioAMano = (t: TurnoSalvato) => t.oreStraordinario > 0 && (t.motivo === 'ricarico' || t.motivo === 'allestimento');
+
+/**
+ * Lo straordinario «giorno forte» da riscrivere dopo una modifica a mano (Patrizio,
+ * 12/11/2026): la proposta lo scrive sui turni, ma accorciando, allungando, spostando o
+ * togliendo un turno il valore restava quello di prima. `turni` sono i turni salvati di una
+ * settimana (o del pezzo di settimana a video), `contratto` le ore di contratto di quella
+ * settimana per persona, `giorniForti` i giorni in cui lo straordinario e' ammesso.
+ *
+ * Per ogni persona: ore dei turni meno contratto, meno lo straordinario segnato a mano per
+ * ricarico o allestimento e quello dei giorni non forti (li decide una persona, restano
+ * come sono); quello che avanza si divide a mezz'ore sui suoi turni dei giorni forti con
+ * `ripartisciStraordinari`. Restituisce solo i turni il cui valore cambia.
+ */
+export function straordinariDaRiscrivere(turni: TurnoSalvato[], contratto: Map<string, number>, giorniForti: Set<string>): { id: string; ore: number }[] {
+  const out: { id: string; ore: number }[] = [];
+  for (const [id, ore] of contratto) {
+    const suoi = turni.filter((t) => t.employeeId === id);
+    // fermi: ricarico e allestimento ovunque, e ogni straordinario fuori dai giorni forti
+    const fermi = new Set<Turno>(suoi.filter((t) => straordinarioAMano(t) || (!giorniForti.has(t.data) && t.oreStraordinario > 0)));
+    const aMano = [...fermi].reduce((a, t) => a + (t as TurnoSalvato).oreStraordinario, 0);
+    const nuovi = ripartisciStraordinari(suoi, new Map([[id, ore + aMano]]), giorniForti, fermi);
+    for (const t of suoi) {
+      if (fermi.has(t) || !giorniForti.has(t.data)) continue;
+      const nuovo = nuovi.get(t) ?? 0;
+      if (Math.abs(nuovo - t.oreStraordinario) > 1e-9 || (nuovo > 0 && t.motivo !== 'giorno_forte')) out.push({ id: t.id, ore: nuovo });
+    }
   }
   return out;
 }

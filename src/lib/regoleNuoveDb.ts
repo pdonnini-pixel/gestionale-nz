@@ -6,7 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { aggiungiGiorni } from './organico';
-import { coppieFeriali } from './ottimizzaTurni';
+import { coppieFeriali, coppieDeiLunedi } from './ottimizzaTurni';
 import type { Turno } from './turni';
 import { caricaTraffico } from './organicoDati';
 import { ingressiPerGiorno } from './eventiTurni';
@@ -53,18 +53,33 @@ export async function impostaGiornoLibero(companyId: string, employeeId: string,
  * `primaDi`: servono a non riproporre sempre le stesse persone insieme. Contano
  * i turni senza piano e quelli dei piani scelti, non le bozze scartate.
  */
-export async function caricaCoppiePrima(companyId: string, outletId: string, primaDi: string, giorni = 21): Promise<Map<string, number>> {
+async function turniVeriPrima(companyId: string, outletId: string, primaDi: string, giorni: number): Promise<Turno[] | null> {
   const { data, error } = await supabase.from('shifts')
     .select('employee_id, data, inizio, fine, pausa_minuti, plan_id, shift_plans(stato)')
     .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', aggiungiGiorni(primaDi, -giorni)).lt('data', primaDi).neq('stato', 'annullato');
-  if (error) return new Map();
+  if (error) return null;
   const turni: Turno[] = [];
   for (const x of ((data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
     const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
     if (x.plan_id && pl?.stato !== 'scelto') continue;
     turni.push({ employeeId: x.employee_id, data: x.data, inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 });
   }
-  return coppieFeriali(turni);
+  return turni;
+}
+
+export async function caricaCoppiePrima(companyId: string, outletId: string, primaDi: string, giorni = 21): Promise<Map<string, number>> {
+  const turni = await turniVeriPrima(companyId, outletId, primaDi, giorni);
+  return turni ? coppieFeriali(turni) : new Map();
+}
+
+/**
+ * Le coppie dei lunedi' delle tre settimane prima di `primaDi`, dal piu' vicino
+ * (Patrizio, 12/11/2026: il lunedi' a due persone, mai la stessa coppia da un
+ * lunedi' al successivo). Stessi turni di `caricaCoppiePrima`.
+ */
+export async function caricaLunediPrima(companyId: string, outletId: string, primaDi: string, giorni = 21): Promise<string[]> {
+  const turni = await turniVeriPrima(companyId, outletId, primaDi, giorni);
+  return turni ? coppieDeiLunedi(turni) : [];
 }
 
 /** Responsabile e vice del negozio per la regola del lunedi': vuoto se manca una delle due. */
