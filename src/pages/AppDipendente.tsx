@@ -44,6 +44,8 @@ const SCHEDE: { k: Scheda; label: string; Icona: typeof QrCode }[] = [
 ]
 
 const K_APP = 'nz-app-dipendente'
+/** Pagina pubblica di assistenza e privacy (public/assistenza/), anche dentro l'app degli store: «da=app» mostra «Torna all'app». */
+const LINK_PRIVACY = '/assistenza/?da=app'
 const K_OGGI = 'nz-app-oggi'
 
 interface Attivazione { segreto: string; employee_id: string; nome: string }
@@ -149,6 +151,7 @@ export default function AppDipendente() {
             <p className="text-xs text-slate-400 max-w-sm mt-4">
               L'app registra solo le tue timbrature (ora e negozio) e mostra i tuoi turni. Non usa la posizione, la fotocamera né altri dati del tuo telefono. Se lo consenti, ti avvisa con una notifica quando non risulta la tua entrata o la tua uscita. L'informativa completa te la consegna l'azienda.
             </p>
+            <a href={LINK_PRIVACY} className="text-xs text-slate-500 underline">Privacy e assistenza</a>
           </>
         )}
       </div>
@@ -378,6 +381,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
         ritardoRegistrato={(dati?.eventi ?? []).some((e) => e.data === oggi && e.tipo === 'ritardo')} />
 
       {dati?.scaricati_il && <p className="text-slate-400 text-xs">Aggiornato alle {oraRoma(dati.scaricati_il)}</p>}
+      <a href={LINK_PRIVACY} className="text-slate-400 text-xs underline">Privacy e assistenza</a>
       </>)}
 
       {/* Schede in basso */}

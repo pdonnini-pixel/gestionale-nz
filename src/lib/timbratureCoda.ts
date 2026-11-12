@@ -24,6 +24,10 @@ export interface RigaCoda {
    *  accetta solo con il QR valido e nessuna timbratura prima nella giornata;
    *  altrimenti salva l'entrata all'ora del QR. */
   ora_dichiarata?: string
+  /** PIN cifrato (pacchetto privacy, 12/11/2026): nella coda il codice PIN
+   *  resta mascherato e il PIN vero sta qui, cifrato con una chiave del
+   *  browser che non si può esportare. Si decifra solo al momento dell'invio. */
+  pin_cifrato?: { iv: number[]; dati: number[] }
   /** Solo per la pagina: chi e' e quando, anche senza rete. */
   employee_id: string
   nome: string
@@ -33,6 +37,7 @@ export interface RigaScartata extends RigaCoda { esito: string }
 
 const DB_NOME = 'nz-timbrature'
 const STORE = 'coda'
+const STORE_CHIAVI = 'chiavi'
 const K_DISPOSITIVO = 'nz-timbra-dispositivo'
 const K_SEQUENZA = 'nz-timbra-sequenza'
 const K_SCARTO = 'nz-timbra-scarto'
@@ -40,9 +45,10 @@ const K_SCARTATE = 'nz-timbra-scartate'
 
 function apri(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NOME, 1)
+    const req = indexedDB.open(DB_NOME, 2)
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: 'id' })
+      if (!req.result.objectStoreNames.contains(STORE_CHIAVI)) req.result.createObjectStore(STORE_CHIAVI)
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -72,6 +78,70 @@ async function aggiungi(r: RigaCoda): Promise<void> {
 async function togli(ids: string[]): Promise<void> {
   if (!ids.length) return
   await conStore('readwrite', (s) => { for (const id of ids) s.delete(id) })
+}
+
+// ─── PIN cifrato nella coda ──────────────────────────────────────────────
+// Chiave AES-GCM creata sul telefono del negozio, non esportabile: chi copia la
+// memoria del browser trova solo dati cifrati, non il PIN.
+
+let chiaveInCorso: Promise<CryptoKey> | null = null
+
+/** Una sola chiave per telefono: le chiamate vicine aspettano la stessa promessa (niente due chiavi diverse). */
+function chiavePin(): Promise<CryptoKey> {
+  if (!chiaveInCorso) chiaveInCorso = leggiOCreaChiave().catch((e) => { chiaveInCorso = null; throw e })
+  return chiaveInCorso
+}
+
+async function leggiOCreaChiave(): Promise<CryptoKey> {
+  const db = await apri()
+  const leggi = () => new Promise<CryptoKey | undefined>((resolve, reject) => {
+    const req = db.transaction(STORE_CHIAVI, 'readonly').objectStore(STORE_CHIAVI).get('pin')
+    req.onsuccess = () => resolve(req.result as CryptoKey | undefined)
+    req.onerror = () => reject(req.error)
+  })
+  try {
+    const esistente = await leggi()
+    if (esistente) return esistente
+    const nuova = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
+    // add() e non put(): se un'altra scheda l'ha appena creata, vince la sua e si rilegge
+    const scritta = await new Promise<boolean>((resolve) => {
+      const tx = db.transaction(STORE_CHIAVI, 'readwrite')
+      tx.objectStore(STORE_CHIAVI).add(nuova, 'pin')
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = (ev) => { ev.preventDefault(); resolve(false) }
+      tx.onabort = () => resolve(false)
+    })
+    if (scritta) return nuova
+    const altra = await leggi()
+    if (!altra) throw new Error('Chiave del PIN non salvata')
+    return altra
+  } finally { db.close() }
+}
+
+/** «NZP1.<id>.<pin>» → codice mascherato + PIN cifrato. Gli altri codici restano come sono. */
+async function proteggiPin(codice: string): Promise<{ codice: string; pin_cifrato?: RigaCoda['pin_cifrato'] }> {
+  const m = /^(NZP1\.[^.]+)\.(\d{4})$/.exec(codice)
+  if (!m) return { codice }
+  const iv = crypto.getRandomValues(new Uint8Array(12))
+  const dati = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await chiavePin(), new TextEncoder().encode(m[2]))
+  return { codice: `${m[1]}.****`, pin_cifrato: { iv: Array.from(iv), dati: Array.from(new Uint8Array(dati)) } }
+}
+
+/**
+ * Codice da mandare al server. 'illeggibile' solo se la decifratura fallisce
+ * davvero (chiave diversa: OperationError); per ogni altro errore (memoria del
+ * browser occupata, chiave non ancora pronta) 'riprova': la riga resta in coda.
+ */
+async function codiceDaInviare(r: RigaCoda): Promise<string | 'illeggibile' | 'riprova'> {
+  if (!r.pin_cifrato) return r.codice
+  let chiave: CryptoKey
+  try { chiave = await chiavePin() } catch { return 'riprova' }
+  try {
+    const chiaro = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(r.pin_cifrato.iv) }, chiave, new Uint8Array(r.pin_cifrato.dati))
+    return r.codice.replace(/\.\*\*\*\*$/, '.' + new TextDecoder().decode(chiaro))
+  } catch (e) {
+    return e instanceof DOMException && e.name === 'OperationError' ? 'illeggibile' : 'riprova'
+  }
 }
 
 /** Chiede al browser di non cancellare la memoria della timbratrice. */
@@ -112,10 +182,12 @@ export async function registraInCoda(args: {
   outletId: string; codice: string; tipo: TipoTimbratura; employeeId: string; nome: string; causale?: string
   oraDichiarata?: string
 }): Promise<RigaCoda> {
+  const protetto = await proteggiPin(args.codice)
   const riga: RigaCoda = {
     id: crypto.randomUUID(),
     outlet_id: args.outletId,
-    codice: args.codice,
+    codice: protetto.codice,
+    ...(protetto.pin_cifrato ? { pin_cifrato: protetto.pin_cifrato } : {}),
     tipo: args.tipo,
     ora_dispositivo: new Date().toISOString(),
     scarto_secondi: scartoOrologio(),
@@ -141,9 +213,19 @@ export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
       const righe = await inCoda()
       for (let i = 0; i < righe.length; i += 100) {
         const lotto = righe.slice(i, i + 100)
+        // PIN: si decifra solo adesso; se non si puo' (memoria del browser cambiata) la riga va fra le rifiutate
+        const pronte = await Promise.all(lotto.map(async (r) => ({ r, codice: await codiceDaInviare(r) })))
+        const illeggibili = pronte.filter((x) => x.codice === 'illeggibile').map((x) => x.r)
+        if (illeggibili.length) {
+          localStorage.setItem(K_SCARTATE, JSON.stringify([...scartate(), ...illeggibili.map(({ pin_cifrato: _p, ...r }) => ({ ...r, esito: 'pin_non_leggibile' }))].slice(-200)))
+          await togli(illeggibili.map((r) => r.id))
+        }
+        // 'riprova': resta in coda e parte al prossimo invio
+        const daInviare = pronte.filter((x) => x.codice !== 'illeggibile' && x.codice !== 'riprova')
+        if (!daInviare.length) continue
         const t0 = Date.now()
         const { data, error } = await supabase.rpc('timbrature_registra', {
-          p_righe: lotto.map(({ employee_id: _e, nome: _n, ...r }) => r),
+          p_righe: daInviare.map(({ r: { employee_id: _e, nome: _n, pin_cifrato: _p, ...r }, codice }) => ({ ...r, codice: codice as string })),
         })
         if (error) break // rete o sessione: si riprova dopo, la coda resta
         const risposta = data as { ora_server?: string; esiti?: { id: string; esito: string; verifica?: string }[] } | null
@@ -164,7 +246,7 @@ export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
         if (daSegnalare.length) {
           const prima = scartate()
           // Il PIN non resta in chiaro fra le rifiutate (migration 384)
-          const nuove = daSegnalare.map((r) => ({ ...r, codice: r.codice.startsWith('NZP1.') ? r.codice.replace(/\.\d{4}$/, '.****') : r.codice, esito: dubbie.has(r.id) ? 'qr_non_valido' : esiti.get(r.id) ?? 'rifiutata' }))
+          const nuove = daSegnalare.map(({ pin_cifrato: _p, ...r }) => ({ ...r, codice: r.codice.startsWith('NZP1.') ? r.codice.replace(/\.\d{4}$/, '.****') : r.codice, esito: dubbie.has(r.id) ? 'qr_non_valido' : esiti.get(r.id) ?? 'rifiutata' }))
           localStorage.setItem(K_SCARTATE, JSON.stringify([...prima, ...nuove].slice(-200)))
         }
         await togli([...salvate, ...rifiutate.map((r) => r.id)])

@@ -139,6 +139,12 @@ Dal documento 06 del pacchetto privacy (correzioni di priorità alta). Accesso a
 - Interfaccia: nella decisione del caso, «Oscura» accanto al motivo e «Storico delle modifiche» in fondo (`PresenzeConferme.tsx`).
 - Prova del 12/11 su NZ in transazione annullata: perché libero rifiutato, testo svuotato e mai nello storico, quattro passi con autore.
 
+## PIN cifrato in coda, backup Android, link privacy (12/11/2026)
+Correzioni di priorità media del documento 06 del pacchetto privacy.
+- `timbratureCoda.ts`: un codice PIN (`NZP1.<id>.<pin>`) entra in coda come `NZP1.<id>.****` più `pin_cifrato` (AES-GCM, chiave non esportabile salvata nell'IndexedDB `nz-timbrature`, store `chiavi`, versione 2). Si decifra solo all'invio; se non si può (memoria del browser cambiata) la riga va fra le rifiutate come `pin_non_leggibile`. Provato in Chromium: in memoria nessun PIN leggibile, al server arriva il PIN giusto.
+- Android: `allowBackup=false`, `fullBackupContent=false`, `data_extraction_rules.xml` esclude tutto da backup e trasferimento. Vale dalla prossima build dell'app.
+- App: «Privacy e assistenza» sotto l'attivazione e in fondo alla scheda Oggi, apre `/assistenza/?da=app` (con «Torna all'app»). L'informativa andrà su quella pagina quando è validata.
+
 ## aperto
 - **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: informativa privacy (entrata dimenticata con la migration 382, PIN con la 384).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).
