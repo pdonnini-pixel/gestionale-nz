@@ -53,8 +53,8 @@ Testo da incollare:
 Codice per i revisori: c'è (migration 396), 8 caratteri, valido fino al 10/01/2027 e riusabile su più telefoni insieme. **Non si scrive in questo file** (il repository è pubblico): si copia dalla chat o lo si rigenera. Apple non vuole né nome utente né password: basta il codice, nel campo «Note».
 
 ## privacy
-- Informativa privacy (URL obbligatorio in tutti e due gli store): **[da completare]**, la prepara Lilian. Va pubblicata a un indirizzo web stabile (per esempio una pagina del sito EPPI o New Zago).
-- Assistenza tecnica dell'app: **info@eppiflorence.it** (EPPI, che pubblica l'app; Patrizio, 11/11/2026). Google chiede una mail: questa. Apple chiede un **indirizzo web** di assistenza: **https://gestionale-nz.netlify.app/assistenza/** (file `public/assistenza/index.html`, con contatto e domande frequenti). L'informativa privacy di Lilian andrà sulla stessa pagina.
+- Informativa privacy (URL obbligatorio in tutti e due gli store): **https://gestionale-nz.netlify.app/privacy/** (versione 1.2 del 12/11/2026, testo di Lilian approvato per la pubblicazione).
+- Assistenza tecnica dell'app: **info@eppiflorence.it** (EPPI, che pubblica l'app; Patrizio, 11/11/2026). Google chiede una mail: questa. Apple chiede un **indirizzo web** di assistenza: **https://gestionale-nz.netlify.app/assistenza/** (file `public/assistenza/index.html`, con contatto e domande frequenti). Dalla pagina c'è il link all'informativa privacy (/privacy/).
 
 ### Google: Sicurezza dei dati
 | Domanda | Risposta |
