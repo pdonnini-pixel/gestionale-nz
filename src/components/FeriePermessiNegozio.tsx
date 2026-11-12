@@ -1,12 +1,12 @@
 // Scheda 9 di «Regole e orari»: ferie e permessi del negozio (Patrizio, 12/11/2026).
 //
-// Chi approva (referente del negozio, HR, tutte e due; ne basta una o servono entrambe), in quali
+// Chi approva (referente del negozio, HR, o una qualsiasi delle due: l'approvazione e' sempre una sola), in quali
 // giorni si possono chiedere dall'app, evento per evento, e chi e' HR (elenco che cambia solo il
 // Super Advisor). Il blocco vero lo fa il database (migration 407): qui si scelgono le regole.
 // Finche' la scheda non e' salvata il negozio si comporta come prima; dove la migration manca la
 // scheda non compare.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Save, UserPlus, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
@@ -173,25 +173,19 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
             <table className="w-full text-sm mt-1">
               <thead>
                 <tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-900">
-                  <th className="py-1 pr-2 font-semibold"></th><th className="py-1 px-2 font-semibold">Referente del negozio</th><th className="py-1 px-2 font-semibold">HR</th><th className="py-1 pl-2 font-semibold">Quante approvazioni</th>
+                  <th className="py-1 pr-2 font-semibold"></th><th className="py-1 px-2 font-semibold">Referente del negozio</th><th className="py-1 px-2 font-semibold">HR</th><th className="py-1 pl-2 font-semibold">Approva</th>
                 </tr>
               </thead>
               <tbody>
                 {righeChi.map(({ k, nome }) => {
                   const c = regole.approva[k];
-                  const due = c.referente && c.hr;
                   return (
                     <tr key={k} className="border-b border-slate-100">
                       <td className="py-2 pr-2 font-semibold text-slate-800">{nome}</td>
                       <td className="py-2 px-2"><Interruttore acceso={c.referente} disabled={!puoScrivere} etichetta={`${nome}: approva la referente`} onCambia={(v) => setChi(k, 'referente', v)} /></td>
                       <td className="py-2 px-2"><Interruttore acceso={c.hr} disabled={!puoScrivere} etichetta={`${nome}: approva l'HR`} onCambia={(v) => setChi(k, 'hr', v)} /></td>
                       <td className="py-2 pl-2">
-                        {due ? (
-                          <div className="flex flex-wrap gap-1">
-                            <Scelta attiva={!c.entrambe} disabled={!puoScrivere} onClick={() => setChi(k, 'entrambe', false)}>ne basta una</Scelta>
-                            <Scelta attiva={c.entrambe} disabled={!puoScrivere} onClick={() => setChi(k, 'entrambe', true)}>servono tutte e due</Scelta>
-                          </div>
-                        ) : <span className="text-xs text-slate-500">{chiApprovaInParole(c)}</span>}
+                        <span className="text-xs text-slate-500">{chiApprovaInParole(c)}</span>
                       </td>
                     </tr>
                   );
@@ -290,12 +284,5 @@ function Interruttore({ acceso, onCambia, etichetta, disabled }: { acceso: boole
       className={`relative w-11 h-6 rounded-full shrink-0 transition-colors disabled:opacity-50 ${acceso ? 'bg-pink-600' : 'bg-slate-300'}`}>
       <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${acceso ? 'left-[22px]' : 'left-0.5'}`} />
     </button>
-  );
-}
-
-function Scelta({ attiva, onClick, disabled, children }: { attiva: boolean; onClick: () => void; disabled?: boolean; children: ReactNode }) {
-  return (
-    <button type="button" aria-pressed={attiva} disabled={disabled} onClick={onClick}
-      className={`text-xs font-semibold px-2.5 py-1.5 rounded-full border disabled:opacity-60 ${attiva ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-500 border-slate-300'}`}>{children}</button>
   );
 }

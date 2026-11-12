@@ -235,21 +235,15 @@ export default function EditorTurno({
       }]).select('id').single();
       if (e2) throw e2;
       // Gia' approvata: la stessa approvazione di Approvazioni ferie, che scala il saldo.
-      // Dove il negozio chiede due approvazioni (scheda 9, migration 407) questa e' solo la
-      // prima: leave_decidi risponde 'attesa_seconda', la richiesta non e' approvata e il
-      // turno resta dov'e' finche' non arriva la seconda.
       let approvata = false;
-      let attesaSeconda = false;
       if (giaApprovata) {
-        const { data: esito, error: e4 } = await supabase.rpc('leave_decidi', { p_request_id: requestId, p_giorni_approvati: [(g as { id: string }).id] });
+        const { error: e4 } = await supabase.rpc('leave_decidi', { p_request_id: requestId, p_giorni_approvati: [(g as { id: string }).id] });
         if (e4) { toast({ type: 'warning', message: `${testo} inserita ma non approvata (${e4.message}): la trovi in Approvazioni ferie.`, duration: 10000 }); }
-        else if (String(esito) === 'attesa_seconda') attesaSeconda = true;
         else approvata = true;
       }
-      if (tipo === 'giornata' && !attesaSeconda) { const e3 = await togliTurno('Ferie inserite dal calendario'); if (e3) throw e3; }
+      if (tipo === 'giornata') { const e3 = await togliTurno('Ferie inserite dal calendario'); if (e3) throw e3; }
       onSalvato(`${testo} per ${nome.split(' ')[0]}: ${approvata ? 'approvata, consuma il saldo delle ferie'
-        : attesaSeconda ? 'la tua approvazione è registrata, ma in questo negozio ne servono due: manca la seconda. Fino ad allora non è approvata, non consuma il saldo e il turno resta'
-          : 'da approvare in Approvazioni ferie'}.${tipo !== 'giornata' && turno ? ' Accorcia il turno se serve.' : ''}`);
+        : 'da approvare in Approvazioni ferie'}.${tipo !== 'giornata' && turno ? ' Accorcia il turno se serve.' : ''}`);
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non inserite.' });
     } finally {
@@ -319,15 +313,10 @@ export default function EditorTurno({
         toast({ type: 'warning', message: 'La richiesta ha altri giorni ancora da decidere: togli questo giorno da Approvazioni ferie, dove decidi anche gli altri.', duration: 10000 });
         return;
       }
-      const { data: esito, error: e2 } = await supabase.rpc('leave_decidi', {
+      const { error: e2 } = await supabase.rpc('leave_decidi', {
         p_request_id: f.requestId, p_giorni_approvati: altri.filter((g) => g.stato === 'approvato').map((g) => g.id), p_motivazione: 'Tolte dal piano del mese',
       });
       if (e2) throw e2;
-      // Dove servono due approvazioni (migration 407) questa e' solo la prima: il giorno resta approvato.
-      if ((esito as unknown) === 'attesa_seconda') {
-        onSalvato(`La tua approvazione è registrata, manca la seconda: fino ad allora il giorno di ${nome.split(' ')[0]} resta approvato e il saldo delle ferie non cambia.`);
-        return;
-      }
       onSalvato(`${f.testo} tolte per ${nome.split(' ')[0]}: il giorno torna disponibile per un turno e il saldo delle ferie si aggiorna.`);
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non tolte.' });

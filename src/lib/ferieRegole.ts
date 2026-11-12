@@ -1,7 +1,8 @@
 // Ferie e permessi: le scelte del negozio (scheda 9 di «Regole e orari», Patrizio 12/11/2026).
 //
-// Chi approva (referente del negozio, HR, tutte e due; ne basta una o servono entrambe) e in quali
-// giorni si possono chiedere. Dove un giorno e' spento la richiesta passa solo come eccezione.
+// Chi approva (referente del negozio, HR, o una qualsiasi delle due) e in quali giorni si possono
+// chiedere. L'approvazione e' sempre una sola: chi e' autorizzato approva, sotto la sua
+// responsabilita', e resta nel registro (Patrizio, 12/11/2026: niente doppia approvazione). Dove un giorno e' spento la richiesta passa solo come eccezione.
 // La regola vera sta nel database (migration 407: outlet_leave_rules, ferie_blocco_giorno,
 // leave_decidi): qui c'e' la stessa logica per mostrare e spiegare, non per bloccare.
 // Funzioni pure. Test in ferieRegole.test.ts.
@@ -13,8 +14,6 @@ export type Cosa = 'ferie' | 'permessi';
 export interface ChiApprova {
   referente: boolean;
   hr: boolean;
-  /** servono tutte e due le approvazioni (vale solo se referente e hr sono accese) */
-  entrambe: boolean;
 }
 
 export interface QuandoSiChiede {
@@ -30,9 +29,9 @@ export interface RegoleFerie {
 /** Come si comporta un negozio che non ha mai salvato la scheda: tutto come prima della 407. */
 export const REGOLE_FERIE_SPENTE: RegoleFerie = {
   approva: {
-    ferie: { referente: true, hr: true, entrambe: false },
-    permessi: { referente: true, hr: true, entrambe: false },
-    eccezioni: { referente: false, hr: false, entrambe: false },
+    ferie: { referente: true, hr: true },
+    permessi: { referente: true, hr: true },
+    eccezioni: { referente: false, hr: false },
   },
   quando: {
     feriali: { ferie: true, permessi: true },
@@ -50,9 +49,9 @@ export function regoleFerieDiPartenza(giorniCaldiTutti: boolean): RegoleFerie {
   const caldo = { ferie: !giorniCaldiTutti, permessi: !giorniCaldiTutti };
   return {
     approva: {
-      ferie: { referente: true, hr: true, entrambe: false },
-      permessi: { referente: true, hr: true, entrambe: false },
-      eccezioni: { referente: giorniCaldiTutti, hr: giorniCaldiTutti, entrambe: false },
+      ferie: { referente: true, hr: true },
+      permessi: { referente: true, hr: true },
+      eccezioni: { referente: giorniCaldiTutti, hr: giorniCaldiTutti },
     },
     quando: { feriali: { ferie: true, permessi: true }, weekend: { ...caldo }, festivi: { ...caldo } },
   };
@@ -65,7 +64,7 @@ const bool = (v: unknown, se: boolean): boolean => (typeof v === 'boolean' ? v :
 export function regoleFerieDaRiga(r: Riga | null | undefined): RegoleFerie {
   if (!r) return REGOLE_FERIE_SPENTE;
   const chi = (p: string, se: boolean): ChiApprova => ({
-    referente: bool(r[`${p}_referente`], se), hr: bool(r[`${p}_hr`], se), entrambe: bool(r[`${p}_entrambe`], false),
+    referente: bool(r[`${p}_referente`], se), hr: bool(r[`${p}_hr`], se),
   });
   const quando = (p: string): QuandoSiChiede => ({ ferie: bool(r[`ferie_${p}`], true), permessi: bool(r[`permessi_${p}`], true) });
   return {
@@ -80,7 +79,6 @@ export function rigaDaRegoleFerie(x: RegoleFerie): Record<string, boolean> {
   for (const k of ['ferie', 'permessi', 'eccezioni'] as const) {
     out[`${k}_referente`] = x.approva[k].referente;
     out[`${k}_hr`] = x.approva[k].hr;
-    out[`${k}_entrambe`] = x.approva[k].entrambe && x.approva[k].referente && x.approva[k].hr;
   }
   for (const k of ['feriali', 'weekend', 'festivi'] as const) {
     out[`ferie_${k}`] = x.quando[k].ferie;
@@ -182,35 +180,10 @@ export function esitoRichiesta(data: string, cosa: Cosa, eventi: readonly Evento
   return { ammessa: true };
 }
 
-/** «referente», «HR», «referente oppure HR», «referente e HR»: per dire in una riga chi approva. */
+/** «referente», «HR», «referente oppure HR»: per dire in una riga chi approva. */
 export function chiApprovaInParole(c: ChiApprova): string {
-  if (c.referente && c.hr) return c.entrambe ? 'referente e HR, tutte e due' : 'referente oppure HR';
+  if (c.referente && c.hr) return 'referente oppure HR';
   if (c.referente) return 'referente';
   if (c.hr) return 'HR';
   return 'nessuno';
-}
-
-export interface PrimaDecisione { lato: 'referente' | 'hr'; nome: string | null; quando: string | null; utente: string | null; giorni: string[] }
-
-export function leggiPrimaDecisione(v: unknown): PrimaDecisione | null {
-  if (!v || typeof v !== 'object') return null;
-  const r = v as Record<string, unknown>;
-  if (r.lato !== 'referente' && r.lato !== 'hr') return null;
-  return {
-    lato: r.lato, nome: typeof r.nome === 'string' ? r.nome : null, quando: typeof r.quando === 'string' ? r.quando : null,
-    utente: typeof r.utente === 'string' ? r.utente : null,
-    giorni: Array.isArray(r.giorni) ? r.giorni.filter((x): x is string => typeof x === 'string') : [],
-  };
-}
-
-/** «Ha già approvato la referente (Nome): manca l'HR.» */
-/** I giorni davvero concessi dopo la seconda approvazione: quelli approvati da tutte e due. */
-export function giorniConcessi(prima: PrimaDecisione | null, scelti: readonly string[]): string[] {
-  return prima ? scelti.filter((id) => prima.giorni.includes(id)) : [...scelti];
-}
-
-export function attesaInParole(p: Pick<PrimaDecisione, 'lato' | 'nome'>): string {
-  const chi = p.lato === 'referente' ? 'la referente' : 'l’HR';
-  const manca = p.lato === 'referente' ? 'l’HR' : 'la referente del negozio';
-  return `Ha già approvato ${chi}${p.nome ? ` (${p.nome})` : ''}: manca ${manca}.`;
 }

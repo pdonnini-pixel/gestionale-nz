@@ -1,14 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import {
-  REGOLE_FERIE_SPENTE, bloccaFerieEvento, giorniConcessi, ammesseNellEvento, attesaInParole, chiApprovaInParole, eccezioniAttive, erroriRegoleFerie, esitoRichiesta,
-  eventoConFerie, leggiPrimaDecisione, regoleFerieDaRiga, regoleFerieDiPartenza, rigaDaRegoleFerie, type EventoFerie,
+  REGOLE_FERIE_SPENTE, bloccaFerieEvento, ammesseNellEvento, chiApprovaInParole, eccezioniAttive, erroriRegoleFerie, esitoRichiesta,
+  eventoConFerie, regoleFerieDaRiga, regoleFerieDiPartenza, rigaDaRegoleFerie, type EventoFerie,
 } from './ferieRegole';
 
 const vecchio: EventoFerie = { nome: 'Saldi', data_dal: '2026-12-21', data_al: '2026-12-22', blocca_ferie: true };
 const periodo: EventoFerie = { nome: 'Black Friday', data_dal: '2026-11-27', data_al: '2026-11-29', blocca_ferie: false, tipo: 'periodo', ferie: false, permessi: true };
 
 describe('regole delle ferie per negozio (scheda 9, 12/11/2026)', () => {
-  it('riga assente o colonne vuote = come prima: approvano tutte e due, ne basta una, si chiede sempre, niente eccezioni', () => {
+  it('riga assente o colonne vuote = come prima: approva una fra referente e HR, si chiede sempre, niente eccezioni', () => {
     expect(regoleFerieDaRiga(null)).toEqual(REGOLE_FERIE_SPENTE);
     expect(regoleFerieDaRiga({ outlet_id: 'x', ferie_weekend: null })).toEqual(REGOLE_FERIE_SPENTE);
     expect(eccezioniAttive(REGOLE_FERIE_SPENTE)).toBe(false);
@@ -24,29 +24,27 @@ describe('regole delle ferie per negozio (scheda 9, 12/11/2026)', () => {
     expect(regoleFerieDiPartenza(false)).toEqual(REGOLE_FERIE_SPENTE);
   });
 
-  it('andata e ritorno con le colonne; «servono entrambe» vale solo con tutte e due accese', () => {
+  it('andata e ritorno con le colonne; nessuna colonna di doppia approvazione', () => {
     const x = regoleFerieDiPartenza(true);
-    x.approva.ferie.entrambe = true;
-    x.approva.permessi = { referente: true, hr: false, entrambe: true };
+    x.approva.permessi = { referente: true, hr: false };
     const riga = rigaDaRegoleFerie(x);
-    expect(riga.ferie_entrambe).toBe(true);
-    expect(riga.permessi_entrambe).toBe(false);
+    expect(riga.permessi_hr).toBe(false);
     expect(riga.ferie_weekend).toBe(false);
-    expect(regoleFerieDaRiga(riga).approva.ferie).toEqual({ referente: true, hr: true, entrambe: true });
-    expect(Object.keys(riga)).toHaveLength(15);
+    expect(regoleFerieDaRiga(riga).approva.permessi).toEqual({ referente: true, hr: false });
+    expect(Object.keys(riga)).toHaveLength(12);
+    expect(Object.keys(riga).some((k) => k.includes('entrambe'))).toBe(false);
   });
 
   it('non si salva una scheda in cui nessuno approva, e avvisa se spegne giorni senza eccezioni', () => {
     const x = regoleFerieDiPartenza(true);
-    x.approva.ferie = { referente: false, hr: false, entrambe: false };
-    x.approva.eccezioni = { referente: false, hr: false, entrambe: false };
+    x.approva.ferie = { referente: false, hr: false };
+    x.approva.eccezioni = { referente: false, hr: false };
     expect(erroriRegoleFerie(x)).toHaveLength(2);
   });
 
   it('chi approva, in parole', () => {
-    expect(chiApprovaInParole({ referente: true, hr: true, entrambe: false })).toBe('referente oppure HR');
-    expect(chiApprovaInParole({ referente: true, hr: true, entrambe: true })).toBe('referente e HR, tutte e due');
-    expect(chiApprovaInParole({ referente: false, hr: true, entrambe: false })).toBe('HR');
+    expect(chiApprovaInParole({ referente: true, hr: true })).toBe('referente oppure HR');
+    expect(chiApprovaInParole({ referente: false, hr: true })).toBe('HR');
   });
 });
 
@@ -91,7 +89,7 @@ describe('esitoRichiesta: come ferie_blocco_giorno nel database', () => {
   });
 });
 
-describe('eventi e prima approvazione', () => {
+describe('eventi: ferie e permessi separati', () => {
   it('le due voci dell\'evento: quella scritta, altrimenti blocca_ferie', () => {
     expect(ammesseNellEvento(vecchio)).toEqual({ ferie: false, permessi: false });
     expect(ammesseNellEvento(periodo)).toEqual({ ferie: false, permessi: true });
@@ -110,20 +108,5 @@ describe('eventi e prima approvazione', () => {
     expect(bloccaFerieEvento({ ferie: true, permessi: false }, false)).toBe(true);
     expect(bloccaFerieEvento({ ferie: false, permessi: false }, true)).toBe(true);
     expect(bloccaFerieEvento({ ferie: true, permessi: true }, false)).toBe(false);
-  });
-
-  it('i giorni concessi dopo la seconda approvazione sono quelli approvati da tutte e due', () => {
-    const p = leggiPrimaDecisione({ lato: 'referente', utente: 'u9', giorni: ['a', 'b'] });
-    expect(giorniConcessi(p, ['b', 'c'])).toEqual(['b']);
-    expect(giorniConcessi(null, ['b', 'c'])).toEqual(['b', 'c']);
-  });
-
-  it('la prima approvazione, letta e detta in parole', () => {
-    expect(leggiPrimaDecisione(null)).toBeNull();
-    expect(leggiPrimaDecisione({ lato: 'altro' })).toBeNull();
-    const p = leggiPrimaDecisione({ lato: 'referente', nome: 'Anna Rossi', quando: '2026-11-12T10:00:00Z', giorni: [] });
-    expect(p).toEqual({ lato: 'referente', nome: 'Anna Rossi', quando: '2026-11-12T10:00:00Z', utente: null, giorni: [] });
-    expect(attesaInParole(p!)).toBe('Ha già approvato la referente (Anna Rossi): manca l’HR.');
-    expect(attesaInParole({ lato: 'hr', nome: null })).toBe('Ha già approvato l’HR: manca la referente del negozio.');
   });
 });

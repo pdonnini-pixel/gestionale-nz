@@ -11,7 +11,6 @@ import PageHeader from '../components/PageHeader'
 import { DaConfermare } from '../components/PresenzeConferme'
 import { ETICHETTE_VOCE_BREVI, formattaData, formattaOre } from '../lib/ferieRichiesta'
 import type { VoceFerie } from '../lib/ferieRichiesta'
-import { attesaInParole, giorniConcessi, leggiPrimaDecisione } from '../lib/ferieRegole'
 
 interface RichiestaResp {
   id: string; stato: string; negozio: string | null; persona: string; prova: boolean; titolo: string | null
@@ -21,12 +20,9 @@ interface RichiestaResp {
   saldi: { voce: string; disponibile: number | null }[]
   /** migration 407: richiesta in un giorno in cui di norma non si chiede, e perché */
   eccezione?: boolean; eccezione_motivo?: string | null
-  /** la prima delle due approvazioni, dove il negozio le chiede tutte e due */
-  prima_decisione?: unknown
   /** false = per le regole del negozio questa richiesta la decide l'HR */
   posso?: boolean
 }
-const prima = (q: RichiestaResp) => leggiPrimaDecisione(q.prima_decisione)
 const STATO: Record<string, { testo: string; stile: string }> = {
   inviata: { testo: 'da decidere', stile: 'bg-orange-50 text-orange-700' },
   approvata: { testo: 'approvata', stile: 'bg-emerald-50 text-emerald-700' },
@@ -110,22 +106,11 @@ function FerieDaDecidere() {
     })
     setOccupato(null)
     if (error) { toast({ type: 'error', message: error.message }); return }
-    // Il negozio chiede tutte e due le approvazioni: la tua è registrata, la richiesta aspetta l'HR
-    if (String(esito) === 'attesa_seconda') {
-      toast({ type: 'success', message: `${q.persona}: la tua approvazione è registrata. Manca quella dell’HR, poi la richiesta è decisa.` })
-      setRespingi(null)
-      void carica()
-      return
-    }
     // Come in Ferie e permessi → Approvazioni: la mail ai referenti e' un di piu', se non parte la decisione vale lo stesso
     try { await supabase.functions.invoke('leave-notify', { body: { request_id: q.id, momento: 'decisione' } }) } catch { /* solo l'avviso per mail */ }
-    // Seconda approvazione: valgono i giorni approvati da tutte e due, che possono essere meno
-    const veri = giorniConcessi(prima(q), approva ? q.giorni.map((g) => g.id) : []).length
     toast({ type: 'success', message: !approva || String(esito) === 'respinta'
-      ? `${q.persona}: richiesta respinta${approva ? ' (nessun giorno era approvato da tutte e due le parti)' : ''}.`
-      : veri < q.giorni.length
-        ? `${q.persona}: concessi ${veri} giorni su ${q.giorni.length}, quelli approvati da tutte e due le parti.`
-        : `${q.persona}: richiesta approvata.` })
+      ? `${q.persona}: richiesta respinta.`
+      : `${q.persona}: richiesta approvata.` })
     setRespingi(null)
     void carica()
   }
@@ -165,12 +150,11 @@ function FerieDaDecidere() {
                 <span className="font-semibold">Chiesta come eccezione.</span>{q.eccezione_motivo ? ` ${q.eccezione_motivo}` : ''}
               </div>
             )}
-            {prima(q) && <p className="text-sm rounded-lg bg-sky-50 text-sky-900 px-3 py-2">{q.stato === 'inviata' ? attesaInParole(prima(q)!) : `C’è una modifica a questa decisione in attesa della seconda approvazione${prima(q)!.nome ? ` (la prima è di ${prima(q)!.nome})` : ''}: fino ad allora vale la decisione di prima.`}</p>}
             {q.note_dipendente && <p className="text-sm bg-slate-50 rounded px-3 py-2">«{q.note_dipendente}»</p>}
             <p className="text-xs text-slate-400">{q.compilata_da_nome ?? ''}{q.inviata_il ? ` · ${new Date(q.inviata_il).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })}` : ''}
               {q.decisa_da_nome ? ` · decisa da ${q.decisa_da_nome}` : ''}{q.motivazione ? ` · motivo: ${q.motivazione}` : ''}</p>
             {q.stato === 'inviata' && q.posso === false && (
-              <p className="text-sm text-slate-500">{prima(q)?.lato === 'referente' ? 'La tua parte è fatta: ora decide l’HR.' : prima(q) ? 'La tua parte è fatta: la seconda approvazione deve darla un’altra persona.' : 'Per le regole del negozio questa richiesta la decide l’HR.'}</p>
+              <p className="text-sm text-slate-500">Per le regole del negozio questa richiesta la decide l’HR.</p>
             )}
             {q.stato === 'inviata' && q.posso !== false && (respingi?.id === q.id ? (
               <div className="space-y-2">

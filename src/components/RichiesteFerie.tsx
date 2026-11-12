@@ -494,26 +494,10 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
   if (!companyId) return null;
 
   const rispondi = async (c: Controproposta, accetta: boolean) => {
-    const { data: nuova, error } = await supabase.rpc('leave_rispondi_controproposta', { p_id: c.id, p_accetta: accetta });
+    const { error } = await supabase.rpc('leave_rispondi_controproposta', { p_id: c.id, p_accetta: accetta });
+    // il motivo puo' essere lungo (giorno vietato, chi approva in quel negozio): resta a video
     if (error) { toast({ type: 'error', message: error.message, duration: 12000 }); return; }
-    // Dalla 407 la richiesta nata dalle date proposte segue le regole del negozio: dove
-    // servono due approvazioni resta in attesa della seconda persona.
-    let inAttesa = false;
-    let statoLetto = false;
-    if (accetta && typeof nuova === 'string') {
-      const { data: q } = await supabase.from('leave_requests').select('stato').eq('id', nuova).maybeSingle();
-      const stato = (q as { stato?: string } | null)?.stato;
-      statoLetto = typeof stato === 'string';
-      inAttesa = stato === 'inviata';
-    }
-    toast({
-      type: 'success',
-      message: !accetta ? 'Proposta rifiutata: si può fare una nuova richiesta.'
-        : inAttesa ? 'Date accettate. In questo negozio servono due approvazioni: la richiesta aspetta la seconda persona, in Approvazioni.'
-        : statoLetto ? 'Date accettate: risultano già approvate.'
-        : 'Date accettate. Controlla in Approvazioni se serve la seconda approvazione.',
-      duration: inAttesa ? 12000 : undefined,
-    });
+    toast({ type: 'success', message: accetta ? 'Date accettate: risultano già approvate.' : 'Proposta rifiutata: si può fare una nuova richiesta.' });
     await carica();
   };
   const nomeDi = (id: string) => {

@@ -1,9 +1,8 @@
 -- ROLLBACK della 407. Rimette le funzioni com'erano e toglie tabelle, colonne e funzioni nate con la 407.
--- ATTENZIONE: perde i dati scritti dopo la 407 (regole del negozio, elenco HR, eccezioni, prime
--- approvazioni). Prima di eseguirlo, salvare:
+-- ATTENZIONE: perde i dati scritti dopo la 407 (regole del negozio, elenco HR, eccezioni). Prima di eseguirlo, salvare:
 --   SELECT * FROM public.outlet_leave_rules;  SELECT * FROM public.leave_hr;
---   SELECT id, eccezione, eccezione_motivo, prima_decisione FROM public.leave_requests
---    WHERE eccezione IS NOT NULL OR prima_decisione IS NOT NULL;
+--   SELECT id, eccezione, eccezione_motivo FROM public.leave_requests
+--    WHERE eccezione IS NOT NULL;
 -- e chiedere conferma a Patrizio (regola NO DATA LOSS). Le richieste restano nello stato che hanno.
 -- Il rollback ne fa comunque una copia prima di toglierle: _bkp_407_outlet_leave_rules,
 -- _bkp_407_leave_hr, _bkp_407_leave_requests (senza GRANT: invisibili all'API).
@@ -15,8 +14,6 @@
 --     blocca_ferie = true (bloccano tutte e due, come faceva la 405). Se per uno di loro
 --     si vuole il contrario, va riaperto e risalvato dalla finestra dell'evento.
 --
--- CONTROPROPOSTE: le richieste nate da una controproposta e ancora in attesa della seconda
---   approvazione restano «inviata»; dopo il rollback si decidono da Approvazioni con una firma.
 BEGIN;
 
 -- Se le copie di un rollback precedente ci sono gia', ci si ferma: rifarle le salterebbe e le
@@ -35,8 +32,8 @@ $do$;
 CREATE TABLE IF NOT EXISTS public._bkp_407_outlet_leave_rules AS SELECT now() AS salvato_il, * FROM public.outlet_leave_rules;
 CREATE TABLE IF NOT EXISTS public._bkp_407_leave_hr AS SELECT now() AS salvato_il, * FROM public.leave_hr;
 CREATE TABLE IF NOT EXISTS public._bkp_407_leave_requests AS
-  SELECT now() AS salvato_il, id, company_id, stato, eccezione, eccezione_motivo, prima_decisione
-    FROM public.leave_requests WHERE eccezione IS NOT NULL OR eccezione_motivo IS NOT NULL OR prima_decisione IS NOT NULL;
+  SELECT now() AS salvato_il, id, company_id, stato, eccezione, eccezione_motivo
+    FROM public.leave_requests WHERE eccezione IS NOT NULL OR eccezione_motivo IS NOT NULL;
 ALTER TABLE public._bkp_407_outlet_leave_rules ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public._bkp_407_leave_hr ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public._bkp_407_leave_requests ENABLE ROW LEVEL SECURITY;
@@ -115,38 +112,18 @@ BEGIN
         $x$AND ev.blocca_ferie$x$,
         $x$  RETURNING id INTO v_req;$x$]),
       ('public.app_dipendente_ferie()', ARRAY[
-        $x$'id', q.id, 'stato', q.stato, 'eccezione', COALESCE(q.eccezione, false), 'attesa_seconda', (q.prima_decisione IS NOT NULL), 'note', q.note_dipendente,$x$,
+        $x$'id', q.id, 'stato', q.stato, 'eccezione', COALESCE(q.eccezione, false), 'note', q.note_dipendente,$x$,
         $x$    'eccezioni', public.ferie_eccezioni_attive(e.outlet_id),  -- 407
     'senza_ferie', COALESCE(($x$], ARRAY[
         $x$'id', q.id, 'stato', q.stato, 'note', q.note_dipendente,$x$,
         $x$    'senza_ferie', COALESCE(($x$]),
       ('public.leave_decidi(uuid,uuid[],text)', ARRAY[
-        $x$  v_motivo     text := NULLIF(btrim(p_motivazione), '');
-  v_407        jsonb;$x$,
         $x$  PERFORM public.ferie_controlla_lato(p_request_id);  -- 407: chi approva, per negozio
 
-  IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$,
-        $x$  -- 407: dove servono due approvazioni
-  v_407 := public.ferie_doppia_approvazione(p_request_id, p_giorni_approvati, v_motivo);
-  IF v_407 ? 'attesa' THEN
-    RETURN 'attesa_seconda';
-  END IF;
-  IF v_407 ? 'giorni' THEN
-    p_giorni_approvati := ARRAY(SELECT jsonb_array_elements_text(v_407 -> 'giorni')::uuid);
-    v_ok := (SELECT count(*) FROM public.leave_request_days
-              WHERE request_id = p_request_id AND id = ANY (p_giorni_approvati));
-    v_motivo := COALESCE(v_motivo, NULLIF(v_407 ->> 'motivo', ''));
-    IF v_ok < v_tot AND v_motivo IS NULL THEN
-      v_motivo := 'Giorni non concessi dalla prima approvazione.';
-    END IF;
-  END IF;
-
-  UPDATE public.leave_request_days$x$], ARRAY[
-        $x$  v_motivo     text := NULLIF(btrim(p_motivazione), '');$x$,
-        $x$  IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$,
-        $x$  UPDATE public.leave_request_days$x$]),
+  IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$], ARRAY[
+        $x$  IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$]),
       ('public.responsabile_ferie_elenco(boolean)', ARRAY[
-        $x$'prova', e.is_demo, 'eccezione', COALESCE(q.eccezione, false), 'eccezione_motivo', q.eccezione_motivo, 'prima_decisione', q.prima_decisione, 'posso', public.ferie_lato_puo(q.id), 'titolo', q.titolo,$x$], ARRAY[
+        $x$'prova', e.is_demo, 'eccezione', COALESCE(q.eccezione, false), 'eccezione_motivo', q.eccezione_motivo, 'posso', public.ferie_lato_puo(q.id), 'titolo', q.titolo,$x$], ARRAY[
         $x$'prova', e.is_demo, 'titolo', q.titolo,$x$])
     ) AS v(firma, ancore, nuovi)
   LOOP
@@ -188,8 +165,7 @@ BEGIN
         ($x$  v_new uuid;
   v_407 record;  -- 407
   v_blk text;
-  v_ecc text;
-  v_reg jsonb;$x$,
+  v_ecc text;$x$,
          $x$  v_new uuid;$x$),
         ($x$r.outlet_code, 'inviata', coalesce(r.titolo, 'Ferie') || ' (date proposte)',$x$,
          $x$r.outlet_code, 'approvata', coalesce(r.titolo, 'Ferie') || ' (date proposte)',$x$),
@@ -214,26 +190,25 @@ BEGIN
     END IF;
     -- 407: chi approva, per negozio
     PERFORM public.ferie_controlla_lato(v_new);
-    v_reg := public.ferie_regole_richiesta(v_new);
-    IF v_reg IS NOT NULL AND (v_reg ->> 'entrambe')::boolean THEN
-      -- servono due approvazioni: chi accetta da' la prima, la richiesta aspetta un'altra persona
-      UPDATE leave_requests
-         SET prima_decisione = jsonb_build_object('lato', public.ferie_mio_lato(), 'utente', auth.uid(), 'nome', NULLIF(v_nome, ''),
-               'giorni', (SELECT to_jsonb(COALESCE(array_agg(d.id), '{}')) FROM leave_request_days d WHERE d.request_id = v_new),
-               'motivo', NULL, 'quando', now())
-       WHERE id = v_new;
-      INSERT INTO leave_request_events (company_id, request_id, evento, stato_a, nota, dettaglio, utente_id, utente_nome)
-      VALUES (c.company_id, v_new, 'prima_approvazione', 'inviata', 'Date proposte e accettate',
-              jsonb_build_object('lato', public.ferie_mio_lato(), 'controproposta', c.id), auth.uid(), NULLIF(v_nome, ''));
-    ELSE
-      UPDATE leave_request_days SET stato = 'approvato' WHERE request_id = v_new;
-      UPDATE leave_requests
-         SET stato = 'approvata', decisa_il = now(), decisa_da = c.proposta_da, decisa_da_nome = c.proposta_da_nome,
-             motivazione = 'Date proposte da ' || coalesce(c.proposta_da_nome, 'chi decide le ferie') || ' e accettate.'
-       WHERE id = v_new;
-    END IF;$x$,
+    UPDATE leave_request_days SET stato = 'approvato' WHERE request_id = v_new;
+    UPDATE leave_requests
+       SET stato = 'approvata', decisa_il = now(), decisa_da = c.proposta_da, decisa_da_nome = c.proposta_da_nome,
+           motivazione = 'Date proposte da ' || coalesce(c.proposta_da_nome, 'chi decide le ferie') || ' e accettate.'
+     WHERE id = v_new;
+    -- 407: nel registro resta chi ha registrato l'accettazione
+    INSERT INTO leave_request_events (company_id, request_id, evento, stato_a, nota, dettaglio, utente_id, utente_nome)
+    VALUES (c.company_id, v_new, 'decisione', 'approvata', 'Date proposte e accettate',
+            jsonb_build_object('controproposta', c.id, 'proposta_da', c.proposta_da_nome), auth.uid(), NULLIF(v_nome, ''));$x$,
          $x$(g->>'ore')::numeric, 'approvato'
-      FROM jsonb_array_elements(c.giorni) g;$x$)
+      FROM jsonb_array_elements(c.giorni) g;$x$),
+        ($x$  -- 407: la risposta alla proposta resta nel registro della richiesta di partenza
+  INSERT INTO leave_request_events (company_id, request_id, evento, nota, dettaglio, utente_id, utente_nome)
+  VALUES (c.company_id, c.request_id, CASE WHEN p_accetta THEN 'controproposta_accettata' ELSE 'controproposta_rifiutata' END,
+          NULLIF(btrim(p_nota), ''), jsonb_build_object('controproposta', c.id, 'nuova_richiesta', v_new), auth.uid(), NULLIF(v_nome, ''));
+  UPDATE leave_counterproposals
+     SET stato = CASE WHEN p_accetta THEN 'accettata' ELSE 'rifiutata' END,$x$,
+         $x$  UPDATE leave_counterproposals
+     SET stato = CASE WHEN p_accetta THEN 'accettata' ELSE 'rifiutata' END,$x$)
     ) AS v(ancora, nuovo)
   LOOP
     n := replace(n, f.ancora, f.nuovo);
@@ -280,7 +255,6 @@ $$;
 REVOKE ALL ON FUNCTION public.ferie_lunedi_conflitti(uuid, date[], boolean) FROM public, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.ferie_lunedi_conflitti(uuid, date[], boolean) TO service_role;
 
-DROP FUNCTION IF EXISTS public.ferie_doppia_approvazione(uuid, uuid[], text);
 DROP FUNCTION IF EXISTS public.ferie_controlla_lato(uuid);
 DROP FUNCTION IF EXISTS public.ferie_lato_puo(uuid);
 DROP FUNCTION IF EXISTS public.ferie_mio_lato();
@@ -293,7 +267,6 @@ DROP FUNCTION IF EXISTS public.guida_negozio_effettiva(uuid);
 DROP FUNCTION IF EXISTS public.festivo_italiano(date);
 
 ALTER TABLE public.leave_requests
-  DROP COLUMN IF EXISTS prima_decisione,
   DROP COLUMN IF EXISTS eccezione_motivo,
   DROP COLUMN IF EXISTS eccezione;
 DROP TABLE IF EXISTS public.leave_hr;

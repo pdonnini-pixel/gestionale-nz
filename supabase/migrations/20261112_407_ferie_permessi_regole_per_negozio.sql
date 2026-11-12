@@ -5,7 +5,9 @@
 -- PERCHE': scheda 9 di «Regole e orari» (Patrizio, 12/11/2026).
 --   - La richiesta parte dall'app e arriva alla referente del negozio e all'HR.
 --     Per negozio si decide chi approva ferie, permessi ed eccezioni (referente,
---     HR o tutte e due) e se basta un'approvazione o servono entrambe.
+--     HR o una qualsiasi delle due). L'approvazione e' SEMPRE una sola: chi e'
+--     autorizzato approva, sotto la sua responsabilita', e resta nel registro
+--     (leave_request_events). Niente doppia approvazione (Patrizio, 12/11/2026).
 --   - Per negozio si decide quando si possono chiedere: feriali, sabato e
 --     domenica, festivi e giorni speciali; per ogni evento, ferie e permessi
 --     separati (outlet_events.regole -> 'ferie' / 'permessi'; gli eventi di prima
@@ -34,30 +36,29 @@
 --     cambia due chiavi di un jsonb e ne aggiunge una, non perde niente.
 --   - giorno speciale singolo senza voci sue: segue la riga «Festivi e giorni speciali»
 --     della scheda; nei negozi senza scheda resta bloccato come oggi.
---   - due approvazioni: mai la stessa persona; una richiesta gia' decisa si cambia solo
---     con due approvazioni o dal Super Advisor.
---   - trigger leave_requests_campi_protetti: eccezione, prima_decisione e i passaggi di
---     stato che decidono non si scrivono piu' direttamente dalla tabella.
+--   - trigger leave_requests_campi_protetti: eccezione e i passaggi di stato che
+--     decidono non si scrivono piu' direttamente dalla tabella.
 --   - lunedi' con la guida provvisoria: messaggio senza «e' gia' assente l'altra».
 --
 -- TERZO GIRO (12/11/2026, revisore di sicurezza):
 --   - controproposte: leave_rispondi_controproposta (320) creava una richiesta gia'
 --     approvata con una firma sola e senza guardare i giorni vietati. Ora la richiesta
 --     nata dalla controproposta rispetta le regole del negozio: un giorno vietato passa
---     solo come eccezione (se il negozio le ha accese), decide solo chi puo' decidere, e
---     dove servono due approvazioni resta «inviata» con la prima approvazione di chi
---     accetta, in attesa di una seconda persona. Dove basta una firma resta come prima.
---   - dopo la prima approvazione la richiesta non si ritocca dalla tabella: giorni fermi
---     (niente aggiunte, cancellazioni, cambi di ore, voce, data o tipo) e niente ritorno
---     in bozza. Negozio, persona e azienda di una richiesta non in bozza non si cambiano.
---     Per cambiarla si ritira e si rifa'.
+--     solo come eccezione (se il negozio le ha accese) e decide solo chi puo' decidere
+--     in quel negozio. Poi nasce approvata, come prima.
+--   - negozio, persona e azienda di una richiesta non in bozza non si cambiano dalla
+--     tabella: per cambiarla si ritira e si rifa'.
+--
+-- QUARTO GIRO (12/11/2026, Patrizio): «se un responsabile approva una ferie o un
+--   permesso, lo approva solo una persona, punto». Tolta la doppia approvazione da
+--   tutto: niente colonne *_entrambe, niente prima_decisione, niente seconda firma.
 --
 -- DIPENDE da 393 (lunedi'), 399 e 405 (giorni_pieni, riposi_min_settimana,
 -- outlet_events.tipo e regole). Verificato in lettura il 12/11/2026: le funzioni
 -- da correggere sono identiche su NZ e Zago.
 --
--- NO DATA LOSS: CREATE TABLE, ADD COLUMN senza default, funzioni. Nessuna riga
--- cambiata; nessuna richiesta esistente cambia stato.
+-- NO DATA LOSS: CREATE TABLE, ADD COLUMN senza default, funzioni. Nessuna richiesta
+-- esistente cambia stato (unico UPDATE: gli eventi con una voce sola, vedi sopra).
 -- Tenant: NZ e Zago (Made non riceve piu' migration dal 03/11/2026).
 -- =====================================================================
 
@@ -67,17 +68,14 @@ BEGIN;
 CREATE TABLE IF NOT EXISTS public.outlet_leave_rules (
   outlet_id            uuid PRIMARY KEY REFERENCES public.outlets(id),
   company_id           uuid NOT NULL REFERENCES public.companies(id),
-  -- chi approva (NULL = si', come oggi); entrambe NULL = ne basta una
+  -- chi approva (NULL = si', come oggi). Accese tutte e due = approva una qualsiasi delle due
   ferie_referente      boolean,
   ferie_hr             boolean,
-  ferie_entrambe       boolean,
   permessi_referente   boolean,
   permessi_hr          boolean,
-  permessi_entrambe    boolean,
   -- eccezioni: attive solo se almeno una delle due e' true
   eccezioni_referente  boolean,
   eccezioni_hr         boolean,
-  eccezioni_entrambe   boolean,
   -- quando si possono chiedere (NULL = si', come oggi)
   ferie_feriali        boolean,
   permessi_feriali     boolean,
@@ -96,7 +94,7 @@ ALTER TABLE public.outlet_leave_rules DROP CONSTRAINT IF EXISTS outlet_leave_rul
 ALTER TABLE public.outlet_leave_rules ADD CONSTRAINT outlet_leave_rules_permessi_qualcuno
   CHECK (COALESCE(permessi_referente, true) OR COALESCE(permessi_hr, true));
 COMMENT ON TABLE public.outlet_leave_rules IS
-  'Ferie e permessi per negozio (Patrizio, 12/11/2026): chi approva (referente del negozio, HR), se servono due approvazioni, e in quali giorni si possono chiedere. Colonne NULL o riga assente = come prima della 407. Dove un giorno e'' spento la richiesta passa solo come eccezione, se eccezioni_referente o eccezioni_hr e'' true.';
+  'Ferie e permessi per negozio (Patrizio, 12/11/2026): chi approva (referente del negozio, HR: l''approvazione e'' sempre una sola, di chi e'' autorizzato) e in quali giorni si possono chiedere. Colonne NULL o riga assente = come prima della 407. Dove un giorno e'' spento la richiesta passa solo come eccezione, se eccezioni_referente o eccezioni_hr e'' true.';
 CREATE INDEX IF NOT EXISTS outlet_leave_rules_company_idx ON public.outlet_leave_rules (company_id);
 
 ALTER TABLE public.outlet_leave_rules ENABLE ROW LEVEL SECURITY;
@@ -168,17 +166,13 @@ REVOKE ALL ON public.leave_hr FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, DELETE ON public.leave_hr TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.leave_hr TO service_role;
 
--- ── 3. La richiesta: eccezione e prima approvazione ────────────────────
+-- ── 3. La richiesta: eccezione ─────────────────────────────────────────
 ALTER TABLE public.leave_requests
   ADD COLUMN IF NOT EXISTS eccezione boolean,
-  ADD COLUMN IF NOT EXISTS eccezione_motivo text,
-  ADD COLUMN IF NOT EXISTS prima_decisione jsonb;
+  ADD COLUMN IF NOT EXISTS eccezione_motivo text;
 COMMENT ON COLUMN public.leave_requests.eccezione IS
   'true = chiesta come eccezione: almeno un giorno cade dove ferie o permessi non si possono chiedere (giorno caldo, evento, regola del negozio). NULL = richiesta normale.';
 COMMENT ON COLUMN public.leave_requests.eccezione_motivo IS 'Perche'' e'' un''eccezione: i giorni e la regola, come li ha visti chi ha chiesto.';
-COMMENT ON COLUMN public.leave_requests.prima_decisione IS
-  'Dove servono due approvazioni: la prima { lato: referente|hr, utente, nome, giorni: [id dei giorni concessi], motivo, quando }. La richiesta resta inviata finche'' non arriva la seconda.';
-
 -- Eventi salvati prima della 407 con una sola voce spenta: blocca_ferie = true li faceva
 -- bloccare tutte e due. Restano cosi' (tutte e due spente) finche' non vengono risalvati;
 -- il valore di prima resta in regole.prima_407 (lo usa il rollback).
@@ -190,7 +184,7 @@ UPDATE public.outlet_events
    AND NOT (regole ? 'prima_407')
    AND (COALESCE(regole ->> 'ferie', '') = 'true' OR COALESCE(regole ->> 'permessi', '') = 'true');
 
--- Eccezione, prima approvazione e decisione si scrivono solo dalle funzioni delle ferie
+-- Eccezione e decisione si scrivono solo dalle funzioni delle ferie
 -- (SECURITY DEFINER: dentro di loro current_user non e' piu' authenticated). Dalla tabella,
 -- con il proprio profilo, restano i passaggi che il gestionale fa gia': bozza e inviata
 -- all'inserimento, bozza <-> inviata, e «ritirata» (scheda Richieste).
@@ -202,16 +196,16 @@ AS $function$
 BEGIN
   IF current_user NOT IN ('authenticated', 'anon') THEN RETURN NEW; END IF;
   IF TG_OP = 'INSERT' THEN
-    IF NEW.eccezione IS NOT NULL OR NEW.eccezione_motivo IS NOT NULL OR NEW.prima_decisione IS NOT NULL THEN
-      RAISE EXCEPTION 'Eccezione e approvazioni di una richiesta si scrivono solo dall''app e da Approvazioni.' USING ERRCODE = '42501';
+    IF NEW.eccezione IS NOT NULL OR NEW.eccezione_motivo IS NOT NULL THEN
+      RAISE EXCEPTION 'L''eccezione di una richiesta si scrive solo dall''app e da Approvazioni.' USING ERRCODE = '42501';
     END IF;
     IF NEW.stato NOT IN ('bozza', 'inviata') THEN
       RAISE EXCEPTION 'Una richiesta nasce in bozza o inviata: la decisione passa da Approvazioni.' USING ERRCODE = '42501';
     END IF;
     RETURN NEW;
   END IF;
-  IF (NEW.eccezione, NEW.eccezione_motivo, NEW.prima_decisione) IS DISTINCT FROM (OLD.eccezione, OLD.eccezione_motivo, OLD.prima_decisione) THEN
-    RAISE EXCEPTION 'Eccezione e approvazioni di una richiesta si scrivono solo dall''app e da Approvazioni.' USING ERRCODE = '42501';
+  IF (NEW.eccezione, NEW.eccezione_motivo) IS DISTINCT FROM (OLD.eccezione, OLD.eccezione_motivo) THEN
+    RAISE EXCEPTION 'L''eccezione di una richiesta si scrive solo dall''app e da Approvazioni.' USING ERRCODE = '42501';
   END IF;
   IF NEW.stato IS DISTINCT FROM OLD.stato
      AND NEW.stato <> 'ritirata'
@@ -222,10 +216,6 @@ BEGIN
   IF OLD.stato <> 'bozza'
      AND (NEW.outlet_code, NEW.employee_id, NEW.company_id) IS DISTINCT FROM (OLD.outlet_code, OLD.employee_id, OLD.company_id) THEN
     RAISE EXCEPTION 'Negozio e persona di una richiesta già inviata non si cambiano: ritirala e rifalla.' USING ERRCODE = '42501';
-  END IF;
-  -- con una prima approvazione la richiesta non torna in bozza: chi ha approvato ha visto questa
-  IF OLD.prima_decisione IS NOT NULL AND OLD.stato = 'inviata' AND NEW.stato = 'bozza' THEN
-    RAISE EXCEPTION 'Questa richiesta ha già una prima approvazione: non torna in bozza. Per cambiarla ritirala e rifalla.' USING ERRCODE = '42501';
   END IF;
   RETURN NEW;
 END
@@ -247,17 +237,10 @@ CREATE OR REPLACE FUNCTION public.leave_request_days_campi_protetti()
 AS $function$
 DECLARE
   v_stato text;
-  v_prima boolean;
 BEGIN
   IF current_user NOT IN ('authenticated', 'anon') THEN RETURN COALESCE(NEW, OLD); END IF;
-  SELECT q.stato, (q.prima_decisione IS NOT NULL) INTO v_stato, v_prima FROM public.leave_requests q
+  SELECT q.stato INTO v_stato FROM public.leave_requests q
    WHERE q.id = CASE WHEN TG_OP = 'DELETE' THEN OLD.request_id ELSE NEW.request_id END;
-  -- dopo la prima approvazione i giorni restano quelli che ha visto chi ha approvato
-  IF COALESCE(v_prima, false) AND v_stato IN ('bozza', 'inviata')
-     AND (TG_OP IN ('INSERT', 'DELETE')
-          OR (NEW.ore, NEW.voce, NEW.data, NEW.tipo) IS DISTINCT FROM (OLD.ore, OLD.voce, OLD.data, OLD.tipo)) THEN
-    RAISE EXCEPTION 'Questa richiesta ha già una prima approvazione: i giorni non si cambiano. Per cambiarla ritirala e rifalla.' USING ERRCODE = '42501';
-  END IF;
   IF TG_OP = 'DELETE' THEN
     IF v_stato IS NOT NULL AND v_stato NOT IN ('bozza', 'inviata') THEN
       RAISE EXCEPTION 'I giorni di una richiesta decisa si cambiano solo da Approvazioni.' USING ERRCODE = '42501';
@@ -520,7 +503,7 @@ REVOKE ALL ON FUNCTION public.ferie_eccezioni_attive(uuid) FROM PUBLIC, anon, au
 GRANT EXECUTE ON FUNCTION public.ferie_eccezioni_attive(uuid) TO service_role;
 
 -- ── 7. Chi approva ─────────────────────────────────────────────────────
--- Le scelte del negozio per QUESTA richiesta: { referente, hr, entrambe }. NULL = negozio senza regole.
+-- Le scelte del negozio per QUESTA richiesta: { referente, hr }. NULL = negozio senza regole.
 CREATE OR REPLACE FUNCTION public.ferie_regole_richiesta(p_request_id uuid)
  RETURNS jsonb
  LANGUAGE plpgsql
@@ -534,7 +517,6 @@ DECLARE
   v_p  boolean;
   v_ref boolean;
   v_hr  boolean;
-  v_due boolean;
 BEGIN
   SELECT * INTO q FROM public.leave_requests WHERE id = p_request_id;
   IF NOT FOUND THEN RETURN NULL; END IF;
@@ -543,21 +525,19 @@ BEGIN
   IF COALESCE(q.eccezione, false) THEN
     v_ref := COALESCE(reg.eccezioni_referente, false);
     v_hr  := COALESCE(reg.eccezioni_hr, false);
-    v_due := COALESCE(reg.eccezioni_entrambe, false);
   ELSE
     v_f := EXISTS (SELECT 1 FROM public.leave_request_days d WHERE d.request_id = p_request_id AND d.voce = 'F01');
     v_p := EXISTS (SELECT 1 FROM public.leave_request_days d WHERE d.request_id = p_request_id AND d.voce <> 'F01');
     -- una richiesta con ferie e permessi insieme: deve poter decidere chi puo' tutte e due
     v_ref := (NOT v_f OR COALESCE(reg.ferie_referente, true)) AND (NOT v_p OR COALESCE(reg.permessi_referente, true));
     v_hr  := (NOT v_f OR COALESCE(reg.ferie_hr, true)) AND (NOT v_p OR COALESCE(reg.permessi_hr, true));
-    v_due := (v_f AND COALESCE(reg.ferie_entrambe, false)) OR (v_p AND COALESCE(reg.permessi_entrambe, false));
   END IF;
   -- nessuno dei due lati potrebbe decidere (ferie e permessi insieme con lati diversi, oppure
   -- eccezioni spente dopo che la richiesta e' partita): una richiesta non resta senza giudice
   IF NOT v_ref AND NOT v_hr THEN
-    v_ref := true; v_hr := true; v_due := false;
+    v_ref := true; v_hr := true;
   END IF;
-  RETURN jsonb_build_object('referente', v_ref, 'hr', v_hr, 'entrambe', v_due AND v_ref AND v_hr);
+  RETURN jsonb_build_object('referente', v_ref, 'hr', v_hr);
 END
 $function$;
 REVOKE ALL ON FUNCTION public.ferie_regole_richiesta(uuid) FROM PUBLIC, anon, authenticated;
@@ -576,8 +556,7 @@ REVOKE ALL ON FUNCTION public.ferie_mio_lato() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.ferie_mio_lato() TO service_role;
 
 -- Chi chiama puo' decidere questa richiesta, per le scelte del negozio? (i permessi di base li
--- controlla leave_decidi come prima). Conta anche la prima approvazione: chi l'ha data non
--- puo' dare la seconda, nemmeno il Super Advisor; lo stesso lato nemmeno, salvo il Super Advisor.
+-- controlla leave_decidi come prima). L'approvazione e' una sola: chi puo' decidere decide.
 CREATE OR REPLACE FUNCTION public.ferie_lato_puo(p_request_id uuid)
  RETURNS boolean
  LANGUAGE plpgsql
@@ -596,11 +575,6 @@ BEGIN
   IF (SELECT auth.uid()) IS NOT NULL AND q.company_id IS DISTINCT FROM (SELECT public.get_my_company_id()) THEN RETURN false; END IF;
   v_reg := public.ferie_regole_richiesta(p_request_id);
   IF v_reg IS NULL THEN RETURN true; END IF;
-  IF (v_reg ->> 'entrambe')::boolean AND q.prima_decisione IS NOT NULL THEN
-    IF (q.prima_decisione ->> 'utente') = (SELECT auth.uid())::text THEN RETURN false; END IF;
-    -- su una richiesta gia' decisa la referente non interviene: bastano due persone diverse
-    IF NOT v_super AND q.stato = 'inviata' AND (q.prima_decisione ->> 'lato') = v_lato THEN RETURN false; END IF;
-  END IF;
   IF v_super THEN RETURN true; END IF;
   IF v_lato = 'referente' THEN RETURN (v_reg ->> 'referente')::boolean; END IF;
   IF NOT (v_reg ->> 'hr')::boolean THEN RETURN false; END IF;
@@ -620,24 +594,9 @@ CREATE OR REPLACE FUNCTION public.ferie_controlla_lato(p_request_id uuid)
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
-  v_prima jsonb;
   v_lato  text := public.ferie_mio_lato();
 BEGIN
   IF public.ferie_lato_puo(p_request_id) THEN RETURN; END IF;
-  SELECT q.prima_decisione INTO v_prima FROM public.leave_requests q
-   WHERE q.id = p_request_id AND q.company_id = (SELECT public.get_my_company_id()) AND q.stato = 'inviata';
-  IF v_prima IS NULL THEN
-    SELECT q.prima_decisione INTO v_prima FROM public.leave_requests q
-     WHERE q.id = p_request_id AND q.company_id = (SELECT public.get_my_company_id())
-       AND (q.prima_decisione ->> 'utente') = (SELECT auth.uid())::text;
-  END IF;
-  IF (v_prima ->> 'utente') = (SELECT auth.uid())::text THEN
-    RAISE EXCEPTION 'Hai già dato la tua approvazione a questa richiesta: la seconda deve darla un''altra persona.' USING ERRCODE = '22023';
-  ELSIF (v_prima ->> 'lato') = v_lato THEN
-    RAISE EXCEPTION '%', CASE WHEN v_lato = 'hr'
-      THEN 'L''HR ha già approvato: manca l''approvazione della referente del negozio.'
-      ELSE 'La referente ha già approvato: manca l''approvazione dell''HR.' END USING ERRCODE = '22023';
-  END IF;
   RAISE EXCEPTION '%', CASE WHEN v_lato = 'referente'
     THEN 'In questo negozio questa richiesta la decide l''HR.'
     ELSE 'In questo negozio questa richiesta non la decidi tu: guarda in «Regole e orari» chi approva ferie e permessi.' END
@@ -646,72 +605,6 @@ END
 $function$;
 REVOKE ALL ON FUNCTION public.ferie_controlla_lato(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.ferie_controlla_lato(uuid) TO service_role;
-
--- Due approvazioni: NULL = si decide come sempre; {attesa:true} = prima approvazione salvata,
--- la richiesta resta com'e'; {giorni:[...], motivo} = seconda approvazione, vale l'intersezione.
--- Una richiesta GIA' DECISA non si riapre da una parte sola: cambiarne i giorni chiede di nuovo
--- le due approvazioni, di due persone diverse (fino alla seconda resta valida la decisione di
--- prima), oppure il Super Advisor.
-CREATE OR REPLACE FUNCTION public.ferie_doppia_approvazione(p_request_id uuid, p_giorni uuid[], p_motivo text)
- RETURNS jsonb
- LANGUAGE plpgsql
- SECURITY DEFINER
- SET search_path TO 'public', 'pg_temp'
-AS $function$
-DECLARE
-  q        public.leave_requests%ROWTYPE;
-  v_reg    jsonb := public.ferie_regole_richiesta(p_request_id);
-  v_lato   text := public.ferie_mio_lato();
-  v_super  boolean := COALESCE((SELECT public.get_my_role())::text, '') = 'super_advisor';
-  v_decisa boolean;
-  v_nome   text;
-  v_ok     uuid[];
-BEGIN
-  IF v_reg IS NULL OR NOT (v_reg ->> 'entrambe')::boolean THEN RETURN NULL; END IF;
-  SELECT * INTO q FROM public.leave_requests WHERE id = p_request_id FOR UPDATE;
-  v_decisa := q.stato IN ('approvata', 'approvata_parziale', 'respinta');
-  IF q.stato <> 'inviata' AND NOT v_decisa THEN RETURN NULL; END IF;
-  IF v_decisa AND v_super THEN
-    -- il Super Advisor corregge da solo una decisione gia' presa
-    UPDATE public.leave_requests SET prima_decisione = NULL WHERE id = p_request_id AND prima_decisione IS NOT NULL;
-    RETURN NULL;
-  END IF;
-  SELECT COALESCE(array_agg(d.id), '{}') INTO v_ok
-    FROM public.leave_request_days d WHERE d.request_id = p_request_id AND d.id = ANY (p_giorni);
-
-  IF q.prima_decisione IS NULL THEN
-    -- su una richiesta ancora da decidere un rifiuto basta da solo
-    IF cardinality(v_ok) = 0 AND NOT v_decisa THEN RETURN NULL; END IF;
-    SELECT btrim(COALESCE(first_name, '') || ' ' || COALESCE(last_name, '')) INTO v_nome
-      FROM public.user_profiles WHERE id = (SELECT auth.uid());
-    UPDATE public.leave_requests
-       SET prima_decisione = jsonb_build_object('lato', v_lato, 'utente', (SELECT auth.uid()), 'nome', NULLIF(v_nome, ''),
-                                                'giorni', to_jsonb(v_ok), 'motivo', p_motivo, 'quando', now())
-     WHERE id = p_request_id;
-    INSERT INTO public.leave_request_events (company_id, request_id, evento, stato_a, nota, dettaglio, utente_id, utente_nome)
-    VALUES (q.company_id, p_request_id, 'prima_approvazione', q.stato, p_motivo,
-            jsonb_build_object('lato', v_lato, 'giorni_approvati', cardinality(v_ok)), (SELECT auth.uid()), NULLIF(v_nome, ''));
-    RETURN jsonb_build_object('attesa', true);
-  END IF;
-
-  IF (q.prima_decisione ->> 'utente') = (SELECT auth.uid())::text THEN
-    RAISE EXCEPTION 'Hai già dato la tua approvazione a questa richiesta: la seconda deve darla un''altra persona.' USING ERRCODE = '22023';
-  END IF;
-  IF (q.prima_decisione ->> 'lato') = v_lato AND NOT v_super AND NOT v_decisa THEN
-    RAISE EXCEPTION '%', CASE WHEN v_lato = 'hr'
-      THEN 'L''HR ha già approvato: manca l''approvazione della referente del negozio.'
-      ELSE 'La referente ha già approvato: manca l''approvazione dell''HR.' END USING ERRCODE = '22023';
-  END IF;
-  -- la seconda approvazione chiude: la prima ha fatto il suo (resta nella storia della richiesta)
-  UPDATE public.leave_requests SET prima_decisione = NULL WHERE id = p_request_id;
-  RETURN jsonb_build_object(
-    'giorni', COALESCE((SELECT jsonb_agg(x) FROM unnest(v_ok) x
-                         WHERE x::text IN (SELECT jsonb_array_elements_text(q.prima_decisione -> 'giorni'))), '[]'::jsonb),
-    'motivo', q.prima_decisione ->> 'motivo');
-END
-$function$;
-REVOKE ALL ON FUNCTION public.ferie_doppia_approvazione(uuid, uuid[], text) FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.ferie_doppia_approvazione(uuid, uuid[], text) TO service_role;
 
 -- ── 8. Le funzioni esistenti, corrette sul testo vivo ──────────────────
 DO $do$
@@ -751,39 +644,19 @@ BEGIN
       ('public.app_dipendente_ferie()', ARRAY[
         $x$'id', q.id, 'stato', q.stato, 'note', q.note_dipendente,$x$,
         $x$    'senza_ferie', COALESCE(($x$], ARRAY[
-        $x$'id', q.id, 'stato', q.stato, 'eccezione', COALESCE(q.eccezione, false), 'attesa_seconda', (q.prima_decisione IS NOT NULL), 'note', q.note_dipendente,$x$,
+        $x$'id', q.id, 'stato', q.stato, 'eccezione', COALESCE(q.eccezione, false), 'note', q.note_dipendente,$x$,
         $x$    'eccezioni', public.ferie_eccezioni_attive(e.outlet_id),  -- 407
     'senza_ferie', COALESCE(($x$]),
       -- la decisione
       ('public.leave_decidi(uuid,uuid[],text)', ARRAY[
-        $x$  v_motivo     text := NULLIF(btrim(p_motivazione), '');$x$,
-        $x$  IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$,
-        $x$  UPDATE public.leave_request_days$x$], ARRAY[
-        $x$  v_motivo     text := NULLIF(btrim(p_motivazione), '');
-  v_407        jsonb;$x$,
+        $x$  IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$], ARRAY[
         $x$  PERFORM public.ferie_controlla_lato(p_request_id);  -- 407: chi approva, per negozio
 
-  IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$,
-        $x$  -- 407: dove servono due approvazioni
-  v_407 := public.ferie_doppia_approvazione(p_request_id, p_giorni_approvati, v_motivo);
-  IF v_407 ? 'attesa' THEN
-    RETURN 'attesa_seconda';
-  END IF;
-  IF v_407 ? 'giorni' THEN
-    p_giorni_approvati := ARRAY(SELECT jsonb_array_elements_text(v_407 -> 'giorni')::uuid);
-    v_ok := (SELECT count(*) FROM public.leave_request_days
-              WHERE request_id = p_request_id AND id = ANY (p_giorni_approvati));
-    v_motivo := COALESCE(v_motivo, NULLIF(v_407 ->> 'motivo', ''));
-    IF v_ok < v_tot AND v_motivo IS NULL THEN
-      v_motivo := 'Giorni non concessi dalla prima approvazione.';
-    END IF;
-  END IF;
-
-  UPDATE public.leave_request_days$x$]),
+  IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$]),
       -- l'elenco della referente
       ('public.responsabile_ferie_elenco(boolean)', ARRAY[
         $x$'prova', e.is_demo, 'titolo', q.titolo,$x$], ARRAY[
-        $x$'prova', e.is_demo, 'eccezione', COALESCE(q.eccezione, false), 'eccezione_motivo', q.eccezione_motivo, 'prima_decisione', q.prima_decisione, 'posso', public.ferie_lato_puo(q.id), 'titolo', q.titolo,$x$])
+        $x$'prova', e.is_demo, 'eccezione', COALESCE(q.eccezione, false), 'eccezione_motivo', q.eccezione_motivo, 'posso', public.ferie_lato_puo(q.id), 'titolo', q.titolo,$x$])
     ) AS v(firma, ancore, nuovi)
   LOOP
     d := pg_get_functiondef(f.firma::regprocedure);
@@ -799,7 +672,7 @@ BEGIN
   END LOOP;
 
   -- la controproposta accettata rispetta le regole del negozio (terzo giro): la richiesta nasce
-  -- inviata, poi si guardano i giorni vietati, chi puo' decidere e se servono due approvazioni
+  -- inviata, si guardano i giorni vietati e chi puo' decidere, poi e' approvata (una sola firma)
   d := pg_get_functiondef('public.leave_rispondi_controproposta(uuid,boolean,text)'::regprocedure);
   IF position('407' in d) = 0 THEN
     n := d;
@@ -809,8 +682,7 @@ BEGIN
          $x$  v_new uuid;
   v_407 record;  -- 407
   v_blk text;
-  v_ecc text;
-  v_reg jsonb;$x$),
+  v_ecc text;$x$),
         ($x$r.outlet_code, 'approvata', coalesce(r.titolo, 'Ferie') || ' (date proposte)',$x$,
          $x$r.outlet_code, 'inviata', coalesce(r.titolo, 'Ferie') || ' (date proposte)',$x$),
         ($x$NULLIF(v_nome, ''), now(), now(), c.proposta_da, c.proposta_da_nome,
@@ -836,24 +708,23 @@ BEGIN
     END IF;
     -- 407: chi approva, per negozio
     PERFORM public.ferie_controlla_lato(v_new);
-    v_reg := public.ferie_regole_richiesta(v_new);
-    IF v_reg IS NOT NULL AND (v_reg ->> 'entrambe')::boolean THEN
-      -- servono due approvazioni: chi accetta da' la prima, la richiesta aspetta un'altra persona
-      UPDATE leave_requests
-         SET prima_decisione = jsonb_build_object('lato', public.ferie_mio_lato(), 'utente', auth.uid(), 'nome', NULLIF(v_nome, ''),
-               'giorni', (SELECT to_jsonb(COALESCE(array_agg(d.id), '{}')) FROM leave_request_days d WHERE d.request_id = v_new),
-               'motivo', NULL, 'quando', now())
-       WHERE id = v_new;
-      INSERT INTO leave_request_events (company_id, request_id, evento, stato_a, nota, dettaglio, utente_id, utente_nome)
-      VALUES (c.company_id, v_new, 'prima_approvazione', 'inviata', 'Date proposte e accettate',
-              jsonb_build_object('lato', public.ferie_mio_lato(), 'controproposta', c.id), auth.uid(), NULLIF(v_nome, ''));
-    ELSE
-      UPDATE leave_request_days SET stato = 'approvato' WHERE request_id = v_new;
-      UPDATE leave_requests
-         SET stato = 'approvata', decisa_il = now(), decisa_da = c.proposta_da, decisa_da_nome = c.proposta_da_nome,
-             motivazione = 'Date proposte da ' || coalesce(c.proposta_da_nome, 'chi decide le ferie') || ' e accettate.'
-       WHERE id = v_new;
-    END IF;$x$)
+    UPDATE leave_request_days SET stato = 'approvato' WHERE request_id = v_new;
+    UPDATE leave_requests
+       SET stato = 'approvata', decisa_il = now(), decisa_da = c.proposta_da, decisa_da_nome = c.proposta_da_nome,
+           motivazione = 'Date proposte da ' || coalesce(c.proposta_da_nome, 'chi decide le ferie') || ' e accettate.'
+     WHERE id = v_new;
+    -- 407: nel registro resta chi ha registrato l'accettazione
+    INSERT INTO leave_request_events (company_id, request_id, evento, stato_a, nota, dettaglio, utente_id, utente_nome)
+    VALUES (c.company_id, v_new, 'decisione', 'approvata', 'Date proposte e accettate',
+            jsonb_build_object('controproposta', c.id, 'proposta_da', c.proposta_da_nome), auth.uid(), NULLIF(v_nome, ''));$x$),
+        ($x$  UPDATE leave_counterproposals
+     SET stato = CASE WHEN p_accetta THEN 'accettata' ELSE 'rifiutata' END,$x$,
+         $x$  -- 407: la risposta alla proposta resta nel registro della richiesta di partenza
+  INSERT INTO leave_request_events (company_id, request_id, evento, nota, dettaglio, utente_id, utente_nome)
+  VALUES (c.company_id, c.request_id, CASE WHEN p_accetta THEN 'controproposta_accettata' ELSE 'controproposta_rifiutata' END,
+          NULLIF(btrim(p_nota), ''), jsonb_build_object('controproposta', c.id, 'nuova_richiesta', v_new), auth.uid(), NULLIF(v_nome, ''));
+  UPDATE leave_counterproposals
+     SET stato = CASE WHEN p_accetta THEN 'accettata' ELSE 'rifiutata' END,$x$)
       ) AS v(ancora, nuovo)
     LOOP
       IF (length(n) - length(replace(n, f.ancora, ''))) / length(f.ancora) <> 1 THEN
@@ -916,7 +787,7 @@ END
 $do$;
 
 COMMENT ON TABLE public.leave_counterproposals IS
-  'Altre date proposte da chi decide le ferie. La richiesta originale si chiude respinta con il motivo; se la persona accetta nasce una richiesta nuova che segue le regole del negozio (407): approvata dove basta una firma, in attesa della seconda dove ne servono due, eccezione se tocca un giorno vietato.';
+  'Altre date proposte da chi decide le ferie. La richiesta originale si chiude respinta con il motivo; se la persona accetta nasce una richiesta nuova che segue le regole del negozio (407): nasce approvata (una sola approvazione), come eccezione se tocca un giorno vietato; l''accetta solo chi puo'' decidere in quel negozio.';
 
 COMMIT;
 
@@ -927,7 +798,7 @@ COMMIT;
 --        has_table_privilege('anon', 'public.leave_hr', 'select') AS anon,                                           -- false
 --        has_table_privilege('authenticated', 'public.leave_hr', 'update') AS hr_update,                             -- false
 --        (SELECT count(*) FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'leave_requests'
---           AND column_name IN ('eccezione', 'eccezione_motivo', 'prima_decisione')) AS colonne,                     -- 3
+--           AND column_name IN ('eccezione', 'eccezione_motivo')) AS colonne,                                        -- 2
 --        (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
 --           AND p.proname IN ('app_dipendente_chiedi_ferie', 'app_dipendente_ferie', 'leave_decidi', 'responsabile_ferie_elenco')
 --           AND (p.prosrc ~ '407' OR p.prosrc ~ 'ferie_lato_puo' OR p.prosrc ~ 'ferie_eccezioni_attive')) AS corrette, -- 4
@@ -940,4 +811,4 @@ COMMIT;
 --        has_table_privilege('authenticated', 'public.leave_hr', 'truncate') AS hr_truncate,                         -- false
 --        (SELECT count(*) FROM public.outlet_events WHERE regole ? 'prima_407') AS eventi_allineati,                 -- quanti erano con una voce sola
 --        (SELECT count(*) FROM public.outlet_leave_rules) AS regole, (SELECT count(*) FROM public.leave_hr) AS hr,  -- 0, 0
---        (SELECT count(*) FROM public.leave_requests WHERE eccezione IS NOT NULL OR prima_decisione IS NOT NULL) AS toccate; -- 0
+--        (SELECT count(*) FROM public.leave_requests WHERE eccezione IS NOT NULL) AS toccate; -- 0

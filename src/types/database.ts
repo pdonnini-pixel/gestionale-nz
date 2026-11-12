@@ -20026,16 +20026,13 @@ export type Database = {
       outlet_leave_rules: {
         Row: {
           company_id: string
-          eccezioni_entrambe: boolean | null
           eccezioni_hr: boolean | null
           eccezioni_referente: boolean | null
-          ferie_entrambe: boolean | null
           ferie_feriali: boolean | null
           ferie_festivi: boolean | null
           ferie_hr: boolean | null
           ferie_referente: boolean | null
           ferie_weekend: boolean | null
-          permessi_entrambe: boolean | null
           permessi_feriali: boolean | null
           permessi_festivi: boolean | null
           permessi_hr: boolean | null
@@ -20047,16 +20044,13 @@ export type Database = {
         }
         Insert: {
           company_id: string
-          eccezioni_entrambe?: boolean | null
           eccezioni_hr?: boolean | null
           eccezioni_referente?: boolean | null
-          ferie_entrambe?: boolean | null
           ferie_feriali?: boolean | null
           ferie_festivi?: boolean | null
           ferie_hr?: boolean | null
           ferie_referente?: boolean | null
           ferie_weekend?: boolean | null
-          permessi_entrambe?: boolean | null
           permessi_feriali?: boolean | null
           permessi_festivi?: boolean | null
           permessi_hr?: boolean | null
@@ -20068,16 +20062,13 @@ export type Database = {
         }
         Update: {
           company_id?: string
-          eccezioni_entrambe?: boolean | null
           eccezioni_hr?: boolean | null
           eccezioni_referente?: boolean | null
-          ferie_entrambe?: boolean | null
           ferie_feriali?: boolean | null
           ferie_festivi?: boolean | null
           ferie_hr?: boolean | null
           ferie_referente?: boolean | null
           ferie_weekend?: boolean | null
-          permessi_entrambe?: boolean | null
           permessi_feriali?: boolean | null
           permessi_festivi?: boolean | null
           permessi_hr?: boolean | null
@@ -20107,7 +20098,6 @@ export type Database = {
           note_dipendente: string | null
           origine: string
           outlet_code: string | null
-          prima_decisione: Json | null
           stato: string
           titolo: string | null
           updated_at: string
@@ -20129,7 +20119,6 @@ export type Database = {
           note_dipendente?: string | null
           origine?: string
           outlet_code?: string | null
-          prima_decisione?: Json | null
           stato?: string
           titolo?: string | null
           updated_at?: string
@@ -20151,7 +20140,6 @@ export type Database = {
           note_dipendente?: string | null
           origine?: string
           outlet_code?: string | null
-          prima_decisione?: Json | null
           stato?: string
           titolo?: string | null
           updated_at?: string
