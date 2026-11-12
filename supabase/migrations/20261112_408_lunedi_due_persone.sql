@@ -77,6 +77,9 @@ $$;
 
 REVOKE ALL ON FUNCTION public.shifts_pubblicato_il() FROM PUBLIC, anon, authenticated;
 
+-- ATTENZIONE AL NOME: i trigger BEFORE partono in ordine alfabetico. Questo deve
+-- partire prima di trg_shifts_touch, perche' legge OLD.updated_at ancora vero.
+-- Chi rinomina un trigger su shifts controlla che l'ordine resti questo.
 DROP TRIGGER IF EXISTS trg_shifts_pubblicato_il ON public.shifts;
 CREATE TRIGGER trg_shifts_pubblicato_il
   BEFORE INSERT OR UPDATE ON public.shifts

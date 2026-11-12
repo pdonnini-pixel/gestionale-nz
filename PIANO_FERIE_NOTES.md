@@ -377,6 +377,7 @@ decidere in quel negozio; dove servono due approvazioni la richiesta **resta `in
 diventa `approvata` come prima. Prima la stessa persona poteva proporre e accettare, e ottenere
 ferie approvate con una firma sola e senza i controlli sui giorni (rilievo del revisore di
 sicurezza). `leave_controproponi` non cambia: passa già da `leave_decidi`.
+Limite noto (revisore, 12/11/2026): `leave_controproponi` non controlla prima i giorni vietati. Se l'ufficio propone date in un giorno dove il negozio ha spento ferie o permessi e non ha acceso le eccezioni, la proposta nasce ma non si può accettare: l'accettazione è rifiutata con il motivo e la proposta resta aperta. Da valutare un avviso già alla proposta.
 
 ## Moduli ottobre-dicembre 2026 caricati (20/10/2026)
 

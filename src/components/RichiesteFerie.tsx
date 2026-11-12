@@ -499,15 +499,19 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
     // Dalla 407 la richiesta nata dalle date proposte segue le regole del negozio: dove
     // servono due approvazioni resta in attesa della seconda persona.
     let inAttesa = false;
+    let statoLetto = false;
     if (accetta && typeof nuova === 'string') {
       const { data: q } = await supabase.from('leave_requests').select('stato').eq('id', nuova).maybeSingle();
-      inAttesa = (q as { stato?: string } | null)?.stato === 'inviata';
+      const stato = (q as { stato?: string } | null)?.stato;
+      statoLetto = typeof stato === 'string';
+      inAttesa = stato === 'inviata';
     }
     toast({
       type: 'success',
       message: !accetta ? 'Proposta rifiutata: si può fare una nuova richiesta.'
         : inAttesa ? 'Date accettate. In questo negozio servono due approvazioni: la richiesta aspetta la seconda persona, in Approvazioni.'
-        : 'Date accettate: risultano già approvate.',
+        : statoLetto ? 'Date accettate: risultano già approvate.'
+        : 'Date accettate. Controlla in Approvazioni se serve la seconda approvazione.',
       duration: inAttesa ? 12000 : undefined,
     });
     await carica();
