@@ -131,6 +131,14 @@ Pacchetto privacy di Lilian (versione 1.1): New Zago ha deciso di togliere la ca
 - Campi liberi del dipendente (motivo nell'app, nota della richiesta di ferie): massimo 200 caratteri (`MAX_MOTIVO`) e sotto l'avviso `AVVISO_CAMPO_LIBERO` (niente diagnosi, sintomi, certificati, salute o famiglia).
 - Manuale: l'esempio di Giulia non scrive più «Visita medica».
 
+## storico delle rettifiche e motivi oscurabili (migration 403, 12/11/2026)
+Dal documento 06 del pacchetto privacy (correzioni di priorità alta). Accesso a due fattori: per ora no, solo password per tutti (Patrizio, 12/11/2026).
+- `attendance_rettifiche`: storico solo in aggiunta, scritto da due trigger (`trg_rettifiche_timbratura` su `attendance_punches`, insert solo per `origine = 'manuale'` e ogni update; `trg_rettifiche_caso` su `attendance_eventi`). Ha azione, prima e dopo dei campi cambiati, autore (`auth.uid()`, null = sistema) e ora. Chiude i tre buchi: ora corretta di un'entrata segnata, conferma dalla giornata, riapertura di un caso. I testi del dipendente (`motivo_dipendente`, `nota`) non si copiano: solo «cambiato/tolto».
+- Lettura: tabella solo per `timbrature_gestore()` (con i recinti cassa, dipendente, demo); `presenze_storico(evento)` con i nomi per chi può confermare il negozio. Scrivono solo i trigger.
+- `presenze_oscura_motivo(evento, perche)` e `timbrature_oscura_nota(timbratura, perche)`: solo chi segue il personale, non sui propri casi, perché da elenco chiuso (`dati_sanitari`, `dati_personali`, `non_pertinente`). Il testo si svuota; restano `*_oscurat*_il/_da/_perche`.
+- Interfaccia: nella decisione del caso, «Oscura» accanto al motivo e «Storico delle modifiche» in fondo (`PresenzeConferme.tsx`).
+- Prova del 12/11 su NZ in transazione annullata: perché libero rifiutato, testo svuotato e mai nello storico, quattro passi con autore.
+
 ## aperto
 - **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: informativa privacy (entrata dimenticata con la migration 382, PIN con la 384).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).
