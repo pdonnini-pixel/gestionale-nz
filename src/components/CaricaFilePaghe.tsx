@@ -15,6 +15,12 @@
 //
 // Il flusso che salva risponde con l'evento `paghe-esito` (segnalaEsitoPaghe).
 //
+// Dal 12/11/2026 la pagina Dipendenti ha due aree. La zona resta montata in tutte e
+// due: nei costi e' quella di sempre; in «Persone e lavoro» (`compatta`) non si vede,
+// salvo quando c'e' un caricamento in corso, da confermare o appena finito: allora
+// lo dice in una riga, con il pulsante per tornarci. La pagina non cambia mai scheda
+// da sola: i due flussi che salvano restano montati (nascosti) e ci si va con un clic.
+//
 // Il modello F24 dello studio (08/10/2026) si salva qui dentro, senza cambiare
 // scheda: si legge (src/lib/modelloF24.ts), si archivia il PDF e
 // save_payroll_f24_document (migration 270) crea la scadenza fiscale gia'
@@ -120,12 +126,16 @@ async function testoDelFile(file: File): Promise<string> {
   return pages.slice(0, 3).map((items) => items.map((t) => t.str).join(' ')).join(' ')
 }
 
-export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
+export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, compatta = false, onTorna }: {
   companyId: string
   userId: string | null
   /** Apre il file nel suo flusso e restituisce il nonce con cui il flusso rispondera'. */
   onApri: (f: Omit<FileInArrivo, 'nonce'>) => number
-  onVai: (vista: 'lordi' | 'ferie') => void
+  onVai: (vista: 'costi' | 'lordi' | 'ferie') => void
+  /** Fuori dall'area dei costi: solo una riga di stato, e solo se c'e' qualcosa da dire. */
+  compatta?: boolean
+  /** Dalla riga compatta: torna all'area dove sta la zona di caricamento. */
+  onTorna?: () => void
 }) {
   const [voci, setVoci] = useState<Voce[]>([])
   const [drag, setDrag] = useState(false)
@@ -133,6 +143,9 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
   // 20/10/2026). Si apre da solo appena si trascina un file o ci sono file in
   // lavorazione, cosi' l'esito finale resta sempre visibile.
   const [aperto, setAperto] = useState(false)
+  // Riga compatta: «Ho visto» nasconde la chiusura verde finche' non arriva un file nuovo.
+  const [vistiFinoA, setVistiFinoA] = useState(0)
+  const zonaRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const seq = useRef(0)
   // Esiti arrivati dai flussi, per nonce: la coda li aspetta uno alla volta.
@@ -171,7 +184,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
       attese.current.set(nonce, (e) => {
         window.clearTimeout(timer)
         // In attesa di conferma: la coda si ferma qui finche' non arriva l'esito
-        // finale. Il file dopo cambierebbe scheda e l'anteprima da confermare sparirebbe.
+        // finale. Il file dopo prenderebbe il posto dell'anteprima da confermare.
         if (e.stato === 'da_confermare') return false
         resolve()
         return true
@@ -290,6 +303,41 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
       ? { ok: true, titolo: 'Finito, tutti i dati sono aggiornati', testo: `${salvati === 1 ? '1 documento salvato' : `${salvati} documenti salvati`}${voci.some((v) => v.stato === 'archiviato') ? ', i Netti negativi archiviati' : ''}. Non c'è altro da fare.` }
       : { ok: false, titolo: salvati ? 'Quasi finito' : 'Niente di salvato', testo: `${salvati ? `${salvati === 1 ? '1 documento salvato' : `${salvati} documenti salvati`}. ` : ''}${resta.join('; ')}.` }
 
+  // La scheda dove sta l'anteprima del primo file che aspetta una conferma a mano.
+  const daConfermareAltrove = voci.find((v) => v.stato === 'da_confermare' && !v.f24 && (v.r?.tipo === 'elenco_netti' || v.r?.tipo === 'prospetto'))
+  const schedaDi = (v: Voce): 'costi' | 'lordi' => (v.r?.tipo === 'elenco_netti' ? 'costi' : 'lordi')
+
+  if (compatta) {
+    // Niente in ballo, o chiusura verde gia' vista: nell'altra area la zona non si vede.
+    if (voci.length === 0 || (chiusura?.ok && vistiFinoA === voci.length)) return null
+    const fatti = voci.filter((v) => v.stato === 'salvato' || v.stato === 'archiviato').length
+    const torna = () => {
+      if (daConfermareAltrove) onVai(schedaDi(daConfermareAltrove)); else onTorna?.()
+      window.setTimeout(() => zonaRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 150)
+    }
+    const tono = !chiusura ? 'bg-blue-50 border-blue-200 text-blue-900' : chiusura.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'
+    return (
+      <div ref={zonaRef} role="status" className={`rounded-xl border px-3.5 py-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm ${tono}`}>
+        {!chiusura ? <Loader2 size={16} className="animate-spin shrink-0" /> : chiusura.ok ? <CheckCircle2 size={18} className="shrink-0 text-emerald-600" /> : <AlertTriangle size={18} className="shrink-0" />}
+        <div className="flex-1 min-w-[14rem]">
+          <span className="font-semibold">
+            {!chiusura ? `File dello studio paghe: salvataggio in corso (${fatti} di ${voci.length} fatti)`
+              : daConfermareAltrove ? 'File dello studio paghe: un file aspetta la tua conferma'
+              : `File dello studio paghe: ${chiusura.titolo.toLowerCase()}`}
+          </span>
+          {chiusura && <span className="text-xs"> · {chiusura.ok ? chiusura.testo : chiusura.testo.replaceAll('scritto accanto', 'scritto accanto al file, nella zona di caricamento')}</span>}
+        </div>
+        <button type="button" onClick={torna}
+          className="px-3 py-1.5 rounded-lg bg-white border border-current/30 text-xs font-semibold inline-flex items-center gap-1 hover:bg-white/70">
+          {daConfermareAltrove ? 'Vai alla conferma' : 'Torna al caricamento'} <ArrowRight size={13} />
+        </button>
+        {chiusura?.ok && (
+          <button type="button" onClick={() => setVistiFinoA(voci.length)} className="text-xs font-medium underline underline-offset-2">Ho visto</button>
+        )}
+      </div>
+    )
+  }
+
   const trascina = {
     onDragOver: (e: DragEvent) => { e.preventDefault(); setDrag(true) },
     onDragLeave: () => setDrag(false),
@@ -314,7 +362,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
+    <div ref={zonaRef} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
       <div className="flex items-center gap-2 mb-1">
         <FileUp size={18} className="text-blue-600" />
         <h3 className="font-bold text-slate-800">Carica i file dello studio paghe</h3>
@@ -367,6 +415,13 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
                   <Check size={13} />
                 </button>
               )}
+              {v.stato === 'da_confermare' && !v.f24 && (v.r?.tipo === 'elenco_netti' || v.r?.tipo === 'prospetto') && (
+                <button onClick={() => onVai(schedaDi(v))}
+                  className="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium flex items-center gap-1">
+                  Vai alla conferma
+                  <ArrowRight size={13} />
+                </button>
+              )}
               {v.stato === 'pronto' && v.r && (v.r.tipo === 'statistica' || v.r.tipo === 'ratei_ferie') && (
                 <button onClick={() => apri(v)}
                   className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium flex items-center gap-1">
@@ -395,9 +450,9 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai }: {
           <li><strong>Elenco netti</strong> (mensilità normale, cedolino aggiuntivo, mensilità aggiuntive: a giugno è la 14ª, a dicembre la 13ª): le buste si salvano in «Costi & cedolini» e si agganciano da sole alle disposizioni di emolumenti arrivate in banca.</li>
           <li><strong>Prospetto riepilogativo</strong>: salva il costo per outlet in «Costo lordo» e quanto va versato con l'F24 del 16 del mese dopo; il gestionale controlla che le deleghe in banca lo coprano.</li>
           <li><strong>Modello F24</strong> (il PDF «… in scadenza il 16-…» dello studio): è la cifra vera da versare e prende il posto della stima del Prospetto. Il gestionale crea la scadenza in «Scadenze fiscali» con importo, data e conto di addebito scritti nel modello, già segnata come disposta: la banca la addebita da sola, non va pagata a mano. Quando la delega compare in banca al centesimo, la scadenza si chiude da sola.</li>
-          <li><strong>Conferma</strong>: solo se per quel mese c'erano già buste o costo lordo (il file li sostituirebbe) o se i totali non tornano (per il modello F24: un importo diverso già presente per quella scadenza, o un modulo che non quadra). In quel caso trovi l'anteprima aperta, o il pulsante di conferma accanto al file.</li>
+          <li><strong>Conferma</strong>: solo se per quel mese c'erano già buste o costo lordo (il file li sostituirebbe) o se i totali non tornano (per il modello F24: un importo diverso già presente per quella scadenza, o un modulo che non quadra). In quel caso accanto al file trovi «Vai alla conferma», che apre la scheda con l'anteprima, o il pulsante di conferma. La pagina non cambia scheda da sola, e se intanto passi a turni o presenze l'esito ti segue in una riga in alto.</li>
           <li><strong>Netti negativi</strong>: si archivia e basta, per scelta non si importa.</li>
-          <li><strong>Statistica costo orario</strong> e <strong>ratei ferie</strong>: vengono riconosciuti e ti porta nella scheda dove si caricano.</li>
+          <li><strong>Statistica costo orario</strong> e <strong>ratei ferie</strong>: vengono riconosciuti, e il pulsante accanto ti porta nella scheda dove si caricano.</li>
           <li>Quello che non torna (una disposizione senza buste, un F24 che manca) diventa una domanda in Banche → Documenti banca → «Da chiarire».</li>
         </ul>
       </details>
