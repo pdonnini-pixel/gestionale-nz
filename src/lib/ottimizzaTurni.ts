@@ -34,7 +34,7 @@
 // Funzioni pure, nessuna query. Test in ottimizzaTurni.test.ts.
 
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, giornoIso, giornoPieno, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona,
+  SLOT_MINUTI, REGOLE_DEFAULT, RIPOSO_LEGALE, giornoIso, giornoPieno, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno,
 } from './turni';
 
@@ -55,6 +55,8 @@ export interface RegoleNuove {
    * (10-19 in un negozio che apre alle 10; Patrizio, 11/11/2026).
    */
   responsabile?: string | null;
+  /** la vice responsabile: con la responsabile serve a `sceltePerLaSettimana` per apertura e chiusura dei giorni caldi */
+  vice?: string | null;
   /** le ore di contratto che il traffico non chiede vanno comunque in turno, prima venerdi', sabato e domenica */
   riempiContratto?: boolean;
   /** i giorni a organico pieno (sabato, domenica, festivi, eventi); senza, valgono sabato e domenica */
@@ -63,6 +65,25 @@ export interface RegoleNuove {
   giorniGia?: Map<string, number>;
   /** giri di ricerca per partenza (default in proporzione a persone e giorni) */
   giri?: number;
+  // ── Regole del 12/11/2026 ──
+  /**
+   * Riposi: quanti a settimana a testa se possibile (mai meno di uno, per legge), e per ogni
+   * persona i giorni in cui riposa di preferenza e quelli in cui non riposa mai (1 = lunedi' ...
+   * 5 = venerdi'). Senza preferenze il riposo lo decide la turnazione.
+   */
+  riposi?: { min?: number; preferiti?: Map<string, number[]>; mai?: Map<string, number[]> };
+  /** giorni della settimana che non stanno in `giorni` (settimana a cavallo di due mesi): servono a contare i riposi */
+  giorniFuori?: number;
+  /** straordinari il piu' possibile pari fra tutte */
+  straordinariPari?: boolean;
+  /**
+   * Responsabile e vice nei giorni caldi: `ids` = [responsabile, vice] (o solo la responsabile).
+   * In ogni giorno di `giorni` una apre e resta `ore` ore; con `alterna` l'altra fa la chiusura e
+   * il giorno caldo dopo si scambiano. Sostituisce `responsabile`.
+   */
+  guidaCaldi?: { ids: string[]; ore: number; alterna: boolean; giorni: Set<string> };
+  /** i giorni caldi in cui sono ammessi gli straordinari; senza, valgono i `giorniPieni` */
+  giorniStraordinari?: Set<string>;
 }
 
 /** La chiave di una coppia di persone, uguale in tutti e due gli ordini. */
@@ -124,6 +145,54 @@ export function scegliGiorniLiberi(ids: string[], gia: Map<string, number> = new
   return out;
 }
 
+/**
+ * Le scelte del negozio del 12/11/2026 tradotte per `ottimizzaSettimana`, lette dai giorni
+ * (che sanno gia' se sono caldi) e dalle regole. Dove il negozio non ha i giorni caldi ne' i
+ * riposi minimi restituisce un oggetto vuoto: chi chiama resta con il comportamento di prima.
+ *
+ *  - giorni in cui lavorano tutte e giorni con gli straordinari ammessi;
+ *  - responsabile e vice: una apre e resta le sue ore, l'altra chiude, a turno;
+ *  - riposi: il minimo della settimana (quello del negozio, o meno se un periodo ne chiede
+ *    meno, mai sotto uno) con i giorni preferiti e vietati di ognuna;
+ *  - straordinari pari.
+ * `simulazione`: gli straordinari li decide chi simula, non i giorni caldi.
+ */
+export function sceltePerLaSettimana(args: {
+  giorni: GiornoPiano[];
+  regole: RegoleTurni;
+  responsabile?: string | null;
+  vice?: string | null;
+  riposi?: { preferiti?: Map<string, number[]>; mai?: Map<string, number[]> };
+  /** giorni della settimana che non stanno in `giorni` */
+  giorniFuori?: number;
+  simulazione?: boolean;
+}): Partial<RegoleNuove> {
+  const { giorni, regole } = args;
+  const aperti = giorni.filter((g) => !g.chiuso);
+  const conFlag = aperti.some((g) => g.caldo !== undefined);
+  const out: Partial<RegoleNuove> = {};
+  if (conFlag && aperti.some((g) => g.caldo)) {
+    // dove i giorni caldi del negozio sono spenti resta «nel weekend lavorano tutti» (regola 8, tutti i
+    // negozi): un evento nuovo aggiunge il suo giorno, non toglie sabato e domenica
+    out.giorniPieni = new Set(aperti.filter((g) => g.tutti || (!regole.giorniPieni && giornoIso(g.data) >= 6)).map((g) => g.data));
+    out.giorniStraordinari = new Set(aperti.filter((g) => g.straordinariCaldo).map((g) => g.data));
+    out.straordinariWeekend = !args.simulazione && out.giorniStraordinari.size > 0;
+    const ids = [args.responsabile, regole.caldiGuidaApreChiude ? args.vice : null].filter((x): x is string => !!x);
+    const giorniGuida = new Set(aperti.filter((g) => g.guida).map((g) => g.data));
+    if (ids.length && giorniGuida.size) {
+      out.guidaCaldi = { ids: [...new Set(ids)], ore: regole.caldiOreApertura ?? PRESENZA_RESPONSABILE_WEEKEND / 60, alterna: !!regole.caldiGuidaApreChiude, giorni: giorniGuida };
+    }
+  }
+  const dePeriodi = aperti.map((g) => g.riposiMin).filter((n): n is number => typeof n === 'number');
+  const minimi = [...(regole.riposiMinSettimana != null ? [regole.riposiMinSettimana] : []), ...dePeriodi];
+  if (minimi.length || args.riposi?.preferiti?.size || args.riposi?.mai?.size) {
+    out.riposi = { ...(minimi.length ? { min: Math.max(RIPOSO_LEGALE, Math.min(...minimi)) } : {}), preferiti: args.riposi?.preferiti, mai: args.riposi?.mai };
+    out.giorniFuori = args.giorniFuori ?? Math.max(0, 7 - giorni.length);
+  }
+  if (regole.straordinariPari) out.straordinariPari = true;
+  return out;
+}
+
 // ── Il conto ─────────────────────────────────────────────────────────────
 
 /** Sabato e domenica la responsabile resta nove ore dall'apertura: 10-19 (Patrizio, 11/11/2026). */
@@ -148,6 +217,17 @@ export const PESI = {
   turno: 150,               // ogni turno: meglio pochi lunghi
   coppiaPrima: 40,          // coppia dei feriali gia' vista nelle settimane prima, per volta
   coppiaRipetuta: 60,       // coppia che si ripete nella stessa settimana
+  // ── 12/11/2026. I riposi si cercano «se possibile»: stanno sotto il minimo delle fasce (110.000
+  // la mezz'ora), che non si perde mai, e valgono piu' degli straordinari pari («prima i riposi a
+  // testa, poi gli straordinari pari»). Sopra le fasce, un riposo vale al massimo un'ora e un
+  // quarto di una persona che MODA chiederebbe in piu' (misura sulla settimana del Black Friday
+  // 2026 a Roma Soratte: sotto i 15.000 vinceva la parita' degli straordinari e la responsabile
+  // restava con un riposo solo). ──
+  riposoVietato: 30_000,    // persona a riposo in un giorno in cui non riposa mai
+  riposoMancante: 25_000,   // riposo che manca per arrivare al minimo del negozio, a persona
+  riposoInPiu: 400,         // riposi oltre il minimo, al quadrato: si distribuiscono fra tutte
+  // pesa meno di un riposo: con un evento prima i riposi a testa, poi gli straordinari pari (Patrizio, 12/11/2026)
+  straordinarioPari: 200,   // distanza al quadrato dalla media degli straordinari
 } as const;
 
 // Inizio e presenza in minuti, tutti e due sulla griglia delle mezz'ore. Le ore lavorate
@@ -173,11 +253,25 @@ interface Quadro {
   minLavoro: number;
   /** ore lavorate per ogni presenza (indice = presenza / mezz'ora) */
   lav: number[];
-  /** indice della responsabile fra le persone, o -1, e la sua presenza di sabato e domenica per giorno */
-  resp: number;
-  respPresenza: number[];
+  /** chi apre e chi chiude in ogni giorno caldo (indice fra le persone, o -1), e la presenza di chi apre */
+  apreP: number[];
+  chiudeP: number[];
+  aprePresenza: number[];
   straordWeekend: boolean;
   pieno: boolean[];
+  /** giorni in cui le ore possono andare oltre il contratto perche' caldi */
+  straordCaldo: boolean[];
+  /** riposi: minimo del negozio (0 = regola spenta), giorni della settimana, preferiti e vietati per persona (bit per giorno 1-7) */
+  riposiMin: number;
+  giorniSettimana: number;
+  settimanaIntera: boolean;
+  /** caselle chiuse per prova: li' la persona non puo' avere un turno (serve a `riparaRiposi`) */
+  blocco: boolean[][];
+  preferiti: number[];
+  mai: number[];
+  /** la persona potrebbe lavorare quel giorno (aperto, disponibile, non fisso) */
+  puo: boolean[][];
+  pari: boolean;
   /**
    * Le ore che ognuno puo' fare: il contratto, oppure quelle che aveva gia' nei
    * turni di partenza se erano di piu' (straordinari ammessi, ore anticipate nelle
@@ -230,11 +324,11 @@ function costo(q: Quadro, st: Stato): number {
       const h = q.lav[x.w / SLOT_MINUTI];
       ore[p] += h;
       // straordinari: nei giorni di evento e, quando serve, il sabato e la domenica (Patrizio, 11/11/2026)
-      if (g.straordinari || (q.pieno[d] && q.straordWeekend)) oreEvento[p] += h;
+      if (g.straordinari || (q.straordCaldo[d] && q.straordWeekend)) oreEvento[p] += h;
       giorniLavoro[p] += 1;
       c += PESI.turno;
       if (q.eGuida[p]) guidaPresente = true;
-      if (q.libero[p] === iso) c += PESI.giornoLibero;
+      if (q.libero[p] === iso || (q.preferiti[p] >> iso) & 1) c += PESI.giornoLibero;
       let a = (x.s - g.apre) / SLOT_MINUTI; if (a < 0) a = 0;
       let b = (x.s + x.w - g.apre) / SLOT_MINUTI; if (b > n) b = n;
       for (let k = a; k < b; k++) cop[k] += 1;
@@ -258,10 +352,19 @@ function costo(q: Quadro, st: Stato): number {
     }
     if (quanti + q.fissePersone[d].size === 1) c += PESI.unaSola;
     if (iso === 1 && q.guidaAttiva && !guidaPresente && q.guidaPossibile[d]) c += PESI.lunediSenzaGuida;
-    if (q.pieno[d] && q.resp >= 0 && q.weekendDovuto[q.resp][d]) {
-      const x = st[q.resp][riga];
-      if (!x || x.s !== q.limiti[q.resp][d].apre || x.w !== q.respPresenza[d]) c += PESI.domenicaApertura;
+    // giorni caldi: chi apre fa il suo orario dall'apertura, chi chiude arriva alla chiusura
+    const ap = q.apreP[d];
+    if (ap >= 0) {
+      const x = st[ap][riga];
+      if (!x || x.s !== q.limiti[ap][d].apre || x.w !== q.aprePresenza[d]) c += PESI.domenicaApertura;
     }
+    const ch = q.chiudeP[d];
+    if (ch >= 0) {
+      const x = st[ch][riga];
+      if (!x || x.s + x.w !== q.limiti[ch][d].chiude) c += PESI.domenicaApertura;
+    }
+    // chi non riposa mai in questo giorno della settimana e non ha un turno
+    if (iso <= 5) for (let p = 0; p < P; p++) if ((q.mai[p] >> iso) & 1 && !st[p][riga] && q.puo[p][d]) c += PESI.riposoVietato;
     if (q.pieno[d]) {
       for (let p = 0; p < P; p++) if (!st[p][riga] && q.weekendDovuto[p][d]) c += PESI.weekendLibero;
     } else {
@@ -276,8 +379,21 @@ function costo(q: Quadro, st: Stato): number {
     const n = coppieSett[k];
     if (n) c += q.coppiePrima[k] * n * PESI.coppiaPrima + (n - 1) * PESI.coppiaRipetuta;
   }
+  let sommaOltre = 0;
+  for (let p = 0; p < P; p++) { const o = ore[p] - persone[p].ore; if (o > 1e-9) sommaOltre += o; }
+  const mediaOltre = q.pari && P > 0 ? sommaOltre / P : 0;
   for (let p = 0; p < P; p++) {
     const oltre = ore[p] - persone[p].ore;
+    if (q.pari) { const o = oltre > 0 ? oltre : 0; c += (o - mediaOltre) * (o - mediaOltre) * PESI.straordinarioPari; }
+    if (q.riposiMin > 0 && q.giorniSettimana >= 7) {
+      const riposi = q.giorniSettimana - giorniLavoro[p];
+      if (riposi < q.riposiMin) c += (q.riposiMin - riposi) * PESI.riposoMancante;
+      // i riposi in piu' si distribuiscono solo sulla settimana intera: in un pezzo a cavallo del
+      // mese i giorni dell'altro mese non si conoscono tutti, e il conto spingerebbe a far lavorare tutte
+      else if (q.settimanaIntera) c += (riposi - q.riposiMin) * (riposi - q.riposiMin) * PESI.riposoInPiu;
+    }
+    // per legge almeno un giorno di riposo nella settimana intera
+    if (q.giorniSettimana >= 7 && giorniLavoro[p] > 7 - RIPOSO_LEGALE) return Infinity;
     if (oltre > 1e-9) {
       // oltre il contratto solo con le ore dei giorni di evento, piu' quelle che la partenza
       // aveva gia' fuori dagli eventi (straordinari ammessi, anticipo a cavallo del mese)
@@ -310,7 +426,7 @@ function semeDi(testo: string): number {
 /** Un pezzo dentro i limiti della persona quel giorno, o null se non ci sta. */
 function dentro(q: Quadro, p: number, d: number, s: number, w: number): Pezzo | null {
   const l = q.limiti[p][d];
-  if (q.giornoFisso[p][d] || l.max < q.minLavoro) return null;
+  if (q.giornoFisso[p][d] || q.blocco[p][d] || l.max < q.minLavoro) return null;
   const lavoro = Math.max(q.minLavoro, Math.min(l.max, Math.round(w / SLOT_MINUTI) * SLOT_MINUTI));
   const dur = durata(lavoro, q.regole);
   if (dur > l.chiude - l.apre) return null;
@@ -426,7 +542,7 @@ function mossa(q: Quadro, st: Stato, reg: Registro, r: () => number): boolean {
 /** I turni possibili di una persona in un giorno: ogni inizio e ogni durata, a passi. */
 function possibili(q: Quadro, p: number, d: number, passoInizio: number, lunghezze?: number[]): Pezzo[] {
   const l = q.limiti[p][d];
-  if (q.giornoFisso[p][d] || l.max < q.minLavoro) return [];
+  if (q.giornoFisso[p][d] || q.blocco[p][d] || l.max < q.minLavoro) return [];
   const out: Pezzo[] = [];
   const ws = lunghezze ?? Array.from({ length: (l.max - q.minLavoro) / SLOT_MINUTI + 1 }, (_, i) => q.minLavoro + i * SLOT_MINUTI);
   for (const w of new Set(ws.map((x) => Math.max(q.minLavoro, Math.min(l.max, x))))) {
@@ -504,7 +620,7 @@ function riparaWeekend(q: Quadro, st: Stato, c0: number): number {
   let c = c0;
   const lunghezze = [q.minLavoro, 300, 360, 480, 540, 600];
   for (let d = 0; d < q.giorni.length; d++) {
-    if (q.giorni[d].chiuso || giornoIso(q.giorni[d].data) < 6) continue;
+    if (q.giorni[d].chiuso || !q.pieno[d]) continue;
     for (let p = 0; p < q.persone.length; p++) {
       if (st[p][d]) continue;
       let meglio: { x: Pezzo; d2: number; y: Pezzo | null; c: number } | null = null;
@@ -529,6 +645,43 @@ function riparaWeekend(q: Quadro, st: Stato, c0: number): number {
       }
       if (meglio) { st[p][d] = meglio.x; st[p][meglio.d2] = meglio.y; c = meglio.c; }
     }
+  }
+  return c;
+}
+
+/**
+ * Chi ha meno riposi del minimo del negozio (12/11/2026): si prova a toglierle un turno di un
+ * giorno non caldo e a far risistemare la settimana alle altre, tenendo chiusa quella casella.
+ * Se il conto scende la mossa resta. La ricerca a caso non la trova, perche' togliere il turno
+ * e ricoprire il giorno sono molti passi che uno per uno peggiorano.
+ */
+function riparaRiposi(q: Quadro, st: Stato, c0: number, r: () => number): number {
+  if (!q.riposiMin || q.giorniSettimana < 7) return c0;
+  let c = c0;
+  const lavorati = (p: number) => q.giorniFissi[p] + st[p].filter(Boolean).length;
+  for (let giro = 0; giro < 4; giro++) {
+    let mosso = false;
+    for (let p = 0; p < q.persone.length; p++) {
+      if (q.giorniSettimana - lavorati(p) >= q.riposiMin) continue;
+      let meglio: { st: Stato; c: number } | null = null;
+      for (let d = 0; d < q.giorni.length; d++) {
+        if (!st[p][d] || q.pieno[d] || q.giornoFisso[p][d]) continue;
+        const prova = copia(st);
+        prova[p][d] = null;
+        q.blocco[p][d] = true;
+        // una ricerca breve con la casella chiusa: le ore tolte si ridistribuiscono fra tutte
+        // (chi resta allunga, le altre si scambiano i giorni), cosa che la sola discesa non trova
+        const esito = ricuoci(q, prova, 15_000, r, 20_000);
+        const c1 = rifinisci(q, esito.st, esito.c, 3);
+        q.blocco[p][d] = false;
+        if (Number.isFinite(c1) && c1 < (meglio?.c ?? c) - 1e-9) meglio = { st: esito.st, c: c1 };
+      }
+      if (meglio) {
+        for (let i = 0; i < st.length; i++) st[i] = meglio.st[i];
+        c = meglio.c; mosso = true;
+      }
+    }
+    if (!mosso) break;
   }
   return c;
 }
@@ -659,14 +812,14 @@ function riempiOre(q: Quadro, st: Stato): void {
   }
 }
 
-function cerca(q: Quadro, partenza: Stato, giri: number, r: () => number): { st: Stato; c: number } {
+/** La ricerca a caso: la temperatura scende da `t0` (accetto di peggiorare) a «accetto solo miglioramenti». */
+function ricuoci(q: Quadro, partenza: Stato, giri: number, r: () => number, t0 = 30_000): { st: Stato; c: number } {
   const st = copia(partenza);
   let c = costo(q, st);
   let meglio = { st: copia(st), c };
   if (!Number.isFinite(c)) return meglio;
   const reg: Registro = [];
-  // la temperatura scende da «accetto di lasciare libero un sabato» a «accetto solo miglioramenti»
-  const t0 = 30_000; const t1 = 8;
+  const t1 = 8;
   for (let i = 0; i < giri; i++) {
     reg.length = 0;
     if (!mossa(q, st, reg, r)) { annulla(st, reg); continue; }
@@ -677,8 +830,15 @@ function cerca(q: Quadro, partenza: Stato, giri: number, r: () => number): { st:
       if (c < meglio.c - 1e-9) meglio = { st: copia(st), c };
     } else annulla(st, reg);
   }
+  return meglio;
+}
+
+function cerca(q: Quadro, partenza: Stato, giri: number, r: () => number): { st: Stato; c: number } {
+  const meglio = ricuoci(q, partenza, giri, r);
+  if (!Number.isFinite(meglio.c)) return meglio;
   meglio.c = rifinisci(q, meglio.st, meglio.c);
-  const riparato = riparaScoperture(q, meglio.st, riparaWeekend(q, meglio.st, meglio.c));
+  let riparato = riparaScoperture(q, meglio.st, riparaWeekend(q, meglio.st, meglio.c));
+  riparato = riparaRiposi(q, meglio.st, riparato, r);
   if (riparato < meglio.c - 1e-9) meglio.c = rifinisci(q, meglio.st, riparato);
   return meglio;
 }
@@ -689,12 +849,14 @@ function cerca(q: Quadro, partenza: Stato, giri: number, r: () => number): { st:
  * toccano. Restituisce solo i turni delle persone (senza i fissi), mai peggiori
  * di quelli di partenza.
  */
-export function ottimizzaSettimana(
-  giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], regole: RegoleTurni = REGOLE_DEFAULT,
-  nuove: RegoleNuove = {}, fissi: Turno[] = [],
-): Turno[] {
+interface Preparata { q: Quadro; partenza: Stato; altri: Turno[]; fuoriStato: Turno[]; tuttiFissi: Turno[] }
+
+/** Il quadro della settimana e i turni di partenza portati sulla griglia; null se non c'e' niente da sistemare. */
+function prepara(
+  giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], regole: RegoleTurni, nuove: RegoleNuove, fissi: Turno[],
+): Preparata | null {
   const aperti = giorni.filter((g) => !g.chiuso);
-  if (!aperti.length || !persone.length) return turni;
+  if (!aperti.length || !persone.length) return null;
   const indice = new Map(persone.map((p, i) => [p.id, i]));
   // La presenza piu' corta che vale il turno minimo, e la tabella delle ore lavorate per presenza.
   const passi = Math.ceil(24 * 60 / SLOT_MINUTI);
@@ -714,7 +876,6 @@ export function ottimizzaSettimana(
   const q = {
     giorni, persone, regole, nuove, minLavoro,
     lav: lavMin.map((m) => m / 60),
-    resp: nuove.responsabile ? (indice.get(nuove.responsabile) ?? -1) : -1,
     straordWeekend: !!nuove.straordinariWeekend,
     fissa: giorni.map((g) => {
       const cop = g.fabbisogno.map(() => 0);
@@ -737,7 +898,36 @@ export function ottimizzaSettimana(
   q.iso = giorni.map((g) => giornoIso(g.data));
   // sabato, domenica, festivi e giorni di evento: lavorano tutti, la responsabile fa il suo orario
   q.pieno = giorni.map((g) => (nuove.giorniPieni ? nuove.giorniPieni.has(g.data) : giornoIso(g.data) >= 6));
-  q.respPresenza = giorni.map((_, d) => (q.resp >= 0 ? Math.min(PRESENZA_RESPONSABILE_WEEKEND, q.limiti[q.resp][d].max) : 0));
+  q.straordCaldo = giorni.map((g, d) => (nuove.giorniStraordinari ? nuove.giorniStraordinari.has(g.data) : q.pieno[d]));
+  q.puo = persone.map((p, i) => giorni.map((g, d) => !g.chiuso && p.ore >= regole.turnoMinOre && q.limiti[i][d].max >= minLavoro));
+  // Chi apre e chi chiude nei giorni caldi. Senza `guidaCaldi` vale la regola dell'11/11: apre la
+  // responsabile in tutti i giorni pieni. Con la vice e `alterna`, una apre e l'altra chiude, e
+  // da un giorno caldo al successivo si scambiano (anche da una settimana all'altra).
+  {
+    const gc = nuove.guidaCaldi ?? (nuove.responsabile ? { ids: [nuove.responsabile], ore: PRESENZA_RESPONSABILE_WEEKEND / 60, alterna: false, giorni: new Set(giorni.filter((_, d) => q.pieno[d]).map((g) => g.data)) } : null);
+    const idx = (gc?.ids ?? []).map((id) => indice.get(id) ?? -1).filter((i) => i >= 0);
+    const puoAprire = (i: number, d: number) => !q.giornoFisso[i][d] && q.puo[i][d];
+    let giro = giorni.length ? Math.floor(Date.parse(`${giorni[0].data}T00:00:00Z`) / 86_400_000 / 7) : 0;
+    q.apreP = giorni.map(() => -1); q.chiudeP = giorni.map(() => -1); q.aprePresenza = giorni.map(() => 0);
+    giorni.forEach((g, d) => {
+      if (!gc || g.chiuso || !gc.giorni.has(g.data) || !idx.length) return;
+      let apre = idx[gc.alterna && idx.length > 1 ? giro % 2 : 0];
+      let chiude = gc.alterna && idx.length > 1 ? idx[(giro + 1) % 2] : -1;
+      giro += 1;
+      // chi doveva aprire quel giorno non puo': apre l'altra, se puo'
+      if (!puoAprire(apre, d) && chiude >= 0 && puoAprire(chiude, d)) { const t = apre; apre = chiude; chiude = t; }
+      if (puoAprire(apre, d)) { q.apreP[d] = apre; q.aprePresenza[d] = Math.min(Math.round(gc.ore * 60 / SLOT_MINUTI) * SLOT_MINUTI, q.limiti[apre][d].max); }
+      if (chiude >= 0 && puoAprire(chiude, d)) q.chiudeP[d] = chiude;
+    });
+  }
+  q.riposiMin = nuove.riposi?.min != null ? Math.max(RIPOSO_LEGALE, nuove.riposi.min) : 0;
+  q.giorniSettimana = giorni.length + (nuove.giorniFuori ?? 0);
+  q.settimanaIntera = giorni.length >= 7;
+  q.blocco = persone.map(() => giorni.map(() => false));
+  const bit = (lista: number[] | undefined) => (lista ?? []).reduce((a, g) => (g >= 1 && g <= 7 ? a | (1 << g) : a), 0);
+  q.preferiti = persone.map((p) => bit(nuove.riposi?.preferiti?.get(p.id)));
+  q.mai = persone.map((p) => bit(nuove.riposi?.mai?.get(p.id)));
+  q.pari = !!nuove.straordinariPari;
   q.libero = persone.map((p) => nuove.giornoLibero?.get(p.id) ?? 0);
   q.eGuida = persone.map((p) => guidaIds.includes(p.id));
   q.guidaAttiva = guidaIds.length >= 2;
@@ -767,11 +957,6 @@ export function ottimizzaSettimana(
     if (w < minLavoro || w > l.max || minuti(t.inizio) < l.apre || minuti(t.fine) > l.chiude) { fuoriStato.push(t); continue; }
     partenza[p][d] = { s, w };
   }
-  if (fuoriStato.length) {
-    // rari: si ricomincia tenendoli fra i fissi, cosi' il conto li vede
-    const tenuti = new Set(fuoriStato);
-    return [...ottimizzaSettimana(giorni, turni.filter((t) => !tenuti.has(t) && !altri.includes(t)), persone, regole, nuove, [...tuttiFissi, ...fuoriStato]), ...fuoriStato, ...altri];
-  }
   // Il tetto delle ore: il contratto, o le ore della partenza se erano di piu'. Oltre il
   // contratto si va con le ore dei giorni di evento, del sabato e della domenica; quelle che
   // la partenza aveva gia' in piu' nei feriali (straordinari ammessi, anticipo) restano.
@@ -783,6 +968,39 @@ export function ottimizzaSettimana(
     const inSpeciale = partenza[i].reduce((a, x, d) => a + (x && speciale(d) ? q.lav[x.w / SLOT_MINUTI] : 0), 0);
     return Math.max(0, q.tetto[i] - p.ore - inSpeciale);
   });
+  return { q, partenza, altri, fuoriStato, tuttiFissi };
+}
+
+/**
+ * Quanto costa una settimana di turni secondo il conto del motore (piu' basso = meglio;
+ * Infinity = fuori dai vincoli duri). Serve ai test e alle misure per confrontare due settimane
+ * con le stesse regole. I turni che il conto non sa rappresentare contano come fissi.
+ */
+export function contoSettimana(
+  giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], regole: RegoleTurni = REGOLE_DEFAULT,
+  nuove: RegoleNuove = {}, fissi: Turno[] = [],
+): number {
+  const pr = prepara(giorni, turni, persone, regole, nuove, fissi);
+  if (!pr) return 0;
+  if (pr.fuoriStato.length) {
+    const tenuti = new Set(pr.fuoriStato);
+    return contoSettimana(giorni, turni.filter((t) => !tenuti.has(t) && !pr.altri.includes(t)), persone, regole, nuove, [...pr.tuttiFissi, ...pr.fuoriStato]);
+  }
+  return costo(pr.q, pr.partenza);
+}
+
+export function ottimizzaSettimana(
+  giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], regole: RegoleTurni = REGOLE_DEFAULT,
+  nuove: RegoleNuove = {}, fissi: Turno[] = [],
+): Turno[] {
+  const pr = prepara(giorni, turni, persone, regole, nuove, fissi);
+  if (!pr) return turni;
+  const { q, partenza, altri, fuoriStato, tuttiFissi } = pr;
+  if (fuoriStato.length) {
+    // rari: si ricomincia tenendoli fra i fissi, cosi' il conto li vede
+    const tenuti = new Set(fuoriStato);
+    return [...ottimizzaSettimana(giorni, turni.filter((t) => !tenuti.has(t) && !altri.includes(t)), persone, regole, nuove, [...tuttiFissi, ...fuoriStato]), ...fuoriStato, ...altri];
+  }
   const c0 = costo(q, partenza);
   // una partenza che il conto non sa leggere (piu' giorni del massimo gia' nei turni fissi) resta com'e'
   if (!Number.isFinite(c0)) return turni;
@@ -812,7 +1030,7 @@ export function ottimizzaSettimana(
 // ── Le deroghe ───────────────────────────────────────────────────────────
 
 export interface Deroga {
-  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto';
+  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'caldo_chiusura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto' | 'riposi' | 'riposo_vietato';
   data: string | null;
   employeeId: string | null;
   testo: string;
@@ -830,6 +1048,8 @@ export function derogheSettimana(args: {
   regole?: RegoleTurni;
   giornoLibero?: Map<string, number>;
   guida?: { responsabile: string | null; vice: string | null };
+  /** riposi del 12/11/2026: minimo del negozio, giorni preferiti e giorni in cui non si riposa mai */
+  riposi?: { min?: number; preferiti?: Map<string, number[]>; mai?: Map<string, number[]> };
 }): Deroga[] {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const out: Deroga[] = [];
@@ -845,20 +1065,32 @@ export function derogheSettimana(args: {
       && !del.some((t) => t.employeeId === args.guida!.responsabile || t.employeeId === args.guida!.vice)) {
       out.push({ regola: 'lunedi_guida', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: né la responsabile né la vice sono in turno (versamento in banca)` });
     }
-    // sabato e domenica la responsabile entra all'apertura ed esce dopo nove ore (Patrizio, 11/11/2026)
-    const resp = args.guida?.responsabile ? args.persone.find((p) => p.id === args.guida!.responsabile) : undefined;
-    const fineResp = Math.min(g.chiude, g.apre + PRESENZA_RESPONSABILE_WEEKEND);
+    // giorni caldi: una fra responsabile e vice fa l'apertura e resta le sue ore; con la regola
+    // «una apre, l'altra chiude» l'altra arriva alla chiusura (Patrizio, 11 e 12/11/2026)
     const pieno = regole.giorniPieni ? giornoPieno(g) : iso >= 6;
-    if (regole.giorniPieni && pieno && resp && resp.ore >= regole.turnoMinOre && !resp.nonDisponibile.has(g.data) && !del.some((t) => t.employeeId === resp.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineResp)) {
-      out.push({ regola: 'domenica_apertura', data: g.data, employeeId: resp.id, testo: `${giornoTesto(g.data)}: ${resp.nome}, la responsabile, non fa ${hhmm(g.apre)}-${hhmm(fineResp)}` });
+    const conGuida = regole.giorniPieni && (g.guida ?? pieno);
+    const guide = [args.guida?.responsabile, regole.caldiGuidaApreChiude ? args.guida?.vice : null]
+      .map((id) => (id ? args.persone.find((p) => p.id === id) : undefined))
+      .filter((p): p is PersonaTurni & { nome: string } => !!p && p.ore >= regole.turnoMinOre && !p.nonDisponibile.has(g.data));
+    if (conGuida && guide.length) {
+      const fineApre = Math.min(g.chiude, g.apre + Math.round((regole.caldiOreApertura ?? PRESENZA_RESPONSABILE_WEEKEND / 60) * 60));
+      const apre = guide.find((p) => del.some((t) => t.employeeId === p.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineApre));
+      if (!apre) {
+        out.push({ regola: 'domenica_apertura', data: g.data, employeeId: guide[0].id, testo: `${giornoTesto(g.data)}: ${guide.length > 1 ? 'né la responsabile né la vice fanno' : `${guide[0].nome}, la responsabile, non fa`} ${hhmm(g.apre)}-${hhmm(fineApre)}` });
+      } else if (guide.length > 1 && !guide.some((p) => p.id !== apre.id && del.some((t) => t.employeeId === p.id && minuti(t.fine) === g.chiude))) {
+        out.push({ regola: 'caldo_chiusura', data: g.data, employeeId: guide.find((p) => p.id !== apre.id)!.id, testo: `${giornoTesto(g.data)}: apre ${apre.nome}, ma l'altra fra responsabile e vice non fa la chiusura` });
+      }
     }
     for (const p of args.persone) {
       const suo = del.filter((t) => t.employeeId === p.id);
       if (pieno && !suo.length && p.ore >= regole.turnoMinOre && !p.nonDisponibile.has(g.data)) {
         out.push({ regola: 'weekend', data: g.data, employeeId: p.id, testo: `${p.nome} non lavora ${giornoTesto(g.data)}: nel weekend lavorano tutti` });
       }
-      if (suo.length && args.giornoLibero?.get(p.id) === iso) {
-        out.push({ regola: 'giorno_libero', data: g.data, employeeId: p.id, testo: `${p.nome} lavora ${giornoTesto(g.data)}, il suo giorno libero fisso` });
+      if (suo.length && (args.giornoLibero?.get(p.id) === iso || args.riposi?.preferiti?.get(p.id)?.includes(iso))) {
+        out.push({ regola: 'giorno_libero', data: g.data, employeeId: p.id, testo: `${p.nome} lavora ${giornoTesto(g.data)}, il suo giorno di riposo` });
+      }
+      if (!suo.length && !pieno && args.riposi?.mai?.get(p.id)?.includes(iso) && p.ore >= regole.turnoMinOre && !p.nonDisponibile.has(g.data)) {
+        out.push({ regola: 'riposo_vietato', data: g.data, employeeId: p.id, testo: `${p.nome} riposa ${giornoTesto(g.data)}, un giorno in cui non riposa mai` });
       }
     }
     for (const t of del) {
@@ -868,7 +1100,12 @@ export function derogheSettimana(args: {
   const date = new Set(args.giorni.map((g) => g.data));
   for (const p of args.persone) {
     const suoi = args.turni.filter((t) => t.employeeId === p.id && date.has(t.data));
-    if (new Set(suoi.map((t) => t.data)).size > regole.giorniLavoroMax) out.push({ regola: 'troppi_giorni', data: null, employeeId: p.id, testo: `${p.nome} lavora più di ${regole.giorniLavoroMax} giorni` });
+    const lavorati = new Set(suoi.map((t) => t.data)).size;
+    if (lavorati > regole.giorniLavoroMax) out.push({ regola: 'troppi_giorni', data: null, employeeId: p.id, testo: `${p.nome} lavora più di ${regole.giorniLavoroMax} giorni` });
+    else if (args.giorni.length >= 7 && lavorati > 7 - RIPOSO_LEGALE) out.push({ regola: 'troppi_giorni', data: null, employeeId: p.id, testo: `${p.nome} non ha un giorno di riposo nella settimana: per legge ne serve almeno uno` });
+    else if (args.giorni.length >= 7 && args.riposi?.min && 7 - lavorati < args.riposi.min && lavorati > 0) {
+      out.push({ regola: 'riposi', data: null, employeeId: p.id, testo: `${p.nome} ha ${7 - lavorati} ${7 - lavorati === 1 ? 'giorno' : 'giorni'} di riposo: il negozio ne chiede ${args.riposi.min}` });
+    }
   }
   return out;
 }

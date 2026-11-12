@@ -24,7 +24,7 @@ import {
   ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
-import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, type RegoleNuove } from './ottimizzaTurni';
+import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, sceltePerLaSettimana, ripartisciStraordinari, type RegoleNuove } from './ottimizzaTurni';
 
 export { giornoPieno };
 
@@ -177,21 +177,18 @@ export function fabbisognoDaTraffico(
   return giorni.map((g) => {
     if (g.chiuso) return g;
     const max = Math.max(1, maxPersone.get(g.data) ?? 1);
-    // Sabato, domenica, festivi e giorni di evento nei negozi con i giorni a massima intensita'
-    // (Patrizio, 11/11/2026, in prova a Roma Soratte): non
-    // comanda il traffico ma una regola fissa. La prima mezz'ora una persona sola (apre la
-    // responsabile), poi tutte le persone del negozio fino a un'ora dalla chiusura, e nell'ultima
-    // ora una persona (al massimo due: le altre in piu' il conto le scoraggia).
-    if (regole.giorniPieni && giornoPieno(g)) {
-      const persone = g.fabbisogno.map((_, i) => {
-        const inizio = g.apre + i * SLOT_MINUTI;
-        return i === 0 || inizio >= g.chiude - 60 ? 1 : max;
-      });
-      return { ...g, minimo: persone, fabbisogno: persone, esigenza: persone, esatto: persone };
+    // Giorni caldi (Patrizio, 12/11/2026, sostituisce lo schema fisso dell'11/11): le persone le
+    // decidono le fasce del giorno (del sabato o della domenica, o quelle scritte nel periodo) e
+    // MODA aggiunge sopra, come in ogni altro giorno. Un periodo puo' spegnere MODA: allora
+    // comandano solo le sue fasce.
+    if (g.senzaModa) {
+      const base = g.fabbisogno.map((x, i) => Math.min(max, Math.max(1, g.minimo?.[i] ?? x)));
+      return { ...g, minimo: base, fabbisogno: base, esigenza: base, esatto: base };
     }
     if (!atteso.has(g.data)) return g;
-    const soglia = sogliaDelGiorno(g.data, regole);
-    const extraG = extra.get(g.data) ?? 0;
+    // un giorno caldo che cade in un feriale (evento, giorno speciale) vale come un sabato anche nella soglia
+    const soglia = g.caldo ? Math.max(1, regole.sogliaWeekend) : sogliaDelGiorno(g.data, regole);
+    const extraG = g.fasceEvento ? 0 : (extra.get(g.data) ?? 0);
     // Il minimo: le fasce confermate in «Orari e fabbisogno» (Patrizio, 30/10/2026:
     // una persona la mattina e la sera, due nel resto, le decide lui giorno per
     // giorno); senza fasce confermate almeno una persona e, con la regola delle due
@@ -1117,6 +1114,8 @@ export interface EsitoPianoMese {
   oreRiserva: number;
   /** il giorno libero fisso di ognuno usato nel piano (1-7): quello gia' deciso o quello scelto dal sistema */
   giorniLiberi?: Map<string, number>;
+  /** ore di straordinario scritte sui turni dei giorni caldi (stessi oggetti di `turni`), a mezz'ore */
+  straordinariTurni?: Map<Turno, number>;
 }
 
 /**
@@ -1181,7 +1180,7 @@ function pianificaMeseConRegola(args: {
    * lunedi', coppie dei feriali delle settimane prima del mese. Le pesa tutte
    * insieme `ottimizzaSettimana`, come ultimo passo di ogni settimana.
    */
-  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima' | 'responsabile'>;
+  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima' | 'responsabile' | 'vice' | 'riposi'>;
   /** salta l'ultimo passo (confronti veloci fra due calcoli, es. con e senza una ferie) */
   rapido?: boolean;
 }): EsitoPianoMese {
@@ -1300,11 +1299,16 @@ function pianificaMeseConRegola(args: {
 
   // Il giorno libero fisso: chi non ce l'ha lo riceve qui, e il piano lo restituisce.
   const guida = (args.nuove?.guida ?? []).filter((id) => contrattuali.some((p) => p.id === id));
-  const giorniLiberi = scegliGiorniLiberi(contrattuali.map((p) => p.id), args.nuove?.giornoLibero, guida);
+  // Dove il negozio ha scritto i riposi minimi (12/11/2026) il sistema non fissa piu' da solo un
+  // giorno: restano quelli decisi a mano, e il riposo lo decide la turnazione settimana per settimana.
+  const giorniLiberi = regole.riposiMinSettimana != null
+    ? new Map(args.nuove?.giornoLibero ?? [])
+    : scegliGiorniLiberi(contrattuali.map((p) => p.id), args.nuove?.giornoLibero, guida);
   const coppieViste = new Map(args.nuove?.coppiePrima ?? []);
 
   // 3. Le settimane.
   const turni: Turno[] = [];
+  const straordinariTurni = new Map<Turno, number>();
   for (const lun of settimane) {
     const date = giorniDellaSettimana(lun).filter(nelMese);
     const gg = giorniMese.filter((g) => date.includes(g.data));
@@ -1415,11 +1419,14 @@ function pianificaMeseConRegola(args: {
       esito = [...ottimizzaSettimana(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole,
         {
           giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto,
-          // responsabile 10-19, tutti presenti e straordinari: solo dove il negozio ha i giorni a massima intensita'
-          responsabile: regole.giorniPieni ? (args.nuove?.responsabile ?? null) : null,
-          giorniPieni: regole.giorniPieni ? new Set(gg.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)) : undefined,
-          // nei piani veri; in simulazione (fabbisogno fisso o straordinari scelti) decidono le ipotesi
-          straordinariWeekend: !!regole.giorniPieni && !args.fabbisognoFisso && !args.straordinariPersona && args.straordinariSettimana == null,
+          // giorni caldi, apertura e chiusura fra responsabile e vice, riposi e straordinari pari: le
+          // scelte del negozio (12/11/2026). Dove sono spente l'oggetto e' vuoto e resta tutto com'era.
+          // In simulazione (fabbisogno fisso o straordinari scelti) gli straordinari li decidono le ipotesi.
+          ...sceltePerLaSettimana({
+            giorni: gg, regole, responsabile: args.nuove?.responsabile ?? null, vice: args.nuove?.vice ?? null,
+            riposi: args.nuove?.riposi, giorniFuori: 7 - date.length,
+            simulazione: !!args.fabbisognoFisso || !!args.straordinariPersona || args.straordinariSettimana != null,
+          }),
           // i giorni gia' lavorati nei giorni dell'altro mese della stessa settimana contano nel massimo
           giorniGia: new Map(candidati.map((c) => [c.id, giorniDellaSettimana(lun).filter((d) => !nelMese(d) && (args.oreFuoriMese?.get(c.id)?.get(d) ?? 0) > 0).length])),
         }, fissiSett), ...fissiSett];
@@ -1427,7 +1434,15 @@ function pianificaMeseConRegola(args: {
     }
     // Rete di sicurezza: nessun turno fuori dagli accordi della scheda.
     const fissiRef = new Set(fissiSett);
-    turni.push(...rispettaFasce(esito.filter((t) => !fissiRef.has(t)), args.persone, regole));
+    const dellaSettimana = rispettaFasce(esito.filter((t) => !fissiRef.has(t)), args.persone, regole);
+    turni.push(...dellaSettimana);
+    // Lo straordinario della settimana scritto sui turni dei giorni caldi, a ore e mezz'ore (12/11/2026):
+    // nei negozi con i giorni caldi, non in simulazione (li' gli straordinari li decide chi simula).
+    const forti = new Set(gg.filter((g) => !g.chiuso && (g.straordinariCaldo || (g.caldo && g.straordinari))).map((g) => g.data));
+    if (forti.size && !args.fabbisognoFisso && !args.straordinariPersona && args.straordinariSettimana == null) {
+      const contratto = new Map(candidati.map((c) => [c.id, c.ore - fissiSett.filter((f) => f.employeeId === c.id).reduce((a, f) => a + oreLavorate(f), 0)]));
+      for (const [t, ore] of ripartisciStraordinari(dellaSettimana, contratto, forti)) straordinariTurni.set(t, ore);
+    }
   }
 
   const persone: EsitoPianoMese['persone'] = {};
@@ -1499,5 +1514,6 @@ function pianificaMeseConRegola(args: {
     persone,
     oreRiserva: riserva.reduce((a, p) => a + persone[p.id].pianificate, 0),
     giorniLiberi,
+    straordinariTurni,
   };
 }

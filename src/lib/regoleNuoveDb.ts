@@ -8,6 +8,8 @@ import { supabase } from './supabase';
 import { aggiungiGiorni } from './organico';
 import { coppieFeriali } from './ottimizzaTurni';
 import type { Turno } from './turni';
+import { caricaTraffico } from './organicoDati';
+import { ingressiPerGiorno } from './eventiTurni';
 
 export interface GiornoLibero { giorno: number; origine: 'sistema' | 'manuale' }
 
@@ -70,4 +72,81 @@ export function guidaDelNegozio(negozio: { referente_employee_id?: string | null
   const r = negozio?.referente_employee_id ?? null;
   const v = negozio?.vice_referente_employee_id ?? null;
   return r && v && r !== v ? [r, v] : [];
+}
+
+// ── Riposi di ognuno (Patrizio, 12/11/2026; tabella employee_riposi, migration 405) ──
+
+export interface RiposiPersone {
+  /** giorni in cui riposa di preferenza (1 = lunedi' ... 5 = venerdi'), anche piu' di uno */
+  preferiti: Map<string, number[]>;
+  /** giorni in cui non riposa mai */
+  mai: Map<string, number[]>;
+  /** falso dove la tabella manca: allora i preferiti vengono dal giorno libero deciso a mano (395) */
+  disponibile: boolean;
+}
+
+const feriali = (v: unknown): number[] => [...new Set((Array.isArray(v) ? v : []).map(Number).filter((g) => g >= 1 && g <= 5))].sort();
+
+/**
+ * I giorni di riposo preferiti e vietati di ogni persona. Dove la tabella non c'e' ancora si
+ * leggono i giorni liberi decisi A MANO della 395 come preferiti (quelli scelti dal sistema non
+ * contano piu': senza una scelta il riposo lo decide la turnazione); dove manca anche quella,
+ * niente.
+ */
+export async function caricaRiposi(companyId: string): Promise<RiposiPersone> {
+  const { data, error } = await db.from('employee_riposi').select('employee_id, preferiti, mai').eq('company_id', companyId);
+  if (!error) {
+    const righe = (data as { employee_id: string; preferiti: number[] | null; mai: number[] | null }[]) ?? [];
+    return {
+      preferiti: new Map(righe.filter((x) => feriali(x.preferiti).length).map((x) => [x.employee_id, feriali(x.preferiti)])),
+      mai: new Map(righe.filter((x) => feriali(x.mai).length).map((x) => [x.employee_id, feriali(x.mai)])),
+      disponibile: true,
+    };
+  }
+  const vecchi = await caricaGiorniLiberi(companyId);
+  return {
+    preferiti: new Map([...vecchi.mappa].filter(([, g]) => g.origine === 'manuale' && g.giorno >= 1 && g.giorno <= 5).map(([id, g]) => [id, [g.giorno]])),
+    mai: new Map(),
+    disponibile: false,
+  };
+}
+
+/** Salva i giorni di riposo preferiti e vietati di una persona. Un giorno non puo' stare in tutte e due le liste: vince «mai». */
+export async function salvaRiposi(companyId: string, employeeId: string, preferiti: number[], mai: number[]): Promise<void> {
+  const no = feriali(mai);
+  const si = feriali(preferiti).filter((g) => !no.includes(g));
+  const { error } = await db.from('employee_riposi').upsert([{ employee_id: employeeId, company_id: companyId, preferiti: si, mai: no, updated_at: new Date().toISOString() }], { onConflict: 'employee_id' });
+  if (error) throw error;
+}
+
+/**
+ * Gli ingressi MODA giorno per giorno per il controllo di un periodo speciale: quelli del
+ * negozio, oppure del suo negozio di riferimento se non ha storico (Roma Soratte usa
+ * Valmontone), come fanno i turni. `fonte` dice da dove vengono.
+ */
+export async function caricaIngressiGiornalieri(companyId: string, outletId: string): Promise<{ ingressi: Map<string, number>; fonte: 'propria' | 'riferimento' | 'nessuna'; riferimentoId: string | null }> {
+  const sue = await caricaTraffico(companyId, outletId);
+  if (sue.length) return { ingressi: ingressiPerGiorno(sue), fonte: 'propria', riferimentoId: null };
+  const r = await supabase.from('outlet_shift_rules').select('traffico_da_outlet_id').eq('outlet_id', outletId).maybeSingle();
+  const rif = r.error ? null : ((r.data as { traffico_da_outlet_id?: string | null } | null)?.traffico_da_outlet_id ?? null);
+  if (rif && rif !== outletId) {
+    const delRif = await caricaTraffico(companyId, rif);
+    if (delRif.length) return { ingressi: ingressiPerGiorno(delRif), fonte: 'riferimento', riferimentoId: rif };
+  }
+  return { ingressi: new Map(), fonte: 'nessuna', riferimentoId: null };
+}
+
+/**
+ * Gli eventi dei negozi con le regole del 12/11/2026. Dove le colonne nuove mancano (tenant
+ * senza la 405) si leggono quelle di prima: gli eventi restano «di prima» e non cambia niente.
+ */
+export async function caricaEventi(companyId: string, dal: string, al: string): Promise<{ righe: Record<string, unknown>[]; conRegole: boolean }> {
+  const nuove = await db.from('outlet_events')
+    .select('id, nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari, nota, tipo, regole, regole_origine')
+    .eq('company_id', companyId).lte('data_dal', al).gte('data_al', dal);
+  if (!nuove.error) return { righe: (nuove.data as Record<string, unknown>[]) ?? [], conRegole: true };
+  const prima = await supabase.from('outlet_events').select('id, nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari, nota')
+    .eq('company_id', companyId).lte('data_dal', al).gte('data_al', dal);
+  if (prima.error) throw prima.error;
+  return { righe: (prima.data as Record<string, unknown>[]) ?? [], conRegole: false };
 }

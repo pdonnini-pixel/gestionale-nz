@@ -1064,3 +1064,116 @@ forti con l'eccezione accordata dal responsabile.
 
 La pausa pagata nelle timbrature è fatta con la migration 401 (colonna `shifts.pausa_pagata_minuti`
 calcolata da un trigger, ore timbrate che non la tolgono): vedi `TIMBRATURE_NOTES.md`.
+
+## Regole per negozio: giorni caldi sulle fasce, riposi, responsabile e vice, periodi speciali (12/11/2026)
+
+Decisioni di Patrizio del 12/11/2026, dopo la pubblicazione dell'11/11. Parte 1: dati e motore
+(le pagine sono un lavoro a parte). Roma Soratte resta il negozio di prova; negli altri le scelte
+nascono spente e i piani non cambiano (misura sotto).
+
+**Cosa sostituisce delle decisioni dell'11/11**
+- Lo **schema fisso dei giorni caldi** («una persona la prima mezz'ora, tutte fino a un'ora dalla
+  chiusura, poi una») non c'è più. Patrizio ha salvato le fasce del sabato e della domenica di Roma
+  Soratte (10-10:30 una, 10:30-11 due, 11-19 quattro, 19-20 una): **comandano le fasce, con MODA
+  sopra**, come in ogni altro giorno. L'interruttore `giorni_pieni` resta e dice solo che sabato,
+  domenica, festivi ed eventi sono giorni caldi: lavorano tutte, straordinari ammessi.
+- **«La responsabile fa 10-19»** diventa: una fra responsabile e vice fa l'apertura e resta 9 ore,
+  l'altra fa la chiusura, e si alternano.
+- **Il giorno libero fisso scelto dal sistema** non c'è più dove il negozio ha scritto i riposi
+  minimi: resta fisso solo quello deciso a mano; senza una scelta lo decide la turnazione.
+- I due limiti «da sola al massimo mezz'ora all'apertura, un'ora alla chiusura» e «al massimo due
+  nella prima mezz'ora» non sono regole a parte: stanno nelle fasce (Patrizio: «questo è già nelle
+  fasce»).
+
+**Le regole**
+1. Giorni caldi: fasce del sabato e della domenica + MODA; festivi e giorni speciali singoli in un
+   feriale usano le fasce del sabato (scelta del negozio: sabato o domenica) e la soglia MODA del
+   weekend. Lavorano tutte.
+2. Responsabile e vice: apertura (9 ore) e chiusura a turno nei giorni caldi; lunedì una delle due
+   in negozio (invariato). Finché non sono caricate: chi ha più ore di contratto, a parità chi è
+   assunta da più tempo (a parità anche di data, l'ordine dell'identificativo: scelta stabile).
+3. Riposi: per legge almeno uno a settimana, sempre; il negozio ne chiede N a testa se possibile,
+   distribuiti; più giorni preferiti e più giorni «mai» per persona, nei feriali.
+4. Straordinari: solo nei giorni caldi, a mezz'ore, il più possibile pari; con un evento **prima i
+   riposi, poi gli straordinari pari**.
+5. Eventi: giorno speciale singolo = come un sabato; periodo speciale = regole proprie; due eventi
+   sullo stesso giorno e negozio vietati; con fasce proprie le «persone in più» non si sommano.
+6. Controllo MODA del periodo: stesso periodo dell'anno prima, ±3 giorni, confronto con gli stessi
+   giorni della settimana delle 3 settimane prima e delle 3 dopo.
+
+**Nel database** (migration 405, NZ e Zago; `NZ_ONLY 406` per Roma Soratte)
+- `outlet_shift_rules`: `riposi_min_settimana`, `straordinari_pari`, `caldi_tutti_al_lavoro`,
+  `caldi_straordinari`, `caldi_fasce_festivi` ('sabato' | 'domenica'), `caldi_guida_apre_chiude`,
+  `caldi_ore_apertura`. NULL = come prima.
+- `employee_riposi` (employee_id, company_id, `preferiti smallint[]`, `mai smallint[]`, giorni 1-5).
+  I giorni liberi decisi a mano della 395 si copiano come preferiti.
+- `outlet_events`: `tipo` ('giorno' | 'periodo'), `regole` jsonb, `regole_origine`
+  ('sabato' | 'domenica' | 'evento' | 'manuale'), `controllo_moda` jsonb.
+  Forma di `regole`: `{ apre, chiude, fasce: [{dalle, alle, persone}], moda, tutti, straordinari,
+  guida, ferie, permessi, riposi_min }`, tutti facoltativi; `riposi_min` mai sotto 1 (vincolo).
+
+**Nel codice**
+- `turni.ts`: `RegoleTurni` con i campi nuovi (`regoleDaRiga`), `RIPOSO_LEGALE`, `opzioniGiorni`,
+  `costruisciGiorni(..., opzioni)` che scrive sul giorno `caldo`, `tutti`, `straordinariCaldo`,
+  `guida`, `senzaModa`, `fasceEvento`, `riposiMin`; `giornoPieno` legge `tutti` dal giorno;
+  `eFestivo`. Senza opzioni i giorni restano quelli di prima.
+- `pianoMensile.ts`: `fabbisognoDaTraffico` senza schema fisso (fasce + MODA, soglia del weekend
+  nei giorni caldi, MODA spenta se il periodo lo dice); `pianificaMese` usa `sceltePerLaSettimana`
+  e restituisce `straordinariTurni`; dove ci sono i riposi minimi non chiama `scegliGiorniLiberi`.
+- `ottimizzaTurni.ts`: `sceltePerLaSettimana`, `contoSettimana`, `RegoleNuove.riposi` /
+  `guidaCaldi` / `straordinariPari` / `giorniStraordinari` / `giorniFuori` / `vice`; nel conto chi
+  apre e chi chiude, riposi mancanti, riposi in più al quadrato, riposo in un giorno «mai»,
+  straordinari pari; `riparaRiposi` (toglie un turno feriale a chi ha meno riposi del minimo e fa
+  risistemare la settimana con una ricerca breve); il massimo di 6 giorni lavorati vale sempre
+  sulla settimana intera, anche se le regole del negozio dicessero 7; deroghe nuove `riposi`,
+  `riposo_vietato`, `caldo_chiusura`.
+- `guidaNegozio.ts`: `guidaConRipiego`. `eventiTurni.ts` (nuovo): `leggiRegoleEvento`,
+  `eventoDaRiga`, `regoleDiPartenza`, `fasceDelGiorno`, `eventiInConflitto`,
+  `riposiMinDellaSettimana`, `richiesteAmmesse`, `controlloModaPeriodo`, `ingressiPerGiorno`.
+- `regoleNuoveDb.ts`: `caricaRiposi`, `salvaRiposi`, `caricaIngressiGiornalieri`, `caricaEventi`
+  (tutte tolleranti dove tabelle o colonne mancano).
+- `PianoTurni.tsx` e `PianiMensili.tsx`: solo il collegamento (opzioni dei giorni, eventi con
+  regole, riposi, ripiego su responsabile e vice, straordinari scritti anche dal piano del mese).
+
+**I pesi** (`PESI` in `ottimizzaTurni.ts`; chi li cambia rimisura tutti i negozi)
+- `riposoMancante` 25.000: sotto il minimo delle fasce (110.000 la mezz'ora), sopra gli
+  straordinari pari. Sopra le fasce, un riposo vale al massimo un'ora e un quarto di una persona
+  che MODA chiederebbe in più. Sotto i 15.000, nella settimana del Black Friday, vinceva la parità
+  degli straordinari e la responsabile restava con un riposo solo.
+- `riposoVietato` 30.000, `riposoInPiu` 400 (al quadrato, solo sulla settimana intera),
+  `straordinarioPari` 200.
+
+**Misure del 12/11/2026**
+- *Negozi con le scelte spente*: stessi dati (traffico di Valmontone di novembre 2025, due negozi
+  inventati, settimane 16-22 e 23-29/11 con il Black Friday), motore di `main` e motore del ramo:
+  81 turni su 81 identici, fabbisogno identico.
+- *Roma Soratte*, dati veri (quattro persone 40 + 30 + 30 + 30, fasce salvate il 12/11, traffico
+  di Valmontone, responsabile Angelini, vice provvisoria Basile), regole della 406:
+
+| Settimana | Ore | Straordinari a testa | Riposi a testa | Scoperte | Giorni caldi |
+|---|---|---|---|---|---|
+| 16-22/11 | 144,5 | 4 · 3 · 3,5 · 4 | 2 · 2 · 3 · 2 | 0 | fasce coperte esatte (1 · 2 · 4 · 1); sabato apre Basile e chiude Angelini, domenica il contrario |
+| 23-29/11 (Black Friday) | 166 | 4,5 · 10,5 · 10,5 · 10,5 | 2 · 2 · 2 · 2 | 0 | venerdì MODA chiede 3 persone anche alle 10 e dopo le 19; apertura e chiusura a turno |
+
+  Il piano fatto a mano e mostrato a Patrizio (con la regola di prima, tutte dalle 10:30) dava
+  16-22: 146 ore, 4 ore di straordinario a testa, 2 riposi a testa; 23-29: 163,5 ore, straordinari
+  4,5 · 11 · 9 · 9, 2 riposi a testa. Il motore sta sugli stessi numeri con le fasce nuove.
+- Tempo: circa 0,7 secondi a settimana, 1,4 quando deve riparare i riposi.
+
+**Scelte fatte nel costruire, da confermare con Patrizio**
+- Il ripiego su responsabile e vice e il «niente giorno fisso di sistema» valgono solo dove il
+  negozio ha acceso le scelte (giorni caldi, riposi minimi): così gli altri negozi non cambiano.
+- Apertura a turno: dentro la settimana si alternano da un giorno caldo all'altro; da una
+  settimana alla successiva chi apre il sabato cambia.
+- Un evento nuovo (giorno singolo o periodo) è un giorno caldo anche in un negozio con i giorni
+  caldi spenti, perché qualcuno l'ha scritto apposta; gli eventi di prima no.
+- «Sopra la media» nel controllo MODA: più del 10% sopra gli stessi giorni delle settimane vicine.
+
+**Resta da fare (parti 2 e 3)**: le pagine (Turni che parte dal negozio, «Regole e orari» con le
+schede, finestra degli eventi con il controllo MODA, giorni di riposo per persona), il blocco di
+ferie e permessi nei giorni caldi e nei periodi lato database, con chi approva; lato database il
+blocco del lunedì usa ancora solo responsabile e vice caricate (`ferie_lunedi_conflitti`, 393):
+per farlo valere con la vice provvisoria serve una funzione SQL che ripeta la regola di
+`guidaConRipiego`. Il trigger `trg_outlet_events_fabbisogno` oggi protegge le «persone in più»:
+le fasce dentro `regole` sono fabbisogno allo stesso modo e vanno protette quando la pagina le scrive.
+

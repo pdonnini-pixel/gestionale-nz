@@ -8,11 +8,11 @@
 //
 // Il fabbisogno viene dal traffico MODA come nel piano del mese (Patrizio,
 // 29/10/2026): le ore delle persone disponibili nella settimana distribuite
-// come gli ingressi attesi. Quello di «Orari e fabbisogno» vale solo per un
+// come gli ingressi attesi. Quello di «Regole e orari» vale solo per un
 // negozio senza traffico (né suo né la forma media degli altri).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Copy, Info, Printer, RefreshCw, Send, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Copy, Info, Mail, MessageCircle, Printer, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { almenoDuePersone, attesoDelleDate, fabbisognoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
 import EditorTurno from './EditorTurno';
 import SpostaTurnoModal from './SpostaTurnoModal';
@@ -23,8 +23,10 @@ import {
   type PersonaOggi,
 } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, nomeNegozio as nomeDelNegozio, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
-import { ottimizzaSettimana, scegliGiorniLiberi, derogheSettimana, ripartisciStraordinari } from '../lib/ottimizzaTurni';
-import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, impostaGiornoLibero, caricaCoppiePrima, guidaDelNegozio, type GiornoLibero } from '../lib/regoleNuoveDb';
+import { ottimizzaSettimana, scegliGiorniLiberi, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana } from '../lib/ottimizzaTurni';
+import { eventoDaRiga } from '../lib/eventiTurni';
+import { guidaConRipiego } from '../lib/guidaNegozio';
+import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, impostaGiornoLibero, caricaCoppiePrima, guidaDelNegozio, caricaRiposi, caricaEventi, type GiornoLibero, type RiposiPersone } from '../lib/regoleNuoveDb';
 import { cosaMancaAllaGuida, etichettaRuoloGuida, ruoloGuida } from '../lib/guidaNegozio';
 import { getCurrentTenant } from '../lib/tenants';
 import { fasceDelle, fasciaIl, type Accordo } from '../lib/accordiOrario';
@@ -32,7 +34,7 @@ import { avvisiMossa as avvisiDellaMossa, esitoMossa, mossePossibili, type Conte
 import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
-  NOMI_GIORNO, NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, giornoPieno, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
+  NOMI_GIORNO, NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, giornoPieno, opzioniGiorni, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
 
@@ -43,6 +45,8 @@ type Props = {
   dati: DatiOrganico;
   puoScrivere: boolean;
   onVaiOrari: () => void;
+  /** il passo scelto nella pagina Turni: al 3 «Pubblica e invia» sta in evidenza */
+  passo?: 2 | 3;
 };
 
 type TurnoDb = {
@@ -59,7 +63,7 @@ const NOMI_MESE_LUNGHI = ['', 'gennaio', 'febbraio', 'marzo', 'aprile', 'maggio'
 const STATI_FERIE_APPROVATE = ['inviata', 'approvata', 'approvata_parziale', 'chiusa'];
 const GIORNI_FERIE_VALIDI = ['richiesto', 'approvato'];
 
-export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puoScrivere, onVaiOrari }: Props) {
+export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puoScrivere, onVaiOrari, passo = 2 }: Props) {
   const { toast } = useToast();
   const [lunedi, setLunedi] = useState(lunediDi(oggiRoma()));
   // La settimana si ferma all'ultimo giorno del mese e riparte dal primo (Patrizio,
@@ -83,7 +87,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   };
   const vaiAOggi = () => { setLunedi(lunediDi(oggiRoma())); setMese(oggiRoma().slice(0, 7)); };
   const eOggi = lunedi === lunediDi(oggiRoma()) && date.includes(oggiRoma());
-  // Giorni con orari e fabbisogno di «Orari e fabbisogno»; quello vero si ricalcola da MODA sotto.
+  // Giorni con orari e fabbisogno di «Regole e orari»; quello vero si ricalcola da MODA sotto.
   const [giorniBase, setGiorniBase] = useState<GiornoPiano[]>([]);
   const [extra, setExtra] = useState<Map<string, number>>(new Map());
   const [storico, setStorico] = useState<{ storico: StoricoTraffico; propria: boolean; fonte?: 'propria' | 'riferimento' | 'media'; riferimentoId?: string | null } | null>(null);
@@ -93,6 +97,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // Giorno libero fisso di ognuno (migration 395); dove la tabella manca la riga non compare.
   const [giorniLiberi, setGiorniLiberi] = useState<Map<string, GiornoLibero>>(new Map());
   const [haGiorniLiberi, setHaGiorniLiberi] = useState(false);
+  // Giorni di riposo preferiti e vietati di ognuno (12/11/2026, migration 405).
+  const [riposi, setRiposi] = useState<RiposiPersone>({ preferiti: new Map(), mai: new Map(), disponibile: false });
   const [storicoPronto, setStoricoPronto] = useState(false);
   const [haOrari, setHaOrari] = useState(true);
   const [haFasce, setHaFasce] = useState(true);
@@ -170,8 +176,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         caricaGiorniFerie(companyId, date[0], ultimo),
         supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
         // Eventi della settimana (Black Friday, feste, saldi): piu' persone e straordinari se mancano
-        supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari')
-          .eq('company_id', companyId).lte('data_dal', ultimo).gte('data_al', date[0]),
+        // (con le regole dei periodi speciali dove ci sono: migration 405)
+        caricaEventi(companyId, date[0], ultimo),
         // Piani del mese scelti per i mesi di questa settimana: nei loro giorni valgono i loro turni.
         supabase.from('shift_plans').select('id, mese').eq('outlet_id', outletId).eq('stato', 'scelto')
           .in('mese', [...new Set([date[0], ultimo].map((d) => `${d.slice(0, 7)}-01`))]),
@@ -180,14 +186,16 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       ]);
       // Giorno libero fisso di ognuno e ore gia' nei turni dei giorni dell'altro mese
       // (in qualunque negozio; le bozze dei piani non scelti non contano).
-      const [gl, fu] = await Promise.all([
+      const [gl, rp, fu] = await Promise.all([
         caricaGiorniLiberi(companyId),
+        caricaRiposi(companyId).catch(() => ({ preferiti: new Map<string, number[]>(), mai: new Map<string, number[]>(), disponibile: false })),
         fuori.length
           ? supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, shift_plans(stato)').eq('company_id', companyId).in('data', fuori).neq('stato', 'annullato')
           : Promise.resolve({ data: [], error: null }),
       ]);
       setGiorniLiberi(gl.mappa);
       setHaGiorniLiberi(gl.disponibile);
+      setRiposi(rp);
       const portate = new Map<string, number>();
       const giorniPortati = new Map<string, Set<string>>();
       for (const x of ((fu.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
@@ -206,14 +214,16 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
       const fasce = (f.data as { giorno: number; dalle: string; alle: string; persone: number }[]) ?? [];
       const speciali = (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [];
-      const eventi = eventiDelNegozio((ev.data as EventoNegozio[]) ?? [], outletId);
+      const eventi = eventiDelNegozio(ev.righe.map(eventoDaRiga) as EventoNegozio[], outletId);
+      const regoleLette = regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]);
       setHaOrari(orari.length > 0);
       setOrariStimati(orari.some((x) => (x as { origine?: string }).origine === 'stima'));
       setFasceStimate(fasce.some((x) => (x as { origine?: string }).origine === 'stima'));
       setHaFasce(fasce.some((x) => x.persone > 0));
-      setGiorniBase(costruisciGiorni(date, orari, fasce, speciali, eventi, dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null));
+      // le scelte del negozio sui giorni caldi (12/11/2026): dove sono spente i giorni restano quelli di prima
+      setGiorniBase(costruisciGiorni(date, orari, fasce, speciali, eventi, dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null, opzioniGiorni(regoleLette)));
       setExtra(personeInPiu(date, speciali, eventi));
-      setRegole(regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]));
+      setRegole(regoleLette);
       setTurni(turniLetti);
       setFerie(fe);
       const m = new Map<string, number>();
@@ -299,7 +309,25 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const meseFuori = fuori.length ? NOMI_MESE_LUNGHI[Number(fuori[0].slice(5, 7))] : '';
   // Responsabile e vice del negozio: il lunedi' almeno una delle due in turno.
   const negozio = dati.negozi.find((n) => n.id === outletId);
-  const guida = guidaDelNegozio(negozio);
+  // Dove il negozio ha i giorni caldi, finche' responsabile o vice non sono caricate il sistema usa
+  // chi ha piu' ore di contratto e, a parita', chi e' assunta da piu' tempo (Patrizio, 12/11/2026).
+  const guidaTurni = regole.giorniPieni
+    ? guidaConRipiego(negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null,
+      candidati.map((c) => ({ id: c.id, ore: c.ore, assunta: dati.schede.find((x) => x.id === c.id)?.data_assunzione ?? null })))
+    : { responsabile: negozio?.referente_employee_id ?? null, vice: negozio?.vice_referente_employee_id ?? null, provvisoria: { responsabile: false, vice: false } };
+  const guida = regole.giorniPieni
+    ? (guidaTurni.responsabile && guidaTurni.vice ? [guidaTurni.responsabile, guidaTurni.vice] : [])
+    : guidaDelNegozio(negozio);
+  // Dove il negozio ha scritto i riposi minimi il sistema non fissa piu' un giorno: valgono solo quelli decisi a mano.
+  const riposoATurnazione = regole.riposiMinSettimana != null;
+  const liberiValidi = new Map([...giorniLiberi].filter(([, g]) => !riposoATurnazione || g.origine === 'manuale').map(([id, g]) => [id, g.giorno]));
+  // I riposi per il motore: i giorni preferiti e vietati della tabella nuova, piu' il giorno libero
+  // deciso a mano con il selettore di questa pagina (finche' resta), che vale come un preferito.
+  const riposiMotore = useMemo(() => {
+    const preferiti = new Map(riposi.preferiti);
+    if (riposoATurnazione) for (const [id, g] of liberiValidi) if (g >= 1 && g <= 5) preferiti.set(id, [...new Set([...(preferiti.get(id) ?? []), g])]);
+    return preferiti.size || riposi.mai.size ? { preferiti, mai: riposi.mai } : undefined;
+  }, [riposi, giorniLiberi, riposoATurnazione]); // eslint-disable-line react-hooks/exhaustive-deps
   const mancaGuida = dati.viceDisponibile ? cosaMancaAllaGuida(negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null) : null;
   // Le regole che i turni della settimana non rispettano: le modifiche a mano
   // restano possibili, ma la deroga si vede (Patrizio, 11/11/2026).
@@ -307,9 +335,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     giorni, turni: turniPerCalcolo,
     persone: candidati.map((c) => ({ ...c, nome: nomePersona(dati.schede.find((s) => s.id === c.id) ?? { nome: '', cognome: '' }) })),
     regole,
-    giornoLibero: new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])),
-    guida: { responsabile: negozio?.referente_employee_id ?? null, vice: negozio?.vice_referente_employee_id ?? null },
-  }) : []), [attivi.length, giorni, turni, candidati, regole, giorniLiberi, guida.join('|'), dati.schede]); // eslint-disable-line react-hooks/exhaustive-deps
+    giornoLibero: riposoATurnazione ? undefined : liberiValidi,
+    guida: { responsabile: guidaTurni.responsabile, vice: guidaTurni.vice },
+    riposi: sceltePerLaSettimana({ giorni, regole, riposi: riposiMotore, giorniFuori: 7 - date.length }).riposi,
+  }) : []), [attivi.length, giorni, turni, candidati, regole, giorniLiberi, riposiMotore, guida.join('|'), dati.schede]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cambiaGiornoLibero = async (employeeId: string, giorno: number | null) => {
     try {
@@ -325,10 +354,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   };
 
   // Il PDF dell'orario della settimana, con la grafica dell'azienda (Patrizio, 11/11/2026).
-  const stampa = async () => {
-    setLavoro(true);
-    try {
-      const { creaPdfOrario, nomeFileOrario } = await import('../lib/stampaOrario');
+  const foglioSettimana = () => {
       const tenant = getCurrentTenant();
       const orarioDi = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
       const visibili = persone.filter((p) => attivi.some((t) => t.employee_id === p.scheda.id) || p.perGiorno.some((pg) => pg.outletId === outletId && pg.stato === 'in_servizio'));
@@ -356,9 +382,97 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         pubblicatoIl: tuttiPubblicati ? pubblicati.map((t) => t.updated_at ?? '').sort().pop()?.slice(0, 10) || oggiRoma() : null,
         oggi: oggiRoma(),
       };
+      return dati0;
+  };
+  const stampa = async () => {
+    setLavoro(true);
+    try {
+      const { creaPdfOrario, nomeFileOrario } = await import('../lib/stampaOrario');
+      const dati0 = foglioSettimana();
       creaPdfOrario(dati0).save(nomeFileOrario(dati0));
     } catch (e) {
       toast({ type: 'error', message: `PDF non creato: ${e instanceof Error ? e.message : 'errore'}` });
+    } finally {
+      setLavoro(false);
+    }
+  };
+  // Tutto il mese in un solo PDF, una pagina per settimana (Patrizio, 12/11/2026). Le persone e gli
+  // orari di apertura sono quelli della settimana a schermo; i turni sono quelli salvati nel mese.
+  const stampaMese = async () => {
+    setLavoro(true);
+    try {
+      const { creaPdfOrari, nomeFileOrarioMese } = await import('../lib/stampaOrario');
+      const base = foglioSettimana();
+      const mese = date[0].slice(0, 7);
+      const primo = `${mese}-01`;
+      const ultimoDelMese = new Date(Date.UTC(Number(mese.slice(0, 4)), Number(mese.slice(5, 7)), 0)).toISOString().slice(0, 10);
+      const { data, error } = await supabase.from('shifts')
+        .select('employee_id, data, inizio, fine, pausa_minuti, plan_id, stato, ore_straordinario, updated_at')
+        .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', primo).lte('data', ultimoDelMese).neq('stato', 'annullato').order('inizio');
+      if (error) throw error;
+      const piano = pianiScelti.get(mese) ?? null;
+      const delMese = ((data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; stato: string; ore_straordinario: number | null; updated_at: string | null }[]) ?? [])
+        .filter((x) => (x.plan_id ?? null) === piano);
+      if (!delMese.length) { toast({ type: 'info', message: `Nessun turno salvato per ${NOMI_MESE_LUNGHI[Number(mese.slice(5, 7))]}: prepara prima il mese.` }); return; }
+      const orarioDi = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+      const tipo = new Map(giorni.map((g) => [g.giorno, g]));
+      const visibili = persone.filter((p) => delMese.some((t) => t.employee_id === p.scheda.id) || p.perGiorno.some((pg) => pg.outletId === outletId && pg.stato === 'in_servizio'));
+      const fogli = [];
+      for (let lun = lunediDi(primo); lun <= ultimoDelMese; lun = aggiungiGiorni(lun, 7)) {
+        const sett = giorniDellaSettimana(lun);
+        const dentro = sett.filter((d) => d.startsWith(mese));
+        const suoi = delMese.filter((t) => dentro.includes(t.data));
+        const tuttiPubblicati = suoi.length > 0 && suoi.every((t) => t.stato === 'pubblicato');
+        fogli.push({
+          ...base,
+          giorni: sett.map((d, i) => {
+            const g = giorni.find((x) => x.data === d) ?? tipo.get(i + 1);
+            return { data: d, nelMese: dentro.includes(d), chiuso: g ? g.chiuso : false, apre: g && !g.chiuso ? orarioDi(g.apre) : null, chiude: g && !g.chiuso ? orarioDi(g.chiude) : null, evento: giorni.find((x) => x.data === d)?.evento ?? null };
+          }),
+          persone: visibili.map((p) => ({
+            nome: nomePersona(p.scheda),
+            ruolo: ruoloGuida(p.scheda.id, negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null),
+            oreSettimana: p.ore,
+            turni: Object.fromEntries(dentro.map((d) => [d, suoi.filter((t) => t.employee_id === p.scheda.id && t.data === d)
+              .map((t) => ({ inizio: t.inizio.slice(0, 5), fine: t.fine.slice(0, 5), pausaMinuti: t.pausa_minuti ?? 0, oreStraordinario: Number(t.ore_straordinario ?? 0) || undefined }))])),
+          })),
+          pubblicatoIl: tuttiPubblicati ? suoi.map((t) => t.updated_at ?? '').sort().pop()?.slice(0, 10) || oggiRoma() : null,
+        });
+      }
+      creaPdfOrari(fogli, `Orario ${nomeNegozio} ${NOMI_MESE_LUNGHI[Number(mese.slice(5, 7))]} ${mese.slice(0, 4)}`).save(nomeFileOrarioMese(base, mese));
+    } catch (e) {
+      toast({ type: 'error', message: `PDF non creato: ${e instanceof Error ? e.message : 'errore'}` });
+    } finally {
+      setLavoro(false);
+    }
+  };
+  // Condividi il foglio della settimana (Patrizio, 12/11/2026): niente invii automatici, parte
+  // dal telefono o dal computer di chi preme. Dove il dispositivo sa condividere un file si apre
+  // la sua finestra di condivisione con il PDF; altrimenti il PDF si scarica e si apre la mail o
+  // WhatsApp con il testo pronto, e il file si allega a mano.
+  const condividi = async (canale: 'mail' | 'whatsapp') => {
+    setLavoro(true);
+    try {
+      const { creaPdfOrario, nomeFileOrario } = await import('../lib/stampaOrario');
+      const dati0 = foglioSettimana();
+      const nome = nomeFileOrario(dati0);
+      const titolo = `Orario ${nomeNegozio}, ${date.length > 1 ? `settimana ${formattaDataBreve(date[0])} - ${formattaDataBreve(ultimo)}` : formattaDataBreve(date[0])}`;
+      const testo = `${titolo}. In allegato il foglio con gli orari.`;
+      const doc = creaPdfOrario(dati0);
+      const file = new File([doc.output('blob')], nome, { type: 'application/pdf' });
+      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+      if (canale === 'whatsapp' && nav.share && nav.canShare?.({ files: [file] })) {
+        await nav.share({ files: [file], title: titolo, text: testo });
+        return;
+      }
+      doc.save(nome);
+      const url = canale === 'mail'
+        ? `mailto:?subject=${encodeURIComponent(titolo)}&body=${encodeURIComponent(`${testo}\n\n(Il file «${nome}» è stato scaricato: allegalo a questa mail.)`)}`
+        : `https://wa.me/?text=${encodeURIComponent(testo)}`;
+      window.open(url, canale === 'mail' ? '_self' : '_blank', 'noopener');
+      toast({ type: 'info', duration: 10000, message: `Ho scaricato «${nome}»: allegalo ${canale === 'mail' ? 'alla mail' : 'alla chat di WhatsApp'} che si è aperta.` });
+    } catch (e) {
+      if ((e as { name?: string })?.name !== 'AbortError') toast({ type: 'error', message: `Condivisione non riuscita: ${e instanceof Error ? e.message : 'errore'}` });
     } finally {
       setLavoro(false);
     }
@@ -383,17 +497,23 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const conDue = almenoDuePersone(giorni, proposta.turni, candidati, [], regole, fissiTutti);
       // Ultimo passo (Patrizio, 11/11/2026): weekend tutti, giorno libero fisso, coppie
       // dei feriali a rotazione, lunedi' con responsabile o vice, ore fino al contratto.
-      const liberi = scegliGiorniLiberi(candidati.map((c) => c.id), new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])), guida);
+      const liberi = riposoATurnazione ? liberiValidi : scegliGiorniLiberi(candidati.map((c) => c.id), new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])), guida);
       const coppiePrima = await caricaCoppiePrima(companyId, outletId, date[0]);
       const sistemati = ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidati, regole,
-        { giornoLibero: liberi, guida, coppiePrima, riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori, responsabile: regole.giorniPieni ? (negozio?.referente_employee_id ?? null) : null, straordinariWeekend: !!regole.giorniPieni, giorniPieni: regole.giorniPieni ? new Set(giorni.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)) : undefined }, fissiTutti);
-      if (haGiorniLiberi) await salvaGiorniLiberiDiSistema(companyId, liberi, giorniLiberi).catch(() => undefined);
+        {
+          // con la tabella dei riposi i giorni preferiti arrivano da li' (anche piu' di uno a testa)
+          giornoLibero: riposoATurnazione ? undefined : liberi, guida, coppiePrima,
+          riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori,
+          // giorni caldi, apertura e chiusura fra responsabile e vice, riposi, straordinari pari: vuoto dove il negozio non li ha
+          ...sceltePerLaSettimana({ giorni, regole, responsabile: guidaTurni.responsabile, vice: guidaTurni.vice, riposi: riposiMotore, giorniFuori: 7 - date.length }),
+        }, fissiTutti);
+      if (haGiorniLiberi && !riposoATurnazione) await salvaGiorniLiberiDiSistema(companyId, liberi, giorniLiberi).catch(() => undefined);
       const esito = { ...proposta, turni: sistemati, scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, [...sistemati, ...fissiTutti])) };
       if (esito.turni.length) {
         // nei negozi con i giorni a massima intensita' lo straordinario della settimana si scrive sui turni dei giorni forti
         const straordDi = regole.giorniPieni
           // il contratto che resta dopo i turni gia' fissati (a mano, pubblicati, trasferte): la proposta non li contiene
-          ? ripartisciStraordinari(esito.turni, new Map(candidati.map((c) => [c.id, c.ore - fissiTutti.filter((f) => f.employeeId === c.id).reduce((x, f) => x + oreLavorate(f), 0)])), new Set(giorni.filter((g) => !g.chiuso && giornoPieno(g)).map((g) => g.data)))
+          ? ripartisciStraordinari(esito.turni, new Map(candidati.map((c) => [c.id, c.ore - fissiTutti.filter((f) => f.employeeId === c.id).reduce((x, f) => x + oreLavorate(f), 0)])), new Set(giorni.filter((g) => !g.chiuso && (g.straordinariCaldo || g.straordinari)).map((g) => g.data)))
           : new Map<Turno, number>();
         const { error } = await supabase.from('shifts').insert(esito.turni.map((t) => ({
           company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data,
@@ -530,6 +650,18 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const scoperture = giorni.flatMap((g) => scopertureDelGiorno(g, turniPerCalcolo));
   const totaleOre = persone.reduce((s, p) => s + (oreFuori.get(p.scheda.id) ?? 0) + attivi.filter((t) => t.employee_id === p.scheda.id).reduce((a, t) => a + oreLavorate({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }), 0), 0);
   const totaleContratto = persone.reduce((s, p) => s + (p.ore ?? 0), 0);
+  // «Come sta la settimana», in parole semplici (Patrizio, 12/11/2026).
+  const oreDi = (id: string) => (oreFuori.get(id) ?? 0) + attivi.filter((t) => t.employee_id === id).reduce((a, t) => a + oreLavorate({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }), 0);
+  const conTurni = persone.filter((p) => attivi.some((t) => t.employee_id === p.scheda.id));
+  const riposiMinimi = date.length === 7 && conTurni.length ? Math.min(...conTurni.map((p) => date.filter((d) => !attivi.some((t) => t.employee_id === p.scheda.id && t.data === d)).length)) : null;
+  const straordSettimana = conTurni.reduce((s, p) => s + Math.max(0, oreDi(p.scheda.id) - (p.ore ?? 0)), 0);
+  const haLunedi = giorni.some((g) => g.giorno === 1 && !g.chiuso);
+  const statoSettimana: { ok: boolean; testo: string }[] = [
+    scoperture.length === 0 ? { ok: true, testo: 'Negozio sempre coperto' } : { ok: false, testo: `Mancano persone in ${scoperture.length} ${scoperture.length === 1 ? 'fascia' : 'fasce'}` },
+    ...(riposiMinimi != null ? [{ ok: riposiMinimi >= Math.max(1, regole.riposiMinSettimana ?? 1), testo: riposiMinimi === 0 ? 'Qualcuno è senza riposo' : `Almeno ${riposiMinimi} ${riposiMinimi === 1 ? 'riposo' : 'riposi'} a testa` }] : []),
+    ...(haLunedi && (guidaTurni.responsabile || guidaTurni.vice) ? [{ ok: !deroghe.some((d) => d.regola === 'lunedi_guida'), testo: deroghe.some((d) => d.regola === 'lunedi_guida') ? 'Lunedì manca responsabile o vice' : 'Lunedì c\'è responsabile o vice' }] : []),
+    { ok: straordSettimana < 0.25, testo: straordSettimana < 0.25 ? 'Nessuno straordinario' : `${oreInChiaro(straordSettimana)}${Math.round(straordSettimana * 60) % 30 === 0 ? ' ore' : ''} di straordinario` },
+  ];
 
   return (
     <div className="space-y-3">
@@ -544,11 +676,18 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         </div>
         <div className="flex flex-wrap gap-2">
           {attivi.length > 0 && (
-            <button type="button" onClick={stampa} disabled={lavoro}
-              title="Scarica il PDF dell'orario di questa settimana, da stampare o mandare per mail"
-              className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg border border-slate-300 bg-white text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
-              <Printer size={15} /> Stampa / PDF
-            </button>
+            <>
+              <button type="button" onClick={stampa} disabled={lavoro}
+                title="Scarica il PDF dell'orario di questa settimana"
+                className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg border border-slate-300 bg-white text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+                <Printer size={15} /> Stampa la settimana
+              </button>
+              <button type="button" onClick={stampaMese} disabled={lavoro}
+                title="Scarica un solo PDF con tutte le settimane del mese, una per pagina"
+                className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg border border-slate-300 bg-white text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
+                <Printer size={15} /> Stampa il mese
+              </button>
+            </>
           )}
         {puoScrivere && (
           <div className="flex flex-wrap gap-2">
@@ -560,11 +699,11 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             )}
             <button type="button" onClick={proponi} disabled={lavoro || !haOrari}
               className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg border border-slate-300 bg-white text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
-              <RefreshCw size={15} /> {attivi.length ? 'Ricalcola la proposta' : 'Proponi i turni'}
+              <RefreshCw size={15} /> {attivi.length ? 'Rifai la proposta' : 'Proponi i turni'}
             </button>
             <button type="button" onClick={pubblica} disabled={lavoro || bozze === 0}
               className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
-              <Send size={15} /> Pubblica al negozio{bozze ? ` (${bozze})` : ''}
+              <Send size={15} /> Pubblica la settimana{bozze ? ` (${bozze})` : ''}
             </button>
           </div>
         )}
@@ -576,17 +715,47 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           <Info size={15} className="shrink-0 mt-0.5" /> Questa settimana è a cavallo di due mesi: qui vedi i giorni di {NOMI_MESE_LUNGHI[Number(date[0].slice(5, 7))]}. Le ore già nei turni dei giorni di {meseFuori} contano nella colonna Ore, così il contratto della settimana resta uno solo.
         </div>
       )}
-      {deroghe.length > 0 && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
-          <div className="font-semibold flex items-center gap-2"><AlertTriangle size={15} /> In deroga alle regole ({deroghe.length})</div>
-          <ul className="mt-1 list-disc pl-6 space-y-0.5">
-            {deroghe.map((d, i) => <li key={`${d.regola}-${d.data}-${d.employeeId}-${i}`}>{d.testo}</li>)}
-          </ul>
+      {attivi.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <section aria-label="Come sta la settimana" className="rounded-xl border border-slate-200 bg-white p-3 text-sm">
+            <h3 className="font-semibold text-slate-800">Come sta la settimana</h3>
+            <ul className="mt-2 flex flex-wrap gap-1.5">
+              {statoSettimana.map((x) => (
+                <li key={x.testo} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${x.ok ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>
+                  {x.ok ? <CheckCircle2 size={13} /> : <AlertTriangle size={13} />} {x.testo}
+                </li>
+              ))}
+            </ul>
+          </section>
+          <section aria-label="Da guardare" className={`rounded-xl border p-3 text-sm ${deroghe.length ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600'}`}>
+            <h3 className="font-semibold flex items-center gap-2">{deroghe.length > 0 && <AlertTriangle size={15} />} Da guardare{deroghe.length ? ` (${deroghe.length})` : ''}</h3>
+            {deroghe.length > 0 ? (
+              <ul className="mt-1 list-disc pl-6 space-y-0.5">
+                {deroghe.map((d, i) => <li key={`${d.regola}-${d.data}-${d.employeeId}-${i}`}>{d.testo}</li>)}
+              </ul>
+            ) : <p className="mt-1">Niente da segnalare: i turni rispettano le regole del negozio. Se sposti un turno a mano e una regola salta, lo vedi qui.</p>}
+          </section>
         </div>
+      )}
+      {passo === 3 && (
+        <section aria-label="Pubblica e invia" className="rounded-xl border-2 border-blue-300 bg-blue-50 p-4 text-sm text-blue-950">
+          <h3 className="font-semibold text-base">Pubblica e invia</h3>
+          <p className="mt-1">{bozze > 0 ? `Ci sono ${bozze} turni in bozza: quando pubblichi, le persone del negozio li vedono nell'app.` : pubblicati > 0 ? 'La settimana è pubblicata: le persone del negozio la vedono nell\'app.' : 'Non ci sono ancora turni in questa settimana: preparali al passo 1 o 2.'}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {puoScrivere && (
+              <button type="button" onClick={pubblica} disabled={lavoro || bozze === 0} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"><Send size={16} /> Pubblica la settimana</button>
+            )}
+            <button type="button" onClick={stampa} disabled={lavoro || !attivi.length} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><Printer size={16} /> Stampa la settimana</button>
+            <button type="button" onClick={stampaMese} disabled={lavoro} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><Printer size={16} /> Stampa il mese</button>
+            <button type="button" onClick={() => condividi('mail')} disabled={lavoro || !attivi.length} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><Mail size={16} /> Invia per mail</button>
+            <button type="button" onClick={() => condividi('whatsapp')} disabled={lavoro || !attivi.length} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><MessageCircle size={16} /> Invia su WhatsApp</button>
+          </div>
+          <p className="mt-2 text-xs text-blue-900/80">Mail e WhatsApp non partono da soli: si apre il programma con il testo pronto e il foglio in PDF, e lo mandi tu.</p>
+        </section>
       )}
       {mancaGuida && attivi.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
-          <Info size={15} className="shrink-0 mt-0.5" /> {nomeNegozio}: {mancaGuida.charAt(0).toLowerCase() + mancaGuida.slice(1)}. Finché non ci sono tutte e due, la regola del lunedì (una fra responsabile e vice in negozio per il versamento) non si può controllare. Si scelgono in alto, accanto al nome del negozio.
+          <Info size={15} className="shrink-0 mt-0.5" /> {nomeNegozio}: {mancaGuida.charAt(0).toLowerCase() + mancaGuida.slice(1)}. Finché non ci sono tutte e due, la regola del lunedì (una fra responsabile e vice in negozio per il versamento) non si può controllare. Si scelgono in «Persone e riposi», in fondo alla pagina.
         </div>
       )}
 
@@ -624,8 +793,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200">
               <th className="px-3 py-2 font-semibold w-48">Persona</th>
               {giorni.map((g) => (
-                <th key={g.data} className="px-1.5 py-2 font-semibold">
-                  {NOMI_GIORNO_BREVI[g.giorno]} {g.data.slice(8, 10)}
+                <th key={g.data} className={`px-1.5 py-2 font-semibold ${g.caldo && !g.chiuso ? 'bg-pink-50 text-pink-900' : ''}`}>
+                  {NOMI_GIORNO_BREVI[g.giorno]} {g.data.slice(8, 10)}{g.caldo && !g.chiuso && <span className="ml-1 normal-case font-semibold text-[10px] rounded-full bg-pink-200 text-pink-900 px-1.5 py-0.5" title="Giorno caldo: lavorano tutte, straordinari ammessi">caldo</span>}
                   {g.chiuso && <span className="block normal-case font-normal text-slate-400">chiuso</span>}
                   {!g.chiuso && <span className="block normal-case font-normal text-slate-400">{`${String(Math.floor(g.apre / 60)).padStart(2, '0')}:${String(g.apre % 60).padStart(2, '0')}-${String(Math.floor(g.chiude / 60)).padStart(2, '0')}:${String(g.chiude % 60).padStart(2, '0')}`}</span>}
                   {g.nota && <span className="block normal-case font-normal text-blue-700">{g.nota}</span>}
@@ -649,7 +818,15 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                       <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-700">{etichettaRuoloGuida(ruoloGuida(p.scheda.id, negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null))}</div>
                     )}
                     <div className="text-xs text-slate-500">{p.ore != null ? `${p.ore} h` : 'a chiamata'}</div>
-                    {haGiorniLiberi && p.ore != null && (puoScrivere || giorniLiberi.has(p.scheda.id)) && (
+                    {/* Dove ci sono i riposi per persona (migration 405) si scelgono in «Persone e riposi»: qui si leggono. */}
+                    {riposi.disponibile && ((riposi.preferiti.get(p.scheda.id)?.length ?? 0) > 0 || (riposi.mai.get(p.scheda.id)?.length ?? 0) > 0) && (
+                      <div className="mt-0.5 text-[11px] text-slate-500">
+                        {(riposi.preferiti.get(p.scheda.id)?.length ?? 0) > 0 && <>riposa di preferenza {riposi.preferiti.get(p.scheda.id)!.map((g) => NOMI_GIORNO_BREVI[g].toLowerCase()).join(', ')}</>}
+                        {(riposi.preferiti.get(p.scheda.id)?.length ?? 0) > 0 && (riposi.mai.get(p.scheda.id)?.length ?? 0) > 0 && ' · '}
+                        {(riposi.mai.get(p.scheda.id)?.length ?? 0) > 0 && <>mai {riposi.mai.get(p.scheda.id)!.map((g) => NOMI_GIORNO_BREVI[g].toLowerCase()).join(', ')}</>}
+                      </div>
+                    )}
+                    {haGiorniLiberi && !riposi.disponibile && p.ore != null && (puoScrivere || giorniLiberi.has(p.scheda.id)) && (
                       <label className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-500" title="Il giorno libero che resta lo stesso ogni settimana. Lo sceglie il sistema alla prima proposta; se lo cambi qui resta quello che decidi tu.">
                         libero fisso
                         <select disabled={!puoScrivere || lavoro} value={giorniLiberi.get(p.scheda.id)?.giorno ?? ''}
@@ -687,10 +864,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                             ? vivo.stato === 'pubblicato' ? 'bg-blue-100 text-blue-900' : vivo.origine === 'manuale' ? 'bg-violet-100 text-violet-900' : 'bg-blue-50 text-blue-800 border border-dashed border-blue-300'
                             : nd ? 'bg-slate-100 text-slate-500 font-sans' : g.chiuso ? 'text-slate-300' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50 font-sans'}`}>
                           {vivo ? `${vivo.inizio}-${vivo.fine}` : nd ? nd : g.chiuso ? '' : 'riposo'}
-                          {/* La pausa ha solo la durata: la si fa quando il negozio lo permette (Patrizio, 11/11/2026) */}
-                          {vivo && (vivo.pausa_minuti ?? 0) > 0 && (
-                            <span className="block font-sans text-[11px] opacity-75">pausa {vivo.pausa_minuti >= 60 && vivo.pausa_minuti % 60 === 0 ? `${vivo.pausa_minuti / 60} h` : `${vivo.pausa_minuti}'`}</span>
-                          )}
+                          {/* Nelle caselle solo l'orario: la pausa non si scrive (Patrizio, 12/11/2026), si vede aprendo il turno */}
                           {vivo && fe && <span className="block font-sans text-emerald-700">permesso {fe.ore} h</span>}
                         </button>
                         {annullato && !vivo && <span className="block text-[11px] text-slate-400 line-through text-center">{annullato.inizio}-{annullato.fine}</span>}

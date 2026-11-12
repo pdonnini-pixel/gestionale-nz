@@ -21398,6 +21398,10 @@ export type Database = {
           outlet_ids: string[] | null
           persone_extra: number
           straordinari: boolean
+          tipo: string | null
+          regole: Json | null
+          regole_origine: string | null
+          controllo_moda: Json | null
           updated_at: string
           updated_by: string | null
         }
@@ -21413,6 +21417,10 @@ export type Database = {
           outlet_ids?: string[] | null
           persone_extra?: number
           straordinari?: boolean
+          tipo?: string | null
+          regole?: Json | null
+          regole_origine?: string | null
+          controllo_moda?: Json | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -21428,6 +21436,10 @@ export type Database = {
           outlet_ids?: string[] | null
           persone_extra?: number
           straordinari?: boolean
+          tipo?: string | null
+          regole?: Json | null
+          regole_origine?: string | null
+          controllo_moda?: Json | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -21706,6 +21718,13 @@ export type Database = {
           riempi_contratto: boolean | null
           pausa_corta_pagata: boolean | null
           giorni_pieni: boolean | null
+          riposi_min_settimana: number | null
+          straordinari_pari: boolean | null
+          caldi_tutti_al_lavoro: boolean | null
+          caldi_straordinari: boolean | null
+          caldi_fasce_festivi: string | null
+          caldi_guida_apre_chiude: boolean | null
+          caldi_ore_apertura: number | null
           traffico_da_outlet_id: string | null
           giorni_lavoro_max: number
           outlet_id: string
@@ -21726,6 +21745,13 @@ export type Database = {
           riempi_contratto?: boolean | null
           pausa_corta_pagata?: boolean | null
           giorni_pieni?: boolean | null
+          riposi_min_settimana?: number | null
+          straordinari_pari?: boolean | null
+          caldi_tutti_al_lavoro?: boolean | null
+          caldi_straordinari?: boolean | null
+          caldi_fasce_festivi?: string | null
+          caldi_guida_apre_chiude?: boolean | null
+          caldi_ore_apertura?: number | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id: string
@@ -21746,6 +21772,13 @@ export type Database = {
           riempi_contratto?: boolean | null
           pausa_corta_pagata?: boolean | null
           giorni_pieni?: boolean | null
+          riposi_min_settimana?: number | null
+          straordinari_pari?: boolean | null
+          caldi_tutti_al_lavoro?: boolean | null
+          caldi_straordinari?: boolean | null
+          caldi_fasce_festivi?: string | null
+          caldi_guida_apre_chiude?: boolean | null
+          caldi_ore_apertura?: number | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id?: string

@@ -6,7 +6,7 @@
 //    decide solo la direzione (super_advisor; il database lo controlla);
 //  - niente ferie ne' permessi: la richiesta si blocca;
 //  - se mancano persone la proposta dei turni chiede straordinari.
-// I giorni di chiusura restano per negozio, in «Orari e fabbisogno».
+// I giorni di chiusura restano per negozio, in «Regole e orari».
 
 import { useCallback, useEffect, useState } from 'react';
 import { CalendarRange, Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
@@ -100,7 +100,7 @@ export default function EventiNegozi({ companyId, negozi, puoScrivere, puoFabbis
       <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600">
         Black Friday, feste natalizie, saldi: giorni singoli o periodi in cui serve più personale. Nei giorni di un evento
         <strong> non si prendono ferie né permessi</strong> e, se le persone non bastano, la proposta dei turni chiede
-        <strong> straordinari</strong>. Le persone in più le decide la direzione. I giorni di chiusura di ogni negozio stanno in «Orari e fabbisogno».
+        <strong> straordinari</strong>. Le persone in più le decide la direzione. I giorni di chiusura di ogni negozio stanno in «Regole e orari».
       </div>
 
       <section className="bg-white border border-slate-200 rounded-xl">

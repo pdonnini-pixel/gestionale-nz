@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   cosaMancaAllaGuida, eLunedi, etichettaRuoloGuida, guidaIncompleta,
   lunediScopertiDaAssenze, lunediSenzaGuida, ruoloGuida,
-} from './guidaNegozio';
+  guidaConRipiego } from './guidaNegozio';
 
 const RESP = 'resp';
 const VICE = 'vice';
@@ -194,5 +194,37 @@ describe('lunediScopertiDaAssenze', () => {
     const assenze = [{ employeeId: RESP, data: '2026-11-16' }];
     expect(lunediScopertiDaAssenze({ date: novembre, responsabileId: RESP, viceId: null, assenze })).toEqual([]);
     expect(lunediScopertiDaAssenze({ date: novembre, responsabileId: null, viceId: VICE, assenze })).toEqual([]);
+  });
+});
+
+describe('ripiego su responsabile e vice (Patrizio, 12/11/2026)', () => {
+  const persone = [
+    { id: 'c-bianchi', ore: 30, assunta: '2026-11-02' },
+    { id: 'a-angelini', ore: 40, assunta: '2026-11-03' },
+    { id: 'b-basile', ore: 30, assunta: '2026-11-02' },
+    { id: 'd-vecchia', ore: 30, assunta: '2024-03-01' },
+    { id: 'e-chiamata', ore: 0, assunta: '2020-01-01' },
+  ];
+  it('senza nessuna caricata: chi ha piu\' ore, e a parita\' chi e\' assunta da piu\' tempo', () => {
+    expect(guidaConRipiego(null, null, persone)).toEqual({
+      responsabile: 'a-angelini', vice: 'd-vecchia', provvisoria: { responsabile: true, vice: true },
+    });
+  });
+  it('la responsabile caricata resta; la vice la sceglie il sistema fra le altre', () => {
+    expect(guidaConRipiego('c-bianchi', null, persone)).toEqual({
+      responsabile: 'c-bianchi', vice: 'a-angelini', provvisoria: { responsabile: false, vice: true },
+    });
+  });
+  it('tutte e due caricate: niente di provvisorio', () => {
+    expect(guidaConRipiego('a-angelini', 'b-basile', persone).provvisoria).toEqual({ responsabile: false, vice: false });
+  });
+  it('a parita\' di ore e di data la scelta non cambia da una volta all\'altra', () => {
+    const pari = [{ id: 'z', ore: 30, assunta: '2026-11-02' }, { id: 'm', ore: 30, assunta: '2026-11-02' }, { id: 'k', ore: 30 }];
+    expect(guidaConRipiego(null, null, pari)).toMatchObject({ responsabile: 'm', vice: 'z' });
+    expect(guidaConRipiego(null, null, [...pari].reverse())).toMatchObject({ responsabile: 'm', vice: 'z' });
+  });
+  it('chi non e\' fra le persone del negozio non conta; una persona sola fa da responsabile senza vice', () => {
+    expect(guidaConRipiego('altrove', 'altrove2', [{ id: 'x', ore: 20 }])).toEqual({ responsabile: 'x', vice: null, provvisoria: { responsabile: true, vice: false } });
+    expect(guidaConRipiego(null, null, [])).toEqual({ responsabile: null, vice: null, provvisoria: { responsabile: false, vice: false } });
   });
 });
