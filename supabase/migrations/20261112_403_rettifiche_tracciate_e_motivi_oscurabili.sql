@@ -12,8 +12,8 @@
 --    solo che sono cambiati), così l'oscuramento resta tale.
 -- 2. presenze_oscura_motivo / timbrature_oscura_nota: chi gestisce le
 --    presenze svuota un motivo o la nota di una timbratura segnata dal
---    dipendente (per esempio con dati sulla salute), con il perché
---    obbligatorio. Restano chi, quando e perché; il testo no.
+--    dipendente (per esempio con dati sulla salute), con il perché scelto da
+--    un elenco chiuso (dati_sanitari, dati_personali, non_pertinente). Restano chi, quando e perché; il testo no.
 -- 3. presenze_storico: lo storico di un caso e della sua timbratura, con i
 --    nomi, per chi può confermare quel negozio.
 -- Tenant: NZ e Zago. Rollback: 20261112_403_rettifiche_tracciate_e_motivi_oscurabili_ROLLBACK.sql
@@ -48,6 +48,15 @@ ALTER TABLE public.attendance_rettifiche ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS rettifiche_lettura ON public.attendance_rettifiche;
 CREATE POLICY rettifiche_lettura ON public.attendance_rettifiche FOR SELECT TO authenticated
   USING (company_id = (SELECT public.get_my_company_id()) AND (SELECT public.timbrature_gestore()));
+CREATE POLICY cash_operator_block ON public.attendance_rettifiche AS RESTRICTIVE FOR ALL TO authenticated
+  USING (COALESCE(((SELECT public.get_my_role()))::text, '') <> 'operatore_cassa')
+  WITH CHECK (COALESCE(((SELECT public.get_my_role()))::text, '') <> 'operatore_cassa');
+CREATE POLICY dipendente_block ON public.attendance_rettifiche AS RESTRICTIVE FOR ALL TO authenticated
+  USING (COALESCE(((SELECT public.get_my_role()))::text, '') <> 'dipendente')
+  WITH CHECK (COALESCE(((SELECT public.get_my_role()))::text, '') <> 'dipendente');
+CREATE POLICY demo_nascosto ON public.attendance_rettifiche AS RESTRICTIVE FOR ALL TO authenticated
+  USING (employee_id IS NULL OR employee_id <> ALL ((SELECT public.dipendenti_demo_ids())::uuid[]))
+  WITH CHECK (employee_id IS NULL OR employee_id <> ALL ((SELECT public.dipendenti_demo_ids())::uuid[]));
 -- Solo lettura dall'API: scrivono soltanto i trigger
 REVOKE ALL ON public.attendance_rettifiche FROM anon, authenticated;
 GRANT SELECT ON public.attendance_rettifiche TO authenticated;
@@ -66,7 +75,7 @@ BEGIN
     IF NEW.origine IS DISTINCT FROM 'manuale' THEN RETURN NEW; END IF;
     INSERT INTO public.attendance_rettifiche (company_id, outlet_id, employee_id, tabella, riga_id, azione, dopo, autore)
     VALUES (NEW.company_id, NEW.outlet_id, NEW.employee_id, 'timbratura', NEW.id, 'aggiunta a mano',
-            jsonb_build_object('tipo', NEW.tipo, 'ora', NEW.ora, 'nota', NEW.nota), (SELECT auth.uid()));
+            jsonb_build_object('tipo', NEW.tipo, 'ora', NEW.ora, 'nota', CASE WHEN NEW.nota IS NULL THEN 'senza nota' ELSE 'con nota' END), (SELECT auth.uid()));
     RETURN NEW;
   END IF;
 
@@ -155,14 +164,17 @@ CREATE TRIGGER trg_rettifiche_caso AFTER UPDATE ON public.attendance_eventi
 CREATE OR REPLACE FUNCTION public.presenze_oscura_motivo(p_evento uuid, p_perche text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
 AS $fn$
-DECLARE v_perche text := left(NULLIF(btrim(p_perche), ''), 300);
+DECLARE v_perche text := NULLIF(btrim(p_perche), ''); v_emp uuid;
 BEGIN
   IF NOT public.timbrature_gestore() THEN
     RAISE EXCEPTION 'Solo chi segue il personale può oscurare un motivo.' USING ERRCODE = '42501';
   END IF;
-  IF v_perche IS NULL THEN
-    RAISE EXCEPTION 'Scrivi perché lo oscuri (per esempio: conteneva dati sulla salute).' USING ERRCODE = '22023';
+  -- Elenco chiuso: un perché a testo libero potrebbe ripetere il dato da togliere
+  IF v_perche IS NULL OR v_perche NOT IN ('dati_sanitari', 'dati_personali', 'non_pertinente') THEN
+    RAISE EXCEPTION 'Scegli perché lo oscuri: dati sulla salute, altri dati personali o testo non pertinente.' USING ERRCODE = '22023';
   END IF;
+  SELECT employee_id INTO v_emp FROM public.attendance_eventi WHERE id = p_evento;
+  PERFORM public.presenze_non_su_di_me(v_emp);
   UPDATE public.attendance_eventi
      SET motivo_dipendente = NULL, motivo_oscurato_il = now(), motivo_oscurato_da = (SELECT auth.uid()),
          motivo_oscurato_perche = v_perche
@@ -176,14 +188,16 @@ GRANT EXECUTE ON FUNCTION public.presenze_oscura_motivo(uuid, text) TO authentic
 CREATE OR REPLACE FUNCTION public.timbrature_oscura_nota(p_punch uuid, p_perche text)
 RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public', 'pg_temp'
 AS $fn$
-DECLARE v_perche text := left(NULLIF(btrim(p_perche), ''), 300);
+DECLARE v_perche text := NULLIF(btrim(p_perche), ''); v_emp uuid;
 BEGIN
   IF NOT public.timbrature_gestore() THEN
     RAISE EXCEPTION 'Solo chi segue il personale può oscurare una nota.' USING ERRCODE = '42501';
   END IF;
-  IF v_perche IS NULL THEN
-    RAISE EXCEPTION 'Scrivi perché la oscuri (per esempio: conteneva dati sulla salute).' USING ERRCODE = '22023';
+  IF v_perche IS NULL OR v_perche NOT IN ('dati_sanitari', 'dati_personali', 'non_pertinente') THEN
+    RAISE EXCEPTION 'Scegli perché la oscuri: dati sulla salute, altri dati personali o testo non pertinente.' USING ERRCODE = '22023';
   END IF;
+  SELECT employee_id INTO v_emp FROM public.attendance_punches WHERE id = p_punch;
+  PERFORM public.presenze_non_su_di_me(v_emp);
   UPDATE public.attendance_punches
      SET nota = NULL, nota_oscurata_il = now(), nota_oscurata_da = (SELECT auth.uid()), nota_oscurata_perche = v_perche
    WHERE id = p_punch AND company_id = public.get_my_company_id() AND nota IS NOT NULL;
