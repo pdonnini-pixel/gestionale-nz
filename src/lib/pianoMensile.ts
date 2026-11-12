@@ -1243,13 +1243,14 @@ function pianificaMeseConRegola(args: {
   };
   const altroMesePianificato = (lun: string) => giorniDellaSettimana(lun).filter((d) => !nelMese(d))
     .some((d) => [...(args.oreFuoriMese?.values() ?? [])].some((m) => (m.get(d) ?? 0) > 0));
-  // Pezzi di settimana nei negozi con le regole nuove (Patrizio, 12/11/2026, lunedi' 30/11 a Roma
-  // Soratte: quattro turni da 4 ore, uno a testa, solo per «stare in linea» con la quota del
-  // pezzo). Li' il contratto e' quello della settimana intera: nel pezzo il motore puo' usarne
-  // quanto i giorni ne reggono, ne mette solo quanto serve, e la quota del pezzo diventa quello
-  // che ha messo; il resto resta ai giorni dell'altro mese. Con «ore fino al contratto» resta la
-  // quota in proporzione, altrimenti il pezzo si prenderebbe tutte le ore della settimana.
-  const pezzoLibero = (!!regole.giorniPieni || regole.riposiMinSettimana != null || !!regole.lunediDue) && !regole.riempiContratto;
+  // Pezzi di settimana (Patrizio, 12/11/2026, lunedi' 30/11 a Roma Soratte: quattro turni da
+  // 4 ore, uno a testa, solo per «stare in linea» con la quota del pezzo). Il contratto e' quello
+  // della settimana intera: nel pezzo il motore puo' usarne quanto i giorni ne reggono, ne mette
+  // solo quanto serve, e la quota del pezzo diventa quello che ha messo; il resto resta ai giorni
+  // dell'altro mese. Dal 12/11/2026 sera vale in TUTTI i negozi («sistema anche gli altri»).
+  // Con «ore fino al contratto» resta la quota in proporzione, altrimenti il pezzo si prenderebbe
+  // tutte le ore della settimana.
+  const pezzoLibero = !regole.riempiContratto;
   const quotaPezzi = new Map<string, Map<string, number>>();
   const contrattoSett = (p: PersonaPiano, lun: string) => {
     const date = giorniDellaSettimana(lun);

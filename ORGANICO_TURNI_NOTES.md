@@ -1369,3 +1369,32 @@ mese è straordinario solo quello che supera la settimana intera, senza togliere
 dopo; dopo una modifica alle ferie fatta dalla stessa finestra il conto usa le ferie lette prima
 (si riallinea alla modifica successiva).
 
+## Pezzo di settimana: vale in tutti i negozi (12/11/2026 sera)
+
+Patrizio: «sistema anche gli altri e pubblica». `pezzoLibero` in `pianificaMese` non guarda più le
+scelte del negozio: è spento solo con «ore fino al contratto» accesa (oggi in nessun negozio), dove
+il pezzo resta in proporzione per non prendersi tutte le ore della settimana.
+
+Misura sui dati veri, sette negozi, contro e0e06c2 (traffico in media per giorno della settimana):
+
+| Negozio | Scoperte nov | Scoperte dic | Feriali a turni corti (nov+dic) |
+|---|---|---|---|
+| Barberino | 2,14 = | 10,17 → 1,38 | 1 → 0 |
+| Brugnato | 39,65 = | 49,73 → 44,95 | 1 → 2 |
+| Franciacorta | 2,21 = | 7,77 → 0 | 3 → 2 |
+| Palmanova | 0,39 = | 8,5 → 0 | 1 → 0 |
+| Torino | 2,56 = | 9,59 → 2,09 | 1 → 0 |
+| Valdichiana | 3,29 = | 9,66 → 6,83 | 1 → 0 |
+| Valmontone | 17,47 = | 13,71 → 5,79 | 3 → 1 |
+
+Roma Soratte invariata (zero turni diversi). Nessuno 7 su 7, nessun giorno con una persona sola.
+I lunedì 30/11 passano ovunque da quattro turni da 4 ore a due turni veri (10-20 e 12-18).
+
+Restano, e non sono pezzi di settimana: Brugnato 21 e 23/12 (il 23 è nuovo: il mese si è
+ridistribuito), Franciacorta 21 e 22/12 (settimana di Natale), Valmontone 2/11. Causa diversa,
+da guardare a parte. A Brugnato nella settimana 30/11 una persona da 30 ore passa da 33,5 a 35
+(già oltre il contratto prima: tre persone per coprire il negozio).
+
+Nella settimana 30/11-6/12 chi resta più di 6 ore sotto il contratto passa da 5 a 7 persone:
+sono ore che il traffico non chiede e restano da assegnare (regola 1), non un difetto.
+

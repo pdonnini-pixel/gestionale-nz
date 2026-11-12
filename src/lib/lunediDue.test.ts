@@ -245,10 +245,24 @@ describe('piano del mese: il pezzo di settimana di un giorno (lunedì 30/11/2026
     for (let i = 1; i < coppie.length; i++) expect(coppie[i]).not.toBe(coppie[i - 1]);
   });
 
-  it('dove il negozio non ha le scelte nuove il pezzo resta in proporzione, come prima', () => {
-    const vecchie = regoleDaRiga({ turno_min_ore: 4, turno_max_ore: 10, pausa_oltre_ore: 6, pausa_minuti: 30, pausa_lunga_oltre_ore: 8, pausa_lunga_minuti: 60, giorni_lavoro_max: 6, soglia_ingressi_feriali: 25, soglia_ingressi_weekend: 25, due_persone: true });
-    const e = piano(vecchie);
-    // la quota di un giorno su sette, con il minimo di un turno: nessuno arriva alla settimana intera
+  // Patrizio, 12/11/2026 sera («sistema anche gli altri»): la regola vale in ogni negozio.
+  const rigaVecchia = { turno_min_ore: 4, turno_max_ore: 10, pausa_oltre_ore: 6, pausa_minuti: 30, pausa_lunga_oltre_ore: 8, pausa_lunga_minuti: 60, giorni_lavoro_max: 6, soglia_ingressi_feriali: 25, soglia_ingressi_weekend: 25, due_persone: true };
+  it('anche dove il negozio non ha le scelte nuove: il lunedì 30 non ha turni a spezzoni messi per «stare in linea»', () => {
+    const e = piano(regoleDaRiga(rigaVecchia));
+    const t30 = e.turni.filter((t) => t.data === '2026-11-30');
+    // prima: quattro turni da 4 ore, uno a testa
+    expect(new Set(t30.map((t) => t.employeeId)).size).toBeLessThan(4);
+    expect(t30.some((t) => oreLavorate(t) > 4)).toBe(true);
+    expect(scopertureDelGiorno(e.giorni.find((g) => g.data === '2026-11-30')!, t30)).toEqual([]);
+    // la quota del pezzo e' quello che e' in turno: niente ore «non usate» inventate
+    for (const id of Object.keys(ORE)) {
+      const fatte = t30.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
+      expect(e.persone[id].settimane?.['2026-11-30'] ?? 0).toBeCloseTo(fatte, 6);
+    }
+  }, 60_000);
+
+  it('con «ore fino al contratto» il pezzo resta in proporzione: non si prende tutte le ore della settimana', () => {
+    const e = piano(regoleDaRiga({ ...rigaVecchia, riempi_contratto: true }));
     for (const id of Object.keys(ORE)) expect(e.persone[id].settimane?.['2026-11-30'] ?? 0).toBeLessThanOrEqual(ORE[id] / 2);
   }, 60_000);
 });
