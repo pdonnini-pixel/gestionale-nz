@@ -1709,7 +1709,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                             {speciale && <span className="ml-2 text-xs font-semibold text-red-700 normal-case">{t.nome}</span>}
                             {k === 0 && <span className="ml-2 text-xs font-semibold text-blue-700 normal-case">la migliore</span>}
                           </span>
-                          <span className="text-sm text-slate-700 tabular-nums">{f.inizio}–{f.fine} · <b>{fmt(f.ore)} h</b>{f.pausaMinuti ? ` · pausa ${f.pausaMinuti}'` : ''}</span>
+                          <span className="text-sm text-slate-700 tabular-nums">{f.inizio}–{f.fine} · <b>{fmt(f.ore)} h</b></span>
                         </div>
                         <p className="text-xs text-slate-500 mt-0.5">circa {fmt(f.ingressiPerPersona)} ingressi l'ora per persona in negozio
                           {dove.residui && ` · in quella settimana restano ${fmt(dove.residui[lunediDi(f.data)] ?? 0)} h di contratto`}</p>

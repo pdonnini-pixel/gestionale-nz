@@ -864,10 +864,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                             ? vivo.stato === 'pubblicato' ? 'bg-blue-100 text-blue-900' : vivo.origine === 'manuale' ? 'bg-violet-100 text-violet-900' : 'bg-blue-50 text-blue-800 border border-dashed border-blue-300'
                             : nd ? 'bg-slate-100 text-slate-500 font-sans' : g.chiuso ? 'text-slate-300' : 'bg-white text-slate-400 border border-slate-200 hover:bg-slate-50 font-sans'}`}>
                           {vivo ? `${vivo.inizio}-${vivo.fine}` : nd ? nd : g.chiuso ? '' : 'riposo'}
-                          {/* La pausa ha solo la durata: la si fa quando il negozio lo permette (Patrizio, 11/11/2026) */}
-                          {vivo && (vivo.pausa_minuti ?? 0) > 0 && (
-                            <span className="block font-sans text-[11px] opacity-75">pausa {vivo.pausa_minuti >= 60 && vivo.pausa_minuti % 60 === 0 ? `${vivo.pausa_minuti / 60} h` : `${vivo.pausa_minuti}'`}</span>
-                          )}
+                          {/* Nelle caselle solo l'orario: la pausa non si scrive (Patrizio, 12/11/2026), si vede aprendo il turno */}
                           {vivo && fe && <span className="block font-sans text-emerald-700">permesso {fe.ore} h</span>}
                         </button>
                         {annullato && !vivo && <span className="block text-[11px] text-slate-400 line-through text-center">{annullato.inizio}-{annullato.fine}</span>}
