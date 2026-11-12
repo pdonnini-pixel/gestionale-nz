@@ -169,6 +169,7 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="min-w-0">
           <h4 className="text-sm font-semibold text-slate-900">Chi approva</h4>
+          <p className="text-xs text-slate-500 mt-0.5">Chi sta sopra può sempre decidere: l’HR e il Super Advisor approvano anche dove qui è scelta la sola referente. Nessuno decide una propria richiesta.</p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm mt-1">
               <thead>

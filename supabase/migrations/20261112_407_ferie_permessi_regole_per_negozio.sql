@@ -24,7 +24,7 @@
 -- ferie e permessi con lo stesso messaggio; decide chi decideva).
 --
 -- COME: tabelle nuove outlet_leave_rules e leave_hr; tre colonne nullable su
--- leave_requests; funzioni nuove; quattro funzioni esistenti corrette sul testo
+-- leave_requests; funzioni nuove; cinque funzioni esistenti corrette sul testo
 -- vivo (come la 392 e la 401): app_dipendente_chiedi_ferie, app_dipendente_ferie,
 -- leave_decidi, responsabile_ferie_elenco; ferie_lunedi_conflitti riscritta e
 -- leave_request_days_lunedi corretta per il ripiego.
@@ -591,9 +591,81 @@ GRANT EXECUTE ON FUNCTION public.ferie_mio_lato() TO service_role;
 --  a) nessuno decide la propria richiesta, qualunque profilo abbia;
 --  b) la richiesta di chi approva come HR la decide solo il Super Advisor;
 --  c) la richiesta di una responsabile o vice la decide l'HR o il Super Advisor, mai una responsabile;
---  d) per tutte le altre vale la scelta del negozio (referente, HR, una delle due).
+--  d) chi sta sopra puo' sempre decidere: HR e Super Advisor decidono le richieste di dipendenti e
+--     responsabili qualunque sia la scelta del negozio; il Super Advisor anche quelle dell'HR;
+--  e) la scelta del negozio conta solo per la referente: con «solo HR» lei non decide;
+--  f) lo stesso livello non decide lo stesso livello (HR non decide HR, responsabile non decide responsabile).
 -- La scala vale in ogni negozio, anche senza scheda salvata. Chi e' la persona della richiesta si
 -- legge come in presenze_sono_io: employees.user_id e responsabile_dipendente.
+CREATE OR REPLACE FUNCTION public.ferie_motivo_scala(p_employee uuid, p_company uuid)
+ RETURNS text
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_lato   text := public.ferie_mio_lato();
+  v_super  boolean := COALESCE((SELECT public.get_my_role())::text, '') = 'super_advisor';
+  v_e_hr   boolean;
+  v_e_resp boolean;
+BEGIN
+  -- cron e service role non hanno un utente: la scala riguarda le persone
+  IF (SELECT auth.uid()) IS NULL THEN RETURN NULL; END IF;
+  IF public.presenze_sono_io(p_employee) THEN
+    RETURN 'Non puoi decidere una tua richiesta: la decide chi sta sopra di te.';
+  END IF;
+  -- la persona e' una di quelle che approvano come HR?
+  SELECT EXISTS (
+    SELECT 1
+      FROM (SELECT e.user_id FROM public.employees e WHERE e.id = p_employee AND e.user_id IS NOT NULL
+            UNION
+            SELECT r.user_id FROM public.responsabile_dipendente r WHERE r.employee_id = p_employee) u
+      JOIN public.user_profiles p ON p.id = u.user_id AND p.company_id = p_company
+     WHERE p.role::text IN ('super_advisor', 'contabile', 'coo')
+        OR EXISTS (SELECT 1 FROM public.leave_hr h WHERE h.company_id = p_company AND h.user_id = p.id)
+        OR EXISTS (SELECT 1 FROM public.leave_approvers a WHERE a.company_id = p_company AND a.user_id = p.id AND a.attivo))
+    INTO v_e_hr;
+  IF v_e_hr AND NOT v_super THEN
+    RETURN 'Per chi approva le ferie decide solo il Super Advisor.';
+  END IF;
+  -- e' una responsabile o una vice?
+  SELECT EXISTS (SELECT 1 FROM public.outlets o
+                  WHERE o.company_id = p_company
+                    AND p_employee IN (o.referente_employee_id, o.vice_referente_employee_id))
+      OR EXISTS (SELECT 1
+                   FROM (SELECT e.user_id FROM public.employees e WHERE e.id = p_employee AND e.user_id IS NOT NULL
+                         UNION
+                         SELECT r.user_id FROM public.responsabile_dipendente r WHERE r.employee_id = p_employee) u
+                   JOIN public.user_profiles p ON p.id = u.user_id AND p.company_id = p_company
+                  WHERE p.role::text = 'responsabile')
+    INTO v_e_resp;
+  IF v_e_resp AND NOT v_super AND v_lato = 'referente' THEN
+    RETURN 'Per una responsabile o una vice decide l''HR, non un''altra responsabile.';
+  END IF;
+  RETURN NULL;
+END
+$function$;
+REVOKE ALL ON FUNCTION public.ferie_motivo_scala(uuid, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ferie_motivo_scala(uuid, uuid) TO service_role;
+
+-- La stessa scala per le presenze (ritardi e uscite che diventano permesso, straordinari):
+-- presenze_decidi_evento la chiama su chi ha timbrato.
+CREATE OR REPLACE FUNCTION public.ferie_controlla_scala(p_employee uuid)
+ RETURNS void
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_no text := public.ferie_motivo_scala(p_employee, (SELECT e.company_id FROM public.employees e WHERE e.id = p_employee));
+BEGIN
+  IF v_no IS NULL THEN RETURN; END IF;
+  RAISE EXCEPTION '%', v_no USING ERRCODE = '42501';
+END
+$function$;
+REVOKE ALL ON FUNCTION public.ferie_controlla_scala(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ferie_controlla_scala(uuid) TO service_role;
+
 CREATE OR REPLACE FUNCTION public.ferie_motivo_no(p_request_id uuid)
  RETURNS text
  LANGUAGE plpgsql
@@ -603,10 +675,9 @@ AS $function$
 DECLARE
   q        public.leave_requests%ROWTYPE;
   v_reg    jsonb;
+  v_no     text;
   v_lato   text := public.ferie_mio_lato();
   v_super  boolean := COALESCE((SELECT public.get_my_role())::text, '') = 'super_advisor';
-  v_e_hr   boolean;
-  v_e_resp boolean;
 BEGIN
   SELECT * INTO q FROM public.leave_requests WHERE id = p_request_id;
   IF NOT FOUND THEN RETURN 'Richiesta non trovata.'; END IF;
@@ -614,37 +685,9 @@ BEGIN
   IF (SELECT auth.uid()) IS NOT NULL AND q.company_id IS DISTINCT FROM (SELECT public.get_my_company_id()) THEN
     RETURN 'Richiesta non trovata.';
   END IF;
-  IF public.presenze_sono_io(q.employee_id) THEN
-    RETURN 'Non puoi decidere una tua richiesta: la decide chi sta sopra di te.';
-  END IF;
-  -- la persona della richiesta e' una di quelle che approvano come HR?
-  SELECT EXISTS (
-    SELECT 1
-      FROM (SELECT e.user_id FROM public.employees e WHERE e.id = q.employee_id AND e.user_id IS NOT NULL
-            UNION
-            SELECT r.user_id FROM public.responsabile_dipendente r WHERE r.employee_id = q.employee_id) u
-      JOIN public.user_profiles p ON p.id = u.user_id AND p.company_id = q.company_id
-     WHERE p.role::text IN ('super_advisor', 'contabile', 'coo')
-        OR EXISTS (SELECT 1 FROM public.leave_hr h WHERE h.company_id = q.company_id AND h.user_id = p.id)
-        OR EXISTS (SELECT 1 FROM public.leave_approvers a WHERE a.company_id = q.company_id AND a.user_id = p.id AND a.attivo))
-    INTO v_e_hr;
-  IF v_e_hr AND NOT v_super THEN
-    RETURN 'La richiesta di chi approva le ferie la decide solo il Super Advisor.';
-  END IF;
-  -- e' una responsabile o una vice?
-  SELECT EXISTS (SELECT 1 FROM public.outlets o
-                  WHERE o.company_id = q.company_id
-                    AND q.employee_id IN (o.referente_employee_id, o.vice_referente_employee_id))
-      OR EXISTS (SELECT 1
-                   FROM (SELECT e.user_id FROM public.employees e WHERE e.id = q.employee_id AND e.user_id IS NOT NULL
-                         UNION
-                         SELECT r.user_id FROM public.responsabile_dipendente r WHERE r.employee_id = q.employee_id) u
-                   JOIN public.user_profiles p ON p.id = u.user_id AND p.company_id = q.company_id
-                  WHERE p.role::text = 'responsabile')
-    INTO v_e_resp;
-  IF v_e_resp AND NOT v_super AND v_lato = 'referente' THEN
-    RETURN 'La richiesta di una responsabile o di una vice la decide l''HR, non un''altra responsabile.';
-  END IF;
+  -- la scala: mai la propria, mai un pari grado
+  v_no := public.ferie_motivo_scala(q.employee_id, q.company_id);
+  IF v_no IS NOT NULL THEN RETURN v_no; END IF;
   IF v_super THEN RETURN NULL; END IF;
   v_reg := public.ferie_regole_richiesta(p_request_id);
   IF v_reg IS NULL THEN RETURN NULL; END IF;  -- negozio senza scheda: per il resto come prima
@@ -652,16 +695,16 @@ BEGIN
     RETURN CASE WHEN (v_reg ->> 'referente')::boolean THEN NULL
                 ELSE 'In questo negozio questa richiesta la decide l''HR.' END;
   END IF;
-  -- la richiesta di una responsabile la decide l'HR anche dove il negozio ha scelto la sola referente
-  IF NOT (v_reg ->> 'hr')::boolean AND NOT v_e_resp THEN
-    RETURN 'In questo negozio questa richiesta non la decidi tu: guarda in «Regole e orari» chi approva ferie e permessi.';
-  END IF;
+  -- Chi sta sopra puo' sempre decidere (Patrizio, 12/11/2026: «il profilo piu' basso, qualsiasi
+  -- profilo sopra puo' approvare; non e' detto debba essere obbligatoriamente la responsabile»):
+  -- la scelta «solo la referente» del negozio NON ferma l'HR. La scelta del negozio toglie
+  -- qualcuno in un caso solo: con «solo HR» la referente non decide (ramo qui sopra).
   -- elenco HR: vuoto = chi decideva prima; altrimenti solo chi e' nell'elenco
   IF NOT EXISTS (SELECT 1 FROM public.leave_hr h WHERE h.company_id = q.company_id)
      OR EXISTS (SELECT 1 FROM public.leave_hr h WHERE h.company_id = q.company_id AND h.user_id = (SELECT auth.uid())) THEN
     RETURN NULL;
   END IF;
-  RETURN 'In questo negozio questa richiesta non la decidi tu: guarda in «Regole e orari» chi approva ferie e permessi.';
+  RETURN 'Questa richiesta non la decidi tu: la decide chi è nell''elenco HR, in «Regole e orari».';
 END
 $function$;
 REVOKE ALL ON FUNCTION public.ferie_motivo_no(uuid) FROM PUBLIC, anon, authenticated;
@@ -741,6 +784,13 @@ BEGIN
         $x$  PERFORM public.ferie_controlla_lato(p_request_id);  -- 407: chi approva, per negozio
 
   IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$]),
+      -- le presenze: la stessa scala di chi decide (ritardi e uscite che diventano permesso)
+      ('public.presenze_decidi_evento(uuid,boolean,integer,boolean,text)', ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+$x$], ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+  PERFORM public.ferie_controlla_scala(ev.employee_id);  -- 407: la scala di chi decide
+$x$]),
       -- l'elenco della referente
       ('public.responsabile_ferie_elenco(boolean)', ARRAY[
         $x$'prova', e.is_demo, 'titolo', q.titolo,$x$], ARRAY[
@@ -748,7 +798,7 @@ BEGIN
     ) AS v(firma, ancore, nuovi)
   LOOP
     d := pg_get_functiondef(f.firma::regprocedure);
-    IF position('407' in d) > 0 OR position('ferie_lato_puo' in d) > 0 OR position('ferie_eccezioni_attive' in d) > 0 THEN CONTINUE; END IF;  -- gia' fatta
+    IF position('-- 407' in d) > 0 OR position('ferie_lato_puo' in d) > 0 OR position('ferie_eccezioni_attive' in d) > 0 THEN CONTINUE; END IF;  -- gia' fatta
     n := d;
     FOR i IN 1 .. array_length(f.ancore, 1) LOOP
       IF (length(n) - length(replace(n, f.ancore[i], ''))) / length(f.ancore[i]) <> 1 THEN
@@ -762,7 +812,7 @@ BEGIN
   -- la controproposta accettata rispetta le regole del negozio (terzo giro): la richiesta nasce
   -- inviata, si guardano i giorni vietati e chi puo' decidere, poi e' approvata (una sola firma)
   d := pg_get_functiondef('public.leave_rispondi_controproposta(uuid,boolean,text)'::regprocedure);
-  IF position('407' in d) = 0 THEN
+  IF position('-- 407' in d) = 0 THEN
     n := d;
     FOR f IN
       SELECT * FROM (VALUES
@@ -891,7 +941,7 @@ COMMIT;
 --           AND column_name IN ('eccezione', 'eccezione_motivo')) AS colonne,                                        -- 2
 --        (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
 --           AND p.proname IN ('app_dipendente_chiedi_ferie', 'app_dipendente_ferie', 'leave_decidi', 'responsabile_ferie_elenco')
---           AND (p.prosrc ~ '407' OR p.prosrc ~ 'ferie_lato_puo' OR p.prosrc ~ 'ferie_eccezioni_attive')) AS corrette, -- 4
+--           AND (p.prosrc ~ '407' OR p.prosrc ~ 'ferie_lato_puo' OR p.prosrc ~ 'ferie_eccezioni_attive')) AS corrette, -- 5 (con presenze_decidi_evento)
 --        (SELECT prosrc ~ 'ferie_lunedi_ce_guida' FROM pg_proc WHERE proname = 'leave_request_days_lunedi') AS lunedi, -- true
 --        public.festivo_italiano(DATE '2026-04-06') AS pasquetta_2026,                                              -- true
 --        (SELECT prosrc ~ 'ferie_lunedi_provvisoria' FROM pg_proc WHERE proname = 'ferie_lunedi_testo') AS lunedi_testo, -- true

@@ -125,6 +125,12 @@ BEGIN
 
   IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$], ARRAY[
         $x$  IF r.stato NOT IN ('inviata', 'approvata', 'approvata_parziale', 'respinta') THEN$x$]),
+      ('public.presenze_decidi_evento(uuid,boolean,integer,boolean,text)', ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+  PERFORM public.ferie_controlla_scala(ev.employee_id);  -- 407: la scala di chi decide
+$x$], ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+$x$]),
       ('public.responsabile_ferie_elenco(boolean)', ARRAY[
         $x$'prova', e.is_demo, 'eccezione', COALESCE(q.eccezione, false), 'eccezione_motivo', q.eccezione_motivo, 'posso', public.ferie_lato_puo(q.id), 'titolo', q.titolo,$x$], ARRAY[
         $x$'prova', e.is_demo, 'titolo', q.titolo,$x$])
@@ -136,7 +142,7 @@ BEGIN
       n := replace(n, f.ancore[i], f.nuovi[i]);
     END LOOP;
     IF n <> d THEN EXECUTE n; END IF;
-    IF position('407' in n) > 0 OR position('ferie_lato_puo' in n) > 0 OR position('ferie_eccezioni_attive' in n) > 0 THEN
+    IF position('-- 407' in n) > 0 OR position('ferie_lato_puo' in n) > 0 OR position('ferie_eccezioni_attive' in n) > 0 OR position('ferie_controlla_scala' in n) > 0 THEN
       RAISE EXCEPTION 'ROLLBACK 407: % non e'' tornata com''era', f.firma;
     END IF;
   END LOOP;
@@ -219,7 +225,7 @@ BEGIN
     n := replace(n, f.ancora, f.nuovo);
   END LOOP;
   IF n <> d THEN EXECUTE n; END IF;
-  IF position('407' in n) > 0 OR position('ferie_controlla_lato' in n) > 0 OR position('ferie_blocco_giorno' in n) > 0 THEN
+  IF position('-- 407' in n) > 0 OR position('ferie_controlla_lato' in n) > 0 OR position('ferie_blocco_giorno' in n) > 0 THEN
     RAISE EXCEPTION 'ROLLBACK 407: leave_rispondi_controproposta non e'' tornata com''era';
   END IF;
 END
@@ -263,6 +269,8 @@ GRANT EXECUTE ON FUNCTION public.ferie_lunedi_conflitti(uuid, date[], boolean) T
 DROP FUNCTION IF EXISTS public.ferie_controlla_lato(uuid);
 DROP FUNCTION IF EXISTS public.ferie_lato_puo(uuid);
 DROP FUNCTION IF EXISTS public.ferie_motivo_no(uuid);
+DROP FUNCTION IF EXISTS public.ferie_controlla_scala(uuid);
+DROP FUNCTION IF EXISTS public.ferie_motivo_scala(uuid, uuid);
 DROP FUNCTION IF EXISTS public.ferie_mio_lato();
 DROP FUNCTION IF EXISTS public.ferie_regole_richiesta(uuid);
 DROP FUNCTION IF EXISTS public.ferie_eccezioni_attive(uuid);
