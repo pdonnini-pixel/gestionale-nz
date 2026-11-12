@@ -111,6 +111,41 @@ interface OutletRow {
 // vecchi a ?view=organico portano alla scheda unica.
 type PersonaleView = 'panoramica' | 'per_outlet' | 'oggi' | 'costi' | 'lordi' | 'turni' | 'presenze' | 'ferie';
 const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'oggi', 'costi', 'lordi', 'turni', 'presenze', 'ferie'];
+
+// Le schede stanno in due aree (Patrizio, 12/11/2026): chi lavora a turni, presenze e
+// ferie non ha davanti il mese dei cedolini e la zona di caricamento dei file paghe.
+// I link restano quelli di sempre (?view=...): l'area si ricava dalla scheda.
+type AreaDipendenti = 'persone' | 'costi';
+type SchedaDipendenti = { k: PersonaleView; label: string; icon: React.ComponentType<{ size?: number; className?: string }> };
+const AREE_DIPENDENTI: { k: AreaDipendenti; label: string; sotto: string; schede: SchedaDipendenti[] }[] = [
+  {
+    k: 'persone', label: 'Persone e lavoro', sotto: 'chi c’è, turni, presenze, ferie',
+    schede: [
+      { k: 'oggi', label: 'Organico', icon: UserCheck },
+      { k: 'turni', label: 'Turni', icon: CalendarDays },
+      { k: 'presenze', label: 'Presenze', icon: Fingerprint },
+      { k: 'ferie', label: 'Ferie e permessi', icon: CalendarClock },
+    ],
+  },
+  {
+    k: 'costi', label: 'Costi del personale', sotto: 'cedolini, costo lordo, per outlet',
+    schede: [
+      { k: 'panoramica', label: 'Panoramica', icon: BarChart3 },
+      { k: 'per_outlet', label: 'Per outlet', icon: Store },
+      { k: 'costi', label: 'Costi & cedolini', icon: FileText },
+      { k: 'lordi', label: 'Costo lordo', icon: Percent },
+    ],
+  },
+];
+const areaDellaScheda = (v: PersonaleView): AreaDipendenti => (AREE_DIPENDENTI.find((a) => a.schede.some((x) => x.k === v))?.k ?? 'costi');
+// Ultima scheda usata, in generale e dentro ogni area: senza ?view= si rientra dove si era.
+const RICORDO_SCHEDA = 'dipendenti.scheda';
+const schedaRicordata = (area?: AreaDipendenti): PersonaleView | null => {
+  try {
+    const v = window.localStorage.getItem(area ? `${RICORDO_SCHEDA}.${area}` : RICORDO_SCHEDA) as PersonaleView | null;
+    return v && VALID_VIEWS.includes(v) && (!area || areaDellaScheda(v) === area) ? v : null;
+  } catch { return null; }
+};
 /** Chi scrive direttamente l'anagrafica (RLS employees_write). */
 const RUOLI_ANAGRAFICA = ['super_advisor', 'contabile'];
 
@@ -365,11 +400,24 @@ export default function Dipendenti() {
   // view persistita in URL
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get('view') === 'organico' ? 'oggi' : searchParams.get('view');
-  const view: PersonaleView = VALID_VIEWS.includes(viewParam as PersonaleView) ? (viewParam as PersonaleView) : 'panoramica';
+  // Senza ?view= si rientra nell'ultima scheda usata (quindi nell'ultima area); la prima volta, Panoramica.
+  const [ricordata] = useState<PersonaleView | null>(() => schedaRicordata());
+  const view: PersonaleView = VALID_VIEWS.includes(viewParam as PersonaleView) ? (viewParam as PersonaleView) : (ricordata ?? 'panoramica');
+  const area = areaDellaScheda(view);
   const setView = (next: PersonaleView) => {
     const p = new URLSearchParams(searchParams);
     p.set('view', next);
     setSearchParams(p);
+  };
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RICORDO_SCHEDA, view);
+      window.localStorage.setItem(`${RICORDO_SCHEDA}.${areaDellaScheda(view)}`, view);
+    } catch { /* memoria del browser non disponibile: si riparte da Panoramica */ }
+  }, [view]);
+  const vaiAllArea = (a: AreaDipendenti) => {
+    if (a === area) return;
+    setView(schedaRicordata(a) ?? AREE_DIPENDENTI.find((x) => x.k === a)!.schede[0].k);
   };
 
   // File passato dalla zona «Carica i file dello studio paghe» alla scheda che lo
@@ -410,7 +458,7 @@ export default function Dipendenti() {
 
   const [selectedYear, setSelectedYear] = useState(globalYear);
   // Il mese parte sempre da quello in corso (scelta di Patrizio, 01/10/2026): se i
-  // cedolini del mese non ci sono ancora, l'avviso in testa porta all'ultimo mese
+  // cedolini del mese non ci sono ancora, la riga in Panoramica porta all'ultimo mese
   // caricato con un clic. Se l'utente sceglie un mese, la sua scelta comanda.
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const monthTouched = useRef(false);
@@ -1025,13 +1073,18 @@ export default function Dipendenti() {
         title="Dipendenti"
         subtitle={`Organico e costo del personale per outlet${companyName ? ` · ${companyName}` : ''}`}
         actions={
-          <div className="flex items-center gap-2">
-            <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
-              {yearOptions.map((y) => <option key={y} value={y}>Anno {y}</option>)}
-            </select>
-            <select value={selectedMonth} onChange={(e) => pickMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
-              {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
-            </select>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Anno e mese servono solo ai costi: turni, presenze e ferie hanno i loro periodi */}
+            {area === 'costi' && (
+              <>
+                <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} aria-label="Anno dei costi" className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
+                  {yearOptions.map((y) => <option key={y} value={y}>Anno {y}</option>)}
+                </select>
+                <select value={selectedMonth} onChange={(e) => pickMonth(Number(e.target.value))} aria-label="Mese dei costi" className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
+                  {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
+                </select>
+              </>
+            )}
             {puoOrganico && (
               <button onClick={() => { setView('oggi'); setOrganicoNuova((n) => n + 1); }} className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-1.5" title="Aggiungi una persona all'organico"><Plus size={15} /> Dipendente</button>
             )}
@@ -1040,58 +1093,45 @@ export default function Dipendenti() {
         }
       />
 
-      {COMPANY_ID && (
-        <CaricaFilePaghe
-          companyId={COMPANY_ID}
-          userId={USER_ID}
-          onApri={apriFilePaghe}
-          onVai={(v) => {
-            const p = new URLSearchParams(searchParams);
-            p.set('view', v);
-            if (v === 'ferie') p.set('ferie', 'ratei');
-            setSearchParams(p);
-          }}
-        />
-      )}
-
-      {/* Sub-tab pill */}
-      <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
-        {([
-          { k: 'panoramica', label: 'Panoramica', icon: BarChart3 },
-          { k: 'per_outlet', label: 'Per outlet', icon: Store },
-          { k: 'oggi', label: 'Organico', icon: UserCheck },
-          { k: 'costi', label: 'Costi & cedolini', icon: FileText },
-          { k: 'lordi', label: 'Costo lordo', icon: Percent },
-          { k: 'turni', label: 'Turni', icon: CalendarDays },
-          { k: 'presenze', label: 'Presenze', icon: Fingerprint },
-          { k: 'ferie', label: 'Ferie e permessi', icon: CalendarClock },
-        ] as { k: PersonaleView; label: string; icon: any }[]).map((t) => {
-          const Icon = t.icon;
-          return (
-            <button key={t.k} onClick={() => setView(t.k)}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all ${view === t.k ? 'bg-white shadow text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>
-              <Icon size={15} />{t.label}
+      {/* Le due aree, poi le schede dell'area aperta */}
+      <div>
+        <div className="grid grid-cols-2 sm:flex gap-2" role="tablist" aria-label="Aree della pagina Dipendenti">
+          {AREE_DIPENDENTI.map((a) => (
+            <button key={a.k} type="button" role="tab" aria-selected={area === a.k} onClick={() => vaiAllArea(a.k)}
+              className={`text-left px-4 py-2.5 rounded-xl border-[1.5px] font-bold text-sm sm:text-[15px] transition-colors ${area === a.k ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+              {a.label}
+              <span className={`block font-normal text-xs ${area === a.k ? 'text-slate-300' : 'text-slate-500'}`}>{a.sotto}</span>
             </button>
-          );
-        })}
+          ))}
+        </div>
+        <div className="flex gap-1 border-b-[1.5px] border-slate-200 mt-3 overflow-x-auto" role="tablist" aria-label="Schede dell'area">
+          {AREE_DIPENDENTI.find((a) => a.k === area)!.schede.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button key={t.k} type="button" role="tab" aria-selected={view === t.k} onClick={() => setView(t.k)}
+                className={`flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap border-b-[3px] -mb-[1.5px] transition-colors ${view === t.k ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+                <Icon size={15} />{t.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
-      {/* Mese senza cedolini: il numero NON è zero, è "non ancora caricato".
-          Si dichiara l'ultimo mese granito e si offre il salto. */}
-      {!loading && !meseGranito && (
-        <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
-          <AlertCircle size={16} className="text-amber-600 mt-0.5 shrink-0" />
-          <div>
-            <strong>Nessun cedolino caricato per {monthLabel} {selectedYear}.</strong>{' '}
-            {lastGranited
-              ? <>L'organico non è zero: è non ancora caricato. Ultimo mese granito: <strong>{periodLabel(lastGranited)}</strong>.{' '}
-                  <button
-                    onClick={() => { monthTouched.current = true; setSelectedYear(lastGranited.year); setSelectedMonth(lastGranited.month); }}
-                    className="underline font-semibold hover:text-amber-700"
-                  >Vai a {periodLabel(lastGranited)}</button>
-                </>
-              : <>Carica i netti dalla scheda «Costi &amp; cedolini»: è il carico che rende granitico l'organico del mese.</>}
-          </div>
+      {/* La zona di caricamento si vede solo nei costi. Resta montata anche nell'altra
+          area: un file che sta salvando non si interrompe se intanto si cambia area. */}
+      {COMPANY_ID && (
+        <div className={area === 'costi' ? '' : 'hidden'}>
+          <CaricaFilePaghe
+            companyId={COMPANY_ID}
+            userId={USER_ID}
+            onApri={apriFilePaghe}
+            onVai={(v) => {
+              const p = new URLSearchParams(searchParams);
+              p.set('view', v);
+              if (v === 'ferie') p.set('ferie', 'ratei');
+              setSearchParams(p);
+            }}
+          />
         </div>
       )}
 
@@ -1118,6 +1158,9 @@ export default function Dipendenti() {
               bilancioPersonale={bilancioPersonale}
               nonAttribuito={nonAttribuito}
               year={selectedYear}
+              senzaCedolini={!meseGranito}
+              ultimoMese={lastGranited ? periodLabel(lastGranited) : null}
+              onVaiUltimo={lastGranited ? () => { monthTouched.current = true; setSelectedYear(lastGranited.year); setSelectedMonth(lastGranited.month); } : undefined}
             />
           )}
 
@@ -1434,8 +1477,10 @@ function PanoramicaTab(props: {
   incidenzaPrevisti: number | null; incidenzaAOggi: number | null; consMesi: number; costoMedioEscl: number | null; costoMedioIncl: number | null; monthLabel: string; month: number;
   chartData: { name: string; bc: number; netto: number }[];
   bilancioPersonale: number | null; nonAttribuito: number; year: number;
+  /** mese senza cedolini: organico e netto del mese non sono zero, sono non ancora caricati */
+  senzaCedolini: boolean; ultimoMese: string | null; onVaiUltimo?: () => void;
 }) {
-  const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenzaPrevisti, incidenzaAOggi, consMesi, costoMedioEscl, costoMedioIncl, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
+  const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenzaPrevisti, incidenzaAOggi, consMesi, costoMedioEscl, costoMedioIncl, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year, senzaCedolini, ultimoMese, onVaiUltimo } = props;
   const pct = (v: number | null) => (v != null ? `${v.toFixed(1).replace('.', ',')}%` : '—');
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
   const mm = String(month).padStart(2, '0');
@@ -1443,6 +1488,14 @@ function PanoramicaTab(props: {
   const maxVal = Math.max(1, ...chartData.map((d) => Math.max(d.bc, d.netto)));
   return (
     <div className="space-y-6">
+      {/* Qui organico e netto del mese si leggono dai cedolini: senza cedolini lo zero va spiegato */}
+      {senzaCedolini && (
+        <p className="text-xs text-slate-500">
+          Nessun cedolino caricato per {monthLabel} {year}: organico e netto del mese non sono zero, sono non ancora caricati.
+          {ultimoMese && <> Ultimo mese con i cedolini: <strong>{ultimoMese}</strong>.{' '}
+            {onVaiUltimo && <button type="button" onClick={onVaiUltimo} className="underline font-semibold text-slate-700 hover:text-slate-900">Vai a {ultimoMese}</button>}</>}
+        </p>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <Kpi label="Organico attivo" value={headcount} sub={`cedolini ${mm}/${year} · su ${sedi} sedi`} icon={Users} source="neutro" />
         <Kpi label="Costo personale" value={`${eurFmt.format(totalBCAll)} €`} sub="budget annuo · incl. amministratori" icon={BarChart3} source="bc" />
