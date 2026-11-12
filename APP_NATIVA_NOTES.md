@@ -68,3 +68,11 @@ Logo creato per l'app su richiesta di Patrizio, nello stile dei negozi (scritta 
 - Attenzione: un codice normale generato per il demo dal gestionale cambia il segreto e spegne il QR sui telefoni dei revisori. Durante la revisione non generarne.
 - Prova dell'11/11: due attivazioni di seguito con lo stesso codice danno lo stesso segreto; un codice inventato non attiva niente.
 
+## versione 1.4 (12/11/2026)
+- **Android** `versionCode 8`, `versionName 1.4`; **iPhone** build 7, versione 1.4.
+- Dentro: «Privacy e assistenza» nell'app (pagina `/assistenza/`, da lì l'informativa `/privacy/`); su Android i dati dell'app esclusi da backup e trasferimento (`data_extraction_rules.xml`); PIN cifrato nella coda del telefono del negozio (pagina web, non serve la build).
+- Preparare con `bash tools/app/prepara-app.sh` (modalità app), mai con `npm run build`.
+
+## informativa privacy (12/11/2026)
+- Pubblicata in `public/privacy/index.html` → https://gestionale-nz.netlify.app/privacy/ (versione 1.2: testo di Lilian, approvato per la pubblicazione, con i dati tecnici verificati). È l'URL privacy per App Store Connect e Play Console.
+

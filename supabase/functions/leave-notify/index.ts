@@ -18,7 +18,13 @@
 // «tabulato», niente «voce», niente codici.
 //
 // Secret della function: RESEND_API_KEY, DISTINTA_EMAIL_FROM (gli stessi
-// di send-distinta-email).
+// di send-distinta-email). Facoltativi (pacchetto privacy, 12/11/2026):
+//   LEAVE_EMAIL_FROM     mittente delle mail sulle ferie (per esempio
+//                        «New Zago <newzago@...>»), al posto di
+//                        DISTINTA_EMAIL_FROM. Il dominio deve essere
+//                        verificato in Resend, altrimenti Resend rifiuta.
+//   LEAVE_EMAIL_REPLY_TO indirizzo a cui arrivano le risposte.
+// Valori per azienda (ogni tenant ha i suoi secret), mai nel codice.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
@@ -132,7 +138,8 @@ Deno.serve(async (req: Request) => {
     const recipients = [...new Set([...daReferenti, ...fissi])];
 
     const resendKey = Deno.env.get("RESEND_API_KEY");
-    const from = Deno.env.get("DISTINTA_EMAIL_FROM");
+    const from = Deno.env.get("LEAVE_EMAIL_FROM") || Deno.env.get("DISTINTA_EMAIL_FROM");
+    const replyTo = Deno.env.get("LEAVE_EMAIL_REPLY_TO") || undefined;
     if (recipients.length === 0 || !resendKey || !from) {
       console.log(`[leave-notify] request=${requestId} mail=skipped recipients=${recipients.length}`);
       return jsonOk({ data: { ok: true, mail: "skipped", recipients } });
@@ -198,7 +205,7 @@ ${momento === "richiesta" && link ? `<p style="margin:0"><a href="${esc(link)}">
     const resp = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { "Authorization": `Bearer ${resendKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to: recipients, subject, html, text }),
+      body: JSON.stringify({ from, to: recipients, subject, html, text, ...(replyTo ? { reply_to: replyTo } : {}) }),
     });
     if (!resp.ok) {
       const errText = (await resp.text()).slice(0, 500);

@@ -419,3 +419,9 @@ Decisione di Patrizio del 12/11/2026. Migration `20261112_407` (NZ e Zago), libr
 - **Ritiro da qualunque stato**: `ritirata` resta ammesso dalla tabella anche su una richiesta approvata, per chi ha la scrittura diretta (Super Advisor, contabile, COO). Non concede niente, libera solo il saldo: è voluto, e va tenuto presente.
 - **Permessi nati dalle presenze** (`presenze_crea_permesso`, migration 373): nascono già approvati con la conferma di chi controlla le presenze, senza passare dalle regole dei giorni della scheda 9: registrano un fatto già avvenuto. Una sola approvazione come tutto il resto (Patrizio, 12/11/2026), con la riga `decisione` nel registro.
 - **Da decidere (Patrizio)**: chi può cambiare «Chi approva» nella scheda (oggi chi può scrivere l'organico, `organico_puo_scrivere()`).
+
+## mittente e risposte delle mail sulle ferie (12/11/2026)
+Pacchetto privacy: le mail di `leave-notify` partivano da «New Zago <distinte@rispondi.ai>» (dominio del marchio Rispondi.ai). Patrizio: mittente newzago@vicolo.com.
+- `leave-notify` (versione 2 su NZ e Zago) legge due secret facoltativi per azienda: `LEAVE_EMAIL_FROM` (mittente, al posto di `DISTINTA_EMAIL_FROM`) e `LEAVE_EMAIL_REPLY_TO` (indirizzo delle risposte). Senza secret resta tutto come prima.
+- `LEAVE_EMAIL_FROM` con un indirizzo @vicolo.com funziona solo dopo aver verificato il dominio vicolo.com in Resend (record DNS); altrimenti Resend rifiuta e la mail risulta «failed» (la richiesta di ferie vale lo stesso).
+- Impostato da Patrizio il 12/11/2026 su NZ: `LEAVE_EMAIL_FROM` = «New Zago <newzago@rispondi.ai>» (dominio rispondi.ai già verificato in Resend, dati in Irlanda) e `LEAVE_EMAIL_REPLY_TO` = newzago@vicolo.com. Su Zago nessun secret: mittente di prima.

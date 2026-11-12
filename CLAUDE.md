@@ -10,6 +10,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## 🇮🇹 REGOLA FISSA — SEMPRE E SOLO IN ITALIANO (Patrizio, 12/11/2026)
+
+Ogni risposta a Patrizio, ogni riepilogo, ogni messaggio di fine lavoro e ogni testo per lui si scrive **in italiano**. Mai in inglese, nemmeno per una frase, nemmeno dopo un lungo lavoro tecnico o dopo il riepilogo di un revisore. Nomi tecnici (file, funzioni, comandi) restano come sono, il discorso è italiano. Patrizio l'ha dovuto ripetere più volte: scrivere in inglese è un errore grave.
+
+---
+
 ## 🚫 REGOLA GRANITICA — NO DATA LOSS (NON NEGOZIABILE, PRECEDE TUTTO)
 
 **Dal 2026-05-28 (go-live Lilian) il sistema e' LIVE. Ogni numero, riga, ticket, allegato gia' presente nel DB e' DATO REALE e NON deve essere perso o cambiato senza esplicita richiesta dell'utente.**
