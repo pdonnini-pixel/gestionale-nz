@@ -127,13 +127,21 @@ async function proteggiPin(codice: string): Promise<{ codice: string; pin_cifrat
   return { codice: `${m[1]}.****`, pin_cifrato: { iv: Array.from(iv), dati: Array.from(new Uint8Array(dati)) } }
 }
 
-/** Codice da mandare al server; null se il PIN non si può più decifrare. */
-async function codiceDaInviare(r: RigaCoda): Promise<string | null> {
+/**
+ * Codice da mandare al server. 'illeggibile' solo se la decifratura fallisce
+ * davvero (chiave diversa: OperationError); per ogni altro errore (memoria del
+ * browser occupata, chiave non ancora pronta) 'riprova': la riga resta in coda.
+ */
+async function codiceDaInviare(r: RigaCoda): Promise<string | 'illeggibile' | 'riprova'> {
   if (!r.pin_cifrato) return r.codice
+  let chiave: CryptoKey
+  try { chiave = await chiavePin() } catch { return 'riprova' }
   try {
-    const chiaro = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(r.pin_cifrato.iv) }, await chiavePin(), new Uint8Array(r.pin_cifrato.dati))
+    const chiaro = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: new Uint8Array(r.pin_cifrato.iv) }, chiave, new Uint8Array(r.pin_cifrato.dati))
     return r.codice.replace(/\.\*\*\*\*$/, '.' + new TextDecoder().decode(chiaro))
-  } catch { return null }
+  } catch (e) {
+    return e instanceof DOMException && e.name === 'OperationError' ? 'illeggibile' : 'riprova'
+  }
 }
 
 /** Chiede al browser di non cancellare la memoria della timbratrice. */
@@ -207,12 +215,13 @@ export function inviaCoda(): Promise<{ inviate: number; inAttesa: number }> {
         const lotto = righe.slice(i, i + 100)
         // PIN: si decifra solo adesso; se non si puo' (memoria del browser cambiata) la riga va fra le rifiutate
         const pronte = await Promise.all(lotto.map(async (r) => ({ r, codice: await codiceDaInviare(r) })))
-        const illeggibili = pronte.filter((x) => x.codice === null).map((x) => x.r)
+        const illeggibili = pronte.filter((x) => x.codice === 'illeggibile').map((x) => x.r)
         if (illeggibili.length) {
           localStorage.setItem(K_SCARTATE, JSON.stringify([...scartate(), ...illeggibili.map(({ pin_cifrato: _p, ...r }) => ({ ...r, esito: 'pin_non_leggibile' }))].slice(-200)))
           await togli(illeggibili.map((r) => r.id))
         }
-        const daInviare = pronte.filter((x) => x.codice !== null)
+        // 'riprova': resta in coda e parte al prossimo invio
+        const daInviare = pronte.filter((x) => x.codice !== 'illeggibile' && x.codice !== 'riprova')
         if (!daInviare.length) continue
         const t0 = Date.now()
         const { data, error } = await supabase.rpc('timbrature_registra', {
