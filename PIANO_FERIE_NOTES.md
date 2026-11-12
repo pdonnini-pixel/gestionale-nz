@@ -368,6 +368,16 @@ salva la proposta in `leave_counterproposals`. In «Richieste» la proposta si a
 `leave_rispondi_controproposta`: se accettata nasce una richiesta nuova gia' approvata con le date
 proposte. Le date proposte non possono cadere in un evento con «niente ferie né permessi».
 
+**Dalla 407 (12/11/2026) la richiesta nata dalla controproposta segue le regole del negozio.** Nasce
+`inviata` con i giorni `richiesto`, poi: ogni giorno passa da `ferie_blocco_giorno` (un giorno
+vietato vale solo come eccezione, se il negozio le ha accese; altrimenti l'accettazione è rifiutata
+con il motivo e la proposta resta aperta); `ferie_controlla_lato` verifica che chi accetta possa
+decidere in quel negozio; dove servono due approvazioni la richiesta **resta `inviata`** con la
+`prima_decisione` di chi accetta e aspetta una seconda persona da Approvazioni; dove ne basta una
+diventa `approvata` come prima. Prima la stessa persona poteva proporre e accettare, e ottenere
+ferie approvate con una firma sola e senza i controlli sui giorni (rilievo del revisore di
+sicurezza). `leave_controproponi` non cambia: passa già da `leave_decidi`.
+
 ## Moduli ottobre-dicembre 2026 caricati (20/10/2026)
 
 Dalla cartella Drive di Patrizio (Forte dei Marmi escluso, Torino senza cartella): 23 moduli, presi
@@ -405,4 +415,7 @@ Decisione di Patrizio del 12/11/2026. Migration `20261112_407` (NZ e Zago), libr
 - **Dal calendario dei turni** (`EditorTurno.tsx`): se `leave_decidi` risponde `attesa_seconda` la ferie non è approvata, il turno resta e il messaggio lo dice.
 - **Rollback**: copia prima `outlet_leave_rules`, `leave_hr` e le tre colonne in tabelle `_bkp_407_*` senza GRANT; riporta gli eventi allineati alle voci di prima e mette `blocca_ferie = true` agli eventi salvati dopo la 407 con una sola voce spenta (col codice di prima non bloccherebbero più niente).
 - **Giorni protetti come le richieste**: `trg_leave_request_days_campi_protetti` (407) ferma le scritture dirette su `leave_request_days`: un giorno nasce solo «richiesto» e solo su una richiesta in bozza o inviata; stato e richiesta di appartenenza non si cambiano; su una richiesta decisa non si toccano ore, voce, data e tipo, e non si cancella. Le funzioni del database passano (stesso criterio su `current_user` del trigger sulle richieste).
+- **Dopo la prima approvazione la richiesta è ferma** (terzo giro, 12/11/2026): con `prima_decisione` scritta, dalla tabella non si aggiungono né si tolgono giorni, non si cambiano ore, voce, data e tipo, e la richiesta non torna in bozza. `outlet_code`, `employee_id` e `company_id` non si cambiano su una richiesta che non è in bozza (decidono chi approva). Per cambiarla si ritira e si rifà. La scheda Richieste modifica solo le bozze, quindi non è toccata.
+- **Ritiro da qualunque stato**: `ritirata` resta ammesso dalla tabella anche su una richiesta approvata, per chi ha la scrittura diretta (Super Advisor, contabile, COO). Non concede niente, libera solo il saldo: è voluto, e va tenuto presente.
+- **Permessi nati dalle presenze** (`presenze_crea_permesso`, migration 373): nascono già approvati, senza seconda firma e senza passare dalle regole della scheda 9. Restano fuori dalla doppia approvazione perché registrano un fatto già avvenuto (la persona è uscita prima, chi conferma le presenze lo attesta). **Da confermare con Patrizio.**
 - **Da decidere (Patrizio)**: chi può cambiare «Chi approva» nella scheda (oggi chi può scrivere l'organico, `organico_puo_scrivere()`).

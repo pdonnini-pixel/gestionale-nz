@@ -14,6 +14,9 @@
 --     col codice di prima non bloccherebbero piu' niente. Il rollback li riporta a
 --     blocca_ferie = true (bloccano tutte e due, come faceva la 405). Se per uno di loro
 --     si vuole il contrario, va riaperto e risalvato dalla finestra dell'evento.
+--
+-- CONTROPROPOSTE: le richieste nate da una controproposta e ancora in attesa della seconda
+--   approvazione restano «inviata»; dopo il rollback si decidono da Approvazioni con una firma.
 BEGIN;
 
 -- Se le copie di un rollback precedente ci sono gia', ci si ferma: rifarle le salterebbe e le
@@ -171,6 +174,78 @@ BEGIN
   IF n <> d THEN EXECUTE n; END IF;
 END
 $do$;
+
+-- la controproposta accettata torna a creare la richiesta come nella 320
+DO $do$
+DECLARE
+  f record;
+  d text := pg_get_functiondef('public.leave_rispondi_controproposta(uuid,boolean,text)'::regprocedure);
+  n text;
+BEGIN
+  n := d;
+  FOR f IN
+    SELECT * FROM (VALUES
+        ($x$  v_new uuid;
+  v_407 record;  -- 407
+  v_blk text;
+  v_ecc text;
+  v_reg jsonb;$x$,
+         $x$  v_new uuid;$x$),
+        ($x$r.outlet_code, 'inviata', coalesce(r.titolo, 'Ferie') || ' (date proposte)',$x$,
+         $x$r.outlet_code, 'approvata', coalesce(r.titolo, 'Ferie') || ' (date proposte)',$x$),
+        ($x$NULLIF(v_nome, ''), now(), NULL, NULL, NULL,
+            NULL)$x$,
+         $x$NULLIF(v_nome, ''), now(), now(), c.proposta_da, c.proposta_da_nome,
+            'Date proposte da ' || coalesce(c.proposta_da_nome, 'chi decide le ferie') || ' e accettate.')$x$),
+        ($x$(g->>'ore')::numeric, 'richiesto'
+      FROM jsonb_array_elements(c.giorni) g;
+    -- 407: i giorni dove ferie o permessi non si possono chiedere passano solo come eccezione
+    FOR v_407 IN SELECT d.data, d.voce FROM leave_request_days d WHERE d.request_id = v_new ORDER BY d.data LOOP
+      v_blk := public.ferie_blocco_giorno(c.employee_id, v_407.data, CASE WHEN v_407.voce = 'F01' THEN 'ferie' ELSE 'permessi' END);
+      IF v_blk IS NOT NULL THEN
+        IF NOT public.ferie_eccezioni_attive((SELECT e.outlet_id FROM employees e WHERE e.id = c.employee_id)) THEN
+          RAISE EXCEPTION '%', v_blk USING ERRCODE = '22023';
+        END IF;
+        v_ecc := left(concat_ws(' ', v_ecc, v_blk), 500);
+      END IF;
+    END LOOP;
+    IF v_ecc IS NOT NULL THEN
+      UPDATE leave_requests SET eccezione = true, eccezione_motivo = v_ecc WHERE id = v_new;
+    END IF;
+    -- 407: chi approva, per negozio
+    PERFORM public.ferie_controlla_lato(v_new);
+    v_reg := public.ferie_regole_richiesta(v_new);
+    IF v_reg IS NOT NULL AND (v_reg ->> 'entrambe')::boolean THEN
+      -- servono due approvazioni: chi accetta da' la prima, la richiesta aspetta un'altra persona
+      UPDATE leave_requests
+         SET prima_decisione = jsonb_build_object('lato', public.ferie_mio_lato(), 'utente', auth.uid(), 'nome', NULLIF(v_nome, ''),
+               'giorni', (SELECT to_jsonb(COALESCE(array_agg(d.id), '{}')) FROM leave_request_days d WHERE d.request_id = v_new),
+               'motivo', NULL, 'quando', now())
+       WHERE id = v_new;
+      INSERT INTO leave_request_events (company_id, request_id, evento, stato_a, nota, dettaglio, utente_id, utente_nome)
+      VALUES (c.company_id, v_new, 'prima_approvazione', 'inviata', 'Date proposte e accettate',
+              jsonb_build_object('lato', public.ferie_mio_lato(), 'controproposta', c.id), auth.uid(), NULLIF(v_nome, ''));
+    ELSE
+      UPDATE leave_request_days SET stato = 'approvato' WHERE request_id = v_new;
+      UPDATE leave_requests
+         SET stato = 'approvata', decisa_il = now(), decisa_da = c.proposta_da, decisa_da_nome = c.proposta_da_nome,
+             motivazione = 'Date proposte da ' || coalesce(c.proposta_da_nome, 'chi decide le ferie') || ' e accettate.'
+       WHERE id = v_new;
+    END IF;$x$,
+         $x$(g->>'ore')::numeric, 'approvato'
+      FROM jsonb_array_elements(c.giorni) g;$x$)
+    ) AS v(ancora, nuovo)
+  LOOP
+    n := replace(n, f.ancora, f.nuovo);
+  END LOOP;
+  IF n <> d THEN EXECUTE n; END IF;
+  IF position('407' in n) > 0 OR position('ferie_controlla_lato' in n) > 0 OR position('ferie_blocco_giorno' in n) > 0 THEN
+    RAISE EXCEPTION 'ROLLBACK 407: leave_rispondi_controproposta non e'' tornata com''era';
+  END IF;
+END
+$do$;
+COMMENT ON TABLE public.leave_counterproposals IS
+  'Altre date proposte da chi decide le ferie. La richiesta originale si chiude respinta con il motivo; se la persona accetta nasce una richiesta nuova gia'' approvata.';
 
 -- ferie_lunedi_conflitti come nella 393
 CREATE OR REPLACE FUNCTION public.ferie_lunedi_conflitti(
