@@ -54,7 +54,7 @@ Codice per i revisori: c'è (migration 396), 8 caratteri, valido fino al 10/01/2
 
 ## privacy
 - Informativa privacy (URL obbligatorio in tutti e due gli store): **https://gestionale-nz.netlify.app/privacy/** (versione 1.2 del 12/11/2026, testo di Lilian approvato per la pubblicazione).
-- Assistenza tecnica dell'app: **info@eppiflorence.it** (EPPI, che pubblica l'app; Patrizio, 11/11/2026). Google chiede una mail: questa. Apple chiede un **indirizzo web** di assistenza: **https://gestionale-nz.netlify.app/assistenza/** (file `public/assistenza/index.html`, con contatto e domande frequenti). L'informativa privacy di Lilian andrà sulla stessa pagina.
+- Assistenza tecnica dell'app: **info@eppiflorence.it** (EPPI, che pubblica l'app; Patrizio, 11/11/2026). Google chiede una mail: questa. Apple chiede un **indirizzo web** di assistenza: **https://gestionale-nz.netlify.app/assistenza/** (file `public/assistenza/index.html`, con contatto e domande frequenti). Dalla pagina c'è il link all'informativa privacy (/privacy/).
 
 ### Google: Sicurezza dei dati
 | Domanda | Risposta |

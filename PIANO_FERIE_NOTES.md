@@ -378,3 +378,4 @@ Maggiori avevano anche le ore accanto alla giornata: contate giornate intere. Ol
 a fine anno: Pampaloni (12 h su 2,4), Suzzi (7 su 2,8), Nunziante e Talone (30 su 28,9). Il modulo
 «ASUTI» di Palmanova porta il nome di Shafiei in testa e di Astuti in ottobre, ed e' vuoto.
 Da questa data i piani dei turni (mese e settimana) contano anche le richieste in attesa.
+- Impostato da Patrizio il 12/11/2026 su NZ: `LEAVE_EMAIL_FROM` = «New Zago <newzago@rispondi.ai>» (dominio rispondi.ai già verificato in Resend, dati in Irlanda) e `LEAVE_EMAIL_REPLY_TO` = newzago@vicolo.com. Su Zago nessun secret: mittente di prima.
