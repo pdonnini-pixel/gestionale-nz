@@ -1177,3 +1177,139 @@ per farlo valere con la vice provvisoria serve una funzione SQL che ripeta la re
 `guidaConRipiego`. Il trigger `trg_outlet_events_fabbisogno` oggi protegge le «persone in più»:
 le fasce dentro `regole` sono fabbisogno allo stesso modo e vanno protette quando la pagina le scrive.
 
+## Lunedì a due persone, pezzi di settimana, straordinario ricalcolato, chi non è più in servizio (12/11/2026)
+
+Quattro richieste di Patrizio del 12/11/2026, nate guardando il piano di Roma Soratte.
+
+### 1. Lunedì 30/11: quattro turni da 4 ore «in linea»
+
+**Cosa si vedeva**: nel piano del mese di novembre il pezzo di settimana di un giorno solo (lunedì
+30) dava quattro turni da 4 ore (10-14, 12-16, 14-18, 16-20), ognuno «4 di 4 h in linea».
+
+**Causa**: in `pianificaMese`, quando l'altro mese della settimana non è ancora pianificato,
+`contrattoSett` dava al pezzo una quota in proporzione al traffico MODA dei giorni, con il minimo
+di un turno (`turnoMinOre`, 4 ore). Per un lunedì su sette la proporzione è piccola e a tutte
+toccavano 4 ore: per coprire le 16 ore di presenza del giorno servivano tutte e quattro, e ognuna
+risultava «in linea» con una quota che non era il suo contratto. La proposta settimanale di
+`PianoTurni` non ha il difetto: lì il pezzo usa già il contratto della settimana meno le ore dei
+turni dell'altro mese.
+
+**Correzione** (`pezzoLibero`, `quotaPezzi`): nei negozi con i giorni caldi, i riposi minimi o il
+lunedì in due, e senza «ore fino al contratto», il tetto del pezzo è il contratto della settimana
+intera limitato da quello che i giorni del pezzo reggono (`Math.min(intere, capienza)`). A piano
+fatto la quota del pezzo diventa quello che è stato messo in turno (più ferie e trasferte): il
+riepilogo dice «in linea» perché è vero, e il resto del contratto resta ai giorni del mese dopo,
+che lo riceve come ore già nei turni (`oreFuoriMese`).
+
+**Misura sul motore vero** (Roma Soratte, dati letti dal database: contratti 40/30/30/30, fasce
+salvate, regole con la scelta nuova, traffico di Valmontone 2025):
+
+| | prima (main) | dopo |
+|---|---|---|
+| lunedì 30/11 | 4 persone, 4 turni da 4 ore | 2 persone: 10-20 e 12-18, 15,5 ore, nessuna fascia scoperta |
+| quota del pezzo | 4 ore a testa | 9,5 e 6 ore a chi lavora, 0 alle altre |
+| 1-6 dicembre | n.d. | contratto 30,5 / 30 / 24 / 30 (il resto dopo il 30/11) |
+
+**Negozi senza le scelte nuove**: stesso difetto (due negozi di prova, uno con fasce e cinque
+persone, uno «ore fino al contratto» con quattro: lunedì 30/11 quattro turni da 4-6 ore, quota 4
+ore a testa). **Non toccati**: i turni del mese escono identici a `main`, byte per byte. Se e
+quando estendere la correzione lo decide Patrizio.
+
+### 2. Lunedì a due persone, coppia a rotazione
+
+Scelta del negozio `outlet_shift_rules.lunedi_due_persone` (migration 408, NULL = spenta), accesa a
+Roma Soratte (`NZ_ONLY 409`), interruttore nella scheda 5 «Riposi» di «Regole e orari».
+
+- `tettoDelLunedi` (in `fabbisognoDaTraffico`): il lunedì fabbisogno, minimo delle fasce ed esatto
+  non superano `LUNEDI_MAX_PERSONE` (2). Se le fasce salvate chiedevano di più: `lunediFasceOltre`.
+- `ottimizzaSettimana`: `PESI.lunediTroppi` (50 milioni a persona in più: sotto «una persona
+  sola», sopra «lunedì con responsabile o vice») e `PESI.lunediStessaCoppia` (60 mila per la coppia
+  del lunedì prima, metà e un quarto per i due lunedì ancora prima).
+- Lo storico: `coppieDeiLunedi` sui turni veri delle tre settimane prima (`caricaLunediPrima`); nel
+  piano del mese ogni settimana aggiunge il suo lunedì (`lunediVisti`).
+- Deroghe a mano: `lunedi_troppi`, `lunedi_coppia`, `lunedi_fasce` in `derogheSettimana`.
+
+Conflitti decisi: la coppia contiene sempre responsabile o vice (vince la regola del lunedì, la
+rotazione gira fra le coppie valide: con una responsabile e una vice su quattro persone le coppie
+valide sono cinque); fasce o MODA che chiedono la terza persona perdono contro il tetto; «mai una
+persona sola» resta, quindi due esatte. Un lunedì festivo o dentro un evento segue le regole dei
+giorni caldi e non il tetto (confermato da Patrizio il 12/11/2026).
+
+Senza traffico MODA: il tetto vale lo stesso. Nel piano settimanale di un negozio senza traffico
+`giorni` passa da `tettoDelLunedi` prima di arrivare al motore (fasce tagliate a due, `lunediDue`
+acceso per il controllo della coppia); in `pianificaMese` con `fabbisognoFisso` idem. Prima il
+tetto stava solo dentro `fabbisognoDaTraffico` e quei due casi lo saltavano.
+
+Misura (Roma Soratte, piano del mese): lunedì 16/11 Bianchi + Basile, 23/11 Gentili + Basile,
+30/11 Angelini + Bianchi, 7/12 Angelini + Gentili, 14/12 Angelini + Basile. Sempre due, mai la
+stessa coppia di fila, sempre con responsabile o vice.
+
+### 3. Chi non è più in servizio
+
+`presenzaNeiTurni` (`organico.ts`): nel piano settimanale si vede chi è in forza nel negozio in
+almeno un giorno del periodo. Chi esce a metà periodo porta «in servizio fino a…»; chi non è più
+in forza ma ha un turno salvato resta con l'etichetta «non più in servizio: ha ancora turni», e
+sparisce appena il turno è tolto. Le altre liste (piano del mese, «Persone e riposi», scelta di
+responsabile e vice, stampa) usavano già solo chi è in servizio.
+
+### 4. Straordinario non ricalcolato
+
+`ore_straordinario` (motivo `giorno_forte`) si scriveva alla proposta e restava quello anche dopo
+aver accorciato, allungato, spostato o tolto un turno. Ora `straordinariDaRiscrivere` rifà il
+conto della settimana per persona (ore dei turni meno contratto, meno lo straordinario segnato per
+ricarico o allestimento e quello dei giorni non forti, che restano come sono) e lo divide a
+mezz'ore sui turni dei giorni forti con `ripartisciStraordinari`; `riallineaStraordinariForti`
+(`straordinariDb.ts`) rilegge i turni salvati e riscrive solo quelli che cambiano. Parte dopo la
+finestra del turno, il trascinamento, le mosse fra persone e la copia della settimana nel piano
+settimanale; dopo la finestra del turno, le mosse e «aggiungi finestra» nel piano del mese.
+
+#### Correzioni dei revisori (12/11/2026, stessa PR)
+
+1. **Uno straordinario scritto a mano non si sovrascrive.** `shifts.straordinario_a_mano`
+   (migration 408): `true` = scritto da una persona dalla finestra del turno (spunta, ore o motivo
+   toccati; anche «aggiungi finestra» come straordinario nel piano del mese), `false` = scritto dal
+   ricalcolo, NULL = proposta del sistema o turni di prima. `ricalcoloStraordinari` tiene fermi i
+   turni a mano, quelli per ricarico e allestimento, quelli dei giorni non forti e quelli di un
+   mese chiuso: il loro straordinario conta come già assegnato, si divide solo il resto. Togliere
+   la spunta scrive `false` e zero ore: il turno torna al calcolo del sistema (la finestra lo dice
+   sotto la spunta). **Dove la colonna manca (Made, o prima della 408) il ricalcolo non parte**:
+   la lettura fallisce con 42703 e `riallineaStraordinariForti` torna `saltato`, in silenzio.
+   Un turno a mano dato a una collega porta con sé il suo straordinario a mano.
+2. **Solo chi è stato toccato.** `riallineaStraordinariForti` riceve `persone` e legge solo i loro
+   turni. Piano settimanale: la persona della finestra, tutte e due in una mossa, chi ha ricevuto
+   turni nella copia della settimana. Piano del mese: solo la settimana del turno toccato (prima
+   rifaceva tutte le settimane del mese per tutte).
+3. **Mesi chiusi.** Prima di scrivere si chiede `turni_mese_chiuso` per ogni mese dei turni letti
+   (stesso criterio della pagina e del trigger `trg_shifts_mese_chiuso`): quei turni sono
+   `bloccato`, non si riscrivono, e se per questo lo straordinario scritto è diverso da quello che
+   verrebbe a mese aperto la persona finisce in `nonTorna` («Da guardare» nel piano settimanale,
+   avviso nel piano del mese). Oggi le due pagine mostrano sempre giorni di un solo mese, quindi
+   il caso «mezzo chiuso e mezzo aperto» scatta solo se cambia come si costruisce il periodo.
+4. **Turni pubblicati: il giorno di pubblicazione non si sposta.** Scelta A, in attesa della
+   conferma di Patrizio: lo straordinario calcolato si aggiorna anche sui pubblicati. `shifts.
+   pubblicato_il` (408) lo tiene il trigger `trg_shifts_pubblicato_il` per ogni scrittore: `now()`
+   quando il turno diventa pubblicato, NULL se torna in bozza o si annulla, fermo altrimenti.
+   **Nessun backfill**: un UPDATE di massa farebbe scattare `trg_shifts_touch` (sposterebbe
+   proprio `updated_at`) e `trg_shifts_mese_chiuso` (fallirebbe); alla prima modifica di un turno
+   pubblicato prima della 408 il trigger gli scrive l'`updated_at` che aveva. Chi legge usa
+   `giornoDiPubblicazione` (`pubblicato_il`, altrimenti `updated_at`; giorno in ora di Roma).
+   Conseguenza: anche una modifica a mano a un turno già pubblicato non sposta più la data.
+   `shifts.updated_at` lo leggeva solo la stampa del piano settimanale (`PianoTurni.tsx`, due
+   punti): app, avvisi e funzioni SQL non lo usano.
+5. **Errori.** Colonna mancante = silenzio. Ogni altro errore di lettura si lancia; se una
+   scrittura fallisce le altre si provano lo stesso e poi parte `StraordinariNonAggiornati` («non
+   è aggiornato per tutte … si ricalcola al prossimo salvataggio»). Le persone restano in attesa
+   (`daRicalcolare`, per negozio e settimana) e il ricalcolo si ripete al salvataggio dopo.
+
+Debito: **pezzo di settimana a inizio mese** (es. 1-6 dicembre). Le ore già nei turni dei giorni
+del mese prima (`oreFuoriMese`) si leggono quando si genera il piano; se quei turni cambiano dopo,
+il contratto del pezzo resta quello di allora, e con lui lo straordinario ricalcolato. Si
+riallinea solo rigenerando il piano. Non corretto in questa PR.
+
+Limiti noti: nel piano del mese la finestra del turno non scrive il motivo, quindi lì uno
+straordinario su un giorno forte è sempre «giorno forte» (ma se è scritto a mano resta fermo lo
+stesso, per la colonna `straordinario_a_mano`); in un pezzo di settimana in coda al
+mese è straordinario solo quello che supera la settimana intera, senza togliere i turni del mese
+dopo; dopo una modifica alle ferie fatta dalla stessa finestra il conto usa le ferie lette prima
+(si riallinea alla modifica successiva).
+

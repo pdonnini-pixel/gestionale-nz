@@ -43,6 +43,9 @@ type Richiesta = {
   decisa_il: string | null;
   decisa_da_nome: string | null;
   created_at: string;
+  /** migration 407: chiesta in un giorno in cui di norma non si chiede, e perché */
+  eccezione?: boolean | null;
+  eccezione_motivo?: string | null;
   dipendente: string;
   /** Il punto vendita della persona, dall'anagrafica: serve a mostrare chi
    *  altro e' via negli stessi giorni. outlet_code sulla richiesta e' solo
@@ -128,12 +131,12 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
       const ev = await supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids')
         .eq('company_id', companyId).eq('blocca_ferie', true);
       setEventiSenzaFerie((ev.data as Pick<EventoNegozio, 'nome' | 'data_dal' | 'data_al' | 'outlet_ids'>[]) ?? []);
+      const COLONNE = 'id, employee_id, stato, titolo, note_dipendente, motivazione, outlet_code, origine, inviata_il, decisa_il, decisa_da_nome, created_at';
+      const leggiRichieste = (colonne: string) => supabase.from('leave_requests').select(colonne)
+        .eq('company_id', companyId).neq('stato', 'bozza').order('inviata_il', { ascending: false, nullsFirst: false });
       const [req, days, emp, appr, prof, out] = await Promise.all([
-        supabase.from('leave_requests')
-          .select('id, employee_id, stato, titolo, note_dipendente, motivazione, outlet_code, origine, inviata_il, decisa_il, decisa_da_nome, created_at')
-          .eq('company_id', companyId)
-          .neq('stato', 'bozza')
-          .order('inviata_il', { ascending: false, nullsFirst: false }),
+        // Le colonne della 407 (eccezione) non ci sono su tutti i siti: dove mancano si legge come prima
+        leggiRichieste(`${COLONNE}, eccezione, eccezione_motivo`).then((r) => (r.error ? leggiRichieste(COLONNE) : r)),
         supabase.from('leave_request_days')
           .select('id, request_id, data, voce, tipo, ore, nota, stato')
           .eq('company_id', companyId),
@@ -165,7 +168,7 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
         perRichiesta.get(g.request_id)!.push({ ...g, ore: Number(g.ore) });
       }
 
-      setRichieste(((req.data as Omit<Richiesta, 'giorni' | 'dipendente' | 'outlet_id' | 'outlet_nome'>[]) ?? []).map((r) => {
+      setRichieste(((req.data as unknown as Omit<Richiesta, 'giorni' | 'dipendente' | 'outlet_id' | 'outlet_nome'>[]) ?? []).map((r) => {
         const outletId = outletDi.get(r.employee_id) ?? null;
         return {
           ...r,
@@ -255,7 +258,6 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
       });
       if (error) throw error;
       const esito = String(data);
-
       // Stesso discorso della richiesta: l'avviso per mail e' un di piu'.
       let mail: string | null = null;
       try {
@@ -366,10 +368,16 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
                     {r.giorni.length} {r.giorni.length === 1 ? 'giorno' : 'giorni'}
                     {VOCI_ORDINE.filter((v) => t[v]).map((v) => ` · ${ETICHETTE_VOCE_BREVI[v]} ${formattaOre(t[v])}`).join('')}
                   </span>
+                  {r.eccezione && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">eccezione</span>}
                 </button>
 
                 {apertaQui && (
                   <div className="border-t border-slate-100 p-3 space-y-3">
+                    {r.eccezione && (
+                      <p className="text-sm rounded-lg border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2">
+                        <span className="font-semibold">Chiesta come eccezione.</span>{r.eccezione_motivo ? ` ${r.eccezione_motivo}` : ''}
+                      </p>
+                    )}
                     {r.note_dipendente && (
                       <p className="text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
                         Nota di chi ha chiesto: {r.note_dipendente}

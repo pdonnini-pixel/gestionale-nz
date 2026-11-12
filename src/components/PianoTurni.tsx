@@ -11,22 +11,23 @@
 // come gli ingressi attesi. Quello di «Regole e orari» vale solo per un
 // negozio senza traffico (né suo né la forma media degli altri).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Copy, Info, Mail, MessageCircle, Printer, RefreshCw, Send, Trash2 } from 'lucide-react';
-import { almenoDuePersone, attesoDelleDate, fabbisognoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
+import { almenoDuePersone, attesoDelleDate, fabbisognoDaTraffico, tettoDelLunedi, type StoricoTraffico } from '../lib/pianoMensile';
 import EditorTurno from './EditorTurno';
+import { giornoDiPubblicazione, riallineaStraordinariForti } from '../lib/straordinariDb';
 import SpostaTurnoModal from './SpostaTurnoModal';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import {
-  personaAllaData, nomePersona, formattaDataBreve, oggiRoma, aggiungiGiorni, contaNellOrganico,
+  personaAllaData, nomePersona, formattaDataBreve, oggiRoma, aggiungiGiorni, presenzaNeiTurni,
   type PersonaOggi,
 } from '../lib/organico';
 import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, nomeNegozio as nomeDelNegozio, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
 import { ottimizzaSettimana, scegliGiorniLiberi, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana } from '../lib/ottimizzaTurni';
 import { eventoDaRiga } from '../lib/eventiTurni';
 import { guidaConRipiego } from '../lib/guidaNegozio';
-import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, impostaGiornoLibero, caricaCoppiePrima, guidaDelNegozio, caricaRiposi, caricaEventi, type GiornoLibero, type RiposiPersone } from '../lib/regoleNuoveDb';
+import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, impostaGiornoLibero, caricaCoppiePrima, caricaLunediPrima, guidaDelNegozio, caricaRiposi, caricaEventi, type GiornoLibero, type RiposiPersone } from '../lib/regoleNuoveDb';
 import { cosaMancaAllaGuida, etichettaRuoloGuida, ruoloGuida } from '../lib/guidaNegozio';
 import { getCurrentTenant } from '../lib/tenants';
 import { fasceDelle, fasciaIl, type Accordo } from '../lib/accordiOrario';
@@ -36,6 +37,7 @@ import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '.
 import {
   NOMI_GIORNO, NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, giornoPieno, opzioniGiorni, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
+  giornoIso,
 } from '../lib/turni';
 
 type Props = {
@@ -53,6 +55,7 @@ type TurnoDb = {
   id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null;
   origine: 'proposta' | 'manuale'; stato: 'bozza' | 'pubblicato' | 'annullato'; annullato_motivo: string | null;
   straordinario?: boolean; ore_straordinario?: number; straordinario_motivo?: string | null; updated_at?: string;
+  straordinario_a_mano?: boolean | null; pubblicato_il?: string | null;
 };
 
 const t5 = (t: string) => t.slice(0, 5);
@@ -123,6 +126,18 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     supabase.from('shifts').select('straordinario_motivo').limit(1).then((r) => { if (vivo) setHaMotivo(!r.error); });
     return () => { vivo = false; };
   }, [companyId]);
+  // Straordinario scritto a mano e giorno di pubblicazione (migration 408): dove le colonne
+  // mancano non si leggono, non si scrivono e lo straordinario non si ricalcola.
+  const [ha408, setHa408] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    supabase.from('shifts').select('straordinario_a_mano, pubblicato_il' as never).limit(1).then((r) => { if (vivo) setHa408(!r.error); });
+    return () => { vivo = false; };
+  }, [companyId]);
+  // Le persone a cui ricalcolare lo straordinario, per negozio e settimana: se un ricalcolo
+  // non arriva in fondo restano qui e si riprova al salvataggio dopo.
+  const daRicalcolare = useRef(new Map<string, Set<string>>());
+  const [straordNonTorna, setStraordNonTorna] = useState<string[]>([]);
   // Turno trascinato e mossa da confermare (Patrizio, 29/10/2026: come nel piano del mese).
   const [trascinato, setTrascinato] = useState<string | null>(null);
   const [mossa, setMossa] = useState<{ turno: TurnoDb; versoId: string; versoData: string } | null>(null);
@@ -147,13 +162,13 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // fatti settimana per settimana.
   const leggiTurni = useCallback(async (pianoDelMese: Map<string, string>): Promise<TurnoDb[]> => {
     const { data, error } = await supabase.from('shifts')
-      .select(`id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id, straordinario, ore_straordinario, updated_at${haMotivo ? ', straordinario_motivo' : ''}`)
+      .select(`id, employee_id, data, inizio, fine, pausa_minuti, origine, stato, annullato_motivo, plan_id, straordinario, ore_straordinario, updated_at${haMotivo ? ', straordinario_motivo' : ''}${ha408 ? ', straordinario_a_mano, pubblicato_il' : ''}`)
       .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', date[0]).lte('data', ultimo).order('inizio');
     if (error) throw error;
     return ((data as unknown as TurnoDb[]) ?? [])
       .filter((x) => (x.plan_id ?? null) === (pianoDelMese.get(x.data.slice(0, 7)) ?? null))
       .map((x) => ({ ...x, inizio: t5(x.inizio), fine: t5(x.fine) }));
-  }, [companyId, outletId, date, ultimo, haMotivo]);
+  }, [companyId, outletId, date, ultimo, haMotivo, ha408]);
 
   // Dopo una modifica ai turni si rileggono solo i turni: una richiesta, la
   // tabella e' aggiornata subito.
@@ -242,14 +257,14 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
 
   // Chi lavora in questo negozio nella settimana, giorno per giorno.
   const persone = useMemo(() => {
-    const out: { scheda: PersonaOggi['scheda']; perGiorno: PersonaOggi[]; ore: number | null }[] = [];
+    const out: { scheda: PersonaOggi['scheda']; perGiorno: PersonaOggi[]; ore: number | null; inForza: boolean; finoAl: string | null }[] = [];
     for (const s of dati.schede) {
       const perGiorno = date.map((d) => personaAllaData(s, dati.eventi, d));
-      const qui = perGiorno.some((p) => p.outletId === outletId && (contaNellOrganico(p)))
-        || turni.some((t) => t.employee_id === s.id && t.stato !== 'annullato');
-      if (!qui || perGiorno.every((p) => p.stato === 'fuori_organico')) continue;
+      // chi non e' piu' in servizio non si vede (Patrizio, 12/11/2026); resta, segnalata, solo chi ha ancora un turno salvato in questi giorni
+      const presenza = presenzaNeiTurni(perGiorno, date, outletId, turni.some((t) => t.employee_id === s.id && t.stato !== 'annullato'));
+      if (!presenza) continue;
       const oreSett = perGiorno.find((p) => p.outletId === outletId && p.stato === 'in_servizio')?.ore ?? perGiorno[0].ore;
-      out.push({ scheda: s, perGiorno, ore: oreSett });
+      out.push({ scheda: s, perGiorno, ore: oreSett, ...presenza });
     }
     return out.sort((a, b) => nomePersona(a.scheda).localeCompare(nomePersona(b.scheda), 'it'));
   }, [dati, date, outletId, turni]);
@@ -295,7 +310,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const moda = useMemo(() => (storico ? attesoDelleDate(storico.storico, date) : null), [storico, date]);
   const usaModa = !!moda && moda.atteso.size > 0;
   const giorni = useMemo(() => {
-    if (!moda || !moda.atteso.size) return giorniBase;
+    // senza traffico MODA comandano le fasce di «Orari e fabbisogno»: il lunedi' a due vale lo stesso
+    if (!moda || !moda.atteso.size) return giorniBase.map((g) => tettoDelLunedi(g, regole));
     const maxP = new Map(date.map((d) => [d, candidati.filter((p) => !p.nonDisponibile.has(d)).length]));
     return fabbisognoDaTraffico(giorniBase, moda.atteso, regole, maxP, extra);
   }, [giorniBase, moda, candidati, date, extra, regole]);
@@ -329,6 +345,14 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     return preferiti.size || riposi.mai.size ? { preferiti, mai: riposi.mai } : undefined;
   }, [riposi, giorniLiberi, riposoATurnazione]); // eslint-disable-line react-hooks/exhaustive-deps
   const mancaGuida = dati.viceDisponibile ? cosaMancaAllaGuida(negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null) : null;
+  // Il lunedi' a due persone (Patrizio, 12/11/2026): le coppie dei lunedi' prima, per la rotazione.
+  const [lunediPrima, setLunediPrima] = useState<string[]>([]);
+  useEffect(() => {
+    let vivo = true;
+    if (!regole.lunediDue || !companyId || !outletId || !date[0]) { setLunediPrima([]); return; }
+    caricaLunediPrima(companyId, outletId, date[0]).then((l) => { if (vivo) setLunediPrima(l); }).catch(() => undefined);
+    return () => { vivo = false; };
+  }, [regole.lunediDue, companyId, outletId, date[0]]); // eslint-disable-line react-hooks/exhaustive-deps
   // Le regole che i turni della settimana non rispettano: le modifiche a mano
   // restano possibili, ma la deroga si vede (Patrizio, 11/11/2026).
   const deroghe = useMemo(() => (attivi.length ? derogheSettimana({
@@ -338,7 +362,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     giornoLibero: riposoATurnazione ? undefined : liberiValidi,
     guida: { responsabile: guidaTurni.responsabile, vice: guidaTurni.vice },
     riposi: sceltePerLaSettimana({ giorni, regole, riposi: riposiMotore, giorniFuori: 7 - date.length }).riposi,
-  }) : []), [attivi.length, giorni, turni, candidati, regole, giorniLiberi, riposiMotore, guida.join('|'), dati.schede]); // eslint-disable-line react-hooks/exhaustive-deps
+    lunediPrima,
+  }) : []), [attivi.length, giorni, turni, candidati, regole, giorniLiberi, riposiMotore, guida.join('|'), dati.schede, lunediPrima]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cambiaGiornoLibero = async (employeeId: string, giorno: number | null) => {
     try {
@@ -379,7 +404,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             return nd && !attivi.some((t) => t.employee_id === p.scheda.id && t.data === d) ? [[d, nd]] : [];
           })),
         })),
-        pubblicatoIl: tuttiPubblicati ? pubblicati.map((t) => t.updated_at ?? '').sort().pop()?.slice(0, 10) || oggiRoma() : null,
+        pubblicatoIl: tuttiPubblicati ? giornoDiPubblicazione(pubblicati) ?? oggiRoma() : null,
         oggi: oggiRoma(),
       };
       return dati0;
@@ -407,11 +432,11 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const primo = `${mese}-01`;
       const ultimoDelMese = new Date(Date.UTC(Number(mese.slice(0, 4)), Number(mese.slice(5, 7)), 0)).toISOString().slice(0, 10);
       const { data, error } = await supabase.from('shifts')
-        .select('employee_id, data, inizio, fine, pausa_minuti, plan_id, stato, ore_straordinario, updated_at')
+        .select(`employee_id, data, inizio, fine, pausa_minuti, plan_id, stato, ore_straordinario, updated_at${ha408 ? ', pubblicato_il' : ''}`)
         .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', primo).lte('data', ultimoDelMese).neq('stato', 'annullato').order('inizio');
       if (error) throw error;
       const piano = pianiScelti.get(mese) ?? null;
-      const delMese = ((data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; stato: string; ore_straordinario: number | null; updated_at: string | null }[]) ?? [])
+      const delMese = ((data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; stato: string; ore_straordinario: number | null; updated_at: string | null; pubblicato_il?: string | null }[]) ?? [])
         .filter((x) => (x.plan_id ?? null) === piano);
       if (!delMese.length) { toast({ type: 'info', message: `Nessun turno salvato per ${NOMI_MESE_LUNGHI[Number(mese.slice(5, 7))]}: prepara prima il mese.` }); return; }
       const orarioDi = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -436,7 +461,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             turni: Object.fromEntries(dentro.map((d) => [d, suoi.filter((t) => t.employee_id === p.scheda.id && t.data === d)
               .map((t) => ({ inizio: t.inizio.slice(0, 5), fine: t.fine.slice(0, 5), pausaMinuti: t.pausa_minuti ?? 0, oreStraordinario: Number(t.ore_straordinario ?? 0) || undefined }))])),
           })),
-          pubblicatoIl: tuttiPubblicati ? suoi.map((t) => t.updated_at ?? '').sort().pop()?.slice(0, 10) || oggiRoma() : null,
+          pubblicatoIl: tuttiPubblicati ? giornoDiPubblicazione(suoi) ?? oggiRoma() : null,
         });
       }
       creaPdfOrari(fogli, `Orario ${nomeNegozio} ${NOMI_MESE_LUNGHI[Number(mese.slice(5, 7))]} ${mese.slice(0, 4)}`).save(nomeFileOrarioMese(base, mese));
@@ -499,10 +524,11 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       // dei feriali a rotazione, lunedi' con responsabile o vice, ore fino al contratto.
       const liberi = riposoATurnazione ? liberiValidi : scegliGiorniLiberi(candidati.map((c) => c.id), new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])), guida);
       const coppiePrima = await caricaCoppiePrima(companyId, outletId, date[0]);
+      const lunediVisti = regole.lunediDue ? await caricaLunediPrima(companyId, outletId, date[0]) : [];
       const sistemati = ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidati, regole,
         {
           // con la tabella dei riposi i giorni preferiti arrivano da li' (anche piu' di uno a testa)
-          giornoLibero: riposoATurnazione ? undefined : liberi, guida, coppiePrima,
+          giornoLibero: riposoATurnazione ? undefined : liberi, guida, coppiePrima, lunediPrima: lunediVisti,
           riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori,
           // giorni caldi, apertura e chiusura fra responsabile e vice, riposi, straordinari pari: vuoto dove il negozio non li ha
           ...sceltePerLaSettimana({ giorni, regole, responsabile: guidaTurni.responsabile, vice: guidaTurni.vice, riposi: riposiMotore, giorniFuori: 7 - date.length }),
@@ -590,7 +616,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       if (error) throw error;
       const saltati = sorgente.length - nuovi.length;
       toast({ type: 'success', message: `Copiati ${nuovi.length} turni dalla settimana prima, in bozza.${saltati > 0 ? ` ${saltati} non copiati: persona assente, giorno chiuso o orario fuori dall'apertura.` : ''} Ritoccali e pubblica.` });
-      await ricaricaTurni();
+      await dopoModifica(nuovi.map((n) => n.employee_id));
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Copia non riuscita.' });
     } finally {
@@ -607,6 +633,33 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     if (error) { toast({ type: 'error', message: error.message }); return; }
     toast({ type: 'success', message: `Turni della settimana pubblicati per ${nomeNegozio}.` });
     ricaricaTurni();
+  };
+
+  // Dopo ogni modifica a mano (finestra del turno, trascinamento, mosse fra persone, copia
+  // della settimana) lo straordinario «giorno forte» si ricalcola e si riscrive sui turni
+  // (Patrizio, 12/11/2026): prima restava quello scritto dalla proposta. Solo nei negozi con
+  // i giorni caldi, solo per le persone toccate dalla modifica (in una mossa fra due, tutte e
+  // due) e mai sullo straordinario scritto a mano, sui turni di un mese chiuso o dove manca
+  // la colonna della 408. Se non arriva in fondo lo dice e riprova al salvataggio dopo.
+  const dopoModifica = async (personeToccate: string[]) => {
+    const chiave = `${outletId}|${date[0]}`;
+    const inAttesa = daRicalcolare.current.get(chiave) ?? new Set<string>();
+    personeToccate.forEach((id) => inAttesa.add(id));
+    if (regole.giorniPieni && haMotivo && ha408 && inAttesa.size) {
+      daRicalcolare.current.set(chiave, inAttesa);
+      try {
+        const esito = await riallineaStraordinariForti({
+          companyId, outletId, date, persone: [...inAttesa], planDi: (d) => pianiScelti.get(d.slice(0, 7)) ?? null,
+          contratto: new Map(candidati.map((c) => [c.id, c.ore])),
+          giorniForti: new Set(giorni.filter((g) => !g.chiuso && (g.straordinariCaldo || g.straordinari)).map((g) => g.data)),
+        });
+        daRicalcolare.current.delete(chiave);
+        setStraordNonTorna((prima) => [...prima.filter((id) => !inAttesa.has(id)), ...esito.nonTorna]);
+      } catch (e) {
+        toast({ type: 'error', message: e instanceof Error ? e.message : 'Lo straordinario dei giorni forti non è stato ricalcolato: si riprova al prossimo salvataggio.' });
+      }
+    }
+    await ricaricaTurni();
   };
 
   // Spostare, scambiare e affiancare i turni: dal calendario trascinando la
@@ -660,6 +713,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     scoperture.length === 0 ? { ok: true, testo: 'Negozio sempre coperto' } : { ok: false, testo: `Mancano persone in ${scoperture.length} ${scoperture.length === 1 ? 'fascia' : 'fasce'}` },
     ...(riposiMinimi != null ? [{ ok: riposiMinimi >= Math.max(1, regole.riposiMinSettimana ?? 1), testo: riposiMinimi === 0 ? 'Qualcuno è senza riposo' : `Almeno ${riposiMinimi} ${riposiMinimi === 1 ? 'riposo' : 'riposi'} a testa` }] : []),
     ...(haLunedi && (guidaTurni.responsabile || guidaTurni.vice) ? [{ ok: !deroghe.some((d) => d.regola === 'lunedi_guida'), testo: deroghe.some((d) => d.regola === 'lunedi_guida') ? 'Lunedì manca responsabile o vice' : 'Lunedì c\'è responsabile o vice' }] : []),
+    ...(giorni.some((g) => g.lunediDue) && attivi.some((t) => giorni.some((g) => g.lunediDue && g.data === t.data))
+      ? [{ ok: !deroghe.some((d) => d.regola === 'lunedi_troppi' || d.regola === 'lunedi_coppia'),
+        testo: deroghe.some((d) => d.regola === 'lunedi_troppi') ? 'Lunedì più di due persone' : deroghe.some((d) => d.regola === 'lunedi_coppia') ? 'Lunedì la stessa coppia di prima' : 'Lunedì in due, coppia diversa' }] : []),
     { ok: straordSettimana < 0.25, testo: straordSettimana < 0.25 ? 'Nessuno straordinario' : `${oreInChiaro(straordSettimana)}${Math.round(straordSettimana * 60) % 30 === 0 ? ' ore' : ''} di straordinario` },
   ];
 
@@ -729,6 +785,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           </section>
           <section aria-label="Da guardare" className={`rounded-xl border p-3 text-sm ${deroghe.length ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-600'}`}>
             <h3 className="font-semibold flex items-center gap-2">{deroghe.length > 0 && <AlertTriangle size={15} />} Da guardare{deroghe.length ? ` (${deroghe.length})` : ''}</h3>
+            {straordNonTorna.length > 0 && (
+              <p className="mt-1 font-semibold">Straordinario da controllare a mano per {straordNonTorna.map(nomeDi).join(', ')}: una parte della settimana è in un mese chiuso, lì i turni non si riscrivono e il conto dello straordinario non torna.</p>
+            )}
             {deroghe.length > 0 ? (
               <ul className="mt-1 list-disc pl-6 space-y-0.5">
                 {deroghe.map((d, i) => <li key={`${d.regola}-${d.data}-${d.employeeId}-${i}`}>{d.testo}</li>)}
@@ -814,6 +873,14 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                 <tr key={p.scheda.id} className="border-b border-slate-100">
                   <td className="px-3 py-2">
                     <div className="font-medium text-slate-900">{nomePersona(p.scheda)}</div>
+                    {!p.inForza && (
+                      <div className="mt-0.5 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[11px] font-medium text-amber-900" title="Non lavora più in questo negozio in questi giorni, ma ha ancora un turno salvato: toglilo o dallo a un'altra persona. Tolti i turni, non compare più.">
+                        non più in servizio: ha ancora turni
+                      </div>
+                    )}
+                    {p.inForza && p.finoAl && p.finoAl < ultimo && (
+                      <div className="text-[11px] text-slate-500">in servizio fino a {NOMI_GIORNO_BREVI[giornoIso(p.finoAl)].toLowerCase()} {formattaDataBreve(p.finoAl)}</div>
+                    )}
                     {etichettaRuoloGuida(ruoloGuida(p.scheda.id, negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null)) && (
                       <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-700">{etichettaRuoloGuida(ruoloGuida(p.scheda.id, negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null))}</div>
                     )}
@@ -879,7 +946,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                     {p.ore != null && pianificate - p.ore > 0.25 && (
                       <span className="block text-[11px] font-normal text-amber-800 whitespace-nowrap">{oreInChiaro(pianificate - p.ore)}{Math.round((pianificate - p.ore) * 60) % 30 === 0 ? ' h' : ''} straordinario</span>
                     )}
-                    {p.ore != null && p.ore - pianificate > 0.25 && (
+                    {p.inForza && p.ore != null && p.ore - pianificate > 0.25 && (
                       <span className="block text-[11px] font-normal text-slate-500 whitespace-nowrap"
                         title={fuori.length && !portate ? 'Ore di contratto della settimana ancora libere: il resto della settimana è nell\'altro mese' : 'Ore di contratto che il negozio non usa questa settimana: si coprono con ferie o permessi'}>
                         {oreInChiaro(p.ore - pianificate)}{Math.round((p.ore - pianificate) * 60) % 30 === 0 ? ' h' : ''} {fuori.length && !portate ? 'per il resto della settimana' : 'ferie/permessi'}{saldi.get(p.scheda.id) ? ` · maturate ${Math.round(saldi.get(p.scheda.id)!).toLocaleString('it-IT')} h` : ''}
@@ -922,7 +989,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           arrivo={attivi.find((x) => x.employee_id === mossa.versoId && x.data === mossa.versoData && x.id !== mossa.turno.id) ?? null}
           nomeDi={nomeDi}
           avvisi={(m) => avvisiDellaMossa(contestoMosse, m, mossa.turno, mossa.versoId, mossa.versoData)}
-          esegui={async (m) => { const msg = await eseguiMossa(m, mossa.turno, mossa.versoId, mossa.versoData); if (msg) { toast({ type: 'success', message: msg }); await ricaricaTurni(); } return !!msg; }}
+          esegui={async (m) => { const msg = await eseguiMossa(m, mossa.turno, mossa.versoId, mossa.versoData); if (msg) { toast({ type: 'success', message: msg }); await dopoModifica([mossa.turno.employee_id, mossa.versoId]); } return !!msg; }}
           onClose={() => setMossa(null)} />
       )}
       {editor && (
@@ -931,20 +998,25 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           planId={pianiScelti.get(editor.data.slice(0, 7)) ?? null}
           nome={nomePersona(dati.schede.find((s) => s.id === editor.employeeId) ?? { nome: '', cognome: '' })}
           apre={giorni.find((g) => g.data === editor.data)!.apre} chiude={giorni.find((g) => g.data === editor.data)!.chiude}
-          regole={regole} conMotivo={haMotivo} giornoForte={!!regole.giorniPieni && giornoPieno(giorni.find((g) => g.data === editor.data)!)}
+          regole={regole} conMotivo={haMotivo} conAMano={ha408} giornoForte={!!regole.giorniPieni && giornoPieno(giorni.find((g) => g.data === editor.data)!)}
           passaggio={editor.turno ? (() => {
             const t = editor.turno!;
             return {
               colleghi: persone.map((x) => ({ id: x.scheda.id, nome: nomePersona(x.scheda) })),
               haTurno: (id: string) => attivi.some((x) => x.employee_id === id && x.data === editor.data),
               avvisi: (m: MossaTurno, versoId: string, ore: { inizio: string; fine: string }) => avvisiDellaMossa(contestoMosse, m, t, versoId, editor.data, ore),
-              esegui: (m: MossaTurno, versoId: string, ore: { inizio: string; fine: string; pausa_minuti: number }) => eseguiMossa(m, t, versoId, editor.data, ore),
+              esegui: (m: MossaTurno, versoId: string, ore: { inizio: string; fine: string; pausa_minuti: number }) => {
+                // la collega che riceve o affianca il turno: anche a lei si ricalcola lo straordinario
+                const chiave = `${outletId}|${date[0]}`;
+                daRicalcolare.current.set(chiave, (daRicalcolare.current.get(chiave) ?? new Set<string>()).add(versoId));
+                return eseguiMossa(m, t, versoId, editor.data, ore);
+              },
             };
           })() : undefined}
           onClose={() => setEditor(null)}
           onSalvato={async (msg) => {
-            // prima i turni aggiornati, poi si chiude: la tabella non mostra mai il dato vecchio
-            await ricaricaTurni();
+            // prima i turni aggiornati (e lo straordinario dei giorni forti ricalcolato), poi si chiude: la tabella non mostra mai il dato vecchio
+            await dopoModifica([editor.employeeId]);
             setEditor(null);
             if (msg) toast({ type: 'success', message: msg });
           }}

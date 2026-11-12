@@ -3,7 +3,7 @@
 // stato delle richieste. La richiesta e' una proposta: la decide il referente
 // del negozio, come quelle registrate dall'amministrazione (leave_decidi).
 // Regole e parole: PIANO_FERIE_NOTES.md («Come si parla a chi chiede le ferie»).
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { AVVISO_CAMPO_LIBERO, MAX_MOTIVO, dataRoma, oraRoma } from '../../lib/timbrature'
 import { oreInParole } from '../../lib/ferieRichiesta'
@@ -18,12 +18,16 @@ interface Richiesta {
   id: string; stato: string; note: string | null; motivazione: string | null
   inviata_il: string | null; decisa_il: string | null; decisa_da_nome: string | null
   giorni: { data: string; voce: string; tipo: string; ore: number; stato: string }[] | null
+  /** chiesta come eccezione, in un giorno in cui di norma non si chiede (migration 407) */
+  eccezione?: boolean
 }
 interface DatiFerie {
   a_chiamata: boolean
   saldi: SaldoVoce[]
   richieste: Richiesta[]
   senza_ferie: { nome: string; dal: string; al: string }[]
+  /** il negozio ha scritto chi approva le eccezioni: dove un giorno è spento si può chiedere lo stesso */
+  eccezioni?: boolean
 }
 type Tipo = 'giornata' | 'mezza_giornata'
 
@@ -47,6 +51,8 @@ export default function AppFerie() {
   const [invio, setInvio] = useState(false)
   const inCorso = useRef(false) // blocca il doppio tocco prima che lo stato si aggiorni
   const [esito, setEsito] = useState<{ ok: boolean; testo: string } | null>(null)
+  // Il motivo per cui la richiesta non passa, quando si può chiedere come eccezione
+  const [daEccezione, setDaEccezione] = useState<string | null>(null)
 
   const saldo = useMemo(() => saldiApp(dati?.saldi ?? []), [dati])
   const senzaFerie = dati?.senza_ferie ?? []
@@ -68,28 +74,40 @@ export default function AppFerie() {
       .map((d) => ({ data: d, tipo: tipi[d] ?? 'giornata', voce: 'ferie' }))
   }, [cosa, giorniFerie, tipi, dataPermesso, orePermesso, quantoPermesso])
 
+  // Cambiati i giorni, il motivo di prima non vale più
+  useEffect(() => { setDaEccezione(null) }, [righe])
+
   const problemi = useMemo(() => {
     const p: string[] = []
     for (const r of righe) {
       if (r.data < oggi) p.push(`Il ${dataItaliana(r.data)} è già passato.`)
-      const ev = eventoSenzaFerie(r.data, senzaFerie)
+      // Dove il negozio ammette le eccezioni decide il server: risponde con il motivo e la scelta
+      const ev = dati?.eccezioni ? null : eventoSenzaFerie(r.data, senzaFerie)
       if (ev) p.push(`Il ${dataItaliana(r.data)} c'è ${ev}: niente ferie né permessi.`)
     }
     return p
-  }, [righe, oggi, senzaFerie])
+  }, [righe, oggi, senzaFerie, dati?.eccezioni])
 
-  const invia = async () => {
+  const invia = async (comeEccezione = false) => {
     if (!righe.length || problemi.length || inCorso.current) return
     inCorso.current = true
     setInvio(true); setEsito(null)
     try {
-      const { data, error } = await supabase.rpc('app_dipendente_chiedi_ferie', { p_giorni: righe, p_note: note.trim() || undefined })
-      if (error) { setEsito({ ok: false, testo: error.message }); return }
+      const giorni = comeEccezione ? righe.map((r) => ({ ...r, eccezione: true })) : righe
+      const { data, error } = await supabase.rpc('app_dipendente_chiedi_ferie', { p_giorni: giorni, p_note: note.trim() || undefined })
+      if (error) {
+        // Giorno in cui di norma non si chiede: il database dice perché e, se il negozio
+        // lo prevede, lascia chiederlo come eccezione (hint «eccezione», migration 407).
+        if (error.hint === 'eccezione' && !comeEccezione) setDaEccezione(error.message.replace(/\s*Si può chiedere solo come eccezione\.$/, ''))
+        else { setDaEccezione(null); setEsito({ ok: false, testo: error.message }) }
+        return
+      }
+      setDaEccezione(null)
       // L'avviso al referente lo crea il database insieme alla richiesta
       // (notifica nel gestionale, migration 351): dal telefono non parte
       // nessuna mail.
       void data
-      setEsito({ ok: true, testo: 'Richiesta inviata. Ti rispondono qui, in «Le tue richieste».' })
+      setEsito({ ok: true, testo: comeEccezione ? 'Richiesta inviata come eccezione. Ti rispondono qui, in «Le tue richieste».' : 'Richiesta inviata. Ti rispondono qui, in «Le tue richieste».' })
       setDal(''); setAl(''); setTipi({}); setDataPermesso(''); setOrePermesso(''); setQuantoPermesso('ore'); setNote('')
       void aggiorna()
     } finally {
@@ -241,6 +259,17 @@ export default function AppFerie() {
           placeholder="Nota per il referente (facoltativa)" className="border border-slate-200 rounded-xl px-3 py-2 text-sm" />
         <p className="-mt-1 text-xs text-slate-500">{AVVISO_CAMPO_LIBERO}</p>
         {problemi.map((p) => <p key={p} className="text-sm text-rose-600">{p}</p>)}
+        {daEccezione && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="font-semibold">Questa richiesta non è ammessa</p>
+            <p className="mt-1">{daEccezione}</p>
+            <p className="mt-1">Puoi chiederla come eccezione: la valuta chi approva le eccezioni del tuo negozio. Scrivi il motivo nella nota qui sopra.</p>
+            <button type="button" onClick={() => void invia(true)} disabled={invio || !navigator.onLine}
+              className="mt-3 w-full py-3 rounded-2xl bg-amber-600 text-white font-semibold disabled:opacity-40">
+              {invio ? 'Invio…' : 'Chiedi come eccezione'}
+            </button>
+          </div>
+        )}
         <button onClick={() => void invia()} disabled={!righe.length || problemi.length > 0 || invio || !navigator.onLine}
           className="py-3.5 rounded-2xl bg-[#ff0066] text-white font-semibold disabled:opacity-40 active:scale-[0.99] transition">
           {invio ? 'Invio…' : !navigator.onLine ? 'Serve la rete per inviare' : 'Invia richiesta'}
@@ -273,6 +302,11 @@ export default function AppFerie() {
                     {r.stato === 'approvata_parziale' ? `, approvate ${oreInParole(g.filter((x) => x.stato === 'approvato').reduce((t, x) => t + Number(x.ore), 0))}` : ''}
                     {r.decisa_da_nome ? ` · decisa da ${r.decisa_da_nome}` : ''}
                   </p>
+                  {r.eccezione && (
+                    <p className="mt-1.5 flex flex-wrap gap-1.5">
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">chiesta come eccezione</span>
+                    </p>
+                  )}
                   {r.motivazione && r.stato !== 'ritirata' && <p className="text-slate-700 text-xs mt-1">«{r.motivazione}»</p>}
                   {r.stato === 'inviata' && (
                     <button onClick={() => void ritira(r.id)} className="text-xs text-slate-500 underline mt-2">Ritira la richiesta</button>

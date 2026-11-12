@@ -20002,6 +20002,84 @@ export type Database = {
           },
         ]
       }
+      leave_hr: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      outlet_leave_rules: {
+        Row: {
+          company_id: string
+          eccezioni_hr: boolean | null
+          eccezioni_referente: boolean | null
+          ferie_feriali: boolean | null
+          ferie_festivi: boolean | null
+          ferie_hr: boolean | null
+          ferie_referente: boolean | null
+          ferie_weekend: boolean | null
+          permessi_feriali: boolean | null
+          permessi_festivi: boolean | null
+          permessi_hr: boolean | null
+          permessi_referente: boolean | null
+          permessi_weekend: boolean | null
+          outlet_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          company_id: string
+          eccezioni_hr?: boolean | null
+          eccezioni_referente?: boolean | null
+          ferie_feriali?: boolean | null
+          ferie_festivi?: boolean | null
+          ferie_hr?: boolean | null
+          ferie_referente?: boolean | null
+          ferie_weekend?: boolean | null
+          permessi_feriali?: boolean | null
+          permessi_festivi?: boolean | null
+          permessi_hr?: boolean | null
+          permessi_referente?: boolean | null
+          permessi_weekend?: boolean | null
+          outlet_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          company_id?: string
+          eccezioni_hr?: boolean | null
+          eccezioni_referente?: boolean | null
+          ferie_feriali?: boolean | null
+          ferie_festivi?: boolean | null
+          ferie_hr?: boolean | null
+          ferie_referente?: boolean | null
+          ferie_weekend?: boolean | null
+          permessi_feriali?: boolean | null
+          permessi_festivi?: boolean | null
+          permessi_hr?: boolean | null
+          permessi_referente?: boolean | null
+          permessi_weekend?: boolean | null
+          outlet_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       leave_requests: {
         Row: {
           company_id: string
@@ -20011,6 +20089,8 @@ export type Database = {
           decisa_da: string | null
           decisa_da_nome: string | null
           decisa_il: string | null
+          eccezione: boolean | null
+          eccezione_motivo: string | null
           employee_id: string
           id: string
           inviata_il: string | null
@@ -20030,6 +20110,8 @@ export type Database = {
           decisa_da?: string | null
           decisa_da_nome?: string | null
           decisa_il?: string | null
+          eccezione?: boolean | null
+          eccezione_motivo?: string | null
           employee_id: string
           id?: string
           inviata_il?: string | null
@@ -20049,6 +20131,8 @@ export type Database = {
           decisa_da?: string | null
           decisa_da_nome?: string | null
           decisa_il?: string | null
+          eccezione?: boolean | null
+          eccezione_motivo?: string | null
           employee_id?: string
           id?: string
           inviata_il?: string | null
@@ -21725,6 +21809,7 @@ export type Database = {
           caldi_fasce_festivi: string | null
           caldi_guida_apre_chiude: boolean | null
           caldi_ore_apertura: number | null
+          lunedi_due_persone: boolean | null
           traffico_da_outlet_id: string | null
           giorni_lavoro_max: number
           outlet_id: string
@@ -21752,6 +21837,7 @@ export type Database = {
           caldi_fasce_festivi?: string | null
           caldi_guida_apre_chiude?: boolean | null
           caldi_ore_apertura?: number | null
+          lunedi_due_persone?: boolean | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id: string
@@ -21779,6 +21865,7 @@ export type Database = {
           caldi_fasce_festivi?: string | null
           caldi_guida_apre_chiude?: boolean | null
           caldi_ore_apertura?: number | null
+          lunedi_due_persone?: boolean | null
           traffico_da_outlet_id?: string | null
           giorni_lavoro_max?: number
           outlet_id?: string
@@ -27578,6 +27665,8 @@ export type Database = {
           nota: string | null
           ore_straordinario: number
           straordinario_motivo: string | null
+          straordinario_a_mano: boolean | null
+          pubblicato_il: string | null
           origine: string
           outlet_id: string
           pausa_minuti: number
@@ -27600,6 +27689,8 @@ export type Database = {
           nota?: string | null
           ore_straordinario?: number
           straordinario_motivo?: string | null
+          straordinario_a_mano?: boolean | null
+          pubblicato_il?: string | null
           origine?: string
           outlet_id: string
           pausa_minuti?: number
@@ -27622,6 +27713,8 @@ export type Database = {
           nota?: string | null
           ore_straordinario?: number
           straordinario_motivo?: string | null
+          straordinario_a_mano?: boolean | null
+          pubblicato_il?: string | null
           origine?: string
           outlet_id?: string
           pausa_minuti?: number

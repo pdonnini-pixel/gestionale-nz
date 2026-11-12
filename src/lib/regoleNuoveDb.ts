@@ -6,7 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';
 import { aggiungiGiorni } from './organico';
-import { coppieFeriali } from './ottimizzaTurni';
+import { coppieFeriali, coppieDeiLunedi } from './ottimizzaTurni';
 import type { Turno } from './turni';
 import { caricaTraffico } from './organicoDati';
 import { ingressiPerGiorno } from './eventiTurni';
@@ -53,18 +53,33 @@ export async function impostaGiornoLibero(companyId: string, employeeId: string,
  * `primaDi`: servono a non riproporre sempre le stesse persone insieme. Contano
  * i turni senza piano e quelli dei piani scelti, non le bozze scartate.
  */
-export async function caricaCoppiePrima(companyId: string, outletId: string, primaDi: string, giorni = 21): Promise<Map<string, number>> {
+async function turniVeriPrima(companyId: string, outletId: string, primaDi: string, giorni: number): Promise<Turno[] | null> {
   const { data, error } = await supabase.from('shifts')
     .select('employee_id, data, inizio, fine, pausa_minuti, plan_id, shift_plans(stato)')
     .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', aggiungiGiorni(primaDi, -giorni)).lt('data', primaDi).neq('stato', 'annullato');
-  if (error) return new Map();
+  if (error) return null;
   const turni: Turno[] = [];
   for (const x of ((data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
     const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
     if (x.plan_id && pl?.stato !== 'scelto') continue;
     turni.push({ employeeId: x.employee_id, data: x.data, inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 });
   }
-  return coppieFeriali(turni);
+  return turni;
+}
+
+export async function caricaCoppiePrima(companyId: string, outletId: string, primaDi: string, giorni = 21): Promise<Map<string, number>> {
+  const turni = await turniVeriPrima(companyId, outletId, primaDi, giorni);
+  return turni ? coppieFeriali(turni) : new Map();
+}
+
+/**
+ * Le coppie dei lunedi' delle tre settimane prima di `primaDi`, dal piu' vicino
+ * (Patrizio, 12/11/2026: il lunedi' a due persone, mai la stessa coppia da un
+ * lunedi' al successivo). Stessi turni di `caricaCoppiePrima`.
+ */
+export async function caricaLunediPrima(companyId: string, outletId: string, primaDi: string, giorni = 21): Promise<string[]> {
+  const turni = await turniVeriPrima(companyId, outletId, primaDi, giorni);
+  return turni ? coppieDeiLunedi(turni) : [];
 }
 
 /** Responsabile e vice del negozio per la regola del lunedi': vuoto se manca una delle due. */
@@ -149,4 +164,57 @@ export async function caricaEventi(companyId: string, dal: string, al: string): 
     .eq('company_id', companyId).lte('data_dal', al).gte('data_al', dal);
   if (prima.error) throw prima.error;
   return { righe: (prima.data as Record<string, unknown>[]) ?? [], conRegole: false };
+}
+
+// ── Ferie e permessi per negozio (Patrizio, 12/11/2026; migration 407) ──
+// Dove tabelle o colonne mancano (tenant Made, o prima della 407) `disponibile` e' falso: la
+// scheda non si mostra e le richieste restano come prima.
+
+/** Le scelte del negozio su ferie e permessi: la riga com'e', oppure null se non e' mai stata salvata. */
+export async function caricaRegoleFerie(outletId: string): Promise<{ riga: Record<string, unknown> | null; disponibile: boolean }> {
+  const { data, error } = await db.from('outlet_leave_rules').select('*').eq('outlet_id', outletId).maybeSingle();
+  if (error) return { riga: null, disponibile: false };
+  return { riga: (data as Record<string, unknown> | null) ?? null, disponibile: true };
+}
+
+export async function salvaRegoleFerie(companyId: string, outletId: string, colonne: Record<string, boolean>): Promise<string | null> {
+  const { error } = await db.from('outlet_leave_rules')
+    .upsert([{ outlet_id: outletId, company_id: companyId, ...colonne, updated_at: new Date().toISOString() }], { onConflict: 'outlet_id' });
+  return error ? error.message : null;
+}
+
+/** Chi e' HR nell'azienda (elenco che cambia solo il Super Advisor). */
+export async function caricaHr(companyId: string): Promise<{ utenti: string[]; disponibile: boolean }> {
+  const { data, error } = await db.from('leave_hr').select('user_id').eq('company_id', companyId);
+  if (error) return { utenti: [], disponibile: false };
+  return { utenti: ((data as { user_id: string }[]) ?? []).map((x) => x.user_id), disponibile: true };
+}
+
+export async function aggiungiHr(companyId: string, userId: string): Promise<string | null> {
+  const { error } = await db.from('leave_hr').insert([{ company_id: companyId, user_id: userId }]);
+  return error ? error.message : null;
+}
+
+/** Toglie una persona dall'elenco HR: null se e' andata, altrimenti il motivo (anche «nessuna riga tolta»). */
+export async function togliHr(companyId: string, userId: string): Promise<string | null> {
+  const { data, error } = await db.from('leave_hr').delete().eq('company_id', companyId).eq('user_id', userId).select('user_id');
+  if (error) return error.message;
+  return (data as unknown[] | null)?.length ? null : 'Non tolto: l’elenco HR lo cambia solo il Super Advisor.';
+}
+
+/** La 407 c'è su questo database? (le tabelle delle regole di ferie e permessi rispondono) */
+export async function ferie407Disponibile(): Promise<boolean> {
+  const { error } = await db.from('outlet_leave_rules').select('outlet_id').limit(1);
+  return !error;
+}
+
+/**
+ * Ferie e permessi di un evento: scrive le due voci dentro le regole e tiene allineato blocca_ferie.
+ * Solo dove la 407 c'è: senza, le due voci separate non le legge nessuno e un evento con una voce
+ * accesa smetterebbe di bloccare.
+ */
+export async function salvaFerieEvento(id: string, regole: Record<string, unknown>, bloccaFerie: boolean): Promise<string | null> {
+  if (!(await ferie407Disponibile())) return 'Ferie e permessi separati per evento arrivano con il prossimo aggiornamento del database.';
+  const { error } = await db.from('outlet_events').update({ regole, blocca_ferie: bloccaFerie }).eq('id', id);
+  return error ? error.message : null;
 }

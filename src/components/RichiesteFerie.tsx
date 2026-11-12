@@ -495,7 +495,8 @@ export default function RichiesteFerie({ companyId, userId }: Props) {
 
   const rispondi = async (c: Controproposta, accetta: boolean) => {
     const { error } = await supabase.rpc('leave_rispondi_controproposta', { p_id: c.id, p_accetta: accetta });
-    if (error) { toast({ type: 'error', message: error.message }); return; }
+    // il motivo puo' essere lungo (giorno vietato, chi approva in quel negozio): resta a video
+    if (error) { toast({ type: 'error', message: error.message, duration: 12000 }); return; }
     toast({ type: 'success', message: accetta ? 'Date accettate: risultano già approvate.' : 'Proposta rifiutata: si può fare una nuova richiesta.' });
     await carica();
   };

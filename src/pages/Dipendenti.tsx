@@ -111,6 +111,41 @@ interface OutletRow {
 // vecchi a ?view=organico portano alla scheda unica.
 type PersonaleView = 'panoramica' | 'per_outlet' | 'oggi' | 'costi' | 'lordi' | 'turni' | 'presenze' | 'ferie';
 const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'oggi', 'costi', 'lordi', 'turni', 'presenze', 'ferie'];
+
+// Le schede stanno in due aree (Patrizio, 12/11/2026): chi lavora a turni, presenze e
+// ferie non ha davanti il mese dei cedolini e la zona di caricamento dei file paghe.
+// I link restano quelli di sempre (?view=...): l'area si ricava dalla scheda.
+type AreaDipendenti = 'persone' | 'costi';
+type SchedaDipendenti = { k: PersonaleView; label: string; icon: React.ComponentType<{ size?: number; className?: string }> };
+const AREE_DIPENDENTI: { k: AreaDipendenti; label: string; sotto: string; schede: SchedaDipendenti[] }[] = [
+  {
+    k: 'persone', label: 'Persone e lavoro', sotto: 'chi c’è, turni, presenze, ferie',
+    schede: [
+      { k: 'oggi', label: 'Organico', icon: UserCheck },
+      { k: 'turni', label: 'Turni', icon: CalendarDays },
+      { k: 'presenze', label: 'Presenze', icon: Fingerprint },
+      { k: 'ferie', label: 'Ferie e permessi', icon: CalendarClock },
+    ],
+  },
+  {
+    k: 'costi', label: 'Costi del personale', sotto: 'cedolini, costo lordo, per outlet',
+    schede: [
+      { k: 'panoramica', label: 'Panoramica', icon: BarChart3 },
+      { k: 'per_outlet', label: 'Per outlet', icon: Store },
+      { k: 'costi', label: 'Costi & cedolini', icon: FileText },
+      { k: 'lordi', label: 'Costo lordo', icon: Percent },
+    ],
+  },
+];
+const areaDellaScheda = (v: PersonaleView): AreaDipendenti => (AREE_DIPENDENTI.find((a) => a.schede.some((x) => x.k === v))?.k ?? 'costi');
+// Ultima scheda usata, in generale e dentro ogni area: senza ?view= si rientra dove si era.
+const RICORDO_SCHEDA = 'dipendenti.scheda';
+const schedaRicordata = (area?: AreaDipendenti): PersonaleView | null => {
+  try {
+    const v = window.localStorage.getItem(area ? `${RICORDO_SCHEDA}.${area}` : RICORDO_SCHEDA) as PersonaleView | null;
+    return v && VALID_VIEWS.includes(v) && (!area || areaDellaScheda(v) === area) ? v : null;
+  } catch { return null; }
+};
 /** Chi scrive direttamente l'anagrafica (RLS employees_write). */
 const RUOLI_ANAGRAFICA = ['super_advisor', 'contabile'];
 
@@ -365,19 +400,48 @@ export default function Dipendenti() {
   // view persistita in URL
   const [searchParams, setSearchParams] = useSearchParams();
   const viewParam = searchParams.get('view') === 'organico' ? 'oggi' : searchParams.get('view');
-  const view: PersonaleView = VALID_VIEWS.includes(viewParam as PersonaleView) ? (viewParam as PersonaleView) : 'panoramica';
+  // Senza ?view= si rientra nell'ultima scheda usata (quindi nell'ultima area); la prima volta, Panoramica.
+  const [ricordata] = useState<PersonaleView | null>(() => schedaRicordata());
+  const view: PersonaleView = VALID_VIEWS.includes(viewParam as PersonaleView) ? (viewParam as PersonaleView) : (ricordata ?? 'panoramica');
+  const area = areaDellaScheda(view);
   const setView = (next: PersonaleView) => {
     const p = new URLSearchParams(searchParams);
     p.set('view', next);
     setSearchParams(p);
   };
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(RICORDO_SCHEDA, view);
+      window.localStorage.setItem(`${RICORDO_SCHEDA}.${areaDellaScheda(view)}`, view);
+    } catch { /* memoria del browser non disponibile: si riparte da Panoramica */ }
+  }, [view]);
+  // Sul telefono le schede scorrono in orizzontale: quella aperta si porta in vista.
+  const schedaAttivaRef = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    schedaAttivaRef.current?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [view]);
+  const vaiAllArea = (a: AreaDipendenti) => {
+    if (a === area) return;
+    setView(schedaRicordata(a) ?? AREE_DIPENDENTI.find((x) => x.k === a)!.schede[0].k);
+  };
 
   // File passato dalla zona «Carica i file dello studio paghe» alla scheda che lo
   // sa leggere. nonce: lo stesso file ricaricato due volte riapre l'anteprima.
   const [inArrivo, setInArrivo] = useState<FileInArrivo | null>(null);
+  // Le due schede che salvano i file paghe («Costi & cedolini» e «Costo lordo») restano
+  // montate da quando servono la prima volta: cambiare scheda o area non deve perdere
+  // un'anteprima in attesa di conferma né l'esito di un salvataggio (regola fissa dei
+  // caricamenti). Si vedono solo quando sono la scheda aperta.
+  const [flussiVivi, setFlussiVivi] = useState<{ costi: boolean; lordi: boolean }>({ costi: false, lordi: false });
+  useEffect(() => {
+    if (view === 'costi' || view === 'lordi') setFlussiVivi((f) => (f[view] ? f : { ...f, [view]: true }));
+  }, [view]);
   const apriFilePaghe = (f: Omit<FileInArrivo, 'nonce'>): number => {
     const nonce = Date.now();
-    setView(f.dest === 'netti' ? 'costi' : 'lordi');
+    // La pagina NON cambia scheda da sola: il file si salva nella sua scheda, montata ma
+    // nascosta, e la zona di caricamento dice com'è andata ovunque ci si trovi.
+    const dove = f.dest === 'netti' ? 'costi' : 'lordi';
+    setFlussiVivi((x) => (x[dove] ? x : { ...x, [dove]: true }));
     // La pagina va sul mese del file: dopo il salvataggio si vede subito cosa
     // e' arrivato (il 08/10 restava sul mese corrente, vuoto).
     if (f.month && (!f.year || f.year === selectedYear)) pickMonth(f.month);
@@ -410,7 +474,7 @@ export default function Dipendenti() {
 
   const [selectedYear, setSelectedYear] = useState(globalYear);
   // Il mese parte sempre da quello in corso (scelta di Patrizio, 01/10/2026): se i
-  // cedolini del mese non ci sono ancora, l'avviso in testa porta all'ultimo mese
+  // cedolini del mese non ci sono ancora, la riga in Panoramica porta all'ultimo mese
   // caricato con un clic. Se l'utente sceglie un mese, la sua scelta comanda.
   const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth() + 1);
   const monthTouched = useRef(false);
@@ -1025,13 +1089,18 @@ export default function Dipendenti() {
         title="Dipendenti"
         subtitle={`Organico e costo del personale per outlet${companyName ? ` · ${companyName}` : ''}`}
         actions={
-          <div className="flex items-center gap-2">
-            <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
-              {yearOptions.map((y) => <option key={y} value={y}>Anno {y}</option>)}
-            </select>
-            <select value={selectedMonth} onChange={(e) => pickMonth(Number(e.target.value))} className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
-              {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
-            </select>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Anno e mese servono solo ai costi: turni, presenze e ferie hanno i loro periodi */}
+            {area === 'costi' && (
+              <>
+                <select value={selectedYear} onChange={(e) => setSelectedYear(Number(e.target.value))} aria-label="Anno dei costi" className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
+                  {yearOptions.map((y) => <option key={y} value={y}>Anno {y}</option>)}
+                </select>
+                <select value={selectedMonth} onChange={(e) => pickMonth(Number(e.target.value))} aria-label="Mese dei costi" className="px-3 py-2 text-sm rounded-lg border border-slate-200 bg-white">
+                  {MONTHS.map((m) => <option key={m.num} value={m.num}>{m.label}</option>)}
+                </select>
+              </>
+            )}
             {puoOrganico && (
               <button onClick={() => { setView('oggi'); setOrganicoNuova((n) => n + 1); }} className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium flex items-center gap-1.5" title="Aggiungi una persona all'organico"><Plus size={15} /> Dipendente</button>
             )}
@@ -1040,59 +1109,50 @@ export default function Dipendenti() {
         }
       />
 
+      {/* Le due aree, poi le schede dell'area aperta */}
+      <div>
+        <div className="grid grid-cols-2 sm:flex gap-2" role="tablist" aria-label="Aree della pagina Dipendenti">
+          {AREE_DIPENDENTI.map((a) => (
+            <button key={a.k} type="button" role="tab" aria-selected={area === a.k} onClick={() => vaiAllArea(a.k)}
+              className={`text-left px-4 py-2.5 rounded-xl border-[1.5px] font-bold text-sm sm:text-[15px] transition-colors ${area === a.k ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'}`}>
+              {a.label}
+              <span className={`block font-normal text-xs ${area === a.k ? 'text-slate-300' : 'text-slate-500'}`}>{a.sotto}</span>
+            </button>
+          ))}
+        </div>
+        <div className="flex gap-1 border-b-[1.5px] border-slate-200 mt-3 overflow-x-auto" role="tablist" aria-label="Schede dell'area">
+          {AREE_DIPENDENTI.find((a) => a.k === area)!.schede.map((t) => {
+            const Icon = t.icon;
+            return (
+              <button key={t.k} type="button" role="tab" aria-selected={view === t.k} onClick={() => setView(t.k)}
+                ref={view === t.k ? schedaAttivaRef : undefined}
+                className={`flex items-center gap-1.5 px-3.5 py-2.5 text-sm font-semibold whitespace-nowrap border-b-[3px] -mb-[1.5px] transition-colors ${view === t.k ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+                <Icon size={15} />{t.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* La zona di caricamento sta nei costi. Nell'altra area resta montata e, se c'è un
+          caricamento in corso, da confermare o appena finito, lo dice in una riga con il
+          pulsante per tornarci: l'esito non sparisce cambiando area. */}
       {COMPANY_ID && (
         <CaricaFilePaghe
           companyId={COMPANY_ID}
           userId={USER_ID}
+          compatta={area !== 'costi'}
           onApri={apriFilePaghe}
+          onTorna={() => vaiAllArea('costi')}
           onVai={(v) => {
             const p = new URLSearchParams(searchParams);
             p.set('view', v);
             if (v === 'ferie') p.set('ferie', 'ratei');
             setSearchParams(p);
+            // «Vai alla conferma»: l'anteprima che aspetta sta più in basso nella scheda
+            if (v !== 'ferie') window.setTimeout(() => document.querySelector(`[data-conferma-paghe="${v}"]`)?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }), 200);
           }}
         />
-      )}
-
-      {/* Sub-tab pill */}
-      <div className="inline-flex bg-slate-100 rounded-lg p-0.5">
-        {([
-          { k: 'panoramica', label: 'Panoramica', icon: BarChart3 },
-          { k: 'per_outlet', label: 'Per outlet', icon: Store },
-          { k: 'oggi', label: 'Organico', icon: UserCheck },
-          { k: 'costi', label: 'Costi & cedolini', icon: FileText },
-          { k: 'lordi', label: 'Costo lordo', icon: Percent },
-          { k: 'turni', label: 'Turni', icon: CalendarDays },
-          { k: 'presenze', label: 'Presenze', icon: Fingerprint },
-          { k: 'ferie', label: 'Ferie e permessi', icon: CalendarClock },
-        ] as { k: PersonaleView; label: string; icon: any }[]).map((t) => {
-          const Icon = t.icon;
-          return (
-            <button key={t.k} onClick={() => setView(t.k)}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all ${view === t.k ? 'bg-white shadow text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>
-              <Icon size={15} />{t.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Mese senza cedolini: il numero NON è zero, è "non ancora caricato".
-          Si dichiara l'ultimo mese granito e si offre il salto. */}
-      {!loading && !meseGranito && (
-        <div className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl p-3.5 flex items-start gap-2.5">
-          <AlertCircle size={16} className="text-amber-600 mt-0.5 shrink-0" />
-          <div>
-            <strong>Nessun cedolino caricato per {monthLabel} {selectedYear}.</strong>{' '}
-            {lastGranited
-              ? <>L'organico non è zero: è non ancora caricato. Ultimo mese granito: <strong>{periodLabel(lastGranited)}</strong>.{' '}
-                  <button
-                    onClick={() => { monthTouched.current = true; setSelectedYear(lastGranited.year); setSelectedMonth(lastGranited.month); }}
-                    className="underline font-semibold hover:text-amber-700"
-                  >Vai a {periodLabel(lastGranited)}</button>
-                </>
-              : <>Carica i netti dalla scheda «Costi &amp; cedolini»: è il carico che rende granitico l'organico del mese.</>}
-          </div>
-        </div>
       )}
 
       {loading ? (
@@ -1118,6 +1178,9 @@ export default function Dipendenti() {
               bilancioPersonale={bilancioPersonale}
               nonAttribuito={nonAttribuito}
               year={selectedYear}
+              senzaCedolini={!meseGranito}
+              ultimoMese={lastGranited ? periodLabel(lastGranited) : null}
+              onVaiUltimo={lastGranited ? () => { monthTouched.current = true; setSelectedYear(lastGranited.year); setSelectedMonth(lastGranited.month); } : undefined}
             />
           )}
 
@@ -1138,10 +1201,14 @@ export default function Dipendenti() {
               mm={String(selectedMonth).padStart(2, '0')}
               year={selectedYear}
               nonAttribuito={nonAttribuito}
+              senzaCedolini={!meseGranito}
+              ultimoMese={lastGranited ? periodLabel(lastGranited) : null}
+              onVaiUltimo={lastGranited ? () => { monthTouched.current = true; setSelectedYear(lastGranited.year); setSelectedMonth(lastGranited.month); } : undefined}
             />
           )}
 
-          {view === 'costi' && (
+          {(view === 'costi' || flussiVivi.costi) && (
+            <div className={view === 'costi' ? '' : 'hidden'}>
             <CostiTab
               contiMese={contiMese}
               totaleConti={totaleConti}
@@ -1210,9 +1277,11 @@ export default function Dipendenti() {
                 </div>
               }
             />
+            </div>
           )}
 
-          {view === 'lordi' && (
+          {(view === 'lordi' || flussiVivi.lordi) && (
+            <div className={view === 'lordi' ? '' : 'hidden'}>
             <CostiLordoTab
               companyId={COMPANY_ID}
               userId={USER_ID}
@@ -1221,7 +1290,9 @@ export default function Dipendenti() {
               month={selectedMonth}
               monthLabel={monthLabel}
               inArrivo={inArrivo}
+              visibile={view === 'lordi'}
             />
+            </div>
           )}
 
           {/* Organico (scheda unica) e turni: l'anagrafica dello studio piu' i
@@ -1397,6 +1468,7 @@ export default function Dipendenti() {
         <SchedaDipendenteModal
           employee={schedaEmp}
           year={selectedYear}
+          yearOptions={yearOptions}
           costs={costs}
           allocs={allocByEmp[schedaEmp.id] || []}
           outlets={outlets}
@@ -1434,8 +1506,10 @@ function PanoramicaTab(props: {
   incidenzaPrevisti: number | null; incidenzaAOggi: number | null; consMesi: number; costoMedioEscl: number | null; costoMedioIncl: number | null; monthLabel: string; month: number;
   chartData: { name: string; bc: number; netto: number }[];
   bilancioPersonale: number | null; nonAttribuito: number; year: number;
+  /** mese senza cedolini: organico e netto del mese non sono zero, sono non ancora caricati */
+  senzaCedolini: boolean; ultimoMese: string | null; onVaiUltimo?: () => void;
 }) {
-  const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenzaPrevisti, incidenzaAOggi, consMesi, costoMedioEscl, costoMedioIncl, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year } = props;
+  const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenzaPrevisti, incidenzaAOggi, consMesi, costoMedioEscl, costoMedioIncl, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year, senzaCedolini, ultimoMese, onVaiUltimo } = props;
   const pct = (v: number | null) => (v != null ? `${v.toFixed(1).replace('.', ',')}%` : '—');
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
   const mm = String(month).padStart(2, '0');
@@ -1443,6 +1517,14 @@ function PanoramicaTab(props: {
   const maxVal = Math.max(1, ...chartData.map((d) => Math.max(d.bc, d.netto)));
   return (
     <div className="space-y-6">
+      {/* Qui organico e netto del mese si leggono dai cedolini: senza cedolini lo zero va spiegato */}
+      {senzaCedolini && (
+        <p className="text-xs text-slate-500">
+          Nessun cedolino caricato per {monthLabel} {year}: organico e netto del mese non sono zero, sono non ancora caricati.
+          {ultimoMese && <> Ultimo mese con i cedolini: <strong>{ultimoMese}</strong>.{' '}
+            {onVaiUltimo && <button type="button" onClick={onVaiUltimo} className="underline font-semibold text-slate-700 hover:text-slate-900">Vai a {ultimoMese}</button>}</>}
+        </p>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <Kpi label="Organico attivo" value={headcount} sub={`cedolini ${mm}/${year} · su ${sedi} sedi`} icon={Users} source="neutro" />
         <Kpi label="Costo personale" value={`${eurFmt.format(totalBCAll)} €`} sub="budget annuo · incl. amministratori" icon={BarChart3} source="bc" />
@@ -1569,8 +1651,10 @@ function PerOutletTab(props: {
   mm: string;
   year: number;
   nonAttribuito: number;
+  /** mese senza cedolini: persone e netti per sede non sono zero, sono non ancora caricati */
+  senzaCedolini: boolean; ultimoMese: string | null; onVaiUltimo?: () => void;
 }) {
-  const { outlets, allEmployees, allocByEmp, nettoOf, nettoCell, isPaid, admins, lordoAmministratori, nettoByOutlet, headcountByOutlet, bcByOutlet, mm, year, nonAttribuito } = props;
+  const { outlets, allEmployees, allocByEmp, nettoOf, nettoCell, isPaid, admins, lordoAmministratori, nettoByOutlet, headcountByOutlet, bcByOutlet, monthLabel, mm, year, nonAttribuito, senzaCedolini, ultimoMese, onVaiUltimo } = props;
   if (outlets.length === 0) {
     return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">Nessun outlet configurato per questo tenant.</div>;
   }
@@ -1578,9 +1662,17 @@ function PerOutletTab(props: {
   Object.values(headcountByOutlet).forEach((s) => s.forEach((id) => totHc.add(id)));
   return (
     <div className="space-y-3.5">
+      {/* Come in Panoramica: senza cedolini lo zero va spiegato, non è un dato */}
+      {senzaCedolini && (
+        <p className="text-xs text-slate-500">
+          Nessun cedolino caricato per {monthLabel} {year}: persone e netti per sede non sono zero, sono non ancora caricati.
+          {ultimoMese && <> Ultimo mese con i cedolini: <strong>{ultimoMese}</strong>.{' '}
+            {onVaiUltimo && <button type="button" onClick={onVaiUltimo} className="underline font-semibold text-slate-700 hover:text-slate-900">Vai a {ultimoMese}</button>}</>}
+        </p>
+      )}
       <div className="text-xs sm:text-[13px] text-blue-900 bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-start gap-2.5">
         <Store size={16} className="text-blue-600 mt-0.5 shrink-0" />
-        <div><strong>{totHc.size} dipendenti su {outlets.length} sedi.</strong> Ogni persona è su una sola sede (ripartizione payroll secca). I punti vendita sono outlet veri; la sede operativa (magazzino + direzione) è trattata come location di primo livello, non come “orfana”.</div>
+        <div><strong>{senzaCedolini ? `Cedolini di ${monthLabel} ${year} non ancora caricati, ${outlets.length} sedi.` : `${totHc.size} dipendenti su ${outlets.length} sedi.`}</strong> Ogni persona è su una sola sede (ripartizione payroll secca). I punti vendita sono outlet veri; la sede operativa (magazzino + direzione) è trattata come location di primo livello, non come “orfana”.</div>
       </div>
 
       {sortOutlets(outlets).map((o) => {
@@ -1913,19 +2005,32 @@ function Field({ label, children, full = false }: { label: string; children: Rea
 // ============================================================================
 // SCHEDA DIPENDENTE — netto mese per mese (14 mensilità; totale = somma, mai ×12)
 // ============================================================================
-function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, companyId, docs, onDocsChanged, onClose, onSaved, onEdit, onAlloc, onCessa, onRiattiva }: {
-  employee: Employee; year: number; costs: EmployeeCost[]; allocs: EmployeeOutletAllocation[]; outlets: OutletRow[];
+function SchedaDipendenteModal({ employee, year: annoPagina, yearOptions, costs, allocs, outlets, companyId, docs, onDocsChanged, onClose, onSaved, onEdit, onAlloc, onCessa, onRiattiva }: {
+  employee: Employee; year: number; yearOptions: number[]; costs: EmployeeCost[]; allocs: EmployeeOutletAllocation[]; outlets: OutletRow[];
   companyId: string; docs: EmployeeDocument[]; onDocsChanged: () => Promise<void>; onClose: () => void; onSaved: () => Promise<void>;
   onEdit?: () => void; onAlloc?: () => void; onCessa?: () => void; onRiattiva?: () => void;
 }) {
   const { toast } = useToast();
   const emp = employee as any;
-  const initial: Record<number, string> = {};
-  for (let m = 1; m <= 12; m++) {
-    const c = costs.find((x) => x.employee_id === employee.id && x.year === year && x.month === m);
-    initial[m] = c?.netto != null ? eurFmt.format(Number(c.netto)) : '';
-  }
+  // L'anno dei netti si sceglie qui: la scheda si apre anche dall'Organico, dove il
+  // selettore dell'anno dei costi non c'è.
+  const [year, setYear] = useState(annoPagina);
+  const nettiDi = (anno: number): Record<number, string> => {
+    const out: Record<number, string> = {};
+    for (let m = 1; m <= 12; m++) {
+      const c = costs.find((x) => x.employee_id === employee.id && x.year === anno && x.month === m);
+      out[m] = c?.netto != null ? eurFmt.format(Number(c.netto)) : '';
+    }
+    return out;
+  };
+  const initial = nettiDi(year);
   const [vals, setVals] = useState<Record<number, string>>(initial);
+  const cambiaAnno = (anno: number) => {
+    const sporco = Object.keys(initial).some((m) => (vals[Number(m)] ?? '') !== initial[Number(m)]);
+    if (sporco && !window.confirm(`Hai netti del ${year} non salvati: cambiando anno si perdono. Cambio lo stesso?`)) return;
+    setYear(anno);
+    setVals(nettiDi(anno));
+  };
   const [saving, setSaving] = useState(false);
   const setM = (m: number, v: string) => setVals((s) => ({ ...s, [m]: v }));
   const totale = Object.values(vals).reduce<number>((s, v) => s + (parseItNum(v) || 0), 0);
@@ -2026,7 +2131,12 @@ function SchedaDipendenteModal({ employee, year, costs, allocs, outlets, company
 
       <details className="group mb-3 rounded-xl border border-slate-200">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Netti del {year}</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 inline-flex items-center gap-2">Netti del
+            <select value={year} onChange={(e) => cambiaAnno(Number(e.target.value))} onClick={(e) => e.stopPropagation()} aria-label="Anno dei netti"
+              className="px-1.5 py-0.5 text-xs font-semibold rounded-md border border-slate-300 bg-white text-slate-700 normal-case">
+              {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </span>
           <span className="flex items-center gap-2 text-xs text-slate-500">{mesiCompilati} mesi · <b className="tabular-nums text-emerald-700">{eurFmt.format(totale)}&nbsp;€</b><ChevronDown size={15} className="transition-transform group-open:rotate-180" /></span>
         </summary>
         <div className="px-3 pb-3">
@@ -2965,7 +3075,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     : <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-orange-50 text-orange-600">costo</span>;
 
   return (
-    <div ref={laneRef} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 scroll-mt-4">
+    <div ref={laneRef} data-conferma-paghe={confermaNonce && rows ? 'costi' : undefined} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 scroll-mt-4">
       <div className="flex items-center gap-2 mb-1">
         <FileUp size={18} className={accent} />
         <h3 className="font-bold text-slate-800">{isNetto ? 'Import netti per dipendente' : 'Import costi lordi per dipendente'}</h3>
@@ -3642,10 +3752,14 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
   );
 }
 
-function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, inArrivo }: {
+function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, inArrivo, visibile = true }: {
   companyId: string; userId: string | null; outlets: OutletRow[]; year: number; month: number; monthLabel: string;
   // File consegnato dalla zona «Carica i file dello studio paghe»: si apre da solo in anteprima.
   inArrivo?: FileInArrivo | null;
+  // La scheda resta montata anche quando non e' quella aperta: l'anteprima da confermare
+  // (una finestra) si mostra solo quando la scheda si vede, altrimenti coprirebbe turni e
+  // presenze e terrebbe per se' tastiera e tasto Esc.
+  visibile?: boolean;
 }) {
   const { toast } = useToast();
   // I tipi generati di Supabase non includono ancora le tabelle nuove (migration 068):
@@ -4215,7 +4329,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
       </div>
 
       {/* Anteprima import */}
-      {preview && (
+      {preview && visibile && (
         <Modal title="Anteprima import — Prospetto paghe" onClose={() => !importing && setPreview(null)} maxW="max-w-4xl">
           <div className="text-xs text-slate-500 mb-3">
             File: <strong>{preview.fileName}</strong> · {[...new Set(preview.rows.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ')} · {preview.rows.length} outlet

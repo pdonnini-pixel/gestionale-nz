@@ -18,6 +18,8 @@ import { mossePossibili, type MossaTurno } from '../lib/spostaTurni';
 export type TurnoModificabile = {
   id: string; inizio: string; fine: string; pausa_minuti: number;
   origine: string; stato: string; straordinario?: boolean; ore_straordinario?: number; straordinario_motivo?: string | null;
+  /** lo straordinario l'ha scritto una persona (migration 408): il ricalcolo non lo tocca */
+  straordinario_a_mano?: boolean | null;
 };
 
 /**
@@ -67,10 +69,12 @@ export type PassaggioTurno = {
 };
 
 export default function EditorTurno({
-  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, passaggio, riposo, conMotivo, giornoForte, onClose, onSalvato,
+  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, passaggio, riposo, conMotivo, conAMano, giornoForte, onClose, onSalvato,
 }: {
   /** la colonna del motivo dello straordinario c'e' (migration 399) */
   conMotivo?: boolean;
+  /** la colonna «straordinario scritto a mano» c'e' (migration 408): dove manca non si scrive e non si spiega */
+  conAMano?: boolean;
   /** il giorno e' a massima intensita' in questo negozio: il motivo proposto e' «giorno forte» */
   giornoForte?: boolean;
   companyId: string; outletId: string; employeeId: string; data: string; turno: TurnoModificabile | null; planId: string | null;
@@ -114,6 +118,10 @@ export default function EditorTurno({
   const [oreStraordScritte, setOreStraordScritte] = useState<string | null>(oreStraordPrima > 0 ? String(oreStraordPrima) : null);
   // Perche' lo straordinario (Patrizio, 11/11/2026): giorno forte, oppure la persona in piu' chiesta dalla direzione.
   const [motivoStraord, setMotivoStraord] = useState<string>(turno?.straordinario_motivo ?? (giornoForte ? 'giorno_forte' : 'ricarico'));
+  // Un valore messo a mano non si sovrascrive (revisori, 12/11/2026): se chi apre la finestra tocca la
+  // spunta, le ore o il motivo, lo straordinario diventa «scritto a mano» e il ricalcolo non lo cambia piu'.
+  // Togliere la spunta lo rimette al calcolo del sistema.
+  const [straordToccato, setStraordToccato] = useState(false);
   const [salvo, setSalvo] = useState(false);
 
   // La pausa non e' mai lavoro (Patrizio, 21/10/2026): nessuna fino a 6 ore lavorate, 30' oltre 6, un'ora
@@ -146,7 +154,8 @@ export default function EditorTurno({
       const g = presenzaGiusta(minuti(inizio), minuti(fine), regole, apre, chiude);
       [i, f, p] = [hhmm(g.inizio), hhmm(g.fine), Math.max(pausaAMano.current ? pausa : 0, g.pausa)];
     }
-    const riga = { inizio: i, fine: f, pausa_minuti: p, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord, ...(conMotivo ? { straordinario_motivo: oreStraord > 0 ? motivoStraord : null } : {}) };
+    const riga = { inizio: i, fine: f, pausa_minuti: p, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord, ...(conMotivo ? { straordinario_motivo: oreStraord > 0 ? motivoStraord : null } : {}),
+      ...(conAMano && (straordToccato || !turno) ? { straordinario_a_mano: oreStraord > 0 } : {}) };
     const { error } = turno
       ? await supabase.from('shifts').update(riga).eq('id', turno.id)
       : await supabase.from('shifts').insert([{ ...riga, company_id: companyId, outlet_id: outletId, employee_id: employeeId, data, stato: 'bozza', plan_id: planId }]);
@@ -225,7 +234,6 @@ export default function EditorTurno({
         voce: tipo === 'ore' ? 'F02' : 'F01', tipo, ore: oreF, nota: 'Inserita dal piano del mese',
       }]).select('id').single();
       if (e2) throw e2;
-      if (tipo === 'giornata') { const e3 = await togliTurno('Ferie inserite dal calendario'); if (e3) throw e3; }
       // Gia' approvata: la stessa approvazione di Approvazioni ferie, che scala il saldo.
       let approvata = false;
       if (giaApprovata) {
@@ -233,7 +241,9 @@ export default function EditorTurno({
         if (e4) { toast({ type: 'warning', message: `${testo} inserita ma non approvata (${e4.message}): la trovi in Approvazioni ferie.`, duration: 10000 }); }
         else approvata = true;
       }
-      onSalvato(`${testo} per ${nome.split(' ')[0]}: ${approvata ? 'approvata, consuma il saldo delle ferie' : 'da approvare in Approvazioni ferie'}.${tipo !== 'giornata' && turno ? ' Accorcia il turno se serve.' : ''}`);
+      if (tipo === 'giornata') { const e3 = await togliTurno('Ferie inserite dal calendario'); if (e3) throw e3; }
+      onSalvato(`${testo} per ${nome.split(' ')[0]}: ${approvata ? 'approvata, consuma il saldo delle ferie'
+        : 'da approvare in Approvazioni ferie'}.${tipo !== 'giornata' && turno ? ' Accorcia il turno se serve.' : ''}`);
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non inserite.' });
     } finally {
@@ -338,7 +348,7 @@ export default function EditorTurno({
         )}
 
         <label className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer ${straordinario ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
-          <input type="checkbox" checked={straordinario} onChange={(e) => { setStraordinario(e.target.checked); setOreStraordScritte(null); }} className="mt-0.5" />
+          <input type="checkbox" checked={straordinario} onChange={(e) => { setStraordinario(e.target.checked); setOreStraordScritte(null); setStraordToccato(true); }} className="mt-0.5" />
           <span className="text-sm flex-1">
             <span className="font-semibold text-slate-800">Straordinario</span>
             <span className="block text-xs text-slate-500">Ore concordate con la dipendente in più del contratto: si contano a parte e non coprono le ore di contratto non usate. Allungando un turno, straordinario sono solo le ore aggiunte.</span>
@@ -349,7 +359,7 @@ export default function EditorTurno({
             Di queste, ore di straordinario:
             <input type="text" inputMode="decimal" aria-label="Ore di straordinario del turno"
               value={oreStraordScritte ?? String(oreStraord).replace('.', ',')}
-              onChange={(e) => setOreStraordScritte(e.target.value)}
+              onChange={(e) => { setOreStraordScritte(e.target.value); setStraordToccato(true); }}
               className="w-20 min-h-[36px] rounded-lg border border-amber-300 px-2 text-right tabular-nums" />
             <span className="text-xs text-slate-500">su {fmt(oreTurno)} h del turno; il resto è ordinario</span>
           </label>
@@ -357,11 +367,20 @@ export default function EditorTurno({
         {straordinario && conMotivo && (
           <label className="flex items-center gap-2 text-sm text-slate-700 -mt-2 pl-3">
             Motivo:
-            <select aria-label="Motivo dello straordinario" value={motivoStraord} onChange={(e) => setMotivoStraord(e.target.value)}
+            <select aria-label="Motivo dello straordinario" value={motivoStraord} onChange={(e) => { setMotivoStraord(e.target.value); setStraordToccato(true); }}
               className="min-h-[36px] rounded-lg border border-amber-300 px-2 bg-white">
               {MOTIVI_STRAORDINARIO.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
             </select>
           </label>
+        )}
+        {conAMano && regole.giorniPieni && (straordinario || straordToccato || turno?.straordinario_a_mano) && (
+          <p className="text-xs text-slate-600 -mt-2 pl-3">
+            {!straordinario
+              ? 'Senza la spunta lo straordinario di questo turno torna al calcolo del sistema: nei giorni forti lo riscrive da solo, se le ore della settimana superano il contratto.'
+              : straordToccato || turno?.straordinario_a_mano
+                ? 'Scritto a mano: il sistema non lo cambia più, anche se poi sposti altri turni. Per rimetterlo al calcolo del sistema togli la spunta e salva.'
+                : 'Calcolato dal sistema: si aggiorna da solo quando cambiano i turni della settimana. Se lo cambi tu, resta come lo scrivi.'}
+          </p>
         )}
         {!errore && pausaPagataDelTurno({ inizio, fine, pausaMinuti: pausaVera }, regole) > 0 && (
           <p className="text-xs text-slate-500">Pausa di {pausaPagataDelTurno({ inizio, fine, pausaMinuti: pausaVera }, regole)} minuti: si timbra ma non si toglie dalle ore.</p>

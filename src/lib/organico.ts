@@ -277,6 +277,26 @@ export function organicoAllaData(schede: SchedaPersona[], eventi: EventoOrganico
 export const contaNellOrganico = (p: PersonaOggi): boolean =>
   p.stato === 'in_servizio' || p.stato === 'assente' || p.stato === 'scaduto';
 
+/**
+ * Chi si vede nei turni di un periodo (Patrizio, 12/11/2026: «chi non è più in
+ * servizio non si vede nei turni»). `perGiorno` e' la persona giorno per giorno,
+ * `date` le date del periodo, nello stesso ordine.
+ * - in forza nel negozio in almeno un giorno del periodo: si vede; se esce prima
+ *   della fine, `finoAl` e' il suo ultimo giorno in forza;
+ * - mai in forza nel periodo (uscita, non ancora assunta, in un altro negozio)
+ *   ma con un turno salvato in quei giorni: si vede lo stesso, segnalata
+ *   (`inForza` falso), perche' quel turno va tolto o dato a un'altra;
+ * - altrimenti non si vede (null).
+ */
+export function presenzaNeiTurni(perGiorno: PersonaOggi[], date: string[], outletId: string, haTurni: boolean): { inForza: boolean; finoAl: string | null } | null {
+  if (!perGiorno.length || perGiorno.every((p) => p.stato === 'fuori_organico')) return null;
+  const inForzaIl = perGiorno.map((p) => p.outletId === outletId && contaNellOrganico(p));
+  const ultimo = inForzaIl.lastIndexOf(true);
+  if (ultimo < 0) return haTurni ? { inForza: false, finoAl: null } : null;
+  const uscita = perGiorno.slice(ultimo + 1).some((p) => p.stato === 'cessato' || p.stato === 'scaduto');
+  return { inForza: true, finoAl: uscita ? (date[ultimo] ?? null) : null };
+}
+
 /** Chi puo' lavorare quel giorno: in servizio, con orario noto. */
 export const disponibilePerTurni = (p: PersonaOggi): boolean => p.stato === 'in_servizio';
 

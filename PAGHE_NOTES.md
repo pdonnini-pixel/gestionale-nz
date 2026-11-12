@@ -35,6 +35,23 @@ Ora la zona porta ogni file fino in fondo, uno alla volta (i due flussi stanno i
 - alla fine la zona mostra «Finito, tutti i dati sono aggiornati» o cosa resta, e la pagina va sul mese dei file.
 I Netti negativi si archiviano subito.
 
+### La pagina in due aree e la regola dei caricamenti (12/11/2026)
+
+Da quando Dipendenti ha due aree («Persone e lavoro», «Costi del personale») valgono tre cose,
+nate dalla rilettura del revisore:
+
+- **La pagina non cambia mai scheda da sola.** `apriFilePaghe` non chiama più `setView`: il file si
+  salva nella sua scheda, che resta **montata ma nascosta** (`flussiVivi` in `Dipendenti.tsx`:
+  «Costi & cedolini» e «Costo lordo» restano montate dalla prima volta che servono). Così
+  un'anteprima in attesa di conferma non si perde cambiando scheda o area.
+- **L'esito segue chi carica.** `CaricaFilePaghe` resta montata in tutte e due le aree; fuori dai
+  costi (`compatta`) mostra una riga solo se c'è qualcosa in corso, da confermare o appena finito,
+  con «Torna al caricamento» o «Vai alla conferma». Nei costi, accanto al file da confermare,
+  «Vai alla conferma» apre la scheda con l'anteprima.
+- **La finestra di anteprima del Prospetto** si mostra solo quando «Costo lordo» è la scheda
+  aperta (`visibile`): una finestra aperta dentro una scheda nascosta terrebbe per sé tasto Esc e
+  tabulazione di tutta la pagina.
+
 ## B. Stipendi pagati ↔ buste paga
 
 Misurato su NZ: le disposizioni «DISPOSIZ.PER EMOLUMENTI» del 10 del mese portano in causale
