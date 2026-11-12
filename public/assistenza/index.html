@@ -14,7 +14,7 @@
     header img { height: 22px; display: block; filter: invert(1); }
     header p { margin: 14px 0 0; font-size: 13px; letter-spacing: .25em; text-transform: uppercase; opacity: .7; }
     main { max-width: 680px; margin: 0 auto; padding: 28px 20px 48px; }
-    h1 { font-size: 28px; font-weight: 300; margin: 0 0 8px; }
+    h1 { font-size: 28px; font-weight: 300; margin: 8px 0 8px; }
     h2 { font-size: 18px; font-weight: 600; margin: 32px 0 8px; }
     .contatto { margin: 20px 0 8px; padding: 18px 20px; border-radius: 16px; border: 2px solid var(--magenta); }
     .contatto a { color: var(--magenta); font-weight: 600; font-size: 20px; text-decoration: none; }
@@ -30,6 +30,8 @@
     <p>App per i dipendenti</p>
   </header>
   <main>
+    <a id="torna" href="/app" style="display:none;color:#ff0066;text-decoration:none;font-weight:600;font-size:15px">← Torna all'app</a>
+    <script>if (new URLSearchParams(location.search).get('da') === 'app') document.getElementById('torna').style.display = 'inline-block'</script>
     <h1>Assistenza</h1>
     <p>L'app New Zago è riservata a chi lavora nei negozi New Zago: serve a timbrare con il QR, vedere i turni, chiedere ferie e permessi e controllare le ore. L'assistenza tecnica la dà EPPI S.r.l., che sviluppa e pubblica l'app.</p>
 

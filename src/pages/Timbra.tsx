@@ -344,7 +344,7 @@ export default function Timbra() {
           ? <p className="text-sm text-white/50">Tutte le timbrature sono inviate{ultimoInvio ? ` (ultimo invio ${oraRoma(ultimoInvio)})` : ''}.</p>
           : <p className="text-sm text-amber-300">{coda.length === 1 ? '1 timbratura in attesa' : `${coda.length} timbrature in attesa`}: {online ? 'invio in corso.' : 'partono da sole appena torna la rete.'}</p>}
         {scartateOra.length > 0 && (
-          <p className="text-sm text-rose-300 mt-1 flex items-center gap-1"><AlertTriangle size={14} />{scartateOra.length === 1 ? '1 timbratura rifiutata' : `${scartateOra.length} timbrature rifiutate`} (QR non valido, per esempio da un telefono non più attivo, PIN sbagliato o bloccato, persona non in servizio): avvisa chi segue il personale.</p>
+          <p className="text-sm text-rose-300 mt-1 flex items-center gap-1"><AlertTriangle size={14} />{scartateOra.length === 1 ? '1 timbratura rifiutata' : `${scartateOra.length} timbrature rifiutate`} (QR non valido, per esempio da un telefono non più attivo, PIN sbagliato, bloccato o non più leggibile sul telefono, persona non in servizio): avvisa chi segue il personale.</p>
         )}
       </div>
 

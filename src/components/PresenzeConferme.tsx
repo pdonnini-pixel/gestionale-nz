@@ -6,7 +6,7 @@
 // permessi. Sul sito di un'azienda senza la migration (Made) la scheda lo dice.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Check, Download, RefreshCw, RotateCcw } from 'lucide-react'
+import { Check, Download, EyeOff, History, RefreshCw, RotateCcw } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useOutlets } from '../hooks/useOutlets'
 import { useToast } from './Toast'
@@ -282,7 +282,7 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
     <Modal open onClose={onClose} title={`${etichettaTipo({ tipo: e.tipo, causale })} · ${e.persona}, ${giornoBreve(e.data)}`} maxWidthClass="max-w-lg">
       <div className="space-y-4 text-sm">
         <p className="text-slate-600">{dettaglioTurno(e)}{e.prova ? ' · dipendente di prova' : ''}</p>
-        {e.motivo && <p className="bg-slate-50 rounded-lg px-3 py-2">Motivo scritto dalla persona: «{e.motivo}»</p>}
+        {e.motivo && <MotivoDipendente e={e} onFatto={onFatto} />}
 
         {aperto && entrata ? (
           <>
@@ -375,8 +375,117 @@ function Decisione({ e, onClose, onFatto }: { e: EventoPresenze; onClose: () => 
             )}
           </>
         )}
+        <StoricoCaso id={e.id} />
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Motivo scritto dalla persona, con «Oscura» per chi segue il personale
+ * (migration 403): se contiene dati sulla salute o non pertinenti si svuota,
+ * con il perché; nello storico restano chi, quando e perché, il testo no.
+ */
+function MotivoDipendente({ e, onFatto }: { e: EventoPresenze; onFatto: () => void }) {
+  const { toast } = useToast()
+  const [aperto, setAperto] = useState(false)
+  const [perche, setPerche] = useState('')
+  const [occupato, setOccupato] = useState(false)
+  const oscura = async () => {
+    setOccupato(true)
+    const { error } = await supabase.rpc('presenze_oscura_motivo', { p_evento: e.id, p_perche: perche })
+    setOccupato(false)
+    if (error) { toast({ type: 'error', message: nonDisponibile(error.message) ? 'Oscurare un motivo non è ancora disponibile su questo gestionale.' : error.message }); return }
+    toast({ type: 'success', message: 'Motivo oscurato: il testo non c\'è più, nello storico restano chi, quando e perché.' })
+    onFatto()
+  }
+  return (
+    <div className="bg-slate-50 rounded-lg px-3 py-2 space-y-2">
+      <div className="flex items-start gap-2">
+        <p className="flex-1">Motivo scritto dalla persona: «{e.motivo}»</p>
+        {!aperto && (
+          <button onClick={() => setAperto(true)} title="Oscura il motivo" className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800 shrink-0">
+            <EyeOff size={13} />Oscura
+          </button>
+        )}
+      </div>
+      {aperto && (
+        <div className="space-y-2 border-t border-slate-200 pt-2">
+          <p className="text-xs text-slate-600">Se il motivo contiene dati sulla salute o informazioni non pertinenti, oscuralo: il testo si cancella e non si recupera. Lo può fare solo chi segue il personale.</p>
+          <select value={perche} onChange={(x) => setPerche(x.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-1.5 bg-white">
+            <option value="">Perché lo oscuri?</option>
+            {Object.entries(PERCHE_OSCURA).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+          </select>
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => { setAperto(false); setPerche('') }} className="text-xs text-slate-500 px-2">Annulla</button>
+            <button disabled={occupato || !perche} onClick={() => void oscura()}
+              className="text-xs bg-slate-800 text-white rounded-lg px-3 py-1.5 disabled:opacity-40">Oscura il motivo</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Perché si oscura un testo: elenco chiuso, così il perché non ripete il dato tolto (migration 403). */
+const PERCHE_OSCURA: Record<string, string> = {
+  dati_sanitari: 'Conteneva dati sulla salute',
+  dati_personali: 'Conteneva altri dati personali',
+  non_pertinente: 'Testo non pertinente',
+}
+
+interface RigaStorico { il: string; tabella: 'timbratura' | 'caso'; azione: string; prima: Record<string, unknown> | null; dopo: Record<string, unknown> | null; autore: string }
+
+const NOME_CAMPO: Record<string, string> = {
+  ora: 'ora', tipo: 'tipo', verifica: 'verifica', annullata: 'annullata', motivo: 'motivo', nota: 'nota', perche: 'perché',
+  stato: 'stato', esito: 'esito', deciso_da: 'deciso da', deciso_il: 'deciso il', nota_decisione: 'nota della decisione',
+  minuti_confermati: 'minuti confermati', scala_permesso: 'scala il permesso', causale: 'motivo scelto', leave_request_id: 'permesso collegato',
+}
+function valoreStorico(k: string, v: unknown): string {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'boolean') return v ? 'sì' : 'no'
+  if ((k === 'ora' || k === 'deciso_il') && typeof v === 'string') return new Date(v).toLocaleString('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' })
+  if (k === 'causale' && typeof v === 'string') return ETICHETTA_CAUSALE[v] ?? v
+  if (k === 'perche' && typeof v === 'string') return PERCHE_OSCURA[v] ?? v
+  if (k === 'deciso_da' || k === 'leave_request_id') return 'presente'
+  return String(v)
+}
+
+/** Storico delle modifiche del caso e della sua timbratura (migration 403). */
+function StoricoCaso({ id }: { id: string }) {
+  const [righe, setRighe] = useState<RigaStorico[] | null>(null)
+  const [errore, setErrore] = useState<string | null>(null)
+  const [aperto, setAperto] = useState(false)
+  useEffect(() => {
+    if (!aperto || righe) return
+    void supabase.rpc('presenze_storico', { p_evento: id }).then(({ data, error }) => {
+      if (error) { setErrore(nonDisponibile(error.message) ? 'Lo storico non è ancora disponibile su questo gestionale.' : error.message); return }
+      setRighe((data ?? []) as unknown as RigaStorico[])
+    })
+  }, [aperto, righe, id])
+  return (
+    <div className="border-t border-slate-100 pt-3">
+      <button onClick={() => setAperto((a) => !a)} className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-800">
+        <History size={13} />Storico delle modifiche
+      </button>
+      {aperto && (
+        <div className="mt-2 space-y-1.5 text-xs">
+          {errore ? <p className="text-rose-600">{errore}</p>
+            : !righe ? <p className="text-slate-400">Carico…</p>
+            : righe.length === 0 ? <p className="text-slate-400">Nessuna modifica registrata dopo il 12/11/2026.</p>
+            : righe.map((r, i) => (
+              <div key={i} className="bg-slate-50 rounded px-2 py-1.5">
+                <div><b>{r.azione}</b> · {r.tabella === 'timbratura' ? 'timbratura' : 'caso'} · {r.autore} · {new Date(r.il).toLocaleString('it-IT', { timeZone: 'Europe/Rome', dateStyle: 'short', timeStyle: 'short' })}</div>
+                <div className="text-slate-500">
+                  {Object.keys({ ...(r.prima ?? {}), ...(r.dopo ?? {}) }).map((k) => (
+                    <span key={k} className="mr-3">{NOME_CAMPO[k] ?? k}: {r.prima && k in r.prima ? `${valoreStorico(k, r.prima[k])} → ` : ''}{valoreStorico(k, r.dopo?.[k])}</span>
+                  ))}
+                </div>
+              </div>
+            ))}
+        </div>
+      )}
+    </div>
   )
 }
 
