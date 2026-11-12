@@ -171,8 +171,9 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
     const riga = {
       company_id: companyId, nome: bozza.nome.trim(), data_dal: bozza.dal, data_al: periodo ? bozza.al : bozza.dal, outlet_ids: [outletId],
       tipo: bozza.tipo, regole, regole_origine: periodo ? bozza.origine : 'sabato', controllo_moda: periodo ? controllo : null,
-      // Oggi il blocco delle richieste dall'app vale per ferie e permessi insieme (blocca_ferie).
-      blocca_ferie: periodo ? !(r.ferie && r.permessi) : true,
+      // Dalla 407 ferie e permessi si decidono separati (regole.ferie, regole.permessi);
+      // blocca_ferie resta vero solo quando sono spenti tutti e due.
+      blocca_ferie: periodo ? (!r.ferie && !r.permessi) : true,
       straordinari: periodo ? (r.straordinari ?? true) : true,
     };
     const { error } = bozza.id ? await db.from('outlet_events').update(riga).eq('id', bozza.id) : await db.from('outlet_events').insert([riga]);
@@ -217,7 +218,7 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
               <span className="text-slate-500"> · {date(e)}</span>
               <div className="text-xs text-slate-500">
                 {e.tipo === 'giorno' ? 'come un sabato' : e.tipo === 'periodo' ? `regole ${e.regole_origine === 'domenica' ? 'come la domenica' : e.regole_origine === 'evento' ? 'copiate da un altro evento' : e.regole_origine === 'manuale' ? 'scritte a mano' : 'come un sabato'}` : `evento per ${nomeDi(e.outlet_ids)}`}
-                {e.blocca_ferie ? ' · richieste di ferie e permessi bloccate' : ''}{e.straordinari ? ' · straordinari ammessi' : ''}
+                {e.blocca_ferie ? ' · richieste di ferie e permessi bloccate' : e.regole?.ferie === false ? ' · richieste di ferie bloccate' : e.regole?.permessi === false ? ' · richieste di permessi bloccate' : ''}{e.straordinari ? ' · straordinari ammessi' : ''}
               </div>
             </div>
             {puoScrivere && (
@@ -361,7 +362,7 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
                     </div>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">Per legge c’è sempre almeno un giorno di riposo a settimana: sotto 1 non si scende.</p>
-                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-2">Ferie e permessi: oggi il blocco delle richieste dall’app vale per tutte e due insieme. Se una delle due è spenta, in questi giorni dall’app non si chiedono né ferie né permessi. La distinzione fra le due arriva con il prossimo aggiornamento.</p>
+                  <p className="text-xs text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 mt-2">Ferie e permessi si decidono separati: in questi giorni dall’app si chiede solo quello che lasci acceso. Quello che spegni passa solo come eccezione, se nella scheda 9 «Ferie e permessi» il negozio ha scritto chi approva le eccezioni; altrimenti la richiesta è rifiutata.</p>
                 </div>
                 <div>
                   <h4 className="font-semibold flex items-center gap-1.5">Persone per fascia {!puoFabbisogno && <Lock size={13} className="text-slate-400" />}</h4>
@@ -389,7 +390,7 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
                       <li>Ingressi dell’anno prima: {v.testo.toLowerCase()}.</li>
                       <li>Regole {bozza.origine === 'domenica' ? 'come la domenica' : bozza.origine === 'evento' ? 'copiate da un altro evento' : bozza.origine === 'manuale' ? 'scritte a mano' : 'come un sabato'}{bozza.regole.fasce ? ', con fasce proprie' : ''}{bozza.regole.apre && bozza.regole.chiude ? `, negozio aperto ${bozza.regole.apre}-${bozza.regole.chiude}` : ''}.</li>
                       <li>{(bozza.regole.tutti ?? true) ? 'Lavorano tutte' : 'I riposi restano possibili'}; straordinari {(bozza.regole.straordinari ?? true) ? 'ammessi' : 'non ammessi'}; almeno {bozza.regole.riposi_min ?? RIPOSO_LEGALE} {(bozza.regole.riposi_min ?? RIPOSO_LEGALE) === 1 ? 'riposo' : 'riposi'} a settimana.</li>
-                      <li>Richieste dall’app: {bozza.regole.ferie && bozza.regole.permessi ? 'ferie e permessi ammessi' : 'ferie e permessi bloccati'}.</li>
+                      <li>Richieste dall’app: {bozza.regole.ferie && bozza.regole.permessi ? 'ferie e permessi ammessi' : bozza.regole.ferie ? 'ferie ammesse, permessi bloccati' : bozza.regole.permessi ? 'permessi ammessi, ferie bloccate' : 'ferie e permessi bloccati'}.</li>
                     </>
                   )}
                 </ul>

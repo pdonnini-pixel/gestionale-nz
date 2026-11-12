@@ -150,3 +150,45 @@ export async function caricaEventi(companyId: string, dal: string, al: string): 
   if (prima.error) throw prima.error;
   return { righe: (prima.data as Record<string, unknown>[]) ?? [], conRegole: false };
 }
+
+// ── Ferie e permessi per negozio (Patrizio, 12/11/2026; migration 407) ──
+// Dove tabelle o colonne mancano (tenant Made, o prima della 407) `disponibile` e' falso: la
+// scheda non si mostra e le richieste restano come prima.
+
+/** Le scelte del negozio su ferie e permessi: la riga com'e', oppure null se non e' mai stata salvata. */
+export async function caricaRegoleFerie(outletId: string): Promise<{ riga: Record<string, unknown> | null; disponibile: boolean }> {
+  const { data, error } = await db.from('outlet_leave_rules').select('*').eq('outlet_id', outletId).maybeSingle();
+  if (error) return { riga: null, disponibile: false };
+  return { riga: (data as Record<string, unknown> | null) ?? null, disponibile: true };
+}
+
+export async function salvaRegoleFerie(companyId: string, outletId: string, colonne: Record<string, boolean>): Promise<string | null> {
+  const { error } = await db.from('outlet_leave_rules')
+    .upsert([{ outlet_id: outletId, company_id: companyId, ...colonne, updated_at: new Date().toISOString() }], { onConflict: 'outlet_id' });
+  return error ? error.message : null;
+}
+
+/** Chi e' HR nell'azienda (elenco che cambia solo il Super Advisor). */
+export async function caricaHr(companyId: string): Promise<{ utenti: string[]; disponibile: boolean }> {
+  const { data, error } = await db.from('leave_hr').select('user_id').eq('company_id', companyId);
+  if (error) return { utenti: [], disponibile: false };
+  return { utenti: ((data as { user_id: string }[]) ?? []).map((x) => x.user_id), disponibile: true };
+}
+
+export async function aggiungiHr(companyId: string, userId: string): Promise<string | null> {
+  const { error } = await db.from('leave_hr').insert([{ company_id: companyId, user_id: userId }]);
+  return error ? error.message : null;
+}
+
+/** Toglie una persona dall'elenco HR: null se e' andata, altrimenti il motivo (anche «nessuna riga tolta»). */
+export async function togliHr(companyId: string, userId: string): Promise<string | null> {
+  const { data, error } = await db.from('leave_hr').delete().eq('company_id', companyId).eq('user_id', userId).select('user_id');
+  if (error) return error.message;
+  return (data as unknown[] | null)?.length ? null : 'Non tolto: l’elenco HR lo cambia solo il Super Advisor.';
+}
+
+/** Ferie e permessi di un evento: scrive le due voci dentro le regole e tiene allineato blocca_ferie. */
+export async function salvaFerieEvento(id: string, regole: Record<string, unknown>, bloccaFerie: boolean): Promise<string | null> {
+  const { error } = await db.from('outlet_events').update({ regole, blocca_ferie: bloccaFerie }).eq('id', id);
+  return error ? error.message : null;
+}

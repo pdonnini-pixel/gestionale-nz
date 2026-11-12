@@ -378,3 +378,17 @@ Maggiori avevano anche le ore accanto alla giornata: contate giornate intere. Ol
 a fine anno: Pampaloni (12 h su 2,4), Suzzi (7 su 2,8), Nunziante e Talone (30 su 28,9). Il modulo
 «ASUTI» di Palmanova porta il nome di Shafiei in testa e di Astuti in ottobre, ed e' vuoto.
 Da questa data i piani dei turni (mese e settimana) contano anche le richieste in attesa.
+
+## Regole per negozio: chi approva e quando si può chiedere (scheda 9, 12/11/2026)
+
+Decisione di Patrizio del 12/11/2026. Migration `20261112_407` (NZ e Zago), libreria `src/lib/ferieRegole.ts`, scheda 9 «Ferie e permessi» di «Regole e orari» (`src/components/FeriePermessiNegozio.tsx`).
+
+- **La richiesta parte dall'app** e arriva alla referente del negozio e all'HR. Per negozio si sceglie chi approva ferie, permessi ed eccezioni (referente, HR o tutte e due) e, con tutte e due accese, se ne basta una o servono entrambe (`outlet_leave_rules`). Riga assente o colonne NULL = come prima della 407.
+- **Quando si possono chiedere**: feriali, sabato e domenica, festivi e giorni speciali, più una riga per evento con ferie e permessi separati (`outlet_events.regole.ferie` e `.permessi`; `blocca_ferie` resta vero solo se sono spenti tutti e due). La voce scritta sull'evento vale più delle righe dei giorni. Un evento di prima senza le due voci continua a bloccare tutte e due, con il messaggio di sempre.
+- **Eccezione**: dove un giorno è spento la richiesta dall'app è rifiutata con il motivo; se il negozio ha scritto chi approva le eccezioni, l'app offre «Chiedi come eccezione» (il giorno parte con `"eccezione": true`, la richiesta porta `leave_requests.eccezione` e `eccezione_motivo`). La decide solo chi è nella riga «Eccezioni». Il controllo sta in `ferie_blocco_giorno` e in `leave_decidi` (`ferie_controlla_lato`), non nell'interfaccia.
+- **Chi è HR**: `leave_hr`, un elenco per azienda (più persone ammesse) che **solo il Super Advisor** può cambiare (policy RLS di INSERT e DELETE; nessun UPDATE). Non è un profilo nuovo: chi è HR tiene il suo. Finché l'elenco è vuoto, dal lato HR approva chi approvava prima. **L'elenco non dà da solo il diritto di approvare**: quello resta `posso_decidere_ferie()` (Super Advisor, COO, contabile o «Referenti ferie»). Se una persona HR non ce l'ha, la scheda lo scrive accanto al nome. Allargare i permessi è una decisione di Patrizio.
+- **La referente** è il profilo `responsabile` scelto in «Chi conferma» (`attendance_confermatori`), come prima.
+- **Servono entrambe**: la prima approvazione resta in `leave_requests.prima_decisione`, la richiesta resta `inviata` e `leave_decidi` risponde `attesa_seconda`; la seconda, dall'altro lato, chiude: i giorni concessi sono quelli approvati da tutte e due. Un no di una delle due chiude la richiesta. Dopo la prima approvazione non parte nessun avviso alla seconda persona.
+- **Lunedì**: responsabile e vice mai assenti insieme vale anche con responsabile e vice provvisorie (`guida_negozio_effettiva`: più ore di contratto, poi anzianità), solo nei negozi con giorni caldi o riposi minimi accesi.
+- **Cosa non cambia**: i negozi che non hanno salvato la scheda si comportano esattamente come prima; nessuna richiesta esistente cambia stato; le richieste inserite dall'ufficio nel gestionale non passano dalle regole dei giorni.
+- Le quattro funzioni vive (`app_dipendente_chiedi_ferie`, `app_dipendente_ferie`, `leave_decidi`, `responsabile_ferie_elenco`) sono modificate per sostituzione di testo sulla definizione viva: il rollback le riporta identiche a prima.

@@ -20002,6 +20002,93 @@ export type Database = {
           },
         ]
       }
+      leave_hr: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      outlet_leave_rules: {
+        Row: {
+          company_id: string
+          eccezioni_entrambe: boolean | null
+          eccezioni_hr: boolean | null
+          eccezioni_referente: boolean | null
+          ferie_entrambe: boolean | null
+          ferie_feriali: boolean | null
+          ferie_festivi: boolean | null
+          ferie_hr: boolean | null
+          ferie_referente: boolean | null
+          ferie_weekend: boolean | null
+          permessi_entrambe: boolean | null
+          permessi_feriali: boolean | null
+          permessi_festivi: boolean | null
+          permessi_hr: boolean | null
+          permessi_referente: boolean | null
+          permessi_weekend: boolean | null
+          outlet_id: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          company_id: string
+          eccezioni_entrambe?: boolean | null
+          eccezioni_hr?: boolean | null
+          eccezioni_referente?: boolean | null
+          ferie_entrambe?: boolean | null
+          ferie_feriali?: boolean | null
+          ferie_festivi?: boolean | null
+          ferie_hr?: boolean | null
+          ferie_referente?: boolean | null
+          ferie_weekend?: boolean | null
+          permessi_entrambe?: boolean | null
+          permessi_feriali?: boolean | null
+          permessi_festivi?: boolean | null
+          permessi_hr?: boolean | null
+          permessi_referente?: boolean | null
+          permessi_weekend?: boolean | null
+          outlet_id: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          company_id?: string
+          eccezioni_entrambe?: boolean | null
+          eccezioni_hr?: boolean | null
+          eccezioni_referente?: boolean | null
+          ferie_entrambe?: boolean | null
+          ferie_feriali?: boolean | null
+          ferie_festivi?: boolean | null
+          ferie_hr?: boolean | null
+          ferie_referente?: boolean | null
+          ferie_weekend?: boolean | null
+          permessi_entrambe?: boolean | null
+          permessi_feriali?: boolean | null
+          permessi_festivi?: boolean | null
+          permessi_hr?: boolean | null
+          permessi_referente?: boolean | null
+          permessi_weekend?: boolean | null
+          outlet_id?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: []
+      }
       leave_requests: {
         Row: {
           company_id: string
@@ -20011,6 +20098,8 @@ export type Database = {
           decisa_da: string | null
           decisa_da_nome: string | null
           decisa_il: string | null
+          eccezione: boolean | null
+          eccezione_motivo: string | null
           employee_id: string
           id: string
           inviata_il: string | null
@@ -20018,6 +20107,7 @@ export type Database = {
           note_dipendente: string | null
           origine: string
           outlet_code: string | null
+          prima_decisione: Json | null
           stato: string
           titolo: string | null
           updated_at: string
@@ -20030,6 +20120,8 @@ export type Database = {
           decisa_da?: string | null
           decisa_da_nome?: string | null
           decisa_il?: string | null
+          eccezione?: boolean | null
+          eccezione_motivo?: string | null
           employee_id: string
           id?: string
           inviata_il?: string | null
@@ -20037,6 +20129,7 @@ export type Database = {
           note_dipendente?: string | null
           origine?: string
           outlet_code?: string | null
+          prima_decisione?: Json | null
           stato?: string
           titolo?: string | null
           updated_at?: string
@@ -20049,6 +20142,8 @@ export type Database = {
           decisa_da?: string | null
           decisa_da_nome?: string | null
           decisa_il?: string | null
+          eccezione?: boolean | null
+          eccezione_motivo?: string | null
           employee_id?: string
           id?: string
           inviata_il?: string | null
@@ -20056,6 +20151,7 @@ export type Database = {
           note_dipendente?: string | null
           origine?: string
           outlet_code?: string | null
+          prima_decisione?: Json | null
           stato?: string
           titolo?: string | null
           updated_at?: string

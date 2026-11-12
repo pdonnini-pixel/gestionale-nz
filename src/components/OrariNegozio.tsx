@@ -20,6 +20,7 @@ import { Copy, Lock, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
 import FasceEditor, { type FasciaSemplice } from './FasceEditor';
 import RiposiNegozio from './RiposiNegozio';
 import EventiDelNegozio from './EventiDelNegozio';
+import FeriePermessiNegozio from './FeriePermessiNegozio';
 import { useToast } from './Toast';
 import { Modal } from './ui/Modal';
 import { supabase } from '../lib/supabase';
@@ -644,6 +645,13 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
           <Scheda n={8} titolo="Eventi e giorni speciali" sotto="">
             <EventiDelNegozio companyId={companyId} outletId={outletId} nomeNegozio={nomeNegozio} negozi={[{ id: outletId, nome: nomeNegozio }, ...altriNegozi]}
               puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} onSalvato={onSalvato} onVaiEventi={onVaiEventi} />
+          </Scheda>
+        </div>
+
+        <div className="xl:col-span-2 min-w-0">
+          <Scheda n={9} titolo="Ferie e permessi" sotto="La richiesta parte dall’app. Qui decidi chi la approva e quando si può chiedere. Questa scheda ha il suo pulsante «Salva ferie e permessi».">
+            <FeriePermessiNegozio companyId={companyId} outletId={outletId} nomeNegozio={nomeNegozio} puoScrivere={puoScrivere} superAdvisor={puoFabbisogno}
+              giorniCaldiTutti={!!regole.giorniPieni && (regole.caldiTutti ?? true)} />
           </Scheda>
         </div>
       </div>
