@@ -1200,36 +1200,62 @@ export interface TurnoSalvato extends Turno {
   oreStraordinario: number;
   /** `giorno_forte`, `ricarico`, `allestimento`, oppure niente */
   motivo?: string | null;
+  /** lo straordinario l'ha scritto una persona (`shifts.straordinario_a_mano`): il sistema non lo tocca */
+  aMano?: boolean;
+  /** il turno sta in un mese chiuso: non si riscrive, il suo straordinario resta com'e' */
+  bloccato?: boolean;
 }
 
-/** Lo straordinario deciso da una persona per ricarico o allestimento: il sistema non lo tocca. */
-const straordinarioAMano = (t: TurnoSalvato) => t.oreStraordinario > 0 && (t.motivo === 'ricarico' || t.motivo === 'allestimento');
+/**
+ * Lo straordinario che il sistema non tocca: quello scritto da una persona (qualunque
+ * motivo), quello per ricarico o allestimento, quello fuori dai giorni forti e quello dei
+ * turni di un mese chiuso. Conta come gia' assegnato.
+ */
+const straordinarioFermo = (t: TurnoSalvato, giorniForti: Set<string>) =>
+  !!t.bloccato || (t.oreStraordinario > 0 && (!!t.aMano || t.motivo === 'ricarico' || t.motivo === 'allestimento' || !giorniForti.has(t.data)));
 
 /**
  * Lo straordinario «giorno forte» da riscrivere dopo una modifica a mano (Patrizio,
  * 12/11/2026): la proposta lo scrive sui turni, ma accorciando, allungando, spostando o
  * togliendo un turno il valore restava quello di prima. `turni` sono i turni salvati di una
  * settimana (o del pezzo di settimana a video), `contratto` le ore di contratto di quella
- * settimana per persona, `giorniForti` i giorni in cui lo straordinario e' ammesso.
+ * settimana **delle sole persone toccate dalla modifica**, `giorniForti` i giorni in cui lo
+ * straordinario e' ammesso.
  *
- * Per ogni persona: ore dei turni meno contratto, meno lo straordinario segnato a mano per
- * ricarico o allestimento e quello dei giorni non forti (li decide una persona, restano
- * come sono); quello che avanza si divide a mezz'ore sui suoi turni dei giorni forti con
- * `ripartisciStraordinari`. Restituisce solo i turni il cui valore cambia.
+ * Per ogni persona: ore dei turni meno contratto, meno lo straordinario fermo (scritto a
+ * mano, ricarico, allestimento, giorni non forti, mesi chiusi: restano come sono); quello
+ * che avanza si divide a mezz'ore sui suoi altri turni dei giorni forti con
+ * `ripartisciStraordinari`. `cambi` sono solo i turni il cui valore cambia; `nonTorna` le
+ * persone a cui, per colpa dei turni di un mese chiuso, lo straordinario scritto non
+ * corrisponde alle ore oltre il contratto (la pagina lo dice in «Da guardare»).
  */
-export function straordinariDaRiscrivere(turni: TurnoSalvato[], contratto: Map<string, number>, giorniForti: Set<string>): { id: string; ore: number }[] {
-  const out: { id: string; ore: number }[] = [];
+export function ricalcoloStraordinari(turni: TurnoSalvato[], contratto: Map<string, number>, giorniForti: Set<string>): { cambi: { id: string; ore: number }[]; nonTorna: string[] } {
+  const cambi: { id: string; ore: number }[] = [];
+  const nonTorna: string[] = [];
   for (const [id, ore] of contratto) {
     const suoi = turni.filter((t) => t.employeeId === id);
-    // fermi: ricarico e allestimento ovunque, e ogni straordinario fuori dai giorni forti
-    const fermi = new Set<Turno>(suoi.filter((t) => straordinarioAMano(t) || (!giorniForti.has(t.data) && t.oreStraordinario > 0)));
-    const aMano = [...fermi].reduce((a, t) => a + (t as TurnoSalvato).oreStraordinario, 0);
-    const nuovi = ripartisciStraordinari(suoi, new Map([[id, ore + aMano]]), giorniForti, fermi);
+    const fermi = new Set<Turno>(suoi.filter((t) => straordinarioFermo(t, giorniForti)));
+    const giaDato = [...fermi].reduce((a, t) => a + (t as TurnoSalvato).oreStraordinario, 0);
+    const nuovi = ripartisciStraordinari(suoi, new Map([[id, ore + giaDato]]), giorniForti, fermi);
+    let scritto = giaDato;
     for (const t of suoi) {
       if (fermi.has(t) || !giorniForti.has(t.data)) continue;
       const nuovo = nuovi.get(t) ?? 0;
-      if (Math.abs(nuovo - t.oreStraordinario) > 1e-9 || (nuovo > 0 && t.motivo !== 'giorno_forte')) out.push({ id: t.id, ore: nuovo });
+      scritto += nuovo;
+      if (Math.abs(nuovo - t.oreStraordinario) > 1e-9 || (nuovo > 0 && t.motivo !== 'giorno_forte')) cambi.push({ id: t.id, ore: nuovo });
+    }
+    // con un turno in un mese chiuso: il conto torna se, potendo scrivere anche li', verrebbe uguale
+    if (suoi.some((t) => t.bloccato)) {
+      const liberi = suoi.map((t) => ({ ...t, bloccato: false }));
+      const libero = ricalcoloStraordinari(liberi, new Map([[id, ore]]), giorniForti).cambi;
+      const totale = liberi.reduce((a, t) => a + (libero.find((c) => c.id === t.id)?.ore ?? t.oreStraordinario), 0);
+      if (Math.abs(totale - scritto) > 1e-9) nonTorna.push(id);
     }
   }
-  return out;
+  return { cambi, nonTorna };
+}
+
+/** Come `ricalcoloStraordinari`, solo i turni da riscrivere. */
+export function straordinariDaRiscrivere(turni: TurnoSalvato[], contratto: Map<string, number>, giorniForti: Set<string>): { id: string; ore: number }[] {
+  return ricalcoloStraordinari(turni, contratto, giorniForti).cambi;
 }

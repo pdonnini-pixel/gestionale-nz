@@ -1320,7 +1320,8 @@ function pianificaMeseConRegola(args: {
   for (const lun of settimane) {
     const date = giorniDellaSettimana(lun).filter(nelMese);
     const gg = args.giorni.filter((g) => date.includes(g.data));
-    if (args.fabbisognoFisso) { giorniMese.push(...gg); giorniNecessari.push(...gg); continue; }
+    // fabbisogno fisso (negozio senza nessun traffico): niente MODA, ma il lunedi' a due vale lo stesso
+    if (args.fabbisognoFisso) { const fissi = gg.map((g) => tettoDelLunedi(g, regole)); giorniMese.push(...fissi); giorniNecessari.push(...fissi); continue; }
     const maxP = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) && !libero(p.id, g.data)).length]));
     giorniMese.push(...fabbisognoDaTraffico(gg, args.atteso, regole, maxP, args.extra));
     const maxPieno = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length]));

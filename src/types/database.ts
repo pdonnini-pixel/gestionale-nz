@@ -27677,6 +27677,8 @@ export type Database = {
           nota: string | null
           ore_straordinario: number
           straordinario_motivo: string | null
+          straordinario_a_mano: boolean | null
+          pubblicato_il: string | null
           origine: string
           outlet_id: string
           pausa_minuti: number
@@ -27699,6 +27701,8 @@ export type Database = {
           nota?: string | null
           ore_straordinario?: number
           straordinario_motivo?: string | null
+          straordinario_a_mano?: boolean | null
+          pubblicato_il?: string | null
           origine?: string
           outlet_id: string
           pausa_minuti?: number
@@ -27721,6 +27725,8 @@ export type Database = {
           nota?: string | null
           ore_straordinario?: number
           straordinario_motivo?: string | null
+          straordinario_a_mano?: boolean | null
+          pubblicato_il?: string | null
           origine?: string
           outlet_id?: string
           pausa_minuti?: number
