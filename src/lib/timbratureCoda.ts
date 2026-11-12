@@ -84,23 +84,37 @@ async function togli(ids: string[]): Promise<void> {
 // Chiave AES-GCM creata sul telefono del negozio, non esportabile: chi copia la
 // memoria del browser trova solo dati cifrati, non il PIN.
 
-async function chiavePin(): Promise<CryptoKey> {
+let chiaveInCorso: Promise<CryptoKey> | null = null
+
+/** Una sola chiave per telefono: le chiamate vicine aspettano la stessa promessa (niente due chiavi diverse). */
+function chiavePin(): Promise<CryptoKey> {
+  if (!chiaveInCorso) chiaveInCorso = leggiOCreaChiave().catch((e) => { chiaveInCorso = null; throw e })
+  return chiaveInCorso
+}
+
+async function leggiOCreaChiave(): Promise<CryptoKey> {
   const db = await apri()
+  const leggi = () => new Promise<CryptoKey | undefined>((resolve, reject) => {
+    const req = db.transaction(STORE_CHIAVI, 'readonly').objectStore(STORE_CHIAVI).get('pin')
+    req.onsuccess = () => resolve(req.result as CryptoKey | undefined)
+    req.onerror = () => reject(req.error)
+  })
   try {
-    const esistente = await new Promise<CryptoKey | undefined>((resolve, reject) => {
-      const req = db.transaction(STORE_CHIAVI, 'readonly').objectStore(STORE_CHIAVI).get('pin')
-      req.onsuccess = () => resolve(req.result as CryptoKey | undefined)
-      req.onerror = () => reject(req.error)
-    })
+    const esistente = await leggi()
     if (esistente) return esistente
     const nuova = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt'])
-    await new Promise<void>((resolve, reject) => {
+    // add() e non put(): se un'altra scheda l'ha appena creata, vince la sua e si rilegge
+    const scritta = await new Promise<boolean>((resolve) => {
       const tx = db.transaction(STORE_CHIAVI, 'readwrite')
-      tx.objectStore(STORE_CHIAVI).put(nuova, 'pin')
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
+      tx.objectStore(STORE_CHIAVI).add(nuova, 'pin')
+      tx.oncomplete = () => resolve(true)
+      tx.onerror = (ev) => { ev.preventDefault(); resolve(false) }
+      tx.onabort = () => resolve(false)
     })
-    return nuova
+    if (scritta) return nuova
+    const altra = await leggi()
+    if (!altra) throw new Error('Chiave del PIN non salvata')
+    return altra
   } finally { db.close() }
 }
 
