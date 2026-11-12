@@ -791,6 +791,18 @@ $x$], ARRAY[
         $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
   PERFORM public.ferie_controlla_scala(ev.employee_id);  -- 407: la scala di chi decide
 $x$]),
+      ('public.presenze_causale_evento(uuid,text)', ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+$x$], ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+  PERFORM public.ferie_controlla_scala(ev.employee_id);  -- 407: la scala di chi decide
+$x$]),
+      ('public.presenze_riapri_evento(uuid,text)', ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+$x$], ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+  PERFORM public.ferie_controlla_scala(ev.employee_id);  -- 407: la scala di chi decide
+$x$]),
       -- l'elenco della referente
       ('public.responsabile_ferie_elenco(boolean)', ARRAY[
         $x$'prova', e.is_demo, 'titolo', q.titolo,$x$], ARRAY[
@@ -941,7 +953,7 @@ COMMIT;
 --           AND column_name IN ('eccezione', 'eccezione_motivo')) AS colonne,                                        -- 2
 --        (SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'public'
 --           AND p.proname IN ('app_dipendente_chiedi_ferie', 'app_dipendente_ferie', 'leave_decidi', 'responsabile_ferie_elenco')
---           AND (p.prosrc ~ '407' OR p.prosrc ~ 'ferie_lato_puo' OR p.prosrc ~ 'ferie_eccezioni_attive')) AS corrette, -- 5 (con presenze_decidi_evento)
+--           AND (p.prosrc ~ '407' OR p.prosrc ~ 'ferie_lato_puo' OR p.prosrc ~ 'ferie_eccezioni_attive')) AS corrette, -- 7 (con le tre presenze_*_evento)
 --        (SELECT prosrc ~ 'ferie_lunedi_ce_guida' FROM pg_proc WHERE proname = 'leave_request_days_lunedi') AS lunedi, -- true
 --        public.festivo_italiano(DATE '2026-04-06') AS pasquetta_2026,                                              -- true
 --        (SELECT prosrc ~ 'ferie_lunedi_provvisoria' FROM pg_proc WHERE proname = 'ferie_lunedi_testo') AS lunedi_testo, -- true

@@ -131,6 +131,18 @@ BEGIN
 $x$], ARRAY[
         $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
 $x$]),
+      ('public.presenze_causale_evento(uuid,text)', ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+  PERFORM public.ferie_controlla_scala(ev.employee_id);  -- 407: la scala di chi decide
+$x$], ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+$x$]),
+      ('public.presenze_riapri_evento(uuid,text)', ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+  PERFORM public.ferie_controlla_scala(ev.employee_id);  -- 407: la scala di chi decide
+$x$], ARRAY[
+        $x$  PERFORM public.presenze_non_su_di_me(ev.employee_id);
+$x$]),
       ('public.responsabile_ferie_elenco(boolean)', ARRAY[
         $x$'prova', e.is_demo, 'eccezione', COALESCE(q.eccezione, false), 'eccezione_motivo', q.eccezione_motivo, 'posso', public.ferie_lato_puo(q.id), 'titolo', q.titolo,$x$], ARRAY[
         $x$'prova', e.is_demo, 'titolo', q.titolo,$x$])
