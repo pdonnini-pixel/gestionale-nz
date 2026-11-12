@@ -16,6 +16,18 @@
 --     si vuole il contrario, va riaperto e risalvato dalla finestra dell'evento.
 BEGIN;
 
+-- Se le copie di un rollback precedente ci sono gia', ci si ferma: rifarle le salterebbe e le
+-- tabelle vive verrebbero tolte senza copia fresca. Prima rinominare o archiviare le vecchie.
+DO $do$
+BEGIN
+  IF to_regclass('public._bkp_407_outlet_leave_rules') IS NOT NULL
+     OR to_regclass('public._bkp_407_leave_hr') IS NOT NULL
+     OR to_regclass('public._bkp_407_leave_requests') IS NOT NULL THEN
+    RAISE EXCEPTION 'ROLLBACK 407: esistono gia'' copie _bkp_407_* di un rollback precedente. Rinominarle (per esempio aggiungendo la data) prima di rilanciare: senza, i dati di oggi andrebbero persi senza copia.';
+  END IF;
+END
+$do$;
+
 -- copie di sicurezza, prima di tutto
 CREATE TABLE IF NOT EXISTS public._bkp_407_outlet_leave_rules AS SELECT now() AS salvato_il, * FROM public.outlet_leave_rules;
 CREATE TABLE IF NOT EXISTS public._bkp_407_leave_hr AS SELECT now() AS salvato_il, * FROM public.leave_hr;
@@ -38,6 +50,34 @@ UPDATE public.outlet_events
 
 DROP TRIGGER IF EXISTS trg_leave_requests_campi_protetti ON public.leave_requests;
 DROP FUNCTION IF EXISTS public.leave_requests_campi_protetti();
+DROP TRIGGER IF EXISTS trg_leave_request_days_campi_protetti ON public.leave_request_days;
+DROP FUNCTION IF EXISTS public.leave_request_days_campi_protetti();
+
+-- chi puo' decidere: via l'elenco HR da posso_decidere_ferie (prima che la tabella sparisca)
+DO $do$
+DECLARE
+  d text := pg_get_functiondef('public.posso_decidere_ferie()'::regprocedure);
+  n text;
+BEGIN
+  IF position('leave_hr' in d) > 0 THEN
+    n := replace(d, $x$        AND a.attivo
+    )
+    OR (  -- 407: l'elenco HR basta per decidere
+      COALESCE((public.get_my_role())::text, '') NOT IN ('', 'dipendente', 'operatore_cassa', 'responsabile')
+      AND EXISTS (
+        SELECT 1 FROM public.leave_hr h
+        WHERE h.user_id = auth.uid()
+          AND h.company_id = public.get_my_company_id()
+      )
+    )$x$, $x$        AND a.attivo
+    )$x$);
+    IF position('leave_hr' in n) > 0 THEN
+      RAISE EXCEPTION 'ROLLBACK 407: posso_decidere_ferie non e'' tornata com''era';
+    END IF;
+    EXECUTE n;
+  END IF;
+END
+$do$;
 
 DO $do$
 DECLARE

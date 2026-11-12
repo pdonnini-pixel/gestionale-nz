@@ -124,7 +124,7 @@ CREATE TABLE IF NOT EXISTS public.leave_hr (
   PRIMARY KEY (company_id, user_id)
 );
 COMMENT ON TABLE public.leave_hr IS
-  'Chi e'' HR per ferie e permessi (Patrizio, 12/11/2026): un''appartenenza a parte, non un profilo; piu'' persone ammesse. La cambia solo il Super Advisor. Finche'' e'' vuota, dal lato HR approva chi approvava prima (posso_decidere_ferie). Non da'' da sola il diritto di decidere: quello resta posso_decidere_ferie().';
+  'Chi e'' HR per ferie e permessi (Patrizio, 12/11/2026): un''appartenenza a parte, non un profilo; piu'' persone ammesse. La cambia solo il Super Advisor. Finche'' e'' vuota, dal lato HR approva chi approvava prima (posso_decidere_ferie). Chi e'' in elenco puo'' decidere le richieste (posso_decidere_ferie la riconosce), salvo i profili dipendente, operatore di cassa e responsabile.';
 
 ALTER TABLE public.leave_hr ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS leave_hr_select ON public.leave_hr;
@@ -214,6 +214,49 @@ DROP TRIGGER IF EXISTS trg_leave_requests_campi_protetti ON public.leave_request
 CREATE TRIGGER trg_leave_requests_campi_protetti
   BEFORE INSERT OR UPDATE ON public.leave_requests
   FOR EACH ROW EXECUTE FUNCTION public.leave_requests_campi_protetti();
+
+-- Lo stesso per i giorni: la decisione vive anche in leave_request_days.stato, e il saldo conta i
+-- giorni approvati. Dalla tabella, con il proprio profilo, i giorni si scrivono solo «richiesti» e
+-- solo finche' la richiesta e' in bozza o inviata (e' quello che fa il gestionale: Richieste, la
+-- finestra del turno, la proposta dal piano del mese). Decidere passa dalle funzioni delle ferie.
+CREATE OR REPLACE FUNCTION public.leave_request_days_campi_protetti()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  v_stato text;
+BEGIN
+  IF current_user NOT IN ('authenticated', 'anon') THEN RETURN COALESCE(NEW, OLD); END IF;
+  SELECT q.stato INTO v_stato FROM public.leave_requests q
+   WHERE q.id = CASE WHEN TG_OP = 'DELETE' THEN OLD.request_id ELSE NEW.request_id END;
+  IF TG_OP = 'DELETE' THEN
+    IF v_stato IS NOT NULL AND v_stato NOT IN ('bozza', 'inviata') THEN
+      RAISE EXCEPTION 'I giorni di una richiesta decisa si cambiano solo da Approvazioni.' USING ERRCODE = '42501';
+    END IF;
+    RETURN OLD;
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    IF NEW.stato IS DISTINCT FROM 'richiesto' OR COALESCE(v_stato, 'bozza') NOT IN ('bozza', 'inviata') THEN
+      RAISE EXCEPTION 'I giorni si aggiungono solo a una richiesta ancora da decidere, come richiesti: la decisione passa da Approvazioni.' USING ERRCODE = '42501';
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.stato IS DISTINCT FROM OLD.stato OR NEW.request_id IS DISTINCT FROM OLD.request_id THEN
+    RAISE EXCEPTION 'La decisione sui giorni di una richiesta passa da Approvazioni.' USING ERRCODE = '42501';
+  END IF;
+  IF COALESCE(v_stato, 'bozza') NOT IN ('bozza', 'inviata')
+     AND (NEW.ore, NEW.voce, NEW.data, NEW.tipo) IS DISTINCT FROM (OLD.ore, OLD.voce, OLD.data, OLD.tipo) THEN
+    RAISE EXCEPTION 'I giorni di una richiesta decisa si cambiano solo da Approvazioni.' USING ERRCODE = '42501';
+  END IF;
+  RETURN NEW;
+END
+$function$;
+REVOKE ALL ON FUNCTION public.leave_request_days_campi_protetti() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS trg_leave_request_days_campi_protetti ON public.leave_request_days;
+CREATE TRIGGER trg_leave_request_days_campi_protetti
+  BEFORE INSERT OR UPDATE OR DELETE ON public.leave_request_days
+  FOR EACH ROW EXECUTE FUNCTION public.leave_request_days_campi_protetti();
 
 -- ── 4. Festivi italiani (come festivitaItaliane in src/lib/ferieRichiesta.ts) ──
 CREATE OR REPLACE FUNCTION public.festivo_italiano(p_data date)
@@ -749,6 +792,32 @@ BEGIN
     END IF;
     EXECUTE n;
   END IF;
+
+  -- chi puo' decidere: l'elenco HR basta (Patrizio, 12/11/2026), senza stare anche fra i
+  -- «Referenti ferie». Vale per i profili che gia' leggono le richieste nel gestionale: non
+  -- per dipendente e operatore di cassa, e non per il profilo responsabile, che resta nel suo
+  -- recinto dei negozi (ferie_responsabile_puo). posso_decidere_ferie() la usano solo le
+  -- funzioni delle ferie: essere HR non apre altro.
+  d := pg_get_functiondef('public.posso_decidere_ferie()'::regprocedure);
+  IF position('leave_hr' in d) = 0 THEN
+    IF (length(d) - length(replace(d, $x$        AND a.attivo
+    )$x$, ''))) / length($x$        AND a.attivo
+    )$x$) <> 1 THEN
+      RAISE EXCEPTION '407: ancora non trovata una e una sola volta in posso_decidere_ferie';
+    END IF;
+    n := replace(d, $x$        AND a.attivo
+    )$x$, $x$        AND a.attivo
+    )
+    OR (  -- 407: l'elenco HR basta per decidere
+      COALESCE((public.get_my_role())::text, '') NOT IN ('', 'dipendente', 'operatore_cassa', 'responsabile')
+      AND EXISTS (
+        SELECT 1 FROM public.leave_hr h
+        WHERE h.user_id = auth.uid()
+          AND h.company_id = public.get_my_company_id()
+      )
+    )$x$);
+    EXECUTE n;
+  END IF;
 END
 $do$;
 
@@ -768,7 +837,8 @@ COMMIT;
 --        (SELECT prosrc ~ 'ferie_lunedi_ce_guida' FROM pg_proc WHERE proname = 'leave_request_days_lunedi') AS lunedi, -- true
 --        public.festivo_italiano(DATE '2026-04-06') AS pasquetta_2026,                                              -- true
 --        (SELECT prosrc ~ 'ferie_lunedi_provvisoria' FROM pg_proc WHERE proname = 'ferie_lunedi_testo') AS lunedi_testo, -- true
---        (SELECT count(*) FROM pg_trigger WHERE tgname = 'trg_leave_requests_campi_protetti') AS trigger_campi,       -- 1
+--        (SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_leave_requests_campi_protetti', 'trg_leave_request_days_campi_protetti')) AS trigger_campi, -- 2
+--        (SELECT prosrc ~ 'leave_hr' FROM pg_proc WHERE proname = 'posso_decidere_ferie') AS hr_decide,               -- true
 --        has_table_privilege('authenticated', 'public.leave_hr', 'truncate') AS hr_truncate,                         -- false
 --        (SELECT count(*) FROM public.outlet_events WHERE regole ? 'prima_407') AS eventi_allineati,                 -- quanti erano con una voce sola
 --        (SELECT count(*) FROM public.outlet_leave_rules) AS regole, (SELECT count(*) FROM public.leave_hr) AS hr,  -- 0, 0

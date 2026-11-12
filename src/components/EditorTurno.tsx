@@ -310,10 +310,15 @@ export default function EditorTurno({
         toast({ type: 'warning', message: 'La richiesta ha altri giorni ancora da decidere: togli questo giorno da Approvazioni ferie, dove decidi anche gli altri.', duration: 10000 });
         return;
       }
-      const { error: e2 } = await supabase.rpc('leave_decidi', {
+      const { data: esito, error: e2 } = await supabase.rpc('leave_decidi', {
         p_request_id: f.requestId, p_giorni_approvati: altri.filter((g) => g.stato === 'approvato').map((g) => g.id), p_motivazione: 'Tolte dal piano del mese',
       });
       if (e2) throw e2;
+      // Dove servono due approvazioni (migration 407) questa e' solo la prima: il giorno resta approvato.
+      if ((esito as unknown) === 'attesa_seconda') {
+        onSalvato(`La tua approvazione è registrata, manca la seconda: fino ad allora il giorno di ${nome.split(' ')[0]} resta approvato e il saldo delle ferie non cambia.`);
+        return;
+      }
       onSalvato(`${f.testo} tolte per ${nome.split(' ')[0]}: il giorno torna disponibile per un turno e il saldo delle ferie si aggiorna.`);
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non tolte.' });

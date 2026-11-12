@@ -35,8 +35,6 @@ type Utente = { id: string; nome: string; ruolo: string };
 const oggi = () => new Date().toISOString().slice(0, 10);
 const piuGiorni = (n: number) => { const d = new Date(); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const gg = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
-/** chi puo' decidere le ferie per il suo profilo, senza altro (posso_decidere_ferie nel database) */
-const RUOLI_CHE_DECIDONO = ['super_advisor', 'coo', 'contabile'];
 /** profili che non possono essere HR: hanno gia' un loro posto (la referente) o non entrano nel gestionale */
 const RUOLI_FUORI = ['responsabile', 'dipendente', 'operatore_cassa'];
 
@@ -55,7 +53,6 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
   const [conRegoleEvento, setConRegoleEvento] = useState(false);
   const [hr, setHr] = useState<string[]>([]);
   const [utenti, setUtenti] = useState<Utente[]>([]);
-  const [referentiFerie, setReferentiFerie] = useState<Set<string>>(new Set());
   const [nuovoHr, setNuovoHr] = useState('');
   const [salvo, setSalvo] = useState(false);
   // I giorni caldi arrivano dalla scheda 3, anche non salvata: cambiarli non deve ricaricare
@@ -66,12 +63,11 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
 
   /** `tieniRegole`: ricarica elenco HR ed eventi senza toccare le regole che si stanno scrivendo. */
   const carica = useCallback(async (tieniRegole = false) => {
-    const [r, h, ev, prof, appr] = await Promise.all([
+    const [r, h, ev, prof] = await Promise.all([
       caricaRegoleFerie(outletId),
       caricaHr(companyId),
       caricaEventi(companyId, oggi(), piuGiorni(400)).catch(() => ({ righe: [] as Record<string, unknown>[], conRegole: false })),
       supabase.from('user_profiles').select('id, first_name, last_name, role').eq('company_id', companyId).eq('is_active', true),
-      supabase.from('leave_approvers').select('user_id, attivo').eq('company_id', companyId),
     ]);
     setDisponibile(r.disponibile && h.disponibile);
     setSalvata(!!r.riga);
@@ -97,7 +93,6 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
       .filter((u) => !RUOLI_FUORI.includes(u.role ?? ''))
       .map((u) => ({ id: u.id, nome: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim() || 'Senza nome', ruolo: u.role ?? '' }))
       .sort((a, b) => a.nome.localeCompare(b.nome)));
-    setReferentiFerie(new Set(((appr.data as { user_id: string | null; attivo: boolean }[] | null) ?? []).filter((a) => a.attivo && a.user_id).map((a) => a.user_id as string)));
   }, [companyId, outletId]);
 
   useEffect(() => { setDisponibile(null); void carica(); }, [carica]);
@@ -135,7 +130,8 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
   };
 
   const cambiaEvento = async (e: RigaEvento, campo: keyof QuandoSiChiede, v: boolean) => {
-    const ora = ammesseNellEvento(eventoFerie(e), regole);
+    // Scheda mai salvata: la proposta a video non conta, l'evento resta com'è sul database
+    const ora = ammesseNellEvento(eventoFerie(e), salvata ? regole : null);
     const nuovo = eventoConFerie(e.regole, { ...ora, [campo]: v });
     setEventi((l) => l.map((x) => (x.id === e.id ? { ...x, regole: nuovo.regole, bloccaFerie: nuovo.blocca_ferie } : x)));
     const err = await salvaFerieEvento(e.id, nuovo.regole, nuovo.blocca_ferie);
@@ -206,16 +202,14 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
           <p className="text-xs text-slate-500 mt-2">La referente è il profilo «responsabile» scelto in Dipendenti → Presenze → Chi conferma. Il Super Advisor può sempre decidere.</p>
 
           <h4 className="text-sm font-semibold text-slate-900 mt-4">Chi è HR</h4>
-          <p className="text-xs text-slate-500">Vale per tutti i negozi dell’azienda. Lo cambia solo il Super Advisor. Finché l’elenco è vuoto, dal lato HR approva chi approvava prima.</p>
+          <p className="text-xs text-slate-500">Vale per tutti i negozi dell’azienda. Lo cambia solo il Super Advisor. Chi è in elenco può approvare e respingere le richieste di ferie e permessi di tutti i negozi, qualunque sia il suo profilo. Finché l’elenco è vuoto, dal lato HR approva chi approvava prima.</p>
           <ul className="mt-2 space-y-1">
             {hrDettaglio.length === 0 && <li className="text-sm text-slate-500">Nessuno in elenco.</li>}
             {hrDettaglio.map((u) => {
-              const puoDecidere = RUOLI_CHE_DECIDONO.includes(u.ruolo) || referentiFerie.has(u.id);
               return (
                 <li key={u.id} className="flex items-center justify-between gap-2 text-sm border border-slate-200 rounded-lg px-2 py-1.5">
                   <span className="min-w-0">
                     <span className="font-semibold text-slate-800">{u.nome}</span>
-                    {!puoDecidere && <span className="block text-xs text-amber-800">Con il suo profilo vede le richieste ma non può ancora approvarle: va aggiunta anche fra i «Referenti ferie» (Ferie e permessi → Approvazioni).</span>}
                   </span>
                   {superAdvisor && (
                     <button type="button" onClick={() => togli(u.id)} aria-label={`Togli ${u.nome} dall'elenco HR`} className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50"><X size={14} /> Togli</button>
@@ -254,12 +248,12 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
                 ))}
                 {eventi.map((e) => {
                   const ef = eventoFerie(e);
-                  const a = ammesseNellEvento(ef, regole);
+                  const a = ammesseNellEvento(ef, salvata ? regole : null);
                   return (
                     <tr key={e.id} className="border-b border-slate-100">
                       <td className="py-2 pr-2">
                         <span className="font-semibold text-slate-800">{e.nome}</span> <span className="text-slate-500">· {e.dal === e.al ? gg(e.dal) : `${gg(e.dal)}-${gg(e.al)}`}</span>
-                        {seguaIFestivi(ef) && <span className="block text-xs text-slate-500">giorno speciale: segue la riga «Festivi e giorni speciali» finché non lo tocchi</span>}
+                        {seguaIFestivi(ef) && <span className="block text-xs text-slate-500">{salvata ? 'giorno speciale: segue la riga «Festivi e giorni speciali» finché non lo tocchi' : 'giorno speciale: finché la scheda non è salvata resta bloccato, poi segue la riga «Festivi e giorni speciali»'}</span>}
                         {e.altriNegozi && <span className="block text-xs text-slate-500">evento di più negozi: la scelta vale per tutti</span>}
                       </td>
                       <td className="py-2 px-2"><Interruttore acceso={a.ferie} disabled={!puoScrivere || !conRegoleEvento} etichetta={`${e.nome}: ferie`} onCambia={(v) => cambiaEvento(e, 'ferie', v)} /></td>

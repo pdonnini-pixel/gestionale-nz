@@ -165,7 +165,7 @@ function FerieDaDecidere() {
                 <span className="font-semibold">Chiesta come eccezione.</span>{q.eccezione_motivo ? ` ${q.eccezione_motivo}` : ''}
               </div>
             )}
-            {prima(q) && <p className="text-sm rounded-lg bg-sky-50 text-sky-900 px-3 py-2">{attesaInParole(prima(q)!)}</p>}
+            {prima(q) && <p className="text-sm rounded-lg bg-sky-50 text-sky-900 px-3 py-2">{q.stato === 'inviata' ? attesaInParole(prima(q)!) : `C’è una modifica a questa decisione in attesa della seconda approvazione${prima(q)!.nome ? ` (la prima è di ${prima(q)!.nome})` : ''}: fino ad allora vale la decisione di prima.`}</p>}
             {q.note_dipendente && <p className="text-sm bg-slate-50 rounded px-3 py-2">«{q.note_dipendente}»</p>}
             <p className="text-xs text-slate-400">{q.compilata_da_nome ?? ''}{q.inviata_il ? ` · ${new Date(q.inviata_il).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })}` : ''}
               {q.decisa_da_nome ? ` · decisa da ${q.decisa_da_nome}` : ''}{q.motivazione ? ` · motivo: ${q.motivazione}` : ''}</p>

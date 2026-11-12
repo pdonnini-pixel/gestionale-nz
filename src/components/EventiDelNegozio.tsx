@@ -174,13 +174,16 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
     if (regole && !regole.fasce) delete regole.fasce;
     // l'evento viene risalvato: il valore tenuto da parte dalla 407 non serve più
     if (regole) delete (regole as Record<string, unknown>).prima_407;
+    // si rilegge al salvataggio: la pagina può essere aperta da prima dell'aggiornamento del database
+    const c407 = await ferie407Disponibile();
+    if (c407 !== con407) setCon407(c407);
     const riga = {
       company_id: companyId, nome: bozza.nome.trim(), data_dal: bozza.dal, data_al: periodo ? bozza.al : bozza.dal, outlet_ids: [outletId],
       tipo: bozza.tipo, regole, regole_origine: periodo ? bozza.origine : 'sabato', controllo_moda: periodo ? controllo : null,
       // Dalla 407 ferie e permessi si decidono separati (regole.ferie, regole.permessi) e
       // blocca_ferie resta vero solo quando sono spenti tutti e due. Dove la 407 non c'è
       // (prima dell'aggiornamento, e su Made) vale la regola di prima: basta una voce spenta.
-      blocca_ferie: periodo ? bloccaFerieEvento({ ferie: !!r.ferie, permessi: !!r.permessi }, con407) : true,
+      blocca_ferie: periodo ? bloccaFerieEvento({ ferie: !!r.ferie, permessi: !!r.permessi }, c407) : true,
       straordinari: periodo ? (r.straordinari ?? true) : true,
     };
     const { error } = bozza.id ? await db.from('outlet_events').update(riga).eq('id', bozza.id) : await db.from('outlet_events').insert([riga]);
@@ -225,7 +228,7 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
               <span className="text-slate-500"> · {date(e)}</span>
               <div className="text-xs text-slate-500">
                 {e.tipo === 'giorno' ? 'come un sabato' : e.tipo === 'periodo' ? `regole ${e.regole_origine === 'domenica' ? 'come la domenica' : e.regole_origine === 'evento' ? 'copiate da un altro evento' : e.regole_origine === 'manuale' ? 'scritte a mano' : 'come un sabato'}` : `evento per ${nomeDi(e.outlet_ids)}`}
-                {con407 && e.tipo === 'giorno' && typeof e.regole?.ferie !== 'boolean' ? ' · ferie e permessi come nei festivi (scheda 9)' : e.blocca_ferie ? ' · richieste di ferie e permessi bloccate' : e.regole?.ferie === false ? ' · richieste di ferie bloccate' : e.regole?.permessi === false ? ' · richieste di permessi bloccate' : ''}{e.straordinari ? ' · straordinari ammessi' : ''}
+                {con407 && e.tipo === 'giorno' && typeof e.regole?.ferie !== 'boolean' ? ' · ferie e permessi come nei festivi, se la scheda 9 è salvata; altrimenti bloccati' : e.blocca_ferie ? ' · richieste di ferie e permessi bloccate' : e.regole?.ferie === false ? ' · richieste di ferie bloccate' : e.regole?.permessi === false ? ' · richieste di permessi bloccate' : ''}{e.straordinari ? ' · straordinari ammessi' : ''}
               </div>
             </div>
             {puoScrivere && (
