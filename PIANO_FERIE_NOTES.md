@@ -378,3 +378,8 @@ Maggiori avevano anche le ore accanto alla giornata: contate giornate intere. Ol
 a fine anno: Pampaloni (12 h su 2,4), Suzzi (7 su 2,8), Nunziante e Talone (30 su 28,9). Il modulo
 «ASUTI» di Palmanova porta il nome di Shafiei in testa e di Astuti in ottobre, ed e' vuoto.
 Da questa data i piani dei turni (mese e settimana) contano anche le richieste in attesa.
+
+## mittente e risposte delle mail sulle ferie (12/11/2026)
+Pacchetto privacy: le mail di `leave-notify` partivano da «New Zago <distinte@rispondi.ai>» (dominio del marchio Rispondi.ai). Patrizio: mittente newzago@vicolo.com.
+- `leave-notify` (versione 2 su NZ e Zago) legge due secret facoltativi per azienda: `LEAVE_EMAIL_FROM` (mittente, al posto di `DISTINTA_EMAIL_FROM`) e `LEAVE_EMAIL_REPLY_TO` (indirizzo delle risposte). Senza secret resta tutto come prima.
+- `LEAVE_EMAIL_FROM` con un indirizzo @vicolo.com funziona solo dopo aver verificato il dominio vicolo.com in Resend (record DNS); altrimenti Resend rifiuta e la mail risulta «failed» (la richiesta di ferie vale lo stesso).
