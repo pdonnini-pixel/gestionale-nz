@@ -3,7 +3,7 @@
 //  - Periodo speciale, dal giorno X al giorno Y: regole proprie del negozio.
 // La finestra «Nuovo» va in quattro passi: cosa e quando, controllo sugli
 // ingressi MODA dell'anno prima, da dove si prendono le regole, conferma.
-// Dove il database non ha ancora le colonne nuove (migration 403) l'elenco si
+// Dove il database non ha ancora le colonne nuove (migration 405) l'elenco si
 // vede lo stesso e per creare si usa la pagina Eventi di prima.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';

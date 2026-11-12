@@ -93,7 +93,7 @@ type BaseMese = {
   oreFuoriMese: Map<string, Map<string, number>>;
   /** giorno libero fisso di ognuno (migration 395) e se la tabella c'e' */
   giorniLiberi: Map<string, GiornoLibero>; haGiorniLiberi: boolean;
-  /** giorni di riposo preferiti e vietati di ognuna (12/11/2026, migration 403) */
+  /** giorni di riposo preferiti e vietati di ognuna (12/11/2026, migration 405) */
   riposi: RiposiPersone;
   /** coppie dei feriali nelle tre settimane prima del mese */
   coppiePrima: Map<string, number>;
@@ -258,7 +258,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
       supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', tutte[0]).lte('data', tutte[tutte.length - 1]),
       supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
-      // eventi, con le regole dei periodi speciali dove ci sono (migration 403)
+      // eventi, con le regole dei periodi speciali dove ci sono (migration 405)
       caricaEventi(companyId, tutte[0], tutte[tutte.length - 1]),
       caricaStoricoNegozio(companyId, outletId),
       // anche i giorni dell'altro mese nelle settimane a cavallo: tolgono ore alla settimana

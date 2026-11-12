@@ -1,4 +1,4 @@
--- ROLLBACK della NZ_ONLY 404: Roma Soratte torna senza le scelte del 12/11/2026.
+-- ROLLBACK della NZ_ONLY 406: Roma Soratte torna senza le scelte del 12/11/2026.
 BEGIN;
 UPDATE public.outlet_shift_rules
    SET riposi_min_settimana = NULL, straordinari_pari = NULL, caldi_fasce_festivi = NULL,

@@ -1,7 +1,7 @@
 // «Riposi» di un negozio (Patrizio, 12/11/2026): per ogni persona i giorni in
 // cui riposa di preferenza e quelli in cui non riposa mai, anche piu' di uno.
 // Solo feriali: sabato, domenica e giorni di evento non compaiono, li' si lavora.
-// Ogni tocco si salva subito (tabella employee_riposi, migration 403). Dove la
+// Ogni tocco si salva subito (tabella employee_riposi, migration 405). Dove la
 // tabella non c'e' ancora la scheda lo dice e non fa scegliere niente.
 
 import { useEffect, useState } from 'react';

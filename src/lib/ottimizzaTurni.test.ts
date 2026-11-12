@@ -492,3 +492,15 @@ describe('ripartisciStraordinari: a ore e mezz\'ore, solo nei giorni forti', () 
     expect(ripartisciStraordinari([t('c', '2026-11-16', '10:00', '20:00', 30)], new Map([['c', 4]]), forti).size).toBe(0);
   });
 });
+
+describe('negozio con i giorni caldi spenti: un evento nuovo non toglie «nel weekend lavorano tutti»', () => {
+  it('il giorno dell\'evento si aggiunge a sabato e domenica', () => {
+    const date = giorniDellaSettimana('2026-12-07');
+    const eventi = [{ nome: 'Apertura serale', data_dal: '2026-12-10', data_al: '2026-12-10', outlet_ids: null, persone_extra: 0, blocca_ferie: false, straordinari: false, tipo: 'giorno' as const }];
+    const giorni = costruisciGiorni(date, orari, fasce, [], eventi, null, opzioniGiorni(regole));
+    const scelte = sceltePerLaSettimana({ giorni, regole, responsabile: null, vice: null });
+    expect(scelte.giorniPieni?.has('2026-12-10')).toBe(true);
+    expect(scelte.giorniPieni?.has('2026-12-12')).toBe(true);
+    expect(scelte.giorniPieni?.has('2026-12-13')).toBe(true);
+  });
+});

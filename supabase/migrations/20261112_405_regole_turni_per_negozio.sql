@@ -1,5 +1,5 @@
 -- =====================================================================
--- Migrazione 403 — Turni: le regole del 12/11/2026 come scelte del negozio
+-- Migrazione 405 — Turni: le regole del 12/11/2026 come scelte del negozio
 --                  (giorni caldi sulle fasce, riposi, straordinari pari,
 --                  apertura e chiusura fra responsabile e vice) e i periodi
 --                  speciali con regole proprie
@@ -51,7 +51,7 @@
 -- NO DATA LOSS: ADD COLUMN senza default, CREATE TABLE, un INSERT in una tabella
 -- nuova. Nessuna riga esistente cambiata o cancellata.
 -- Tenant: NZ e Zago (Made non riceve piu' migration dal 03/11/2026).
--- Roma Soratte accende le scelte con la NZ_ONLY 404.
+-- Roma Soratte accende le scelte con la NZ_ONLY 406.
 -- =====================================================================
 
 BEGIN;
@@ -212,4 +212,4 @@ COMMIT;
 --        has_table_privilege('service_role','public.employee_riposi','insert') AS srv,                                                                                                                -- true
 --        has_table_privilege('anon','public.employee_riposi','select') AS anon,                                                                                                                       -- false
 --        (SELECT count(*) FROM pg_policy WHERE polrelid = 'public.employee_riposi'::regclass) AS policy,                                                                                              -- 7
---        (SELECT count(*) FROM public.outlet_shift_rules WHERE riposi_min_settimana IS NOT NULL OR straordinari_pari IS NOT NULL OR caldi_guida_apre_chiude IS NOT NULL) AS negozi_accesi;              -- 0 prima della 404
+--        (SELECT count(*) FROM public.outlet_shift_rules WHERE riposi_min_settimana IS NOT NULL OR straordinari_pari IS NOT NULL OR caldi_guida_apre_chiude IS NOT NULL) AS negozi_accesi;              -- 0 prima della 406

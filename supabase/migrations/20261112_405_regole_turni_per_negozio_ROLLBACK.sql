@@ -1,10 +1,10 @@
--- ROLLBACK della 403. Toglie colonne e una tabella nate con la 403: prima di eseguirlo
+-- ROLLBACK della 405. Toglie colonne e una tabella nate con la 405: prima di eseguirlo
 -- salvare quello che contengono e chiedere conferma a Patrizio (regola NO DATA LOSS):
 --   SELECT outlet_id, riposi_min_settimana, straordinari_pari, caldi_tutti_al_lavoro, caldi_straordinari,
 --          caldi_fasce_festivi, caldi_guida_apre_chiude, caldi_ore_apertura FROM public.outlet_shift_rules;
 --   SELECT * FROM public.employee_riposi;
 --   SELECT id, nome, tipo, regole, regole_origine, controllo_moda FROM public.outlet_events WHERE tipo IS NOT NULL;
--- Se la NZ_ONLY 404 e' stata applicata, va annullata prima (il suo rollback).
+-- Se la NZ_ONLY 406 e' stata applicata, va annullata prima (il suo rollback).
 BEGIN;
 ALTER TABLE public.outlet_events DROP CONSTRAINT IF EXISTS outlet_events_giorno_singolo_check;
 ALTER TABLE public.outlet_events DROP CONSTRAINT IF EXISTS outlet_events_regole_forma_check;

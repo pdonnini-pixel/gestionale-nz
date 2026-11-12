@@ -68,7 +68,7 @@ export interface RegoleTurni {
    * sono ammessi in quei giorni.
    */
   giorniPieni?: boolean;
-  // ── Scelte del negozio del 12/11/2026 (migration 403). Assenti = comportamento di prima. ──
+  // ── Scelte del negozio del 12/11/2026 (migration 405). Assenti = comportamento di prima. ──
   /**
    * Riposi che ogni persona deve avere nella settimana, se possibile (Patrizio, 12/11/2026):
    * distribuiti fra tutte, non tre a una e uno a un'altra. Per legge mai meno di uno, e quello
@@ -273,7 +273,7 @@ export interface EventoNegozio {
   straordinari: boolean;
   nota?: string | null;
   /**
-   * Dal 12/11/2026 (migration 403): 'giorno' = giorno speciale singolo, vale come un sabato;
+   * Dal 12/11/2026 (migration 405): 'giorno' = giorno speciale singolo, vale come un sabato;
    * 'periodo' = dal giorno X al giorno Y con regole proprie. Assente = evento di prima.
    */
   tipo?: 'giorno' | 'periodo' | null;

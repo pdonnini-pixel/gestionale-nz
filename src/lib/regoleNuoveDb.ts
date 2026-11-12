@@ -74,7 +74,7 @@ export function guidaDelNegozio(negozio: { referente_employee_id?: string | null
   return r && v && r !== v ? [r, v] : [];
 }
 
-// ── Riposi di ognuno (Patrizio, 12/11/2026; tabella employee_riposi, migration 403) ──
+// ── Riposi di ognuno (Patrizio, 12/11/2026; tabella employee_riposi, migration 405) ──
 
 export interface RiposiPersone {
   /** giorni in cui riposa di preferenza (1 = lunedi' ... 5 = venerdi'), anche piu' di uno */
@@ -138,7 +138,7 @@ export async function caricaIngressiGiornalieri(companyId: string, outletId: str
 
 /**
  * Gli eventi dei negozi con le regole del 12/11/2026. Dove le colonne nuove mancano (tenant
- * senza la 403) si leggono quelle di prima: gli eventi restano «di prima» e non cambia niente.
+ * senza la 405) si leggono quelle di prima: gli eventi restano «di prima» e non cambia niente.
  */
 export async function caricaEventi(companyId: string, dal: string, al: string): Promise<{ righe: Record<string, unknown>[]; conRegole: boolean }> {
   const nuove = await db.from('outlet_events')

@@ -1101,7 +1101,7 @@ nascono spente e i piani non cambiano (misura sotto).
 6. Controllo MODA del periodo: stesso periodo dell'anno prima, ±3 giorni, confronto con gli stessi
    giorni della settimana delle 3 settimane prima e delle 3 dopo.
 
-**Nel database** (migration 403, NZ e Zago; `NZ_ONLY 404` per Roma Soratte)
+**Nel database** (migration 405, NZ e Zago; `NZ_ONLY 406` per Roma Soratte)
 - `outlet_shift_rules`: `riposi_min_settimana`, `straordinari_pari`, `caldi_tutti_al_lavoro`,
   `caldi_straordinari`, `caldi_fasce_festivi` ('sabato' | 'domenica'), `caldi_guida_apre_chiude`,
   `caldi_ore_apertura`. NULL = come prima.
@@ -1148,7 +1148,7 @@ nascono spente e i piani non cambiano (misura sotto).
   inventati, settimane 16-22 e 23-29/11 con il Black Friday), motore di `main` e motore del ramo:
   81 turni su 81 identici, fabbisogno identico.
 - *Roma Soratte*, dati veri (quattro persone 40 + 30 + 30 + 30, fasce salvate il 12/11, traffico
-  di Valmontone, responsabile Angelini, vice provvisoria Basile), regole della 404:
+  di Valmontone, responsabile Angelini, vice provvisoria Basile), regole della 406:
 
 | Settimana | Ore | Straordinari a testa | Riposi a testa | Scoperte | Giorni caldi |
 |---|---|---|---|---|---|

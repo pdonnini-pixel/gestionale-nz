@@ -97,7 +97,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // Giorno libero fisso di ognuno (migration 395); dove la tabella manca la riga non compare.
   const [giorniLiberi, setGiorniLiberi] = useState<Map<string, GiornoLibero>>(new Map());
   const [haGiorniLiberi, setHaGiorniLiberi] = useState(false);
-  // Giorni di riposo preferiti e vietati di ognuno (12/11/2026, migration 403).
+  // Giorni di riposo preferiti e vietati di ognuno (12/11/2026, migration 405).
   const [riposi, setRiposi] = useState<RiposiPersone>({ preferiti: new Map(), mai: new Map(), disponibile: false });
   const [storicoPronto, setStoricoPronto] = useState(false);
   const [haOrari, setHaOrari] = useState(true);
@@ -176,7 +176,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         caricaGiorniFerie(companyId, date[0], ultimo),
         supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
         // Eventi della settimana (Black Friday, feste, saldi): piu' persone e straordinari se mancano
-        // (con le regole dei periodi speciali dove ci sono: migration 403)
+        // (con le regole dei periodi speciali dove ci sono: migration 405)
         caricaEventi(companyId, date[0], ultimo),
         // Piani del mese scelti per i mesi di questa settimana: nei loro giorni valgono i loro turni.
         supabase.from('shift_plans').select('id, mese').eq('outlet_id', outletId).eq('stato', 'scelto')
@@ -818,7 +818,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                       <div className="text-[10px] uppercase tracking-wide font-semibold text-slate-700">{etichettaRuoloGuida(ruoloGuida(p.scheda.id, negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null))}</div>
                     )}
                     <div className="text-xs text-slate-500">{p.ore != null ? `${p.ore} h` : 'a chiamata'}</div>
-                    {/* Dove ci sono i riposi per persona (migration 403) si scelgono in «Persone e riposi»: qui si leggono. */}
+                    {/* Dove ci sono i riposi per persona (migration 405) si scelgono in «Persone e riposi»: qui si leggono. */}
                     {riposi.disponibile && ((riposi.preferiti.get(p.scheda.id)?.length ?? 0) > 0 || (riposi.mai.get(p.scheda.id)?.length ?? 0) > 0) && (
                       <div className="mt-0.5 text-[11px] text-slate-500">
                         {(riposi.preferiti.get(p.scheda.id)?.length ?? 0) > 0 && <>riposa di preferenza {riposi.preferiti.get(p.scheda.id)!.map((g) => NOMI_GIORNO_BREVI[g].toLowerCase()).join(', ')}</>}

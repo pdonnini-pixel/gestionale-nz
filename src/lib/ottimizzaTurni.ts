@@ -172,7 +172,9 @@ export function sceltePerLaSettimana(args: {
   const conFlag = aperti.some((g) => g.caldo !== undefined);
   const out: Partial<RegoleNuove> = {};
   if (conFlag && aperti.some((g) => g.caldo)) {
-    out.giorniPieni = new Set(aperti.filter((g) => g.tutti).map((g) => g.data));
+    // dove i giorni caldi del negozio sono spenti resta «nel weekend lavorano tutti» (regola 8, tutti i
+    // negozi): un evento nuovo aggiunge il suo giorno, non toglie sabato e domenica
+    out.giorniPieni = new Set(aperti.filter((g) => g.tutti || (!regole.giorniPieni && giornoIso(g.data) >= 6)).map((g) => g.data));
     out.giorniStraordinari = new Set(aperti.filter((g) => g.straordinariCaldo).map((g) => g.data));
     out.straordinariWeekend = !args.simulazione && out.giorniStraordinari.size > 0;
     const ids = [args.responsabile, regole.caldiGuidaApreChiude ? args.vice : null].filter((x): x is string => !!x);

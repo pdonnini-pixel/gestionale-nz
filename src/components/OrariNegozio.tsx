@@ -83,7 +83,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [haRiempi, setHaRiempi] = useState(false);
   // colonne della migration 399: dove mancano (tenant Made) le due scelte non si mostrano e non si salvano
   const [haProva, setHaProva] = useState(false);
-  // colonne della migration 403 (riposi, straordinari pari, scelte dei giorni caldi): come sopra
+  // colonne della migration 405 (riposi, straordinari pari, scelte dei giorni caldi): come sopra
   const [ha403, setHa403] = useState(false);
   // Persone per fascia: quale giorno si sta guardando (0 = i feriali insieme), e se i feriali si scrivono insieme.
   const [giornoFasce, setGiornoFasce] = useState<number>(0);
