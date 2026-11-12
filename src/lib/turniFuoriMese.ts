@@ -9,8 +9,11 @@
 // La regola, per ogni negozio e mese (la stessa della vista del piano settimanale):
 //  - c'e' un piano scelto: valgono i suoi turni, e solo i suoi (quelli settimanali del mese
 //    non si vedono piu');
-//  - non c'e': valgono i turni senza piano (settimanali, a mano, pubblicati); se in quei
-//    giorni non ce ne sono, valgono quelli del piano vero piu' recente, anche se in bozza.
+//  - non c'e': valgono i turni senza piano (settimanali, a mano, pubblicati). Se fra loro non
+//    c'e' una proposta settimanale in bozza, valgono IN PIU' quelli del piano vero piu' recente,
+//    anche se in bozza: un solo turno a mano o pubblicato non nasconde piu' il piano del mese
+//    (revisore, 12/11/2026). La stessa persona nello stesso giorno si conta una volta sola:
+//    vince il turno senza piano.
 // Le simulazioni non contano mai.
 
 export interface PianoDelMese {
@@ -27,6 +30,10 @@ export interface TurnoConPiano {
   data: string;
   plan_id: string | null;
   outlet_id: string;
+  /** servono per non contare due volte e per riconoscere la proposta settimanale; se mancano si torna alla regola stretta */
+  employee_id?: string | null;
+  origine?: string | null;
+  stato?: string | null;
 }
 
 export function turniCheValgono<T extends TurnoConPiano>(righe: T[], piani: PianoDelMese[]): T[] {
@@ -40,12 +47,17 @@ export function turniCheValgono<T extends TurnoConPiano>(righe: T[], piani: Pian
     const r = recente.get(k);
     if (!r || String(p.created_at ?? '') > String(r.created_at ?? '')) recente.set(k, p);
   }
-  const senzaPiano = new Set(righe.filter((x) => !x.plan_id).map((x) => chiave(x.outlet_id, x.data)));
+  // i mesi con una proposta settimanale (senza piano): li' e' lei lo strato che si vede, il piano
+  // del mese in bozza non si aggiunge. Senza `origine` ogni turno senza piano vale da proposta.
+  const conProposta = new Set(righe.filter((x) => !x.plan_id && (x.origine == null || (x.origine !== 'manuale' && x.stato !== 'pubblicato')))
+    .map((x) => chiave(x.outlet_id, x.data)));
+  const giaContato = new Set(righe.filter((x) => !x.plan_id && x.employee_id).map((x) => `${x.outlet_id}|${x.employee_id}|${x.data}`));
   return righe.filter((x) => {
     const k = chiave(x.outlet_id, x.data);
     const s = scelto.get(k);
     if (s) return x.plan_id === s;
     if (!x.plan_id) return true;
-    return !senzaPiano.has(k) && recente.get(k)?.id === x.plan_id;
+    if (conProposta.has(k) || recente.get(k)?.id !== x.plan_id) return false;
+    return !(x.employee_id && giaContato.has(`${x.outlet_id}|${x.employee_id}|${x.data}`));
   });
 }

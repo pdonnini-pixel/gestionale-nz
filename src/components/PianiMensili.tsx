@@ -53,10 +53,16 @@ type Piano = {
   id: string; nome: string; mese: string; regola_weekend: RegolaWeekend; stato: 'bozza' | 'scelto'; simulazione: boolean;
   riepilogo: Riepilogo; created_by_nome: string | null; scelto_da_nome: string | null; scelto_il: string | null; created_at: string;
 };
+/** «Angelini (settimana del 30/11), …»: chi resta senza il riposo di legge */
+const testoSenzaRiposo = (x: { nome: string; lunedi: string }[]) =>
+  x.map((r) => `${r.nome} (settimana del ${Number(r.lunedi.slice(8))}/${Number(r.lunedi.slice(5, 7))})`).join(', ');
+
 type Riepilogo = {
   oreScoperte?: number; oreRiserva?: number; straordinario?: number; fonte?: string; turni?: number;
   /** ore in cui il negozio resta senza nessuno (piani calcolati dal 30/10/2026; fino all'11/11/2026 contavano anche le pause) */
   oreVuote?: number;
+  /** chi resta senza il giorno di riposo di legge, e in quale settimana (piani calcolati dal 12/11/2026) */
+  senzaRiposo?: { nome: string; lunedi: string }[];
   persone?: EsitoPianoMese['persone'];
   /** il mese settimana per settimana (piani calcolati dal 28/10/2026) */
   settimane?: SettimanaPiano[];
@@ -296,7 +302,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       // Settimana intera anche a cavallo di due mesi (Patrizio, 28/10/2026): i
       // turni veri dei giorni dell'altro mese (piano scelto, piano settimanale,
       // turni a mano, in qualunque negozio) tolgono ore alla settimana.
-      supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, outlet_id').eq('company_id', companyId)
+      supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, outlet_id, origine, stato').eq('company_id', companyId)
         .in('data', tutte.filter((d) => !d.startsWith(mese))).neq('stato', 'annullato'),
     ]);
     const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
@@ -338,8 +344,13 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const mesiFuori = [...new Set(tutte.filter((d) => !d.startsWith(mese)).map((d) => `${d.slice(0, 7)}-01`))];
     const pianiFuori = mesiFuori.length
       ? await supabase.from('shift_plans').select('id, outlet_id, mese, stato, simulazione, created_at').eq('company_id', companyId).in('mese', mesiFuori)
-      : { data: [] as PianoDelMese[] };
-    const righeFuori = (fuori.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null; outlet_id: string }[]) ?? [];
+      : { data: [] as PianoDelMese[], error: null };
+    // Senza i turni e i piani dell'altro mese la settimana a cavallo si conterebbe alla cieca
+    // (riposo di legge, ore di contratto): meglio nessun piano che un piano sbagliato.
+    if (fuori.error || pianiFuori.error) {
+      throw new Error(`non riesco a leggere i turni dei giorni dell'altro mese (${(fuori.error ?? pianiFuori.error)?.message ?? 'errore'}): riprova fra poco`);
+    }
+    const righeFuori = (fuori.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null; outlet_id: string; origine: string | null; stato: string | null }[]) ?? [];
     for (const x of turniCheValgono(righeFuori, (pianiFuori.data as PianoDelMese[] | null) ?? [])) {
       const m = oreFuoriMese.get(x.employee_id) ?? new Map<string, number>();
       m.set(x.data, (m.get(x.data) ?? 0) + oreLavorate({ inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 }));
@@ -474,6 +485,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         straordinario: Object.values(esito.persone).reduce((a, p) => a + p.straordinario, 0),
         fonte: b.fonte,
         turni: esito.turni.length,
+        ...(esito.senzaRiposo?.length ? { senzaRiposo: esito.senzaRiposo.map((x) => ({ nome: nomePersona(dati.schede.find((q) => q.id === x.employeeId) ?? { nome: '', cognome: '' }), lunedi: x.lunedi })) } : {}),
         ...(senzaFerie ? { senzaFerie: true } : {}),
         settimane: esito.settimane,
         persone: esito.persone,
@@ -518,6 +530,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       if (liberi.length) {
         const { error } = await supabase.from('shift_plan_weekend_off').insert(liberi);
         if (error) throw error;
+      }
+      if (riepilogo.senzaRiposo?.length) {
+        toast({ type: 'error', duration: 15000, message: `Attenzione: senza giorno di riposo ${testoSenzaRiposo(riepilogo.senzaRiposo)}. A toglierlo sono turni messi a mano, pubblicati o dell'altro mese: il sistema non li tocca, sistemali tu.` });
       }
       toast({ type: 'success', message: `${ipotesi ? 'Simulazione' : 'Piano'} creat${ipotesi ? 'a' : 'o'}: ${esito.turni.length} turni, ${fmt(esito.oreScoperte)} ore sotto MODA nel mese${riepilogo.straordinario ? `, ${fmt(riepilogo.straordinario)} ore di straordinario` : ''}.` });
       // I giorni liberi scelti dal sistema per chi non ne aveva: si salvano, cosi' restano gli stessi il mese dopo.
@@ -1162,6 +1177,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                     <span className="ml-1 text-xs font-normal text-slate-500">{scoperte > 0.25 ? 'ore sotto MODA' : 'tutto il mese'}</span>
                   </p>
                   {vuote > 0 && <p className="text-xs font-semibold text-red-700">{fmt(vuote)} h con il negozio vuoto: vedi la riga «In negozio»</p>}
+                  {!!p.riepilogo.senzaRiposo?.length && <p className="text-xs font-semibold text-red-700">Senza giorno di riposo: {testoSenzaRiposo(p.riepilogo.senzaRiposo)}</p>}
                   {p.riepilogo.settimane?.length ? (() => {
                     // Le ore scoperte settimana per settimana, a colpo d'occhio.
                     const w = p.riepilogo.settimane;
@@ -1356,6 +1372,11 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
                 <span className={`px-2 py-1 rounded-md ${(pianoAperto.riepilogo.oreScoperte ?? 0) > 0.25 ? 'bg-red-50 text-red-800' : 'bg-emerald-50 text-emerald-800'}`}>
                   {(pianoAperto.riepilogo.oreScoperte ?? 0) > 0.25 ? `${fmt(pianoAperto.riepilogo.oreScoperte)} ore sotto MODA nel mese` : 'Turni in linea con MODA'}
                 </span>
+                {!!pianoAperto.riepilogo.senzaRiposo?.length && (
+                  <span className="px-2 py-1 rounded-md bg-red-600 text-white font-semibold">
+                    Senza giorno di riposo (per legge ne serve uno a settimana): {testoSenzaRiposo(pianoAperto.riepilogo.senzaRiposo)}
+                  </span>
+                )}
                 {(pianoAperto.riepilogo.oreRiserva ?? 0) > 0 && <span className="px-2 py-1 rounded-md bg-slate-100 text-slate-700">{fmt(pianoAperto.riepilogo.oreRiserva)} ore a chiamata</span>}
                 {(pianoAperto.riepilogo.straordinario ?? 0) > 0.25 && <span className="px-2 py-1 rounded-md bg-amber-50 text-amber-800">{fmt(pianoAperto.riepilogo.straordinario)} ore di straordinario</span>}
               </div>

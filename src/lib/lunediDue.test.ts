@@ -8,7 +8,7 @@ import {
 } from './turni';
 import { fabbisognoDaTraffico, almenoDuePersone, tettoDelLunedi, pianificaMese } from './pianoMensile';
 import {
-  ottimizzaSettimana, sceltePerLaSettimana, derogheSettimana, coppia, coppiaDelGiorno, coppieDeiLunedi, straordinariDaRiscrivere, type TurnoSalvato,
+  ottimizzaSettimana, sceltePerLaSettimana, derogheSettimana, senzaRiposoDiLegge, coppia, coppiaDelGiorno, coppieDeiLunedi, straordinariDaRiscrivere, type TurnoSalvato,
 } from './ottimizzaTurni';
 import { personaAllaData, presenzaNeiTurni, type SchedaPersona, type EventoOrganico } from './organico';
 
@@ -131,6 +131,45 @@ describe('il lunedì a due persone', () => {
     for (const id of ['bea', 'carla', 'dora']) expect(giorniDi(id)).toBeLessThanOrEqual(6);
     for (const g of giorni) expect(scopertureDelGiorno({ ...g, fabbisogno: g.fabbisogno.map((x) => Math.min(x, 1)) }, turni)).toEqual([]);
   }, 60_000);
+
+  it('senza soluzione: turni fissi che da soli tolgono il riposo non bloccano il resto, e a quella persona non si aggiunge niente', () => {
+    // pezzo da martedì a domenica: anna ha lavorato il lunedì dell'altro mese e ha sei turni a mano
+    const giorni = settimana('2026-11-30').slice(1);
+    const t = (employeeId: string, data: string, inizio: string, fine: string): Turno => ({ employeeId, data, inizio, fine, pausaMinuti: 0 });
+    const fissi = giorni.map((g) => t('anna', g.data, '10:00', '14:00'));
+    // partenza a spezzoni per le altre: bea al lavoro tutti e sei i giorni più il lunedì già fatto
+    const partenza = giorni.flatMap((g) => [t('bea', g.data, '12:00', '16:00'), t('carla', g.data, '14:00', '18:00'), t('dora', g.data, '16:00', '20:00')]);
+    const turni = ottimizzaSettimana(giorni, partenza, persone(), regole, {
+      guida: ['anna', 'bea'], giorniGia: new Map([['anna', 1], ['bea', 1]]),
+      ...sceltePerLaSettimana({ giorni, regole, responsabile: 'anna', vice: 'bea', giorniFuori: 1 }),
+    }, fissi);
+    // il motore non restituisce i turni di anna (sono fissi) e non gliene aggiunge
+    expect(turni.filter((x) => x.employeeId === 'anna')).toEqual([]);
+    // le altre non restano com'erano: la settimana è stata rifatta, bea ha il suo riposo
+    const giorniDi = (id: string) => new Set(turni.filter((x) => x.employeeId === id).map((x) => x.data)).size;
+    expect(giorniDi('bea')).toBeLessThanOrEqual(5);
+    expect(turni).not.toEqual(partenza);
+    // e la deroga lo dice, anche se a video c'è solo un pezzo di settimana
+    const deroghe = derogheSettimana({
+      giorni, turni: [...turni, ...fissi], persone: persone().map((p) => ({ ...p, nome: p.id })), regole,
+      giorniGia: new Map([['anna', 1], ['bea', 1]]),
+    });
+    expect(deroghe.filter((d) => d.regola === 'troppi_giorni').map((d) => d.employeeId)).toEqual(['anna']);
+  }, 60_000);
+
+  it('la deroga del riposo di legge su un pezzo di settimana: serve sapere i giorni dell\'altro mese', () => {
+    const giorni = settimana('2026-11-30').slice(1); // da martedì 1 a domenica 6 dicembre
+    const t = (employeeId: string, data: string): Turno => ({ employeeId, data, inizio: '10:00', fine: '18:00', pausaMinuti: 0 });
+    const turni = giorni.map((g) => t('anna', g.data));
+    const args = { giorni, turni, persone: persone().map((p) => ({ ...p, nome: p.id })), regole };
+    const senza = (gia?: Map<string, number>) => derogheSettimana({ ...args, giorniGia: gia }).filter((d) => d.regola === 'troppi_giorni' && /riposo/.test(d.testo));
+    expect(senza(new Map([['anna', 1]])).map((d) => d.employeeId)).toEqual(['anna']); // 6 + il lunedì = 7 su 7
+    expect(senza(new Map([['anna', 0]]))).toEqual([]);                                   // il lunedì ha riposato
+    expect(senza()).toEqual([]);                                                          // senza i giorni dell'altro mese non si giudica
+    expect(senzaRiposoDiLegge(7, 7)).toBe(true);
+    expect(senzaRiposoDiLegge(7, 6)).toBe(false);
+    expect(senzaRiposoDiLegge(3, 0, 4)).toBe(false); // chi nel pezzo non lavora non si segnala
+  });
 
   it('la deroga: responsabile e vice insieme il lunedì', () => {
     const giorni = settimana('2026-11-16');

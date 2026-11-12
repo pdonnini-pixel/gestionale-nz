@@ -437,15 +437,20 @@ function costo(q: Quadro, st: Stato): number {
       // mese i giorni dell'altro mese non si conoscono tutti, e il conto spingerebbe a far lavorare tutte
       else if (q.settimanaIntera) c += (riposi - q.riposiMin) * (riposi - q.riposiMin) * PESI.riposoInPiu;
     }
+    // Vincoli duri. Se a romperli sono gia' da soli i turni che il motore non puo' toccare (a mano,
+    // pubblicati, trasferte, giorni lavorati nell'altro mese) la settimana non e' «impossibile»:
+    // a quella persona non si aggiunge niente (`suoi` = 0) e il resto si sistema lo stesso. Fino al
+    // 12/11/2026 in quel caso il motore lasciava tutta la proposta grezza (revisore).
+    const suoi = giorniLavoro[p] - q.giorniFissi[p];
     // per legge almeno un giorno di riposo nella settimana intera
-    if (q.giorniSettimana >= 7 && giorniLavoro[p] > 7 - RIPOSO_LEGALE) return Infinity;
+    if (suoi > 0 && q.giorniSettimana >= 7 && giorniLavoro[p] > 7 - RIPOSO_LEGALE) return Infinity;
     if (oltre > 1e-9) {
       // oltre il contratto solo con le ore dei giorni di evento, piu' quelle che la partenza
       // aveva gia' fuori dagli eventi (straordinari ammessi, anticipo a cavallo del mese)
-      if (oltre - oreEvento[p] > q.oltreLibero[p] + 1e-9) return Infinity;
+      if (suoi > 0 && oltre - oreEvento[p] > q.oltreLibero[p] + 1e-9) return Infinity;
       c += oltre * PESI.straordinario + oltre * oltre * PESI.straordinarioQuadro;
     }
-    if (giorniLavoro[p] > regole.giorniLavoroMax) return Infinity;
+    if (suoi > 0 && giorniLavoro[p] > regole.giorniLavoroMax) return Infinity;
   }
   return c;
 }
@@ -1063,11 +1068,14 @@ export function ottimizzaSettimana(
   // lavorati nell'altro mese, ore oltre il contratto nei feriali): fino al 12/11/2026 restava com'era,
   // e a Roma Soratte la settimana dal 30/11 al 6/12 usciva con la responsabile al lavoro 7 giorni su 7
   // e i feriali a spezzoni da 4 ore. Ora si cerca comunque una settimana che il conto accetta,
-  // partendo da zero; solo se non esiste (troppi turni fissi) i turni restano quelli di partenza.
+  // partendo da zero. Dove a togliere il riposo sono gia' i turni fissi (a mano, pubblicati, giorni
+  // dell'altro mese) il conto non rifiuta piu': a quella persona non si aggiunge niente, il resto si
+  // sistema, e la pagina lo segnala (`derogheSettimana`, `senzaRiposo` nel piano del mese).
   const partenzaRifiutata = !Number.isFinite(c0);
+  // la settimana costruita da zero: seconda partenza della ricerca, e l'unica se la prima e' rifiutata
+  const daZero = costruisci(q);
   if (partenzaRifiutata) {
-    const daCapo = costruisci(q);
-    if (!Number.isFinite(costo(q, daCapo))) return turni;
+    if (!Number.isFinite(costo(q, daZero))) return turni;
     c0 = Infinity;
   }
   // il conto costa in proporzione alle persone: i giri calano con loro, cosi' il tempo resta quello
@@ -1076,7 +1084,6 @@ export function ottimizzaSettimana(
   const seme = semeDi(`${giorni[0].data}|${persone.map((p) => p.id).join(',')}`);
   let meglio = { st: partenza, c: c0 };
   // due partenze: i turni gia' proposti e la settimana costruita da zero
-  const daZero = costruisci(q);
   for (const [k, inizio] of [partenza, daZero].entries()) {
     const esito = cerca(q, inizio, giri, casuale(seme + k * 7919));
     if (esito.c < meglio.c - 1e-9) meglio = esito;
@@ -1108,6 +1115,18 @@ export interface Deroga {
  * le modifiche a mano restano possibili, ma la deroga si deve vedere). I nomi
  * servono solo per il testo.
  */
+/**
+ * Vero se la persona resta senza il giorno di riposo di legge nella settimana da lunedi' a domenica.
+ * `giorniDelPezzo` sono i giorni a video (7, o meno a cavallo di due mesi), `lavorati` i suoi giorni
+ * di lavoro in quei giorni, `gia` quelli lavorati nei giorni dell'altro mese. Senza `gia` un pezzo
+ * di settimana non si puo' giudicare.
+ */
+export function senzaRiposoDiLegge(giorniDelPezzo: number, lavorati: number, gia?: number | null): boolean {
+  if (lavorati <= 0) return false;
+  if (giorniDelPezzo >= 7) return lavorati > 7 - RIPOSO_LEGALE;
+  return gia != null && lavorati + gia > 7 - RIPOSO_LEGALE;
+}
+
 export function derogheSettimana(args: {
   giorni: GiornoPiano[];
   turni: Turno[];
@@ -1119,6 +1138,9 @@ export function derogheSettimana(args: {
   riposi?: { min?: number; preferiti?: Map<string, number[]>; mai?: Map<string, number[]> };
   /** le coppie dei lunedi' precedenti, dalla piu' recente (lunedi' a due persone, 12/11/2026) */
   lunediPrima?: string[];
+  /** pezzo di settimana a cavallo di due mesi: i giorni lavorati da ognuno nei giorni dell'altro mese.
+   *  Con lei il riposo di legge si controlla sulla settimana intera anche se `giorni` e' solo un pezzo. */
+  giorniGia?: Map<string, number>;
 }): Deroga[] {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const out: Deroga[] = [];
@@ -1182,7 +1204,7 @@ export function derogheSettimana(args: {
     const suoi = args.turni.filter((t) => t.employeeId === p.id && date.has(t.data));
     const lavorati = new Set(suoi.map((t) => t.data)).size;
     if (lavorati > regole.giorniLavoroMax) out.push({ regola: 'troppi_giorni', data: null, employeeId: p.id, testo: `${p.nome} lavora più di ${regole.giorniLavoroMax} giorni` });
-    else if (args.giorni.length >= 7 && lavorati > 7 - RIPOSO_LEGALE) out.push({ regola: 'troppi_giorni', data: null, employeeId: p.id, testo: `${p.nome} non ha un giorno di riposo nella settimana: per legge ne serve almeno uno` });
+    else if (senzaRiposoDiLegge(args.giorni.length, lavorati, args.giorniGia?.get(p.id))) out.push({ regola: 'troppi_giorni', data: null, employeeId: p.id, testo: `${p.nome} non ha un giorno di riposo nella settimana: per legge ne serve almeno uno` });
     else if (args.giorni.length >= 7 && args.riposi?.min && 7 - lavorati < args.riposi.min && lavorati > 0) {
       out.push({ regola: 'riposi', data: null, employeeId: p.id, testo: `${p.nome} ha ${7 - lavorati} ${7 - lavorati === 1 ? 'giorno' : 'giorni'} di riposo: il negozio ne chiede ${args.riposi.min}` });
     }

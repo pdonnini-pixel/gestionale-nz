@@ -24,7 +24,7 @@ import {
   ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
-import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, coppiaDelGiorno, sceltePerLaSettimana, ripartisciStraordinari, type RegoleNuove } from './ottimizzaTurni';
+import { ottimizzaSettimana, senzaRiposoDiLegge, scegliGiorniLiberi, coppieFeriali, coppiaDelGiorno, sceltePerLaSettimana, ripartisciStraordinari, type RegoleNuove } from './ottimizzaTurni';
 
 export { giornoPieno };
 
@@ -1137,6 +1137,10 @@ export interface EsitoPianoMese {
   giorniLiberi?: Map<string, number>;
   /** ore di straordinario scritte sui turni dei giorni caldi (stessi oggetti di `turni`), a mezz'ore */
   straordinariTurni?: Map<Turno, number>;
+  /** chi resta senza il giorno di riposo di legge in una settimana (lunedi' della settimana), contando
+   *  turni a mano, pubblicati e i giorni lavorati nell'altro mese: il motore non aggiunge turni a chi
+   *  e' gia' senza riposo, ma se a toglierlo sono i turni fissi va detto a chi guarda (12/11/2026) */
+  senzaRiposo?: { employeeId: string; lunedi: string }[];
 }
 
 /**
@@ -1545,7 +1549,18 @@ function pianificaMeseConRegola(args: {
       pianificate, coperte, inPiu: Math.max(0, pianificate - coperte), nonUsate, scoperte,
     };
   });
+  const senzaRiposo: { employeeId: string; lunedi: string }[] = [];
+  for (const lun of settimane) {
+    const tutta = giorniDellaSettimana(lun);
+    const date = tutta.filter(nelMese);
+    for (const p of args.persone) {
+      const lavorati = new Set([...turni, ...(args.fissi ?? [])].filter((t) => t.employeeId === p.id && date.includes(t.data)).map((t) => t.data)).size;
+      const gia = tutta.filter((d) => !nelMese(d) && (args.oreFuoriMese?.get(p.id)?.get(d) ?? 0) > 0).length;
+      if (senzaRiposoDiLegge(date.length, lavorati, gia)) senzaRiposo.push({ employeeId: p.id, lunedi: lun });
+    }
+  }
   return {
+    senzaRiposo,
     turni: turni.sort((a, b) => a.data.localeCompare(b.data) || a.inizio.localeCompare(b.inizio)),
     weekendLiberi,
     scoperture,

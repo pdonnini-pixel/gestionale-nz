@@ -1326,6 +1326,25 @@ Patrizio ha creato novembre e dicembre con il codice appena pubblicato e ha vist
    Misura su Roma Soratte: 9/11 Gentili-Angelini, 16/11 Bianchi-Basile, 23/11 Bianchi-Angelini,
    30/11 Gentili-Basile, 7/12 Gentili-Angelini.
 
+4. **Il riposo che non si può garantire non passa in silenzio** (revisore, 12/11/2026 sera).
+   - Nel conto (`costo` in `ottimizzaTurni.ts`) i vincoli duri (riposo di legge, giorni massimi, ore
+     oltre il contratto) rifiutano solo se la persona ha turni che il motore può toccare (`suoi` > 0).
+     Se a romperli sono già da soli i turni fissi (a mano, pubblicati, trasferte, giorni lavorati
+     nell'altro mese) la settimana non è più «impossibile»: a quella persona non si aggiunge niente,
+     il resto si sistema. Prima in quel caso il motore lasciava tutta la proposta grezza.
+   - `senzaRiposoDiLegge(giorniDelPezzo, lavorati, gia)` e `derogheSettimana({ giorniGia })`: la
+     deroga «non ha un giorno di riposo» compare anche sui pezzi di settimana a cavallo di mese
+     (prima scattava solo con sette giorni a video). In rosso in «Da guardare».
+   - `EsitoPianoMese.senzaRiposo` (persona e lunedì della settimana): il piano del mese lo scrive nel
+     riepilogo e lo mostra in rosso sulla scheda del piano, nel piano aperto e nell'avviso di creazione.
+   - Lettura dei turni e dei piani dell'altro mese fallita: errore a video, nessun piano creato e
+     nessuna proposta settimanale (`caricoFallito` in `PianoTurni.tsx`). Meglio niente che alla cieca.
+   - `turniCheValgono`: senza piano scelto i turni senza piano contano sempre; se fra loro non c'è
+     una proposta settimanale in bozza si aggiungono quelli del piano più recente, senza contare due
+     volte la stessa persona nello stesso giorno. Un turno a mano non nasconde più il piano del mese.
+   - Misura sugli otto negozi, novembre e dicembre, contro il commit prima (21d52e0): zero turni
+     diversi; nessuno 7 su 7 in nessuna settimana, compresa quella a cavallo novembre-dicembre.
+
 Misura sugli altri sette negozi, novembre e dicembre, contro il codice pubblicato: novembre
 identico ovunque; dicembre identico a Barberino, Torino, Valdichiana e Valmontone; cambia a
 Brugnato, Franciacorta e Palmanova, dove la prima settimana aveva persone senza riposo (ore
