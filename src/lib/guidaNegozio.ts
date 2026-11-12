@@ -117,3 +117,46 @@ export function lunediScopertiDaAssenze(args: ArgLunediScopertiDaAssenze): strin
   }
   return lunediAperti(args.date, args.chiusi).filter((d) => senzaResp.has(d) && senzaVice.has(d));
 }
+
+// ── Il ripiego (Patrizio, 12/11/2026) ────────────────────────────────────
+
+export interface PersonaPerGuida {
+  id: string;
+  /** ore settimanali di contratto */
+  ore: number;
+  /** data di assunzione AAAA-MM-GG; chi non ce l'ha viene dopo */
+  assunta?: string | null;
+}
+
+export interface GuidaConRipiego {
+  responsabile: string | null;
+  vice: string | null;
+  /** vero dove la persona l'ha scelta il sistema e non e' stata ancora caricata */
+  provvisoria: { responsabile: boolean; vice: boolean };
+}
+
+/**
+ * Responsabile e vice del negozio, con la scelta provvisoria dove mancano: finche' non sono
+ * caricate il sistema usa chi ha piu' ore di contratto e, a parita', chi e' assunta da piu'
+ * tempo (a parita' anche di data, l'ordine dell'identificativo, cosi' la scelta non cambia da
+ * una volta all'altra). La prima libera fa da responsabile, la seconda da vice. Chi e' gia'
+ * caricata resta al suo posto.
+ */
+export function guidaConRipiego(responsabileId: Id, viceId: Id, persone: readonly PersonaPerGuida[]): GuidaConRipiego {
+  const ordinate = [...persone].filter((p) => p.ore > 0).sort((a, b) =>
+    b.ore - a.ore
+    || (a.assunta ?? '9999-12-31').localeCompare(b.assunta ?? '9999-12-31')
+    || a.id.localeCompare(b.id));
+  let responsabile = responsabileId && persone.some((p) => p.id === responsabileId) ? responsabileId : null;
+  let vice = viceId && viceId !== responsabile && persone.some((p) => p.id === viceId) ? viceId : null;
+  const provvisoria = { responsabile: false, vice: false };
+  if (!responsabile) {
+    responsabile = ordinate.find((p) => p.id !== vice)?.id ?? null;
+    provvisoria.responsabile = !!responsabile;
+  }
+  if (!vice) {
+    vice = ordinate.find((p) => p.id !== responsabile)?.id ?? null;
+    provvisoria.vice = !!vice;
+  }
+  return { responsabile, vice, provvisoria };
+}

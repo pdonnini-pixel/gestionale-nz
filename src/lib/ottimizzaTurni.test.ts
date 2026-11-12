@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
-  costruisciGiorni, giorniDellaSettimana, giornoIso, giornoPieno, minuti, oreLavorate, oreScoperte, pausaMinimaPerPresenza, pausaPagataDelTurno, pausaPer, presenzaGiusta, proponiSettimana, regoleDaRiga,
+  costruisciGiorni, giorniDellaSettimana, giornoIso, minuti, opzioniGiorni, oreLavorate, oreScoperte, pausaMinimaPerPresenza, pausaPagataDelTurno, pausaPer, presenzaGiusta, proponiSettimana, regoleDaRiga,
   type GiornoPiano, type PersonaTurni, type Turno,
 } from './turni';
 import { fabbisognoDaTraffico, almenoDuePersone } from './pianoMensile';
-import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, coppia, derogheSettimana, ripartisciStraordinari } from './ottimizzaTurni';
+import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, coppia, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana, contoSettimana } from './ottimizzaTurni';
 
 // Un negozio inventato sul modello di quello da cui sono nate le regole
 // (Patrizio, 11/11/2026): aperto 10-20, fasce 1-2-1, quattro persone.
@@ -285,42 +285,191 @@ describe('negozio in prova: pausa corta pagata e giorni a massima intensità', (
     expect(pausaPagataDelTurno(t('10:00', '18:00'), regole)).toBe(0);
   });
 
-  const date = giorniDellaSettimana('2026-11-23');
-  const eventi = [{ nome: 'Black Friday', data_dal: '2026-11-27', data_al: '2026-11-29', outlet_ids: null, persone_extra: 0, blocca_ferie: true, straordinari: true }];
-  const base = costruisciGiorni(date, orari, fasce, [], eventi);
-  const atteso = new Map(date.map((d) => { const g = giornoIso(d); return [d, [...Array(10).fill(0), ...ingressi[g >= 5 ? g : 1]]] as [string, number[]]; }));
-  const maxP = new Map(date.map((d) => [d, 4]));
-  const giorni = fabbisognoDaTraffico(base, atteso, pilota, maxP);
+});
 
-  it('sabato, domenica e giorni di evento: una persona la prima mezz\'ora, tutte fino a un\'ora dalla chiusura, poi una', () => {
-    const forte = [1, ...Array(17).fill(4), 1, 1];
-    for (const i of [4, 5, 6]) expect(giorni[i].fabbisogno).toEqual(forte);
-    // il giovedi' resta sulle fasce e sul traffico
-    expect(Math.max(...giorni[3].fabbisogno)).toBeLessThan(4);
-    // dove la scelta e' spenta il sabato segue il traffico
-    expect(fabbisognoDaTraffico(base, atteso, regole, maxP)[5].fabbisogno).not.toEqual(forte);
+// ── Le regole del 12/11/2026: giorni caldi sulle fasce, responsabile e vice, riposi, straordinari pari ──
+describe('regole del 12/11/2026: giorni caldi, apertura e chiusura, riposi equilibrati', () => {
+  const m = (o: string) => minuti(o);
+  // il negozio di prova: fasce del sabato e della domenica 1 · 2 · 4 · 1, quattro persone
+  const fasceCalde = [
+    ...fasce.filter((f) => f.giorno <= 5),
+    ...[6, 7].flatMap((giorno) => [
+      { giorno, dalle: '10:00', alle: '10:30', persone: 1, origine: 'manuale' }, { giorno, dalle: '10:30', alle: '11:00', persone: 2, origine: 'manuale' },
+      { giorno, dalle: '11:00', alle: '19:00', persone: 4, origine: 'manuale' }, { giorno, dalle: '19:00', alle: '20:00', persone: 1, origine: 'manuale' }]),
+  ];
+  const riga = {
+    turno_min_ore: 4, turno_max_ore: 10, pausa_oltre_ore: 6, pausa_minuti: 10, pausa_lunga_oltre_ore: 8, pausa_lunga_minuti: 30,
+    giorni_lavoro_max: 6, soglia_ingressi_feriali: 25, soglia_ingressi_weekend: 35, due_persone: false,
+    pausa_corta_pagata: true, giorni_pieni: true,
+  };
+  const pilota = regoleDaRiga({ ...riga, riposi_min_settimana: 2, straordinari_pari: true, caldi_fasce_festivi: 'sabato', caldi_guida_apre_chiude: true, caldi_ore_apertura: 9 });
+  const eventi = [{ nome: 'Black Friday', data_dal: '2026-11-27', data_al: '2026-11-29', outlet_ids: null, persone_extra: 0, blocca_ferie: true, straordinari: true }];
+  const maxP = (date: string[]) => new Map(date.map((d) => [d, 4]));
+  // traffico basso, cosi' comandano le fasce: nei test delle fasce MODA non deve aggiungere niente
+  const pochi = (date: string[]) => new Map(date.map((d) => [d, [...Array(10).fill(0), ...Array(10).fill(10)]] as [string, number[]]));
+  const calda = [1, 2, ...Array(16).fill(4), 1, 1];
+
+  it('le scelte nuove si leggono dalla riga; assenti restano non definite', () => {
+    expect(pilota).toMatchObject({ riposiMinSettimana: 2, straordinariPari: true, caldiFasceFestivi: 6, caldiGuidaApreChiude: true, caldiOreApertura: 9 });
+    expect(regole.riposiMinSettimana).toBeUndefined();
+    expect(regole.straordinariPari).toBeUndefined();
+    expect(opzioniGiorni(regole)).toMatchObject({ caldi: false, tutti: false, straordinari: false });
+    expect(opzioniGiorni(pilota)).toMatchObject({ caldi: true, tutti: true, straordinari: true, fasceFestivi: 6 });
+    // per legge mai meno di un riposo, qualunque cosa sia scritta
+    expect(regoleDaRiga({ ...riga, riposi_min_settimana: 0 }).riposiMinSettimana).toBe(1);
   });
 
-  it('la settimana del Black Friday: tutte presenti nei tre giorni, responsabile 10-19, ore sulle mezz\'ore', () => {
-    const prima = almenoDuePersone(giorni, proponiSettimana({ giorni, persone: persone(), regole: pilota, fissi: [] }).turni, persone(), [], pilota, []);
-    const dopo = ottimizzaSettimana(giorni, prima, persone(), pilota, {
-      giornoLibero, guida: [], responsabile: 'anna', straordinariWeekend: true,
-      giorniPieni: new Set(giorni.filter((g) => giornoPieno(g)).map((g) => g.data)),
-    });
-    expect(oreScoperte(giorni, dopo)).toBe(0);
-    for (const d of date.slice(4)) {
-      expect(new Set(dopo.filter((x) => x.data === d).map((x) => x.employeeId)).size).toBe(4);
-      expect(dopo.find((x) => x.data === d && x.employeeId === 'anna')).toMatchObject({ inizio: '10:00', fine: '19:00', pausaMinuti: 30 });
-      // all'apertura una persona sola per mezz'ora
-      expect(dopo.filter((x) => x.data === d && x.inizio === '10:00').length).toBe(1);
-    }
-    for (const x of dopo) expect((oreLavorate(x) * 2) % 1).toBe(0);
-    // nei feriali nessuno supera il contratto: lo straordinario sta nei giorni forti
+  it('giorni caldi: le persone le decidono le fasce del sabato e della domenica, non piu\' lo schema fisso', () => {
+    const date = giorniDellaSettimana('2026-11-16');
+    const base = costruisciGiorni(date, orari, fasceCalde, [], [], null, opzioniGiorni(pilota));
+    const g = fabbisognoDaTraffico(base, pochi(date), pilota, maxP(date));
+    expect(g[5].fabbisogno).toEqual(calda);
+    expect(g[6].fabbisogno).toEqual(calda);
+    expect(g[5]).toMatchObject({ caldo: true, tutti: true, straordinariCaldo: true, guida: true });
+    expect(g[2].caldo).toBe(false);
+    // MODA aggiunge sopra le fasce anche nei giorni caldi: 110 ingressi alle 10 con soglia 35 fanno tre persone
+    const tanti = new Map(pochi(date));
+    tanti.set(date[5], [...Array(10).fill(0), 110, ...Array(9).fill(10)]);
+    expect(fabbisognoDaTraffico(base, tanti, pilota, maxP(date))[5].fabbisogno.slice(0, 3)).toEqual([3, 3, 4]);
+  });
+
+  it('festivi e giorni di evento in un feriale usano le fasce del sabato (o della domenica, se il negozio lo sceglie)', () => {
+    const date = giorniDellaSettimana('2026-11-23');
+    const diverse = fasceCalde.map((f) => (f.giorno === 7 && f.persone === 4 ? { ...f, persone: 3 } : f));
+    const venerdi = (r: typeof pilota) => fabbisognoDaTraffico(costruisciGiorni(date, orari, diverse, [], eventi, null, opzioniGiorni(r)), pochi(date), r, maxP(date))[4];
+    expect(venerdi(pilota).fabbisogno).toEqual(calda);
+    expect(venerdi(regoleDaRiga({ ...riga, caldi_fasce_festivi: 'domenica' })).fabbisogno).toEqual([1, 2, ...Array(16).fill(3), 1, 1]);
+    // l'Immacolata 2026 e' un martedi': festivo, quindi caldo
+    const dic = giorniDellaSettimana('2026-12-07');
+    expect(fabbisognoDaTraffico(costruisciGiorni(dic, orari, fasceCalde, [], [], null, opzioniGiorni(pilota)), pochi(dic), pilota, maxP(dic))[1].fabbisogno).toEqual(calda);
+  });
+
+  it('negozio con i giorni caldi spenti: festivi ed eventi seguono le fasce del loro giorno, come prima', () => {
+    const date = giorniDellaSettimana('2026-11-23');
+    const prima = costruisciGiorni(date, orari, fasceCalde, [], eventi);
+    const dopo = costruisciGiorni(date, orari, fasceCalde, [], eventi, null, opzioniGiorni(regole));
+    expect(dopo.map((g) => g.fabbisogno)).toEqual(prima.map((g) => g.fabbisogno));
+    expect(dopo.map((g) => g.minimo)).toEqual(prima.map((g) => g.minimo));
+    expect(dopo.every((g) => !g.caldo && !g.tutti && !g.straordinariCaldo && !g.guida)).toBe(true);
+    expect(fabbisognoDaTraffico(dopo, pochi(date), regole, maxP(date)).map((g) => g.fabbisogno))
+      .toEqual(fabbisognoDaTraffico(prima, pochi(date), regole, maxP(date)).map((g) => g.fabbisogno));
+    expect(sceltePerLaSettimana({ giorni: dopo, regole, responsabile: 'anna', vice: 'bea' })).toEqual({});
+  });
+
+  it('giorno speciale singolo: vale come un sabato anche dove i giorni caldi sono spenti', () => {
+    const date = giorniDellaSettimana('2026-11-16');
+    const speciale = [{ nome: 'Apertura serale', data_dal: '2026-11-18', data_al: '2026-11-18', outlet_ids: null, persone_extra: 0, blocca_ferie: false, straordinari: true, tipo: 'giorno' as const }];
+    const g = fabbisognoDaTraffico(costruisciGiorni(date, orari, fasceCalde, [], speciale, null, opzioniGiorni(regole)), pochi(date), regole, maxP(date));
+    expect(g[2].fabbisogno).toEqual(calda);
+    expect(g[2]).toMatchObject({ caldo: true, tutti: true });
+    expect(g[1].caldo).toBe(false);
+  });
+
+  it('periodo speciale: orario, fasce e MODA propri; le persone in piu\' non si sommano alle sue fasce', () => {
+    const date = giorniDellaSettimana('2026-11-23');
+    const periodo = [{
+      nome: 'Black Friday', data_dal: '2026-11-27', data_al: '2026-11-29', outlet_ids: null, persone_extra: 2, blocca_ferie: true, straordinari: false,
+      tipo: 'periodo' as const, regole_origine: 'manuale' as const,
+      regole: { apre: '10:00', chiude: '21:00', fasce: [{ dalle: '10:00', alle: '11:00', persone: 2 }, { dalle: '11:00', alle: '21:00', persone: 3 }], moda: false, tutti: true, straordinari: true, guida: false, riposi_min: 1 },
+    }];
+    const base = costruisciGiorni(date, orari, fasceCalde, [], periodo, null, opzioniGiorni(pilota));
+    expect(base[4]).toMatchObject({ apre: m('10:00'), chiude: m('21:00'), caldo: true, tutti: true, straordinari: true, guida: false, senzaModa: true, fasceEvento: true, riposiMin: 1 });
+    const tanti = new Map(date.map((d) => [d, [...Array(10).fill(0), ...Array(12).fill(400)]] as [string, number[]]));
+    const g = fabbisognoDaTraffico(base, tanti, pilota, maxP(date), new Map(date.map((d) => [d, 2])));
+    // MODA spenta e niente persone in piu': restano le fasce del periodo, anche con 400 ingressi l'ora
+    expect(g[4].fabbisogno).toEqual([2, 2, ...Array(20).fill(3)]);
+    // il giovedi' fuori dal periodo resta normale
+    expect(base[3]).toMatchObject({ chiude: m('20:00'), caldo: false });
+    // i riposi della settimana scendono a quelli del periodo, mai sotto uno
+    expect(sceltePerLaSettimana({ giorni: g, regole: pilota, responsabile: 'anna', vice: 'bea' }).riposi?.min).toBe(1);
+  });
+
+  const settimana = (lunedi: string, ev = eventi) => {
+    const date = giorniDellaSettimana(lunedi);
+    const atteso = new Map(date.map((d) => { const g = giornoIso(d); return [d, [...Array(10).fill(0), ...ingressi[g >= 5 ? g : 1]]] as [string, number[]]; }));
+    return fabbisognoDaTraffico(costruisciGiorni(date, orari, fasceCalde, [], ev, null, opzioniGiorni(pilota)), atteso, pilota, maxP(date));
+  };
+  const sistema = (giorni: GiornoPiano[], extra: Partial<Parameters<typeof ottimizzaSettimana>[4]> = {}, r = pilota) => {
+    const prima = almenoDuePersone(giorni, proponiSettimana({ giorni, persone: persone(), regole: r, fissi: [] }).turni, persone(), [], r, []);
+    const nuove = { guida: ['anna', 'bea'], ...sceltePerLaSettimana({ giorni, regole: r, responsabile: 'anna', vice: 'bea' }), ...extra };
+    return { turni: ottimizzaSettimana(giorni, prima, persone(), r, nuove), nuove };
+  };
+  const riposiDi = (turni: Turno[], id: string) => 7 - new Set(turni.filter((t) => t.employeeId === id).map((t) => t.data)).size;
+
+  it('settimana normale: negozio coperto, tutte nei giorni caldi, due riposi a testa, ore sulle mezz\'ore', () => {
+    const giorni = settimana('2026-11-16');
+    const { turni } = sistema(giorni);
+    expect(oreScoperte(giorni, turni)).toBe(0);
+    for (const d of giorni.slice(5).map((g) => g.data)) expect(new Set(turni.filter((t) => t.data === d).map((t) => t.employeeId)).size).toBe(4);
     for (const id of Object.keys(ORE)) {
-      const feriali = dopo.filter((x) => x.employeeId === id && !date.slice(4).includes(x.data)).reduce((a, x) => a + oreLavorate(x), 0);
+      expect(riposiDi(turni, id)).toBeGreaterThanOrEqual(2);
+      // nei feriali nessuno supera il contratto: lo straordinario sta nei giorni caldi
+      const feriali = turni.filter((t) => t.employeeId === id && giornoIso(t.data) <= 5).reduce((a, t) => a + oreLavorate(t), 0);
       expect(feriali).toBeLessThanOrEqual(ORE[id]);
     }
-  });
+    for (const t of turni) expect((oreLavorate(t) * 2) % 1).toBe(0);
+    // straordinari pari: fra chi ne fa di piu' e chi di meno non passano piu' di tre ore
+    const oltre = Object.keys(ORE).map((id) => Math.max(0, oreDi(turni, id) - ORE[id]));
+    expect(Math.max(...oltre) - Math.min(...oltre)).toBeLessThanOrEqual(3);
+  }, 30_000);
+
+  it('giorni caldi: una fra responsabile e vice apre e resta nove ore, l\'altra chiude, e il giorno dopo si scambiano', () => {
+    const giorni = settimana('2026-11-16');
+    const { turni } = sistema(giorni);
+    const chi = (d: string, inizio: boolean) => ['anna', 'bea'].filter((id) => turni.some((t) => t.employeeId === id && t.data === d && (inizio ? t.inizio === '10:00' && t.fine === '19:00' : t.fine === '20:00')));
+    const [sab, dom] = giorni.slice(5).map((g) => g.data);
+    expect(chi(sab, true).length).toBe(1);
+    expect(chi(dom, true).length).toBe(1);
+    expect(chi(sab, true)[0]).not.toBe(chi(dom, true)[0]);
+    expect(chi(sab, false)).toContain(chi(dom, true)[0]);
+    expect(chi(dom, false)).toContain(chi(sab, true)[0]);
+    // nessuna deroga su apertura e chiusura
+    const der = derogheSettimana({ giorni, turni, persone: persone().map((p) => ({ ...p, nome: p.id })), regole: pilota, guida: { responsabile: 'anna', vice: 'bea' } });
+    expect(der.filter((d) => d.regola === 'domenica_apertura' || d.regola === 'caldo_chiusura')).toEqual([]);
+  }, 30_000);
+
+  it('solo la responsabile, o regola «una apre, l\'altra chiude» spenta: apre sempre lei', () => {
+    const giorni = settimana('2026-11-16');
+    const senzaVice = regoleDaRiga({ ...riga, riposi_min_settimana: 2 });
+    const { turni } = sistema(fabbisognoDaTraffico(costruisciGiorni(giorni.map((g) => g.data), orari, fasceCalde, [], [], null, opzioniGiorni(senzaVice)), new Map(), senzaVice, maxP(giorni.map((g) => g.data))), {}, senzaVice);
+    for (const d of giorni.slice(5).map((g) => g.data)) expect(turni.find((t) => t.employeeId === 'anna' && t.data === d)).toMatchObject({ inizio: '10:00', fine: '19:00' });
+  }, 30_000);
+
+  it('settimana con tre giorni di evento: per legge almeno un riposo a testa, e due se ci stanno', () => {
+    const giorni = settimana('2026-11-23');
+    const { turni } = sistema(giorni);
+    expect(oreScoperte(giorni, turni)).toBe(0);
+    for (const id of Object.keys(ORE)) expect(riposiDi(turni, id)).toBeGreaterThanOrEqual(1);
+    expect(Object.keys(ORE).filter((id) => riposiDi(turni, id) >= 2).length).toBeGreaterThanOrEqual(3);
+    for (const d of giorni.slice(4).map((g) => g.data)) expect(new Set(turni.filter((t) => t.data === d).map((t) => t.employeeId)).size).toBe(4);
+  }, 30_000);
+
+  it('giorni preferiti e giorni in cui non si riposa mai, piu\' di uno a testa', () => {
+    const giorni = settimana('2026-11-16');
+    const riposi = { preferiti: new Map([['carla', [1, 3]], ['dora', [2]]]), mai: new Map([['bea', [1, 4]]]) };
+    const scelte = sceltePerLaSettimana({ giorni, regole: pilota, responsabile: 'anna', vice: 'bea', riposi });
+    const { turni } = sistema(giorni, scelte);
+    const lavora = (id: string, iso: number) => turni.some((t) => t.employeeId === id && giornoIso(t.data) === iso);
+    expect(lavora('carla', 1)).toBe(false);
+    expect(lavora('carla', 3)).toBe(false);
+    expect(lavora('dora', 2)).toBe(false);
+    expect(lavora('bea', 1)).toBe(true);
+    expect(lavora('bea', 4)).toBe(true);
+    expect(oreScoperte(giorni, turni)).toBe(0);
+    // la deroga si vede se a mano si toglie il turno del giorno vietato
+    const der = derogheSettimana({ giorni, turni: turni.filter((t) => !(t.employeeId === 'bea' && giornoIso(t.data) === 4)), persone: persone().map((p) => ({ ...p, nome: p.id })), regole: pilota, guida: { responsabile: 'anna', vice: 'bea' }, riposi: scelte.riposi });
+    expect(der.some((d) => d.regola === 'riposo_vietato' && d.employeeId === 'bea')).toBe(true);
+  }, 30_000);
+
+  it('il conto: due riposi a testa costano meno di tre a una e uno a un\'altra, a parita\' del resto', () => {
+    const giorni = settimana('2026-11-16');
+    const { turni, nuove } = sistema(giorni);
+    expect(contoSettimana(giorni, turni, persone(), pilota, nuove)).toBeLessThan(Infinity);
+    // sei giorni a una persona sono il massimo; sette non passano mai, nemmeno con le regole spente
+    const sette = giorni.map((g) => ({ employeeId: 'anna', data: g.data, inizio: '10:00', fine: '14:00', pausaMinuti: 0 }));
+    expect(contoSettimana(giorni, sette, persone(), pilota, nuove)).toBe(Infinity);
+    expect(contoSettimana(giorni, sette, persone(), regoleDaRiga({ ...riga, giorni_lavoro_max: 7 }), {})).toBe(Infinity);
+  }, 30_000);
 });
 
 describe('ripartisciStraordinari: a ore e mezz\'ore, solo nei giorni forti', () => {

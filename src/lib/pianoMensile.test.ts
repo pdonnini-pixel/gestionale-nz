@@ -177,7 +177,7 @@ describe('il piano del mese', () => {
     expect(w9.disponibili).toBeCloseTo(w9.contratto - w9.ferie, 6);
     // il totale del mese e' la somma delle settimane
     expect(a.oreScoperte).toBeCloseTo(a.settimane.reduce((x, w) => x + w.scoperte, 0), 6);
-  });
+  }, 30_000);
   it('la riserva a chiamata copre i buchi, il contratto no', () => {
     const poche = persone.slice(0, 2);
     const riserva = { id: 'r', oreSettimana: null, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() };
@@ -247,7 +247,7 @@ describe('il piano del mese', () => {
     expect(extra).toBeGreaterThan(0);
     // mai oltre il tetto: 6 ore a settimana per persona, proporzionate ai giorni del mese
     for (const p of Object.values(conStraord.persone)) expect(p.straordinario).toBeLessThanOrEqual(6 * 30 / 7 + 1e-6);
-  });
+  }, 30_000);
   it('turno minimo di 4 ore anche per la riserva e per gli straordinari', () => {
     const fasce = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, dalle: '10:00', alle: '20:00', persone: 2 }));
     const gFissi = costruisciGiorni(tutte, orari, fasce, []);

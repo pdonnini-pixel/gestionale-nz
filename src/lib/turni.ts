@@ -68,7 +68,33 @@ export interface RegoleTurni {
    * sono ammessi in quei giorni.
    */
   giorniPieni?: boolean;
+  // ── Scelte del negozio del 12/11/2026 (migration 403). Assenti = comportamento di prima. ──
+  /**
+   * Riposi che ogni persona deve avere nella settimana, se possibile (Patrizio, 12/11/2026):
+   * distribuiti fra tutte, non tre a una e uno a un'altra. Per legge mai meno di uno, e quello
+   * e' un vincolo duro; questo e' l'obiettivo del negozio (Roma Soratte 2). Dove e' scritto, il
+   * sistema non fissa piu' da solo un giorno libero: il riposo lo decide la turnazione.
+   */
+  riposiMinSettimana?: number;
+  /** straordinari il piu' possibile pari fra tutte (Patrizio, 12/11/2026) */
+  straordinariPari?: boolean;
+  /** nei giorni caldi lavorano tutte, con orari che seguono fasce e MODA (default si' dove `giorniPieni`) */
+  caldiTutti?: boolean;
+  /** nei giorni caldi sono ammessi gli straordinari (default si' dove `giorniPieni`) */
+  caldiStraordinari?: boolean;
+  /** festivi e giorni speciali singoli che cadono in un feriale usano le fasce del sabato (6) o della domenica (7) */
+  caldiFasceFestivi?: 6 | 7;
+  /**
+   * Nei giorni caldi una fra responsabile e vice fa l'apertura e l'altra la chiusura, a turno
+   * (Patrizio, 12/11/2026). Spenta: apre sempre la responsabile, come l'11/11.
+   */
+  caldiGuidaApreChiude?: boolean;
+  /** quante ore resta chi fa l'apertura nei giorni caldi (9: 10-19 in un negozio che apre alle 10) */
+  caldiOreApertura?: number;
 }
+
+/** Per legge il riposo settimanale e' di almeno un giorno: nessuna regola puo' scendere sotto. */
+export const RIPOSO_LEGALE = 1;
 
 export const REGOLE_DEFAULT: RegoleTurni = {
   turnoMinOre: 4,
@@ -177,6 +203,9 @@ export function regoleDaRiga(r: {
   riempi_contratto?: boolean | null;
   pausa_corta_pagata?: boolean | null;
   giorni_pieni?: boolean | null;
+  riposi_min_settimana?: number | string | null; straordinari_pari?: boolean | null;
+  caldi_tutti_al_lavoro?: boolean | null; caldi_straordinari?: boolean | null; caldi_fasce_festivi?: string | null;
+  caldi_guida_apre_chiude?: boolean | null; caldi_ore_apertura?: number | string | null;
 } | null | undefined): RegoleTurni {
   if (!r) return REGOLE_DEFAULT;
   return {
@@ -191,6 +220,13 @@ export function regoleDaRiga(r: {
     riempiContratto: r.riempi_contratto ?? false,
     pausaCortaPagata: r.pausa_corta_pagata ?? false,
     giorniPieni: r.giorni_pieni ?? false,
+    ...(r.riposi_min_settimana != null ? { riposiMinSettimana: Math.max(RIPOSO_LEGALE, Number(r.riposi_min_settimana)) } : {}),
+    ...(r.straordinari_pari != null ? { straordinariPari: !!r.straordinari_pari } : {}),
+    ...(r.caldi_tutti_al_lavoro != null ? { caldiTutti: !!r.caldi_tutti_al_lavoro } : {}),
+    ...(r.caldi_straordinari != null ? { caldiStraordinari: !!r.caldi_straordinari } : {}),
+    ...(r.caldi_fasce_festivi != null ? { caldiFasceFestivi: (r.caldi_fasce_festivi === 'domenica' ? 7 : 6) as 6 | 7 } : {}),
+    ...(r.caldi_guida_apre_chiude != null ? { caldiGuidaApreChiude: !!r.caldi_guida_apre_chiude } : {}),
+    ...(r.caldi_ore_apertura != null ? { caldiOreApertura: Number(r.caldi_ore_apertura) } : {}),
   };
 }
 
@@ -236,6 +272,62 @@ export interface EventoNegozio {
   blocca_ferie: boolean;
   straordinari: boolean;
   nota?: string | null;
+  /**
+   * Dal 12/11/2026 (migration 403): 'giorno' = giorno speciale singolo, vale come un sabato;
+   * 'periodo' = dal giorno X al giorno Y con regole proprie. Assente = evento di prima.
+   */
+  tipo?: 'giorno' | 'periodo' | null;
+  regole?: RegoleEvento | null;
+  /** da dove vengono le regole: come il sabato, come la domenica, copiate da un altro evento, scritte a mano */
+  regole_origine?: 'sabato' | 'domenica' | 'evento' | 'manuale' | null;
+}
+
+/**
+ * Le regole di un periodo speciale (outlet_events.regole, jsonb). Ogni campo assente vale
+ * come la regola del negozio nei giorni caldi.
+ */
+export interface RegoleEvento {
+  /** orario del negozio nel periodo (HH:MM); assente = quello del giorno */
+  apre?: string | null;
+  chiude?: string | null;
+  /** persone per fascia nel periodo; assenti = le fasce del sabato o della domenica, secondo l'origine */
+  fasce?: { dalle: string; alle: string; persone: number }[] | null;
+  /** gli ingressi MODA aggiungono persone sopra le fasce (default si') */
+  moda?: boolean;
+  /** lavorano tutte, senza riposi in quei giorni (default si') */
+  tutti?: boolean;
+  /** straordinari ammessi (default: il campo `straordinari` dell'evento) */
+  straordinari?: boolean;
+  /** responsabile e vice: apertura e chiusura a turno */
+  guida?: boolean;
+  /** richieste di ferie e di permesso ammesse nel periodo */
+  ferie?: boolean;
+  permessi?: boolean;
+  /** riposi minimi nelle settimane del periodo: mai sotto 1 */
+  riposi_min?: number;
+}
+
+/** Come costruire i giorni in un negozio: le scelte sui giorni caldi lette dalle regole. */
+export interface OpzioniGiorni {
+  /** il negozio ha i giorni caldi (sabato, domenica, festivi, eventi) */
+  caldi: boolean;
+  /** giorno della settimana (6 o 7) da cui prendono le fasce festivi e giorni speciali nei feriali */
+  fasceFestivi: 6 | 7;
+  tutti: boolean;
+  straordinari: boolean;
+  guida: boolean;
+}
+
+/** Le opzioni dei giorni dalle regole del negozio. Con `giorniPieni` spento non cambia niente. */
+export function opzioniGiorni(regole: RegoleTurni = REGOLE_DEFAULT): OpzioniGiorni {
+  const caldi = !!regole.giorniPieni;
+  return {
+    caldi,
+    fasceFestivi: regole.caldiFasceFestivi ?? 6,
+    tutti: caldi && (regole.caldiTutti ?? true),
+    straordinari: caldi && (regole.caldiStraordinari ?? true),
+    guida: caldi,
+  };
 }
 
 /** Gli eventi che riguardano un negozio. */
@@ -279,6 +371,21 @@ export interface GiornoPiano {
    * e l'ultima ora. MODA aggiunge persone sopra.
    */
   minimo?: number[];
+  // ── Giorni caldi (Patrizio, 12/11/2026). Li scrive costruisciGiorni quando riceve le opzioni del negozio. ──
+  /** giorno caldo: sabato, domenica, festivo o giorno di evento in un negozio che li ha accesi */
+  caldo?: boolean;
+  /** in questo giorno lavorano tutte: nessun riposo */
+  tutti?: boolean;
+  /** straordinari ammessi perche' e' un giorno caldo (quelli dell'evento stanno in `straordinari`) */
+  straordinariCaldo?: boolean;
+  /** responsabile e vice: una apre, l'altra chiude */
+  guida?: boolean;
+  /** gli ingressi MODA non aggiungono persone: comandano solo le fasce (periodo speciale con MODA spenta) */
+  senzaModa?: boolean;
+  /** le fasce vengono da un evento: le persone in piu' non si sommano */
+  fasceEvento?: boolean;
+  /** riposi minimi chiesti dal periodo speciale di questo giorno (mai sotto uno) */
+  riposiMin?: number;
 }
 
 /**
@@ -403,7 +510,16 @@ export function giorniDellaSettimana(lunedi: string): string[] {
  * La prima mezz'ora una persona, poi tutte fino a un'ora dalla chiusura, in chiusura una.
  */
 const festiviPerAnno = new Map<number, Record<string, string>>();
-export function giornoPieno(g: Pick<GiornoPiano, 'data' | 'evento'>): boolean {
+/** Vero se la data e' una festivita' nazionale. */
+export function eFestivo(data: string): boolean {
+  const anno = Number(data.slice(0, 4));
+  if (!festiviPerAnno.has(anno)) festiviPerAnno.set(anno, festivitaItaliane(anno));
+  return !!festiviPerAnno.get(anno)![data];
+}
+
+export function giornoPieno(g: Pick<GiornoPiano, 'data' | 'evento'> & Pick<Partial<GiornoPiano>, 'tutti'>): boolean {
+  // dal 12/11/2026 lo dice il giorno stesso, quando e' stato costruito con le opzioni del negozio
+  if (g.tutti !== undefined) return g.tutti;
   const anno = Number(g.data.slice(0, 4));
   if (!festiviPerAnno.has(anno)) festiviPerAnno.set(anno, festivitaItaliane(anno));
   return giornoIso(g.data) >= 6 || !!festiviPerAnno.get(anno)![g.data] || !!g.evento;
@@ -467,6 +583,8 @@ export function costruisciGiorni(
   eventi: EventoNegozio[] = [],
   /** data di apertura del negozio: prima e' chiuso, nessuno da mettere in turno */
   apertura: string | null = null,
+  /** le scelte del negozio sui giorni caldi (12/11/2026); senza, tutto come prima */
+  opzioni: OpzioniGiorni | null = null,
 ): GiornoPiano[] {
   return date.map((data) => {
     if (apertura && data < apertura) {
@@ -480,14 +598,40 @@ export function costruisciGiorni(
     const tipo = orari.find((o) => o.giorno === g);
     const sp = speciali.find((s) => s.data === data);
     const chiuso = sp ? sp.chiuso : (!tipo || tipo.chiuso || !tipo.apre || !tipo.chiude);
-    const apre = minuti((sp && !sp.chiuso && sp.apre) || tipo?.apre || null);
-    const chiude = minuti((sp && !sp.chiuso && sp.chiude) || tipo?.chiude || null);
+    // Periodo speciale con regole proprie (12/11/2026): puo' cambiare l'orario e le fasce del giorno.
+    // Un evento non apre un giorno chiuso; il giorno speciale con orario diverso vince sull'evento.
+    const periodo = ev.find((e) => e.tipo === 'periodo' && e.regole) ?? null;
+    const rp = periodo?.regole ?? null;
+    const apre = minuti((sp && !sp.chiuso && sp.apre) || rp?.apre || tipo?.apre || null);
+    const chiude = minuti((sp && !sp.chiuso && sp.chiude) || rp?.chiude || tipo?.chiude || null);
     if (chiuso || chiude <= apre) {
       return { data, giorno: g, chiuso: true, apre: 0, chiude: 0, fabbisogno: [], nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari: false };
     }
     const n = Math.floor((chiude - apre) / SLOT_MINUTI);
-    const fasceGiorno = fasce.filter((f) => f.giorno === g);
-    const extra = (sp?.persone_extra ?? 0) + extraEvento;
+    // Giorno caldo: sabato, domenica, festivo o giorno di evento dove il negozio li ha accesi; un
+    // evento nuovo (giorno singolo o periodo) lo e' comunque, perche' qualcuno l'ha scritto apposta.
+    const eventoNuovo = ev.some((e) => !!e.tipo);
+    const caldo = eventoNuovo || (!!opzioni?.caldi && (g >= 6 || eFestivo(data) || ev.length > 0));
+    // Da dove vengono le fasce: quelle scritte nel periodo; oppure, in un feriale caldo, quelle del
+    // sabato o della domenica (un giorno speciale singolo vale come un sabato); altrimenti le sue.
+    const fasceProprie = rp?.fasce?.length ? rp.fasce.map((f) => ({ giorno: g, dalle: f.dalle, alle: f.alle, persone: f.persone, origine: 'manuale' })) : null;
+    const giornoFasce = rp?.fasce?.length ? g
+      : periodo?.regole_origine === 'domenica' ? 7
+      : periodo?.regole_origine === 'sabato' ? 6
+      : caldo && g < 6 ? (ev.some((e) => e.tipo === 'giorno') ? 6 : (opzioni?.fasceFestivi ?? 6))
+      : g;
+    const fasceGiorno = fasceProprie ?? fasce.filter((f) => f.giorno === giornoFasce);
+    // le persone in piu' dell'evento non si sommano a fasce scritte apposta per l'evento
+    const extra = (sp?.persone_extra ?? 0) + (fasceProprie ? 0 : extraEvento);
+    const marcaCaldo = opzioni || eventoNuovo ? {
+      caldo,
+      tutti: caldo && (rp?.tutti ?? (eventoNuovo ? true : !!opzioni?.tutti)),
+      straordinariCaldo: caldo && (rp?.straordinari ?? (eventoNuovo && !opzioni ? false : !!opzioni?.straordinari)),
+      guida: caldo && (rp?.guida ?? !!opzioni?.guida),
+      ...(rp?.moda === false ? { senzaModa: true } : {}),
+      ...(fasceProprie ? { fasceEvento: true } : {}),
+      ...(rp?.riposi_min != null ? { riposiMin: Math.max(RIPOSO_LEGALE, rp.riposi_min) } : {}),
+    } : {};
     const fabbisogno = Array.from({ length: n }, (_, i) => {
       const t = apre + i * SLOT_MINUTI;
       const base = fasceGiorno
@@ -501,7 +645,7 @@ export function costruisciGiorni(
       const t = apre + i * SLOT_MINUTI;
       return Math.max(1, confermate.filter((f) => minuti(f.dalle) <= t && t < minuti(f.alle)).reduce((m, f) => Math.max(m, f.persone), 0));
     }) : undefined;
-    return { data, giorno: g, chiuso: false, apre, chiude, fabbisogno, nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari, ...(minimo ? { minimo } : {}) };
+    return { data, giorno: g, chiuso: false, apre, chiude, fabbisogno, nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari: rp?.straordinari ?? straordinari, ...(minimo ? { minimo } : {}), ...marcaCaldo };
   });
 }
 
@@ -513,7 +657,9 @@ export function costruisciGiorni(
 export function personeInPiu(date: string[], speciali: Pick<GiornoSpeciale, 'data' | 'persone_extra'>[], eventi: EventoNegozio[] = []): Map<string, number> {
   return new Map(date.map((d) => [d,
     (speciali.find((s) => s.data === d)?.persone_extra ?? 0)
-    + eventiDelGiorno(eventi, d).reduce((m, e) => Math.max(m, e.persone_extra || 0), 0)]));
+    // un periodo con fasce proprie non somma le sue persone in piu' (12/11/2026)
+    + (eventiDelGiorno(eventi, d).some((e) => e.tipo === 'periodo' && e.regole?.fasce?.length) ? 0
+      : eventiDelGiorno(eventi, d).reduce((m, e) => Math.max(m, e.persone_extra || 0), 0))]));
 }
 
 /** Ore-persona che servono nella settimana (somma del fabbisogno). */

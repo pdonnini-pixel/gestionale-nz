@@ -24,7 +24,7 @@ import {
 import { caricaGiorniFerie, caricaOrganico, caricaStoricoNegozio, nomeNegozio, type DatiOrganico } from '../lib/organicoDati';
 import { attesoDelleDate, fabbisognoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
 import {
-  costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, regoleDaRiga, type RegoleTurni,
+  costruisciGiorni, opzioniGiorni, giorniDellaSettimana, lunediDi, personeInPiu, regoleDaRiga, type RegoleTurni,
   type FasciaFabbisogno, type GiornoSpeciale, type OrarioGiornoTipo,
 } from '../lib/turni';
 
@@ -111,7 +111,9 @@ export default function PianoFerie({ companyId }: Props) {
     for (let l = lunediDi(oggi); l <= fine; l = aggiungiGiorni(l, 7)) date.push(...giorniDellaSettimana(l));
     const sp = speciali.filter((x) => x.outlet_id === negozio);
     const base = costruisciGiorni(date, orari.filter((o) => o.outlet_id === negozio), fasce.filter((f) => f.outlet_id === negozio), sp,
-      [], dati.negozi.find((n) => n.id === negozio)?.opening_date ?? null);
+      [], dati.negozi.find((n) => n.id === negozio)?.opening_date ?? null,
+      // festivi caldi come nei turni (12/11/2026): dove il negozio non li ha, niente cambia
+      opzioniGiorni(regoleNegozi.get(negozio) ?? regoleDaRiga(null)));
     const presenti = (d: string) => dati.schede.map((x) => personaAllaData(x, dati.eventi, d)).filter((p) => p.outletId === negozio && p.stato === 'in_servizio');
     const moda = storico?.outletId === negozio ? attesoDelleDate(storico.storico, date) : null;
     if (!moda || !moda.atteso.size) return { giorni: base, presenti, moda: null };
