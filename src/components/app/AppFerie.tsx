@@ -5,7 +5,7 @@
 // Regole e parole: PIANO_FERIE_NOTES.md («Come si parla a chi chiede le ferie»).
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { supabase } from '../../lib/supabase'
-import { dataRoma, oraRoma } from '../../lib/timbrature'
+import { AVVISO_CAMPO_LIBERO, MAX_MOTIVO, dataRoma, oraRoma } from '../../lib/timbrature'
 import { oreInParole } from '../../lib/ferieRichiesta'
 import {
   STATO_RICHIESTA, aggiungiGiorni, dataItaliana, eventoSenzaFerie, giornateCirca, giornoBreve, giorniPianificati, giorniTra,
@@ -237,8 +237,9 @@ export default function AppFerie() {
           </p>
         )}
 
-        <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={2}
+        <textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={MAX_MOTIVO} rows={2}
           placeholder="Nota per il referente (facoltativa)" className="border border-slate-200 rounded-xl px-3 py-2 text-sm" />
+        <p className="-mt-1 text-xs text-slate-500">{AVVISO_CAMPO_LIBERO}</p>
         {problemi.map((p) => <p key={p} className="text-sm text-rose-600">{p}</p>)}
         <button onClick={() => void invia()} disabled={!righe.length || problemi.length > 0 || invio || !navigator.onLine}
           className="py-3.5 rounded-2xl bg-[#ff0066] text-white font-semibold disabled:opacity-40 active:scale-[0.99] transition">

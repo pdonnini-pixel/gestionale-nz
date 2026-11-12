@@ -334,12 +334,19 @@ export const ETICHETTA_ESITO: Record<EsitoGiorno, string> = {
 // Stesse regole di timbrature_evento_da_timbratura: il telefono del negozio
 // le mostra prima di salvare (anche senza rete), il server le registra.
 
-export const CAUSALI_USCITA: Record<'personale' | 'malattia' | 'accordo', string> = {
+// Motivi dell'uscita prima del turno. «Sto male» tolto l'11/11/2026 (pacchetto
+// privacy, migration 402): la malattia segue i canali aziendali, non l'app.
+export const CAUSALI_USCITA: Record<'personale' | 'accordo', string> = {
   personale: 'Motivo personale (permesso)',
-  // «Sto male» e' un permesso; diventa malattia solo con il certificato medico (migration 386)
-  malattia: 'Sto male',
   accordo: "D'accordo con il responsabile",
 }
+/** Solo per leggere i casi registrati prima della 402. */
+export const CAUSALE_STORICA_MALATTIA = 'Sto male (causale non più in uso)'
+
+/** Avviso sotto ogni campo libero che compila il dipendente (pacchetto privacy, 11/11/2026). */
+export const AVVISO_CAMPO_LIBERO = 'Non scrivere diagnosi, sintomi, certificati o altre informazioni sulla salute o sulla famiglia: per la malattia segui la procedura aziendale.'
+/** Lunghezza massima dei motivi scritti dal dipendente. */
+export const MAX_MOTIVO = 200
 export const CAUSALI_STRAORDINARIO: Record<'assenza_collega' | 'cliente' | 'riassortimento' | 'allestimento', string> = {
   assenza_collega: 'Concordato per assenza di un collega',
   cliente: 'Cliente da gestire',
