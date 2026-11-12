@@ -52,6 +52,9 @@ DROP TRIGGER IF EXISTS trg_leave_requests_campi_protetti ON public.leave_request
 DROP FUNCTION IF EXISTS public.leave_requests_campi_protetti();
 DROP TRIGGER IF EXISTS trg_leave_request_days_campi_protetti ON public.leave_request_days;
 DROP FUNCTION IF EXISTS public.leave_request_days_campi_protetti();
+DROP TRIGGER IF EXISTS trg_leave_request_events_fermo ON public.leave_request_events;
+DROP FUNCTION IF EXISTS public.leave_request_events_fermo();
+GRANT TRUNCATE ON public.leave_request_events TO anon, authenticated;  -- com'era prima della 407
 
 -- chi puo' decidere: via l'elenco HR da posso_decidere_ferie (prima che la tabella sparisca)
 DO $do$
@@ -201,7 +204,9 @@ BEGIN
             jsonb_build_object('controproposta', c.id, 'proposta_da', c.proposta_da_nome), auth.uid(), NULLIF(v_nome, ''));$x$,
          $x$(g->>'ore')::numeric, 'approvato'
       FROM jsonb_array_elements(c.giorni) g;$x$),
-        ($x$  -- 407: la risposta alla proposta resta nel registro della richiesta di partenza
+        ($x$  -- 407: anche il rifiuto lo registra chi puo' decidere in quel negozio
+  IF NOT p_accetta THEN PERFORM public.ferie_controlla_lato(c.request_id); END IF;
+  -- 407: la risposta alla proposta resta nel registro della richiesta di partenza
   INSERT INTO leave_request_events (company_id, request_id, evento, nota, dettaglio, utente_id, utente_nome)
   VALUES (c.company_id, c.request_id, CASE WHEN p_accetta THEN 'controproposta_accettata' ELSE 'controproposta_rifiutata' END,
           NULLIF(btrim(p_nota), ''), jsonb_build_object('controproposta', c.id, 'nuova_richiesta', v_new), auth.uid(), NULLIF(v_nome, ''));
@@ -257,6 +262,7 @@ GRANT EXECUTE ON FUNCTION public.ferie_lunedi_conflitti(uuid, date[], boolean) T
 
 DROP FUNCTION IF EXISTS public.ferie_controlla_lato(uuid);
 DROP FUNCTION IF EXISTS public.ferie_lato_puo(uuid);
+DROP FUNCTION IF EXISTS public.ferie_motivo_no(uuid);
 DROP FUNCTION IF EXISTS public.ferie_mio_lato();
 DROP FUNCTION IF EXISTS public.ferie_regole_richiesta(uuid);
 DROP FUNCTION IF EXISTS public.ferie_eccezioni_attive(uuid);

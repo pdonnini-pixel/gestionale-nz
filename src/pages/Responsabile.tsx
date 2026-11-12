@@ -154,7 +154,7 @@ function FerieDaDecidere() {
             <p className="text-xs text-slate-400">{q.compilata_da_nome ?? ''}{q.inviata_il ? ` · ${new Date(q.inviata_il).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })}` : ''}
               {q.decisa_da_nome ? ` · decisa da ${q.decisa_da_nome}` : ''}{q.motivazione ? ` · motivo: ${q.motivazione}` : ''}</p>
             {q.stato === 'inviata' && q.posso === false && (
-              <p className="text-sm text-slate-500">Per le regole del negozio questa richiesta la decide l’HR.</p>
+              <p className="text-sm text-slate-500">Questa richiesta non la decidi tu: la decide l’HR.</p>
             )}
             {q.stato === 'inviata' && q.posso !== false && (respingi?.id === q.id ? (
               <div className="space-y-2">

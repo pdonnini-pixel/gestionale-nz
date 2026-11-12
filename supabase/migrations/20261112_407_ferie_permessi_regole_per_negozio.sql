@@ -269,6 +269,35 @@ CREATE TRIGGER trg_leave_request_days_campi_protetti
   BEFORE INSERT OR UPDATE OR DELETE ON public.leave_request_days
   FOR EACH ROW EXECUTE FUNCTION public.leave_request_days_campi_protetti();
 
+-- Il registro delle ferie non si ritocca. Con una sola approvazione (Patrizio, 12/11/2026: «chi e'
+-- autorizzato approva, sotto la sua responsabilita' e ne rimane log») il registro e' il solo
+-- contrappeso: dalla tabella, con il proprio profilo, le righe non si aggiungono, non si cambiano
+-- e non si cancellano (la policy leave_request_events_write della 251 lo lasciava fare a Super
+-- Advisor, contabile e COO; il gestionale non l'ha mai usata). Le righe le scrivono il trigger di
+-- traccia e le funzioni delle ferie, che sono SECURITY DEFINER. Passa solo la cancellazione a
+-- cascata, quando si cancella una bozza: la richiesta madre non c'e' gia' piu'.
+CREATE OR REPLACE FUNCTION public.leave_request_events_fermo()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+BEGIN
+  IF current_user NOT IN ('authenticated', 'anon') THEN RETURN COALESCE(NEW, OLD); END IF;
+  IF TG_OP = 'DELETE' AND NOT EXISTS (SELECT 1 FROM public.leave_requests q WHERE q.id = OLD.request_id) THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION 'Il registro delle ferie non si modifica: resta scritto chi ha deciso e quando.' USING ERRCODE = '42501';
+END
+$function$;
+REVOKE ALL ON FUNCTION public.leave_request_events_fermo() FROM PUBLIC, anon, authenticated;
+DROP TRIGGER IF EXISTS trg_leave_request_events_fermo ON public.leave_request_events;
+CREATE TRIGGER trg_leave_request_events_fermo
+  BEFORE INSERT OR UPDATE OR DELETE ON public.leave_request_events
+  FOR EACH ROW EXECUTE FUNCTION public.leave_request_events_fermo();
+-- TRUNCATE salta i trigger di riga e la RLS: sul registro non serve a nessuno (letto su NZ e Zago
+-- il 12/11/2026: authenticated e anon lo avevano dai permessi di default di Supabase).
+REVOKE TRUNCATE ON public.leave_request_events FROM anon, authenticated;
+
 -- ── 4. Festivi italiani (come festivitaItaliane in src/lib/ferieRichiesta.ts) ──
 CREATE OR REPLACE FUNCTION public.festivo_italiano(p_data date)
  RETURNS boolean
@@ -555,34 +584,96 @@ $function$;
 REVOKE ALL ON FUNCTION public.ferie_mio_lato() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.ferie_mio_lato() TO service_role;
 
--- Chi chiama puo' decidere questa richiesta, per le scelte del negozio? (i permessi di base li
--- controlla leave_decidi come prima). L'approvazione e' una sola: chi puo' decidere decide.
-CREATE OR REPLACE FUNCTION public.ferie_lato_puo(p_request_id uuid)
- RETURNS boolean
+-- Chi chiama puo' decidere questa richiesta? NULL = si', altrimenti il motivo (i permessi di base
+-- li controlla leave_decidi come prima). L'approvazione e' una sola, e segue la scala (Patrizio,
+-- 12/11/2026: «Un dipendente le ferie da solo non se le approva. Il dipendente sta sotto a un
+-- responsabile, il responsabile sta sotto all'HR e tutti gli HR stanno sotto ai super admin»):
+--  a) nessuno decide la propria richiesta, qualunque profilo abbia;
+--  b) la richiesta di chi approva come HR la decide solo il Super Advisor;
+--  c) la richiesta di una responsabile o vice la decide l'HR o il Super Advisor, mai una responsabile;
+--  d) per tutte le altre vale la scelta del negozio (referente, HR, una delle due).
+-- La scala vale in ogni negozio, anche senza scheda salvata. Chi e' la persona della richiesta si
+-- legge come in presenze_sono_io: employees.user_id e responsabile_dipendente.
+CREATE OR REPLACE FUNCTION public.ferie_motivo_no(p_request_id uuid)
+ RETURNS text
  LANGUAGE plpgsql
  STABLE SECURITY DEFINER
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
-  q       public.leave_requests%ROWTYPE;
-  v_reg   jsonb;
-  v_lato  text := public.ferie_mio_lato();
-  v_super boolean := COALESCE((SELECT public.get_my_role())::text, '') = 'super_advisor';
+  q        public.leave_requests%ROWTYPE;
+  v_reg    jsonb;
+  v_lato   text := public.ferie_mio_lato();
+  v_super  boolean := COALESCE((SELECT public.get_my_role())::text, '') = 'super_advisor';
+  v_e_hr   boolean;
+  v_e_resp boolean;
 BEGIN
   SELECT * INTO q FROM public.leave_requests WHERE id = p_request_id;
-  IF NOT FOUND THEN RETURN false; END IF;
+  IF NOT FOUND THEN RETURN 'Richiesta non trovata.'; END IF;
   -- solo le richieste della propria azienda (chi non ha un utente, cron e service role, non passa da qui)
-  IF (SELECT auth.uid()) IS NOT NULL AND q.company_id IS DISTINCT FROM (SELECT public.get_my_company_id()) THEN RETURN false; END IF;
+  IF (SELECT auth.uid()) IS NOT NULL AND q.company_id IS DISTINCT FROM (SELECT public.get_my_company_id()) THEN
+    RETURN 'Richiesta non trovata.';
+  END IF;
+  IF public.presenze_sono_io(q.employee_id) THEN
+    RETURN 'Non puoi decidere una tua richiesta: la decide chi sta sopra di te.';
+  END IF;
+  -- la persona della richiesta e' una di quelle che approvano come HR?
+  SELECT EXISTS (
+    SELECT 1
+      FROM (SELECT e.user_id FROM public.employees e WHERE e.id = q.employee_id AND e.user_id IS NOT NULL
+            UNION
+            SELECT r.user_id FROM public.responsabile_dipendente r WHERE r.employee_id = q.employee_id) u
+      JOIN public.user_profiles p ON p.id = u.user_id AND p.company_id = q.company_id
+     WHERE p.role::text IN ('super_advisor', 'contabile', 'coo')
+        OR EXISTS (SELECT 1 FROM public.leave_hr h WHERE h.company_id = q.company_id AND h.user_id = p.id)
+        OR EXISTS (SELECT 1 FROM public.leave_approvers a WHERE a.company_id = q.company_id AND a.user_id = p.id AND a.attivo))
+    INTO v_e_hr;
+  IF v_e_hr AND NOT v_super THEN
+    RETURN 'La richiesta di chi approva le ferie la decide solo il Super Advisor.';
+  END IF;
+  -- e' una responsabile o una vice?
+  SELECT EXISTS (SELECT 1 FROM public.outlets o
+                  WHERE o.company_id = q.company_id
+                    AND q.employee_id IN (o.referente_employee_id, o.vice_referente_employee_id))
+      OR EXISTS (SELECT 1
+                   FROM (SELECT e.user_id FROM public.employees e WHERE e.id = q.employee_id AND e.user_id IS NOT NULL
+                         UNION
+                         SELECT r.user_id FROM public.responsabile_dipendente r WHERE r.employee_id = q.employee_id) u
+                   JOIN public.user_profiles p ON p.id = u.user_id AND p.company_id = q.company_id
+                  WHERE p.role::text = 'responsabile')
+    INTO v_e_resp;
+  IF v_e_resp AND NOT v_super AND v_lato = 'referente' THEN
+    RETURN 'La richiesta di una responsabile o di una vice la decide l''HR, non un''altra responsabile.';
+  END IF;
+  IF v_super THEN RETURN NULL; END IF;
   v_reg := public.ferie_regole_richiesta(p_request_id);
-  IF v_reg IS NULL THEN RETURN true; END IF;
-  IF v_super THEN RETURN true; END IF;
-  IF v_lato = 'referente' THEN RETURN (v_reg ->> 'referente')::boolean; END IF;
-  IF NOT (v_reg ->> 'hr')::boolean THEN RETURN false; END IF;
+  IF v_reg IS NULL THEN RETURN NULL; END IF;  -- negozio senza scheda: per il resto come prima
+  IF v_lato = 'referente' THEN
+    RETURN CASE WHEN (v_reg ->> 'referente')::boolean THEN NULL
+                ELSE 'In questo negozio questa richiesta la decide l''HR.' END;
+  END IF;
+  -- la richiesta di una responsabile la decide l'HR anche dove il negozio ha scelto la sola referente
+  IF NOT (v_reg ->> 'hr')::boolean AND NOT v_e_resp THEN
+    RETURN 'In questo negozio questa richiesta non la decidi tu: guarda in «Regole e orari» chi approva ferie e permessi.';
+  END IF;
   -- elenco HR: vuoto = chi decideva prima; altrimenti solo chi e' nell'elenco
-  IF NOT EXISTS (SELECT 1 FROM public.leave_hr h WHERE h.company_id = q.company_id) THEN RETURN true; END IF;
-  RETURN EXISTS (SELECT 1 FROM public.leave_hr h
-                  WHERE h.company_id = q.company_id AND h.user_id = (SELECT auth.uid()));
+  IF NOT EXISTS (SELECT 1 FROM public.leave_hr h WHERE h.company_id = q.company_id)
+     OR EXISTS (SELECT 1 FROM public.leave_hr h WHERE h.company_id = q.company_id AND h.user_id = (SELECT auth.uid())) THEN
+    RETURN NULL;
+  END IF;
+  RETURN 'In questo negozio questa richiesta non la decidi tu: guarda in «Regole e orari» chi approva ferie e permessi.';
 END
+$function$;
+REVOKE ALL ON FUNCTION public.ferie_motivo_no(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.ferie_motivo_no(uuid) TO service_role;
+
+CREATE OR REPLACE FUNCTION public.ferie_lato_puo(p_request_id uuid)
+ RETURNS boolean
+ LANGUAGE sql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+  SELECT public.ferie_motivo_no(p_request_id) IS NULL;
 $function$;
 REVOKE ALL ON FUNCTION public.ferie_lato_puo(uuid) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.ferie_lato_puo(uuid) TO authenticated, service_role;
@@ -594,13 +685,10 @@ CREATE OR REPLACE FUNCTION public.ferie_controlla_lato(p_request_id uuid)
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
-  v_lato  text := public.ferie_mio_lato();
+  v_no text := public.ferie_motivo_no(p_request_id);
 BEGIN
-  IF public.ferie_lato_puo(p_request_id) THEN RETURN; END IF;
-  RAISE EXCEPTION '%', CASE WHEN v_lato = 'referente'
-    THEN 'In questo negozio questa richiesta la decide l''HR.'
-    ELSE 'In questo negozio questa richiesta non la decidi tu: guarda in «Regole e orari» chi approva ferie e permessi.' END
-    USING ERRCODE = '42501';
+  IF v_no IS NULL THEN RETURN; END IF;
+  RAISE EXCEPTION '%', v_no USING ERRCODE = '42501';
 END
 $function$;
 REVOKE ALL ON FUNCTION public.ferie_controlla_lato(uuid) FROM PUBLIC, anon, authenticated;
@@ -719,7 +807,9 @@ BEGIN
             jsonb_build_object('controproposta', c.id, 'proposta_da', c.proposta_da_nome), auth.uid(), NULLIF(v_nome, ''));$x$),
         ($x$  UPDATE leave_counterproposals
      SET stato = CASE WHEN p_accetta THEN 'accettata' ELSE 'rifiutata' END,$x$,
-         $x$  -- 407: la risposta alla proposta resta nel registro della richiesta di partenza
+         $x$  -- 407: anche il rifiuto lo registra chi puo' decidere in quel negozio
+  IF NOT p_accetta THEN PERFORM public.ferie_controlla_lato(c.request_id); END IF;
+  -- 407: la risposta alla proposta resta nel registro della richiesta di partenza
   INSERT INTO leave_request_events (company_id, request_id, evento, nota, dettaglio, utente_id, utente_nome)
   VALUES (c.company_id, c.request_id, CASE WHEN p_accetta THEN 'controproposta_accettata' ELSE 'controproposta_rifiutata' END,
           NULLIF(btrim(p_nota), ''), jsonb_build_object('controproposta', c.id, 'nuova_richiesta', v_new), auth.uid(), NULLIF(v_nome, ''));
@@ -806,6 +896,7 @@ COMMIT;
 --        public.festivo_italiano(DATE '2026-04-06') AS pasquetta_2026,                                              -- true
 --        (SELECT prosrc ~ 'ferie_lunedi_provvisoria' FROM pg_proc WHERE proname = 'ferie_lunedi_testo') AS lunedi_testo, -- true
 --        (SELECT count(*) FROM pg_trigger WHERE tgname IN ('trg_leave_requests_campi_protetti', 'trg_leave_request_days_campi_protetti')) AS trigger_campi, -- 2
+--        (SELECT count(*) FROM pg_trigger WHERE tgname = 'trg_leave_request_events_fermo') AS registro_fermo, -- 1
 --        (SELECT prosrc ~ 'leave_hr' FROM pg_proc WHERE proname = 'posso_decidere_ferie') AS hr_decide,               -- true
 --        (SELECT prosrc ~ 'ferie_controlla_lato' FROM pg_proc WHERE proname = 'leave_rispondi_controproposta') AS controproposta, -- true
 --        has_table_privilege('authenticated', 'public.leave_hr', 'truncate') AS hr_truncate,                         -- false
