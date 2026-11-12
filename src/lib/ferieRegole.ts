@@ -113,21 +113,38 @@ export interface EventoFerie {
   permessi?: boolean | null;
 }
 
-/** Ferie e permessi di un evento, come li legge il database: la voce scritta, altrimenti blocca_ferie. */
-export function ammesseNellEvento(e: EventoFerie): QuandoSiChiede {
+/** Giorno speciale singolo senza voci sue: non decide da solo, segue la riga «Festivi e giorni speciali». */
+export const seguaIFestivi = (e: EventoFerie): boolean => e.tipo === 'giorno' && typeof e.ferie !== 'boolean' && typeof e.permessi !== 'boolean';
+
+/**
+ * Ferie e permessi di un evento, come li legge il database: la voce scritta, altrimenti blocca_ferie.
+ * Un giorno speciale singolo senza voci sue segue la riga dei festivi del negozio, se il negozio
+ * ha salvato la scheda (`regole`); senza scheda resta su blocca_ferie, come prima.
+ */
+export function ammesseNellEvento(e: EventoFerie, regole?: RegoleFerie | null): QuandoSiChiede {
+  if (regole && seguaIFestivi(e)) return { ...regole.quando.festivi };
   return { ferie: e.ferie ?? !e.blocca_ferie, permessi: e.permessi ?? !e.blocca_ferie };
 }
 
-/** Cosa salvare sull'evento quando si accendono o spengono le due voci. */
+/**
+ * Cosa salvare sull'evento quando si accendono o spengono le due voci (dove la 407 c'è).
+ * Toglie `prima_407`: l'evento è stato risalvato, il valore di prima non serve più.
+ */
 export function eventoConFerie(regole: Record<string, unknown> | null | undefined, q: QuandoSiChiede): { regole: Record<string, unknown>; blocca_ferie: boolean } {
-  return { regole: { ...(regole ?? {}), ferie: q.ferie, permessi: q.permessi }, blocca_ferie: !q.ferie && !q.permessi };
+  const { prima_407: _prima, ...resto } = regole ?? {};
+  void _prima;
+  return { regole: { ...resto, ferie: q.ferie, permessi: q.permessi }, blocca_ferie: !q.ferie && !q.permessi };
 }
+
+/** blocca_ferie di un evento: con la 407 solo se sono spente tutte e due, prima bastava una. */
+export const bloccaFerieEvento = (q: QuandoSiChiede, con407: boolean): boolean => (con407 ? !q.ferie && !q.permessi : !(q.ferie && q.permessi));
 
 export type EsitoRichiesta = { ammessa: true } | { ammessa: false; motivo: string; eccezione: boolean };
 
 /**
  * La stessa decisione di ferie_blocco_giorno (migration 407): prima gli eventi del giorno (la voce
- * scritta sull'evento comanda; un evento di prima con blocca_ferie blocca tutte e due), poi le
+ * scritta sull'evento comanda; un evento di prima con blocca_ferie blocca tutte e due; un giorno
+ * speciale singolo senza voci sue segue la riga dei festivi), poi le
  * regole del negozio per tipo di giorno. `regole` null = negozio che non ha salvato la scheda.
  */
 export function esitoRichiesta(data: string, cosa: Cosa, eventi: readonly EventoFerie[], regole: RegoleFerie | null): EsitoRichiesta {
@@ -135,21 +152,27 @@ export function esitoRichiesta(data: string, cosa: Cosa, eventi: readonly Evento
   const ecc = !!regole && eccezioniAttive(regole);
   const no = (motivo: string): EsitoRichiesta => ({ ammessa: false, motivo, eccezione: ecc });
   let deciso = false;
-  let speciale = false;
+  let speciale: string | null = null; // giorno speciale singolo senza voci sue: decide la riga dei festivi
+  let specialeBlocca: string | null = null;
   for (const e of eventi) {
     if (data < e.data_dal || data > (e.data_al || e.data_dal)) continue;
     const scritta = e[cosa];
     if (typeof scritta === 'boolean') {
       deciso = true;
       if (!scritta) return no(`Il ${g} c'è ${e.nome}: niente ${cosa}.`);
+    } else if (e.tipo === 'giorno') {
+      speciale = e.nome;
+      if (e.blocca_ferie) specialeBlocca = e.nome;
     } else if (e.blocca_ferie) {
       return no(`Il ${g} c'è ${e.nome}: niente ferie né permessi.`);
     }
-    if (e.tipo === 'giorno') speciale = true;
   }
-  if (deciso || !regole) return { ammessa: true };
+  if (deciso) return { ammessa: true };
+  // negozio senza scheda: il giorno speciale blocca come ha sempre fatto
+  if (!regole) return specialeBlocca ? no(`Il ${g} c'è ${specialeBlocca}: niente ferie né permessi.`) : { ammessa: true };
   const giorno = new Date(`${data}T00:00:00Z`).getUTCDay() || 7;
   if (speciale || festivitaItaliane(Number(data.slice(0, 4)))[data]) {
+    if (!regole.quando.festivi[cosa] && speciale) return no(`Il ${g} c'è ${speciale}: nei giorni speciali il negozio lavora al completo, niente ${cosa}.`);
     if (!regole.quando.festivi[cosa]) return no(`Il ${g} è un giorno festivo o speciale: in quei giorni il negozio lavora al completo, niente ${cosa}.`);
   } else if (giorno >= 6) {
     if (!regole.quando.weekend[cosa]) return no(`Il ${g} è ${giorno === 6 ? 'sabato' : 'domenica'}: il sabato e la domenica il negozio lavora al completo, niente ${cosa}.`);
@@ -167,17 +190,26 @@ export function chiApprovaInParole(c: ChiApprova): string {
   return 'nessuno';
 }
 
-export interface PrimaDecisione { lato: 'referente' | 'hr'; nome: string | null; quando: string | null }
+export interface PrimaDecisione { lato: 'referente' | 'hr'; nome: string | null; quando: string | null; utente: string | null; giorni: string[] }
 
 export function leggiPrimaDecisione(v: unknown): PrimaDecisione | null {
   if (!v || typeof v !== 'object') return null;
   const r = v as Record<string, unknown>;
   if (r.lato !== 'referente' && r.lato !== 'hr') return null;
-  return { lato: r.lato, nome: typeof r.nome === 'string' ? r.nome : null, quando: typeof r.quando === 'string' ? r.quando : null };
+  return {
+    lato: r.lato, nome: typeof r.nome === 'string' ? r.nome : null, quando: typeof r.quando === 'string' ? r.quando : null,
+    utente: typeof r.utente === 'string' ? r.utente : null,
+    giorni: Array.isArray(r.giorni) ? r.giorni.filter((x): x is string => typeof x === 'string') : [],
+  };
 }
 
 /** «Ha già approvato la referente (Nome): manca l'HR.» */
-export function attesaInParole(p: PrimaDecisione): string {
+/** I giorni davvero concessi dopo la seconda approvazione: quelli approvati da tutte e due. */
+export function giorniConcessi(prima: PrimaDecisione | null, scelti: readonly string[]): string[] {
+  return prima ? scelti.filter((id) => prima.giorni.includes(id)) : [...scelti];
+}
+
+export function attesaInParole(p: Pick<PrimaDecisione, 'lato' | 'nome'>): string {
   const chi = p.lato === 'referente' ? 'la referente' : 'l’HR';
   const manca = p.lato === 'referente' ? 'l’HR' : 'la referente del negozio';
   return `Ha già approvato ${chi}${p.nome ? ` (${p.nome})` : ''}: manca ${manca}.`;

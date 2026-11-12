@@ -225,15 +225,22 @@ export default function EditorTurno({
         voce: tipo === 'ore' ? 'F02' : 'F01', tipo, ore: oreF, nota: 'Inserita dal piano del mese',
       }]).select('id').single();
       if (e2) throw e2;
-      if (tipo === 'giornata') { const e3 = await togliTurno('Ferie inserite dal calendario'); if (e3) throw e3; }
       // Gia' approvata: la stessa approvazione di Approvazioni ferie, che scala il saldo.
+      // Dove il negozio chiede due approvazioni (scheda 9, migration 407) questa e' solo la
+      // prima: leave_decidi risponde 'attesa_seconda', la richiesta non e' approvata e il
+      // turno resta dov'e' finche' non arriva la seconda.
       let approvata = false;
+      let attesaSeconda = false;
       if (giaApprovata) {
-        const { error: e4 } = await supabase.rpc('leave_decidi', { p_request_id: requestId, p_giorni_approvati: [(g as { id: string }).id] });
+        const { data: esito, error: e4 } = await supabase.rpc('leave_decidi', { p_request_id: requestId, p_giorni_approvati: [(g as { id: string }).id] });
         if (e4) { toast({ type: 'warning', message: `${testo} inserita ma non approvata (${e4.message}): la trovi in Approvazioni ferie.`, duration: 10000 }); }
+        else if (String(esito) === 'attesa_seconda') attesaSeconda = true;
         else approvata = true;
       }
-      onSalvato(`${testo} per ${nome.split(' ')[0]}: ${approvata ? 'approvata, consuma il saldo delle ferie' : 'da approvare in Approvazioni ferie'}.${tipo !== 'giornata' && turno ? ' Accorcia il turno se serve.' : ''}`);
+      if (tipo === 'giornata' && !attesaSeconda) { const e3 = await togliTurno('Ferie inserite dal calendario'); if (e3) throw e3; }
+      onSalvato(`${testo} per ${nome.split(' ')[0]}: ${approvata ? 'approvata, consuma il saldo delle ferie'
+        : attesaSeconda ? 'la tua approvazione è registrata, ma in questo negozio ne servono due: manca la seconda. Fino ad allora non è approvata, non consuma il saldo e il turno resta'
+          : 'da approvare in Approvazioni ferie'}.${tipo !== 'giornata' && turno ? ' Accorcia il turno se serve.' : ''}`);
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non inserite.' });
     } finally {

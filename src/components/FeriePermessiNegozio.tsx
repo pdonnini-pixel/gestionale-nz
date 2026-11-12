@@ -6,7 +6,7 @@
 // Finche' la scheda non e' salvata il negozio si comporta come prima; dove la migration manca la
 // scheda non compare.
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Save, UserPlus, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
@@ -14,8 +14,8 @@ import {
   aggiungiHr, caricaEventi, caricaHr, caricaRegoleFerie, salvaFerieEvento, salvaRegoleFerie, togliHr,
 } from '../lib/regoleNuoveDb';
 import {
-  ammesseNellEvento, chiApprovaInParole, erroriRegoleFerie, eventoConFerie, regoleFerieDaRiga, regoleFerieDiPartenza, rigaDaRegoleFerie,
-  type ChiApprova, type QuandoSiChiede, type RegoleFerie,
+  ammesseNellEvento, chiApprovaInParole, erroriRegoleFerie, eventoConFerie, regoleFerieDaRiga, regoleFerieDiPartenza, rigaDaRegoleFerie, seguaIFestivi,
+  type ChiApprova, type EventoFerie, type QuandoSiChiede, type RegoleFerie,
 } from '../lib/ferieRegole';
 
 type Props = {
@@ -40,6 +40,11 @@ const RUOLI_CHE_DECIDONO = ['super_advisor', 'coo', 'contabile'];
 /** profili che non possono essere HR: hanno gia' un loro posto (la referente) o non entrano nel gestionale */
 const RUOLI_FUORI = ['responsabile', 'dipendente', 'operatore_cassa'];
 
+const eventoFerie = (e: RigaEvento): EventoFerie => ({
+  nome: e.nome, data_dal: e.dal, data_al: e.al, blocca_ferie: e.bloccaFerie, tipo: e.tipo === 'giorno' || e.tipo === 'periodo' ? e.tipo : null,
+  ferie: typeof e.regole?.ferie === 'boolean' ? e.regole.ferie : null, permessi: typeof e.regole?.permessi === 'boolean' ? e.regole.permessi : null,
+});
+
 export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio, puoScrivere, superAdvisor, giorniCaldiTutti }: Props) {
   const { toast } = useToast();
   const [disponibile, setDisponibile] = useState<boolean | null>(null);
@@ -53,8 +58,14 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
   const [referentiFerie, setReferentiFerie] = useState<Set<string>>(new Set());
   const [nuovoHr, setNuovoHr] = useState('');
   const [salvo, setSalvo] = useState(false);
+  // I giorni caldi arrivano dalla scheda 3, anche non salvata: cambiarli non deve ricaricare
+  // questa scheda e far perdere le modifiche in corso. Servono solo per la proposta di partenza.
+  const caldi = useRef(giorniCaldiTutti);
+  caldi.current = giorniCaldiTutti;
+  const toccata = useRef(false);
 
-  const carica = useCallback(async () => {
+  /** `tieniRegole`: ricarica elenco HR ed eventi senza toccare le regole che si stanno scrivendo. */
+  const carica = useCallback(async (tieniRegole = false) => {
     const [r, h, ev, prof, appr] = await Promise.all([
       caricaRegoleFerie(outletId),
       caricaHr(companyId),
@@ -64,9 +75,12 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
     ]);
     setDisponibile(r.disponibile && h.disponibile);
     setSalvata(!!r.riga);
-    const lette = r.riga ? regoleFerieDaRiga(r.riga) : regoleFerieDiPartenza(giorniCaldiTutti);
-    setRegole(lette);
-    setImpronta(r.riga ? JSON.stringify(lette) : '');
+    if (!tieniRegole) {
+      const lette = r.riga ? regoleFerieDaRiga(r.riga) : regoleFerieDiPartenza(caldi.current);
+      setRegole(lette);
+      setImpronta(r.riga ? JSON.stringify(lette) : '');
+      toccata.current = false;
+    }
     setHr(h.utenti);
     setConRegoleEvento(ev.conRegole);
     setEventi(ev.righe
@@ -84,9 +98,13 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
       .map((u) => ({ id: u.id, nome: `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim() || 'Senza nome', ruolo: u.role ?? '' }))
       .sort((a, b) => a.nome.localeCompare(b.nome)));
     setReferentiFerie(new Set(((appr.data as { user_id: string | null; attivo: boolean }[] | null) ?? []).filter((a) => a.attivo && a.user_id).map((a) => a.user_id as string)));
-  }, [companyId, outletId, giorniCaldiTutti]);
+  }, [companyId, outletId]);
 
   useEffect(() => { setDisponibile(null); void carica(); }, [carica]);
+  // Scheda mai salvata e mai toccata: la proposta segue i giorni caldi della scheda 3
+  useEffect(() => {
+    if (disponibile && !salvata && !toccata.current) setRegole(regoleFerieDiPartenza(giorniCaldiTutti));
+  }, [giorniCaldiTutti, disponibile, salvata]);
 
   if (disponibile === null) return <p className="text-sm text-slate-500">Carico…</p>;
   if (!disponibile) {
@@ -97,10 +115,14 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
   const errori = erroriRegoleFerie(regole);
   const bloccanti = errori.filter((e) => e.includes('nessuno:'));
 
-  const setChi = (k: keyof RegoleFerie['approva'], campo: keyof ChiApprova, v: boolean) =>
+  const setChi = (k: keyof RegoleFerie['approva'], campo: keyof ChiApprova, v: boolean) => {
+    toccata.current = true;
     setRegole((r) => ({ ...r, approva: { ...r.approva, [k]: { ...r.approva[k], [campo]: v } } }));
-  const setQuando = (k: keyof RegoleFerie['quando'], campo: keyof QuandoSiChiede, v: boolean) =>
+  };
+  const setQuando = (k: keyof RegoleFerie['quando'], campo: keyof QuandoSiChiede, v: boolean) => {
+    toccata.current = true;
     setRegole((r) => ({ ...r, quando: { ...r.quando, [k]: { ...r.quando[k], [campo]: v } } }));
+  };
 
   const salva = async () => {
     if (bloccanti.length) { toast({ type: 'warning', message: bloccanti[0] }); return; }
@@ -113,12 +135,11 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
   };
 
   const cambiaEvento = async (e: RigaEvento, campo: keyof QuandoSiChiede, v: boolean) => {
-    const ora = ammesseNellEvento({ nome: e.nome, data_dal: e.dal, data_al: e.al, blocca_ferie: e.bloccaFerie,
-      ferie: typeof e.regole?.ferie === 'boolean' ? e.regole.ferie : null, permessi: typeof e.regole?.permessi === 'boolean' ? e.regole.permessi : null });
+    const ora = ammesseNellEvento(eventoFerie(e), regole);
     const nuovo = eventoConFerie(e.regole, { ...ora, [campo]: v });
     setEventi((l) => l.map((x) => (x.id === e.id ? { ...x, regole: nuovo.regole, bloccaFerie: nuovo.blocca_ferie } : x)));
     const err = await salvaFerieEvento(e.id, nuovo.regole, nuovo.blocca_ferie);
-    if (err) { toast({ type: 'error', message: err }); await carica(); }
+    if (err) { toast({ type: 'error', message: err }); await carica(true); }
   };
 
   const aggiungi = async () => {
@@ -126,12 +147,12 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
     const err = await aggiungiHr(companyId, nuovoHr);
     if (err) { toast({ type: 'error', message: err.includes('row-level security') ? 'L’elenco HR lo cambia solo il Super Advisor.' : err }); return; }
     setNuovoHr('');
-    await carica();
+    await carica(true);
   };
   const togli = async (id: string) => {
     const err = await togliHr(companyId, id);
     if (err) toast({ type: 'error', message: err });
-    await carica();
+    await carica(true);
   };
 
   const righeChi: { k: keyof RegoleFerie['approva']; nome: string }[] = [
@@ -232,12 +253,13 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
                   </tr>
                 ))}
                 {eventi.map((e) => {
-                  const a = ammesseNellEvento({ nome: e.nome, data_dal: e.dal, data_al: e.al, blocca_ferie: e.bloccaFerie,
-                    ferie: typeof e.regole?.ferie === 'boolean' ? e.regole.ferie : null, permessi: typeof e.regole?.permessi === 'boolean' ? e.regole.permessi : null });
+                  const ef = eventoFerie(e);
+                  const a = ammesseNellEvento(ef, regole);
                   return (
                     <tr key={e.id} className="border-b border-slate-100">
                       <td className="py-2 pr-2">
                         <span className="font-semibold text-slate-800">{e.nome}</span> <span className="text-slate-500">· {e.dal === e.al ? gg(e.dal) : `${gg(e.dal)}-${gg(e.al)}`}</span>
+                        {seguaIFestivi(ef) && <span className="block text-xs text-slate-500">giorno speciale: segue la riga «Festivi e giorni speciali» finché non lo tocchi</span>}
                         {e.altriNegozi && <span className="block text-xs text-slate-500">evento di più negozi: la scelta vale per tutti</span>}
                       </td>
                       <td className="py-2 px-2"><Interruttore acceso={a.ferie} disabled={!puoScrivere || !conRegoleEvento} etichetta={`${e.nome}: ferie`} onCambia={(v) => cambiaEvento(e, 'ferie', v)} /></td>

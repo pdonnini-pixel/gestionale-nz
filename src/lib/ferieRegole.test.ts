@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  REGOLE_FERIE_SPENTE, ammesseNellEvento, attesaInParole, chiApprovaInParole, eccezioniAttive, erroriRegoleFerie, esitoRichiesta,
+  REGOLE_FERIE_SPENTE, bloccaFerieEvento, giorniConcessi, ammesseNellEvento, attesaInParole, chiApprovaInParole, eccezioniAttive, erroriRegoleFerie, esitoRichiesta,
   eventoConFerie, leggiPrimaDecisione, regoleFerieDaRiga, regoleFerieDiPartenza, rigaDaRegoleFerie, type EventoFerie,
 } from './ferieRegole';
 
@@ -77,10 +77,17 @@ describe('esitoRichiesta: come ferie_blocco_giorno nel database', () => {
     expect(esitoRichiesta('2026-11-28', 'ferie', [periodo], regole)).toMatchObject({ ammessa: false, eccezione: true });
   });
 
-  it('un giorno speciale singolo in un feriale vale come un festivo', () => {
-    const giorno: EventoFerie = { nome: 'Apertura serale', data_dal: '2026-12-10', data_al: '2026-12-10', tipo: 'giorno' };
-    expect(esitoRichiesta('2026-12-10', 'ferie', [giorno], regole)).toMatchObject({ ammessa: false });
-    expect(esitoRichiesta('2026-12-10', 'ferie', [giorno], null)).toEqual({ ammessa: true });
+  it('un giorno speciale singolo segue la riga dei festivi; senza scheda blocca come ha sempre fatto', () => {
+    const giorno: EventoFerie = { nome: 'Apertura serale', data_dal: '2026-12-10', data_al: '2026-12-10', tipo: 'giorno', blocca_ferie: true };
+    const mista: typeof regole = { ...regole, quando: { ...regole.quando, festivi: { ferie: false, permessi: true } } };
+    expect(esitoRichiesta('2026-12-10', 'ferie', [giorno], mista)).toMatchObject({ ammessa: false, motivo: 'Il 10/12/2026 c\'è Apertura serale: nei giorni speciali il negozio lavora al completo, niente ferie.' });
+    expect(esitoRichiesta('2026-12-10', 'permessi', [giorno], mista)).toEqual({ ammessa: true });
+    expect(esitoRichiesta('2026-12-10', 'permessi', [giorno], null)).toEqual({ ammessa: false, motivo: 'Il 10/12/2026 c\'è Apertura serale: niente ferie né permessi.', eccezione: false });
+    expect(esitoRichiesta('2026-12-10', 'ferie', [{ ...giorno, blocca_ferie: false }], null)).toEqual({ ammessa: true });
+    // con voci sue decide lui
+    expect(esitoRichiesta('2026-12-10', 'ferie', [{ ...giorno, ferie: true, permessi: false }], mista)).toEqual({ ammessa: true });
+    expect(ammesseNellEvento(giorno, mista)).toEqual({ ferie: false, permessi: true });
+    expect(ammesseNellEvento(giorno, null)).toEqual({ ferie: false, permessi: false });
   });
 });
 
@@ -94,14 +101,29 @@ describe('eventi e prima approvazione', () => {
   it('salvando le due voci, blocca_ferie resta vero solo se sono spente tutte e due; le altre regole restano', () => {
     expect(eventoConFerie({ fasce: [1], tutti: true }, { ferie: false, permessi: true })).toEqual({ regole: { fasce: [1], tutti: true, ferie: false, permessi: true }, blocca_ferie: false });
     expect(eventoConFerie(null, { ferie: false, permessi: false }).blocca_ferie).toBe(true);
+    // l'evento allineato dalla 407 e poi risalvato perde il valore di prima
+    expect(eventoConFerie({ prima_407: { ferie: true }, tutti: true }, { ferie: true, permessi: false }).regole).toEqual({ tutti: true, ferie: true, permessi: false });
+  });
+
+  it('blocca_ferie: con la 407 solo se spente tutte e due, senza basta una (come prima)', () => {
+    expect(bloccaFerieEvento({ ferie: true, permessi: false }, true)).toBe(false);
+    expect(bloccaFerieEvento({ ferie: true, permessi: false }, false)).toBe(true);
+    expect(bloccaFerieEvento({ ferie: false, permessi: false }, true)).toBe(true);
+    expect(bloccaFerieEvento({ ferie: true, permessi: true }, false)).toBe(false);
+  });
+
+  it('i giorni concessi dopo la seconda approvazione sono quelli approvati da tutte e due', () => {
+    const p = leggiPrimaDecisione({ lato: 'referente', utente: 'u9', giorni: ['a', 'b'] });
+    expect(giorniConcessi(p, ['b', 'c'])).toEqual(['b']);
+    expect(giorniConcessi(null, ['b', 'c'])).toEqual(['b', 'c']);
   });
 
   it('la prima approvazione, letta e detta in parole', () => {
     expect(leggiPrimaDecisione(null)).toBeNull();
     expect(leggiPrimaDecisione({ lato: 'altro' })).toBeNull();
     const p = leggiPrimaDecisione({ lato: 'referente', nome: 'Anna Rossi', quando: '2026-11-12T10:00:00Z', giorni: [] });
-    expect(p).toEqual({ lato: 'referente', nome: 'Anna Rossi', quando: '2026-11-12T10:00:00Z' });
+    expect(p).toEqual({ lato: 'referente', nome: 'Anna Rossi', quando: '2026-11-12T10:00:00Z', utente: null, giorni: [] });
     expect(attesaInParole(p!)).toBe('Ha già approvato la referente (Anna Rossi): manca l’HR.');
-    expect(attesaInParole({ lato: 'hr', nome: null, quando: null })).toBe('Ha già approvato l’HR: manca la referente del negozio.');
+    expect(attesaInParole({ lato: 'hr', nome: null })).toBe('Ha già approvato l’HR: manca la referente del negozio.');
   });
 });

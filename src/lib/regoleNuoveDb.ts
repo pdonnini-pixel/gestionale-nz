@@ -187,8 +187,19 @@ export async function togliHr(companyId: string, userId: string): Promise<string
   return (data as unknown[] | null)?.length ? null : 'Non tolto: l’elenco HR lo cambia solo il Super Advisor.';
 }
 
-/** Ferie e permessi di un evento: scrive le due voci dentro le regole e tiene allineato blocca_ferie. */
+/** La 407 c'è su questo database? (le tabelle delle regole di ferie e permessi rispondono) */
+export async function ferie407Disponibile(): Promise<boolean> {
+  const { error } = await db.from('outlet_leave_rules').select('outlet_id').limit(1);
+  return !error;
+}
+
+/**
+ * Ferie e permessi di un evento: scrive le due voci dentro le regole e tiene allineato blocca_ferie.
+ * Solo dove la 407 c'è: senza, le due voci separate non le legge nessuno e un evento con una voce
+ * accesa smetterebbe di bloccare.
+ */
 export async function salvaFerieEvento(id: string, regole: Record<string, unknown>, bloccaFerie: boolean): Promise<string | null> {
+  if (!(await ferie407Disponibile())) return 'Ferie e permessi separati per evento arrivano con il prossimo aggiornamento del database.';
   const { error } = await db.from('outlet_events').update({ regole, blocca_ferie: bloccaFerie }).eq('id', id);
   return error ? error.message : null;
 }

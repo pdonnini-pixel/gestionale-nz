@@ -304,10 +304,10 @@ export default function AppFerie() {
                     {r.stato === 'approvata_parziale' ? `, approvate ${oreInParole(g.filter((x) => x.stato === 'approvato').reduce((t, x) => t + Number(x.ore), 0))}` : ''}
                     {r.decisa_da_nome ? ` · decisa da ${r.decisa_da_nome}` : ''}
                   </p>
-                  {(r.eccezione || r.attesa_seconda) && (
+                  {(r.eccezione || (r.attesa_seconda && r.stato === 'inviata')) && (
                     <p className="mt-1.5 flex flex-wrap gap-1.5">
                       {r.eccezione && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">chiesta come eccezione</span>}
-                      {r.attesa_seconda && <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-800">una approvazione c’è, manca la seconda</span>}
+                      {r.attesa_seconda && r.stato === 'inviata' && <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-800">una approvazione c’è, manca la seconda</span>}
                     </p>
                   )}
                   {r.motivazione && r.stato !== 'ritirata' && <p className="text-slate-700 text-xs mt-1">«{r.motivazione}»</p>}

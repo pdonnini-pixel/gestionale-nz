@@ -11,7 +11,7 @@ import PageHeader from '../components/PageHeader'
 import { DaConfermare } from '../components/PresenzeConferme'
 import { ETICHETTE_VOCE_BREVI, formattaData, formattaOre } from '../lib/ferieRichiesta'
 import type { VoceFerie } from '../lib/ferieRichiesta'
-import { attesaInParole, leggiPrimaDecisione } from '../lib/ferieRegole'
+import { attesaInParole, giorniConcessi, leggiPrimaDecisione } from '../lib/ferieRegole'
 
 interface RichiestaResp {
   id: string; stato: string; negozio: string | null; persona: string; prova: boolean; titolo: string | null
@@ -119,7 +119,13 @@ function FerieDaDecidere() {
     }
     // Come in Ferie e permessi → Approvazioni: la mail ai referenti e' un di piu', se non parte la decisione vale lo stesso
     try { await supabase.functions.invoke('leave-notify', { body: { request_id: q.id, momento: 'decisione' } }) } catch { /* solo l'avviso per mail */ }
-    toast({ type: 'success', message: `${q.persona}: richiesta ${approva ? 'approvata' : 'respinta'}.` })
+    // Seconda approvazione: valgono i giorni approvati da tutte e due, che possono essere meno
+    const veri = giorniConcessi(prima(q), approva ? q.giorni.map((g) => g.id) : []).length
+    toast({ type: 'success', message: !approva || String(esito) === 'respinta'
+      ? `${q.persona}: richiesta respinta${approva ? ' (nessun giorno era approvato da tutte e due le parti)' : ''}.`
+      : veri < q.giorni.length
+        ? `${q.persona}: concessi ${veri} giorni su ${q.giorni.length}, quelli approvati da tutte e due le parti.`
+        : `${q.persona}: richiesta approvata.` })
     setRespingi(null)
     void carica()
   }
@@ -159,12 +165,12 @@ function FerieDaDecidere() {
                 <span className="font-semibold">Chiesta come eccezione.</span>{q.eccezione_motivo ? ` ${q.eccezione_motivo}` : ''}
               </div>
             )}
-            {q.stato === 'inviata' && prima(q) && <p className="text-sm rounded-lg bg-sky-50 text-sky-900 px-3 py-2">{attesaInParole(prima(q)!)}</p>}
+            {prima(q) && <p className="text-sm rounded-lg bg-sky-50 text-sky-900 px-3 py-2">{attesaInParole(prima(q)!)}</p>}
             {q.note_dipendente && <p className="text-sm bg-slate-50 rounded px-3 py-2">«{q.note_dipendente}»</p>}
             <p className="text-xs text-slate-400">{q.compilata_da_nome ?? ''}{q.inviata_il ? ` · ${new Date(q.inviata_il).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })}` : ''}
               {q.decisa_da_nome ? ` · decisa da ${q.decisa_da_nome}` : ''}{q.motivazione ? ` · motivo: ${q.motivazione}` : ''}</p>
             {q.stato === 'inviata' && q.posso === false && (
-              <p className="text-sm text-slate-500">{prima(q)?.lato === 'referente' ? 'La tua parte è fatta: ora decide l’HR.' : 'Per le regole del negozio questa richiesta la decide l’HR.'}</p>
+              <p className="text-sm text-slate-500">{prima(q)?.lato === 'referente' ? 'La tua parte è fatta: ora decide l’HR.' : prima(q) ? 'La tua parte è fatta: la seconda approvazione deve darla un’altra persona.' : 'Per le regole del negozio questa richiesta la decide l’HR.'}</p>
             )}
             {q.stato === 'inviata' && q.posso !== false && (respingi?.id === q.id ? (
               <div className="space-y-2">

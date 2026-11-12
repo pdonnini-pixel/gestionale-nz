@@ -5,7 +5,39 @@
 --   SELECT id, eccezione, eccezione_motivo, prima_decisione FROM public.leave_requests
 --    WHERE eccezione IS NOT NULL OR prima_decisione IS NOT NULL;
 -- e chiedere conferma a Patrizio (regola NO DATA LOSS). Le richieste restano nello stato che hanno.
+-- Il rollback ne fa comunque una copia prima di toglierle: _bkp_407_outlet_leave_rules,
+-- _bkp_407_leave_hr, _bkp_407_leave_requests (senza GRANT: invisibili all'API).
+--
+-- EVENTI: dopo il rollback torna a valere solo blocca_ferie (blocca ferie e permessi insieme).
+--   - Gli eventi allineati dalla 407 tornano alle voci di prima (regole.prima_407).
+--   - Gli eventi salvati DOPO la 407 con una sola voce spenta hanno blocca_ferie = false:
+--     col codice di prima non bloccherebbero piu' niente. Il rollback li riporta a
+--     blocca_ferie = true (bloccano tutte e due, come faceva la 405). Se per uno di loro
+--     si vuole il contrario, va riaperto e risalvato dalla finestra dell'evento.
 BEGIN;
+
+-- copie di sicurezza, prima di tutto
+CREATE TABLE IF NOT EXISTS public._bkp_407_outlet_leave_rules AS SELECT now() AS salvato_il, * FROM public.outlet_leave_rules;
+CREATE TABLE IF NOT EXISTS public._bkp_407_leave_hr AS SELECT now() AS salvato_il, * FROM public.leave_hr;
+CREATE TABLE IF NOT EXISTS public._bkp_407_leave_requests AS
+  SELECT now() AS salvato_il, id, company_id, stato, eccezione, eccezione_motivo, prima_decisione
+    FROM public.leave_requests WHERE eccezione IS NOT NULL OR eccezione_motivo IS NOT NULL OR prima_decisione IS NOT NULL;
+ALTER TABLE public._bkp_407_outlet_leave_rules ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public._bkp_407_leave_hr ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public._bkp_407_leave_requests ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public._bkp_407_outlet_leave_rules, public._bkp_407_leave_hr, public._bkp_407_leave_requests FROM PUBLIC, anon, authenticated;
+
+-- eventi: le voci di prima dove la 407 le aveva allineate, e il blocco di tutte e due dove ne e' spenta una
+UPDATE public.outlet_events
+   SET regole = (regole - 'prima_407') || jsonb_strip_nulls(jsonb_build_object('ferie', regole -> 'prima_407' -> 'ferie', 'permessi', regole -> 'prima_407' -> 'permessi'))
+ WHERE regole ? 'prima_407';
+UPDATE public.outlet_events
+   SET blocca_ferie = true
+ WHERE NOT COALESCE(blocca_ferie, false)
+   AND (COALESCE(regole ->> 'ferie', '') = 'false' OR COALESCE(regole ->> 'permessi', '') = 'false');
+
+DROP TRIGGER IF EXISTS trg_leave_requests_campi_protetti ON public.leave_requests;
+DROP FUNCTION IF EXISTS public.leave_requests_campi_protetti();
 
 DO $do$
 DECLARE
@@ -40,7 +72,7 @@ BEGIN
         $x$AND ev.blocca_ferie$x$,
         $x$  RETURNING id INTO v_req;$x$]),
       ('public.app_dipendente_ferie()', ARRAY[
-        $x$'id', q.id, 'stato', q.stato, 'eccezione', COALESCE(q.eccezione, false), 'attesa_seconda', (q.stato = 'inviata' AND q.prima_decisione IS NOT NULL), 'note', q.note_dipendente,$x$,
+        $x$'id', q.id, 'stato', q.stato, 'eccezione', COALESCE(q.eccezione, false), 'attesa_seconda', (q.prima_decisione IS NOT NULL), 'note', q.note_dipendente,$x$,
         $x$    'eccezioni', public.ferie_eccezioni_attive(e.outlet_id),  -- 407
     'senza_ferie', COALESCE(($x$], ARRAY[
         $x$'id', q.id, 'stato', q.stato, 'note', q.note_dipendente,$x$,
@@ -92,6 +124,11 @@ BEGIN
                   WHERE o.referente_employee_id IS NOT NULL
                     AND o.vice_referente_employee_id IS NOT NULL) THEN');
   IF n <> d THEN EXECUTE n; END IF;
+
+  d := pg_get_functiondef('public.ferie_lunedi_testo(uuid,date[],boolean)'::regprocedure);
+  n := replace(d, $x$|| CASE WHEN public.ferie_lunedi_provvisoria(p_employee_id) THEN '' ELSE ' è già assente l''altra fra responsabile e vice del negozio' END$x$,
+    $x$|| ' è già assente l''altra fra responsabile e vice del negozio'$x$);
+  IF n <> d THEN EXECUTE n; END IF;
 END
 $do$;
 
@@ -136,6 +173,7 @@ DROP FUNCTION IF EXISTS public.ferie_regole_richiesta(uuid);
 DROP FUNCTION IF EXISTS public.ferie_eccezioni_attive(uuid);
 DROP FUNCTION IF EXISTS public.ferie_blocco_giorno(uuid, date, text);
 DROP FUNCTION IF EXISTS public.ferie_lunedi_ce_guida();
+DROP FUNCTION IF EXISTS public.ferie_lunedi_provvisoria(uuid);
 DROP FUNCTION IF EXISTS public.guida_negozio_effettiva(uuid);
 DROP FUNCTION IF EXISTS public.festivo_italiano(date);
 

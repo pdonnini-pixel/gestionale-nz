@@ -17,7 +17,7 @@ import {
   CheckCircle2, XCircle, Clock, AlertTriangle, UserPlus, Trash2, Mail,
   ShieldCheck, ChevronDown, ChevronRight, History, CalendarClock,
 } from 'lucide-react';
-import { attesaInParole, leggiPrimaDecisione } from '../lib/ferieRegole';
+import { attesaInParole, giorniConcessi, leggiPrimaDecisione } from '../lib/ferieRegole';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 import {
@@ -125,6 +125,8 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
 
   // Eventi con «niente ferie» (Black Friday, feste, saldi): un giorno chiesto
   // dentro un evento si segnala a chi decide.
+  // richieste con una prima approvazione che chi guarda non può completare (l'ha data lui, o è dello stesso lato)
+  const [nonPosso, setNonPosso] = useState<Set<string>>(new Set());
   const [eventiSenzaFerie, setEventiSenzaFerie] = useState<Pick<EventoNegozio, 'nome' | 'data_dal' | 'data_al' | 'outlet_ids'>[]>([]);
 
   const carica = useCallback(async () => {
@@ -181,6 +183,15 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
           giorni: (perRichiesta.get(r.id) ?? []).sort((a, b) => a.data.localeCompare(b.data)),
         };
       }));
+
+      // Dove servono due approvazioni: chi ha già dato la prima non rivede i pulsanti.
+      // Lo dice il database (ferie_lato_puo, migration 407); dove manca si resta come prima.
+      const conPrima = ((req.data as unknown as { id: string; prima_decisione?: unknown }[]) ?? []).filter((x) => leggiPrimaDecisione(x.prima_decisione));
+      const esiti = await Promise.all(conPrima.map(async (x) => {
+        const { data: puo, error: errPuo } = await supabase.rpc('ferie_lato_puo' as never, { p_request_id: x.id } as never);
+        return !errPuo && puo === false ? x.id : null;
+      }));
+      setNonPosso(new Set(esiti.filter((x): x is string => !!x)));
 
       setReferenti((appr.data as Referente[]) ?? []);
       setUtenti(((prof.data as Record<string, unknown>[]) ?? []).map((p) => ({
@@ -280,13 +291,16 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
         mail = 'failed';
       }
 
+      // Seconda approvazione: valgono i giorni approvati da tutte e due, non quelli scelti qui
+      const prima = leggiPrimaDecisione(r.prima_decisione);
+      const veri = giorniConcessi(prima, giorni).length;
       toast({
         type: esito === 'respinta' ? 'info' : 'success',
         message: (esito === 'approvata'
           ? `Approvate tutte le ${r.giorni.length} giornate di ${r.dipendente}.`
           : esito === 'respinta'
-            ? `Richiesta di ${r.dipendente} respinta.`
-            : `Concessi ${giorni.length} giorni su ${r.giorni.length} a ${r.dipendente}.`)
+            ? `Richiesta di ${r.dipendente} respinta${prima && giorni.length > 0 ? ': nessun giorno era approvato da tutte e due le parti' : ''}.`
+            : `Concessi ${veri} giorni su ${r.giorni.length} a ${r.dipendente}${prima && veri < giorni.length ? ': quelli approvati da tutte e due le parti' : ''}.`)
           + (mail === 'sent' ? ' Avviso mandato per mail.' : ''),
       });
       setAperta(null);
@@ -380,7 +394,7 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
                     {VOCI_ORDINE.filter((v) => t[v]).map((v) => ` · ${ETICHETTE_VOCE_BREVI[v]} ${formattaOre(t[v])}`).join('')}
                   </span>
                   {r.eccezione && <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900">eccezione</span>}
-                  {r.stato === 'inviata' && leggiPrimaDecisione(r.prima_decisione) && <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-800">manca la seconda approvazione</span>}
+                  {leggiPrimaDecisione(r.prima_decisione) && <span className="text-[11px] px-2 py-0.5 rounded-full bg-sky-50 text-sky-800">manca la seconda approvazione</span>}
                 </button>
 
                 {apertaQui && (
@@ -390,8 +404,11 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
                         <span className="font-semibold">Chiesta come eccezione.</span>{r.eccezione_motivo ? ` ${r.eccezione_motivo}` : ''}
                       </p>
                     )}
-                    {r.stato === 'inviata' && leggiPrimaDecisione(r.prima_decisione) && (
-                      <p className="text-sm rounded-lg bg-sky-50 text-sky-900 px-3 py-2">{attesaInParole(leggiPrimaDecisione(r.prima_decisione)!)}</p>
+                    {leggiPrimaDecisione(r.prima_decisione) && (
+                      <p className="text-sm rounded-lg bg-sky-50 text-sky-900 px-3 py-2">
+                        {r.stato === 'inviata' ? attesaInParole(leggiPrimaDecisione(r.prima_decisione)!) : `C’è una modifica a questa decisione in attesa della seconda approvazione${leggiPrimaDecisione(r.prima_decisione)!.nome ? ` (la prima è di ${leggiPrimaDecisione(r.prima_decisione)!.nome})` : ''}: fino ad allora vale la decisione di prima.`}
+                        {(nonPosso.has(r.id) || leggiPrimaDecisione(r.prima_decisione)!.utente === userId) && ' La tua parte è fatta: la seconda approvazione deve darla un’altra persona.'}
+                      </p>
                     )}
                     {r.note_dipendente && (
                       <p className="text-sm text-slate-600 bg-slate-50 rounded-lg px-3 py-2">
@@ -461,7 +478,7 @@ export default function ApprovazioniFerie({ companyId, userId }: Props) {
                       </div>
                     )}
 
-                    <div className="flex flex-wrap gap-2">
+                    <div className={nonPosso.has(r.id) || (!!userId && leggiPrimaDecisione(r.prima_decisione)?.utente === userId) ? 'hidden' : 'flex flex-wrap gap-2'}>
                       <button
                         type="button"
                         disabled={salvataggio}
