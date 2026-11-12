@@ -717,12 +717,34 @@ function disegnaRigaPiede(
  */
 export function creaPdfOrario(dati: OrarioStampa): jsPDF {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  disegnaOrario(doc, dati, true);
+  doc.setProperties({ title: `Orario ${dati.negozio} ${TRATTINO} ${titoloPeriodo(dati.giorni)}` });
+  return doc;
+}
+
+/**
+ * Piu' settimane in un solo PDF, una dopo l'altra (il mese intero): ogni settimana comincia su
+ * una pagina nuova, con la stessa grafica del foglio singolo.
+ */
+export function creaPdfOrari(settimane: OrarioStampa[], titolo?: string): jsPDF {
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  settimane.forEach((dati, i) => disegnaOrario(doc, dati, i === 0));
+  if (settimane.length) doc.setProperties({ title: titolo ?? `Orario ${settimane[0].negozio}` });
+  return doc;
+}
+
+/** Nome del file del mese: orario-roma-soratte-2026-11.pdf */
+export function nomeFileOrarioMese(dati: Pick<OrarioStampa, 'negozio'>, mese: string): string {
+  return nomeFileOrario({ negozio: dati.negozio, giorni: [{ data: `${mese}-01`, nelMese: true, chiuso: false, apre: null, chiude: null }] } as OrarioStampa).replace(/-\d{2}\.pdf$/, '.pdf');
+}
+
+function disegnaOrario(doc: jsPDF, dati: OrarioStampa, prima: boolean): void {
   const piano = pianoPagine(doc, dati);
   const unico = orarioUnico(dati.giorni);
   const piede = testoPiede(dati);
 
   piano.gruppi.forEach((gruppo, pagina) => {
-    if (pagina > 0) doc.addPage('a4', 'landscape');
+    if (pagina > 0 || !prima) doc.addPage('a4', 'landscape');
     disegnaIntestazione(doc, dati);
     disegnaTestata(doc, dati, piano);
     let y = TABELLA_Y + piano.testataH;
@@ -739,7 +761,4 @@ export function creaPdfOrario(dati: OrarioStampa): jsPDF {
     // Nel piè di pagina c'è solo la data: nessuna nota, per scelta del cliente.
     scrivi(doc, piede, MARGINE_DX, PIEDE_Y, { size: 8, colore: GRIGIO, destra: true });
   });
-
-  doc.setProperties({ title: `Orario ${dati.negozio} ${TRATTINO} ${titoloPeriodo(dati.giorni)}` });
-  return doc;
 }

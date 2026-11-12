@@ -1,4 +1,4 @@
-// «Orari e fabbisogno» di un negozio: la base da cui si propongono i turni.
+// «Regole e orari» di un negozio: la base da cui si propongono i turni.
 //
 //  - Orari della settimana tipo: li inserisce chi tiene l'organico.
 //  - Fabbisogno (quante persone servono in ogni fascia): lo decide Patrizio,
@@ -15,13 +15,16 @@
 // poi «Salva regole» restavano fuori, e cambiando negozio sparivano senza
 // avviso. Chi esce con modifiche aperte viene fermato e sceglie.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from 'react';
 import { Copy, Lock, Plus, Save, Sparkles, Trash2 } from 'lucide-react';
+import FasceEditor, { type FasciaSemplice } from './FasceEditor';
+import RiposiNegozio from './RiposiNegozio';
+import EventiDelNegozio from './EventiDelNegozio';
 import { useToast } from './Toast';
 import { Modal } from './ui/Modal';
 import { supabase } from '../lib/supabase';
 import {
-  NOMI_GIORNO, REGOLE_DEFAULT, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreDaCoprire,
+  NOMI_GIORNO, REGOLE_DEFAULT, RIPOSO_LEGALE, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreDaCoprire,
   type FasciaFabbisogno, type RegoleTurni,
 } from '../lib/turni';
 import { formattaDataBreve, oggiRoma } from '../lib/organico';
@@ -43,6 +46,12 @@ type Props = {
   onSalvato?: () => void;
   /** chi cambia negozio o scheda la chiama prima: false = si resta qui */
   guardia?: MutableRefObject<(() => Promise<boolean>) | null>;
+  /** le persone in servizio nel negozio, per i giorni di riposo */
+  persone?: { id: string; nome: string }[];
+  /** scheda «Responsabile e vice»: i selettori li porta la pagina Turni */
+  guida?: ReactNode;
+  /** apre la pagina Eventi di prima (eventi per piu' negozi insieme) */
+  onVaiEventi?: () => void;
 };
 
 type RigaOrario = { giorno: number; chiuso: boolean; apre: string; chiude: string };
@@ -62,7 +71,7 @@ const righeSpeciali = (dati: unknown): RigaSpeciale[] => ((dati as SpecialeDb[] 
   .map((x) => ({ id: x.id, data: x.data, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude), persone_extra: x.persone_extra, nota: x.nota ?? '' }));
 const improntaFasce = (f: RigaFascia[]) => JSON.stringify(f.map((x) => [x.id ?? '', x.giorno, x.dalle, x.alle, x.persone]));
 
-export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScrivere, puoFabbisogno, oreContratto, personeInServizio, altriNegozi = [], onSalvato, guardia }: Props) {
+export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScrivere, puoFabbisogno, oreContratto, personeInServizio, altriNegozi = [], onSalvato, guardia, persone = [], guida, onVaiEventi }: Props) {
   const { toast } = useToast();
   const [orari, setOrari] = useState<RigaOrario[]>(settimanaVuota());
   const [fasce, setFasce] = useState<RigaFascia[]>([]);
@@ -74,6 +83,11 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [haRiempi, setHaRiempi] = useState(false);
   // colonne della migration 399: dove mancano (tenant Made) le due scelte non si mostrano e non si salvano
   const [haProva, setHaProva] = useState(false);
+  // colonne della migration 403 (riposi, straordinari pari, scelte dei giorni caldi): come sopra
+  const [ha403, setHa403] = useState(false);
+  // Persone per fascia: quale giorno si sta guardando (0 = i feriali insieme), e se i feriali si scrivono insieme.
+  const [giornoFasce, setGiornoFasce] = useState<number>(0);
+  const [ferialiInsieme, setFerialiInsieme] = useState(true);
   const [trafficoSalvato, setTrafficoSalvato] = useState<string | null | undefined>(undefined);
   const [speciali, setSpeciali] = useState<RigaSpeciale[]>([]);
   const [nuovoSpeciale, setNuovoSpeciale] = useState<RigaSpeciale>({ data: '', chiuso: true, apre: '', chiude: '', persone_extra: 0, nota: '' });
@@ -110,6 +124,11 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     const ff = ((f.data as { id: string; giorno: number; dalle: string; alle: string; persone: number }[]) ?? [])
       .map((x) => ({ id: x.id, giorno: x.giorno, dalle: t5(x.dalle), alle: t5(x.alle), persone: x.persone, chiave: x.id }));
     setFasce(ff);
+    // I feriali si scrivono insieme finche' sono uguali fra loro (o vuoti).
+    const delGiorno = (g: number) => JSON.stringify(ff.filter((x) => x.giorno === g).map((x) => [x.dalle, x.alle, x.persone]));
+    const uguali = [2, 3, 4, 5].every((g) => delGiorno(g) === delGiorno(1));
+    setFerialiInsieme(uguali);
+    setGiornoFasce((g) => (uguali ? (g >= 6 ? g : 0) : (g === 0 ? 1 : g)));
     setFasceIniziali(ff.map((x) => x.id!));
     setSpeciali(righeSpeciali(s.data));
     const regoleLette = regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]);
@@ -129,6 +148,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     else setHaRiempi(!(await supabase.from('outlet_shift_rules').select('riempi_contratto').limit(1)).error);
     if (r.data != null) setHaProva('giorni_pieni' in (r.data as object));
     else setHaProva(!(await supabase.from('outlet_shift_rules').select('giorni_pieni').limit(1)).error);
+    if (r.data != null) setHa403('riposi_min_settimana' in (r.data as object));
+    else setHa403(!(await supabase.from('outlet_shift_rules').select('riposi_min_settimana' as 'giorni_pieni').limit(1)).error);
     setCaricamento(false);
   }, [outletId]);
 
@@ -178,11 +199,17 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     if (doppia) return `${NOMI_GIORNO[doppia.giorno]}: due fasce iniziano alle ${doppia.dalle}, cambia l'orario di una delle due.`;
     // Quello che arriva nel database si segna subito, riga per riga: se una
     // scrittura fallisce a meta', la pagina sa quali fasce sono gia' salvate.
-    const scritte = fasce.map((f) => ({ ...f }));
+    // Una fascia che cambia giorno o ora d'inizio si toglie e si riscrive: aggiornandole una alla
+    // volta due righe potrebbero avere per un attimo lo stesso inizio, che il database non ammette.
+    const com = new Map((JSON.parse(base.fasce || '[]') as [string, number, string, string, number][]).map((x) => [x[0], x]));
+    const scritte: RigaFascia[] = fasce.map((f) => {
+      const prima = f.id ? com.get(f.id) : undefined;
+      return prima && (prima[1] !== f.giorno || prima[2] !== f.dalle) ? { ...f, id: undefined } : { ...f };
+    });
     let rimaste = fasceIniziali;
     let motivo: string | null = null;
     try {
-      const tolte = fasceIniziali.filter((id) => !fasce.some((f) => f.id === id));
+      const tolte = fasceIniziali.filter((id) => !scritte.some((f) => f.id === id));
       if (tolte.length) {
         const { error } = await supabase.from('outlet_staffing_needs').delete().in('id', tolte);
         if (error) throw error;
@@ -216,6 +243,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     if (regole.pausaLungaOltreOre < regole.pausaOltreOre) return 'la pausa lunga deve scattare dopo quella normale.';
     if (regole.turnoMinOre > regole.turnoMaxOre) return 'il turno minimo non può superare il turno massimo.';
     if (regole.sogliaFeriali < 1 || regole.sogliaWeekend < 1) return 'gli ingressi per addetto devono essere almeno 1.';
+    if (regole.riposiMinSettimana != null && regole.riposiMinSettimana < RIPOSO_LEGALE) return 'per legge c’è almeno un giorno di riposo a settimana.';
     const { error } = await supabase.from('outlet_shift_rules').upsert([{
       outlet_id: outletId, company_id: companyId, turno_min_ore: regole.turnoMinOre, turno_max_ore: regole.turnoMaxOre,
       pausa_oltre_ore: regole.pausaOltreOre, pausa_minuti: regole.pausaMinuti,
@@ -224,6 +252,12 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       ...(trafficoDa !== undefined ? { traffico_da_outlet_id: trafficoDa } : {}),
       ...(haRiempi ? { riempi_contratto: !!regole.riempiContratto } : {}),
       ...(haProva ? { pausa_corta_pagata: !!regole.pausaCortaPagata, giorni_pieni: !!regole.giorniPieni } : {}),
+      ...(ha403 ? {
+        riposi_min_settimana: regole.riposiMinSettimana ?? null, straordinari_pari: regole.straordinariPari ?? null,
+        caldi_tutti_al_lavoro: regole.caldiTutti ?? null, caldi_straordinari: regole.caldiStraordinari ?? null,
+        caldi_fasce_festivi: regole.caldiFasceFestivi == null ? null : regole.caldiFasceFestivi === 7 ? 'domenica' : 'sabato',
+        caldi_guida_apre_chiude: regole.caldiGuidaApreChiude ?? null, caldi_ore_apertura: regole.caldiOreApertura ?? null,
+      } : {}),
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
     if (error) return error.message;
@@ -339,10 +373,30 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   };
 
   const copiaOrariLunedi = () => setOrari((o) => o.map((x) => (x.giorno === 1 ? x : { ...o[0], giorno: x.giorno })));
-  const copiaFasceLunedi = () => setFasce((f) => {
-    const lun = f.filter((x) => x.giorno === 1);
-    return [...lun, ...[2, 3, 4, 5, 6, 7].flatMap((g) => lun.map((x) => ({ giorno: g, dalle: x.dalle, alle: x.alle, persone: x.persone, chiave: nuovaChiave() })))];
+  // ── Persone per fascia: un giorno alla volta, con i feriali insieme finche' sono uguali ──
+  const schedeGiorni = ferialiInsieme
+    ? [{ g: 0, nome: 'Feriali' }, { g: 6, nome: 'Sabato' }, { g: 7, nome: 'Domenica' }]
+    : [1, 2, 3, 4, 5, 6, 7].map((g) => ({ g, nome: NOMI_GIORNO[g] }));
+  const giornoScelto = schedeGiorni.some((t) => t.g === giornoFasce) ? giornoFasce : schedeGiorni[0].g;
+  const giornoVero = giornoScelto === 0 ? 1 : giornoScelto;
+  const fasceDelGiornoScelto: FasciaSemplice[] = fasce.filter((f) => f.giorno === giornoVero).sort((a, b) => a.dalle.localeCompare(b.dalle))
+    .map((f) => ({ dalle: f.dalle, alle: f.alle, persone: f.persone, chiave: f.chiave }));
+  const orarioDelGiornoScelto = { apre: orari[giornoVero - 1]?.apre || '10:00', chiude: orari[giornoVero - 1]?.chiude || '20:00' };
+  // Riscrive le fasce di uno o piu' giorni tenendo, dove si puo', la riga gia' salvata (per chiave o per posizione).
+  const scriviGiorni = (giorniDa: number[], nuove: FasciaSemplice[]) => setFasce((tutte) => {
+    const altre = tutte.filter((f) => !giorniDa.includes(f.giorno));
+    const rifatte = giorniDa.flatMap((g) => {
+      const prima = tutte.filter((f) => f.giorno === g).sort((a, b) => a.dalle.localeCompare(b.dalle));
+      return nuove.map((n, k): RigaFascia => {
+        const vecchia = prima.find((f) => f.chiave === n.chiave) ?? (g !== giornoVero ? prima[k] : undefined);
+        return { giorno: g, dalle: n.dalle, alle: n.alle, persone: n.persone, id: vecchia?.id, chiave: vecchia?.chiave ?? nuovaChiave() };
+      });
+    });
+    return [...altre, ...rifatte].sort((a, b) => a.giorno - b.giorno || a.dalle.localeCompare(b.dalle));
   });
+  const cambiaFasceDelGiorno = (nuove: FasciaSemplice[]) => scriviGiorni(giornoScelto === 0 ? [1, 2, 3, 4, 5] : [giornoScelto], nuove);
+  const copiaFasceDa = (g: number) => cambiaFasceDelGiorno(fasce.filter((f) => f.giorno === g).sort((a, b) => a.dalle.localeCompare(b.dalle))
+    .map((f) => ({ dalle: f.dalle, alle: f.alle, persone: f.persone })));
 
   if (caricamento) return <div className="text-slate-400 py-12 text-center">Caricamento…</div>;
 
@@ -399,36 +453,25 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
-        <section className="bg-white border border-slate-200 rounded-xl">
-          <div className="flex items-center justify-between gap-2 p-4 border-b border-slate-100 flex-wrap">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800">Orari della settimana tipo</h3>
-              <p className="text-xs text-slate-500">Quando il negozio è aperto.</p>
-            </div>
-            {puoScrivere && (
-              <div className="flex gap-2">
-                <button type="button" onClick={copiaOrariLunedi} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50"><Copy size={13} /> Lunedì su tutti</button>
-                <button type="button" onClick={() => salva(['orari'])} disabled={salvando} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Save size={13} /> Salva orari</button>
-              </div>
-            )}
-          </div>
+        <Scheda n={1} titolo="Orario del negozio" sotto="Quando è aperto. I turni stanno dentro questo orario."
+          azione={puoScrivere && <button type="button" onClick={copiaOrariLunedi} className={btnPiccolo}><Copy size={13} /> Lunedì su tutti</button>}>
           <table className="w-full text-sm">
             <tbody>
               {orari.map((o, i) => (
                 <tr key={o.giorno} className="border-b border-slate-100">
-                  <td className="px-4 py-2 font-medium w-28">{NOMI_GIORNO[o.giorno]}</td>
-                  <td className="px-2 py-2">
+                  <td className="py-1.5 font-medium w-24">{NOMI_GIORNO[o.giorno]}</td>
+                  <td className="px-2 py-1.5">
                     <label className="text-xs text-slate-600 flex items-center gap-1.5">
                       <input type="checkbox" disabled={!puoScrivere} checked={o.chiuso}
                         onChange={(e) => setOrari((x) => x.map((r, j) => (j === i ? { ...r, chiuso: e.target.checked } : r)))} /> chiuso
                     </label>
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-1 py-1.5">
                     <label className="sr-only" htmlFor={`apre-${o.giorno}`}>Apre</label>
                     <input id={`apre-${o.giorno}`} type="time" step={1800} disabled={!puoScrivere || o.chiuso} className={inputCls} value={o.apre}
                       onChange={(e) => setOrari((x) => x.map((r, j) => (j === i ? { ...r, apre: e.target.value } : r)))} />
                   </td>
-                  <td className="px-2 py-2">
+                  <td className="px-1 py-1.5">
                     <label className="sr-only" htmlFor={`chiude-${o.giorno}`}>Chiude</label>
                     <input id={`chiude-${o.giorno}`} type="time" step={1800} disabled={!puoScrivere || o.chiuso} className={inputCls} value={o.chiude}
                       onChange={(e) => setOrari((x) => x.map((r, j) => (j === i ? { ...r, chiude: e.target.value } : r)))} />
@@ -437,64 +480,11 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
               ))}
             </tbody>
           </table>
-        </section>
-
-        <section className="bg-white border border-slate-200 rounded-xl">
-          <div className="flex items-center justify-between gap-2 p-4 border-b border-slate-100 flex-wrap">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-1.5">Fabbisogno: persone per fascia {!puoFabbisogno && <Lock size={13} className="text-slate-400" />}</h3>
-              <p className="text-xs text-slate-500">{puoFabbisogno ? 'Il minimo di persone in negozio, fascia per fascia (per esempio una la mattina e la sera, due nel resto): una volta salvato comanda nei turni, e dove il traffico MODA chiede di più le persone aumentano.' : 'Lo decide la direzione (profilo Super Advisor): qui lo vedi, non lo modifichi.'}</p>
-            </div>
-            {puoFabbisogno && (
-              <div className="flex gap-2">
-                <button type="button" onClick={copiaFasceLunedi} className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50"><Copy size={13} /> Lunedì su tutti</button>
-                <button type="button" onClick={() => salva(['fasce'])} disabled={salvando} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Save size={13} /> Salva fabbisogno</button>
-              </div>
-            )}
-          </div>
-          <div className="divide-y divide-slate-100">
-            {[1, 2, 3, 4, 5, 6, 7].map((g) => {
-              const dg = fasce.filter((f) => f.giorno === g);
-              return (
-                <div key={g} className="px-4 py-2.5 flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-sm w-24">{NOMI_GIORNO[g]}</span>
-                  {dg.length === 0 && <span className="text-xs text-slate-400">nessuna fascia</span>}
-                  {dg.map((f) => (
-                    <span key={f.chiave} className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-1.5 py-1">
-                      <input aria-label="Dalle" type="time" step={1800} disabled={!puoFabbisogno} className={`${inputCls} min-h-[30px] w-[92px]`} value={f.dalle}
-                        onChange={(e) => setFasce((x) => x.map((r) => (r.chiave === f.chiave ? { ...r, dalle: e.target.value } : r)))} />
-                      <span className="text-xs text-slate-400">–</span>
-                      <input aria-label="Alle" type="time" step={1800} disabled={!puoFabbisogno} className={`${inputCls} min-h-[30px] w-[92px]`} value={f.alle}
-                        onChange={(e) => setFasce((x) => x.map((r) => (r.chiave === f.chiave ? { ...r, alle: e.target.value } : r)))} />
-                      <input aria-label="Persone" type="number" min={0} max={30} disabled={!puoFabbisogno} className={`${inputCls} min-h-[30px] w-14 text-center`} value={f.persone}
-                        onChange={(e) => setFasce((x) => x.map((r) => (r.chiave === f.chiave ? { ...r, persone: Math.max(0, Number(e.target.value) || 0) } : r)))} />
-                      <span className="text-xs text-slate-500">pers.</span>
-                      {puoFabbisogno && (
-                        <button type="button" aria-label="Togli la fascia" onClick={() => setFasce((x) => x.filter((r) => r.chiave !== f.chiave))}
-                          className="p-1 rounded hover:bg-slate-200"><Trash2 size={13} /></button>
-                      )}
-                    </span>
-                  ))}
-                  {puoFabbisogno && (
-                    <button type="button" onClick={() => {
-                      const o = orari[g - 1];
-                      setFasce((x) => [...x, { giorno: g, dalle: o.apre || '10:00', alle: o.chiude || '20:00', persone: 2, chiave: nuovaChiave() }]);
-                    }} className="inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-lg border border-dashed border-slate-300 hover:bg-slate-50"><Plus size={12} /> fascia</button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </section>
-
-        <section className="bg-white border border-slate-200 rounded-xl">
-          <div className="p-4 border-b border-slate-100">
-            <h3 className="text-sm font-semibold text-slate-800">Giorni chiusi e orari diversi</h3>
-            <p className="text-xs text-slate-500">Natale, Capodanno, vigilie con chiusura anticipata: valgono al posto della settimana tipo. Black Friday, feste e saldi si segnano in «Eventi».</p>
-          </div>
-          <ul className="divide-y divide-slate-100 text-sm">
+          <h4 className="text-sm font-semibold text-slate-800 mt-4">Giorni chiusi e orari diversi</h4>
+          <p className="text-xs text-slate-500">Natale, Capodanno, vigilie con chiusura anticipata: valgono al posto dell’orario solito.</p>
+          <ul className="divide-y divide-slate-100 text-sm mt-1">
             {speciali.map((s) => (
-              <li key={s.id} className="px-4 py-2 flex items-center justify-between gap-2">
+              <li key={s.id} className="py-2 flex items-center justify-between gap-2">
                 <span>
                   <strong>{formattaDataBreve(s.data)}</strong>{s.nota ? ` · ${s.nota}` : ''}
                   <span className="text-slate-500"> · {s.chiuso ? 'chiuso' : `${s.apre || 'orario solito'}${s.chiude ? `-${s.chiude}` : ''}`}{s.persone_extra ? `, ${s.persone_extra > 0 ? '+' : ''}${s.persone_extra} persone` : ''}</span>
@@ -504,10 +494,10 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                 )}
               </li>
             ))}
-            {!speciali.length && <li className="px-4 py-3 text-slate-400">Nessun giorno di chiusura o con orario diverso nei prossimi mesi.</li>}
+            {!speciali.length && <li className="py-2 text-slate-400">Nessun giorno di chiusura o con orario diverso nei prossimi mesi.</li>}
           </ul>
           {puoScrivere && (
-            <div className="p-4 border-t border-slate-100 flex flex-wrap items-end gap-2">
+            <div className="pt-2 flex flex-wrap items-end gap-2">
               <label className="text-xs text-slate-600">Data<br /><input type="date" className={inputCls} value={nuovoSpeciale.data} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, data: e.target.value }))} /></label>
               <label className="text-xs text-slate-600 flex items-center gap-1 pb-2"><input type="checkbox" checked={nuovoSpeciale.chiuso} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, chiuso: e.target.checked }))} /> chiuso</label>
               <label className="text-xs text-slate-600">Apre<br /><input type="time" step={1800} disabled={nuovoSpeciale.chiuso} className={inputCls} value={nuovoSpeciale.apre} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, apre: e.target.value }))} /></label>
@@ -516,82 +506,191 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
               {altriNegozi.length > 0 && (
                 <label className="text-xs text-slate-600 flex items-center gap-1 pb-2"><input type="checkbox" checked={suTutti} onChange={(e) => setSuTutti(e.target.checked)} /> anche negli altri {altriNegozi.length} negozi</label>
               )}
-              <button type="button" onClick={aggiungiSpeciale} disabled={salvo === 'speciali'} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Plus size={13} /> Aggiungi</button>
+              <button type="button" onClick={aggiungiSpeciale} disabled={salvo === 'speciali'} className={btnPiccolo}><Plus size={13} /> Aggiungi</button>
             </div>
           )}
-        </section>
+        </Scheda>
 
-        <section className="bg-white border border-slate-200 rounded-xl">
-          <div className="flex items-center justify-between gap-2 p-4 border-b border-slate-100">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-800">Regole dei turni</h3>
-              <p className="text-xs text-slate-500">Valgono per la proposta automatica di questo negozio.</p>
-            </div>
-            {puoScrivere && (
-              <button type="button" onClick={() => salva(['regole'])} disabled={salvando} className="inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"><Save size={13} /> Salva regole</button>
+        <Scheda n={2} titolo="Persone in negozio" lucchetto={!puoFabbisogno}
+          sotto={puoFabbisogno ? 'Il minimo di persone, fascia per fascia. Dove gli ingressi MODA chiedono di più, le persone aumentano.' : 'Il minimo di persone, fascia per fascia. Lo decide la direzione (profilo Super Advisor): qui lo vedi, non lo modifichi.'}>
+          <div className="flex flex-wrap items-center gap-1.5" role="tablist" aria-label="Giorno delle fasce">
+            {schedeGiorni.map((t) => (
+              <button key={t.g} type="button" role="tab" aria-selected={giornoScelto === t.g} onClick={() => setGiornoFasce(t.g)}
+                className={`min-h-[36px] px-3 rounded-lg text-sm font-semibold ${giornoScelto === t.g ? 'bg-slate-900 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300'}`}>{t.nome}</button>
+            ))}
+            {puoFabbisogno && (
+              <select aria-label="Copia le fasce da un altro giorno" value="" onChange={(e) => { if (e.target.value) copiaFasceDa(Number(e.target.value)); }}
+                className="min-h-[36px] rounded-lg border border-dashed border-slate-400 px-2 text-sm bg-white">
+                <option value="">Copia da…</option>
+                {[1, 2, 3, 4, 5, 6, 7].filter((g) => g !== (giornoScelto === 0 ? 1 : giornoScelto) && fasce.some((f) => f.giorno === g)).map((g) => <option key={g} value={g}>{NOMI_GIORNO[g]}</option>)}
+              </select>
             )}
           </div>
-          <div className="p-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-            {([
-              // Turno minimo: 4 ore per regola (Patrizio, 20/10/2026); si cambia solo qui, negozio per negozio.
-              { k: 'turnoMinOre' as const, label: 'Turno minimo nella giornata (ore)', min: 1, max: 12, step: 0.5 },
-              { k: 'turnoMaxOre' as const, label: 'Turno massimo (ore)', min: 1, max: 12, step: 0.5 },
-              { k: 'pausaOltreOre' as const, label: 'Pausa oltre (ore lavorate)', min: 1, max: 12, step: 0.5 },
-              { k: 'pausaMinuti' as const, label: 'Pausa (minuti)', min: 0, max: 120, step: 5 },
-              { k: 'pausaLungaOltreOre' as const, label: 'Pausa lunga da (ore lavorate)', min: 1, max: 12, step: 0.5 },
-              { k: 'pausaLungaMinuti' as const, label: 'Pausa lunga (minuti)', min: 0, max: 120, step: 5 },
-              { k: 'giorniLavoroMax' as const, label: 'Giorni di lavoro a settimana, al massimo', min: 1, max: 7, step: 1 },
-              // Soglia di ingressi MODA per addetto (Patrizio, 29/10/2026): 25 provvisorio, si rimisura a fine novembre.
-              { k: 'sogliaFeriali' as const, label: 'Ingressi per addetto all\'ora, feriali (provvisorio)', min: 1, max: 200, step: 1 },
-              { k: 'sogliaWeekend' as const, label: 'Ingressi per addetto all\'ora, sabato, domenica e festivi (provvisorio)', min: 1, max: 200, step: 1 },
-            ]).map((c) => (
-              <label key={c.k} className="text-xs text-slate-600">{c.label}<br />
-                <input type="number" min={c.min} max={c.max} step={c.step} disabled={!puoScrivere} className={`${inputCls} w-24 mt-1`} value={regole[c.k]}
-                  onChange={(e) => setRegole((r) => ({ ...r, [c.k]: Number(e.target.value) || 0 }))} />
-              </label>
-            ))}
-            {/* Due persone in negozio (Patrizio, 30/10/2026): accesa di default, si spegne negozio per negozio. */}
-            <label className="col-span-2 sm:col-span-3 flex items-start gap-2 text-xs text-slate-600">
-              <input type="checkbox" disabled={!puoScrivere} className="mt-0.5" checked={regole.duePersone}
-                onChange={(e) => setRegole((r) => ({ ...r, duePersone: e.target.checked }))} />
-              <span>Sempre almeno due persone in negozio, salvo la prima ora di apertura e l&apos;ultima di chiusura. Se le ore non bastano, la seconda persona viene prima del traffico del weekend. Vale finché il fabbisogno per fascia non è salvato: dopo comandano le fasce.</span>
-            </label>
-            {/* Ore fino al contratto (Patrizio, 11/11/2026): scelta del negozio, spenta di default. */}
-            {haRiempi && (
-              <label className="col-span-2 sm:col-span-3 flex items-start gap-2 text-xs text-slate-600">
-                <input type="checkbox" disabled={!puoScrivere} className="mt-0.5" checked={!!regole.riempiContratto}
-                  onChange={(e) => setRegole((r) => ({ ...r, riempiContratto: e.target.checked }))} />
-                <span>Ore fino al contratto: le ore di contratto che il traffico non chiede vanno comunque in turno, prima venerdì, sabato e domenica. Spenta, quelle ore restano da assegnare (ferie, permessi o turni a mano). Utile dove le persone sono appena assunte e non hanno ferie da scalare.</span>
-              </label>
-            )}
-            {/* Modello in prova (Patrizio, 11/11/2026, Roma Soratte): due scelte del negozio, spente di default. */}
-            {haProva && (
-              <>
-                <label className="col-span-2 sm:col-span-3 flex items-start gap-2 text-xs text-slate-600">
-                  <input type="checkbox" disabled={!puoScrivere} className="mt-0.5" checked={!!regole.pausaCortaPagata}
-                    onChange={(e) => setRegole((r) => ({ ...r, pausaCortaPagata: e.target.checked }))} />
-                  <span>Pausa corta pagata: la pausa si decide sulle ore di turno. Fino a 6 ore nessuna; oltre 6 e fino a 8 la pausa corta si timbra ma non si toglie dalle ore (10-18 vale 8 ore); sopra le 8 ore la pausa lunga si timbra e si toglie (10-19 vale 8 ore e mezza). Spenta, ogni pausa si toglie dalle ore.</span>
-                </label>
-                <label className="col-span-2 sm:col-span-3 flex items-start gap-2 text-xs text-slate-600">
-                  <input type="checkbox" disabled={!puoScrivere} className="mt-0.5" checked={!!regole.giorniPieni}
-                    onChange={(e) => setRegole((r) => ({ ...r, giorniPieni: e.target.checked }))} />
-                  <span>Giorni a massima intensità: sabato, domenica, festivi e giorni di evento lavorano tutti. All&apos;apertura una persona sola per mezz&apos;ora, poi tutte fino a un&apos;ora dalla chiusura, nell&apos;ultima ora una. La responsabile entra all&apos;apertura ed esce dopo nove ore. In quei giorni sono ammessi gli straordinari. Spenta, il weekend segue il traffico.</span>
-                </label>
-              </>
-            )}
+          <div className="mt-3">
+            <FasceEditor fasce={fasceDelGiornoScelto} apre={orarioDelGiornoScelto.apre} chiude={orarioDelGiornoScelto.chiude} bloccato={!puoFabbisogno} onCambia={cambiaFasceDelGiorno} />
+          </div>
+          {puoFabbisogno && (
+            <button type="button" onClick={() => { setFerialiInsieme((v) => !v); setGiornoFasce(ferialiInsieme ? 1 : 0); }} className="mt-2 text-xs underline text-slate-600">
+              {ferialiInsieme ? 'I feriali non sono tutti uguali: scrivili giorno per giorno' : 'Scrivi i feriali tutti insieme (da lunedì a venerdì uguali al giorno scelto)'}
+            </button>
+          )}
+          <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
+            <Riga etichetta="Ingressi MODA per addetto all’ora (provvisorio)">
+              <span className="flex items-center gap-1 text-xs text-slate-500">
+                <input aria-label="Ingressi per addetto, feriali" type="number" min={1} max={200} disabled={!puoScrivere} className={`${inputCls} w-16 text-center`} value={regole.sogliaFeriali} onChange={(e) => setRegole((r) => ({ ...r, sogliaFeriali: Number(e.target.value) || 0 }))} /> feriali
+                <input aria-label="Ingressi per addetto, sabato, domenica e festivi" type="number" min={1} max={200} disabled={!puoScrivere} className={`${inputCls} w-16 text-center ml-2`} value={regole.sogliaWeekend} onChange={(e) => setRegole((r) => ({ ...r, sogliaWeekend: Number(e.target.value) || 0 }))} /> weekend
+              </span>
+            </Riga>
             {trafficoDa !== undefined && altriNegozi.length > 0 && (
-              <label className="col-span-2 sm:col-span-3 text-xs text-slate-600">Traffico MODA di riferimento (solo se questo negozio non ha traffico suo)<br />
-                <select disabled={!puoScrivere} className={`${inputCls} mt-1`} value={trafficoDa ?? ''}
-                  onChange={(e) => setTrafficoDa(e.target.value || null)}>
+              <Riga etichetta="Se il negozio non ha ingressi suoi, usa quelli di">
+                <select aria-label="Negozio di riferimento per il traffico MODA" disabled={!puoScrivere} className={inputCls} value={trafficoDa ?? ''} onChange={(e) => setTrafficoDa(e.target.value || null)}>
                   <option value="">media degli altri negozi</option>
                   {altriNegozi.map((n) => <option key={n.id} value={n.id}>{n.nome}</option>)}
                 </select>
-                <span className="block mt-1 text-slate-500">Per un negozio nuovo: il fabbisogno dei turni usa gli ingressi MODA del negozio scelto finché non arrivano quelli suoi.</span>
-              </label>
+              </Riga>
             )}
+            <Riga etichetta="Senza fasce salvate: sempre almeno due persone, salvo la prima e l’ultima ora">
+              <Interruttore acceso={regole.duePersone} disabled={!puoScrivere} etichetta="Almeno due persone senza fasce salvate" onCambia={(v) => setRegole((r) => ({ ...r, duePersone: v }))} />
+            </Riga>
           </div>
-        </section>
+        </Scheda>
+
+        {haProva && (
+          <Scheda n={3} titolo="Giorni caldi" sotto="Sabato, domenica, festivi e giorni di evento. Le persone le decidono le fasce del sabato e della domenica, con gli ingressi MODA sopra."
+            azione={<Interruttore acceso={!!regole.giorniPieni} disabled={!puoScrivere} etichetta="Giorni caldi" onCambia={(v) => setRegole((r) => ({ ...r, giorniPieni: v }))} />}>
+            {!regole.giorniPieni && <p className="text-sm text-slate-500">Spenti: festivi ed eventi seguono le fasce del loro giorno e nessuno supera il contratto.</p>}
+            {regole.giorniPieni && !ha403 && <p className="text-sm text-slate-500">Accesi. Le scelte di dettaglio (chi apre e chi chiude, fasce dei festivi) arrivano con il prossimo aggiornamento del database.</p>}
+            {regole.giorniPieni && ha403 && (
+              <div>
+                <Riga etichetta="Lavorano tutte, senza riposi in quei giorni"><Interruttore acceso={regole.caldiTutti ?? true} disabled={!puoScrivere} etichetta="Nei giorni caldi lavorano tutte" onCambia={(v) => setRegole((r) => ({ ...r, caldiTutti: v }))} /></Riga>
+                <Riga etichetta="Straordinari ammessi"><Interruttore acceso={regole.caldiStraordinari ?? true} disabled={!puoScrivere} etichetta="Straordinari ammessi nei giorni caldi" onCambia={(v) => setRegole((r) => ({ ...r, caldiStraordinari: v }))} /></Riga>
+                <Riga etichetta="Festivi e giorni speciali usano le fasce di">
+                  <select aria-label="Fasce dei festivi e dei giorni speciali" disabled={!puoScrivere} className={inputCls} value={regole.caldiFasceFestivi === 7 ? '7' : '6'} onChange={(e) => setRegole((r) => ({ ...r, caldiFasceFestivi: e.target.value === '7' ? 7 : 6 }))}>
+                    <option value="6">Sabato</option><option value="7">Domenica</option>
+                  </select>
+                </Riga>
+                <Riga etichetta="Responsabile e vice: una apre, l’altra chiude, a turno"><Interruttore acceso={regole.caldiGuidaApreChiude ?? false} disabled={!puoScrivere} etichetta="Responsabile e vice: apertura e chiusura a turno" onCambia={(v) => setRegole((r) => ({ ...r, caldiGuidaApreChiude: v }))} /></Riga>
+                <Riga etichetta="Chi apre resta (ore)">
+                  <input aria-label="Ore di chi fa l'apertura nei giorni caldi" type="number" min={4} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-20 text-center`} value={regole.caldiOreApertura ?? 9} onChange={(e) => setRegole((r) => ({ ...r, caldiOreApertura: Number(e.target.value) || 9 }))} />
+                </Riga>
+              </div>
+            )}
+          </Scheda>
+        )}
+
+        <Scheda n={4} titolo="Pause" sotto={regole.pausaCortaPagata ? 'Si timbrano sempre. Quella corta non si toglie dalle ore.' : 'Non sono lavoro: si tolgono dalle ore.'}>
+          <table className="w-full text-sm">
+            <thead><tr className="text-left text-[11px] uppercase tracking-wide text-slate-500 border-b border-slate-800"><th className="py-1.5 font-semibold">Turno</th><th className="py-1.5 font-semibold">Pausa</th><th className="py-1.5 font-semibold">Si toglie dalle ore</th></tr></thead>
+            <tbody>
+              <tr className="border-b border-slate-100"><td className="py-2">Fino a <input aria-label="Ore senza pausa" type="number" min={1} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-16 text-center mx-1`} value={regole.pausaOltreOre} onChange={(e) => setRegole((r) => ({ ...r, pausaOltreOre: Number(e.target.value) || 0 }))} /> ore</td><td className="py-2">nessuna</td><td className="py-2">–</td></tr>
+              <tr className="border-b border-slate-100"><td className="py-2">{regole.pausaCortaPagata ? 'Fino a' : 'Sotto le'} <input aria-label="Ore da cui la pausa è lunga" type="number" min={1} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-16 text-center mx-1`} value={regole.pausaLungaOltreOre} onChange={(e) => setRegole((r) => ({ ...r, pausaLungaOltreOre: Number(e.target.value) || 0 }))} /> ore</td>
+                <td className="py-2"><input aria-label="Minuti della pausa corta" type="number" min={0} max={120} step={5} disabled={!puoScrivere} className={`${inputCls} w-16 text-center mr-1`} value={regole.pausaMinuti} onChange={(e) => setRegole((r) => ({ ...r, pausaMinuti: Number(e.target.value) || 0 }))} /> min</td>
+                <td className="py-2">{haProva ? <Interruttore acceso={!regole.pausaCortaPagata} disabled={!puoScrivere} etichetta="La pausa corta si toglie dalle ore" onCambia={(v) => setRegole((r) => ({ ...r, pausaCortaPagata: !v }))} /> : 'sì'}</td></tr>
+              <tr><td className="py-2">Sopra</td>
+                <td className="py-2"><input aria-label="Minuti della pausa lunga" type="number" min={0} max={120} step={5} disabled={!puoScrivere} className={`${inputCls} w-16 text-center mr-1`} value={regole.pausaLungaMinuti} onChange={(e) => setRegole((r) => ({ ...r, pausaLungaMinuti: Number(e.target.value) || 0 }))} /> min</td>
+                <td className="py-2">sì</td></tr>
+            </tbody>
+          </table>
+          <p className="text-xs text-slate-500 mt-2">{regole.pausaCortaPagata
+            ? `Le soglie si contano sulle ore di turno. Esempio: 10-18 vale 8 ore, con ${regole.pausaMinuti} minuti timbrati e non tolti; 10-19 vale ${(9 - regole.pausaLungaMinuti / 60).toLocaleString('it-IT')} ore.`
+            : 'Le soglie si contano sulle ore lavorate. La pausa ha solo una durata: si fa quando il negozio lo permette.'}</p>
+        </Scheda>
+
+        <Scheda n={5} titolo="Riposi" sotto="Per legge c’è sempre almeno un giorno di riposo a settimana.">
+          {ha403 ? (
+            <Riga etichetta="Riposi a settimana a testa, almeno (se possibile)">
+              <input aria-label="Riposi minimi a settimana" type="number" min={RIPOSO_LEGALE} max={3} disabled={!puoScrivere} className={`${inputCls} w-16 text-center`} value={regole.riposiMinSettimana ?? RIPOSO_LEGALE}
+                onChange={(e) => setRegole((r) => ({ ...r, riposiMinSettimana: Math.max(RIPOSO_LEGALE, Math.min(3, Number(e.target.value) || RIPOSO_LEGALE)) }))} />
+            </Riga>
+          ) : (
+            <Riga etichetta="Giorni di lavoro a settimana, al massimo">
+              <input aria-label="Giorni di lavoro a settimana, al massimo" type="number" min={1} max={6} disabled={!puoScrivere} className={`${inputCls} w-16 text-center`} value={Math.min(6, regole.giorniLavoroMax)} onChange={(e) => setRegole((r) => ({ ...r, giorniLavoroMax: Math.max(1, Math.min(6, Number(e.target.value) || 6)) }))} />
+            </Riga>
+          )}
+          <p className="text-xs text-slate-500 mb-2">I riposi si distribuiscono fra tutte: non tre a una persona e uno a un’altra. Sotto 1 non si scende mai.</p>
+          <RiposiNegozio companyId={companyId} persone={persone} puoScrivere={puoScrivere} />
+        </Scheda>
+
+        <Scheda n={6} titolo="Ore e straordinari" sotto="Il contratto è a settimana, da lunedì a domenica.">
+          <Riga etichetta="Turno più corto e più lungo (ore)">
+            <span className="flex items-center gap-1">
+              <input aria-label="Turno minimo nella giornata, ore" type="number" min={1} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-16 text-center`} value={regole.turnoMinOre} onChange={(e) => setRegole((r) => ({ ...r, turnoMinOre: Number(e.target.value) || 0 }))} />
+              <span className="text-slate-400">–</span>
+              <input aria-label="Turno massimo, ore" type="number" min={1} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-16 text-center`} value={regole.turnoMaxOre} onChange={(e) => setRegole((r) => ({ ...r, turnoMaxOre: Number(e.target.value) || 0 }))} />
+            </span>
+          </Riga>
+          {ha403 && (
+            <>
+              <Riga etichetta="Giorni di lavoro a settimana, al massimo">
+                <input aria-label="Giorni di lavoro a settimana, al massimo" type="number" min={1} max={6} disabled={!puoScrivere} className={`${inputCls} w-16 text-center`} value={Math.min(6, regole.giorniLavoroMax)} onChange={(e) => setRegole((r) => ({ ...r, giorniLavoroMax: Math.max(1, Math.min(6, Number(e.target.value) || 6)) }))} />
+              </Riga>
+              <Riga etichetta="Straordinari divisi in parti uguali fra tutte"><Interruttore acceso={!!regole.straordinariPari} disabled={!puoScrivere} etichetta="Straordinari divisi in parti uguali" onCambia={(v) => setRegole((r) => ({ ...r, straordinariPari: v }))} /></Riga>
+            </>
+          )}
+          {haRiempi && (
+            <Riga etichetta="Ore fino al contratto: le ore che gli ingressi non chiedono vanno comunque in turno"><Interruttore acceso={!!regole.riempiContratto} disabled={!puoScrivere} etichetta="Ore fino al contratto" onCambia={(v) => setRegole((r) => ({ ...r, riempiContratto: v }))} /></Riga>
+          )}
+          <ul className="text-xs text-slate-500 list-disc pl-4 mt-2 space-y-1">
+            <li>Nei feriali nessuno supera le ore di contratto. Gli straordinari si fanno solo nei giorni caldi e negli eventi che li ammettono, a ore e mezz’ore.</li>
+            <li>La persona in più chiesta dalla direzione per ricarico del magazzino o allestimento si aggiunge a mano nella settimana: nella finestra del turno si segna «Straordinario» e si sceglie il motivo.</li>
+          </ul>
+        </Scheda>
+
+        {guida && (
+          <Scheda n={7} titolo="Responsabile e vice" sotto="Le sole a fare il versamento. Il lunedì una delle due è in negozio.">{guida}</Scheda>
+        )}
+
+        <div className="xl:col-span-2 min-w-0">
+          <Scheda n={8} titolo="Eventi e giorni speciali" sotto="">
+            <EventiDelNegozio companyId={companyId} outletId={outletId} nomeNegozio={nomeNegozio} negozi={[{ id: outletId, nome: nomeNegozio }, ...altriNegozi]}
+              puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} onSalvato={onSalvato} onVaiEventi={onVaiEventi} />
+          </Scheda>
+        </div>
       </div>
+      {puoScrivere && (
+        <div className="flex justify-end">
+          <button type="button" onClick={() => salva(['orari', 'regole', ...(puoFabbisogno ? ['fasce' as const] : [])])} disabled={salvando}
+            className="inline-flex items-center gap-1.5 min-h-[44px] px-5 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:opacity-50"><Save size={16} /> {salvando ? 'Salvo…' : 'Salva'}</button>
+        </div>
+      )}
     </div>
+  );
+}
+
+const btnPiccolo = 'inline-flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50';
+
+function Scheda({ n, titolo, sotto, azione, lucchetto, children }: { n: number; titolo: string; sotto: string; azione?: ReactNode; lucchetto?: boolean; children: ReactNode }) {
+  return (
+    <section className="bg-white border border-slate-200 rounded-xl p-4 min-w-0" aria-label={titolo}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-slate-900 flex items-center gap-2">
+            <span className="inline-flex w-6 h-6 rounded-full bg-slate-900 text-white text-xs items-center justify-center shrink-0">{n}</span>
+            {titolo} {lucchetto && <Lock size={13} className="text-slate-400" />}
+          </h3>
+          {sotto && <p className="text-xs text-slate-500 mt-0.5">{sotto}</p>}
+        </div>
+        {azione}
+      </div>
+      <div className="mt-3 overflow-x-auto">{children}</div>
+    </section>
+  );
+}
+
+function Riga({ etichetta, children }: { etichetta: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 border-t border-slate-100 text-sm">
+      <span className="text-slate-700">{etichetta}</span>
+      <span className="shrink-0">{children}</span>
+    </div>
+  );
+}
+
+function Interruttore({ acceso, onCambia, etichetta, disabled }: { acceso: boolean; onCambia: (v: boolean) => void; etichetta: string; disabled?: boolean }) {
+  return (
+    <button type="button" role="switch" aria-checked={acceso} aria-label={etichetta} disabled={disabled} onClick={() => onCambia(!acceso)}
+      className={`relative w-11 h-6 rounded-full shrink-0 transition-colors disabled:opacity-50 ${acceso ? 'bg-pink-600' : 'bg-slate-300'}`}>
+      <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${acceso ? 'left-[22px]' : 'left-0.5'}`} />
+    </button>
   );
 }

@@ -181,6 +181,26 @@ COMMENT ON COLUMN public.outlet_events.regole_origine IS
 COMMENT ON COLUMN public.outlet_events.controllo_moda IS
   'Esito del controllo sugli ingressi MODA dello stesso periodo dell''anno prima (3 giorni di margine, confronto con le settimane vicine), come visto alla conferma.';
 
+-- Le fasce scritte dentro le regole di un periodo sono fabbisogno come le «persone in piu'»:
+-- le decide solo la direzione. Stessa funzione della 319, con un controllo in piu'.
+CREATE OR REPLACE FUNCTION public.outlet_events_fabbisogno()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF COALESCE(NEW.persone_extra, 0) <> COALESCE(CASE WHEN TG_OP = 'UPDATE' THEN OLD.persone_extra END, 0)
+     AND NOT public.organico_puo_decidere_fabbisogno() THEN
+    RAISE EXCEPTION 'Le persone in piu'' di un evento sono fabbisogno: le decide solo la direzione (profilo Super Advisor).';
+  END IF;
+  IF (NEW.regole -> 'fasce') IS DISTINCT FROM (CASE WHEN TG_OP = 'UPDATE' THEN OLD.regole -> 'fasce' END)
+     AND NOT public.organico_puo_decidere_fabbisogno() THEN
+    RAISE EXCEPTION 'Le persone per fascia di un periodo sono fabbisogno: le decide solo la direzione (profilo Super Advisor).';
+  END IF;
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
+
 COMMIT;
 
 -- VERIFICA (su ogni tenant):

@@ -10,7 +10,7 @@
 // Il fabbisogno viene dal traffico MODA come nei turni (Patrizio, 29/10/2026):
 // in ogni ora gli ingressi attesi diviso la soglia di ingressi per addetto
 // del negozio, al massimo le persone in forza (le «ore necessarie» del piano
-// del mese). Servono le persone del momento di punta. «Orari e fabbisogno»
+// del mese). Servono le persone del momento di punta. «Regole e orari»
 // vale solo per un negozio senza traffico.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';

@@ -10,7 +10,7 @@
 //
 // «Simulazione» (Patrizio, 20/10/2026): ore di contratto ipotetiche e
 // straordinari ammessi, senza toccare l'organico, sul fabbisogno fisso di
-// «Orari e fabbisogno». Si confronta con gli altri piani ma non si sceglie.
+// «Regole e orari». Si confronta con gli altri piani ma non si sceglie.
 // Si possono aggiungere persone nuove (non ancora assunte): non hanno una
 // scheda, quindi i loro turni e i loro liberi restano nel riepilogo del piano.
 
@@ -273,7 +273,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         .in('data', tutte.filter((d) => !d.startsWith(mese))).neq('stato', 'annullato'),
     ]);
     const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
-    if (!orari.length) { toast({ type: 'error', message: `Mancano gli orari di ${nomeNegozio}: inseriscili in «Orari e fabbisogno».` }); return null; }
+    if (!orari.length) { toast({ type: 'error', message: `Mancano gli orari di ${nomeNegozio}: inseriscili in «Regole e orari».` }); return null; }
     const eventi = eventiDelNegozio(ev.righe.map(eventoDaRiga) as EventoNegozio[], outletId);
     const regole = regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]);
     // le scelte del negozio sui giorni caldi (12/11/2026): dove sono spente i giorni restano quelli di prima
@@ -320,7 +320,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       ferie: fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)),
       fonte: atteso.size
         ? `${tr.fonte === 'propria' ? 'traffico MODA del negozio' : tr.fonte === 'riferimento' ? `traffico MODA di ${nomeRif} (negozio di riferimento: questo non ha storico)` : 'media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}; ${regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali, ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria)`
-        : 'nessun traffico: fabbisogno di «Orari e fabbisogno»',
+        : 'nessun traffico: fabbisogno di «Regole e orari»',
     };
   };
 

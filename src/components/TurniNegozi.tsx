@@ -1,4 +1,7 @@
-// «Turni»: il piano settimanale di ogni negozio e, sotto, gli orari e il
+// «Turni» (riorganizzata il 12/11/2026): si parte dal NEGOZIO, poi i tre passi (prepara il
+// mese, sistema la settimana, pubblica e invia) e, in basso, il resto del negozio (regole e
+// orari, eventi, persone e riposi, traffico MODA, trasferte).
+// Prima: il piano settimanale di ogni negozio e, sotto, gli orari e il
 // fabbisogno da cui si parte. Il negozio si sceglie qui; l'organico (chi
 // c'e' e con che orario) arriva dall'organico di oggi. Qui si sceglie anche
 // la referente del negozio e la sua vice, e nella scheda «Eventi» si segnano Black
@@ -6,7 +9,7 @@
 // MODA» si caricano i report degli ingressi per ora, da cui viene il fabbisogno.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Clock, Sparkles, UserRound } from 'lucide-react';
+import { Clock, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { sqlNull } from '../lib/sqlNull';
 import { stimaOrariEFabbisogno } from '../lib/stimaNegozio';
@@ -21,10 +24,17 @@ import EventiNegozi from './EventiNegozi';
 import PianiMensili from './PianiMensili';
 import TrasferteNegozi from './TrasferteNegozi';
 import TrafficoModa from './TrafficoModa';
+import EventiDelNegozio from './EventiDelNegozio';
+import RiposiNegozio from './RiposiNegozio';
+import { guidaConRipiego } from '../lib/guidaNegozio';
 
-type Props = { companyId?: string };
+type Props = {
+  companyId?: string;
+  /** se indicati, la pagina mostra solo questi negozi (chi ne vede uno solo non ha il selettore) */
+  soloNegozi?: string[];
+};
 
-export default function TurniNegozi({ companyId }: Props) {
+export default function TurniNegozi({ companyId, soloNegozi }: Props) {
   const { profile } = useAuth();
   const { toast } = useToast();
   const puoScrivere = puoTenereOrganico(profile?.role);
@@ -32,9 +42,9 @@ export default function TurniNegozi({ companyId }: Props) {
 
   const [dati, setDati] = useState<DatiOrganico | null>(null);
   const [negozio, setNegozio] = useState('');
-  const [sotto, setSotto] = useState<'mese' | 'piano' | 'orari' | 'eventi' | 'trasferte' | 'traffico'>('mese');
+  const [sotto, setSotto] = useState<'mese' | 'piano' | 'pubblica' | 'orari' | 'eventi' | 'persone' | 'trasferte' | 'traffico'>('mese');
   const [versione, setVersione] = useState(0);
-  // «Orari e fabbisogno» con modifiche non salvate: prima di cambiare negozio
+  // «Regole e orari» con modifiche non salvate: prima di cambiare negozio
   // o scheda si chiede (salva, lascia perdere, resta).
   const guardiaOrari = useRef<(() => Promise<boolean>) | null>(null);
   const seSiPuo = async (fai: () => void) => {
@@ -68,8 +78,8 @@ export default function TurniNegozi({ companyId }: Props) {
   const oggi = oggiRoma();
   const persone = useMemo(() => (dati ? organicoAllaData(dati.schede, dati.eventi, oggi) : []), [dati, oggi]);
   const negozi = useMemo(() => (dati?.negozi ?? [])
-    .filter((n) => n.is_active !== false)
-    .map((n) => ({ ...n, persone: persone.filter((p) => p.outletId === n.id && p.stato === 'in_servizio').length })), [dati, persone]);
+    .filter((n) => n.is_active !== false && (!soloNegozi || soloNegozi.includes(n.id)))
+    .map((n) => ({ ...n, persone: persone.filter((p) => p.outletId === n.id && p.stato === 'in_servizio').length })), [dati, persone, soloNegozi]);
 
   // Si parte dal negozio con piu' persone.
   useEffect(() => {
@@ -119,7 +129,7 @@ export default function TurniNegozi({ companyId }: Props) {
       toast({
         type: fatti.length ? 'success' : 'info',
         message: fatti.length
-          ? `Stima fatta per ${fatti.join(', ')}: da controllare e confermare in «Orari e fabbisogno».${saltati.length ? ` Senza chiusure di cassa, da inserire a mano: ${saltati.join(', ')}.` : ''}`
+          ? `Stima fatta per ${fatti.join(', ')}: da controllare e confermare in «Regole e orari».${saltati.length ? ` Senza chiusure di cassa, da inserire a mano: ${saltati.join(', ')}.` : ''}`
           : saltati.length ? `Nessuna stima possibile: senza chiusure di cassa ${saltati.join(', ')}.` : 'Tutti i negozi hanno già orari e fabbisogno.',
         duration: 12000,
       });
@@ -171,69 +181,102 @@ export default function TurniNegozi({ companyId }: Props) {
   const mostraVice = !!dati.viceDisponibile && !viceSpento;
   const oreContratto = persone.filter((p) => p.outletId === negozio && p.stato === 'in_servizio').reduce((s, p) => s + (p.ore ?? 0), 0);
 
+  // Finche' responsabile o vice non sono scelte, per i turni il sistema usa chi ha piu' ore di
+  // contratto e, a parita', chi e' assunta da piu' tempo (Patrizio, 12/11/2026): qui lo si dice.
+  const provvisoria = guidaConRipiego(scelto?.referente_employee_id ?? null, mostraVice ? (scelto?.vice_referente_employee_id ?? null) : null,
+    delNegozio.map((p) => ({ id: p.scheda.id, ore: p.ore ?? 0, assunta: p.scheda.data_assunzione ?? null })));
+  const nomeDi = (id: string | null) => { const s = id ? dati.schede.find((x) => x.id === id) : undefined; return s ? nomePersona(s) : null; };
+  const selettoriGuida = scelto ? (
+    <div className="space-y-2 text-sm">
+      <label className="flex items-center justify-between gap-3">
+        <span className="text-slate-700">Responsabile</span>
+        {puoScrivere ? (
+          <select aria-label="Responsabile del negozio" value={scelto.referente_employee_id ?? ''} onChange={(e) => impostaReferente(e.target.value)}
+            className="min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm bg-white max-w-[60%]">
+            <option value="">da scegliere</option>
+            {sceltePossibili.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
+          </select>
+        ) : <strong className="text-slate-800">{referente ? nomePersona(referente) : 'da scegliere'}</strong>}
+      </label>
+      {mostraVice && (
+        <label className="flex items-center justify-between gap-3">
+          <span className="text-slate-700">Vice responsabile</span>
+          {puoScrivere ? (
+            <select aria-label="Vice responsabile del negozio" value={scelto.vice_referente_employee_id ?? ''} onChange={(e) => impostaVice(e.target.value)}
+              className="min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm bg-white max-w-[60%]">
+              <option value="">da scegliere</option>
+              {scelteVice.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
+            </select>
+          ) : <strong className="text-slate-800">{vice ? nomePersona(vice) : 'da scegliere'}</strong>}
+        </label>
+      )}
+      {(provvisoria.provvisoria.responsabile || (mostraVice && provvisoria.provvisoria.vice)) && (
+        <p className="text-xs text-slate-500">
+          Finché {provvisoria.provvisoria.responsabile && provvisoria.provvisoria.vice ? 'mancano' : 'manca'} {[provvisoria.provvisoria.responsabile ? 'la responsabile' : '', mostraVice && provvisoria.provvisoria.vice ? 'la vice' : ''].filter(Boolean).join(' e ')}, nei negozi con i giorni caldi accesi il sistema usa per i turni chi ha più ore di contratto e, a parità, chi è assunta da più tempo: oggi{' '}
+          {[provvisoria.provvisoria.responsabile ? `${nomeDi(provvisoria.responsabile) ?? 'nessuno'} come responsabile` : '', mostraVice && provvisoria.provvisoria.vice ? `${nomeDi(provvisoria.vice) ?? 'nessuno'} come vice` : ''].filter(Boolean).join(', ')}.
+        </p>
+      )}
+    </div>
+  ) : null;
+  const personeDelNegozio = delNegozio.map((p) => ({ id: p.scheda.id, nome: nomePersona(p.scheda) })).sort((a, b) => a.nome.localeCompare(b.nome, 'it'));
+  const PASSI = [
+    { k: 'mese' as const, n: 1, t: 'Prepara il mese', d: 'Il sistema propone i turni di tutto il mese con le regole del negozio.' },
+    { k: 'piano' as const, n: 2, t: 'Sistema la settimana', d: 'Guardi la settimana e sposti quello che serve. Le regole che saltano sono segnate.' },
+    { k: 'pubblica' as const, n: 3, t: 'Pubblica e invia', d: 'Le persone la vedono nell’app. Stampi o condividi il foglio.' },
+  ];
+  const RESTO = [
+    { k: 'orari' as const, t: 'Regole e orari', d: 'Orario, persone per fascia, giorni caldi, pause, riposi.' },
+    { k: 'eventi' as const, t: 'Eventi e giorni speciali', d: 'Giorni singoli e periodi con regole proprie.' },
+    { k: 'persone' as const, t: 'Persone e riposi', d: 'Responsabile, vice e giorni di riposo di ognuno.' },
+    { k: 'traffico' as const, t: 'Traffico MODA', d: 'Gli ingressi su cui si calcolano le persone.' },
+    { k: 'trasferte' as const, t: 'Trasferte', d: 'Chi va a lavorare in un altro negozio.' },
+  ];
+
   return (
     <div className="space-y-4">
-      {/* Prima cosa si fa (le quattro schede), poi su quale negozio. */}
-      <nav className="flex gap-1 border-b border-slate-200 overflow-x-auto" aria-label="Sezioni dei turni">
-        {([{ k: 'mese' as const, label: 'Piano del mese' }, { k: 'piano' as const, label: 'Piano settimanale' }, { k: 'orari' as const, label: 'Orari e fabbisogno' }, { k: 'eventi' as const, label: 'Eventi' }, { k: 'trasferte' as const, label: 'Trasferte' }, { k: 'traffico' as const, label: 'Traffico MODA' }]).map((t) => (
-          <button key={t.k} type="button" onClick={() => { if (t.k !== sotto) seSiPuo(() => setSotto(t.k)); }} aria-current={sotto === t.k ? 'page' : undefined}
-            className={`whitespace-nowrap px-4 py-2.5 text-sm font-medium border-b-2 -mb-px ${sotto === t.k ? 'border-blue-600 text-blue-700' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>{t.label}</button>
+      {/* Si parte dal negozio (Patrizio, 12/11/2026): chi ne vede uno solo trova subito il suo. */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-3">
+          <div>
+            <div className="text-xs text-slate-500">Negozio</div>
+            {negozi.length > 1 ? (
+              <select aria-label="Negozio" value={negozio} onChange={(e) => { const id = e.target.value; if (id !== negozio) seSiPuo(() => setNegozio(id)); }}
+                className="min-h-[44px] rounded-lg border-2 border-slate-900 px-3 text-base font-semibold bg-white">
+                {negozi.map((n) => <option key={n.id} value={n.id}>{nomeNegozio(n)} · {n.persone} {n.persone === 1 ? 'persona' : 'persone'}</option>)}
+              </select>
+            ) : <div className="text-lg font-semibold text-slate-900">{scelto ? nomeNegozio(scelto) : 'Nessun negozio'}</div>}
+          </div>
+          {scelto && (
+            <div className="text-sm">
+              <div className="text-xs text-slate-500">Responsabile</div>
+              <strong className="text-slate-900">{referente ? nomePersona(referente) : 'da scegliere'}</strong>
+              {mostraVice && <span className="text-slate-500"> · vice: {vice ? nomePersona(vice) : 'da scegliere'}</span>}
+            </div>
+          )}
+        </div>
+        {scelto && orari && (
+          <button type="button" onClick={() => seSiPuo(() => setSotto('orari'))} title="Gli orari si cambiano in «Regole e orari»"
+            className="inline-flex items-center gap-1.5 text-sm text-slate-700 hover:text-blue-700">
+            <Clock size={15} className="text-slate-400" />
+            <span className="text-slate-500">Aperto</span>
+            <strong className="font-semibold">{orari.length ? riassuntoOrari(orari) : 'orari non inseriti'}</strong>
+          </button>
+        )}
+      </div>
+
+      <nav className="grid grid-cols-1 md:grid-cols-3 gap-3" aria-label="I tre passi dei turni">
+        {PASSI.map((p) => (
+          <button key={p.k} type="button" onClick={() => { if (p.k !== sotto) seSiPuo(() => setSotto(p.k)); }} aria-current={sotto === p.k ? 'step' : undefined}
+            className={`text-left rounded-xl border-2 p-3.5 flex gap-3 items-start bg-white transition-colors ${sotto === p.k ? 'border-pink-500 ring-2 ring-pink-100' : 'border-slate-200 hover:border-slate-400'}`}>
+            <span className={`w-8 h-8 rounded-full text-white font-bold flex items-center justify-center shrink-0 ${sotto === p.k ? 'bg-pink-600' : 'bg-slate-900'}`}>{p.n}</span>
+            <span><span className="block font-semibold text-slate-900">{p.t}</span><span className="block text-xs text-slate-500">{p.d}</span></span>
+          </button>
         ))}
       </nav>
 
-      {sotto !== 'eventi' && sotto !== 'trasferte' && sotto !== 'traffico' && (
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-1.5" role="tablist" aria-label="Negozio">
-            {negozi.map((n) => (
-              <button key={n.id} type="button" role="tab" aria-selected={negozio === n.id} onClick={() => { if (n.id !== negozio) seSiPuo(() => setNegozio(n.id)); }}
-                className={`text-sm px-3 py-1.5 rounded-full border transition-colors ${negozio === n.id ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-200 text-slate-700 hover:border-slate-400'}`}>
-                {nomeNegozio(n)} <span className={`ml-0.5 text-xs ${negozio === n.id ? 'text-slate-300' : 'text-slate-400'}`}>{n.persone}</span>
-              </button>
-            ))}
-          </div>
-          {scelto && orari && (
-            <button type="button" onClick={() => setSotto('orari')} title="Gli orari si cambiano in «Orari e fabbisogno»"
-              className="inline-flex items-center gap-1.5 text-sm text-slate-700 hover:text-blue-700">
-              <Clock size={15} className="text-slate-400" />
-              <span className="text-slate-500">Orari</span>
-              <strong className="font-semibold">{orari.length ? riassuntoOrari(orari) : 'non inseriti'}</strong>
-            </button>
-          )}
-          {scelto && (
-            <label className="flex items-center gap-2 text-sm text-slate-600">
-              <UserRound size={15} className="text-slate-400" />
-              <span>Responsabile</span>
-              {puoScrivere ? (
-                <select aria-label="Responsabile del negozio" value={scelto.referente_employee_id ?? ''} onChange={(e) => impostaReferente(e.target.value)}
-                  className="min-h-[34px] rounded-lg border border-slate-300 px-2 text-sm bg-white">
-                  <option value="">nessuno</option>
-                  {sceltePossibili.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
-                </select>
-              ) : (
-                <strong className="text-slate-800">{referente ? nomePersona(referente) : 'nessuno'}</strong>
-              )}
-            </label>
-          )}
-          {scelto && mostraVice && (
-            <label className="flex items-center gap-2 text-sm text-slate-600" title="Fa il versamento quando la responsabile non c'è: il lunedì una delle due deve essere in negozio">
-              <UserRound size={15} className="text-slate-400" />
-              <span>Vice responsabile</span>
-              {puoScrivere ? (
-                <select aria-label="Vice responsabile del negozio" value={scelto.vice_referente_employee_id ?? ''} onChange={(e) => impostaVice(e.target.value)}
-                  className="min-h-[34px] rounded-lg border border-slate-300 px-2 text-sm bg-white">
-                  <option value="">nessuno</option>
-                  {scelteVice.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
-                </select>
-              ) : (
-                <strong className="text-slate-800">{vice ? nomePersona(vice) : 'nessuno'}</strong>
-              )}
-            </label>
-          )}
-        </div>
-      )}
-
       {sotto === 'orari' && puoScrivere && (
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-slate-900">Regole e orari{scelto ? ` di ${nomeNegozio(scelto)}` : ''}</h2>
           <button type="button" onClick={stimaTutti} disabled={stimo}
             title={puoFabbisogno ? 'Orari e fabbisogno stimati dai dati, solo per i negozi che non li hanno' : 'Orari stimati dai dati, solo per i negozi che non li hanno (il fabbisogno lo decide la direzione, profilo Super Advisor)'}
             className="inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50">
@@ -242,8 +285,32 @@ export default function TurniNegozi({ companyId }: Props) {
         </div>
       )}
 
-      {sotto === 'eventi' && (
-        <EventiNegozi companyId={companyId} negozi={negozi} puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} onSalvato={() => setVersione((v) => v + 1)} />
+      {scelto && sotto === 'eventi' && (
+        <section className="bg-white border border-slate-200 rounded-xl p-4">
+          <h2 className="text-base font-semibold text-slate-900 mb-2">Giorni e periodi speciali di {nomeNegozio(scelto)}</h2>
+          <EventiDelNegozio key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}
+            negozi={negozi.map((n) => ({ id: n.id, nome: nomeNegozio(n) }))} puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} onSalvato={() => setVersione((v) => v + 1)} />
+        </section>
+      )}
+      {sotto === 'eventi' && negozi.length > 1 && (
+        <div>
+          <h2 className="text-base font-semibold text-slate-900 mb-2">Eventi per più negozi insieme</h2>
+          <EventiNegozi companyId={companyId} negozi={negozi} puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} onSalvato={() => setVersione((v) => v + 1)} />
+        </div>
+      )}
+      {scelto && sotto === 'persone' && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+          <section className="bg-white border border-slate-200 rounded-xl p-4">
+            <h2 className="text-base font-semibold text-slate-900">Responsabile e vice</h2>
+            <p className="text-xs text-slate-500 mb-3">Le sole a fare il versamento. Il lunedì una delle due è in negozio.</p>
+            {selettoriGuida}
+          </section>
+          <section className="bg-white border border-slate-200 rounded-xl p-4">
+            <h2 className="text-base font-semibold text-slate-900">Giorni di riposo</h2>
+            <p className="text-xs text-slate-500 mb-3">Per legge c’è sempre almeno un giorno di riposo a settimana. Quanti riposi a testa si decide in «Regole e orari».</p>
+            <RiposiNegozio key={scelto.id} companyId={companyId} persone={personeDelNegozio} puoScrivere={puoScrivere} />
+          </section>
+        </div>
       )}
       {sotto === 'trasferte' && companyId && dati && (
         <TrasferteNegozi companyId={companyId} dati={dati} puoScrivere={puoScrivere} />
@@ -259,16 +326,30 @@ export default function TurniNegozi({ companyId }: Props) {
         <PianiMensili key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}
           dati={dati} puoScrivere={puoScrivere} />
       )}
-      {scelto && sotto === 'piano' && (
+      {scelto && (sotto === 'piano' || sotto === 'pubblica') && (
         <PianoTurni key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}
-          dati={dati} puoScrivere={puoScrivere} onVaiOrari={() => setSotto('orari')} />
+          dati={dati} puoScrivere={puoScrivere} onVaiOrari={() => setSotto('orari')} passo={sotto === 'pubblica' ? 3 : 2} />
       )}
       {scelto && sotto === 'orari' && (
         <OrariNegozio key={`${scelto.id}-${versione}`} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)}
           puoScrivere={puoScrivere} puoFabbisogno={puoFabbisogno} oreContratto={oreContratto} guardia={guardiaOrari}
           altriNegozi={negozi.filter((n) => n.id !== scelto.id).map((n) => ({ id: n.id, nome: nomeNegozio(n) }))}
-          personeInServizio={persone.filter((p) => p.outletId === negozio && p.stato === 'in_servizio').length} />
+          personeInServizio={delNegozio.length} persone={personeDelNegozio} guida={selettoriGuida}
+          onVaiEventi={negozi.length > 1 ? () => seSiPuo(() => setSotto('eventi')) : undefined} />
       )}
+
+      <div>
+        <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Il resto del negozio</h2>
+        <nav className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5" aria-label="Il resto del negozio">
+          {RESTO.map((r) => (
+            <button key={r.k} type="button" onClick={() => { if (r.k !== sotto) seSiPuo(() => setSotto(r.k)); }} aria-current={sotto === r.k ? 'page' : undefined}
+              className={`text-left rounded-xl border p-3 bg-white ${sotto === r.k ? 'border-slate-900 ring-1 ring-slate-900' : 'border-slate-200 hover:border-slate-400'}`}>
+              <span className="block font-semibold text-sm text-slate-900">{r.t}</span>
+              <span className="block text-xs text-slate-500">{r.d}</span>
+            </button>
+          ))}
+        </nav>
+      </div>
     </div>
   );
 }

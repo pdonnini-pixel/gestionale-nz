@@ -20,4 +20,18 @@ ALTER TABLE public.outlet_shift_rules
   DROP COLUMN IF EXISTS caldi_ore_apertura, DROP COLUMN IF EXISTS caldi_guida_apre_chiude, DROP COLUMN IF EXISTS caldi_fasce_festivi,
   DROP COLUMN IF EXISTS caldi_straordinari, DROP COLUMN IF EXISTS caldi_tutti_al_lavoro, DROP COLUMN IF EXISTS straordinari_pari,
   DROP COLUMN IF EXISTS riposi_min_settimana;
+-- La funzione del fabbisogno degli eventi torna quella della 319 (prima di togliere la colonna regole).
+CREATE OR REPLACE FUNCTION public.outlet_events_fabbisogno()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF COALESCE(NEW.persone_extra, 0) <> COALESCE(CASE WHEN TG_OP = 'UPDATE' THEN OLD.persone_extra END, 0)
+     AND NOT public.organico_puo_decidere_fabbisogno() THEN
+    RAISE EXCEPTION 'Le persone in piu'' di un evento sono fabbisogno: le decide solo la direzione (profilo Super Advisor).';
+  END IF;
+  NEW.updated_at := now();
+  RETURN NEW;
+END;
+$$;
 COMMIT;
