@@ -1301,7 +1301,63 @@ settimanale; dopo la finestra del turno, le mosse e «aggiungi finestra» nel pi
    è aggiornato per tutte … si ricalcola al prossimo salvataggio»). Le persone restano in attesa
    (`daRicalcolare`, per negozio e settimana) e il ricalcolo si ripete al salvataggio dopo.
 
-Debito: **pezzo di settimana a inizio mese** (es. 1-6 dicembre). Le ore già nei turni dei giorni
+### Correzioni della sera del 12/11/2026 (piani di Roma Soratte creati alle 20:17)
+
+Patrizio ha creato novembre e dicembre con il codice appena pubblicato e ha visto tre cose sbagliate.
+
+1. **Settimana 30/11-6/12: la responsabile al lavoro 7 giorni su 7, e l'1 e il 2 dicembre quattro
+   turni da 4 ore a scaletta.** Una causa sola: `ottimizzaSettimana` usciva subito quando la
+   settimana di partenza era rifiutata dal conto (`if (!Number.isFinite(c0)) return turni`). I passi
+   prima dell'ottimizzatore non sanno dei giorni già lavorati nell'altro mese: mettevano la persona
+   in turno tutti e sei i giorni del pezzo, il conto (che invece lo sa, `giorniGia`) rispondeva
+   «infinito» e la proposta a spezzoni restava com'era. Ora da una partenza rifiutata la settimana
+   si costruisce da zero; resta com'era solo se nemmeno da zero esiste una settimana valida (troppi
+   turni fissi). Vale per **tutti i negozi**: la misura sul codice pubblicato dava persone 7 su 7
+   nella stessa settimana anche a Brugnato (2), Franciacorta (3) e Palmanova (1). Dopo: nessuna.
+2. **Quali turni dell'altro mese contano** (`src/lib/turniFuoriMese.ts`, `turniCheValgono`, usata da
+   piano del mese e piano settimanale): del piano scelto, e solo i suoi; senza piano scelto quelli
+   senza piano (settimanali, a mano, pubblicati) o, se in quei giorni non ce ne sono, quelli del
+   piano vero più recente anche in bozza. Prima le bozze contavano solo se il piano era «scelto»:
+   dicembre creato un minuto prima di scegliere novembre contava i turni settimanali vecchi.
+3. **Lunedì a due: una sola fra responsabile e vice** (Patrizio: il 30/11 erano in turno tutte e
+   due). `PESI.lunediDueGuide` (2.000.000: sopra rotazione e riposi, sotto il tetto delle due
+   persone e la guida del lunedì), `PESI.lunediStessaGuida` (30.000: le due si alternano da un
+   lunedì all'altro quando possibile), deroga `lunedi_due_guide` nel riquadro «Da guardare».
+   Misura su Roma Soratte: 9/11 Gentili-Angelini, 16/11 Bianchi-Basile, 23/11 Bianchi-Angelini,
+   30/11 Gentili-Basile, 7/12 Gentili-Angelini.
+
+4. **Il riposo che non si può garantire non passa in silenzio** (revisore, 12/11/2026 sera).
+   - Nel conto (`costo` in `ottimizzaTurni.ts`) i vincoli duri (riposo di legge, giorni massimi, ore
+     oltre il contratto) rifiutano solo se la persona ha turni che il motore può toccare (`suoi` > 0).
+     Se a romperli sono già da soli i turni fissi (a mano, pubblicati, trasferte, giorni lavorati
+     nell'altro mese) la settimana non è più «impossibile»: a quella persona non si aggiunge niente,
+     il resto si sistema. Prima in quel caso il motore lasciava tutta la proposta grezza.
+   - `senzaRiposoDiLegge(giorniDelPezzo, lavorati, gia)` e `derogheSettimana({ giorniGia })`: la
+     deroga «non ha un giorno di riposo» compare anche sui pezzi di settimana a cavallo di mese
+     (prima scattava solo con sette giorni a video). In rosso in «Da guardare».
+   - `EsitoPianoMese.senzaRiposo` (persona e lunedì della settimana): il piano del mese lo scrive nel
+     riepilogo e lo mostra in rosso sulla scheda del piano, nel piano aperto e nell'avviso di creazione.
+   - Lettura dei turni e dei piani dell'altro mese fallita: errore a video, nessun piano creato e
+     nessuna proposta settimanale (`caricoFallito` in `PianoTurni.tsx`). Meglio niente che alla cieca.
+   - `turniCheValgono`: senza piano scelto i turni senza piano contano sempre; se fra loro non c'è
+     una proposta settimanale in bozza si aggiungono quelli del piano più recente, senza contare due
+     volte la stessa persona nello stesso giorno. Un turno a mano non nasconde più il piano del mese.
+   - Misura sugli otto negozi, novembre e dicembre, contro il commit prima (21d52e0): zero turni
+     diversi; nessuno 7 su 7 in nessuna settimana, compresa quella a cavallo novembre-dicembre.
+
+Misura sugli altri sette negozi, novembre e dicembre, contro il codice pubblicato: novembre
+identico ovunque; dicembre identico a Barberino, Torino, Valdichiana e Valmontone; cambia a
+Brugnato, Franciacorta e Palmanova, dove la prima settimana aveva persone senza riposo (ore
+scoperte uguali o in calo: Brugnato da 51,73 a 49,73).
+
+**Scegliere un piano del mese nasconde i turni settimanali di quel mese** (quelli senza piano: il
+piano settimanale mostra solo i turni del piano scelto). Non li cancella: restano nel database. La
+pagina avvisa prima («Il mese ha già N turni fatti dal piano settimanale»). I turni messi a mano
+dentro un piano spariscono solo togliendo il piano intero (con conferma) o cancellandoli uno a uno.
+Non c'è un registro delle cancellazioni dei turni: cinque bozze a mano di Roma Soratte (7-27/11),
+viste alle 20:20 e sparite un minuto dopo, non si possono ricostruire. Da valutare un registro.
+
+Debito (in parte chiuso sopra): **pezzo di settimana a inizio mese** (es. 1-6 dicembre). Le ore già nei turni dei giorni
 del mese prima (`oreFuoriMese`) si leggono quando si genera il piano; se quei turni cambiano dopo,
 il contratto del pezzo resta quello di allora, e con lui lo straordinario ricalcolato. Si
 riallinea solo rigenerando il piano. Non corretto in questa PR.
@@ -1312,4 +1368,33 @@ stesso, per la colonna `straordinario_a_mano`); in un pezzo di settimana in coda
 mese è straordinario solo quello che supera la settimana intera, senza togliere i turni del mese
 dopo; dopo una modifica alle ferie fatta dalla stessa finestra il conto usa le ferie lette prima
 (si riallinea alla modifica successiva).
+
+## Pezzo di settimana: vale in tutti i negozi (12/11/2026 sera)
+
+Patrizio: «sistema anche gli altri e pubblica». `pezzoLibero` in `pianificaMese` non guarda più le
+scelte del negozio: è spento solo con «ore fino al contratto» accesa (oggi in nessun negozio), dove
+il pezzo resta in proporzione per non prendersi tutte le ore della settimana.
+
+Misura sui dati veri, sette negozi, contro e0e06c2 (traffico in media per giorno della settimana):
+
+| Negozio | Scoperte nov | Scoperte dic | Feriali a turni corti (nov+dic) |
+|---|---|---|---|
+| Barberino | 2,14 = | 10,17 → 1,38 | 1 → 0 |
+| Brugnato | 39,65 = | 49,73 → 44,95 | 1 → 2 |
+| Franciacorta | 2,21 = | 7,77 → 0 | 3 → 2 |
+| Palmanova | 0,39 = | 8,5 → 0 | 1 → 0 |
+| Torino | 2,56 = | 9,59 → 2,09 | 1 → 0 |
+| Valdichiana | 3,29 = | 9,66 → 6,83 | 1 → 0 |
+| Valmontone | 17,47 = | 13,71 → 5,79 | 3 → 1 |
+
+Roma Soratte invariata (zero turni diversi). Nessuno 7 su 7, nessun giorno con una persona sola.
+I lunedì 30/11 passano ovunque da quattro turni da 4 ore a due turni veri (10-20 e 12-18).
+
+Restano, e non sono pezzi di settimana: Brugnato 21 e 23/12 (il 23 è nuovo: il mese si è
+ridistribuito), Franciacorta 21 e 22/12 (settimana di Natale), Valmontone 2/11. Causa diversa,
+da guardare a parte. A Brugnato nella settimana 30/11 una persona da 30 ore passa da 33,5 a 35
+(già oltre il contratto prima: tre persone per coprire il negozio).
+
+Nella settimana 30/11-6/12 chi resta più di 6 ore sotto il contratto passa da 5 a 7 persone:
+sono ore che il traffico non chiede e restano da assegnare (regola 1), non un difetto.
 
