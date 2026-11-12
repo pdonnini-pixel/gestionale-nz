@@ -31426,6 +31426,18 @@ export type Database = {
         Args: { p_evento: string; p_motivo: string }
         Returns: undefined
       }
+      presenze_oscura_motivo: {
+        Args: { p_evento: string; p_perche: string }
+        Returns: undefined
+      }
+      timbrature_oscura_nota: {
+        Args: { p_punch: string; p_perche: string }
+        Returns: undefined
+      }
+      presenze_storico: {
+        Args: { p_evento: string }
+        Returns: { il: string; tabella: string; azione: string; prima: Json; dopo: Json; autore: string }[]
+      }
       app_dipendente_motivo_evento: {
         Args: { p_causale?: string; p_evento: string; p_motivo: string }
         Returns: undefined
