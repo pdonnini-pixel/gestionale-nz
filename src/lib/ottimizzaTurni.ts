@@ -248,6 +248,11 @@ export const PESI = {
   // giorno sono gia' tagliate a due), non sul negozio vuoto, sulla persona sola o sulla guida del lunedi'.
   lunediTroppi: 50_000_000, // persona oltre le due, il lunedi'
   lunediStessaCoppia: 60_000, // stessa coppia del lunedi' prima (meta' per quello prima ancora)
+  // Lunedi' a due: una sola fra responsabile e vice, piu' una delle altre (Patrizio, 12/11/2026, lunedi'
+  // 30/11 a Roma Soratte: in turno responsabile e vice insieme). Sopra la rotazione delle coppie e i
+  // riposi, sotto il tetto delle due persone e la guida del lunedi'.
+  lunediDueGuide: 2_000_000,
+  lunediStessaGuida: 30_000, // la stessa fra responsabile e vice del lunedi' prima: si alternano quando possibile
   // pesa meno di un riposo: con un evento prima i riposi a testa, poi gli straordinari pari (Patrizio, 12/11/2026)
   straordinarioPari: 200,   // distanza al quadrato dalla media degli straordinari
 } as const;
@@ -315,6 +320,8 @@ interface Quadro {
   /** lunedi' con il tetto di due persone, e quanto pesa ogni coppia perche' gia' vista nei lunedi' prima */
   lunDue: boolean[];
   lunPrima: number[];
+  /** chi fra responsabile e vice ha lavorato il lunedi' prima (indice della persona, -1 se nessuna o tutte e due) */
+  guidaLunPrima: number;
   bufOre: number[]; bufEvento: number[]; bufGiorni: number[]; bufCoppie: number[]; bufCop: number[]; bufInTurno: number[];
 }
 
@@ -381,6 +388,13 @@ function costo(q: Quadro, st: Stato): number {
       const tot = quanti + q.fissePersone[d].size;
       if (tot > LUNEDI_MAX_PERSONE) c += (tot - LUNEDI_MAX_PERSONE) * PESI.lunediTroppi;
       else if (quanti === 2 && q.fissePersone[d].size === 0) c += q.lunPrima[inTurno[0] * P + inTurno[1]] * PESI.lunediStessaCoppia;
+      // una sola fra responsabile e vice (i fissi a mano non si giudicano: li ha decisi una persona)
+      if (q.guidaAttiva) {
+        let guide = 0; let chi = -1;
+        for (let k = 0; k < quanti; k++) if (q.eGuida[inTurno[k]]) { guide += 1; chi = inTurno[k]; }
+        if (guide + (q.guidaFissa[d] ? 1 : 0) >= 2) c += PESI.lunediDueGuide;
+        else if (guide === 1 && !q.guidaFissa[d] && chi === q.guidaLunPrima) c += PESI.lunediStessaGuida;
+      }
     }
     if (iso === 1 && q.guidaAttiva && !guidaPresente && q.guidaPossibile[d]) c += PESI.lunediSenzaGuida;
     // giorni caldi: chi apre fa il suo orario dall'apertura, chi chiude arriva alla chiusura
@@ -969,6 +983,10 @@ function prepara(
   q.pari = !!nuove.straordinariPari;
   q.libero = persone.map((p) => nuove.giornoLibero?.get(p.id) ?? 0);
   q.eGuida = persone.map((p) => guidaIds.includes(p.id));
+  {
+    const prima = (nuove.lunediPrima?.[0] ?? '').split('|').filter((id) => guidaIds.includes(id));
+    q.guidaLunPrima = prima.length === 1 ? persone.findIndex((p) => p.id === prima[0]) : -1;
+  }
   q.guidaAttiva = guidaIds.length >= 2;
   q.guidaFissa = giorni.map((_, d) => guidaIds.some((id) => q.fissePersone[d].has(id)));
   // la regola del lunedi' vale se almeno una delle due quel giorno potrebbe lavorare
@@ -1040,9 +1058,18 @@ export function ottimizzaSettimana(
     const tenuti = new Set(fuoriStato);
     return [...ottimizzaSettimana(giorni, turni.filter((t) => !tenuti.has(t) && !altri.includes(t)), persone, regole, nuove, [...tuttiFissi, ...fuoriStato]), ...fuoriStato, ...altri];
   }
-  const c0 = costo(q, partenza);
-  // una partenza che il conto non sa leggere (piu' giorni del massimo gia' nei turni fissi) resta com'e'
-  if (!Number.isFinite(c0)) return turni;
+  let c0 = costo(q, partenza);
+  // Una partenza che il conto rifiuta (una persona senza il riposo di legge contando i giorni gia'
+  // lavorati nell'altro mese, ore oltre il contratto nei feriali): fino al 12/11/2026 restava com'era,
+  // e a Roma Soratte la settimana dal 30/11 al 6/12 usciva con la responsabile al lavoro 7 giorni su 7
+  // e i feriali a spezzoni da 4 ore. Ora si cerca comunque una settimana che il conto accetta,
+  // partendo da zero; solo se non esiste (troppi turni fissi) i turni restano quelli di partenza.
+  const partenzaRifiutata = !Number.isFinite(c0);
+  if (partenzaRifiutata) {
+    const daCapo = costruisci(q);
+    if (!Number.isFinite(costo(q, daCapo))) return turni;
+    c0 = Infinity;
+  }
   // il conto costa in proporzione alle persone: i giri calano con loro, cosi' il tempo resta quello
   // (misura del 11/11/2026 su Roma Soratte: sotto i 60.000 giri restava qualche ora scoperta che si poteva coprire)
   const giri = nuove.giri ?? Math.max(12_000, Math.min(60_000, Math.round(240_000 / persone.length)));
@@ -1055,7 +1082,8 @@ export function ottimizzaSettimana(
     if (esito.c < meglio.c - 1e-9) meglio = esito;
   }
   // se la ricerca non migliora si tengono i turni di partenza, riportati sulla griglia
-  if (!(meglio.c < c0 - 1e-9)) meglio = { st: copia(partenza), c: c0 };
+  if (!partenzaRifiutata && !(meglio.c < c0 - 1e-9)) meglio = { st: copia(partenza), c: c0 };
+  if (partenzaRifiutata && !Number.isFinite(meglio.c)) return turni;
   if (nuove.riempiContratto) riempiOre(q, meglio.st);
   const out: Turno[] = [];
   for (let p = 0; p < persone.length; p++) for (let d = 0; d < giorni.length; d++) {
@@ -1069,7 +1097,7 @@ export function ottimizzaSettimana(
 // ── Le deroghe ───────────────────────────────────────────────────────────
 
 export interface Deroga {
-  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'caldo_chiusura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto' | 'riposi' | 'riposo_vietato' | 'lunedi_troppi' | 'lunedi_fasce' | 'lunedi_coppia';
+  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'caldo_chiusura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto' | 'riposi' | 'riposo_vietato' | 'lunedi_troppi' | 'lunedi_due_guide' | 'lunedi_fasce' | 'lunedi_coppia';
   data: string | null;
   employeeId: string | null;
   testo: string;
@@ -1111,6 +1139,10 @@ export function derogheSettimana(args: {
       const chi = [...new Set(del.map((t) => t.employeeId))];
       if (chi.length > LUNEDI_MAX_PERSONE) out.push({ regola: 'lunedi_troppi', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: ${chi.length} persone in turno, il lunedì dopo il weekend al massimo ${LUNEDI_MAX_PERSONE}` });
       else if (chi.length === 2 && args.lunediPrima?.[0] === coppia(chi[0], chi[1])) out.push({ regola: 'lunedi_coppia', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: lavorano le stesse due persone del lunedì prima` });
+      // una sola fra responsabile e vice, piu' una delle altre (Patrizio, 12/11/2026)
+      if (args.guida?.responsabile && args.guida.vice && chi.includes(args.guida.responsabile) && chi.includes(args.guida.vice)) {
+        out.push({ regola: 'lunedi_due_guide', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: lavorano insieme la responsabile e la vice, il lunedì ne basta una` });
+      }
       if (g.lunediFasceOltre) out.push({ regola: 'lunedi_fasce', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: le fasce salvate chiedono più di ${LUNEDI_MAX_PERSONE} persone, ma il lunedì comanda il tetto di ${LUNEDI_MAX_PERSONE}` });
     }
     // giorni caldi: una fra responsabile e vice fa l'apertura e resta le sue ore; con la regola

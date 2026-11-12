@@ -39,6 +39,7 @@ import {
   proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
   giornoIso,
 } from '../lib/turni';
+import { turniCheValgono, type PianoDelMese } from '../lib/turniFuoriMese';
 
 type Props = {
   companyId: string;
@@ -205,17 +206,21 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         caricaGiorniLiberi(companyId),
         caricaRiposi(companyId).catch(() => ({ preferiti: new Map<string, number[]>(), mai: new Map<string, number[]>(), disponibile: false })),
         fuori.length
-          ? supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, shift_plans(stato)').eq('company_id', companyId).in('data', fuori).neq('stato', 'annullato')
+          ? supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, outlet_id').eq('company_id', companyId).in('data', fuori).neq('stato', 'annullato')
           : Promise.resolve({ data: [], error: null }),
       ]);
+      // i piani dei mesi dei giorni fuori: dicono quali di quei turni contano (vedi turniFuoriMese.ts)
+      const mesiFuori = [...new Set(fuori.map((d) => `${d.slice(0, 7)}-01`))];
+      const pianiFuori = mesiFuori.length
+        ? await supabase.from('shift_plans').select('id, outlet_id, mese, stato, simulazione, created_at').eq('company_id', companyId).in('mese', mesiFuori)
+        : { data: [] as PianoDelMese[] };
       setGiorniLiberi(gl.mappa);
       setHaGiorniLiberi(gl.disponibile);
       setRiposi(rp);
       const portate = new Map<string, number>();
       const giorniPortati = new Map<string, Set<string>>();
-      for (const x of ((fu.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
-        const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
-        if (x.plan_id && pl?.stato !== 'scelto') continue;
+      const righeFuori = (fu.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; outlet_id: string }[]) ?? [];
+      for (const x of turniCheValgono(righeFuori, (pianiFuori.data as PianoDelMese[] | null) ?? [])) {
         portate.set(x.employee_id, (portate.get(x.employee_id) ?? 0) + oreLavorate({ inizio: t5(x.inizio), fine: t5(x.fine), pausaMinuti: x.pausa_minuti ?? 0 }));
         giorniPortati.set(x.employee_id, (giorniPortati.get(x.employee_id) ?? new Set<string>()).add(x.data));
       }
@@ -714,8 +719,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     ...(riposiMinimi != null ? [{ ok: riposiMinimi >= Math.max(1, regole.riposiMinSettimana ?? 1), testo: riposiMinimi === 0 ? 'Qualcuno è senza riposo' : `Almeno ${riposiMinimi} ${riposiMinimi === 1 ? 'riposo' : 'riposi'} a testa` }] : []),
     ...(haLunedi && (guidaTurni.responsabile || guidaTurni.vice) ? [{ ok: !deroghe.some((d) => d.regola === 'lunedi_guida'), testo: deroghe.some((d) => d.regola === 'lunedi_guida') ? 'Lunedì manca responsabile o vice' : 'Lunedì c\'è responsabile o vice' }] : []),
     ...(giorni.some((g) => g.lunediDue) && attivi.some((t) => giorni.some((g) => g.lunediDue && g.data === t.data))
-      ? [{ ok: !deroghe.some((d) => d.regola === 'lunedi_troppi' || d.regola === 'lunedi_coppia'),
-        testo: deroghe.some((d) => d.regola === 'lunedi_troppi') ? 'Lunedì più di due persone' : deroghe.some((d) => d.regola === 'lunedi_coppia') ? 'Lunedì la stessa coppia di prima' : 'Lunedì in due, coppia diversa' }] : []),
+      ? [{ ok: !deroghe.some((d) => d.regola === 'lunedi_troppi' || d.regola === 'lunedi_coppia' || d.regola === 'lunedi_due_guide'),
+        testo: deroghe.some((d) => d.regola === 'lunedi_troppi') ? 'Lunedì più di due persone'
+          : deroghe.some((d) => d.regola === 'lunedi_due_guide') ? 'Lunedì responsabile e vice insieme'
+            : deroghe.some((d) => d.regola === 'lunedi_coppia') ? 'Lunedì la stessa coppia di prima' : 'Lunedì in due, coppia diversa' }] : []),
     { ok: straordSettimana < 0.25, testo: straordSettimana < 0.25 ? 'Nessuno straordinario' : `${oreInChiaro(straordSettimana)}${Math.round(straordSettimana * 60) % 30 === 0 ? ' ore' : ''} di straordinario` },
   ];
 

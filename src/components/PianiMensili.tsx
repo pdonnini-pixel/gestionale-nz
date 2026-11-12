@@ -35,6 +35,7 @@ import {
   NOMI_GIORNO_BREVI, costruisciGiorni, opzioniGiorni, regoleDaRiga, giorniDellaSettimana, giornoIso, lunediDi, oreLavorate, eventiDelNegozio, eventiDelGiorno, personeInPiu,
   REGOLE_DEFAULT, minuti, copertura, mancanza, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
 } from '../lib/turni';
+import { turniCheValgono, type PianoDelMese } from '../lib/turniFuoriMese';
 import {
   pianificaMese, proponiFerie, oreFerieGiorno, suggerisciFinestre, trafficoAtteso, tipoDelGiorno, ETICHETTE_REGOLA, NOMI_MESE,
   type EsitoPianoMese, type SettimanaPiano, type FeriaProposta, type FinestraSuggerita, type PersonaPiano, type RegolaWeekend,
@@ -295,7 +296,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       // Settimana intera anche a cavallo di due mesi (Patrizio, 28/10/2026): i
       // turni veri dei giorni dell'altro mese (piano scelto, piano settimanale,
       // turni a mano, in qualunque negozio) tolgono ore alla settimana.
-      supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, shift_plans(stato)').eq('company_id', companyId)
+      supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, outlet_id').eq('company_id', companyId)
         .in('data', tutte.filter((d) => !d.startsWith(mese))).neq('stato', 'annullato'),
     ]);
     const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
@@ -331,9 +332,15 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       if (pl?.stato === 'scelto' && giornoIso(x.data) >= 6) storicoWeekend.set(x.employee_id, (storicoWeekend.get(x.employee_id) ?? 0) + 1);
     }
     const oreFuoriMese = new Map<string, Map<string, number>>();
-    for (const x of ((fuori.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null; shift_plans: { stato: string } | { stato: string }[] | null }[]) ?? [])) {
-      const pl = Array.isArray(x.shift_plans) ? x.shift_plans[0] : x.shift_plans;
-      if (x.plan_id && pl?.stato !== 'scelto') continue; // le bozze degli altri piani non contano
+    // Quali turni dell'altro mese contano: del piano scelto; senza piano scelto quelli settimanali
+    // o, se non ce ne sono, quelli del piano piu' recente anche in bozza (12/11/2026: dicembre
+    // creato prima di scegliere novembre non vedeva il lunedi' 30/11 appena pianificato).
+    const mesiFuori = [...new Set(tutte.filter((d) => !d.startsWith(mese)).map((d) => `${d.slice(0, 7)}-01`))];
+    const pianiFuori = mesiFuori.length
+      ? await supabase.from('shift_plans').select('id, outlet_id, mese, stato, simulazione, created_at').eq('company_id', companyId).in('mese', mesiFuori)
+      : { data: [] as PianoDelMese[] };
+    const righeFuori = (fuori.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; plan_id: string | null; outlet_id: string }[]) ?? [];
+    for (const x of turniCheValgono(righeFuori, (pianiFuori.data as PianoDelMese[] | null) ?? [])) {
       const m = oreFuoriMese.get(x.employee_id) ?? new Map<string, number>();
       m.set(x.data, (m.get(x.data) ?? 0) + oreLavorate({ inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 }));
       oreFuoriMese.set(x.employee_id, m);
