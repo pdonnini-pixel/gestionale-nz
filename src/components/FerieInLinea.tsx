@@ -28,6 +28,8 @@ export default function FerieInLinea(props: {
   /** quanto è costato in copertura alla creazione del piano */
   costo?: { oreProposte: number; senza: { scoperte: number; straordinario: number }; con: { scoperte: number; straordinario: number } };
   resti?: { nome: string; ore: number; motivo: MotivoResto }[];
+  /** nessun tabulato delle paghe caricato per l'azienda: una riga sola, non una per persona */
+  nessunTabulato?: boolean;
   puoModificare: boolean;
   /** un'azione è in corso: i pulsanti si fermano */
   occupato: boolean;
@@ -79,6 +81,9 @@ export default function FerieInLinea(props: {
         </p>
       )}
 
+      {props.nessunTabulato ? (
+        <p className="px-4 py-3 text-sm text-slate-600">Nessun tabulato dello studio paghe caricato: il sistema non sa quanto matura ognuno e non propone niente. Le proposte arrivano con il primo tabulato caricato in Dipendenti.</p>
+      ) : (
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -153,6 +158,7 @@ export default function FerieInLinea(props: {
           </tbody>
         </table>
       </div>
+      )}
       {!!resti?.length && (
         <p className="px-4 py-2.5 text-xs text-slate-600 border-t border-slate-100">
           Non proposte alla creazione del piano: {resti.map((x) => `${x.nome} ${fmt(x.ore)} h (${TESTO_RESTO[x.motivo]})`).join('; ')}.

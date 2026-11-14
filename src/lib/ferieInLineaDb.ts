@@ -1,7 +1,7 @@
 // Letture e scritture per le ferie «in linea con il mese» (Patrizio, 14/11/2026, migration 410).
 // Le proposte del piano sono richieste in bozza con origine 'piano_mese' e il piano che le ha
 // generate: non scalano il saldo, il dipendente non le vede nell'app, e diventano vere solo con
-// ferie_proposta_approva (che passa da leave_decidi: scala di chi decide, regola del lunedì).
+// ferie_proposta_approva (che passa da leave_decidi: scala di chi decide; il lunedì lo controllano i trigger sui giorni).
 // Una richiesta per persona e per giorno, così ogni proposta si approva, si sposta o si toglie da sola.
 // Dove la 410 non c'è (tenant senza migration) `ha410` è falso e non si propone niente.
 

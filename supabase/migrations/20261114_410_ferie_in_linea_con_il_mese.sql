@@ -18,13 +18,25 @@
 -- Cosa cambia nello schema (solo aggiunte, nessuna riga toccata):
 --   1. leave_requests.origine ammette anche 'piano_mese';
 --   2. leave_requests.plan_id (NULL per tutte le richieste di oggi);
---   3. funzione ferie_proposta_approva(uuid, uuid[]).
+--   3. funzione ferie_proposta_approva(uuid, uuid[], text).
 -- Si applica a NZ e Zago. Dove manca (Made) il frontend non propone niente e resta com'era.
 -- Rollback: 20261114_410_ferie_in_linea_con_il_mese_ROLLBACK.sql
 
 BEGIN;
 
-ALTER TABLE public.leave_requests DROP CONSTRAINT IF EXISTS leave_requests_origine_check;
+-- Il vincolo di prima si toglie cercandolo per quello che controlla, non solo per nome: su NZ e
+-- Zago si chiama leave_requests_origine_check (letto il 14/11/2026), ma se avesse un altro nome
+-- resterebbe in piedi e rifiuterebbe 'piano_mese'.
+DO $$
+DECLARE c record;
+BEGIN
+  FOR c IN SELECT conname FROM pg_constraint
+            WHERE conrelid = 'public.leave_requests'::regclass AND contype = 'c'
+              AND pg_get_constraintdef(oid) ~ '\morigine\M'
+  LOOP
+    EXECUTE format('ALTER TABLE public.leave_requests DROP CONSTRAINT %I', c.conname);
+  END LOOP;
+END $$;
 ALTER TABLE public.leave_requests ADD CONSTRAINT leave_requests_origine_check
   CHECK (origine IN ('gestionale', 'modulo_cartaceo', 'mail', 'piano_mese'));
 
@@ -35,10 +47,16 @@ COMMENT ON COLUMN public.leave_requests.plan_id IS
 CREATE INDEX IF NOT EXISTS leave_requests_plan_idx ON public.leave_requests (plan_id) WHERE plan_id IS NOT NULL;
 
 -- Approvare una proposta del piano: la bozza diventa inviata e la decide leave_decidi, che applica
--- chi puo' decidere (posso_decidere_ferie o la responsabile nei suoi negozi), la scala (407:
--- nessuno la propria, la responsabile dall'HR, l'HR dal Super Advisor) e la regola del lunedi'.
--- Se leave_decidi rifiuta, l'eccezione annulla tutto e la proposta resta in bozza.
-CREATE OR REPLACE FUNCTION public.ferie_proposta_approva(p_request_id uuid, p_giorni uuid[] DEFAULT NULL)
+-- chi puo' decidere (posso_decidere_ferie o la responsabile nei suoi negozi) e la scala (407:
+-- nessuno la propria, la responsabile dall'HR, l'HR dal Super Advisor); la regola del lunedi' la
+-- applicano i trigger sui giorni (393). Se leave_decidi rifiuta, l'eccezione annulla tutto e la
+-- proposta resta in bozza.
+--   * Una proposta rimasta senza piano (plan_id NULL: il piano e' stato tolto e la bozza no) non si
+--     approva: si toglie, o si rifa' il piano.
+--   * Approvare solo una parte dei giorni vuol dire respingere gli altri: serve il motivo vero
+--     (p_motivo), che finisce nel registro. Senza motivo l'approvazione parziale e' rifiutata.
+DROP FUNCTION IF EXISTS public.ferie_proposta_approva(uuid, uuid[]);
+CREATE OR REPLACE FUNCTION public.ferie_proposta_approva(p_request_id uuid, p_giorni uuid[] DEFAULT NULL, p_motivo text DEFAULT NULL)
  RETURNS text
  LANGUAGE plpgsql
  SECURITY DEFINER
@@ -47,6 +65,8 @@ AS $function$
 DECLARE
   r        public.leave_requests%ROWTYPE;
   v_giorni uuid[];
+  v_tutti  integer;
+  v_motivo text := NULLIF(btrim(COALESCE(p_motivo, '')), '');
 BEGIN
   SELECT * INTO r FROM public.leave_requests WHERE id = p_request_id FOR UPDATE;
   IF NOT FOUND OR r.company_id IS DISTINCT FROM (SELECT public.get_my_company_id()) THEN
@@ -55,23 +75,32 @@ BEGIN
   IF r.origine <> 'piano_mese' OR r.stato <> 'bozza' THEN
     RAISE EXCEPTION 'Questa non è una proposta del piano ancora da decidere.' USING ERRCODE = '22023';
   END IF;
-  SELECT array_agg(d.id) INTO v_giorni
+  IF r.plan_id IS NULL THEN
+    RAISE EXCEPTION 'Il piano di questa proposta non c''è più: toglila o rifai il piano.' USING ERRCODE = '22023';
+  END IF;
+  SELECT count(*), array_agg(d.id) FILTER (WHERE p_giorni IS NULL OR d.id = ANY (p_giorni))
+    INTO v_tutti, v_giorni
     FROM public.leave_request_days d
-   WHERE d.request_id = p_request_id AND (p_giorni IS NULL OR d.id = ANY (p_giorni));
+   WHERE d.request_id = p_request_id;
   IF v_giorni IS NULL THEN
     RAISE EXCEPTION 'La proposta non ha giorni da approvare.' USING ERRCODE = '22023';
   END IF;
+  IF cardinality(v_giorni) < v_tutti AND v_motivo IS NULL THEN
+    RAISE EXCEPTION 'Per approvare solo una parte dei giorni serve il motivo per quelli scartati.' USING ERRCODE = '22023';
+  END IF;
   UPDATE public.leave_requests SET stato = 'inviata', inviata_il = now() WHERE id = p_request_id;
-  RETURN public.leave_decidi(p_request_id, v_giorni, 'Proposta del piano del mese, approvata');
+  RETURN public.leave_decidi(p_request_id, v_giorni,
+    CASE WHEN cardinality(v_giorni) < v_tutti THEN v_motivo ELSE 'Proposta del piano del mese, approvata' END);
 END
 $function$;
-REVOKE ALL ON FUNCTION public.ferie_proposta_approva(uuid, uuid[]) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.ferie_proposta_approva(uuid, uuid[]) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.ferie_proposta_approva(uuid, uuid[], text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.ferie_proposta_approva(uuid, uuid[], text) TO authenticated, service_role;
 
 COMMIT;
 
 -- VERIFICA (su NZ e su Zago, dopo l'applicazione):
 -- SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'leave_requests_origine_check';  -- con 'piano_mese'
 -- SELECT count(*) FILTER (WHERE plan_id IS NOT NULL) AS con_piano, count(*) AS tutte FROM public.leave_requests;  -- 0 e il totale di prima
--- SELECT has_function_privilege('authenticated', 'public.ferie_proposta_approva(uuid,uuid[])', 'execute') AS auth,
---        has_function_privilege('anon', 'public.ferie_proposta_approva(uuid,uuid[])', 'execute') AS anon;  -- true, false
+-- SELECT has_function_privilege('authenticated', 'public.ferie_proposta_approva(uuid,uuid[],text)', 'execute') AS auth,
+--        has_function_privilege('anon', 'public.ferie_proposta_approva(uuid,uuid[],text)', 'execute') AS anon;  -- true, false
+-- SELECT count(*) FROM public.leave_requests WHERE origine = 'piano_mese' AND stato = 'bozza' AND plan_id IS NULL;  -- 0: nessuna proposta rimasta senza piano

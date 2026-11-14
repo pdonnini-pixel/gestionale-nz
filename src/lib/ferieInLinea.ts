@@ -321,3 +321,18 @@ export function proposteInParole(proposte: PropostaFerie[], fmt: (n: number) => 
   if (ore > 0) pezzi.push(`${fmt(ore)} h di permesso`);
   return pezzi.join(' e ');
 }
+
+/**
+ * Cosa dire dopo aver tolto o spostato una proposta. La proposta e i turni sono due scritture
+ * distinte: il messaggio dice sempre com'è finita la seconda, così non si legge «turni
+ * ricalcolati» quando non lo sono (mese chiuso, errore a metà).
+ */
+export function messaggioDopoModifica(cosa: 'tolta' | 'spostata', esito: 'fatto' | 'non_fatto' | 'errore', dettaglio?: string): string {
+  if (esito === 'fatto') {
+    return cosa === 'tolta'
+      ? 'Proposta tolta: i turni della settimana sono ricalcolati e le ore tornano da lavorare.'
+      : 'Proposta spostata: i turni delle settimane toccate sono ricalcolati.';
+  }
+  if (esito === 'non_fatto') return `Proposta ${cosa}. I turni non sono stati rifatti: restano quelli di prima.`;
+  return `Proposta ${cosa}, ma i turni non sono stati rifatti${dettaglio ? ` (${dettaglio})` : ''}: premi «Ricalcola il mese».`;
+}

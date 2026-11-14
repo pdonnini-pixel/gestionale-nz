@@ -18,6 +18,7 @@ CREATE TABLE public._bkp_410_leave_requests AS
    WHERE plan_id IS NOT NULL OR origine = 'piano_mese';
 ALTER TABLE public._bkp_410_leave_requests ENABLE ROW LEVEL SECURITY;
 
+DROP FUNCTION IF EXISTS public.ferie_proposta_approva(uuid, uuid[], text);
 DROP FUNCTION IF EXISTS public.ferie_proposta_approva(uuid, uuid[]);
 
 ALTER TABLE public.leave_requests DROP CONSTRAINT IF EXISTS leave_requests_origine_check;

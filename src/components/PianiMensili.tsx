@@ -37,7 +37,7 @@ import {
 } from '../lib/turni';
 import { turniCheValgono, type PianoDelMese } from '../lib/turniFuoriMese';
 import {
-  quadroPersona, scegliGiorni, rifinisciProposte, misuraPiano, maturaIlMese, type GiornoFerieEsistente, type PropostaFerie, type RateoPersona, type RestoFerie,
+  quadroPersona, scegliGiorni, rifinisciProposte, misuraPiano, maturaIlMese, messaggioDopoModifica, type GiornoFerieEsistente, type PropostaFerie, type RateoPersona, type RestoFerie,
 } from '../lib/ferieInLinea';
 import {
   caricaRatei, caricaGiorniConVoce, eProposta, salvaProposte, togliProposteDelPiano, togliProposta, spostaProposta, approvaProposta, type GiornoFerieDb,
@@ -629,7 +629,11 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       const b = await caricaBase();
       if (!b) return;
       // Ferie e permessi in linea con il mese: solo nel piano vero «con ferie e permessi».
-      const inLinea = !ipotesi && !senzaFerie && !chiuso && !senzaProposte ? await proponiInLinea(b, regola).catch(() => null) : null;
+      const inLinea = !ipotesi && !senzaFerie && !chiuso && !senzaProposte ? await proponiInLinea(b, regola).catch((e: unknown) => {
+        // niente silenzio: il piano nasce lo stesso, ma senza le proposte, e si dice perché
+        toast({ type: 'warning', duration: 15000, message: `Le proposte di ferie e permessi non sono state calcolate (${e instanceof Error ? e.message : 'errore nella lettura dei dati'}): il piano viene creato senza. Per averle togli il piano e ricrealo.` });
+        return null;
+      }) : null;
       const { esito, straordinariPersona, tolte } = inLinea ? { ...inLinea.con, tolte: new Set<string>() }
         : calcolaPiano(b, regola, ipotesi, senzaFerie ? new Set(b.ferie.map((x) => `${x.employee_id}|${x.data}`)) : undefined);
       const straordDi = (e: EsitoPianoMese) => Object.values(e.persone).reduce((a, x) => a + x.straordinario, 0);
@@ -694,7 +698,13 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           });
           toast({ type: 'success', duration: 12000, message: `Ferie e permessi in linea con il mese: proposte ${fmt(riepilogo.ferieInLinea?.oreProposte)} ore. Sono proposte: si approvano, si spostano o si tolgono nel riquadro «Ferie e permessi in linea con il mese».` });
         } catch (e) {
-          await togliProposteDelPiano(planId).catch(() => undefined);
+          // le proposte salvate a metà si tolgono prima del piano: se non si tolgono il piano resta, così
+          // le si vede e le si toglie dal riquadro, invece di lasciarle senza piano
+          try { await togliProposteDelPiano(planId); } catch (e2) {
+            toast({ type: 'error', duration: 20000, message: `Alcune proposte di ferie sono rimaste salvate e non si sono tolte (${e2 instanceof Error ? e2.message : 'errore'}): apri il piano e toglile dal riquadro «Ferie e permessi in linea con il mese», poi togli il piano e ricrealo.` });
+            setVersione((v) => v + 1);
+            return;
+          }
           await supabase.from('shift_plans').delete().eq('id', planId);
           toast({ type: 'warning', duration: 15000, message: `Le proposte di ferie e permessi non si sono salvate (${e instanceof Error ? e.message : 'errore'}): il piano viene creato senza. Le può far nascere chi può scrivere le richieste di ferie.` });
           await creaPiano(regola, ipotesi, senzaFerie, true);
@@ -776,10 +786,16 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       }
       const cosa = p.simulazione ? 'la simulazione' : p.stato === 'scelto' ? 'il piano che vale per il mese' : 'la bozza';
       if (!window.confirm(`Togliere ${cosa} «${p.nome}»? Spariscono tutti i suoi turni, anche quelli messi a mano. Il piano si può rifare.`)) return;
+      // le proposte di ferie del piano ancora da decidere spariscono con lui; quelle approvate sono ferie vere e restano.
+      // Per prime: se non si tolgono ci si ferma qui, con il piano e i suoi turni ancora interi, e nessuna
+      // proposta resta senza piano (la 410 non la lascerebbe approvare).
+      if (ha410) {
+        try { await togliProposteDelPiano(p.id); } catch (e) {
+          throw new Error(`Le proposte di ferie del piano non si sono tolte (${e instanceof Error ? e.message : 'errore'}): il piano resta com'era. Riprova, oppure toglile una per una dal riquadro «Ferie e permessi in linea con il mese».`);
+        }
+      }
       const a = await supabase.from('shifts').delete().eq('plan_id', p.id).neq('stato', 'pubblicato');
       if (a.error) throw a.error;
-      // le proposte di ferie del piano ancora da decidere spariscono con lui; quelle approvate sono ferie vere e restano
-      if (ha410) await togliProposteDelPiano(p.id);
       const b = await supabase.from('shift_plan_weekend_off').delete().eq('plan_id', p.id);
       if (b.error) throw b.error;
       const c = await supabase.from('shift_plans').delete().eq('id', p.id);
@@ -945,7 +961,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const nuovi = esito.turni.filter((t) => date.has(t.data) && !t.employeeId.startsWith(ID_NUOVA));
     if (vecchi.length) {
       const del = await supabase.from('shifts').delete().in('id', vecchi);
-      if (del.error) throw del.error;
+      if (del.error) throw new Error(`i turni di prima non si sono tolti: ${del.error.message}`);
     }
     if (nuovi.length) {
       const ins = await supabase.from('shifts').insert(nuovi.map((t) => ({
@@ -953,7 +969,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         pausa_minuti: t.pausaMinuti, origine: 'proposta', stato: 'bozza', plan_id: pianoAperto.id,
         straordinario: (esito.straordinariTurni?.get(t) ?? 0) > 0, ore_straordinario: esito.straordinariTurni?.get(t) ?? 0,
       })));
-      if (ins.error) throw new Error(`i turni vecchi sono tolti ma quelli nuovi non si sono salvati (${ins.error.message}): premi «Ricalcola il mese»`);
+      if (ins.error) throw new Error(`i turni vecchi sono tolti ma quelli nuovi non si sono salvati: ${ins.error.message}`);
     }
     // il riepilogo del piano segue il ricalcolo; le ore dei turni fermi tornano fra quelle di contratto e in turno
     const oreFerme = (id: string) => fermi.filter((t) => t.employee_id === id && t.data.startsWith(mese)).reduce((a, t) => a + oreLavorate({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti ?? 0 }), 0);
@@ -985,6 +1001,17 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       setVersione((v) => v + 1);
     }
   };
+  // La proposta è già tolta o spostata: i turni si rifanno adesso. Il messaggio dice sempre com'è finita,
+  // perché le due scritture (proposta, turni) non sono una sola.
+  const dopoLaModifica = async (cosa: 'tolta' | 'spostata', settimane: string[], base?: BaseMese): Promise<string | null> => {
+    if (!settimane.length) return `Proposta ${cosa}.`;
+    let fatto: boolean;
+    try { fatto = await ricalcola(settimane, base); } catch (e) {
+      throw new Error(messaggioDopoModifica(cosa, 'errore', e instanceof Error ? e.message : undefined));
+    }
+    // ricalcola ha già detto perché non ha rifatto i turni (mese chiuso): qui si dice che la proposta è cambiata
+    return messaggioDopoModifica(cosa, fatto ? 'fatto' : 'non_fatto');
+  };
   const propostaDi = (requestId: string) => giorniVoce.filter((g) => g.request_id === requestId && eProposta(g));
   const approvaUna = (requestId: string) => conLavoro(async () => {
     const g = propostaDi(requestId)[0];
@@ -1003,8 +1030,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const togliUna = (requestId: string) => conLavoro(async () => {
     const g = propostaDi(requestId)[0];
     await togliProposta(requestId);
-    if (g) await ricalcola([lunediDi(g.data)]);
-    return 'Proposta tolta: i turni della settimana sono ricalcolati e le ore tornano da lavorare.';
+    return dopoLaModifica('tolta', g ? [lunediDi(g.data)] : []);
   });
   const spostaUna = (requestId: string, nuova: string) => conLavoro(async () => {
     const gg = propostaDi(requestId);
@@ -1018,10 +1044,15 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     if (!esito.ammessa) throw new Error(esito.motivo);
     if (gg.some((x) => x.tipo === 'giornata') && giornoIso(nuova) === 1 && guidaNegozio.includes(gg[0].employee_id)) throw new Error('Il lunedì una fra responsabile e vice è in negozio: a loro una giornata di ferie di lunedì non si propone.');
     await spostaProposta(requestId, nuova);
-    await ricalcola([...new Set([lunediDi(gg[0].data), lunediDi(nuova)])], b);
-    return 'Proposta spostata: i turni delle settimane toccate sono ricalcolati.';
+    return dopoLaModifica('spostata', [...new Set([lunediDi(gg[0].data), lunediDi(nuova)])], b);
   });
-  const ricalcolaMese = () => conLavoro(async () => ((await ricalcola('mese')) ? 'Mese ricalcolato con le ferie e i permessi di adesso. I turni messi a mano e quelli pubblicati non sono stati toccati.' : null));
+  const ricalcolaMese = () => conLavoro(async () => {
+    let fatto: boolean;
+    try { fatto = await ricalcola('mese'); } catch (e) {
+      throw new Error(`Il mese non è stato ricalcolato (${e instanceof Error ? e.message : 'errore'}): premi di nuovo «Ricalcola il mese».`);
+    }
+    return fatto ? 'Mese ricalcolato con le ferie e i permessi di adesso. I turni messi a mano e quelli pubblicati non sono stati toccati.' : null;
+  });
 
   // Il riquadro «Ferie e permessi in linea con il mese»: dal vivo, con le ferie e le proposte di adesso.
   const mostraInLinea = !!pianoAperto && !pianoAperto.simulazione && !pianoAperto.riepilogo.senzaFerie && ha410 && ratei.disponibile;
@@ -1655,7 +1686,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
 
       {mostraInLinea && pianoAperto && (
         <>
-          <FerieInLinea righe={righeInLinea} costo={pianoAperto.riepilogo.ferieInLinea} resti={pianoAperto.riepilogo.ferieInLinea?.resti}
+          <FerieInLinea righe={righeInLinea} nessunTabulato={ratei.ratei.length === 0} costo={pianoAperto.riepilogo.ferieInLinea} resti={pianoAperto.riepilogo.ferieInLinea?.resti}
             puoModificare={puoModificare} occupato={!!lavoro}
             onApprova={approvaUna} onApprovaTutte={approvaTutte} onSposta={spostaUna} onTogli={togliUna} onRicalcolaMese={ricalcolaMese} />
           {!pianoAperto.riepilogo.ferieInLinea && (

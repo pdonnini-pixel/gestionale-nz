@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  messaggioDopoModifica,
   maturatoDelMese, mesiDaMaturare, quadroPersona, tagliaInGiorni, scegliGiorni, misuraPiano, settimanePeggiorate, rifinisciProposte, maturaIlMese,
   proposteInParole, type GiornoFerieEsistente, type MisuraPiano, type PropostaFerie, type RateoPersona,
 } from './ferieInLinea';
@@ -196,5 +197,24 @@ describe('ferie in linea con il mese: i ratei del tabulato', () => {
   it('nello stesso tabulato, fra due contratti vale quello ancora aperto', () => {
     const [r] = rateiPiuRecenti([riga(2026, 10, 34.6, '2026-10-15'), riga(2026, 10, 168, null, '2026-10-16')]);
     expect(r.rateoAnnuo).toBe(168);
+  });
+});
+
+describe('ferie in linea con il mese: cosa si dice dopo aver tolto o spostato una proposta', () => {
+  it('turni rifatti: lo dice', () => {
+    expect(messaggioDopoModifica('tolta', 'fatto')).toMatch(/turni della settimana sono ricalcolati/);
+    expect(messaggioDopoModifica('spostata', 'fatto')).toMatch(/settimane toccate sono ricalcolati/);
+  });
+  it('mese chiuso: la proposta è cambiata ma non dice che i turni sono ricalcolati', () => {
+    const m = messaggioDopoModifica('tolta', 'non_fatto');
+    expect(m).toMatch(/Proposta tolta/);
+    expect(m).not.toMatch(/sono ricalcolati/);
+    expect(m).toMatch(/restano quelli di prima/);
+  });
+  it('errore a metà: dice sempre che la proposta è cambiata e di premere «Ricalcola il mese»', () => {
+    const m = messaggioDopoModifica('spostata', 'errore', 'permesso negato');
+    expect(m).toMatch(/Proposta spostata, ma i turni non sono stati rifatti \(permesso negato\)/);
+    expect(m).toMatch(/premi «Ricalcola il mese»/);
+    expect(messaggioDopoModifica('tolta', 'errore')).toBe('Proposta tolta, ma i turni non sono stati rifatti: premi «Ricalcola il mese».');
   });
 });
