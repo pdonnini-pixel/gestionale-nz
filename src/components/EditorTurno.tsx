@@ -82,7 +82,7 @@ export default function EditorTurno({
   /** giorno di riposo scelto dalla responsabile HR nel piano del mese (Patrizio, 11/11/2026) */
   riposo?: { attivo: boolean };
   /** chi apre la finestra puo' rileggere i dati prima di chiuderla: finche' non ha finito i pulsanti restano fermi */
-  onClose: () => void; onSalvato: (messaggio?: string) => void | Promise<void>;
+  onClose: () => void; onSalvato: (messaggio?: string, cosa?: { ferie?: boolean }) => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const hh = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -243,7 +243,7 @@ export default function EditorTurno({
       }
       if (tipo === 'giornata') { const e3 = await togliTurno('Ferie inserite dal calendario'); if (e3) throw e3; }
       onSalvato(`${testo} per ${nome.split(' ')[0]}: ${approvata ? 'approvata, consuma il saldo delle ferie'
-        : 'da approvare in Approvazioni ferie'}.${tipo !== 'giornata' && turno ? ' Accorcia il turno se serve.' : ''}`);
+        : 'da approvare in Approvazioni ferie'}.${tipo !== 'giornata' && turno ? ' Accorcia il turno se serve.' : ''}`, { ferie: true });
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non inserite.' });
     } finally {
@@ -317,7 +317,7 @@ export default function EditorTurno({
         p_request_id: f.requestId, p_giorni_approvati: altri.filter((g) => g.stato === 'approvato').map((g) => g.id), p_motivazione: 'Tolte dal piano del mese',
       });
       if (e2) throw e2;
-      onSalvato(`${f.testo} tolte per ${nome.split(' ')[0]}: il giorno torna disponibile per un turno e il saldo delle ferie si aggiorna.`);
+      onSalvato(`${f.testo} tolte per ${nome.split(' ')[0]}: il giorno torna disponibile per un turno e il saldo delle ferie si aggiorna.`, { ferie: true });
     } catch (e) {
       toast({ type: 'error', message: e instanceof Error ? e.message : 'Ferie non tolte.' });
     } finally {

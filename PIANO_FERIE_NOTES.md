@@ -425,3 +425,60 @@ Pacchetto privacy: le mail di `leave-notify` partivano da «New Zago <distinte@r
 - `leave-notify` (versione 2 su NZ e Zago) legge due secret facoltativi per azienda: `LEAVE_EMAIL_FROM` (mittente, al posto di `DISTINTA_EMAIL_FROM`) e `LEAVE_EMAIL_REPLY_TO` (indirizzo delle risposte). Senza secret resta tutto come prima.
 - `LEAVE_EMAIL_FROM` con un indirizzo @vicolo.com funziona solo dopo aver verificato il dominio vicolo.com in Resend (record DNS); altrimenti Resend rifiuta e la mail risulta «failed» (la richiesta di ferie vale lo stesso).
 - Impostato da Patrizio il 12/11/2026 su NZ: `LEAVE_EMAIL_FROM` = «New Zago <newzago@rispondi.ai>» (dominio rispondi.ai già verificato in Resend, dati in Irlanda) e `LEAVE_EMAIL_REPLY_TO` = newzago@vicolo.com. Su Zago nessun secret: mittente di prima.
+
+## Ferie e permessi in linea con il mese (14/11/2026, migration 410)
+
+Patrizio, 14/11/2026: «la regola è far stare ferie e permessi in linea con il mese, cioè se devo consumare ferie e permessi li consumo che tanto ogni mese vado a riaccumularli, ma quando arrivo lì poi posso approvarli o cancellarli o spostarli e lui ricalcola tutto, sia i residui che le ore. La regola è che l'HR richiede il piano ma se lo modifica cancellando e spostando il sistema ricalcola tutto il mese se necessario. Inoltre ferie e permessi deve anche guardare nella sezione che arriva dall'app.» Ha rifiutato una soglia da scegliere per negozio: «questo lo rende manuale».
+
+### Cosa fa
+Quando l'HR crea il piano del mese «con ferie e permessi» il sistema propone da solo, per ogni persona, ferie e permessi pari a quello che matura in quel mese. Niente da impostare.
+
+- **Il maturato non si calcola, si legge**: è `leave_accrual_rows.rateo_annuo` dell'ultimo tabulato attivo, diviso dodici (`maturatoDelMese`). Misurato sul tabulato di ottobre 2026 (NZ, 101 righe): la colonna «da maturare» è `rateo × mesi che restano / 12` su 75 righe su 81; le altre 6 sono contratti che finiscono prima di dicembre. Il rateo c'è su 101 righe su 101.
+- **Chi non ha una riga nel tabulato non riceve proposte** e il riquadro lo dice. Oggi a NZ sono 5 persone attive su 46: le tre assunte il 02/11/2026 a Roma Soratte (entreranno nel tabulato di novembre), una in Sede e una senza negozio. Il gestionale non inventa ratei: i coefficienti 4,325 / 0,8 / 0,7 restano dedotti e nel tabulato il rateo non è sempre ore × 4,325 (c'è 168 accanto a 173 per 40 ore). Usarli per chi è senza tabulato è una decisione di Patrizio, non presa.
+- **Matura il mese** chi è in servizio almeno 15 giorni di calendario nel mese (`maturaIlMese`): è la regola dello studio già scritta in «Maturazione e anticipo», ancora da confermare.
+- **Cosa c'è già**: dal maturato si tolgono le ore del mese già approvate e quelle chieste e in attesa, da qualunque strada arrivino (app, gestionale, moduli): sono tutte in `leave_requests`. Mai più di quello che la persona avrà a fine mese (`residuo` del tabulato più i mesi che maturano meno le ore dopo la data del saldo): chi è in anticipo non riceve proposte.
+- **In giornate e ore** (`tagliaInGiorni`): le ferie a giornate intere (ore settimanali / 6 nei negozi, come `proponiFerie`), l'avanzo e i permessi a ore, a mezz'ore. Un permesso che in tutto non arriva a un'ora non si propone.
+- **Dove** (`scegliGiorni`, `giornoPerProposta`): dopo oggi, feriali non festivi con meno ingressi MODA, una giornata per settimana se si può, mai due persone lo stesso giorno se c'è un'alternativa; mai nei giorni caldi, negli eventi, nei giorni speciali; solo dove `esitoRichiesta` (la scheda 9) li ammette; mai una giornata di lunedì a responsabile o vice; solo dove restano le persone minime delle fasce (almeno due); mai in una settimana che è già sotto le persone minime. Il permesso a ore va in un giorno in cui la persona ha un turno di almeno turno minimo più due ore.
+- **Verifica sul motore** (`rifinisciProposte`): il mese si calcola senza e con le proposte; finché una settimana è peggio (ore sotto le persone minime, giorni con una persona sola, ore vuote, persone senza riposo) si toglie la proposta più pesante e si rimisura, al massimo sei volte. Quello che non si propone resta scritto con il motivo.
+
+### Le proposte sono proposte
+Stanno in `leave_requests` come **bozze** con `origine = 'piano_mese'` e `plan_id` (migration 410), una richiesta per persona e per giorno:
+- non scalano il saldo (`v_leave_disponibilita` le conta a parte, `ore_in_bozza`);
+- il dipendente non le vede (`app_dipendente_ferie` esclude le bozze); il trigger del lunedì non le guarda;
+- nel piano del mese contano come assenza e si vedono con il bordo tratteggiato; nel piano settimanale contano come ferie in attesa (`PianoTurni`), così la proposta dei turni non ci mette nessuno;
+- **Approva** = `ferie_proposta_approva(request, giorni)`: la bozza diventa inviata e la decide `leave_decidi`, quindi valgono chi può decidere, la scala (nessuno la propria, la responsabile dall'HR, l'HR dal Super Advisor) e la regola del lunedì. Se `leave_decidi` rifiuta la proposta resta in bozza;
+- **Sposta** e **togli** sono scritture dirette sulla bozza (profili che scrivono le richieste: Super Advisor, contabile, COO);
+- togliendo il piano le sue bozze spariscono; le proposte già approvate sono richieste vere e restano (con `plan_id` vuoto).
+
+### Il ricalcolo
+`ricalcola` in `PianiMensili.tsx`: dopo uno spostamento, una cancellazione, o una ferie messa o tolta dalla finestra del turno, si rifanno i turni delle settimane toccate; «Ricalcola il mese» li rifà tutti. Si sostituiscono **solo** i turni `origine = 'proposta'` e `stato = 'bozza'` del piano: quelli messi a mano e quelli pubblicati restano fermi ed entrano nel conto come ore già fatte (per il motore sono come una trasferta della persona più una presenza in negozio). Mai su un mese chiuso. Il riepilogo del piano si riscrive. I residui e le ore del riquadro sono sempre calcolati dal vivo (`quadroPersona`).
+
+### Misura del 14/11/2026 (dati veri di NZ, novembre dal 15 e dicembre 2026)
+Stesso mese senza e con le proposte; in entrambi contano le richieste approvate e in attesa. Traffico in media per giorno della settimana.
+
+| Negozio | Mese | Ore proposte (giornate) | Non proposte | Sotto MODA | Straordinario | Ore da assegnare |
+|---|---|---|---|---|---|---|
+| Barberino | nov | 14,83 (1) | 5,83 | 43,70 → 48,58 | 0 → 1,33 | 6,85 → 0,51 |
+| Barberino | dic | 29,16 (4) | 18,33 | 0,96 → 1,38 | 0 = | 49,84 → 25,01 |
+| Brugnato | nov | 20 (4) | 15,17 | 46,82 = | 12 → 31,5 | 3 → 0 |
+| Brugnato | dic | 15 (3) | 12,5 | 80,73 = | 0,35 → 0 | 0 = |
+| Franciacorta | nov | 32,33 (4) | 0 | 6,13 → 6,11 | 0 = | 70,83 → 42,5 |
+| Franciacorta | dic | 25,83 (4) | 10,67 | 16,64 → 13,64 | 0 = | 18,83 → 3,5 |
+| Palmanova | nov | 31 (4) | 12 | 5,39 = | 0 → 2 | 44,5 → 21,5 |
+| Palmanova | dic | 29,5 (4) | 22 | 0 = | 0 = | 55,5 → 25,5 |
+| Torino | nov | 58 (8) | 0 | 2,56 → 5,81 | 0 → 0,5 | 93 → 48,5 |
+| Torino | dic | 58 (8) | 0 | 2,09 = | 0 = | 84 → 33,17 |
+| Valdichiana | nov | 76,16 (10) | 0 | 3,29 → 12,10 | 0 → 2,33 | 82 → 40,67 |
+| Valdichiana | dic | 76,16 (10) | 0 | 6,95 → 18,48 | 0 = | 61,17 → 4,51 |
+| Valmontone | nov | 20,5 (2) | 10 | 51,97 → 60,42 | 0 = | 9,5 → 3,5 |
+| Valmontone | dic | 64 (10) | 0 | 5,79 → 16,25 | 0 = | 45 → 6,99 |
+| Roma Soratte | nov | 16,84 (2) | 0 | 4,56 → 4,74 | 107,83 → 121,17 | 0 = |
+| Roma Soratte | dic | 16,84 (2) | 0 | 9,64 → 9,55 | 94,17 → 105,84 | 0 = |
+
+In tutti i sedici casi: ore sotto le persone minime non peggiorate, giorni con una persona sola invariati, nessuno 7 su 7. Dove il negozio ha ore di contratto non usate le proposte le assorbono (Torino 93 → 48,5). **Dove non ne ha, le proposte si pagano in straordinario**: Roma Soratte +13,3 ore a novembre e +11,7 a dicembre per le sole 16,84 ore della responsabile (le altre tre non sono ancora nel tabulato); Brugnato +19,5 ore a novembre. Il riquadro lo scrive in giallo. Se va bene così lo decide Patrizio.
+
+### Limiti dichiarati
+- Spostare e togliere una proposta, e far nascere le proposte, richiede un profilo che scrive le richieste (Super Advisor, contabile, COO): un HR in elenco con profilo di sola lettura può solo approvare.
+- Un piano creato prima della 410 non ha proposte: nascono alla creazione del piano. Per averle si toglie e si rifà.
+- Il ricalcolo di una settimana rifà il conto di tutto il mese e ne prende solo quella settimana: il riepilogo del piano dopo un ricalcolo parziale descrive il mese ricalcolato, non i turni rimasti fermi nelle altre settimane se erano stati cambiati a mano.
+- «Togli piano» cancella anche i turni messi a mano del piano (regola del 21/10/2026, con conferma): non esiste un registro delle cancellazioni dei turni.

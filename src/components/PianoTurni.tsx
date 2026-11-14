@@ -23,6 +23,7 @@ import {
   personaAllaData, nomePersona, formattaDataBreve, oggiRoma, aggiungiGiorni, presenzaNeiTurni,
   type PersonaOggi,
 } from '../lib/organico';
+import { caricaGiorniConVoce, eProposta } from '../lib/ferieInLineaDb';
 import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, nomeNegozio as nomeDelNegozio, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
 import { ottimizzaSettimana, scegliGiorniLiberi, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana } from '../lib/ottimizzaTurni';
 import { eventoDaRiga } from '../lib/eventiTurni';
@@ -251,7 +252,22 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       setExtra(personeInPiu(date, speciali, eventi));
       setRegole(regoleLette);
       setTurni(turniLetti);
-      setFerie(fe);
+      // Le proposte di ferie del piano del mese che vale (14/11/2026, migration 410): finché non sono
+      // approvate o tolte contano come ferie in attesa, così la proposta dei turni non ci mette nessuno.
+      let proposte: typeof fe = [];
+      try {
+        const scelti = new Set(pianoDelMese.values());
+        if (scelti.size) {
+          const gv = await caricaGiorniConVoce(companyId, date[0], ultimo);
+          const perRichiesta = new Map<string, typeof gv.giorni>();
+          for (const g of gv.giorni) if (eProposta(g) && g.plan_id && scelti.has(g.plan_id)) perRichiesta.set(g.request_id, [...(perRichiesta.get(g.request_id) ?? []), g]);
+          proposte = [...perRichiesta.values()].map((gg) => ({
+            employee_id: gg[0].employee_id, data: gg[0].data, ore: gg.reduce((x, g) => x + g.ore, 0), tipo: gg.some((g) => g.tipo === 'giornata') ? 'giornata' : 'ore',
+            stato_richiesta: 'inviata', stato_giorno: 'richiesto', creato_il: gg[0].creato_il, id: gg[0].id, request_id: gg[0].request_id,
+          }));
+        }
+      } catch { /* dove la 410 manca non ci sono proposte */ }
+      setFerie([...fe, ...proposte]);
       const m = new Map<string, number>();
       for (const x of ((sl.data as { employee_id: string | null; residuo_disponibile: number | null }[]) ?? [])) {
         if (x.employee_id) m.set(x.employee_id, (m.get(x.employee_id) ?? 0) + Number(x.residuo_disponibile ?? 0));

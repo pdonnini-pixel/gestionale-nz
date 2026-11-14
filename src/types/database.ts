@@ -20098,6 +20098,7 @@ export type Database = {
           note_dipendente: string | null
           origine: string
           outlet_code: string | null
+          plan_id: string | null
           stato: string
           titolo: string | null
           updated_at: string
@@ -20119,6 +20120,7 @@ export type Database = {
           note_dipendente?: string | null
           origine?: string
           outlet_code?: string | null
+          plan_id?: string | null
           stato?: string
           titolo?: string | null
           updated_at?: string
@@ -20140,6 +20142,7 @@ export type Database = {
           note_dipendente?: string | null
           origine?: string
           outlet_code?: string | null
+          plan_id?: string | null
           stato?: string
           titolo?: string | null
           updated_at?: string
@@ -32403,6 +32406,7 @@ export type Database = {
       }
       payroll_sync_all: { Args: never; Returns: Json }
       payroll_sync_now: { Args: never; Returns: Json }
+      ferie_proposta_approva: { Args: { p_giorni?: string[]; p_request_id: string }; Returns: string }
       posso_decidere_ferie: { Args: never; Returns: boolean }
       project_cash_closing_to_daily_revenue: {
         Args: { p_closing_id: string }
