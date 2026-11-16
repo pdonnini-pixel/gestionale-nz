@@ -197,6 +197,7 @@ function AppRoutes() {
           <Route path="outlet/valutazione" element={<Outlet />} />
           <Route path="outlet/valutazione/:simSlug" element={<Outlet />} />
           <Route path="outlet/:outletId" element={<Outlet />} />
+          <Route path="outlet/:outletId/:scheda" element={<Outlet />} />
           <Route path="scadenzario" element={<Scadenzario />} />
           <Route path="storico-distinte" element={<StoricoDistinte />} />
           <Route path="banche" element={<Banche />} />
