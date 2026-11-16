@@ -144,6 +144,51 @@ describe('ottimizzaSettimana: due turni corti diventano uno lungo (16/11/2026)',
   });
 });
 
+describe('chi apre e chi chiude deve esserne abilitata (16/11/2026)', () => {
+  // dora e' appena assunta: non ha le chiavi, ne' per aprire ne' per chiudere
+  const chiavi = { apre: new Set(['anna', 'bea', 'carla']), chiude: new Set(['anna', 'bea', 'carla']) };
+  const apreIl = (t: Turno, g: GiornoPiano) => minuti(t.inizio) <= g.apre && minuti(t.fine) > g.apre;
+  const chiudeIl = (t: Turno, g: GiornoPiano) => minuti(t.fine) >= g.chiude && minuti(t.inizio) < g.chiude;
+
+  it('ogni giorno apre e chiude un\'abilitata, e la nuova non apre ne\' chiude mai da sola', () => {
+    const giorni = settimana('2026-11-16');
+    const dopo = ottimizzaSettimana(giorni, proposta(giorni), persone(), regole, { giornoLibero, chiavi });
+    for (const g of giorni.filter((x) => !x.chiuso)) {
+      const del = dopo.filter((t) => t.data === g.data);
+      expect(del.some((t) => chiavi.apre.has(t.employeeId) && apreIl(t, g))).toBe(true);
+      expect(del.some((t) => chiavi.chiude.has(t.employeeId) && chiudeIl(t, g))).toBe(true);
+    }
+    expect(derogheSettimana({ giorni, turni: dopo, persone: persone().map((p) => ({ ...p, nome: p.id })), regole, chiavi }).filter((d) => d.regola === 'senza_chiavi')).toEqual([]);
+  });
+
+  it('senza la regola il conto e il risultato restano quelli di prima', () => {
+    const giorni = settimana('2026-11-16');
+    const prima = proposta(giorni);
+    expect(contoSettimana(giorni, prima, persone(), regole, { giornoLibero })).toBe(contoSettimana(giorni, prima, persone(), regole, { giornoLibero, chiavi: undefined }));
+  });
+
+  it('chi ha gia\' aperto molte volte nel mese apre meno questa settimana', () => {
+    const giorni = settimana('2026-11-16');
+    const prima = new Map([['anna', { apre: 12, chiude: 0, giorni: 12 }], ['bea', { apre: 0, chiude: 6, giorni: 12 }], ['carla', { apre: 0, chiude: 6, giorni: 12 }]]);
+    const conto = (t: Turno[], id: string) => giorni.filter((g) => !g.chiuso && t.some((x) => x.employeeId === id && x.data === g.data && apreIl(x, g))).length;
+    const senza = ottimizzaSettimana(giorni, proposta(giorni), persone(), regole, { giornoLibero, chiavi });
+    const con = ottimizzaSettimana(giorni, proposta(giorni), persone(), regole, { giornoLibero, chiavi: { ...chiavi, prima } });
+    expect(conto(con, 'anna')).toBeLessThanOrEqual(conto(senza, 'anna'));
+    expect(conto(con, 'bea') + conto(con, 'carla')).toBeGreaterThanOrEqual(conto(senza, 'bea') + conto(senza, 'carla'));
+  });
+
+  it('la deroga si vede quando apre una persona senza chiavi', () => {
+    const giorni = settimana('2026-11-16');
+    const lun = giorni[0];
+    const turni: Turno[] = [
+      { employeeId: 'dora', data: lun.data, inizio: '10:00', fine: '15:00', pausaMinuti: 0 },
+      { employeeId: 'anna', data: lun.data, inizio: '14:00', fine: '20:00', pausaMinuti: 0 },
+    ];
+    const d = derogheSettimana({ giorni: [lun], turni, persone: persone().map((p) => ({ ...p, nome: p.id })), regole, chiavi });
+    expect(d.filter((x) => x.regola === 'senza_chiavi').map((x) => x.testo)).toEqual(["lunedì 16: all'apertura non c'è nessuna abilitata ad aprire"]);
+  });
+});
+
 describe('ottimizzaSettimana: turni fissi, eventi, partenze strane', () => {
   it('i turni fissi non si toccano e contano come presenza', () => {
     const giorni = settimana('2026-11-16');

@@ -218,3 +218,49 @@ export async function salvaFerieEvento(id: string, regole: Record<string, unknow
   const { error } = await db.from('outlet_events').update({ regole, blocca_ferie: bloccaFerie }).eq('id', id);
   return error ? error.message : null;
 }
+
+// ── Chi puo' aprire e chi puo' chiudere (Patrizio, 16/11/2026; colonne employees.puo_aprire e
+// puo_chiudere, migration 418). Un'abilitazione, non un obbligo: serve a non mettere ad aprire o
+// chiudere chi non ha le chiavi. NULL = da indicare. Dove le colonne mancano (Made) la regola e' spenta.
+
+export interface Abilitazione { apre: boolean | null; chiude: boolean | null }
+
+/** Le spunte di tutte le persone dell'azienda; null dove le colonne mancano. */
+export async function caricaAbilitazioni(companyId: string): Promise<Map<string, Abilitazione> | null> {
+  const { data, error } = await db.from('employees').select('id, puo_aprire, puo_chiudere').eq('company_id', companyId);
+  if (error) return null;
+  const righe = (data as { id: string; puo_aprire: boolean | null; puo_chiudere: boolean | null }[]) ?? [];
+  return new Map(righe.map((r) => [r.id, { apre: r.puo_aprire, chiude: r.puo_chiudere }]));
+}
+
+/**
+ * Scrive una spunta sulla scheda (null = torna «da indicare»). Passa dalla funzione del database
+ * (migration 418), che la lascia scrivere all'HR anche con un profilo che non scrive su employees e
+ * che rifiuta con un errore, invece di aggiornare zero righe in silenzio.
+ */
+export async function salvaAbilitazione(employeeId: string, campo: 'puo_aprire' | 'puo_chiudere', valore: boolean | null): Promise<void> {
+  const { error } = await db.rpc('employee_chiavi_imposta', { p_employee_id: employeeId, p_campo: campo, p_valore: valore });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * La regola per il motore in un negozio: chi puo' aprire e chi puo' chiudere fra `ids` (le persone in
+ * forza). Responsabile e vice (`guida`) contano sempre come abilitate; le persone nuove delle
+ * simulazioni (id «nuova-…») non sono abilitate. Spenta (undefined) se le colonne mancano, se
+ * qualcuna e' ancora «da indicare» o non si vede, o se le abilitate sono meno di due:
+ * una persona sola non puo' aprire o chiudere tutti i giorni.
+ */
+export function chiaviDelNegozio(ids: string[], abil: Map<string, Abilitazione> | null, guida: string[] = []): { apre: Set<string>; chiude: Set<string> } | undefined {
+  if (!abil || !ids.length) return undefined;
+  const apre = new Set<string>(); const chiude = new Set<string>();
+  for (const id of ids) {
+    const a = abil.get(id);
+    // chi non si vede (accesso limitato ai negozi) non si puo' giudicare: meglio la regola spenta
+    // che accesa con dati a meta'. Le persone nuove delle simulazioni («nuova-…») non sono abilitate.
+    if (!a && !id.startsWith('nuova-') && !guida.includes(id)) return undefined;
+    if (a && (a.apre === null || a.chiude === null) && !guida.includes(id)) return undefined;
+    if (guida.includes(id) || a?.apre) apre.add(id);
+    if (guida.includes(id) || a?.chiude) chiude.add(id);
+  }
+  return apre.size >= 2 && chiude.size >= 2 ? { apre, chiude } : undefined;
+}
