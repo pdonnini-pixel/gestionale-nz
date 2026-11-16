@@ -63,7 +63,22 @@ export default function ArchivioUnificato({ companyId, showToast, onApriFattura 
       .order('data', { ascending: false })
       .limit(5000);
     if (error) showToast(`Impossibile leggere l'archivio: ${error.message}`, 'error');
-    setRighe(((data as unknown) as RigaArchivio[]) || []);
+    // Un file ricaricato per lo stesso periodo sostituisce il precedente
+    // (sostituisciPrecedenti in archivioFile.ts): il vecchio resta nel database,
+    // marcato, ma qui si mostra solo la versione corrente (Zago 16/11/2026: lo
+    // stesso «Elenco netti» compariva due volte).
+    const { data: vecchi, error: errVecchi } = await supabase
+      .from('import_documents')
+      .select('id')
+      .eq('company_id', companyId)
+      .not('superseded_at', 'is', null)
+      .limit(5000);
+    if (errVecchi) console.warn('[archivio] versioni sostituite non lette, le mostro tutte:', errVecchi.message);
+    const sostituiti = new Set(((vecchi || []) as { id: string }[]).map((v) => v.id));
+    const tutte = ((data as unknown) as RigaArchivio[]) || [];
+    setRighe(sostituiti.size
+      ? tutte.filter((r) => !(r.fonte === 'import_documents' && r.riferimento_id && sostituiti.has(r.riferimento_id)))
+      : tutte);
     setCaricando(false);
   }, [companyId, showToast]);
 

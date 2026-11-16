@@ -41,6 +41,8 @@ import {
 } from 'recharts';
 import { supabase } from '../lib/supabase';
 import { Modal as UIModal } from '../components/ui/Modal';
+import PeriodoVuoto from '../components/ui/PeriodoVuoto';
+import { etichettaMese, type Mese } from '../lib/periodoVuoto';
 import { isSellingOutlet } from '../hooks/useOutlets';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
@@ -587,16 +589,26 @@ export default function Dipendenti() {
     }
   };
 
-  // Budget B&C (conti 67xx), bilancio totale personale, ricavi — dipendono dall'anno.
+  // Budget B&C (conti del personale), bilancio totale personale, ricavi — dipendono dall'anno.
   const loadYearScoped = async (cid: string, year: number) => {
     try {
-      // Costo personale = budget_entries 67xx, raggruppati per cost_center (SOLA LETTURA)
-      const { data: be } = await supabase
-        .from('budget_entries')
-        .select('account_code, cost_center, budget_amount, actual_amount')
+      // Costo personale = budget_entries dei conti con macro_group 'personale' del
+      // piano dei conti (come Produttivita), raggruppati per cost_center (SOLA LETTURA).
+      // Mai per prefisso di account_code: ogni azienda ha il suo piano dei conti.
+      const { data: persAccts } = await supabase
+        .from('chart_of_accounts')
+        .select('code, is_revenue')
         .eq('company_id', cid)
-        .eq('year', year)
-        .like('account_code', '67%');
+        .eq('macro_group', 'personale');
+      const personaleCodes = (persAccts || []).filter((r) => r.is_revenue !== true).map((r) => r.code);
+      const { data: be } = personaleCodes.length
+        ? await supabase
+            .from('budget_entries')
+            .select('account_code, cost_center, budget_amount, actual_amount')
+            .eq('company_id', cid)
+            .eq('year', year)
+            .in('account_code', personaleCodes)
+        : { data: [] as { account_code: string; cost_center: string; budget_amount: number | null; actual_amount: number | null }[] };
       const byCenter: Record<string, number> = {};
       (be || []).forEach((r) => {
         if (r.cost_center === 'all') return; // 'all' è il roll-up: evita doppio conteggio
@@ -792,8 +804,9 @@ export default function Dipendenti() {
   // Totale budget B&C COMPLETO = dipendenti (67xx) + amministratori → combacia col grafico.
   const totalBCConAmministratori = totalBC + lordoAmministratori;
   // Incidenza personale/ricavi: sui ricavi PREVISTI (budget) e sui ricavi A OGGI annualizzati (consuntivo).
-  const incidenzaPrevisti = revenueYear > 0 ? (totalBCConAmministratori / revenueYear) * 100 : null;
-  const incidenzaAOggi = revenueConsAnnual > 0 ? (totalBCConAmministratori / revenueConsAnnual) * 100 : null;
+  // Senza budget del personale l'incidenza non e' 0%: non si calcola («—»).
+  const incidenzaPrevisti = revenueYear > 0 && totalBCConAmministratori > 0 ? (totalBCConAmministratori / revenueYear) * 100 : null;
+  const incidenzaAOggi = revenueConsAnnual > 0 && totalBCConAmministratori > 0 ? (totalBCConAmministratori / revenueConsAnnual) * 100 : null;
   const nettoAmministratoriMese = useMemo(
     () => admins.reduce((s, e) => s + (nettoCell(e.id) || 0), 0),
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -806,8 +819,9 @@ export default function Dipendenti() {
     [admins, costs, selectedYear, selectedMonth]
   );
   // Costo medio/addetto: escluso amministratore (solo 67xx / organico) e incluso (67xx+admin / organico+admin).
-  const costoMedioEscl = organicoAttivo > 0 ? totalBC / organicoAttivo : null;
-  const costoMedioIncl = (organicoAttivo + nAdminMese) > 0 ? totalBCConAmministratori / (organicoAttivo + nAdminMese) : null;
+  // Senza budget del personale il costo medio non e' zero, non c'e': «—» (16/11/2026).
+  const costoMedioEscl = organicoAttivo > 0 && totalBC > 0 ? totalBC / organicoAttivo : null;
+  const costoMedioIncl = (organicoAttivo + nAdminMese) > 0 && totalBCConAmministratori > 0 ? totalBCConAmministratori / (organicoAttivo + nAdminMese) : null;
 
   // Grafico Panoramica: ordine granitico (outlet A-Z → SEDE → Amministratori per ultimi).
   const chartData = useMemo(() => {
@@ -1094,6 +1108,8 @@ export default function Dipendenti() {
               onCedolino={triggerCedolino}
               onViewDoc={handleViewDoc}
               uploadingEmployee={uploadingEmployee}
+              ultimoMese={lastGranited && !(lastGranited.year === selectedYear && lastGranited.month === selectedMonth) ? periodLabel(lastGranited) : null}
+              onVaiUltimo={lastGranited ? () => { monthTouched.current = true; setSelectedYear(lastGranited.year); setSelectedMonth(lastGranited.month); } : undefined}
               importPanel={
                 <div className="space-y-5">
                   {COMPANY_ID && (
@@ -1153,6 +1169,7 @@ export default function Dipendenti() {
               monthLabel={monthLabel}
               inArrivo={inArrivo}
               visibile={view === 'lordi'}
+              onVaiMese={(m) => { monthTouched.current = true; setSelectedYear(m.year); setSelectedMonth(m.month); }}
             />
             </div>
           )}
@@ -1313,7 +1330,7 @@ function PanoramicaTab(props: {
       )}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <Kpi label="Organico attivo" value={headcount} sub={`cedolini ${mm}/${year} · su ${sedi} sedi`} icon={Users} source="neutro" />
-        <Kpi label="Costo personale" value={`${eurFmt.format(totalBCAll)} €`} sub="budget annuo · incl. amministratori" icon={BarChart3} source="bc" />
+        <Kpi label="Costo personale" value={totalBCAll > 0 ? `${eurFmt.format(totalBCAll)} €` : '—'} sub={totalBCAll > 0 ? 'budget annuo · incl. amministratori' : `budget ${year} non caricato`} icon={BarChart3} source="bc" />
         <Kpi label="Netto mensile totale" value={`${eurFmt.format(totalNettoMese)} €`} sub={`bonifici stipendi · da cedolini ${mm}/${year}`} icon={FileText} source="netto" />
         <Kpi
           label="Costo medio / addetto"
@@ -1338,9 +1355,19 @@ function PanoramicaTab(props: {
       </div>
 
       {empty ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
-          Nessun dato di personale per il {year}. Importa i netti mensili dalla tab “Costi &amp; cedolini”.
-        </div>
+        // Zago 16/11/2026: rientrando la pagina apre il mese in corso; se i cedolini
+        // sono di un mese prima, il riquadro diceva «nessun dato per il 2026» e
+        // sembrava che il caricamento fosse andato perso. Ora porta al mese caricato.
+        senzaCedolini && ultimoMese && onVaiUltimo ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-3">
+            <p className="text-slate-600">I cedolini di {monthLabel} {year} non sono ancora caricati. L'ultimo mese caricato è <strong>{ultimoMese}</strong>.</p>
+            <button type="button" onClick={onVaiUltimo} className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium">Vai a {ultimoMese}</button>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
+            Nessun dato di personale per il {year}. Importa i netti mensili dalla tab “Costi &amp; cedolini”.
+          </div>
+        )
       ) : (
         <>
           {/* Costo per outlet — barre orizzontali, una per outlet col suo colore */}
@@ -1554,8 +1581,11 @@ function CostiTab(props: {
   onViewDoc: (d: EmployeeDocument) => void;
   uploadingEmployee: string | null;
   importPanel: React.ReactNode;
+  /** ultimo mese con i cedolini (diverso da quello a video): senza, l'invito a importare */
+  ultimoMese: string | null;
+  onVaiUltimo?: () => void;
 }) {
-  const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, outlets, isPaid, nettoCell, cedoliniDelMese, admins, lordoAmministratori, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel } = props;
+  const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, outlets, isPaid, nettoCell, cedoliniDelMese, admins, lordoAmministratori, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel, ultimoMese, onVaiUltimo } = props;
   // NO-ZERO: solo chi ha il cedolino del mese; raggruppato in accordion per outlet (admin a parte).
   const paid = employees.filter((e) => isPaid(e.id));
   const cedGroups: Record<string, Employee[]> = {};
@@ -1587,7 +1617,14 @@ function CostiTab(props: {
           <span className="text-xs text-slate-500">netto + upload PDF · {monthLabel} {year}</span>
         </div>
         {paid.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">Nessun cedolino per {mm}/{year}. Usa l’import mensile qui sotto.</div>
+          // Mese vuoto ma cedolini in un altro mese: si porta li', non si invita a
+          // ricaricare (Zago 16/11/2026, file ricaricati e doppioni).
+          <PeriodoVuoto
+            messaggio={<>I cedolini di <strong>{monthLabel} {year}</strong> non sono ancora caricati.</>}
+            ultimo={ultimoMese}
+            onVai={onVaiUltimo}
+            senzaNiente={<>Nessun cedolino caricato. Usa l’import mensile qui sotto.</>}
+          />
         ) : (
           <div className="space-y-3">
             {cedNames.map((name) => {
@@ -2232,6 +2269,8 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     try {
       const outletByNorm: Record<string, string> = {};
       outlets.forEach((o) => { outletByNorm[norm(o.name)] = o.name; });
+      const outletIdByName: Record<string, string> = {};
+      outlets.forEach((o) => { if (o.id) outletIdByName[o.name] = o.id; });
 
       // Chi ha gia' un punto vendita in anagrafica. Serve per non sovrascrivere
       // nessuno e, insieme, per non lasciare senza sede chi il file ha appena
@@ -2346,6 +2385,20 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             const { error: allErr } = await supabase.from('employee_outlet_allocations')
               .insert([{ employee_id: empId, company_id: companyId, outlet_code: exact, allocation_pct: 100, is_primary: true }]);
             if (!allErr) conAlloc.add(empId);
+          }
+        }
+        // Il negozio della scheda si legge dal cedolino (regola di Patrizio,
+        // 16/11/2026: «controlli sempre il cedolino paghe per assegnare il
+        // dipendente»). Si scrive solo dove la scheda non ce l'ha: un negozio
+        // messo a mano non si sovrascrive mai (Zago, Giulia Mosti: creata
+        // dall'import con la divisione al 100% ma senza negozio in scheda).
+        if (row.outlet) {
+          const exactName = outletByNorm[norm(row.outlet)];
+          const outletId = exactName ? outletIdByName[exactName] : undefined;
+          if (outletId) {
+            await supabase.from('employees')
+              .update({ outlet_id: outletId })
+              .eq('id', empId).is('outlet_id', null);
           }
         }
         // Payload con SOLO i campi della corsia (l'altra corsia non viene toccata).
@@ -3157,8 +3210,10 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
   );
 }
 
-function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, inArrivo, visibile = true }: {
+function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, inArrivo, visibile = true, onVaiMese }: {
   companyId: string; userId: string | null; outlets: OutletRow[]; year: number; month: number; monthLabel: string;
+  /** porta il selettore su un altro mese (l'ultimo con il costo lordo, se quello a video e' vuoto) */
+  onVaiMese?: (m: Mese) => void;
   // File consegnato dalla zona «Carica i file dello studio paghe»: si apre da solo in anteprima.
   inArrivo?: FileInArrivo | null;
   // La scheda resta montata anche quando non e' quella aperta: l'anteprima da confermare
@@ -3186,15 +3241,22 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
   // PAT il cui tasso e' stato dedotto dai dati invece che preso dall'autoliquidazione.
   const patStimata = useMemo(() => new Set(rates.filter((r) => r.rate_percent != null && r.note).map((r) => r.pat_label)), [rates]);
 
+  // Ultimo mese con il costo lordo, in qualunque anno: se il mese a video e'
+  // vuoto si porta li' invece di invitare a ricaricare il Prospetto.
+  const [ultimoLordo, setUltimoLordo] = useState<Mese | null>(null);
   const load = async () => {
     setLoading(true);
-    const [g, r] = await Promise.all([
+    const [g, r, u] = await Promise.all([
       // L'anno intero, non il solo mese selezionato: serve al riepilogo di periodo
       // e ai KPI in alto, che altrimenti ignorerebbero i mesi coperti dal solo
       // Prospetto paghe.
       sb.from('v_personnel_gross_cost').select('*').eq('company_id', companyId).eq('year', year),
       sb.from('inail_rates').select('*').eq('company_id', companyId).order('pat_label'),
+      sb.from('personnel_gross_cost').select('year, month').eq('company_id', companyId)
+        .order('year', { ascending: false }).order('month', { ascending: false }).limit(1),
     ]);
+    const ul = ((u?.data || []) as { year: number; month: number }[])[0];
+    setUltimoLordo(ul ? { year: Number(ul.year), month: Number(ul.month) } : null);
     setAllRows((g.data as any as GrossRow[]) || []);
     setRates((r.data as any as InailRateRow[]) || []);
     setLoading(false);
@@ -3552,9 +3614,12 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
       {loading ? (
         <div className="text-slate-400 py-10 text-center">Caricamento…</div>
       ) : rows.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
-          Nessun costo lordo per <strong>{monthLabel} {year}</strong>. Importa il Prospetto paghe del mese qui sopra.
-        </div>
+        <PeriodoVuoto
+          messaggio={<>Il costo lordo di <strong>{monthLabel} {year}</strong> non è ancora caricato.</>}
+          ultimo={ultimoLordo && !(ultimoLordo.year === year && ultimoLordo.month === month) ? etichettaMese(ultimoLordo) : null}
+          onVai={ultimoLordo && onVaiMese ? () => onVaiMese(ultimoLordo) : undefined}
+          senzaNiente={<>Nessun costo lordo caricato. Importa il Prospetto paghe del mese qui sopra.</>}
+        />
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
           <div className="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">Costo del lavoro per outlet · {monthLabel} {year}</div>

@@ -35,6 +35,7 @@ import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark
 // pdfjs-dist (~350KB gzip) caricata solo all'apertura di un allegato PDF
 const PdfViewer = React.lazy(() => import('../components/PdfViewer'))
 import { Modal } from '../components/ui/Modal'
+import { dataIt } from '../lib/periodoVuoto'
 import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
 
 // ===== TYPES =====
@@ -358,7 +359,7 @@ export default function ContoEconomico() {
   const { hasRole } = useRole()
   const labels = useCompanyLabels()
   const COMPANY_ID = profile?.company_id
-  const { year, quarter, getDateRange, setYear } = usePeriod()
+  const { year, quarter, getDateRange, setYear, setQuarter } = usePeriod()
   // periodType persistito in URL come ?periodo=… (default 'annuale')
   const [searchParams, setSearchParams] = useSearchParams()
   const periodoParam = searchParams.get('periodo')
@@ -424,6 +425,9 @@ export default function ContoEconomico() {
   type CashDataT = { monthly: CashMonth[]; byCategory: CashCat[]; totals: { entrate: number; uscite: number; netto: number }; count: number; hasCategorized: boolean } | null
   const [cashData, setCashData] = useState<CashDataT>(null)
   const [cashLoading, setCashLoading] = useState(false)
+  // Data dell'ultimo movimento di cassa in qualunque periodo: se quello a video e'
+  // vuoto si porta li', invece di dire «nessun dato importato» (16/11/2026).
+  const [ultimoCassa, setUltimoCassa] = useState<string | null>(null)
 
   // Riconciliazione Bilancio data
   const [riconData, setRiconData] = useState<RiconData | null>(null)
@@ -885,10 +889,19 @@ export default function ContoEconomico() {
       if (error) throw error
 
       if (!data || data.length === 0) {
+        const { data: ult } = await supabase
+          .from('cash_movements')
+          .select('date')
+          .eq('company_id', COMPANY_ID!)
+          .not('date', 'is', null)
+          .order('date', { ascending: false })
+          .limit(1)
+        setUltimoCassa(((ult || []) as { date: string | null }[])[0]?.date ?? null)
         setCashData({ monthly: [], byCategory: [], totals: { entrate: 0, uscite: 0, netto: 0 }, count: 0, hasCategorized: false })
         setCashLoading(false)
         return
       }
+      setUltimoCassa(null)
 
       // Aggregate monthly
       type MonthAgg = { mese: number; meseLabel: string; entrate: number; uscite: number; netto: number }
@@ -1286,13 +1299,70 @@ export default function ContoEconomico() {
   }
 
   // Feature 4: PDF parsing with pdfjs-dist
+  //
+  // Prima di leggere il file si guarda nel DATABASE se per lo stesso anno e
+  // periodo c'e' gia' un bilancio caricato. Prima veniva cancellato alla cieca,
+  // anche se il PDF nuovo poi non si leggeva: ora si chiede conferma e il
+  // precedente non si cancella, resta in elenco marcato «sostituito».
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
+    e.target.value = ''
+    if (!file || !COMPANY_ID) return
 
+    const { data: esistenti, error: esErr } = await supabase
+      .from('balance_sheet_imports')
+      .select('id, file_name, created_at, status')
+      .eq('company_id', COMPANY_ID)
+      .eq('year', year)
+      .eq('period_type', periodType)
+      .or('status.is.null,status.neq.sostituito')
+      .order('created_at', { ascending: false })
+    if (esErr) {
+      toast({ type: 'error', message: `Non riesco a controllare i bilanci già caricati: ${esErr.message}` })
+      return
+    }
+    const precedenti = (esistenti || []) as Array<{ id: string; file_name: string | null; created_at: string | null; status: string | null }>
+    if (precedenti.length === 0) {
+      await caricaBilancioFile(file, [])
+      return
+    }
+    const ultimo = precedenti[0]
+    const quando = ultimo.created_at ? new Date(ultimo.created_at).toLocaleDateString('it-IT') : ''
+    setSaveConfirm({
+      title: `Sostituire il bilancio ${periodType} ${year}?`,
+      message: `Per ${periodType} ${year} c'è già ${precedenti.length === 1 ? 'un file caricato' : `${precedenti.length} file caricati`}`
+        + ` («${ultimo.file_name || 'senza nome'}»${quando ? `, ${quando}` : ''}${ultimo.status === 'approved' ? ', approvato' : ''}).`
+        + ` Il file nuovo «${file.name}» diventa quello che vale; il precedente non si cancella, resta in elenco come sostituito.`
+        + ' I numeri del bilancio cambiano solo quando salvi.',
+      confirmLabel: 'Sostituisci',
+      onConfirm: () => caricaBilancioFile(file, precedenti.map(p => p.id)),
+    })
+  }
+
+  const caricaBilancioFile = async (file: File, daSostituire: string[]) => {
+    if (!COMPANY_ID) return
     setUploadingFile(true)
     setPdfParsing(true)
     try {
+      // Il file si legge PRIMA di toccare il database: se non si legge e c'era
+      // gia' un bilancio, quello resta com'e'.
+      let parsed: Awaited<ReturnType<typeof parseBilancio>> | null = null
+      let pdfViewerCopy: ArrayBuffer | null = null
+      if (file.type === 'application/pdf') {
+        try {
+          const arrayBuffer = await file.arrayBuffer()
+          // Clone buffer for PDF viewer (parseBilancio may detach the original)
+          pdfViewerCopy = arrayBuffer.slice(0)
+          parsed = await parseBilancio(arrayBuffer)
+        } catch (parseErr) {
+          console.error('PDF parsing failed:', parseErr)
+          if (daSostituire.length > 0) {
+            toast({ type: 'error', message: `Non riesco a leggere «${file.name}»: il bilancio già caricato resta quello che vale.` })
+            return
+          }
+        }
+      }
+
       // Upload to storage
       const fileName = `${Date.now()}-${file.name}`
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -1301,17 +1371,8 @@ export default function ContoEconomico() {
 
       if (uploadError) throw uploadError
 
-      // Delete previous imports for same year/period (avoid duplicates)
-      await supabase
-        .from('balance_sheet_imports')
-        .delete()
-        .eq('company_id', COMPANY_ID!)
-        .eq('year', year)
-        .eq('period_type', periodType)
-
       // Create import record
-      if (!COMPANY_ID) throw new Error('No company id')
-      const { error: insertError } = await supabase
+      const { data: nuovo, error: insertError } = await supabase
         .from('balance_sheet_imports')
         .insert({
           company_id: COMPANY_ID,
@@ -1325,26 +1386,31 @@ export default function ContoEconomico() {
           uploaded_by: profile?.id || null,
           uploaded_by_name: (profile as { full_name?: string; email?: string } | null)?.full_name || profile?.email || null,
         })
-        .select()
+        .select('id')
+        .single()
 
       if (insertError) throw insertError
 
+      // Solo ora, a file letto e registrato, il precedente passa a «sostituito»:
+      // niente DELETE, la riga e il suo file restano (regola NO DATA LOSS).
+      if (daSostituire.length > 0) {
+        const nuovoId = (nuovo as { id: string } | null)?.id
+        const { error: sostErr } = await supabase
+          .from('balance_sheet_imports')
+          .update({ status: 'sostituito', note: `Sostituito il ${new Date().toLocaleDateString('it-IT')} da «${file.name}»${nuovoId ? ` (${nuovoId})` : ''}` })
+          .in('id', daSostituire)
+        if (sostErr) toast({ type: 'warning', message: `File caricato, ma il precedente non è stato marcato come sostituito (${sostErr.message}).` })
+      }
+
       // Try to parse PDF with advanced bilancio parser
-      if (file.type === 'application/pdf') {
+      if (parsed) {
         try {
-          const arrayBuffer = await file.arrayBuffer()
-
-          // Clone buffer for PDF viewer (parseBilancio may detach the original)
-          const pdfViewerCopy = arrayBuffer.slice(0)
-
-          // Use advanced bilancio parser (extracts full chart of accounts)
-          const parsed = await parseBilancio(arrayBuffer)
           setBilancioData(parsed)
           setShowBilancioTree(true)
           setBilancioSaved(false)
 
           // Store PDF copy for preview (use the cloned buffer)
-          setPdfPreview(pdfViewerCopy)
+          if (pdfViewerCopy) setPdfPreview(pdfViewerCopy)
 
           // Also populate legacy form fields for backward compatibility
           const t = parsed.contoEconomico.totals
@@ -1970,6 +2036,19 @@ export default function ContoEconomico() {
             <div className="flex items-center justify-center py-8">
               <Loader2 size={24} className="animate-spin text-emerald-600" />
               <span className="ml-2 text-slate-600">Caricamento movimenti bancari...</span>
+            </div>
+          ) : cashData && cashData.count === 0 && ultimoCassa ? (
+            // Periodo a video vuoto, movimenti in un altro periodo: si dice e si porta
+            // li' (come «Vedi anno» della vista per competenza), niente invito a importare.
+            <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+              <Banknote size={32} className="mx-auto mb-3 text-slate-300" />
+              <p className="text-sm font-medium text-slate-600">I movimenti bancari di {getDateRange().label} non sono ancora caricati</p>
+              <p className="text-xs text-slate-500 mt-1">L'ultimo movimento caricato è del <strong>{dataIt(ultimoCassa)}</strong>.</p>
+              <button
+                onClick={() => { setQuarter('year'); setYear(Number(ultimoCassa.slice(0, 4))) }}
+                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition">
+                <ArrowUpRight size={15} /> Vai al {ultimoCassa.slice(0, 4)}
+              </button>
             </div>
           ) : !cashData || cashData.count === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
@@ -2893,7 +2972,7 @@ export default function ContoEconomico() {
                     <div>
                       <p className="text-sm font-medium text-slate-900">{imp.file_name}</p>
                       <p className="text-xs text-slate-500">
-                        {imp.period_label} • {imp.status === 'approved' ? 'Approvato' : imp.status === 'rejected' ? 'Rifiutato' : 'In attesa'}
+                        {imp.period_label} • {imp.status === 'approved' ? 'Approvato' : imp.status === 'rejected' ? 'Rifiutato' : imp.status === 'sostituito' ? 'Sostituito da un file più recente' : 'In attesa'}
                         {imp.approved_at && ` • ${new Date(imp.approved_at).toLocaleDateString('it-IT')}`}
                       </p>
                     </div>

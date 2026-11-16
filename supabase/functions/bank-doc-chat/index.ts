@@ -83,12 +83,12 @@ const oggiRoma = () =>
 
 const eur = (n: number) => `${n.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €`;
 
-const SYSTEM = `Lavori nel gestionale di un'azienda retail italiana. Dopo il caricamento di un estratto conto il sistema ha trovato una cosa che non torna e l'ha chiesta a Sabrina, che lavora in amministrazione. Il tuo compito è capire la sua risposta e scegliere UNA azione.
+const SYSTEM = `Lavori nel gestionale di un'azienda retail italiana. Dopo il caricamento di un estratto conto il sistema ha trovato una cosa che non torna e l'ha chiesta a chi lavora in amministrazione. Il tuo compito è capire la sua risposta e scegliere UNA azione.
 
 Regole della casa:
 - L'estratto della banca comanda su tutto, perché lo garantisce la banca.
-- Niente si cancella e niente si sposta da qui: un doppione o un movimento sul conto sbagliato si annotano e poi li toglie o li sposta Patrizio, dopo un controllo.
-- Non inventare fatti che Sabrina non ha detto. Se la risposta è ambigua, fai una sola domanda di chiarimento.
+- Niente si cancella e niente si sposta da qui: un doppione o un movimento sul conto sbagliato si annotano e poi li toglie o li sposta l'amministratore del gestionale, dopo un controllo.
+- Non inventare fatti che l'amministrazione non ha detto. Se la risposta è ambigua, fai una sola domanda di chiarimento.
 
 Azioni:
 - conferma: il movimento del gestionale è giusto (lo conosce, è vero, va bene così).
@@ -98,7 +98,7 @@ Azioni:
 - chiarimento: la risposta non basta per decidere; in "risposta" scrivi la domanda.
 - informazione: aggiunge un'informazione utile che non è nessuna delle precedenti.
 
-La "risposta" a Sabrina: italiano semplice, una o due frasi, dai del tu, niente formule di cortesia. Di' esattamente cosa succede: per doppione e conto_sbagliato scrivi che l'hai annotato e che a toglierlo o spostarlo sarà Patrizio. Non usare il trattino lungo.`;
+La "risposta" all'amministrazione: italiano semplice, una o due frasi, dai del tu, niente formule di cortesia. Di' esattamente cosa succede: per doppione e conto_sbagliato scrivi che l'hai annotato e che a toglierlo o spostarlo sarà l'amministratore del gestionale. Non usare il trattino lungo.`;
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -155,7 +155,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const conversazione = (storia ?? [])
-      .map((m) => `${m.author === "sistema" ? "Sistema" : "Sabrina"}: ${m.body}`)
+      .map((m) => `${m.author === "sistema" ? "Sistema" : "Amministrazione"}: ${m.body}`)
       .join("\n");
 
     const anthropicKey = await getSecret(supabase, "get_anthropic_api_key", "api_key");
@@ -175,7 +175,7 @@ Deno.serve(async (req: Request) => {
         output_config: { effort: "low", format: { type: "json_schema", schema: SCHEMA } },
         messages: [{
           role: "user",
-          content: `Tipo di domanda: ${q.kind}.${contesto}\n\nConversazione finora:\n${conversazione}\n\nScegli l'azione per l'ultima risposta di Sabrina.`,
+          content: `Tipo di domanda: ${q.kind}.${contesto}\n\nConversazione finora:\n${conversazione}\n\nScegli l'azione per l'ultima risposta dell'amministrazione.`,
         }],
       }),
     });
@@ -200,14 +200,14 @@ Deno.serve(async (req: Request) => {
     }
 
     // Applicazione dell'azione. Nessuna cancella o sposta dati.
-    const chi = profilo.first_name || "Sabrina";
+    const chi = profilo.first_name || "amministrazione";
     const traccia = `${oggiRoma()}, da risposta di ${chi} in Documenti banca: ${dec.nota || testo}`;
     let stato: "aperta" | "risolta" | "archiviata" = "risolta";
     let esito = "";
     switch (dec.azione) {
       case "conferma": esito = "Confermato da chi lavora la banca."; break;
-      case "doppione": esito = "Segnalato come doppione: da togliere solo dopo conferma di Patrizio."; break;
-      case "conto_sbagliato": esito = "Segnalato sul conto sbagliato: da spostare dopo conferma di Patrizio."; break;
+      case "doppione": esito = "Segnalato come doppione: da togliere solo dopo conferma dell'amministratore del gestionale."; break;
+      case "conto_sbagliato": esito = "Segnalato sul conto sbagliato: da spostare dopo conferma dell'amministratore del gestionale."; break;
       case "informazione": esito = "Informazione aggiunta."; break;
       case "non_so": stato = "archiviata"; esito = "Non noto per ora: si richiede al prossimo caricamento."; break;
       case "chiarimento": stato = "aperta"; break;

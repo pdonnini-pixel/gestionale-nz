@@ -587,7 +587,7 @@ export default function BudgetControl() {
   const { company } = useCompany()
   const canApproveBudget = hasRole('budget_approver')
   const CID = profile?.company_id
-  const { year, quarter } = usePeriod()
+  const { year, quarter, setYear } = usePeriod()
 
   // tab + confView persistiti in URL come ?tab=… e ?confView=…
   // (default: tab=bp, confView=annuale)
@@ -924,6 +924,29 @@ export default function BudgetControl() {
   const costiTree = useMemo(() => buildTree(ceRawCosti), [ceRawCosti])
   const ricaviTree = useMemo(() => buildTree(ceRawRicavi), [ceRawRicavi])
   const hasTree = ceRawCosti.length > 0 || ceRawRicavi.length > 0
+
+  // Confronto senza preventivi per l'anno a video: se un altro anno ne ha, si dice
+  // e si porta li' invece del solo «Nessun preventivo creato» (16/11/2026).
+  // Per chi non approva valgono solo i preventivi approvati o sbloccati, come la lista.
+  const [altroAnnoBP, setAltroAnnoBP] = useState<number | null>(null)
+  const confrontoVuoto = useMemo(() => {
+    const conBP = ops.filter(cc => bpEdits[cc.code] && Object.keys(bpEdits[cc.code]).length > 0)
+    return (canApproveBudget ? conBP : conBP.filter(cc => (workflow[cc.code]?.status ?? 'bozza') !== 'bozza')).length === 0
+  }, [ops, bpEdits, workflow, canApproveBudget])
+  const opsCodes = useMemo(() => ops.map(cc => cc.code).filter(Boolean).join(','), [ops])
+  useEffect(() => {
+    let vivo = true
+    setAltroAnnoBP(null)
+    if (tab !== 'confronto' || !confrontoVuoto || !CID || !opsCodes) return
+    let q = supabase.from('budget_entries').select('year')
+      .eq('company_id', CID).neq('year', year).in('cost_center', opsCodes.split(','))
+    if (!canApproveBudget) q = q.or('is_approved.eq.true,unlocked_at.not.is.null')
+    q.order('year', { ascending: false }).limit(1).then(({ data }) => {
+      const y = ((data || []) as { year: number | null }[])[0]?.year
+      if (vivo) setAltroAnnoBP(y != null ? Number(y) : null)
+    })
+    return () => { vivo = false }
+  }, [tab, confrontoVuoto, CID, opsCodes, year, canApproveBudget])
 
   // ─── Marcatore segnaposto (is_placeholder) ──────────────────────────────
   // NB: questi hook DEVONO stare prima di qualunque early return (es. if(loading)),
@@ -1556,7 +1579,7 @@ export default function BudgetControl() {
             <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
               <Info size={18} className="text-blue-600 mt-0.5 shrink-0" />
               <div className="text-sm text-blue-800">
-                <strong>Modalità sola lettura.</strong> Stai visualizzando i preventivi approvati per outlet × anno. Per modifiche o nuovi preventivi contatta Lilian (EPPI).
+                <strong>Modalità sola lettura.</strong> Stai visualizzando i preventivi approvati per outlet × anno. Per modifiche o nuovi preventivi rivolgiti a chi approva il budget.
               </div>
             </div>
           )}
@@ -1652,15 +1675,25 @@ export default function BudgetControl() {
             <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
               <Info size={18} className="text-blue-600 mt-0.5 shrink-0" />
               <div className="text-sm text-blue-800">
-                <strong>Modalità sola lettura.</strong> Stai visualizzando il confronto dei preventivi approvati. Per inserire consuntivi/rettifiche contatta Lilian.
+                <strong>Modalità sola lettura.</strong> Stai visualizzando il confronto dei preventivi approvati. Per inserire consuntivi o rettifiche rivolgiti a chi approva il budget.
               </div>
             </div>
           )}
           {(canApproveBudget ? outletsWithBP : outletsWithBP.filter(cc => (workflow[cc.code]?.status ?? 'bozza') !== 'bozza')).length === 0 ? (
             <div className="text-center py-12 bg-slate-50 rounded-xl">
               <Lock className="mx-auto text-slate-300 mb-3" size={48} />
-              <p className="text-slate-500 font-medium">{canApproveBudget ? 'Nessun preventivo creato' : 'Nessun preventivo approvato'}</p>
-              <p className="text-sm text-slate-400 mt-1">{canApproveBudget ? 'Crea prima un Business Plan nel tab precedente' : 'I preventivi compaiono qui dopo l\'approvazione di Lilian'}</p>
+              <p className="text-slate-500 font-medium">{canApproveBudget ? `Nessun preventivo creato per il ${year}` : `Nessun preventivo approvato per il ${year}`}</p>
+              {altroAnnoBP != null ? (
+                <>
+                  <p className="text-sm text-slate-500 mt-1">L'ultimo anno con un preventivo{canApproveBudget ? '' : ' approvato'} è il <strong className="text-slate-700">{altroAnnoBP}</strong>.</p>
+                  <button type="button" onClick={() => setYear(altroAnnoBP)}
+                    className="mt-3 inline-flex items-center px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
+                    Vai al {altroAnnoBP}
+                  </button>
+                </>
+              ) : (
+                <p className="text-sm text-slate-400 mt-1">{canApproveBudget ? 'Crea prima un Business Plan nel tab precedente' : 'I preventivi compaiono qui dopo l\'approvazione di chi approva il budget'}</p>
+              )}
             </div>
           ) : (
             <>
@@ -2057,7 +2090,7 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
               <Lock size={14} className="text-emerald-600 shrink-0" />
               <span>
                 Preventivo approvato{workflowMeta?.approvedAt ? ` il ${new Date(workflowMeta.approvedAt).toLocaleString('it-IT')}` : ''}.
-                {' '}{canApprove ? 'Sblocca per modificare.' : 'Per modifiche contatta Lilian.'}
+                {' '}{canApprove ? 'Sblocca per modificare.' : 'Per modifiche rivolgiti a chi approva il budget.'}
               </span>
             </div>
           )}
@@ -3076,7 +3109,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             <div className="min-w-0">
               <span className="text-sm font-bold text-slate-900">Imposte</span>
               <span className="text-[11px] text-slate-500 ml-2">
-                {isAggregate ? 'valore annuale (inserito da Lilian)' : 'quota allocata'}
+                {isAggregate ? 'valore annuale (inserito a mano)' : 'quota allocata'}
               </span>
             </div>
             {isAggregate && imposteEditable ? (

@@ -22,6 +22,7 @@ import SyncStatusBadge from '../components/SyncStatusBadge'
 import PaymentAnomaliesPanel from '../components/PaymentAnomaliesPanel'
 import NotuleDuplicatePanel from '../components/NotuleDuplicatePanel'
 import { archiviaFile } from '../lib/archivioFile'
+import { ultimoAnnoConDati } from '../lib/periodoVuoto'
 import { useAuth } from '../hooks/useAuth'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
@@ -303,6 +304,36 @@ function FatturePassive() {
 
   useEffect(() => { loadInvoices() }, [loadInvoices])
 
+  // Dati che identificano la fattura dentro l'XML: P.IVA del cedente, numero, data.
+  const datiDaXml = (xmlText: string) => {
+    const doc = new DOMParser().parseFromString(xmlText, 'text/xml')
+    const root = doc.documentElement
+    const numero = root.querySelector('FatturaElettronicaBody DatiGenerali DatiGeneraliDocumento Numero')?.textContent?.trim() || null
+    const data = root.querySelector('FatturaElettronicaBody DatiGenerali DatiGeneraliDocumento Data')?.textContent?.trim() || null
+    const piva = root.querySelector('FatturaElettronicaHeader CedentePrestatore DatiAnagrafici IdFiscaleIVA IdCodice')?.textContent?.trim() || null
+    return { numero, data, piva }
+  }
+
+  // La fattura nel DATABASE (fornitore per P.IVA, mai per nome), con l'XML o senza.
+  const cercaFatturaInDb = async (d: { numero: string | null; data: string | null; piva: string | null }) => {
+    if (!d.numero || !d.piva) return null
+    let q = supabase.from('v_electronic_invoices_list')
+      .select('id, invoice_number, invoice_date, has_xml')
+      .eq('supplier_vat', d.piva)
+    if (d.data) q = q.eq('invoice_date', d.data)
+    const { data: righe } = await q
+    const chiave = d.numero.replace(/\s+/g, '').toUpperCase()
+    const r = ((righe || []) as Array<{ id: string; invoice_number: string | null; invoice_date: string | null; has_xml: boolean | null }>)
+      .find(x => (x.invoice_number || '').replace(/\s+/g, '').toUpperCase() === chiave)
+    return r || null
+  }
+
+  // Periodo dell'archivio = quello della fattura, non il giorno del caricamento.
+  const periodoFattura = (data: string | null | undefined) => {
+    const m = /^(\d{4})-(\d{2})/.exec(data || '')
+    return m ? { year: Number(m[1]), month: Number(m[2]) } : { year: null, month: null }
+  }
+
   // Upload XML FatturaPA
   const handleXmlUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -314,23 +345,43 @@ function FatturePassive() {
         toast({ type: 'warning', message: 'Il file non sembra essere un XML FatturaPA valido.' })
         return
       }
-      // L'XML originale finisce in archivio: prima restava solo il contenuto
-      // dentro la fattura, il file consegnato dallo SDI si perdeva.
-      if (profile?.company_id) {
-        const oggi = new Date()
+      const dati = datiDaXml(xmlContent)
+      const prima = await cercaFatturaInDb(dati)
+
+      type EsitoSdi = { data?: { action?: string; invoice?: { invoice_number?: string } } }
+      let esito: EsitoSdi | null = null
+      let errore: Error | null = null
+      try {
+        esito = await callEdgeFunction('sdi-receive', 'POST', { xmlContent }) as EsitoSdi
+      } catch (err: unknown) {
+        errore = err as Error
+      }
+
+      // L'esito si legge dal DATABASE: la fattura prima c'era? aveva l'XML?
+      const dopo = await cercaFatturaInDb(dati)
+      const nuova = !prima && !!dopo
+      const xmlArrivato = !!prima && !prima.has_xml && !!dopo?.has_xml
+      if (errore && !nuova && !xmlArrivato) throw errore
+
+      // L'XML originale va in archivio solo se ha portato qualcosa: fattura nuova
+      // o XML che mancava. Ricaricare la stessa fattura non lo duplica piu'.
+      if ((nuova || xmlArrivato) && profile?.company_id) {
+        const per = periodoFattura(dopo?.invoice_date || dati.data)
         const archiviato = await archiviaFile({
           file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Fatturazione',
           funzione: 'XML FatturaPA caricato a mano', bucket: 'invoices',
-          year: oggi.getFullYear(), month: oggi.getMonth() + 1,
-          referenceTable: 'electronic_invoices',
+          year: per.year, month: per.month,
+          referenceTable: 'electronic_invoices', referenceId: dopo?.id ?? null,
         })
         if (archiviato.errore) toast({ type: 'warning', message: `Fattura importata, ma il file XML non è finito in archivio (${archiviato.errore}).` })
       }
-      const result = await callEdgeFunction('sdi-receive', 'POST', { xmlContent }) as { data?: { action?: string; invoice?: { invoice_number?: string } } }
-      if (result.data) {
-        toast({ type: 'success', message: `Fattura ${result.data.action === 'created' ? 'importata' : 'aggiornata'}: ${result.data.invoice?.invoice_number}` })
-        loadInvoices()
-      }
+
+      const numero = esito?.data?.invoice?.invoice_number || dati.numero || ''
+      if (nuova) toast({ type: 'success', message: `Fattura importata: ${numero}` })
+      else if (xmlArrivato) toast({ type: 'success', message: `Fattura ${numero}: aggiunto l'XML che mancava.` })
+      else if (prima) toast({ type: 'info', message: `La fattura ${numero} era già presente: niente da aggiungere.` })
+      else if (esito?.data) toast({ type: 'success', message: `Fattura ${esito.data.action === 'created' ? 'importata' : 'aggiornata'}: ${numero}` })
+      loadInvoices()
     } catch (err: unknown) {
       toast({ type: 'error', message: 'Errore upload: ' + (err as Error).message })
     } finally {
@@ -352,15 +403,6 @@ function FatturePassive() {
       try {
         const xmlText = await file.text()
         if (!xmlText.includes('FatturaElettronica')) { done++; errors++; continue }
-        if (profile?.company_id) {
-          const oggi = new Date()
-          await archiviaFile({
-            file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Fatturazione',
-            funzione: 'XML FatturaPA caricato in blocco', bucket: 'invoices',
-            year: oggi.getFullYear(), month: oggi.getMonth() + 1,
-            referenceTable: 'electronic_invoices',
-          })
-        }
 
         // Estrai numero fattura e P.IVA dal XML per match
         const parser = new DOMParser()
@@ -378,8 +420,23 @@ function FatturePassive() {
             .eq('invoice_number', numero)
             .is('xml_content', null)
           if (piva) query = query.eq('supplier_vat', piva)
-          const { data, error } = await query.select('id')
-          if (!error && data && data.length > 0) matched += data.length
+          const { data, error } = await query.select('id, invoice_date')
+          if (!error && data && data.length > 0) {
+            matched += data.length
+            // In archivio va solo l'XML che mancava ed e' stato appena agganciato,
+            // con il periodo della fattura. Ricaricare lo stesso blocco non aggiunge
+            // copie: la fattura ha gia' l'XML e l'aggiornamento non trova niente.
+            if (profile?.company_id) {
+              const riga = data[0] as { id: string; invoice_date?: string | null }
+              const per = periodoFattura(riga.invoice_date)
+              await archiviaFile({
+                file, companyId: profile.company_id, userId: profile.id ?? null, modulo: 'Fatturazione',
+                funzione: 'XML FatturaPA caricato in blocco', bucket: 'invoices',
+                year: per.year, month: per.month,
+                referenceTable: 'electronic_invoices', referenceId: riga.id,
+              })
+            }
+          }
         }
       } catch (err: unknown) {
         console.error('Errore XML update:', file.name, err)
@@ -425,6 +482,12 @@ function FatturePassive() {
   // (la classificazione corretta, non gross<0).
   const yearSet = useMemo(() => invoices.filter(inv =>
     yearFilter === 'ALL' || (inv.invoice_date && String(new Date(inv.invoice_date).getFullYear()) === yearFilter)
+  ), [invoices, yearFilter])
+  // Anno a video senza fatture ma fatture in un altro anno: l'ultimo che ne ha,
+  // per portarci invece di dire «Nessuna fattura trovata» (16/11/2026).
+  const ultimoAnnoFatture = useMemo(() => yearFilter === 'ALL' ? null : ultimoAnnoConDati(
+    invoices.map(inv => (inv.invoice_date ? new Date(inv.invoice_date).getFullYear() : null)),
+    Number(yearFilter),
   ), [invoices, yearFilter])
   type Stats = { total: number; totalAmount: number; totalVat: number; noteCredito: number }
   const stats = useMemo<Stats>(() => {
@@ -556,7 +619,24 @@ function FatturePassive() {
               {loading ? (
                 <tr><td colSpan={8} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
               ) : sortedFiltered.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-slate-400">
+                  {invoices.length === 0 && !loadError ? (
+                    // Solo senza nessuna fattura in nessun anno si invita a importare.
+                    <>Nessuna fattura passiva caricata. Usa «Importa XML» qui sopra.</>
+                  ) : yearSet.length === 0 && ultimoAnnoFatture != null ? (
+                    <div className="text-slate-500">
+                      <div>Le fatture passive del <strong className="text-slate-700">{yearFilter}</strong> non sono ancora caricate. L'ultimo anno con fatture è il <strong className="text-slate-700">{ultimoAnnoFatture}</strong>.</div>
+                      <button type="button" onClick={() => setYearFilter(String(ultimoAnnoFatture))}
+                        className="mt-3 inline-flex items-center px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
+                        Vai al {ultimoAnnoFatture}
+                      </button>
+                    </div>
+                  ) : searchTerm ? (
+                    <>Nessuna fattura trovata per «{searchTerm}»{yearFilter !== 'ALL' ? ` nel ${yearFilter}` : ''}.</>
+                  ) : (
+                    <>Nessuna fattura trovata</>
+                  )}
+                </td></tr>
               ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => openFormatted(inv)} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') openFormatted(inv) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>

@@ -1541,7 +1541,7 @@ export default function ConfrontoOutlet() {
           {viewMode !== 'budget' && !hasCostConsuntivo && (
             <div className="text-xs text-amber-700 mt-2 flex items-start gap-1.5">
               <AlertCircle size={13} className="mt-0.5 shrink-0" />
-              <span>Consuntivo costi non ancora inserito da Lilian: i costi mostrati restano da preventivo, non sono uno «0» reale.</span>
+              <span>Consuntivo costi non ancora inserito: i costi mostrati restano da preventivo, non sono uno «0» reale.</span>
             </div>
           )}
         </div>

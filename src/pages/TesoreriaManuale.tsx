@@ -41,6 +41,7 @@ import CellTooltip from '../components/Tooltip'
 import SyncStatusBadge from '../components/SyncStatusBadge'
 import { Modal as UIModal } from '../components/ui/Modal'
 import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile'
+import { ultimaData, ultimoAnnoConDati, dataIt } from '../lib/periodoVuoto'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -598,6 +599,13 @@ function TabPanoramica({ accounts, transactions, payables, committedByAccount, c
     return transactions.filter(t => t.transaction_date && new Date(t.transaction_date) >= cutoff)
   }, [transactions])
 
+  // Nessun movimento negli ultimi 30 giorni ma movimenti piu' vecchi (es. azienda
+  // appena arrivata con lo storico): non sono zero entrate, e' che la finestra e'
+  // vuota. Lo si dice con la data dell'ultimo movimento (16/11/2026).
+  const ultimoMovimento = useMemo(() => ultimaData(transactions.map(t => t.transaction_date)), [transactions])
+  const finestraVuota = last30.length === 0 && ultimoMovimento != null
+  const notaFinestraVuota = ultimoMovimento ? `nessun movimento negli ultimi 30 giorni · ultimo il ${dataIt(ultimoMovimento)}` : ''
+
   const inflows = useMemo(() => last30.filter(t => (t.amount || 0) > 0).reduce<number>((s, t) => s + (t.amount || 0), 0), [last30])
   const outflows = useMemo(() => last30.filter(t => (t.amount || 0) < 0).reduce<number>((s, t) => s + Math.abs(t.amount || 0), 0), [last30])
 
@@ -672,7 +680,7 @@ function TabPanoramica({ accounts, transactions, payables, committedByAccount, c
           icon={ArrowUpRight}
           title="Entrate (30gg)"
           value={`+${fmt(inflows)} \u20AC`}
-          subtitle={`${last30.filter(t => (t.amount || 0) > 0).length} movimenti`}
+          subtitle={finestraVuota ? notaFinestraVuota : `${last30.filter(t => (t.amount || 0) > 0).length} movimenti`}
           color="green"
           onClick={() => onNavigate('movimenti')}
         />
@@ -680,7 +688,7 @@ function TabPanoramica({ accounts, transactions, payables, committedByAccount, c
           icon={ArrowDownLeft}
           title="Uscite (30gg)"
           value={`-${fmt(outflows)} \u20AC`}
-          subtitle={`${last30.filter(t => (t.amount || 0) < 0).length} movimenti`}
+          subtitle={finestraVuota ? notaFinestraVuota : `${last30.filter(t => (t.amount || 0) < 0).length} movimenti`}
           color="red"
           onClick={() => onNavigate('movimenti')}
         />
@@ -741,7 +749,14 @@ function TabPanoramica({ accounts, transactions, payables, committedByAccount, c
         {/* Cashflow chart */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
           <h3 className="text-sm font-semibold text-slate-700 mb-4">Flusso di cassa (ultimi 30 giorni)</h3>
-          {cashflowData.length === 0 ? (
+          {finestraVuota && ultimoMovimento ? (
+            <div className="text-sm text-slate-500 text-center py-10">
+              <div>Nessun movimento negli ultimi 30 giorni. L'ultimo movimento caricato è del <strong className="text-slate-700">{dataIt(ultimoMovimento)}</strong>.</div>
+              <button type="button" onClick={() => onNavigate('movimenti')} className="mt-3 inline-flex items-center px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
+                Vai ai movimenti
+              </button>
+            </div>
+          ) : cashflowData.length === 0 ? (
             <p className="text-sm text-slate-400 text-center py-10">Nessun dato disponibile</p>
           ) : (
             <ResponsiveContainer width="100%" height={260}>
@@ -1797,6 +1812,14 @@ function TabMovimenti({ transactions, accounts, companyId, onAssignCategory, ini
     return null
   }, [dateFrom, dateTo])
 
+  // Anno a video senza movimenti: l'ultimo anno che ne ha, e se a nascondere i
+  // movimenti e' solo l'anno (nessun altro filtro attivo).
+  const ultimoAnnoMov = useMemo(
+    () => ultimoAnnoConDati(transactions.map(t => (t.transaction_date ? Number(String(t.transaction_date).slice(0, 4)) : null)), yearScope),
+    [transactions, yearScope],
+  )
+  const soloFiltroAnno = !search && filterAccount === 'all' && filterType === 'all' && filterReconciled === 'all' && filterCategory === 'all'
+
   const totalEntrate = useMemo(() => filtered.reduce<number>((s, t) => s + ((t.amount || 0) > 0 ? (t.amount || 0) : 0), 0), [filtered])
   const totalUscite = useMemo(() => filtered.reduce<number>((s, t) => s + ((t.amount || 0) < 0 ? Math.abs(t.amount || 0) : 0), 0), [filtered])
   const totalFiltered = useMemo(() => filtered.reduce<number>((s, t) => s + (t.amount || 0), 0), [filtered])
@@ -2021,11 +2044,28 @@ function TabMovimenti({ transactions, accounts, companyId, onAssignCategory, ini
       {/* Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {pageItems.length === 0 ? (
-          <EmptyState icon={ArrowUpRight}
-            title={filterCategory === 'senza_categoria' ? 'Nessun movimento senza categoria' : 'Nessun movimento'}
-            description={filterCategory === 'senza_categoria'
-              ? 'Tutti i movimenti nel periodo/filtro selezionato hanno già una categoria contabile.'
-              : 'Importa un estratto conto o collega una banca per vedere i movimenti.'} />
+          filterCategory === 'senza_categoria' ? (
+            <EmptyState icon={ArrowUpRight}
+              title="Nessun movimento senza categoria"
+              description="Tutti i movimenti nel periodo/filtro selezionato hanno già una categoria contabile." />
+          ) : transactions.length === 0 ? (
+            // Solo qui, senza nessun movimento in nessun anno, si invita a importare.
+            <EmptyState icon={ArrowUpRight}
+              title="Nessun movimento"
+              description="Importa un estratto conto o collega una banca per vedere i movimenti." />
+          ) : yearScope != null && soloFiltroAnno && ultimoAnnoMov != null ? (
+            // Anno a video vuoto, movimenti in un altro anno: si porta li', non si
+            // invita a ricaricare l'estratto (16/11/2026).
+            <EmptyState icon={ArrowUpRight}
+              title={`Nessun movimento nel ${yearScope}`}
+              description={`I movimenti del ${yearScope} non sono ancora caricati. L'ultimo anno con movimenti è il ${ultimoAnnoMov}.`}
+              action={<button type="button" onClick={() => { setDateFrom(`${ultimoAnnoMov}-01-01`); setDateTo(`${ultimoAnnoMov}-12-31`); setPage(1) }} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Vai al {ultimoAnnoMov}</button>} />
+          ) : (
+            <EmptyState icon={ArrowUpRight}
+              title="Nessun movimento con questi filtri"
+              description={`Ci sono ${transactions.length.toLocaleString('de-DE')} movimenti caricati, ma nessuno corrisponde ai filtri scelti.`}
+              action={<button type="button" onClick={handleResetFilters} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">Pulisci filtri</button>} />
+          )
         ) : (
           <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">

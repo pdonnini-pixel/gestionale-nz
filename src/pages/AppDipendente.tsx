@@ -316,7 +316,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
       {scheda === 'oggi' && (<>
       {notifiche === 'negate' && (
         <p className="w-full max-w-sm text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3">
-          Le notifiche sono spente: non ti arrivano gli avvisi di entrata e uscita. Accendile nelle impostazioni del telefono, alla voce New Zago.
+          Le notifiche sono spente: non ti arrivano gli avvisi di entrata e uscita. Accendile nelle impostazioni del telefono, alla voce {marchioApp()}.
         </p>
       )}
       {/* Entrata da segnare */}

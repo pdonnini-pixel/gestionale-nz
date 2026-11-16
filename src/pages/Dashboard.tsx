@@ -725,7 +725,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-white">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader
-        title={`Buongiorno, ${profile?.first_name || 'Patrizio'}`}
+        title={profile?.first_name ? `Buongiorno, ${profile.first_name}` : 'Buongiorno'}
         subtitle={`Cruscotto direzionale — ${periodRange.label}${dataSource === 'bilancio' ? ' · Dati da bilancio importato' : ''}`}
         actions={lastUpdate ? <DataFreshness lastUpdate={lastUpdate} source="Dati" /> : undefined}
       />
