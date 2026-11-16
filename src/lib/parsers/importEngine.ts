@@ -69,6 +69,8 @@ interface ImportResult {
   errors: Record<string, unknown>[];
   batchId: string | null;
   details?: Record<string, unknown> | null;
+  /** Avvisi che non sono errori (es. fatture gia' presenti, saltate). */
+  warnings?: Record<string, unknown>[];
 }
 
 type ProcessorResult = {
@@ -161,12 +163,16 @@ export async function processImport({
 
     onProgress(100, `Completato: ${result.imported} record importati`);
 
+    // Un file gia' importato per intero non e' un errore: non c'era niente di
+    // nuovo da salvare, e l'esito lo dice con gli avvisi.
+    const soloGiaPresenti = result.imported === 0 && result.errors.length === 0 && (result.warnings?.length || 0) > 0;
     return {
-      success: result.imported > 0,
+      success: result.imported > 0 || soloGiaPresenti,
       imported: result.imported,
       errors: result.errors,
       batchId,
       details: result.details || null,
+      warnings: result.warnings || [],
     };
   } catch (err: unknown) {
     console.error('Import engine error:', err);
@@ -468,7 +474,34 @@ async function processBankStatement(content: string | ArrayBuffer, context: Impo
 
 // ─── INVOICE XML PROCESSOR ──────────────────────────────────────
 
-async function processInvoiceXML(text: string | ArrayBuffer, context: ImportContext, batchId: string, onProgress: (percent: number, message: string) => void): Promise<ProcessorResult> {
+/** Numero fattura confrontabile: senza spazi, maiuscolo (stesso spirito di fn_normalize_invoice_number). */
+export function numeroFatturaConfrontabile(n: unknown): string {
+  return String(n ?? '').replace(/\s+/g, '').toUpperCase();
+}
+
+/**
+ * Identificativo di deduplica come quello che scrive `sdi-receive` quando lo SDI
+ * non ne manda uno: P.IVA cedente + numero + data. Con questo valorizzato scatta
+ * l'indice UNIQUE (company_id, sdi_id) e un secondo caricamento dello stesso XML
+ * non puo' creare una fattura doppia nemmeno se due «Processa» partono insieme.
+ */
+export function sdiIdDiRipiego(vat: unknown, numero: unknown, data: unknown): string | null {
+  if (!vat || !numero || !data) return null;
+  return `SDI_${String(vat)}_${String(numero)}_${String(data)}`;
+}
+
+type RigaFattura = { id: string; invoice_number: string | null };
+type EsitoSelect = Promise<{ data: RigaFattura[] | null; error: { message: string } | null }>;
+type EsitoInsert = Promise<{ data: Array<{ id: string }> | null; error: { message: string; details?: string; code?: string } | null }>;
+type FiltroEq = { eq: (k: string, v: unknown) => FiltroEq } & EsitoSelect;
+type ClientSciolto = {
+  from: (t: string) => {
+    select: (s: string) => FiltroEq;
+    insert: (r: Record<string, unknown>[]) => { select: (s: string) => EsitoInsert };
+  };
+};
+
+export async function processInvoiceXML(text: string | ArrayBuffer, context: ImportContext, batchId: string, onProgress: (percent: number, message: string) => void): Promise<ProcessorResult> {
   const xmlText = typeof text === 'string' ? text : new TextDecoder().decode(text);
   const { invoices, supplier, errors: parseErrors } = parseFatturaPA(xmlText);
 
@@ -484,32 +517,112 @@ async function processInvoiceXML(text: string | ArrayBuffer, context: ImportCont
 
   onProgress(55, 'Verifica/creazione fornitore...');
 
-  // Auto-create or link supplier
+  // Fornitore agganciato per P.IVA (mai per nome, PAYMENT_PLAN_NOTES.md).
+  let supplierId: string | null = null;
   if (supplierRecord && supplierRecord.partita_iva) {
-    await upsertSupplier(supplierRecord);
+    supplierId = await upsertSupplier(supplierRecord);
   }
 
-  onProgress(65, `Inserimento ${invoiceRecords.length} fatture...`);
+  onProgress(60, 'Controllo fatture già presenti...');
 
-  // Insert invoices
-  const { inserted: invInserted, insertErrors: invErrors } = await batchInsert(
-    'electronic_invoices', invoiceRecords, onProgress, 65, 80
-  );
+  // Ricaricare lo stesso XML non deve creare fatture e scadenze doppie: prima di
+  // inserire si cerca nel DB la stessa fattura (P.IVA cedente + numero + data,
+  // oppure lo stesso sdi_id). Se c'e' gia' si salta e lo si dice nell'esito.
+  // Prima le righe entravano senza sdi_id e senza fornitore, quindi nessun indice
+  // UNIQUE scattava e ogni «Processa» ripetuto raddoppiava fatture e scadenze.
+  const sb = supabase as unknown as ClientSciolto;
 
-  onProgress(80, `Creazione ${payableRecords.length} scadenze...`);
+  const errors: Record<string, unknown>[] = parseErrors.map(e => ({ message: e }));
+  const warnings: Record<string, unknown>[] = [];
+  const giaPresenti: string[] = [];
+  let invInserted = 0;
+  let payInserted = 0;
 
-  // Insert payables
-  const { inserted: payInserted, insertErrors: payErrors } = await batchInsert(
-    'payables', payableRecords, onProgress, 80, 95
-  );
+  for (const rec of invoiceRecords) {
+    const vat = rec.supplier_vat as string | null | undefined;
+    const numero = rec.invoice_number as string | null | undefined;
+    const data = rec.invoice_date as string | null | undefined;
+    const etichetta = `${numero || '?'} del ${data || '?'}`;
+    const sdiId = sdiIdDiRipiego(vat, numero, data);
+
+    let esistente: string | null = null;
+    if (vat && numero && data) {
+      const { data: cand, error: candErr } = await sb.from('electronic_invoices')
+        .select('id, invoice_number')
+        .eq('company_id', context.company_id)
+        .eq('supplier_vat', vat)
+        .eq('invoice_date', data);
+      if (candErr) {
+        // Senza il controllo non si inserisce: meglio una fattura da ricaricare che una doppia.
+        errors.push({ message: `Fattura ${etichetta}: controllo dei doppioni non riuscito (${candErr.message}), non importata` });
+        continue;
+      }
+      const chiave = numeroFatturaConfrontabile(numero);
+      esistente = (cand || []).find(c => numeroFatturaConfrontabile(c.invoice_number) === chiave)?.id || null;
+    }
+    if (!esistente && sdiId) {
+      const { data: perSdi } = await sb.from('electronic_invoices')
+        .select('id, invoice_number')
+        .eq('company_id', context.company_id)
+        .eq('sdi_id', sdiId);
+      esistente = perSdi?.[0]?.id || null;
+    }
+    if (esistente) {
+      giaPresenti.push(etichetta);
+      continue;
+    }
+
+    const { data: ins, error: insErr } = await sb.from('electronic_invoices')
+      .insert([{ ...rec, ...(sdiId ? { sdi_id: sdiId } : {}) }])
+      .select('id');
+    if (insErr || !ins?.[0]?.id) {
+      // 23505 = l'indice UNIQUE ha trovato la stessa fattura (caricamento in parallelo)
+      if (insErr?.code === '23505') { giaPresenti.push(etichetta); continue; }
+      errors.push({ message: `Fattura ${etichetta}: ${insErr?.message || 'inserimento non riuscito'}`, details: insErr?.details });
+      continue;
+    }
+    invInserted++;
+    const invoiceId = ins[0].id;
+
+    // Scadenze solo della fattura appena inserita, legate alla fattura e al
+    // fornitore. Il trigger fn_invoice_to_payable ne crea gia' una dall'XML: con
+    // electronic_invoice_id valorizzato fn_prevent_duplicate_payable la completa
+    // (metodo, IBAN, segno della nota di credito) invece di aggiungerne un'altra.
+    const rate = payableRecords
+      .filter(p => p.invoice_number === numero && p.invoice_date === data && p.supplier_vat === vat)
+      .map(p => ({ ...p, electronic_invoice_id: invoiceId, ...(supplierId ? { supplier_id: supplierId } : {}) }));
+    for (const r of rate) {
+      const { error: pErr } = await sb.from('payables').insert([r]).select('id');
+      if (pErr) {
+        if (pErr.code === '23505') continue; // scadenza gia' presente
+        errors.push({ message: `Scadenza della fattura ${etichetta}: ${pErr.message}`, details: pErr.details });
+        continue;
+      }
+      // Una riga assorbita dal trigger anti-doppioni (RETURN NULL) non torna nel
+      // select ma e' comunque la scadenza di questa fattura.
+      payInserted++;
+    }
+  }
+
+  if (giaPresenti.length) {
+    warnings.push({
+      message: giaPresenti.length === 1
+        ? `Fattura già presente, non reimportata: ${giaPresenti[0]}`
+        : `${giaPresenti.length} fatture già presenti, non reimportate: ${giaPresenti.join(', ')}`,
+    });
+  }
+
+  onProgress(95, 'Fatture registrate');
 
   return {
     imported: invInserted,
-    errors: [...parseErrors.map(e => ({ message: e })), ...invErrors, ...payErrors],
+    errors,
+    warnings,
     details: {
       fatture: invInserted,
       scadenze: payInserted,
       fornitore: supplierRecord?.ragione_sociale,
+      giaPresenti: giaPresenti.length,
     },
   };
 }

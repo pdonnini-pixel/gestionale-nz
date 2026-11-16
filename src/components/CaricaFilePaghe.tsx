@@ -29,7 +29,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { FileUp, Loader2, Check, AlertTriangle, ArrowRight, Info, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
 import { riconosciFilePaghe, type FilePagheRiconosciuto, type FilePaghe } from '../lib/payrollParse'
-import { archiviaFile } from '../lib/archivioFile'
+import { archiviaFile, sostituisciPrecedenti } from '../lib/archivioFile'
 import { leggiModelloF24, codiciF24InBreve, sezioniF24InBreve, type ModelloF24 } from '../lib/modelloF24'
 import { supabase } from '../lib/supabase'
 import type { Json } from '../types/database'
@@ -78,7 +78,16 @@ type Voce = {
   nonce?: number
   /** Modello F24 letto, in attesa della conferma a mano. */
   f24?: Record<string, unknown>
+  /** Dove e' finito in archivio il PDF dell'F24, per marcare le copie precedenti. */
+  f24Arch?: ArchivioF24
 }
+
+type ArchivioF24 = { id: string | null; funzione: string; year: number | null; month: number | null }
+
+// Un modello F24 si riconosce da scadenza e progressivo: due deleghe dello
+// stesso mese (prog. 1 e 2) sono documenti diversi e non si sostituiscono.
+const funzioneF24 = (prog: number | null | undefined) =>
+  prog && prog > 1 ? `Modello F24 del personale · prog. ${prog}` : 'Modello F24 del personale'
 
 type EsitoF24 = { stato?: string; messaggio?: string }
 
@@ -193,12 +202,18 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
   }
 
   // Il modello F24 non cambia scheda: si salva qui, sempre in coda agli altri.
-  const scriviF24 = async (id: number, doc: Record<string, unknown>, conferma: boolean) => {
+  const scriviF24 = async (id: number, doc: Record<string, unknown>, conferma: boolean, arch?: ArchivioF24) => {
     const { data, error } = await supabase.rpc('save_payroll_f24_document', { p_doc: doc as Json, p_conferma: conferma })
     if (error) { aggiorna(id, { stato: 'errore', nota: `Salvataggio non riuscito: ${error.message}` }); return }
     const e = (data ?? {}) as EsitoF24
-    if (e.stato === 'da_confermare') aggiorna(id, { stato: 'da_confermare', nota: e.messaggio, f24: doc })
+    if (e.stato === 'da_confermare') aggiorna(id, { stato: 'da_confermare', nota: e.messaggio, f24: doc, f24Arch: arch })
     else if (e.stato === 'salvato' || e.stato === 'gia_presente') {
+      // Salvato o gia' presente, il modello ora punta a questo PDF: le copie
+      // archiviate prima per lo stesso modello passano a «sostituito», cosi'
+      // ricaricare lo stesso F24 non lo mostra due volte in Archivio.
+      if (arch?.id) {
+        await sostituisciPrecedenti({ companyId, funzione: arch.funzione, year: arch.year, month: arch.month, nuovoId: arch.id })
+      }
       aggiorna(id, { stato: 'salvato', f24: undefined, nota: `${e.stato === 'gia_presente' ? 'Era già caricato. ' : ''}${e.messaggio ?? ''}` })
       segnalaDatiPagheAggiornati()
     } else aggiorna(id, { stato: 'errore', nota: e.messaggio ?? 'Il modello F24 non è stato salvato.' })
@@ -211,22 +226,26 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
         const { extractPdfLines } = await import('../lib/pdfText')
         const m = leggiModelloF24(await extractPdfLines(v.file))
         if (!m) { aggiorna(v.id, { stato: 'errore', nota: 'Non riesco a leggere scadenza e saldi del modello F24.' }); return }
+        const funzione = funzioneF24(m.prog)
+        const anno = Number(m.periodo.slice(0, 4)) || null
+        const mese = Number(m.periodo.slice(5, 7)) || null
         const arch = await archiviaFile({
-          file: v.file, companyId, userId, modulo: 'Personale', funzione: 'Modello F24 del personale',
-          bucket: 'employee-documents', year: Number(m.periodo.slice(0, 4)), month: Number(m.periodo.slice(5, 7)),
+          file: v.file, companyId, userId, modulo: 'Personale', funzione,
+          bucket: 'employee-documents', year: anno, month: mese,
           referenceTable: 'payroll_f24_documents', note: `Delega F24 in scadenza il ${m.scadenza.split('-').reverse().join('/')}, totale ${eur(m.totale)} €.`,
         })
         const doc = docF24(m, v.file.name, arch.id)
+        const archF24: ArchivioF24 = { id: arch.id, funzione, year: anno, month: mese }
         if (!m.quadra) {
           // I totali non tornano: si salva solo con una conferma.
           const rotti = m.moduli.filter((x) => !x.quadra).map((x) => x.pagina).join(', ')
           aggiorna(v.id, {
-            stato: 'da_confermare', f24: doc,
+            stato: 'da_confermare', f24: doc, f24Arch: archF24,
             nota: `Nel modulo ${rotti} la somma delle sezioni non fa il saldo finale: controlla il PDF. Totale letto ${eur(m.totale)} €. Lo salvo così?`,
           })
           return
         }
-        await scriviF24(v.id, doc, false)
+        await scriviF24(v.id, doc, false, archF24)
       } catch (e) {
         aggiorna(v.id, { stato: 'errore', nota: `Non riesco a salvare il modello F24: ${e instanceof Error ? e.message : 'motivo non noto'}` })
       }
@@ -236,7 +255,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
   const confermaF24 = (v: Voce) => {
     if (!v.f24) return
     aggiorna(v.id, { stato: 'in_corso', nota: undefined })
-    void scriviF24(v.id, v.f24, true)
+    void scriviF24(v.id, v.f24, true, v.f24Arch)
   }
 
   const leggi = async (files: FileList | File[]) => {
@@ -253,6 +272,10 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
             year: r.year ?? undefined, month: r.month ?? undefined, referenceTable: null,
             note: 'Tabulato dei netti negativi: non entra nella distinta dei bonifici, il negativo si recupera dal cedolino successivo.',
           })
+          // Ricaricare il tabulato dello stesso mese lo sostituisce anche in archivio.
+          if (!esito.errore && esito.id) {
+            await sostituisciPrecedenti({ companyId, funzione: 'Netti negativi (non importati)', year: r.year ?? null, month: r.month ?? null, nuovoId: esito.id })
+          }
           aggiorna(v.id, {
             r, stato: esito.errore ? 'errore' : 'archiviato',
             nota: esito.errore

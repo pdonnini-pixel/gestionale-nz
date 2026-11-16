@@ -28,6 +28,13 @@ type LineRow = {
   match_status: 'unmatched' | 'matched' | 'ambiguous' | 'confirmed'
 }
 
+// Stessa impronta del file usata da DocumentiBanca: e' quella che riba_distinte
+// tiene in content_hash (indice UNIQUE per azienda).
+const sha256 = async (buf: ArrayBuffer): Promise<string> => {
+  const d = await crypto.subtle.digest('SHA-256', buf)
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
 const cents = (n: number | null | undefined) => Math.round((Number(n) || 0) * 100)
 const up = (s: unknown) => String(s ?? '').toUpperCase()
 const words = (s: string) => up(s).split(/[^A-Z0-9]+/).filter(w => w.length >= 4)
@@ -130,32 +137,59 @@ export default function RibaDistintaModal({
     try {
       const ex = await extractDistinta(file)
       setExtract(ex)
+      const hash = await sha256(await file.arrayBuffer())
 
-      const { data: dRow, error: dErr } = await sb
+      // La stessa distinta non si registra due volte (stesso controllo di
+      // DocumentiBanca): prima ogni «Analizza» creava una distinta nuova con
+      // tutte le sue righe. Se il file c'e' gia' si riapre quella registrata.
+      const { data: giaRow, error: giaErr } = await sb
         .from('riba_distinte')
-        .insert({ company_id: companyId, source_kind: ex.sourceKind, file_name: file.name, bank_account_id: bankId || null, declared_total: ex.declaredTotal, line_count: ex.lines.length })
-        .select('id').single()
-      if (dErr || !dRow) throw new Error(dErr?.message || 'Creazione distinta fallita')
-      const did = (dRow as { id: string }).id
+        .select('id, created_at, status')
+        .eq('company_id', companyId)
+        .eq('content_hash', hash)
+        .maybeSingle()
+      if (giaErr) throw new Error(`Controllo della distinta già caricata non riuscito: ${giaErr.message}`)
+      const gia = giaRow as { id: string; created_at: string | null; status: string | null } | null
+
+      let did: string
+      let righeNuove = false
+      if (gia) {
+        did = gia.id
+        const quando = gia.created_at ? new Date(gia.created_at).toLocaleDateString('it-IT') : ''
+        toast({ type: 'info', message: `Questa distinta era già stata caricata${quando ? ` il ${quando}` : ''}: riapro quella, senza registrarla di nuovo.` })
+        // Se una prova precedente si era fermata prima delle righe, si completano.
+        const { count } = await sb.from('riba_distinta_lines').select('id', { count: 'exact', head: true }).eq('distinta_id', did)
+        righeNuove = (count ?? 0) === 0
+      } else {
+        const { data: dRow, error: dErr } = await sb
+          .from('riba_distinte')
+          .insert({ company_id: companyId, source_kind: ex.sourceKind, file_name: file.name, bank_account_id: bankId || null, declared_total: ex.declaredTotal, line_count: ex.lines.length, content_hash: hash })
+          .select('id').single()
+        if (dErr || !dRow) throw new Error(dErr?.message || 'Creazione distinta fallita')
+        did = (dRow as { id: string }).id
+        righeNuove = true
+
+        try {
+          const path = `${companyId}/${did}/${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
+          await sb.storage.from('riba-distinte').upload(path, file, { upsert: true })
+          await sb.from('riba_distinte').update({ file_path: path }).eq('id', did)
+        } catch { /* upload non bloccante */ }
+      }
       setDistintaId(did)
 
-      try {
-        const path = `${companyId}/${did}/${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`
-        await sb.storage.from('riba-distinte').upload(path, file, { upsert: true })
-        await sb.from('riba_distinte').update({ file_path: path }).eq('id', did)
-      } catch { /* upload non bloccante */ }
+      if (righeNuove) {
+        const payload = ex.lines.map(l => ({
+          distinta_id: did, company_id: companyId,
+          raw_supplier: l.supplier, raw_vat: l.vat, raw_invoice: l.invoice,
+          raw_amount: l.amount, raw_due_date: l.dueDate,
+          matched_supplier_id: resolveSupplierId(l.vat, l.supplier, suppliers),
+        }))
+        const { error: lErr } = await sb.from('riba_distinta_lines').insert(payload)
+        if (lErr) throw new Error(lErr.message)
 
-      const payload = ex.lines.map(l => ({
-        distinta_id: did, company_id: companyId,
-        raw_supplier: l.supplier, raw_vat: l.vat, raw_invoice: l.invoice,
-        raw_amount: l.amount, raw_due_date: l.dueDate,
-        matched_supplier_id: resolveSupplierId(l.vat, l.supplier, suppliers),
-      }))
-      const { error: lErr } = await sb.from('riba_distinta_lines').insert(payload)
-      if (lErr) throw new Error(lErr.message)
-
-      const { error: mErr } = await sb.rpc('rpc_automatch_riba_distinta', { p_distinta_id: did })
-      if (mErr) throw new Error(mErr.message)
+        const { error: mErr } = await sb.rpc('rpc_automatch_riba_distinta', { p_distinta_id: did })
+        if (mErr) throw new Error(mErr.message)
+      }
 
       await loadPayables()
       const rows = await reloadLines(did)

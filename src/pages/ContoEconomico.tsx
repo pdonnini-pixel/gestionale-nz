@@ -1299,13 +1299,70 @@ export default function ContoEconomico() {
   }
 
   // Feature 4: PDF parsing with pdfjs-dist
+  //
+  // Prima di leggere il file si guarda nel DATABASE se per lo stesso anno e
+  // periodo c'e' gia' un bilancio caricato. Prima veniva cancellato alla cieca,
+  // anche se il PDF nuovo poi non si leggeva: ora si chiede conferma e il
+  // precedente non si cancella, resta in elenco marcato «sostituito».
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
-    if (!file) return
+    e.target.value = ''
+    if (!file || !COMPANY_ID) return
 
+    const { data: esistenti, error: esErr } = await supabase
+      .from('balance_sheet_imports')
+      .select('id, file_name, created_at, status')
+      .eq('company_id', COMPANY_ID)
+      .eq('year', year)
+      .eq('period_type', periodType)
+      .or('status.is.null,status.neq.sostituito')
+      .order('created_at', { ascending: false })
+    if (esErr) {
+      toast({ type: 'error', message: `Non riesco a controllare i bilanci già caricati: ${esErr.message}` })
+      return
+    }
+    const precedenti = (esistenti || []) as Array<{ id: string; file_name: string | null; created_at: string | null; status: string | null }>
+    if (precedenti.length === 0) {
+      await caricaBilancioFile(file, [])
+      return
+    }
+    const ultimo = precedenti[0]
+    const quando = ultimo.created_at ? new Date(ultimo.created_at).toLocaleDateString('it-IT') : ''
+    setSaveConfirm({
+      title: `Sostituire il bilancio ${periodType} ${year}?`,
+      message: `Per ${periodType} ${year} c'è già ${precedenti.length === 1 ? 'un file caricato' : `${precedenti.length} file caricati`}`
+        + ` («${ultimo.file_name || 'senza nome'}»${quando ? `, ${quando}` : ''}${ultimo.status === 'approved' ? ', approvato' : ''}).`
+        + ` Il file nuovo «${file.name}» diventa quello che vale; il precedente non si cancella, resta in elenco come sostituito.`
+        + ' I numeri del bilancio cambiano solo quando salvi.',
+      confirmLabel: 'Sostituisci',
+      onConfirm: () => caricaBilancioFile(file, precedenti.map(p => p.id)),
+    })
+  }
+
+  const caricaBilancioFile = async (file: File, daSostituire: string[]) => {
+    if (!COMPANY_ID) return
     setUploadingFile(true)
     setPdfParsing(true)
     try {
+      // Il file si legge PRIMA di toccare il database: se non si legge e c'era
+      // gia' un bilancio, quello resta com'e'.
+      let parsed: Awaited<ReturnType<typeof parseBilancio>> | null = null
+      let pdfViewerCopy: ArrayBuffer | null = null
+      if (file.type === 'application/pdf') {
+        try {
+          const arrayBuffer = await file.arrayBuffer()
+          // Clone buffer for PDF viewer (parseBilancio may detach the original)
+          pdfViewerCopy = arrayBuffer.slice(0)
+          parsed = await parseBilancio(arrayBuffer)
+        } catch (parseErr) {
+          console.error('PDF parsing failed:', parseErr)
+          if (daSostituire.length > 0) {
+            toast({ type: 'error', message: `Non riesco a leggere «${file.name}»: il bilancio già caricato resta quello che vale.` })
+            return
+          }
+        }
+      }
+
       // Upload to storage
       const fileName = `${Date.now()}-${file.name}`
       const { data: uploadData, error: uploadError } = await supabase.storage
@@ -1314,17 +1371,8 @@ export default function ContoEconomico() {
 
       if (uploadError) throw uploadError
 
-      // Delete previous imports for same year/period (avoid duplicates)
-      await supabase
-        .from('balance_sheet_imports')
-        .delete()
-        .eq('company_id', COMPANY_ID!)
-        .eq('year', year)
-        .eq('period_type', periodType)
-
       // Create import record
-      if (!COMPANY_ID) throw new Error('No company id')
-      const { error: insertError } = await supabase
+      const { data: nuovo, error: insertError } = await supabase
         .from('balance_sheet_imports')
         .insert({
           company_id: COMPANY_ID,
@@ -1338,26 +1386,31 @@ export default function ContoEconomico() {
           uploaded_by: profile?.id || null,
           uploaded_by_name: (profile as { full_name?: string; email?: string } | null)?.full_name || profile?.email || null,
         })
-        .select()
+        .select('id')
+        .single()
 
       if (insertError) throw insertError
 
+      // Solo ora, a file letto e registrato, il precedente passa a «sostituito»:
+      // niente DELETE, la riga e il suo file restano (regola NO DATA LOSS).
+      if (daSostituire.length > 0) {
+        const nuovoId = (nuovo as { id: string } | null)?.id
+        const { error: sostErr } = await supabase
+          .from('balance_sheet_imports')
+          .update({ status: 'sostituito', note: `Sostituito il ${new Date().toLocaleDateString('it-IT')} da «${file.name}»${nuovoId ? ` (${nuovoId})` : ''}` })
+          .in('id', daSostituire)
+        if (sostErr) toast({ type: 'warning', message: `File caricato, ma il precedente non è stato marcato come sostituito (${sostErr.message}).` })
+      }
+
       // Try to parse PDF with advanced bilancio parser
-      if (file.type === 'application/pdf') {
+      if (parsed) {
         try {
-          const arrayBuffer = await file.arrayBuffer()
-
-          // Clone buffer for PDF viewer (parseBilancio may detach the original)
-          const pdfViewerCopy = arrayBuffer.slice(0)
-
-          // Use advanced bilancio parser (extracts full chart of accounts)
-          const parsed = await parseBilancio(arrayBuffer)
           setBilancioData(parsed)
           setShowBilancioTree(true)
           setBilancioSaved(false)
 
           // Store PDF copy for preview (use the cloned buffer)
-          setPdfPreview(pdfViewerCopy)
+          if (pdfViewerCopy) setPdfPreview(pdfViewerCopy)
 
           // Also populate legacy form fields for backward compatibility
           const t = parsed.contoEconomico.totals
@@ -2919,7 +2972,7 @@ export default function ContoEconomico() {
                     <div>
                       <p className="text-sm font-medium text-slate-900">{imp.file_name}</p>
                       <p className="text-xs text-slate-500">
-                        {imp.period_label} • {imp.status === 'approved' ? 'Approvato' : imp.status === 'rejected' ? 'Rifiutato' : 'In attesa'}
+                        {imp.period_label} • {imp.status === 'approved' ? 'Approvato' : imp.status === 'rejected' ? 'Rifiutato' : imp.status === 'sostituito' ? 'Sostituito da un file più recente' : 'In attesa'}
                         {imp.approved_at && ` • ${new Date(imp.approved_at).toLocaleDateString('it-IT')}`}
                       </p>
                     </div>
