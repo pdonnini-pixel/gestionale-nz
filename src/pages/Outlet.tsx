@@ -12,7 +12,7 @@ import {
   Store, RefreshCw, MapPin, Calendar, Target, TrendingUp,
   ChevronRight, ArrowLeft, DollarSign, Users, FileText, X, Search, Plus,
   Upload, Paperclip, CheckCircle2, AlertCircle, Clock, Trash2, Download,
-  Eye, Filter, Folder, Bell, History, User
+  Eye, Filter, Folder, Bell, History, User, ChevronDown
 } from 'lucide-react'
 import OutletWizard from '../components/OutletWizard'
 import OutletValutazione from '../components/OutletValutazione'
@@ -25,6 +25,7 @@ import {
 } from 'recharts'
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE } from '../components/ChartTheme'
 import { formatOutletName } from '../lib/formatters'
+import { segmentoOutlet, trovaOutlet, raggruppaPerMese, etichettaMese } from '../lib/outletSlug'
 import {
   getOutletLifecycle, daysToOpening, outletLifecycleCaption, safePct,
   OUTLET_LIFECYCLE_LABEL, OUTLET_LIFECYCLE_STYLE, type OutletLifecycleFields,
@@ -193,8 +194,14 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
   const [dragOver, setDragOver] = useState(false)
   type VersionHistoryT = { doc: DocRow; versions: DocRow[] } | null
   const [versionHistory, setVersionHistory] = useState<VersionHistoryT>(null)
+  // Esito dell'ultimo caricamento: il riquadro che dice che è finito.
+  const [esito, setEsito] = useState<{ caricati: string[]; errori: string[] } | null>(null)
+  // Mesi aperti o chiusi a mano. Senza una scelta è aperto solo il mese più recente.
+  const [mesiScelti, setMesiScelti] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
+    setEsito(null)
+    setMesiScelti({})
     loadDocuments()
   }, [outletId])
 
@@ -350,12 +357,15 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
     if (existing) {
       // Aggiorna documento esistente (sovrascrive con nuova versione)
       const table = existing.source === 'contract_documents' ? 'contract_documents' : 'documents'
-      await supabase.from(table).update({
+      // uploaded_at aggiornato: la nuova versione sale nel mese in cui è stata caricata.
+      const { error: updErr } = await supabase.from(table).update({
         file_path: filePath,
         file_size: file.size,
+        uploaded_at: new Date().toISOString(),
         uploaded_by: uploadedBy,
         uploaded_by_name: uploadedByName,
       } as never).eq('id', existing.id)
+      if (updErr) return { error: `${file.name}: ${updErr.message}` }
     } else {
       // Crea nuovo record
       const { error: dbErr } = await supabase.from('documents').insert({
@@ -379,15 +389,27 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
   async function handleUploadDocuments(files: File[]) {
     if (!files || files.length === 0) return
     setUploading(true)
+    setEsito(null)
     const errors: string[] = []
+    const caricati: string[] = []
+    // Uno alla volta, ciascuno fino in fondo.
     for (const file of files) {
       const result = await uploadSingleDocument(file)
       if (result.error) errors.push(result.error)
+      else caricati.push(file.name)
     }
     if (errors.length > 0) {
       toast({ type: 'error', message: 'Errori durante upload:\n' + errors.join('\n') })
     }
+    // La pagina mostra quello che è appena arrivato: via la ricerca e il filtro
+    // rimasti aperti (nasconderebbero i file nuovi) e mese più recente aperto.
+    if (caricati.length > 0) {
+      setSearchQuery('')
+      setSelectedCategory(null)
+      setMesiScelti({})
+    }
     await loadDocuments()
+    setEsito({ caricati, errori: errors })
     setUploading(false)
   }
 
@@ -430,8 +452,46 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
              ((d.uploaded_by_name as string | null | undefined)?.toLowerCase().includes(q))
     })
 
+  // Mese di un documento: quello dell'ultimo caricamento (una nuova versione
+  // aggiorna uploaded_at), altrimenti quello di creazione.
+  const dataDelDoc = (d: DocRow) => (d.uploaded_at as string | null) || (d.created_at as string | null)
+  const gruppi = raggruppaPerMese(filtered, dataDelDoc)
+  const filtroAttivo = Boolean(searchQuery.trim()) || selectedCategory !== null
+  const meseAperto = (mese: string, indice: number) =>
+    filtroAttivo ? true : (mese in mesiScelti ? mesiScelti[mese] : indice === 0)
+
   const uploadSection = (
     <div className="mt-4 pt-4 border-t border-slate-100 space-y-3">
+      {/* Chiusura del caricamento: cosa è stato fatto e cosa resta */}
+      {esito && !uploading && (
+        <div role="status" className={`rounded-xl border p-3 text-xs ${
+          esito.errori.length === 0 ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-900'
+        }`}>
+          <div className="flex items-start gap-2">
+            {esito.errori.length === 0 ? <CheckCircle2 size={16} className="shrink-0 mt-0.5" /> : <AlertCircle size={16} className="shrink-0 mt-0.5" />}
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold">
+                {esito.errori.length === 0
+                  ? `Finito, ${esito.caricati.length === 1 ? 'il documento è' : `tutti i ${esito.caricati.length} documenti sono`} in archivio.`
+                  : `Caricat${esito.caricati.length === 1 ? 'o' : 'i'} ${esito.caricati.length} su ${esito.caricati.length + esito.errori.length}: ${esito.errori.length === 1 ? 'un file non è entrato' : `${esito.errori.length} file non sono entrati`}, vanno ricaricati.`}
+              </div>
+              {esito.caricati.length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {esito.caricati.map(n => <li key={n} className="truncate">✓ {n}</li>)}
+                </ul>
+              )}
+              {esito.errori.length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {esito.errori.map(n => <li key={n} className="break-words">✗ {n}</li>)}
+                </ul>
+              )}
+            </div>
+            <button onClick={() => setEsito(null)} className="p-1 rounded hover:bg-black/5" title="Chiudi">
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+      )}
       {/* Drag & Drop Zone */}
       <div
         onDragOver={handleDragOver}
@@ -547,75 +607,96 @@ function DocumentArchive({ outletId, companyId }: { outletId: string; companyId:
         ))}
       </div>
 
-      {/* Documents list */}
-      <div className="space-y-2">
+      {/* Documents list: un gruppo per mese di caricamento, il più recente in alto */}
+      <div className="space-y-3">
         {filtered.length === 0 ? (
           <div className="text-sm text-slate-400 text-center py-4">
-            Nessun documento in questa categoria
+            {searchQuery.trim() ? 'Nessun documento per questa ricerca' : 'Nessun documento in questa categoria'}
           </div>
         ) : (
-          filtered.map(doc => (
-            <div
-              key={`${doc.source}-${doc.id}`}
-              className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 transition"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium text-slate-900">{String(doc.file_name || '')}</div>
-                <div className="text-xs text-slate-500 space-x-2">
-                  <span>{doc.category ? DOCUMENT_CATEGORIES.find(c => c.value === doc.category)?.label : 'Documento'}</span>
-                  {Boolean(doc.file_size) && (
-                    <>
-                      <span>•</span>
-                      <span>{(Number(doc.file_size) / 1024 / 1024).toFixed(2)} MB</span>
-                    </>
-                  )}
-                  {Boolean(doc.created_at) && (
-                    <>
-                      <span>•</span>
-                      <span>{new Date(String(doc.created_at)).toLocaleDateString('it-IT')}</span>
-                    </>
-                  )}
-                  {Boolean(doc.uploaded_by_name) && (
-                    <>
-                      <span>•</span>
-                      <span className="inline-flex items-center gap-1"><User size={10} /> {String(doc.uploaded_by_name)}</span>
-                    </>
-                  )}
-                </div>
+          gruppi.map((g, i) => {
+            const aperto = meseAperto(g.mese, i)
+            return (
+              <div key={g.mese || 'senza-data'} className="rounded-xl border border-slate-200 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setMesiScelti(p => ({ ...p, [g.mese]: !aperto }))}
+                  aria-expanded={aperto}
+                  className="w-full flex items-center gap-2 px-3 py-2 bg-slate-50 hover:bg-slate-100 transition text-left"
+                >
+                  {aperto ? <ChevronDown size={14} className="text-slate-500" /> : <ChevronRight size={14} className="text-slate-500" />}
+                  <span className="text-xs font-semibold text-slate-800">{etichettaMese(g.mese)}</span>
+                  <span className="text-xs text-slate-500">· {g.righe.length} document{g.righe.length !== 1 ? 'i' : 'o'}</span>
+                </button>
+                {aperto && (
+                  <div className="p-2 space-y-2">
+                    {g.righe.map(doc => (
+                  <div
+                    key={`${doc.source}-${doc.id}`}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-slate-200 hover:bg-slate-50 transition"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-slate-900">{String(doc.file_name || '')}</div>
+                      <div className="text-xs text-slate-500 space-x-2">
+                        <span>{doc.category ? DOCUMENT_CATEGORIES.find(c => c.value === doc.category)?.label : 'Documento'}</span>
+                        {Boolean(doc.file_size) && (
+                          <>
+                            <span>•</span>
+                            <span>{(Number(doc.file_size) / 1024 / 1024).toFixed(2)} MB</span>
+                          </>
+                        )}
+                        {Boolean(dataDelDoc(doc)) && (
+                          <>
+                            <span>•</span>
+                            <span>{new Date(String(dataDelDoc(doc))).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })}</span>
+                          </>
+                        )}
+                        {Boolean(doc.uploaded_by_name) && (
+                          <>
+                            <span>•</span>
+                            <span className="inline-flex items-center gap-1"><User size={10} /> {String(doc.uploaded_by_name)}</span>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {/* Version history button */}
+                    <button
+                      onClick={() => loadVersionHistory(doc)}
+                      className="p-2 rounded-lg hover:bg-slate-100 transition text-slate-400 hover:text-slate-600"
+                      title="Storico versioni"
+                    >
+                      <History size={16} />
+                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => handlePreview(doc)}
+                        className="p-2 rounded-lg hover:bg-blue-100 transition text-blue-600"
+                        title="Anteprima"
+                      >
+                        <Eye size={16} />
+                      </button>
+                      <button
+                        onClick={() => handleDownload(doc)}
+                        className="p-2 rounded-lg hover:bg-slate-200 transition text-slate-600"
+                        title="Scarica"
+                      >
+                        <Download size={16} />
+                      </button>
+                      <button
+                        onClick={() => setDeleteTarget(doc)}
+                        className="p-2 rounded-lg hover:bg-red-100 transition text-red-500"
+                        title="Elimina"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              {/* Version history button */}
-              <button
-                onClick={() => loadVersionHistory(doc)}
-                className="p-2 rounded-lg hover:bg-slate-100 transition text-slate-400 hover:text-slate-600"
-                title="Storico versioni"
-              >
-                <History size={16} />
-              </button>
-              <div className="flex items-center gap-2 shrink-0">
-                <button
-                  onClick={() => handlePreview(doc)}
-                  className="p-2 rounded-lg hover:bg-blue-100 transition text-blue-600"
-                  title="Anteprima"
-                >
-                  <Eye size={16} />
-                </button>
-                <button
-                  onClick={() => handleDownload(doc)}
-                  className="p-2 rounded-lg hover:bg-slate-200 transition text-slate-600"
-                  title="Scarica"
-                >
-                  <Download size={16} />
-                </button>
-                <button
-                  onClick={() => setDeleteTarget(doc)}
-                  className="p-2 rounded-lg hover:bg-red-100 transition text-red-500"
-                  title="Elimina"
-                >
-                  <Trash2 size={16} />
-                </button>
-              </div>
-            </div>
-          ))
+            )
+          })
         )}
       </div>
 
@@ -2098,16 +2179,11 @@ export default function Outlet() {
   // essere solo stato interno sotto la pagina principale /outlet. L'identificatore
   // è risolto in ordine: id esatto → nome (case-insensitive) → code, per accettare
   // sia link per id (griglia) sia link per nome provenienti da altre pagine.
+  // Nell'indirizzo va il nome leggibile (/outlet/roma-soratte): chi arriva con
+  // l'id, il nome o il codice viene portato lì senza aggiungere un passo alla cronologia.
   const { outletId } = useParams()
   const navigate = useNavigate()
-  const selectedOutlet: OutletEntity | null = outletId
-    ? (outlets.find(o => {
-        const key = decodeURIComponent(outletId).toLowerCase()
-        return o.id === outletId
-          || (o.name || '').toLowerCase() === key
-          || (o.code || '').toLowerCase() === key
-      }) || null)
-    : null
+  const selectedOutlet: OutletEntity | null = trovaOutlet(outletId, outlets)
   const [search, setSearch] = useState('')
   const [showWizard, setShowWizard] = useState(false)
   const [showContractUploader, setShowContractUploader] = useState(false)
@@ -2124,6 +2200,11 @@ export default function Outlet() {
   const location = useLocation()
   const tab = location.pathname.startsWith('/outlet/valutazione') ? 'valutazione' : 'operativi'
   const goTab = (key: string) => navigate(key === 'valutazione' ? '/outlet/valutazione' : '/outlet/operativi')
+  const segmentoGiusto = selectedOutlet ? segmentoOutlet(selectedOutlet, outlets) : null
+  useEffect(() => {
+    if (!segmentoGiusto || !outletId || outletId === segmentoGiusto) return
+    navigate({ pathname: `/outlet/${segmentoGiusto}`, search: location.search, hash: location.hash }, { replace: true })
+  }, [segmentoGiusto, outletId])
   const canWrite = profile?.role === 'super_advisor'
 
   // Ricarica i ricavi ad ogni cambio anno (selettore globale) o di azienda.
@@ -2505,7 +2586,7 @@ export default function Outlet() {
                   outlets={filtered}
                   revenue={revenue}
                   year={year}
-                  onSelect={(o) => navigate(`/outlet/${o.id}`)}
+                  onSelect={(o) => navigate(`/outlet/${segmentoOutlet(o, outlets)}`)}
                 />
               )}
             </>
