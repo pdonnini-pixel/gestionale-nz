@@ -12,7 +12,7 @@ import {
   ChevronDown, Info,
 } from 'lucide-react'
 import {
-  GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, OUTLET_COLORS,
+  GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor,
   ChartGradients, ModernLegend, ModernPieLabel, fmtK, fmtEuro, BAR_RADIUS,
 } from '../components/ChartTheme'
 import { supabase } from '../lib/supabase'
@@ -291,7 +291,8 @@ export default function MarginiCategoria() {
         targetMargin,
         onTarget: marginPct != null && marginPct >= targetMargin,
         synthetic: false,
-        color: (OUTLET_COLORS as Record<string, { main?: string }>)[o.name]?.main || PALETTE[0],
+        // getOutletColor: colori fissi dove il nome e' noto, altrimenti uno stabile dal nome (ogni azienda ha i suoi negozi).
+        color: getOutletColor(o.name).main,
       }
     }).sort((a, b) => b.revenue - a.revenue)
 

@@ -72,7 +72,7 @@ Deno.serve(async (req: Request) => {
     const { data: batch, error: batchErr } = await supabase
       .from("payment_batches")
       .select(`
-        id, batch_number, status, bank_account_id, total_amount,
+        id, company_id, batch_number, status, bank_account_id, total_amount,
         bank_accounts!inner(id, bank_name, iban, acube_account_uuid)
       `)
       .eq("id", body.batch_id)
@@ -107,6 +107,17 @@ Deno.serve(async (req: Request) => {
     // 4. Recupera JWT A-Cube cachato
     const { data: tokenRow } = await supabase.from("acube_tokens").select("jwt").eq("stage", stage).maybeSingle();
     if (!tokenRow?.jwt) return jsonError(500, `No A-Cube JWT cached for stage=${stage}. Call acube-login first.`);
+
+    // 4b. Indirizzo di ritorno dopo l'autorizzazione in banca: il sito dell'azienda
+    // della distinta, mai un indirizzo scritto nel codice (ogni azienda ha il suo).
+    // Ordine: daily_report_settings.app_url, poi il sito da cui parte la richiesta.
+    // Se nessuno dei due c'e', il returnUrl non si manda: meglio nessun ritorno
+    // che riportare l'utente sul gestionale di un'altra azienda.
+    const returnUrl = await indirizzoDiRitorno(
+      supabase,
+      (batch as { company_id?: string }).company_id ?? null,
+      req.headers.get("Origin"),
+    );
 
     // 5. Per ogni item, POST /payments/send/sepa
     const results: Array<Record<string, unknown>> = [];
@@ -155,7 +166,7 @@ Deno.serve(async (req: Request) => {
         creditorName: beneficiaryName,
         creditorIban: beneficiaryIban,
         remittanceInformation: (item.payment_reason as string) ?? `Pag. distinta ${batch.batch_number}`,
-        returnUrl: "https://gestionale-nz.netlify.app/scadenzario?from=acube_payment",
+        ...(returnUrl ? { returnUrl } : {}),
       };
 
       const resp = await fetch(
@@ -242,4 +253,40 @@ function jsonError(status: number, message: string): Response {
   return new Response(JSON.stringify({ error: message }), {
     status, headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+/** Solo l'origine (schema + host) di un indirizzo https valido, altrimenti null. */
+function origineHttps(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  try {
+    const u = new URL(raw.trim());
+    return u.protocol === "https:" ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Dove A-Cube riporta l'utente dopo l'autorizzazione in banca: la pagina
+ * Scadenzario del gestionale dell'azienda della distinta. Prima l'indirizzo
+ * salvato nelle impostazioni dell'azienda (daily_report_settings.app_url, lo
+ * stesso del report incassi), poi il sito da cui e' partita la richiesta.
+ * Null se nessuno dei due e' un https valido.
+ */
+async function indirizzoDiRitorno(
+  supabase: ReturnType<typeof createClient>,
+  companyId: string | null,
+  origin: string | null,
+): Promise<string | null> {
+  let base: string | null = null;
+  if (companyId) {
+    const { data } = await supabase
+      .from("daily_report_settings")
+      .select("app_url")
+      .eq("company_id", companyId)
+      .maybeSingle();
+    base = origineHttps((data as { app_url?: string | null } | null)?.app_url ?? null);
+  }
+  base = base ?? origineHttps(origin);
+  return base ? `${base}/scadenzario?from=acube_payment` : null;
 }

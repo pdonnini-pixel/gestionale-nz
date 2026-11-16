@@ -523,7 +523,7 @@ export default function TicketAdminPage() {
               type="button"
               disabled={busy}
               onClick={() => bulkResolveViaAI(selectedIds, clear)}
-              title="Invoca AI che analizza il ticket, applica fix al codice e apre PR su GitHub. Aggiunge commento AI nel ticket per Sabrina/Veronica."
+              title="Invoca AI che analizza il ticket, applica fix al codice e apre PR su GitHub. Aggiunge un commento AI nel ticket per chi lo ha aperto."
               className="px-3 py-1.5 text-xs font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50 flex items-center gap-1"
             >
               {busy ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}

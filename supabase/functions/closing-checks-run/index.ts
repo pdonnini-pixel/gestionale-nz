@@ -154,12 +154,12 @@ function numEstratto(e: Record<string, unknown> | null, key: string): number | n
 // ─── Testi per il negozio ───────────────────────────────────────────────
 // Quattro pezzi sempre: cosa si è visto, cos'era davvero, chi ha sistemato,
 // come evitarlo. Niente parole da gestionale, niente colpe.
-function testoLezione(l: Lezione, c: Check, nome: string | null): string | null {
+function testoLezione(l: Lezione, c: Check, nome: string | null, azienda: string | null): string | null {
   if (!l || !c.closing) return null;
   const saluto = nome ? `Ciao ${nome},` : "Ciao,";
   const giorno = dataIt(c.closing.closing_date);
   const perche = c.reasonBreve ?? c.reason ?? "";
-  const firma = "\n\nSe qualcosa non ti torna rispondi a questa mail: la risposta arriva all'amministrazione.\n\nGrazie,\nGestionale New Zago";
+  const firma = `\n\nSe qualcosa non ti torna rispondi a questa mail: la risposta arriva all'amministrazione.\n\nGrazie,\n${azienda ? `Gestionale ${azienda}` : "Il gestionale"}`;
   switch (l) {
     case "spesa_in_ritardo":
       return `${saluto}\n\nnella chiusura del ${giorno} in cassa mancavano ${eur(Math.abs(num(c.amount)))}. ${perche}\n\n${c.action ?? ""} La cassa adesso torna e tu non devi fare niente.\n\nPer le prossime volte: quando paghi qualcosa con i contanti della cassa, scrivila nella chiusura dello stesso giorno, al punto 2 «Spese pagate con i contanti», e fai la foto della fattura o dello scontrino. Non serve ricordare la cifra, basta la foto. Se la spesa si scrive giorni dopo, la cassa risulta in ammanco anche quando i conti sono giusti.${firma}`;
@@ -607,6 +607,10 @@ Deno.serve(async (req) => {
       if (error) console.error("[closing-checks-run] closing_checks:", error.message);
     }
 
+    // Nome dell'azienda per la firma delle mail ai negozi (ogni azienda la sua).
+    const { data: aziendaRow } = await admin.from("companies").select("name").eq("id", s.company_id).maybeSingle();
+    const azienda = ((aziendaRow as { name?: string | null } | null)?.name ?? "").trim() || null;
+
     // Messaggi ai negozi: uno per negozio, con tutte le righe che lo riguardano.
     const messaggi: Array<{ outlet: string; to: string; subject: string; text: string; error?: string | null }> = [];
     if (s.checks_store_messages) {
@@ -624,7 +628,7 @@ Deno.serve(async (req) => {
           continue;
         }
         const nome = nomeDiSaluto(lista[0].closing?.closed_by_name ?? null, nomiVeri);
-        const testi = lista.map((c) => testoLezione(c.lezione, c, nome)).filter((t): t is string => !!t);
+        const testi = lista.map((c) => testoLezione(c.lezione, c, nome, azienda)).filter((t): t is string => !!t);
         if (testi.length === 0) continue;
         const subject = oggettoLezione(lista[0]);
         const text = testi.join("\n\n———\n\n");

@@ -1556,7 +1556,7 @@ export default function BudgetControl() {
             <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
               <Info size={18} className="text-blue-600 mt-0.5 shrink-0" />
               <div className="text-sm text-blue-800">
-                <strong>Modalità sola lettura.</strong> Stai visualizzando i preventivi approvati per outlet × anno. Per modifiche o nuovi preventivi contatta Lilian (EPPI).
+                <strong>Modalità sola lettura.</strong> Stai visualizzando i preventivi approvati per outlet × anno. Per modifiche o nuovi preventivi rivolgiti a chi approva il budget.
               </div>
             </div>
           )}
@@ -1652,7 +1652,7 @@ export default function BudgetControl() {
             <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
               <Info size={18} className="text-blue-600 mt-0.5 shrink-0" />
               <div className="text-sm text-blue-800">
-                <strong>Modalità sola lettura.</strong> Stai visualizzando il confronto dei preventivi approvati. Per inserire consuntivi/rettifiche contatta Lilian.
+                <strong>Modalità sola lettura.</strong> Stai visualizzando il confronto dei preventivi approvati. Per inserire consuntivi o rettifiche rivolgiti a chi approva il budget.
               </div>
             </div>
           )}
@@ -1660,7 +1660,7 @@ export default function BudgetControl() {
             <div className="text-center py-12 bg-slate-50 rounded-xl">
               <Lock className="mx-auto text-slate-300 mb-3" size={48} />
               <p className="text-slate-500 font-medium">{canApproveBudget ? 'Nessun preventivo creato' : 'Nessun preventivo approvato'}</p>
-              <p className="text-sm text-slate-400 mt-1">{canApproveBudget ? 'Crea prima un Business Plan nel tab precedente' : 'I preventivi compaiono qui dopo l\'approvazione di Lilian'}</p>
+              <p className="text-sm text-slate-400 mt-1">{canApproveBudget ? 'Crea prima un Business Plan nel tab precedente' : 'I preventivi compaiono qui dopo l\'approvazione di chi approva il budget'}</p>
             </div>
           ) : (
             <>
@@ -2057,7 +2057,7 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
               <Lock size={14} className="text-emerald-600 shrink-0" />
               <span>
                 Preventivo approvato{workflowMeta?.approvedAt ? ` il ${new Date(workflowMeta.approvedAt).toLocaleString('it-IT')}` : ''}.
-                {' '}{canApprove ? 'Sblocca per modificare.' : 'Per modifiche contatta Lilian.'}
+                {' '}{canApprove ? 'Sblocca per modificare.' : 'Per modifiche rivolgiti a chi approva il budget.'}
               </span>
             </div>
           )}
@@ -3076,7 +3076,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             <div className="min-w-0">
               <span className="text-sm font-bold text-slate-900">Imposte</span>
               <span className="text-[11px] text-slate-500 ml-2">
-                {isAggregate ? 'valore annuale (inserito da Lilian)' : 'quota allocata'}
+                {isAggregate ? 'valore annuale (inserito a mano)' : 'quota allocata'}
               </span>
             </div>
             {isAggregate && imposteEditable ? (
