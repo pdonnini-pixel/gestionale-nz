@@ -1402,3 +1402,29 @@ sono ore che il traffico non chiede e restano da assegnare (regola 1), non un di
 ## Ferie e permessi in linea con il mese nel piano del mese (14/11/2026)
 
 Alla creazione del piano «con ferie e permessi» il sistema propone ferie e permessi pari al maturato del mese, li mette nel calendario come proposte (bordo tratteggiato) e calcola i turni tenendone conto. Approvare, spostare o togliere una proposta, o mettere e togliere una ferie dalla finestra del turno, fa ricalcolare i turni delle settimane toccate (`ricalcola` in `PianiMensili.tsx`): si rifanno solo i turni proposti dal sistema in bozza, mai quelli a mano o pubblicati, mai un mese chiuso. Regola, fonti, misura sugli otto negozi e limiti in `PIANO_FERIE_NOTES.md`, sezione «Ferie e permessi in linea con il mese». Librerie: `src/lib/ferieInLinea.ts` (pura, testata), `src/lib/ferieInLineaDb.ts`, riquadro `src/components/FerieInLinea.tsx`, migration 411.
+
+## Giorni a spezzoni da 4 ore: i cinque casi rimasti aperti (16/11/2026)
+
+Dopo la correzione del pezzo di settimana restavano cinque giorni feriali con tre o quattro persone, tutte con turni da 4-5 ore: Brugnato 21 e 23/12, Franciacorta 21 e 22/12, Valmontone 2/11 (misura sui sette negozi più Roma Soratte, dati veri di New Zago, novembre e dicembre 2026). Le cause sono tre, diverse.
+
+- **Brugnato, settimana di Natale: manca personale, il motore non c'entra.** Sono in tre (la quarta è in assenza lunga da settembre) e il negozio chiude il 25 e il 26: il contratto della settimana cala di un sesto per ogni festa chiusa (`contrattoIntero` in `pianificaMese`: 40 → 26,7, 30 → 20), come per legge. Restano circa 13 ore al giorno per un negozio aperto 10 ore con due persone nelle ore centrali: tre turni da 4-5 ore sono l'unico modo per non lasciarlo vuoto. Una ricerca tre volte più lunga dà la stessa identica settimana. Le ore scoperte (44,95 a dicembre) lo dicono già nella pagina.
+- **Valmontone, lunedì 2/11: è giusto così.** Una delle ragazze è in ferie da martedì a domenica e le restano 5 ore della settimana, che vanno al lunedì.
+- **Franciacorta 21-22/12: la ricerca si fermava presto.** Le ore della settimana sono giuste (contratto meno il 25), ma il motore metteva quattro turni da 4 ore in fila dove ne bastavano due lunghi, con la stessa copertura. Il conto del motore (`contoSettimana`) giudica migliore la settimana a turni lunghi (3.240 contro 13.900): era la ricerca a non arrivarci. Misura su tutte le 88 settimane: in 34 la ricerca si fermava prima di una settimana che il conto giudica migliore.
+
+### Cosa si è cambiato
+
+Una mossa nuova nella rifinitura di `ottimizzaSettimana` (`unisciTurni` in `src/lib/ottimizzaTurni.ts`): in un giorno una persona allunga il suo turno fino a coprire anche quello di una collega, e la collega, se serve, prende il posto della prima in un altro giorno della settimana, così le ore di ognuna restano quelle. Tocca due o quattro caselle insieme, per questo le mosse a caso e la discesa casella per casella non la trovavano. **Passa solo se il conto scende**: l'ordine delle regole e i pesi non cambiano. `unisciTurniCorti` la espone per i test.
+
+Scartata l'alternativa di allungare la ricerca: tre volte più giri danno il 4% di ore scoperte in meno ma 2,6 volte il tempo, e i giorni a spezzoni si spostano invece di sparire.
+
+### Misura (stesso banco, stessi dati)
+
+| | prima | con la mossa |
+|---|---|---|
+| ore scoperte, 8 negozi × 2 mesi | 142,27 | 140,50 |
+| turni | 1.320 | 1.297 |
+| ore di straordinario | 215,0 | 215,0 |
+| giorni feriali a spezzoni | 5 | 3 |
+| tempo totale / mese più lento | 20,8 s / 1,7 s | 22,9 s / 2,0 s |
+
+Franciacorta: il 22 e il 23/12 diventano giorni a due persone con turni lunghi; il 21/12 resta a quattro pezzi (servirebbero due unioni insieme). Valmontone 2/11: tre turni invece di quattro, con un turno pieno 10-19; novembre da 17,47 a 15,98 ore scoperte. Barberino dicembre da 1,38 a 0,96. Unico peggioramento: Franciacorta novembre da 2,21 a 2,35 ore scoperte, perché le settimane si concatenano (coppie viste, lunedì visti) e la ricerca parte da un'altra settimana prima. Restano i due giorni di Brugnato, che sono personale mancante.

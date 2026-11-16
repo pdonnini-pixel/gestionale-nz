@@ -656,7 +656,50 @@ function rifinisci(q: Quadro, st: Stato, c0: number, passate = 6): number {
         if (cn < c - 1e-9) { c = cn; mosso = true; } else { st[p][d] = x; st[p2][d] = y; }
       }
     }
+    if (unisciTurni(q, st, c) < c - 1e-9) { c = costo(q, st); mosso = true; }
     if (!mosso) break;
+  }
+  return c;
+}
+
+/**
+ * Due turni corti della stessa giornata diventano uno lungo (16/11/2026, Franciacorta 21-22/12:
+ * quattro turni da 4 ore dove ne bastavano due). Una persona allunga il suo turno fino a coprire
+ * anche quello della collega; la collega, se serve, prende il posto della prima in un altro giorno
+ * della settimana, cosi' le ore di ognuna restano quelle. Tocca due o quattro caselle insieme, e
+ * per questo le mosse a caso e la discesa casella per casella non la trovano. Passa solo se il
+ * conto scende.
+ */
+function unisciTurni(q: Quadro, st: Stato, c0: number): number {
+  let c = c0;
+  const P = q.persone.length; const D = q.giorni.length;
+  for (let d = 0; d < D; d++) {
+    if (q.giorni[d].chiuso) continue;
+    for (let p = 0; p < P; p++) for (let p2 = 0; p2 < P; p2++) {
+      if (p === p2) continue;
+      const x = st[p][d]; const y = st[p2][d];
+      if (!x || !y || q.giornoFisso[p][d] || q.giornoFisso[p2][d]) continue;
+      const da = Math.min(x.s, y.s); const a = Math.max(x.s + x.w, y.s + y.w);
+      const lungo = dentro(q, p, d, da, a - da);
+      if (!lungo || lungo.w <= x.w) continue;
+      // senza compenso: la collega quel giorno non lavora
+      st[p][d] = lungo; st[p2][d] = null;
+      let cn = costo(q, st);
+      if (cn < c - 1e-9) { c = cn; continue; }
+      // con compenso: la collega prende un turno della prima in un altro giorno
+      let fatto = false;
+      for (let e = 0; e < D && !fatto; e++) {
+        if (e === d || q.giorni[e].chiuso) continue;
+        const z = st[p][e]; const w2 = st[p2][e];
+        if (!z || w2 || q.giornoFisso[p][e] || q.giornoFisso[p2][e]) continue;
+        const preso = dentro(q, p2, e, z.s, z.w);
+        if (!preso) continue;
+        st[p][e] = null; st[p2][e] = preso;
+        cn = costo(q, st);
+        if (cn < c - 1e-9) { c = cn; fatto = true; } else { st[p][e] = z; st[p2][e] = w2; }
+      }
+      if (!fatto) { st[p][d] = x; st[p2][d] = y; }
+    }
   }
   return c;
 }
@@ -1049,6 +1092,28 @@ export function contoSettimana(
     return contoSettimana(giorni, turni.filter((t) => !tenuti.has(t) && !pr.altri.includes(t)), persone, regole, nuove, [...pr.tuttiFissi, ...pr.fuoriStato]);
   }
   return costo(pr.q, pr.partenza);
+}
+
+/**
+ * Solo la mossa «due turni corti diventano uno lungo» (`unisciTurni`), ripetuta finche' il conto
+ * scende. Serve ai test e alle misure: nel motore la mossa sta dentro la rifinitura.
+ */
+export function unisciTurniCorti(
+  giorni: GiornoPiano[], turni: Turno[], persone: PersonaTurni[], regole: RegoleTurni = REGOLE_DEFAULT,
+  nuove: RegoleNuove = {}, fissi: Turno[] = [],
+): Turno[] {
+  const pr = prepara(giorni, turni, persone, regole, nuove, fissi);
+  if (!pr || pr.fuoriStato.length) return turni;
+  const { q, partenza: st, altri } = pr;
+  let c = costo(q, st);
+  if (!Number.isFinite(c)) return turni;
+  for (let giro = 0; giro < 6; giro++) { const cn = unisciTurni(q, st, c); if (!(cn < c - 1e-9)) break; c = cn; }
+  const out: Turno[] = [];
+  for (let p = 0; p < persone.length; p++) for (let d = 0; d < giorni.length; d++) {
+    const x = st[p][d];
+    if (x) out.push({ employeeId: persone[p].id, data: giorni[d].data, inizio: hhmm(x.s), fine: hhmm(x.s + x.w), pausaMinuti: pausaMinimaPerPresenza(x.w, regole) });
+  }
+  return [...out, ...altri];
 }
 
 export function ottimizzaSettimana(
