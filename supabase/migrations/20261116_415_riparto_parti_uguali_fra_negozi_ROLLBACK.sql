@@ -11,7 +11,9 @@ UPDATE public.supplier_allocation_rules
    SET is_active = false, updated_at = now()
  WHERE created_by IS NULL
    AND is_active
-   AND description LIKE 'Automatica: parti uguali fra i negozi%';
+   AND (description LIKE 'Automatica: parti uguali fra i negozi%'
+        OR description LIKE 'Automatica: telefoni, negozio dell''indirizzo della linea%');  -- 416
+-- Ordine dei rollback: 417, poi 416, poi questo.
 
 -- 3. La funzione resta quella della 415: con la scelta spenta il passaggio nuovo non scatta
 --    e il resto è identico a prima. Per riportarla al testo esatto di prima si rifanno al
