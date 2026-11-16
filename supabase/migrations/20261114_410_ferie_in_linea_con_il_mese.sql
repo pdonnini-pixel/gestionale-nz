@@ -399,6 +399,12 @@ DECLARE
   v_nome text;
 BEGIN
   r := public.ferie_proposta_mia(p_request_id, false);
+  -- come lo sposta: in un mese chiuso (cedolini arrivati) le proposte non si toccano piu'
+  IF EXISTS (SELECT 1 FROM public.leave_request_days d
+              WHERE d.request_id = r.id
+                AND public.turni_mese_chiuso(r.company_id, date_trunc('month', d.data)::date)) THEN
+    RAISE EXCEPTION 'Il mese di questa proposta è chiuso: non si toglie più.' USING ERRCODE = '22023';
+  END IF;
   -- gli eventi della bozza spariscono con lei: chi l'ha tolta resta scritto qui
   SELECT NULLIF(btrim(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), '') INTO v_nome
     FROM public.user_profiles u WHERE u.id = auth.uid();
@@ -425,8 +431,9 @@ GRANT EXECUTE ON FUNCTION public.ferie_proposta_togli(uuid) TO authenticated, se
 --     indicate, tutte nel mese del piano: un turno messo a mano o pubblicato non si cancella, non si
 --     cambia e non si sovrappone;
 --   * mai una simulazione, mai un mese chiuso;
---   * chi NON gestisce i turni la usa solo da oggi in poi e mai con un elenco vuoto (non puo'
---     svuotare un mese), e non scrive il riepilogo del piano: resta quello di prima, segnato
+--   * chi NON gestisce i turni la usa solo da oggi in poi, mai con un elenco vuoto e mai lasciando
+--     senza turni un giorno che ne aveva (non puo' svuotare un mese), scrive i turni senza
+--     straordinario (lo ricalcola chi gestisce i turni), e non scrive il riepilogo del piano: resta quello di prima, segnato
 --     «daRicalcolare», finche' non lo rifa' chi gestisce i turni;
 --   * ogni turno nuovo e' di una persona in servizio in quel negozio quel giorno (stessa regola
 --     della pagina), senza una giornata di ferie o permesso gia' approvata, lungo fra il turno
@@ -456,6 +463,7 @@ DECLARE
   v_tolti  integer := 0;
   v_demo   uuid[];
   v_gestore boolean := COALESCE((SELECT public.organico_puo_scrivere()), false);
+  v_vuoto   date;
   v_ruolo  text := COALESCE((SELECT public.get_my_role())::text, '');
   v_oggi   date := (now() AT TIME ZONE 'Europe/Rome')::date;
   v_senza_ferie boolean;
@@ -496,6 +504,16 @@ BEGIN
     IF jsonb_array_length(p_turni) = 0 THEN
       RAISE EXCEPTION 'L''elenco dei turni è vuoto: con il tuo profilo i turni non si tolgono soltanto, si rifanno.' USING ERRCODE = '22023';
     END IF;
+    -- ne' svuotarne una parte: ogni giorno che oggi ha turni proposti deve riceverne almeno uno
+    -- nuovo (molte date e un turno solo toglierebbero quasi tutto il mese)
+    SELECT min(s.data) INTO v_vuoto
+      FROM public.shifts s
+     WHERE s.plan_id = pl.id AND s.origine = 'proposta' AND s.stato = 'bozza' AND s.data = ANY (p_date)
+       AND s.employee_id <> ALL (COALESCE((SELECT public.dipendenti_demo_ids())::uuid[], '{}'::uuid[]))
+       AND NOT EXISTS (SELECT 1 FROM jsonb_to_recordset(p_turni) AS x(data date) WHERE x.data = s.data);
+    IF v_vuoto IS NOT NULL THEN
+      RAISE EXCEPTION 'Il % resterebbe senza turni proposti: con il tuo profilo non si può. Chiedi a chi gestisce i turni di ricalcolare il mese.', to_char(v_vuoto, 'DD/MM') USING ERRCODE = '22023';
+    END IF;
   END IF;
 
   SELECT COALESCE(r.turno_min_ore, 4), COALESCE(r.turno_max_ore, 10) INTO v_min, v_max
@@ -512,7 +530,9 @@ BEGIN
   GET DIAGNOSTICS v_tolti = ROW_COUNT;
 
   FOR t IN
-    SELECT x.employee_id, x.data, x.inizio, x.fine, COALESCE(x.pausa_minuti, 0) AS pausa_minuti, COALESCE(x.ore_straordinario, 0) AS ore_straordinario
+    SELECT x.employee_id, x.data, x.inizio, x.fine, COALESCE(x.pausa_minuti, 0) AS pausa_minuti,
+           -- lo straordinario lo decide chi gestisce i turni: per gli altri nasce a zero
+           CASE WHEN v_gestore THEN COALESCE(x.ore_straordinario, 0) ELSE 0 END AS ore_straordinario
       FROM jsonb_to_recordset(p_turni) AS x(employee_id uuid, data date, inizio time, fine time, pausa_minuti integer, ore_straordinario numeric)
   LOOP
     IF t.employee_id IS NULL OR t.data IS NULL OR t.inizio IS NULL OR t.fine IS NULL OR NOT (t.data = ANY (p_date)) THEN

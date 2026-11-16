@@ -1761,7 +1761,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               <p className="text-xs text-slate-500 mt-0.5">Fabbisogno da: {pianoAperto.riepilogo.fonte ?? '-'}</p>
               {pianoAperto.riepilogo.daRicalcolare && (
                 <p className="text-xs text-amber-800 mt-1">
-                  I turni sono stati rifatti dopo una modifica a ferie e permessi, ma i numeri del riepilogo (ore scoperte, straordinario, ore per persona) sono ancora quelli di prima: li aggiorna chi gestisce i turni con «Ricalcola il mese».
+                  I turni sono stati rifatti dopo una modifica a ferie e permessi, ma i numeri del riepilogo (ore scoperte, straordinario, ore per persona) sono ancora quelli di prima e i turni rifatti sono senza straordinario: li aggiorna chi gestisce i turni con «Ricalcola il mese».
                 </p>
               )}
               {pianoAperto.riepilogo.ipotesi && (
