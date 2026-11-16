@@ -29,9 +29,18 @@
 -- (timbrature_puo_timbrare, timbrature_firma, timbrature_pin_controlla,
 -- timbrature_pin_del_negozio): la formula della firma non e' duplicata.
 -- QR o PIN sbagliati non sollevano errori ma rispondono {errore}: cosi' i tentativi del
--- PIN restano contati (blocco dopo 5). Il QR letto per entrare nella sezione vale 15 minuti (passo da 30 secondi):
--- quanto serve a leggere piu' capi di fila; la sezione a video si chiude da
--- sola dopo 30 secondi senza tocchi.
+-- PIN restano contati (blocco dopo 5). Il QR letto per entrare nella sezione vale 10 minuti,
+-- come per le timbrature, e solo sul telefono del negozio della persona (stessa regola del
+-- PIN: timbrature_pin_del_negozio). La sezione a video si chiude da sola dopo 30 secondi
+-- senza tocchi. Ogni «Conferma» porta un id generato dal telefono (p_richiesta): se arriva
+-- due volte (doppio tocco, rete che cade) si registra una volta sola (divise_richieste).
+--
+-- NESSUNO TOCCA I PROPRI CAPI (revisori, 16/11/2026, come «nessuno decide la propria» delle
+-- ferie): correzioni, scarico, addebito, annullamento e sconti personali rifiutano la persona
+-- collegata a chi chiama (employees.user_id o responsabile_dipendente), Super Advisor compreso.
+-- Un capo registrato per sbaglio si ANNULLA con il motivo (mai cancellato): resta visibile
+-- barrato e non conta piu' in contatori, importi e app.
+-- Il profilo viewer (sola lettura) non gestisce mai.
 --
 -- NO DATA LOSS: solo tabelle e funzioni nuove. Le chiavi esterne verso
 -- employees non hanno cascade: lo storico dei capi non si perde.
@@ -106,6 +115,14 @@ CREATE TABLE IF NOT EXISTS public.employee_capi (
   scaricato_da     uuid,
   addebitato_il    timestamptz,
   addebitato_da    uuid,
+  -- annullato per sbaglio: resta visibile, non conta piu' (mai DELETE)
+  annullato_il     timestamptz,
+  annullato_da     uuid,
+  annullato_motivo text,
+  -- la «Conferma» del telefono che l'ha registrato (vedi divise_richieste)
+  richiesta_id     uuid,
+  CONSTRAINT employee_capi_annullato_motivo CHECK (
+    annullato_il IS NULL OR length(btrim(COALESCE(annullato_motivo, ''))) BETWEEN 3 AND 300),
   CONSTRAINT employee_capi_divisa_coerente CHECK (
     (voce = 'acquisto' AND divisa_id IS NULL AND sconto_pct IS NOT NULL)
     OR (voce = 'divisa_sconto' AND divisa_id IS NOT NULL AND sconto_pct IS NOT NULL)
@@ -115,6 +132,17 @@ CREATE TABLE IF NOT EXISTS public.employee_capi (
 CREATE INDEX IF NOT EXISTS employee_capi_employee_idx ON public.employee_capi (employee_id, registrato_il DESC);
 CREATE INDEX IF NOT EXISTS employee_capi_company_idx ON public.employee_capi (company_id);
 CREATE INDEX IF NOT EXISTS employee_capi_divisa_idx ON public.employee_capi (divisa_id);
+
+-- Ogni «Conferma» del telefono del negozio, con l'esito restituito: la stessa richiesta
+-- arrivata due volte restituisce lo stesso esito senza scrivere di nuovo.
+CREATE TABLE IF NOT EXISTS public.divise_richieste (
+  richiesta_id uuid PRIMARY KEY,
+  company_id   uuid NOT NULL REFERENCES public.companies(id),
+  employee_id  uuid NOT NULL REFERENCES public.employees(id),
+  esito        jsonb NOT NULL,
+  creato_il    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS divise_richieste_employee_idx ON public.divise_richieste (employee_id, creato_il DESC);
 
 -- Registro di ogni azione: non si modifica e non si cancella
 CREATE TABLE IF NOT EXISTS public.divise_registro (
@@ -151,7 +179,7 @@ AS $$
   SELECT COALESCE((SELECT public.get_my_role())::text, '') = 'super_advisor'
       OR EXISTS (SELECT 1 FROM public.divise_gestori g
                   WHERE g.company_id = (SELECT public.get_my_company_id()) AND g.user_id = (SELECT auth.uid())
-                    AND COALESCE((SELECT public.get_my_role())::text, '') NOT IN ('', 'dipendente', 'operatore_cassa'));
+                    AND COALESCE((SELECT public.get_my_role())::text, '') NOT IN ('', 'dipendente', 'operatore_cassa', 'viewer'));
 $$;
 REVOKE ALL ON FUNCTION public.divise_posso_gestire() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.divise_posso_gestire() TO authenticated, service_role;
@@ -164,6 +192,26 @@ ALTER TABLE public.employee_divise_sconti ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employee_divise        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.employee_capi          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.divise_registro        ENABLE ROW LEVEL SECURITY;
+-- le richieste del telefono non si leggono dall'API: servono solo a divise_registra
+ALTER TABLE public.divise_richieste       ENABLE ROW LEVEL SECURITY;
+
+-- Recinti per ruolo come le altre tabelle con dati di persone (migration 329): anche se un
+-- giorno divise_posso_gestire cambiasse, operatore di cassa e dipendente restano fuori.
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['divise_impostazioni', 'divise_gestori', 'employee_divise_sconti',
+                           'employee_divise', 'employee_capi', 'divise_registro', 'divise_richieste'] LOOP
+    EXECUTE format('DROP POLICY IF EXISTS cash_operator_block ON public.%I', t);
+    EXECUTE format($p$CREATE POLICY cash_operator_block ON public.%I AS RESTRICTIVE FOR ALL TO authenticated
+      USING (COALESCE((SELECT public.get_my_role())::text, '') <> 'operatore_cassa')
+      WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '') <> 'operatore_cassa')$p$, t);
+    EXECUTE format('DROP POLICY IF EXISTS dipendente_block ON public.%I', t);
+    EXECUTE format($p$CREATE POLICY dipendente_block ON public.%I AS RESTRICTIVE FOR ALL TO authenticated
+      USING (COALESCE((SELECT public.get_my_role())::text, '') <> 'dipendente')
+      WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '') <> 'dipendente')$p$, t);
+  END LOOP;
+END $$;
 
 DROP POLICY IF EXISTS divise_impostazioni_select ON public.divise_impostazioni;
 CREATE POLICY divise_impostazioni_select ON public.divise_impostazioni FOR SELECT TO authenticated
@@ -184,14 +232,17 @@ DROP POLICY IF EXISTS divise_registro_select ON public.divise_registro;
 CREATE POLICY divise_registro_select ON public.divise_registro FOR SELECT TO authenticated
   USING (company_id = (SELECT public.get_my_company_id()) AND (SELECT public.divise_posso_gestire()));
 
--- Solo lettura dall'API: le scritture passano dalle funzioni SECURITY DEFINER
+-- Solo lettura dall'API: le scritture passano dalle funzioni SECURITY DEFINER. Prima si tolgono
+-- tutti i privilegi di default (anche TRUNCATE), poi si concede la sola SELECT.
 REVOKE ALL ON public.divise_impostazioni, public.divise_gestori, public.employee_divise_sconti,
-              public.employee_divise, public.employee_capi, public.divise_registro FROM anon;
+              public.employee_divise, public.employee_capi, public.divise_registro,
+              public.divise_richieste FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.divise_impostazioni, public.divise_gestori, public.employee_divise_sconti,
                public.employee_divise, public.employee_capi, public.divise_registro TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.divise_impostazioni, public.divise_gestori, public.employee_divise_sconti,
                public.employee_divise, public.employee_capi TO service_role;
 GRANT SELECT, INSERT ON public.divise_registro TO service_role;
+GRANT SELECT, INSERT ON public.divise_richieste TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.divise_registro_id_seq TO service_role;
 
 -- ── 4. Funzioni interne ──────────────────────────────────────────────────
@@ -248,9 +299,13 @@ BEGIN
     IF NOT FOUND OR public.timbrature_firma(v_segreto, employee_id, v_passo) <> lower(v_parti[4]) THEN
       employee_id := NULL; errore := 'QR non valido: riapri l''app e avvicina di nuovo il QR.'; RETURN;
     END IF;
-    -- il QR vale 15 minuti: quanto serve a leggere piu' capi di fila
-    IF abs(extract(epoch FROM now()) - v_passo * 30) > 900 THEN
+    -- il QR vale 10 minuti, come per le timbrature (revisore sicurezza, 16/11/2026)
+    IF abs(extract(epoch FROM now()) - v_passo * 30) > 600 THEN
       employee_id := NULL; errore := 'Il QR è scaduto: avvicina di nuovo il QR del tuo telefono.'; RETURN;
+    END IF;
+    -- e solo sul telefono del proprio negozio (o di quello del turno di oggi), come il PIN
+    IF NOT public.timbrature_pin_del_negozio(employee_id, p_outlet_id, v_oggi) THEN
+      employee_id := NULL; errore := 'Divise e acquisti si registrano sul telefono del tuo negozio.'; RETURN;
     END IF;
     modo := 'qr';
   ELSIF array_length(v_parti, 1) = 3 AND v_parti[1] = 'NZP1'
@@ -321,7 +376,7 @@ BEGIN
   RETURN jsonb_build_object(
     'divise', COALESCE((SELECT jsonb_agg(jsonb_build_object(
                  'numero', d.numero, 'tipo', d.tipo, 'aperta_il', d.aperta_il,
-                 'pezzi', (SELECT count(*) FROM public.employee_capi k WHERE k.divisa_id = d.id)) ORDER BY d.numero)
+                 'pezzi', (SELECT count(*) FROM public.employee_capi k WHERE k.divisa_id = d.id AND k.annullato_il IS NULL)) ORDER BY d.numero)
                FROM public.employee_divise d WHERE d.employee_id = c.employee_id), '[]'::jsonb),
     'prossima', COALESCE((SELECT max(d.numero) FROM public.employee_divise d WHERE d.employee_id = c.employee_id), 0) + 1);
 END $$;
@@ -332,7 +387,9 @@ GRANT EXECUTE ON FUNCTION public.divise_timbratrice_apri(uuid, text) TO authenti
 -- p_voce: divisa_fornita | divisa_sconto | acquisto
 -- p_divisa: numero di una divisa della persona dello stesso tipo, oppure NULL = nuova divisa
 -- p_capi: [{ "codice": "8001234567913", "prezzo": 50.00 }, ...] (da 1 a 30)
-CREATE OR REPLACE FUNCTION public.divise_registra(p_outlet_id uuid, p_codice text, p_voce text, p_divisa integer, p_capi jsonb)
+-- p_richiesta: id generato dal telefono per ogni «Conferma»; la stessa richiesta arrivata due
+-- volte (doppio tocco, rete che cade) restituisce lo stesso esito senza registrare di nuovo.
+CREATE OR REPLACE FUNCTION public.divise_registra(p_outlet_id uuid, p_codice text, p_voce text, p_divisa integer, p_capi jsonb, p_richiesta uuid)
 RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = public, pg_temp
@@ -348,7 +405,12 @@ DECLARE
   v_prezzo  numeric;
   v_id      uuid;
   v_n       integer := 0;
+  v_gia     public.divise_richieste%ROWTYPE;
+  v_esito   jsonb;
 BEGIN
+  IF p_richiesta IS NULL THEN
+    RAISE EXCEPTION 'Manca l''identificativo della conferma: ricarica la pagina.' USING ERRCODE = '22023';
+  END IF;
   SELECT * INTO c FROM public.divise_chi_e(p_outlet_id, p_codice);
   -- QR o PIN non validi: si risponde senza errore, cosi' il tentativo del PIN resta contato
   IF c.errore IS NOT NULL THEN
@@ -362,6 +424,14 @@ BEGIN
   END IF;
   -- una registrazione alla volta per persona: il numero della divisa nuova non si doppia
   PERFORM pg_advisory_xact_lock(hashtext('divise:' || c.employee_id::text));
+  -- la stessa «Conferma» arrivata di nuovo: stesso esito, niente di scritto
+  SELECT * INTO v_gia FROM public.divise_richieste q WHERE q.richiesta_id = p_richiesta;
+  IF FOUND THEN
+    IF v_gia.employee_id <> c.employee_id OR v_gia.company_id <> v_company THEN
+      RAISE EXCEPTION 'Conferma non valida: ricarica la pagina.' USING ERRCODE = '22023';
+    END IF;
+    RETURN v_gia.esito || jsonb_build_object('ripetuta', true);
+  END IF;
 
   IF p_voce <> 'acquisto' THEN
     v_tipo := CASE p_voce WHEN 'divisa_fornita' THEN 'fornita' ELSE 'sconto' END;
@@ -413,9 +483,9 @@ BEGIN
     IF v_prezzo IS NULL AND p_voce <> 'divisa_fornita' THEN
       RAISE EXCEPTION 'Manca il prezzo outlet del codice %', v_cod USING ERRCODE = '22023';
     END IF;
-    INSERT INTO public.employee_capi (company_id, employee_id, outlet_id, divisa_id, voce, codice, prezzo_outlet, sconto_pct, registrato_con)
+    INSERT INTO public.employee_capi (company_id, employee_id, outlet_id, divisa_id, voce, codice, prezzo_outlet, sconto_pct, registrato_con, richiesta_id)
     VALUES (v_company, c.employee_id, p_outlet_id, CASE WHEN p_voce = 'acquisto' THEN NULL ELSE v_div.id END,
-            p_voce, v_cod, v_prezzo, v_sconto, c.modo)
+            p_voce, v_cod, v_prezzo, v_sconto, c.modo, p_richiesta)
     RETURNING id INTO v_id;
     PERFORM public.divise_scrivi_registro(v_company, c.employee_id, v_id, 'capo_registrato',
       jsonb_build_object('voce', p_voce, 'codice', v_cod, 'prezzo_outlet', v_prezzo, 'sconto_pct', v_sconto,
@@ -423,11 +493,15 @@ BEGIN
     v_n := v_n + 1;
   END LOOP;
 
-  RETURN jsonb_build_object('capi', v_n, 'divisa', CASE WHEN p_voce = 'acquisto' THEN NULL ELSE v_div.numero END,
-    'pezzi_divisa', CASE WHEN p_voce = 'acquisto' THEN NULL ELSE (SELECT count(*) FROM public.employee_capi k WHERE k.divisa_id = v_div.id) END);
+  v_esito := jsonb_build_object('capi', v_n, 'divisa', CASE WHEN p_voce = 'acquisto' THEN NULL ELSE v_div.numero END,
+    'pezzi_divisa', CASE WHEN p_voce = 'acquisto' THEN NULL
+                         ELSE (SELECT count(*) FROM public.employee_capi k WHERE k.divisa_id = v_div.id AND k.annullato_il IS NULL) END);
+  INSERT INTO public.divise_richieste (richiesta_id, company_id, employee_id, esito)
+  VALUES (p_richiesta, v_company, c.employee_id, v_esito);
+  RETURN v_esito;
 END $$;
-REVOKE ALL ON FUNCTION public.divise_registra(uuid, text, text, integer, jsonb) FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.divise_registra(uuid, text, text, integer, jsonb) TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.divise_registra(uuid, text, text, integer, jsonb, uuid) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.divise_registra(uuid, text, text, integer, jsonb, uuid) TO authenticated, service_role;
 
 -- ── 6. Sede: chi gestisce ────────────────────────────────────────────────
 
@@ -444,6 +518,23 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.divise_gestione_controlla() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.divise_gestione_controlla() TO service_role;
+
+-- Nessuno tocca i propri capi ne' i propri sconti (revisori, 16/11/2026; come «nessuno decide
+-- la propria» delle ferie), Super Advisor compreso: la persona collegata a chi chiama, dalla
+-- scheda (employees.user_id) o dal collegamento dei referenti (responsabile_dipendente).
+CREATE OR REPLACE FUNCTION public.divise_non_proprio(p_employee uuid)
+RETURNS void
+LANGUAGE plpgsql STABLE SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM public.employees e WHERE e.id = p_employee AND e.user_id = (SELECT auth.uid()))
+     OR EXISTS (SELECT 1 FROM public.responsabile_dipendente r WHERE r.employee_id = p_employee AND r.user_id = (SELECT auth.uid())) THEN
+    RAISE EXCEPTION 'Le tue divise e i tuoi acquisti li sistema un''altra persona.' USING ERRCODE = '42501';
+  END IF;
+END $$;
+REVOKE ALL ON FUNCTION public.divise_non_proprio(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.divise_non_proprio(uuid) TO service_role;
 
 -- Segna (o toglie il segno) «scaricato in MODA» o «addebitato» su piu' capi
 CREATE OR REPLACE FUNCTION public.divise_capi_segna(p_capi uuid[], p_cosa text, p_valore boolean)
@@ -463,6 +554,8 @@ BEGIN
     RAISE EXCEPTION 'Scegli da 1 a 500 capi.' USING ERRCODE = '22023';
   END IF;
   FOR k IN SELECT * FROM public.employee_capi c WHERE c.id = ANY (p_capi) AND c.company_id = v_company FOR UPDATE LOOP
+    PERFORM public.divise_non_proprio(k.employee_id);
+    IF k.annullato_il IS NOT NULL THEN CONTINUE; END IF;  -- un capo annullato non si segna piu'
     IF p_cosa = 'scaricato' THEN
       IF p_valore = (k.scaricato_il IS NOT NULL) THEN CONTINUE; END IF;
       UPDATE public.employee_capi SET scaricato_il = CASE WHEN p_valore THEN now() END,
@@ -503,6 +596,10 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Capo non trovato.' USING ERRCODE = '22023';
   END IF;
+  PERFORM public.divise_non_proprio(k.employee_id);
+  IF k.annullato_il IS NOT NULL THEN
+    RAISE EXCEPTION 'Il capo è annullato: non si corregge.' USING ERRCODE = '22023';
+  END IF;
   UPDATE public.employee_capi SET prezzo_corretto = v_prezzo,
          corretto_il = CASE WHEN v_prezzo IS NULL THEN NULL ELSE now() END,
          corretto_da = CASE WHEN v_prezzo IS NULL THEN NULL ELSE (SELECT auth.uid()) END
@@ -513,6 +610,39 @@ BEGIN
 END $$;
 REVOKE ALL ON FUNCTION public.divise_capo_correggi_prezzo(uuid, numeric) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.divise_capo_correggi_prezzo(uuid, numeric) TO authenticated, service_role;
+
+-- Annulla un capo registrato per sbaglio, con il motivo. Mai DELETE: resta visibile barrato e
+-- non conta piu' in contatori, importi e app. L'annullamento non si toglie: se serve, si
+-- registra di nuovo dal telefono del negozio.
+CREATE OR REPLACE FUNCTION public.divise_capo_annulla(p_capo uuid, p_motivo text)
+RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+  v_company uuid := public.divise_gestione_controlla();
+  k public.employee_capi%ROWTYPE;
+  v_motivo text := btrim(COALESCE(p_motivo, ''));
+BEGIN
+  IF length(v_motivo) < 3 OR length(v_motivo) > 300 THEN
+    RAISE EXCEPTION 'Scrivi il motivo dell''annullamento (da 3 a 300 caratteri).' USING ERRCODE = '22023';
+  END IF;
+  SELECT * INTO k FROM public.employee_capi c WHERE c.id = p_capo AND c.company_id = v_company FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Capo non trovato.' USING ERRCODE = '22023';
+  END IF;
+  PERFORM public.divise_non_proprio(k.employee_id);
+  IF k.annullato_il IS NOT NULL THEN
+    RAISE EXCEPTION 'Il capo è già annullato.' USING ERRCODE = '22023';
+  END IF;
+  UPDATE public.employee_capi SET annullato_il = now(), annullato_da = (SELECT auth.uid()), annullato_motivo = v_motivo
+   WHERE id = k.id;
+  PERFORM public.divise_scrivi_registro(v_company, k.employee_id, k.id, 'capo_annullato',
+    jsonb_build_object('codice', k.codice, 'motivo', v_motivo,
+                       'gia_scaricato', k.scaricato_il IS NOT NULL, 'gia_addebitato', k.addebitato_il IS NOT NULL));
+END $$;
+REVOKE ALL ON FUNCTION public.divise_capo_annulla(uuid, text) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.divise_capo_annulla(uuid, text) TO authenticated, service_role;
 
 -- Sconti personali della persona (NULL = vale lo standard). Non toccano i capi gia' presi.
 CREATE OR REPLACE FUNCTION public.divise_sconti_persona_imposta(p_employee uuid, p_divise numeric, p_acquisti numeric)
@@ -530,6 +660,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM public.employees e WHERE e.id = p_employee AND e.company_id = v_company) THEN
     RAISE EXCEPTION 'Dipendente non trovata.' USING ERRCODE = '22023';
   END IF;
+  PERFORM public.divise_non_proprio(p_employee);
   SELECT s.sconto_divise_pct, s.sconto_acquisti_pct INTO v_prima FROM public.employee_divise_sconti s WHERE s.employee_id = p_employee;
   INSERT INTO public.employee_divise_sconti (employee_id, company_id, sconto_divise_pct, sconto_acquisti_pct, updated_at, updated_by)
   VALUES (p_employee, v_company, round(p_divise, 2), round(p_acquisti, 2), now(), (SELECT auth.uid()))
@@ -595,7 +726,7 @@ BEGIN
   END IF;
   IF p_dentro THEN
     IF NOT EXISTS (SELECT 1 FROM public.user_profiles u WHERE u.id = p_user AND u.company_id = v_company
-                     AND COALESCE(u.role::text, '') NOT IN ('', 'dipendente', 'operatore_cassa')) THEN
+                     AND COALESCE(u.role::text, '') NOT IN ('', 'dipendente', 'operatore_cassa', 'viewer')) THEN
       RAISE EXCEPTION 'Si sceglie fra le persone con un profilo del gestionale di questa azienda.' USING ERRCODE = '22023';
     END IF;
     INSERT INTO public.divise_gestori (company_id, user_id, aggiunto_da) VALUES (v_company, p_user, (SELECT auth.uid()))
@@ -613,7 +744,7 @@ GRANT EXECUTE ON FUNCTION public.divise_gestore_imposta(uuid, boolean) TO authen
 
 CREATE OR REPLACE FUNCTION public.app_dipendente_divise()
 RETURNS TABLE (id uuid, registrato_il timestamptz, voce text, divisa integer, codice text,
-               prezzo_outlet numeric, sconto_pct numeric, prezzo numeric)
+               prezzo_outlet numeric, sconto_pct numeric, prezzo numeric, annullato boolean, annullato_motivo text)
 LANGUAGE sql STABLE SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
@@ -621,7 +752,8 @@ AS $$
          COALESCE(k.prezzo_corretto, k.prezzo_outlet),
          k.sconto_pct,
          CASE WHEN k.voce = 'divisa_fornita' THEN 0
-              ELSE round(COALESCE(k.prezzo_corretto, k.prezzo_outlet) * (100 - COALESCE(k.sconto_pct, 0)) / 100, 2) END
+              ELSE round(COALESCE(k.prezzo_corretto, k.prezzo_outlet) * (100 - COALESCE(k.sconto_pct, 0)) / 100, 2) END,
+         k.annullato_il IS NOT NULL, k.annullato_motivo
     FROM public.employee_capi k
     LEFT JOIN public.employee_divise d ON d.id = k.divisa_id
    WHERE k.employee_id = public.timbrature_mio_dipendente()

@@ -91,7 +91,8 @@ export default function SchedaDipendente() {
   const [saldi, setSaldi] = useState<Saldo[] | null>(null);
   const [richieste, setRichieste] = useState<Richiesta[] | null>(null);
   // Divise e acquisti (migration 422): la sezione la vede solo chi gestisce; null = non disponibile (Made)
-  const [possoDivise, setPossoDivise] = useState<boolean | null>(null);
+  // undefined = ancora in lettura; null = divise e acquisti non attivi su questo gestionale
+  const [possoDivise, setPossoDivise] = useState<boolean | null | undefined>(undefined);
   useEffect(() => { possoGestireDivise().then(setPossoDivise).catch(() => setPossoDivise(null)); }, []);
   const [caricata, setCaricata] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
@@ -335,6 +336,8 @@ export default function SchedaDipendente() {
       {sezione === 'divise' && (possoDivise === true ? (
         <DiviseAcquistiPersona companyId={companyId} employeeId={emp.id} nome={nomeCompleto(emp)} superAdvisor={ruolo === 'super_advisor'}
           negozi={outlets.map((o) => ({ id: o.id, name: o.name }))} />
+      ) : possoDivise === undefined ? (
+        <section className="bg-white border border-slate-200 rounded-xl p-6 flex justify-center"><RefreshCw className="animate-spin text-blue-600" size={20} /></section>
       ) : possoDivise === false || possoDivise === null ? (
         <section className="bg-white border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
           {possoDivise === null ? 'Divise e acquisti non sono attivi in questo gestionale.' : 'Divise e acquisti li vede solo chi è nell’elenco scelto dal Super Advisor.'}

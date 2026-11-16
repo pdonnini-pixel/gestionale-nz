@@ -72,6 +72,15 @@ export interface Capo {
   scaricato_da: string | null
   addebitato_il: string | null
   addebitato_da: string | null
+  /** annullato per sbaglio (con il motivo): resta visibile barrato e non conta più */
+  annullato_il?: string | null
+  annullato_da?: string | null
+  annullato_motivo?: string | null
+}
+
+/** Un capo annullato non conta in contatori, importi ed etichette. */
+export function valido(c: Pick<Capo, 'annullato_il'>): boolean {
+  return !c.annullato_il
 }
 
 /** Il prezzo che vale: la correzione della sede se c'è, altrimenti quello scritto in negozio. */
@@ -115,7 +124,8 @@ export interface Contatori {
 }
 
 /** I numeri della sezione: divise (non capi) per le divise, capi per gli acquisti. */
-export function contatori(capi: Capo[], divise: Divisa[]): Contatori {
+export function contatori(tutti: Capo[], divise: Divisa[]): Contatori {
+  const capi = tutti.filter(valido)
   const conPezzi = new Set(capi.map((c) => c.divisa_id).filter(Boolean))
   const da = capi.filter((c) => c.voce !== 'divisa_fornita' && !c.addebitato_il)
   return {
@@ -132,9 +142,10 @@ export function contatori(capi: Capo[], divise: Divisa[]): Contatori {
 }
 
 /** Da sistemare per persona, per l'elenco dei dipendenti. */
-export function daSistemarePerPersona(capi: Pick<Capo, 'employee_id' | 'voce' | 'scaricato_il' | 'addebitato_il'>[]): Map<string, { scaricare: number; addebitare: number }> {
+export function daSistemarePerPersona(capi: (Pick<Capo, 'employee_id' | 'voce' | 'scaricato_il' | 'addebitato_il'> & { annullato_il?: string | null })[]): Map<string, { scaricare: number; addebitare: number }> {
   const m = new Map<string, { scaricare: number; addebitare: number }>()
   for (const c of capi) {
+    if (c.annullato_il) continue
     const x = m.get(c.employee_id) ?? { scaricare: 0, addebitare: 0 }
     if (!c.scaricato_il) x.scaricare += 1
     if (c.voce !== 'divisa_fornita' && !c.addebitato_il) x.addebitare += 1

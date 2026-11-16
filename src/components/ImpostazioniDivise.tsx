@@ -29,7 +29,7 @@ export default function ImpostazioniDivise({ companyId }: { companyId: string })
       ])
       setGestori(g.map((x) => x.user_id))
       setUtenti(((u.data ?? []) as { id: string; first_name: string | null; last_name: string | null; role: string | null }[])
-        .filter((x) => x.role && !['dipendente', 'operatore_cassa'].includes(x.role))
+        .filter((x) => x.role && !['dipendente', 'operatore_cassa', 'viewer'].includes(x.role))
         .map((x) => ({ id: x.id, nome: [x.first_name, x.last_name].filter(Boolean).join(' ') || 'Senza nome', ruolo: x.role ?? '' }))
         .sort((a, b) => a.nome.localeCompare(b.nome)))
       const st = s.data as { sconto_divise_pct: unknown; sconto_acquisti_pct: unknown } | null

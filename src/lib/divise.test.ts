@@ -87,3 +87,28 @@ describe('divise: contatori', () => {
     expect(m.has('e2')).toBe(false)
   })
 })
+
+describe('divise: capi annullati (registrati per sbaglio)', () => {
+  const d1: Divisa = { id: 'd1', numero: 1, tipo: 'sconto', outlet_id: null, aperta_il: '2026-11-10' }
+  const buono = capo({ id: 'k1', voce: 'divisa_sconto', divisa_id: 'd1', prezzo_outlet: 50, sconto_pct: 30 })
+  const annullato = capo({ id: 'k2', voce: 'divisa_sconto', divisa_id: 'd1', prezzo_outlet: 80, sconto_pct: 30, annullato_il: '2026-11-11T10:00:00Z', annullato_motivo: 'letto due volte' })
+  const soloAnnullato = capo({ id: 'k3', voce: 'acquisto', prezzo_outlet: 20, sconto_pct: 10, annullato_il: '2026-11-11T10:00:00Z', annullato_motivo: 'sbaglio', employee_id: 'e2' })
+
+  it('non contano in contatori e importi da addebitare', () => {
+    const k = contatori([buono, annullato], [d1])
+    expect(k.capiSconto).toBe(1)
+    expect(k.daScaricare).toBe(1)
+    expect(k.daAddebitare).toBe(1)
+    expect(k.importoDaAddebitare).toBe(35)
+  })
+
+  it('una divisa con soli capi annullati non conta come divisa', () => {
+    expect(contatori([annullato], [d1]).diviseSconto).toBe(0)
+  })
+
+  it('non compaiono nelle etichette dell elenco dei dipendenti', () => {
+    const m = daSistemarePerPersona([{ ...buono, employee_id: 'e1' }, soloAnnullato])
+    expect(m.get('e1')).toEqual({ scaricare: 1, addebitare: 1 })
+    expect(m.has('e2')).toBe(false)
+  })
+})

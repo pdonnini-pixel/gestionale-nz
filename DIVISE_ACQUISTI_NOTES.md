@@ -45,8 +45,9 @@ Migration `20261116_422_divise_e_acquisti.sql` (con `_ROLLBACK`).
   DEFINER, che scrivono anche il registro.
 - **Telefono del negozio** (`divise_timbratrice_apri`, `divise_registra`): l'identità si ricava
   riusando le funzioni delle timbrature. QR `NZT1` controllato con `timbrature_firma` e valido
-  **15 minuti** (il QR dell'app cambia ogni 30 secondi; il margine copre il tempo per leggere i
-  capi). PIN `NZP1` con `timbrature_pin_del_negozio` e `timbrature_pin_controlla`: 5 errori bloccano
+  **10 minuti**, come per le timbrature, e **solo sul telefono del proprio negozio** (o di quello
+  del turno di oggi): stessa regola del PIN, `timbrature_pin_del_negozio` (revisore sicurezza,
+  16/11/2026: prima 15 minuti e su qualunque negozio). PIN `NZP1` con `timbrature_pin_del_negozio` e `timbrature_pin_controlla`: 5 errori bloccano
   il PIN come nelle timbrature. Per questo gli errori di QR e PIN tornano come `{errore}` e non
   come eccezione: un'eccezione annullerebbe il conteggio dei tentativi. Il negozio deve essere uno
   in cui il telefono può timbrare (`timbrature_puo_timbrare`).
@@ -54,10 +55,28 @@ Migration `20261116_422_divise_e_acquisti.sql` (con `_ROLLBACK`).
   annullate: c'è un'entrata e l'ultima non è un'uscita.
 - `divise_registra`: da 1 a 30 capi, lock per persona, divisa esistente solo se è della persona e
   dello stesso tipo, codici `^[0-9A-Za-z.\-]{4,40}$`, prezzi fra 0 e 100.000.
-- Gestione (`divise_capi_segna`, `divise_capo_correggi_prezzo`, `divise_sconti_persona_imposta`):
-  `divise_gestione_controlla()`. Impostazioni ed elenco (`divise_impostazioni_salva`,
-  `divise_gestore_imposta`): solo Super Advisor. Un gestore non può essere `dipendente` o
-  `operatore_cassa`.
+- **Ripetibile**: ogni «Conferma» del telefono porta un id (`p_richiesta`, generato una volta per
+  conferma e riusato se si riprova dopo un errore di rete). La prima volta l'esito si salva in
+  `divise_richieste`; la stessa richiesta che arriva di nuovo restituisce lo stesso esito con
+  `ripetuta: true` e non scrive niente. Ogni capo porta `richiesta_id`. Una richiesta con lo stesso
+  id ma di un'altra persona viene rifiutata.
+- Gestione (`divise_capi_segna`, `divise_capo_correggi_prezzo`, `divise_capo_annulla`,
+  `divise_sconti_persona_imposta`): `divise_gestione_controlla()`. Impostazioni ed elenco
+  (`divise_impostazioni_salva`, `divise_gestore_imposta`): solo Super Advisor. Un gestore non può
+  essere `dipendente`, `operatore_cassa` o `viewer` (sola lettura: non gestisce mai, nemmeno se
+  finisse nell'elenco).
+- **Nessuno tocca i propri capi né i propri sconti**, Super Advisor compreso (`divise_non_proprio`:
+  la persona collegata a chi chiama da `employees.user_id` o da `responsabile_dipendente`). Nella
+  propria scheda le azioni non compaiono e una riga dice che li sistema un'altra persona.
+- **Annullare un capo** registrato per sbaglio (`divise_capo_annulla`, motivo obbligatorio da 3 a
+  300 caratteri): `annullato_il`, `annullato_da`, `annullato_motivo`, riga `capo_annullato` nel
+  registro, **mai DELETE**. Il capo resta visibile barrato con il motivo e non conta più in
+  contatori, etichette, importi da addebitare e app (dove compare barrato con «annullato»). Non si
+  può correggere né segnare, e l'annullamento non si toglie: se serve si registra di nuovo dal
+  telefono del negozio.
+- Recinti RESTRICTIVE `cash_operator_block` e `dipendente_block` su tutte e 7 le tabelle (come la
+  329), e `REVOKE ALL` da `PUBLIC`, `anon`, `authenticated` prima della sola SELECT: niente
+  TRUNCATE o altri privilegi di default.
 - Registro: trigger `trg_divise_registro_fermo` blocca UPDATE e DELETE.
 - App: `app_dipendente_divise()` restituisce solo i capi della persona collegata
   (`timbrature_mio_dipendente()`).
@@ -66,7 +85,9 @@ Migration `20261116_422_divise_e_acquisti.sql` (con `_ROLLBACK`).
 
 - `src/lib/divise.ts` (calcoli puri, testati), `src/lib/diviseDb.ts` (chiamate).
 - `src/components/TimbraDivise.tsx` (telefono del negozio: voce → divisa → lettura → conferma →
-  fatto, chiusura dopo 30 secondi senza tocchi, formati ean_13, ean_8, code_128, upc_a, upc_e e
+  fatto, chiusura dopo 30 secondi senza tocchi (10 sul «Fatto»; `onChiudi` tenuto in un ref perché
+  Timbra si ridisegna ogni secondo: prima il conto alla rovescia ripartiva sempre e la sezione non
+  si chiudeva, test in `TimbraDivise.test.tsx` con `happy-dom`), formati ean_13, ean_8, code_128, upc_a, upc_e e
   inserimento a mano), pulsante in `src/pages/Timbra.tsx`.
 - `src/components/DiviseAcquistiPersona.tsx` (sezione della scheda), `ImpostazioniDivise.tsx`
   (Super Advisor), badge in `OrganicoOggi.tsx`, `src/components/app/AppDivise.tsx`.
@@ -77,5 +98,4 @@ Migration `20261116_422_divise_e_acquisti.sql` (con `_ROLLBACK`).
 
 - Un'entrata ancora in coda offline sul telefono del negozio non è nel database: finché non parte,
   il pulsante risponde «non risulta entrata».
-- Un gestore con profilo di sola lettura (viewer) può gestire divise e acquisti: è voluto, l'elenco
-  lo decide il Super Advisor.
+- Un capo annullato non si «riattiva»: scelta voluta, semplice e tracciata.

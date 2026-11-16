@@ -35,6 +35,12 @@ export default function TimbraDivise({ outletId, codice, nome, onChiudi }: { out
   const [frontale, setFrontale] = useState(false)
   const [erroreCamera, setErroreCamera] = useState<string | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  // onChiudi arriva da Timbra, che si ridisegna ogni secondo per l'orologio: tenuto in un ref,
+  // il conto alla rovescia della chiusura automatica non riparte a ogni ridisegno (revisore, 16/11/2026)
+  const chiudiRef = useRef(onChiudi)
+  chiudiRef.current = onChiudi
+  // l'id di questa «Conferma»: lo stesso se si riprova dopo un errore di rete, nuovo se i capi cambiano
+  const richiestaRef = useRef<string | null>(null)
   const ultimo = useRef<{ c: string; t: number } | null>(null)
   const primoNome = nome.split(' ')[0] || nome
   const tocca = () => setTocco((n) => n + 1)
@@ -53,9 +59,11 @@ export default function TimbraDivise({ outletId, codice, nome, onChiudi }: { out
   // chiusura da sola dopo 30 secondi senza tocchi (anche il «Fatto», dopo 10)
   useEffect(() => {
     if (fase.k === 'invio') return
-    const t = setTimeout(onChiudi, fase.k === 'fatto' ? 10_000 : ATTESA_MS)
+    const t = setTimeout(() => chiudiRef.current(), fase.k === 'fatto' ? 10_000 : ATTESA_MS)
     return () => clearTimeout(t)
-  }, [fase, tocco, capi, onChiudi])
+  }, [fase, tocco, capi])
+  // capi cambiati: la prossima «Conferma» è una richiesta nuova
+  useEffect(() => { richiestaRef.current = null }, [capi])
 
   const aggiungi = (c: string) => {
     const v = c.trim()
@@ -103,9 +111,10 @@ export default function TimbraDivise({ outletId, codice, nome, onChiudi }: { out
 
   const conferma = async (voce: VoceCapo, divisa: number | null) => {
     const righe = capi.map((c) => ({ codice: c.codice, prezzo: c.prezzo.trim() ? leggiPrezzo(c.prezzo) : null }))
+    richiestaRef.current ??= crypto.randomUUID()
     setFase({ k: 'invio', voce, divisa })
     setErrore(null)
-    const r = await registraCapi(outletId, codice, voce, divisa, righe)
+    const r = await registraCapi(outletId, codice, voce, divisa, righe, richiestaRef.current)
       .catch(() => ({ errore: 'Non salvato: serve la rete. Riprova.' }))
     if ('errore' in r) { setErrore(r.errore); setFase({ k: 'lettura', voce, divisa }); return }
     setFase({ k: 'fatto', voce, divisa: r.divisa, pezzi: r.pezzi_divisa, capi: righe })

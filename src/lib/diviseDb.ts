@@ -4,6 +4,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { supabase } from './supabase'
+import { fetchAllPaged } from './fetchAllPaged'
 import type { Capo, Divisa, VoceCapo } from './divise'
 
 // tabelle e funzioni nuove: non ancora nei tipi generati del database
@@ -53,10 +54,16 @@ export async function caricaDivisePersona(companyId: string, employeeId: string)
 
 /** Per l'elenco dei dipendenti: i capi ancora da scaricare o da addebitare. null = non disponibile. */
 export async function caricaDaSistemare(companyId: string): Promise<Pick<Capo, 'employee_id' | 'voce' | 'scaricato_il' | 'addebitato_il'>[] | null> {
-  const { data, error } = await db.from('employee_capi').select('employee_id, voce, scaricato_il, addebitato_il')
-    .eq('company_id', companyId).or('scaricato_il.is.null,addebitato_il.is.null')
-  if (error) return null
-  return (data ?? []) as Pick<Capo, 'employee_id' | 'voce' | 'scaricato_il' | 'addebitato_il'>[]
+  // a blocchi da 1000: oltre il tetto di PostgREST i conteggi si troncherebbero senza errore
+  try {
+    return await fetchAllPaged<Pick<Capo, 'employee_id' | 'voce' | 'scaricato_il' | 'addebitato_il'>>(
+      (from, to) => db.from('employee_capi').select('id, employee_id, voce, scaricato_il, addebitato_il')
+        .eq('company_id', companyId).is('annullato_il', null).or('scaricato_il.is.null,addebitato_il.is.null')
+        .order('id', { ascending: true }).range(from, to),
+      'employee_capi')
+  } catch {
+    return null
+  }
 }
 
 const scrivi = async (fn: string, args: Record<string, unknown>) => {
@@ -67,6 +74,8 @@ const scrivi = async (fn: string, args: Record<string, unknown>) => {
 
 export const segnaCapi = (ids: string[], cosa: 'scaricato' | 'addebitato', valore: boolean) =>
   scrivi('divise_capi_segna', { p_capi: ids, p_cosa: cosa, p_valore: valore }) as Promise<number>
+export const annullaCapo = (capoId: string, motivo: string) =>
+  scrivi('divise_capo_annulla', { p_capo: capoId, p_motivo: motivo })
 export const correggiPrezzo = (capoId: string, prezzo: number | null) =>
   scrivi('divise_capo_correggi_prezzo', { p_capo: capoId, p_prezzo: prezzo })
 export const impostaScontiPersona = (employeeId: string, divise: number | null, acquisti: number | null) =>
@@ -99,11 +108,17 @@ export async function apriDivise(outletId: string, codice: string): Promise<Aper
   return data as AperturaDivise | { errore: string }
 }
 
-export async function registraCapi(outletId: string, codice: string, voce: VoceCapo, divisa: number | null, capi: { codice: string; prezzo: number | null }[]):
+/**
+ * Registra i capi. `richiesta` è l'id di questa «Conferma», generato una volta sola dal telefono:
+ * se la stessa richiesta arriva due volte (doppio tocco, rete che cade e si riprova) il server
+ * restituisce lo stesso esito senza registrare di nuovo.
+ */
+export async function registraCapi(outletId: string, codice: string, voce: VoceCapo, divisa: number | null, capi: { codice: string; prezzo: number | null }[], richiesta: string):
   Promise<{ capi: number; divisa: number | null; pezzi_divisa: number | null } | { errore: string }> {
   const { data, error } = await db.rpc('divise_registra', {
     p_outlet_id: outletId, p_codice: codice, p_voce: voce, p_divisa: divisa,
     p_capi: capi.map((c) => (c.prezzo == null ? { codice: c.codice } : { codice: c.codice, prezzo: c.prezzo })),
+    p_richiesta: richiesta,
   })
   if (error) return { errore: error.message }
   return data as { capi: number; divisa: number | null; pezzi_divisa: number | null } | { errore: string }
@@ -111,7 +126,7 @@ export async function registraCapi(outletId: string, codice: string, voce: VoceC
 
 // ── App della dipendente ──
 
-export interface MioCapo { id: string; registrato_il: string; voce: VoceCapo; divisa: number | null; codice: string; prezzo_outlet: number | null; sconto_pct: number | null; prezzo: number }
+export interface MioCapo { id: string; registrato_il: string; voce: VoceCapo; divisa: number | null; codice: string; prezzo_outlet: number | null; sconto_pct: number | null; prezzo: number; annullato: boolean; annullato_motivo: string | null }
 
 /** I capi della dipendente collegata. null = funzione assente (sezione nascosta). */
 export async function mieiCapi(): Promise<MioCapo[] | null> {
@@ -119,5 +134,6 @@ export async function mieiCapi(): Promise<MioCapo[] | null> {
   if (error) return null
   return ((data ?? []) as Record<string, unknown>[]).map((x) => ({
     ...(x as unknown as MioCapo), prezzo_outlet: num(x.prezzo_outlet), sconto_pct: num(x.sconto_pct), prezzo: Number(x.prezzo ?? 0),
+    annullato: x.annullato === true, annullato_motivo: (x.annullato_motivo as string | null) ?? null,
   }))
 }
