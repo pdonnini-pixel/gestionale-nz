@@ -67,12 +67,13 @@ export default function ArchivioUnificato({ companyId, showToast, onApriFattura 
     // (sostituisciPrecedenti in archivioFile.ts): il vecchio resta nel database,
     // marcato, ma qui si mostra solo la versione corrente (Zago 16/11/2026: lo
     // stesso «Elenco netti» compariva due volte).
-    const { data: vecchi } = await supabase
+    const { data: vecchi, error: errVecchi } = await supabase
       .from('import_documents')
       .select('id')
       .eq('company_id', companyId)
       .not('superseded_at', 'is', null)
       .limit(5000);
+    if (errVecchi) console.warn('[archivio] versioni sostituite non lette, le mostro tutte:', errVecchi.message);
     const sostituiti = new Set(((vecchi || []) as { id: string }[]).map((v) => v.id));
     const tutte = ((data as unknown) as RigaArchivio[]) || [];
     setRighe(sostituiti.size
