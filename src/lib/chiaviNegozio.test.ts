@@ -20,9 +20,14 @@ describe('chiaviDelNegozio: quando la regola e\' accesa in un negozio', () => {
 
   it('accesa con almeno due abilitate per parte; la nuova non e\' abilitata', () => {
     const m = new Map([['a', ab(true, true)], ['b', ab(true, false)], ['c', ab(false, true)], ['d', ab(false, false)]]);
-    const ch = chiaviDelNegozio(['a', 'b', 'c', 'd', 'nuova-in-simulazione'], m)!;
+    const ch = chiaviDelNegozio(['a', 'b', 'c', 'd', 'nuova-1'], m)!;
     expect([...ch.apre].sort()).toEqual(['a', 'b']);
     expect([...ch.chiude].sort()).toEqual(['a', 'c']);
+  });
+
+  it('spenta se una persona non si vede (accesso limitato ai negozi)', () => {
+    const m = new Map([['a', ab(true, true)], ['b', ab(true, true)]]);
+    expect(chiaviDelNegozio(['a', 'b', 'x'], m)).toBeUndefined();
   });
 
   it('spenta con una sola abilitata: non puo\' aprire o chiudere tutti i giorni', () => {

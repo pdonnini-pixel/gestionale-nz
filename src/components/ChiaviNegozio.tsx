@@ -30,7 +30,7 @@ export default function ChiaviNegozio({ employeeId, outletId }: { employeeId: st
       const [e, hr, o] = await Promise.all([
         db.from('employees').select('puo_aprire, puo_chiudere').eq('id', employeeId).maybeSingle(),
         supabase.rpc('organico_e_hr'),
-        outletId ? db.from('outlets').select('*').eq('id', outletId).maybeSingle() : Promise.resolve({ data: null }),
+        outletId ? db.from('outlets').select('referente_employee_id, vice_referente_employee_id').eq('id', outletId).maybeSingle() : Promise.resolve({ data: null }),
       ]);
       if (!vivo) return;
       if (e.error) { setValori(null); return; }

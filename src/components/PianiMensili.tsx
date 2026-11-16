@@ -477,7 +477,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       lunediPrima: b.lunediPrima,
       // chi puo' aprire e chiudere: le persone in forza (le nuove della simulazione non sono abilitate)
       chiavi: chiaviDelNegozio(personePiano.filter((p) => (p.oreSettimana ?? 0) > 0).map((p) => p.id), b.abilitazioni,
-        regole.giorniPieni ? [g.responsabile, g.vice].filter((x): x is string => !!x) : guidaDelNegozio(negozio)),
+        // come il piano settimanale: responsabile e vice, anche se ce n'e' una sola
+        [g.responsabile, g.vice].filter((x): x is string => !!x)),
       ...(preferiti.size || b.riposi.mai.size ? { riposi: { preferiti, mai: b.riposi.mai } } : {}),
     };
   };

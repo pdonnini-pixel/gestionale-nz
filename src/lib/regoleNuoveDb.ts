@@ -233,17 +233,21 @@ export async function caricaAbilitazioni(companyId: string): Promise<Map<string,
   return new Map(righe.map((r) => [r.id, { apre: r.puo_aprire, chiude: r.puo_chiudere }]));
 }
 
-/** Scrive una spunta sulla scheda (null = torna «da indicare»). */
+/**
+ * Scrive una spunta sulla scheda (null = torna «da indicare»). Passa dalla funzione del database
+ * (migration 418), che la lascia scrivere all'HR anche con un profilo che non scrive su employees e
+ * che rifiuta con un errore, invece di aggiornare zero righe in silenzio.
+ */
 export async function salvaAbilitazione(employeeId: string, campo: 'puo_aprire' | 'puo_chiudere', valore: boolean | null): Promise<void> {
-  const { error } = await db.from('employees').update({ [campo]: valore }).eq('id', employeeId);
-  if (error) throw error;
+  const { error } = await db.rpc('employee_chiavi_imposta', { p_employee_id: employeeId, p_campo: campo, p_valore: valore });
+  if (error) throw new Error(error.message);
 }
 
 /**
  * La regola per il motore in un negozio: chi puo' aprire e chi puo' chiudere fra `ids` (le persone in
- * forza). Responsabile e vice (`guida`) contano sempre come abilitate. Una persona senza abilitazione
- * scritta (nuova in simulazione, o assente dalla mappa) conta come non abilitata. Spenta (undefined)
- * se le colonne mancano, se qualcuna e' ancora «da indicare», o se le abilitate sono meno di due:
+ * forza). Responsabile e vice (`guida`) contano sempre come abilitate; le persone nuove delle
+ * simulazioni (id «nuova-…») non sono abilitate. Spenta (undefined) se le colonne mancano, se
+ * qualcuna e' ancora «da indicare» o non si vede, o se le abilitate sono meno di due:
  * una persona sola non puo' aprire o chiudere tutti i giorni.
  */
 export function chiaviDelNegozio(ids: string[], abil: Map<string, Abilitazione> | null, guida: string[] = []): { apre: Set<string>; chiude: Set<string> } | undefined {
@@ -251,6 +255,9 @@ export function chiaviDelNegozio(ids: string[], abil: Map<string, Abilitazione> 
   const apre = new Set<string>(); const chiude = new Set<string>();
   for (const id of ids) {
     const a = abil.get(id);
+    // chi non si vede (accesso limitato ai negozi) non si puo' giudicare: meglio la regola spenta
+    // che accesa con dati a meta'. Le persone nuove delle simulazioni («nuova-…») non sono abilitate.
+    if (!a && !id.startsWith('nuova-') && !guida.includes(id)) return undefined;
     if (a && (a.apre === null || a.chiude === null) && !guida.includes(id)) return undefined;
     if (guida.includes(id) || a?.apre) apre.add(id);
     if (guida.includes(id) || a?.chiude) chiude.add(id);
