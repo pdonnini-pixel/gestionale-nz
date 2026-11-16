@@ -251,7 +251,7 @@ pagine effettivamente coinvolti.
 ### PIXEL (UI) — gira in CI, non a mano
 - La verifica pixel sul sito DEPLOYATO è **automatizzata**: il workflow
   `.github/workflows/pixel-check.yml` esegue un test Playwright
-  (`tests/e2e/pixel-check.spec.ts`) sui **3 site** a ogni push su `main`, ogni
+  (`tests/e2e/pixel-check.spec.ts`) sui site di **NZ e Zago** a ogni push su `main`, ogni
   giorno e su richiesta. Prima di partire **aspetta che il site serva proprio
   quel commit** (`<meta name="app-commit">` scritto dal build): un 200 lo dà
   anche la versione precedente, e un verde sul sito vecchio non vale niente.
@@ -263,10 +263,10 @@ pagine effettivamente coinvolti.
   aggiungi/rinomini una pagina chiave o cambi un elemento critico, **aggiorna
   il test** (`PAGES` e le asserzioni in `tests/e2e/pixel-check.spec.ts`) nello
   stesso PR, così la CI copre anche il nuovo caso.
-- Un fix UI è "fatto" quando la **CI pixel è verde sui 3 tenant**. Se fallisce,
+- Un fix UI è "fatto" quando la **CI pixel è verde su NZ e Zago** (Made non si verifica, dal 16/11/2026). Se fallisce,
   il fix NON è chiuso: apri il report (artefatto `pixel-report-*`) e correggi.
 - Prerequisito una tantum: i secret di repo `TEST_USER_EMAIL` /
-  `TEST_USER_PASSWORD` (utente di test presente sui 3 tenant), forniti da
+  `TEST_USER_PASSWORD` (utente di test presente su NZ e Zago), forniti da
   Patrizio. Se mancano, il test si salta (skip) invece di fallire.
 
 ### DOPO UN FIX
