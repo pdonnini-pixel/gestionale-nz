@@ -1,17 +1,8 @@
 import { useState } from 'react'
 import { useAuth } from '../hooks/useAuth'
 import { getCurrentTenant } from '../lib/tenants'
+import { inizialiTenant } from '../lib/tenantBranding'
 import { LogIn, Eye, EyeOff, AlertCircle, Mail } from 'lucide-react'
-
-function tenantInitials(displayName: string): string {
-  return displayName
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase()
-}
 
 export default function Login() {
   const { signIn, resetPassword } = useAuth()
@@ -65,7 +56,7 @@ export default function Login() {
             className="inline-flex items-center justify-center w-16 h-16 rounded-2xl backdrop-blur-sm mb-4"
             style={{ background: tenant.accentBg }}
           >
-            <span className="text-2xl font-bold text-white">{tenantInitials(tenant.displayName)}</span>
+            <span className="text-2xl font-bold text-white">{inizialiTenant(tenant.displayName)}</span>
           </div>
           <h1 className="text-2xl font-bold text-white">Gestionale {tenant.displayName}</h1>
           <p className="text-blue-200 mt-1">Accedi al tuo pannello di controllo</p>

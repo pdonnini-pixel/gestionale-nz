@@ -11,6 +11,9 @@ describe('marchio del tenant', () => {
   it('distingue le iniziali dei due gestionali', () => {
     expect(inizialiTenant('New Zago Srl')).toBe('NZ')
     expect(inizialiTenant('Zago Srl')).toBe('ZA')
+    // nome dell'azienda come arriva dal database (barra laterale)
+    expect(inizialiTenant('NEW ZAGO S.R.L.')).toBe('NZ')
+    expect(inizialiTenant('ZAGO S.R.L.')).toBe('ZA')
   })
 
   it('usa il colore del tenant e ripiega su un grigio se il colore non è valido', () => {

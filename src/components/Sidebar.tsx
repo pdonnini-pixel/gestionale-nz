@@ -5,6 +5,7 @@ import { useCompany } from '../hooks/useCompany'
 import { useCompanyLabels, type CompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
+import { inizialiTenant } from '../lib/tenantBranding'
 import {
   LayoutDashboard, Store, FileText, Users, Settings, LogOut,
   ChevronDown, ChevronRight, Landmark, BarChart3, GitCompare, Target,
@@ -331,9 +332,8 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
   // Colore del tenant attivo: lo stesso della banda in alto, così New Zago e Zago non si confondono.
   const tenantColore = getCurrentTenant().accentBg
 
-  const companyAbbrev = company?.name
-    ? company.name.split(/\s+/).map((w: string) => w[0]).join('').toUpperCase().slice(0, 3)
-    : '...'
+  // Stesse iniziali dell'icona della scheda e della pagina d'accesso (tenantBranding)
+  const companyAbbrev = company?.name ? inizialiTenant(company.name) : '...'
 
   const toggleSection = (key: string) => {
     setExpandedSections(prev => {
