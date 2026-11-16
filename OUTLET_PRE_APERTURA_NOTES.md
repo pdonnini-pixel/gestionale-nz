@@ -140,6 +140,36 @@ Patrizio col bucket privato.
 (su NZ era pubblico) e esiste anche su Made e Zago, dove mancava e i
 caricamenti dalla scheda fallivano.
 
+## Scheda «Documenti» del negozio: riconoscimento prudente (16/11/2026, migration 412)
+
+La scheda mostra come un elenco solo le righe del contratto (`outlet_attachments`) e i file
+dell'archivio (`documents`, `contract_documents`). A quale riga appartiene un file si calcola a
+video dal nome (`riconosciDocumento` in `src/lib/documentiNegozio.ts`); nel database si salva solo
+la scelta fatta a mano con «Sposta in…» (`outlet_document_links`, migration 412).
+
+Regola: **un file nella riga sbagliata è peggio di uno lasciato fuori.** Un file va in una riga
+solo con una prova forte:
+- stesso nome della copia che vale, o di una versione messa a mano in quella riga (a parte il
+  numero davanti e «signed» / «firmato»);
+- stessa lettera di allegato e almeno una parola in comune;
+- almeno due parole significative in comune con una sola riga.
+
+Con una parola sola, con due righe alla pari o con una lettera di allegato che è di un'altra riga
+il file resta fra gli «Altri documenti»: mai copia che vale, mai riga riempita. Rinnovi, proroghe,
+disdette, comunicazioni, lettere, solleciti, verbali vanno sempre fra gli altri documenti
+(`categoriaDalNome`), a meno che la riga stessa sia di quel tipo. Chi allarga queste regole
+rimisura sui nomi veri e tiene verdi i test «riconoscimento prudente».
+
+Quando un file prende il posto della copia che vale, quella di prima entra nell'archivio e si
+collega alla riga. Il riquadro finale dice dove si trova davvero: «resta fra le versioni» se il
+collegamento è salvato (o se il nome basta a riconoscerla), «è fra gli altri documenti» se no.
+Il trigger della 412 rifiuta un collegamento verso una riga o un file di un altro negozio.
+
+Misura del 16/11/2026 su NZ: Roma Soratte 6 file in archivio, 4 abbinati e 2 fuori («Allegato
+C…CESPITI», che dichiara una lettera di un'altra riga, e «PRIMAutentica», senza parole in comune:
+tutti e due da spostare a mano); Barberino, Brugnato e Torino 2 file ciascuno, senza elenco del
+contratto; Sede 7 righe e nessun file in archivio.
+
 ## Cosa NON esiste ancora (fuori da questa PR)
 
 Motore del canone variabile e dei conguagli (10%, regola del 90%, ISTAT);

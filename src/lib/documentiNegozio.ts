@@ -106,18 +106,39 @@ export interface EsitoRiconoscimento {
 
 /**
  * A quale riga del contratto appartiene un file, guardando solo il nome.
- *  1. Stesso nome della copia che vale (a parte numero d'ordine e «signed»): è lei.
- *  2. Altrimenti contano le parole in comune con l'etichetta e con il nome della copia che vale;
- *     le parole presenti in troppe righe non contano. La lettera dell'allegato da sola non basta.
- *  3. Se il nome dichiara una lettera che è di un'ALTRA riga, non si forza: resta fra gli altri.
- *  4. Se due righe sono alla pari, non si sceglie.
+ * Regola (revisione del 16/11/2026): **un file nella riga sbagliata è peggio di un file lasciato
+ * fuori**. Quindi si abbina solo con una prova forte:
+ *  1. stesso nome della copia che vale o di una versione messa a mano in quella riga (a parte numero
+ *     d'ordine e «signed»); oppure
+ *  2. la lettera dell'allegato è quella della riga E c'è almeno una parola in comune; oppure
+ *  3. almeno due parole in comune, e nessun'altra riga altrettanto vicina.
+ * Una parola sola non basta mai. Le parole presenti in troppe righe non contano.
+ * Se il nome dichiara una lettera che è di un'ALTRA riga non si forza, e se due righe sono alla
+ * pari non si sceglie. Un nome che dice rinnovo, proroga, disdetta, comunicazione, lettera,
+ * sollecito, verbale non va mai su una riga del contratto (a meno che la riga stessa sia di quel
+ * tipo): resta fra gli altri documenti.
  */
-export function riconosciDocumento(nomeFile: string | null | undefined, righe: RigaContratto[]): EsitoRiconoscimento {
+export function riconosciDocumento(
+  nomeFile: string | null | undefined,
+  righe: RigaContratto[],
+  /** nomi dei file che una persona ha messo a mano in una riga, per riga: valgono come il suo nome */
+  versioniAMano: Record<string, string[]> = {},
+): EsitoRiconoscimento {
   const base = nomeBase(nomeFile)
   if (!base || righe.length === 0) return { rigaId: null, motivo: 'nessun nome o nessuna riga' }
 
-  const stesso = righe.filter((r) => r.file_name && nomeBase(r.file_name) === base)
-  if (stesso.length === 1) return { rigaId: stesso[0].id, motivo: 'stesso nome della copia che vale' }
+  // Rinnovi e comunicazioni stanno fra gli altri documenti: si guardano solo le righe dello stesso tipo.
+  const tipo = categoriaDalNome(nomeFile)
+  if (tipo === 'rinnovo' || tipo === 'comunicazione') {
+    righe = righe.filter((r) => categoriaDalNome(r.label) === tipo || (r.file_name != null && categoriaDalNome(r.file_name) === tipo))
+    if (righe.length === 0) {
+      return { rigaId: null, motivo: tipo === 'rinnovo' ? 'è un rinnovo o una proroga: va fra gli altri documenti' : 'è una comunicazione: va fra gli altri documenti' }
+    }
+  }
+
+  const stesso = righe.filter((r) => (r.file_name && nomeBase(r.file_name) === base)
+    || (versioniAMano[r.id] ?? []).some((n) => nomeBase(n) === base))
+  if (stesso.length === 1) return { rigaId: stesso[0].id, motivo: 'stesso nome della copia che vale o di una sua versione' }
 
   const paroleRiga = righe.map((r) => new Set([...paroleChiave(r.label), ...paroleChiave(r.file_name)]))
   const lettereRiga = righe.map((r) => new Set([...lettereAllegato(r.label), ...lettereAllegato(r.file_name)]))
@@ -130,13 +151,13 @@ export function riconosciDocumento(nomeFile: string | null | undefined, righe: R
 
   const punti = righe.map((r, i) => {
     const comuni = parole.filter((p) => [...paroleRiga[i]].some((q) => stessaParola(p, q))).length
-    if (comuni === 0) return { r, punti: 0, conflitto: false }
+    if (comuni === 0) return { r, punti: 0, comuni: 0, lettereUguali: false, conflitto: false }
     const sueLettere = lettereRiga[i]
     const lettereUguali = lettere.some((l) => sueLettere.has(l))
     // Il nome dichiara una lettera, questa riga ne ha un'altra, e quella lettera è di un'altra riga.
     const conflitto = lettere.length > 0 && sueLettere.size > 0 && !lettereUguali
       && lettereRiga.some((s, j) => j !== i && lettere.some((l) => s.has(l)))
-    return { r, punti: comuni + (lettereUguali ? 1 : 0), conflitto }
+    return { r, punti: comuni + (lettereUguali ? 1 : 0), comuni, lettereUguali, conflitto }
   }).filter((x) => x.punti > 0).sort((a, b) => b.punti - a.punti)
 
   if (punti.length === 0) return { rigaId: null, motivo: 'nessuna parola in comune con i documenti del contratto' }
@@ -146,17 +167,33 @@ export function riconosciDocumento(nomeFile: string | null | undefined, righe: R
   if (punti[0].conflitto) {
     return { rigaId: null, motivo: `le parole dicono «${punti[0].r.label}» ma il nome dichiara l'allegato ${lettere.join(', ').toUpperCase()}, che è di un'altra riga` }
   }
-  return { rigaId: punti[0].r.id, motivo: 'parole in comune con il documento' }
+  // Prova forte: lettera giusta più una parola, oppure due parole. Una parola sola non basta.
+  if (punti[0].lettereUguali) return { rigaId: punti[0].r.id, motivo: 'stessa lettera di allegato e parole in comune' }
+  if (punti[0].comuni >= 2) return { rigaId: punti[0].r.id, motivo: 'almeno due parole in comune con il documento' }
+  return { rigaId: null, motivo: `una sola parola in comune con «${punti[0].r.label}»: non basta, resta fra gli altri documenti` }
 }
 
 /** Dove va un file dell'archivio: la scelta a mano vince sempre sul riconoscimento. */
-export function rigaDelFile(file: FileArchivio, righe: RigaContratto[], aMano: AbbinamentiAMano): string | null {
+export function rigaDelFile(
+  file: FileArchivio, righe: RigaContratto[], aMano: AbbinamentiAMano, versioniAMano: Record<string, string[]> = {},
+): string | null {
   const k = chiaveFile(file)
   if (k in aMano) {
     const scelta = aMano[k]
     return scelta && righe.some((r) => r.id === scelta) ? scelta : null
   }
-  return riconosciDocumento(file.file_name, righe).rigaId
+  return riconosciDocumento(file.file_name, righe, versioniAMano).rigaId
+}
+
+/** Nomi dei file messi a mano in ogni riga: servono a riconoscere un file con lo stesso nome. */
+export function nomiMessiAMano(files: FileArchivio[], righe: RigaContratto[], aMano: AbbinamentiAMano): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const f of files) {
+    const scelta = aMano[chiaveFile(f)]
+    if (!scelta || !f.file_name || !righe.some((r) => r.id === scelta)) continue
+    ;(out[scelta] ??= []).push(f.file_name)
+  }
+  return out
 }
 
 /** Numero d'ordine scritto in testa al nome del file («5. Allegato C…»), se c'è. */
@@ -211,7 +248,7 @@ export function statoContratto(righe: RigaContratto[]): StatoContratto {
 export function categoriaDalNome(nome: string | null | undefined): 'contratto' | 'allegato' | 'rinnovo' | 'comunicazione' {
   const n = nomePulito(nome)
   if (/\b(rinnov[oi]|proroga|proroghe)\b/.test(n)) return 'rinnovo'
-  if (/\b(comunicazion[ei]|lettera|lettere|raccomandata|pec|avviso|disdetta)\b/.test(n)) return 'comunicazione'
+  if (/\b(comunicazion[ei]|lettera|lettere|raccomandat[ae]|pec|avvis[oi]|disdett[ae]|sollecit[oi]|verbal[ei]|diffid[ae])\b/.test(n)) return 'comunicazione'
   if (/\ball(egat[oi])?\b/.test(n)) return 'allegato'
   return 'contratto'
 }
@@ -223,8 +260,8 @@ export type DestinoFile =
   | { tipo: 'versione'; rigaId: string }     // la riga ha già la sua copia: versione in più
   | { tipo: 'altri' }                        // non riconosciuto: fra gli altri documenti
 
-export function destinoDelFile(nomeFile: string, righe: RigaContratto[]): DestinoFile {
-  const { rigaId } = riconosciDocumento(nomeFile, righe)
+export function destinoDelFile(nomeFile: string, righe: RigaContratto[], versioniAMano: Record<string, string[]> = {}): DestinoFile {
+  const { rigaId } = riconosciDocumento(nomeFile, righe, versioniAMano)
   const riga = righe.find((r) => r.id === rigaId)
   if (!riga) return { tipo: 'altri' }
   if (!riga.is_uploaded || !riga.file_name) return { tipo: 'riempie', rigaId: riga.id }

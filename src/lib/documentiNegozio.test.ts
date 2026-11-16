@@ -76,7 +76,8 @@ describe('riconosciDocumento', () => {
   })
   it('riempie la riga che manca', () => {
     expect(dove('Regolamento immobiliare XYZ.pdf')).toBe('reg')
-    expect(dove('regolamento.pdf')).toBe('reg')
+    // una parola sola non basta più (revisione del 16/11/2026)
+    expect(dove('regolamento.pdf')).toBeNull()
   })
   it('alla pari fra due righe: non sceglie', () => {
     expect(dove('Allegato B1 preventivo Rossi.pdf')).toBeNull()
@@ -161,3 +162,59 @@ describe('etichettaRiga', () => {
     expect(etichettaRiga(null)).toEqual({ titolo: '', nota: '' })
   })
 })
+
+describe('riconoscimento prudente (revisione del 16/11/2026)', () => {
+  const dove = (nome: string) => riconosciDocumento(nome, RIGHE).rigaId
+  it('una parola sola in comune non basta: il file resta fra gli altri documenti', () => {
+    expect(dove('Planimetria aggiornata negozio.pdf')).toBeNull()
+    expect(dove('Regolamento.pdf')).toBeNull()
+    expect(destinoDelFile('Planimetria aggiornata negozio.pdf', RIGHE)).toEqual({ tipo: 'altri' })
+  })
+  it('rinnovi, proroghe, disdette, comunicazioni, lettere, solleciti e verbali non vanno mai su una riga del contratto', () => {
+    for (const nome of [
+      'Comunicazione regolamento centro.pdf', 'Lettera disdetta affitto.pdf', 'Rinnovo affitto 2027.pdf',
+      'Proroga ramo d azienda.pdf', 'Sollecito garanzia bancaria.pdf', 'Verbale regolamento immobiliare commerciale.pdf',
+      'Comunicazione regolamento immobiliare e commerciale.pdf',
+    ]) {
+      expect(dove(nome), nome).toBeNull()
+      expect(destinoDelFile(nome, RIGHE), nome).toEqual({ tipo: 'altri' })
+    }
+  })
+  it('una riga mancante si riempie da sola solo con una prova forte', () => {
+    expect(destinoDelFile('Comunicazione regolamento centro.pdf', RIGHE)).toEqual({ tipo: 'altri' })
+    expect(destinoDelFile('Regolamento centro.pdf', RIGHE)).toEqual({ tipo: 'altri' })
+    expect(destinoDelFile('Regolamento immobiliare e commerciale XYZ.pdf', RIGHE)).toEqual({ tipo: 'riempie', rigaId: 'reg' })
+  })
+  it('gli abbinamenti veri reggono ancora', () => {
+    expect(dove('Allegato A al contratto_20250415-XYZ_K12-SchedaCommerciale.pdf')).toBe('a')
+    expect(dove('ALLEGATO D al Contratto_ bozza garanzia bancaria.docx')).toBe('gar')
+    expect(dove('Allegato B Condizioni generali XYZ.doc')).toBe('cond')
+    expect(dove('Allegato E_XYZ - Informativa Tenants - v1.3.docx')).toBe('d')
+  })
+  it('i due casi dubbi restano fuori', () => {
+    expect(dove('Allegato C_XYZ_K12 CESPITI.pdf')).toBeNull()
+    expect(dove('PRIMAutentica.docx')).toBeNull()
+  })
+  it('lettera giusta più una parola basta', () => {
+    expect(dove('Allegato B cespiti aggiornati.pdf')).toBe('b')
+  })
+  it('una riga che è lei stessa un rinnovo accetta il suo file, e solo quello', () => {
+    const righe = [...RIGHE, riga('rin', 'Rinnovo del contratto di affitto 2027', null)]
+    expect(riconosciDocumento('Rinnovo affitto ramo azienda 2027.pdf', righe).rigaId).toBe('rin')
+    expect(riconosciDocumento('Rinnovo 2027.pdf', righe).rigaId).toBeNull() // una parola sola
+    expect(riconosciDocumento('Lettera disdetta affitto.pdf', righe).rigaId).toBeNull()
+  })
+  it('la categoria di un file fra gli altri documenti si legge dal nome', () => {
+    expect(categoriaDalNome('Sollecito pagamento.pdf')).toBe('comunicazione')
+    expect(categoriaDalNome('Verbale consegna.pdf')).toBe('comunicazione')
+    expect(categoriaDalNome('Proroga 2027.pdf')).toBe('rinnovo')
+  })
+
+  it('stesso nome di una versione messa a mano in una riga che manca: la riempie', () => {
+    const mano = { reg: ['Norme del centro v3.pdf'] }
+    expect(riconosciDocumento('Norme del centro v3_signed.pdf', RIGHE).rigaId).toBeNull()
+    expect(riconosciDocumento('Norme del centro v3_signed.pdf', RIGHE, mano).rigaId).toBe('reg')
+    expect(destinoDelFile('Norme del centro v3_signed.pdf', RIGHE, mano)).toEqual({ tipo: 'riempie', rigaId: 'reg' })
+  })
+})
+

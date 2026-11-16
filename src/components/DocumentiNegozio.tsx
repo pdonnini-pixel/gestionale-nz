@@ -25,7 +25,7 @@ import { useToast } from './Toast'
 import { Modal } from './ui/Modal'
 import { raggruppaPerMese, etichettaMese } from '../lib/outletSlug'
 import {
-  categoriaDalNome, chiaveFile, destinoDelFile, eFirmato, etichettaRiga, ordinaRighe, rigaDelFile,
+  categoriaDalNome, chiaveFile, destinoDelFile, eFirmato, etichettaRiga, nomiMessiAMano, ordinaRighe, riconosciDocumento, rigaDelFile,
   statoContratto, type AbbinamentiAMano, type DestinoFile, type FileArchivio, type RigaContratto,
 } from '../lib/documentiNegozio'
 
@@ -212,8 +212,9 @@ export default function DocumentiNegozio({ outletId, companyId }: { outletId: st
   const { versioni, altri } = useMemo(() => {
     const v = new Map<string, Doc[]>()
     const a: Doc[] = []
+    const aManoPerRiga = nomiMessiAMano(dati.docs, dati.righe, dati.aMano)
     for (const d of dati.docs) {
-      const rigaId = rigaDelFile(d, dati.righe, dati.aMano)
+      const rigaId = rigaDelFile(d, dati.righe, dati.aMano, aManoPerRiga)
       if (!rigaId) { a.push(d); continue }
       const lista = v.get(rigaId)
       if (lista) lista.push(d)
@@ -318,7 +319,9 @@ export default function DocumentiNegozio({ outletId, companyId }: { outletId: st
   }
 
   // La copia che vale di prima non si perde: entra nell'archivio come versione della stessa riga.
-  async function conservaCopiaDiPrima(riga: Riga, haAbbinamenti: boolean): Promise<{ errore?: string; id?: string }> {
+  // `collegata` dice se è rimasta agganciata alla riga: solo dove c'è la tabella degli abbinamenti e
+  // il collegamento si è salvato davvero. Altrimenti la copia c'è, ma fra gli altri documenti.
+  async function conservaCopiaDiPrima(riga: Riga, haAbbinamenti: boolean): Promise<{ errore?: string; id?: string; collegata?: boolean }> {
     if (!riga.file_path) return {}
     const { data, error } = await supabase.from('documents').insert({
       company_id: companyId, reference_type: 'outlet', reference_id: outletId, category: 'allegato',
@@ -328,13 +331,19 @@ export default function DocumentiNegozio({ outletId, companyId }: { outletId: st
     } as never).select('id')
     if (error || !data?.length) return { errore: error?.message || 'non hai il permesso di caricare documenti' }
     const id = (data[0] as { id: string }).id
-    if (haAbbinamenti) {
-      await db.from('outlet_document_links').upsert(
-        [{ document_table: 'documents', document_id: id, company_id: companyId, outlet_id: outletId, attachment_id: riga.id }],
-        { onConflict: 'document_table,document_id' },
-      )
-    }
-    return { id }
+    if (!haAbbinamenti) return { id, collegata: false }
+    const { error: nonCollegata } = await db.from('outlet_document_links').upsert(
+      [{ document_table: 'documents', document_id: id, company_id: companyId, outlet_id: outletId, attachment_id: riga.id }],
+      { onConflict: 'document_table,document_id' },
+    )
+    if (nonCollegata) console.error('[DocumentiNegozio] collegamento della copia di prima non salvato:', nonCollegata.message)
+    return { id, collegata: !nonCollegata }
+  }
+
+  // La voce d'archivio aggiunta per la copia di prima non serve più: via lei e il suo collegamento.
+  async function togliCopiaDiPrima(id: string, collegata: boolean) {
+    if (collegata) await db.from('outlet_document_links').delete().eq('document_table', 'documents').eq('document_id', id)
+    await supabase.from('documents').delete().eq('id', id)
   }
 
   const chiedi = (file: File, riga: Riga) => new Promise<'sostituisci' | 'versione' | 'niente'>((risolvi) => {
@@ -348,7 +357,7 @@ export default function DocumentiNegozio({ outletId, companyId }: { outletId: st
     const forzata = rigaForzata ? freschi.righe.find((r) => r.id === rigaForzata) : undefined
     const destino: DestinoFile = forzata
       ? { tipo: forzata.is_uploaded && forzata.file_path ? 'sostituisce' : 'riempie', rigaId: forzata.id }
-      : destinoDelFile(file.name, freschi.righe)
+      : destinoDelFile(file.name, freschi.righe, nomiMessiAMano(freschi.docs, freschi.righe, freschi.aMano))
     const riga = destino.tipo === 'altri' ? undefined : freschi.righe.find((r) => r.id === destino.rigaId)
     const nome = riga ? `«${etichettaRiga(riga.label).titolo}»` : ''
 
@@ -366,17 +375,27 @@ export default function DocumentiNegozio({ outletId, companyId }: { outletId: st
         if (errore) {
           // La riga è rimasta com'era: via la sola voce d'archivio appena aggiunta, che indicava lo
           // stesso file della riga. Il file non si tocca.
-          if (prima.id) await supabase.from('documents').delete().eq('id', prima.id)
+          if (prima.id) await togliCopiaDiPrima(prima.id, !!prima.collegata)
           return { tipo: 'errore', testo: errore }
         }
-        return { tipo: 'ok', testo: `ora è la copia che vale di ${nome}; quella di prima resta fra le versioni`, rigaId: riga.id }
+        // Dove si vedrà la copia di prima: nella riga se il collegamento è salvato, oppure se il suo
+        // nome basta da solo a riconoscerla; altrimenti fra gli altri documenti. Si dice quello vero.
+        const righeDopo = freschi.righe.map((r) => (r.id === riga.id ? { ...r, file_name: file.name, is_uploaded: true } : r))
+        const nellaRiga = prima.collegata
+          || riconosciDocumento(riga.file_name, righeDopo, nomiMessiAMano(freschi.docs, righeDopo, freschi.aMano)).rigaId === riga.id
+        const dove = !prima.id ? '' : nellaRiga
+          ? '; quella di prima resta fra le versioni'
+          : '; la copia di prima è fra gli altri documenti'
+        return { tipo: 'ok', testo: `ora è la copia che vale di ${nome}${dove}`, rigaId: riga.id }
       }
     }
     const esito = await mettiInArchivio(file, freschi.docs)
     if (esito.errore) return { tipo: 'errore', testo: esito.errore }
     const nota = esito.nuovaVersione ? ' (c\'era già un file con lo stesso nome: quello di prima resta nello storico)' : ''
     if (riga) return { tipo: 'ok', testo: `aggiunto fra le versioni di ${nome}${nota}`, rigaId: riga.id }
-    return { tipo: 'altri', testo: `non so di quale documento è, l'ho messo fra gli altri documenti${nota}` }
+    const tipo = categoriaDalNome(file.name)
+    const perche = tipo === 'rinnovo' ? 'è un rinnovo o una proroga' : tipo === 'comunicazione' ? 'è una comunicazione' : 'non so di quale documento è'
+    return { tipo: 'altri', testo: `${perche}, l'ho messo fra gli altri documenti${nota}` }
   }
 
   function carica(files: File[], rigaForzata: string | null = null) {
@@ -482,7 +501,7 @@ export default function DocumentiNegozio({ outletId, companyId }: { outletId: st
       chiusura = `Finito, ${entrati.length === 1 ? 'il file è salvato' : entrati.length === 2 ? 'tutti e due i file sono salvati' : `tutti i ${entrati.length} file sono salvati`}.`
       if (saltati.length) chiusura += ` ${saltati.length === 1 ? 'Uno non l\'ho caricato' : `${saltati.length} non li ho caricati`}, come hai scelto.`
     }
-    if (fraGliAltri.length) chiusura += ` ${fraGliAltri.length === 1 ? 'Uno è' : `${fraGliAltri.length} sono`} fra gli altri documenti: se vuoi, da lì ${dati.haAbbinamenti ? 'lo sposti nel suo documento' : 'lo apri e lo scarichi'}.`
+    if (fraGliAltri.length) chiusura += ` ${fraGliAltri.length === 1 ? 'Uno è' : `${fraGliAltri.length} sono`} fra gli altri documenti: se vuoi, da lì ${dati.haAbbinamenti ? (fraGliAltri.length === 1 ? 'lo sposti nel suo documento' : 'li sposti nel loro documento') : (fraGliAltri.length === 1 ? 'lo apri e lo scarichi' : 'li apri e li scarichi')}.`
     if (stato.mancanti.length) chiusura += ` ${stato.mancanti.length === 1 ? 'Manca ancora' : 'Mancano ancora'}: ${stato.mancanti.join(', ')}.`
     else if (stato.richiesti > 0 && !errori.length) chiusura += ' I documenti del contratto ci sono tutti.'
   }

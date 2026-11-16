@@ -40,7 +40,9 @@ CREATE INDEX IF NOT EXISTS outlet_document_links_outlet_idx ON public.outlet_doc
 CREATE INDEX IF NOT EXISTS outlet_document_links_company_idx ON public.outlet_document_links (company_id);
 CREATE INDEX IF NOT EXISTS outlet_document_links_attachment_idx ON public.outlet_document_links (attachment_id);
 
--- La riga del contratto scelta deve essere dello stesso negozio e della stessa azienda.
+-- La riga del contratto scelta deve essere dello stesso negozio e della stessa azienda, e anche il
+-- file collegato: un file dell'archivio di un altro negozio non si aggancia qui (revisione del 16/11/2026).
+-- La funzione gira con i permessi di chi scrive: un file che la RLS non gli fa vedere non si collega.
 CREATE OR REPLACE FUNCTION public.outlet_document_links_coerente() RETURNS trigger
 LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
 BEGIN
@@ -52,6 +54,19 @@ BEGIN
     WHERE a.id = NEW.attachment_id AND a.outlet_id = NEW.outlet_id AND a.company_id = NEW.company_id
   ) THEN
     RAISE EXCEPTION 'Il documento del contratto scelto non è di questo negozio.' USING ERRCODE = '23514';
+  END IF;
+  IF NEW.document_table = 'documents' AND NOT EXISTS (
+    SELECT 1 FROM public.documents d
+    WHERE d.id = NEW.document_id AND d.company_id = NEW.company_id
+      AND d.reference_type = 'outlet' AND d.reference_id = NEW.outlet_id
+  ) THEN
+    RAISE EXCEPTION 'Il file non è fra i documenti di questo negozio.' USING ERRCODE = '23514';
+  END IF;
+  IF NEW.document_table = 'contract_documents' AND NOT EXISTS (
+    SELECT 1 FROM public.contract_documents c
+    WHERE c.id = NEW.document_id AND c.company_id = NEW.company_id AND c.outlet_id = NEW.outlet_id
+  ) THEN
+    RAISE EXCEPTION 'Il file non è fra i documenti di questo negozio.' USING ERRCODE = '23514';
   END IF;
   NEW.updated_at := now();
   RETURN NEW;
