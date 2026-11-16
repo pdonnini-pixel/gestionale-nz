@@ -1,4 +1,7 @@
--- 410: ferie e permessi «in linea con il mese» nel piano del mese (Patrizio, 14/11/2026).
+-- 411: ferie e permessi «in linea con il mese» nel piano del mese (Patrizio, 14/11/2026).
+-- NOTA (16/11/2026): nata come 410 e applicata a NZ e Zago con il nome «ferie_in_linea_con_il_mese_410»;
+-- rinumerata 411 perche' la 410 era gia' stata usata su main (distinta_email_vicolo_com). Sui database il
+-- commento della tabella turni_piano_registro dice ancora «(410)»: e' lo stesso oggetto.
 --
 -- «la regola e' far stare ferie e permessi in linea con il mese, cioe' se devo consumare ferie e
 --  permessi li consumo che tanto ogni mese vado a riaccumularli, ma quando arrivo li' poi posso
@@ -35,7 +38,7 @@
 -- vuoto, e non cambia i numeri del riepilogo del piano; ogni turno nuovo e' controllato su persona
 -- in servizio, ferie approvate, durata, orario di apertura e sovrapposizioni.
 -- Si applica a NZ e Zago. Dove manca (Made) il frontend non propone niente e resta com'era.
--- Rollback: 20261114_410_ferie_in_linea_con_il_mese_ROLLBACK.sql
+-- Rollback: 20261114_411_ferie_in_linea_con_il_mese_ROLLBACK.sql
 
 BEGIN;
 
@@ -81,7 +84,7 @@ CREATE TABLE IF NOT EXISTS public.turni_piano_registro (
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 COMMENT ON TABLE public.turni_piano_registro IS
-  'Chi ha tolto una proposta di ferie del piano del mese e chi ha fatto rifare i turni proposti, e quando (410). plan_id, request_id ed employee_id sono senza chiave esterna apposta: la riga resta anche se il piano o la proposta spariscono. Si scrive solo dalle funzioni ferie_proposta_togli e turni_proposti_riscrivi.';
+  'Chi ha tolto una proposta di ferie del piano del mese e chi ha fatto rifare i turni proposti, e quando (411). plan_id, request_id ed employee_id sono senza chiave esterna apposta: la riga resta anche se il piano o la proposta spariscono. Si scrive solo dalle funzioni ferie_proposta_togli e turni_proposti_riscrivi.';
 CREATE INDEX IF NOT EXISTS turni_piano_registro_piano_idx ON public.turni_piano_registro (company_id, plan_id, created_at);
 
 ALTER TABLE public.turni_piano_registro ENABLE ROW LEVEL SECURITY;

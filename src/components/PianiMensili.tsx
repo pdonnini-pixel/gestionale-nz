@@ -79,7 +79,7 @@ type Riepilogo = {
   /** calendario senza ferie e permessi: l'organico pieno, le ferie si inseriscono dopo dal calendario */
   senzaFerie?: boolean;
   /**
-   * I turni sono stati rifatti da chi non gestisce i turni (HR, migration 410): i numeri qui sopra
+   * I turni sono stati rifatti da chi non gestisce i turni (HR, migration 411): i numeri qui sopra
    * sono quelli di prima, perché il riepilogo lo scrive solo chi gestisce i turni. Lo mette e lo
    * toglie il database; sparisce al primo «Ricalcola il mese» di chi gestisce i turni.
    */
@@ -201,9 +201,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const [sim, setSim] = useState<Simulazione | null>(null);
   const [simRegola, setSimRegola] = useState<RegolaWeekend>('nessuno');
   const [ferieRegistrate, setFerieMese] = useState<{ employee_id: string; data: string; ore: number; tipo: string; creato_il: string; id: string; request_id: string; stato_richiesta: string; proposta?: boolean }[]>([]);
-  // Ferie e permessi in linea con il mese (Patrizio, 14/11/2026; migration 410): i ratei del tabulato
-  // delle paghe e tutti i giorni di ferie con la voce. Dove la 410 manca non si propone niente.
-  const [ha410, setHa410] = useState(false);
+  // Ferie e permessi in linea con il mese (Patrizio, 14/11/2026; migration 411): i ratei del tabulato
+  // delle paghe e tutti i giorni di ferie con la voce. Dove la 411 manca non si propone niente.
+  const [ha411, setHa411] = useState(false);
   // chi può decidere le ferie (anche l'elenco HR con un profilo di sola lettura) approva, sposta e toglie le proposte
   const [decideFerie, setDecideFerie] = useState(false);
   const [ratei, setRatei] = useState<{ disponibile: boolean; ratei: RateoPersona[] }>({ disponibile: false, ratei: [] });
@@ -270,7 +270,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         const rt = await caricaRatei(companyId);
         const gv = await caricaGiorniConVoce(companyId, dalSaldo(rt.ratei), dateMese[dateMese.length - 1]);
         if (!vivo) return;
-        setHa410(gv.ha410);
+        setHa411(gv.ha411);
         setRatei(rt);
         setGiorniVoce(gv.giorni);
         // le proposte di questo piano (bozze del sistema) si vedono nel calendario come le ferie, distinte;
@@ -581,13 +581,13 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
    * che è già chiesto o approvato (dall'app e dal gestionale), messo nei giorni più tranquilli.
    * Il piano si rifà senza e con le proposte: quelle che lasciano il negozio sotto le persone
    * minime, con una persona sola o qualcuno senza riposo si tolgono. null = non si propone
-   * (la 410 non c'è, il tabulato delle paghe non si legge, mese chiuso).
+   * (la 411 non c'è, il tabulato delle paghe non si legge, mese chiuso).
    */
   const proponiInLinea = async (b: BaseMese, regola: RegolaWeekend) => {
     const rt = await caricaRatei(companyId);
     if (!rt.disponibile) return null;
     const gv = await caricaGiorniConVoce(companyId, dalSaldo(rt.ratei), dateMese[dateMese.length - 1]);
-    if (!gv.ha410) return null;
+    if (!gv.ha411) return null;
     const esistenti = esistentiDa(gv.giorni, null);
     const base = calcolaPiano(b, regola);
     const pp = new Map(base.personePiano.map((x) => [x.id, x]));
@@ -798,8 +798,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       if (!window.confirm(`Togliere ${cosa} «${p.nome}»? Spariscono tutti i suoi turni, anche quelli messi a mano. Il piano si può rifare.`)) return;
       // le proposte di ferie del piano ancora da decidere spariscono con lui; quelle approvate sono ferie vere e restano.
       // Per prime: se non si tolgono ci si ferma qui, con il piano e i suoi turni ancora interi, e nessuna
-      // proposta resta senza piano (la 410 non la lascerebbe approvare).
-      if (ha410) {
+      // proposta resta senza piano (la 411 non la lascerebbe approvare).
+      if (ha411) {
         try { await togliProposteDelPiano(p.id); } catch (e) {
           throw new Error(`Le proposte di ferie del piano non si sono tolte (${e instanceof Error ? e.message : 'errore'}): il piano resta com'era. Riprova, oppure toglile una per una dal riquadro «Ferie e permessi in linea con il mese».`);
         }
@@ -996,7 +996,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       if (!vecchi.length) return true;
       throw new Error('in quei giorni non resta nessun turno proposto: li rifà chi gestisce i turni con «Ricalcola il mese»');
     }
-    // Prima la funzione del database (410): toglie i turni di prima e scrive quelli nuovi in un colpo solo, e
+    // Prima la funzione del database (411): toglie i turni di prima e scrive quelli nuovi in un colpo solo, e
     // vale anche per chi decide le ferie con un profilo che i turni non li scrive. Dove manca, o se rifiuta
     // un elenco che chi gestisce i turni può comunque scrivere, restano le scritture dirette di prima.
     const scritto = await riscriviTurniProposti({
@@ -1090,7 +1090,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   });
 
   // Il riquadro «Ferie e permessi in linea con il mese»: dal vivo, con le ferie e le proposte di adesso.
-  const mostraInLinea = !!pianoAperto && !pianoAperto.simulazione && !pianoAperto.riepilogo.senzaFerie && ha410 && ratei.disponibile;
+  const mostraInLinea = !!pianoAperto && !pianoAperto.simulazione && !pianoAperto.riepilogo.senzaFerie && ha411 && ratei.disponibile;
   const oggi = oggiRoma();
   const guidaNegozio = (() => { const n = dati.negozi.find((x) => x.id === outletId); return [n?.referente_employee_id, n?.vice_referente_employee_id].filter((x): x is string => !!x); })();
   const righeInLinea: RigaFerieInLinea[] = !mostraInLinea ? [] : persone.map(({ scheda, perGiorno }) => {
@@ -2346,7 +2346,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             onClose={() => setEditorMese(null)}
             onSalvato={async (msg, cosa) => {
               // ferie o permesso messi o tolti dalla finestra: i turni della settimana si ricalcolano (14/11/2026)
-              if (cosa?.ferie && ha410 && !pianoAperto.simulazione && !chiuso) {
+              if (cosa?.ferie && ha411 && !pianoAperto.simulazione && !chiuso) {
                 try { await ricalcola([lunediDi(editorMese.data)]); } catch (e) { toast({ type: 'error', message: `Ferie salvate, ma i turni della settimana non si sono ricalcolati (${e instanceof Error ? e.message : 'errore'}): premi «Ricalcola il mese».` }); }
               }
               await riallineaStraordinari([{ employeeId: editorMese.employeeId, data: editorMese.data }]); setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: msg ?? 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}

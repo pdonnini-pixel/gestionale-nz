@@ -252,7 +252,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       setExtra(personeInPiu(date, speciali, eventi));
       setRegole(regoleLette);
       setTurni(turniLetti);
-      // Le proposte di ferie del piano del mese che vale (14/11/2026, migration 410): finché non sono
+      // Le proposte di ferie del piano del mese che vale (14/11/2026, migration 411): finché non sono
       // approvate o tolte contano come ferie in attesa, così la proposta dei turni non ci mette nessuno.
       let proposte: typeof fe = [];
       try {
@@ -266,7 +266,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             stato_richiesta: 'inviata', stato_giorno: 'richiesto', creato_il: gg[0].creato_il, id: gg[0].id, request_id: gg[0].request_id,
           }));
         }
-      } catch { /* dove la 410 manca non ci sono proposte */ }
+      } catch { /* dove la 411 manca non ci sono proposte */ }
       setFerie([...fe, ...proposte]);
       const m = new Map<string, number>();
       for (const x of ((sl.data as { employee_id: string | null; residuo_disponibile: number | null }[]) ?? [])) {

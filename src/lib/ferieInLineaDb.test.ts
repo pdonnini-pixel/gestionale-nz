@@ -1,4 +1,4 @@
-// Spostare e togliere una proposta e rifare i turni passano dalle funzioni del database (410,
+// Spostare e togliere una proposta e rifare i turni passano dalle funzioni del database (411,
 // Patrizio 16/11/2026: «anche la HR può spostare»); dove la funzione manca resta la scrittura
 // diretta, e un rifiuto del database non diventa mai una scrittura fatta di nascosto.
 

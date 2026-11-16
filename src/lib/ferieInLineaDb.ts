@@ -1,9 +1,9 @@
-// Letture e scritture per le ferie «in linea con il mese» (Patrizio, 14/11/2026, migration 410).
+// Letture e scritture per le ferie «in linea con il mese» (Patrizio, 14/11/2026, migration 411).
 // Le proposte del piano sono richieste in bozza con origine 'piano_mese' e il piano che le ha
 // generate: non scalano il saldo, il dipendente non le vede nell'app, e diventano vere solo con
 // ferie_proposta_approva (che passa da leave_decidi: scala di chi decide; il lunedì lo controllano i trigger sui giorni).
 // Una richiesta per persona e per giorno, così ogni proposta si approva, si sposta o si toglie da sola.
-// Dove la 410 non c'è (tenant senza migration) `ha410` è falso e non si propone niente.
+// Dove la 411 non c'è (tenant senza migration) `ha411` è falso e non si propone niente.
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';
@@ -64,10 +64,10 @@ export interface GiornoFerieDb {
 
 /**
  * I giorni di ferie e permesso con la voce, l'origine e il piano che li ha proposti. Sono tutte
- * le richieste: dall'app, dal gestionale, dai moduli e le proposte del piano. `ha410` falso =
+ * le richieste: dall'app, dal gestionale, dai moduli e le proposte del piano. `ha411` falso =
  * la colonna del piano manca: si leggono lo stesso i giorni, ma non ci sono proposte.
  */
-export async function caricaGiorniConVoce(companyId: string, dal: string, al: string): Promise<{ ha410: boolean; giorni: GiornoFerieDb[] }> {
+export async function caricaGiorniConVoce(companyId: string, dal: string, al: string): Promise<{ ha411: boolean; giorni: GiornoFerieDb[] }> {
   type Riga = {
     id: string; request_id: string; data: string; ore: number; tipo: string; voce: string; stato: string; created_at: string;
     leave_requests: { employee_id: string; stato: string; origine?: string | null; plan_id?: string | null } | { employee_id: string; stato: string; origine?: string | null; plan_id?: string | null }[];
@@ -75,9 +75,9 @@ export async function caricaGiorniConVoce(companyId: string, dal: string, al: st
   const leggi = (campi: string) => db.from('leave_request_days')
     .select(`id, request_id, data, ore, tipo, voce, stato, created_at, leave_requests!inner(${campi})`)
     .eq('company_id', companyId).gte('data', dal).lte('data', al);
-  let ha410 = true;
+  let ha411 = true;
   let r = await leggi('employee_id, stato, origine, plan_id');
-  if (r.error) { ha410 = false; r = await leggi('employee_id, stato, origine'); }
+  if (r.error) { ha411 = false; r = await leggi('employee_id, stato, origine'); }
   if (r.error) throw r.error;
   const giorni = ((r.data as unknown as Riga[]) ?? []).flatMap((d) => {
     const q = Array.isArray(d.leave_requests) ? d.leave_requests[0] : d.leave_requests;
@@ -87,7 +87,7 @@ export async function caricaGiorniConVoce(companyId: string, dal: string, al: st
       stato_richiesta: q.stato, stato_giorno: d.stato, origine: q.origine ?? null, plan_id: q.plan_id ?? null, creato_il: d.created_at,
     }];
   });
-  return { ha410, giorni };
+  return { ha411, giorni };
 }
 
 /** Una proposta del piano ancora da decidere: bozza con origine piano_mese. */
