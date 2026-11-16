@@ -4,6 +4,7 @@ import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
 import { useCompanyLabels, type CompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets } from '../hooks/useOutlets'
+import { getCurrentTenant } from '../lib/tenants'
 import {
   LayoutDashboard, Store, FileText, Users, Settings, LogOut,
   ChevronDown, ChevronRight, Landmark, BarChart3, GitCompare, Target,
@@ -327,6 +328,9 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
     if (mobileOpen) setMobileOpen(false)
   }, [location.pathname])
 
+  // Colore del tenant attivo: lo stesso della banda in alto, così New Zago e Zago non si confondono.
+  const tenantColore = getCurrentTenant().accentBg
+
   const companyAbbrev = company?.name
     ? company.name.split(/\s+/).map((w: string) => w[0]).join('').toUpperCase().slice(0, 3)
     : '...'
@@ -402,7 +406,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
   const collapsedContent = (
     <>
       <div className="p-2 border-b border-slate-700/50 shrink-0 flex flex-col items-center gap-2">
-        <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-xs font-bold shrink-0">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0" style={{ background: tenantColore }}>
           {companyAbbrev}
         </div>
       </div>
@@ -445,7 +449,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
                 companies.length > 1 ? 'hover:bg-slate-800 cursor-pointer' : 'cursor-default'
               }`}
             >
-              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-xs font-bold shrink-0">
+              <div className="w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0" style={{ background: tenantColore }}>
                 {companyAbbrev}
               </div>
               <div className="min-w-0 flex-1">

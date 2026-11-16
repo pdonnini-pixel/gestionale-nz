@@ -2520,6 +2520,10 @@ export const PAGE_GUIDES: PageGuide[] = [
         "a": "Diretto assegna tutto il costo a un solo punto vendita. Split % ripartisce il costo secondo percentuali che tu inserisci (devono sommare a 100%). Split Valore assegna un importo fisso in euro a ciascun punto vendita. Quote Uguali divide il costo in parti uguali tra i punti vendita selezionati, e si ricalcola da sola se in futuro cambia il numero di punti vendita attivi."
       },
       {
+        "q": "Chi decide la divisione dei fornitori che non ho impostato a mano?",
+        "a": "Ogni notte il sistema la imposta da solo per i fornitori senza una divisione messa a mano: prima il punto vendita letto dalle bollette (codici POD e PDR), dalle righe della fattura o dal nome del fornitore; per la merce il preventivo acquisti. Per gli altri costi dipende dall'azienda: di norma vanno sui punti vendita in proporzione ai ricavi o alla sede; se l'azienda ha scelto le «parti uguali fra i negozi», vanno divisi in parti uguali fra i punti vendita attivi. Affitti, utenze (luce, gas, linee telefoniche) e allestimenti restano fuori da questa divisione: si legano al singolo punto vendita. Queste divisioni hanno la descrizione «Automatica»: una divisione salvata a mano non viene mai cambiata."
+      },
+      {
         "q": "Perché non vedo il blocco \"Divisione tra punti vendita\" nel pannello Gestione?",
         "a": "Quella sezione compare solo se l'azienda ha almeno due punti vendita attivi. Con un solo punto vendita attivo, tutti i costi vanno automaticamente a quell'unica sede e la divisione non serve."
       },
