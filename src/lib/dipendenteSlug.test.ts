@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { slugDipendente, segmentoDipendente, trovaDipendente, sezioneDa, percorsoDipendente } from './dipendenteSlug'
+import { slugDipendente, segmentoDipendente, trovaDipendente, risolviDipendente, sezioneDa, percorsoDipendente } from './dipendenteSlug'
 
 const ID1 = '11111111-1111-1111-1111-111111111111'
 const ID2 = '22222222-2222-2222-2222-222222222222'
@@ -39,5 +39,30 @@ describe('indirizzo della scheda dipendente', () => {
     expect(sezioneDa('boh')).toBe('contratto')
     expect(percorsoDipendente('giulia-rinaldi')).toBe('/dipendenti/giulia-rinaldi')
     expect(percorsoDipendente('giulia-rinaldi', 'netti')).toBe('/dipendenti/giulia-rinaldi/netti')
+  })
+})
+
+describe('risoluzione della persona dall\'indirizzo (revisore, 16/11/2026)', () => {
+  it('dopo aver corretto il cognome lo slug vecchio porta ancora alla stessa persona', () => {
+    const dopo = [{ id: ID1, nome: 'Giulia', cognome: 'Rinaldini' }, ...tutti.slice(1)]
+    expect(trovaDipendente('giulia-rinaldi', dopo)).toBeNull()
+    const r = risolviDipendente('giulia-rinaldi', dopo, ID1)
+    expect(r.persona?.id).toBe(ID1)
+    expect(segmentoDipendente(r.persona!, dopo)).toBe('giulia-rinaldini')
+  })
+
+  it('senza una persona aperta prima lo slug sconosciuto non trova nessuno', () => {
+    expect(risolviDipendente('nessuno-nessuno', tutti, null)).toEqual({ persona: null, omonimi: [] })
+    expect(risolviDipendente('nessuno-nessuno', tutti, 'id-che-non-esiste').persona).toBeNull()
+  })
+
+  it('uno slug condiviso da due persone restituisce l\'elenco degli omonimi', () => {
+    const r = risolviDipendente('anna-bianchi', tutti, null)
+    expect(r.persona).toBeNull()
+    expect(r.omonimi.map((p) => p.id).sort()).toEqual([ID2, ID3])
+  })
+
+  it('l\'id esatto vince sempre', () => {
+    expect(risolviDipendente(ID3, tutti, ID1).persona?.id).toBe(ID3)
   })
 })

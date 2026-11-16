@@ -27,7 +27,9 @@ import { organicoAllaData, type PersonaOggi } from '../lib/organico';
 import { parseItNum, norm } from '../lib/payrollParse';
 import { keepLastByKey, readableDbError } from '../lib/upsertDedupe';
 import { CONTRATTO_OPTS, contrattoLabel, moduloDa, moduloInRiga, type ModuloAnagrafica } from '../lib/anagraficaDipendente';
-import { SEZIONI_SCHEDA, percorsoDipendente, segmentoDipendente, sezioneDa, trovaDipendente, type SezioneScheda } from '../lib/dipendenteSlug';
+import { SEZIONI_SCHEDA, percorsoDipendente, risolviDipendente, segmentoDipendente, sezioneDa, type SezioneScheda } from '../lib/dipendenteSlug';
+import { caricaGiorniLiberi, caricaRiposi, impostaGiornoLibero, type GiornoLibero } from '../lib/regoleNuoveDb';
+import { NOMI_GIORNO_BREVI } from '../lib/turni';
 import { ETICHETTE_VOCE } from '../lib/ferieRichiesta';
 
 type Employee = Row<'employees'>;
@@ -73,6 +75,8 @@ export default function SchedaDipendente() {
   const ruolo = profile?.role ?? '';
   const puoAnagrafica = RUOLI_ANAGRAFICA.includes(ruolo);
   const puoOrganico = puoTenereOrganico(profile?.role);
+  // il profilo di sola lettura non carica documenti e non salva netti: il database li rifiuterebbe
+  const solaLettura = ruolo === 'viewer';
   const sezione = sezioneDa(segSezione);
 
   const [tutti, setTutti] = useState<Employee[]>([]);
@@ -81,12 +85,17 @@ export default function SchedaDipendente() {
   const [costi, setCosti] = useState<EmployeeCost[]>([]);
   const [docs, setDocs] = useState<EmployeeDocument[]>([]);
   const [organico, setOrganico] = useState<DatiOrganico | null>(null);
+  const [organicoFallito, setOrganicoFallito] = useState(false);
   const [saldi, setSaldi] = useState<Saldo[] | null>(null);
   const [richieste, setRichieste] = useState<Richiesta[] | null>(null);
   const [caricata, setCaricata] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
 
-  const emp = useMemo(() => trovaDipendente(segmento, tutti), [segmento, tutti]);
+  // L'id dell'ultima persona aperta: dopo aver corretto nome o cognome lo slug vecchio
+  // dell'indirizzo non trova piu' nessuno, ma la persona e' la stessa (revisore, 16/11/2026).
+  const ultimoId = useRef<string | null>(null);
+  const { persona: emp, omonimi } = useMemo(() => risolviDipendente(segmento, tutti, ultimoId.current), [segmento, tutti]);
+  useEffect(() => { if (emp) ultimoId.current = emp.id; }, [emp]);
 
   const caricaTutto = useCallback(async () => {
     if (!companyId) return;
@@ -95,7 +104,10 @@ export default function SchedaDipendente() {
       supabase.from('employees').select('*').eq('company_id', companyId),
       supabase.from('outlets').select('id, name, code, is_active').eq('company_id', companyId).order('name'),
     ]);
-    if (e.error) { setErrore(e.error.message); setCaricata(true); return; }
+    if (e.error) {
+      console.error('[scheda dipendente] lettura dei dipendenti', e.error);
+      setErrore('Non riesco a leggere la scheda: riprova fra poco.'); setCaricata(true); return;
+    }
     setTutti((e.data as Employee[]) ?? []);
     setOutlets((o.data as OutletRow[]) ?? []);
     setCaricata(true);
@@ -118,7 +130,7 @@ export default function SchedaDipendente() {
 
   const caricaOrganicoPersona = useCallback(async () => {
     if (!companyId) return;
-    try { setOrganico(await caricaOrganico(companyId)); } catch { setOrganico(null); }
+    try { setOrganico(await caricaOrganico(companyId)); setOrganicoFallito(false); } catch { setOrganico(null); setOrganicoFallito(true); }
   }, [companyId]);
 
   useEffect(() => { void caricaTutto(); void caricaOrganicoPersona(); }, [caricaTutto, caricaOrganicoPersona]);
@@ -148,10 +160,11 @@ export default function SchedaDipendente() {
   }, [puoOrganico, puoAnagrafica, persona]);
   // Arrivando da «Modifica» nell'elenco (?modifica=1) si apre subito la modifica.
   useEffect(() => {
-    if (cerca.get('modifica') !== '1' || !emp || (puoOrganico && !persona && organico === null)) return;
+    // si aspetta l'organico, ma se non si riesce a leggere il parametro si toglie lo stesso
+    if (cerca.get('modifica') !== '1' || !emp || (puoOrganico && !persona && organico === null && !organicoFallito)) return;
     apriModifica();
     const n = new URLSearchParams(cerca); n.delete('modifica'); setCerca(n, { replace: true });
-  }, [cerca, emp, persona, organico, puoOrganico, apriModifica, setCerca]);
+  }, [cerca, emp, persona, organico, organicoFallito, puoOrganico, apriModifica, setCerca]);
 
   const [segna, setSegna] = useState(false);
   const [ripartizione, setRipartizione] = useState(false);
@@ -166,11 +179,31 @@ export default function SchedaDipendente() {
   const ricarica = async () => { await caricaTutto(); await caricaOrganicoPersona(); if (emp) await caricaPersona(emp.id); };
 
   if (!caricata) return <div className="flex items-center justify-center py-24"><div className="w-8 h-8 border-3 border-blue-200 border-t-blue-600 rounded-full animate-spin" /></div>;
+  if (!errore && !emp && omonimi.length > 1) {
+    return (
+      <div className="max-w-xl mx-auto mt-16 bg-white border border-slate-200 rounded-xl p-6">
+        <p className="font-semibold text-slate-900">Ci sono più persone con questo nome</p>
+        <p className="text-sm text-slate-500 mt-1">Scegli quella giusta: ognuna ha il suo indirizzo.</p>
+        <ul className="mt-3 divide-y divide-slate-100 border border-slate-200 rounded-xl">
+          {omonimi.map((o) => (
+            <li key={o.id}>
+              <button type="button" onClick={() => navigate(percorsoDipendente(o.id, sezione))} className="w-full text-left px-3 py-2.5 hover:bg-slate-50">
+                <span className="font-medium text-slate-900">{nomeCompleto(o)}</span>
+                <span className="block text-xs text-slate-500">
+                  {[outlets.find((x) => x.id === o.outlet_id)?.name ?? null, o.matricola ? `matricola ${o.matricola}` : null, o.is_active === false ? 'cessata' : null].filter(Boolean).join(' · ') || 'senza negozio'}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      </div>
+    );
+  }
   if (errore || !emp) {
     return (
-      <div className="max-w-xl mx-auto mt-16 bg-white border border-slate-200 rounded-2xl p-6 text-center">
+      <div className="max-w-xl mx-auto mt-16 bg-white border border-slate-200 rounded-xl p-6 text-center">
         <p className="font-semibold text-slate-900">{errore ? 'Non riesco a leggere i dipendenti' : 'Persona non trovata'}</p>
-        <p className="text-sm text-slate-500 mt-1">{errore ?? 'L\'indirizzo non corrisponde a nessuna persona di questa azienda, oppure ci sono due persone con lo stesso nome: aprila dall\'elenco.'}</p>
+        <p className="text-sm text-slate-500 mt-1">{errore ?? 'L\'indirizzo non corrisponde a nessuna persona di questa azienda: aprila dall\'elenco.'}</p>
         <button type="button" onClick={() => navigate('/dipendenti?view=oggi')} className="mt-4 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium">Vai all'elenco dei dipendenti</button>
       </div>
     );
@@ -187,31 +220,29 @@ export default function SchedaDipendente() {
   const scadenza = campo(emp, 'scadenza_td');
 
   return (
-    <div className="max-w-6xl mx-auto space-y-4 pb-10">
-      {/* Testata: chi è, a colpo d'occhio, e le azioni sulla persona */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-4 sm:p-5">
-        <div className="flex flex-wrap items-start gap-3">
-          <button type="button" onClick={tornaIndietro} className="p-2 -ml-1 rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Torna all'elenco dei dipendenti" title="Torna all'elenco"><ArrowLeft size={18} /></button>
-          <div className="w-12 h-12 rounded-full bg-blue-50 text-blue-700 font-semibold flex items-center justify-center shrink-0">
-            {`${(emp.nome || emp.first_name || '?')[0] ?? ''}${(emp.cognome || emp.last_name || '')[0] ?? ''}`.toUpperCase()}
+    <div className="min-h-screen bg-white">
+    <div className="p-4 sm:p-6 space-y-4 max-w-[1600px] mx-auto">
+      {/* Testata come la scheda del punto vendita: chi è, a colpo d'occhio, e le azioni sulla persona */}
+      <div className="flex items-start gap-3 sm:gap-4 flex-wrap">
+        <button type="button" onClick={tornaIndietro} className="p-2 rounded-lg hover:bg-slate-100 transition text-slate-600" aria-label="Torna all'elenco dei dipendenti" title="Torna all'elenco"><ArrowLeft size={20} /></button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 break-words">{nomeCompleto(emp)}</h1>
+            <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${attiva ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{attiva ? 'In servizio' : `Cessata${emp.data_cessazione ? ` il ${dataIt(emp.data_cessazione)}` : ''}`}</span>
           </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-bold text-slate-900 break-words">{nomeCompleto(emp)}</h1>
-            <p className="text-sm text-slate-500">
-              {[outletName, qualifica ? String(qualifica) : null, livello ? String(livello) : null, emp.matricola ? `matricola ${emp.matricola}` : null, emp.data_assunzione || emp.hire_date ? `assunta il ${dataIt(emp.data_assunzione || emp.hire_date)}` : null].filter(Boolean).join(' · ')}
-            </p>
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-800">{contrattoLabel(contratto)}{ore != null ? ` · ${Number(ore).toLocaleString('it-IT')} h` : ''}</span>
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${attiva ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>{attiva ? 'In servizio' : `Cessata${emp.data_cessazione ? ` il ${dataIt(emp.data_cessazione)}` : ''}`}</span>
-              {apreChiudeDaIndicare && attiva && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">Apertura e chiusura: da indicare</span>}
-            </div>
+          <p className="text-xs sm:text-sm text-slate-500">
+            {[outletName, qualifica ? String(qualifica) : null, livello ? String(livello) : null, emp.matricola ? `matricola ${emp.matricola}` : null, emp.data_assunzione || emp.hire_date ? `assunta il ${dataIt(emp.data_assunzione || emp.hire_date)}` : null].filter(Boolean).join(' · ')}
+          </p>
+          <div className="flex flex-wrap gap-1.5 mt-1.5">
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-800">{contrattoLabel(contratto)}{ore != null ? ` · ${Number(ore).toLocaleString('it-IT')} h` : ''}</span>
+            {apreChiudeDaIndicare && attiva && <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-800">Apertura e chiusura: da indicare</span>}
           </div>
-          <div className="flex flex-wrap gap-2 w-full sm:w-auto sm:justify-end">
-            {puoOrganico && attiva && persona && <button type="button" onClick={() => setSegna(true)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium hover:bg-slate-50" title="Un cambiamento che vale da una data: orario, negozio, proroga, cessazione…">Segna un cambiamento</button>}
-            {puoAnagrafica && <button type="button" onClick={() => setRipartizione(true)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium text-violet-700 hover:bg-violet-50 inline-flex items-center gap-1" title="Come si divide il costo fra i negozi"><Percent size={14} /> Ripartizione</button>}
-            {puoAnagrafica && attiva && <button type="button" onClick={() => setCessa(true)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium text-red-600 hover:bg-red-50 inline-flex items-center gap-1"><Trash2 size={14} /> Cessa</button>}
-            {puoAnagrafica && !attiva && <button type="button" onClick={() => setRiattiva(true)} className="px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center gap-1"><RefreshCw size={14} /> Riattiva</button>}
-          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto sm:justify-end">
+          {puoOrganico && attiva && persona && <button type="button" onClick={() => setSegna(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-slate-200 hover:bg-slate-50 transition text-slate-700" title="Un cambiamento che vale da una data: orario, negozio, proroga, cessazione…">Segna un cambiamento</button>}
+          {puoAnagrafica && <button type="button" onClick={() => setRipartizione(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-violet-200 hover:bg-violet-50 transition text-violet-700" title="Come si divide il costo fra i negozi"><Percent size={15} /> Ripartizione</button>}
+          {puoAnagrafica && attiva && <button type="button" onClick={() => setCessa(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-red-200 hover:bg-red-50 transition text-red-600"><Trash2 size={15} /> Cessa</button>}
+          {puoAnagrafica && !attiva && <button type="button" onClick={() => setRiattiva(true)} className="flex items-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-emerald-200 hover:bg-emerald-50 transition text-emerald-700"><RefreshCw size={15} /> Riattiva</button>}
         </div>
       </div>
 
@@ -232,17 +263,17 @@ export default function SchedaDipendente() {
       )}
 
       {/* Sezioni */}
-      <div className="flex gap-1 overflow-x-auto bg-slate-100 rounded-xl p-1" role="tablist">
+      <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5 overflow-x-auto" role="tablist">
         {SEZIONI_SCHEDA.map((s) => (
           <button key={s.k} type="button" role="tab" aria-selected={sezione === s.k} onClick={() => vaiSezione(s.k)}
-            className={`px-3 py-1.5 rounded-lg text-sm whitespace-nowrap ${sezione === s.k ? 'bg-white shadow-sm font-semibold text-slate-900' : 'text-slate-600 hover:text-slate-900'}`}>
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition whitespace-nowrap ${sezione === s.k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             {s.label}
           </button>
         ))}
       </div>
 
       {sezione === 'contratto' && (
-        <section className="bg-white border border-slate-200 rounded-2xl">
+        <section className="bg-white border border-slate-200 rounded-xl">
           <div className="flex items-center justify-between gap-2 px-4 py-3 border-b border-slate-100">
             <h2 className="font-semibold text-slate-900">Contratto e anagrafica</h2>
             {modo === 'lettura' && puoModificare && (puoAnagrafica || persona) && (
@@ -267,15 +298,16 @@ export default function SchedaDipendente() {
 
       {sezione === 'turni' && (
         <section className="space-y-3">
-          <div className="bg-white border border-slate-200 rounded-2xl p-4">
+          <div className="bg-white border border-slate-200 rounded-xl p-4">
             <ChiaviNegozio employeeId={emp.id} outletId={emp.outlet_id ?? null} />
             <AccordiOrario employeeId={emp.id} companyId={companyId} outletId={emp.outlet_id ?? null}
               oreSettimanali={ore != null ? Number(ore) : null} />
           </div>
-          <div className="bg-white border border-slate-200 rounded-2xl p-4">
+          <div className="bg-white border border-slate-200 rounded-xl p-4">
             <h2 className="font-semibold text-slate-900">Giorni di riposo</h2>
             <p className="text-xs text-slate-500 mb-3">Giorni in cui riposa di preferenza e giorni in cui non riposa mai. Per legge c’è sempre almeno un giorno di riposo a settimana; quanti riposi a testa si decide nelle regole del negozio.</p>
             <RiposiNegozio companyId={companyId} persone={[{ id: emp.id, nome: nomeCompleto(emp) }]} puoScrivere={puoOrganico} />
+            <GiornoLiberoPersona companyId={companyId} employeeId={emp.id} outletId={emp.outlet_id ?? null} puoScrivere={puoOrganico} />
           </div>
         </section>
       )}
@@ -285,13 +317,13 @@ export default function SchedaDipendente() {
       )}
 
       {sezione === 'documenti' && (
-        <section className="bg-white border border-slate-200 rounded-2xl p-4">
-          <DocumentiRapporto employeeId={emp.id} companyId={companyId} docs={docs} onChanged={async () => { await caricaPersona(emp.id); }} />
+        <section className="bg-white border border-slate-200 rounded-xl p-4">
+          <DocumentiRapporto employeeId={emp.id} companyId={companyId} docs={docs} puoCaricare={!solaLettura} onChanged={async () => { await caricaPersona(emp.id); }} />
         </section>
       )}
 
       {sezione === 'netti' && (
-        <NettiAnno key={emp.id} employeeId={emp.id} companyId={companyId} costi={costi}
+        <NettiAnno key={emp.id} employeeId={emp.id} companyId={companyId} costi={costi} puoSalvare={!solaLettura}
           onSalvato={async () => { await caricaPersona(emp.id); toast({ type: 'success', message: 'Netti salvati' }); }} />
       )}
 
@@ -317,6 +349,59 @@ export default function SchedaDipendente() {
           toast({ type: 'success', message: 'Dipendente riattivato' });
           await ricarica();
         }} />
+    </div>
+    </div>
+  );
+}
+
+// ── Giorno libero fisso (employee_giorno_libero, migration 395) ─────────────────────
+// Stesse regole del piano settimanale (PianoTurni): il selettore c'e' solo dove manca la
+// tabella dei riposi preferiti (employee_riposi, 405); altrove il giorno scelto dal sistema si
+// mostra e i riposi si decidono qui sopra. Dove il negozio ha i riposi minimi scritti il giorno
+// fisso non si usa. Dove la tabella manca (Made) non si vede niente.
+function GiornoLiberoPersona({ companyId, employeeId, outletId, puoScrivere }: { companyId: string; employeeId: string; outletId: string | null; puoScrivere: boolean }) {
+  const { toast } = useToast();
+  const [stato, setStato] = useState<{ disponibile: boolean; giorno: GiornoLibero | null; conRiposi: boolean; turnazione: boolean } | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      const [gl, rp, rg] = await Promise.all([
+        caricaGiorniLiberi(companyId).catch(() => ({ mappa: new Map<string, GiornoLibero>(), disponibile: false })),
+        caricaRiposi(companyId).catch(() => ({ preferiti: new Map<string, number[]>(), mai: new Map<string, number[]>(), disponibile: false })),
+        outletId ? supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle() : Promise.resolve({ data: null }),
+      ]);
+      if (!vivo) return;
+      const regola = rg.data as { riposi_min_settimana?: number | null } | null;
+      setStato({ disponibile: gl.disponibile, giorno: gl.mappa.get(employeeId) ?? null, conRiposi: rp.disponibile, turnazione: regola?.riposi_min_settimana != null });
+    })();
+    return () => { vivo = false; };
+  }, [companyId, employeeId, outletId]);
+  if (!stato || !stato.disponibile) return null;
+  const nome = (g: number) => NOMI_GIORNO_BREVI[g]?.toLowerCase() ?? String(g);
+  const cambia = async (giorno: number | null) => {
+    try {
+      await impostaGiornoLibero(companyId, employeeId, giorno);
+      setStato((s) => (s ? { ...s, giorno: giorno == null ? null : { giorno, origine: 'manuale' } } : s));
+    } catch (e) {
+      toast({ type: 'error', message: `Giorno libero non salvato: ${e instanceof Error ? e.message : 'errore'}` });
+    }
+  };
+  return (
+    <div className="mt-3 pt-3 border-t border-slate-100 text-sm">
+      <span className="font-medium text-slate-800">Giorno libero fisso: </span>
+      {stato.turnazione ? (
+        <span className="text-slate-500">in questo negozio i riposi li decide la turnazione, con i giorni scelti qui sopra: il giorno libero fisso non si usa.</span>
+      ) : !stato.conRiposi ? (
+        <select disabled={!puoScrivere} value={stato.giorno?.giorno ?? ''} onChange={(e) => void cambia(e.target.value ? Number(e.target.value) : null)}
+          aria-label="Giorno libero fisso" className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-sm text-slate-700">
+          <option value="">da scegliere</option>
+          {[1, 2, 3, 4, 5, 6, 7].map((g) => <option key={g} value={g}>{nome(g)}</option>)}
+        </select>
+      ) : stato.giorno ? (
+        <span className="text-slate-600">{nome(stato.giorno.giorno)} <span className="text-slate-400">({stato.giorno.origine === 'manuale' ? 'deciso a mano' : 'scelto dal sistema'})</span></span>
+      ) : (
+        <span className="text-slate-500">non ancora scelto: lo sceglie il sistema alla prima proposta dei turni.</span>
+      )}
     </div>
   );
 }
@@ -472,7 +557,7 @@ function FeriePersona({ saldi, richieste, onVai }: { saldi: Saldo[] | null; rich
   const ore = (v: number | null | undefined) => (v == null ? '—' : `${Number(v).toLocaleString('it-IT', { maximumFractionDigits: 2 })} h`);
   return (
     <section className="space-y-3">
-      <div className="bg-white border border-slate-200 rounded-2xl p-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
         <div className="flex items-center justify-between gap-2 mb-2">
           <h2 className="font-semibold text-slate-900">Saldi dal tabulato delle paghe</h2>
           <button type="button" onClick={onVai} className="text-sm font-medium text-blue-700 hover:underline">Vai a Ferie e permessi</button>
@@ -503,7 +588,7 @@ function FeriePersona({ saldi, richieste, onVai }: { saldi: Saldo[] | null; rich
           </div>
         )}
       </div>
-      <div className="bg-white border border-slate-200 rounded-2xl p-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4">
         <h2 className="font-semibold text-slate-900 mb-2">Richieste</h2>
         {richieste === null ? (
           <p className="text-sm text-slate-500">Le richieste non si leggono da qui: aprile in Ferie e permessi.</p>
@@ -526,7 +611,7 @@ function FeriePersona({ saldi, richieste, onVai }: { saldi: Saldo[] | null; rich
 }
 
 // ── Documenti del rapporto: storico, un documento nuovo si aggiunge ─────────────────
-function DocumentiRapporto({ employeeId, companyId, docs, onChanged }: { employeeId: string; companyId: string; docs: EmployeeDocument[]; onChanged: () => Promise<void> }) {
+function DocumentiRapporto({ employeeId, companyId, docs, puoCaricare, onChanged }: { employeeId: string; companyId: string; docs: EmployeeDocument[]; puoCaricare: boolean; onChanged: () => Promise<void> }) {
   const { toast } = useToast();
   const [tipo, setTipo] = useState('contratto');
   const [data, setData] = useState('');
@@ -599,6 +684,9 @@ function DocumentiRapporto({ employeeId, companyId, docs, onChanged }: { employe
           })}
         </ul>
       )}
+      {!puoCaricare ? (
+        <div className="text-xs text-slate-400">Con il profilo di sola lettura i documenti si guardano ma non si caricano.</div>
+      ) : (<>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
         <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" aria-label="Tipo di documento">
           {DOC_RAPPORTO_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
@@ -609,12 +697,13 @@ function DocumentiRapporto({ employeeId, companyId, docs, onChanged }: { employe
       <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void carica(f); }} />
       <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className="mt-2 px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Upload size={14} /> {busy ? 'Caricamento…' : 'Carica documento'}</button>
       <div className="text-xs text-slate-400 mt-1.5">I documenti restano come storico: uno nuovo si aggiunge, non sostituisce i precedenti.</div>
+      </>)}
     </div>
   );
 }
 
 // ── Netti dell'anno: come nella finestra di prima, con il cambio d'anno ─────────────
-function NettiAnno({ employeeId, companyId, costi, onSalvato }: { employeeId: string; companyId: string; costi: EmployeeCost[]; onSalvato: () => Promise<void> }) {
+function NettiAnno({ employeeId, companyId, costi, puoSalvare, onSalvato }: { employeeId: string; companyId: string; costi: EmployeeCost[]; puoSalvare: boolean; onSalvato: () => Promise<void> }) {
   const { toast } = useToast();
   const annoOggi = new Date().getFullYear();
   const anni = useMemo(() => {
@@ -667,7 +756,7 @@ function NettiAnno({ employeeId, companyId, costi, onSalvato }: { employeeId: st
   };
 
   return (
-    <section className="bg-white border border-slate-200 rounded-2xl p-4">
+    <section className="bg-white border border-slate-200 rounded-xl p-4">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
         <h2 className="font-semibold text-slate-900 inline-flex items-center gap-2">Netti del
           <select value={anno} onChange={(e) => cambiaAnno(Number(e.target.value))} aria-label="Anno dei netti" className="px-1.5 py-0.5 text-sm font-semibold rounded-md border border-slate-300 bg-white">
@@ -699,7 +788,9 @@ function NettiAnno({ employeeId, companyId, costi, onSalvato }: { employeeId: st
         })}
       </div>
       <div className="mt-3 flex justify-end">
+        {!puoSalvare ? <span className="text-xs text-slate-400">Con il profilo di sola lettura i netti si guardano ma non si salvano.</span> : (
         <button type="button" onClick={salva} disabled={salvo} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 inline-flex items-center gap-1.5"><Save size={15} /> {salvo ? 'Salvataggio…' : 'Salva netti'}</button>
+        )}
       </div>
     </section>
   );
@@ -714,7 +805,13 @@ function RipartizioneModal({ employeeId, companyId, allocs, outlets, onClose, on
     return cur.length ? cur : [{ outlet_code: '', allocation_pct: 100 }];
   });
   const [errore, setErrore] = useState('');
-  const attivi = outlets.filter((o) => o.is_active !== false);
+  // i negozi attivi, piu' quelli non piu' attivi che hanno gia' una quota (come CorreggiPersona):
+  // altrimenti la riga apparirebbe vuota e la quota resterebbe senza che si veda
+  const giaUsati = new Set(allocs.map((a) => a.outlet_code).filter(Boolean));
+  const attivi = [
+    ...outlets.filter((o) => o.is_active !== false || giaUsati.has(o.name)),
+    ...[...giaUsati].filter((c) => !outlets.some((o) => o.name === c)).map((c) => ({ id: `codice-${c}`, name: c, code: null, is_active: false })),
+  ];
   const salva = async () => {
     const totale = righe.reduce((s, a) => s + (Number(a.allocation_pct) || 0), 0);
     if (totale > 100.01) { setErrore(`Le quote sommano ${totale.toFixed(1)}%: il massimo è 100%`); return; }
@@ -740,7 +837,7 @@ function RipartizioneModal({ employeeId, companyId, allocs, outlets, onClose, on
             <select value={a.outlet_code} onChange={(e) => setRighe((p) => p.map((x, j) => (j === i ? { ...x, outlet_code: e.target.value } : x)))}
               className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200" aria-label="Negozio">
               <option value="">Scegli il negozio…</option>
-              {attivi.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
+              {attivi.map((o) => <option key={o.id} value={o.name}>{o.name}{o.is_active === false ? ' (non più attivo)' : ''}</option>)}
             </select>
             <div className="relative w-28">
               <input type="number" value={a.allocation_pct} min={0} max={100} aria-label="Quota"

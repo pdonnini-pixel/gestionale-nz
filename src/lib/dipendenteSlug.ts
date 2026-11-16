@@ -53,6 +53,26 @@ export function trovaDipendente<T extends PersonaMinima>(segmento: string | unde
   return rovescio.length === 1 ? rovescio[0] : null
 }
 
+/**
+ * Come `trovaDipendente`, ma dice anche perche' non trova nessuno:
+ *  - `omonimi`: lo slug corrisponde a piu' persone (vecchio link salvato prima che arrivasse
+ *    un'omonima): la pagina le elenca e ognuna porta al suo indirizzo con l'id;
+ *  - `ultimoId`: l'id della persona aperta un attimo fa. Dopo aver corretto nome o cognome lo
+ *    slug dell'indirizzo non trova piu' nessuno, ma la persona e' la stessa: si tiene lei, e la
+ *    pagina riscrive l'indirizzo con lo slug nuovo (revisore codice, 16/11/2026).
+ */
+export function risolviDipendente<T extends PersonaMinima>(segmento: string | undefined, tutti: T[], ultimoId?: string | null): { persona: T | null; omonimi: T[] } {
+  const trovata = trovaDipendente(segmento, tutti)
+  if (trovata) return { persona: trovata, omonimi: [] }
+  let key = segmento ?? ''
+  try { key = decodeURIComponent(key) } catch { /* gia' in chiaro */ }
+  const lower = key.toLowerCase()
+  const omonimi = lower ? tutti.filter((p) => slugDipendente(p) === lower) : []
+  if (omonimi.length > 1) return { persona: null, omonimi }
+  const ultima = ultimoId ? tutti.find((p) => p.id === ultimoId) ?? null : null
+  return { persona: ultima, omonimi: [] }
+}
+
 /** La sezione dall'indirizzo; un suffisso sconosciuto o assente vale «contratto». */
 export function sezioneDa(seg: string | undefined): SezioneScheda {
   return (SEZIONI_SCHEDA.find((s) => s.k === seg)?.k ?? 'contratto') as SezioneScheda

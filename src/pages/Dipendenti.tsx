@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Row } from '../types/business';
 import { usePeriod } from '../hooks/usePeriod';
 import PageHeader from '../components/PageHeader';
@@ -59,7 +59,7 @@ import CaricaFilePaghe, { type FileInArrivo, segnalaEsitoPaghe, suDatiPagheAggio
 import PagamentiPaghe from '../components/PagamentiPaghe';
 import { puoTenereOrganico } from '../lib/organicoDati';
 import { percorsoDipendente, segmentoDipendente } from '../lib/dipendenteSlug';
-import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
+import { mergeSumByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
 import { archiviaFile, avvisoArchiviazioneFallita, sostituisciPrecedenti } from '../lib/archivioFile';
 import { parseElenco, confrontaElenco, notaAllineamento, valoriDaRiga, outletDaFiliale, dataDalNomeFile, type EsitoConfronto, type RigaElenco, type DipendenteConfronto } from '../lib/elencoDipendenti';
 import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
@@ -269,7 +269,7 @@ function AmministratoriAccordion({ admins, nettoCell, lordoTot, mm, year }: {
                 const netto = nettoCell(e.id);
                 return (
                   <tr key={e.id} className="border-b border-slate-100">
-                    <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
+                    <td className="px-4 py-2.5 font-semibold text-slate-800"><NomeConScheda e={e} /></td>
                     <td className="px-4 py-2.5 text-right">{netto == null ? <span className="text-slate-300">—</span> : <Money v={netto} />}</td>
                     <td className="px-4 py-2.5 text-right">{single ? <Money v={lordoTot} /> : <span className="text-slate-300">—</span>}</td>
                   </tr>
@@ -323,6 +323,19 @@ const fileInArrivoAperti = new Set<number>();
 
 const empName = (e: Employee) =>
   `${e.cognome || e.last_name || ''} ${e.nome || e.first_name || ''}`.trim() || '—';
+
+/**
+ * Il nome che porta alla pagina della persona (Patrizio, 16/11/2026: «se clicco su un
+ * dipendente mi si deve aprire la pagina»). L'id nell'indirizzo: la pagina lo riscrive da sola
+ * con il nome leggibile.
+ */
+function NomeConScheda({ e }: { e: Employee }) {
+  return (
+    <Link to={percorsoDipendente(e.id)} state={{ daElenco: true }} className="hover:text-blue-700 hover:underline" title="Apri la scheda della persona">
+      {empName(e)}
+    </Link>
+  );
+}
 
 // ============================================================================
 // UI SHELLS (Modal custom — mai dialog nativi)
@@ -1484,7 +1497,7 @@ function PerOutletTab(props: {
                     {persone.map((e) => (
                       <tr key={e.id} className="border-t border-slate-50">
                         <td className="px-3 py-2 text-slate-700">
-                          {empName(e)}
+                          <NomeConScheda e={e} />
                           {isAdminRole(e) && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
                         </td>
                         <td className="px-3 py-2 text-right"><Money v={nettoOf(e.id)} /></td>
@@ -1598,7 +1611,7 @@ function CostiTab(props: {
                           const docs = docsForEmp(e.id).filter((d) => d.doc_type === 'cedolino' && d.year === year);
                           return (
                             <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50">
-                              <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
+                              <td className="px-4 py-2.5 font-semibold text-slate-800"><NomeConScheda e={e} /></td>
                               <td className="px-4 py-2.5 text-right">
                                 <Money v={nettoCell(e.id)} />
                                 {(() => {
