@@ -579,16 +579,26 @@ export default function Dipendenti() {
     }
   };
 
-  // Budget B&C (conti 67xx), bilancio totale personale, ricavi — dipendono dall'anno.
+  // Budget B&C (conti del personale), bilancio totale personale, ricavi — dipendono dall'anno.
   const loadYearScoped = async (cid: string, year: number) => {
     try {
-      // Costo personale = budget_entries 67xx, raggruppati per cost_center (SOLA LETTURA)
-      const { data: be } = await supabase
-        .from('budget_entries')
-        .select('account_code, cost_center, budget_amount, actual_amount')
+      // Costo personale = budget_entries dei conti con macro_group 'personale' del
+      // piano dei conti (come Produttivita), raggruppati per cost_center (SOLA LETTURA).
+      // Mai per prefisso di account_code: ogni azienda ha il suo piano dei conti.
+      const { data: persAccts } = await supabase
+        .from('chart_of_accounts')
+        .select('code, is_revenue')
         .eq('company_id', cid)
-        .eq('year', year)
-        .like('account_code', '67%');
+        .eq('macro_group', 'personale');
+      const personaleCodes = (persAccts || []).filter((r) => r.is_revenue !== true).map((r) => r.code);
+      const { data: be } = personaleCodes.length
+        ? await supabase
+            .from('budget_entries')
+            .select('account_code, cost_center, budget_amount, actual_amount')
+            .eq('company_id', cid)
+            .eq('year', year)
+            .in('account_code', personaleCodes)
+        : { data: [] as { account_code: string; cost_center: string; budget_amount: number | null; actual_amount: number | null }[] };
       const byCenter: Record<string, number> = {};
       (be || []).forEach((r) => {
         if (r.cost_center === 'all') return; // 'all' è il roll-up: evita doppio conteggio

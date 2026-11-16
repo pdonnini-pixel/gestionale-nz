@@ -18,7 +18,7 @@
 
 // Etichetta condivisa (T1): i ricavi outlet provengono da budget_confronto
 // (inserimento di Lilian), non dal bilancio importato.
-export const RICAVI_SOURCE_LABEL = 'Ricavi (inserimento Lilian)'
+export const RICAVI_SOURCE_LABEL = 'Ricavi (inseriti a mano)'
 
 export type ConfrontoRow = {
   cost_center?: string | null

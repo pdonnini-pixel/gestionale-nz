@@ -152,7 +152,7 @@ export default function AccordiOrario({ employeeId, companyId, outletId, oreSett
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-3">
         <label className="text-xs text-slate-500 sm:col-span-3">Accordo (con chi, perché)
-          <input type="text" value={nota} disabled={!eHr} onChange={(e) => setNota(e.target.value)} placeholder="es. accordo con Lilian: il martedì porta il figlio a scuola"
+          <input type="text" value={nota} disabled={!eHr} onChange={(e) => setNota(e.target.value)} placeholder="es. accordo con la responsabile: il martedì porta il figlio a scuola"
             className="mt-0.5 w-full px-2 py-1 rounded border border-slate-300 text-sm text-slate-800" />
         </label>
         <label className="text-xs text-slate-500">Valido dal
