@@ -129,29 +129,29 @@ Le altre regole dei turni restano quelle di `ORGANICO_TURNI_NOTES.md` (al massim
 
 ---
 
-## ⚠️ REGOLA #0 — PARITÀ TENANT (NON NEGOZIABILE)
+## ⚠️ REGOLA #0 — PARITÀ TENANT: NZ E ZAGO (NON NEGOZIABILE)
 
-> **Aggiornamento 03/11/2026 (Patrizio): «niente Made, non sviluppiamo più per tre tenant ma per due, solo New Zago e Zago».** Da questa data migration, Edge Function, Vault e RLS si applicano solo a **NZ + Zago**. Made non riceve più modifiche al database. Il frontend però esce ancora anche sul sito Made (stessa `main`): il codice nuovo deve funzionare anche dove una tabella o una colonna nuova non c'è (se manca, si torna al comportamento di prima, senza errori). Dove sotto si legge «3 tenant», vale «NZ e Zago».
+> **Aggiornamento 03/11/2026 (Patrizio): «niente Made, non sviluppiamo più per tre tenant ma per due, solo New Zago e Zago».** Da questa data migration, Edge Function, Vault e RLS si applicano solo a **NZ + Zago**. Made non riceve più modifiche al database. Il frontend però esce ancora anche sul sito Made (stessa `main`): il codice nuovo deve funzionare anche dove una tabella o una colonna nuova non c'è (se manca, si torna al comportamento di prima, senza errori).
 >
 > **Ribadita il 16/11/2026 (Patrizio: «Made non si aggiorna più, regola!»).** Made non si tocca e **non si propone**: niente «vuoi che lo corregga anche su Made?», niente Made fra le cose rimaste aperte a fine lavoro, niente verifiche sul database di Made. Se un dato su Made è diverso da NZ e Zago, è giusto così: non è un problema da segnalare. Si scrive su Made solo se Patrizio lo chiede lui, con parole sue.
 
-**OGNI modifica/fix/deploy va applicato a TUTTI E 3 i tenant: NZ + Made + Zago. Sempre. Senza eccezioni.**
+**OGNI modifica/fix/deploy al database va applicato a TUTTI E 2 i tenant: NZ + Zago. Sempre. Senza eccezioni. Made è fuori.**
 
 Concretamente, per ogni intervento:
-- **Migration SQL** → applicata via MCP su NZ + Made + Zago (3 project_id distinti)
-- **Edge Function deploy** → deployata su NZ + Made + Zago (3 project_id distinti)
-- **Vault secret / RPC** → replicata su NZ + Made + Zago
+- **Migration SQL** → applicata via MCP su NZ + Zago (2 project_id distinti)
+- **Edge Function deploy** → deployata su NZ + Zago (2 project_id distinti)
+- **Vault secret / RPC** → replicata su NZ + Zago
 - **Frontend** → automatico via Netlify (3 deploy dalla stessa branch main)
-- **Storage bucket / RLS policy** → replicato su NZ + Made + Zago
+- **Storage bucket / RLS policy** → replicato su NZ + Zago
 
 Tenant project_id:
 - **NZ** = `xfvfxsvqpnpvibgeqpqp` (gestionale-nz)
-- **Made** = `wdgoebzvosspjqttitra` (gestionale-made-retail)
+- **Made** = `wdgoebzvosspjqttitra` (gestionale-made-retail): **fuori dal 03/11/2026, non si tocca**; l'id resta qui solo per riconoscerlo ed evitarlo
 - **Zago** = `jxlwvzjreukscnswkbjx` (gestionale-zago)
 
 **Patrizio ha già ripetuto questa regola più volte. Se mi dimentico di replicare anche solo una volta, è un mio errore grave, non un dimenticanza accettabile.**
 
-Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". Se la risposta è no, non ho finito.
+Test mentale prima di chiudere ogni task: "Ho fatto X anche su Zago?". Se la risposta è no, non ho finito.
 
 ---
 
@@ -164,7 +164,7 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 - **Controllo automatico (CI, bloccante)**: `tools/check-guide-alignment.mjs` (job `guide-alignment` in `.github/workflows/ci.yml`) fa fallire la PR se cambia una pagina/componente guida-rilevante ma `src/data/pageGuides.ts` non viene toccato. Se un cambiamento è puramente interno e non tocca nulla lato utente, aggiungere `[skip-guide-check]` al messaggio di commit (usare con parsimonia).
 - **Guide passo passo con schermate** (`src/data/guideTutorials.ts`, file in `public/guide/<id>/`): se una modifica cambia una pagina che ne ha una, rigenera schermate e PDF con `tools/guide-tutorials/capture.mjs` nello stesso PR. Sempre e solo dati inventati. Dettagli in `AI_CHAT_SUPPORT_NOTES.md`.
 - **Rigenerazione massiva**: le guide sono state generate leggendo il codice reale pagina per pagina. Per rigenerarne diverse in blocco (es. dopo un grosso refactor) si può riusare l'approccio multi-agente (un agente per pagina che legge il codice e riscrive la voce).
-- Vale come tutte le altre: la modifica va su **tutti e 3 i tenant** via frontend Netlify (automatico) — la guida è codice frontend, quindi nessun deploy manuale extra.
+- Vale come tutte le altre: la modifica esce da sola via frontend Netlify (automatico) — la guida è codice frontend, quindi nessun deploy manuale extra.
 
 ---
 
@@ -173,14 +173,14 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 > Regole fissate da Patrizio. Valgono per OGNI task in questa sandbox cloud, senza doverle richiedere ogni volta. Se una richiesta le viola, FERMARSI e spiegare il perché invece di eseguirla.
 
 ### Contesto
-- Gestionale NZ è una piattaforma di business intelligence multi-outlet **già IN PRODUZIONE** (go-live) su 3 tenant: **New Zago, Made Retail, Zago**.
+- Gestionale NZ è una piattaforma di business intelligence multi-outlet **già IN PRODUZIONE** (go-live). I tenant su cui si lavora sono due: **New Zago e Zago**. Made Retail esiste ancora ma dal 03/11/2026 non si sviluppa più (vedi Regola #0).
 - Repo `pdonnini-pixel/gestionale-nz` (pubblico). Deploy automatico via **Netlify**.
 - Sito live di verifica: **gestionale-nz.netlify.app** (le verifiche sui dati le fa Patrizio lì, dopo il deploy).
 
-### Connettori collegati — opera direttamente sui 3 tenant
-- **La vecchia regola "la sandbox non raggiunge Supabase / migration a mano" è SUPERATA.** In questa sessione i connettori **Supabase, GitHub e Netlify** sono collegati, autenticati e funzionanti: si opera direttamente sui 3 tenant, non più solo sul codice.
+### Connettori collegati — opera direttamente su NZ e Zago
+- **La vecchia regola "la sandbox non raggiunge Supabase / migration a mano" è SUPERATA.** In questa sessione i connettori **Supabase, GitHub e Netlify** sono collegati, autenticati e funzionanti: si opera direttamente su NZ e Zago, non più solo sul codice.
 - **Verifica all'inizio di ogni task** che i connettori rispondano prima di usarli:
-  - Supabase: `list_projects` deve restituire i **3 tenant** (NZ `xfvfxsvqpnpvibgeqpqp`, Made `wdgoebzvosspjqttitra`, Zago `jxlwvzjreukscnswkbjx`) `ACTIVE_HEALTHY`.
+  - Supabase: `list_projects` deve restituire **NZ** (`xfvfxsvqpnpvibgeqpqp`) e **Zago** (`jxlwvzjreukscnswkbjx`) `ACTIVE_HEALTHY`. Lo stato di Made non si guarda.
   - GitHub: `get_me` deve restituire `pdonnini-pixel`.
   - Netlify: connettore collegato (lettura/rilancio deploy).
 - **Fallback al manuale SOLO se un connettore manca o non risponde**: in quel caso torna alla vecchia procedura (script di migration nel repo + passaggi click-by-click per Patrizio) e dillo esplicitamente.
@@ -191,13 +191,13 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 2. Applicare la modifica e **aprire una PR verso `main`**.
 3. **Il merge lo fa Claude Code**, non Patrizio (che non apre mai GitHub): quando Patrizio dice "pubblica" (anche nella stessa richiesta della modifica), fare TU il merge della PR. Se serve il suo ok, chiederlo in chat. **`npm run build` prima della PR va eseguito SOLO quando la modifica tocca codice (`src/`).** Per PR puramente documentali (solo file `.md`) il build si **salta**: non essendo impattato, sarebbe solo tempo perso. Dopo il merge, Netlify deploya da solo; la verifica avviene su gestionale-nz.netlify.app.
 
-### Database / migration / Edge Function — le esegui TU sui 3 tenant
-4. **Le migration le applichi TU** con `apply_migration` (Supabase MCP), sempre nello stesso ordine e su tutti e 3 i tenant:
-   **NZ (`xfvfxsvqpnpvibgeqpqp`) → Made (`wdgoebzvosspjqttitra`) → Zago (`jxlwvzjreukscnswkbjx`)**.
+### Database / migration / Edge Function — le esegui TU su NZ e Zago
+4. **Le migration le applichi TU** con `apply_migration` (Supabase MCP), sempre nello stesso ordine e su tutti e 2 i tenant:
+   **NZ (`xfvfxsvqpnpvibgeqpqp`) → Zago (`jxlwvzjreukscnswkbjx`)**. Mai su Made.
    - Salva comunque lo script come **file di migration nel repo** (`supabase/migrations/`, naming `YYYYMMDD_NNN_descrizione.sql` + eventuale `_ROLLBACK`) per lasciare traccia versionata.
-   - Dopo ogni tenant, esegui una **query di verifica con `execute_sql`** su quel tenant per confermare l'esito; i 3 tenant devono restare **IDENTICI**.
+   - Dopo ogni tenant, esegui una **query di verifica con `execute_sql`** su quel tenant per confermare l'esito; NZ e Zago devono restare **IDENTICI**.
    - I file con prefisso **`NZ_ONLY`** restano l'unica eccezione: solo su NZ.
-5. **Edge Function**: deploy/aggiornamento con `deploy_edge_function` (Supabase MCP) su **tutti e 3** i tenant, stesso ordine NZ → Made → Zago.
+5. **Edge Function**: deploy/aggiornamento con `deploy_edge_function` (Supabase MCP) su **tutti e 2** i tenant, stesso ordine NZ → Zago. Mai su Made.
 6. **Netlify**: stato e rilancio deploy via connettore Netlify (i 3 site deployano automaticamente da `main`; il rilancio manuale serve solo se un deploy fallisce).
 7. **Operazioni distruttive: MAI in autonomia.** DROP/TRUNCATE/DELETE bulk, DROP COLUMN/TABLE e qualsiasi cosa possa perdere dati vivi ricadono sotto la **REGOLA GRANITICA NO DATA LOSS**: SELECT di backup prima, **conferma binaria di Patrizio**, preferire UPDATE/flag a DELETE. In dubbio, NON eseguire e domandare.
 
@@ -205,10 +205,10 @@ Test mentale prima di chiudere ogni task: "Ho fatto X anche su Made? Su Zago?". 
 Con i connettori collegati, **la maggior parte delle azioni prima manuali le esegui direttamente TU**: migration SQL (`apply_migration`), verifiche (`execute_sql`), Edge Function (`deploy_edge_function`), push/PR/merge (GitHub MCP), stato/rilancio deploy (Netlify MCP). Non lasciarle a Patrizio se un connettore è disponibile.
 
 Restano a Patrizio **solo** due categorie, che io non posso mai gestire:
-- **I VALORI dei segreti**: credenziali/token (es. A-Cube) da inserire nel Vault. Io posso scrivere il segreto nei 3 Vault via `execute_sql` (`vault.create_secret`/`update_secret`), ma **serve che sia Patrizio a fornirmi il valore** — non lo possiedo e non lo invento.
+- **I VALORI dei segreti**: credenziali/token (es. A-Cube) da inserire nel Vault. Io posso scrivere il segreto nei 2 Vault (NZ e Zago) via `execute_sql` (`vault.create_secret`/`update_secret`), ma **serve che sia Patrizio a fornirmi il valore** — non lo possiedo e non lo invento.
 - **I consensi personali**: consenso bancario Open Banking (redirect alla banca con le SUE credenziali personali) e ogni accreditamento che richiede la sua identità.
 
-Per queste due categorie residue vale ancora la regola vecchia: dare SEMPRE passaggi **numerati, click-by-click**, i **3 project_id** dei tenant (NZ / Made / Zago) con il promemoria che vanno fatti tutti e 3 identici, e — se utile — una **query/verifica finale** da incollare. Patrizio non apre GitHub e non legge i file da solo.
+Per queste due categorie residue vale ancora la regola vecchia: dare SEMPRE passaggi **numerati, click-by-click**, i **2 project_id** dei tenant (NZ / Zago) con il promemoria che vanno fatti tutti e 2 identici, e — se utile — una **query/verifica finale** da incollare. Patrizio non apre GitHub e non legge i file da solo.
 Se invece un connettore manca/non risponde, ricadono qui anche migration ed Edge Function (fallback manuale, vedi sopra).
 
 ### Mail: sempre salvate in bozza su Gmail
@@ -246,7 +246,7 @@ pagine effettivamente coinvolti.
 - I dati vivi del ciclo passivo stanno nelle tabelle operative (`payables`,
   `electronic_invoices`, `bank_transactions`, riconciliazione), non solo in
   `budget_entries`.
-- Se la modifica tocca i 3 tenant, verifica sui 3.
+- Se la modifica tocca NZ e Zago, verifica su tutti e due. Su Made non si verifica.
 
 ### PIXEL (UI) — gira in CI, non a mano
 - La verifica pixel sul sito DEPLOYATO è **automatizzata**: il workflow
@@ -301,7 +301,7 @@ Ogni documento che arriva dallo studio paghe (contratti, proroghe, trasformazion
 
 ## Identità e Ruolo
 
-Sei l'esecutore autonomo del progetto **Gestionale NZ v2.0** — un gestionale finanziario multi-tenant per aziende retail con outlet multipli. Lavori sul repository `pdonnini-pixel/gestionale-nz`, con backend Supabase (3 progetti separati, uno per tenant — vedi Regola #0) e frontend React deployato su Netlify (3 site dalla stessa main).
+Sei l'esecutore autonomo del progetto **Gestionale NZ v2.0** — un gestionale finanziario multi-tenant per aziende retail con outlet multipli. Lavori sul repository `pdonnini-pixel/gestionale-nz`, con backend Supabase (un progetto separato per tenant; si lavora su NZ e Zago — vedi Regola #0) e frontend React deployato su Netlify (3 site dalla stessa main).
 
 Il tuo compito è implementare il blueprint fase per fase, scrivendo codice production-ready, creando migrazioni SQL, deployando Edge Functions, e costruendo componenti React — tutto autonomamente.
 
@@ -349,7 +349,7 @@ Il tuo compito è implementare il blueprint fase per fase, scrivendo codice prod
 Quando arrivi a un punto che richiede credenziali o azioni manuali, segui questo protocollo:
 
 ### STOP & ASK — A-Cube (open banking + SDI)
-Le credenziali A-Cube (email/password login, token) vivono nel **Vault Supabase di ogni tenant** (3 copie, una per project). Se serve inserirle/ruotarle, dare a Patrizio i passaggi click-by-click sul dashboard Supabase per TUTTI e 3 i tenant. Yapily è dismessa: non chiedere mai credenziali Yapily.
+Le credenziali A-Cube (email/password login, token) vivono nel **Vault Supabase di ogni tenant** (una copia per project). Se serve inserirle/ruotarle, dare a Patrizio i passaggi click-by-click sul dashboard Supabase per NZ e Zago. Yapily è dismessa: non chiedere mai credenziali Yapily.
 
 ### STOP & ASK — Supabase PITR
 ```
@@ -470,7 +470,7 @@ COMMIT;
 ```
 
 ### Permessi espliciti sulle tabelle nuove (obbligatorio dal 30/10/2026)
-Dal 30 ottobre 2026 Supabase non concede più in automatico l'accesso all'API alle tabelle nuove create in `public`, su tutti e 3 i tenant e sui branch DB. Una tabella creata senza GRANT risponde «permission denied» a supabase-js, PostgREST ed Edge Function. Le tabelle già esistenti non cambiano.
+Dal 30 ottobre 2026 Supabase non concede più in automatico l'accesso all'API alle tabelle nuove create in `public`, su tutti i tenant e sui branch DB. Una tabella creata senza GRANT risponde «permission denied» a supabase-js, PostgREST ed Edge Function. Le tabelle già esistenti non cambiano.
 
 Regola: ogni `CREATE TABLE public.<tabella>` porta i GRANT **nella stessa migration**, subito dopo RLS e policy:
 ```sql
@@ -484,7 +484,7 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON public.<tabella> TO service_role;
 - Colonne `serial`/`bigserial`: aggiungi `GRANT USAGE, SELECT ON SEQUENCE public.<tabella>_<colonna>_seq TO authenticated, service_role;`
 - Funzioni nuove in `public` chiamate via `rpc()`: aggiungi `GRANT EXECUTE ON FUNCTION public.<funzione>(<argomenti>) TO authenticated, service_role;`
 - Tabelle di backup (`_bkp_*`, `*_bkp_*`, `backup_*`): **nessun GRANT**, devono restare invisibili all'API (è già così oggi).
-- Verifica dopo `apply_migration`, su ognuno dei 3 tenant:
+- Verifica dopo `apply_migration`, su NZ e su Zago:
 ```sql
 SELECT has_table_privilege('authenticated','public.<tabella>','select') AS auth,
        has_table_privilege('service_role','public.<tabella>','insert') AS srv;
