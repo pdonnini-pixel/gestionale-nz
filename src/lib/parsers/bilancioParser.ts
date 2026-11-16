@@ -84,6 +84,7 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
   }
 
   let currentSection: string | null = null // 'patrimoniale' | 'conto_economico'
+  const risultatoZero = { sp: false, ce: false }
 
   for (let pn = 1; pn <= pdf.numPages; pn++) {
     const page = await pdf.getPage(pn)
@@ -143,6 +144,18 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
           const rightAmt = rightCells.map(c => c.text).join(' ').match(/([\d.,]+)/)?.[1]
           if (leftAmt) result.patrimoniale.totals.attivita = parseItalianNumber(leftAmt)
           if (rightAmt) result.patrimoniale.totals.passivita = parseItalianNumber(rightAmt)
+          // Nella stampa di Zago 2025 l'importo dell'attivo sta un pixel sopra la
+          // parola TOTALE e l'arrotondamento a 4 lo mette nella riga accanto:
+          // se a sinistra manca, si guarda la riga sopra e quella sotto, e lo si
+          // prende solo se e' uguale al passivo (a sezioni contrapposte pareggiano),
+          // cosi' non si scambia per totale l'importo di un conto vicino.
+          if (!leftAmt && rightAmt) {
+            const passivo = parseItalianNumber(rightAmt)
+            const vicini = [...(rows[Number(y) + 4] || []), ...(rows[Number(y) - 4] || [])]
+            const amt = vicini.find(c => c.x < 290 && /^\d[\d.]*,\d{2}$/.test(c.text)
+              && Math.abs(parseItalianNumber(c.text) - passivo) < 0.005)?.text
+            if (amt) result.patrimoniale.totals.attivita = parseItalianNumber(amt)
+          }
         } else if (currentSection === 'conto_economico') {
           const leftCells = cells.filter(c => c.x < 290)
           const rightCells = cells.filter(c => c.x >= 290)
@@ -154,14 +167,25 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
         continue
       }
 
-      if (/(?:Perdita|Utile)\b/i.test(fullLine) && !/Utile.*netto/i.test(fullLine)) {
-        const amt = fullLine.match(/([\d.,]+)/)?.[1]
+      // La riga di chiusura «Utile 0,00» / «Perdita 14.770,16» non ha codice conto.
+      // Una riga che comincia con un codice (es. «630323 Servizi di vigilanza … 9503
+      // Perdita d'esercizio 14.770,16») e' invece una riga di conti: prima veniva
+      // scartata intera e si perdeva il conto a sinistra, e il risultato prendeva
+      // il codice come importo (-630.323, bilancio di verifica Zago 2025).
+      const iniziaConCodice = /^\d{2,}\s/.test(fullLine)
+      if (!iniziaConCodice && /(?:Perdita|Utile)\b/i.test(fullLine) && !/Utile.*netto/i.test(fullLine)) {
+        const amt = fullLine.match(/(\d[\d.]*,\d{2})/)?.[1]
         if (amt) {
           const val = parseItalianNumber(amt)
-          if (currentSection === 'patrimoniale') {
-            result.patrimoniale.totals.risultato = /Perdita/i.test(fullLine) ? -val : val
-          } else if (currentSection === 'conto_economico') {
-            result.contoEconomico.totals.risultato = /Perdita/i.test(fullLine) ? -val : val
+          // «Utile 0,00» sotto il TOTALE non cancella un risultato gia' letto;
+          // se a fine lettura non c'e' altro, il risultato e' davvero zero.
+          if (val === 0) risultatoZero[currentSection === 'patrimoniale' ? 'sp' : 'ce'] = true
+          if (val !== 0) {
+            if (currentSection === 'patrimoniale') {
+              result.patrimoniale.totals.risultato = /Perdita/i.test(fullLine) ? -val : val
+            } else if (currentSection === 'conto_economico') {
+              result.contoEconomico.totals.risultato = /Perdita/i.test(fullLine) ? -val : val
+            }
           }
         }
         continue
@@ -185,11 +209,23 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
         if (leftRow) result.patrimoniale.attivita.push(leftRow)
         if (rightRow) result.patrimoniale.passivita.push(rightRow)
       } else if (currentSection === 'conto_economico') {
-        if (leftRow) result.contoEconomico.costi.push(leftRow)
-        if (rightRow) result.contoEconomico.ricavi.push(rightRow)
+        // «Perdita/Utile d'esercizio» nel conto economico e' il risultato a
+        // pareggio, non un costo o un ricavo: va nel risultato, non nelle righe.
+        const eRisultato = (r: BilancioRow | null) => !!r && /^(perdita|utile)\b.*esercizio/i.test(r.description)
+        for (const r of [leftRow, rightRow]) {
+          if (r && eRisultato(r) && r.amount !== 0 && result.contoEconomico.totals.risultato == null) {
+            result.contoEconomico.totals.risultato = /^perdita/i.test(r.description) ? -Math.abs(r.amount) : Math.abs(r.amount)
+          }
+        }
+        if (leftRow && !eRisultato(leftRow)) result.contoEconomico.costi.push(leftRow)
+        if (rightRow && !eRisultato(rightRow)) result.contoEconomico.ricavi.push(rightRow)
       }
     }
   }
+
+  // Bilancio in pareggio: c'era solo «Utile 0,00», il risultato e' zero (non assente).
+  if (result.patrimoniale.totals.risultato == null && risultatoZero.sp) result.patrimoniale.totals.risultato = 0
+  if (result.contoEconomico.totals.risultato == null && risultatoZero.ce) result.contoEconomico.totals.risultato = 0
 
   // Build tree structures
   result.patrimoniale.attivitaTree = buildTree(result.patrimoniale.attivita)
@@ -429,4 +465,14 @@ export function toSupabaseRecords(parsed: BilancioParsed, companyId: string, yea
   })
 
   return records
+}
+
+/**
+ * Anno di fine del periodo del documento («PERIODO DAL 01/07/2025 AL 30/06/2026»
+ * → 2026). «AL» come parola intera: dentro «DAL» c'e' «AL», e prima si leggeva
+ * l'anno di inizio. Null se il periodo non c'e'.
+ */
+export function annoFinePeriodo(period: string | null | undefined): number | null {
+  const m = /\bAL\s+\d{1,2}\/\d{1,2}\/(\d{4})/i.exec(period || '')
+  return m ? Number(m[1]) : null
 }

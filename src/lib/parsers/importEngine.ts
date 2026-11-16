@@ -12,7 +12,7 @@
 import { supabase } from '../supabase';
 import { parseCSV, autoDetectBankMapping, transformBankRows, transformPOSRows, parseItalianNumber } from './csvParser';
 import { parseFatturaPA, transformInvoiceToRecords } from './xmlInvoiceParser';
-import { parseBilancio, toSupabaseRecords as bilancioToRecords } from './bilancioParser';
+import { parseBilancio, toSupabaseRecords as bilancioToRecords, annoFinePeriodo } from './bilancioParser';
 // NB: xlsx (SheetJS) è caricata on-demand dentro excelToHeadersRows: import
 // statico = ~140KB gzip nel chunk dell'ImportHub anche senza file Excel.
 
@@ -687,9 +687,26 @@ async function processBalanceSheetPDF(pdfData: string | ArrayBuffer, context: Im
       return { imported: 0, errors: [{ message: 'Nessun dato trovato nel PDF bilancio' }] };
     }
 
-    onProgress(50, 'Conversione dati per Supabase...');
+    // Il lettore conosce la situazione contabile a sezioni contrapposte, con i
+    // codici dei conti (il «bilancio di verifica» dello studio). Il bilancio CEE
+    // depositato (tassonomia XBRL) non ha codici: letto come se li avesse dava
+    // numeri inventati (Zago 2025, 16/11/2026: ricavi 12.151.228, costi 8). Si
+    // rifiuta prima di toccare qualunque dato.
+    const conCodice = parsed.contoEconomico.costi.filter(r => /^\d{2,}$/.test(r.code || '')).length
+    if (conCodice < 5) {
+      return { imported: 0, errors: [{ message: 'Questo PDF non ha i codici dei conti (sembra il bilancio CEE depositato). Carica il bilancio di verifica dello studio: la «Situazione contabile a sezioni contrapposte».' }] };
+    }
 
     const year = context.fiscal_year || new Date().getFullYear();
+    // L'anno scelto nella pagina deve essere quello del documento («PERIODO DAL
+    // … AL 31/12/2025»): se no il bilancio finirebbe sull'anno sbagliato.
+    const annoDoc = annoFinePeriodo(parsed.meta.period);
+    if (annoDoc && annoDoc !== year) {
+      return { imported: 0, errors: [{ message: `Il documento è del ${annoDoc}, ma l'anno scelto è il ${year}. Scegli ${annoDoc} e ricarica.` }] };
+    }
+
+    onProgress(50, 'Conversione dati per Supabase...');
+
     const records = bilancioToRecords(parsed, context.company_id, year);
 
     if (records.length === 0) {
