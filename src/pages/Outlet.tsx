@@ -35,6 +35,8 @@ import {
   type HeadcountCost, type HeadcountEmployee, type HeadcountAllocation,
 } from '../lib/headcount'
 
+// Sezioni della scheda di un punto vendita, nell'ordine delle linguette.
+const SCHEDE_OUTLET = ['overview', 'corrispettivi', 'budget', 'staff', 'documenti']
 const MONTHS = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic']
 
 // Default 2 decimali perché tutte le chiamate in questo file formatano importi €.
@@ -855,10 +857,9 @@ function StaffTab({ outletId, outletName, companyId }: { outletId: string; outle
 // ====== DETTAGLIO OUTLET — HUB CON TAB ======
 // TODO: tighten type
 type OutletEntity = Record<string, unknown> & { id: string; company_id?: string; name?: string | null; code?: string | null; mall_name?: string | null; rent_monthly?: number | null; condo_marketing_monthly?: number | null; is_active?: boolean | null }
-function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, onBack, onEdit, onDelete }: { outlet: OutletEntity; revenue: Record<string, Record<number, number>>; confronto: Record<string, { prev: Record<number, number>; cons: Record<number, number> }>; revPlaceholder?: Record<string, boolean>; year: number; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
+function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, detailTab, setDetailTab, onBack, onEdit, onDelete }: { outlet: OutletEntity; detailTab: string; setDetailTab: (key: string) => void; revenue: Record<string, Record<number, number>>; confronto: Record<string, { prev: Record<number, number>; cons: Record<number, number> }>; revPlaceholder?: Record<string, boolean>; year: number; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
   const { profile: _profile } = useAuth()
   const yearData: Record<number, number> = revenue[outlet.id] || {}
-  const [detailTab, setDetailTab] = useState('overview')
 
   // Corrispettivi sparkline (last 7 days for overview)
   type RecentDailyRow = { date: string; gross_revenue: number | null }
@@ -1140,7 +1141,7 @@ export default function Outlet() {
   // sia link per id (griglia) sia link per nome provenienti da altre pagine.
   // Nell'indirizzo va il nome leggibile (/outlet/roma-soratte): chi arriva con
   // l'id, il nome o il codice viene portato lì senza aggiungere un passo alla cronologia.
-  const { outletId } = useParams()
+  const { outletId, scheda } = useParams()
   const navigate = useNavigate()
   const selectedOutlet: OutletEntity | null = trovaOutlet(outletId, outlets)
   const [search, setSearch] = useState('')
@@ -1160,10 +1161,18 @@ export default function Outlet() {
   const tab = location.pathname.startsWith('/outlet/valutazione') ? 'valutazione' : 'operativi'
   const goTab = (key: string) => navigate(key === 'valutazione' ? '/outlet/valutazione' : '/outlet/operativi')
   const segmentoGiusto = selectedOutlet ? segmentoOutlet(selectedOutlet, outlets) : null
+  // Anche la sezione della scheda sta nell'indirizzo (/outlet/roma-soratte/documenti):
+  // si può aprire direttamente, e ricaricando la pagina si resta dove si era.
+  // La prima sezione (overview) non ha suffisso; un suffisso sconosciuto torna lì.
+  const schedaAttiva = SCHEDE_OUTLET.includes(scheda || '') ? String(scheda) : 'overview'
+  const percorsoScheda = (segmento: string, key: string) => `/outlet/${segmento}${key === 'overview' ? '' : `/${key}`}`
   useEffect(() => {
-    if (!segmentoGiusto || !outletId || outletId === segmentoGiusto) return
-    navigate({ pathname: `/outlet/${segmentoGiusto}`, search: location.search, hash: location.hash }, { replace: true })
-  }, [segmentoGiusto, outletId])
+    if (!segmentoGiusto || !outletId) return
+    const giusto = percorsoScheda(segmentoGiusto, schedaAttiva)
+    const attuale = percorsoScheda(outletId, scheda || 'overview')
+    if (giusto === attuale) return
+    navigate({ pathname: giusto, search: location.search, hash: location.hash }, { replace: true })
+  }, [segmentoGiusto, outletId, scheda, schedaAttiva])
   const canWrite = profile?.role === 'super_advisor'
 
   // Ricarica i ricavi ad ogni cambio anno (selettore globale) o di azienda.
@@ -1480,6 +1489,8 @@ export default function Outlet() {
               confronto={confronto}
               revPlaceholder={revPlaceholder}
               year={year}
+              detailTab={schedaAttiva}
+              setDetailTab={(key) => navigate(percorsoScheda(segmentoGiusto || selectedOutlet.id, key))}
               onBack={() => navigate('/outlet')}
               onEdit={handleEdit}
               onDelete={handleDelete}
