@@ -51,7 +51,7 @@ import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landma
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { formatOutletName } from '../lib/formatters'
-import { lastDayOfMonthYMD } from '../lib/dateLocal'
+import { lastDayOfMonthYMD, todayYMD } from '../lib/dateLocal'
 import {
   buildRow, classifyMovement, counterpartOf, acquirerDebitOutlet, causaleOf, pivaOf, invoiceCountOf, invoicesTotalOf,
   summarizeByKind, KIND_LABELS, isRiba, ribaCountOf, tipoMovimentoOf, nomeFileExport,
@@ -81,7 +81,12 @@ import { prepaidBalances, nettoCarta, conSaldoProgressivo, type PrepaidBalance, 
   parseCardStatementLines, parseTascaAoa, matchStatementDebit, matchRicariche, matchPayables, buildCartaRow, totaliCarta, sourceLabelOf,
   ISSUER_LABELS, CARTE_COLUMN_WIDTHS, type CardStatementParsed, type CardLine, type PayableLite, type BankMovLite, type AoaCell,
 } from '../lib/cartaEstratto'
-import { archiviaFile } from '../lib/archivioFile'
+import { archiviaFile, urlFileArchiviato } from '../lib/archivioFile'
+import {
+  archiviaExportPrimaNota, caricaDocumentiPrimaNota, caricaInvii, registraInvio, annullaInvio,
+  statoInvio, destinatarioProposto, periodoInChiaro,
+  type DocumentoPrimaNota, type InvioPrimaNota,
+} from '../lib/primaNotaInvii'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/ui/Modal'
 import { useCompany } from '../hooks/useCompany'
@@ -1097,7 +1102,7 @@ export default function PrimaNota() {
     if (rows.length === 0) return
     // ExcelJS caricata on-demand (solo all'export): serve per la grafica del file
     // (neretti, colori, riga bloccata, filtri), che la SheetJS community non scrive.
-    const [{ Workbook }, { addStyledSheet, downloadWorkbook, tableRows }, { buildGuidaRows, GUIDA_WIDTHS }] = await Promise.all([
+    const [{ Workbook }, { addStyledSheet, workbookBlob, scaricaBlob, tableRows }, { buildGuidaRows, GUIDA_WIDTHS }] = await Promise.all([
       import('exceljs'), import('../lib/xlsxStyled'), import('../lib/primaNotaGuida'),
     ])
     const wb = new Workbook()
@@ -1293,7 +1298,94 @@ export default function PrimaNota() {
     })
     // Foglio Guida in testa: cosa c'è in ogni foglio e come si cerca
     addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, carteDebito: nomiCarteDebito, flussiSenzaBuste: stipendi.flussi_non_abbinati.length }), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
-    await downloadWorkbook(wb, nomeFile('Prima nota', 'xlsx'))
+    // Il file si scrive UNA volta e lo stesso blob va a chi l'ha chiesto e in
+    // archivio: scrivendolo due volte le due copie differirebbero al byte
+    // (ExcelJS ci mette dentro l'ora), e in archivio resterebbe una copia che
+    // non è quella spedita. Prima si scarica, poi si archivia: se l'archivio
+    // non risponde il file è comunque in mano a chi lo stava aspettando.
+    const nomeExport = nomeFile('Prima nota', 'xlsx')
+    const blob = await workbookBlob(wb)
+    scaricaBlob(blob, nomeExport)
+    await archiviaExport(blob, nomeExport)
+  }
+
+  // ── Il file che va allo studio: archivio e invii ──────────────────────────
+  // Chiesto da Patrizio il 16/11/2026: dei diciannove file del pacco di ottobre
+  // l'unico non archiviato era proprio il nostro Excel. Ora ogni export resta,
+  // e accanto si scrive quando è stato mandato e a chi.
+  const [documentiPn, setDocumentiPn] = useState<DocumentoPrimaNota[]>([])
+  const [inviiPn, setInviiPn] = useState<InvioPrimaNota[]>([])
+  const [registraPer, setRegistraPer] = useState<DocumentoPrimaNota | null>(null)
+  const [dataInvio, setDataInvio] = useState<string>('')
+  const [destinatarioInvio, setDestinatarioInvio] = useState<string>('')
+  const [noteInvio, setNoteInvio] = useState<string>('')
+
+  const caricaArchivioPn = useCallback(async () => {
+    if (!company?.id) return
+    try {
+      const docs = await caricaDocumentiPrimaNota(company.id, year, month || null)
+      setDocumentiPn(docs)
+      setInviiPn(docs.length > 0 ? await caricaInvii(company.id, docs.map(d => d.id)) : [])
+    } catch {
+      // L'archivio è un'informazione in più: se non si carica, la pagina resta
+      // quella di prima senza bloccare l'export.
+      setDocumentiPn([]); setInviiPn([])
+    }
+  }, [company?.id, year, month])
+
+  useEffect(() => { void caricaArchivioPn() }, [caricaArchivioPn])
+
+  // Il file è già stato scaricato quando questa parte gira: qualunque cosa vada
+  // storta qui si dice e si lascia stare, mai un'eccezione che risale a chi ha
+  // premuto Excel e si è già visto arrivare il file.
+  const archiviaExport = async (blob: Blob, nome: string) => {
+    const avvisa = (perche: string) => toast({
+      type: 'warning',
+      message: `Il file è stato scaricato, ma non è finito in archivio (${perche}). Riprova l'export più tardi.`,
+    })
+    if (!company?.id) { avvisa('azienda non disponibile'); return }
+    try {
+      const { data: sess } = await supabase.auth.getUser()
+      const esito = await archiviaExportPrimaNota({
+        blob, nomeFile: nome, companyId: company.id, userId: sess?.user?.id ?? null,
+        year, month: month || null,
+      })
+      if (esito.errore) { avvisa(esito.errore); return }
+      toast({ type: 'success', message: 'File scaricato e archiviato: lo ritrovi qui sotto, in «File mandati fuori».' })
+      await caricaArchivioPn()
+    } catch (e) {
+      avvisa(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  const riapriDocumentoPn = async (doc: DocumentoPrimaNota) => {
+    const url = await urlFileArchiviato(doc.storage_bucket, doc.file_path)
+    if (!url) { toast({ type: 'error', message: 'Il file non si apre: non è più nell\'archivio.' }); return }
+    window.open(url, '_blank', 'noopener')
+  }
+
+  const salvaInvioPn = async () => {
+    if (!company?.id || !registraPer) return
+    try {
+      await registraInvio({
+        companyId: company.id, documento: registraPer,
+        inviatoIl: dataInvio, destinatario: destinatarioInvio, note: noteInvio,
+      })
+      setRegistraPer(null)
+      await caricaArchivioPn()
+      toast({ type: 'success', message: 'Segnato. Da qui si vede sempre quale file è andato fuori, quando e a chi.' })
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Non è stato possibile segnare l\'invio.' })
+    }
+  }
+
+  const annullaInvioPn = async (id: string) => {
+    try {
+      await annullaInvio(id)
+      await caricaArchivioPn()
+    } catch (e) {
+      toast({ type: 'error', message: e instanceof Error ? e.message : 'Non è stato possibile togliere la riga.' })
+    }
   }
 
   // Allegati (scontrini, ricevute) delle righe delle carte. Solo a video: il
@@ -1405,6 +1497,115 @@ export default function PrimaNota() {
           </button>
         </Tooltip>
       </div>
+
+      {/* File mandati fuori. Nasce il 16/11/2026: dei diciannove file del pacco
+          di ottobre l'unico non archiviato era proprio il nostro Excel, e a
+          settimane di distanza non si poteva dire cosa avesse lo studio. Ora
+          ogni export resta qui, e accanto c'è quando è stato mandato e a chi:
+          quella riga la scrive una persona, perché le mail partono da Gmail e
+          il gestionale non le vede. */}
+      <div className="mb-4 bg-white border border-slate-200 rounded-lg p-4">
+        <div className="flex items-center gap-2 mb-2">
+          <FileSpreadsheet size={16} className="text-slate-400" />
+          <h2 className="text-sm font-semibold text-slate-700">
+            File mandati fuori — {periodoInChiaro(year, month || null)}
+          </h2>
+          <span className="text-xs text-slate-400">{documentiPn.length > 0 ? `${documentiPn.length} in archivio` : ''}</span>
+        </div>
+        {documentiPn.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            Per questo periodo non c'è nessun file in archivio. Si archivia da sé quando scarichi l'Excel:
+            da quel momento lo ritrovi qui, e puoi segnare quando lo hai mandato.
+          </p>
+        ) : (
+          <ul className="divide-y divide-slate-100">
+            {documentiPn.map(doc => {
+              const st = statoInvio(doc.id, inviiPn)
+              const miei = inviiPn.filter(i => i.document_id === doc.id)
+              return (
+                <li key={doc.id} className="py-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className="text-sm text-slate-800 font-medium">{doc.file_name}</span>
+                  <span className="text-xs text-slate-500">generato il {fmtDate(doc.uploaded_at)}</span>
+                  {st.inviato ? (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      mandato il {fmtDate(st.ultimo!.inviato_il)} a {st.ultimo!.destinatario}
+                      {st.quanti > 1 ? ` (+${st.quanti - 1})` : ''}
+                    </span>
+                  ) : (
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
+                      non ancora mandato
+                    </span>
+                  )}
+                  <div className="flex-1" />
+                  <button onClick={() => void riapriDocumentoPn(doc)}
+                    className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50">
+                    Riapri il file
+                  </button>
+                  <button onClick={() => { setDestinatarioInvio(destinatarioProposto(inviiPn)); setDataInvio(todayYMD()); setNoteInvio(''); setRegistraPer(doc) }}
+                    className="text-xs px-2 py-1 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+                    Segna come mandato
+                  </button>
+                  {miei.length > 0 && (
+                    <details className="w-full">
+                      <summary className="text-xs text-slate-500 cursor-pointer">Gli invii di questo file ({miei.length})</summary>
+                      <ul className="mt-1 ml-4 text-xs text-slate-600 space-y-0.5">
+                        {miei.map(i => (
+                          <li key={i.id} className="flex items-center gap-2">
+                            <span>{fmtDate(i.inviato_il)} → {i.destinatario}{i.note ? ` · ${i.note}` : ''}</span>
+                            <button onClick={() => void annullaInvioPn(i.id)}
+                              className="text-rose-600 hover:underline" title="Toglie solo questa riga: il file resta in archivio">
+                              togli
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+
+      {registraPer && (
+        <Modal open onClose={() => setRegistraPer(null)} title="Segna il file come mandato">
+          <div className="space-y-3">
+            <p className="text-sm text-slate-600">
+              «{registraPer.file_name}», periodo {periodoInChiaro(registraPer.year, registraPer.month)}.
+              Il gestionale non vede le mail: scrivi tu quando è stato mandato e a chi, così fra sei mesi
+              si sa che cosa aveva in mano chi lo ha ricevuto.
+            </p>
+            <label className="block text-sm">
+              <span className="text-slate-600">Mandato il</span>
+              <input type="date" value={dataInvio} onChange={e => setDataInvio(e.target.value)}
+                className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">A chi</span>
+              <input type="text" value={destinatarioInvio} onChange={e => setDestinatarioInvio(e.target.value)}
+                placeholder="studio, commercialista, banca…"
+                className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+            </label>
+            <label className="block text-sm">
+              <span className="text-slate-600">Nota (facoltativa)</span>
+              <input type="text" value={noteInvio} onChange={e => setNoteInvio(e.target.value)}
+                placeholder="per esempio: con gli estratti conto e i cedolini"
+                className="mt-1 w-full px-3 py-2 border border-slate-300 rounded-lg text-sm" />
+            </label>
+            <div className="flex justify-end gap-2 pt-1">
+              <button onClick={() => setRegistraPer(null)}
+                className="px-3 py-2 text-sm rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">
+                Annulla
+              </button>
+              <button onClick={() => void salvaInvioPn()} disabled={!destinatarioInvio.trim() || !dataInvio}
+                className="px-3 py-2 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-medium">
+                Salva
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
 
       {/* Vista: movimenti banca (una riga per movimento) o pagamenti fornitori (una riga per fattura) */}
       <div className="inline-flex rounded-lg border border-slate-200 bg-white p-1 mb-4" role="tablist" aria-label="Vista prima nota">

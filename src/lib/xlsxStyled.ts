@@ -211,16 +211,28 @@ export function addStyledSheet(wb: Workbook, spec: SheetSpec): Worksheet {
   return ws
 }
 
-/** Scarica il workbook nel browser. */
-export async function downloadWorkbook(wb: Workbook, fileName: string): Promise<void> {
+/** Il workbook come file, una volta sola: chi archivia e chi scarica usano lo stesso. */
+export async function workbookBlob(wb: Workbook): Promise<Blob> {
   const buf = await wb.xlsx.writeBuffer()
-  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+}
+
+/** Dà il file a chi lo ha chiesto. Separato da `workbookBlob` perché lo stesso
+ *  blob va anche in archivio: scriverlo due volte darebbe due file diversi al
+ *  byte (ExcelJS ci mette dentro l'ora), e in archivio finirebbe una copia che
+ *  non è quella spedita. */
+export function scaricaBlob(blob: Blob, fileName: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = fileName
   a.click()
   URL.revokeObjectURL(url)
+}
+
+/** Scarica il workbook nel browser. */
+export async function downloadWorkbook(wb: Workbook, fileName: string): Promise<void> {
+  scaricaBlob(await workbookBlob(wb), fileName)
 }
 
 /** Tabella da righe-oggetto (come json_to_sheet): intestazione dalle chiavi del primo oggetto. */
