@@ -24,7 +24,7 @@ import {
   ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
-import { ottimizzaSettimana, senzaRiposoDiLegge, scegliGiorniLiberi, coppieFeriali, coppiaDelGiorno, sceltePerLaSettimana, ripartisciStraordinari, type RegoleNuove } from './ottimizzaTurni';
+import { ottimizzaSettimana, senzaRiposoDiLegge, scegliGiorniLiberi, coppieFeriali, coppiaDelGiorno, sceltePerLaSettimana, ripartisciStraordinari, type RegoleNuove, type ContoChiavi } from './ottimizzaTurni';
 
 export { giornoPieno };
 
@@ -1157,6 +1157,25 @@ export interface EsitoPianoMese {
  * copriva meglio di quella senza, perché il motore non è un ottimizzatore e un
  * vincolo in più a volte lo porta su una distribuzione migliore).
  */
+/**
+ * Aperture, chiusure e giorni lavorati da ogni abilitata nei giorni di una settimana (16/11/2026):
+ * il motore li usa per dividere aperture e chiusure in proporzione ai giorni nel resto del mese.
+ */
+export function contaChiavi(conti: Map<string, ContoChiavi>, giorni: GiornoPiano[], turni: Turno[], chiavi: { apre: Set<string>; chiude: Set<string> }): void {
+  for (const g of giorni) {
+    if (g.chiuso) continue;
+    const chi = new Set<string>();
+    for (const t of turni.filter((x) => x.data === g.data)) {
+      if (!chiavi.apre.has(t.employeeId) && !chiavi.chiude.has(t.employeeId)) continue;
+      const c = conti.get(t.employeeId) ?? { apre: 0, chiude: 0, giorni: 0 };
+      if (!chi.has(t.employeeId)) { c.giorni += 1; chi.add(t.employeeId); }
+      if (chiavi.apre.has(t.employeeId) && minuti(t.inizio) <= g.apre && minuti(t.fine) > g.apre) c.apre += 1;
+      if (chiavi.chiude.has(t.employeeId) && minuti(t.fine) >= g.chiude && minuti(t.inizio) < g.chiude) c.chiude += 1;
+      conti.set(t.employeeId, c);
+    }
+  }
+}
+
 export function pianificaMese(args: ArgsPianoMese): EsitoPianoMese {
   // «Nessun sabato né domenica liberi» e' davvero senza riposi nel weekend
   // (Patrizio, 11/11/2026, weekendSenzaRiposi): non si sceglie piu' la migliore
@@ -1205,7 +1224,7 @@ function pianificaMeseConRegola(args: {
    * lunedi', coppie dei feriali delle settimane prima del mese. Le pesa tutte
    * insieme `ottimizzaSettimana`, come ultimo passo di ogni settimana.
    */
-  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima' | 'responsabile' | 'vice' | 'riposi' | 'lunediPrima'>;
+  nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima' | 'responsabile' | 'vice' | 'riposi' | 'lunediPrima' | 'chiavi'>;
   /** salta l'ultimo passo (confronti veloci fra due calcoli, es. con e senza una ferie) */
   rapido?: boolean;
 }): EsitoPianoMese {
@@ -1343,6 +1362,8 @@ function pianificaMeseConRegola(args: {
   const coppieViste = new Map(args.nuove?.coppiePrima ?? []);
   // le coppie dei lunedi' gia' fatti, dalla piu' recente: il lunedi' dopo non devono essere le stesse (12/11/2026)
   const lunediVisti = [...(args.nuove?.lunediPrima ?? [])];
+  // chi puo' aprire e chiudere (16/11/2026): aperture, chiusure e giorni gia' messi nelle settimane del mese
+  const chiaviViste = new Map<string, ContoChiavi>();
 
   // 3. Le settimane.
   const turni: Turno[] = [];
@@ -1468,8 +1489,10 @@ function pianificaMeseConRegola(args: {
           }),
           // i giorni gia' lavorati nei giorni dell'altro mese della stessa settimana contano nel massimo
           giorniGia: new Map(candidati.map((c) => [c.id, giorniDellaSettimana(lun).filter((d) => !nelMese(d) && (args.oreFuoriMese?.get(c.id)?.get(d) ?? 0) > 0).length])),
+          ...(args.nuove?.chiavi ? { chiavi: { ...args.nuove.chiavi, prima: chiaviViste } } : {}),
         }, fissiSett), ...fissiSett];
       for (const [k, n] of coppieFeriali(esito)) coppieViste.set(k, (coppieViste.get(k) ?? 0) + n);
+      if (args.nuove?.chiavi) contaChiavi(chiaviViste, gg, esito, args.nuove.chiavi);
       if (date.includes(lun)) { const k = coppiaDelGiorno(esito, lun); if (k) lunediVisti.unshift(k); }
     }
     // Rete di sicurezza: nessun turno fuori dagli accordi della scheda.

@@ -4,6 +4,7 @@ import type { Row } from '../types/business';
 import { usePeriod } from '../hooks/usePeriod';
 import PageHeader from '../components/PageHeader';
 import AccordiOrario from '../components/AccordiOrario';
+import ChiaviNegozio from '../components/ChiaviNegozio';
 import { useToast } from '../components/Toast';
 import {
   BarChart3,
@@ -2125,6 +2126,8 @@ function SchedaDipendenteModal({ employee, year: annoPagina, yearOptions, costs,
       </div>
 
       <DocumentiRapporto employeeId={employee.id} companyId={companyId} docs={docs} onChanged={onDocsChanged} />
+
+      <ChiaviNegozio employeeId={employee.id} outletId={employee.outlet_id ?? null} />
 
       <AccordiOrario employeeId={employee.id} companyId={companyId} outletId={employee.outlet_id ?? null}
         oreSettimanali={emp.ore_settimanali != null ? Number(emp.ore_settimanali) : null} />

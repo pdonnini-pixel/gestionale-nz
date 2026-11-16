@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, FlaskConical, Lock, Plus, Send, Trash2 } from 'lucide-react';
-import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, caricaCoppiePrima, caricaLunediPrima, guidaDelNegozio, caricaRiposi, caricaEventi, type GiornoLibero, type RiposiPersone } from '../lib/regoleNuoveDb';
+import { caricaGiorniLiberi, salvaGiorniLiberiDiSistema, caricaCoppiePrima, caricaLunediPrima, guidaDelNegozio, caricaRiposi, caricaEventi, caricaAbilitazioni, chiaviDelNegozio, type GiornoLibero, type RiposiPersone, type Abilitazione } from '../lib/regoleNuoveDb';
 import { eventoDaRiga } from '../lib/eventiTurni';
 import { riallineaStraordinariForti } from '../lib/straordinariDb';
 import { guidaConRipiego } from '../lib/guidaNegozio';
@@ -134,6 +134,8 @@ type BaseMese = {
   /** coppie dei feriali nelle tre settimane prima del mese */
   coppiePrima: Map<string, number>;
   lunediPrima: string[];
+  /** chi puo' aprire e chi puo' chiudere (migration 418); null dove le colonne mancano */
+  abilitazioni: Map<string, Abilitazione> | null;
   /** eventi e regole del negozio per sapere in quali giorni si possono proporre ferie e permessi (scheda 9) */
   eventiFerie: EventoFerie[];
   regoleFerie: RegoleFerie | null;
@@ -413,10 +415,12 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       m.set(x.data, (m.get(x.data) ?? 0) + oreLavorate({ inizio: x.inizio.slice(0, 5), fine: x.fine.slice(0, 5), pausaMinuti: x.pausa_minuti ?? 0 }));
       oreFuoriMese.set(x.employee_id, m);
     }
-    const [gl, coppiePrima, lunediPrima, riposi, rf] = await Promise.all([caricaGiorniLiberi(companyId), caricaCoppiePrima(companyId, outletId, `${mese}-01`),
+    const [gl, coppiePrima, lunediPrima, riposi, rf, abilitazioni] = await Promise.all([caricaGiorniLiberi(companyId), caricaCoppiePrima(companyId, outletId, `${mese}-01`),
       regole.lunediDue ? caricaLunediPrima(companyId, outletId, `${mese}-01`) : Promise.resolve([] as string[]),
       caricaRiposi(companyId).catch((): RiposiPersone => ({ preferiti: new Map(), mai: new Map(), disponibile: false })),
-      caricaRegoleFerie(outletId).catch(() => ({ riga: null, disponibile: false }))]);
+      caricaRegoleFerie(outletId).catch(() => ({ riga: null, disponibile: false })),
+      // chi puo' aprire e chiudere (16/11/2026): null dove le colonne mancano, e la regola resta spenta
+      caricaAbilitazioni(companyId).catch((): Map<string, Abilitazione> | null => null)]);
     // eventi del negozio come li legge la scheda 9: la voce scritta sull'evento comanda
     const eventiFerie: EventoFerie[] = ev.righe.filter((x) => { const ids = x.outlet_ids as string[] | null; return !Array.isArray(ids) || !ids.length || ids.includes(outletId); })
       .map((x) => {
@@ -430,7 +434,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     return {
       tutte, giorni, regole, atteso, extra, senzaLiberi, saldi, storicoWeekend, oreFuoriMese,
       eventiFerie, regoleFerie: rf.riga ? regoleFerieDaRiga(rf.riga as Parameters<typeof regoleFerieDaRiga>[0]) : null,
-      giorniLiberi: gl.mappa, haGiorniLiberi: gl.disponibile, coppiePrima, lunediPrima, riposi,
+      giorniLiberi: gl.mappa, haGiorniLiberi: gl.disponibile, coppiePrima, lunediPrima, riposi, abilitazioni,
       ferie: fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)),
       fonte: atteso.size
         ? `${tr.fonte === 'propria' ? 'traffico MODA del negozio' : tr.fonte === 'riferimento' ? `traffico MODA di ${nomeRif} (negozio di riferimento: questo non ha storico)` : 'media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}; ${regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali, ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria)`
@@ -471,6 +475,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       vice: g.vice,
       coppiePrima: b.coppiePrima,
       lunediPrima: b.lunediPrima,
+      // chi puo' aprire e chiudere: le persone in forza (le nuove della simulazione non sono abilitate)
+      chiavi: chiaviDelNegozio(personePiano.filter((p) => (p.oreSettimana ?? 0) > 0).map((p) => p.id), b.abilitazioni,
+        regole.giorniPieni ? [g.responsabile, g.vice].filter((x): x is string => !!x) : guidaDelNegozio(negozio)),
       ...(preferiti.size || b.riposi.mai.size ? { riposi: { preferiti, mai: b.riposi.mai } } : {}),
     };
   };
