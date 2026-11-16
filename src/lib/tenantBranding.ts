@@ -9,7 +9,7 @@ export function nomeBreveTenant(displayName: string): string {
   return displayName.replace(/\s+(s\.?r\.?l\.?|s\.?p\.?a\.?)$/i, '').trim() || displayName
 }
 
-/** Iniziali del tenant: «New Zago Srl» → «NZ», «Zago Srl» → «ZS». */
+/** Iniziali del tenant: «New Zago Srl» → «NZ», «Zago Srl» → «ZA» (una parola sola: prime due lettere). */
 export function inizialiTenant(displayName: string): string {
   const parole = nomeBreveTenant(displayName).split(/\s+/).filter(Boolean)
   const base = parole.length >= 2 ? parole.slice(0, 2).map((p) => p[0]).join('') : (parole[0] ?? '').slice(0, 2)
