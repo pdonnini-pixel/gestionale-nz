@@ -22,14 +22,14 @@
 //   {
 //     "subject": "Disposizione pagamenti fornitori - 20/07/2026",
 //     "body":    "…testo distinta già composto dal frontend…",
-//     "to":      "amministrazione@miamor-shop.it, newzago@vicolo.it"  // opzionale
+//     "to":      "amministrazione@miamor-shop.it, newzago@vicolo.com"  // opzionale
 //   }
 // Response: { ok: true, id: "<resend-id>" }
 //
 // Secret richiesti (impostati a mano su TUTTI E 3 i tenant — vedi Regola #0):
 //   RESEND_API_KEY        = "re_..."                     (API key Resend)
 //   DISTINTA_EMAIL_FROM   = "New Zago <amministrazione@miamor-shop.it>"  (mittente verificato)
-//   DISTINTA_EMAIL_TO     = "amministrazione@miamor-shop.it, newzago@vicolo.it"  (fallback destinatari, opzionale)
+//   DISTINTA_EMAIL_TO     = "amministrazione@miamor-shop.it, newzago@vicolo.com"  (fallback destinatari, opzionale)
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
