@@ -12,7 +12,7 @@
 import { supabase } from '../supabase';
 import { parseCSV, autoDetectBankMapping, transformBankRows, transformPOSRows, parseItalianNumber } from './csvParser';
 import { parseFatturaPA, transformInvoiceToRecords } from './xmlInvoiceParser';
-import { parseBilancio, toSupabaseRecords as bilancioToRecords } from './bilancioParser';
+import { parseBilancio, toSupabaseRecords as bilancioToRecords, annoFinePeriodo } from './bilancioParser';
 // NB: xlsx (SheetJS) è caricata on-demand dentro excelToHeadersRows: import
 // statico = ~140KB gzip nel chunk dell'ImportHub anche senza file Excel.
 
@@ -700,7 +700,7 @@ async function processBalanceSheetPDF(pdfData: string | ArrayBuffer, context: Im
     const year = context.fiscal_year || new Date().getFullYear();
     // L'anno scelto nella pagina deve essere quello del documento («PERIODO DAL
     // … AL 31/12/2025»): se no il bilancio finirebbe sull'anno sbagliato.
-    const annoDoc = Number(/AL\s+\d{1,2}\/\d{1,2}\/(\d{4})/i.exec(parsed.meta.period || '')?.[1] || 0);
+    const annoDoc = annoFinePeriodo(parsed.meta.period);
     if (annoDoc && annoDoc !== year) {
       return { imported: 0, errors: [{ message: `Il documento è del ${annoDoc}, ma l'anno scelto è il ${year}. Scegli ${annoDoc} e ricarica.` }] };
     }
