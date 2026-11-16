@@ -26589,6 +26589,60 @@ export type Database = {
           },
         ]
       }
+      prima_nota_invii: {
+        Row: {
+          company_id: string
+          created_at: string
+          destinatario: string
+          document_id: string
+          id: string
+          inviato_il: string
+          note: string | null
+          periodo_month: number | null
+          periodo_year: number
+          registrato_da: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          destinatario: string
+          document_id: string
+          id?: string
+          inviato_il?: string
+          note?: string | null
+          periodo_month?: number | null
+          periodo_year: number
+          registrato_da?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          destinatario?: string
+          document_id?: string
+          id?: string
+          inviato_il?: string
+          note?: string | null
+          periodo_month?: number | null
+          periodo_year?: number
+          registrato_da?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "prima_nota_invii_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "prima_nota_invii_document_id_fkey"
+            columns: ["document_id"]
+            isOneToOne: false
+            referencedRelation: "import_documents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       purchase_invoice_dispatches: {
         Row: {
           company_id: string
