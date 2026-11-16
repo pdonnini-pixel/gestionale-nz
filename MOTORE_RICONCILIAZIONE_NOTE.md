@@ -1175,14 +1175,17 @@ riferimenti al «punto 7» nelle sezioni di ottobre restano come cronaca.
 
 Otto giri riusciti dal 9 al 16 novembre, fra 160 e 179 secondi. Cinquantotto
 agganci applicati, e il numero che racconta la settimana è un altro: **le proposte
-`to_confirm` ancora aperte sono due.** Il 02/11 erano 190 righe per 110 coppie, il
-09/11 ne restavano 106.
+`to_confirm` ancora aperte sono due.** Letto sul database nei controlli precedenti:
+190 righe per 110 coppie il 02/11, 106 il 09/11 (conteggi presi allora con
+`count(*) FILTER (WHERE status = 'to_confirm')`, non riportati in quelle sezioni).
 
 Il merito è delle due metà che si sono incontrate: la **guardia 333** non lascia
-riscrivere una proposta già in elenco, e le funzioni delle migration 360 e 361
-chiudono da sé (`superseded`) quelle superate quando il movimento si riconcilia o
-la fattura si chiude. Questa settimana hanno chiuso 41 righe, 183 in tutto. Nessuno
-ha dovuto spuntare niente a mano.
+riscrivere una proposta già in elenco, e i due trigger della migration 360
+(`fn_close_proposals_on_bt_reconciled`, `fn_close_proposals_on_payable_closed`)
+chiudono da sé quelle superate quando il movimento si riconcilia o la fattura si
+chiude. La 360 le chiudeva come `rejected`; la **361** ha dato loro uno stato
+proprio, `superseded`, che è quello che si legge adesso. Questa settimana hanno
+chiuso 41 righe, 183 in tutto. Nessuno ha dovuto spuntare niente a mano.
 
 ### I cinquantotto agganci
 
@@ -1194,7 +1197,9 @@ addebito diretto cumulativo, uno fuzzy confermato.
 Dei ventisette della distinta, **quattro avevano gemelle aperte dello stesso
 importo** (F&B Florence 230,00 con due, GRUPPO SERVIZI 315,00, LA SCOPA MAGICA
 370,00, ZUCCHETTI 297,27). Interrogando `payable_in_distinta_for_movement` sulle
-gemelle, come dice il punto 3 del giro: **nessuna era in distinta**. Candidato
+gemelle, come dice il punto 3 del giro (e nella versione di oggi, che la migration
+390 ha riscritto per escludere le disposizioni di rimborso): **nessuna era in
+distinta**. Candidato
 unico, agganci corretti. Fra queste c'è GRUPPO SERVIZI V070012604509, che la
 settimana scorsa era la gemella non disposta: pagata a sua volta, al suo turno.
 
