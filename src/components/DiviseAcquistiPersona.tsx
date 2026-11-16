@@ -117,7 +117,10 @@ export default function DiviseAcquistiPersona({ companyId, employeeId, nome, sup
     void azione(() => impostaScontiPersona(employeeId, d, a), 'Sconti salvati: valgono per i capi presi da adesso')
   }
   const annulla = (c: Capo) => {
-    const motivo = window.prompt(`Annulla il capo ${c.codice}: scrivi il motivo (per esempio «letto due volte per sbaglio»). Il capo resta nello storico, barrato, e non conta più. Non si può togliere l'annullamento.`)
+    // un capo gia' addebitato o scaricato: l'annullamento non storna niente, va sistemato a parte (revisore sicurezza)
+    const gia = [c.addebitato_il ? 'è già stato addebitato: l\'addebito fatto va restituito a parte' : '', c.scaricato_il ? 'è già stato scaricato in MODA: va ricaricato a parte' : ''].filter(Boolean)
+    const avviso = gia.length ? `\n\nAttenzione: questo capo ${gia.join(' e ')}.` : ''
+    const motivo = window.prompt(`Annulla il capo ${c.codice}: scrivi il motivo (per esempio «letto due volte per sbaglio»). Il capo resta nello storico, barrato, e non conta più. Non si può togliere l'annullamento.${avviso}`)
     if (motivo == null) return
     if (motivo.trim().length < 3) { toast({ type: 'error', message: 'Scrivi il motivo (almeno 3 caratteri).' }); return }
     void azione(() => annullaCapo(c.id, motivo.trim()), 'Capo annullato')

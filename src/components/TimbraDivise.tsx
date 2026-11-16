@@ -41,6 +41,7 @@ export default function TimbraDivise({ outletId, codice, nome, onChiudi }: { out
   chiudiRef.current = onChiudi
   // l'id di questa «Conferma»: lo stesso se si riprova dopo un errore di rete, nuovo se i capi cambiano
   const richiestaRef = useRef<string | null>(null)
+  const chiaveRef = useRef<string | null>(null)
   const ultimo = useRef<{ c: string; t: number } | null>(null)
   const primoNome = nome.split(' ')[0] || nome
   const tocca = () => setTocco((n) => n + 1)
@@ -62,7 +63,7 @@ export default function TimbraDivise({ outletId, codice, nome, onChiudi }: { out
     const t = setTimeout(() => chiudiRef.current(), fase.k === 'fatto' ? 10_000 : ATTESA_MS)
     return () => clearTimeout(t)
   }, [fase, tocco, capi])
-  // capi cambiati: la prossima «Conferma» è una richiesta nuova
+  // capi cambiati: la prossima «Conferma» è una richiesta nuova (voce e divisa: vedi `conferma`)
   useEffect(() => { richiestaRef.current = null }, [capi])
 
   const aggiungi = (c: string) => {
@@ -111,6 +112,9 @@ export default function TimbraDivise({ outletId, codice, nome, onChiudi }: { out
 
   const conferma = async (voce: VoceCapo, divisa: number | null) => {
     const righe = capi.map((c) => ({ codice: c.codice, prezzo: c.prezzo.trim() ? leggiPrezzo(c.prezzo) : null }))
+    // anche voce o divisa cambiate fanno una richiesta nuova: una ripetizione vale solo per lo stesso invio
+    const chiave = `${voce}|${divisa ?? 'nuova'}`
+    if (chiaveRef.current !== chiave) { richiestaRef.current = null; chiaveRef.current = chiave }
     richiestaRef.current ??= crypto.randomUUID()
     setFase({ k: 'invio', voce, divisa })
     setErrore(null)
