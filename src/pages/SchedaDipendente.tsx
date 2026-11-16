@@ -31,6 +31,8 @@ import { SEZIONI_SCHEDA, percorsoDipendente, risolviDipendente, segmentoDipenden
 import { caricaGiorniLiberi, caricaRiposi, impostaGiornoLibero, type GiornoLibero } from '../lib/regoleNuoveDb';
 import { NOMI_GIORNO_BREVI } from '../lib/turni';
 import { ETICHETTE_VOCE } from '../lib/ferieRichiesta';
+import { possoGestireDivise } from '../lib/diviseDb';
+import DiviseAcquistiPersona from '../components/DiviseAcquistiPersona';
 
 type Employee = Row<'employees'>;
 type EmployeeCost = Row<'employee_costs'>;
@@ -88,6 +90,9 @@ export default function SchedaDipendente() {
   const [organicoFallito, setOrganicoFallito] = useState(false);
   const [saldi, setSaldi] = useState<Saldo[] | null>(null);
   const [richieste, setRichieste] = useState<Richiesta[] | null>(null);
+  // Divise e acquisti (migration 422): la sezione la vede solo chi gestisce; null = non disponibile (Made)
+  const [possoDivise, setPossoDivise] = useState<boolean | null>(null);
+  useEffect(() => { possoGestireDivise().then(setPossoDivise).catch(() => setPossoDivise(null)); }, []);
   const [caricata, setCaricata] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
 
@@ -264,7 +269,7 @@ export default function SchedaDipendente() {
 
       {/* Sezioni */}
       <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5 overflow-x-auto" role="tablist">
-        {SEZIONI_SCHEDA.map((s) => (
+        {SEZIONI_SCHEDA.filter((s) => s.k !== 'divise' || possoDivise === true).map((s) => (
           <button key={s.k} type="button" role="tab" aria-selected={sezione === s.k} onClick={() => vaiSezione(s.k)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition whitespace-nowrap ${sezione === s.k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             {s.label}
@@ -326,6 +331,15 @@ export default function SchedaDipendente() {
         <NettiAnno key={emp.id} employeeId={emp.id} companyId={companyId} costi={costi} puoSalvare={!solaLettura}
           onSalvato={async () => { await caricaPersona(emp.id); toast({ type: 'success', message: 'Netti salvati' }); }} />
       )}
+
+      {sezione === 'divise' && (possoDivise === true ? (
+        <DiviseAcquistiPersona companyId={companyId} employeeId={emp.id} nome={nomeCompleto(emp)} superAdvisor={ruolo === 'super_advisor'}
+          negozi={outlets.map((o) => ({ id: o.id, name: o.name }))} />
+      ) : possoDivise === false || possoDivise === null ? (
+        <section className="bg-white border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
+          {possoDivise === null ? 'Divise e acquisti non sono attivi in questo gestionale.' : 'Divise e acquisti li vede solo chi è nell’elenco scelto dal Super Advisor.'}
+        </section>
+      ) : null)}
 
       {segna && persona && organico && (
         <SegnaCambiamento open onClose={() => setSegna(false)} onSalvato={() => { void ricarica(); }}

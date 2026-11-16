@@ -16,6 +16,8 @@ import '@fontsource/poppins/latin-400.css'
 import '@fontsource/poppins/latin-500.css'
 import '@fontsource/poppins/latin-600.css'
 import LogoNewZago from '../components/app/LogoNewZago'
+import TimbraDivise from '../components/TimbraDivise'
+import { diviseAttive } from '../lib/diviseDb'
 import { getCurrentTenant } from '../lib/tenants'
 import { supabase } from '../lib/supabase'
 import {
@@ -73,6 +75,9 @@ export default function Timbra() {
   const [entroAdesso, setEntroAdesso] = useState(false)
   const [segnata, setSegnata] = useState<string | null>(null)
   const [pin, setPin] = useState<StatoPin | null>(null)
+  // Divise e acquisti (migration 422): il tasto c'e' solo se la funzione esiste su questo tenant
+  const [diviseOn, setDiviseOn] = useState(false)
+  const [divise, setDivise] = useState<{ employeeId: string; nome: string; codice: string } | null>(null)
   const pinCorrente = useRef<string | null>(null)
   useEffect(() => { pinCorrente.current = pin?.fase === 'cifre' ? pin.employeeId : null }, [pin])
   const [avviso, setAvviso] = useState<string | null>(null)
@@ -126,6 +131,7 @@ export default function Timbra() {
     if (nuovi) {
       setDati(nuovi)
       setOnline(true)
+      void diviseAttive().then(setDiviseOn).catch(() => setDiviseOn(false))
       if (esito.inAttesa === 0) setUltimoInvio(new Date().toISOString())
     } else setOnline(esito.inviate > 0)
     await aggiornaCoda()
@@ -179,7 +185,7 @@ export default function Timbra() {
 
   // Lettura del QR con la fotocamera
   useEffect(() => {
-    if (!outletId || selezione || fatto || pin) return
+    if (!outletId || selezione || fatto || pin || divise) return
     if (!Rilevatore) { setErroreCamera('Questo telefono non legge i QR dal browser. Usa Chrome aggiornato.'); return }
     let fermo = false
     let stream: MediaStream | null = null
@@ -214,7 +220,7 @@ export default function Timbra() {
       })
       .catch(() => setErroreCamera('Serve il permesso per la fotocamera: toccalo nella barra degli indirizzi e consenti.'))
     return () => { fermo = true; stream?.getTracks().forEach((t) => t.stop()) }
-  }, [outletId, selezione, fatto, frontale, !!pin])
+  }, [outletId, selezione, fatto, frontale, !!pin, !!divise])
 
   // La scheda della persona si chiude da sola dopo 20 secondi
   useEffect(() => {
@@ -349,7 +355,9 @@ export default function Timbra() {
       </div>
 
       <main className="flex-1 flex flex-col items-center justify-center px-5 py-4">
-        {pin && !fatto && !selezione ? (
+        {divise ? (
+          <TimbraDivise outletId={outletId} codice={divise.codice} nome={divise.nome} onChiudi={() => setDivise(null)} />
+        ) : pin && !fatto && !selezione ? (
           pin.fase === 'nomi' ? (
             <div className="w-full max-w-md flex flex-col gap-3">
               <p className="text-2xl font-bold text-center">Chi sei?</p>
@@ -531,6 +539,11 @@ export default function Timbra() {
                   </>
                 )}
                 <button onClick={() => setSelezione(null)} className="text-white/50 underline py-2">Annulla</button>
+                {/* Divise e acquisti: solo a chi e' gia' entrata, piccolo e staccato dalla timbratura (16/11/2026) */}
+                {stato !== 'fuori' && diviseOn && online && !selezione.pinDaControllare && (
+                  <button onClick={() => { setDivise({ employeeId: selezione.employeeId, nome: selezione.nome, codice: selezione.codice }); setSelezione(null) }}
+                    className="mt-10 self-center px-5 py-2.5 rounded-xl bg-white/10 active:bg-white/20 text-sm text-white/80">Divise e acquisti</button>
+                )}
               </div>
             )
           })()
@@ -547,6 +560,7 @@ export default function Timbra() {
               </div>
             </div>
             <p className="text-xl font-light">Avvicina il <span className="font-semibold">QR</span> del tuo telefono</p>
+            {diviseOn && <p className="text-white/50 text-sm -mt-2">per timbrare o, dopo l’entrata, per divise e acquisti</p>}
             {avviso && <p className="text-amber-300 text-sm">{avviso}</p>}
             {erroreCamera && <p className="text-rose-300 text-sm">{erroreCamera}</p>}
             <button onClick={() => setFrontale((f) => !f)} className="flex items-center gap-1.5 text-white/50 text-sm underline">
@@ -561,8 +575,8 @@ export default function Timbra() {
         )}
       </main>
 
-      {/* Chi c'e' adesso */}
-      <footer className="px-5 pb-6">
+      {/* Chi c'e' adesso (non dentro la sezione di una persona) */}
+      {!divise && <footer className="px-5 pb-6">
         <p className="text-white/50 text-xs uppercase tracking-[0.25em] mb-2">Adesso in negozio</p>
         {dentro.length === 0
           ? <p className="text-white/60 text-sm">Nessuno ha timbrato l'entrata.</p>
@@ -574,7 +588,7 @@ export default function Timbra() {
               ))}
             </div>}
         {dati?.scaricati_il && <p className="text-white/50 text-xs mt-3">Elenco e turni aggiornati alle {oraRoma(dati.scaricati_il)}</p>}
-      </footer>
+      </footer>}
     </div>
   )
 }

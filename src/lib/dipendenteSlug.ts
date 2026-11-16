@@ -21,6 +21,8 @@ export const SEZIONI_SCHEDA = [
   { k: 'ferie', label: 'Ferie e permessi' },
   { k: 'documenti', label: 'Documenti' },
   { k: 'netti', label: 'Netti' },
+  // si vede solo a chi gestisce divise e acquisti (migration 422)
+  { k: 'divise', label: 'Divise e acquisti' },
 ] as const
 export type SezioneScheda = (typeof SEZIONI_SCHEDA)[number]['k']
 
