@@ -4,12 +4,14 @@
 -- non ammette 'piano_mese'), e il legame con il piano va perso con la colonna. Per questo prima
 -- si copia tutto in _bkp_410_leave_requests (nessun GRANT: invisibile all'API). Le proposte ancora
 -- in bozza NON si cancellano: restano bozze con origine 'gestionale', da togliere a mano se serve.
--- Se la copia esiste gia' ci si ferma: va guardata prima di ripetere.
+-- Il registro di chi ha tolto le proposte e rifatto i turni (turni_piano_registro) NON si cancella:
+-- la tabella viene rinominata _bkp_410_turni_piano_registro, senza GRANT e senza policy.
+-- Se una copia esiste gia' ci si ferma: va guardata prima di ripetere.
 BEGIN;
 
 DO $$ BEGIN
-  IF to_regclass('public._bkp_410_leave_requests') IS NOT NULL THEN
-    RAISE EXCEPTION 'Rollback 410: esiste gia'' la copia _bkp_410_leave_requests. Controllarla prima di ripetere.';
+  IF to_regclass('public._bkp_410_leave_requests') IS NOT NULL OR to_regclass('public._bkp_410_turni_piano_registro') IS NOT NULL THEN
+    RAISE EXCEPTION 'Rollback 410: esistono gia'' le copie _bkp_410_*. Controllarle prima di ripetere.';
   END IF;
 END $$;
 CREATE TABLE public._bkp_410_leave_requests AS
@@ -24,6 +26,22 @@ DROP FUNCTION IF EXISTS public.ferie_proposta_togli(uuid);
 DROP FUNCTION IF EXISTS public.ferie_proposta_mia(uuid, boolean);
 DROP FUNCTION IF EXISTS public.ferie_proposta_approva(uuid, uuid[], text);
 DROP FUNCTION IF EXISTS public.ferie_proposta_approva(uuid, uuid[]);
+DROP FUNCTION IF EXISTS public.turni_persona_in_servizio(uuid, uuid, date);
+
+-- il registro resta, come copia invisibile all'API
+DO $$ BEGIN
+  IF to_regclass('public.turni_piano_registro') IS NOT NULL THEN
+    DROP POLICY IF EXISTS turni_piano_registro_select ON public.turni_piano_registro;
+    DROP POLICY IF EXISTS cash_operator_block ON public.turni_piano_registro;
+    DROP POLICY IF EXISTS dipendente_block ON public.turni_piano_registro;
+    DROP POLICY IF EXISTS responsabile_block ON public.turni_piano_registro;
+    DROP POLICY IF EXISTS solo_con_profilo ON public.turni_piano_registro;
+    REVOKE ALL ON public.turni_piano_registro FROM PUBLIC, anon, authenticated, service_role;
+    ALTER INDEX IF EXISTS public.turni_piano_registro_piano_idx RENAME TO _bkp_410_turni_piano_registro_piano_idx;
+    ALTER TABLE public.turni_piano_registro RENAME CONSTRAINT turni_piano_registro_pkey TO _bkp_410_turni_piano_registro_pkey;
+    ALTER TABLE public.turni_piano_registro RENAME TO _bkp_410_turni_piano_registro;
+  END IF;
+END $$;
 
 ALTER TABLE public.leave_requests DROP CONSTRAINT IF EXISTS leave_requests_origine_check;
 UPDATE public.leave_requests SET origine = 'gestionale' WHERE origine = 'piano_mese';

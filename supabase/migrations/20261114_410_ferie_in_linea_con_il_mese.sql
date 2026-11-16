@@ -24,7 +24,16 @@
 --      proposta del piano (Patrizio, 16/11/2026: «anche la HR puo' spostare»);
 --   5. funzione turni_proposti_riscrivi(uuid, date[], jsonb, jsonb): rifa' in un colpo solo i turni
 --      proposti dal sistema ancora in bozza di un piano, dopo che una proposta e' stata spostata o
---      tolta. Mai un turno messo a mano o pubblicato, mai un mese chiuso.
+--      tolta. Mai un turno messo a mano o pubblicato, mai un mese chiuso;
+--   6. tabella turni_piano_registro: chi ha tolto una proposta e chi ha fatto rifare i turni
+--      proposti, e quando (sola lettura per chi gestisce i turni, nessuna scrittura dall'API);
+--   7. funzione turni_persona_in_servizio(uuid, uuid, date): la stessa regola della pagina per
+--      dire se una persona e' in servizio in quel negozio quel giorno.
+-- Dopo la rilettura di sicurezza del 16/11/2026: responsabile di negozio, dipendente e operatore
+-- di cassa restano fuori da sposta, togli e riscrittura dei turni anche se compaiono fra i
+-- «Referenti ferie»; chi non gestisce i turni li fa rifare solo da oggi in poi, mai con un elenco
+-- vuoto, e non cambia i numeri del riepilogo del piano; ogni turno nuovo e' controllato su persona
+-- in servizio, ferie approvate, durata, orario di apertura e sovrapposizioni.
 -- Si applica a NZ e Zago. Dove manca (Made) il frontend non propone niente e resta com'era.
 -- Rollback: 20261114_410_ferie_in_linea_con_il_mese_ROLLBACK.sql
 
@@ -52,6 +61,134 @@ COMMENT ON COLUMN public.leave_requests.plan_id IS
   'Il piano del mese che ha proposto questa richiesta (origine = piano_mese). NULL per le richieste chieste da una persona. Se il piano si toglie resta NULL: la richiesta, se e'' gia'' stata approvata, non cambia.';
 CREATE INDEX IF NOT EXISTS leave_requests_plan_idx ON public.leave_requests (plan_id) WHERE plan_id IS NOT NULL;
 
+-- ── Registro di chi tocca le proposte e i turni proposti ───────────────────────────────────────
+-- Togliere una proposta cancella la bozza con i suoi eventi (a cascata): senza questa tabella non
+-- resterebbe scritto chi l'ha tolta. Rifare i turni proposti e' una scrittura sui turni fatta
+-- anche da chi i turni non li gestisce: resta scritto chi, su quale piano, in quali giorni, quanti
+-- turni tolti e quanti scritti. Le righe le scrivono solo le funzioni qui sotto; dall'API si
+-- leggono soltanto, e solo chi gestisce i turni.
+CREATE TABLE IF NOT EXISTS public.turni_piano_registro (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  company_id  uuid NOT NULL REFERENCES public.companies(id),
+  outlet_id   uuid,
+  plan_id     uuid,
+  azione      text NOT NULL CHECK (azione IN ('turni_riscritti', 'proposta_tolta')),
+  request_id  uuid,
+  employee_id uuid,
+  dettaglio   jsonb,
+  utente_id   uuid,
+  utente_nome text,
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+COMMENT ON TABLE public.turni_piano_registro IS
+  'Chi ha tolto una proposta di ferie del piano del mese e chi ha fatto rifare i turni proposti, e quando (410). plan_id, request_id ed employee_id sono senza chiave esterna apposta: la riga resta anche se il piano o la proposta spariscono. Si scrive solo dalle funzioni ferie_proposta_togli e turni_proposti_riscrivi.';
+CREATE INDEX IF NOT EXISTS turni_piano_registro_piano_idx ON public.turni_piano_registro (company_id, plan_id, created_at);
+
+ALTER TABLE public.turni_piano_registro ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS turni_piano_registro_select ON public.turni_piano_registro;
+CREATE POLICY turni_piano_registro_select ON public.turni_piano_registro FOR SELECT TO authenticated
+  USING (company_id = (SELECT public.get_my_company_id()) AND (SELECT public.organico_puo_scrivere()));
+DROP POLICY IF EXISTS cash_operator_block ON public.turni_piano_registro;
+CREATE POLICY cash_operator_block ON public.turni_piano_registro AS RESTRICTIVE FOR ALL TO authenticated
+  USING (COALESCE((SELECT public.get_my_role())::text, '') <> 'operatore_cassa')
+  WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '') <> 'operatore_cassa');
+DROP POLICY IF EXISTS dipendente_block ON public.turni_piano_registro;
+CREATE POLICY dipendente_block ON public.turni_piano_registro AS RESTRICTIVE FOR ALL TO authenticated
+  USING (COALESCE((SELECT public.get_my_role())::text, '') <> 'dipendente')
+  WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '') <> 'dipendente');
+DROP POLICY IF EXISTS responsabile_block ON public.turni_piano_registro;
+CREATE POLICY responsabile_block ON public.turni_piano_registro AS RESTRICTIVE FOR ALL TO authenticated
+  USING (COALESCE((SELECT public.get_my_role())::text, '') <> 'responsabile')
+  WITH CHECK (COALESCE((SELECT public.get_my_role())::text, '') <> 'responsabile');
+DROP POLICY IF EXISTS solo_con_profilo ON public.turni_piano_registro;
+CREATE POLICY solo_con_profilo ON public.turni_piano_registro AS RESTRICTIVE FOR ALL TO authenticated
+  USING ((SELECT public.get_my_role()) IS NOT NULL)
+  WITH CHECK ((SELECT public.get_my_role()) IS NOT NULL);
+REVOKE ALL ON public.turni_piano_registro FROM PUBLIC, anon, authenticated;
+GRANT SELECT ON public.turni_piano_registro TO authenticated;
+GRANT SELECT, INSERT ON public.turni_piano_registro TO service_role;
+
+-- ── La persona e' in servizio in quel negozio quel giorno? ─────────────────────────────────────
+-- La stessa regola della pagina (personaAllaData in src/lib/organico.ts): la scheda piu' i
+-- cambiamenti non annullati, in ordine di data. In servizio = assunta, non uscita, contratto a
+-- termine non scaduto, non in assenza lunga, non amministratore, e quel giorno il suo negozio e'
+-- proprio quello. Chi cambia la regola di la' la cambia anche qui.
+CREATE OR REPLACE FUNCTION public.turni_persona_in_servizio(p_employee uuid, p_outlet uuid, p_data date)
+ RETURNS boolean
+ LANGUAGE plpgsql
+ STABLE SECURITY DEFINER
+ SET search_path TO 'public', 'pg_temp'
+AS $function$
+DECLARE
+  s           public.employees%ROWTYPE;
+  ev          record;
+  v_outlet    uuid;
+  v_contratto text;
+  v_scadenza  date;
+  v_inizio    date;
+  v_ultimo    date;
+  v_assente   boolean := false;
+  v_da_evento boolean := false;
+  v_vale      boolean;
+BEGIN
+  IF p_employee IS NULL OR p_outlet IS NULL OR p_data IS NULL THEN RETURN false; END IF;
+  SELECT * INTO s FROM public.employees WHERE id = p_employee;
+  IF NOT FOUND THEN RETURN false; END IF;
+  v_outlet := s.outlet_id;
+  v_contratto := s.contratto_tipo;
+  v_scadenza := CASE WHEN v_contratto = 'indeterminato' THEN NULL ELSE s.scadenza_td::date END;
+  v_inizio := COALESCE(s.data_assunzione::date, s.hire_date::date);
+  v_ultimo := COALESCE(s.data_cessazione::date, s.termination_date::date);
+  FOR ev IN
+    SELECT e.tipo, e.data_dal, e.data_al, e.outlet_id, e.contratto_tipo
+      FROM public.employee_events e
+     WHERE e.employee_id = p_employee AND e.stato <> 'annullato'
+     ORDER BY e.data_dal, e.created_at
+  LOOP
+    v_vale := ev.data_dal <= p_data;
+    IF ev.tipo = 'proroga' THEN
+      -- una proroga si conosce prima che cominci: la nuova scadenza vale subito
+      IF ev.data_al IS NOT NULL THEN
+        v_scadenza := ev.data_al;
+        IF v_ultimo IS NOT NULL AND v_ultimo < ev.data_al THEN v_ultimo := NULL; END IF;
+      END IF;
+      IF v_vale AND ev.contratto_tipo IS NOT NULL THEN v_contratto := ev.contratto_tipo; END IF;
+    ELSIF ev.tipo IN ('cessazione', 'non_rinnovo') THEN
+      v_ultimo := ev.data_dal;
+    ELSIF ev.tipo = 'assunzione' THEN
+      v_da_evento := true;
+      v_inizio := ev.data_dal;
+      IF ev.outlet_id IS NOT NULL THEN v_outlet := ev.outlet_id; END IF;
+      IF ev.contratto_tipo IS NOT NULL THEN v_contratto := ev.contratto_tipo; END IF;
+      IF ev.data_al IS NOT NULL THEN v_scadenza := ev.data_al; END IF;
+    ELSIF ev.tipo = 'cambio_negozio' THEN
+      IF v_vale AND ev.outlet_id IS NOT NULL THEN v_outlet := ev.outlet_id; END IF;
+    ELSIF ev.tipo = 'trasformazione_indeterminato' THEN
+      IF v_vale THEN v_contratto := 'indeterminato'; v_scadenza := NULL; END IF;
+    ELSIF ev.tipo = 'assenza_lunga' THEN
+      IF v_vale AND (ev.data_al IS NULL OR p_data < ev.data_al) THEN v_assente := true;
+      ELSIF v_vale AND ev.data_al IS NOT NULL AND p_data >= ev.data_al THEN v_assente := false;
+      END IF;
+    ELSIF ev.tipo = 'rientro' THEN
+      IF v_vale THEN v_assente := false; END IF;
+    END IF;
+  END LOOP;
+  IF v_contratto = 'amministratore' OR COALESCE(s.qualifica, '') ~* 'amministrat' OR COALESCE(s.role_description, '') ~* 'amministrat' THEN RETURN false; END IF;
+  IF v_inizio IS NOT NULL AND v_inizio > p_data THEN RETURN false; END IF;
+  IF v_ultimo IS NOT NULL AND v_ultimo < p_data THEN RETURN false; END IF;
+  IF s.is_active IS FALSE AND v_ultimo IS NULL AND NOT v_da_evento THEN RETURN false; END IF;
+  IF v_contratto IS DISTINCT FROM 'indeterminato' AND v_scadenza IS NOT NULL AND v_scadenza < p_data THEN RETURN false; END IF;
+  IF v_assente THEN RETURN false; END IF;
+  RETURN v_outlet IS NOT DISTINCT FROM p_outlet;
+END
+$function$;
+REVOKE ALL ON FUNCTION public.turni_persona_in_servizio(uuid, uuid, date) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.turni_persona_in_servizio(uuid, uuid, date) TO service_role;
+
+-- Chi resta fuori: dipendente, operatore di cassa e chi non ha un profilo, anche se compaiono fra
+-- i «Referenti ferie» (leave_approvers, che dalla 252 vale per qualunque profilo). La responsabile
+-- di negozio approva solo dentro il suo recinto (ferie_responsabile_puo della 378: i negozi di cui
+-- conferma le presenze), mai tutta l'azienda perche' e' fra i Referenti.
 -- Approvare una proposta del piano: la bozza diventa inviata e la decide leave_decidi, che applica
 -- chi puo' decidere (posso_decidere_ferie o la responsabile nei suoi negozi) e la scala (407:
 -- nessuno la propria, la responsabile dall'HR, l'HR dal Super Advisor); la regola del lunedi' la
@@ -73,7 +210,11 @@ DECLARE
   v_giorni uuid[];
   v_tutti  integer;
   v_motivo text := NULLIF(btrim(COALESCE(p_motivo, '')), '');
+  v_ruolo  text := COALESCE((SELECT public.get_my_role())::text, '');
 BEGIN
+  IF v_ruolo IN ('', 'dipendente', 'operatore_cassa') THEN
+    RAISE EXCEPTION 'Le proposte del piano le approva chi può decidere le ferie.' USING ERRCODE = '42501';
+  END IF;
   SELECT * INTO r FROM public.leave_requests WHERE id = p_request_id FOR UPDATE;
   IF NOT FOUND OR r.company_id IS DISTINCT FROM (SELECT public.get_my_company_id()) THEN
     RAISE EXCEPTION 'Proposta non trovata.' USING ERRCODE = 'P0002';
@@ -95,6 +236,9 @@ BEGIN
     RAISE EXCEPTION 'Per approvare solo una parte dei giorni serve il motivo per quelli scartati.' USING ERRCODE = '22023';
   END IF;
   UPDATE public.leave_requests SET stato = 'inviata', inviata_il = now() WHERE id = p_request_id;
+  IF v_ruolo = 'responsabile' AND NOT COALESCE(public.ferie_responsabile_puo(p_request_id), false) THEN
+    RAISE EXCEPTION 'Questa proposta non è di un tuo negozio: la decide l''HR.' USING ERRCODE = '42501';
+  END IF;
   RETURN public.leave_decidi(p_request_id, v_giorni,
     CASE WHEN cardinality(v_giorni) < v_tutti THEN v_motivo ELSE 'Proposta del piano del mese, approvata' END);
 END
@@ -109,7 +253,8 @@ GRANT EXECUTE ON FUNCTION public.ferie_proposta_approva(uuid, uuid[], text) TO a
 -- (posso_decidere_ferie: gli stessi profili piu' l'elenco HR e i «Referenti ferie»), con la stessa
 -- scala di chi decide: nessuno tocca una proposta propria, quella di una persona dell'HR la tocca
 -- solo il Super Advisor. La responsabile di negozio non vede il piano del mese (recinto della 378
--- su shifts e shift_plans) e resta fuori.
+-- su shifts e shift_plans) e resta fuori: lei, il dipendente, l'operatore di cassa e chi non ha un
+-- profilo sono rifiutati per profilo, anche se compaiono fra i «Referenti ferie».
 -- Toccano SOLO le proposte del piano ancora da decidere (origine 'piano_mese', stato 'bozza'):
 -- una richiesta chiesta da una persona, inviata o decisa non si sposta e non si cancella da qui.
 
@@ -123,7 +268,8 @@ AS $function$
 DECLARE
   r public.leave_requests%ROWTYPE;
 BEGIN
-  IF NOT COALESCE((SELECT public.posso_decidere_ferie()), false) THEN
+  IF COALESCE((SELECT public.get_my_role())::text, '') IN ('', 'responsabile', 'dipendente', 'operatore_cassa')
+     OR NOT COALESCE((SELECT public.posso_decidere_ferie()), false) THEN
     RAISE EXCEPTION 'Le proposte di ferie le sposta e le toglie chi può decidere le ferie.' USING ERRCODE = '42501';
   END IF;
   SELECT * INTO r FROM public.leave_requests WHERE id = p_request_id FOR UPDATE;
@@ -180,6 +326,11 @@ BEGIN
     FROM public.leave_request_days d WHERE d.request_id = r.id;
   IF v_da IS NULL THEN
     RAISE EXCEPTION 'La proposta non ha giorni da spostare.' USING ERRCODE = '22023';
+  END IF;
+  -- una proposta e' di una persona e di UN giorno (piu' voci nello stesso giorno sono ammesse):
+  -- una bozza con giorni diversi li porterebbe tutti sulla stessa data
+  IF (SELECT count(DISTINCT d.data) FROM public.leave_request_days d WHERE d.request_id = r.id) <> 1 THEN
+    RAISE EXCEPTION 'Questa proposta copre più giorni: toglila e rifai il piano.' USING ERRCODE = '22023';
   END IF;
   IF p_data = v_da THEN RETURN; END IF;
   IF date_trunc('month', p_data) <> date_trunc('month', pl.mese) THEN
@@ -244,9 +395,18 @@ CREATE OR REPLACE FUNCTION public.ferie_proposta_togli(p_request_id uuid)
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
-  r public.leave_requests%ROWTYPE;
+  r      public.leave_requests%ROWTYPE;
+  v_nome text;
 BEGIN
   r := public.ferie_proposta_mia(p_request_id, false);
+  -- gli eventi della bozza spariscono con lei: chi l'ha tolta resta scritto qui
+  SELECT NULLIF(btrim(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), '') INTO v_nome
+    FROM public.user_profiles u WHERE u.id = auth.uid();
+  INSERT INTO public.turni_piano_registro (company_id, outlet_id, plan_id, azione, request_id, employee_id, dettaglio, utente_id, utente_nome)
+  VALUES (r.company_id, (SELECT p.outlet_id FROM public.shift_plans p WHERE p.id = r.plan_id), r.plan_id, 'proposta_tolta', r.id, r.employee_id,
+          jsonb_build_object('giorni', COALESCE((SELECT jsonb_agg(jsonb_build_object('data', d.data, 'voce', d.voce, 'tipo', d.tipo, 'ore', d.ore) ORDER BY d.data, d.voce)
+                                                   FROM public.leave_request_days d WHERE d.request_id = r.id), '[]'::jsonb)),
+          auth.uid(), v_nome);
   DELETE FROM public.leave_requests WHERE id = r.id AND origine = 'piano_mese' AND stato = 'bozza';
 END
 $function$;
@@ -259,14 +419,21 @@ GRANT EXECUTE ON FUNCTION public.ferie_proposta_togli(uuid) TO authenticated, se
 -- solo, cosi' non resta mai un mese con i turni vecchi tolti e quelli nuovi non salvati, e lo puo'
 -- fare anche chi e' nell'elenco HR con un profilo che i turni non li scrive.
 -- E' stretta apposta:
---   * la chiama chi gestisce i turni (organico_puo_scrivere) o chi puo' decidere le ferie;
+--   * la chiama chi gestisce i turni (organico_puo_scrivere) o chi puo' decidere le ferie, mai
+--     una responsabile di negozio, un dipendente, un operatore di cassa o chi non ha un profilo;
 --   * tocca SOLO i turni del piano indicato con origine 'proposta' e stato 'bozza', nelle date
 --     indicate, tutte nel mese del piano: un turno messo a mano o pubblicato non si cancella, non si
 --     cambia e non si sovrappone;
 --   * mai una simulazione, mai un mese chiuso;
---   * ogni turno nuovo e' di una persona dell'azienda che lavora in quel negozio, sta dentro
---     l'orario di apertura di quel giorno, sulle mezz'ore, uno solo per persona e per giorno;
---   * nasce in bozza: nell'app non arriva niente finche' chi gestisce i turni non pubblica.
+--   * chi NON gestisce i turni la usa solo da oggi in poi e mai con un elenco vuoto (non puo'
+--     svuotare un mese), e non scrive il riepilogo del piano: resta quello di prima, segnato
+--     «daRicalcolare», finche' non lo rifa' chi gestisce i turni;
+--   * ogni turno nuovo e' di una persona in servizio in quel negozio quel giorno (stessa regola
+--     della pagina), senza una giornata di ferie o permesso gia' approvata, lungo fra il turno
+--     minimo e il turno massimo del negozio, dentro l'orario di apertura (quello del periodo
+--     speciale, se ne ha uno suo), sulle mezz'ore, uno solo per persona e per giorno;
+--   * nasce in bozza: nell'app non arriva niente finche' chi gestisce i turni non pubblica;
+--   * ogni chiamata lascia una riga in turni_piano_registro.
 CREATE OR REPLACE FUNCTION public.turni_proposti_riscrivi(p_plan_id uuid, p_date date[], p_turni jsonb, p_riepilogo jsonb DEFAULT NULL)
  RETURNS integer
  LANGUAGE plpgsql
@@ -274,16 +441,28 @@ CREATE OR REPLACE FUNCTION public.turni_proposti_riscrivi(p_plan_id uuid, p_date
  SET search_path TO 'public', 'pg_temp'
 AS $function$
 DECLARE
-  pl     public.shift_plans%ROWTYPE;
-  t      record;
-  v_apre time;
+  pl       public.shift_plans%ROWTYPE;
+  t        record;
+  v_apre   time;
   v_chiude time;
   v_chiuso boolean;
-  v_ore  numeric;
-  v_n    integer := 0;
-  v_demo uuid[];
+  v_ev_apre   text;
+  v_ev_chiude text;
+  v_pres   numeric;
+  v_lav    numeric;
+  v_min    numeric := 4;
+  v_max    numeric := 10;
+  v_n      integer := 0;
+  v_tolti  integer := 0;
+  v_demo   uuid[];
+  v_gestore boolean := COALESCE((SELECT public.organico_puo_scrivere()), false);
+  v_ruolo  text := COALESCE((SELECT public.get_my_role())::text, '');
+  v_oggi   date := (now() AT TIME ZONE 'Europe/Rome')::date;
+  v_senza_ferie boolean;
+  v_nome   text;
 BEGIN
-  IF NOT (COALESCE((SELECT public.organico_puo_scrivere()), false) OR COALESCE((SELECT public.posso_decidere_ferie()), false)) THEN
+  IF NOT v_gestore AND (v_ruolo IN ('', 'responsabile', 'dipendente', 'operatore_cassa')
+                        OR NOT COALESCE((SELECT public.posso_decidere_ferie()), false)) THEN
     RAISE EXCEPTION 'I turni proposti li rifà chi gestisce i turni o chi può decidere le ferie.' USING ERRCODE = '42501';
   END IF;
   SELECT * INTO pl FROM public.shift_plans WHERE id = p_plan_id FOR UPDATE;
@@ -308,12 +487,29 @@ BEGIN
   IF p_riepilogo IS NOT NULL AND (jsonb_typeof(p_riepilogo) <> 'object' OR octet_length(p_riepilogo::text) > 1000000) THEN
     RAISE EXCEPTION 'Riepilogo del piano non valido.' USING ERRCODE = '22023';
   END IF;
+  -- chi non gestisce i turni: solo da oggi in poi, e mai un elenco vuoto (svuoterebbe quei giorni
+  -- senza poterli rifare)
+  IF NOT v_gestore THEN
+    IF EXISTS (SELECT 1 FROM unnest(p_date) AS d WHERE d < v_oggi) THEN
+      RAISE EXCEPTION 'Con il tuo profilo i turni si rifanno solo da oggi in poi.' USING ERRCODE = '22023';
+    END IF;
+    IF jsonb_array_length(p_turni) = 0 THEN
+      RAISE EXCEPTION 'L''elenco dei turni è vuoto: con il tuo profilo i turni non si tolgono soltanto, si rifanno.' USING ERRCODE = '22023';
+    END IF;
+  END IF;
+
+  SELECT COALESCE(r.turno_min_ore, 4), COALESCE(r.turno_max_ore, 10) INTO v_min, v_max
+    FROM public.outlet_shift_rules r WHERE r.outlet_id = pl.outlet_id;
+  IF NOT FOUND THEN v_min := 4; v_max := 10; END IF;
+  -- il calendario «senza ferie» e' l'organico pieno: li' le ferie non fermano i turni
+  v_senza_ferie := COALESCE(pl.riepilogo -> 'senzaFerie' = 'true'::jsonb, false);
 
   -- come dalla tabella (policy demo_nascosto): i turni della persona di prova non si toccano da qui
   v_demo := COALESCE((SELECT public.dipendenti_demo_ids())::uuid[], '{}'::uuid[]);
   DELETE FROM public.shifts
    WHERE plan_id = pl.id AND origine = 'proposta' AND stato = 'bozza' AND data = ANY (p_date)
      AND employee_id <> ALL (v_demo);
+  GET DIAGNOSTICS v_tolti = ROW_COUNT;
 
   FOR t IN
     SELECT x.employee_id, x.data, x.inizio, x.fine, COALESCE(x.pausa_minuti, 0) AS pausa_minuti, COALESCE(x.ore_straordinario, 0) AS ore_straordinario
@@ -326,15 +522,30 @@ BEGIN
        OR extract(second FROM t.inizio) <> 0 OR extract(second FROM t.fine) <> 0 THEN
       RAISE EXCEPTION 'Orario di un turno non valido (%-% del %).', to_char(t.inizio, 'HH24:MI'), to_char(t.fine, 'HH24:MI'), to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
     END IF;
-    v_ore := extract(epoch FROM (t.fine - t.inizio)) / 3600.0;
-    IF t.pausa_minuti < 0 OR t.pausa_minuti > 180 OR t.ore_straordinario < 0 OR t.ore_straordinario > v_ore THEN
-      RAISE EXCEPTION 'Pausa o straordinario di un turno non validi (%).', to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
+    -- presenza fra entrata e uscita, e ore lavorate (presenza meno la pausa che si toglie)
+    v_pres := extract(epoch FROM (t.fine - t.inizio)) / 3600.0;
+    IF t.pausa_minuti < 0 OR t.pausa_minuti > 180 OR t.pausa_minuti >= v_pres * 60 THEN
+      RAISE EXCEPTION 'Pausa di un turno non valida (%).', to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
     END IF;
-    IF t.employee_id = ANY (v_demo) OR NOT EXISTS (SELECT 1 FROM public.employees e
-                    WHERE e.id = t.employee_id AND e.company_id = pl.company_id
-                      AND (e.outlet_id = pl.outlet_id
-                           OR EXISTS (SELECT 1 FROM public.shifts s WHERE s.employee_id = e.id AND s.outlet_id = pl.outlet_id))) THEN
-      RAISE EXCEPTION 'Un turno è di una persona che non lavora in questo negozio.' USING ERRCODE = '22023';
+    v_lav := v_pres - t.pausa_minuti / 60.0;
+    IF v_pres < v_min OR v_lav > v_max THEN
+      RAISE EXCEPTION 'Un turno del % è più corto del turno minimo o più lungo del turno massimo del negozio.', to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
+    END IF;
+    IF t.ore_straordinario < 0 OR t.ore_straordinario > v_lav THEN
+      RAISE EXCEPTION 'Straordinario di un turno non valido (%).', to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
+    END IF;
+    -- la persona: dell'azienda, non quella di prova, in servizio in questo negozio quel giorno
+    IF t.employee_id = ANY (v_demo)
+       OR NOT EXISTS (SELECT 1 FROM public.employees e WHERE e.id = t.employee_id AND e.company_id = pl.company_id)
+       OR NOT public.turni_persona_in_servizio(t.employee_id, pl.outlet_id, t.data) THEN
+      RAISE EXCEPTION 'Un turno del % è di una persona che quel giorno non è in servizio in questo negozio.', to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
+    END IF;
+    -- mai un turno sopra una giornata di ferie o di permesso gia' approvata
+    IF NOT v_senza_ferie AND EXISTS (SELECT 1 FROM public.leave_request_days d
+                                       JOIN public.leave_requests q ON q.id = d.request_id
+                                      WHERE q.employee_id = t.employee_id AND d.data = t.data AND d.tipo = 'giornata'
+                                        AND d.stato = 'approvato' AND q.stato IN ('approvata', 'approvata_parziale')) THEN
+      RAISE EXCEPTION 'Un turno del % cade su una giornata di ferie o di permesso già approvata.', to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
     END IF;
     -- l'orario di apertura di quel giorno: prima il giorno speciale, poi l'orario tipo
     v_apre := NULL; v_chiude := NULL; v_chiuso := NULL;
@@ -344,22 +555,33 @@ BEGIN
       SELECT COALESCE(v_chiuso, o.chiuso), COALESCE(v_apre, o.apre), COALESCE(v_chiude, o.chiude) INTO v_chiuso, v_apre, v_chiude
         FROM public.outlet_opening_hours o WHERE o.outlet_id = pl.outlet_id AND o.giorno = extract(isodow FROM t.data)::int LIMIT 1;
     END IF;
+    -- un periodo speciale puo' avere un orario suo (outlet_events.regole, chiavi apre e chiude):
+    -- li' vale quello; un evento senza orario suo segue l'orario del negozio
+    v_ev_apre := NULL; v_ev_chiude := NULL;
+    SELECT ev.regole ->> 'apre', ev.regole ->> 'chiude' INTO v_ev_apre, v_ev_chiude
+      FROM public.outlet_events ev
+     WHERE ev.company_id = pl.company_id
+       AND t.data BETWEEN ev.data_dal AND COALESCE(ev.data_al, ev.data_dal)
+       AND (ev.outlet_ids IS NULL OR pl.outlet_id = ANY (ev.outlet_ids))
+       AND jsonb_typeof(ev.regole) = 'object' AND (ev.regole ? 'apre' OR ev.regole ? 'chiude')
+     ORDER BY ev.data_dal, ev.nome LIMIT 1;
+    IF v_ev_apre ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]' THEN v_apre := left(v_ev_apre, 5)::time; END IF;
+    IF v_ev_chiude ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]' THEN v_chiude := left(v_ev_chiude, 5)::time; END IF;
+    IF v_ev_apre ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]' AND v_ev_chiude ~ '^([01]?[0-9]|2[0-3]):[0-5][0-9]' THEN v_chiuso := false; END IF;
     IF COALESCE(v_chiuso, false) THEN
       RAISE EXCEPTION 'Il % il negozio è chiuso: lì non si mettono turni.', to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
     END IF;
-    -- un periodo speciale puo' avere un orario suo (outlet_events.regole): li' vale quello del motore
-    IF ((v_apre IS NOT NULL AND t.inizio < v_apre) OR (v_chiude IS NOT NULL AND t.fine > v_chiude))
-       AND NOT EXISTS (SELECT 1 FROM public.outlet_events ev
-                        WHERE ev.company_id = pl.company_id
-                          AND t.data BETWEEN ev.data_dal AND COALESCE(ev.data_al, ev.data_dal)
-                          AND (ev.outlet_ids IS NULL OR pl.outlet_id = ANY (ev.outlet_ids))) THEN
+    IF (v_apre IS NOT NULL AND t.inizio < v_apre) OR (v_chiude IS NOT NULL AND t.fine > v_chiude) THEN
       RAISE EXCEPTION 'Un turno del % esce dall''orario di apertura del negozio.', to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
     END IF;
-    -- mai sopra un turno messo a mano o pubblicato, e uno solo proposto per persona e per giorno
+    -- uno solo proposto per persona e per giorno in questo piano; mai sopra un turno pubblicato
+    -- (di qualunque piano vero) o messo a mano (in questo piano o fuori da ogni piano)
     IF EXISTS (SELECT 1 FROM public.shifts s
+                 LEFT JOIN public.shift_plans sp ON sp.id = s.plan_id
                 WHERE s.employee_id = t.employee_id AND s.data = t.data AND s.stato <> 'annullato'
                   AND ((s.plan_id = pl.id AND s.origine = 'proposta' AND s.stato = 'bozza')
-                       OR ((s.plan_id = pl.id OR s.plan_id IS NULL) AND (s.origine = 'manuale' OR s.stato = 'pubblicato')
+                       OR (((s.stato = 'pubblicato' AND NOT COALESCE(sp.simulazione, false))
+                            OR (s.origine = 'manuale' AND (s.plan_id = pl.id OR s.plan_id IS NULL)))
                            AND s.inizio < t.fine AND s.fine > t.inizio))) THEN
       RAISE EXCEPTION 'Un turno del % si sovrappone a un altro turno della stessa persona.', to_char(t.data, 'DD/MM') USING ERRCODE = '22023';
     END IF;
@@ -368,9 +590,26 @@ BEGIN
     v_n := v_n + 1;
   END LOOP;
 
-  IF p_riepilogo IS NOT NULL THEN
-    UPDATE public.shift_plans SET riepilogo = p_riepilogo WHERE id = pl.id;
+  -- il riepilogo (ore scoperte, straordinario, ore per persona) lo scrive solo chi gestisce i
+  -- turni, che lo puo' gia' scrivere dalla tabella. Per gli altri resta quello di prima, segnato
+  -- da rifare: i numeri che l'HR legge non li decide chi chiama.
+  IF v_gestore THEN
+    IF p_riepilogo IS NOT NULL THEN
+      UPDATE public.shift_plans SET riepilogo = p_riepilogo - 'daRicalcolare' WHERE id = pl.id;
+    END IF;
+  ELSE
+    UPDATE public.shift_plans
+       SET riepilogo = CASE WHEN jsonb_typeof(riepilogo) = 'object' THEN riepilogo ELSE '{}'::jsonb END || jsonb_build_object('daRicalcolare', true)
+     WHERE id = pl.id;
   END IF;
+
+  SELECT NULLIF(btrim(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')), '') INTO v_nome
+    FROM public.user_profiles u WHERE u.id = auth.uid();
+  INSERT INTO public.turni_piano_registro (company_id, outlet_id, plan_id, azione, dettaglio, utente_id, utente_nome)
+  VALUES (pl.company_id, pl.outlet_id, pl.id, 'turni_riscritti',
+          jsonb_build_object('dal', (SELECT min(d) FROM unnest(p_date) AS d), 'al', (SELECT max(d) FROM unnest(p_date) AS d),
+                             'giorni', cardinality(p_date), 'tolti', v_tolti, 'scritti', v_n, 'gestisce_i_turni', v_gestore),
+          auth.uid(), v_nome);
   RETURN v_n;
 END
 $function$;
@@ -389,3 +628,12 @@ COMMIT;
 --   FROM pg_proc p WHERE p.pronamespace = 'public'::regnamespace
 --    AND p.proname IN ('ferie_proposta_mia', 'ferie_proposta_sposta', 'ferie_proposta_togli', 'turni_proposti_riscrivi');
 --   -- ferie_proposta_mia: false, false; le altre tre: true, false
+-- SELECT has_table_privilege('authenticated', 'public.turni_piano_registro', 'select') AS leggo,
+--        has_table_privilege('authenticated', 'public.turni_piano_registro', 'insert') AS scrivo,
+--        has_table_privilege('anon', 'public.turni_piano_registro', 'select') AS anon,
+--        has_table_privilege('service_role', 'public.turni_piano_registro', 'insert') AS srv,
+--        has_function_privilege('authenticated', 'public.turni_persona_in_servizio(uuid,uuid,date)', 'execute') AS in_servizio;
+--   -- true, false, false, true, false
+-- Referenti ferie con un profilo che resta comunque fuori da sposta, togli e riscrittura (attese 0 righe utili):
+-- SELECT a.nome, p.role FROM public.leave_approvers a JOIN public.user_profiles p ON p.id = a.user_id
+--  WHERE a.attivo AND p.role::text IN ('responsabile', 'dipendente', 'operatore_cassa');

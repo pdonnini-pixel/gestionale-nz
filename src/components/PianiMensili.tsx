@@ -79,6 +79,12 @@ type Riepilogo = {
   /** calendario senza ferie e permessi: l'organico pieno, le ferie si inseriscono dopo dal calendario */
   senzaFerie?: boolean;
   /**
+   * I turni sono stati rifatti da chi non gestisce i turni (HR, migration 410): i numeri qui sopra
+   * sono quelli di prima, perché il riepilogo lo scrive solo chi gestisce i turni. Lo mette e lo
+   * toglie il database; sparisce al primo «Ricalcola il mese» di chi gestisce i turni.
+   */
+  daRicalcolare?: boolean;
+  /**
    * Ferie e permessi in linea con il mese (Patrizio, 14/11/2026): cosa ha proposto il sistema alla
    * creazione del piano e quanto costa in copertura. `senza` e `con` sono lo stesso mese calcolato
    * senza e con le proposte.
@@ -960,13 +966,20 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const ignorate = pianoAperto.riepilogo.senzaFerie
       ? new Set((b.ferie as (GiornoFerie & { creato_il?: string })[]).filter((x) => (x.creato_il ?? '') <= pianoAperto.created_at).map((x) => `${x.employee_id}|${x.data}`)) : undefined;
     const { esito } = calcolaPiano(b, pianoAperto.regola_weekend, undefined, ignorate, { ferieInPiu: proposteVive, fermi });
-    const date = new Set(cosa === 'mese' ? dateMese : cosa.flatMap(giorniDellaSettimana).filter((d) => dateMese.includes(d)));
+    // Chi non gestisce i turni (HR con un profilo di sola lettura) li fa rifare solo da oggi in poi:
+    // lo vuole il database (turni_proposti_riscrivi) e i giorni passati restano com'erano.
+    const daOggi = oggiRoma();
+    const date = new Set((cosa === 'mese' ? dateMese : cosa.flatMap(giorniDellaSettimana).filter((d) => dateMese.includes(d)))
+      .filter((d) => puoScrivere || d >= daOggi));
+    if (!date.size) return true;
     const vecchi = turniVivi.filter((t) => t.origine === 'proposta' && t.stato === 'bozza' && date.has(t.data)).map((t) => t.id);
     const nuovi = esito.turni.filter((t) => date.has(t.data) && !t.employeeId.startsWith(ID_NUOVA));
     // il riepilogo del piano segue il ricalcolo; le ore dei turni fermi tornano fra quelle di contratto e in turno
     const oreFerme = (id: string) => fermi.filter((t) => t.employee_id === id && t.data.startsWith(mese)).reduce((a, t) => a + oreLavorate({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti ?? 0 }), 0);
     const riepilogo: Riepilogo = {
       ...pianoAperto.riepilogo,
+      // chi gestisce i turni riscrive i numeri: il segnale «da ricalcolare» lasciato dall'HR sparisce
+      daRicalcolare: undefined,
       oreScoperte: esito.oreScoperte,
       oreVuote: esito.giorni.filter((g) => !g.chiuso && g.data.startsWith(mese)).reduce((a, g) => a + copertura(g, [...esito.turni, ...fermi.map((t): Turno => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti ?? 0 }))]).filter((c) => c < 1).length / 2, 0),
       straordinario: Object.values(esito.persone).reduce((a, x) => a + x.straordinario, 0),
@@ -977,6 +990,12 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       })),
       senzaRiposo: esito.senzaRiposo?.length ? esito.senzaRiposo.map((x) => ({ nome: nomeDi(x.employeeId), lunedi: x.lunedi })) : undefined,
     };
+    // Con un profilo che i turni non li gestisce un elenco vuoto non si scrive (svuoterebbe quei giorni):
+    // se non c'era niente da togliere non c'è niente da fare, altrimenti serve chi gestisce i turni.
+    if (!puoScrivere && !nuovi.length) {
+      if (!vecchi.length) return true;
+      throw new Error('in quei giorni non resta nessun turno proposto: li rifà chi gestisce i turni con «Ricalcola il mese»');
+    }
     // Prima la funzione del database (410): toglie i turni di prima e scrive quelli nuovi in un colpo solo, e
     // vale anche per chi decide le ferie con un profilo che i turni non li scrive. Dove manca, o se rifiuta
     // un elenco che chi gestisce i turni può comunque scrivere, restano le scritture dirette di prima.
@@ -1740,6 +1759,11 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             <div className="min-w-0">
               <h3 className="text-base font-semibold text-slate-900">{pianoAperto.nome}</h3>
               <p className="text-xs text-slate-500 mt-0.5">Fabbisogno da: {pianoAperto.riepilogo.fonte ?? '-'}</p>
+              {pianoAperto.riepilogo.daRicalcolare && (
+                <p className="text-xs text-amber-800 mt-1">
+                  I turni sono stati rifatti dopo una modifica a ferie e permessi, ma i numeri del riepilogo (ore scoperte, straordinario, ore per persona) sono ancora quelli di prima: li aggiorna chi gestisce i turni con «Ricalcola il mese».
+                </p>
+              )}
               {pianoAperto.riepilogo.ipotesi && (
                 <p className="text-xs text-violet-800 mt-1">
                   Ipotesi: {pianoAperto.riepilogo.ipotesi.persone.filter((x) => x.ipotesi != null || x.soloWeekend)

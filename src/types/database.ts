@@ -20002,6 +20002,48 @@ export type Database = {
           },
         ]
       }
+      turni_piano_registro: {
+        Row: {
+          azione: string
+          company_id: string
+          created_at: string
+          dettaglio: Json | null
+          employee_id: string | null
+          id: string
+          outlet_id: string | null
+          plan_id: string | null
+          request_id: string | null
+          utente_id: string | null
+          utente_nome: string | null
+        }
+        Insert: {
+          azione: string
+          company_id: string
+          created_at?: string
+          dettaglio?: Json | null
+          employee_id?: string | null
+          id?: string
+          outlet_id?: string | null
+          plan_id?: string | null
+          request_id?: string | null
+          utente_id?: string | null
+          utente_nome?: string | null
+        }
+        Update: {
+          azione?: string
+          company_id?: string
+          created_at?: string
+          dettaglio?: Json | null
+          employee_id?: string | null
+          id?: string
+          outlet_id?: string | null
+          plan_id?: string | null
+          request_id?: string | null
+          utente_id?: string | null
+          utente_nome?: string | null
+        }
+        Relationships: []
+      }
       leave_hr: {
         Row: {
           company_id: string
