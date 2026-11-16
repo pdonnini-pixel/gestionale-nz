@@ -21,6 +21,11 @@
 --            - ALLESTIMENTI: vanno al negozio che si apre (regola 274).
 --          Con un outlet solo non si applica.
 --   Le regole messe a mano non si toccano mai (come sempre in 274).
+--   Attenzione: con la scelta accesa il passaggio «ricavi o sede» (284/285) si
+--   spegne del tutto. Su Zago non cambia niente (non ha una sede, il passaggio
+--   non partiva comunque); accenderla su un'azienda con sede sposterebbe anche
+--   i costi di struttura oggi divisi per ricavi e le trasferte senza località.
+--   Anche i negozi in apertura, se attivi, ricevono la loro parte.
 --
 -- La funzione si modifica partendo dalla sua definizione attuale (uguale su
 -- NZ e Zago, md5 8142a9fab4b450682c649551f7f0fe90 il 16/11/2026): tre
