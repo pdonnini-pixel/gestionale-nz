@@ -256,7 +256,7 @@ export default function Sidebar({ mobileOpen, setMobileOpen, badges = {} }: Side
     budget_approver: 'Approvatore Budget',
     viewer: 'Sola lettura',
     operatore_cassa: 'Operatore cassa',
-    responsabile: 'Responsabile',
+    responsabile: 'Referente',
   }
 
   // Ruolo 'viewer' (sola lettura): vede le pagine dati, nessuna scrittura.

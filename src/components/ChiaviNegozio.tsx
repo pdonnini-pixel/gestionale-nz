@@ -38,7 +38,7 @@ export default function ChiaviNegozio({ employeeId, outletId }: { employeeId: st
       setValori({ puo_aprire: r.puo_aprire, puo_chiudere: r.puo_chiudere });
       setEHr(!!hr.data);
       const n = o.data as { referente_employee_id?: string | null; vice_referente_employee_id?: string | null } | null;
-      setGuida(n?.referente_employee_id === employeeId ? 'responsabile' : n?.vice_referente_employee_id === employeeId ? 'vice' : null);
+      setGuida(n?.referente_employee_id === employeeId ? 'referente' : n?.vice_referente_employee_id === employeeId ? 'vice referente' : null);
     })();
     return () => { vivo = false; };
   }, [employeeId, outletId]);

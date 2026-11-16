@@ -238,7 +238,7 @@ export const PESI = {
   // Nel weekend lavorano tutti anche a costo del minimo delle fasce di un feriale
   // (Patrizio, 11/11/2026), ma mai lasciando un giorno vuoto o con una persona sola.
   weekendLibero: 4_000_000, // persona che puo' lavorare e non ha turno il sabato o la domenica
-  domenicaApertura: 4_000_000, // la responsabile che il sabato o la domenica non fa il suo orario (apertura + 9 ore)
+  domenicaApertura: 4_000_000, // la referente che il sabato o la domenica non fa il suo orario (apertura + 9 ore)
   sottoMinimo: 100_000,     // persona che manca al minimo delle fasce, per mezz'ora
   scoperta: 10_000,         // persona che manca al traffico MODA, per mezz'ora
   scopertaEsatta: 1_000,    // lo stesso senza arrotondare, per mezz'ora di persona
@@ -267,7 +267,7 @@ export const PESI = {
   // 30/11 a Roma Soratte: in turno responsabile e vice insieme). Sopra la rotazione delle coppie e i
   // riposi, sotto il tetto delle due persone e la guida del lunedi'.
   lunediDueGuide: 2_000_000,
-  lunediStessaGuida: 30_000, // la stessa fra responsabile e vice del lunedi' prima: si alternano quando possibile
+  lunediStessaGuida: 30_000, // la stessa fra referente e vice referente del lunedi' prima: si alternano quando possibile
   // pesa meno di un riposo: con un evento prima i riposi a testa, poi gli straordinari pari (Patrizio, 12/11/2026)
   straordinarioPari: 200,   // distanza al quadrato dalla media degli straordinari
 } as const;
@@ -1300,7 +1300,7 @@ export function derogheSettimana(args: {
     }
     if (iso === 1 && args.guida?.responsabile && args.guida.vice
       && !del.some((t) => t.employeeId === args.guida!.responsabile || t.employeeId === args.guida!.vice)) {
-      out.push({ regola: 'lunedi_guida', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: né la responsabile né la vice sono in turno (versamento in banca)` });
+      out.push({ regola: 'lunedi_guida', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: né la referente né la vice referente sono in turno (versamento in banca)` });
     }
     // lunedi' a due persone (Patrizio, 12/11/2026): al massimo due, e non la coppia del lunedi' prima
     if (g.lunediDue) {
@@ -1309,7 +1309,7 @@ export function derogheSettimana(args: {
       else if (chi.length === 2 && args.lunediPrima?.[0] === coppia(chi[0], chi[1])) out.push({ regola: 'lunedi_coppia', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: lavorano le stesse due persone del lunedì prima` });
       // una sola fra responsabile e vice, piu' una delle altre (Patrizio, 12/11/2026)
       if (args.guida?.responsabile && args.guida.vice && chi.includes(args.guida.responsabile) && chi.includes(args.guida.vice)) {
-        out.push({ regola: 'lunedi_due_guide', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: lavorano insieme la responsabile e la vice, il lunedì ne basta una` });
+        out.push({ regola: 'lunedi_due_guide', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: lavorano insieme la referente e la vice referente, il lunedì ne basta una` });
       }
       if (g.lunediFasceOltre) out.push({ regola: 'lunedi_fasce', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: le fasce salvate chiedono più di ${LUNEDI_MAX_PERSONE} persone, ma il lunedì comanda il tetto di ${LUNEDI_MAX_PERSONE}` });
     }
@@ -1324,9 +1324,9 @@ export function derogheSettimana(args: {
       const fineApre = Math.min(g.chiude, g.apre + Math.round((regole.caldiOreApertura ?? PRESENZA_RESPONSABILE_WEEKEND / 60) * 60));
       const apre = guide.find((p) => del.some((t) => t.employeeId === p.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineApre));
       if (!apre) {
-        out.push({ regola: 'domenica_apertura', data: g.data, employeeId: guide[0].id, testo: `${giornoTesto(g.data)}: ${guide.length > 1 ? 'né la responsabile né la vice fanno' : `${guide[0].nome}, la responsabile, non fa`} ${hhmm(g.apre)}-${hhmm(fineApre)}` });
+        out.push({ regola: 'domenica_apertura', data: g.data, employeeId: guide[0].id, testo: `${giornoTesto(g.data)}: ${guide.length > 1 ? 'né la referente né la vice referente fanno' : `${guide[0].nome}, la referente, non fa`} ${hhmm(g.apre)}-${hhmm(fineApre)}` });
       } else if (guide.length > 1 && !guide.some((p) => p.id !== apre.id && del.some((t) => t.employeeId === p.id && minuti(t.fine) === g.chiude))) {
-        out.push({ regola: 'caldo_chiusura', data: g.data, employeeId: guide.find((p) => p.id !== apre.id)!.id, testo: `${giornoTesto(g.data)}: apre ${apre.nome}, ma l'altra fra responsabile e vice non fa la chiusura` });
+        out.push({ regola: 'caldo_chiusura', data: g.data, employeeId: guide.find((p) => p.id !== apre.id)!.id, testo: `${giornoTesto(g.data)}: apre ${apre.nome}, ma l'altra fra referente e vice referente non fa la chiusura` });
       }
     }
     for (const p of args.persone) {

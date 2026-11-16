@@ -54,7 +54,7 @@ const ROLE_OPTIONS = [
   { value: 'viewer', label: 'Sola lettura', color: 'bg-stone-100 text-stone-700' },
   // Responsabile di negozio o area manager: vede solo la pagina «Presenze e
   // ferie» dei negozi spuntati in Dipendenti → Presenze → «Chi conferma» (378).
-  { value: 'responsabile', label: 'Responsabile (presenze e ferie dei suoi negozi)', color: 'bg-rose-100 text-rose-700' },
+  { value: 'responsabile', label: 'Referente (presenze e ferie dei suoi negozi)', color: 'bg-rose-100 text-rose-700' },
 ]
 
 // Macro gruppi del piano dei conti: i valori sono quelli salvati in
@@ -783,8 +783,8 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
                   <span className="font-medium text-sm text-slate-900">{nomeVisibile(u, responsabili)}</span>
                   {responsabileDiCassa(u, responsabili) && (
                     <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 font-semibold"
-                      title="Account di cassa del negozio: il nome è quello del responsabile, che si sceglie in Dipendenti → Organico">
-                      responsabile del negozio
+                      title="Account di cassa del negozio: il nome è quello del referente, che si sceglie in Dipendenti → Organico">
+                      referente del negozio
                     </span>
                   )}
                   {!u.is_active && <span className="text-[10px] text-red-500 uppercase tracking-wide font-semibold">accesso bloccato</span>}

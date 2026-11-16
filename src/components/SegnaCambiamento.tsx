@@ -182,8 +182,8 @@ export default function SegnaCambiamento({
             p_outlet_id: negozio, p_employee_id: String(nuovoId), p_dal: dal < oggi ? oggi : dal,
           });
           avvisoResponsabile = errResp
-            ? ` Responsabile non salvato (${errResp.message}): sceglilo dall'intestazione del negozio.`
-            : ` È responsabile di ${nomeNegozio(negozi.find((n) => n.id === negozio))}.`;
+            ? ` Referente non salvato (${errResp.message}): sceglilo dall'intestazione del negozio.`
+            : ` È referente di ${nomeNegozio(negozi.find((n) => n.id === negozio))}.`;
         }
         if (file && nuovoId) {
           const doc = await caricaDocumento(String(nuovoId));
@@ -303,11 +303,11 @@ export default function SegnaCambiamento({
                   <label className={`flex items-start gap-2 text-sm ${futura ? 'text-slate-400' : 'text-slate-700 cursor-pointer'}`}>
                     <input type="checkbox" className="mt-1" disabled={futura} checked={responsabile && !futura} onChange={(e) => setResponsabile(e.target.checked)} />
                     <span>
-                      <strong>Responsabile del negozio</strong> da {dal < oggi ? 'oggi' : 'oggi, giorno dell\'assunzione'}
+                      <strong>Referente del negozio</strong> da {dal < oggi ? 'oggi' : 'oggi, giorno dell\'assunzione'}
                       {attuale ? <span className="text-slate-500"> (prende il posto di {nomePersona(attuale.scheda)})</span> : null}.
                       <span className="block text-xs text-slate-500">
                         {futura
-                          ? `Comincia il ${formattaDataBreve(dal)}: da quel giorno la scegli come responsabile dall'intestazione del negozio in Organico.`
+                          ? `Comincia il ${formattaDataBreve(dal)}: da quel giorno la scegli come referente dall'intestazione del negozio in Organico.`
                           : 'Vale anche in Turni, nell\'account di cassa del negozio e nel modulo ferie. Si cambia quando serve dall\'intestazione del negozio in Organico.'}
                       </span>
                     </span>

@@ -287,7 +287,7 @@ export default function Timbra() {
       ...pin, cifre: '', controllo: false,
       errore: data === 'pin_bloccato' ? 'PIN bloccato dopo 5 tentativi sbagliati: chiedi un PIN nuovo a chi segue il personale.'
         : data === 'pin_non_attivo' ? 'Per te non c\'è un PIN attivo: chiedilo a chi segue il personale.'
-        : data === 'pin_altro_negozio' ? 'Con il PIN si timbra solo nel proprio negozio: avvisa il responsabile.'
+        : data === 'pin_altro_negozio' ? 'Con il PIN si timbra solo nel proprio negozio: avvisa il referente.'
         : 'PIN sbagliato, riprova.',
     })
   }
@@ -428,7 +428,7 @@ export default function Timbra() {
                   </div>
                   <div className="rounded-2xl p-4 border bg-amber-950/60 border-amber-600 text-amber-200">
                     <p className="text-lg font-bold">Non risulta la tua entrata di oggi.</p>
-                    <p className="text-sm mt-1">Se eri già in negozio, scegli l'ora a cui sei entrato: la conferma il responsabile.</p>
+                    <p className="text-sm mt-1">Se eri già in negozio, scegli l'ora a cui sei entrato: la conferma il referente.</p>
                   </div>
                   <label className="flex items-center justify-between gap-3 rounded-2xl border border-white/25 px-4 py-3">
                     <span className="text-lg text-white/70">Ero già entrato alle</span>
@@ -497,7 +497,7 @@ export default function Timbra() {
                   {ts.length > 0 && <p className="text-white/50 text-sm mt-1">{ordina(ts).map((t) => `${ETICHETTA_TIPO[t.tipo]} ${oraRoma(t.ora)}${t.dichiarata ? ' (segnata, da confermare)' : ''}`).join(' · ')}</p>}
                 </div>
                 {segnata && (
-                  <p className="text-center text-white/70 text-sm">Entrata delle {segnata} segnata: la conferma il responsabile.</p>
+                  <p className="text-center text-white/70 text-sm">Entrata delle {segnata} segnata: la conferma il referente.</p>
                 )}
                 {entrata && entrata.minuti > 0 && (
                   entrata.oltre ? (
@@ -518,7 +518,7 @@ export default function Timbra() {
                       const fatti = minutiPausaFatti(ts, adesso)
                       const oltre = fatti - pausaConcessa(turno)
                       return <p className={`text-center text-sm ${oltre > tolleranza ? 'text-amber-300' : 'text-white/70'}`}>
-                        Pausa: {formatMinuti(fatti)} su {formatMinuti(pausaConcessa(turno))} del turno{oltre > tolleranza ? `, ${formatMinuti(oltre)} in più: lo vede il responsabile` : ''}.
+                        Pausa: {formatMinuti(fatti)} su {formatMinuti(pausaConcessa(turno))} del turno{oltre > tolleranza ? `, ${formatMinuti(oltre)} in più: lo vede il referente` : ''}.
                       </p>
                     })()}
                     {stato === 'dentro' && tocchi.includes('inizio_pausa') && (

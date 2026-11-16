@@ -1,10 +1,8 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, lazy, Suspense } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import type { Row } from '../types/business';
 import { usePeriod } from '../hooks/usePeriod';
 import PageHeader from '../components/PageHeader';
-import AccordiOrario from '../components/AccordiOrario';
-import ChiaviNegozio from '../components/ChiaviNegozio';
 import { useToast } from '../components/Toast';
 import {
   BarChart3,
@@ -62,7 +60,8 @@ import {
 import CaricaFilePaghe, { type FileInArrivo, segnalaEsitoPaghe, suDatiPagheAggiornati } from '../components/CaricaFilePaghe';
 import PagamentiPaghe from '../components/PagamentiPaghe';
 import { puoTenereOrganico } from '../lib/organicoDati';
-import { mergeSumByKey, keepLastByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
+import { percorsoDipendente, segmentoDipendente } from '../lib/dipendenteSlug';
+import { mergeSumByKey, duplicateKeys, readableDbError } from '../lib/upsertDedupe';
 import { archiviaFile, avvisoArchiviazioneFallita, sostituisciPrecedenti } from '../lib/archivioFile';
 import { parseElenco, confrontaElenco, notaAllineamento, valoriDaRiga, outletDaFiliale, dataDalNomeFile, type EsitoConfronto, type RigaElenco, type DipendenteConfronto } from '../lib/elencoDipendenti';
 import { UiTooltip } from '../components/Tooltip'; // alias: 'Tooltip' collide con recharts
@@ -272,7 +271,7 @@ function AmministratoriAccordion({ admins, nettoCell, lordoTot, mm, year }: {
                 const netto = nettoCell(e.id);
                 return (
                   <tr key={e.id} className="border-b border-slate-100">
-                    <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
+                    <td className="px-4 py-2.5 font-semibold text-slate-800"><NomeConScheda e={e} /></td>
                     <td className="px-4 py-2.5 text-right">{netto == null ? <span className="text-slate-300">—</span> : <Money v={netto} />}</td>
                     <td className="px-4 py-2.5 text-right">{single ? <Money v={lordoTot} /> : <span className="text-slate-300">—</span>}</td>
                   </tr>
@@ -326,6 +325,19 @@ const fileInArrivoAperti = new Set<number>();
 
 const empName = (e: Employee) =>
   `${e.cognome || e.last_name || ''} ${e.nome || e.first_name || ''}`.trim() || '—';
+
+/**
+ * Il nome che porta alla pagina della persona (Patrizio, 16/11/2026: «se clicco su un
+ * dipendente mi si deve aprire la pagina»). L'id nell'indirizzo: la pagina lo riscrive da sola
+ * con il nome leggibile.
+ */
+function NomeConScheda({ e }: { e: Employee }) {
+  return (
+    <Link to={percorsoDipendente(e.id)} state={{ daElenco: true }} className="hover:text-blue-700 hover:underline" title="Apri la scheda della persona">
+      {empName(e)}
+    </Link>
+  );
+}
 
 // ============================================================================
 // UI SHELLS (Modal custom — mai dialog nativi)
@@ -501,15 +513,10 @@ export default function Dipendenti() {
   const [loading, setLoading] = useState(true);
 
   // UI state
-  const [showEmployeeForm, setShowEmployeeForm] = useState(false);
   const [showElencoImport, setShowElencoImport] = useState(false);
-  const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [showCostForm, setShowCostForm] = useState(false);
   const [editingCost, setEditingCost] = useState<EmployeeCost | null>(null);
   const [costFormEmp, setCostFormEmp] = useState<string | null>(null);
-  const [showAllocEditor, setShowAllocEditor] = useState<string | null>(null);
-  const [allocEdits, setAllocEdits] = useState<{ outlet_code: string; allocation_pct: number }[]>([]);
-  const [allocErrors, setAllocErrors] = useState('');
   const [uploadingEmployee, setUploadingEmployee] = useState<string | null>(null);
   const [showDocViewer, setShowDocViewer] = useState<EmployeeDocument | null>(null);
   const [docPdfData, setDocPdfData] = useState<ArrayBuffer | null>(null);
@@ -519,19 +526,20 @@ export default function Dipendenti() {
 
   // Filtri organico
 
-  // Cessazione dipendente (modale custom)
-  const [cessaEmp, setCessaEmp] = useState<Employee | null>(null);
-  const [cessaDate, setCessaDate] = useState('');
-  // Scheda dipendente (netto mese per mese)
-  const [schedaEmp, setSchedaEmp] = useState<Employee | null>(null);
   // Scheda unica «Organico»: la pagina le chiede di aprire «Aggiungi una
   // persona» o «Modifica» e di ricaricarsi dopo un salvataggio fatto qui.
   const [organicoNuova, setOrganicoNuova] = useState(0);
-  const [organicoModifica, setOrganicoModifica] = useState<{ id: string; n: number } | null>(null);
   const [organicoVersione, setOrganicoVersione] = useState(0);
   const puoAnagrafica = RUOLI_ANAGRAFICA.includes(profile?.role ?? '');
   const puoOrganico = puoTenereOrganico(profile?.role);
-  const azzeraRichiesteOrganico = useCallback(() => { setOrganicoNuova(0); setOrganicoModifica(null); }, []);
+  const azzeraRichiesteOrganico = useCallback(() => { setOrganicoNuova(0); }, []);
+  // Una scheda sola per persona (Patrizio, 16/11/2026): il nome e «Modifica» aprono la stessa pagina.
+  const navigate = useNavigate();
+  const apriScheda = useCallback((id: string, opz?: { modifica?: boolean }) => {
+    const e = employees.find((x) => x.id === id);
+    const seg = e ? segmentoDipendente(e, employees) : id;
+    navigate(`${percorsoDipendente(seg)}${opz?.modifica ? '?modifica=1' : ''}`, { state: { daElenco: true } });
+  }, [employees, navigate]);
 
   // ========== LOAD ==========
   useEffect(() => {
@@ -844,123 +852,6 @@ export default function Dipendenti() {
   }, [costs, selectedYear, globalYear]);
 
   // ========== MUTATIONS ==========
-  const mapFormToDb = (formData: any) => {
-    const out: any = { ...formData };
-    if ('nome' in out) out.first_name = out.nome;
-    if ('cognome' in out) out.last_name = out.cognome;
-    if ('codice_fiscale' in out) { out.codice_fiscale = out.codice_fiscale || null; out.fiscal_code = out.codice_fiscale; }
-    if ('data_assunzione' in out) out.hire_date = out.data_assunzione || null;
-    if ('data_cessazione' in out) out.termination_date = out.data_cessazione || null;
-    if ('livello' in out) { out.livello = out.livello || null; out.level = out.livello; }
-    if ('note' in out) out.notes = out.note || null;
-    if ('contratto' in out) { out.contratto_tipo = out.contratto; delete out.contratto; }
-    // Qualifica: salva la COLONNA e allinea role_description (la sezione "Amministratori"
-    // rileva via role_description ILIKE 'amministrat' — così Gallo resta amministratore).
-    if ('qualifica' in out) { out.qualifica = out.qualifica || null; out.role_description = out.qualifica || null; }
-    if ('filiale' in out) out.filiale = out.filiale || null;
-    if ('outlet_id' in out) out.outlet_id = out.outlet_id || null;
-    if ('stato_td' in out) out.stato_td = out.stato_td || null;
-    // numerici: '' → null, altrimenti Number
-    ['part_time_pct', 'durata_mesi', 'proroghe', 'proroghe_disponibili', 'mesi_disp_senza_causale', 'mesi_disp_con_causale'].forEach((k) => {
-      if (k in out) out[k] = (out[k] === '' || out[k] == null) ? null : Number(out[k]);
-    });
-    // date: '' → null. Data fine resta APERTA finché non c'è cessazione (niente sentinella 9999).
-    ['hire_date', 'termination_date', 'data_assunzione', 'data_cessazione', 'scadenza_td'].forEach((k) => { if (out[k] === '') out[k] = null; });
-    // Campi "tempo determinato" valgono solo se contratto determinato: altrimenti azzera.
-    if (out.contratto_tipo !== 'determinato') {
-      ['scadenza_td', 'durata_mesi', 'proroghe', 'proroghe_disponibili', 'mesi_disp_senza_causale', 'mesi_disp_con_causale', 'stato_td'].forEach((k) => { out[k] = null; });
-    }
-    return out;
-  };
-
-  const handleSaveEmployee = async (formData: any) => {
-    if (!formData.nome?.trim() || !formData.cognome?.trim()) { toast({ type: 'error', message: 'Nome e cognome sono obbligatori' }); return; }
-    if (!formData.data_assunzione) { toast({ type: 'error', message: 'La data di inizio contratto è obbligatoria' }); return; }
-    if (!COMPANY_ID) return;
-    // La matricola identifica la persona nel software paghe: una sola per azienda.
-    // Il vincolo vero e' sul database (indice unico company_id + matricola), qui
-    // lo si dice prima e col nome di chi la sta gia' usando. Mai in silenzio.
-    const matricolaIns = String(formData.matricola || '').trim();
-    if (matricolaIns) {
-      const clash = employees.find((e) => norm(e.matricola) === norm(matricolaIns) && e.id !== editingEmployee?.id);
-      if (clash) {
-        setConfirmState({
-          title: 'Matricola già in uso',
-          message: <>La matricola <strong>{matricolaIns}</strong> è già assegnata a <strong>{empName(clash)}</strong>. Due persone non possono avere la stessa matricola: correggi il numero, oppure apri la scheda di {empName(clash)} se si tratta della stessa persona.</>,
-          confirmLabel: 'Ho capito',
-          onConfirm: () => setConfirmState(null),
-        });
-        return;
-      }
-    }
-    const doSave = async () => {
-      try {
-        const dbPayload = mapFormToDb(formData);
-        if (editingEmployee) {
-          const { error } = await supabase.from('employees').update(dbPayload).eq('id', editingEmployee.id);
-          if (error) throw error;
-          toast({ type: 'success', message: 'Dipendente aggiornato' });
-        } else {
-          const { error } = await supabase.from('employees').insert([{ ...dbPayload, company_id: COMPANY_ID, is_active: true }]);
-          if (error) throw error;
-          toast({ type: 'success', message: 'Dipendente creato. Assegnagli un outlet (icona %) per vederlo nei consuntivi.' });
-        }
-        setShowEmployeeForm(false); setEditingEmployee(null);
-        await reloadAll();
-      } catch (err: any) {
-        const dupMatricola = err?.code === '23505' && /matricola/i.test(err?.message || '');
-        toast({ type: 'error', message: dupMatricola
-          ? `La matricola ${matricolaIns} è già usata da un'altra persona di questa azienda: correggila prima di salvare.`
-          : 'Errore nel salvataggio: ' + readableDbError(err) });
-      }
-    };
-    if (!editingEmployee) {
-      const dup = employees.find((e) => norm(e.cognome) === norm(formData.cognome) && norm(e.nome) === norm(formData.nome));
-      if (dup) {
-        setConfirmState({
-          title: 'Dipendente già esistente',
-          message: `"${formData.cognome} ${formData.nome}" risulta già presente. Vuoi crearlo comunque?`,
-          confirmLabel: 'Crea comunque',
-          onConfirm: () => { setConfirmState(null); doSave(); },
-        });
-        return;
-      }
-    }
-    await doSave();
-  };
-
-  // Cessazione: NON cancella il record — is_active=false + data di cessazione (storico preservato).
-  const openCessa = (e: Employee) => {
-    setCessaEmp(e);
-    setCessaDate(new Date().toISOString().split('T')[0]);
-  };
-  const handleCessa = async () => {
-    if (!cessaEmp) return;
-    if (!cessaDate) { toast({ type: 'error', message: 'Indica la data di cessazione' }); return; }
-    const { error } = await supabase.from('employees')
-      .update({ is_active: false, data_cessazione: cessaDate, termination_date: cessaDate })
-      .eq('id', cessaEmp.id);
-    if (error) { toast({ type: 'error', message: 'Errore nella cessazione: ' + error.message }); return; }
-    toast({ type: 'success', message: 'Dipendente cessato (resta in archivio)' });
-    setCessaEmp(null); setCessaDate('');
-    await reloadAll();
-  };
-  // Riattivazione di un cessato.
-  const handleRiattiva = (e: Employee) => {
-    setConfirmState({
-      title: 'Riattiva dipendente',
-      message: `Vuoi riportare "${empName(e)}" tra gli attivi? La data di cessazione verrà azzerata.`,
-      confirmLabel: 'Riattiva',
-      onConfirm: async () => {
-        setConfirmState(null);
-        const { error } = await supabase.from('employees').update({ is_active: true, data_cessazione: null, termination_date: null }).eq('id', e.id);
-        if (error) { toast({ type: 'error', message: 'Errore' }); return; }
-        toast({ type: 'success', message: 'Dipendente riattivato' });
-        await reloadAll();
-      },
-    });
-  };
-
   // Salvataggio costo — SOLO colonne reali (niente totale_costo). Total calcolato a runtime.
   const handleSaveCost = async (payload: {
     employee_id: string; year: number; month: number;
@@ -1019,36 +910,6 @@ export default function Dipendenti() {
   };
 
   // Allocazioni
-  const openAllocEditor = (empId: string) => {
-    const cur = (allocByEmp[empId] || []).map((a) => ({ outlet_code: a.outlet_code, allocation_pct: Number(a.allocation_pct || 0) }));
-    setAllocEdits(cur.length ? cur : [{ outlet_code: '', allocation_pct: 100 }]);
-    setAllocErrors('');
-    setShowAllocEditor(empId);
-  };
-
-  const handleSaveAllocations = async () => {
-    if (!COMPANY_ID || !showAllocEditor) return;
-    const total = allocEdits.reduce((s, a) => s + (Number(a.allocation_pct) || 0), 0);
-    if (total > 100.01) { setAllocErrors(`Le allocazioni sommano ${total.toFixed(1)}% — il massimo è 100%`); return; }
-    if (allocEdits.some((a) => !a.outlet_code)) { setAllocErrors('Seleziona un outlet per ogni riga'); return; }
-    try {
-      const empId = showAllocEditor;
-      await supabase.from('employee_outlet_allocations').delete().eq('employee_id', empId);
-      const rows = allocEdits
-        .filter((a) => a.outlet_code && Number(a.allocation_pct) > 0)
-        .map((a) => ({ employee_id: empId, company_id: COMPANY_ID, outlet_code: a.outlet_code, allocation_pct: Number(a.allocation_pct) || 0 }));
-      if (rows.length) {
-        const { error } = await supabase.from('employee_outlet_allocations').insert(rows);
-        if (error) throw error;
-      }
-      setShowAllocEditor(null);
-      toast({ type: 'success', message: 'Allocazioni salvate' });
-      await reloadAll();
-    } catch (err: any) {
-      setAllocErrors('Errore nel salvataggio: ' + (err?.message || ''));
-    }
-  };
-
   // Cedolino upload/view
   const triggerCedolino = (empId: string) => { cedolinoEmpRef.current = empId; cedolinoRef.current?.click(); };
   const onCedolinoSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1322,9 +1183,7 @@ export default function Dipendenti() {
                 companyId={COMPANY_ID}
                 versione={organicoVersione}
                 richiestaNuova={organicoNuova}
-                richiestaModifica={organicoModifica}
-                onScheda={(id) => { const e = employees.find((x) => x.id === id); if (e) setSchedaEmp(e); }}
-                onAltriDati={puoAnagrafica ? (id) => { const e = employees.find((x) => x.id === id); if (e) { setEditingEmployee(e); setShowEmployeeForm(true); } } : undefined}
+                onScheda={apriScheda}
                 onImportElenco={puoAnagrafica ? () => setShowElencoImport(true) : undefined}
                 onRichiestaGestita={azzeraRichiesteOrganico}
               />
@@ -1397,15 +1256,6 @@ export default function Dipendenti() {
       <input ref={cedolinoRef} type="file" accept=".pdf" className="hidden" onChange={onCedolinoSelected} />
 
       {/* Modals */}
-      {showEmployeeForm && (
-        <EmployeeFormModal
-          initial={editingEmployee}
-          outlets={outlets}
-          onCancel={() => { setShowEmployeeForm(false); setEditingEmployee(null); }}
-          onSave={handleSaveEmployee}
-        />
-      )}
-
       {showCostForm && (
         <CostFormModal
           initial={editingCost}
@@ -1418,56 +1268,11 @@ export default function Dipendenti() {
         />
       )}
 
-      {showAllocEditor && (
-        <Modal title="Allocazione per outlet" onClose={() => setShowAllocEditor(null)}>
-          <div className="space-y-3">
-            {allocEdits.map((a, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <select value={a.outlet_code} onChange={(e) => setAllocEdits((prev) => prev.map((x, j) => j === i ? { ...x, outlet_code: e.target.value } : x))}
-                  className="flex-1 px-3 py-2 text-sm rounded-lg border border-slate-200">
-                  <option value="">— outlet —</option>
-                  {outlets.map((o) => <option key={o.id} value={o.name}>{o.name}</option>)}
-                </select>
-                <div className="relative w-28">
-                  <input type="number" value={a.allocation_pct} min={0} max={100}
-                    onChange={(e) => setAllocEdits((prev) => prev.map((x, j) => j === i ? { ...x, allocation_pct: Number(e.target.value) } : x))}
-                    className="w-full px-3 py-2 text-sm rounded-lg border border-slate-200 pr-7 tabular-nums" />
-                  <Percent size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
-                </div>
-                <button onClick={() => setAllocEdits((prev) => prev.filter((_, j) => j !== i))} className="text-slate-400 hover:text-red-600" title="Rimuovi outlet"><Trash2 size={16} /></button>
-              </div>
-            ))}
-            <button onClick={() => setAllocEdits((prev) => [...prev, { outlet_code: '', allocation_pct: 0 }])} className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1"><Plus size={14} /> Aggiungi outlet</button>
-            {allocErrors && <div className="text-sm text-red-600 flex items-center gap-1"><AlertCircle size={14} />{allocErrors}</div>}
-            <div className="flex justify-end gap-2 pt-2">
-              <button onClick={() => setShowAllocEditor(null)} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
-              <button onClick={handleSaveAllocations} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> Salva</button>
-            </div>
-          </div>
-        </Modal>
-      )}
-
       {showDocViewer && (
         <Modal title={showDocViewer.file_name || 'Documento'} onClose={() => { setShowDocViewer(null); setDocPdfData(null); }} maxW="max-w-3xl">
           <Suspense fallback={<div className="text-slate-400 py-8 text-center">Caricamento documento…</div>}>
             <PdfViewer pdfData={docPdfData} />
           </Suspense>
-        </Modal>
-      )}
-
-      {cessaEmp && (
-        <Modal title="Cessazione dipendente" onClose={() => { setCessaEmp(null); setCessaDate(''); }} maxW="max-w-md">
-          <p className="text-sm text-slate-600 mb-4">
-            Cessazione di <strong>{empName(cessaEmp)}</strong>. Il record <strong>non viene cancellato</strong>: resta in archivio tra i “Cessati” con la data indicata.
-          </p>
-          <Field label="Data di cessazione *">
-            <input type="date" value={cessaDate} onChange={(e) => setCessaDate(e.target.value)} className="inp" />
-          </Field>
-          <div className="flex justify-end gap-2 mt-5">
-            <button onClick={() => { setCessaEmp(null); setCessaDate(''); }} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
-            <button onClick={handleCessa} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700">Conferma cessazione</button>
-          </div>
-          <style>{`.inp{width:100%;padding:0.5rem 0.75rem;font-size:0.875rem;border-radius:0.5rem;border:1px solid rgb(226 232 240)}`}</style>
         </Modal>
       )}
 
@@ -1479,26 +1284,6 @@ export default function Dipendenti() {
           userId={USER_ID}
           onClose={() => setShowElencoImport(false)}
           onDone={reloadAll}
-        />
-      )}
-
-      {schedaEmp && (
-        <SchedaDipendenteModal
-          employee={schedaEmp}
-          year={selectedYear}
-          yearOptions={yearOptions}
-          costs={costs}
-          allocs={allocByEmp[schedaEmp.id] || []}
-          outlets={outlets}
-          companyId={COMPANY_ID}
-          docs={docsForEmp(schedaEmp.id).filter((d) => d.doc_type !== 'cedolino')}
-          onDocsChanged={reloadAll}
-          onClose={() => setSchedaEmp(null)}
-          onSaved={reloadAll}
-          onEdit={puoOrganico ? () => { const id = schedaEmp.id; setSchedaEmp(null); setView('oggi'); setOrganicoModifica({ id, n: Date.now() }); } : undefined}
-          onAlloc={puoAnagrafica ? () => { const id = schedaEmp.id; setSchedaEmp(null); openAllocEditor(id); } : undefined}
-          onCessa={puoAnagrafica && schedaEmp.is_active !== false ? () => { const e = schedaEmp; setSchedaEmp(null); openCessa(e); } : undefined}
-          onRiattiva={puoAnagrafica && schedaEmp.is_active === false ? () => { const e = schedaEmp; setSchedaEmp(null); void handleRiattiva(e); } : undefined}
         />
       )}
 
@@ -1739,7 +1524,7 @@ function PerOutletTab(props: {
                     {persone.map((e) => (
                       <tr key={e.id} className="border-t border-slate-50">
                         <td className="px-3 py-2 text-slate-700">
-                          {empName(e)}
+                          <NomeConScheda e={e} />
                           {isAdminRole(e) && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">amministratore</span>}
                         </td>
                         <td className="px-3 py-2 text-right"><Money v={nettoOf(e.id)} /></td>
@@ -1863,7 +1648,7 @@ function CostiTab(props: {
                           const docs = docsForEmp(e.id).filter((d) => d.doc_type === 'cedolino' && d.year === year);
                           return (
                             <tr key={e.id} className="border-b border-slate-100 hover:bg-slate-50">
-                              <td className="px-4 py-2.5 font-semibold text-slate-800">{empName(e)}</td>
+                              <td className="px-4 py-2.5 font-semibold text-slate-800"><NomeConScheda e={e} /></td>
                               <td className="px-4 py-2.5 text-right">
                                 <Money v={nettoCell(e.id)} />
                                 {(() => {
@@ -1924,291 +1709,13 @@ function CostiTab(props: {
   );
 }
 
-// ============================================================================
-// EMPLOYEE FORM MODAL
-// ============================================================================
-// Codici natura contratto (DB) → label IT.
-const CONTRATTO_OPTS: { v: string; l: string }[] = [
-  { v: 'indeterminato', l: 'Tempo indeterminato' },
-  { v: 'determinato', l: 'Tempo determinato' },
-  { v: 'a_chiamata', l: 'A chiamata' },
-  { v: 'amministratore', l: 'Amministratore' },
-];
-const contrattoLabel = (v?: string | null) => CONTRATTO_OPTS.find((o) => o.v === v)?.l || v || '—';
-
-function EmployeeFormModal({ initial, outlets, onCancel, onSave }: { initial: Employee | null; outlets: OutletRow[]; onCancel: () => void; onSave: (data: any) => Promise<void> }) {
-  const i = (initial || {}) as any;
-  const numStr = (v: any) => (v == null ? '' : String(v));
-  const [form, setForm] = useState({
-    nome: initial?.nome || initial?.first_name || '',
-    cognome: initial?.cognome || initial?.last_name || '',
-    matricola: initial?.matricola || '',
-    codice_fiscale: initial?.codice_fiscale || initial?.fiscal_code || '',
-    data_assunzione: initial?.data_assunzione || initial?.hire_date || '',
-    contratto: initial?.contratto_tipo || initial?.contract_type || 'indeterminato',
-    data_cessazione: (initial?.data_cessazione === '9999-12-31' ? '' : (initial?.data_cessazione || '')) || '',
-    livello: initial?.livello || initial?.level || '',
-    qualifica: i.qualifica || initial?.role_description || '',
-    note: initial?.note || initial?.notes || '',
-    part_time_pct: numStr(i.part_time_pct),
-    outlet_id: initial?.outlet_id || '',
-    filiale: i.filiale || '',
-    // tempo determinato
-    scadenza_td: i.scadenza_td || '',
-    durata_mesi: numStr(i.durata_mesi),
-    proroghe: numStr(i.proroghe),
-    proroghe_disponibili: numStr(i.proroghe_disponibili),
-    mesi_disp_senza_causale: numStr(i.mesi_disp_senza_causale),
-    mesi_disp_con_causale: numStr(i.mesi_disp_con_causale),
-    stato_td: i.stato_td || '',
-  });
-  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
-  const [saving, setSaving] = useState(false);
-  const submit = async () => { setSaving(true); await onSave({ ...form, id: initial?.id }); setSaving(false); };
-  const isTD = form.contratto === 'determinato';
-  return (
-    <Modal title={initial ? 'Modifica dipendente' : 'Nuovo dipendente'} onClose={onCancel} maxW="max-w-2xl">
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Cognome *"><input value={form.cognome} onChange={(e) => set('cognome', e.target.value)} className="inp" /></Field>
-        <Field label="Nome *"><input value={form.nome} onChange={(e) => set('nome', e.target.value)} className="inp" /></Field>
-        <Field label="Matricola"><input value={form.matricola} onChange={(e) => set('matricola', e.target.value)} className="inp" /></Field>
-        <Field label="Codice fiscale"><input value={form.codice_fiscale} onChange={(e) => set('codice_fiscale', e.target.value)} className="inp" /></Field>
-        <Field label="Qualifica">
-          <select value={form.qualifica} onChange={(e) => set('qualifica', e.target.value)} className="inp">
-            <option value="">—</option>
-            <option value="Impiegato">Impiegato</option>
-            <option value="Operaio">Operaio</option>
-            <option value="Amministratore">Amministratore</option>
-            {!['Impiegato', 'Operaio', 'Amministratore', ''].includes(form.qualifica) && <option value={form.qualifica}>{form.qualifica}</option>}
-          </select>
-        </Field>
-        <Field label="Livello"><input value={form.livello} onChange={(e) => set('livello', e.target.value)} placeholder="es. 4 Livello" className="inp" /></Field>
-        <Field label="Tipo contratto">
-          <select value={form.contratto} onChange={(e) => set('contratto', e.target.value)} className="inp">
-            {CONTRATTO_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-            {!CONTRATTO_OPTS.some((o) => o.v === form.contratto) && <option value={form.contratto}>{form.contratto}</option>}
-          </select>
-        </Field>
-        <Field label="% part time"><input value={form.part_time_pct} onChange={(e) => set('part_time_pct', e.target.value)} inputMode="decimal" placeholder="(full time)" className="inp tabular-nums" /></Field>
-        <Field label="Data inizio contratto *"><input type="date" value={form.data_assunzione || ''} onChange={(e) => set('data_assunzione', e.target.value)} className="inp" /></Field>
-        <Field label="Filiale / sede">
-          <select value={form.outlet_id} onChange={(e) => set('outlet_id', e.target.value)} className="inp">
-            <option value="">—</option>
-            {outlets.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-          </select>
-          {form.filiale && <span className="text-[11px] text-slate-400 mt-1 block">da file: {form.filiale}</span>}
-        </Field>
-        {!isTD && (
-          <Field label="Data fine">
-            <div className="text-sm text-slate-400 px-3 py-2 rounded-lg border border-slate-100 bg-slate-50">{form.contratto === 'indeterminato' ? 'Aperta — si valorizza alla cessazione' : '—'}</div>
-          </Field>
-        )}
-        <Field label="Note" full><input value={form.note} onChange={(e) => set('note', e.target.value)} className="inp" /></Field>
-      </div>
-
-      {/* Blocco Tempo determinato — solo se contratto determinato */}
-      {isTD && (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
-          <div className="text-xs font-semibold text-amber-800 mb-2">Tempo determinato</div>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-            <Field label="Scadenza TD"><input type="date" value={form.scadenza_td || ''} onChange={(e) => set('scadenza_td', e.target.value)} className="inp" /></Field>
-            <Field label="Durata (mesi)"><input value={form.durata_mesi} onChange={(e) => set('durata_mesi', e.target.value)} inputMode="decimal" className="inp tabular-nums" /></Field>
-            <Field label="Proroghe usate"><input value={form.proroghe} onChange={(e) => set('proroghe', e.target.value)} inputMode="numeric" className="inp tabular-nums" /></Field>
-            <Field label="Proroghe disponibili"><input value={form.proroghe_disponibili} onChange={(e) => set('proroghe_disponibili', e.target.value)} inputMode="numeric" className="inp tabular-nums" /></Field>
-            <Field label="Mesi disp. senza causale"><input value={form.mesi_disp_senza_causale} onChange={(e) => set('mesi_disp_senza_causale', e.target.value)} inputMode="decimal" className="inp tabular-nums" /></Field>
-            <Field label="Mesi disp. con causale"><input value={form.mesi_disp_con_causale} onChange={(e) => set('mesi_disp_con_causale', e.target.value)} inputMode="decimal" className="inp tabular-nums" /></Field>
-            <Field label="Stato" full><input value={form.stato_td} onChange={(e) => set('stato_td', e.target.value)} placeholder="es. Prorogabile/Riassumibile" className="inp" /></Field>
-          </div>
-        </div>
-      )}
-
-      <div className="flex justify-end gap-2 mt-5">
-        <button onClick={onCancel} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
-        <button onClick={submit} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva'}</button>
-      </div>
-      <style>{`.inp{width:100%;padding:0.5rem 0.75rem;font-size:0.875rem;border-radius:0.5rem;border:1px solid rgb(226 232 240)}`}</style>
-    </Modal>
-  );
-}
-
+// Campo con etichetta dei moduli di questa pagina (costo del mese).
 function Field({ label, children, full = false }: { label: string; children: React.ReactNode; full?: boolean }) {
   return (
     <label className={`block ${full ? 'col-span-2' : ''}`}>
       <span className="text-xs text-slate-500 mb-1 block">{label}</span>
       {children}
     </label>
-  );
-}
-
-// ============================================================================
-// SCHEDA DIPENDENTE — netto mese per mese (14 mensilità; totale = somma, mai ×12)
-// ============================================================================
-function SchedaDipendenteModal({ employee, year: annoPagina, yearOptions, costs, allocs, outlets, companyId, docs, onDocsChanged, onClose, onSaved, onEdit, onAlloc, onCessa, onRiattiva }: {
-  employee: Employee; year: number; yearOptions: number[]; costs: EmployeeCost[]; allocs: EmployeeOutletAllocation[]; outlets: OutletRow[];
-  companyId: string; docs: EmployeeDocument[]; onDocsChanged: () => Promise<void>; onClose: () => void; onSaved: () => Promise<void>;
-  onEdit?: () => void; onAlloc?: () => void; onCessa?: () => void; onRiattiva?: () => void;
-}) {
-  const { toast } = useToast();
-  const emp = employee as any;
-  // L'anno dei netti si sceglie qui: la scheda si apre anche dall'Organico, dove il
-  // selettore dell'anno dei costi non c'è.
-  const [year, setYear] = useState(annoPagina);
-  const nettiDi = (anno: number): Record<number, string> => {
-    const out: Record<number, string> = {};
-    for (let m = 1; m <= 12; m++) {
-      const c = costs.find((x) => x.employee_id === employee.id && x.year === anno && x.month === m);
-      out[m] = c?.netto != null ? eurFmt.format(Number(c.netto)) : '';
-    }
-    return out;
-  };
-  const initial = nettiDi(year);
-  const [vals, setVals] = useState<Record<number, string>>(initial);
-  const cambiaAnno = (anno: number) => {
-    const sporco = Object.keys(initial).some((m) => (vals[Number(m)] ?? '') !== initial[Number(m)]);
-    if (sporco && !window.confirm(`Hai netti del ${year} non salvati: cambiando anno si perdono. Cambio lo stesso?`)) return;
-    setYear(anno);
-    setVals(nettiDi(anno));
-  };
-  const [saving, setSaving] = useState(false);
-  const setM = (m: number, v: string) => setVals((s) => ({ ...s, [m]: v }));
-  const totale = Object.values(vals).reduce<number>((s, v) => s + (parseItNum(v) || 0), 0);
-  const mesiCompilati = Object.values(vals).filter((v) => parseItNum(v) != null).length;
-  const sede = allocs.map((a) => a.outlet_code).join(', ') || '—';
-  const fmtDate = (d?: string | null) => (d ? new Date(d).toLocaleDateString('it-IT') : '—');
-  const inizio = employee.data_assunzione || employee.hire_date;
-  const fine = employee.data_cessazione || employee.termination_date;
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const payloads: any[] = [];
-      for (let m = 1; m <= 12; m++) {
-        const n = parseItNum(vals[m]);
-        const had = initial[m] !== '';
-        // Cedolino «manuale»: vale come totale del mese e non cancella i cedolini
-        // caricati dagli import, che restano visibili come storico.
-        const base = { employee_id: employee.id, company_id: companyId, year, month: m, tipo: 'manuale', source: 'scheda_dipendente', updated_at: new Date().toISOString() };
-        if (n != null) payloads.push({ ...base, netto: n });
-        else if (had) payloads.push({ ...base, netto: null });
-      }
-      if (payloads.length) {
-        const { rows: uniq } = keepLastByKey(payloads, (r: any) => `${r.employee_id}|${r.year}|${r.month}|${r.tipo}`);
-        const { error } = await supabase.from('employee_cost_slips').upsert(uniq, { onConflict: 'company_id,employee_id,year,month,tipo' });
-        if (error) throw error;
-      }
-      toast({ type: 'success', message: 'Scheda salvata' });
-      onClose();
-      await onSaved();
-    } catch (err: any) {
-      toast({ type: 'error', message: 'Errore nel salvataggio: ' + (err?.message || '') });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const val = (v: any) => (v == null || v === '' ? '—' : String(v));
-  const pct = (v: any) => (v == null || v === '' ? '—' : `${Number(v).toLocaleString('it-IT', { maximumFractionDigits: 2 })}%`);
-  const outletName = outlets.find((o) => o.id === employee.outlet_id)?.name;
-  const isTD = (emp.contratto_tipo || '') === 'determinato';
-  const Cell = ({ label, children }: { label: string; children: React.ReactNode }) => (
-    <div className="min-w-0"><div className="text-xs text-slate-400">{label}</div><div className="font-medium break-words">{children}</div></div>
-  );
-
-  return (
-    <Modal title={`Scheda — ${empName(employee)}`} onClose={onClose} maxW="max-w-2xl">
-      {/* Scheda ordinata (Patrizio, 28/10/2026): il contratto sempre in vista,
-          il resto in sezioni che si aprono quando servono. */}
-      <div className="mb-3 rounded-xl border border-slate-200 p-3">
-        <div className="flex items-center justify-between gap-2 mb-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Contratto e anagrafica</span>
-          <span className="flex flex-wrap justify-end gap-1.5">
-            {onEdit && <button onClick={onEdit} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Edit2 size={13} /> Modifica</button>}
-            {onAlloc && <button onClick={onAlloc} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-violet-700 hover:bg-violet-50 inline-flex items-center gap-1" title="Come si divide il costo fra i negozi"><Percent size={13} /> Ripartizione</button>}
-            {onCessa && <button onClick={onCessa} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-red-600 hover:bg-red-50 inline-flex items-center gap-1"><Trash2 size={13} /> Cessa</button>}
-            {onRiattiva && <button onClick={onRiattiva} className="px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-medium text-emerald-700 hover:bg-emerald-50 inline-flex items-center gap-1"><RefreshCw size={13} /> Riattiva</button>}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2.5 text-sm">
-          <Cell label="Tipo contratto">{contrattoLabel(emp.contratto_tipo || (employee as any).contract_type)}</Cell>
-          <Cell label="Ore a settimana"><span className="tabular-nums">{emp.ore_settimanali != null ? `${Number(emp.ore_settimanali).toLocaleString('it-IT')} h` : '—'}</span> <span className="text-xs font-normal text-slate-400">({pct(emp.part_time_pct)})</span></Cell>
-          <Cell label="Sede">{val(outletName || sede)}</Cell>
-          <Cell label="Qualifica e livello">{val(emp.qualifica || employee.role_description)} · {val(employee.livello || (employee as any).level)}</Cell>
-          <Cell label="Data assunzione">{fmtDate(inizio)}</Cell>
-          <Cell label="Matricola"><span className="tabular-nums">{val(employee.matricola)}</span></Cell>
-          <div className="col-span-2 sm:col-span-3 min-w-0"><div className="text-xs text-slate-400">Codice fiscale</div><div className="font-medium tabular-nums text-xs break-all">{val(employee.codice_fiscale || (employee as any).fiscal_code)}</div></div>
-        </div>
-        {isTD && (
-          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm text-amber-950">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Tempo determinato</span>
-              <span>scade il <b>{fmtDate(emp.scadenza_td)}</b></span>
-              <span className="text-amber-900/80">durata {val(emp.durata_mesi)} mesi</span>
-              <span className="text-amber-900/80">proroghe {val(emp.proroghe)} usate, {val(emp.proroghe_disponibili)} disponibili</span>
-            </div>
-            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-amber-900/80">
-              {emp.stato_td && <span className="break-words">{String(emp.stato_td)}</span>}
-              <span>mesi disponibili: {val(emp.mesi_disp_senza_causale)} senza causale, {val(emp.mesi_disp_con_causale)} con causale</span>
-            </div>
-          </div>
-        )}
-        {emp.filiale && <div className="text-[11px] text-slate-400 mt-2">Filiale (da file contratti): {emp.filiale}</div>}
-        {(emp.note || employee.notes) && (
-          <details className="group mt-2">
-            <summary className="cursor-pointer list-none text-xs font-medium text-slate-500 hover:text-slate-700 inline-flex items-center gap-1 [&::-webkit-details-marker]:hidden">
-              <ChevronDown size={13} className="transition-transform group-open:rotate-180" /> Note e storico delle modifiche
-            </summary>
-            <div className="text-[11px] text-slate-500 mt-1 whitespace-pre-line break-words">{emp.note || employee.notes}</div>
-          </details>
-        )}
-      </div>
-
-      <DocumentiRapporto employeeId={employee.id} companyId={companyId} docs={docs} onChanged={onDocsChanged} />
-
-      <ChiaviNegozio employeeId={employee.id} outletId={employee.outlet_id ?? null} />
-
-      <AccordiOrario employeeId={employee.id} companyId={companyId} outletId={employee.outlet_id ?? null}
-        oreSettimanali={emp.ore_settimanali != null ? Number(emp.ore_settimanali) : null} />
-
-      <details className="group mb-3 rounded-xl border border-slate-200">
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
-          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 inline-flex items-center gap-2">Netti del
-            <select value={year} onChange={(e) => cambiaAnno(Number(e.target.value))} onClick={(e) => e.stopPropagation()} aria-label="Anno dei netti"
-              className="px-1.5 py-0.5 text-xs font-semibold rounded-md border border-slate-300 bg-white text-slate-700 normal-case">
-              {yearOptions.map((y) => <option key={y} value={y}>{y}</option>)}
-            </select>
-          </span>
-          <span className="flex items-center gap-2 text-xs text-slate-500">{mesiCompilati} mesi · <b className="tabular-nums text-emerald-700">{eurFmt.format(totale)}&nbsp;€</b><ChevronDown size={15} className="transition-transform group-open:rotate-180" /></span>
-        </summary>
-        <div className="px-3 pb-3">
-          <p className="mb-3 text-xs text-slate-600 leading-relaxed">
-            Il <b>netto del mese</b> come arriva dalla busta paga. La 13ª (dicembre) e la 14ª (giugno) arrivano dall'Elenco netti come cedolini a parte; se scrivi tu il netto, mettici anche la mensilità aggiuntiva. I valori scritti a mano sono provvisori: l'Elenco netti del mese li sostituisce con il dato ufficiale.
-          </p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-            {MONTHS.map((m) => (
-              <label key={m.num} className="block">
-                <span className="text-xs text-slate-500 mb-1 flex items-center gap-1">
-                  {m.label}
-                  {m.num === 12 && <span className="text-[10px] px-1 rounded bg-amber-50 text-amber-700">+13ª</span>}
-                  {m.num === 6 && <span className="text-[10px] px-1 rounded bg-amber-50 text-amber-700">+14ª</span>}
-                </span>
-                <div className="relative">
-                  <input value={vals[m.num]} onChange={(e) => setM(m.num, e.target.value)} placeholder="—" inputMode="decimal"
-                    className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-slate-200 tabular-nums text-right pr-6" />
-                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 text-xs">€</span>
-                </div>
-              </label>
-            ))}
-          </div>
-          <div className="mt-3 flex justify-end">
-            <button onClick={save} disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 flex items-center gap-1.5"><Save size={15} /> {saving ? 'Salvataggio…' : 'Salva netti'}</button>
-          </div>
-        </div>
-      </details>
-
-      <div className="flex justify-end mt-4">
-        <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Chiudi</button>
-      </div>
-    </Modal>
   );
 }
 
@@ -2375,111 +1882,6 @@ function ElencoStudioModal({ employees, outlets, companyId, userId, onClose, onD
         )}
       </div>
     </Modal>
-  );
-}
-
-// ============================================================================
-// DOCUMENTI DEL RAPPORTO — contratti, proroghe, trasformazioni: storico, mai sovrascritto
-// ============================================================================
-const DOC_RAPPORTO_OPTS: { v: string; l: string }[] = [
-  { v: 'contratto', l: 'Contratto / lettera di assunzione' },
-  { v: 'impegnativa', l: 'Impegnativa di assunzione' },
-  { v: 'proroga', l: 'Proroga' },
-  { v: 'trasformazione', l: 'Trasformazione' },
-  { v: 'modifica_orario', l: 'Modifica orario' },
-  { v: 'cessazione', l: 'Cessazione / dimissioni' },
-  { v: 'altro', l: 'Altro documento' },
-];
-const docRapportoLabel = (v?: string | null) => DOC_RAPPORTO_OPTS.find((o) => o.v === v)?.l || v || 'Documento';
-const docInfo = (d: EmployeeDocument) => (d.extracted_data && typeof d.extracted_data === 'object' && !Array.isArray(d.extracted_data) ? d.extracted_data as Record<string, unknown> : {});
-const docDate = (d: EmployeeDocument) => String(docInfo(d).data_documento || d.uploaded_at || d.created_at || '').slice(0, 10);
-
-function DocumentiRapporto({ employeeId, companyId, docs, onChanged }: { employeeId: string; companyId: string; docs: EmployeeDocument[]; onChanged: () => Promise<void> }) {
-  const { toast } = useToast();
-  const [tipo, setTipo] = useState('contratto');
-  const [data, setData] = useState('');
-  const [descr, setDescr] = useState('');
-  const [busy, setBusy] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-  const ordinati = [...docs].sort((a, b) => docDate(b).localeCompare(docDate(a)));
-
-  const apri = async (d: EmployeeDocument) => {
-    if (!d.file_path) return;
-    // La finestra si apre subito (click dell'utente), poi riceve il file: evita il blocco popup.
-    const w = window.open('', '_blank');
-    const { data: blob, error } = await supabase.storage.from('employee-documents').download(d.file_path);
-    if (error || !blob) { w?.close(); toast({ type: 'error', message: 'Impossibile aprire il documento' }); return; }
-    const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-    if (w) w.location.href = url; else window.open(url, '_blank');
-  };
-
-  const carica = async (file: File) => {
-    if (!data) { toast({ type: 'error', message: 'Indica la data del documento' }); return; }
-    setBusy(true);
-    try {
-      const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
-      const path = `employee-documents/${employeeId}/${data}_${tipo}_${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('employee-documents').upload(path, file);
-      if (upErr) throw upErr;
-      const [y, m] = data.split('-').map(Number);
-      const { error } = await supabase.from('employee_documents').insert([{
-        employee_id: employeeId, company_id: companyId, doc_type: tipo, year: y, month: m,
-        file_name: file.name, file_path: path, file_size: file.size, status: 'archiviato',
-        extracted_data: { data_documento: data, descrizione: descr.trim() || null },
-      }]);
-      if (error) throw error;
-      toast({ type: 'success', message: 'Documento archiviato' });
-      setDescr(''); setData('');
-      await onChanged();
-    } catch (err: any) {
-      toast({ type: 'error', message: 'Errore caricamento: ' + (err?.message || '') });
-    } finally {
-      setBusy(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
-
-  return (
-    <details className="group mb-3 rounded-xl border border-slate-200">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 px-3 py-2.5 [&::-webkit-details-marker]:hidden">
-        <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Documenti del rapporto</span>
-        <span className="flex items-center gap-2 text-xs text-slate-500">{ordinati.length ? `${ordinati.length} ${ordinati.length === 1 ? 'documento' : 'documenti'}` : 'nessuno'}<ChevronDown size={15} className="transition-transform group-open:rotate-180" /></span>
-      </summary>
-      <div className="px-3 pb-3">
-      {ordinati.length === 0 ? (
-        <div className="text-xs text-slate-400 mb-2">Nessun documento archiviato.</div>
-      ) : (
-        <ul className="divide-y divide-slate-100 mb-3">
-          {ordinati.map((d) => {
-            const info = docInfo(d);
-            const dd = docDate(d);
-            return (
-              <li key={d.id} className="py-1.5 flex items-start justify-between gap-2 text-sm">
-                <div className="min-w-0">
-                  <div className="font-medium text-slate-700">{docRapportoLabel(d.doc_type)} <span className="text-slate-400 font-normal tabular-nums">· {dd ? new Date(dd).toLocaleDateString('it-IT') : '—'}</span></div>
-                  {info.descrizione ? <div className="text-xs text-slate-500">{String(info.descrizione)}</div> : null}
-                  <div className="text-[11px] text-slate-400 truncate">{d.file_name}</div>
-                </div>
-                {d.file_path && (
-                  <button onClick={() => apri(d)} className="shrink-0 p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Apri il PDF"><Eye size={15} /></button>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="px-2 py-1.5 text-sm rounded-lg border border-slate-200">
-          {DOC_RAPPORTO_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-        </select>
-        <input type="date" value={data} onChange={(e) => setData(e.target.value)} className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" title="Data del documento" />
-        <input value={descr} onChange={(e) => setDescr(e.target.value)} placeholder="Descrizione (facoltativa)" className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" />
-      </div>
-      <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) carica(f); }} />
-      <button onClick={() => fileRef.current?.click()} disabled={busy} className="mt-2 px-3 py-1.5 rounded-lg border border-slate-300 text-xs font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Upload size={13} /> {busy ? 'Caricamento…' : 'Carica documento'}</button>
-      <div className="text-[11px] text-slate-400 mt-1.5">I documenti restano come storico: uno nuovo si aggiunge, non sostituisce i precedenti.</div>
-      </div>
-    </details>
   );
 }
 

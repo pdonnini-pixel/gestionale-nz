@@ -756,11 +756,11 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const statoSettimana: { ok: boolean; testo: string }[] = [
     scoperture.length === 0 ? { ok: true, testo: 'Negozio sempre coperto' } : { ok: false, testo: `Mancano persone in ${scoperture.length} ${scoperture.length === 1 ? 'fascia' : 'fasce'}` },
     ...(riposiMinimi != null ? [{ ok: riposiMinimi >= Math.max(1, regole.riposiMinSettimana ?? 1), testo: riposiMinimi === 0 ? 'Qualcuno è senza riposo' : `Almeno ${riposiMinimi} ${riposiMinimi === 1 ? 'riposo' : 'riposi'} a testa` }] : []),
-    ...(haLunedi && (guidaTurni.responsabile || guidaTurni.vice) ? [{ ok: !deroghe.some((d) => d.regola === 'lunedi_guida'), testo: deroghe.some((d) => d.regola === 'lunedi_guida') ? 'Lunedì manca responsabile o vice' : 'Lunedì c\'è responsabile o vice' }] : []),
+    ...(haLunedi && (guidaTurni.responsabile || guidaTurni.vice) ? [{ ok: !deroghe.some((d) => d.regola === 'lunedi_guida'), testo: deroghe.some((d) => d.regola === 'lunedi_guida') ? 'Lunedì manca referente o vice referente' : 'Lunedì c\'è referente o vice referente' }] : []),
     ...(giorni.some((g) => g.lunediDue) && attivi.some((t) => giorni.some((g) => g.lunediDue && g.data === t.data))
       ? [{ ok: !deroghe.some((d) => d.regola === 'lunedi_troppi' || d.regola === 'lunedi_coppia' || d.regola === 'lunedi_due_guide'),
         testo: deroghe.some((d) => d.regola === 'lunedi_troppi') ? 'Lunedì più di due persone'
-          : deroghe.some((d) => d.regola === 'lunedi_due_guide') ? 'Lunedì responsabile e vice insieme'
+          : deroghe.some((d) => d.regola === 'lunedi_due_guide') ? 'Lunedì referente e vice referente insieme'
             : deroghe.some((d) => d.regola === 'lunedi_coppia') ? 'Lunedì la stessa coppia di prima' : 'Lunedì in due, coppia diversa' }] : []),
     { ok: straordSettimana < 0.25, testo: straordSettimana < 0.25 ? 'Nessuno straordinario' : `${oreInChiaro(straordSettimana)}${Math.round(straordSettimana * 60) % 30 === 0 ? ' ore' : ''} di straordinario` },
   ];
@@ -860,7 +860,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       )}
       {mancaGuida && attivi.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
-          <Info size={15} className="shrink-0 mt-0.5" /> {nomeNegozio}: {mancaGuida.charAt(0).toLowerCase() + mancaGuida.slice(1)}. Finché non ci sono tutte e due, la regola del lunedì (una fra responsabile e vice in negozio per il versamento) non si può controllare. Si scelgono in «Persone e riposi», in fondo alla pagina.
+          <Info size={15} className="shrink-0 mt-0.5" /> {nomeNegozio}: {mancaGuida.charAt(0).toLowerCase() + mancaGuida.slice(1)}. Finché non ci sono tutte e due, la regola del lunedì (una fra referente e vice referente in negozio per il versamento) non si può controllare. Si scelgono in «Persone e riposi», in fondo alla pagina.
         </div>
       )}
 

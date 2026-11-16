@@ -575,7 +575,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                     <option value="6">Sabato</option><option value="7">Domenica</option>
                   </select>
                 </Riga>
-                <Riga etichetta="Responsabile e vice: una apre, l’altra chiude, a turno"><Interruttore acceso={regole.caldiGuidaApreChiude ?? false} disabled={!puoScrivere} etichetta="Responsabile e vice: apertura e chiusura a turno" onCambia={(v) => setRegole((r) => ({ ...r, caldiGuidaApreChiude: v }))} /></Riga>
+                <Riga etichetta="Referente e vice referente: una apre, l’altra chiude, a turno"><Interruttore acceso={regole.caldiGuidaApreChiude ?? false} disabled={!puoScrivere} etichetta="Referente e vice referente: apertura e chiusura a turno" onCambia={(v) => setRegole((r) => ({ ...r, caldiGuidaApreChiude: v }))} /></Riga>
                 <Riga etichetta="Chi apre resta (ore)">
                   <input aria-label="Ore di chi fa l'apertura nei giorni caldi" type="number" min={4} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-20 text-center`} value={regole.caldiOreApertura ?? 9} onChange={(e) => setRegole((r) => ({ ...r, caldiOreApertura: Number(e.target.value) || 9 }))} />
                 </Riga>
@@ -618,7 +618,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
             <>
               <Riga etichetta="Il lunedì lavorano al massimo due persone"><Interruttore acceso={!!regole.lunediDue} disabled={!puoScrivere} etichetta="Il lunedì al massimo due persone" onCambia={(v) => setRegole((r) => ({ ...r, lunediDue: v }))} /></Riga>
               {regole.lunediDue && (
-                <p className="text-xs text-slate-500 mb-2">Dopo il weekend il lunedì sono in due, e non le stesse due del lunedì prima; una è sempre la responsabile o la vice. Per le altre il lunedì vale come riposo. Se le fasce del lunedì o gli ingressi chiedono una terza persona, vince il tetto di due e la pagina dei turni lo segnala. Un lunedì festivo o dentro un evento segue le regole dei giorni caldi.</p>
+                <p className="text-xs text-slate-500 mb-2">Dopo il weekend il lunedì sono in due, e non le stesse due del lunedì prima; una è sempre la referente o la vice referente. Per le altre il lunedì vale come riposo. Se le fasce del lunedì o gli ingressi chiedono una terza persona, vince il tetto di due e la pagina dei turni lo segnala. Un lunedì festivo o dentro un evento segue le regole dei giorni caldi.</p>
               )}
             </>
           )}
@@ -651,7 +651,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
         </Scheda>
 
         {guida && (
-          <Scheda n={7} titolo="Responsabile e vice" sotto="Le sole a fare il versamento. Il lunedì una delle due è in negozio.">{guida}</Scheda>
+          <Scheda n={7} titolo="Referente e vice referente" sotto="Le sole a fare il versamento. Il lunedì una delle due è in negozio.">{guida}</Scheda>
         )}
 
         <div className="xl:col-span-2 min-w-0">

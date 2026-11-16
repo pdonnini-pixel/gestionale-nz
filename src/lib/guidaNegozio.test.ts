@@ -43,8 +43,8 @@ describe('ruoloGuida ed etichetta', () => {
     expect(ruoloGuida(RESP, RESP, RESP)).toBe('responsabile');
   });
   it('etichette', () => {
-    expect(etichettaRuoloGuida('responsabile')).toBe('Responsabile');
-    expect(etichettaRuoloGuida('vice')).toBe('Vice responsabile');
+    expect(etichettaRuoloGuida('responsabile')).toBe('Referente');
+    expect(etichettaRuoloGuida('vice')).toBe('Vice referente');
     expect(etichettaRuoloGuida(null)).toBeNull();
   });
 });
@@ -60,10 +60,10 @@ describe('guidaIncompleta', () => {
   });
   it('dice cosa manca', () => {
     expect(cosaMancaAllaGuida(RESP, VICE)).toBeNull();
-    expect(cosaMancaAllaGuida(RESP, null)).toBe('Manca il vice responsabile');
-    expect(cosaMancaAllaGuida(null, VICE)).toBe('Manca la responsabile');
-    expect(cosaMancaAllaGuida(null, null)).toBe('Mancano la responsabile e il vice responsabile');
-    expect(cosaMancaAllaGuida(RESP, RESP)).toBe('Responsabile e vice sono la stessa persona');
+    expect(cosaMancaAllaGuida(RESP, null)).toBe('Manca la vice referente');
+    expect(cosaMancaAllaGuida(null, VICE)).toBe('Manca la referente');
+    expect(cosaMancaAllaGuida(null, null)).toBe('Mancano la referente e la vice referente');
+    expect(cosaMancaAllaGuida(RESP, RESP)).toBe('Referente e vice referente sono la stessa persona');
   });
 });
 

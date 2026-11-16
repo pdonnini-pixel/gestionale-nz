@@ -18,6 +18,7 @@ const Scadenzario = lazy(() => import('./pages/ScadenzarioSmart'))
 const Banche = lazy(() => import('./pages/TesoreriaManuale'))
 const Outlet = lazy(() => import('./pages/Outlet'))
 const Dipendenti = lazy(() => import('./pages/Dipendenti'))
+const SchedaDipendente = lazy(() => import('./pages/SchedaDipendente'))
 const Impostazioni = lazy(() => import('./pages/Impostazioni'))
 const ContoEconomico = lazy(() => import('./pages/ContoEconomico'))
 const ConfrontoOutlet = lazy(() => import('./pages/ConfrontoOutlet'))
@@ -202,6 +203,8 @@ function AppRoutes() {
           <Route path="storico-distinte" element={<StoricoDistinte />} />
           <Route path="banche" element={<Banche />} />
           <Route path="dipendenti" element={<Dipendenti />} />
+          <Route path="dipendenti/:persona" element={<SchedaDipendente />} />
+          <Route path="dipendenti/:persona/:sezione" element={<SchedaDipendente />} />
           <Route path="conto-economico" element={<ContoEconomico />} />
           <Route path="confronto-outlet" element={<ConfrontoOutlet />} />
           <Route path="budget" element={<BudgetControl />} />

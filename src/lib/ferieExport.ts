@@ -84,7 +84,7 @@ const oggi = () => new Date().toLocaleDateString('it-IT');
 
 /** «Firma del responsabile», con il nome di chi lo e' oggi nel negozio. */
 export const firmaResponsabile = (d: DipendenteModulo): string =>
-  d.responsabile ? `Firma del responsabile (${d.responsabile})` : 'Firma del responsabile';
+  d.responsabile ? `Firma del referente (${d.responsabile})` : 'Firma del referente';
 
 /**
  * L'orario del contratto, e basta. Quanto vale una giornata in ore e' il

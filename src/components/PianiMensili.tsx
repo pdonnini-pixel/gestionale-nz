@@ -1085,7 +1085,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     if (!giornoNuovo || giornoNuovo.chiuso || giornoNuovo.caldo || giornoNuovo.evento) throw new Error('In quel giorno non si propongono ferie né permessi: è chiuso, è un giorno caldo o c\'è un evento.');
     const esito = esitoRichiesta(nuova, gg.some((x) => x.tipo === 'giornata') ? 'ferie' : 'permessi', b.eventiFerie, b.regoleFerie);
     if (!esito.ammessa) throw new Error(esito.motivo);
-    if (gg.some((x) => x.tipo === 'giornata') && giornoIso(nuova) === 1 && guidaNegozio.includes(gg[0].employee_id)) throw new Error('Il lunedì una fra responsabile e vice è in negozio: a loro una giornata di ferie di lunedì non si propone.');
+    if (gg.some((x) => x.tipo === 'giornata') && giornoIso(nuova) === 1 && guidaNegozio.includes(gg[0].employee_id)) throw new Error('Il lunedì una fra referente e vice referente è in negozio: a loro una giornata di ferie di lunedì non si propone.');
     await spostaProposta(requestId, nuova);
     return dopoLaModifica('spostata', [...new Set([lunediDi(gg[0].data), lunediDi(nuova)])], b);
   });

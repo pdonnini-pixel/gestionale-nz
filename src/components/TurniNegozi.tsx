@@ -155,7 +155,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
     if (!scelto) return;
     const { error } = await supabase.rpc('organico_imposta_referente', { p_outlet_id: scelto.id, p_employee_id: sqlNull(employeeId || null) });
     if (error) { toast({ type: 'error', message: error.message }); return; }
-    toast({ type: 'success', message: employeeId ? `Responsabile di ${nomeNegozio(scelto)} salvato: vale anche in Organico, Utenti e modulo ferie.` : `${nomeNegozio(scelto)} è senza responsabile.` });
+    toast({ type: 'success', message: employeeId ? `Referente di ${nomeNegozio(scelto)} salvato: vale anche in Organico, Utenti e modulo ferie.` : `${nomeNegozio(scelto)} è senza referente.` });
     await carica();
   };
   // Vice responsabile (migration 393): fa il versamento quando la responsabile
@@ -175,7 +175,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
       toast({ type: 'error', message: error.message });
       return;
     }
-    toast({ type: 'success', message: employeeId ? `Vice responsabile di ${nomeNegozio(scelto)} salvato: il lunedì una fra responsabile e vice deve essere in negozio per il versamento.` : `${nomeNegozio(scelto)} è senza vice responsabile.` });
+    toast({ type: 'success', message: employeeId ? `Vice referente di ${nomeNegozio(scelto)} salvato: il lunedì una fra referente e vice referente deve essere in negozio per il versamento.` : `${nomeNegozio(scelto)} è senza vice referente.` });
     await carica();
   };
   const mostraVice = !!dati.viceDisponibile && !viceSpento;
@@ -189,9 +189,9 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
   const selettoriGuida = scelto ? (
     <div className="space-y-2 text-sm">
       <label className="flex items-center justify-between gap-3">
-        <span className="text-slate-700">Responsabile</span>
+        <span className="text-slate-700">Referente</span>
         {puoScrivere ? (
-          <select aria-label="Responsabile del negozio" value={scelto.referente_employee_id ?? ''} onChange={(e) => impostaReferente(e.target.value)}
+          <select aria-label="Referente del negozio" value={scelto.referente_employee_id ?? ''} onChange={(e) => impostaReferente(e.target.value)}
             className="min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm bg-white max-w-[60%]">
             <option value="">da scegliere</option>
             {sceltePossibili.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
@@ -200,9 +200,9 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
       </label>
       {mostraVice && (
         <label className="flex items-center justify-between gap-3">
-          <span className="text-slate-700">Vice responsabile</span>
+          <span className="text-slate-700">Vice referente</span>
           {puoScrivere ? (
-            <select aria-label="Vice responsabile del negozio" value={scelto.vice_referente_employee_id ?? ''} onChange={(e) => impostaVice(e.target.value)}
+            <select aria-label="Vice referente del negozio" value={scelto.vice_referente_employee_id ?? ''} onChange={(e) => impostaVice(e.target.value)}
               className="min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm bg-white max-w-[60%]">
               <option value="">da scegliere</option>
               {scelteVice.map((s) => <option key={s.id} value={s.id}>{nomePersona(s)}</option>)}
@@ -212,8 +212,8 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
       )}
       {(provvisoria.provvisoria.responsabile || (mostraVice && provvisoria.provvisoria.vice)) && (
         <p className="text-xs text-slate-500">
-          Finché {provvisoria.provvisoria.responsabile && provvisoria.provvisoria.vice ? 'mancano' : 'manca'} {[provvisoria.provvisoria.responsabile ? 'la responsabile' : '', mostraVice && provvisoria.provvisoria.vice ? 'la vice' : ''].filter(Boolean).join(' e ')}, nei negozi con i giorni caldi accesi il sistema usa per i turni chi ha più ore di contratto e, a parità, chi è assunta da più tempo: oggi{' '}
-          {[provvisoria.provvisoria.responsabile ? `${nomeDi(provvisoria.responsabile) ?? 'nessuno'} come responsabile` : '', mostraVice && provvisoria.provvisoria.vice ? `${nomeDi(provvisoria.vice) ?? 'nessuno'} come vice` : ''].filter(Boolean).join(', ')}.
+          Finché {provvisoria.provvisoria.responsabile && provvisoria.provvisoria.vice ? 'mancano' : 'manca'} {[provvisoria.provvisoria.responsabile ? 'la referente' : '', mostraVice && provvisoria.provvisoria.vice ? 'la vice referente' : ''].filter(Boolean).join(' e ')}, nei negozi con i giorni caldi accesi il sistema usa per i turni chi ha più ore di contratto e, a parità, chi è assunta da più tempo: oggi{' '}
+          {[provvisoria.provvisoria.responsabile ? `${nomeDi(provvisoria.responsabile) ?? 'nessuno'} come referente` : '', mostraVice && provvisoria.provvisoria.vice ? `${nomeDi(provvisoria.vice) ?? 'nessuno'} come vice referente` : ''].filter(Boolean).join(', ')}.
         </p>
       )}
     </div>
@@ -227,7 +227,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
   const RESTO = [
     { k: 'orari' as const, t: 'Regole e orari', d: 'Orario, persone per fascia, giorni caldi, pause, riposi.' },
     { k: 'eventi' as const, t: 'Eventi e giorni speciali', d: 'Giorni singoli e periodi con regole proprie.' },
-    { k: 'persone' as const, t: 'Persone e riposi', d: 'Responsabile, vice e giorni di riposo di ognuno.' },
+    { k: 'persone' as const, t: 'Persone e riposi', d: 'Referente, vice referente e giorni di riposo di ognuno.' },
     { k: 'traffico' as const, t: 'Traffico MODA', d: 'Gli ingressi su cui si calcolano le persone.' },
     { k: 'trasferte' as const, t: 'Trasferte', d: 'Chi va a lavorare in un altro negozio.' },
   ];
@@ -248,7 +248,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
           </div>
           {scelto && (
             <div className="text-sm">
-              <div className="text-xs text-slate-500">Responsabile</div>
+              <div className="text-xs text-slate-500">Referente</div>
               <strong className="text-slate-900">{referente ? nomePersona(referente) : 'da scegliere'}</strong>
               {mostraVice && <span className="text-slate-500"> · vice: {vice ? nomePersona(vice) : 'da scegliere'}</span>}
             </div>
@@ -301,7 +301,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
       {scelto && sotto === 'persone' && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
           <section className="bg-white border border-slate-200 rounded-xl p-4">
-            <h2 className="text-base font-semibold text-slate-900">Responsabile e vice</h2>
+            <h2 className="text-base font-semibold text-slate-900">Referente e vice referente</h2>
             <p className="text-xs text-slate-500 mb-3">Le sole a fare il versamento. Il lunedì una delle due è in negozio.</p>
             {selettoriGuida}
           </section>

@@ -627,7 +627,7 @@ function disegnaRigaPersona(
   scrivi(doc, persona.nome, MARGINE_SX, y + 7 * s, { size: 12.5 * s, bold: true, maxL: COL_PERSONA - 2.5 });
   let yContratto = y + 12.3 * s;
   if (persona.ruolo) {
-    const testo = persona.ruolo === 'responsabile' ? 'RESPONSABILE' : 'VICE RESPONSABILE';
+    const testo = persona.ruolo === 'responsabile' ? 'REFERENTE' : 'VICE REFERENTE';
     const size = 6.5 * s;
     const l = larghezza(doc, testo, size, false, 0.12);
     doc.setDrawColor(0, 0, 0);

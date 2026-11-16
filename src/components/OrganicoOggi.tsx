@@ -22,7 +22,6 @@ import {
 } from '../lib/organico';
 import { caricaOrganico, nomeNegozio, puoTenereOrganico, type DatiOrganico } from '../lib/organicoDati';
 import SegnaCambiamento from './SegnaCambiamento';
-import CorreggiPersona from './CorreggiPersona';
 
 const ConfrontoStudio = lazy(() => import('./ConfrontoStudio'));
 
@@ -32,12 +31,11 @@ type Props = {
   versione?: number;
   /** cresce quando la pagina chiede «Aggiungi una persona» */
   richiestaNuova?: number;
-  /** la pagina chiede «Modifica» per una persona (dalla sua scheda) */
-  richiestaModifica?: { id: string; n: number } | null;
-  /** apre la scheda del dipendente (documenti, ripartizione, cessazione) */
-  onScheda?: (employeeId: string) => void;
-  /** apre tutti i dati dell'anagrafica (solo chi scrive l'anagrafica) */
-  onAltriDati?: (employeeId: string) => void;
+  /**
+   * Apre la pagina della persona (Patrizio, 16/11/2026: una scheda sola). Il nome apre la
+   * pagina, «Modifica» la apre con la modifica dei dati gia' aperta.
+   */
+  onScheda?: (employeeId: string, opz?: { modifica?: boolean }) => void;
   /** carica l'elenco dipendenti mandato dallo studio (solo chi scrive l'anagrafica) */
   onImportElenco?: () => void;
   /** la richiesta (nuova o modifica) e' stata aperta: la pagina la azzera,
@@ -79,7 +77,7 @@ function prossimaData(p: PersonaOggi): string {
   return '';
 }
 
-export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova = 0, richiestaModifica = null, onScheda, onAltriDati, onImportElenco, onRichiestaGestita }: Props) {
+export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova = 0, onScheda, onImportElenco, onRichiestaGestita }: Props) {
   const { profile } = useAuth();
   const { toast } = useToast();
   const puoScrivere = puoTenereOrganico(profile?.role);
@@ -92,7 +90,6 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
   const [cerca, setCerca] = useState('');
   const [mostraUsciti, setMostraUsciti] = useState(false);
   const [modale, setModale] = useState<{ employeeId?: string | null; tipo?: TipoEvento | null; nuova?: boolean } | null>(null);
-  const [daCorreggere, setDaCorreggere] = useState<string | null>(null);
 
   const carica = useCallback(async () => {
     if (!companyId) return;
@@ -112,9 +109,6 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
   useEffect(() => {
     if (richiestaNuova > 0 && puoScrivere) { setSotto('organico'); setModale({ nuova: true }); onRichiestaGestita?.(); }
   }, [richiestaNuova, puoScrivere, onRichiestaGestita]);
-  useEffect(() => {
-    if (richiestaModifica && puoScrivere) { setSotto('organico'); setDaCorreggere(richiestaModifica.id); onRichiestaGestita?.(); }
-  }, [richiestaModifica, puoScrivere, onRichiestaGestita]);
 
   const persone = useMemo(() => (dati ? organicoAllaData(dati.schede, dati.eventi, data) : []), [dati, data]);
   const negozioDi = useCallback((id: string | null) => dati?.negozi.find((n) => n.id === id), [dati]);
@@ -165,10 +159,10 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
     const { error } = await supabase.rpc('organico_imposta_referente_dal', {
       p_outlet_id: outletId, p_employee_id: sqlNull(employeeId || null), p_dal: oggiRoma(),
     });
-    if (error) { toast({ type: 'error', message: `Responsabile non salvato: ${error.message}` }); return; }
+    if (error) { toast({ type: 'error', message: `Referente non salvato: ${error.message}` }); return; }
     const n = nomeNegozio(negozioDi(outletId));
     const chi = employeeId ? persone.find((p) => p.scheda.id === employeeId) : undefined;
-    toast({ type: 'success', message: chi ? `${nomePersona(chi.scheda)} è responsabile di ${n} da oggi.` : `${n} è senza responsabile da oggi.` });
+    toast({ type: 'success', message: chi ? `${nomePersona(chi.scheda)} è referente di ${n} da oggi.` : `${n} è senza referente da oggi.` });
     await carica();
   };
 
@@ -296,7 +290,7 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
                       <GruppoNegozio key={g.id || 'senza'} nome={g.nome} lista={g.lista} puoScrivere={puoScrivere}
                         responsabile={g.id ? responsabileDi(g.id) : null}
                         onResponsabile={g.id ? (empId) => impostaResponsabile(g.id, empId) : undefined}
-                        onModifica={(id, tipo) => setModale({ employeeId: id, tipo })} onCorreggi={setDaCorreggere} onScheda={onScheda} />
+                        onModifica={(id, tipo) => setModale({ employeeId: id, tipo })} onScheda={onScheda} />
                     ))}
                     {!gruppi.length && (
                       <tr><td colSpan={6} className="px-3 py-10 text-center text-slate-400">Nessuna persona con questi filtri.</td></tr>
@@ -365,19 +359,6 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
         />
       )}
 
-      {daCorreggere && dati && (() => {
-        const p = persone.find((x) => x.scheda.id === daCorreggere);
-        return p ? (
-          <CorreggiPersona
-            onClose={() => setDaCorreggere(null)}
-            onSalvato={carica}
-            persona={p}
-            eventi={dati.eventi}
-            negozi={dati.negozi}
-            onAltriDati={onAltriDati ? () => { setDaCorreggere(null); onAltriDati(p.scheda.id); } : undefined}
-          />
-        ) : null;
-      })()}
     </div>
   );
 }
@@ -394,11 +375,11 @@ type InfoResponsabile = {
   viceId?: string | null;
 };
 
-function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile, onModifica, onCorreggi, onScheda }: {
+function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile, onModifica, onScheda }: {
   nome: string; lista: PersonaOggi[]; puoScrivere: boolean;
   responsabile: InfoResponsabile | null; onResponsabile?: (employeeId: string) => void;
   onModifica: (id: string, tipo: TipoEvento | null) => void;
-  onCorreggi: (id: string) => void; onScheda?: (id: string) => void;
+  onScheda?: (id: string, opz?: { modifica?: boolean }) => void;
 }) {
   const ore = lista.filter((p) => p.stato === 'in_servizio').reduce((s, p) => s + (p.ore ?? 0), 0);
   return (
@@ -412,9 +393,9 @@ function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile,
             {responsabile && (
               <span className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <UserRound size={14} className="text-slate-400" />
-                <span>Responsabile</span>
+                <span>Referente</span>
                 {puoScrivere && onResponsabile ? (
-                  <select aria-label={`Responsabile di ${nome}`} value={responsabile.id ?? ''} onChange={(e) => onResponsabile(e.target.value)}
+                  <select aria-label={`Referente di ${nome}`} value={responsabile.id ?? ''} onChange={(e) => onResponsabile(e.target.value)}
                     className="min-h-[32px] rounded-lg border border-slate-300 px-2 text-xs bg-white text-slate-800">
                     <option value="">nessuno</option>
                     {responsabile.candidati.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
@@ -448,10 +429,10 @@ function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile,
               <div className="font-medium text-slate-900">{nomePersona(p.scheda)}</div>
             )}
             {responsabile?.id === p.scheda.id && (
-              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-violet-50 text-violet-700">Responsabile</span>
+              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-violet-50 text-violet-700">Referente</span>
             )}
             {!!responsabile?.viceId && responsabile.viceId === p.scheda.id && responsabile.id !== p.scheda.id && (
-              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">Vice responsabile</span>
+              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">Vice referente</span>
             )}
             {p.scheda.matricola && <div className="text-[11px] text-slate-400 tabular-nums">matr. {p.scheda.matricola}</div>}
             {p.daConfermare.length > 0 && (
@@ -469,11 +450,11 @@ function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile,
           <td className="px-3 py-2.5 text-right">
             {puoScrivere && (
               <span className="inline-flex flex-wrap justify-end gap-1.5">
-                <button type="button" onClick={() => onCorreggi(p.scheda.id)}
+                {onScheda && <button type="button" onClick={() => onScheda(p.scheda.id, { modifica: true })}
                   title="Correggi i dati: nome, livello e, finché lo studio non manda i documenti, negozio, contratto, ore e date"
                   className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">
                   Modifica
-                </button>
+                </button>}
                 {p.stato !== 'cessato' && (
                   <button type="button" onClick={() => onModifica(p.scheda.id, p.stato === 'scaduto' ? 'proroga' : null)}
                     className="text-xs font-medium px-2.5 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50">

@@ -52,6 +52,7 @@ const SOURCE_TO_GUIDES = {
   'src/components/PaymentAnomaliesPanel.tsx': ['banche'],
   'src/pages/AICategoriePage.tsx': ['ai-categorie'],
   'src/pages/Dipendenti.tsx': ['dipendenti'],
+  'src/pages/SchedaDipendente.tsx': ['dipendenti'],
   'src/pages/ContoEconomico.tsx': ['conto-economico'],
   'src/pages/BudgetControl.tsx': ['budget'],
   'src/pages/LiquidazioneIva.tsx': ['liquidazione-iva'],

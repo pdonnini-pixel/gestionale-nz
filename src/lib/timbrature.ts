@@ -338,7 +338,7 @@ export const ETICHETTA_ESITO: Record<EsitoGiorno, string> = {
 // privacy, migration 402): la malattia segue i canali aziendali, non l'app.
 export const CAUSALI_USCITA: Record<'personale' | 'accordo', string> = {
   personale: 'Motivo personale (permesso)',
-  accordo: "D'accordo con il responsabile",
+  accordo: "D'accordo con il referente",
 }
 /** Solo per leggere i casi registrati prima della 402. */
 export const CAUSALE_STORICA_MALATTIA = 'Sto male (causale non più in uso)'
