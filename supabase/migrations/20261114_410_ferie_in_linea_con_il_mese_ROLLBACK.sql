@@ -18,6 +18,10 @@ CREATE TABLE public._bkp_410_leave_requests AS
    WHERE plan_id IS NOT NULL OR origine = 'piano_mese';
 ALTER TABLE public._bkp_410_leave_requests ENABLE ROW LEVEL SECURITY;
 
+DROP FUNCTION IF EXISTS public.turni_proposti_riscrivi(uuid, date[], jsonb, jsonb);
+DROP FUNCTION IF EXISTS public.ferie_proposta_sposta(uuid, date);
+DROP FUNCTION IF EXISTS public.ferie_proposta_togli(uuid);
+DROP FUNCTION IF EXISTS public.ferie_proposta_mia(uuid, boolean);
 DROP FUNCTION IF EXISTS public.ferie_proposta_approva(uuid, uuid[], text);
 DROP FUNCTION IF EXISTS public.ferie_proposta_approva(uuid, uuid[]);
 

@@ -118,16 +118,54 @@ export async function togliProposteDelPiano(planId: string): Promise<void> {
   if (error) throw error;
 }
 
-/** Toglie una proposta (la bozza intera: è di una persona e di un giorno). */
+/** La funzione non c'è su questo database (migration non applicata): si torna alle scritture dirette. */
+const funzioneMancante = (e: { code?: string; message?: string } | null): boolean =>
+  !!e && (e.code === 'PGRST202' || e.code === '42883' || /could not find the function/i.test(e.message ?? ''));
+
+/** Chi può decidere le ferie (Super Advisor, contabile, COO, elenco HR): può anche spostare e togliere le proposte del piano. */
+export async function puoDecidereFerie(): Promise<boolean> {
+  const { data, error } = await db.rpc('posso_decidere_ferie');
+  return !error && data === true;
+}
+
+/**
+ * Toglie una proposta (la bozza intera: è di una persona e di un giorno). Passa da
+ * ferie_proposta_togli, che vale per chi può decidere le ferie anche con un profilo che le
+ * richieste non le scrive; dove la funzione manca resta la cancellazione dalla tabella.
+ */
 export async function togliProposta(requestId: string): Promise<void> {
+  const r = await db.rpc('ferie_proposta_togli', { p_request_id: requestId });
+  if (!r.error) return;
+  if (!funzioneMancante(r.error)) throw r.error;
   const { error } = await db.from('leave_requests').delete().eq('id', requestId).eq('origine', 'piano_mese').eq('stato', 'bozza');
   if (error) throw error;
 }
 
-/** Sposta una proposta a un altro giorno. */
+/** Sposta una proposta a un altro giorno: il giorno nuovo lo controlla ferie_proposta_sposta (stesso ripiego di togliProposta). */
 export async function spostaProposta(requestId: string, nuovaData: string): Promise<void> {
+  const r = await db.rpc('ferie_proposta_sposta', { p_request_id: requestId, p_data: nuovaData });
+  if (!r.error) return;
+  if (!funzioneMancante(r.error)) throw r.error;
   const { error } = await db.from('leave_request_days').update({ data: nuovaData }).eq('request_id', requestId);
   if (error) throw error;
+}
+
+export interface TurnoDaScrivere { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; ore_straordinario: number }
+
+/**
+ * Rifà in un colpo solo i turni proposti dal sistema ancora in bozza di un piano nelle date
+ * indicate (turni_proposti_riscrivi): mai un turno messo a mano o pubblicato, mai un mese chiuso.
+ * 'manca' = la funzione non c'è: chi scrive i turni usa le scritture dirette.
+ * 'rifiutata' = il database non ha accettato l'elenco (il motivo è in `motivo`): niente è cambiato.
+ */
+export async function riscriviTurniProposti(args: {
+  planId: string; date: string[]; turni: TurnoDaScrivere[]; riepilogo: unknown;
+}): Promise<{ esito: 'fatto' } | { esito: 'manca' } | { esito: 'rifiutata'; motivo: string }> {
+  const { error } = await db.rpc('turni_proposti_riscrivi', { p_plan_id: args.planId, p_date: args.date, p_turni: args.turni, p_riepilogo: args.riepilogo });
+  if (!error) return { esito: 'fatto' };
+  if (funzioneMancante(error)) return { esito: 'manca' };
+  if (error.code === '22023') return { esito: 'rifiutata', motivo: error.message };
+  throw error;
 }
 
 /** Approva una proposta: diventa una richiesta vera, decisa con la scala di chi può decidere. */

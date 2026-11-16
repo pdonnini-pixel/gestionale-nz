@@ -40,7 +40,7 @@ import {
   quadroPersona, scegliGiorni, rifinisciProposte, misuraPiano, maturaIlMese, messaggioDopoModifica, type GiornoFerieEsistente, type PropostaFerie, type RateoPersona, type RestoFerie,
 } from '../lib/ferieInLinea';
 import {
-  caricaRatei, caricaGiorniConVoce, eProposta, salvaProposte, togliProposteDelPiano, togliProposta, spostaProposta, approvaProposta, type GiornoFerieDb,
+  caricaRatei, caricaGiorniConVoce, eProposta, salvaProposte, togliProposteDelPiano, togliProposta, spostaProposta, approvaProposta, puoDecidereFerie, riscriviTurniProposti, type GiornoFerieDb,
 } from '../lib/ferieInLineaDb';
 import { caricaRegoleFerie } from '../lib/regoleNuoveDb';
 import { esitoRichiesta, regoleFerieDaRiga, type EventoFerie, type RegoleFerie } from '../lib/ferieRegole';
@@ -198,6 +198,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   // Ferie e permessi in linea con il mese (Patrizio, 14/11/2026; migration 410): i ratei del tabulato
   // delle paghe e tutti i giorni di ferie con la voce. Dove la 410 manca non si propone niente.
   const [ha410, setHa410] = useState(false);
+  // chi può decidere le ferie (anche l'elenco HR con un profilo di sola lettura) approva, sposta e toglie le proposte
+  const [decideFerie, setDecideFerie] = useState(false);
   const [ratei, setRatei] = useState<{ disponibile: boolean; ratei: RateoPersona[] }>({ disponibile: false, ratei: [] });
   const [giorniVoce, setGiorniVoce] = useState<GiornoFerieDb[]>([]);
   const [giorniMax, setGiorniMax] = useState(6);
@@ -223,13 +225,15 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const carica = useCallback(async () => {
     setCaricamento(true);
     const settimaneMese = [...new Set(dateMese.map(lunediDi))].flatMap(giorniDellaSettimana);
-    const [p, hr, ch, disp, tr] = await Promise.all([
+    const [p, hr, ch, disp, tr, df] = await Promise.all([
       supabase.from('shift_plans').select('*').eq('company_id', companyId).eq('outlet_id', outletId).eq('mese', `${mese}-01`).order('created_at'),
       supabase.rpc('organico_e_hr'),
       supabase.rpc('turni_mese_chiuso', { p_company: companyId, p_data: `${mese}-01` }),
       caricaDisponibilita(companyId).catch(() => new Map<string, Accordo>()),
       caricaTrasferte(companyId, settimaneMese[0], settimaneMese[settimaneMese.length - 1]).catch(() => [] as Trasferta[]),
+      puoDecidereFerie().catch(() => false),
     ]);
+    setDecideFerie(df);
     setDisponibilita(disp);
     setTrasferte(tr);
     if (p.error) toast({ type: 'error', message: `Piani non caricati: ${p.error.message}` });
@@ -959,18 +963,6 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const date = new Set(cosa === 'mese' ? dateMese : cosa.flatMap(giorniDellaSettimana).filter((d) => dateMese.includes(d)));
     const vecchi = turniVivi.filter((t) => t.origine === 'proposta' && t.stato === 'bozza' && date.has(t.data)).map((t) => t.id);
     const nuovi = esito.turni.filter((t) => date.has(t.data) && !t.employeeId.startsWith(ID_NUOVA));
-    if (vecchi.length) {
-      const del = await supabase.from('shifts').delete().in('id', vecchi);
-      if (del.error) throw new Error(`i turni di prima non si sono tolti: ${del.error.message}`);
-    }
-    if (nuovi.length) {
-      const ins = await supabase.from('shifts').insert(nuovi.map((t) => ({
-        company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data, inizio: t.inizio, fine: t.fine,
-        pausa_minuti: t.pausaMinuti, origine: 'proposta', stato: 'bozza', plan_id: pianoAperto.id,
-        straordinario: (esito.straordinariTurni?.get(t) ?? 0) > 0, ore_straordinario: esito.straordinariTurni?.get(t) ?? 0,
-      })));
-      if (ins.error) throw new Error(`i turni vecchi sono tolti ma quelli nuovi non si sono salvati: ${ins.error.message}`);
-    }
     // il riepilogo del piano segue il ricalcolo; le ore dei turni fermi tornano fra quelle di contratto e in turno
     const oreFerme = (id: string) => fermi.filter((t) => t.employee_id === id && t.data.startsWith(mese)).reduce((a, t) => a + oreLavorate({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti ?? 0 }), 0);
     const riepilogo: Riepilogo = {
@@ -985,6 +977,30 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       })),
       senzaRiposo: esito.senzaRiposo?.length ? esito.senzaRiposo.map((x) => ({ nome: nomeDi(x.employeeId), lunedi: x.lunedi })) : undefined,
     };
+    // Prima la funzione del database (410): toglie i turni di prima e scrive quelli nuovi in un colpo solo, e
+    // vale anche per chi decide le ferie con un profilo che i turni non li scrive. Dove manca, o se rifiuta
+    // un elenco che chi gestisce i turni può comunque scrivere, restano le scritture dirette di prima.
+    const scritto = await riscriviTurniProposti({
+      planId: pianoAperto.id, date: [...date].sort(),
+      turni: nuovi.map((t) => ({ employee_id: t.employeeId, data: t.data, inizio: t.inizio, fine: t.fine, pausa_minuti: t.pausaMinuti, ore_straordinario: esito.straordinariTurni?.get(t) ?? 0 })),
+      riepilogo,
+    });
+    if (scritto.esito === 'fatto') return true;
+    if (!puoScrivere) {
+      throw new Error(scritto.esito === 'rifiutata' ? scritto.motivo : 'con il tuo profilo i turni li rifà chi li gestisce: chiedi di premere «Ricalcola il mese»');
+    }
+    if (vecchi.length) {
+      const del = await supabase.from('shifts').delete().in('id', vecchi);
+      if (del.error) throw new Error(`i turni di prima non si sono tolti: ${del.error.message}`);
+    }
+    if (nuovi.length) {
+      const ins = await supabase.from('shifts').insert(nuovi.map((t) => ({
+        company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data, inizio: t.inizio, fine: t.fine,
+        pausa_minuti: t.pausaMinuti, origine: 'proposta', stato: 'bozza', plan_id: pianoAperto.id,
+        straordinario: (esito.straordinariTurni?.get(t) ?? 0) > 0, ore_straordinario: esito.straordinariTurni?.get(t) ?? 0,
+      })));
+      if (ins.error) throw new Error(`i turni vecchi sono tolti ma quelli nuovi non si sono salvati: ${ins.error.message}`);
+    }
     // se il riepilogo non si salva i turni sono comunque giusti: resta quello di prima
     await supabase.from('shift_plans').update({ riepilogo } as never).eq('id', pianoAperto.id);
     return true;
@@ -1687,7 +1703,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       {mostraInLinea && pianoAperto && (
         <>
           <FerieInLinea righe={righeInLinea} nessunTabulato={ratei.ratei.length === 0} costo={pianoAperto.riepilogo.ferieInLinea} resti={pianoAperto.riepilogo.ferieInLinea?.resti}
-            puoModificare={puoModificare} occupato={!!lavoro}
+            puoModificare={!chiuso && (puoModificare || decideFerie)} occupato={!!lavoro}
             onApprova={approvaUna} onApprovaTutte={approvaTutte} onSposta={spostaUna} onTogli={togliUna} onRicalcolaMese={ricalcolaMese} />
           {!pianoAperto.riepilogo.ferieInLinea && (
             <p className="text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">

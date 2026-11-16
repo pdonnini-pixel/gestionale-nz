@@ -32407,6 +32407,9 @@ export type Database = {
       payroll_sync_all: { Args: never; Returns: Json }
       payroll_sync_now: { Args: never; Returns: Json }
       ferie_proposta_approva: { Args: { p_giorni?: string[]; p_motivo?: string; p_request_id: string }; Returns: string }
+      ferie_proposta_sposta: { Args: { p_data: string; p_request_id: string }; Returns: undefined }
+      ferie_proposta_togli: { Args: { p_request_id: string }; Returns: undefined }
+      turni_proposti_riscrivi: { Args: { p_date: string[]; p_plan_id: string; p_riepilogo?: Json; p_turni: Json }; Returns: number }
       posso_decidere_ferie: { Args: never; Returns: boolean }
       project_cash_closing_to_daily_revenue: {
         Args: { p_closing_id: string }
