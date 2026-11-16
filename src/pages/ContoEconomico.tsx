@@ -35,6 +35,7 @@ import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark
 // pdfjs-dist (~350KB gzip) caricata solo all'apertura di un allegato PDF
 const PdfViewer = React.lazy(() => import('../components/PdfViewer'))
 import { Modal } from '../components/ui/Modal'
+import { dataIt } from '../lib/periodoVuoto'
 import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
 
 // ===== TYPES =====
@@ -358,7 +359,7 @@ export default function ContoEconomico() {
   const { hasRole } = useRole()
   const labels = useCompanyLabels()
   const COMPANY_ID = profile?.company_id
-  const { year, quarter, getDateRange, setYear } = usePeriod()
+  const { year, quarter, getDateRange, setYear, setQuarter } = usePeriod()
   // periodType persistito in URL come ?periodo=… (default 'annuale')
   const [searchParams, setSearchParams] = useSearchParams()
   const periodoParam = searchParams.get('periodo')
@@ -424,6 +425,9 @@ export default function ContoEconomico() {
   type CashDataT = { monthly: CashMonth[]; byCategory: CashCat[]; totals: { entrate: number; uscite: number; netto: number }; count: number; hasCategorized: boolean } | null
   const [cashData, setCashData] = useState<CashDataT>(null)
   const [cashLoading, setCashLoading] = useState(false)
+  // Data dell'ultimo movimento di cassa in qualunque periodo: se quello a video e'
+  // vuoto si porta li', invece di dire «nessun dato importato» (16/11/2026).
+  const [ultimoCassa, setUltimoCassa] = useState<string | null>(null)
 
   // Riconciliazione Bilancio data
   const [riconData, setRiconData] = useState<RiconData | null>(null)
@@ -885,10 +889,19 @@ export default function ContoEconomico() {
       if (error) throw error
 
       if (!data || data.length === 0) {
+        const { data: ult } = await supabase
+          .from('cash_movements')
+          .select('date')
+          .eq('company_id', COMPANY_ID!)
+          .not('date', 'is', null)
+          .order('date', { ascending: false })
+          .limit(1)
+        setUltimoCassa(((ult || []) as { date: string | null }[])[0]?.date ?? null)
         setCashData({ monthly: [], byCategory: [], totals: { entrate: 0, uscite: 0, netto: 0 }, count: 0, hasCategorized: false })
         setCashLoading(false)
         return
       }
+      setUltimoCassa(null)
 
       // Aggregate monthly
       type MonthAgg = { mese: number; meseLabel: string; entrate: number; uscite: number; netto: number }
@@ -1970,6 +1983,19 @@ export default function ContoEconomico() {
             <div className="flex items-center justify-center py-8">
               <Loader2 size={24} className="animate-spin text-emerald-600" />
               <span className="ml-2 text-slate-600">Caricamento movimenti bancari...</span>
+            </div>
+          ) : cashData && cashData.count === 0 && ultimoCassa ? (
+            // Periodo a video vuoto, movimenti in un altro periodo: si dice e si porta
+            // li' (come «Vedi anno» della vista per competenza), niente invito a importare.
+            <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
+              <Banknote size={32} className="mx-auto mb-3 text-slate-300" />
+              <p className="text-sm font-medium text-slate-600">I movimenti bancari di {getDateRange().label} non sono ancora caricati</p>
+              <p className="text-xs text-slate-500 mt-1">L'ultimo movimento caricato è del <strong>{dataIt(ultimoCassa)}</strong>.</p>
+              <button
+                onClick={() => { setQuarter('year'); setYear(Number(ultimoCassa.slice(0, 4))) }}
+                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 transition">
+                <ArrowUpRight size={15} /> Vai al {ultimoCassa.slice(0, 4)}
+              </button>
             </div>
           ) : !cashData || cashData.count === 0 ? (
             <div className="bg-white rounded-xl border border-slate-200 p-8 text-center">
