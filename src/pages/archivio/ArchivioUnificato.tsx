@@ -75,10 +75,23 @@ export default function ArchivioUnificato({ companyId, showToast, onApriFattura 
       .limit(5000);
     if (errVecchi) console.warn('[archivio] versioni sostituite non lette, le mostro tutte:', errVecchi.message);
     const sostituiti = new Set(((vecchi || []) as { id: string }[]).map((v) => v.id));
+    // Anche un bilancio ricaricato segna il precedente come 'sostituito'
+    // (ContoEconomico, nessuna cancellazione): in archivio resta solo il corrente.
+    const { data: bilVecchi, error: errBil } = await supabase
+      .from('balance_sheet_imports')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('status', 'sostituito')
+      .limit(5000);
+    if (errBil) console.warn('[archivio] bilanci sostituiti non letti, li mostro tutti:', errBil.message);
+    const bilSostituiti = new Set(((bilVecchi || []) as { id: string }[]).map((v) => v.id));
     const tutte = ((data as unknown) as RigaArchivio[]) || [];
-    setRighe(sostituiti.size
-      ? tutte.filter((r) => !(r.fonte === 'import_documents' && r.riferimento_id && sostituiti.has(r.riferimento_id)))
-      : tutte);
+    setRighe(tutte.filter((r) => {
+      if (!r.riferimento_id) return true;
+      if (r.fonte === 'import_documents' && sostituiti.has(r.riferimento_id)) return false;
+      if (r.fonte === 'balance_sheet_imports' && bilSostituiti.has(r.riferimento_id)) return false;
+      return true;
+    }));
     setCaricando(false);
   }, [companyId, showToast]);
 
