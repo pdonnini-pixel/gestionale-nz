@@ -1168,3 +1168,56 @@ Il giro settimanale ora confronta **due** tenant, e nel suo testo c'è scritto c
 Made indietro non è un allarme: così il prossimo lunedì non si rincorre un fantasma.
 Il controllo di parità, che era il punto 7, nel giro riscritto è il **punto 8**: i
 riferimenti al «punto 7» nelle sezioni di ottobre restano come cronaca.
+
+---
+
+## Il controllo del 16/11/2026: la coda delle proposte si è svuotata da sé
+
+Otto giri riusciti dal 9 al 16 novembre, fra 160 e 179 secondi. Cinquantotto
+agganci applicati, e il numero che racconta la settimana è un altro: **le proposte
+`to_confirm` ancora aperte sono due.** Il 02/11 erano 190 righe per 110 coppie, il
+09/11 ne restavano 106.
+
+Il merito è delle due metà che si sono incontrate: la **guardia 333** non lascia
+riscrivere una proposta già in elenco, e le funzioni delle migration 360 e 361
+chiudono da sé (`superseded`) quelle superate quando il movimento si riconcilia o
+la fattura si chiude. Questa settimana hanno chiuso 41 righe, 183 in tutto. Nessuno
+ha dovuto spuntare niente a mano.
+
+### I cinquantotto agganci
+
+Ventisette dal ramo della distinta, sette con il numero di fattura in causale, sei
+dagli effetti ritirati, sei dalla distinta di rimborso, cinque a mano, tre di solo
+aggancio su fatture già pagate, due per data con fornitore e importo, uno da
+addebito diretto cumulativo, uno fuzzy confermato.
+
+Dei ventisette della distinta, **quattro avevano gemelle aperte dello stesso
+importo** (F&B Florence 230,00 con due, GRUPPO SERVIZI 315,00, LA SCOPA MAGICA
+370,00, ZUCCHETTI 297,27). Interrogando `payable_in_distinta_for_movement` sulle
+gemelle, come dice il punto 3 del giro: **nessuna era in distinta**. Candidato
+unico, agganci corretti. Fra queste c'è GRUPPO SERVIZI V070012604509, che la
+settimana scorsa era la gemella non disposta: pagata a sua volta, al suo turno.
+
+### Il ramo nuovo che vale la pena conoscere
+
+«**distinta di rimborso a Lorenzo Ceni**»: un bonifico da 136,78 a chi ha
+anticipato di tasca propria, spalmato su sei fatture di sei fornitori diversi
+(GIFET due volte, B&B Hotels, PEPPI, Ristorante dell'Autista, S&J Capital). La
+somma delle sei fa 136,78 esatti, e la causale nomina la persona e alcuni numeri di
+fattura. È lo stesso principio dei cumulativi ENEGAN: quando il documento porta la
+prova, l'aggancio non è un'ipotesi.
+
+Un caso solo merita una riga di cautela, e sta in piedi comunque: GIOVANNI
+FARINELLI 519 da 60,00, bonifico CBI anonimo da 60,50, era nata come proposta
+ambigua («più candidati»). La fattura era **già pagata**, quindi la conferma ha
+collegato il movimento senza toccare gli importi: anche se il centesimo fosse
+andato sulla gemella sbagliata, nello Scadenzario non cambia nulla.
+
+Controllo d'insieme sulle 58 fatture toccate: zero pagate più del dovuto, zero
+residui negativi, zero incoerenze di stato.
+
+### Parità
+
+NZ e Zago: **396 funzioni, impronta `4953024a5293e2e246dc61690cc1f9ee`**, identica.
+Il 09/11 erano 323: settantatré funzioni in più in una settimana, arrivate su
+entrambi insieme. Made resta fuori dal confronto per la decisione del 03/11.
