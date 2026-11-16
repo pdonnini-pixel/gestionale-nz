@@ -194,7 +194,7 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-slate-500 mt-2">La referente è il profilo «responsabile» scelto in Dipendenti → Presenze → Chi conferma. Il Super Advisor può sempre decidere.</p>
+          <p className="text-xs text-slate-500 mt-2">La referente è il profilo «referente» scelto in Dipendenti → Presenze → Chi conferma. Il Super Advisor può sempre decidere.</p>
 
           <h4 className="text-sm font-semibold text-slate-900 mt-4">Chi è HR</h4>
           <p className="text-xs text-slate-500">Vale per tutti i negozi dell’azienda. Lo cambia solo il Super Advisor. Chi è in elenco può approvare e respingere le richieste di ferie e permessi di tutti i negozi, qualunque sia il suo profilo. Finché l’elenco è vuoto, dal lato HR approva chi approvava prima.</p>
@@ -264,7 +264,7 @@ export default function FeriePermessiNegozio({ companyId, outletId, nomeNegozio,
               ? `la dipendente può chiederla come eccezione, e la decide ${chiApprovaInParole(regole.approva.eccezioni)}.`
               : 'viene rifiutata, perché nessuno approva le eccezioni.'}
           </p>
-          <p className="text-xs text-slate-500 mt-1">Responsabile e vice non possono essere assenti insieme di lunedì: la seconda richiesta viene bloccata, anche quando una delle due è scelta dal sistema perché non è ancora stata caricata.</p>
+          <p className="text-xs text-slate-500 mt-1">Referente e vice referente non possono essere assenti insieme di lunedì: la seconda richiesta viene bloccata, anche quando una delle due è scelta dal sistema perché non è ancora stata caricata.</p>
         </div>
       </div>
 

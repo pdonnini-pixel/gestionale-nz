@@ -286,7 +286,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
             </label>
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={imp.avvisa_responsabile} onChange={(e) => void salvaImp({ ...imp, avvisa_responsabile: e.target.checked })} />
-              il responsabile del negozio{responsabile ? ` (${nomi.get(responsabile) ?? 'indicato in Outlet'})` : ' (non indicato: si sceglie in Outlet)'}
+              il referente del negozio{responsabile ? ` (${nomi.get(responsabile) ?? 'indicato in Outlet'})` : ' (non indicato: si sceglie in Outlet)'}
             </label>
             {haConfermatori && (
               <label className="flex items-center gap-2">
@@ -356,7 +356,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
                     )}
                     {avvisi.filter((a) => a.employee_id === emp && (a.destinatario === 'dipendente' || a.destinatario === 'responsabile')).map((a) => (
                       <span key={`${a.tipo}-${a.destinatario}`} className="text-xs text-slate-500">
-                        avviso di {a.tipo === 'ritardo' ? 'ritardo' : 'uscita'} {a.destinatario === 'responsabile' ? 'al responsabile' : 'al dipendente'}: {ESITO_AVVISO[a.esito] ?? a.esito}
+                        avviso di {a.tipo === 'ritardo' ? 'ritardo' : 'uscita'} {a.destinatario === 'responsabile' ? 'al referente' : 'al dipendente'}: {ESITO_AVVISO[a.esito] ?? a.esito}
                       </span>
                     ))}
                   </div>
@@ -461,7 +461,7 @@ function AggiungiTimbratura({ persona, giorno, outletId, onClose, onFatto }: {
   return (
     <Modal open onClose={onClose} title={`Aggiungi timbratura · ${persona.nome}, ${giornoTesto}`} maxWidthClass="max-w-md">
       <div className="space-y-4 text-sm">
-        <p className="text-slate-600">Per i casi che nessuno ha segnalato. Resta segnata «inserita a mano», con chi e quando. Non passa dal responsabile.</p>
+        <p className="text-slate-600">Per i casi che nessuno ha segnalato. Resta segnata «inserita a mano», con chi e quando. Non passa dal referente.</p>
         <label className="flex flex-col gap-1">Tipo
           <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoTimbratura)} className="border border-slate-300 rounded-lg px-3 py-2">
             {(['entrata', 'inizio_pausa', 'fine_pausa', 'uscita'] as TipoTimbratura[]).map((t) => <option key={t} value={t}>{ETICHETTA_TIPO[t]}</option>)}
@@ -472,7 +472,7 @@ function AggiungiTimbratura({ persona, giorno, outletId, onClose, onFatto }: {
         </label>
         <label className="flex flex-col gap-1">Motivo (obbligatorio)
           <textarea value={motivo} onChange={(e) => setMotivo(e.target.value)} rows={2} maxLength={500}
-            placeholder="Per esempio: dimenticata, confermato dal responsabile al telefono" className="border border-slate-300 rounded-lg px-3 py-2" />
+            placeholder="Per esempio: dimenticata, confermato dal referente al telefono" className="border border-slate-300 rounded-lg px-3 py-2" />
         </label>
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="border border-slate-300 rounded-lg px-4 py-2">Annulla</button>

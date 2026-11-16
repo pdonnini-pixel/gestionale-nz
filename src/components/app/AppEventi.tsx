@@ -37,9 +37,9 @@ export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string
   // Entrata dimenticata e segnata a posteriori (migration 382)
   if (e.tipo === 'entrata_dichiarata') {
     const titolo = ora ? `Entrata delle ${ora} segnata` : 'Entrata segnata'
-    if (e.stato === 'confermato') return { titolo, dettaglio: 'Confermata dal responsabile.' }
+    if (e.stato === 'confermato') return { titolo, dettaglio: 'Confermata dal referente.' }
     if (e.stato === 'respinto') return { titolo, dettaglio: 'Non confermata: la giornata resta senza entrata, se ne occupa chi segue il personale.' }
-    return { titolo, dettaglio: `${turno}. Vale come entrata quando il responsabile la conferma.` }
+    return { titolo, dettaglio: `${turno}. Vale come entrata quando il referente la conferma.` }
   }
   if (e.stato === 'confermato') {
     const min = formatMinuti(e.minuti_confermati ?? e.minuti_proposti)
@@ -49,7 +49,7 @@ export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string
       : `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
     const dettaglio = e.esito === 'permesso' ? `${min} di permesso scalati dal saldo. Li trovi anche nella scheda Ferie.`
       : e.esito === 'malattia' ? 'Malattia registrata, con il certificato medico.'
-      : e.esito === 'ore_non_lavorate' ? (e.tipo === 'pausa_lunga' ? `${min} non lavorati, senza permesso.` : `D'accordo con il responsabile: ${min} non lavorati, senza permesso.`)
+      : e.esito === 'ore_non_lavorate' ? (e.tipo === 'pausa_lunga' ? `${min} non lavorati, senza permesso.` : `D'accordo con il referente: ${min} non lavorati, senza permesso.`)
       : e.esito === 'straordinario' ? `${min} di straordinario confermati.`
       : 'Confermato.'
     return { titolo, dettaglio }
@@ -59,30 +59,30 @@ export function testoEvento(e: EventoApp, ora?: string | null): { titolo: string
       : e.tipo === 'straordinario' ? `Uscita ${formatMinuti(e.minuti)} dopo la fine del turno`
       : e.tipo === 'pausa_lunga' ? `Pausa ${formatMinuti(e.minuti)} più lunga di quella del turno`
       : `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
-    return { titolo, dettaglio: e.tipo === 'straordinario' ? 'Straordinario non confermato dal responsabile.' : 'Non confermato dal responsabile.' }
+    return { titolo, dettaglio: e.tipo === 'straordinario' ? 'Straordinario non confermato dal referente.' : 'Non confermato dal referente.' }
   }
   if (e.tipo === 'ritardo') {
     return {
       titolo: `Entrata con ${formatMinuti(e.minuti)} di ritardo`,
-      dettaglio: `${turno}. Oltre la tolleranza: ${formatMinuti(e.minuti_proposti)} di permesso, se il responsabile conferma.`,
+      dettaglio: `${turno}. Oltre la tolleranza: ${formatMinuti(e.minuti_proposti)} di permesso, se il referente conferma.`,
     }
   }
   if (e.tipo === 'pausa_lunga') {
     return {
       titolo: `Pausa ${formatMinuti(e.minuti)} più lunga di quella del turno`,
-      dettaglio: `${turno}. Il responsabile decide se scalarli come permesso o lasciarli ore non lavorate. Se c'è un motivo, scrivilo qui.`,
+      dettaglio: `${turno}. Il referente decide se scalarli come permesso o lasciarli ore non lavorate. Se c'è un motivo, scrivilo qui.`,
     }
   }
   if (e.tipo === 'uscita_anticipata') {
     const titolo = `Uscita ${formatMinuti(e.minuti)} prima della fine del turno`
-    if (e.causale === 'malattia') return { titolo, dettaglio: `${turno}. Sto male (causale non più in uso): se il responsabile conferma è un permesso di ${formatMinuti(e.minuti_proposti)}; diventa malattia solo con il certificato medico, da portare al responsabile.` }
-    if (e.causale === 'accordo') return { titolo, dettaglio: `${turno}. D'accordo con il responsabile: la conferma lui.` }
-    if (e.causale === 'personale') return { titolo, dettaglio: `${turno}. Se il responsabile conferma, ti vengono scalati ${formatMinuti(e.minuti_proposti)} di permesso.` }
+    if (e.causale === 'malattia') return { titolo, dettaglio: `${turno}. Sto male (causale non più in uso): se il referente conferma è un permesso di ${formatMinuti(e.minuti_proposti)}; diventa malattia solo con il certificato medico, da portare al referente.` }
+    if (e.causale === 'accordo') return { titolo, dettaglio: `${turno}. D'accordo con il referente: la conferma lui.` }
+    if (e.causale === 'personale') return { titolo, dettaglio: `${turno}. Se il referente conferma, ti vengono scalati ${formatMinuti(e.minuti_proposti)} di permesso.` }
     return { titolo, dettaglio: `${turno}. Scegli il motivo dell'uscita.` }
   }
   return {
     titolo: `${formatMinuti(e.minuti_proposti)} di straordinario`,
-    dettaglio: `${turno}. Uscita ${formatMinuti(e.minuti)} dopo la fine del turno: conta tutto, se il responsabile conferma.`,
+    dettaglio: `${turno}. Uscita ${formatMinuti(e.minuti)} dopo la fine del turno: conta tutto, se il referente conferma.`,
   }
 }
 
@@ -137,7 +137,7 @@ function Evento({ e, oggi, onSalvato, ora }: { e: EventoApp; oggi: string; onSal
       )}
       {e.motivo && !mostraModulo && <p className="text-sm text-slate-800 mt-1 bg-slate-50 rounded-xl px-3 py-2">«{e.motivo}»</p>}
       {e.nota_decisione && e.stato !== 'da_confermare' && (
-        <p className="text-sm text-slate-600 mt-2">Il responsabile: «{e.nota_decisione}»</p>
+        <p className="text-sm text-slate-600 mt-2">Il referente: «{e.nota_decisione}»</p>
       )}
 
       {mostraModulo ? (

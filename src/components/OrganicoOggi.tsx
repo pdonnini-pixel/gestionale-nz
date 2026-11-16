@@ -159,10 +159,10 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
     const { error } = await supabase.rpc('organico_imposta_referente_dal', {
       p_outlet_id: outletId, p_employee_id: sqlNull(employeeId || null), p_dal: oggiRoma(),
     });
-    if (error) { toast({ type: 'error', message: `Responsabile non salvato: ${error.message}` }); return; }
+    if (error) { toast({ type: 'error', message: `Referente non salvato: ${error.message}` }); return; }
     const n = nomeNegozio(negozioDi(outletId));
     const chi = employeeId ? persone.find((p) => p.scheda.id === employeeId) : undefined;
-    toast({ type: 'success', message: chi ? `${nomePersona(chi.scheda)} è responsabile di ${n} da oggi.` : `${n} è senza responsabile da oggi.` });
+    toast({ type: 'success', message: chi ? `${nomePersona(chi.scheda)} è referente di ${n} da oggi.` : `${n} è senza referente da oggi.` });
     await carica();
   };
 
@@ -393,9 +393,9 @@ function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile,
             {responsabile && (
               <span className="flex flex-wrap items-center gap-2 text-xs text-slate-600">
                 <UserRound size={14} className="text-slate-400" />
-                <span>Responsabile</span>
+                <span>Referente</span>
                 {puoScrivere && onResponsabile ? (
-                  <select aria-label={`Responsabile di ${nome}`} value={responsabile.id ?? ''} onChange={(e) => onResponsabile(e.target.value)}
+                  <select aria-label={`Referente di ${nome}`} value={responsabile.id ?? ''} onChange={(e) => onResponsabile(e.target.value)}
                     className="min-h-[32px] rounded-lg border border-slate-300 px-2 text-xs bg-white text-slate-800">
                     <option value="">nessuno</option>
                     {responsabile.candidati.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
@@ -429,10 +429,10 @@ function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile,
               <div className="font-medium text-slate-900">{nomePersona(p.scheda)}</div>
             )}
             {responsabile?.id === p.scheda.id && (
-              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-violet-50 text-violet-700">Responsabile</span>
+              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-violet-50 text-violet-700">Referente</span>
             )}
             {!!responsabile?.viceId && responsabile.viceId === p.scheda.id && responsabile.id !== p.scheda.id && (
-              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">Vice responsabile</span>
+              <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">Vice referente</span>
             )}
             {p.scheda.matricola && <div className="text-[11px] text-slate-400 tabular-nums">matr. {p.scheda.matricola}</div>}
             {p.daConfermare.length > 0 && (

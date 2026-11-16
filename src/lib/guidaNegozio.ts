@@ -21,8 +21,8 @@ export function ruoloGuida(employeeId: Id, responsabileId: Id, viceId: Id): Ruol
 
 /** L'etichetta da mostrare accanto al nome («Responsabile», «Vice responsabile»). */
 export function etichettaRuoloGuida(ruolo: RuoloGuida | null): string | null {
-  if (ruolo === 'responsabile') return 'Responsabile';
-  if (ruolo === 'vice') return 'Vice responsabile';
+  if (ruolo === 'responsabile') return 'Referente';
+  if (ruolo === 'vice') return 'Vice referente';
   return null;
 }
 
@@ -37,10 +37,10 @@ export function guidaIncompleta(responsabileId: Id, viceId: Id): boolean {
 
 /** Cosa manca, in parole: per l'avviso nella pagina. null se ci sono tutte e due. */
 export function cosaMancaAllaGuida(responsabileId: Id, viceId: Id): string | null {
-  if (!responsabileId && !viceId) return 'Mancano la responsabile e il vice responsabile';
-  if (!responsabileId) return 'Manca la responsabile';
-  if (!viceId) return 'Manca il vice responsabile';
-  if (responsabileId === viceId) return 'Responsabile e vice sono la stessa persona';
+  if (!responsabileId && !viceId) return 'Mancano la referente e la vice referente';
+  if (!responsabileId) return 'Manca la referente';
+  if (!viceId) return 'Manca la vice referente';
+  if (responsabileId === viceId) return 'Referente e vice referente sono la stessa persona';
   return null;
 }
 

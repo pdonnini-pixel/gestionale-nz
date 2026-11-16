@@ -356,7 +356,7 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
                       { k: 'moda' as const, t: 'Gli ingressi MODA aggiungono persone', d: true },
                       { k: 'tutti' as const, t: 'Lavorano tutte, senza riposi in questi giorni', d: true },
                       { k: 'straordinari' as const, t: 'Straordinari ammessi', d: true },
-                      { k: 'guida' as const, t: 'Responsabile e vice: una apre, l’altra chiude, a turno', d: true },
+                      { k: 'guida' as const, t: 'Referente e vice referente: una apre, l’altra chiude, a turno', d: true },
                       { k: 'ferie' as const, t: 'Richieste di ferie ammesse', d: false },
                       { k: 'permessi' as const, t: 'Richieste di permesso ammesse', d: false },
                     ]).map((x) => (

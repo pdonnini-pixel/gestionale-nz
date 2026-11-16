@@ -264,7 +264,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
     setMessaggio(null)
     const { error } = await supabase.rpc('app_dipendente_dichiara_entrata', { p_ora: sceltaEntrata })
     if (error) { setMessaggio({ ok: false, testo: error.message }); return }
-    setMessaggio({ ok: true, testo: `Entrata delle ${sceltaEntrata} segnata: la conferma il responsabile.` })
+    setMessaggio({ ok: true, testo: `Entrata delle ${sceltaEntrata} segnata: la conferma il referente.` })
     setOraEntrata(null)
     void aggiorna()
   }
@@ -325,7 +325,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
           <p className="font-semibold text-amber-900">Non risulta la tua entrata di oggi</p>
           <p className="text-sm text-amber-800">
             Turno {turnoOggi.inizio.slice(0, 5)} - {turnoOggi.fine.slice(0, 5)}. Se sei in negozio, avvicina il QR al telefono del negozio.
-            Se eri già entrato, segna l'ora: la conferma il responsabile.
+            Se eri già entrato, segna l'ora: la conferma il referente.
           </p>
           <div className="flex gap-2 items-center">
             <span className="text-sm text-amber-900">Sono entrato alle</span>
