@@ -32,6 +32,8 @@ type Props = {
    *  i documenti dello studio. Per chi li aspetta passa tutto da qui, cosi'
    *  scheda e assunzione restano allineate. */
   onAltriDati?: () => void;
+  /** dentro la pagina della persona (16/11/2026): niente finestra, «Annulla» chiude la modifica */
+  inline?: boolean;
 };
 
 const LIVELLI = ['1 Livello', '2 Livello', '3 Livello', '4 Livello', '5 Livello', '6 Livello', '7 Livello'];
@@ -47,7 +49,7 @@ export function assunzioneInAttesa(eventi: EventoOrganico[], employeeId: string)
   return lista[0] ?? null;
 }
 
-export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, negozi, onAltriDati }: Props) {
+export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, negozi, onAltriDati, inline = false }: Props) {
   const { toast } = useToast();
   const { profile } = useAuth();
   const autore = [profile?.first_name, profile?.last_name].filter(Boolean).join(' ') || profile?.email || '';
@@ -114,8 +116,8 @@ export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, n
   const negoziScelta = negozi.filter((n) => n.is_active !== false || n.id === negozio);
   const livelli = livello && !LIVELLI.includes(livello) ? [livello, ...LIVELLI] : LIVELLI;
 
-  return (
-    <Modal open onClose={onClose} title={`Modifica i dati di ${nomePersona(s)}`} maxWidthClass="max-w-2xl" closeOnBackdrop={false}>
+  const corpo = (
+    <>
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div><label className={labelCls} htmlFor="cp-cognome">Cognome</label><input id="cp-cognome" className={inputCls} value={cognome} onChange={(e) => setCognome(e.target.value)} /></div>
@@ -181,6 +183,12 @@ export default function CorreggiPersona({ onClose, onSalvato, persona, eventi, n
           {salvo ? 'Salvo…' : 'Salva'}
         </button>
       </div>
+    </>
+  );
+  if (inline) return <div>{corpo}</div>;
+  return (
+    <Modal open onClose={onClose} title={`Modifica i dati di ${nomePersona(s)}`} maxWidthClass="max-w-2xl" closeOnBackdrop={false}>
+      {corpo}
     </Modal>
   );
 }
