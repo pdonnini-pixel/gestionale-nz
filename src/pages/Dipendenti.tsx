@@ -1553,9 +1553,19 @@ function PanoramicaTab(props: {
       </div>
 
       {empty ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
-          Nessun dato di personale per il {year}. Importa i netti mensili dalla tab “Costi &amp; cedolini”.
-        </div>
+        // Zago 16/11/2026: rientrando la pagina apre il mese in corso; se i cedolini
+        // sono di un mese prima, il riquadro diceva «nessun dato per il 2026» e
+        // sembrava che il caricamento fosse andato perso. Ora porta al mese caricato.
+        ultimoMese && onVaiUltimo ? (
+          <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center space-y-3">
+            <p className="text-slate-600">I cedolini di {monthLabel} {year} non sono ancora caricati. L'ultimo mese caricato è <strong>{ultimoMese}</strong>.</p>
+            <button type="button" onClick={onVaiUltimo} className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium">Vai a {ultimoMese}</button>
+          </div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">
+            Nessun dato di personale per il {year}. Importa i netti mensili dalla tab “Costi &amp; cedolini”.
+          </div>
+        )
       ) : (
         <>
           {/* Costo per outlet — barre orizzontali, una per outlet col suo colore */}
