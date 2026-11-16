@@ -22,6 +22,7 @@ import SyncStatusBadge from '../components/SyncStatusBadge'
 import PaymentAnomaliesPanel from '../components/PaymentAnomaliesPanel'
 import NotuleDuplicatePanel from '../components/NotuleDuplicatePanel'
 import { archiviaFile } from '../lib/archivioFile'
+import { processImport } from '../lib/parsers/importEngine'
 import { ultimoAnnoConDati } from '../lib/periodoVuoto'
 import { useAuth } from '../hooks/useAuth'
 import {
@@ -348,11 +349,25 @@ function FatturePassive() {
       const dati = datiDaXml(xmlContent)
       const prima = await cercaFatturaInDb(dati)
 
-      type EsitoSdi = { data?: { action?: string; invoice?: { invoice_number?: string } } }
-      let esito: EsitoSdi | null = null
+      // Prima passava da sdi-receive, che e' il webhook dello SDI e legge il
+      // corpo come XML grezzo: la pagina gli mandava un JSON e nella fattura
+      // finiva il JSON (16/11/2026). Ora usa lo stesso motore dell'Hub
+      // importazioni (processInvoiceXML): controllo dei doppioni per P.IVA,
+      // numero e data, fornitore agganciato per P.IVA, scadenze collegate.
       let errore: Error | null = null
       try {
-        esito = await callEdgeFunction('sdi-receive', 'POST', { xmlContent }) as EsitoSdi
+        if (prima && !prima.has_xml) {
+          // La fattura c'e' gia' (arrivata dal cassetto) ma senza XML: si aggiunge solo quello.
+          const { error: upErr } = await supabase.from('electronic_invoices')
+            .update({ xml_content: xmlContent }).eq('id', prima.id).is('xml_content', null)
+          if (upErr) errore = new Error(upErr.message)
+        } else if (!prima) {
+          if (!profile?.company_id) throw new Error('profilo senza azienda')
+          const res = await processImport({ file, sourceType: 'invoices', context: { company_id: profile.company_id } })
+          if (!res.success) {
+            errore = new Error(res.errors.map(x => String((x as { message?: unknown }).message ?? '')).filter(Boolean).join('; ') || 'importazione non riuscita')
+          }
+        }
       } catch (err: unknown) {
         errore = err as Error
       }
@@ -376,11 +391,11 @@ function FatturePassive() {
         if (archiviato.errore) toast({ type: 'warning', message: `Fattura importata, ma il file XML non è finito in archivio (${archiviato.errore}).` })
       }
 
-      const numero = esito?.data?.invoice?.invoice_number || dati.numero || ''
+      const numero = dopo?.invoice_number || dati.numero || ''
       if (nuova) toast({ type: 'success', message: `Fattura importata: ${numero}` })
       else if (xmlArrivato) toast({ type: 'success', message: `Fattura ${numero}: aggiunto l'XML che mancava.` })
       else if (prima) toast({ type: 'info', message: `La fattura ${numero} era già presente: niente da aggiungere.` })
-      else if (esito?.data) toast({ type: 'success', message: `Fattura ${esito.data.action === 'created' ? 'importata' : 'aggiornata'}: ${numero}` })
+      else toast({ type: 'warning', message: `La fattura ${numero} non risulta salvata: riprova o caricala dall'Hub importazioni.` })
       loadInvoices()
     } catch (err: unknown) {
       toast({ type: 'error', message: 'Errore upload: ' + (err as Error).message })

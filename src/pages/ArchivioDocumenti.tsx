@@ -614,6 +614,8 @@ function ArchivioTab({ companyId, showToast }: { companyId: string | undefined; 
         .from('balance_sheet_imports')
         .select('*')
         .eq('company_id', companyId)
+        // un bilancio ricaricato tiene il precedente come 'sostituito': qui solo il corrente
+        .or('status.is.null,status.neq.sostituito')
         .order('created_at', { ascending: false })
         .limit(50);
       setBalanceSheets((data || []) as BalanceSheetRow[]);
