@@ -355,18 +355,26 @@ function FatturePassive() {
       // importazioni (processInvoiceXML): controllo dei doppioni per P.IVA,
       // numero e data, fornitore agganciato per P.IVA, scadenze collegate.
       let errore: Error | null = null
+      let daFare: string | null = null   // salvata, ma qualcosa non e' entrato (es. una scadenza)
+      let giaPresente = false            // il motore l'ha riconosciuta come doppione
       try {
         if (prima && !prima.has_xml) {
           // La fattura c'e' gia' (arrivata dal cassetto) ma senza XML: si aggiunge solo quello.
-          const { error: upErr } = await supabase.from('electronic_invoices')
-            .update({ xml_content: xmlContent }).eq('id', prima.id).is('xml_content', null)
+          const { data: toccate, error: upErr } = await supabase.from('electronic_invoices')
+            .update({ xml_content: xmlContent }).eq('id', prima.id).is('xml_content', null).select('id')
           if (upErr) errore = new Error(upErr.message)
+          else if (!toccate || toccate.length === 0) errore = new Error("l'XML non e' stato aggiunto alla fattura")
         } else if (!prima) {
           if (!profile?.company_id) throw new Error('profilo senza azienda')
           const res = await processImport({ file, sourceType: 'invoices', context: { company_id: profile.company_id } })
+          const testi = (righe: Record<string, unknown>[] | undefined) =>
+            (righe || []).map(x => String((x as { message?: unknown }).message ?? '')).filter(Boolean).join('; ')
           if (!res.success) {
-            errore = new Error(res.errors.map(x => String((x as { message?: unknown }).message ?? '')).filter(Boolean).join('; ') || 'importazione non riuscita')
+            errore = new Error(testi(res.errors) || 'importazione non riuscita')
+          } else if (res.errors.length > 0) {
+            daFare = testi(res.errors) || 'una parte della fattura non e\' stata salvata'
           }
+          giaPresente = /gi[aà] presente/i.test(testi(res.warnings))
         }
       } catch (err: unknown) {
         errore = err as Error
@@ -377,6 +385,7 @@ function FatturePassive() {
       const nuova = !prima && !!dopo
       const xmlArrivato = !!prima && !prima.has_xml && !!dopo?.has_xml
       if (errore && !nuova && !xmlArrivato) throw errore
+      if (errore && (nuova || xmlArrivato)) daFare = daFare ?? errore.message
 
       // L'XML originale va in archivio solo se ha portato qualcosa: fattura nuova
       // o XML che mancava. Ricaricare la stessa fattura non lo duplica piu'.
@@ -392,9 +401,10 @@ function FatturePassive() {
       }
 
       const numero = dopo?.invoice_number || dati.numero || ''
-      if (nuova) toast({ type: 'success', message: `Fattura importata: ${numero}` })
+      if (nuova && daFare) toast({ type: 'warning', message: `Fattura ${numero} importata, ma resta da sistemare: ${daFare}. Controlla le sue scadenze nello Scadenzario.` })
+      else if (nuova) toast({ type: 'success', message: `Fattura importata: ${numero}` })
       else if (xmlArrivato) toast({ type: 'success', message: `Fattura ${numero}: aggiunto l'XML che mancava.` })
-      else if (prima) toast({ type: 'info', message: `La fattura ${numero} era già presente: niente da aggiungere.` })
+      else if (prima || giaPresente) toast({ type: 'info', message: `La fattura ${numero} era già presente: niente da aggiungere.` })
       else toast({ type: 'warning', message: `La fattura ${numero} non risulta salvata: riprova o caricala dall'Hub importazioni.` })
       loadInvoices()
     } catch (err: unknown) {
