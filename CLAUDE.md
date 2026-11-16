@@ -288,6 +288,7 @@ Ogni documento che arriva dallo studio paghe (contratti, proroghe, trasformazion
 - Ogni modifica lascia una **nota datata** con il documento di provenienza (colonna `note`), in coda alle precedenti.
 - I PDF si archiviano in `employee_documents` (bucket `employee-documents`, percorso `employee-documents/{employee_id}/{data}_{tipo}.pdf`) come **storico**: un documento nuovo si aggiunge, mai sostituisce. Si vedono nella scheda dipendente, riquadro «Documenti del rapporto».
 - Chi **manca** da una lista dello studio ma ha un contratto **non scaduto** resta attivo: la cessazione si registra solo con una data di fine vera.
+- **Il negozio del dipendente si legge dal cedolino, senza chiedere** (Patrizio, 16/11/2026: «controlli sempre il cedolino paghe per assegnare il dipendente, non me lo devi chiedere. È una regola»). Se la scheda non ha il negozio e il cedolino (filiale dell'elenco netti) lo dice, si scrive da soli, con la nota datata; un negozio messo a mano non si sovrascrive. Lo fa anche il caricamento dei netti (`ImportLane` in `Dipendenti.tsx`). Mai proporre a Patrizio «vuoi che lo sistemi?» su un dato che il cedolino già dà.
 
 ---
 

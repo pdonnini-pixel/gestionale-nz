@@ -22,6 +22,7 @@ import SyncStatusBadge from '../components/SyncStatusBadge'
 import PaymentAnomaliesPanel from '../components/PaymentAnomaliesPanel'
 import NotuleDuplicatePanel from '../components/NotuleDuplicatePanel'
 import { archiviaFile } from '../lib/archivioFile'
+import { ultimoAnnoConDati } from '../lib/periodoVuoto'
 import { useAuth } from '../hooks/useAuth'
 import {
   FileText, Upload, Send, RefreshCw, Search, Filter, ChevronDown, ChevronUp,
@@ -426,6 +427,12 @@ function FatturePassive() {
   const yearSet = useMemo(() => invoices.filter(inv =>
     yearFilter === 'ALL' || (inv.invoice_date && String(new Date(inv.invoice_date).getFullYear()) === yearFilter)
   ), [invoices, yearFilter])
+  // Anno a video senza fatture ma fatture in un altro anno: l'ultimo che ne ha,
+  // per portarci invece di dire «Nessuna fattura trovata» (16/11/2026).
+  const ultimoAnnoFatture = useMemo(() => yearFilter === 'ALL' ? null : ultimoAnnoConDati(
+    invoices.map(inv => (inv.invoice_date ? new Date(inv.invoice_date).getFullYear() : null)),
+    Number(yearFilter),
+  ), [invoices, yearFilter])
   type Stats = { total: number; totalAmount: number; totalVat: number; noteCredito: number }
   const stats = useMemo<Stats>(() => {
     const s: Stats = { total: 0, totalAmount: 0, totalVat: 0, noteCredito: 0 }
@@ -556,7 +563,24 @@ function FatturePassive() {
               {loading ? (
                 <tr><td colSpan={8} className="text-center py-12 text-slate-400"><Loader2 size={24} className="animate-spin mx-auto mb-2" />Caricamento fatture...</td></tr>
               ) : sortedFiltered.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-slate-400">Nessuna fattura trovata</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-slate-400">
+                  {invoices.length === 0 && !loadError ? (
+                    // Solo senza nessuna fattura in nessun anno si invita a importare.
+                    <>Nessuna fattura passiva caricata. Usa «Importa XML» qui sopra.</>
+                  ) : yearSet.length === 0 && ultimoAnnoFatture != null ? (
+                    <div className="text-slate-500">
+                      <div>Le fatture passive del <strong className="text-slate-700">{yearFilter}</strong> non sono ancora caricate. L'ultimo anno con fatture è il <strong className="text-slate-700">{ultimoAnnoFatture}</strong>.</div>
+                      <button type="button" onClick={() => setYearFilter(String(ultimoAnnoFatture))}
+                        className="mt-3 inline-flex items-center px-3 py-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700">
+                        Vai al {ultimoAnnoFatture}
+                      </button>
+                    </div>
+                  ) : searchTerm ? (
+                    <>Nessuna fattura trovata per «{searchTerm}»{yearFilter !== 'ALL' ? ` nel ${yearFilter}` : ''}.</>
+                  ) : (
+                    <>Nessuna fattura trovata</>
+                  )}
+                </td></tr>
               ) : sortedFiltered.map((inv, idx) => (
                 <tr key={inv.id} onClick={() => openFormatted(inv)} tabIndex={0} onKeyDown={e => { if (e.key === 'Enter') openFormatted(inv) }} className={`border-b border-slate-100 hover:bg-blue-50/50 transition-colors cursor-pointer ${idx % 2 === 1 ? 'bg-slate-50/50' : ''}`}>
                   <td className="px-3 py-3 text-slate-600 whitespace-nowrap">{fmtDate(inv.invoice_date)}</td>
