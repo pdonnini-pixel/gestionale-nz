@@ -143,6 +143,16 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
           const rightAmt = rightCells.map(c => c.text).join(' ').match(/([\d.,]+)/)?.[1]
           if (leftAmt) result.patrimoniale.totals.attivita = parseItalianNumber(leftAmt)
           if (rightAmt) result.patrimoniale.totals.passivita = parseItalianNumber(rightAmt)
+          // In alcune stampe (Zago 2025) il primo importo sta oltre la colonna di
+          // mezzo: con due importi sulla riga, il primo e' l'attivo e il secondo il passivo.
+          // Nella stampa di Zago 2025 l'importo dell'attivo sta un pixel sopra la
+          // parola TOTALE e l'arrotondamento a 4 lo mette nella riga accanto:
+          // se a sinistra manca, si guarda la riga sopra e quella sotto.
+          if (!leftAmt) {
+            const vicini = [...(rows[Number(y) + 4] || []), ...(rows[Number(y) - 4] || [])]
+            const amt = vicini.find(c => c.x < 290 && /^\d[\d.]*,\d{2}$/.test(c.text))?.text
+            if (amt) result.patrimoniale.totals.attivita = parseItalianNumber(amt)
+          }
         } else if (currentSection === 'conto_economico') {
           const leftCells = cells.filter(c => c.x < 290)
           const rightCells = cells.filter(c => c.x >= 290)
@@ -154,14 +164,23 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
         continue
       }
 
-      if (/(?:Perdita|Utile)\b/i.test(fullLine) && !/Utile.*netto/i.test(fullLine)) {
-        const amt = fullLine.match(/([\d.,]+)/)?.[1]
+      // La riga di chiusura «Utile 0,00» / «Perdita 14.770,16» non ha codice conto.
+      // Una riga che comincia con un codice (es. «630323 Servizi di vigilanza … 9503
+      // Perdita d'esercizio 14.770,16») e' invece una riga di conti: prima veniva
+      // scartata intera e si perdeva il conto a sinistra, e il risultato prendeva
+      // il codice come importo (-630.323, bilancio di verifica Zago 2025).
+      const iniziaConCodice = /^\d{2,}\s/.test(fullLine)
+      if (!iniziaConCodice && /(?:Perdita|Utile)\b/i.test(fullLine) && !/Utile.*netto/i.test(fullLine)) {
+        const amt = fullLine.match(/(\d[\d.]*,\d{2})/)?.[1]
         if (amt) {
           const val = parseItalianNumber(amt)
-          if (currentSection === 'patrimoniale') {
-            result.patrimoniale.totals.risultato = /Perdita/i.test(fullLine) ? -val : val
-          } else if (currentSection === 'conto_economico') {
-            result.contoEconomico.totals.risultato = /Perdita/i.test(fullLine) ? -val : val
+          // «Utile 0,00» sotto il TOTALE non cancella un risultato gia' letto
+          if (val !== 0) {
+            if (currentSection === 'patrimoniale') {
+              result.patrimoniale.totals.risultato = /Perdita/i.test(fullLine) ? -val : val
+            } else if (currentSection === 'conto_economico') {
+              result.contoEconomico.totals.risultato = /Perdita/i.test(fullLine) ? -val : val
+            }
           }
         }
         continue
@@ -185,8 +204,16 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
         if (leftRow) result.patrimoniale.attivita.push(leftRow)
         if (rightRow) result.patrimoniale.passivita.push(rightRow)
       } else if (currentSection === 'conto_economico') {
-        if (leftRow) result.contoEconomico.costi.push(leftRow)
-        if (rightRow) result.contoEconomico.ricavi.push(rightRow)
+        // «Perdita/Utile d'esercizio» nel conto economico e' il risultato a
+        // pareggio, non un costo o un ricavo: va nel risultato, non nelle righe.
+        const eRisultato = (r: BilancioRow | null) => !!r && /^(perdita|utile)\b.*esercizio/i.test(r.description)
+        for (const r of [leftRow, rightRow]) {
+          if (r && eRisultato(r) && r.amount !== 0 && result.contoEconomico.totals.risultato == null) {
+            result.contoEconomico.totals.risultato = /^perdita/i.test(r.description) ? -Math.abs(r.amount) : Math.abs(r.amount)
+          }
+        }
+        if (leftRow && !eRisultato(leftRow)) result.contoEconomico.costi.push(leftRow)
+        if (rightRow && !eRisultato(rightRow)) result.contoEconomico.ricavi.push(rightRow)
       }
     }
   }
