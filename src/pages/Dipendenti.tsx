@@ -2850,6 +2850,8 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
     try {
       const outletByNorm: Record<string, string> = {};
       outlets.forEach((o) => { outletByNorm[norm(o.name)] = o.name; });
+      const outletIdByName: Record<string, string> = {};
+      outlets.forEach((o) => { if (o.id) outletIdByName[o.name] = o.id; });
 
       // Chi ha gia' un punto vendita in anagrafica. Serve per non sovrascrivere
       // nessuno e, insieme, per non lasciare senza sede chi il file ha appena
@@ -2964,6 +2966,20 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             const { error: allErr } = await supabase.from('employee_outlet_allocations')
               .insert([{ employee_id: empId, company_id: companyId, outlet_code: exact, allocation_pct: 100, is_primary: true }]);
             if (!allErr) conAlloc.add(empId);
+          }
+        }
+        // Il negozio della scheda si legge dal cedolino (regola di Patrizio,
+        // 16/11/2026: «controlli sempre il cedolino paghe per assegnare il
+        // dipendente»). Si scrive solo dove la scheda non ce l'ha: un negozio
+        // messo a mano non si sovrascrive mai (Zago, Giulia Mosti: creata
+        // dall'import con la divisione al 100% ma senza negozio in scheda).
+        if (row.outlet) {
+          const exactName = outletByNorm[norm(row.outlet)];
+          const outletId = exactName ? outletIdByName[exactName] : undefined;
+          if (outletId) {
+            await supabase.from('employees')
+              .update({ outlet_id: outletId })
+              .eq('id', empId).is('outlet_id', null);
           }
         }
         // Payload con SOLO i campi della corsia (l'altra corsia non viene toccata).
