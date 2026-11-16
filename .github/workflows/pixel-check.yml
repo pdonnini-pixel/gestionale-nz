@@ -30,7 +30,7 @@ jobs:
           - tenant: NZ
             url: https://gestionale-nz.netlify.app
           - tenant: Zago
-            url: https://zago-gestionale-nz.netlify.app
+            url: https://gestionale-zago.netlify.app
     name: pixel-${{ matrix.tenant }}
     steps:
       - uses: actions/checkout@v4

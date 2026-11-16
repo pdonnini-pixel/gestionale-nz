@@ -91,6 +91,10 @@ function resolveTenantForHost(host: string): TenantConfig {
     return buildConfig('made-retail', 'Made Retail Srl', 'MADE', '#1d4ed8', '#1d4ed8')
   }
   if (
+    // gestionale-zago dal 16/11/2026 (Patrizio: «non si differenzia e ci si
+    // confonde»); il nome vecchio resta riconosciuto finché il site non è rinominato.
+    h === 'gestionale-zago.netlify.app' ||
+    h.endsWith('--gestionale-zago.netlify.app') ||
     h === 'zago-gestionale-nz.netlify.app' ||
     h.endsWith('--zago-gestionale-nz.netlify.app')
   ) {
