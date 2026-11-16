@@ -11,6 +11,10 @@
 --    canone né contratto: il magazzino è in locazione a New Zago.
 -- 2. companies.legal_address passa a Pian di Rona; l'indirizzo di prima resta
 --    scritto nelle note dell'azienda.
+--    ANNULLATO lo stesso giorno: Patrizio, 16/11/2026, «la sede legale è Firenze,
+--    la sede/magazzino è Pian di Rona». legal_address è tornato a «Via Nove
+--    Febbraio 7, 50129 Firenze (FI)» (con nota nell'azienda). Il punto 2 qui sotto
+--    NON va rieseguito: resta solo il punto 1 (Sede / Magazzino a Pian di Rona).
 -- Idempotente. Rollback: ZAGO_ONLY_20261116_420_..._ROLLBACK.sql
 -- =====================================================================
 
@@ -24,7 +28,10 @@ FROM public.cost_centers c
 WHERE c.code = 'sede' AND c.role = 'hq'
   AND NOT EXISTS (SELECT 1 FROM public.outlets o WHERE o.company_id = c.company_id AND o.cost_center_key = 'sede');
 
+-- (punto 2 annullato, vedi sopra: non rieseguire)
+/*
 UPDATE public.companies
    SET notes = concat_ws(E'\n', notes, '16/11/2026: sede legale indicata da Patrizio a Pian di Rona; prima era scritto «' || legal_address || '».'),
        legal_address = 'Località Pian di Rona 120/B, 50066 Reggello (FI)'
  WHERE legal_address IS DISTINCT FROM 'Località Pian di Rona 120/B, 50066 Reggello (FI)';
+*/
