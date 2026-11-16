@@ -4,7 +4,7 @@ import {
   type GiornoPiano, type PersonaTurni, type Turno,
 } from './turni';
 import { fabbisognoDaTraffico, almenoDuePersone } from './pianoMensile';
-import { ottimizzaSettimana, scegliGiorniLiberi, coppieFeriali, coppia, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana, contoSettimana } from './ottimizzaTurni';
+import { ottimizzaSettimana, unisciTurniCorti, scegliGiorniLiberi, coppieFeriali, coppia, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana, contoSettimana } from './ottimizzaTurni';
 
 // Un negozio inventato sul modello di quello da cui sono nate le regole
 // (Patrizio, 11/11/2026): aperto 10-20, fasce 1-2-1, quattro persone.
@@ -112,6 +112,35 @@ describe('ottimizzaSettimana: le regole dell\'11/11/2026 pesate insieme', () => 
 
   it('senza «ore fino al contratto» le ore che il traffico non chiede restano libere', () => {
     expect(Object.keys(ORE).reduce((a, id) => a + oreDi(dopo, id), 0)).toBeLessThan(136);
+  });
+});
+
+describe('ottimizzaSettimana: due turni corti diventano uno lungo (16/11/2026)', () => {
+  // Franciacorta 21-22/12/2026: quattro turni da 4 ore in fila dove ne bastavano due lunghi.
+  it('un venerdì a quattro spezzoni da 4 ore si ricompone con meno turni, senza peggiorare il conto', () => {
+    const giorni = settimana('2026-11-16');
+    const ven = giorni[4].data;
+    const pezzi: Turno[] = [['anna', '10:00', '14:00'], ['bea', '12:00', '16:00'], ['carla', '14:00', '18:00'], ['dora', '16:00', '20:00']]
+      .map(([employeeId, inizio, fine]) => ({ employeeId, data: ven, inizio, fine, pausaMinuti: 0 }));
+    // fuori dal venerdì nessuno lavora nel suo giorno libero: la partenza resta dentro i 6 giorni e il contratto
+    const libera = (t: Turno) => giornoLibero.get(t.employeeId) !== giornoIso(t.data);
+    const prima = [...proposta(giorni).filter((t) => t.data !== ven && libera(t)), ...pezzi];
+    const nuove = { giornoLibero };
+    const c0 = contoSettimana(giorni, prima, persone(), regole, nuove);
+    expect(Number.isFinite(c0)).toBe(true);
+    // la mossa da sola: le mosse a caso e la discesa casella per casella non toccano due persone insieme
+    const dopo = unisciTurniCorti(giorni, prima, persone(), regole, nuove);
+    expect(contoSettimana(giorni, dopo, persone(), regole, nuove)).toBeLessThan(c0);
+    // le ore di ognuna non superano il contratto e nessuno passa i 6 giorni
+    for (const id of Object.keys(ORE)) {
+      expect(oreDi(dopo, id)).toBeLessThanOrEqual(ORE[id] + 1e-9);
+      expect(new Set(dopo.filter((t) => t.employeeId === id).map((t) => t.data)).size).toBeLessThanOrEqual(6);
+    }
+    // e il motore intero non fa peggio
+    expect(contoSettimana(giorni, ottimizzaSettimana(giorni, prima, persone(), regole, nuove), persone(), regole, nuove)).toBeLessThanOrEqual(c0);
+    const delVenerdi = dopo.filter((t) => t.data === ven);
+    expect(delVenerdi.length).toBeLessThan(4);
+    expect(delVenerdi.some((t) => oreLavorate(t) > 5)).toBe(true);
   });
 });
 
