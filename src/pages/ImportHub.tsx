@@ -135,6 +135,11 @@ const MODULO_PER_FONTE: Record<Exclude<ImportSourceId, 'general_docs'>, ModuloAr
   receipts: 'Outlet',
 };
 
+// Tabelle che l'Archivio documenti (vista v_archivio_documenti) legge gia' da
+// sole: un file registrato qui c'e' gia' in archivio. Scriverlo anche in
+// import_documents lo faceva comparire due volte fin dal primo caricamento.
+const TABELLE_GIA_IN_ARCHIVIO = new Set(['bank_imports', 'documents', 'employee_documents', 'balance_sheet_imports']);
+
 const AREE_DOCUMENTI_GENERALI: { value: ModuloArchivio | ''; label: string }[] = [
   { value: '', label: 'Nessuna area (documento generale)' },
   { value: 'Personale', label: 'Personale' },
@@ -214,11 +219,12 @@ export default function ImportHub() {
     success?: boolean
     processed?: number
     errors?: string[]
+    warnings?: string[]
     message?: string
     rowsImported?: number
     bankAccountId?: string | null
     details?: {
-      fatture?: number; scadenze?: number; fornitore?: string;
+      fatture?: number; scadenze?: number; fornitore?: string; giaPresenti?: number;
       totalParsed?: number;
       anno?: number; attivita?: number; passivita?: number; costi?: number; ricavi?: number; risultato?: number;
       dipendentiTrovati?: number; dipendentiNonTrovati?: number; mese?: string;
@@ -452,6 +458,30 @@ export default function ImportHub() {
         const fileExt = (file.name.split('.').pop() || '').toLowerCase();
         const record: Record<string, unknown> = { company_id: COMPANY_ID, file_name: file.name, file_path: filePath, file_size: file.size };
 
+        // Registro dei caricamenti. Va compilato con TUTTO quello che il sistema
+        // gia' sa: bucket, modulo, funzione, periodo e autore. Prima restavano
+        // vuoti e il documento non usciva ne' cercando per area ne' per mese.
+        // Il periodo: prima quello scelto a mano nella schermata, poi quello
+        // scritto nel nome del file, che nei tabulati paghe e banca c'e' quasi
+        // sempre. Se non si ricava, resta vuoto: meglio niente che un mese finto.
+        const daNome = periodoDalNomeFile(file.name);
+        const periodo = (() => {
+          if (sourceId === 'payroll' && selectedMonthYear) {
+            const [m, y] = selectedMonthYear.split('-');
+            return { year: parseInt(y, 10), month: parseInt(m, 10) };
+          }
+          if (sourceId === 'balance_sheet') {
+            return { year: Number(selectedYear) || new Date().getFullYear(), month: null as number | null };
+          }
+          return daNome ? { year: daNome.year, month: daNome.month } : { year: null as number | null, month: null as number | null };
+        })();
+        const modulo = sourceId === 'general_docs'
+          ? (selectedDocArea || null)
+          : MODULO_PER_FONTE[sourceId as Exclude<ImportSourceId, 'general_docs'>];
+        const funzione = sourceId === 'general_docs'
+          ? `Documenti generali · ${selectedDocCategory}`
+          : config.name;
+
         if (sourceId === 'bank') {
           // bank_imports schema: file_format, status, bank_account_id
           record.file_format = fileExt;
@@ -462,9 +492,18 @@ export default function ImportHub() {
           record.upload_status = 'uploaded';
           record.category = 'fattura';
           record.document_status = 'pending_parsing';
+          // Quello che prima finiva solo in import_documents ora resta qui, dove
+          // l'Archivio lo legge: periodo dal nome del file, funzione, bucket e autore.
+          record.year = periodo.year;
+          record.month = periodo.month;
+          record.import_source = funzione;
+          record.storage_bucket = config.bucket;
+          record.uploaded_by = profile?.id ?? null;
         } else if (sourceId === 'payroll' && selectedMonthYear) {
-          record.file_type = fileExt;
-          record.upload_status = 'uploaded';
+          // employee_documents non ha file_type ne' upload_status: con quei
+          // campi l'inserimento veniva rifiutato e il file restava fuori.
+          record.doc_type = 'cedolino';
+          record.status = 'uploaded';
           const [month, year] = selectedMonthYear.split('-');
           record.month = parseInt(month);
           record.year = parseInt(year);
@@ -478,6 +517,11 @@ export default function ImportHub() {
           record.file_type = fileExt;
           record.upload_status = 'uploaded';
           record.category = selectedDocCategory;
+          record.year = periodo.year;
+          record.month = periodo.month;
+          record.import_source = funzione;
+          record.storage_bucket = config.bucket;
+          record.uploaded_by = profile?.id ?? null;
         } else if (sourceId === 'pos_data' && selectedOutlet) {
           record.file_type = fileExt;
           record.upload_status = 'uploaded';
@@ -504,31 +548,11 @@ export default function ImportHub() {
           continue; // Skip to next file — don't log incomplete upload
         }
 
-        // Registro dei caricamenti. Va compilato con TUTTO quello che il sistema
-        // gia' sa: bucket, modulo, funzione, periodo e autore. Prima restavano
-        // vuoti e il documento non usciva ne' cercando per area ne' per mese.
-        // Il periodo: prima quello scelto a mano nella schermata, poi quello
-        // scritto nel nome del file, che nei tabulati paghe e banca c'e' quasi
-        // sempre. Se non si ricava, resta vuoto: meglio niente che un mese finto.
-        const daNome = periodoDalNomeFile(file.name);
-        const periodo = (() => {
-          if (sourceId === 'payroll' && selectedMonthYear) {
-            const [m, y] = selectedMonthYear.split('-');
-            return { year: parseInt(y, 10), month: parseInt(m, 10) };
-          }
-          if (sourceId === 'balance_sheet') {
-            return { year: Number(selectedYear) || new Date().getFullYear(), month: null as number | null };
-          }
-          return daNome ? { year: daNome.year, month: daNome.month } : { year: null as number | null, month: null as number | null };
-        })();
-        const modulo = sourceId === 'general_docs'
-          ? (selectedDocArea || null)
-          : MODULO_PER_FONTE[sourceId as Exclude<ImportSourceId, 'general_docs'>];
-        const funzione = sourceId === 'general_docs'
-          ? `Documenti generali · ${selectedDocCategory}`
-          : config.name;
-
-        await supabase.from('import_documents').insert([
+        // Il file e' gia' registrato nella sua tabella (estratti conto, fatture,
+        // documenti, cedolini, bilanci) e da li' compare in Archivio documenti:
+        // una seconda riga in import_documents lo mostrava due volte. Il registro
+        // si scrive solo per le fonti che l'archivio non legge da sole.
+        if (!TABELLE_GIA_IN_ARCHIVIO.has(config.table)) await supabase.from('import_documents').insert([
           {
             company_id: COMPANY_ID,
             file_name: file.name,
@@ -693,7 +717,7 @@ export default function ImportHub() {
       }
       if (!fileObj) throw new Error('File non disponibile');
 
-      type ProcessResultRaw = { success?: boolean; imported?: number; errors?: Array<{ message?: string } | string> }
+      type ProcessResultRaw = { success?: boolean; imported?: number; errors?: Array<{ message?: string } | string>; warnings?: Array<{ message?: string } | string>; details?: NonNullable<ProcessResult>['details'] | null }
       const result = await (processImport as unknown as (args: Record<string, unknown>) => Promise<ProcessResultRaw>)({
         file: fileObj,
         sourceType: selectedSource,
@@ -713,10 +737,20 @@ export default function ImportHub() {
         },
       });
 
-      setProcessResult({ success: result.success, processed: result.imported, errors: result.errors?.map(e => typeof e === 'string' ? e : (e.message || '')) || [] });
+      const avvisi = result.warnings?.map(e => typeof e === 'string' ? e : (e.message || '')).filter(Boolean) || [];
+      setProcessResult({
+        success: result.success,
+        processed: result.imported,
+        errors: result.errors?.map(e => typeof e === 'string' ? e : (e.message || '')) || [],
+        warnings: avvisi,
+        details: result.details || undefined,
+      });
 
       if (result.success) {
-        showToast(`Importati ${result.imported} record con successo!`);
+        // Niente di nuovo (es. lo stesso XML ricaricato): lo si dice, senza
+        // far credere che siano stati importati dati.
+        if ((result.imported || 0) === 0 && avvisi.length) showToast(`Niente di nuovo da importare: ${avvisi[0]}`);
+        else showToast(`Importati ${result.imported} record con successo!${avvisi.length ? ` (${avvisi[0]})` : ''}`);
         // Update file status in source table (use correct column per table)
         let statusUpdate: Record<string, string>;
         if (selectedSource === 'bank') {
@@ -1457,7 +1491,11 @@ export default function ImportHub() {
                   <div className="flex items-center gap-2">
                     {processResult.success ? <CheckCircle size={18} className="text-emerald-600" /> : <AlertCircle size={18} className="text-red-600" />}
                     <span className={`text-sm font-semibold ${processResult.success ? 'text-emerald-700' : 'text-red-700'}`}>
-                      {processResult.success ? `${processResult.processed} record importati con successo` : 'Errori durante l\'elaborazione'}
+                      {!processResult.success
+                        ? 'Errori durante l\'elaborazione'
+                        : (processResult.processed || 0) === 0 && (processResult.warnings?.length ?? 0) > 0
+                          ? 'Niente di nuovo da importare: era già tutto presente'
+                          : `${processResult.processed} record importati con successo`}
                     </span>
                   </div>
                   <button onClick={() => setProcessResult(null)} className="text-slate-400 hover:text-slate-600" title="Chiudi"><X size={16} /></button>
@@ -1474,14 +1512,16 @@ export default function ImportHub() {
                     )}
                   </div>
                 )}
-                {false && (
+                {(processResult.warnings?.length ?? 0) > 0 && (
                   <div className="mt-2 p-2 rounded-lg bg-amber-50 border border-amber-200">
-                    {/* warnings rimossi: tipo non più presente */}
+                    {(processResult.warnings || []).slice(0, 10).map((w: string, i: number) => (
+                      <div key={i} className="text-xs text-amber-700 py-0.5">{w}</div>
+                    ))}
                   </div>
                 )}
                 {processResult.details && (
                   <div className="mt-2 text-xs text-slate-600 space-y-0.5">
-                    {processResult.details.fatture != null && <div>Fatture: {processResult.details.fatture} | Scadenze: {processResult.details.scadenze} | Fornitore: {processResult.details.fornitore}</div>}
+                    {processResult.details.fatture != null && <div>Fatture: {processResult.details.fatture} | Scadenze: {processResult.details.scadenze} | Fornitore: {processResult.details.fornitore}{processResult.details.giaPresenti ? ` | Già presenti: ${processResult.details.giaPresenti}` : ''}</div>}
                     {processResult.details.totalParsed != null && <div>Righe parsate: {processResult.details.totalParsed}</div>}
                     {processResult.details.anno != null && (
                       <div>Bilancio {processResult.details.anno}: {processResult.details.attivita} attività, {processResult.details.passivita} passività, {processResult.details.costi} costi, {processResult.details.ricavi} ricavi
@@ -1589,7 +1629,8 @@ export default function ImportHub() {
             <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between gap-3 flex-wrap">
               <div className="text-xs text-gray-500">
                 Ricaricando lo stesso documento per lo stesso periodo, il file nuovo <strong>sostituisce</strong> il precedente:
-                in elenco resta la versione che vale.
+                in elenco resta la versione che vale. Estratti conto, fatture, cedolini, bilanci e documenti generali
+                si vedono nell'elenco della loro fonte e in Archivio documenti.
               </div>
               <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer shrink-0">
                 <input type="checkbox" checked={mostraSostituiti} onChange={(e) => setMostraSostituiti(e.target.checked)} />

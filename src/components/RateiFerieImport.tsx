@@ -17,7 +17,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CalendarClock, CheckCircle2, AlertTriangle, Upload, FileText, RefreshCw, Users, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
-import { archiviaFile, avvisoArchiviazioneFallita, urlFileArchiviato } from '../lib/archivioFile';
+import { archiviaFile, avvisoArchiviazioneFallita, sostituisciPrecedenti, urlFileArchiviato } from '../lib/archivioFile';
 import SceltaPersona from './SceltaPersona';
 import {
   parseRatei, isTabulatoRatei, abbinaDipendente, oreSettimanaliDaRateo, oreGiornataDaRateo,
@@ -389,6 +389,14 @@ export default function RateiFerieImport({ companyId, userId }: Props) {
         await supabase.from('leave_accrual_imports')
           .update({ attivo: false, sostituito_da: importId })
           .in('id', vecchi.map((v: { id: string }) => v.id));
+      }
+      // Anche in archivio il file di questo mese prende il posto dei precedenti:
+      // prima restavano tutti e due e il mese compariva due volte.
+      if (archiviato.id) {
+        await sostituisciPrecedenti({
+          companyId, funzione: 'Situazione ratei di ferie e permessi',
+          year: anno, month: mese, nuovoId: archiviato.id,
+        });
       }
 
       toast({
