@@ -90,7 +90,18 @@ export interface RegoleNuove {
    * Il tetto delle due persone sta sul giorno (`GiornoPiano.lunediDue`).
    */
   lunediPrima?: string[];
+  /**
+   * Chi puo' aprire e chi puo' chiudere il negozio (Patrizio, 16/11/2026: «non e' un obbligo, e'
+   * un'abilitazione: una persona appena assunta non ha le chiavi e non sa come si chiude»). Nella
+   * prima mezz'ora c'e' almeno una abilitata ad aprire, nell'ultima almeno una abilitata a
+   * chiudere; fra le abilitate aperture e chiusure si dividono in proporzione ai giorni lavorati,
+   * contando anche le settimane prima dello stesso mese (`prima`). Senza, la regola e' spenta.
+   */
+  chiavi?: { apre: Set<string>; chiude: Set<string>; prima?: Map<string, ContoChiavi> };
 }
+
+/** Aperture, chiusure e giorni lavorati di una persona nelle settimane gia' pianificate del mese. */
+export interface ContoChiavi { apre: number; chiude: number; giorni: number }
 
 /** La chiave di una coppia di persone, uguale in tutti e due gli ordini. */
 export function coppia(a: string, b: string): string {
@@ -221,6 +232,9 @@ export const PESI = {
   vuota: 10_000_000_000,    // mezz'ora di apertura senza nessuno
   unaSola: 200_000_000,     // giorno con una persona sola
   lunediSenzaGuida: 200_000_000,
+  // Senza chiavi il negozio non apre (Patrizio, 16/11/2026): subito sotto la persona sola e la guida
+  // del lunedi', sopra tutto il resto. Vale solo se quel giorno un'abilitata potrebbe esserci.
+  senzaChiavi: 100_000_000,  // apertura o chiusura senza nessuna abilitata
   // Nel weekend lavorano tutti anche a costo del minimo delle fasce di un feriale
   // (Patrizio, 11/11/2026), ma mai lasciando un giorno vuoto o con una persona sola.
   weekendLibero: 4_000_000, // persona che puo' lavorare e non ha turno il sabato o la domenica
@@ -235,6 +249,7 @@ export const PESI = {
   turno: 150,               // ogni turno: meglio pochi lunghi
   coppiaPrima: 40,          // coppia dei feriali gia' vista nelle settimane prima, per volta
   coppiaRipetuta: 60,       // coppia che si ripete nella stessa settimana
+  chiaviPari: 50,           // aperture o chiusure lontane dalla quota in proporzione ai giorni, al quadrato
   // ── 12/11/2026. I riposi si cercano «se possibile»: stanno sotto il minimo delle fasce (110.000
   // la mezz'ora), che non si perde mai, e valgono piu' degli straordinari pari («prima i riposi a
   // testa, poi gli straordinari pari»). Sopra le fasce, un riposo vale al massimo un'ora e un
@@ -322,6 +337,13 @@ interface Quadro {
   lunPrima: number[];
   /** chi fra responsabile e vice ha lavorato il lunedi' prima (indice della persona, -1 se nessuna o tutte e due) */
   guidaLunPrima: number;
+  /** chi puo' aprire e chiudere: regola accesa, abilitate, presenza fissa di un'abilitata e possibilita' per giorno, conti del mese */
+  chAttiva: boolean;
+  chApre: boolean[]; chChiude: boolean[];
+  chFissaApre: boolean[]; chFissaChiude: boolean[];
+  chPuoApre: boolean[]; chPuoChiude: boolean[];
+  chPrApre: number[]; chPrChiude: number[]; chPrGiorni: number[];
+  bufApre: number[]; bufChiude: number[];
   bufOre: number[]; bufEvento: number[]; bufGiorni: number[]; bufCoppie: number[]; bufCop: number[]; bufInTurno: number[];
 }
 
@@ -335,7 +357,7 @@ function costo(q: Quadro, st: Stato): number {
   const P = persone.length;
   let c = 0;
   const ore = q.bufOre; const oreEvento = q.bufEvento; const giorniLavoro = q.bufGiorni; const coppieSett = q.bufCoppie;
-  for (let p = 0; p < P; p++) { ore[p] = q.oreFisse[p]; oreEvento[p] = 0; giorniLavoro[p] = q.giorniFissi[p]; }
+  for (let p = 0; p < P; p++) { ore[p] = q.oreFisse[p]; oreEvento[p] = 0; giorniLavoro[p] = q.giorniFissi[p]; q.bufApre[p] = 0; q.bufChiude[p] = 0; }
   coppieSett.fill(0);
   const inTurno = q.bufInTurno;
   for (let d = 0; d < giorni.length; d++) {
@@ -383,6 +405,16 @@ function costo(q: Quadro, st: Stato): number {
       if (ci > serve) c += (ci - serve) * PESI.inPiu;
     }
     if (quanti + q.fissePersone[d].size === 1) c += PESI.unaSola;
+    if (q.chAttiva) {
+      let apre = q.chFissaApre[d]; let chiude = q.chFissaChiude[d];
+      for (let k = 0; k < quanti; k++) {
+        const p = inTurno[k]; const x = st[p][riga]!;
+        if (q.chApre[p] && x.s <= g.apre) { apre = true; q.bufApre[p] += 1; }
+        if (q.chChiude[p] && x.s + x.w >= g.chiude) { chiude = true; q.bufChiude[p] += 1; }
+      }
+      if (!apre && q.chPuoApre[d]) c += PESI.senzaChiavi;
+      if (!chiude && q.chPuoChiude[d]) c += PESI.senzaChiavi;
+    }
     if (q.lunDue[d]) {
       // i fissi che sono anche nostre persone non hanno un pezzo nello stato: nessuno contato due volte
       const tot = quanti + q.fissePersone[d].size;
@@ -424,6 +456,7 @@ function costo(q: Quadro, st: Stato): number {
     const n = coppieSett[k];
     if (n) c += q.coppiePrima[k] * n * PESI.coppiaPrima + (n - 1) * PESI.coppiaRipetuta;
   }
+  if (q.chAttiva) c += quotaChiavi(q, q.chApre, q.chPrApre, q.bufApre, giorniLavoro) + quotaChiavi(q, q.chChiude, q.chPrChiude, q.bufChiude, giorniLavoro);
   let sommaOltre = 0;
   for (let p = 0; p < P; p++) { const o = ore[p] - persone[p].ore; if (o > 1e-9) sommaOltre += o; }
   const mediaOltre = q.pari && P > 0 ? sommaOltre / P : 0;
@@ -451,6 +484,23 @@ function costo(q: Quadro, st: Stato): number {
       c += oltre * PESI.straordinario + oltre * oltre * PESI.straordinarioQuadro;
     }
     if (suoi > 0 && giorniLavoro[p] > regole.giorniLavoroMax) return Infinity;
+  }
+  return c;
+}
+
+/**
+ * Aperture (o chiusure) divise fra le abilitate in proporzione ai giorni lavorati nel mese: la distanza
+ * di ognuna dalla sua quota, al quadrato.
+ */
+function quotaChiavi(q: Quadro, abil: boolean[], prima: number[], settimana: number[], giorniLavoro: number[]): number {
+  let tot = 0; let giorni = 0;
+  for (let p = 0; p < abil.length; p++) if (abil[p]) { tot += prima[p] + settimana[p]; giorni += q.chPrGiorni[p] + giorniLavoro[p]; }
+  if (giorni <= 0) return 0;
+  let c = 0;
+  for (let p = 0; p < abil.length; p++) {
+    if (!abil[p]) continue;
+    const dev = prima[p] + settimana[p] - tot * (q.chPrGiorni[p] + giorniLavoro[p]) / giorni;
+    c += dev * dev * PESI.chiaviPari;
   }
   return c;
 }
@@ -1046,6 +1096,26 @@ function prepara(
   q.bufCoppie = new Array(persone.length * persone.length).fill(0);
   q.bufCop = new Array(Math.max(1, ...giorni.map((g) => g.fabbisogno.length))).fill(0);
   q.bufInTurno = persone.map(() => 0);
+  // Chi puo' aprire e chi puo' chiudere (Patrizio, 16/11/2026). Un turno fisso apre se copre la prima
+  // mezz'ora, chiude se copre l'ultima; le aperture e chiusure fisse delle nostre persone contano nel conto.
+  {
+    const ch = nuove.chiavi;
+    q.chAttiva = !!ch;
+    q.chApre = persone.map((p) => !!ch?.apre.has(p.id));
+    q.chChiude = persone.map((p) => !!ch?.chiude.has(p.id));
+    const apreIl = (t: Turno, g: GiornoPiano) => minuti(t.inizio) <= g.apre && minuti(t.fine) > g.apre;
+    const chiudeIl = (t: Turno, g: GiornoPiano) => minuti(t.fine) >= g.chiude && minuti(t.inizio) < g.chiude;
+    q.chFissaApre = giorni.map((g) => !g.chiuso && tuttiFissi.some((t) => t.data === g.data && !!ch?.apre.has(t.employeeId) && apreIl(t, g)));
+    q.chFissaChiude = giorni.map((g) => !g.chiuso && tuttiFissi.some((t) => t.data === g.data && !!ch?.chiude.has(t.employeeId) && chiudeIl(t, g)));
+    // la regola pesa solo dove un'abilitata quel giorno potrebbe esserci all'apertura (o alla chiusura)
+    q.chPuoApre = giorni.map((g, d) => q.chFissaApre[d] || persone.some((_p, i) => q.chApre[i] && q.puo[i][d] && !q.giornoFisso[i][d] && q.limiti[i][d].apre <= g.apre));
+    q.chPuoChiude = giorni.map((g, d) => q.chFissaChiude[d] || persone.some((_p, i) => q.chChiude[i] && q.puo[i][d] && !q.giornoFisso[i][d] && q.limiti[i][d].chiude >= g.chiude));
+    const fisseDi = (id: string, dove: (t: Turno, g: GiornoPiano) => boolean) => giorni.filter((g) => !g.chiuso && tuttiFissi.some((t) => t.data === g.data && t.employeeId === id && dove(t, g))).length;
+    q.chPrApre = persone.map((p) => (ch?.prima?.get(p.id)?.apre ?? 0) + fisseDi(p.id, apreIl));
+    q.chPrChiude = persone.map((p) => (ch?.prima?.get(p.id)?.chiude ?? 0) + fisseDi(p.id, chiudeIl));
+    q.chPrGiorni = persone.map((p) => ch?.prima?.get(p.id)?.giorni ?? 0);
+    q.bufApre = persone.map(() => 0); q.bufChiude = persone.map(() => 0);
+  }
   const partenza: Stato = persone.map(() => giorni.map(() => null));
   const fuoriStato: Turno[] = [];
   for (const t of turni) {
@@ -1169,7 +1239,7 @@ export function ottimizzaSettimana(
 // ── Le deroghe ───────────────────────────────────────────────────────────
 
 export interface Deroga {
-  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'caldo_chiusura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto' | 'riposi' | 'riposo_vietato' | 'lunedi_troppi' | 'lunedi_due_guide' | 'lunedi_fasce' | 'lunedi_coppia';
+  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'caldo_chiusura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto' | 'riposi' | 'riposo_vietato' | 'lunedi_troppi' | 'lunedi_due_guide' | 'lunedi_fasce' | 'lunedi_coppia' | 'senza_chiavi';
   data: string | null;
   employeeId: string | null;
   testo: string;
@@ -1206,6 +1276,8 @@ export function derogheSettimana(args: {
   /** pezzo di settimana a cavallo di due mesi: i giorni lavorati da ognuno nei giorni dell'altro mese.
    *  Con lei il riposo di legge si controlla sulla settimana intera anche se `giorni` e' solo un pezzo. */
   giorniGia?: Map<string, number>;
+  /** chi puo' aprire e chi puo' chiudere il negozio (16/11/2026); senza, la regola e' spenta */
+  chiavi?: { apre: Set<string>; chiude: Set<string> };
 }): Deroga[] {
   const regole = args.regole ?? REGOLE_DEFAULT;
   const out: Deroga[] = [];
@@ -1217,6 +1289,15 @@ export function derogheSettimana(args: {
     const iso = giornoIso(g.data);
     if (!del.length) { out.push({ regola: 'vuoto', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: nessuno in turno` }); continue; }
     if (new Set(del.map((t) => t.employeeId)).size === 1) out.push({ regola: 'una_sola', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: una persona sola` });
+    // chi apre e chi chiude deve poterlo fare (Patrizio, 16/11/2026)
+    if (args.chiavi) {
+      if (!del.some((t) => args.chiavi!.apre.has(t.employeeId) && minuti(t.inizio) <= g.apre && minuti(t.fine) > g.apre)) {
+        out.push({ regola: 'senza_chiavi', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: all'apertura non c'è nessuna abilitata ad aprire` });
+      }
+      if (!del.some((t) => args.chiavi!.chiude.has(t.employeeId) && minuti(t.fine) >= g.chiude && minuti(t.inizio) < g.chiude)) {
+        out.push({ regola: 'senza_chiavi', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: alla chiusura non c'è nessuna abilitata a chiudere` });
+      }
+    }
     if (iso === 1 && args.guida?.responsabile && args.guida.vice
       && !del.some((t) => t.employeeId === args.guida!.responsabile || t.employeeId === args.guida!.vice)) {
       out.push({ regola: 'lunedi_guida', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: né la responsabile né la vice sono in turno (versamento in banca)` });
