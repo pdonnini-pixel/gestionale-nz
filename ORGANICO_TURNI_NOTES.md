@@ -1398,3 +1398,7 @@ da guardare a parte. A Brugnato nella settimana 30/11 una persona da 30 ore pass
 Nella settimana 30/11-6/12 chi resta più di 6 ore sotto il contratto passa da 5 a 7 persone:
 sono ore che il traffico non chiede e restano da assegnare (regola 1), non un difetto.
 
+
+## Ferie e permessi in linea con il mese nel piano del mese (14/11/2026)
+
+Alla creazione del piano «con ferie e permessi» il sistema propone ferie e permessi pari al maturato del mese, li mette nel calendario come proposte (bordo tratteggiato) e calcola i turni tenendone conto. Approvare, spostare o togliere una proposta, o mettere e togliere una ferie dalla finestra del turno, fa ricalcolare i turni delle settimane toccate (`ricalcola` in `PianiMensili.tsx`): si rifanno solo i turni proposti dal sistema in bozza, mai quelli a mano o pubblicati, mai un mese chiuso. Regola, fonti, misura sugli otto negozi e limiti in `PIANO_FERIE_NOTES.md`, sezione «Ferie e permessi in linea con il mese». Librerie: `src/lib/ferieInLinea.ts` (pura, testata), `src/lib/ferieInLineaDb.ts`, riquadro `src/components/FerieInLinea.tsx`, migration 411.

@@ -20002,6 +20002,48 @@ export type Database = {
           },
         ]
       }
+      turni_piano_registro: {
+        Row: {
+          azione: string
+          company_id: string
+          created_at: string
+          dettaglio: Json | null
+          employee_id: string | null
+          id: string
+          outlet_id: string | null
+          plan_id: string | null
+          request_id: string | null
+          utente_id: string | null
+          utente_nome: string | null
+        }
+        Insert: {
+          azione: string
+          company_id: string
+          created_at?: string
+          dettaglio?: Json | null
+          employee_id?: string | null
+          id?: string
+          outlet_id?: string | null
+          plan_id?: string | null
+          request_id?: string | null
+          utente_id?: string | null
+          utente_nome?: string | null
+        }
+        Update: {
+          azione?: string
+          company_id?: string
+          created_at?: string
+          dettaglio?: Json | null
+          employee_id?: string | null
+          id?: string
+          outlet_id?: string | null
+          plan_id?: string | null
+          request_id?: string | null
+          utente_id?: string | null
+          utente_nome?: string | null
+        }
+        Relationships: []
+      }
       leave_hr: {
         Row: {
           company_id: string
@@ -20098,6 +20140,7 @@ export type Database = {
           note_dipendente: string | null
           origine: string
           outlet_code: string | null
+          plan_id: string | null
           stato: string
           titolo: string | null
           updated_at: string
@@ -20119,6 +20162,7 @@ export type Database = {
           note_dipendente?: string | null
           origine?: string
           outlet_code?: string | null
+          plan_id?: string | null
           stato?: string
           titolo?: string | null
           updated_at?: string
@@ -20140,6 +20184,7 @@ export type Database = {
           note_dipendente?: string | null
           origine?: string
           outlet_code?: string | null
+          plan_id?: string | null
           stato?: string
           titolo?: string | null
           updated_at?: string
@@ -32403,6 +32448,10 @@ export type Database = {
       }
       payroll_sync_all: { Args: never; Returns: Json }
       payroll_sync_now: { Args: never; Returns: Json }
+      ferie_proposta_approva: { Args: { p_giorni?: string[]; p_motivo?: string; p_request_id: string }; Returns: string }
+      ferie_proposta_sposta: { Args: { p_data: string; p_request_id: string }; Returns: undefined }
+      ferie_proposta_togli: { Args: { p_request_id: string }; Returns: undefined }
+      turni_proposti_riscrivi: { Args: { p_date: string[]; p_plan_id: string; p_riepilogo?: Json; p_turni: Json }; Returns: number }
       posso_decidere_ferie: { Args: never; Returns: boolean }
       project_cash_closing_to_daily_revenue: {
         Args: { p_closing_id: string }
