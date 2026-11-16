@@ -51,7 +51,7 @@ import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landma
 import { supabase } from '../lib/supabase'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { formatOutletName } from '../lib/formatters'
-import { lastDayOfMonthYMD } from '../lib/dateLocal'
+import { lastDayOfMonthYMD, todayYMD } from '../lib/dateLocal'
 import {
   buildRow, classifyMovement, counterpartOf, acquirerDebitOutlet, causaleOf, pivaOf, invoiceCountOf, invoicesTotalOf,
   summarizeByKind, KIND_LABELS, isRiba, ribaCountOf, tipoMovimentoOf, nomeFileExport,
@@ -1335,19 +1335,27 @@ export default function PrimaNota() {
 
   useEffect(() => { void caricaArchivioPn() }, [caricaArchivioPn])
 
+  // Il file è già stato scaricato quando questa parte gira: qualunque cosa vada
+  // storta qui si dice e si lascia stare, mai un'eccezione che risale a chi ha
+  // premuto Excel e si è già visto arrivare il file.
   const archiviaExport = async (blob: Blob, nome: string) => {
-    if (!company?.id) return
-    const { data: sess } = await supabase.auth.getUser()
-    const esito = await archiviaExportPrimaNota({
-      blob, nomeFile: nome, companyId: company.id, userId: sess?.user?.id ?? null,
-      year, month: month || null,
+    const avvisa = (perche: string) => toast({
+      type: 'warning',
+      message: `Il file è stato scaricato, ma non è finito in archivio (${perche}). Riprova l'export più tardi.`,
     })
-    if (esito.errore) {
-      toast({ type: 'warning', message: `Il file è stato scaricato, ma non è finito in archivio (${esito.errore}). Riprova l'export più tardi.` })
-      return
+    if (!company?.id) { avvisa('azienda non disponibile'); return }
+    try {
+      const { data: sess } = await supabase.auth.getUser()
+      const esito = await archiviaExportPrimaNota({
+        blob, nomeFile: nome, companyId: company.id, userId: sess?.user?.id ?? null,
+        year, month: month || null,
+      })
+      if (esito.errore) { avvisa(esito.errore); return }
+      toast({ type: 'success', message: 'File scaricato e archiviato: lo ritrovi qui sotto, in «File mandati fuori».' })
+      await caricaArchivioPn()
+    } catch (e) {
+      avvisa(e instanceof Error ? e.message : String(e))
     }
-    toast({ type: 'success', message: 'File scaricato e archiviato: lo ritrovi qui sotto, in «File mandati fuori».' })
-    await caricaArchivioPn()
   }
 
   const riapriDocumentoPn = async (doc: DocumentoPrimaNota) => {
@@ -1533,7 +1541,7 @@ export default function PrimaNota() {
                     className="text-xs px-2 py-1 rounded border border-slate-200 text-slate-600 hover:bg-slate-50">
                     Riapri il file
                   </button>
-                  <button onClick={() => { setDestinatarioInvio(destinatarioProposto(inviiPn)); setDataInvio(new Date().toISOString().slice(0, 10)); setNoteInvio(''); setRegistraPer(doc) }}
+                  <button onClick={() => { setDestinatarioInvio(destinatarioProposto(inviiPn)); setDataInvio(todayYMD()); setNoteInvio(''); setRegistraPer(doc) }}
                     className="text-xs px-2 py-1 rounded border border-emerald-200 text-emerald-700 hover:bg-emerald-50">
                     Segna come mandato
                   </button>
