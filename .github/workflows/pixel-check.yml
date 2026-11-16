@@ -1,9 +1,11 @@
 name: Pixel check (smoke UI)
 
-# Verifica pixel sul SITO DEPLOYATO dei 3 tenant.
+# Verifica pixel sul SITO DEPLOYATO di NZ e Zago.
+# Made e' fuori dal 16/11/2026 (Patrizio: «Made non si aggiorna piu'»): il suo site
+# riceve ancora il deploy da main, ma non si verifica e non blocca una pubblicazione.
 # Gira: dopo ogni push su main (post-deploy), ogni giorno, e a mano.
 # Richiede i secret di repo: TEST_USER_EMAIL, TEST_USER_PASSWORD
-# (stesso utente di test presente su tutti e 3 i tenant).
+# (stesso utente di test presente su NZ e Zago).
 
 on:
   push:
@@ -27,8 +29,6 @@ jobs:
         include:
           - tenant: NZ
             url: https://gestionale-nz.netlify.app
-          - tenant: Made
-            url: https://made-gestionale-nz.netlify.app
           - tenant: Zago
             url: https://zago-gestionale-nz.netlify.app
     name: pixel-${{ matrix.tenant }}
