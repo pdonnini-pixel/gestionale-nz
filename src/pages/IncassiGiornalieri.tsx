@@ -85,6 +85,10 @@ export default function IncassiGiornalieri() {
 
   const [channels, setChannels] = useState<PaymentChannel[]>([])
   const [closings, setClosings] = useState<ClosingRow[]>([])
+  // Corrispettivi del registro (daily_revenue) dei giorni senza chiusura di cassa:
+  // i mesi caricati dal registro dello studio (es. storico Zago 2025) non hanno
+  // chiusure, ma l'incasso del giorno c'e' e la griglia lo deve mostrare.
+  const [registro, setRegistro] = useState<Map<string, number>>(new Map())
   const [dayTargets, setDayTargets] = useState<Map<string, Array<number | null>>>(new Map()) // outlet_id → obiettivi per giorno del mese (RPC, migration 203)
   const [targetRows, setTargetRows] = useState<Map<string, DayTargetRow[]>>(new Map())          // outlet_id → righe obiettivo del mese (per lo scostamento nel dettaglio)
   const [lines, setLines] = useState<LineLite[]>([])
@@ -113,14 +117,20 @@ export default function IncassiGiornalieri() {
     setLoading(true)
     const from = days[0]
     const to = days[days.length - 1]
-    const [chRes, clRes, baRes, bgRes, rsRes, tgtRes] = await Promise.all([
+    const [chRes, clRes, baRes, bgRes, rsRes, tgtRes, drRes] = await Promise.all([
       supabase.from('outlet_payment_channels').select('*').eq('company_id', companyId).order('outlet_id').order('sort_order'),
       supabase.from('outlet_daily_closings').select('*').eq('company_id', companyId).gte('closing_date', from).lte('closing_date', to).order('closing_date'),
       supabase.from('bank_accounts').select('id, bank_name, account_name').eq('company_id', companyId).eq('is_active', true).order('bank_name'),
       supabase.from('budget_confronto').select('cost_center, amount').eq('company_id', companyId).eq('year', ym.y).eq('month', ym.m).eq('entry_type', 'rev_monthly'),
       supabase.from('daily_report_settings').select('budget_vat_rate').eq('company_id', companyId).maybeSingle(),
       supabase.rpc('get_outlet_day_targets', { p_company_id: companyId, p_from: from, p_to: to }),
+      supabase.from('daily_revenue').select('outlet_id, date, gross_revenue').eq('company_id', companyId).gte('date', from).lte('date', to),
     ])
+    const reg = new Map<string, number>()
+    for (const r of (drRes.data ?? []) as Array<{ outlet_id: string; date: string; gross_revenue: number | string | null }>) {
+      if (r.gross_revenue != null) reg.set(`${r.outlet_id}|${r.date}`, Number(r.gross_revenue))
+    }
+    setRegistro(reg)
     setChannels((chRes.data ?? []) as PaymentChannel[])
     const bn = new Map<string, number>()
     for (const r of (bgRes.data ?? []) as Array<{ cost_center: string; amount: number | string }>) bn.set(r.cost_center, (bn.get(r.cost_center) ?? 0) + Number(r.amount))
@@ -283,6 +293,7 @@ export default function IncassiGiornalieri() {
             <div className="flex gap-3 text-[11px] text-slate-500 ml-auto">
               <span><i className="inline-block w-3 h-3 rounded bg-emerald-100 border border-emerald-300 mr-1 align-middle" />confermata</span>
               <span><i className="inline-block w-3 h-3 rounded bg-amber-100 border border-amber-300 mr-1 align-middle" />bozza</span>
+              <span title="Incasso letto dal registro corrispettivi: per questo giorno non c'è una chiusura di cassa"><i className="inline-block w-3 h-3 rounded bg-sky-100 border border-sky-300 mr-1 align-middle" />dal registro</span>
               <span><i className="inline-block w-3 h-3 rounded bg-red-50 border border-red-200 mr-1 align-middle" />mancante</span>
             </div>
           </div>
@@ -299,7 +310,7 @@ export default function IncassiGiornalieri() {
               Impostazioni → Utenti.
             </div>
           ) : outletFilter === ALL ? (
-            <MatrixView days={days} outlets={visibleOutlets} closingAt={closingAt} statusCls={statusCls} onOpen={(o, d) => setDetail({ outletId: o, date: d })} />
+            <MatrixView days={days} outlets={visibleOutlets} closingAt={closingAt} registroAt={registro} statusCls={statusCls} onOpen={(o, d) => setDetail({ outletId: o, date: d })} />
           ) : (
             <OutletSheet
               days={days} outletId={outletFilter} channels={channels.filter((c) => c.outlet_id === outletFilter && c.is_active)}
@@ -436,16 +447,22 @@ function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
 }
 
 // ─── Vista giorni × outlet ─────────────────────────────────────────────
-function MatrixView({ days, outlets, closingAt, statusCls, onOpen }: {
+function MatrixView({ days, outlets, closingAt, registroAt, statusCls, onOpen }: {
   days: string[]
   outlets: Array<{ id: string; name: string }>
   closingAt: Map<string, ClosingRow>
+  registroAt: Map<string, number>
   statusCls: (c: ClosingRow | undefined, d: string) => string
   onOpen: (outletId: string, date: string) => void
 }) {
   const today = todayIso()
-  const colTotal = (oid: string) => days.reduce((s, d) => s + Number(closingAt.get(`${oid}|${d}`)?.total_receipts ?? 0), 0)
-  const rowTotal = (d: string) => outlets.reduce((s, o) => s + Number(closingAt.get(`${o.id}|${d}`)?.total_receipts ?? 0), 0)
+  // Il giorno con la chiusura vale la chiusura; senza chiusura vale il registro corrispettivi.
+  const valore = (oid: string, d: string) => {
+    const c = closingAt.get(`${oid}|${d}`)
+    return c ? Number(c.total_receipts ?? 0) : registroAt.get(`${oid}|${d}`) ?? 0
+  }
+  const colTotal = (oid: string) => days.reduce((s, d) => s + valore(oid, d), 0)
+  const rowTotal = (d: string) => outlets.reduce((s, o) => s + valore(o.id, d), 0)
   return (
     <div className="overflow-x-auto bg-white border border-slate-200 rounded-xl">
       <table className="min-w-full text-sm">
@@ -462,10 +479,13 @@ function MatrixView({ days, outlets, closingAt, statusCls, onOpen }: {
               <td className="px-3 py-1.5 sticky left-0 bg-white whitespace-nowrap text-slate-700">{formatDateIt(d, true).replace(/ \d{4}$/, '')}</td>
               {outlets.map((o) => {
                 const c = closingAt.get(`${o.id}|${d}`)
+                const reg = c ? undefined : registroAt.get(`${o.id}|${d}`)
                 return (
                   <td key={o.id} className="px-1 py-1">
-                    <button onClick={() => onOpen(o.id, d)} className={`w-full text-right px-2 py-1 rounded-md tabular-nums ${statusCls(c, d)} hover:ring-1 hover:ring-blue-400`}>
-                      {c ? (c.is_closed_day ? 'chiuso' : formatEuro(Number(c.total_receipts))) : d <= today ? '—' : ''}
+                    <button onClick={() => onOpen(o.id, d)}
+                      title={reg != null ? "Incasso dal registro corrispettivi: per questo giorno non c'è una chiusura di cassa" : undefined}
+                      className={`w-full text-right px-2 py-1 rounded-md tabular-nums ${reg != null ? 'bg-sky-50 text-sky-800' : statusCls(c, d)} hover:ring-1 hover:ring-blue-400`}>
+                      {c ? (c.is_closed_day ? 'chiuso' : formatEuro(Number(c.total_receipts))) : reg != null ? formatEuro(reg) : d <= today ? '—' : ''}
                     </button>
                   </td>
                 )
