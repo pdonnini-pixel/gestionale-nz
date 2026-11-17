@@ -467,11 +467,17 @@ async function istruisci(
             && (!confermata || p.closing_date > confermata.closing_date));
 
           if (bozzaDopo && confermata && Math.abs(diffCassa - (contato(bozzaDopo) - contato(confermata))) <= tolV) {
+            // Alla conferma della bozza il database ricalcola solo le chiusure successive
+            // ancora in bozza: se oggi è già confermata, la differenza resta finché qualcuno
+            // non la ritocca. In quel caso c'è davvero qualcosa da fare.
+            const oggiBozza = c.status === "bozza";
             checks.push({
               ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "bozza_prima",
               detail: `contante in cassa ${diffCassa > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(diffCassa))}`,
-              outcome: "falso_allarme",
-              reason: `La chiusura del ${dataIt(bozzaDopo.closing_date)} è ancora in bozza, quindi la cassa attesa di oggi parte dal ${dataIt(confermata.closing_date)}: la differenza è tutta lì. Confermata la bozza, oggi torna a zero.`,
+              outcome: oggiBozza ? "falso_allarme" : "da_fare",
+              reason: `La chiusura del ${dataIt(bozzaDopo.closing_date)} è ancora in bozza, quindi la cassa attesa di oggi parte dal ${dataIt(confermata.closing_date)}: la differenza è tutta lì. ${oggiBozza
+                ? "Confermata la bozza, oggi torna a zero."
+                : `Dopo aver confermato il ${dataIt(bozzaDopo.closing_date)}, questa giornata va riaperta e riconfermata (o ritoccata dall'amministrazione) perché la cassa attesa si ricalcoli.`}`,
               action: null, undo_kind: null, undo_data: null, lezione: null,
             });
             sistemata = true;
@@ -484,14 +490,17 @@ async function istruisci(
               : { data: [] };
             const uscita = ((uscRows ?? []) as Array<{ closing_id: string; kind: string; amount: number; description: string | null }>)
               .filter((e) => e.kind !== "rimborso_cliente")
+              .sort((a, b) => Math.abs(num(a.amount) - diffCassa) - Math.abs(num(b.amount) - diffCassa))
               .find((e) => Math.abs(num(e.amount) - diffCassa) <= tolV);
             if (uscita) {
               const quando = prima.find((p) => p.id === uscita.closing_id)?.closing_date ?? date;
+              const resto = r2(diffCassa - num(uscita.amount));
+              // Senza la nota della cassiera la coincidenza di importo è un indizio, non una prova.
               checks.push({
                 ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "uscita_prima",
                 detail: `contante in cassa in eccedenza di ${eur(diffCassa)}`,
-                outcome: "falso_allarme",
-                reason: `Il ${dataIt(quando)} è stata registrata l'uscita «${(uscita.description ?? "").trim() || "senza descrizione"}» di ${eur(num(uscita.amount))}, ma i soldi sono rimasti nel cassetto. L'uscita va registrata il giorno in cui i soldi escono davvero.${nota ? ` La cassiera ha scritto: «${nota}».` : ""}`,
+                outcome: nota ? "falso_allarme" : "da_fare",
+                reason: `${nota ? "" : "Probabile: "}il ${dataIt(quando)} è stata registrata l'uscita «${(uscita.description ?? "").trim() || "senza descrizione"}» di ${eur(num(uscita.amount))}, ma i soldi sono rimasti nel cassetto. L'uscita va registrata il giorno in cui i soldi escono davvero.${Math.abs(resto) >= 0.005 ? ` Resta uno scarto di ${eur(resto)}.` : ""}${nota ? ` La cassiera ha scritto: «${nota}».` : " Da confermare con il negozio."}`,
                 action: null, undo_kind: null, undo_data: null, lezione: null,
               });
               sistemata = true;
@@ -505,8 +514,8 @@ async function istruisci(
               checks.push({
                 ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "compensa",
                 detail: `contante in cassa ${diffCassa > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(diffCassa))}`,
-                outcome: "falso_allarme",
-                reason: `Il ${dataIt(opposta.closing_date)} c'era la differenza opposta di ${eur(num(opposta.cash_difference))}: si compensano (soldi usciti o entrati un giorno e registrati in un altro).${nota ? ` La cassiera ha scritto: «${nota}».` : ""}`,
+                outcome: nota ? "falso_allarme" : "da_fare",
+                reason: `Il ${dataIt(opposta.closing_date)} c'era la differenza opposta di ${eur(num(opposta.cash_difference))}: ${nota ? "si compensano" : "probabilmente si compensano"} (soldi usciti o entrati un giorno e registrati in un altro).${nota ? ` La cassiera ha scritto: «${nota}».` : " Da confermare con il negozio."}`,
                 action: null, undo_kind: null, undo_data: null, lezione: null,
               });
               sistemata = true;
