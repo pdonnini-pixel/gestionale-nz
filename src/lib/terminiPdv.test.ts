@@ -24,6 +24,14 @@ describe('adattaTermini', () => {
     expect(adattaTermini('numero di outlet attivi', zago)).toBe('numero di negozi attivi')
     expect(adattaTermini('Contratti e outlet', zago)).toBe('Contratti e negozi')
   })
+  it('con «Punto vendita» (Zago) articoli e plurale giusti', () => {
+    const pv = labelsDa('Punto vendita')
+    expect(pv.pointOfSalePlural).toBe('Punti vendita')
+    expect(pv.art.il).toBe('il punto vendita')
+    expect(pv.art.dei).toBe('dei punti vendita')
+    expect(adattaTermini("Ricavi dell'outlet e tutti gli outlet", pv)).toBe('Ricavi del punto vendita e tutti i punti vendita')
+    expect(adattaTermini('Confronto Outlet', pv)).toBe('Confronto Punti vendita')
+  })
   it('lascia i valori letterali', () => {
     expect(adattaTermini('nota "Outlet: CODICE · motivo"', zago)).toBe('nota "Outlet: CODICE · motivo"')
     expect(adattaTermini('tipo (Outlet, Retail, Corner)', zago)).toBe('tipo (Outlet, Retail, Corner)')

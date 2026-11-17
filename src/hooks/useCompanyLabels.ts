@@ -9,7 +9,7 @@ import { useCompany } from './useCompany'
  * "Boutique", "Punti vendita") — applichiamo una regola minimale:
  *   - se finisce per "o" (singular m.) → plurale "i" (Negozio → Negozi)
  *   - se finisce per "e" (singular m./f. invariato breve) → "e" come "valigette" — restiamo invariati per "Boutique"
- *   - se contiene spazio → cambia solo l'ultima parola (Punto vendita → Punti vendita)
+ *   - se contiene spazio → cambia solo la prima parola (Punto vendita → Punti vendita)
  *   - in caso di dubbio, lascia identico al singolare
  *
  * Il fallback se non c'è ancora company caricata è "Outlet"/"Outlet" (storia
@@ -106,8 +106,9 @@ function pluralize(singular: string): string {
   const trimmed = singular.trim()
   if (!trimmed) return trimmed
 
+  // In italiano il nome che va al plurale è il primo: Punto vendita → Punti vendita.
   const parts = trimmed.split(/\s+/)
-  const last = parts[parts.length - 1]
+  const last = parts[0]
   const lower = last.toLowerCase()
 
   // Italiano: -o → -i (Punto → Punti, Negozio → Negozi)
@@ -128,7 +129,7 @@ function pluralize(singular: string): string {
     // -e (Boutique, Outlet/Store inglese, ecc.) → invariato
     pluralLast = last
   }
-  parts[parts.length - 1] = pluralLast
+  parts[0] = pluralLast
   return parts.join(' ')
 }
 
