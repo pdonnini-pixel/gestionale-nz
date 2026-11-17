@@ -403,6 +403,13 @@ function splitMonthly(annual: number): number[] {
   return Array.from({ length: 12 }, (_, i) => (base + (i < r ? step : 0)) / 100)
 }
 
+// rettifica_pct è numeric(5,2): oltre ±999,99 il database rifiuta la riga. In quel caso
+// si salva solo l'importo e la percentuale resta vuota (si ricalcola a video).
+function pctSicura(pct: number | null): number | null {
+  if (pct == null || !Number.isFinite(pct) || Math.abs(pct) >= 1000) return null
+  return Math.round(pct * 100) / 100
+}
+
 function NumberInputIt({ value, onChange, onCommit, className, placeholder, edited, onClickStop }: {
   value: number
   onChange: (n: number) => void
@@ -459,6 +466,9 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
       onChange={e => {
         const v = e.target.value
         setDraft(v)
+        // Un segno da solo («-» o «+») è l'inizio di un numero: il valore non cambia,
+        // così uscire dalla casella con il solo segno non azzera né cancella niente.
+        if (v.trim() === '-' || v.trim() === '+') return
         const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
         const num = parseFloat(cleaned)
         onChange(isNaN(num) ? 0 : num)
@@ -1227,7 +1237,7 @@ export default function BudgetControl() {
       if (error) throw error
       return
     }
-    const pct = base !== 0 ? (value / base) * 100 : null
+    const pct = pctSicura(base !== 0 ? (value / base) * 100 : null)
     const { error } = await supabase.from('budget_confronto').upsert({
       company_id: CID, cost_center: outletCode, account_code: accCode, year, month,
       entry_type: entryType, amount: value, rettifica_amount: value, rettifica_pct: pct,
@@ -1261,7 +1271,7 @@ export default function BudgetControl() {
         if (typeof amt === 'number' && amt !== 0 && CID) {
           // Calcolo % se preventivo annuale != 0
           const pv = (bpEdits[outletCode] || {})[ac] || 0
-          const pct = pv !== 0 ? (amt / pv) * 100 : null
+          const pct = pctSicura(pv !== 0 ? (amt / pv) * 100 : null)
           rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: 0, entry_type: 'rettifica', amount: amt, rettifica_amount: amt, rettifica_pct: pct, updated_at: new Date().toISOString() })
         }
       })
@@ -1293,7 +1303,7 @@ export default function BudgetControl() {
             // Se ho solo % calcolo €; se ho solo € calcolo %
             const prevMonth = prevArr[mi] || 0
             const amount = v !== 0 ? v : (prevMonth * pctV / 100)
-            const pct = pctV !== 0 ? pctV : (prevMonth !== 0 ? (amount / prevMonth) * 100 : null)
+            const pct = pctSicura(pctV !== 0 ? pctV : (prevMonth !== 0 ? (amount / prevMonth) * 100 : null))
             rows.push({ company_id: CID, cost_center: outletCode, account_code: ac, year, month: mi + 1, entry_type: 'rett_monthly', amount, rettifica_amount: amount, rettifica_pct: pct, updated_at: new Date().toISOString() })
           }
         })
@@ -2871,8 +2881,11 @@ type ConfrontoRowProps = { prevNode: TreeNodeT; consNode: TreeNodeT; rettNode: T
   // Rettifica annuale: salvataggio on blur della singola cella (prima si salvava solo con «Salva confronto»).
   onRettCommit?: (code: string, val: number) => Promise<void>
   // Sezione ricavi: uno scostamento positivo è un miglioramento (verde), non un peggioramento.
-  isRevenue?: boolean }
-function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit, onPrevEdit, onPrevCommit, onRettCommit, isRevenue }: ConfrontoRowProps) {
+  isRevenue?: boolean
+  // Consuntivo annuale come somma dei mesi (Inserimento rapido / vista mensile), per codice.
+  // Dove c'è, la foglia lo mostra in sola lettura: il mensile comanda, come nella riga macro.
+  consMonthlyYear?: Record<string, number> }
+function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit, onPrevEdit, onPrevCommit, onRettCommit, isRevenue, consMonthlyYear }: ConfrontoRowProps) {
   const [open, setOpen] = useState(false)
   const hasKids = prevNode.children?.length > 0
   const isMacro = prevNode.level === 0
@@ -2880,7 +2893,8 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
 
   const pv = prevNode.amount || 0
 
-  const consVal = consEdits[prevNode.code] != null ? consEdits[prevNode.code] : 0
+  const consFromMonthly = consMonthlyYear?.[prevNode.code]
+  const consVal = consFromMonthly != null ? consFromMonthly : consEdits[prevNode.code] != null ? consEdits[prevNode.code] : 0
   const consIsEdited = consEdits[prevNode.code] != null
   const rettRaw = rettEdits[prevNode.code]
   const rettVal = rettRaw != null ? rettRaw : 0
@@ -2920,8 +2934,8 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
         ) : (
           <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-indigo-700' : 'text-indigo-500'}`}>{fmt(pv)}</span>
         )}
-        {/* Consuntivo — input for leaves */}
-        {isLeaf ? (
+        {/* Consuntivo — input for leaves (sola lettura se viene dalla somma dei mesi) */}
+        {isLeaf && consFromMonthly == null ? (
           <NumberInputIt
             value={consVal}
             edited={consIsEdited}
@@ -2959,7 +2973,7 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
         <ConfrontoRow key={`${c.code}-${i}`}
           prevNode={c} consNode={consNode.children?.[i] || c} rettNode={rettNode.children?.[i] || { ...c, amount: 0, children: [] }}
           depth={depth + 1} consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-          onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} isRevenue={isRevenue} />
+          onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} isRevenue={isRevenue} consMonthlyYear={consMonthlyYear} />
       ))}
     </div>
   )
@@ -3134,7 +3148,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             {prevR.map((n, i) => (
               <ConfrontoRow key={`r-${n.code}-${i}`} prevNode={n} consNode={consR[i] || n} rettNode={rettR[i] || { ...n, amount: 0, children: [] }}
                 consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-                onRettCommit={onRettCommit} isRevenue />
+                onRettCommit={onRettCommit} isRevenue consMonthlyYear={consYearly} />
             ))}
           </div>
           <div className="grid mt-2 pt-2 border-t-2 border-slate-300 font-bold text-[11px]"
