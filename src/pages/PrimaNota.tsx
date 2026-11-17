@@ -211,7 +211,8 @@ export default function PrimaNota() {
   const labels = useCompanyLabels()
   // Le intestazioni «Outlet» delle righe (chiavi degli oggetti) si mostrano con la parola del tenant.
   const intest = (h: string): string => (h === 'Outlet' ? labels.pointOfSale : h)
-  const foglioIncassi = `Incassi per ${labels.pointOfSaleLower}`
+  // Excel accetta nomi di foglio fino a 31 caratteri: un'etichetta lunga non deve bloccare l'export.
+  const foglioIncassi = `Incassi per ${labels.pointOfSaleLower}`.slice(0, 31)
   const { company } = useCompany()
   const today = new Date()
   const [year, setYear] = useState<number>(today.getFullYear())
@@ -1306,7 +1307,11 @@ export default function PrimaNota() {
       addStyledSheet(wb, { name, rows: drows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 30, 12, 34], moneyHeaders: ['Importo', 'Commissioni'], tabColor: 'ED7D31' })
     })
     // Foglio Guida in testa: cosa c'è in ogni foglio e come si cerca
-    addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, carteDebito: nomiCarteDebito, flussiSenzaBuste: stipendi.flussi_non_abbinati.length }).map(r => ({ ...r, cells: r.cells.map(c => (typeof c === 'string' ? adattaTermini(c, labels) : c)) })), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
+    addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, carteDebito: nomiCarteDebito, flussiSenzaBuste: stipendi.flussi_non_abbinati.length })
+      // Le righe con i nomi veri di conti e carte non si adattano: un nome con «outlet» resta com'è.
+      .map(r => (['Fogli per conto', 'Fogli per carta', 'Fogli per carta di debito'].includes(String(r.cells[0]))
+        ? r
+        : { ...r, cells: r.cells.map(c => (typeof c === 'string' ? adattaTermini(c, labels) : c)) })), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
     // Il file si scrive UNA volta e lo stesso blob va a chi l'ha chiesto e in
     // archivio: scrivendolo due volte le due copie differirebbero al byte
     // (ExcelJS ci mette dentro l'ora), e in archivio resterebbe una copia che
