@@ -140,6 +140,21 @@ export function contoDaiMovimenti(trovati: ContoTrovato[], conti: ContoLite[]): 
   return conti.find((c) => c.id === primo.bank_account_id) ?? null
 }
 
+/**
+ * Il messaggio di un errore in parole. Gli errori di Supabase non sono Error ma
+ * oggetti con `message` e `code`: con String(e) la pagina scriveva «[object Object]»
+ * (Zago, 17/11/2026, due estratti MPS fermati dal tempo massimo del database).
+ */
+export function messaggioErrore(e: unknown): string {
+  const o = (e && typeof e === 'object' ? e : {}) as { message?: unknown; code?: unknown; details?: unknown }
+  if (o.code === '57014' || /statement timeout/i.test(String(o.message ?? ''))) {
+    return 'Il database ci ha messo troppo a salvare questo estratto e si è fermato: non è stato salvato niente. Ricarica il file; se si ripete, dividi l\'estratto in periodi più corti.'
+  }
+  if (e instanceof Error) return e.message
+  if (typeof o.message === 'string' && o.message) return o.details ? `${o.message} (${String(o.details)})` : o.message
+  return typeof e === 'string' ? e : 'errore sconosciuto'
+}
+
 /** Un canale di incasso, per riconoscere il conto dai codici dei POS e del contante. */
 export type CanaleConto = { bank_account_id: string | null; kind: string; terminal_code: string | null }
 

@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import {
   ibanNelTesto, trovaConto, classificaDocumento, saldiDichiarati, periodoDelle,
   righePerDb, leggiEstratto, fraseEsito, chiusuraCaricamento, normIban, numeroConto, righeIntestazione,
-  contoDaiMovimenti, contoDaiCanali, leggiDistintaMps, numeriDallaCausale, fraseEsitoDistinta, righeCartaPerDb,
+  contoDaiMovimenti, contoDaiCanali, messaggioErrore, leggiDistintaMps, numeriDallaCausale, fraseEsitoDistinta, righeCartaPerDb,
   fraseEsitoCarta, motivoNonSupportato, excelEstrattoDifettoso, type ContoLite,
 } from './documentiBanca'
 
@@ -474,5 +474,15 @@ describe('conto dai canali di incasso (estratti senza IBAN di un periodo nuovo)'
   it('un numero qualunque in una riga che non e\' un accredito POS non conta', () => {
     const righe = Array.from({ length: 5 }, () => ({ description: 'DISPOSIZIONE ID FLUSSO CBI: 139222957 Rif Banca: 0260001012800002' }))
     expect(contoDaiCanali(righe, canali, conti)).toBeNull()
+  })
+})
+
+describe('messaggio di errore in parole', () => {
+  it('un errore di Supabase non diventa «[object Object]»', () => {
+    expect(messaggioErrore({ message: 'duplicate key', code: '23505' })).toBe('duplicate key')
+    expect(messaggioErrore(new Error('rete assente'))).toBe('rete assente')
+  })
+  it('il tempo massimo del database si spiega', () => {
+    expect(messaggioErrore({ message: 'canceling statement due to statement timeout', code: '57014' })).toMatch(/troppo a salvare/)
   })
 })
