@@ -19,6 +19,7 @@ import { useToast } from '../components/Toast';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import AccordiOrario from '../components/AccordiOrario';
 import ChiaviNegozio from '../components/ChiaviNegozio';
+import { isSellingOutlet } from '../hooks/useOutlets';
 import RiposiNegozio from '../components/RiposiNegozio';
 import CorreggiPersona, { assunzioneInAttesa } from '../components/CorreggiPersona';
 import SegnaCambiamento from '../components/SegnaCambiamento';
@@ -38,7 +39,9 @@ type Employee = Row<'employees'>;
 type EmployeeCost = Row<'employee_costs'>;
 type EmployeeDocument = Row<'employee_documents'>;
 type Allocazione = Row<'employee_outlet_allocations'>;
-type OutletRow = { id: string; name: string; code: string | null; is_active: boolean | null };
+type OutletRow = { id: string; name: string; code: string | null; is_active: boolean | null;
+  outlet_type?: string | null; cost_center_key?: string | null;
+  referente_employee_id?: string | null; vice_referente_employee_id?: string | null };
 type Saldo = { voce: string; residuo: number | null; da_fruire: number | null; ore_in_attesa: number | null; ore_approvate: number | null; residuo_disponibile: number | null; saldo_alla_data: string | null };
 type Richiesta = { id: string; titolo: string | null; stato: string; created_at: string; inviata_il: string | null; origine: string };
 
@@ -108,7 +111,8 @@ export default function SchedaDipendente() {
     setErrore(null);
     const [e, o] = await Promise.all([
       supabase.from('employees').select('*').eq('company_id', companyId),
-      supabase.from('outlets').select('id, name, code, is_active').eq('company_id', companyId).order('name'),
+      // '*': referente e vice (migration 393) possono mancare dove la migration non c'e'
+      supabase.from('outlets').select('*').eq('company_id', companyId).order('name'),
     ]);
     if (e.error) {
       console.error('[scheda dipendente] lettura dei dipendenti', e.error);
@@ -222,7 +226,12 @@ export default function SchedaDipendente() {
   const attiva = emp.is_active !== false;
   const qualifica = campo(emp, 'qualifica') || emp.role_description;
   const livello = emp.livello || campo(emp, 'level');
-  const apreChiudeDaIndicare = 'puo_aprire' in (emp as unknown as Record<string, unknown>) && (campo(emp, 'puo_aprire') == null || campo(emp, 'puo_chiudere') == null);
+  // Apertura e chiusura valgono solo nei negozi (Patrizio, 17/11/2026: chi e' in sede o in magazzino
+  // non apre e non chiude un negozio). Referente e vice sono sempre abilitate: niente da indicare.
+  const negozio = outlets.find((o) => o.id === emp.outlet_id) ?? null;
+  const inNegozio = !!negozio && isSellingOutlet({ outlet_type: negozio.outlet_type ?? null }) && negozio.cost_center_key !== 'sede_magazzino';
+  const eGuida = !!negozio && (negozio.referente_employee_id === emp.id || negozio.vice_referente_employee_id === emp.id);
+  const apreChiudeDaIndicare = inNegozio && !eGuida && 'puo_aprire' in (emp as unknown as Record<string, unknown>) && (campo(emp, 'puo_aprire') == null || campo(emp, 'puo_chiudere') == null);
   const scadenza = campo(emp, 'scadenza_td');
 
   return (
@@ -305,7 +314,10 @@ export default function SchedaDipendente() {
       {sezione === 'turni' && (
         <section className="space-y-3">
           <div className="bg-white border border-slate-200 rounded-xl p-4">
-            <ChiaviNegozio employeeId={emp.id} outletId={emp.outlet_id ?? null} />
+            {inNegozio && (
+              <ChiaviNegozio employeeId={emp.id} outletId={emp.outlet_id ?? null}
+                onCambiato={(campoC, valore) => setTutti((t) => t.map((x) => (x.id === emp.id ? ({ ...x, [campoC]: valore } as Employee) : x)))} />
+            )}
             <AccordiOrario employeeId={emp.id} companyId={companyId} outletId={emp.outlet_id ?? null}
               oreSettimanali={ore != null ? Number(ore) : null} />
           </div>
