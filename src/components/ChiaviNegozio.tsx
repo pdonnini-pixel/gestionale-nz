@@ -17,7 +17,11 @@ const db = supabase as unknown as SupabaseClient;
 type Stato = boolean | null;
 type Campo = 'puo_aprire' | 'puo_chiudere';
 
-export default function ChiaviNegozio({ employeeId, outletId }: { employeeId: string; outletId: string | null }) {
+export default function ChiaviNegozio({ employeeId, outletId, onCambiato }: {
+  employeeId: string; outletId: string | null;
+  // la testata della scheda tiene il suo avviso: si aggiorna subito, senza ricaricare la pagina
+  onCambiato?: (campo: Campo, valore: Stato) => void;
+}) {
   const { toast } = useToast();
   const [valori, setValori] = useState<Record<Campo, Stato> | null>(null);
   const [guida, setGuida] = useState<string | null>(null);
@@ -50,6 +54,7 @@ export default function ChiaviNegozio({ employeeId, outletId }: { employeeId: st
     try {
       await salvaAbilitazione(employeeId, campo, valore);
       setValori((v) => (v ? { ...v, [campo]: valore } : v));
+      onCambiato?.(campo, valore);
       toast({ type: 'success', message: 'Salvato: vale dal prossimo piano dei turni' });
     } catch (err) {
       toast({ type: 'error', message: `Non salvato: ${(err as Error).message}` });
@@ -88,7 +93,7 @@ export default function ChiaviNegozio({ employeeId, outletId }: { employeeId: st
       <div className="text-xs font-semibold uppercase tracking-wide text-slate-500 inline-flex items-center gap-2 mb-1"><KeyRound size={13} /> Apertura e chiusura del negozio</div>
       <p className="text-xs text-slate-500 mb-1">
         Abilitazioni, non obblighi: i turni non mettono ad aprire o a chiudere da sola chi non ha le chiavi. Finché nel negozio c'è qualcuna «da indicare» la regola non si applica.
-        {!eHr && ' Le modifica solo la responsabile HR.'}
+        {!eHr && ' Le modifica solo l’HR.'}
       </p>
       {riga('puo_aprire', 'Può aprire il negozio')}
       {riga('puo_chiudere', 'Può chiudere il negozio')}
