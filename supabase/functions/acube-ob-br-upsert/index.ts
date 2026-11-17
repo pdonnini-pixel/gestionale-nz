@@ -147,7 +147,8 @@ Deno.serve(async (req: Request) => {
       .select("uuid").eq("fiscal_id", fiscalId).eq("stage", stage).maybeSingle();
     const uuid: string = (existingRow as { uuid: string } | null)?.uuid ?? crypto.randomUUID();
 
-    // 2. Upsert in acube_business_registries con onConflict su fiscal_id (UNIQUE)
+    // 2. Upsert in acube_business_registries: il vincolo UNIQUE è (fiscal_id, stage),
+    //    così la stessa P.IVA può avere un BR sandbox e uno production.
     const { error: upErr } = await supabase.from("acube_business_registries").upsert({
       uuid,
       fiscal_id: fiscalId,
@@ -161,7 +162,7 @@ Deno.serve(async (req: Request) => {
       locale: acubeBr.locale ?? "it",
       email_alerts: acubeBr.emailAlerts ?? acubeBr.email_alerts ?? null,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "fiscal_id" });
+    }, { onConflict: "fiscal_id,stage" });
     if (upErr) return jsonError(500, `Upsert acube_business_registries failed: ${upErr.message}`);
 
     return jsonOk({

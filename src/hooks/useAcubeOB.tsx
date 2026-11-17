@@ -58,7 +58,16 @@ export function useAcubeOB() {
     try {
       const { data, error: invokeErr } = await supabase.functions.invoke(fn, { body })
       if (invokeErr) {
-        const errMsg = invokeErr.message || `Errore ${fn}`
+        // Con risposta non 2xx supabase-js dà solo "Edge Function returned a
+        // non-2xx status code": il motivo vero è nel corpo della risposta.
+        let errMsg = invokeErr.message || `Errore ${fn}`
+        const ctx = (invokeErr as { context?: unknown }).context
+        if (ctx instanceof Response) {
+          try {
+            const j = await ctx.clone().json() as { error?: unknown }
+            if (typeof j?.error === 'string' && j.error) errMsg = j.error
+          } catch { /* corpo non JSON: resta il messaggio generico */ }
+        }
         setError(errMsg)
         throw new Error(errMsg)
       }
