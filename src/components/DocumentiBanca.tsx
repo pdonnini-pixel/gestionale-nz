@@ -15,7 +15,7 @@ import { useAuth } from '../hooks/useAuth'
 import { extractPdfLines } from '../lib/pdfText'
 import { archiviaFile, collegaFileArchiviato } from '../lib/archivioFile'
 import {
-  trovaConto, contoDaiMovimenti, contoDaiCanali, righeIntestazione, classificaDocumento, saldiDichiarati, periodoDelle, righePerDb, leggiEstratto,
+  trovaConto, contoDaiMovimenti, contoDaiCanali, messaggioErrore, righeIntestazione, classificaDocumento, saldiDichiarati, periodoDelle, righePerDb, leggiEstratto,
   righeDaFoglio, fraseEsito, chiusuraCaricamento, ETICHETTA_TIPO, leggiCarta, righeCartaPerDb, fraseEsitoCarta,
   leggiDistintaMps, fraseEsitoDistinta, motivoNonSupportato, excelEstrattoDifettoso,
   type ContoLite, type ContoTrovato, type CanaleConto, type TipoDocumento, type EsitoApplicazione,
@@ -137,7 +137,7 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       setChatKey((k) => k + 1)
       onRefresh?.()
     } catch (e) {
-      const messaggio = e instanceof Error ? e.message : String(e)
+      const messaggio = messaggioErrore(e)
       // L'estratto non resta «in lavorazione» per sempre: si segna l'errore, e
       // ricaricando lo stesso file si riparte da qui (05/11/2026, Excel BCC di ottobre).
       if (statementId) {
@@ -208,7 +208,7 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       setChatKey((k) => k + 1)
       onRefresh?.()
     } catch (e) {
-      aggiorna(v.key, { stato: 'errore', messaggio: e instanceof Error ? e.message : String(e) })
+      aggiorna(v.key, { stato: 'errore', messaggio: messaggioErrore(e) })
     }
   }, [aggiorna, companyId, onRefresh, userId])
 
@@ -259,7 +259,7 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       setChatKey((k) => k + 1)
       onRefresh?.()
     } catch (e) {
-      aggiorna(v.key, { stato: 'errore', messaggio: e instanceof Error ? e.message : String(e) })
+      aggiorna(v.key, { stato: 'errore', messaggio: messaggioErrore(e) })
     }
   }, [aggiorna, companyId, onRefresh, userId])
 
@@ -348,7 +348,7 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       aggiorna(key, pronta)
       await applica(pronta, conto)
     } catch (e) {
-      aggiorna(key, { stato: 'errore', messaggio: `Non sono riuscito a leggere il file: ${e instanceof Error ? e.message : String(e)}` })
+      aggiorna(key, { stato: 'errore', messaggio: `Non sono riuscito a leggere il file: ${messaggioErrore(e)}` })
     }
   }, [accounts, aggiorna, applica, applicaCarta, applicaDistinta])
 
