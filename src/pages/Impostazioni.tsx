@@ -1986,6 +1986,10 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [logs, setLogs] = useState<ReportLogRow[]>([])
   const [form, setForm] = useState({ enabled: false, sendMode: 'fixed' as 'fixed' | 'on_complete', sendTime: '21:30', followupEnabled: true, reminderEnabled: false, reminderTime: '20:30', recipients: '', reopenRecipients: '', sendOnEmpty: true, waEnabled: false, waRecipients: '' })
   const [testingWa, setTestingWa] = useState(false)
+  // Avviso delle chiusure in bozza a inizio mese (migration 428). La colonna può non
+  // esserci (sito Made, fuori dagli aggiornamenti del database): allora la casella non compare.
+  const [avvisoCol, setAvvisoCol] = useState(false)
+  const [avvisoRecipients, setAvvisoRecipients] = useState('')
   const [dirty, setDirty] = useState(false)
 
   const load = useCallback(async () => {
@@ -2005,6 +2009,9 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         waEnabled: s.whatsapp_enabled === true, waRecipients: (s.whatsapp_recipients ?? []).join('\n'),
       })
     }
+    const avv = (sRes.data as Record<string, unknown> | null)?.consuntivo_avviso_recipients
+    setAvvisoCol(Array.isArray(avv))
+    setAvvisoRecipients(Array.isArray(avv) ? (avv as string[]).join('\n') : '')
     setLogs((lRes.data ?? []) as ReportLogRow[])
     setDirty(false)
     setLoading(false)
@@ -2018,6 +2025,8 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const reopenList = parseRecipients(form.reopenRecipients)
   const invalidReopen = form.reopenRecipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !reopenList.includes(x.toLowerCase()))
   const phonesList = parsePhones(form.waRecipients)
+  const avvisoList = parseRecipients(avvisoRecipients)
+  const invalidAvviso = avvisoRecipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && !avvisoList.includes(x.toLowerCase()))
   const invalidPhones = form.waRecipients.split(/[\s,;]+/).map((x) => x.trim()).filter((x) => x && parsePhones(x).length === 0)
 
   const save = async () => {
@@ -2047,6 +2056,11 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     })
     setSaving(false)
     if (error) { showToast('Salvataggio non riuscito: ' + error.message, 'error'); return }
+    if (avvisoCol) {
+      const { error: avvErr } = await supabase.from('daily_report_settings')
+        .update({ consuntivo_avviso_recipients: avvisoList } as never).eq('company_id', COMPANY_ID)
+      if (avvErr) { showToast('Avviso bozze non salvato: ' + avvErr.message, 'error'); return }
+    }
     showToast(form.enabled
       ? (form.sendMode === 'on_complete'
         ? `Report attivo: parte appena tutti i negozi hanno confermato, al più tardi alle ${form.sendTime}, a ${recipientsList.length} destinatari`
@@ -2139,6 +2153,22 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           {invalidRecipients.length > 0 && <span className="text-red-600"> · non validi: {invalidRecipients.join(', ')}</span>}
         </div>
       </div>
+
+      {avvisoCol && (
+        <div className="border border-slate-200 rounded-xl p-4 space-y-2">
+          <label className="block text-sm font-semibold text-slate-900">Consuntivo del mese chiuso: avviso delle chiusure in bozza</label>
+          <p className="text-xs text-slate-600">
+            Dal primo del mese alle 9 il gestionale scrive da solo il consuntivo del mese appena chiuso nell'Inserimento rapido
+            (chiusure di cassa, corrispettivi + fatture, meno IVA 22 %). Un negozio con chiusure ancora in bozza aspetta: questi
+            indirizzi ricevono l'elenco delle bozze, ogni mattina alle 9 finché non sono confermate. Vuoto = nessuna mail.
+          </p>
+          <textarea value={avvisoRecipients} onChange={(e) => { setAvvisoRecipients(e.target.value); setDirty(true) }} rows={2} placeholder="amministrazione@azienda.it" className={inp} />
+          <div className="text-xs text-slate-500">
+            {avvisoList.length} indirizz{avvisoList.length === 1 ? 'o' : 'i'} valid{avvisoList.length === 1 ? 'o' : 'i'}
+            {invalidAvviso.length > 0 && <span className="text-red-600"> · non validi: {invalidAvviso.join(', ')}</span>}
+          </div>
+        </div>
+      )}
 
       <div className="border border-slate-200 rounded-xl p-4 space-y-2">
         <label className="block text-sm font-semibold text-slate-900">Richieste di riapertura dai negozi</label>
