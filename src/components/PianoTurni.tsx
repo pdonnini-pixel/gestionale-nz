@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ChevronLeft, ChevronRight, Copy, Info, Mail, MessageCircle, Printer, RefreshCw, Send, Trash2 } from 'lucide-react';
 import { almenoDuePersone, attesoDelleDate, fabbisognoDaTraffico, tettoDelLunedi, type StoricoTraffico } from '../lib/pianoMensile';
 import EditorTurno from './EditorTurno';
+import TurniPubblicatiTolti from './TurniPubblicatiTolti';
 import { giornoDiPubblicazione, riallineaStraordinariForti } from '../lib/straordinariDb';
 import SpostaTurnoModal from './SpostaTurnoModal';
 import { useToast } from './Toast';
@@ -842,6 +843,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           </section>
         </div>
       )}
+      <TurniPubblicatiTolti companyId={companyId} outletId={outletId} dal={date[0]} al={ultimo} nomeDi={nomeDi} aggiorna={turni} />
       {passo === 3 && (
         <section aria-label="Pubblica e invia" className="rounded-xl border-2 border-blue-300 bg-blue-50 p-4 text-sm text-blue-950">
           <h3 className="font-semibold text-base">Pubblica e invia</h3>
