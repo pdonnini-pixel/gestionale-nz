@@ -446,6 +446,73 @@ async function istruisci(
             sistemata = true;
           }
         }
+        // I giorni prima spiegano la cifra? (Roma Soratte, 10 e 11 novembre 2026.)
+        // a) una giornata precedente ancora in bozza: la cassa attesa di oggi parte
+        //    dall'ultima chiusura confermata, saltando la bozza;
+        // b) un'uscita registrata nei giorni prima con lo stesso importo
+        //    dell'eccedenza: i soldi sono rimasti nel cassetto;
+        // c) una differenza opposta in un giorno vicino, di qualunque importo.
+        if (!sistemata) {
+          const tolV = Math.max(tol, 0.005);
+          const { data: primaRows } = await admin.from("outlet_daily_closings")
+            .select("id, closing_date, status, cash_difference, cash_float_declared, cash_pending_declared")
+            .eq("outlet_id", outlet.id)
+            .gte("closing_date", giorniPrima(date, 3)).lt("closing_date", date)
+            .order("closing_date", { ascending: false });
+          type Prima = { id: string; closing_date: string; status: string; cash_difference: number | null; cash_float_declared: number | null; cash_pending_declared: number | null };
+          const prima = (primaRows ?? []) as Prima[];
+          const contato = (p: Prima) => num(p.cash_float_declared) + num(p.cash_pending_declared);
+          const confermata = prima.find((p) => p.status !== "bozza" && p.cash_float_declared != null);
+          const bozzaDopo = prima.find((p) => p.status === "bozza" && p.cash_float_declared != null
+            && (!confermata || p.closing_date > confermata.closing_date));
+
+          if (bozzaDopo && confermata && Math.abs(diffCassa - (contato(bozzaDopo) - contato(confermata))) <= tolV) {
+            checks.push({
+              ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "bozza_prima",
+              detail: `contante in cassa ${diffCassa > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(diffCassa))}`,
+              outcome: "falso_allarme",
+              reason: `La chiusura del ${dataIt(bozzaDopo.closing_date)} è ancora in bozza, quindi la cassa attesa di oggi parte dal ${dataIt(confermata.closing_date)}: la differenza è tutta lì. Confermata la bozza, oggi torna a zero.`,
+              action: null, undo_kind: null, undo_data: null, lezione: null,
+            });
+            sistemata = true;
+          }
+
+          if (!sistemata && diffCassa > 0) {
+            const idsPrima = prima.filter((p) => p.status !== "bozza").map((p) => p.id);
+            const { data: uscRows } = idsPrima.length > 0
+              ? await admin.from("outlet_daily_closing_expenses").select("closing_id, kind, amount, description").in("closing_id", idsPrima)
+              : { data: [] };
+            const uscita = ((uscRows ?? []) as Array<{ closing_id: string; kind: string; amount: number; description: string | null }>)
+              .filter((e) => e.kind !== "rimborso_cliente")
+              .find((e) => Math.abs(num(e.amount) - diffCassa) <= tolV);
+            if (uscita) {
+              const quando = prima.find((p) => p.id === uscita.closing_id)?.closing_date ?? date;
+              checks.push({
+                ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "uscita_prima",
+                detail: `contante in cassa in eccedenza di ${eur(diffCassa)}`,
+                outcome: "falso_allarme",
+                reason: `Il ${dataIt(quando)} è stata registrata l'uscita «${(uscita.description ?? "").trim() || "senza descrizione"}» di ${eur(num(uscita.amount))}, ma i soldi sono rimasti nel cassetto. L'uscita va registrata il giorno in cui i soldi escono davvero.${nota ? ` La cassiera ha scritto: «${nota}».` : ""}`,
+                action: null, undo_kind: null, undo_data: null, lezione: null,
+              });
+              sistemata = true;
+            }
+          }
+
+          if (!sistemata) {
+            const opposta = prima.find((p) => p.status !== "bozza" && p.cash_difference != null
+              && Math.abs(num(p.cash_difference)) >= 0.005 && Math.abs(num(p.cash_difference) + diffCassa) <= tolV);
+            if (opposta) {
+              checks.push({
+                ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "compensa",
+                detail: `contante in cassa ${diffCassa > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(diffCassa))}`,
+                outcome: "falso_allarme",
+                reason: `Il ${dataIt(opposta.closing_date)} c'era la differenza opposta di ${eur(num(opposta.cash_difference))}: si compensano (soldi usciti o entrati un giorno e registrati in un altro).${nota ? ` La cassiera ha scritto: «${nota}».` : ""}`,
+                action: null, undo_kind: null, undo_data: null, lezione: null,
+              });
+              sistemata = true;
+            }
+          }
+        }
         if (!sistemata) {
           checks.push({
             ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "da_capire",
