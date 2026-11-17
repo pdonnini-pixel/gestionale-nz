@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { EXPENSE_KINDS_OUT, EXPENSE_KIND_LABELS, parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected, depositTotals, depositPhotoBelongs } from './cashClosings'
+import { EXPENSE_KINDS_OUT, EXPENSE_KIND_LABELS, parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, closingIncasso, BUDGET_VAT_RATE, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected, depositTotals, depositPhotoBelongs } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -451,5 +451,16 @@ describe('uscite di cassa: i tre tipi di riga', () => {
       cashFloatDeclared: 504, cashPendingDeclared: 0,
     })
     expect(con.cashDifference).toBe(0)
+  })
+})
+
+describe('incasso per il confronto con il budget (17/11/2026)', () => {
+  it('IVA fissa al 22 %', () => {
+    expect(BUDGET_VAT_RATE).toBe(22)
+  })
+  it('somma corrispettivi e fatture, anche da stringhe e null', () => {
+    expect(closingIncasso({ total_receipts: 1000, invoices_total: 120.5 })).toBe(1120.5)
+    expect(closingIncasso({ total_receipts: '1500.40', invoices_total: null })).toBe(1500.4)
+    expect(closingIncasso({ total_receipts: null })).toBe(0)
   })
 })

@@ -558,6 +558,18 @@ export async function compressImage(file: File, maxSide = 1600, quality = 0.82):
   }
 }
 
+// ─── Aliquota IVA del confronto con il budget ──────────────────────────
+// Fissa al 22 % su NZ e Zago (Patrizio, 17/11/2026): non si sceglie più da
+// Impostazioni → Report incassi serale. Il budget dell'Inserimento rapido è
+// netto IVA, le chiusure di cassa sono lorde: si passa dall'uno all'altro con
+// questa aliquota, in pagina, nella proposta del consuntivo e nelle simulazioni.
+export const BUDGET_VAT_RATE = 22
+
+/** Incasso di una chiusura come lo conta il confronto con il budget: corrispettivi + fatture del negozio (lordo). */
+export function closingIncasso(c: { total_receipts: number | string | null; invoices_total?: number | string | null }): number {
+  return (Number(c.total_receipts) || 0) + (Number(c.invoices_total) || 0)
+}
+
 // ─── Obiettivo dal budget (Inserimento rapido) ────────────────────────
 // Il budget ricavi mensile per outlet (budget_confronto, rev_monthly) è netto
 // IVA; le chiusure di cassa sono corrispettivi lordi. L'obiettivo del giorno è

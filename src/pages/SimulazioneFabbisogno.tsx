@@ -45,6 +45,7 @@ import {
   ComposedChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts'
 import { supabase } from '../lib/supabase'
+import { BUDGET_VAT_RATE } from '../lib/cashClosings'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
 import { fetchAllPaged } from '../lib/fetchAllPaged'
@@ -231,7 +232,7 @@ export default function SimulazioneFabbisogno() {
       const annoCorr = Number(oggi.slice(0, 4))
       const meseCorr = Number(oggi.slice(5, 7))
 
-      const [contiRes, fiscaliRes, budgetRes, ivaRateRes, mustRes, compRes, settRes, confRes, ivaPagateRes] = await Promise.all([
+      const [contiRes, fiscaliRes, budgetRes, mustRes, compRes, settRes, confRes, ivaPagateRes] = await Promise.all([
         supabase.from('bank_accounts')
           .select('id, bank_name, account_name, current_balance, credit_line, balance_updated_at')
           .eq('company_id', COMPANY_ID).eq('is_active', true),
@@ -240,7 +241,6 @@ export default function SimulazioneFabbisogno() {
           .eq('company_id', COMPANY_ID).eq('status', 'pending').lte('due_date', orizzonte),
         supabase.from('budget_confronto').select('amount')
           .eq('company_id', COMPANY_ID).eq('year', annoCorr).eq('month', meseCorr).eq('entry_type', 'rev_monthly'),
-        supabase.from('daily_report_settings').select('budget_vat_rate').eq('company_id', COMPANY_ID).maybeSingle(),
         supabase.from('cash_must_pay').select('id, item_kind, payable_id, fiscal_deadline_id, item_ref')
           .eq('company_id', COMPANY_ID).eq('horizon_date', orizzonte),
         // ingredienti della liquidazione IVA: gli stessi della pagina dedicata
@@ -311,8 +311,8 @@ export default function SimulazioneFabbisogno() {
       setPayables(payRows.filter(r => !STATI_ESCLUSI.has((r.status || '').trim())))
       setMustPay((mustRes.data || []) as MustPayRow[])
 
-      const vat = Number((ivaRateRes.data as { budget_vat_rate?: number | string } | null)?.budget_vat_rate)
-      const aliquota = Number.isFinite(vat) ? vat : 22
+      // IVA del confronto con il budget: fissa al 22 % (BUDGET_VAT_RATE)
+      const aliquota = BUDGET_VAT_RATE
       const obiettivoNetto = (budgetRes.data || []).reduce((s, r) => s + Number((r as { amount: number | null }).amount || 0), 0)
       setObiettivoMeseLordo(obiettivoNetto * (1 + aliquota / 100))
 
