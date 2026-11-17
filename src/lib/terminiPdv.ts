@@ -52,7 +52,7 @@ export function adattaTermini(testo: string, labels: CompanyLabels): string {
     comeOrig(m, artSi === "l'" ? `quell'${sing}` : artSi === 'lo' ? `quello ${sing}` : `quel ${sing}`))
 
   // Plurale dopo le parole che lo chiedono.
-  t = t.replace(/\b(più|quanti|tutti i|altri|alcuni|diversi|vari|molti|pochi|due|tre|quattro|cinque|sei|sette|otto|\d+)\s+outlet\b/gi,
+  t = t.replace(/\b(numero di|contratti e|più|quanti|tutti i|altri|alcuni|diversi|vari|molti|pochi|due|tre|quattro|cinque|sei|sette|otto|\d+)\s+outlet\b/gi,
     (_m, p: string) => `${p} ${plur}`)
 
   // Tutto il resto al singolare.

@@ -21,6 +21,8 @@ describe('adattaTermini', () => {
     expect(adattaTermini('Costi per outlet', zago)).toBe('Costi per negozio')
     expect(adattaTermini('Confronto Outlet e Margini Outlet', zago)).toBe('Confronto Negozi e Margini Negozi')
     expect(adattaTermini('Nuovo outlet', zago)).toBe('Nuovo negozio')
+    expect(adattaTermini('numero di outlet attivi', zago)).toBe('numero di negozi attivi')
+    expect(adattaTermini('Contratti e outlet', zago)).toBe('Contratti e negozi')
   })
   it('lascia i valori letterali', () => {
     expect(adattaTermini('nota "Outlet: CODICE · motivo"', zago)).toBe('nota "Outlet: CODICE · motivo"')
