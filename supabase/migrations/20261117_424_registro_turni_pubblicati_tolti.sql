@@ -73,7 +73,7 @@ END $$;
 REVOKE ALL ON FUNCTION public.shifts_registra_pubblicato_tolto() FROM PUBLIC, anon, authenticated;
 DROP TRIGGER IF EXISTS trg_shifts_registra_pubblicato_tolto ON public.shifts;
 CREATE TRIGGER trg_shifts_registra_pubblicato_tolto AFTER UPDATE OF stato OR DELETE ON public.shifts
-  FOR EACH ROW EXECUTE FUNCTION public.shifts_registra_pubblicato_tolto();
+  FOR EACH ROW WHEN (OLD.stato = 'pubblicato') EXECUTE FUNCTION public.shifts_registra_pubblicato_tolto();
 
 -- RLS: stessi recinti di shifts
 ALTER TABLE public.turni_pubblicati_tolti ENABLE ROW LEVEL SECURITY;
@@ -93,6 +93,11 @@ DROP POLICY IF EXISTS solo_con_profilo ON public.turni_pubblicati_tolti;
 CREATE POLICY solo_con_profilo ON public.turni_pubblicati_tolti AS RESTRICTIVE FOR ALL TO authenticated
   USING ((SELECT public.get_my_role()) IS NOT NULL)
   WITH CHECK ((SELECT public.get_my_role()) IS NOT NULL);
+-- il dipendente di prova resta nascosto come in shifts (migration 368)
+DROP POLICY IF EXISTS demo_nascosto ON public.turni_pubblicati_tolti;
+CREATE POLICY demo_nascosto ON public.turni_pubblicati_tolti AS RESTRICTIVE FOR ALL TO authenticated
+  USING (employee_id IS NULL OR employee_id <> ALL ((SELECT public.dipendenti_demo_ids())::uuid[]))
+  WITH CHECK (employee_id IS NULL OR employee_id <> ALL ((SELECT public.dipendenti_demo_ids())::uuid[]));
 DROP POLICY IF EXISTS turni_pubblicati_tolti_select ON public.turni_pubblicati_tolti;
 CREATE POLICY turni_pubblicati_tolti_select ON public.turni_pubblicati_tolti FOR SELECT TO authenticated
   USING (company_id = (SELECT public.get_my_company_id()));
