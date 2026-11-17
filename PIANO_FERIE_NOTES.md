@@ -490,4 +490,4 @@ In tutti i sedici casi: ore sotto le persone minime non peggiorate, giorni con u
 - Far nascere le proposte (creare il piano) e toglierle tutte con «Togli piano» resta di chi gestisce i turni. Approvare, spostare e togliere una proposta lo fa chiunque possa decidere le ferie, anche un HR in elenco con profilo di sola lettura (16/11/2026).
 - Un piano creato prima della 411 non ha proposte: nascono alla creazione del piano. Per averle si toglie e si rifà.
 - Il ricalcolo di una settimana rifà il conto di tutto il mese e ne prende solo quella settimana: il riepilogo del piano dopo un ricalcolo parziale descrive il mese ricalcolato, non i turni rimasti fermi nelle altre settimane se erano stati cambiati a mano.
-- «Togli piano» cancella anche i turni messi a mano del piano (regola del 21/10/2026, con conferma): non esiste un registro delle cancellazioni dei turni.
+- «Togli piano» cancella anche i turni messi a mano del piano (regola del 21/10/2026, con conferma): non esiste un registro delle cancellazioni delle bozze; i turni pubblicati annullati o tolti dalla pubblicazione restano in `turni_pubblicati_tolti` (migration 424, 17/11/2026).
