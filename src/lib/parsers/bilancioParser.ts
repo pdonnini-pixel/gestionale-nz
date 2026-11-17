@@ -98,19 +98,21 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
       }))
       .filter(i => i.text.length > 0)
 
-    // Group by Y (rows) with snap
-    const rows: Record<number, Array<{ text: string; x: number; y: number }>> = {}
-    items.forEach(i => {
-      const ry = Math.round(i.y / 4) * 4
-      if (!rows[ry]) rows[ry] = []
-      rows[ry].push(i)
-    })
+    // Righe per vicinanza verticale, non per arrotondamento: con lo scatto a
+    // multipli di 4 un importo un pixel sopra il suo codice finiva nella riga
+    // accanto (bilancio di verifica Zago 2025: «51010101» a y 533 e «6.068,37» a
+    // y 534 cadevano in 532 e 536, e i corrispettivi di Firenze e Forte dei
+    // Marmi risultavano 0,00). Le righe distano circa 12 punti: chi sta entro 4
+    // dalla prima voce della riga ne fa parte.
+    const rowList: Array<{ y: number; cells: Array<{ text: string; x: number; y: number }> }> = []
+    for (const i of [...items].sort((a, b) => b.y - a.y)) {
+      const last = rowList[rowList.length - 1]
+      if (last && last.y - i.y <= 4) last.cells.push(i)
+      else rowList.push({ y: i.y, cells: [i] })
+    }
 
-    // Process rows top to bottom
-    const sortedYs = Object.keys(rows).sort((a, b) => Number(b) - Number(a))
-
-    for (const y of sortedYs) {
-      const cells = rows[Number(y)].sort((a, b) => a.x - b.x)
+    for (let ri = 0; ri < rowList.length; ri++) {
+      const cells = rowList[ri].cells.sort((a, b) => a.x - b.x)
       const fullLine = cells.map(c => c.text).join(' ')
 
       // Detect meta info
@@ -151,7 +153,7 @@ export async function parseBilancio(pdfData: ArrayBuffer | Uint8Array): Promise<
           // cosi' non si scambia per totale l'importo di un conto vicino.
           if (!leftAmt && rightAmt) {
             const passivo = parseItalianNumber(rightAmt)
-            const vicini = [...(rows[Number(y) + 4] || []), ...(rows[Number(y) - 4] || [])]
+            const vicini = [...(rowList[ri - 1]?.cells || []), ...(rowList[ri + 1]?.cells || [])]
             const amt = vicini.find(c => c.x < 290 && /^\d[\d.]*,\d{2}$/.test(c.text)
               && Math.abs(parseItalianNumber(c.text) - passivo) < 0.005)?.text
             if (amt) result.patrimoniale.totals.attivita = parseItalianNumber(amt)
