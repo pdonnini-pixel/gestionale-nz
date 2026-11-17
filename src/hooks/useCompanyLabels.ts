@@ -29,6 +29,77 @@ export interface CompanyLabels {
   pointOfSaleLower: string
   /** Lowercase plurale */
   pointOfSalePluralLower: string
+  /**
+   * Forme con articolo e preposizione, minuscole, pronte per le frasi.
+   * NZ ("Outlet"): l'outlet, dell'outlet, gli outlet, degli outlet.
+   * Zago ("Negozio"): il negozio, del negozio, i negozi, dei negozi.
+   */
+  art: ArticoliPdv
+}
+
+export interface ArticoliPdv {
+  /** l'outlet / il negozio */
+  il: string
+  /** dell'outlet / del negozio */
+  del: string
+  /** nell'outlet / nel negozio */
+  nel: string
+  /** all'outlet / al negozio */
+  al: string
+  /** dall'outlet / dal negozio */
+  dal: string
+  /** un outlet / un negozio */
+  un: string
+  /** gli outlet / i negozi */
+  i: string
+  /** degli outlet / dei negozi */
+  dei: string
+  /** negli outlet / nei negozi */
+  nei: string
+  /** agli outlet / ai negozi */
+  ai: string
+  /** dagli outlet / dai negozi */
+  dai: string
+}
+
+/**
+ * Articoli italiani maschili per l'etichetta del punto vendita (Outlet, Negozio,
+ * Punto vendita, Store). Vocale → l'/gli; s+consonante, z, gn, ps, x, y → lo/gli;
+ * altrimenti il/i.
+ */
+export function articoliPdv(singularLower: string, pluralLower: string): ArticoliPdv {
+  const w = singularLower.trim()
+  const vocale = /^[aeiouàèéìòù]/.test(w)
+  const lo = !vocale && /^(s[^aeiou]|z|gn|ps|x|y)/.test(w)
+  if (vocale) {
+    return {
+      il: `l'${w}`, del: `dell'${w}`, nel: `nell'${w}`, al: `all'${w}`, dal: `dall'${w}`, un: `un ${w}`,
+      i: `gli ${pluralLower}`, dei: `degli ${pluralLower}`, nei: `negli ${pluralLower}`, ai: `agli ${pluralLower}`, dai: `dagli ${pluralLower}`,
+    }
+  }
+  if (lo) {
+    return {
+      il: `lo ${w}`, del: `dello ${w}`, nel: `nello ${w}`, al: `allo ${w}`, dal: `dallo ${w}`, un: `uno ${w}`,
+      i: `gli ${pluralLower}`, dei: `degli ${pluralLower}`, nei: `negli ${pluralLower}`, ai: `agli ${pluralLower}`, dai: `dagli ${pluralLower}`,
+    }
+  }
+  return {
+    il: `il ${w}`, del: `del ${w}`, nel: `nel ${w}`, al: `al ${w}`, dal: `dal ${w}`, un: `un ${w}`,
+    i: `i ${pluralLower}`, dei: `dei ${pluralLower}`, nei: `nei ${pluralLower}`, ai: `ai ${pluralLower}`, dai: `dai ${pluralLower}`,
+  }
+}
+
+/** Etichette calcolate da un singolare (anche fuori da React: librerie, export). */
+export function labelsDa(singolare: string | null | undefined): CompanyLabels {
+  const singular = singolare?.trim() || 'Outlet'
+  const plural = pluralize(singular)
+  return {
+    pointOfSale: singular,
+    pointOfSalePlural: plural,
+    pointOfSaleLower: singular.toLowerCase(),
+    pointOfSalePluralLower: plural.toLowerCase(),
+    art: articoliPdv(singular.toLowerCase(), plural.toLowerCase()),
+  }
 }
 
 function pluralize(singular: string): string {
@@ -67,14 +138,5 @@ function isUpper(ch: string): boolean {
 
 export function useCompanyLabels(): CompanyLabels {
   const { company } = useCompany()
-  return useMemo(() => {
-    const singular = company?.point_of_sale_label?.trim() || 'Outlet'
-    const plural = pluralize(singular)
-    return {
-      pointOfSale: singular,
-      pointOfSalePlural: plural,
-      pointOfSaleLower: singular.toLowerCase(),
-      pointOfSalePluralLower: plural.toLowerCase(),
-    }
-  }, [company?.point_of_sale_label])
+  return useMemo(() => labelsDa(company?.point_of_sale_label), [company?.point_of_sale_label])
 }
