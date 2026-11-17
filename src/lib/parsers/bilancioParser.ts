@@ -398,20 +398,37 @@ export function toSupabaseRecords(parsed: BilancioParsed, companyId: string, yea
     })
   })
 
-  // Totali (righe speciali)
+  // Totali (righe speciali). I TOTALE della stampa sono «a pareggio»: dal lato
+  // ricavi comprendono la perdita, dal lato costi l'utile, le imposte e gli
+  // oneri finanziari. Valore e costi della produzione si ricavano quindi dai
+  // conti (Zago 2025, 17/11/2026: valore 1.520.764 invece di 1.505.994).
   const t = parsed.contoEconomico.totals
-  if (t.costi) {
+  const pCE = parsed.contoEconomico
+  const ceMacro: Record<string, number> = {}
+  pCE.costi.forEach((row: BilancioRow) => {
+    if (row.isMacro) ceMacro[row.code] = row.amount
+  })
+  // Ricavi della produzione: i mastri 5x (51 vendite, 59 altri ricavi e proventi).
+  const ricaviMacro = pCE.ricavi.filter((row: BilancioRow) => row.isMacro && /^5\d$/.test(row.code))
+  const valoreProduzione = ricaviMacro.length
+    ? Math.round(ricaviMacro.reduce((a, r) => a + r.amount, 0) * 100) / 100
+    : (t.ricavi || 0)
+  const costiProduzioneCalc = Math.round(((ceMacro['61'] || 0) + (ceMacro['63'] || 0) + (ceMacro['65'] || 0) +
+    (ceMacro['67'] || 0) + (ceMacro['69'] || 0) + (ceMacro['71'] || 0) + (ceMacro['73'] || 0) + (ceMacro['77'] || 0)) * 100) / 100
+  const ciSonoCosti = ['61', '63', '65', '67', '69', '71', '73', '77'].some(c => ceMacro[c] != null)
+  const totaleCosti = ciSonoCosti ? costiProduzioneCalc : (t.costi || 0)
+  if (totaleCosti) {
     records.push({
       company_id: companyId, year, period_type: periodType,
       section: 'conto_economico', account_code: 'totale_costi_produzione',
-      account_name: 'Totale costi', amount: t.costi, sort_order: 900,
+      account_name: 'Totale costi', amount: totaleCosti, sort_order: 900,
     })
   }
-  if (t.ricavi) {
+  if (valoreProduzione) {
     records.push({
       company_id: companyId, year, period_type: periodType,
       section: 'conto_economico', account_code: 'ricavi_vendite',
-      account_name: 'Valore della produzione', amount: t.ricavi, sort_order: 901,
+      account_name: 'Valore della produzione', amount: valoreProduzione, sort_order: 901,
     })
   }
   if (t.risultato != null) {
@@ -424,11 +441,6 @@ export function toSupabaseRecords(parsed: BilancioParsed, companyId: string, yea
   }
 
   // Also add legacy CE_FIELDS mapping for backward compatibility
-  const ceMacro: Record<string, number> = {}
-  const pCE = parsed.contoEconomico
-  pCE.costi.forEach((row: BilancioRow) => {
-    if (row.isMacro) ceMacro[row.code] = row.amount
-  })
   const ceMap: Record<string, number> = {
     materie_prime: ceMacro['61'] || 0,
     servizi: ceMacro['63'] || 0,
@@ -449,11 +461,11 @@ export function toSupabaseRecords(parsed: BilancioParsed, companyId: string, yea
   ceMap.tfr = ceSub['6705'] || 0
 
   // Differenza A-B (EBITDA-like)
-  const ricaviTotale = t.ricavi || 0
   const costiProduzione = (ceMap.materie_prime + ceMap.servizi + ceMap.godimento_beni_terzi +
     ceMap.totale_personale + ceMap.totale_ammortamenti + ceMap.variazione_rimanenze + ceMap.oneri_diversi)
-  ceMap.differenza_ab = Math.round((ricaviTotale - costiProduzione) * 100) / 100
-  ceMap.imposte = 0 // not in this bilancio (loss)
+  ceMap.differenza_ab = Math.round((valoreProduzione - costiProduzione) * 100) / 100
+  // Imposte sul reddito: mastro 93 (prima era scritto fisso 0).
+  ceMap.imposte = ceMacro['93'] || 0
 
   Object.entries(ceMap).forEach(([key, amount]) => {
     records.push({
