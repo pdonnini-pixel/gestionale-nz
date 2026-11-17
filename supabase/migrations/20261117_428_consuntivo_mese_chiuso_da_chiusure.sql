@@ -185,6 +185,12 @@ BEGIN
         VALUES (p_company_id, o.cost_center_key, v_conto, v_anno, v_mese, 'cons_monthly', v_netto, 'granitico', now())
         ON CONFLICT (company_id, cost_center, account_code, year, month, entry_type) DO UPDATE
           SET amount = EXCLUDED.amount, stato = 'granitico', updated_at = now();
+      ELSIF v_prec IS NOT NULL THEN
+        -- mese a zero (solo giorni di negozio chiuso): si sostituisce anche qui, con 0.
+        -- La riga resta (niente DELETE) e il valore di prima è in valore_precedente.
+        UPDATE public.budget_confronto SET amount = 0, stato = 'granitico', updated_at = now()
+         WHERE company_id = p_company_id AND cost_center = o.cost_center_key AND account_code = v_conto
+           AND year = v_anno AND month = v_mese AND entry_type = 'cons_monthly';
       END IF;
       INSERT INTO public.budget_consuntivo_auto
         (company_id, year, month, cost_center, outlet_id, account_code, stato, lordo, netto, chiusure, bozze,
