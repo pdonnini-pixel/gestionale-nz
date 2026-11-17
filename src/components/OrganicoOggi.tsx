@@ -22,6 +22,8 @@ import {
 } from '../lib/organico';
 import { caricaOrganico, nomeNegozio, puoTenereOrganico, type DatiOrganico } from '../lib/organicoDati';
 import SegnaCambiamento from './SegnaCambiamento';
+import { caricaDaSistemare, possoGestireDivise } from '../lib/diviseDb';
+import { daSistemarePerPersona } from '../lib/divise';
 
 const ConfrontoStudio = lazy(() => import('./ConfrontoStudio'));
 
@@ -90,6 +92,18 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
   const [cerca, setCerca] = useState('');
   const [mostraUsciti, setMostraUsciti] = useState(false);
   const [modale, setModale] = useState<{ employeeId?: string | null; tipo?: TipoEvento | null; nuova?: boolean } | null>(null);
+  // Divise e acquisti (migration 422): capi da scaricare o da addebitare, solo per chi li gestisce
+  const [divise, setDivise] = useState<Map<string, { scaricare: number; addebitare: number }>>(new Map());
+  useEffect(() => {
+    if (!companyId) return;
+    let vivo = true;
+    possoGestireDivise().then(async (si) => {
+      if (!si) return;
+      const capi = await caricaDaSistemare(companyId);
+      if (vivo && capi) setDivise(daSistemarePerPersona(capi));
+    }).catch(() => undefined);
+    return () => { vivo = false; };
+  }, [companyId]);
 
   const carica = useCallback(async () => {
     if (!companyId) return;
@@ -290,7 +304,7 @@ export default function OrganicoOggi({ companyId, versione = 0, richiestaNuova =
                       <GruppoNegozio key={g.id || 'senza'} nome={g.nome} lista={g.lista} puoScrivere={puoScrivere}
                         responsabile={g.id ? responsabileDi(g.id) : null}
                         onResponsabile={g.id ? (empId) => impostaResponsabile(g.id, empId) : undefined}
-                        onModifica={(id, tipo) => setModale({ employeeId: id, tipo })} onScheda={onScheda} />
+                        onModifica={(id, tipo) => setModale({ employeeId: id, tipo })} onScheda={onScheda} divise={divise} />
                     ))}
                     {!gruppi.length && (
                       <tr><td colSpan={6} className="px-3 py-10 text-center text-slate-400">Nessuna persona con questi filtri.</td></tr>
@@ -375,8 +389,9 @@ type InfoResponsabile = {
   viceId?: string | null;
 };
 
-function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile, onModifica, onScheda }: {
+function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile, onModifica, onScheda, divise }: {
   nome: string; lista: PersonaOggi[]; puoScrivere: boolean;
+  divise?: Map<string, { scaricare: number; addebitare: number }>;
   responsabile: InfoResponsabile | null; onResponsabile?: (employeeId: string) => void;
   onModifica: (id: string, tipo: TipoEvento | null) => void;
   onScheda?: (id: string, opz?: { modifica?: boolean }) => void;
@@ -435,6 +450,12 @@ function GruppoNegozio({ nome, lista, puoScrivere, responsabile, onResponsabile,
               <span className="inline-block mt-0.5 text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">Vice referente</span>
             )}
             {p.scheda.matricola && <div className="text-[11px] text-slate-400 tabular-nums">matr. {p.scheda.matricola}</div>}
+            {divise?.get(p.scheda.id) && (() => { const d = divise.get(p.scheda.id)!; return (
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {d.scaricare > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-800">{d.scaricare} da scaricare</span>}
+                {d.addebitare > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded bg-rose-50 text-rose-700">{d.addebitare} da addebitare</span>}
+              </div>
+            ); })()}
             {p.daConfermare.length > 0 && (
               <div className="text-xs text-blue-700">{p.daConfermare.length === 1 ? '1 cambiamento' : `${p.daConfermare.length} cambiamenti`} da confermare con lo studio</div>
             )}

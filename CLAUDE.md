@@ -602,6 +602,7 @@ try {
 | `TIMBRATURE_NOTES.md` | **Obbligatorio per timbrature e presenze** (tabelle `attendance_*`, `employee_app_access`, pagine `/timbra` e `/app`): QR firmato, coda offline, margine d'uscita di 30 minuti, avviso WhatsApp |
 | `APP_NATIVA_NOTES.md` | **Obbligatorio per l'app New Zago degli store** (Capacitor, `android/`, `ios/`, notifiche push Firebase): account EPPI, file Firebase, build e pubblicazione |
 | `ORGANICO_TURNI_NOTES.md` | **Obbligatorio per organico di oggi, turni e piano ferie** (tabelle `employee_events`, `outlet_opening_hours`, `outlet_staffing_needs`, `outlet_special_days`, `outlet_shift_rules`, `shifts`): la scheda non si modifica, si segnano i cambiamenti; il fabbisogno lo decide solo Patrizio |
+| `DIVISE_ACQUISTI_NOTES.md` | **Obbligatorio per divise e acquisti dei dipendenti** (tabelle `employee_capi`, `employee_divise`, `divise_*`, pulsante sul telefono del negozio, sezione della scheda dipendente, scheda «Divise» dell'app): tre voci, sconto fissato alla registrazione, chi gestisce lo decide il Super Advisor, registro che non si modifica |
 | `AZIONI_PATRIZIO_Parallele.md` | Piano azioni manuali per Patrizio (credenziali, accreditamenti) |
 | `MIGRATION_NOTES.md` | Dettagli migrazione JS→TS del frontend |
 | `BUDGET_WORKFLOW_NOTES.md` | Flusso budget/confronto |
