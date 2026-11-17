@@ -1729,7 +1729,7 @@ export default function CashflowProspettico() {
               <div>
                 <label className="text-xs font-medium text-slate-600 block mb-1">Descrizione *</label>
                 <input type="text" value={forecastDescription} onChange={(e) => setForecastDescription(e.target.value)}
-                  placeholder="es. Ristrutturazione outlet Valdichiana"
+                  placeholder={`es. Ristrutturazione ${labels.pointOfSaleLower} Valdichiana`}
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-500" />
               </div>
             </div>

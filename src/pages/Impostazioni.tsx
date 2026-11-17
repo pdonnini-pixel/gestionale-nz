@@ -482,7 +482,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const handleSave = async () => {
     try {
       setSaving(true)
-      if (isCashRole && !form.outlet_id) { showToast?.(`Scegli il ${labels.pointOfSale.toLowerCase()} dell'account cassa`, 'error'); return }
+      if (isCashRole && !form.outlet_id) { showToast?.(`Scegli ${labels.art.il} dell'account cassa`, 'error'); return }
       const outletPayload = isCashRole ? { outlet_id: form.outlet_id } : {}
       const cc = form.email_cc.trim().toLowerCase()
       if (cc && !/^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$/i.test(cc)) { showToast?.('L\'indirizzo in copia non è valido', 'error'); return }
@@ -1399,6 +1399,7 @@ function CostSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 // SEZIONE CENTRI DI COSTO
 // ==========================================
 function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  const labels = useCompanyLabels()
   // TODO: tighten type — Supabase rows
   const [centers, setCenters] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -1576,7 +1577,7 @@ function CentriDiCostoSection({ showToast, companyId: COMPANY_ID }: SectionProps
                 placeholder="es. roma_soratte"
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg font-mono"
               />
-              <p className="text-[11px] text-slate-400 mt-1">Minuscolo, come la chiave contabile dell'outlet (es. torino, sede_magazzino).</p>
+              <p className="text-[11px] text-slate-400 mt-1">Minuscolo, come la chiave contabile {labels.art.del} (es. torino, sede_magazzino).</p>
             </div>
             <div className="md:col-span-2">
               <label className="block text-xs font-medium text-slate-600 mb-1">Etichetta *</label>
@@ -2228,6 +2229,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 }
 
 export default function Impostazioni() {
+  const labels = useCompanyLabels()
   const { profile, loading: authLoading } = useAuth()
   const COMPANY_ID = profile?.company_id
   // Fail-safe: in assenza di un ruolo caricato NON si assume super_advisor (era un
@@ -2245,7 +2247,7 @@ export default function Impostazioni() {
   const sections = [
     { id: 'company', icon: Building2, title: 'Dati azienda', subtitle: 'Visura e compagine societaria', component: CompanySection },
     { id: 'users', icon: Users, title: 'Utenti', subtitle: 'Gestione utenti, ruoli e accessi', component: UserSection },
-    { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: 'Piano dei conti con il preventivo dell\'anno diviso per centro di costo (outlet)', component: CostSection },
+    { id: 'costs', icon: Tag, title: 'Voci di costo', subtitle: `Piano dei conti con il preventivo dell'anno diviso per centro di costo (${labels.pointOfSaleLower})`, component: CostSection },
     { id: 'centri', icon: Shield, title: 'Centri di costo', subtitle: 'Punti vendita, sede, magazzino — entità di allocazione', component: CentriDiCostoSection },
     { id: 'sdi', icon: FileText, title: 'Fatturazione SDI', subtitle: 'Accreditamento, certificati e configurazione Sistema di Interscambio', component: SdiSection },
     { id: 'report', icon: Mail, title: 'Report incassi serale', subtitle: 'Mail automatica ogni sera con le chiusure di cassa di tutti i punti vendita', component: ReportSection },

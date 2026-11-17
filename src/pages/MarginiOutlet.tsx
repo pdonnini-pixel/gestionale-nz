@@ -336,7 +336,7 @@ export default function MarginiOutlet() {
     return (
       <div className="flex items-center justify-center py-24">
         <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-        <span className="ml-3 text-slate-600">Caricamento margini outlet...</span>
+        <span className="ml-3 text-slate-600">Caricamento margini {labels.pointOfSalePluralLower}...</span>
       </div>
     )
   }
@@ -358,7 +358,7 @@ export default function MarginiOutlet() {
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
         <PageHeader
           title={`Analisi Margini per ${labels.pointOfSale}`}
-          subtitle={`Confronto ricavi, costi e margini tra i ${labels.pointOfSalePluralLower} — Anno ${year}`}
+          subtitle={`Confronto ricavi, costi e margini tra ${labels.art.i} — Anno ${year}`}
           actions={
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-slate-700">Anno:</label>
@@ -386,8 +386,8 @@ export default function MarginiOutlet() {
               <p className="text-red-900 font-semibold">Attenzione: margini critici rilevati</p>
               <p className="text-red-700 text-sm mt-1">
                 {criticalOutlets.length === 1
-                  ? `L'outlet "${formatOutletName(criticalOutlets[0].nome)}" ha un margine del ${fmtPct(criticalOutlets[0].marginePercent)} (sotto la soglia del 5%).`
-                  : `${criticalOutlets.length} outlet hanno margine inferiore al 5%: ${criticalOutlets.map(o => `${formatOutletName(o.nome)} (${fmtPct(o.marginePercent)})`).join(', ')}.`
+                  ? `${labels.art.il.charAt(0).toUpperCase()}${labels.art.il.slice(1)} "${formatOutletName(criticalOutlets[0].nome)}" ha un margine del ${fmtPct(criticalOutlets[0].marginePercent)} (sotto la soglia del 5%).`
+                  : `${criticalOutlets.length} ${labels.pointOfSalePluralLower} hanno margine inferiore al 5%: ${criticalOutlets.map(o => `${formatOutletName(o.nome)} (${fmtPct(o.marginePercent)})`).join(', ')}.`
                 }
                 {' '}Verifica la struttura dei costi di questi punti vendita.
               </p>
@@ -423,7 +423,7 @@ export default function MarginiOutlet() {
                   {fmtPct(margineMedio)}
                 </p>
                 {outletMargins.some(o => o.inApertura) && (
-                  <p className="text-xs text-slate-400 mt-1">Esclusi i {labels.pointOfSalePluralLower} in apertura</p>
+                  <p className="text-xs text-slate-400 mt-1">Esclusi {labels.art.i} in apertura</p>
                 )}
               </div>
             </div>
@@ -533,7 +533,7 @@ export default function MarginiOutlet() {
             {/* Table with drill-down */}
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
               <h2 className="text-lg font-semibold text-slate-900 mb-4">Dettaglio Margini per {labels.pointOfSale}</h2>
-              <p className="text-sm text-slate-500 mb-4">Clicca su un {labels.pointOfSaleLower} per espandere il breakdown dei conti</p>
+              <p className="text-sm text-slate-500 mb-4">Clicca su {labels.art.un} per espandere il breakdown dei conti</p>
               {moSortBy.length > 0 && !(moSortBy.length === 1 && moSortBy[0].key === 'marginePercent' && moSortBy[0].dir === 'desc') && (
                 <div className="px-3 py-1.5 mb-2 bg-blue-50/50 rounded text-xs text-blue-700 flex items-center gap-2">
                   <span>Ordinamento personalizzato attivo</span>

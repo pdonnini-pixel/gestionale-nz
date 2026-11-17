@@ -6,6 +6,7 @@ import { Search, Plus, RefreshCw, Trash2, FileUp, Loader2, Sparkles, CheckCircle
 import { extractScadenzaFromPdf, ScadenzaExtractError, type ExtractedScadenza } from '../../lib/scadenzaPdfExtract';
 import { archiviaFile } from '../../lib/archivioFile';
 import { useAuth } from '../../hooks/useAuth';
+import { useCompanyLabels } from '../../hooks/useCompanyLabels';
 import { SCHEDULE_MODE_GROUPS, findScheduleMode, derivePlan, computeInstallments, scheduleModeText, SCHEDULE_GROUP_TEXT } from '../../lib/paymentSchedule';
 import { PAYMENT_METHOD_ALIAS, DOCUMENT_TYPE_OPTIONS, normalizeDocumentType } from './helpers';
 
@@ -99,6 +100,7 @@ const round2 = (n: number): number => Math.round((n + Number.EPSILON) * 100) / 1
 export type SupplierLite = { id?: string; name?: string | null; ragione_sociale?: string | null; [k: string]: unknown }
 export type PaymentGroup = { label: string; methods: string[] }
 export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMethodLabels, onSave, onClose }: { suppliers: SupplierLite[]; costCenters: CostCenterLite[]; paymentGroups: PaymentGroup[]; paymentMethodLabels: Record<string, string>; onSave: (data: InvoiceFormState) => void; onClose: () => void }) => {
+  const labels = useCompanyLabels();
   const [formData, setFormData] = useState<InvoiceFormState>({
     supplierId: '',
     newSupplierName: '',
@@ -518,7 +520,7 @@ export const InvoiceModal = ({ suppliers, costCenters, paymentGroups, paymentMet
         <div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Centro di costo / Outlet *</label>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Centro di costo / {labels.pointOfSale} *</label>
               <select value={formData.costCenter} onChange={e => setFormData({ ...formData, costCenter: e.target.value })}
                 className="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 outline-none">
                 <option value="">Seleziona centro di costo…</option>

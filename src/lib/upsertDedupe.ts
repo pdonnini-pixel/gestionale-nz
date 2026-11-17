@@ -12,6 +12,7 @@
 // su due filiali del PDF, due righe con lo stesso dipendente e lo stesso mese.
 //
 // Le funzioni qui sotto normalizzano il lotto PRIMA di mandarlo al database.
+import { labelsDa, type CompanyLabels } from '../hooks/useCompanyLabels';
 
 /** Chiavi che compaiono piu' di una volta nel lotto. */
 export function duplicateKeys<T>(rows: T[], keyOf: (r: T) => string): string[] {
@@ -72,11 +73,11 @@ export function keepLastByKey<T>(rows: T[], keyOf: (r: T) => string): { rows: T[
  * Messaggio leggibile per gli errori che l'utente non tecnico incontrerebbe
  * come stringa inglese cruda del database.
  */
-export function readableDbError(err: unknown): string {
+export function readableDbError(err: unknown, labels: CompanyLabels = labelsDa('Outlet')): string {
   const e = err as { code?: string; message?: string } | null;
   const msg = e?.message || '';
   if (e?.code === '21000' || /affect row a second time/i.test(msg)) {
-    return 'Il file contiene la stessa persona (o lo stesso outlet) più volte nello stesso mese: le righe doppie vanno unite prima del salvataggio.';
+    return `Il file contiene la stessa persona (o lo stesso ${labels.pointOfSaleLower}) più volte nello stesso mese: le righe doppie vanno unite prima del salvataggio.`;
   }
   if (e?.code === '23505') return 'Esiste già una riga con gli stessi dati per quel mese.';
   if (e?.code === '23503') return 'Un riferimento del file non esiste in anagrafica.';
