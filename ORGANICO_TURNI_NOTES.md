@@ -1357,6 +1357,18 @@ dentro un piano spariscono solo togliendo il piano intero (con conferma) o cance
 Non c'è un registro delle cancellazioni dei turni: cinque bozze a mano di Roma Soratte (7-27/11),
 viste alle 20:20 e sparite un minuto dopo, non si possono ricostruire. Da valutare un registro.
 
+**Registro dei turni pubblicati tolti (17/11/2026, migration 424).** Patrizio: «solo per i turni che
+sono stati pubblicati, non le prove». Il trigger `trg_shifts_registra_pubblicato_tolto` (AFTER UPDATE OF
+stato OR DELETE su `shifts`) scrive in `turni_pubblicati_tolti` ogni turno che era `pubblicato` e viene
+annullato (`annullato`, con `annullato_motivo`), torna in bozza (`ritirato`) o viene cancellato
+(`cancellato`; oggi lo impedisce `trg_shifts_no_hard_delete`, la riga c'è per sicurezza): il turno
+com'era in `turno` jsonb, chi (`auth.uid()` e nome) e quando. Le bozze non si registrano, quindi le
+cinque bozze di Roma Soratte resterebbero comunque senza traccia: è la scelta di Patrizio. Le modifiche
+all'orario di un turno pubblicato che resta pubblicato non si registrano. Il registro è fermo
+(`trg_turni_pubblicati_tolti_fermo`), si legge con i recinti di `shifts`, scrive solo il trigger. Nel
+piano settimanale: riquadro «Turni pubblicati tolti in questa settimana»
+(`src/components/TurniPubblicatiTolti.tsx`), che non compare se la tabella manca o è vuota.
+
 Debito (in parte chiuso sopra): **pezzo di settimana a inizio mese** (es. 1-6 dicembre). Le ore già nei turni dei giorni
 del mese prima (`oreFuoriMese`) si leggono quando si genera il piano; se quei turni cambiano dopo,
 il contratto del pezzo resta quello di allora, e con lui lo straordinario ricalcolato. Si
@@ -1427,7 +1439,7 @@ Scartata l'alternativa di allungare la ricerca: tre volte più giri danno il 4% 
 | giorni feriali a spezzoni | 5 | 3 |
 | tempo totale / mese più lento | 20,8 s / 1,7 s | 22,9 s / 2,0 s |
 
-Franciacorta: il 22 e il 23/12 diventano giorni a due persone con turni lunghi; il 21/12 resta a quattro pezzi (servirebbero due unioni insieme). Valmontone 2/11: tre turni invece di quattro, con un turno pieno 10-19; novembre da 17,47 a 15,98 ore scoperte. Barberino dicembre da 1,38 a 0,96. Unico peggioramento: Franciacorta novembre da 2,21 a 2,35 ore scoperte, perché le settimane si concatenano (coppie viste, lunedì visti) e la ricerca parte da un'altra settimana prima. Restano i due giorni di Brugnato, che sono personale mancante.
+Franciacorta: il 22 e il 23/12 diventano giorni a due persone con turni lunghi; il 21/12 resta a quattro pezzi. **Misurato il 17/11/2026**: anche la mossa con due unioni insieme (e il compenso in un altro giorno) non lo cambia, ed è giusto così: nella settimana di Natale le quattro persone sono già al contratto della settimana ridotto per la chiusura del 25 (24,5 su 25, 30 su 30, 27 su 28,3, 16 su 16,7). Due turni lunghi 10-18 e 11-20 danno la stessa copertura, ma chi allunga va oltre il contratto (straordinario) e chi lascia il turno può recuperare solo in giorni dove non serve. Si sistema solo a mano, con uno straordinario. La mossa non è stata tenuta. Valmontone 2/11: tre turni invece di quattro, con un turno pieno 10-19; novembre da 17,47 a 15,98 ore scoperte. Barberino dicembre da 1,38 a 0,96. Unico peggioramento: Franciacorta novembre da 2,21 a 2,35 ore scoperte, perché le settimane si concatenano (coppie viste, lunedì visti) e la ricerca parte da un'altra settimana prima. Restano i due giorni di Brugnato, che sono personale mancante.
 
 ## Chi può aprire e chi può chiudere il negozio (16/11/2026)
 
