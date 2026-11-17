@@ -74,11 +74,13 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
   // I canali di incasso dicono su quale conto accredita ogni POS e dove si versa il
   // contante: servono a riconoscere il conto di un estratto senza IBAN di un periodo
   // mai caricato (contoDaiCanali). Dove la tabella non c'e' resta vuoto.
-  const canaliRef = useRef<CanaleConto[]>([])
+  const canaliRef = useRef<Promise<CanaleConto[]>>(Promise.resolve([]))
   useEffect(() => {
-    if (!companyId) return
-    void supabase.from('outlet_payment_channels').select('bank_account_id, kind, terminal_code').eq('company_id', companyId).eq('is_active', true)
-      .then(({ data }) => { canaliRef.current = (data ?? []) as CanaleConto[] })
+    if (!companyId) { canaliRef.current = Promise.resolve([]); return }
+    // Si tiene la promessa: un file trascinato prima che la lettura finisca la aspetta.
+    canaliRef.current = Promise.resolve(
+      supabase.from('outlet_payment_channels').select('bank_account_id, kind, terminal_code').eq('company_id', companyId).eq('is_active', true),
+    ).then(({ data, error }) => (error ? [] : (data ?? []) as CanaleConto[]), () => [])
   }, [companyId])
   const [trascina, setTrascina] = useState(false)
   const [chatKey, setChatKey] = useState(0)
@@ -336,7 +338,7 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
         const { data: trovati } = await supabase.rpc('fn_bank_doc_guess_account', { p_rows: righe as never })
         conto = contoDaiMovimenti((trovati ?? []) as ContoTrovato[], accounts)
         // Periodo mai caricato: i codici dei POS e la parola dei versamenti dicono il conto.
-        if (!conto) conto = contoDaiCanali(righe, canaliRef.current, accounts)
+        if (!conto) conto = contoDaiCanali(righe, await canaliRef.current, accounts)
       }
       const pronta: Voce = { ...voce, tipo, conto, hash, righe, saldi: parsed.saldi ?? saldiDichiarati(intestazione) }
       if (!conto) {
@@ -369,7 +371,10 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       const key = `${p.zip}-zip-${Math.random().toString(36).slice(2, 7)}`
       setVoci((vs) => [{ key, file: new File([], p.zip), stato: 'errore', messaggio: `Archivio zip: ${p.testo}.` }, ...vs])
     }
-    for (const { file } of files) void leggi(file)
+    // Uno alla volta, ciascuno fino in fondo (regola dei caricamenti, CLAUDE.md):
+    // con uno zip ne possono arrivare molti, e due salvataggi sullo stesso conto
+    // non devono incrociarsi.
+    for (const { file } of files) await leggi(file)
   }, [leggi])
 
   return (

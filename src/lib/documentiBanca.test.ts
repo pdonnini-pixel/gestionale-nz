@@ -462,6 +462,15 @@ describe('conto dai canali di incasso (estratti senza IBAN di un periodo nuovo)'
     expect(contoDaiCanali([mps('00002'), mps('00002')], canali, conti)).toBeNull()
     expect(contoDaiCanali([mps('00002'), mps('00002'), mps('00002'), mps('00001'), mps('00001')], canali, conti)).toBeNull()
   })
+  it('una riga BCC con un codice configurato solo su un conto MPS non vota', () => {
+    const righe = Array.from({ length: 4 }, () => ({ description: 'Incassi PagoBancomat 15.11.26 - 502715900002 VICOLO' }))
+    expect(contoDaiCanali(righe, canali, conti)).toBeNull()
+  })
+  it('una parola generica del canale contanti non decide il conto', () => {
+    const generici = [...canali, { bank_account_id: 'bcc-fi', kind: 'contanti', terminal_code: 'CASSA CONTIN' }]
+    const righe = Array.from({ length: 4 }, () => ({ description: 'VERSAMENTO CASSA CONTINUA FILIALE' }))
+    expect(contoDaiCanali(righe, generici, conti)).toBeNull()
+  })
   it('un numero qualunque in una riga che non e\' un accredito POS non conta', () => {
     const righe = Array.from({ length: 5 }, () => ({ description: 'DISPOSIZIONE ID FLUSSO CBI: 139222957 Rif Banca: 0260001012800002' }))
     expect(contoDaiCanali(righe, canali, conti)).toBeNull()
