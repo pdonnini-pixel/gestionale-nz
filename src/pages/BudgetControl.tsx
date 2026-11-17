@@ -35,7 +35,7 @@ import { supabase } from '../lib/supabase'
 import { Modal } from '../components/ui/Modal'
 import { computeConfrontoDiff, type ConfrontoRow, type ExistingConfrontoRow, type ConfrontoDiff } from './budgetConfrontoDiff'
 import { keepLastByKey } from '../lib/upsertDedupe'
-import { proposeConsuntivo, monthDays as cashMonthDays, type ConsuntivoProposal } from '../lib/cashClosings'
+import { proposeConsuntivo, monthDays as cashMonthDays, type ConsuntivoProposal, BUDGET_VAT_RATE, closingIncasso } from '../lib/cashClosings'
 
 // Workflow approvazione preventivo per outlet x anno
 type WorkflowStatus = 'bozza' | 'approvato' | 'sbloccato'
@@ -1212,6 +1212,41 @@ export default function BudgetControl() {
     }
   }
 
+  // ─── RETTIFICA: salvataggio della singola cella (annuale month=0 o mensile) ───
+  // Una rettifica può essere positiva o negativa; 0 toglie la cella. Gli errori del
+  // database si propagano: la cella diventa rossa invece di sembrare salvata.
+  // Fino al 17/11/2026 la mensile veniva rifiutata dal vincolo su entry_type (migration 427)
+  // e la pagina non controllava l'errore: nessuna rettifica è mai stata salvata.
+  const saveRettCell = async (outletCode: string, accCode: string, month: number, value: number, base: number) => {
+    if (!CID) throw new Error('CID mancante')
+    const entryType = month === 0 ? 'rettifica' : 'rett_monthly'
+    if (value === 0) {
+      const { error } = await supabase.from('budget_confronto').delete()
+        .eq('company_id', CID).eq('cost_center', outletCode).eq('account_code', accCode)
+        .eq('year', year).eq('month', month).eq('entry_type', entryType)
+      if (error) throw error
+      return
+    }
+    const pct = base !== 0 ? (value / base) * 100 : null
+    const { error } = await supabase.from('budget_confronto').upsert({
+      company_id: CID, cost_center: outletCode, account_code: accCode, year, month,
+      entry_type: entryType, amount: value, rettifica_amount: value, rettifica_pct: pct,
+      updated_at: new Date().toISOString(),
+    } as never, { onConflict: 'company_id,cost_center,account_code,year,month,entry_type' })
+    if (error) throw error
+  }
+  // Base per la % della rettifica: preventivo costi della voce, altrimenti preventivo ricavi.
+  const rettBase = (outletCode: string, accCode: string, monthIdx: number | null): number => {
+    if (monthIdx == null) {
+      const cost = (bpEdits[outletCode] || {})[accCode] || 0
+      if (cost !== 0) return cost
+      return ((revMonthly[outletCode] || {})[accCode] || []).reduce((a, b) => a + (Number(b) || 0), 0)
+    }
+    return ((prevMonthly[outletCode] || {})[accCode] || [])[monthIdx] || ((revMonthly[outletCode] || {})[accCode] || [])[monthIdx] || 0
+  }
+  const saveAnnualRett = (outletCode: string, accCode: string, value: number) =>
+    saveRettCell(outletCode, accCode, 0, value, rettBase(outletCode, accCode, null))
+
   const saveConfronto = async (outletCode: string) => {
     setSaving(true)
     try {
@@ -1332,6 +1367,28 @@ export default function BudgetControl() {
 
   // Codici corrispettivi outlet (da escludere per gli altri)
   const OUTLET_CORRISP_CODES = useMemo(() => new Set(Object.keys(RICAVI_OUTLET_MAP)), [RICAVI_OUTLET_MAP])
+
+  // Outlet dell'Inserimento rapido. Memorizzati: un array nuovo a ogni render faceva
+  // rileggere la matrice dal database a ogni ridisegno della pagina.
+  const rapidoOutlets = useMemo(() => Object.entries(RICAVI_OUTLET_MAP)
+    .filter(([, outletCode]) => outletCode !== 'sede_magazzino')
+    .map(([accCode, outletCode]) => {
+      const cc = costCenters.find(c => c.code === outletCode)
+      return { code: outletCode, label: cc ? prettyCenterLabel(cc) : outletCode, accountCode: accCode }
+    }), [RICAVI_OUTLET_MAP, costCenters])
+
+  // Una cella salvata nell'Inserimento rapido aggiorna subito i dati in memoria delle
+  // altre schede (Confronto, Business Plan). Prima restavano quelli letti all'apertura
+  // della pagina e «Salva confronto» riscriveva nel database il numero vecchio.
+  const onRapidoSaved = useCallback((outletCode: string, accountCode: string, monthIdx: number, kind: 'prev' | 'cons', value: number) => {
+    const setter = kind === 'prev' ? setRevMonthly : setConsMonthly
+    setter(prev => {
+      const outlet = { ...(prev[outletCode] || {}) }
+      const arr = [...(outlet[accountCode] || Array(12).fill(0))]
+      arr[monthIdx] = value
+      return { ...prev, [outletCode]: { ...outlet, [accountCode]: arr } }
+    })
+  }, [])
 
   // Filtra l'albero ricavi per outlet:
   // - Outlet: vede SOLO il suo corrispettivo (es. 510107 per Valdichiana). Nient'altro.
@@ -1812,6 +1869,7 @@ export default function BudgetControl() {
                   onConsEdit={(code: string, val: number) => setConsEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: val}}))}
                   rettEdits={rettEdits[confOutlet] || {}}
                   onRettEdit={(code: string, val: number | string | undefined) => setRettEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: (typeof val === 'number' ? val : 0)}}))}
+                  onRettCommit={canApproveBudget && workflow[confOutlet]?.status !== 'approvato' ? ((code: string, val: number) => saveAnnualRett(confOutlet, code, val)) : undefined}
                   costiTree={costiTreeForOutlet}
                   ricaviTree={ricaviTreeForOutlet}
                   year={year}
@@ -1882,23 +1940,7 @@ export default function BudgetControl() {
                   onCommitPrev={async (code, mi, val) => { await saveCellMonthly(confOutlet, code, mi, val, 'prev_monthly') }}
                   onCommitRev={async (code, mi, val) => { await saveCellMonthly(confOutlet, code, mi, val, 'rev_monthly') }}
                   onCommitCons={async (code, mi, val) => { await saveCellMonthly(confOutlet, code, mi, val, 'cons_monthly') }}
-                  onCommitRett={async (code, mi, val) => {
-                    if (!CID) return
-                    await supabase.from('budget_confronto').delete()
-                      .eq('company_id', CID).eq('cost_center', confOutlet)
-                      .eq('account_code', code).eq('year', year)
-                      .eq('month', mi + 1).eq('entry_type', 'rett_monthly')
-                    if (val !== 0) {
-                      const pvNow = (prevMonthly[confOutlet]?.[code] || [])[mi] || 0
-                      const pct = pvNow !== 0 ? (val / pvNow) * 100 : null
-                      await supabase.from('budget_confronto').insert({
-                        company_id: CID, cost_center: confOutlet, account_code: code, year,
-                        month: mi + 1, entry_type: 'rett_monthly', amount: val,
-                        rettifica_amount: val, rettifica_pct: pct,
-                        updated_at: new Date().toISOString(),
-                      } as never)
-                    }
-                  }}
+                  onCommitRett={async (code, mi, val) => { await saveRettCell(confOutlet, code, mi + 1, val, rettBase(confOutlet, code, mi)) }}
                 />
               )}
             </>
@@ -1915,17 +1957,9 @@ export default function BudgetControl() {
         <InserimentoRapidoMatrice
           year={year}
           companyId={CID}
-          outlets={Object.entries(RICAVI_OUTLET_MAP)
-            .filter(([, outletCode]) => outletCode !== 'sede_magazzino')
-            .map(([accCode, outletCode]) => {
-              const cc = costCenters.find(c => c.code === outletCode)
-              return {
-                code: outletCode,
-                label: cc ? prettyCenterLabel(cc) : outletCode,
-                accountCode: accCode,
-              }
-            })}
+          outlets={rapidoOutlets}
           phRevByCenterMonth={phRevByCenterMonth}
+          onSaved={onRapidoSaved}
         />
       )}
 
@@ -2246,11 +2280,13 @@ type MonthlyTreeNodeProps = {
   onCommitPrev?: (code: string, mi: number, val: number) => Promise<void>
   onCommitCons?: (code: string, mi: number, val: number) => Promise<void>
   onCommitRett?: (code: string, mi: number, val: number) => Promise<void>
+  // Sezione ricavi: uno scostamento positivo è un miglioramento (verde)
+  isRevenue?: boolean
 }
 // Props grid: code | descrizione | Prev | Cons | Rett € | Rett % | Scost | %dev | (copy)
 const MONTHLY_COLS = '20px 60px 1fr 80px 80px 70px 60px 70px 55px 24px'
 
-function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCode, rettPctByCode, onPrev, onCons, onRett, mese, monthly, onCopyToMonths, readOnly, onCommitPrev, onCommitCons, onCommitRett }: MonthlyTreeNodeProps) {
+function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCode, rettPctByCode, onPrev, onCons, onRett, mese, monthly, onCopyToMonths, readOnly, onCommitPrev, onCommitCons, onCommitRett, isRevenue }: MonthlyTreeNodeProps) {
   const [open, setOpen] = useState(false)
   const [showCopy, setShowCopy] = useState(false)
   const hasKids = node.children?.length > 0
@@ -2264,6 +2300,8 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
   const rp = isLeaf ? (rettPctByCode[node.code] ?? 0) : (pv !== 0 ? (ra / pv) * 100 : 0)
   const delta = cv + ra - pv
   const pctDev = pv !== 0 ? (delta / Math.abs(pv)) * 100 : (delta !== 0 ? 100 : 0)
+  // Costi: sopra il preventivo è un peggioramento (rosso). Ricavi: sopra è un miglioramento (verde).
+  const worse = isRevenue ? delta < 0 : delta > 0
 
   const collectLeaves = (n: TreeNodeT): string[] => !n.children?.length ? [n.code] : n.children.flatMap(collectLeaves)
 
@@ -2358,7 +2396,7 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
           <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-purple-700' : 'text-purple-500'}`}>{rp !== 0 ? `${rp.toFixed(1)}%` : '—'}</span>
         )}
         {/* Scostamento (cons + rett - prev) */}
-        <span className={`tabular-nums text-right text-[10px] font-medium ${delta > 0 ? 'text-red-600' : delta < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+        <span className={`tabular-nums text-right text-[10px] font-medium ${delta === 0 ? 'text-slate-400' : worse ? 'text-red-600' : 'text-emerald-600'}`}>
           {delta !== 0 ? `${delta > 0 ? '+' : ''}${fmt(delta)}` : '—'}
         </span>
         {/* % dev */}
@@ -2387,6 +2425,7 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
           mese={mese} monthly={monthly} onCopyToMonths={onCopyToMonths}
           readOnly={readOnly}
           onCommitPrev={onCommitPrev} onCommitCons={onCommitCons} onCommitRett={onCommitRett}
+          isRevenue={isRevenue}
         />
       ))}
     </div>
@@ -2761,6 +2800,7 @@ function ConfrontoMensile({
                 onRett={(code, amount, pct) => !isAnnualView && onRettMonthly(code, mese, amount, pct)}
                 mese={mese} monthly={revMonthly} onCopyToMonths={onRevMonthly}
                 readOnly={readOnly}
+                isRevenue
                 onCommitPrev={onCommitRev}
                 onCommitCons={onCommitCons}
                 onCommitRett={onCommitRett}
@@ -2827,8 +2867,12 @@ const CONF_COLS = '1fr 85px 95px 90px 85px 55px'
 type ConfrontoRowProps = { prevNode: TreeNodeT; consNode: TreeNodeT; rettNode: TreeNodeT; depth?: number; consEdits: Record<string, number>; onConsEdit: (code: string, val: number) => void; rettEdits: Record<string, number | string>; onRettEdit: (code: string, val: number | string | undefined) => void;
   // Editing del Preventivo sulle foglie (solo singolo outlet, sezione costi).
   // onPrevEdit = aggiornamento live (state); onPrevCommit = persistenza on-blur.
-  onPrevEdit?: (code: string, val: number) => void; onPrevCommit?: (code: string, val: number) => Promise<void> }
-function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit, onPrevEdit, onPrevCommit }: ConfrontoRowProps) {
+  onPrevEdit?: (code: string, val: number) => void; onPrevCommit?: (code: string, val: number) => Promise<void>
+  // Rettifica annuale: salvataggio on blur della singola cella (prima si salvava solo con «Salva confronto»).
+  onRettCommit?: (code: string, val: number) => Promise<void>
+  // Sezione ricavi: uno scostamento positivo è un miglioramento (verde), non un peggioramento.
+  isRevenue?: boolean }
+function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit, onPrevEdit, onPrevCommit, onRettCommit, isRevenue }: ConfrontoRowProps) {
   const [open, setOpen] = useState(false)
   const hasKids = prevNode.children?.length > 0
   const isMacro = prevNode.level === 0
@@ -2848,6 +2892,8 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
   const rv = isLeaf ? rettNum : (rettNode.amount || 0)
   const delta = cv + rv - pv
   const pct = pv !== 0 ? ((delta / Math.abs(pv)) * 100) : (delta !== 0 ? 100 : 0)
+  // Costi: sopra il preventivo è un peggioramento (rosso). Ricavi: sopra è un miglioramento (verde).
+  const worse = isRevenue ? delta < 0 : delta > 0
 
   return (
     <div>
@@ -2886,28 +2932,26 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
         ) : (
           <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-emerald-700' : 'text-emerald-600'}`}>{fmt(cv)}</span>
         )}
-        {/* Rettifica — input for leaves, accetta +/- */}
+        {/* Rettifica — input for leaves, accetta + e −. Prima il «-» digitato diventava subito 0
+            (la pagina scriveva 0 al posto della stringa) e una rettifica negativa non si poteva inserire. */}
         {isLeaf ? (
-          <input type="text" inputMode="text"
-            value={rettIsEdited ? rettVal : ''}
-            onClick={e => e.stopPropagation()}
-            onChange={e => {
-              const v = e.target.value.trim()
-              if (v === '' || v === '-' || v === '+') { onRettEdit(prevNode.code, v === '' ? undefined : v); return }
-              const raw = v.replace(/\./g, '').replace(',', '.')
-              const num = parseFloat(raw)
-              onRettEdit(prevNode.code, isNaN(num) ? 0 : num)
-            }}
-            className={`w-full text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 ${rettIsEdited ? 'bg-purple-50 border-purple-300' : 'border-slate-200'}`} placeholder="±0" />
+          <NumberInputIt
+            value={rettNum}
+            edited={rettIsEdited && rettNum !== 0}
+            onChange={n => onRettEdit(prevNode.code, n)}
+            onCommit={onRettCommit ? (n => onRettCommit(prevNode.code, n)) : undefined}
+            onClickStop
+            className={`w-full text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 ${rettIsEdited && rettNum !== 0 ? 'bg-purple-50 border-purple-300' : 'border-slate-200'}`}
+            placeholder="±0" />
         ) : (
           <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-purple-700' : 'text-purple-500'}`}>{rv !== 0 ? fmt(rv) : '—'}</span>
         )}
         {/* Scostamento = cons + rett - prev */}
-        <span className={`tabular-nums text-right text-[10px] font-medium ${delta > 0 ? 'text-red-600' : delta < 0 ? 'text-emerald-600' : 'text-slate-400'}`}>
+        <span className={`tabular-nums text-right text-[10px] font-medium ${delta === 0 ? 'text-slate-400' : worse ? 'text-red-600' : 'text-emerald-600'}`}>
           {delta !== 0 ? `${delta > 0 ? '+' : ''}${fmt(delta)}` : '—'}
         </span>
         {/* % */}
-        <span className={`tabular-nums text-right text-[9px] ${Math.abs(pct) > 10 ? (delta > 0 ? 'text-red-500 font-semibold' : 'text-emerald-500 font-semibold') : 'text-slate-400'}`}>
+        <span className={`tabular-nums text-right text-[9px] ${Math.abs(pct) > 10 ? (worse ? 'text-red-500 font-semibold' : 'text-emerald-500 font-semibold') : 'text-slate-400'}`}>
           {pv !== 0 && delta !== 0 ? `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%` : ''}
         </span>
       </div>
@@ -2915,7 +2959,7 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
         <ConfrontoRow key={`${c.code}-${i}`}
           prevNode={c} consNode={consNode.children?.[i] || c} rettNode={rettNode.children?.[i] || { ...c, amount: 0, children: [] }}
           depth={depth + 1} consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-          onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} />
+          onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} isRevenue={isRevenue} />
       ))}
     </div>
   )
@@ -2949,8 +2993,10 @@ type ConfrontoPanelProps = {
   imposteEditable?: boolean
   onImposteEdit?: (val: number) => void
   onImposteCommit?: (val: number) => Promise<void>
+  // Rettifica annuale: salvataggio on blur della cella (solo singolo outlet).
+  onRettCommit?: (code: string, val: number) => Promise<void>
 }
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit }: ConfrontoPanelProps) {
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit, onRettCommit }: ConfrontoPanelProps) {
   const labels = useCompanyLabels()
   // Somma annuale (per code) dei mensili gia' caricati da budget_confronto.
   // Patrizio (29/05/2026): "il numero si popola solo dalla somma dei mensili
@@ -3065,7 +3111,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             {prevC.map((n, i) => (
               <ConfrontoRow key={`c-${n.code}-${i}`} prevNode={n} consNode={consC[i] || n} rettNode={rettC[i] || { ...n, amount: 0, children: [] }}
                 consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-                onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} />
+                onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} />
             ))}
           </div>
           <div className="grid mt-2 pt-2 border-t-2 border-slate-300 font-bold text-[11px]"
@@ -3087,7 +3133,8 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
           <div className="max-h-[400px] overflow-y-auto">
             {prevR.map((n, i) => (
               <ConfrontoRow key={`r-${n.code}-${i}`} prevNode={n} consNode={consR[i] || n} rettNode={rettR[i] || { ...n, amount: 0, children: [] }}
-                consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit} />
+                consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
+                onRettCommit={onRettCommit} isRevenue />
             ))}
           </div>
           <div className="grid mt-2 pt-2 border-t-2 border-slate-300 font-bold text-[11px]"
@@ -3174,9 +3221,11 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
    scriveranno a sua volta in automatico nella parte del bilancio".
    ═══════════════════════════════════════════════════════════ */
 type OutletForRapido = { code: string; label: string; accountCode: string }
-function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth }: {
+function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth, onSaved }: {
   year: number; companyId: string; outlets: OutletForRapido[]
   phRevByCenterMonth?: Record<string, boolean[]>
+  /** Chiamata dopo ogni salvataggio riuscito: la pagina aggiorna le altre schede. */
+  onSaved?: (outletCode: string, accountCode: string, monthIdx: number, kind: 'prev' | 'cons', value: number) => void
 }) {
   const labels = useCompanyLabels()
   const MESI_NOMI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre']
@@ -3197,22 +3246,21 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
     setProposing(true); setProposalError(null)
     try {
       const days = cashMonthDays(year, mese + 1)
-      const [outRes, clRes, rsRes] = await Promise.all([
+      const [outRes, clRes] = await Promise.all([
         supabase.from('outlets').select('id, cost_center_key').eq('company_id', companyId),
-        supabase.from('outlet_daily_closings').select('outlet_id, total_receipts, is_closed_day')
+        supabase.from('outlet_daily_closings').select('outlet_id, total_receipts, invoices_total, is_closed_day')
           .eq('company_id', companyId).gte('closing_date', days[0]).lte('closing_date', days[days.length - 1])
           .in('status', ['confermata', 'verificata']),
-        supabase.from('daily_report_settings').select('budget_vat_rate').eq('company_id', companyId).maybeSingle(),
       ])
       if (outRes.error) throw outRes.error
       if (clRes.error) throw clRes.error
       const ccByOutlet = new Map<string, string>()
       for (const o of (outRes.data ?? []) as Array<{ id: string; cost_center_key: string | null }>) if (o.cost_center_key) ccByOutlet.set(o.id, o.cost_center_key)
-      const vr = Number((rsRes.data as { budget_vat_rate?: number | string } | null)?.budget_vat_rate)
-      const vatRate = Number.isFinite(vr) ? vr : 22
-      const rows = ((clRes.data ?? []) as Array<{ outlet_id: string; total_receipts: number | string; is_closed_day: boolean }>)
+      // IVA fissa al 22 %; incasso = corrispettivi + fatture del negozio (lordo), come in Incassi giornalieri
+      const vatRate = BUDGET_VAT_RATE
+      const rows = ((clRes.data ?? []) as Array<{ outlet_id: string; total_receipts: number | string; invoices_total: number | string | null; is_closed_day: boolean }>)
         .filter(c => ccByOutlet.has(c.outlet_id))
-        .map(c => ({ costCenter: ccByOutlet.get(c.outlet_id)!, total: Number(c.total_receipts) || 0, isClosedDay: !!c.is_closed_day }))
+        .map(c => ({ costCenter: ccByOutlet.get(c.outlet_id)!, total: closingIncasso(c), isClosedDay: !!c.is_closed_day }))
       setProposal({ vatRate, daysInMonth: days.length, byCode: proposeConsuntivo(rows, vatRate, days.length) })
     } catch (e) {
       setProposalError(e instanceof Error ? e.message : String(e))
@@ -3277,6 +3325,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
       }
     )
     if (error) throw error
+    onSaved?.(outlet.code, outlet.accountCode, mese, kind, value)
   }
 
   const totalePrev = outlets.reduce((s, o) => s + (matrix[o.code]?.prev || 0), 0)
@@ -3403,7 +3452,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
             <div className="px-5 py-3 bg-emerald-50 border-b border-emerald-100 flex flex-wrap items-center gap-3">
               <Wallet size={16} className="text-emerald-700" />
               <div className="text-sm font-semibold text-emerald-900">Proposta dalle chiusure di cassa — {MESI_NOMI[mese]} {year}</div>
-              <div className="text-xs text-emerald-800">Chiusure confermate in Incassi giornalieri, scorporo IVA {proposal.vatRate.toLocaleString('it-IT')} % (Impostazioni → Report incassi serale)</div>
+              <div className="text-xs text-emerald-800">Chiusure confermate in Incassi giornalieri, corrispettivi + fatture, scorporo IVA {proposal.vatRate.toLocaleString('it-IT')} % (fissa)</div>
               {withData.length > 0 && (
                 <button type="button" onClick={() => void applyAll()} className="ml-auto text-xs px-3 py-1.5 rounded-lg bg-emerald-600 text-white font-medium hover:bg-emerald-700">Usa tutti ({withData.length})</button>
               )}
@@ -3417,7 +3466,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
                     <tr>
                       <th className="text-left py-2 px-4">Punto vendita</th>
                       <th className="text-right py-2 px-3">Giornate chiuse</th>
-                      <th className="text-right py-2 px-3">Corrispettivi lordi</th>
+                      <th className="text-right py-2 px-3">Incassato lordo</th>
                       <th className="text-right py-2 px-3">Consuntivo proposto (netto IVA)</th>
                       <th className="text-right py-2 px-3">Consuntivo attuale</th>
                       <th className="py-2 px-3" />

@@ -29,7 +29,7 @@ import { eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type EveningDevi
 import type { Database } from '../types/database'
 import {
   type PaymentChannel, type ChannelKind, type AttachmentTarget, type ExpenseKind, type ExtractionStatus, CHANNEL_KIND_LABELS, ATTACHMENT_TARGET_LABELS, EXPENSE_KIND_LABELS,
-  CLOSING_STATUS_LABELS, DEFAULT_CHANNELS, EXTRACTION_STATUS_LABELS, BANK_STATUS_LABELS, formatEuro, monthDays, todayIso, formatDateIt, MESI_IT, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, type BudgetTarget,
+  CLOSING_STATUS_LABELS, DEFAULT_CHANNELS, EXTRACTION_STATUS_LABELS, BANK_STATUS_LABELS, formatEuro, monthDays, todayIso, formatDateIt, MESI_IT, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, type BudgetTarget, BUDGET_VAT_RATE, closingIncasso,
 } from '../lib/cashClosings'
 
 type ClosingRow = Database['public']['Tables']['outlet_daily_closings']['Row']
@@ -94,9 +94,9 @@ export default function IncassiGiornalieri() {
   const [lines, setLines] = useState<LineLite[]>([])
   const [attachments, setAttachments] = useState<AttachmentLite[]>([])
   const [bankAccounts, setBankAccounts] = useState<BankAccountLite[]>([])
-  // Obiettivo dal budget: ricavi mensili per centro di costo (Inserimento rapido, netti IVA) e aliquota IVA del report
+  // Obiettivo dal budget: ricavi mensili per centro di costo (Inserimento rapido, netti IVA); IVA fissa al 22 %
   const [budgetNet, setBudgetNet] = useState<Map<string, number>>(new Map())
-  const [vatRate, setVatRate] = useState(22)
+  const vatRate = BUDGET_VAT_RATE
   const [loading, setLoading] = useState(true)
 
   const setFilter = (k: string, v: string) => setParams((p) => { if (v) p.set(k, v); else p.delete(k); return p })
@@ -117,12 +117,11 @@ export default function IncassiGiornalieri() {
     setLoading(true)
     const from = days[0]
     const to = days[days.length - 1]
-    const [chRes, clRes, baRes, bgRes, rsRes, tgtRes, drRes] = await Promise.all([
+    const [chRes, clRes, baRes, bgRes, tgtRes, drRes] = await Promise.all([
       supabase.from('outlet_payment_channels').select('*').eq('company_id', companyId).order('outlet_id').order('sort_order'),
       supabase.from('outlet_daily_closings').select('*').eq('company_id', companyId).gte('closing_date', from).lte('closing_date', to).order('closing_date'),
       supabase.from('bank_accounts').select('id, bank_name, account_name').eq('company_id', companyId).eq('is_active', true).order('bank_name'),
       supabase.from('budget_confronto').select('cost_center, amount').eq('company_id', companyId).eq('year', ym.y).eq('month', ym.m).eq('entry_type', 'rev_monthly'),
-      supabase.from('daily_report_settings').select('budget_vat_rate').eq('company_id', companyId).maybeSingle(),
       supabase.rpc('get_outlet_day_targets', { p_company_id: companyId, p_from: from, p_to: to }),
       supabase.from('daily_revenue').select('outlet_id, date, gross_revenue').eq('company_id', companyId).gte('date', from).lte('date', to),
     ])
@@ -135,8 +134,6 @@ export default function IncassiGiornalieri() {
     const bn = new Map<string, number>()
     for (const r of (bgRes.data ?? []) as Array<{ cost_center: string; amount: number | string }>) bn.set(r.cost_center, (bn.get(r.cost_center) ?? 0) + Number(r.amount))
     setBudgetNet(bn)
-    const vr = Number((rsRes.data as { budget_vat_rate?: number | string } | null)?.budget_vat_rate)
-    setVatRate(Number.isFinite(vr) ? vr : 22)
     const cls = (clRes.data ?? []) as ClosingRow[]
     const tmap = new Map<string, Array<number | null>>()
     const rmap = new Map<string, DayTargetRow[]>()
@@ -223,12 +220,13 @@ export default function IncassiGiornalieri() {
       if (net == null || net <= 0) return []
       const mine = closings.filter((c) => c.outlet_id === o.id && c.status !== 'bozza')
       const daRegistro = days.reduce((s, d) => s + (closingAt.has(`${o.id}|${d}`) ? 0 : registro.get(`${o.id}|${d}`) ?? 0), 0)
-      const mtd = mine.filter((c) => !c.is_closed_day).reduce((s, c) => s + Number(c.total_receipts), 0) + daRegistro
+      // Incassato a oggi: corrispettivi + fatture delle chiusure non in bozza (lordo), più il registro nei giorni senza chiusura
+      const mtd = mine.filter((c) => !c.is_closed_day).reduce((s, c) => s + closingIncasso(c), 0) + daRegistro
       const todayDone = mine.some((c) => c.closing_date === today)
       const elapsed = isPast ? days.length : isCurrent ? Math.max(0, td - 1) + (todayDone ? 1 : 0) : 0
       return [{ outlet: o, t: budgetTargets({ monthNet: net, vatRate, daysInMonth: days.length, dayOfMonth: elapsed, mtd, dayTargets: dayTargets.get(o.id) }) }]
     })
-  }, [visibleOutlets, budgetNet, closings, closingAt, registro, days, vatRate, ym, today, dayTargets])
+  }, [visibleOutlets, budgetNet, closings, closingAt, registro, days, ym, today, dayTargets])
 
   const attCount = useMemo(() => {
     const map = new Map<string, { n: number; mismatch: boolean }>()
@@ -438,7 +436,7 @@ function BudgetPanel({ rows, missing, vatRate, daysInMonth, monthLabel }: {
             )}
           </table>
           <p className="px-4 py-2 text-[11px] text-slate-500">
-            Budget ricavi dell'<a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserimento rapido</a> + IVA {String(vatRate).replace('.', ',')} %, distribuito sui {daysInMonth} giorni con i pesi per giorno della settimana. Come si calcola: pulsante «?» in basso a destra.
+            Budget ricavi dell'<a href="/budget?tab=rapido" className="text-blue-600 hover:underline">Inserimento rapido</a> + IVA {String(vatRate).replace('.', ',')} % (fissa), distribuito sui {daysInMonth} giorni con i pesi per giorno della settimana. Incassato = corrispettivi + fatture delle chiusure di cassa non in bozza (nei giorni senza chiusura, il registro corrispettivi), IVA compresa. Come si calcola: pulsante «?» in basso a destra.
             {missing.length > 0 && <> Senza budget per questo mese: {missing.join(', ')}.</>}
           </p>
         </div>

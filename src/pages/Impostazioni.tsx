@@ -5,6 +5,7 @@ import {
   CornerDownRight, Lock, ShieldCheck, FileText, RefreshCw, Zap, Send, Mail, KeyRound,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { BUDGET_VAT_RATE } from '../lib/cashClosings'
 import { useAuth } from '../hooks/useAuth'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets, isSellingOutlet } from '../hooks/useOutlets'
@@ -1983,7 +1984,7 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [logs, setLogs] = useState<ReportLogRow[]>([])
-  const [form, setForm] = useState({ enabled: false, sendMode: 'fixed' as 'fixed' | 'on_complete', sendTime: '21:30', followupEnabled: true, reminderEnabled: false, reminderTime: '20:30', recipients: '', reopenRecipients: '', sendOnEmpty: true, budgetVatRate: '22', waEnabled: false, waRecipients: '' })
+  const [form, setForm] = useState({ enabled: false, sendMode: 'fixed' as 'fixed' | 'on_complete', sendTime: '21:30', followupEnabled: true, reminderEnabled: false, reminderTime: '20:30', recipients: '', reopenRecipients: '', sendOnEmpty: true, waEnabled: false, waRecipients: '' })
   const [testingWa, setTestingWa] = useState(false)
   const [dirty, setDirty] = useState(false)
 
@@ -2001,7 +2002,6 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         followupEnabled: s.followup_enabled !== false,
         reminderEnabled: !!s.reminder_time, reminderTime: (s.reminder_time ?? '20:30').slice(0, 5),
         recipients: (s.recipients ?? []).join('\n'), reopenRecipients: (s.reopen_recipients ?? []).join('\n'), sendOnEmpty: s.send_on_empty,
-        budgetVatRate: String(s.budget_vat_rate ?? 22),
         waEnabled: s.whatsapp_enabled === true, waRecipients: (s.whatsapp_recipients ?? []).join('\n'),
       })
     }
@@ -2025,8 +2025,6 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     if (form.enabled && recipientsList.length === 0) { showToast('Serve almeno un indirizzo destinatario', 'error'); return }
     if (form.waEnabled && phonesList.length === 0) { showToast('Serve almeno un numero WhatsApp (formato +39...)', 'error'); return }
     if (form.reminderEnabled && form.reminderTime >= form.sendTime) { showToast(form.sendMode === 'on_complete' ? 'Il sollecito deve essere prima dell\'ora limite' : 'Il sollecito deve essere prima dell\'ora di invio', 'error'); return }
-    const vat = Number(String(form.budgetVatRate).replace(',', '.'))
-    if (!Number.isFinite(vat) || vat < 0 || vat > 100) { showToast('L\'aliquota IVA deve essere un numero fra 0 e 100', 'error'); return }
     setSaving(true)
     const { error } = await supabase.from('daily_report_settings').upsert({
       company_id: COMPANY_ID,
@@ -2038,7 +2036,8 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       recipients: recipientsList,
       reopen_recipients: reopenList,
       send_on_empty: form.sendOnEmpty,
-      budget_vat_rate: vat,
+      // IVA del confronto con il budget: fissa al 22 % (Patrizio, 17/11/2026), la leggono anche report serale e obiettivi pesati
+      budget_vat_rate: BUDGET_VAT_RATE,
       whatsapp_enabled: form.waEnabled,
       whatsapp_recipients: phonesList,
       // Origine del sito corrente: serve ai link nella mail, senza valori hardcoded per tenant.
@@ -2158,8 +2157,8 @@ function ReportSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
       <div className="sm:w-1/2">
         <label className="block text-xs font-medium text-slate-600 mb-1">IVA per il confronto con il budget (%)</label>
-        <input type="number" min={0} max={100} step={0.1} value={form.budgetVatRate} onChange={(e) => set({ budgetVatRate: e.target.value })} className={inp} />
-        <div className="text-xs mt-1 text-slate-500">Il budget dell'Inserimento rapido è netto IVA, le chiusure di cassa sono lorde: l'obiettivo del giorno è budget mese × (1 + IVA) ÷ giorni del mese.</div>
+        <input type="text" value={`${BUDGET_VAT_RATE} % (fissa)`} readOnly disabled className={`${inp} bg-slate-50 text-slate-600`} />
+        <div className="text-xs mt-1 text-slate-500">Fissa al {BUDGET_VAT_RATE} % per tutte le aziende. Il budget dell'Inserimento rapido è netto IVA, le chiusure di cassa sono lorde: il budget del mese si confronta con gli incassi aggiungendo il {BUDGET_VAT_RATE} %.</div>
       </div>
 
       <div className="border border-emerald-200 bg-emerald-50/50 rounded-xl p-4 space-y-3">
