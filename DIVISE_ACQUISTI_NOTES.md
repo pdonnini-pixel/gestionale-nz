@@ -61,8 +61,9 @@ Migration `20261116_422_divise_e_acquisti.sql` (con `_ROLLBACK`).
   `ripetuta: true` e non scrive niente. Ogni capo porta `richiesta_id`. Una richiesta con lo stesso
   id ma di un'altra persona viene rifiutata.
 - Gestione (`divise_capi_segna`, `divise_capo_correggi_prezzo`, `divise_capo_annulla`,
-  `divise_sconti_persona_imposta`): `divise_gestione_controlla()`. Impostazioni ed elenco
-  (`divise_impostazioni_salva`, `divise_gestore_imposta`): solo Super Advisor. Un gestore non può
+  `divise_sconti_persona_imposta`) e sconti standard (`divise_impostazioni_salva`, dalla migration
+  423, Patrizio 17/11/2026: «sì, anche Sabrina e Veronica»): `divise_gestione_controlla()`. Elenco
+  di chi gestisce (`divise_gestore_imposta`): solo Super Advisor. Un gestore non può
   essere `dipendente`, `operatore_cassa` o `viewer` (sola lettura: non gestisce mai, nemmeno se
   finisse nell'elenco).
 - **Nessuno tocca i propri capi né i propri sconti**, Super Advisor compreso (`divise_non_proprio`:

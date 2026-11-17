@@ -271,7 +271,7 @@ export default function DiviseAcquistiPersona({ companyId, employeeId, nome, sup
         </div>
       </div>
 
-      {superAdvisor && <ImpostazioniDivise companyId={companyId} />}
+      <ImpostazioniDivise companyId={companyId} superAdvisor={superAdvisor} />
     </section>
   )
 }
