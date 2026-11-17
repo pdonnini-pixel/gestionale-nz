@@ -32,6 +32,7 @@ import { riconosciFilePaghe, type FilePagheRiconosciuto, type FilePaghe } from '
 import { archiviaFile, sostituisciPrecedenti } from '../lib/archivioFile'
 import { leggiModelloF24, codiciF24InBreve, sezioniF24InBreve, type ModelloF24 } from '../lib/modelloF24'
 import { supabase } from '../lib/supabase'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import type { Json } from '../types/database'
 
 export type FileInArrivo = {
@@ -146,6 +147,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
   /** Dalla riga compatta: torna all'area dove sta la zona di caricamento. */
   onTorna?: () => void
 }) {
+  const labels = useCompanyLabels()
   const [voci, setVoci] = useState<Voce[]>([])
   const [drag, setDrag] = useState(false)
   // Chiuso di solito: serve solo quando c'e' da caricare qualcosa (Patrizio,
@@ -471,7 +473,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
         <summary className="cursor-pointer flex items-center gap-1 text-slate-500"><Info size={13} /> Cosa riconosce e cosa succede dopo</summary>
         <ul className="mt-2 ml-4 list-disc space-y-1">
           <li><strong>Elenco netti</strong> (mensilità normale, cedolino aggiuntivo, mensilità aggiuntive: a giugno è la 14ª, a dicembre la 13ª): le buste si salvano in «Costi & cedolini» e si agganciano da sole alle disposizioni di emolumenti arrivate in banca.</li>
-          <li><strong>Prospetto riepilogativo</strong>: salva il costo per outlet in «Costo lordo» e quanto va versato con l'F24 del 16 del mese dopo; il gestionale controlla che le deleghe in banca lo coprano.</li>
+          <li><strong>Prospetto riepilogativo</strong>: salva il costo per {labels.pointOfSaleLower} in «Costo lordo» e quanto va versato con l'F24 del 16 del mese dopo; il gestionale controlla che le deleghe in banca lo coprano.</li>
           <li><strong>Modello F24</strong> (il PDF «… in scadenza il 16-…» dello studio): è la cifra vera da versare e prende il posto della stima del Prospetto. Il gestionale crea la scadenza in «Scadenze fiscali» con importo, data e conto di addebito scritti nel modello, già segnata come disposta: la banca la addebita da sola, non va pagata a mano. Quando la delega compare in banca al centesimo, la scadenza si chiude da sola.</li>
           <li><strong>Conferma</strong>: solo se per quel mese c'erano già buste o costo lordo (il file li sostituirebbe) o se i totali non tornano (per il modello F24: un importo diverso già presente per quella scadenza, o un modulo che non quadra). In quel caso accanto al file trovi «Vai alla conferma», che apre la scheda con l'anteprima, o il pulsante di conferma. La pagina non cambia scheda da sola, e se intanto passi a turni o presenze l'esito ti segue in una riga in alto.</li>
           <li><strong>Netti negativi</strong>: si archivia e basta, per scelta non si importa.</li>

@@ -119,6 +119,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
   /** «In apertura dal gg/mm/aaaa» se il punto vendita non è ancora aperto. */
   aperturaCaption?: string | null
 }) {
+  const labels = useCompanyLabels()
   const [open, setOpen] = useState(false)
 
   if (!calculatedMetrics) {
@@ -208,7 +209,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
             rosso col meno se <0), niente verde. */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-xs text-slate-400 flex items-center">{isVariance ? 'Δ Ricavi (Cons. − Prev., mesi presi)' : RICAVI_SOURCE_LABEL}<PlaceholderDot show={!!showPlaceholder} tip="Budget di questo outlet ancora segnaposto (clone 2025) non granito in Budget & Controllo." /></div>
+            <div className="text-xs text-slate-400 flex items-center">{isVariance ? 'Δ Ricavi (Cons. − Prev., mesi presi)' : RICAVI_SOURCE_LABEL}<PlaceholderDot show={!!showPlaceholder} tip={`Budget di questo ${labels.pointOfSaleLower} ancora segnaposto (clone 2025) non granito in Budget & Controllo.`} /></div>
             <div className={`text-2xl font-bold ${isVariance ? (ricavi < 0 ? 'text-red-600' : 'text-slate-900') : 'text-slate-900'}`}>
               {isVariance ? scostamentoSegno(scostamento) : `${fmt(ricavi)} €`}
             </div>
@@ -299,7 +300,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
       {!isVariance && quotaSedePro != null && (
         <div className="px-4 pb-1 space-y-1 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-slate-500">Margine outlet</span>
+            <span className="text-slate-500">Margine {labels.pointOfSaleLower}</span>
             <span className={`font-medium ${margine < 0 ? 'text-red-600' : 'text-slate-900'}`}>{fmt(margine)} €</span>
           </div>
           <div className="flex items-center justify-between">
@@ -365,7 +366,7 @@ function OutletCard({ name, outletData, calculatedMetrics, ranking, onNavigate, 
             </div>
           ))}
           <div className="flex items-center justify-between pt-2 border-t border-slate-200 font-semibold">
-            <span className="text-slate-900">Margine outlet</span>
+            <span className="text-slate-900">Margine {labels.pointOfSaleLower}</span>
             <span className={isPositive ? 'text-slate-900' : 'text-red-600'}>
               {fmt(margine)} € ({fmtPctNd(marginePct)})
             </span>
@@ -1256,7 +1257,7 @@ export default function ConfrontoOutlet() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `Confronto_Outlet_${year}_${period}.csv`
+    a.download = `Confronto_${labels.pointOfSalePlural.replace(/\s+/g, '_')}_${year}_${period}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -1281,7 +1282,7 @@ export default function ConfrontoOutlet() {
           <AlertCircle size={48} className="text-slate-300 mx-auto mb-4" />
           <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun dato disponibile</h2>
           <p className="text-sm text-slate-500 mb-4">
-            Carica i dati dal Budget o dal Bilancio per visualizzare il confronto tra i {labels.pointOfSalePluralLower}
+            Carica i dati dal Budget o dal Bilancio per visualizzare il confronto tra {labels.art.i}
           </p>
           <button
             onClick={() => window.location.href = '/budget'}
@@ -1354,7 +1355,7 @@ export default function ConfrontoOutlet() {
               { key: 'merci', label: 'Merci', format: 'euro' },
               { key: 'quota_sede', label: 'Quota Sede', format: 'euro' },
             ]}
-            filename="confronto_outlet"
+            filename={`confronto_${labels.pointOfSaleLower.replace(/\s+/g, '_')}`}
             title={`Confronto ${labels.pointOfSalePlural}`}
           />
         </div>
@@ -1496,7 +1497,7 @@ export default function ConfrontoOutlet() {
       <div>
         <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
           <BarChart3 size={20} className="text-blue-600" />
-          Schede outlet — P&L comparativo
+          Schede {labels.pointOfSaleLower} — P&L comparativo
         </h2>
         {viewMode !== 'actual' && outletMetrics.some(o => o.hasPlaceholder) && (
           <PlaceholderLegend className="mb-3" />
@@ -1533,7 +1534,7 @@ export default function ConfrontoOutlet() {
             Ricavi: {RICAVI_SOURCE_LABEL} (budget_confronto — preventivo rev_monthly,
             consuntivo granitico cons_monthly), regola granitico-else-preventivo per mese,
             stessa fonte di Budget &amp; Controllo. Costi: budget_entries + employee_costs_by_outlet.
-            Quota sede: netto sede (costi − ricavi, {fmt(nettoSede)} €) ripartito sugli outlet
+            Quota sede: netto sede (costi − ricavi, {fmt(nettoSede)} €) ripartito {`su${labels.art.i}`}
             in proporzione al fatturato preventivo.
             {viewMode === 'variance' && ' Lo scostamento ricavi è consuntivo − preventivo sui soli mesi presi.'}
           </div>

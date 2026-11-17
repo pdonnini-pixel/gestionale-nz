@@ -1260,7 +1260,7 @@ function Corrispettivi() {
       )}
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard icon={Store} label="Giorni registrati" value={stats.total} sub={`${new Set(dailyRevenue.map(r => r.outlet_id)).size} outlet`} color="blue" />
+        <KpiCard icon={Store} label="Giorni registrati" value={stats.total} sub={(() => { const n = new Set(dailyRevenue.map(r => r.outlet_id)).size; return `${n} ${n === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower}` })()} color="blue" />
         <KpiCard icon={Euro} label="Incasso lordo totale" value={`${fmt(stats.totalGross)}`} color="green" />
         <KpiCard icon={Hash} label="Transazioni totali" value={stats.totalTransactions.toLocaleString('de-DE')} color="amber" />
         <KpiCard icon={BarChart3} label="Scontrino medio" value={`${fmt(stats.avgTicket)}`} color="slate" />
@@ -1281,7 +1281,7 @@ function Corrispettivi() {
           onChange={(e) => setSelectedOutlet(e.target.value)}
           className="px-3 py-2 text-sm border border-slate-200 rounded-lg"
         >
-          <option value="ALL">Tutti gli {labels.pointOfSalePluralLower}</option>
+          <option value="ALL">Tutti {labels.art.i}</option>
           {outlets.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
         </select>
         <button onClick={loadData} title="Ricarica" className="p-2 text-slate-500 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition">

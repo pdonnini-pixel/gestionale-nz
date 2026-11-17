@@ -310,7 +310,7 @@ export default function AnalyticsPOS() {
             <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun dato POS disponibile</h2>
             <p className="text-sm text-slate-500 max-w-md mx-auto">
               I dati POS verranno popolati automaticamente al collegamento del sistema cassa.
-              Per gestire l'elenco dei {labels.pointOfSalePluralLower} vai su Impostazioni.
+              Per gestire l'elenco {labels.art.dei} vai su Impostazioni.
             </p>
           </div>
         </div>
@@ -329,7 +329,7 @@ export default function AnalyticsPOS() {
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span className="mt-0.5 font-semibold">Dati simulati (demo)</span>
           <span className="text-amber-700">
-            Questa pagina genera metriche POS simulate sugli {labels.pointOfSalePluralLower} del tenant:
+            Questa pagina genera metriche POS simulate {`su${labels.art.i}`} del tenant:
             non è ancora collegata a un sistema cassa reale.
           </span>
         </div>
@@ -343,7 +343,7 @@ export default function AnalyticsPOS() {
               onChange={(e) => setSelectedOutlet(e.target.value || null)}
               className="px-4 py-2 border border-slate-300 rounded-lg bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="">Tutti gli {labels.pointOfSalePluralLower}</option>
+              <option value="">Tutti {labels.art.i}</option>
               {tenantOutlets.map(outlet => (
                 <option key={outlet.id} value={outlet.id}>
                   {outlet.lifecycle === 'programmato' ? `${outlet.name} · ${outletLifecycleCaption(outlet)}` : outlet.name}

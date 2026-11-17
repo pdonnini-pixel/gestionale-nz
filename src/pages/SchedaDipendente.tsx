@@ -15,10 +15,12 @@ import { AlertCircle, ArrowLeft, ChevronDown, Edit2, Eye, Percent, Plus, Refresh
 import type { Row } from '../types/business';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useToast } from '../components/Toast';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import AccordiOrario from '../components/AccordiOrario';
 import ChiaviNegozio from '../components/ChiaviNegozio';
+import { isSellingOutlet } from '../hooks/useOutlets';
 import RiposiNegozio from '../components/RiposiNegozio';
 import CorreggiPersona, { assunzioneInAttesa } from '../components/CorreggiPersona';
 import SegnaCambiamento from '../components/SegnaCambiamento';
@@ -31,12 +33,16 @@ import { SEZIONI_SCHEDA, percorsoDipendente, risolviDipendente, segmentoDipenden
 import { caricaGiorniLiberi, caricaRiposi, impostaGiornoLibero, type GiornoLibero } from '../lib/regoleNuoveDb';
 import { NOMI_GIORNO_BREVI } from '../lib/turni';
 import { ETICHETTE_VOCE } from '../lib/ferieRichiesta';
+import { possoGestireDivise } from '../lib/diviseDb';
+import DiviseAcquistiPersona from '../components/DiviseAcquistiPersona';
 
 type Employee = Row<'employees'>;
 type EmployeeCost = Row<'employee_costs'>;
 type EmployeeDocument = Row<'employee_documents'>;
 type Allocazione = Row<'employee_outlet_allocations'>;
-type OutletRow = { id: string; name: string; code: string | null; is_active: boolean | null };
+type OutletRow = { id: string; name: string; code: string | null; is_active: boolean | null;
+  outlet_type?: string | null; cost_center_key?: string | null;
+  referente_employee_id?: string | null; vice_referente_employee_id?: string | null };
 type Saldo = { voce: string; residuo: number | null; da_fruire: number | null; ore_in_attesa: number | null; ore_approvate: number | null; residuo_disponibile: number | null; saldo_alla_data: string | null };
 type Richiesta = { id: string; titolo: string | null; stato: string; created_at: string; inviata_il: string | null; origine: string };
 
@@ -88,6 +94,10 @@ export default function SchedaDipendente() {
   const [organicoFallito, setOrganicoFallito] = useState(false);
   const [saldi, setSaldi] = useState<Saldo[] | null>(null);
   const [richieste, setRichieste] = useState<Richiesta[] | null>(null);
+  // Divise e acquisti (migration 422): la sezione la vede solo chi gestisce; null = non disponibile (Made)
+  // undefined = ancora in lettura; null = divise e acquisti non attivi su questo gestionale
+  const [possoDivise, setPossoDivise] = useState<boolean | null | undefined>(undefined);
+  useEffect(() => { possoGestireDivise().then(setPossoDivise).catch(() => setPossoDivise(null)); }, []);
   const [caricata, setCaricata] = useState(false);
   const [errore, setErrore] = useState<string | null>(null);
 
@@ -102,7 +112,8 @@ export default function SchedaDipendente() {
     setErrore(null);
     const [e, o] = await Promise.all([
       supabase.from('employees').select('*').eq('company_id', companyId),
-      supabase.from('outlets').select('id, name, code, is_active').eq('company_id', companyId).order('name'),
+      // '*': referente e vice (migration 393) possono mancare dove la migration non c'e'
+      supabase.from('outlets').select('*').eq('company_id', companyId).order('name'),
     ]);
     if (e.error) {
       console.error('[scheda dipendente] lettura dei dipendenti', e.error);
@@ -216,7 +227,12 @@ export default function SchedaDipendente() {
   const attiva = emp.is_active !== false;
   const qualifica = campo(emp, 'qualifica') || emp.role_description;
   const livello = emp.livello || campo(emp, 'level');
-  const apreChiudeDaIndicare = 'puo_aprire' in (emp as unknown as Record<string, unknown>) && (campo(emp, 'puo_aprire') == null || campo(emp, 'puo_chiudere') == null);
+  // Apertura e chiusura valgono solo nei negozi (Patrizio, 17/11/2026: chi e' in sede o in magazzino
+  // non apre e non chiude un negozio). Referente e vice sono sempre abilitate: niente da indicare.
+  const negozio = outlets.find((o) => o.id === emp.outlet_id) ?? null;
+  const inNegozio = !!negozio && isSellingOutlet({ outlet_type: negozio.outlet_type ?? null }) && negozio.cost_center_key !== 'sede_magazzino';
+  const eGuida = !!negozio && (negozio.referente_employee_id === emp.id || negozio.vice_referente_employee_id === emp.id);
+  const apreChiudeDaIndicare = inNegozio && !eGuida && 'puo_aprire' in (emp as unknown as Record<string, unknown>) && (campo(emp, 'puo_aprire') == null || campo(emp, 'puo_chiudere') == null);
   const scadenza = campo(emp, 'scadenza_td');
 
   return (
@@ -264,7 +280,7 @@ export default function SchedaDipendente() {
 
       {/* Sezioni */}
       <div className="flex gap-0.5 bg-slate-100 rounded-lg p-0.5 overflow-x-auto" role="tablist">
-        {SEZIONI_SCHEDA.map((s) => (
+        {SEZIONI_SCHEDA.filter((s) => s.k !== 'divise' || possoDivise === true).map((s) => (
           <button key={s.k} type="button" role="tab" aria-selected={sezione === s.k} onClick={() => vaiSezione(s.k)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition whitespace-nowrap ${sezione === s.k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
             {s.label}
@@ -299,7 +315,10 @@ export default function SchedaDipendente() {
       {sezione === 'turni' && (
         <section className="space-y-3">
           <div className="bg-white border border-slate-200 rounded-xl p-4">
-            <ChiaviNegozio employeeId={emp.id} outletId={emp.outlet_id ?? null} />
+            {inNegozio && (
+              <ChiaviNegozio employeeId={emp.id} outletId={emp.outlet_id ?? null}
+                onCambiato={(campoC, valore) => setTutti((t) => t.map((x) => (x.id === emp.id ? ({ ...x, [campoC]: valore } as Employee) : x)))} />
+            )}
             <AccordiOrario employeeId={emp.id} companyId={companyId} outletId={emp.outlet_id ?? null}
               oreSettimanali={ore != null ? Number(ore) : null} />
           </div>
@@ -326,6 +345,17 @@ export default function SchedaDipendente() {
         <NettiAnno key={emp.id} employeeId={emp.id} companyId={companyId} costi={costi} puoSalvare={!solaLettura}
           onSalvato={async () => { await caricaPersona(emp.id); toast({ type: 'success', message: 'Netti salvati' }); }} />
       )}
+
+      {sezione === 'divise' && (possoDivise === true ? (
+        <DiviseAcquistiPersona companyId={companyId} employeeId={emp.id} nome={nomeCompleto(emp)} superAdvisor={ruolo === 'super_advisor'}
+          negozi={outlets.map((o) => ({ id: o.id, name: o.name }))} />
+      ) : possoDivise === undefined ? (
+        <section className="bg-white border border-slate-200 rounded-xl p-6 flex justify-center"><RefreshCw className="animate-spin text-blue-600" size={20} /></section>
+      ) : possoDivise === false || possoDivise === null ? (
+        <section className="bg-white border border-slate-200 rounded-xl p-4 text-sm text-slate-600">
+          {possoDivise === null ? 'Divise e acquisti non sono attivi in questo gestionale.' : 'Divise e acquisti li vede solo chi è nell’elenco scelto dal Super Advisor.'}
+        </section>
+      ) : null)}
 
       {segna && persona && organico && (
         <SegnaCambiamento open onClose={() => setSegna(false)} onSalvato={() => { void ricarica(); }}
@@ -458,6 +488,7 @@ function ContrattoLettura({ emp, outletName }: { emp: Employee; outletName: stri
 function ModuloAnagraficaInline({ emp, tutti, outlets, onAnnulla, onSalvato }: {
   emp: Employee; tutti: Employee[]; outlets: OutletRow[]; onAnnulla: () => void; onSalvato: () => Promise<void>;
 }) {
+  const labels = useCompanyLabels();
   const { toast } = useToast();
   const [form, setForm] = useState<ModuloAnagrafica>(() => moduloDa(emp as unknown as Record<string, unknown>));
   const [salvo, setSalvo] = useState(false);
@@ -487,7 +518,7 @@ function ModuloAnagraficaInline({ emp, tutti, outlets, onAnnulla, onSalvato }: {
       const e = err as { code?: string; message?: string };
       toast({ type: 'error', message: e?.code === '23505' && /matricola/i.test(e?.message || '')
         ? `La matricola ${matricola} è già usata da un'altra persona di questa azienda: correggila prima di salvare.`
-        : 'Errore nel salvataggio: ' + readableDbError(err) });
+        : 'Errore nel salvataggio: ' + readableDbError(err, labels) });
     } finally { setSalvo(false); }
   };
 

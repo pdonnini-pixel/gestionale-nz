@@ -6,7 +6,7 @@ type ImportHubTab = 'sources' | 'overview' | 'history';
 const VALID_IMPORT_HUB_TABS: ImportHubTab[] = ['sources', 'overview', 'history'];
 import PageHeader from '../components/PageHeader';
 import TextTooltip from '../components/Tooltip';
-import { useCompanyLabels } from '../hooks/useCompanyLabels';
+import { useCompanyLabels, type CompanyLabels } from '../hooks/useCompanyLabels';
 import {
   Upload,
   Database,
@@ -140,13 +140,13 @@ const MODULO_PER_FONTE: Record<Exclude<ImportSourceId, 'general_docs'>, ModuloAr
 // import_documents lo faceva comparire due volte fin dal primo caricamento.
 const TABELLE_GIA_IN_ARCHIVIO = new Set(['bank_imports', 'documents', 'employee_documents', 'balance_sheet_imports']);
 
-const AREE_DOCUMENTI_GENERALI: { value: ModuloArchivio | ''; label: string }[] = [
+const areeDocumentiGenerali = (labels: CompanyLabels): { value: ModuloArchivio | ''; label: string }[] => [
   { value: '', label: 'Nessuna area (documento generale)' },
   { value: 'Personale', label: 'Personale' },
   { value: 'Banche', label: 'Banche' },
   { value: 'Fatturazione', label: 'Fatturazione' },
   { value: 'Scadenzario', label: 'Scadenzario' },
-  { value: 'Outlet', label: 'Outlet' },
+  { value: 'Outlet', label: labels.pointOfSalePlural },
   { value: 'Bilancio', label: 'Bilancio' },
 ];
 
@@ -1278,7 +1278,7 @@ export default function ImportHub() {
                     onChange={(e) => setSelectedDocArea(e.target.value as ModuloArchivio | '')}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-900 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   >
-                    {AREE_DOCUMENTI_GENERALI.map((a) => (
+                    {areeDocumentiGenerali(labels).map((a) => (
                       <option key={a.value || 'nessuna'} value={a.value}>{a.label}</option>
                     ))}
                   </select>

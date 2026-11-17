@@ -2,7 +2,7 @@ import React from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
-import { useCompanyLabels, type CompanyLabels } from '../hooks/useCompanyLabels'
+import { useCompanyLabels, labelsDa, type CompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets } from '../hooks/useOutlets'
 import { getCurrentTenant } from '../lib/tenants'
 import { inizialiTenant } from '../lib/tenantBranding'
@@ -192,12 +192,7 @@ export function buildBreadcrumbMap(
  * — coerenti con NZ in produzione, ma non cambiano per Made/Zago.
  */
 export const BREADCRUMB_MAP: Record<string, { section: string; page: string }> =
-  buildBreadcrumbMap({
-    pointOfSale: 'Outlet',
-    pointOfSalePlural: 'Outlet',
-    pointOfSaleLower: 'outlet',
-    pointOfSalePluralLower: 'outlet',
-  })
+  buildBreadcrumbMap(labelsDa('Outlet'))
 
 // ─── HELPER: find which section key contains a given path ──────
 function findSectionKeyForPath(path: string, sections: NavSection[]): string | null {

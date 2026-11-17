@@ -46,6 +46,7 @@ import { ScadenzeCharts } from './scadenzario/ScadenzeCharts';
 import { BulkPaymentBar } from './scadenzario/BulkPaymentBar';
 import { SupplierDetailModal } from './scadenzario/SupplierDetailModal';
 import { CategoryManagerModal, type SupLite } from './scadenzario/CategoryManagerModal';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 
 // Categorie di nominativo che identificano una scadenza FISCALE/INTERNA creata da
 // "Aggiungi scadenza" (il "tipo" scelto nel modale: Fiscale / Interno). Un payable
@@ -57,6 +58,7 @@ const FISCAL_INTERNAL_CATEGORIES = new Set(['fiscale', 'interno']);
 // Main component
 const ScadenzarioSmart = () => {
   const { toast } = useToast();
+  const pdvLabels = useCompanyLabels();
   const { profile } = useAuth();
   const COMPANY_ID = profile?.company_id;
 
@@ -1963,7 +1965,7 @@ const ScadenzarioSmart = () => {
     }
     const firstDue = rate[0].dueDate;
     const isRecurring = !!invoiceData.frequency && invoiceData.frequency !== 'una_tantum';
-    if (isRecurring && !invoiceData.costCenter) { toast({ type: 'warning', message: 'Per una scadenza ricorrente scegli il centro di costo / outlet.' }); return; }
+    if (isRecurring && !invoiceData.costCenter) { toast({ type: 'warning', message: `Per una scadenza ricorrente scegli il centro di costo / ${pdvLabels.pointOfSaleLower}.` }); return; }
     try {
       // 0) Nominativo NON a sistema: creo un'anagrafica leggera (nome + tipo scelto
       //    come categoria) così è riutilizzabile e il tipo resta salvato.
@@ -2053,7 +2055,7 @@ const ScadenzarioSmart = () => {
       console.error('Error creating scadenza:', error);
       toast({ type: 'error', message: 'Errore creazione scadenza: ' + (error instanceof Error ? error.message : String(error)) });
     }
-  }, [COMPANY_ID, suppliers, toast]);
+  }, [COMPANY_ID, suppliers, toast, pdvLabels]);
 
   type SupplierData = {
     name: string; vat?: string; fiscal?: string; iban?: string; category?: string; paymentMethod?: string

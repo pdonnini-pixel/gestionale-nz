@@ -1366,7 +1366,7 @@ export default function BudgetControl() {
   const clearOutlet = (code: string) => {
     setConfirmAction({
       title: `Svuota Business Plan — ${code}`,
-      message: 'Tutti i costi inseriti per questo outlet verranno cancellati da memoria e database.',
+      message: `Tutti i costi inseriti per questo ${labels.pointOfSaleLower} verranno cancellati da memoria e database.`,
       action: async () => {
         if (!CID) return
         setBpEdits(prev => { const next = { ...prev }; delete next[code]; return next })
@@ -1579,7 +1579,7 @@ export default function BudgetControl() {
             <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4">
               <Info size={18} className="text-blue-600 mt-0.5 shrink-0" />
               <div className="text-sm text-blue-800">
-                <strong>Modalità sola lettura.</strong> Stai visualizzando i preventivi approvati per outlet × anno. Per modifiche o nuovi preventivi rivolgiti a chi approva il budget.
+                <strong>Modalità sola lettura.</strong> Stai visualizzando i preventivi approvati per {labels.pointOfSaleLower} × anno. Per modifiche o nuovi preventivi rivolgiti a chi approva il budget.
               </div>
             </div>
           )}
@@ -1700,7 +1700,7 @@ export default function BudgetControl() {
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="text-sm text-slate-600 font-medium">{labels.pointOfSale}:</span>
                 <select value={confOutlet} onChange={e => setConfOutlet(e.target.value)} className="px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                  <option value={ALL_OUTLETS_CODE}>📊 Tutti gli {labels.pointOfSalePluralLower} (vista aggregata)</option>
+                  <option value={ALL_OUTLETS_CODE}>📊 Tutti {labels.art.i} (vista aggregata)</option>
                   {hq && <option value={HQ_CODE}>🏢 {prettyCenterLabel(hq)}</option>}
                   {/* Tutti gli outlet operativi attivi (non solo quelli con preventivo
                       gia' popolato in budget_entries). Outlet senza preventivo (es. Torino
@@ -1745,7 +1745,7 @@ export default function BudgetControl() {
                 <div className="flex items-start gap-3 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
                   <Info size={18} className="text-indigo-600 mt-0.5 shrink-0" />
                   <div className="text-sm text-indigo-900 flex-1">
-                    <strong>Vista aggregata di tutti gli {labels.pointOfSalePluralLower}.</strong>
+                    <strong>Vista aggregata di tutti {labels.art.i}.</strong>
                     {' '}I valori qui sotto sono la <strong>somma</strong> di preventivo, consuntivo e rettifica di {aggregatedConfrontoEdits.outletCount} {aggregatedConfrontoEdits.outletCount === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower}{aggregatedConfrontoEdits.sedeIncluded ? ' + la Sede' : ''}.
                     {' '}Per modificare i valori di un singolo {labels.pointOfSaleLower}, selezionalo dal menu sopra.
                   </div>
@@ -1779,7 +1779,7 @@ export default function BudgetControl() {
                 return (
                 <ConfrontoPanel
                   outletCode={ALL_OUTLETS_CODE}
-                  outletLabel={`Tutti gli ${labels.pointOfSalePluralLower}${aggregatedConfrontoEdits.sedeIncluded ? ' + Sede' : ''} (${aggregatedConfrontoEdits.outletCount}${aggregatedConfrontoEdits.sedeIncluded ? '+1' : ''})`}
+                  outletLabel={`Tutti ${labels.art.i}${aggregatedConfrontoEdits.sedeIncluded ? ' + Sede' : ''} (${aggregatedConfrontoEdits.outletCount}${aggregatedConfrontoEdits.sedeIncluded ? '+1' : ''})`}
                   prevEdits={aggregatedConfrontoEdits.prev}
                   consEdits={aggregatedConfrontoEdits.cons}
                   onConsEdit={() => { /* read-only nella vista aggregata */ }}
@@ -2016,6 +2016,7 @@ type BPCardProps = {
   costHasPlaceholder?: boolean
 }
 function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edits, setEdits, onClear, onSave, saving, color, year, workflowStatus, workflowMeta, canApprove, onApprove, onUnlock, onSaveAccount, revYearlyFromMonthly, costHasPlaceholder }: BPCardProps) {
+  const labels = useCompanyLabels()
   const [open, setOpen] = useState(false)
 
   const isLocked = workflowStatus === 'approvato'
@@ -2077,7 +2078,7 @@ function BPCard({ label, code, isHQ, numOps: _numOps, costiTree, ricaviTree, edi
         </div>
         <div className="flex items-center gap-5">
           <div className="text-right"><div className="text-xs text-slate-400">{RICAVI_SOURCE_LABEL}</div><div className="font-semibold text-emerald-600">{fmtC(totR)}</div></div>
-          <div className="text-right"><div className="text-xs text-slate-400">Costi (preventivo)</div><div className="font-semibold text-red-600">{fmtC(totC)}<PlaceholderDot show={!!costHasPlaceholder} tip="I costi a budget di questo outlet contengono voci segnaposto (clone 2025) non ancora granite: apri la card e compila/conferma i valori." /></div></div>
+          <div className="text-right"><div className="text-xs text-slate-400">Costi (preventivo)</div><div className="font-semibold text-red-600">{fmtC(totC)}<PlaceholderDot show={!!costHasPlaceholder} tip={`I costi a budget di questo ${labels.pointOfSaleLower} contengono voci segnaposto (clone 2025) non ancora granite: apri la card e compila/conferma i valori.`} /></div></div>
           <div className="text-right"><div className="text-xs text-slate-400">Risultato</div><div className={`font-bold ${ris>=0?'text-emerald-700':'text-red-700'}`}>{fmtC(ris)}</div></div>
           {open ? <ChevronUp size={18} className="text-slate-400"/> : <ChevronDown size={18} className="text-slate-400"/>}
         </div>
@@ -2950,6 +2951,7 @@ type ConfrontoPanelProps = {
   onImposteCommit?: (val: number) => Promise<void>
 }
 function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit }: ConfrontoPanelProps) {
+  const labels = useCompanyLabels()
   // Somma annuale (per code) dei mensili gia' caricati da budget_confronto.
   // Patrizio (29/05/2026): "il numero si popola solo dalla somma dei mensili
   // per i preventivi e dalla somma dei mensili per i consuntivi". Quindi NO
@@ -3138,7 +3140,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
           </div>
           {isAggregate && imposteEditable && (
             <p className="text-[10px] text-slate-400">
-              Salvataggio automatico all'uscita dal campo. Ripartizione: 100% sugli outlet aperti pro-quota ricavi (Sede/Magazzino esclusa).
+              Salvataggio automatico all'uscita dal campo. Ripartizione: 100% {`su${labels.art.i}`} aperti pro-quota ricavi (Sede/Magazzino esclusa).
             </p>
           )}
         </div>
@@ -3176,6 +3178,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
   year: number; companyId: string; outlets: OutletForRapido[]
   phRevByCenterMonth?: Record<string, boolean[]>
 }) {
+  const labels = useCompanyLabels()
   const MESI_NOMI = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno','Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre']
   const [mese, setMese] = useState<number>(new Date().getMonth()) // mese corrente di default
   const [matrix, setMatrix] = useState<Record<string, { prev: number; cons: number }>>({})
@@ -3286,7 +3289,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
         <div className="text-sm text-blue-900">
           <div className="font-semibold mb-1">Inserimento Rapido Corrispettivi</div>
           <p className="text-blue-700 text-xs">
-            Scegli il mese, inserisci preventivo e consuntivo per ogni outlet. Il <strong>Consuntivo</strong> è il dato <strong>granitico</strong> (corrispettivi reali dei mesi chiusi); il <strong>Preventivo</strong> è previsionale. Salvataggio automatico (vedi ✓ verde). I numeri popolano direttamente il bilancio e le viste Preventivo vs Consuntivo / Business Plan.
+            Scegli il mese, inserisci preventivo e consuntivo per ogni {labels.pointOfSaleLower}. Il <strong>Consuntivo</strong> è il dato <strong>granitico</strong> (corrispettivi reali dei mesi chiusi); il <strong>Preventivo</strong> è previsionale. Salvataggio automatico (vedi ✓ verde). I numeri popolano direttamente il bilancio e le viste Preventivo vs Consuntivo / Business Plan.
           </p>
         </div>
       </div>
@@ -3310,7 +3313,7 @@ function InserimentoRapidoMatrice({ year, companyId, outlets, phRevByCenterMonth
       {/* Matrice */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         <div className="px-5 py-3 bg-slate-50 border-b">
-          <h3 className="text-sm font-semibold text-slate-700">Corrispettivi outlet — {MESI_NOMI[mese]} {year}</h3>
+          <h3 className="text-sm font-semibold text-slate-700">Corrispettivi {labels.pointOfSalePluralLower} — {MESI_NOMI[mese]} {year}</h3>
         </div>
         {loading ? (
           <div className="p-8 text-center text-slate-400 text-sm">Caricamento…</div>

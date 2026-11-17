@@ -18,6 +18,7 @@ import { ChevronLeft, ChevronRight, Unlock, Pencil, Image as ImageIcon, Plus, Sa
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets } from '../hooks/useOutlets'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/ui/Modal'
@@ -58,6 +59,7 @@ const ALL = 'all'
 export default function IncassiGiornalieri() {
   const { profile } = useAuth()
   const { company } = useCompany()
+  const labels = useCompanyLabels()
   // Solo punti vendita: sede e magazzino non hanno cassa (tipo outlet «sede»).
   const { outlets, loading: outletsLoading } = useOutlets({ sellingOnly: true })
   const { toast } = useToast()
@@ -180,7 +182,7 @@ export default function IncassiGiornalieri() {
       const wb = XLSX.utils.book_new()
       const sheets = buildCashClosingsSheets({ days, outlets: visibleOutlets, channels, closings, linesByClosing })
       for (const sh of sheets) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(sh.aoa), sh.name)
-      const suffix = outletFilter === ALL ? '' : `_${(visibleOutlets[0]?.name ?? 'outlet').replace(/[^\w]+/g, '_')}`
+      const suffix = outletFilter === ALL ? '' : `_${(visibleOutlets[0]?.name ?? labels.pointOfSaleLower).replace(/[^\w]+/g, '_')}`
       XLSX.writeFile(wb, `incassi_${ym.y}-${String(ym.m).padStart(2, '0')}${suffix}.xlsx`)
     } catch (e) {
       toast({ type: 'error', message: `Export non riuscito: ${e instanceof Error ? e.message : String(e)}` })

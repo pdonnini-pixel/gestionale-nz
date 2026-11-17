@@ -913,7 +913,7 @@ export default function Dashboard() {
               <Info size={16} className="text-amber-500 shrink-0" />
               <p className="text-xs text-slate-600">
                 {dataSource === 'fatture'
-                  ? <>Dati per {labels.pointOfSalePluralLower} non disponibili per il {year}. Importa il bilancio {year} o <Link to="/fornitori" className="text-blue-500 hover:underline">assegna i fornitori ai {labels.pointOfSalePluralLower}</Link>.</>
+                  ? <>Dati per {labels.pointOfSalePluralLower} non disponibili per il {year}. Importa il bilancio {year} o <Link to="/fornitori" className="text-blue-500 hover:underline">assegna i fornitori {labels.art.ai}</Link>.</>
                   : <>Nessun dato {labels.pointOfSaleLower}. <Link to="/import-hub" className="text-blue-500 hover:underline">Importa dati</Link> per vedere il ranking.</>
                 }
               </p>

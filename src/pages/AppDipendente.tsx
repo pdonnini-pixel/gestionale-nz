@@ -9,7 +9,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import QRCode from 'qrcode'
-import { CalendarDays, Clock, Palmtree, QrCode, RefreshCw, WifiOff } from 'lucide-react'
+import { CalendarDays, Clock, Palmtree, QrCode, RefreshCw, Shirt, WifiOff } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { getCurrentTenant } from '../lib/tenants'
 import LogoNewZago from '../components/app/LogoNewZago'
@@ -33,14 +33,18 @@ import { attivaNotifiche, eAppNativa, type EsitoNotifiche } from '../lib/pushNat
 const AppTurni = lazy(() => import('../components/app/AppTurni'))
 const AppFerie = lazy(() => import('../components/app/AppFerie'))
 const AppOre = lazy(() => import('../components/app/AppOre'))
+const AppDivise = lazy(() => import('../components/app/AppDivise'))
+import { mieiCapi } from '../lib/diviseDb'
 import AppEventi, { type EventoApp } from '../components/app/AppEventi'
 
-type Scheda = 'oggi' | 'turni' | 'ferie' | 'ore'
+type Scheda = 'oggi' | 'turni' | 'ferie' | 'ore' | 'divise'
 const SCHEDE: { k: Scheda; label: string; Icona: typeof QrCode }[] = [
   { k: 'oggi', label: 'Oggi', Icona: QrCode },
   { k: 'turni', label: 'Turni', Icona: CalendarDays },
   { k: 'ferie', label: 'Ferie', Icona: Palmtree },
   { k: 'ore', label: 'Ore', Icona: Clock },
+  // si vede solo dove divise e acquisti esistono (migration 422)
+  { k: 'divise', label: 'Divise', Icona: Shirt },
 ]
 
 const K_APP = 'nz-app-dipendente'
@@ -169,6 +173,9 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const [oraEntrata, setOraEntrata] = useState<string | null>(null)
   const [messaggio, setMessaggio] = useState<{ ok: boolean; testo: string } | null>(null)
   const [scheda, setScheda] = useState<Scheda>('oggi')
+  // la scheda Divise c'e' solo se la funzione risponde (non sul sito Made)
+  const [conDivise, setConDivise] = useState(false)
+  useEffect(() => { mieiCapi().then((c) => setConDivise(c !== null)).catch(() => setConDivise(false)) }, [])
   const [notifiche, setNotifiche] = useState<EsitoNotifiche | null>(null)
   const [miaImpronta, setMiaImpronta] = useState<string | null>(null)
   useEffect(() => { void impronta(attivazione.segreto).then(setMiaImpronta).catch(() => setMiaImpronta(null)) }, [attivazione])
@@ -312,6 +319,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
       {scheda === 'turni' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppTurni /></Suspense>}
       {scheda === 'ferie' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppFerie /></Suspense>}
       {scheda === 'ore' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppOre /></Suspense>}
+      {scheda === 'divise' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppDivise /></Suspense>}
 
       {scheda === 'oggi' && (<>
       {notifiche === 'negate' && (
@@ -386,7 +394,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
 
       {/* Schede in basso */}
       <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 flex justify-around pb-[env(safe-area-inset-bottom)]">
-        {SCHEDE.map(({ k, label, Icona }) => (
+        {SCHEDE.filter((x) => x.k !== 'divise' || conDivise).map(({ k, label, Icona }) => (
           <button key={k} onClick={() => setScheda(k)}
             className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-xs ${scheda === k ? 'text-[#ff0066] font-semibold' : 'text-slate-500'}`}>
             <Icona size={22} />{label}
