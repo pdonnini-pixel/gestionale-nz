@@ -36,7 +36,7 @@ import { PlaceholderDot, PlaceholderLegend } from '../components/PlaceholderMark
 const PdfViewer = React.lazy(() => import('../components/PdfViewer'))
 import { Modal } from '../components/ui/Modal'
 import { dataIt } from '../lib/periodoVuoto'
-import { parseBilancio, toSupabaseRecords } from '../lib/parsers/bilancioParser'
+import { parseBilancio, toSupabaseRecords, valoreDellaProduzione } from '../lib/parsers/bilancioParser'
 
 // ===== TYPES =====
 interface RiconRettifica {
@@ -1431,7 +1431,8 @@ export default function ContoEconomico() {
           const servizi = ceMacro['63'] || 0
           const godimentoBeniTerzi = ceMacro['65'] || 0
           const totaleCostiProduzione = Math.round((materiePrime + servizi + godimentoBeniTerzi + totalePersonale + totaleAmmortamenti + variazioneRimanenze + oneriDiversi) * 100) / 100
-          const ricaviVendite = t.ricavi || 0
+          // Stesso calcolo dell'import: mastri 5x, non il totale a pareggio (Zago 2025).
+          const ricaviVendite = valoreDellaProduzione(parsed)
           const extracted: Record<string, number> = {
             ricavi_vendite: ricaviVendite,
             materie_prime: materiePrime,
@@ -1445,7 +1446,7 @@ export default function ContoEconomico() {
             variazione_rimanenze: variazioneRimanenze,
             oneri_diversi: oneriDiversi,
             oneri_finanziari: ceMacro['83'] || 0,
-            imposte: 0,
+            imposte: ceMacro['93'] || 0,
             utile_netto: t.risultato || 0,
             totale_costi_produzione: totaleCostiProduzione,
             differenza_ab: Math.round((ricaviVendite - totaleCostiProduzione) * 100) / 100,

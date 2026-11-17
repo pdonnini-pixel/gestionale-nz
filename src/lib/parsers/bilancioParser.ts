@@ -408,11 +408,7 @@ export function toSupabaseRecords(parsed: BilancioParsed, companyId: string, yea
   pCE.costi.forEach((row: BilancioRow) => {
     if (row.isMacro) ceMacro[row.code] = row.amount
   })
-  // Ricavi della produzione: i mastri 5x (51 vendite, 59 altri ricavi e proventi).
-  const ricaviMacro = pCE.ricavi.filter((row: BilancioRow) => row.isMacro && /^5\d$/.test(row.code))
-  const valoreProduzione = ricaviMacro.length
-    ? Math.round(ricaviMacro.reduce((a, r) => a + r.amount, 0) * 100) / 100
-    : (t.ricavi || 0)
+  const valoreProduzione = valoreDellaProduzione(parsed)
   const costiProduzioneCalc = Math.round(((ceMacro['61'] || 0) + (ceMacro['63'] || 0) + (ceMacro['65'] || 0) +
     (ceMacro['67'] || 0) + (ceMacro['69'] || 0) + (ceMacro['71'] || 0) + (ceMacro['73'] || 0) + (ceMacro['77'] || 0)) * 100) / 100
   const ciSonoCosti = ['61', '63', '65', '67', '69', '71', '73', '77'].some(c => ceMacro[c] != null)
@@ -487,4 +483,18 @@ export function toSupabaseRecords(parsed: BilancioParsed, companyId: string, yea
 export function annoFinePeriodo(period: string | null | undefined): number | null {
   const m = /\bAL\s+\d{1,2}\/\d{1,2}\/(\d{4})/i.exec(period || '')
   return m ? Number(m[1]) : null
+}
+
+/**
+ * Valore della produzione (A): i mastri 5x dei ricavi (51 vendite, 59 altri
+ * ricavi e proventi). Il TOTALE della stampa e' «a pareggio» e comprende la
+ * perdita: senza mastri 5x si usa quello, tolta l'eventuale perdita.
+ * Usato dall'import (toSupabaseRecords) e dal caricamento in Conto Economico.
+ */
+export function valoreDellaProduzione(parsed: BilancioParsed): number {
+  const t = parsed.contoEconomico.totals
+  const macro = parsed.contoEconomico.ricavi.filter(r => r.isMacro && /^5\d$/.test(r.code))
+  if (macro.length) return Math.round(macro.reduce((a, r) => a + r.amount, 0) * 100) / 100
+  const perdita = Math.max(0, -(t.risultato || 0))
+  return Math.round(((t.ricavi || 0) - perdita) * 100) / 100
 }
