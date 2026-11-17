@@ -15,6 +15,7 @@ import { AlertCircle, ArrowLeft, ChevronDown, Edit2, Eye, Percent, Plus, Refresh
 import type { Row } from '../types/business';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import { useCompanyLabels } from '../hooks/useCompanyLabels';
 import { useToast } from '../components/Toast';
 import { Modal, ConfirmModal } from '../components/ui/Modal';
 import AccordiOrario from '../components/AccordiOrario';
@@ -458,6 +459,7 @@ function ContrattoLettura({ emp, outletName }: { emp: Employee; outletName: stri
 function ModuloAnagraficaInline({ emp, tutti, outlets, onAnnulla, onSalvato }: {
   emp: Employee; tutti: Employee[]; outlets: OutletRow[]; onAnnulla: () => void; onSalvato: () => Promise<void>;
 }) {
+  const labels = useCompanyLabels();
   const { toast } = useToast();
   const [form, setForm] = useState<ModuloAnagrafica>(() => moduloDa(emp as unknown as Record<string, unknown>));
   const [salvo, setSalvo] = useState(false);
@@ -487,7 +489,7 @@ function ModuloAnagraficaInline({ emp, tutti, outlets, onAnnulla, onSalvato }: {
       const e = err as { code?: string; message?: string };
       toast({ type: 'error', message: e?.code === '23505' && /matricola/i.test(e?.message || '')
         ? `La matricola ${matricola} è già usata da un'altra persona di questa azienda: correggila prima di salvare.`
-        : 'Errore nel salvataggio: ' + readableDbError(err) });
+        : 'Errore nel salvataggio: ' + readableDbError(err, labels) });
     } finally { setSalvo(false); }
   };
 

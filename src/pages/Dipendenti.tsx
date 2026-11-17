@@ -2490,8 +2490,8 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       }
       await onDone();
     } catch (err: any) {
-      toast({ type: 'error', message: 'Errore import: ' + readableDbError(err) });
-      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Salvataggio non riuscito: ' + readableDbError(err) });
+      toast({ type: 'error', message: 'Errore import: ' + readableDbError(err, labels) });
+      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Salvataggio non riuscito: ' + readableDbError(err, labels) });
     } finally {
       setImporting(false);
     }
@@ -2510,7 +2510,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         .eq('company_id', companyId).eq('year', impYear).eq('month', impMonth).eq('tipo', tipoCedolino).neq('netto', 0);
       const mese = `${MONTHS.find((m) => m.num === impMonth)?.label ?? impMonth} ${impYear}`;
       if (error) {
-        segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Non riesco a controllare i dati già presenti: ' + readableDbError(error) });
+        segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Non riesco a controllare i dati già presenti: ' + readableDbError(error, labels) });
         return;
       }
       const count = (gia || []).length;
@@ -3037,7 +3037,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
       await load();
     } catch (e: any) {
       console.error(e);
-      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e)}` });
+      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e, labels)}` });
     } finally { setImporting(false); }
   };
 
@@ -3328,7 +3328,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
           const [y, m] = c.split('-').map(Number);
           const { data: esistenti, error } = await sb.from('personnel_gross_cost').select('filiale_code, totale_retribuzioni')
             .eq('company_id', companyId).eq('year', y).eq('month', m);
-          if (error) { errore('Non riesco a controllare i dati già presenti: ' + readableDbError(error)); return; }
+          if (error) { errore('Non riesco a controllare i dati già presenti: ' + readableDbError(error, labels)); return; }
           const es = (esistenti || []) as { filiale_code: string | null; totale_retribuzioni: number | null }[];
           gia += es.length;
           if (es.length === 0) continue;
@@ -3467,8 +3467,8 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
       await load();
     } catch (e: any) {
       console.error(e);
-      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e)}` });
-      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: `Salvataggio non riuscito: ${readableDbError(e)}` });
+      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e, labels)}` });
+      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: `Salvataggio non riuscito: ${readableDbError(e, labels)}` });
     } finally {
       setImporting(false);
     }
