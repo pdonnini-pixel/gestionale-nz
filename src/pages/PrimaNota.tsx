@@ -46,6 +46,8 @@
 // Scadenzario pagate con quella riga. Logica in src/lib/cartaEstratto.ts
 // (testata sui documenti veri).
 
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { adattaTermini } from '../lib/terminiPdv'
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { Download, FileSpreadsheet, Calendar, Filter, RefreshCw, Loader2, Landmark, Receipt, Store, Scale, Users, CreditCard, Upload, Paperclip } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -206,6 +208,11 @@ const chunk = <T,>(xs: T[], size = 200): T[][] => {
 }
 
 export default function PrimaNota() {
+  const labels = useCompanyLabels()
+  // Le intestazioni «Outlet» delle righe (chiavi degli oggetti) si mostrano con la parola del tenant.
+  const intest = (h: string): string => (h === 'Outlet' ? labels.pointOfSale : h)
+  // Excel accetta nomi di foglio fino a 31 caratteri: un'etichetta lunga non deve bloccare l'export.
+  const foglioIncassi = `Incassi per ${labels.pointOfSaleLower}`.slice(0, 31)
   const { company } = useCompany()
   const today = new Date()
   const [year, setYear] = useState<number>(today.getFullYear())
@@ -1079,7 +1086,7 @@ export default function PrimaNota() {
     if (src.length === 0) return
     const headers = Object.keys(src[0])
     const csvRows = [
-      headers.join(';'),
+      headers.map(intest).join(';'),
       ...src.map(r => headers.map(h => {
         const v = (r as Record<string, unknown>)[h]
         const s = typeof v === 'number' ? v.toFixed(2).replace('.', ',') : String(v ?? '')
@@ -1090,7 +1097,7 @@ export default function PrimaNota() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = nomeFile(view === 'banca' ? 'Prima nota' : view === 'pagamenti' ? 'Pagamenti fornitori' : view === 'incassi' ? 'Incassi per outlet' : view === 'dipendenti' ? 'Dipendenti ed emolumenti' : 'Carte', 'csv')
+    a.download = nomeFile(view === 'banca' ? 'Prima nota' : view === 'pagamenti' ? 'Pagamenti fornitori' : view === 'incassi' ? foglioIncassi : view === 'dipendenti' ? 'Dipendenti ed emolumenti' : 'Carte', 'csv')
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -1106,11 +1113,14 @@ export default function PrimaNota() {
       import('exceljs'), import('../lib/xlsxStyled'), import('../lib/primaNotaGuida'),
     ])
     const wb = new Workbook()
+    // Intestazione «Outlet» delle tabelle con la parola del tenant (su NZ resta «Outlet»).
+    const conIntest = <R extends { kind: string; cells: unknown[] }>(righe: R[]): R[] =>
+      righe.map(r => (r.kind === 'header' ? { ...r, cells: r.cells.map(c => (typeof c === 'string' ? intest(c) : c)) } : r))
     const periodoLabel = month ? `${MONTHS.find(m => m.v === month)?.l} ${year}` : `Anno ${year}`
     const dataUsata = dateBasis === 'contabile' ? 'data contabile (banca)' : 'data operazione'
     // Il foglio Guida è il primo del file: si costruisce alla fine (deve sapere
     // i nomi degli altri fogli) e si inserisce in testa.
-    const used = new Set<string>(['Guida', 'Incassi per outlet', 'Codici negozi', 'Dipendenti ed emolumenti'])
+    const used = new Set<string>(['Guida', foglioIncassi, 'Codici negozi', 'Dipendenti ed emolumenti'])
     const nomiConti: string[] = []
     const contoSheetByAcc = new Map<string, string>()
     // I nomi dei fogli carta si riservano subito: il foglio del conto rimanda
@@ -1184,9 +1194,9 @@ export default function PrimaNota() {
     // viste restano a video e nel CSV. Gli importi sono in formato euro.
     // Foglio Incassi per outlet: una riga per entrata, con outlet, canale e come è stato attribuito
     addStyledSheet(wb, {
-      name: 'Incassi per outlet', tabColor: '548235',
+      name: foglioIncassi, tabColor: '548235',
       rows: [
-        { kind: 'title', cells: ['Incassi per outlet'] },
+        { kind: 'title', cells: [foglioIncassi] },
         { kind: 'meta', cells: ['Periodo', periodoLabel] },
         // Le righe sono raggruppate per conto, come i fogli degli estratti: la
         // prima riga e' il primo incasso del PRIMO CONTO, non del mese (il
@@ -1194,7 +1204,7 @@ export default function PrimaNota() {
         // cominciano piu' tardi). Detto qui per non farlo scoprire a chi legge.
         { kind: 'meta', cells: ['Ordine', 'per conto, e dentro ogni conto per data: la prima riga non e\u0027 il primo giorno del mese, ma il primo incasso di quel conto'] },
         { kind: 'blank', cells: [] },
-        ...(incassiRows.length > 0 ? tableRows(incassiRows, r => (r.Outlet ? 'data' : 'warn')) : [{ kind: 'text' as const, cells: ['Nessun incasso nel periodo'] }]),
+        ...(incassiRows.length > 0 ? conIntest(tableRows(incassiRows, r => (r.Outlet ? 'data' : 'warn'))) : [{ kind: 'text' as const, cells: ['Nessun incasso nel periodo'] }]),
       ],
       widths: INCASSI_COLUMN_WIDTHS, moneyHeaders: ['Importo'],
     })
@@ -1211,7 +1221,7 @@ export default function PrimaNota() {
       { kind: 'meta', cells: ['Periodo', periodoLabel] },
       { kind: 'meta', cells: ['Come si usa', 'Prendi «Addebito in banca», cercalo nel foglio del conto indicato in «Conto Banca» (colonna Uscite): quel movimento è la distinta di tutti i dipendenti con lo stesso ID flusso.'] },
       { kind: 'blank', cells: [] },
-      ...(stipendiRows.length > 0 ? tableRows(stipendiRows, r => (r['Pagato il'] ? 'data' : 'warn')) : [{ kind: 'text' as const, cells: ['Nessuna busta paga né disposizione per emolumenti nel periodo'] }]),
+      ...(stipendiRows.length > 0 ? conIntest(tableRows(stipendiRows, r => (r['Pagato il'] ? 'data' : 'warn'))) : [{ kind: 'text' as const, cells: ['Nessuna busta paga né disposizione per emolumenti nel periodo'] }]),
     ]
     if (stipendi.flussi_non_abbinati.length > 0) {
       dipRows.push(
@@ -1297,7 +1307,11 @@ export default function PrimaNota() {
       addStyledSheet(wb, { name, rows: drows, widths: [30, 16, 50, 12, 11, 7, 30, 18, 30, 12, 34], moneyHeaders: ['Importo', 'Commissioni'], tabColor: 'ED7D31' })
     })
     // Foglio Guida in testa: cosa c'è in ogni foglio e come si cerca
-    addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, carteDebito: nomiCarteDebito, flussiSenzaBuste: stipendi.flussi_non_abbinati.length }), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
+    addStyledSheet(wb, { name: 'Guida', rows: buildGuidaRows({ periodo: periodoLabel, dataUsata, conti: nomiConti, carte: nomiCarte, carteDebito: nomiCarteDebito, flussiSenzaBuste: stipendi.flussi_non_abbinati.length })
+      // Le righe con i nomi veri di conti e carte non si adattano: un nome con «outlet» resta com'è.
+      .map(r => (['Fogli per conto', 'Fogli per carta', 'Fogli per carta di debito'].includes(String(r.cells[0]))
+        ? r
+        : { ...r, cells: r.cells.map(c => (typeof c === 'string' ? adattaTermini(c, labels) : c)) })), widths: GUIDA_WIDTHS, filter: false, tabColor: 'BF9000', first: true })
     // Il file si scrive UNA volta e lo stesso blob va a chi l'ha chiesto e in
     // archivio: scrivendolo due volte le due copie differirebbero al byte
     // (ExcelJS ci mette dentro l'ora), e in archivio resterebbe una copia che
@@ -1619,7 +1633,7 @@ export default function PrimaNota() {
         </button>
         <button role="tab" aria-selected={view === 'incassi'} onClick={() => setView('incassi')}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'incassi' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
-          <Store size={14} /> Incassi per outlet <span className="text-xs opacity-70">{incassi.length}</span>
+          <Store size={14} /> {foglioIncassi} <span className="text-xs opacity-70">{incassi.length}</span>
         </button>
         <button role="tab" aria-selected={view === 'dipendenti'} onClick={() => setView('dipendenti')}
           className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium ${view === 'dipendenti' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>
@@ -1774,13 +1788,13 @@ export default function PrimaNota() {
             <span>Versamenti in banca <strong className="tabular-nums text-emerald-700">{fmt(quadContante.versamenti_banca)}</strong> ({quadContante.n_versamenti_banca})</span>
             <span>Prelievi dalla banca <strong className="tabular-nums text-red-700">{fmt(quadContante.prelievi_banca)}</strong> ({quadContante.n_prelievi_banca})</span>
             {quadContante.cassa ? (<>
-              <span>Chiusure di cassa <strong>{quadContante.cassa.n_chiusure}</strong> su {quadContante.cassa.outlets} outlet ({fmtDate(quadContante.cassa.dal)} → {fmtDate(quadContante.cassa.al)})</span>
+              <span>Chiusure di cassa <strong>{quadContante.cassa.n_chiusure}</strong> su {quadContante.cassa.outlets} {quadContante.cassa.outlets === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower} ({fmtDate(quadContante.cassa.dal)} → {fmtDate(quadContante.cassa.al)})</span>
               <span>Contanti incassati <strong className="tabular-nums">{fmt(quadContante.cassa.contanti_incassati)}</strong></span>
               <span>Spese di cassa <strong className="tabular-nums">{fmt(quadContante.cassa.spese)}</strong>{quadContante.cassa.rimborsi > 0 && <> · rimborsi <strong className="tabular-nums">{fmt(quadContante.cassa.rimborsi)}</strong></>}</span>
               <span>Versamenti dichiarati <strong className="tabular-nums">{fmt(quadContante.cassa.versamenti_dichiarati)}</strong> ({quadContante.cassa.n_versamenti_dichiarati}), ritrovati in banca <strong className="tabular-nums">{fmt(quadContante.cassa.versamenti_trovati_in_banca)}</strong> ({quadContante.cassa.n_versamenti_trovati})</span>
               <span>Fondo + da versare: inizio <strong className="tabular-nums">{quadContante.cassa.fondo_iniziale != null ? fmt(quadContante.cassa.fondo_iniziale) : 'n.d.'}</strong>, fine contato <strong className="tabular-nums">{quadContante.cassa.fondo_finale != null ? fmt(quadContante.cassa.fondo_finale) : 'n.d.'}</strong>, fine calcolato <strong className="tabular-nums">{quadContante.cassa.fondo_finale_calcolato != null ? fmt(quadContante.cassa.fondo_finale_calcolato) : 'n.d.'}</strong>
                 {quadContante.cassa.differenza != null && <> · differenza <strong className={`tabular-nums ${Math.abs(quadContante.cassa.differenza) < 0.005 ? 'text-emerald-700' : 'text-red-700'}`}>{fmt(quadContante.cassa.differenza)}</strong></>}
-                {quadContante.cassa.fondo_iniziale == null && <span className="text-slate-400"> (il primo giorno di almeno un outlet parte senza fondo noto: la quadratura cassa comincia dal periodo successivo)</span>}
+                {quadContante.cassa.fondo_iniziale == null && <span className="text-slate-400"> (il primo giorno di almeno {labels.art.un} parte senza fondo noto: la quadratura cassa comincia dal periodo successivo)</span>}
               </span>
             </>) : (
               <span className="text-slate-400">Nessuna chiusura di cassa nel periodo: il contante si legge solo dal lato banca (le chiusure partono dal 01/09/2026).</span>
@@ -1831,9 +1845,9 @@ export default function PrimaNota() {
         <KpiBox label="Incassi in banca" value={`€ ${fmt(incassiTot.totale)}`} color="emerald" hint={`${incassi.length} movimenti in entrata`} />
         <KpiBox label="POS e Amex" value={`€ ${fmt(incassiTot.pos + incassiTot.amex)}`} color="emerald" />
         <KpiBox label="Versamenti contanti" value={`€ ${fmt(incassiTot.versamenti)}`} color="slate" />
-        <KpiBox label="Altri incassi" value={`€ ${fmt(incassiTot.altro)}`} color="slate" hint="Bonifici di clienti, rimborsi: senza outlet" />
+        <KpiBox label="Altri incassi" value={`€ ${fmt(incassiTot.altro)}`} color="slate" hint={`Bonifici di clienti, rimborsi: senza ${labels.pointOfSaleLower}`} />
         <KpiBox label="Da attribuire" value={incassiTot.daAttribuire.toString()} color={incassiTot.daAttribuire > 0 ? 'orange' : 'slate'}
-          hint={incassiTot.daAttribuire > 0 ? 'Clicca per vedere le entrate senza outlet: POS con terminale non censito o versamenti senza parola chiave si sistemano in Incassi giornalieri → Canali' : 'Ogni entrata ha il suo outlet'}
+          hint={incassiTot.daAttribuire > 0 ? `Clicca per vedere le entrate senza ${labels.pointOfSaleLower}: POS con terminale non censito o versamenti senza parola chiave si sistemano in Incassi giornalieri → Canali` : `Ogni entrata ha il suo ${labels.pointOfSaleLower}`}
           active={outletFilter === SENZA_OUTLET} onClick={incassiTot.daAttribuire > 0 ? () => toggleOutlet(SENZA_OUTLET) : undefined} />
       </div>
       {/* Riepilogo per outlet (solo a video) */}
@@ -1843,7 +1857,7 @@ export default function PrimaNota() {
             <table className="w-full text-xs">
               <thead className="bg-slate-50 uppercase text-slate-600">
                 <tr>
-                  <th className="px-3 py-2 text-left">Outlet</th>
+                  <th className="px-3 py-2 text-left">{labels.pointOfSale}</th>
                   <th className="px-3 py-2 text-right">Mov.</th>
                   <th className="px-3 py-2 text-right">POS</th>
                   <th className="px-3 py-2 text-right">Amex</th>
@@ -1882,7 +1896,7 @@ export default function PrimaNota() {
         <div className="flex items-center justify-between gap-3 bg-orange-50 border border-orange-200 rounded-lg px-3 py-2 mb-4 text-sm text-orange-900">
           <span>
             Filtro attivo: <strong>{outletFilter === SENZA_OUTLET ? 'Da attribuire' : outletLabel(outletFilter, incassiLk)}</strong> · {incassiShown.length} entrate su {incassi.length}.
-            {outletFilter === SENZA_OUTLET && ' Un accredito POS senza outlet ha un codice terminale non censito nei canali dell\'outlet; un versamento senza outlet non contiene la parola chiave del canale Contanti. Si sistemano in Incassi giornalieri → Canali. Un bonifico di cliente prende l\'outlet dalla riga «Bonifico» della chiusura di cassa: se manca, il negozio non l\'ha registrato nella chiusura.'}
+            {outletFilter === SENZA_OUTLET && adattaTermini(' Un accredito POS senza outlet ha un codice terminale non censito nei canali dell\'outlet; un versamento senza outlet non contiene la parola chiave del canale Contanti. Si sistemano in Incassi giornalieri → Canali. Un bonifico di cliente prende l\'outlet dalla riga «Bonifico» della chiusura di cassa: se manca, il negozio non l\'ha registrato nella chiusura.', labels)}
             {' '}Gli export restano completi.
           </span>
           <button type="button" onClick={() => setOutletFilter(null)} className="shrink-0 px-2 py-1 rounded bg-white border border-orange-200 hover:bg-orange-100 text-xs font-medium">Togli filtro</button>
@@ -2052,7 +2066,7 @@ export default function PrimaNota() {
               <tr>
                 <th className="px-3 py-2 text-left">Data</th>
                 <th className="px-3 py-2 text-left">Conto Banca</th>
-                <th className="px-3 py-2 text-left">Outlet</th>
+                <th className="px-3 py-2 text-left">{labels.pointOfSale}</th>
                 <th className="px-3 py-2 text-center">Tipo</th>
                 <th className="px-3 py-2 text-right">Importo</th>
                 <th className="px-3 py-2 text-left">Attribuzione</th>
@@ -2333,7 +2347,7 @@ export default function PrimaNota() {
             <thead className="bg-slate-50 text-xs uppercase text-slate-600 sticky top-0 z-10 shadow-sm">
               <tr>
                 <th className="px-3 py-2 text-left">Dipendente</th>
-                <th className="px-3 py-2 text-left">Outlet</th>
+                <th className="px-3 py-2 text-left">{labels.pointOfSale}</th>
                 <th className="px-3 py-2 text-left">Competenza</th>
                 <th className="px-3 py-2 text-right">Netto</th>
                 <th className="px-3 py-2 text-left">Pagato il</th>
