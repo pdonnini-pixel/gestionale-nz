@@ -166,6 +166,10 @@ export default function OpenBankingAcube({ onSynced }: { onSynced?: () => void }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Errore avvio collegamento'
       toast({ type: 'error', message: msg })
+      // Il registro può essere stato creato anche se la pagina di consenso è
+      // fallita (banca già autorizzata sul sito A-Cube): ricarica, così compare
+      // «Importa conti già collegati» senza ricaricare la pagina.
+      await loadData()
     }
   }
 
@@ -293,6 +297,19 @@ export default function OpenBankingAcube({ onSynced }: { onSynced?: () => void }
                 Ho completato il consenso — Importa conti
               </button>
             </>
+          )}
+          {/* Banca già autorizzata sul sito A-Cube (fuori dal gestionale): il
+              registro c'è ma nessun conto è ancora importato. Serve solo
+              leggere i conti, senza aprire un nuovo consenso. */}
+          {br && accounts.length === 0 && !pendingConnectUrl && (
+            <button
+              onClick={handleSyncAccounts}
+              disabled={acube.loading}
+              className="text-xs font-medium px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 disabled:opacity-50"
+            >
+              {acube.loading ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+              Importa conti già collegati
+            </button>
           )}
           {br && accounts.length > 0 && (
             <button
