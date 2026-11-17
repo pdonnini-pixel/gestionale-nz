@@ -67,11 +67,18 @@ export function Modal({
   const previouslyFocused = useRef<HTMLElement | null>(null)
   const titleId = useRef(`modal-title-${Math.random().toString(36).slice(2)}`)
 
+  // onClose arriva quasi sempre come funzione scritta al volo, quindi cambia a
+  // ogni render: se entrasse nelle dipendenze dell'effetto qui sotto, ogni
+  // lettera digitata riaprirebbe la modale e riporterebbe il cursore sul primo
+  // campo. La teniamo in un ref, così l'effetto riparte solo quando cambia `open`.
+  const onCloseRef = useRef(onClose)
+  useEffect(() => { onCloseRef.current = onClose }, [onClose])
+
   // Escape + focus trap
   const onKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.stopPropagation()
-      onClose()
+      onCloseRef.current()
       return
     }
     if (e.key === 'Tab' && panelRef.current) {
@@ -87,7 +94,7 @@ export function Modal({
         e.preventDefault(); first.focus()
       }
     }
-  }, [onClose])
+  }, [])
 
   useEffect(() => {
     if (!open) return
