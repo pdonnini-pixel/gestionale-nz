@@ -25,6 +25,7 @@ import { useMemo, useState } from 'react'
 import { X, FileSpreadsheet, FileText, Download } from 'lucide-react'
 import { Modal } from './ui/Modal'
 import { useToast } from './Toast'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import {
   buildSheets,
   buildMonthlySheets,
@@ -80,6 +81,7 @@ export default function ExportBilancioDialog({
   coaCosti, coaRicavi, year, tenantName, tenantCode, userEmail,
 }: Props) {
   const { toast } = useToast()
+  const labels = useCompanyLabels()
   const [periodType, setPeriodType] = useState<PeriodType>('annuale')
   const [singleMonth, setSingleMonth] = useState(new Date().getMonth() + 1)
   const [trimestre, setTrimestre] = useState<1 | 2 | 3 | 4>(1)
@@ -137,7 +139,7 @@ export default function ExportBilancioDialog({
   const sheetCount = viewType === 'mensile' ? monthlySheets.length : sheets.length
 
   const outletLabel = (code: string): string => {
-    if (code === '__all__') return 'Tutti (Totale azienda + outlet + Sede)'
+    if (code === '__all__') return `Tutti (Totale azienda + ${labels.pointOfSalePluralLower} + Sede)`
     const found = operativeOutlets.find((o) => o.code === code)
     if (found) return found.label || found.name || code
     if (hq && hq.code === code) return hq.label || hq.name || code
@@ -376,7 +378,7 @@ export default function ExportBilancioDialog({
             </div>
             <div>
               <h2 className="text-lg font-bold text-slate-900">Esporta bilancio previsionale</h2>
-              <p className="text-sm text-slate-500">Vista gerarchica previsionale (macro + sottoconti esplosi) per outlet e Totale azienda</p>
+              <p className="text-sm text-slate-500">Vista gerarchica previsionale (macro + sottoconti esplosi) per {labels.pointOfSaleLower} e Totale azienda</p>
             </div>
           </div>
           <button onClick={onClose} title="Chiudi" className="p-2 hover:bg-slate-100 rounded-lg">
@@ -497,7 +499,7 @@ export default function ExportBilancioDialog({
             <label className="block text-sm font-semibold text-slate-700 mb-2">Scheda</label>
             <select value={outletFilter} onChange={(e) => setOutletFilter(e.target.value)}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
-              <option value="__all__">Tutti (Totale azienda + outlet + Sede)</option>
+              <option value="__all__">{`Tutti (Totale azienda + ${labels.pointOfSalePluralLower} + Sede)`}</option>
               {operativeOutlets.map((o) => (
                 <option key={o.code} value={o.code}>{o.label || o.name || o.code}</option>
               ))}

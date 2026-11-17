@@ -506,11 +506,11 @@ export default function Produttivita() {
     recs.push({
       outlet: kpi.best_produttivita.nome,
       tipo: 'mantenere',
-      impact: 'Outlet con migliore produttività per ora: mantenere struttura attuale'
+      impact: `${labels.pointOfSale} con migliore produttività per ora: mantenere struttura attuale`
     });
 
     return recs.slice(0, 4);
-  }, [metriche, kpi]);
+  }, [metriche, kpi, labels]);
 
   if (loading) {
     return (
@@ -625,7 +625,7 @@ export default function Produttivita() {
                 <TrendingUp className="w-4 h-4 text-blue-600" />
               </div>
               <div className="text-2xl font-bold text-slate-900">{fmt(kpi.avg_ricavo_ora, 2)}&euro;</div>
-              <div className="text-xs text-slate-500 mt-2">Tutti gli {labels.pointOfSalePluralLower}</div>
+              <div className="text-xs text-slate-500 mt-2">Tutti {labels.art.i}</div>
             </div>
 
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm">
@@ -643,7 +643,7 @@ export default function Produttivita() {
         <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm mb-8">
           <h2 className="text-lg font-semibold text-slate-900 mb-4 flex items-center gap-2">
             <Award className="w-5 h-5 text-amber-500" />
-            Classifica Produttività per Outlet
+            Classifica Produttività per {labels.pointOfSale}
           </h2>
           <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">

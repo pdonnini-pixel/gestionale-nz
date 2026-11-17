@@ -655,7 +655,7 @@ export default function ScenarioPlanning() {
                             +{fmt(baseline.avgRicaviOutlet)} ricavi / +{fmt(costiNuovoOutlet)} costi
                           </td>
                           <td className="px-4 py-3 text-right text-blue-700">
-                            Utile outlet: {fmt(baseline.avgRicaviOutlet - costiNuovoOutlet)} &euro;
+                            Utile {labels.pointOfSaleLower}: {fmt(baseline.avgRicaviOutlet - costiNuovoOutlet)} &euro;
                           </td>
                         </tr>
                       )}

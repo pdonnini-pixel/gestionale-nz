@@ -261,7 +261,7 @@ export default function StockSellthrough() {
             <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun dato di stock disponibile</h2>
             <p className="text-sm text-slate-500 max-w-md mx-auto">
               I dati di sell-through verranno popolati automaticamente quando saranno disponibili.
-              Per gestire l'elenco dei {labels.pointOfSalePluralLower} vai su Impostazioni.
+              Per gestire l'elenco {labels.art.dei} vai su Impostazioni.
             </p>
           </div>
         </div>
@@ -280,7 +280,7 @@ export default function StockSellthrough() {
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span className="mt-0.5 font-semibold whitespace-nowrap">Dati simulati (demo)</span>
           <span className="text-amber-700">
-            Le giacenze e i sell-through mostrati sono generati come demo sugli {labels.pointOfSalePluralLower}
+            Le giacenze e i sell-through mostrati sono generati come demo {`su${labels.art.i}`}
             del tenant: la pagina non è ancora collegata al magazzino reale.
           </span>
         </div>

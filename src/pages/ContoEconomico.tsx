@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, Suspense } from 'reac
 import { useSearchParams } from 'react-router-dom'
 import PageHeader from '../components/PageHeader'
 import { useToast } from '../components/Toast'
-import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useCompanyLabels, labelsDa, type CompanyLabels } from '../hooks/useCompanyLabels'
 
 // Tipologia periodo ContoEconomico — persistita in URL come ?periodo=
 type ContoPeriod = 'annuale' | 'trimestrale' | 'mensile' | 'provvisorio'
@@ -271,7 +271,7 @@ const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 const TREND_COLORS = { ricavi: '#3b82f6', ebitda: '#10b981', personale: '#f59e0b', utile: '#8b5cf6' }
 
 // ===== ANALYSIS ENGINE =====
-function analyzeStrengthsWeaknesses(ce: Record<string, number | null | undefined>, ricavi: number) {
+function analyzeStrengthsWeaknesses(ce: Record<string, number | null | undefined>, ricavi: number, labels: CompanyLabels = labelsDa('Outlet')) {
   if (!ricavi || ricavi === 0) return { strengths: [], weaknesses: [], recommendations: [] }
 
   const strengths = []
@@ -300,7 +300,7 @@ function analyzeStrengthsWeaknesses(ce: Record<string, number | null | undefined
     strengths.push({ text: `Costo personale contenuto (${personaleOnRicavi.toFixed(1)}%)`, detail: 'Efficienza operativa elevata' })
   } else if (personaleOnRicavi > 30) {
     weaknesses.push({ text: `Incidenza personale elevata (${personaleOnRicavi.toFixed(1)}%)`, detail: 'Superiore alla soglia critica del 30%' })
-    recommendations.push('Ottimizzare i turni e valutare produttività per addetto/outlet')
+    recommendations.push(`Ottimizzare i turni e valutare produttività per addetto/${labels.pointOfSaleLower}`)
   } else if (personaleOnRicavi > 25) {
     weaknesses.push({ text: `Incidenza personale da monitorare (${personaleOnRicavi.toFixed(1)}%)`, detail: 'Vicina alla soglia del 25-30%' })
     recommendations.push('Monitorare produttività e valutare eventuali riorganizzazioni')
@@ -1796,7 +1796,7 @@ export default function ContoEconomico() {
   const affitiOnRicavi = ricavi25 > 0 ? (ce25.godimento_beni_terzi || 0) / ricavi25 * 100 : 0
 
   // Feature 1: Analysis
-  const analysis = useMemo(() => analyzeStrengthsWeaknesses(ce25, ricavi25), [ce25, ricavi25])
+  const analysis = useMemo(() => analyzeStrengthsWeaknesses(ce25, ricavi25, labels), [ce25, ricavi25, labels])
 
   const costiPieData = [
     { name: 'Merci e materie prime', value: ce25.materie_prime || 0 },
@@ -2259,11 +2259,11 @@ export default function ContoEconomico() {
                 </div>
                 <div className="p-5 space-y-3">
                   <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-slate-600">Ricavi totali (tutti gli {labels.pointOfSalePluralLower})</span>
+                    <span className="text-sm text-slate-600">Ricavi totali (tutti {labels.art.i})</span>
                     <span className="text-sm font-semibold text-emerald-600 tabular-nums">+ {fmt(riconData.ricavi)} €</span>
                   </div>
                   <div className="flex justify-between items-center py-2">
-                    <span className="text-sm text-slate-600">Costi totali (tutti gli {labels.pointOfSalePluralLower})</span>
+                    <span className="text-sm text-slate-600">Costi totali (tutti {labels.art.i})</span>
                     <span className="text-sm font-semibold text-red-600 tabular-nums">- {fmt(Math.abs(riconData.costiOutlet))} €</span>
                   </div>
                   <div className="flex justify-between items-center py-2">
@@ -2491,7 +2491,7 @@ export default function ContoEconomico() {
                 ))}
               </ul>
               <p className="text-xs text-amber-700 mt-2">
-                <strong>Suggerimento:</strong> i valori in <strong>Budget e Controllo</strong> sono i dati operativi inseriti per outlet.
+                <strong>Suggerimento:</strong> i valori in <strong>Budget e Controllo</strong> sono i dati operativi inseriti per {labels.pointOfSaleLower}.
                 Quelli del <strong>bilancio importato</strong> arrivano dall'import del CE civilistico (CCIAA o commercialista).
                 Allineare le due fonti spesso significa reimportare un bilancio corretto.
               </p>
@@ -2594,7 +2594,7 @@ export default function ContoEconomico() {
             )}
             <div className="text-xs text-slate-500">
               <Info size={12} className="inline mr-1" />
-              Preventivo e consuntivo provengono da <strong>Budget &amp; Controllo</strong>, inseriti per outlet.
+              Preventivo e consuntivo provengono da <strong>Budget &amp; Controllo</strong>, inseriti per {labels.pointOfSaleLower}.
               Il consuntivo è quello compilato nel tab <strong>«Preventivo vs Consuntivo»</strong> (granitico per i
               mesi chiusi); dove non è ancora inserito, viene mostrato il preventivo.
               Le fatture e lo scadenzario non sono la fonte del consuntivo.
