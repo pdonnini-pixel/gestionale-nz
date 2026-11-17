@@ -222,12 +222,13 @@ export default function IncassiGiornalieri() {
       const net = o.cost_center_key ? budgetNet.get(o.cost_center_key) : undefined
       if (net == null || net <= 0) return []
       const mine = closings.filter((c) => c.outlet_id === o.id && c.status !== 'bozza')
-      const mtd = mine.filter((c) => !c.is_closed_day).reduce((s, c) => s + Number(c.total_receipts), 0)
+      const daRegistro = days.reduce((s, d) => s + (closingAt.has(`${o.id}|${d}`) ? 0 : registro.get(`${o.id}|${d}`) ?? 0), 0)
+      const mtd = mine.filter((c) => !c.is_closed_day).reduce((s, c) => s + Number(c.total_receipts), 0) + daRegistro
       const todayDone = mine.some((c) => c.closing_date === today)
       const elapsed = isPast ? days.length : isCurrent ? Math.max(0, td - 1) + (todayDone ? 1 : 0) : 0
       return [{ outlet: o, t: budgetTargets({ monthNet: net, vatRate, daysInMonth: days.length, dayOfMonth: elapsed, mtd, dayTargets: dayTargets.get(o.id) }) }]
     })
-  }, [visibleOutlets, budgetNet, closings, vatRate, days.length, ym, today, dayTargets])
+  }, [visibleOutlets, budgetNet, closings, closingAt, registro, days, vatRate, ym, today, dayTargets])
 
   const attCount = useMemo(() => {
     const map = new Map<string, { n: number; mismatch: boolean }>()
@@ -314,7 +315,7 @@ export default function IncassiGiornalieri() {
           ) : (
             <OutletSheet
               days={days} outletId={outletFilter} channels={channels.filter((c) => c.outlet_id === outletFilter && c.is_active)}
-              closingAt={closingAt} linesByClosing={linesByClosing} lineBankByClosing={lineBankByClosing} attCount={attCount} statusCls={statusCls}
+              closingAt={closingAt} registroAt={registro} linesByClosing={linesByClosing} lineBankByClosing={lineBankByClosing} attCount={attCount} statusCls={statusCls}
               onOpen={(d) => setDetail({ outletId: outletFilter, date: d })}
             />
           )}
@@ -507,9 +508,10 @@ function MatrixView({ days, outlets, closingAt, registroAt, statusCls, onOpen }:
 }
 
 // ─── Vista di un outlet come il foglio Excel ───────────────────────────
-function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, lineBankByClosing, attCount, statusCls, onOpen }: {
+function OutletSheet({ days, outletId, channels, closingAt, registroAt, linesByClosing, lineBankByClosing, attCount, statusCls, onOpen }: {
   days: string[]
   outletId: string
+  registroAt: Map<string, number>
   channels: PaymentChannel[]
   closingAt: Map<string, ClosingRow>
   linesByClosing: Map<string, Map<string, number>>
@@ -543,10 +545,11 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, line
           {days.map((d) => {
             const c = closingAt.get(`${outletId}|${d}`)
             const lm = c ? linesByClosing.get(c.id) : undefined
+            const reg = c ? undefined : registroAt.get(`${outletId}|${d}`)
             return (
-              <tr key={d} className={`border-t border-slate-100 cursor-pointer hover:bg-blue-50/40 ${statusCls(c, d)}`} onClick={() => onOpen(d)}>
+              <tr key={d} className={`border-t border-slate-100 cursor-pointer hover:bg-blue-50/40 ${reg != null ? 'bg-sky-50 text-sky-800' : statusCls(c, d)}`} onClick={() => onOpen(d)}>
                 <td className="px-2 py-1.5 sticky left-0 bg-inherit whitespace-nowrap">{formatDateIt(d, true).replace(/ \d{4}$/, '')}</td>
-                <td className="px-2 py-1.5 text-right tabular-nums">{c ? (c.is_closed_day ? 'chiuso' : num(c.total_receipts)) : d <= today ? '—' : ''}</td>
+                <td className="px-2 py-1.5 text-right tabular-nums">{c ? (c.is_closed_day ? 'chiuso' : num(c.total_receipts)) : reg != null ? num(reg) : d <= today ? '—' : ''}</td>
                 {channels.map((ch) => {
                   const b = c && (ch.kind === 'pos' || ch.kind === 'pos_amex') ? lineBankByClosing.get(c.id)?.get(ch.id) : undefined
                   const bm = bankStatusMark(b?.status)
@@ -566,7 +569,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, line
                 <td className="px-2 py-1.5 text-right tabular-nums">{c ? num(c.cash_float_declared) : ''}</td>
                 <td className={`px-2 py-1.5 text-right tabular-nums ${c && Number(c.cash_difference) !== 0 ? 'text-red-700' : ''}`}>{c ? num(c.cash_difference) : ''}</td>
                 <td className="px-2 py-1.5 text-center">{c ? <>{attCount.get(c.id)?.n ?? 0}{attCount.get(c.id)?.mismatch && <span className="ml-1 text-amber-700 font-semibold" title="Una foto letta automaticamente non coincide con quanto scritto: apri il dettaglio">≠</span>}</> : ''}</td>
-                <td className="px-2 py-1.5 text-xs">{c ? (c.is_closed_day ? 'Negozio chiuso' : CLOSING_STATUS_LABELS[c.status as keyof typeof CLOSING_STATUS_LABELS]) : d < today ? 'Mancante' : ''}</td>
+                <td className="px-2 py-1.5 text-xs">{c ? (c.is_closed_day ? 'Negozio chiuso' : CLOSING_STATUS_LABELS[c.status as keyof typeof CLOSING_STATUS_LABELS]) : reg != null ? 'Dal registro' : d < today ? 'Mancante' : ''}</td>
               </tr>
             )
           })}
@@ -574,7 +577,7 @@ function OutletSheet({ days, outletId, channels, closingAt, linesByClosing, line
         <tfoot className="bg-slate-50 font-semibold">
           <tr>
             <td className="px-2 py-1.5 sticky left-0 bg-slate-50">Totale mese</td>
-            <td className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sum((c) => Number(c.total_receipts)))}</td>
+            <td className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sum((c) => Number(c.total_receipts)) + days.reduce((s, d) => s + (closingAt.has(`${outletId}|${d}`) ? 0 : registroAt.get(`${outletId}|${d}`) ?? 0), 0))}</td>
             {channels.map((ch) => <td key={ch.id} className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sumCh(ch.id))}</td>)}
             <td className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sum((c) => Number(c.cash_expenses)))}</td>
             <td className="px-2 py-1.5 text-right tabular-nums">{formatEuro(sum((c) => Number(c.customer_refunds)))}</td>
