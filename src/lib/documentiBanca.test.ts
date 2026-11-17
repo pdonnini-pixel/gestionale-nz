@@ -4,7 +4,7 @@ import { describe, it, expect } from 'vitest'
 import {
   ibanNelTesto, trovaConto, classificaDocumento, saldiDichiarati, periodoDelle,
   righePerDb, leggiEstratto, fraseEsito, chiusuraCaricamento, normIban, numeroConto, righeIntestazione,
-  contoDaiMovimenti, leggiDistintaMps, numeriDallaCausale, fraseEsitoDistinta, righeCartaPerDb,
+  contoDaiMovimenti, contoDaiCanali, leggiDistintaMps, numeriDallaCausale, fraseEsitoDistinta, righeCartaPerDb,
   fraseEsitoCarta, motivoNonSupportato, excelEstrattoDifettoso, type ContoLite,
 } from './documentiBanca'
 
@@ -432,5 +432,38 @@ describe('estratto MPS in PDF, causali su piu\' righe', () => {
     const conto = trovaConto(int.join('\n'), conti)
     expect(conto?.id).toBe('a-ob')
     expect(classificaDocumento({ testo: righe.join('\n'), righe, conto, righeEstratto: parsed.rows.length, intestazione: int })).toBe('estratto_conto')
+  })
+})
+
+describe('conto dai canali di incasso (estratti senza IBAN di un periodo nuovo)', () => {
+  const conti = [
+    { id: 'mps-fi', bank_name: 'MPS', iban: null, account_name: 'MPS Firenze' },
+    { id: 'mps-fdm', bank_name: 'MPS', iban: null, account_name: 'MPS Forte' },
+    { id: 'bcc-fi', bank_name: 'BCC', iban: null, account_name: 'BCC Firenze' },
+  ] as unknown as ContoLite[]
+  const canali = [
+    { bank_account_id: 'mps-fi', kind: 'pos', terminal_code: '00002' },
+    { bank_account_id: 'mps-fi', kind: 'pos_amex', terminal_code: '00002' },
+    { bank_account_id: 'mps-fi', kind: 'contanti', terminal_code: '13072698' },
+    { bank_account_id: 'mps-fdm', kind: 'pos', terminal_code: '00001' },
+    { bank_account_id: 'bcc-fi', kind: 'pos', terminal_code: '00004' },
+  ]
+  const mps = (sia: string) => ({ description: `-ACCREDITO POS - INSEGNA:VICOLO DATA RIF.:13.11.26 CIRCUITO: CIRCUITI INTERNAZIONALI CODICE CONVENZIONE: 5027159 COD.SIA: 5027159-${sia} ID: 1577514515` })
+
+  it('riconosce il conto MPS dal codice SIA degli accrediti POS e dalla carta dei versamenti', () => {
+    const righe = [mps('00002'), mps('00002'), { description: 'VERSAMENTO DA ATM 01030-3161-09.11.2026 N. CARTA 13072698- Rif Banca: 2410001002900005' }, { description: 'DELEGHE MOD.F24' }]
+    expect(contoDaiCanali(righe, canali, conti)?.id).toBe('mps-fi')
+  })
+  it('riconosce il conto BCC dal codice nelle righe Numia', () => {
+    const righe = Array.from({ length: 3 }, () => ({ description: 'Incassi Internazionali Numia SpA 7838930 16.11.26 502715900004 VICOLO' }))
+    expect(contoDaiCanali(righe, canali, conti)?.id).toBe('bcc-fi')
+  })
+  it('con meno di tre righe riconosciute o con due conti alla pari non sceglie', () => {
+    expect(contoDaiCanali([mps('00002'), mps('00002')], canali, conti)).toBeNull()
+    expect(contoDaiCanali([mps('00002'), mps('00002'), mps('00002'), mps('00001'), mps('00001')], canali, conti)).toBeNull()
+  })
+  it('un numero qualunque in una riga che non e\' un accredito POS non conta', () => {
+    const righe = Array.from({ length: 5 }, () => ({ description: 'DISPOSIZIONE ID FLUSSO CBI: 139222957 Rif Banca: 0260001012800002' }))
+    expect(contoDaiCanali(righe, canali, conti)).toBeNull()
   })
 })

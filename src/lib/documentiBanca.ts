@@ -140,6 +140,74 @@ export function contoDaiMovimenti(trovati: ContoTrovato[], conti: ContoLite[]): 
   return conti.find((c) => c.id === primo.bank_account_id) ?? null
 }
 
+/** Un canale di incasso, per riconoscere il conto dai codici dei POS e del contante. */
+export type CanaleConto = { bank_account_id: string | null; kind: string; terminal_code: string | null }
+
+// Le righe di accredito dei POS: MPS «ACCREDITO POS … COD.SIA: 5027159-00002»,
+// BCC «Incassi PagoBancomat / Internazionali Numia / American Express … 502715900004».
+const RE_RIGA_POS = /ACCREDITO\s+POS|INCASSO\s+TRAMITE\s+P\.?O\.?S|INCASSI\s+(?:PAGOBANCOMAT|INTERNAZIONALI|AMERICAN\s+EXPRESS)|NUMIA/i
+
+/**
+ * Il conto di un estratto senza IBAN e di un periodo mai caricato, dai canali di
+ * incasso: gli accrediti dei POS portano il codice del terminale (le ultime 5
+ * cifre del codice convenzione) e i versamenti la parola chiave del canale
+ * contanti, e ogni canale dice su quale conto accredita.
+ *
+ * Nato il 17/11/2026: gli Excel MPS di Zago da gennaio ad agosto non hanno
+ * l'IBAN e nel gestionale non c'era ancora nessun movimento di quei mesi, cosi'
+ * contoDaiMovimenti non trovava niente e la pagina chiedeva il conto per sei
+ * file su otto, anche se ogni riga POS diceva di quale negozio era.
+ *
+ * Stesse soglie di contoDaiMovimenti: almeno 3 righe riconosciute e il secondo
+ * conto non oltre un quinto del primo. Altrimenti null, e si chiede.
+ */
+export function contoDaiCanali(
+  righe: { description: string | null | undefined }[],
+  canali: CanaleConto[],
+  conti: ContoLite[],
+): ContoLite | null {
+  const perTerminale = new Map<string, Set<string>>()
+  const parole: { parola: string; conto: string }[] = []
+  for (const c of canali) {
+    if (!c.bank_account_id || !c.terminal_code) continue
+    if (c.kind === 'pos' || c.kind === 'pos_amex') {
+      const t = c.terminal_code.trim()
+      if (!/^\d{3,6}$/.test(t)) continue
+      if (!perTerminale.has(t)) perTerminale.set(t, new Set())
+      perTerminale.get(t)!.add(c.bank_account_id)
+    } else if (c.kind === 'contanti') {
+      for (const p of c.terminal_code.split('|').map((s) => s.trim().toUpperCase())) {
+        if (p.length >= 5) parole.push({ parola: p, conto: c.bank_account_id })
+      }
+    }
+  }
+  const voti = new Map<string, number>()
+  const vota = (id: string) => voti.set(id, (voti.get(id) ?? 0) + 1)
+  for (const r of righe) {
+    const d = (r.description ?? '').toUpperCase()
+    if (!d) continue
+    if (RE_RIGA_POS.test(d)) {
+      const trovati = new Set<string>()
+      // «COD.SIA: 5027159-00002» (MPS) oppure «502715900004» (BCC): si confronta la coda.
+      for (const n of (d.match(/\b\d{7}-\d{5}\b|\b\d{10,13}\b/g) ?? []).map((x) => x.replace('-', ''))) {
+        for (const [t, ids] of perTerminale) {
+          // Un codice che vale per piu' conti non dice niente.
+          if (n.endsWith(t) && ids.size === 1) trovati.add([...ids][0])
+        }
+      }
+      if (trovati.size === 1) vota([...trovati][0])
+      continue
+    }
+    const daParola = new Set(parole.filter((p) => d.includes(p.parola)).map((p) => p.conto))
+    if (daParola.size === 1) vota([...daParola][0])
+  }
+  const ord = [...voti.entries()].sort((a, b) => b[1] - a[1])
+  const primo = ord[0]
+  if (!primo || primo[1] < 3) return null
+  if ((ord[1]?.[1] ?? 0) > primo[1] * 0.2) return null
+  return conti.find((c) => c.id === primo[0]) ?? null
+}
+
 // Distinte RiBa MPS: «Distinta Di Ritiro Effetti Pagati», «Effetti - Disposizioni».
 const RE_DISTINTA = /DISTINTA\s+DI\s+RITIRO\s+EFFETTI|RITIRO\s+EFFETTI\s+PAGATI|EFFETTI\s*-\s*DISPOSIZIONI|DISTINTA\s+(?:RI\.?\s*BA|EFFETTI)/i
 

@@ -8,20 +8,21 @@
 //
 // Logica pura e testata in src/lib/documentiBanca.ts: qui c'e' solo il contorno.
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FileUp, Loader2, Check, AlertTriangle, FileText, Info, CheckCircle2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { extractPdfLines } from '../lib/pdfText'
 import { archiviaFile, collegaFileArchiviato } from '../lib/archivioFile'
 import {
-  trovaConto, contoDaiMovimenti, righeIntestazione, classificaDocumento, saldiDichiarati, periodoDelle, righePerDb, leggiEstratto,
+  trovaConto, contoDaiMovimenti, contoDaiCanali, righeIntestazione, classificaDocumento, saldiDichiarati, periodoDelle, righePerDb, leggiEstratto,
   righeDaFoglio, fraseEsito, chiusuraCaricamento, ETICHETTA_TIPO, leggiCarta, righeCartaPerDb, fraseEsitoCarta,
   leggiDistintaMps, fraseEsitoDistinta, motivoNonSupportato, excelEstrattoDifettoso,
-  type ContoLite, type ContoTrovato, type TipoDocumento, type EsitoApplicazione,
+  type ContoLite, type ContoTrovato, type CanaleConto, type TipoDocumento, type EsitoApplicazione,
   type EsitoCarta, type EsitoDistinta, type DistintaRiba,
 } from '../lib/documentiBanca'
 import { sourceLabelOf, type CardStatementParsed } from '../lib/cartaEstratto'
+import { espandiZip } from '../lib/zipFiles'
 import ChatDocumentiBanca from './ChatDocumentiBanca'
 
 type Props = { companyId: string | null; accounts: ContoLite[]; onRefresh?: () => void }
@@ -70,6 +71,15 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
   const userId = session?.user?.id ?? null
   const inputRef = useRef<HTMLInputElement>(null)
   const [voci, setVoci] = useState<Voce[]>([])
+  // I canali di incasso dicono su quale conto accredita ogni POS e dove si versa il
+  // contante: servono a riconoscere il conto di un estratto senza IBAN di un periodo
+  // mai caricato (contoDaiCanali). Dove la tabella non c'e' resta vuoto.
+  const canaliRef = useRef<CanaleConto[]>([])
+  useEffect(() => {
+    if (!companyId) return
+    void supabase.from('outlet_payment_channels').select('bank_account_id, kind, terminal_code').eq('company_id', companyId).eq('is_active', true)
+      .then(({ data }) => { canaliRef.current = (data ?? []) as CanaleConto[] })
+  }, [companyId])
   const [trascina, setTrascina] = useState(false)
   const [chatKey, setChatKey] = useState(0)
 
@@ -325,6 +335,8 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
         // conto e' quello su cui il gestionale ritrova i movimenti del file.
         const { data: trovati } = await supabase.rpc('fn_bank_doc_guess_account', { p_rows: righe as never })
         conto = contoDaiMovimenti((trovati ?? []) as ContoTrovato[], accounts)
+        // Periodo mai caricato: i codici dei POS e la parola dei versamenti dicono il conto.
+        if (!conto) conto = contoDaiCanali(righe, canaliRef.current, accounts)
       }
       const pronta: Voce = { ...voce, tipo, conto, hash, righe, saldi: parsed.saldi ?? saldiDichiarati(intestazione) }
       if (!conto) {
@@ -349,9 +361,15 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
     domande: voci.reduce((n, v) => n + (v.stato === 'fatto' ? v.domande ?? 0 : 0), 0),
   }), [voci])
 
-  const caricaFile = useCallback((lista: FileList | File[] | null) => {
+  const caricaFile = useCallback(async (lista: FileList | File[] | null) => {
     if (!lista) return
-    for (const f of Array.from(lista)) void leggi(f)
+    // Gli zip si aprono qui: ogni estratto dentro l'archivio diventa un file a se'.
+    const { files, problemi } = await espandiZip(Array.from(lista), { estensioni: ['xls', 'xlsx', 'csv', 'pdf'] })
+    for (const p of problemi) {
+      const key = `${p.zip}-zip-${Math.random().toString(36).slice(2, 7)}`
+      setVoci((vs) => [{ key, file: new File([], p.zip), stato: 'errore', messaggio: `Archivio zip: ${p.testo}.` }, ...vs])
+    }
+    for (const { file } of files) void leggi(file)
   }, [leggi])
 
   return (
@@ -359,19 +377,19 @@ export default function DocumentiBanca({ companyId, accounts, onRefresh }: Props
       <div
         onDragOver={(e) => { e.preventDefault(); setTrascina(true) }}
         onDragLeave={() => setTrascina(false)}
-        onDrop={(e) => { e.preventDefault(); setTrascina(false); caricaFile(e.dataTransfer.files) }}
+        onDrop={(e) => { e.preventDefault(); setTrascina(false); void caricaFile(e.dataTransfer.files) }}
         className={`bg-white rounded-xl border-2 border-dashed p-6 sm:p-8 text-center transition ${trascina ? 'border-blue-400 bg-blue-50' : 'border-slate-300'}`}
       >
         <FileUp size={28} className="mx-auto text-slate-400" />
         <h3 className="mt-2 text-sm font-semibold text-slate-900">Carica i documenti della banca</h3>
         <p className="mt-1 text-xs text-slate-500 max-w-xl mx-auto">
-          Trascina qui estratti conto, estratti carta e distinte RiBa, anche più file insieme e di mesi diversi (Excel o PDF).
+          Trascina qui estratti conto, estratti carta e distinte RiBa, anche più file insieme e di mesi diversi (Excel o PDF, anche dentro uno zip).
           Il gestionale capisce da solo che documento è e di che conto o carta, lo archivia e lo applica:
           il documento della banca comanda. Se qualcosa non torna te lo chiede qui sotto.
         </p>
         <input
-          ref={inputRef} type="file" multiple accept=".xls,.xlsx,.csv,.pdf" className="hidden"
-          onChange={(e) => { caricaFile(e.target.files); e.target.value = '' }}
+          ref={inputRef} type="file" multiple accept=".xls,.xlsx,.csv,.pdf,.zip" className="hidden"
+          onChange={(e) => { void caricaFile(Array.from(e.target.files ?? [])); e.target.value = '' }}
         />
         <button
           type="button" onClick={() => inputRef.current?.click()} disabled={!companyId}
