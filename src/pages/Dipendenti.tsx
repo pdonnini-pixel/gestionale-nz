@@ -47,6 +47,7 @@ import { isSellingOutlet } from '../hooks/useOutlets';
 import { GlassTooltip, AXIS_STYLE, GRID_STYLE, PALETTE, getOutletColor, fmtEuro } from '../components/ChartTheme';
 import { useAuth } from '../hooks/useAuth';
 import { useCompany } from '../hooks/useCompany';
+import { useCompanyLabels, labelsDa, type CompanyLabels } from '../hooks/useCompanyLabels';
 // lib/pdfText importa pdfjs-dist a livello modulo (~350KB gzip): la si carica
 // on-demand con import() solo quando l'utente seleziona davvero un PDF.
 import {
@@ -119,7 +120,7 @@ const VALID_VIEWS: PersonaleView[] = ['panoramica', 'per_outlet', 'oggi', 'costi
 // I link restano quelli di sempre (?view=...): l'area si ricava dalla scheda.
 type AreaDipendenti = 'persone' | 'costi';
 type SchedaDipendenti = { k: PersonaleView; label: string; icon: React.ComponentType<{ size?: number; className?: string }> };
-const AREE_DIPENDENTI: { k: AreaDipendenti; label: string; sotto: string; schede: SchedaDipendenti[] }[] = [
+const areeDipendenti = (labels: CompanyLabels): { k: AreaDipendenti; label: string; sotto: string; schede: SchedaDipendenti[] }[] => [
   {
     k: 'persone', label: 'Persone e lavoro', sotto: 'chi c’è, turni, presenze, ferie',
     schede: [
@@ -130,15 +131,17 @@ const AREE_DIPENDENTI: { k: AreaDipendenti; label: string; sotto: string; schede
     ],
   },
   {
-    k: 'costi', label: 'Costi del personale', sotto: 'cedolini, costo lordo, per outlet',
+    k: 'costi', label: 'Costi del personale', sotto: `cedolini, costo lordo, per ${labels.pointOfSaleLower}`,
     schede: [
       { k: 'panoramica', label: 'Panoramica', icon: BarChart3 },
-      { k: 'per_outlet', label: 'Per outlet', icon: Store },
+      { k: 'per_outlet', label: `Per ${labels.pointOfSaleLower}`, icon: Store },
       { k: 'costi', label: 'Costi & cedolini', icon: FileText },
       { k: 'lordi', label: 'Costo lordo', icon: Percent },
     ],
   },
 ];
+// Struttura (chiavi delle aree e delle schede): non dipende dall'etichetta del tenant.
+const AREE_DIPENDENTI = areeDipendenti(labelsDa('Outlet'));
 const areaDellaScheda = (v: PersonaleView): AreaDipendenti => (AREE_DIPENDENTI.find((a) => a.schede.some((x) => x.k === v))?.k ?? 'costi');
 // Ultima scheda usata, in generale e dentro ogni area: senza ?view= si rientra dove si era.
 const RICORDO_SCHEDA = 'dipendenti.scheda';
@@ -404,6 +407,8 @@ function Kpi({ label, value, sub, icon: Icon, source = 'neutro' }: {
 // MAIN COMPONENT
 // ============================================================================
 export default function Dipendenti() {
+  const labels = useCompanyLabels();
+  const aree = useMemo(() => areeDipendenti(labels), [labels]);
   const { toast } = useToast();
   const { profile } = useAuth();
   const { company } = useCompany();
@@ -963,7 +968,7 @@ export default function Dipendenti() {
       <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
       <PageHeader
         title="Dipendenti"
-        subtitle={`Organico e costo del personale per outlet${companyName ? ` · ${companyName}` : ''}`}
+        subtitle={`Organico e costo del personale per ${labels.pointOfSaleLower}${companyName ? ` · ${companyName}` : ''}`}
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {/* Anno e mese servono solo ai costi: turni, presenze e ferie hanno i loro periodi */}
@@ -988,7 +993,7 @@ export default function Dipendenti() {
       {/* Le due aree, poi le schede dell'area aperta */}
       <div>
         <div className="grid grid-cols-2 sm:flex gap-2" role="tablist" aria-label="Aree della pagina Dipendenti">
-          {AREE_DIPENDENTI.map((a) => (
+          {aree.map((a) => (
             <button key={a.k} type="button" role="tab" aria-selected={area === a.k} onClick={() => vaiAllArea(a.k)}
               className={`text-left px-4 py-2.5 rounded-xl border-[1.5px] font-bold text-sm sm:text-[15px] transition-colors ${area === a.k ? 'bg-slate-900 border-slate-900 text-white' : 'bg-white border-slate-200 text-slate-600 hover:border-slate-400'}`}>
               {a.label}
@@ -997,7 +1002,7 @@ export default function Dipendenti() {
           ))}
         </div>
         <div className="flex gap-1 border-b-[1.5px] border-slate-200 mt-3 overflow-x-auto" role="tablist" aria-label="Schede dell'area">
-          {AREE_DIPENDENTI.find((a) => a.k === area)!.schede.map((t) => {
+          {aree.find((a) => a.k === area)!.schede.map((t) => {
             const Icon = t.icon;
             return (
               <button key={t.k} type="button" role="tab" aria-selected={view === t.k} onClick={() => setView(t.k)}
@@ -1312,6 +1317,7 @@ function PanoramicaTab(props: {
   /** mese senza cedolini: organico e netto del mese non sono zero, sono non ancora caricati */
   senzaCedolini: boolean; ultimoMese: string | null; onVaiUltimo?: () => void;
 }) {
+  const labels = useCompanyLabels();
   const { headcount, sedi, totalBC, totalBCAll, totalNettoMese, nettoYear, incidenzaPrevisti, incidenzaAOggi, consMesi, costoMedioEscl, costoMedioIncl, monthLabel, month, chartData, bilancioPersonale, nonAttribuito, year, senzaCedolini, ultimoMese, onVaiUltimo } = props;
   const pct = (v: number | null) => (v != null ? `${v.toFixed(1).replace('.', ',')}%` : '—');
   const empty = headcount === 0 && totalBC === 0 && totalNettoMese === 0;
@@ -1373,11 +1379,11 @@ function PanoramicaTab(props: {
           {/* Costo per outlet — barre orizzontali, una per outlet col suo colore */}
           <div className="bg-white rounded-2xl shadow-lg p-5">
             <div className="flex items-baseline justify-between mb-5">
-              <h3 className="font-semibold text-slate-900">Costo personale per outlet — {year}</h3>
+              <h3 className="font-semibold text-slate-900">Costo personale per {labels.pointOfSaleLower} — {year}</h3>
               <span className="text-xs text-slate-400">costo budget annuo (B&amp;C) vs netto del mese {mm}/{year}</span>
             </div>
             {chartData.length === 0 ? (
-              <div className="text-sm text-slate-400 py-8 text-center">Nessun costo per outlet disponibile.</div>
+              <div className="text-sm text-slate-400 py-8 text-center">Nessun costo per {labels.pointOfSaleLower} disponibile.</div>
             ) : (
               <div className="space-y-4">
                 {chartData.map((d) => (
@@ -1425,7 +1431,7 @@ function PanoramicaTab(props: {
             </div>
             {nonAttribuito > 0 && (
               <div className="mt-3 text-xs text-slate-500 flex items-center gap-1.5">
-                <AlertCircle size={13} /> Costi non attribuiti ad alcun outlet: <Money v={nonAttribuito} />
+                <AlertCircle size={13} /> Costi non attribuiti ad alcun {labels.pointOfSaleLower}: <Money v={nonAttribuito} />
               </div>
             )}
           </div>
@@ -1467,9 +1473,10 @@ function PerOutletTab(props: {
   /** mese senza cedolini: persone e netti per sede non sono zero, sono non ancora caricati */
   senzaCedolini: boolean; ultimoMese: string | null; onVaiUltimo?: () => void;
 }) {
+  const labels = useCompanyLabels();
   const { outlets, allEmployees, allocByEmp, nettoOf, nettoCell, isPaid, admins, lordoAmministratori, nettoByOutlet, headcountByOutlet, bcByOutlet, monthLabel, mm, year, nonAttribuito, senzaCedolini, ultimoMese, onVaiUltimo } = props;
   if (outlets.length === 0) {
-    return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">Nessun outlet configurato per questo tenant.</div>;
+    return <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center text-slate-400">Nessun {labels.pointOfSaleLower} configurato per questo tenant.</div>;
   }
   const totHc = new Set<string>();
   Object.values(headcountByOutlet).forEach((s) => s.forEach((id) => totHc.add(id)));
@@ -1485,7 +1492,7 @@ function PerOutletTab(props: {
       )}
       <div className="text-xs sm:text-[13px] text-blue-900 bg-blue-50 border border-blue-200 rounded-xl p-3.5 flex items-start gap-2.5">
         <Store size={16} className="text-blue-600 mt-0.5 shrink-0" />
-        <div><strong>{senzaCedolini ? `Cedolini di ${monthLabel} ${year} non ancora caricati, ${outlets.length} sedi.` : `${totHc.size} dipendenti su ${outlets.length} sedi.`}</strong> Ogni persona è su una sola sede (ripartizione payroll secca). I punti vendita sono outlet veri; la sede operativa (magazzino + direzione) è trattata come location di primo livello, non come “orfana”.</div>
+        <div><strong>{senzaCedolini ? `Cedolini di ${monthLabel} ${year} non ancora caricati, ${outlets.length} sedi.` : `${totHc.size} dipendenti su ${outlets.length} sedi.`}</strong> Ogni persona è su una sola sede (ripartizione payroll secca). I punti vendita sono {labels.pointOfSalePluralLower} veri; la sede operativa (magazzino + direzione) è trattata come location di primo livello, non come “orfana”.</div>
       </div>
 
       {sortOutlets(outlets).map((o) => {
@@ -1500,7 +1507,7 @@ function PerOutletTab(props: {
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-slate-800 flex items-center gap-2 truncate">
                   {o.name}
-                  {isSede && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 shrink-0">sede — no outlet</span>}
+                  {isSede && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-50 text-amber-700 shrink-0">sede — no {labels.pointOfSaleLower}</span>}
                 </div>
                 <div className="text-xs text-slate-500">{(headcountByOutlet[o.name]?.size || 0)} dipendenti · netto {eurFmt.format(nettoByOutlet[o.name] || 0)} €/mese</div>
               </div>
@@ -1585,6 +1592,7 @@ function CostiTab(props: {
   ultimoMese: string | null;
   onVaiUltimo?: () => void;
 }) {
+  const labels = useCompanyLabels();
   const { contiMese, totalNettoMese, monthLabel, mm, year, employees, allocByEmp, outlets, isPaid, nettoCell, cedoliniDelMese, admins, lordoAmministratori, costForMonth, docsForEmp, onAddCost, onEditCost, onDeleteCost, onCedolino, onViewDoc, uploadingEmployee, importPanel, ultimoMese, onVaiUltimo } = props;
   // NO-ZERO: solo chi ha il cedolino del mese; raggruppato in accordion per outlet (admin a parte).
   const paid = employees.filter((e) => isPaid(e.id));
@@ -1599,7 +1607,7 @@ function CostiTab(props: {
       <div className="text-xs sm:text-[13px] text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex items-start justify-between gap-2.5">
         <div className="flex items-start gap-2.5">
           <span className="text-slate-400 font-bold shrink-0">€</span>
-          <div>Questa vista mostra i <strong>netti dai cedolini</strong> per dipendente e mese. Il <strong>costo lordo</strong> (retribuzione + contributi + INAIL, per dipendente e outlet) vive ora nella scheda <strong>«Costo lordo»</strong>.</div>
+          <div>Questa vista mostra i <strong>netti dai cedolini</strong> per dipendente e mese. Il <strong>costo lordo</strong> (retribuzione + contributi + INAIL, per dipendente e {labels.pointOfSaleLower}) vive ora nella scheda <strong>«Costo lordo»</strong>.</div>
         </div>
         <div className="text-right shrink-0">
           <div className="text-[11px] text-slate-400">Netto ai dipendenti · {monthLabel} {year}</div>
@@ -1964,6 +1972,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
   // mese e tipo di cedolino gia' letti dal file.
   inArrivo?: FileInArrivo | null;
 }) {
+  const labels = useCompanyLabels();
   const isNetto = mode === 'netto';
   const { toast } = useToast();
   const [impYear, setImpYear] = useState(defaultYear);
@@ -2102,7 +2111,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
             // vede da cosa e' stato riconosciuto e si puo' segnalarlo se sbaglia.
             setRawPreview(['⚠︎ Riconosciuto come «Prospetto riepilogativo elaborazione paghe» (costo per OUTLET, non per dipendente).',
               'Va importato dalla scheda «Costo lordo». Se non è quel documento, segnala questo estratto:', '', ...rawLines.slice(0, 25)]);
-            toast({ type: 'info', message: 'Questo è un «Prospetto paghe» (costo per outlet): importalo dalla scheda «Costo lordo». Sotto trovi l’estratto del file.' });
+            toast({ type: 'info', message: `Questo è un «Prospetto paghe» (costo per ${labels.pointOfSaleLower}): importalo dalla scheda «Costo lordo». Sotto trovi l’estratto del file.` });
             await archiviaScartato(file, 'Riconosciuto come «Prospetto riepilogativo elaborazione paghe»: va importato dalla scheda «Costo lordo».');
             return;
           }
@@ -2481,8 +2490,8 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       }
       await onDone();
     } catch (err: any) {
-      toast({ type: 'error', message: 'Errore import: ' + readableDbError(err) });
-      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Salvataggio non riuscito: ' + readableDbError(err) });
+      toast({ type: 'error', message: 'Errore import: ' + readableDbError(err, labels) });
+      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Salvataggio non riuscito: ' + readableDbError(err, labels) });
     } finally {
       setImporting(false);
     }
@@ -2501,7 +2510,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
         .eq('company_id', companyId).eq('year', impYear).eq('month', impMonth).eq('tipo', tipoCedolino).neq('netto', 0);
       const mese = `${MONTHS.find((m) => m.num === impMonth)?.label ?? impMonth} ${impYear}`;
       if (error) {
-        segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Non riesco a controllare i dati già presenti: ' + readableDbError(error) });
+        segnalaEsitoPaghe({ nonce, stato: 'errore', testo: 'Non riesco a controllare i dati già presenti: ' + readableDbError(error, labels) });
         return;
       }
       const count = (gia || []).length;
@@ -2542,7 +2551,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
       <p className="text-xs text-slate-500 mb-4">
         {isNetto
           ? 'Netto pagato al dipendente (take-home) → scrive solo employee_costs.netto. Formato tipico: PDF “Elenco netti” del software paghe. Accetta anche CSV/Excel.'
-          : <>Costo lordo aziendale <strong>persona per persona</strong> (retribuzione lorda + contributi + INAIL + TFR + altri). Il «Prospetto riepilogativo elaborazione paghe», che è per <strong>outlet</strong> e non per persona, va invece nella scheda «Costo lordo»: qui non viene accettato.</>}
+          : <>Costo lordo aziendale <strong>persona per persona</strong> (retribuzione lorda + contributi + INAIL + TFR + altri). Il «Prospetto riepilogativo elaborazione paghe», che è per <strong>{labels.pointOfSaleLower}</strong> e non per persona, va invece nella scheda «Costo lordo»: qui non viene accettato.</>}
       </p>
 
       {isNetto && !rows && !parsing && (
@@ -2703,7 +2712,7 @@ function ImportLane({ mode, companyId, userId, outlets, employees, existingCosts
                 <tr className="text-left text-xs uppercase tracking-wide text-slate-400 border-b border-slate-100">
                   <th className="px-3 py-2 font-medium">Matr.</th>
                   <th className="px-3 py-2 font-medium">Dipendente</th>
-                  <th className="px-3 py-2 font-medium">Outlet</th>
+                  <th className="px-3 py-2 font-medium">{labels.pointOfSale}</th>
                   <th className="px-3 py-2 font-medium text-right">{isNetto ? 'Netto' : 'Costo lordo'}</th>
                   <th className="px-3 py-2 font-medium text-center">Stato</th>
                 </tr>
@@ -2803,6 +2812,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
   prospettoByOutlet: Map<string, number>;
   prospettoByMonth: Map<number, { costo: number; dip: number; outlet: number }>;
 }) {
+  const labels = useCompanyLabels();
   const { toast } = useToast();
   const sb: any = supabase; // tabelle nuove (082) non ancora nei tipi generati
   const [rows, setRows] = useState<PgceRow[]>([]);
@@ -3027,7 +3037,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
       await load();
     } catch (e: any) {
       console.error(e);
-      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e)}` });
+      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e, labels)}` });
     } finally { setImporting(false); }
   };
 
@@ -3035,7 +3045,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
     .slice().sort((a, b) => outletRank(bucketOf(a)) - outletRank(bucketOf(b)) || b.lordo - a.lordo)
     .map((r) => ({ outlet: bucketOf(r), matricola: r.matricola, dipendente: r.employee_name || r.matricola, retribuzione: r.retribuzione, contribuzione: r.contribuzione, inail: r.inail, tfr: r.tfr, lordo: r.lordo }));
   const exportCols = [
-    { key: 'outlet', label: 'Outlet' }, { key: 'matricola', label: 'Matricola' }, { key: 'dipendente', label: 'Dipendente' },
+    { key: 'outlet', label: labels.pointOfSale }, { key: 'matricola', label: 'Matricola' }, { key: 'dipendente', label: 'Dipendente' },
     { key: 'retribuzione', label: 'Retribuzione', format: 'euro' as const }, { key: 'contribuzione', label: 'Contribuzione', format: 'euro' as const },
     { key: 'inail', label: 'INAIL', format: 'euro' as const }, { key: 'tfr', label: 'TFR (incl. in retrib.)', format: 'euro' as const },
     { key: 'lordo', label: 'Costo lordo', format: 'euro' as const },
@@ -3092,7 +3102,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
       ) : monthRows.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 p-10 text-center text-slate-400">
           Nessun costo lordo per dipendente in <strong>{monthLabel} {year}</strong>.{' '}
-          {meseDaProspetto && <>Il mese c'è però nel <strong>Prospetto paghe</strong>, qui sopra: {eurFmt.format(prospMese?.costo || 0)} € su {prospMese?.outlet ?? 0} outlet. Manca solo il dettaglio persona per persona.{' '}</>}
+          {meseDaProspetto && <>Il mese c'è però nel <strong>Prospetto paghe</strong>, qui sopra: {eurFmt.format(prospMese?.costo || 0)} € su {prospMese?.outlet ?? 0} {(prospMese?.outlet ?? 0) === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower}. Manca solo il dettaglio persona per persona.{' '}</>}
           {periodMonths.length > 0 ? <>Seleziona un mese tra <strong>{periodMonths.map((m) => MESI_LBL[m.mm]).join(', ')}</strong> dal selettore in alto, oppure importa il report del mese.</> : <>Importa la «Statistica costo orario» qui sopra.</>}
         </div>
       ) : (
@@ -3109,11 +3119,11 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
                     {isOpen ? <ChevronDown size={16} className="text-slate-400 shrink-0" /> : <ChevronRight size={16} className="text-slate-400 shrink-0" />}
                     <span className={`font-semibold truncate ${g.name === DA_ASSEGNARE ? 'text-amber-700' : 'text-slate-800'}`}>{g.name}</span>
                     <span className="text-xs text-slate-400 shrink-0">· {g.emps.length} dip.</span>
-                    {g.name === DA_ASSEGNARE && <span className="text-[11px] text-amber-600 hidden sm:inline">matricole non in anagrafica o senza outlet — assegnabili</span>}
+                    {g.name === DA_ASSEGNARE && <span className="text-[11px] text-amber-600 hidden sm:inline">matricole non in anagrafica o senza {labels.pointOfSaleLower} — assegnabili</span>}
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     {!special && diff != null && Math.abs(diff) > 1 && (
-                      <UiTooltip content={`Prospetto paghe (per outlet): ${eurFmt.format(prosp!)} €\nSomma dipendenti: ${eurFmt.format(g.tot)} €\nDifferenza: ${eurFmt.format(diff)} €\n(i due report definiscono le voci in modo diverso: scarto atteso)`}>
+                      <UiTooltip content={`Prospetto paghe (per ${labels.pointOfSaleLower}): ${eurFmt.format(prosp!)} €\nSomma dipendenti: ${eurFmt.format(g.tot)} €\nDifferenza: ${eurFmt.format(diff)} €\n(i due report definiscono le voci in modo diverso: scarto atteso)`}>
                         <span className="text-[11px] text-slate-400 cursor-help border-b border-dotted border-slate-300">Δ Prospetto {eurFmt.format(diff)} €</span>
                       </UiTooltip>
                     )}
@@ -3198,7 +3208,7 @@ function CostiLordoDipendentiBlock({ companyId, userId, outlets, year, month, mo
             </div>
           )}
           <div className="flex items-center justify-between mt-4">
-            <div className="text-xs text-slate-400">Salvataggio idempotente: outlet e amministratori risolti dall’anagrafica.</div>
+            <div className="text-xs text-slate-400">Salvataggio idempotente: {labels.pointOfSalePluralLower} e amministratori risolti dall’anagrafica.</div>
             <div className="flex gap-2">
               <button onClick={() => setPreview(null)} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100">Annulla</button>
               <button onClick={confirmSave} disabled={importing} className="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 inline-flex items-center gap-1.5"><CheckCircle2 size={15} /> {importing ? 'Salvataggio…' : 'Conferma e salva'}</button>
@@ -3221,6 +3231,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
   // presenze e terrebbe per se' tastiera e tasto Esc.
   visibile?: boolean;
 }) {
+  const labels = useCompanyLabels();
   const { toast } = useToast();
   // I tipi generati di Supabase non includono ancora le tabelle nuove (migration 068):
   // accesso untyped a personnel_gross_cost / inail_rates / v_personnel_gross_cost.
@@ -3297,11 +3308,11 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
         const lines = await extractPdfLines(file);
         const parsed = parseProspettoPaghe(lines, outlets as any);
         if (!parsed.isProspetto || parsed.rows.length === 0) {
-          toast({ type: 'error', message: 'Il PDF non sembra un «Prospetto riepilogativo elaborazione paghe»: nessun dato per outlet riconosciuto. Il file resta in archivio (Archivio documenti → Caricamenti).' });
+          toast({ type: 'error', message: `Il PDF non sembra un «Prospetto riepilogativo elaborazione paghe»: nessun dato per ${labels.pointOfSaleLower} riconosciuto. Il file resta in archivio (Archivio documenti → Caricamenti).` });
           await archiviaFile({ file, companyId, userId, modulo: 'Personale',
             funzione: 'Prospetto paghe · file non riconosciuto', bucket: 'employee-documents',
-            note: 'Nessun dato per outlet riconosciuto nel PDF.' });
-          errore('Nel PDF non trovo i dati per outlet del Prospetto: il file resta in archivio.');
+            note: `Nessun dato per ${labels.pointOfSaleLower} riconosciuto nel PDF.` });
+          errore(`Nel PDF non trovo i dati per ${labels.pointOfSaleLower} del Prospetto: il file resta in archivio.`);
           return;
         }
         const nuovo = { rows: parsed.rows, fileName: file.name, tipiCedolino: parsed.tipiCedolino, soloNormale: parsed.soloNormale, versamenti: parsed.versamenti };
@@ -3317,7 +3328,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
           const [y, m] = c.split('-').map(Number);
           const { data: esistenti, error } = await sb.from('personnel_gross_cost').select('filiale_code, totale_retribuzioni')
             .eq('company_id', companyId).eq('year', y).eq('month', m);
-          if (error) { errore('Non riesco a controllare i dati già presenti: ' + readableDbError(error)); return; }
+          if (error) { errore('Non riesco a controllare i dati già presenti: ' + readableDbError(error, labels)); return; }
           const es = (esistenti || []) as { filiale_code: string | null; totale_retribuzioni: number | null }[];
           gia += es.length;
           if (es.length === 0) continue;
@@ -3450,14 +3461,14 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
       }
 
       const monthsLbl = [...new Set(pr.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ');
-      toast({ type: 'success', message: `Salvati ${pr.length} outlet (${monthsLbl}). Totale retribuzioni ${eurFmt.format(fileTotal)} €.${notaF24}` });
-      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'salvato', testo: `Costo lordo di ${monthsLbl} salvato: ${pr.length} outlet, retribuzioni ${eurFmt.format(fileTotal)} €.${notaF24}` });
+      toast({ type: 'success', message: `Salvati ${pr.length} ${pr.length === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower} (${monthsLbl}). Totale retribuzioni ${eurFmt.format(fileTotal)} €.${notaF24}` });
+      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'salvato', testo: `Costo lordo di ${monthsLbl} salvato: ${pr.length} ${pr.length === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower}, retribuzioni ${eurFmt.format(fileTotal)} €.${notaF24}` });
       setPreview(null); setFileObj(null);
       await load();
     } catch (e: any) {
       console.error(e);
-      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e)}` });
-      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: `Salvataggio non riuscito: ${readableDbError(e)}` });
+      toast({ type: 'error', message: `Errore nel salvataggio: ${readableDbError(e, labels)}` });
+      if (nonce) segnalaEsitoPaghe({ nonce, stato: 'errore', testo: `Salvataggio non riuscito: ${readableDbError(e, labels)}` });
     } finally {
       setImporting(false);
     }
@@ -3543,15 +3554,15 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
     amministratori_totale: r.amministratori_totale,
   }));
   const exportCols = [
-    { key: 'outlet', label: 'Outlet' }, { key: 'filiale', label: 'Codice filiale' },
+    { key: 'outlet', label: labels.pointOfSale }, { key: 'filiale', label: 'Codice filiale' },
     { key: 'dipendenti', label: 'N. dipendenti' },
     { key: 'totale_retribuzioni', label: 'Totale retribuzioni', format: 'euro' as const },
-    { key: 'compensi_amm', label: 'Compensi amministratori (escl. outlet)', format: 'euro' as const },
+    { key: 'compensi_amm', label: `Compensi amministratori (escl. ${labels.pointOfSalePluralLower})`, format: 'euro' as const },
     { key: 'contr_azienda', label: 'Contributi azienda (INPS+EBINTER+EST)', format: 'euro' as const },
     { key: 'inail', label: 'INAIL calcolato', format: 'euro' as const },
     { key: 'tfr_fondo', label: 'TFR a fondo', format: 'euro' as const },
     { key: 'contr_gestione_separata', label: 'INPS Gestione separata (amministratori)', format: 'euro' as const },
-    { key: 'costo_lordo_outlet', label: 'Costo lordo outlet', format: 'euro' as const },
+    { key: 'costo_lordo_outlet', label: `Costo lordo ${labels.pointOfSaleLower}`, format: 'euro' as const },
     { key: 'amministratori_totale', label: 'Totale amministratori', format: 'euro' as const },
   ];
 
@@ -3587,14 +3598,14 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
               {mesiProspetto.length === 0 && <div className="text-xs text-slate-400">Nessun Prospetto caricato per il {year}.</div>}
             </div>
           </div>
-          {rows.length > 0 && <div className="mt-3"><ExportMenu data={exportData} columns={exportCols} filename={`costo_lordo_outlet_${year}_${String(month).padStart(2, '0')}`} title={`Costo del lavoro per outlet · ${monthLabel} ${year}`} /></div>}
+          {rows.length > 0 && <div className="mt-3"><ExportMenu data={exportData} columns={exportCols} filename={`costo_lordo_outlet_${year}_${String(month).padStart(2, '0')}`} title={`Costo del lavoro per ${labels.pointOfSaleLower} · ${monthLabel} ${year}`} /></div>}
         </div>
       </div>
 
       {/* Vista per OUTLET dal Prospetto paghe — riconciliazione e tassi INAIL */}
       <div className="pt-2">
         <div className="flex items-center gap-2 mb-3">
-          <div className="text-sm font-semibold text-slate-700">Costo del lavoro per outlet — Prospetto paghe</div>
+          <div className="text-sm font-semibold text-slate-700">Costo del lavoro per {labels.pointOfSaleLower} — Prospetto paghe</div>
           <span className="text-xs text-slate-400">il documento che arriva ogni mese · {monthLabel} {year}</span>
         </div>
     <div className="space-y-5">
@@ -3622,12 +3633,12 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
         />
       ) : (
         <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
-          <div className="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">Costo del lavoro per outlet · {monthLabel} {year}</div>
+          <div className="px-5 py-3 border-b border-slate-100 text-sm font-semibold text-slate-700">Costo del lavoro per {labels.pointOfSaleLower} · {monthLabel} {year}</div>
           <div className="overflow-x-auto scroll-shadow-x">
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
-                  <th className="px-4 py-2.5 text-left font-bold">Outlet</th>
+                  <th className="px-4 py-2.5 text-left font-bold">{labels.pointOfSale}</th>
                   <th className="px-3 py-2.5 text-right font-bold">Dip.</th>
                   <th className="px-3 py-2.5 text-right font-bold">Totale retrib.</th>
                   {anyCompensiAmm && <th className="px-3 py-2.5 text-right font-bold text-slate-400">di cui amm. (−)</th>}
@@ -3678,7 +3689,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
               </tbody>
               <tfoot className="bg-slate-50 font-semibold">
                 <tr>
-                  <td className="px-4 py-2.5 text-slate-700">Totale outlet</td>
+                  <td className="px-4 py-2.5 text-slate-700">Totale {labels.pointOfSalePluralLower}</td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-slate-600">{tot.dip}</td>
                   <td className="px-3 py-2.5 text-right"><Money v={tot.retr} /></td>
                   {anyCompensiAmm && <td className="px-3 py-2.5 text-right text-slate-400">−<Money v={tot.ammCompensi} /></td>}
@@ -3695,7 +3706,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
           {adminRows.length > 0 && (
             <div className="px-5 py-4 border-t border-slate-100 bg-slate-50/60">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold text-slate-700">Amministratori <span className="font-normal text-slate-400">· fuori dal costo outlet</span></div>
+                <div className="text-sm font-semibold text-slate-700">Amministratori <span className="font-normal text-slate-400">· fuori dal costo {labels.pointOfSalePluralLower}</span></div>
                 <Money v={tot.amm} strong />
               </div>
               <div className="mt-2 space-y-1">
@@ -3735,7 +3746,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-bold">PAT</th>
-                  <th className="px-4 py-2.5 text-left font-bold">Outlet</th>
+                  <th className="px-4 py-2.5 text-left font-bold">{labels.pointOfSale}</th>
                   <th className="px-4 py-2.5 text-right font-bold">Tasso %</th>
                   <th className="px-4 py-2.5 text-right font-bold"> </th>
                 </tr>
@@ -3802,7 +3813,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
       {preview && visibile && (
         <Modal title="Anteprima import — Prospetto paghe" onClose={() => !importing && setPreview(null)} maxW="max-w-4xl">
           <div className="text-xs text-slate-500 mb-3">
-            File: <strong>{preview.fileName}</strong> · {[...new Set(preview.rows.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ')} · {preview.rows.length} outlet
+            File: <strong>{preview.fileName}</strong> · {[...new Set(preview.rows.map((r) => `${MESI_LBL[r.month]} ${r.year}`))].join(', ')} · {preview.rows.length} {preview.rows.length === 1 ? labels.pointOfSaleLower : labels.pointOfSalePluralLower}
             {preview.tipiCedolino.length > 0 && <> · cedolini <strong>{preview.tipiCedolino.join(' + ')}</strong></>}. Controlla i valori prima di salvare.
           </div>
           {preview.versamenti.length > 0 && (
@@ -3833,7 +3844,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
             <table className="w-full text-sm">
               <thead className="bg-slate-50 text-slate-500">
                 <tr>
-                  <th className="px-3 py-2 text-left font-bold">Outlet</th>
+                  <th className="px-3 py-2 text-left font-bold">{labels.pointOfSale}</th>
                   <th className="px-3 py-2 text-right font-bold">Totale retrib.</th>
                   <th className="px-3 py-2 text-right font-bold">Contr. azienda</th>
                   <th className="px-3 py-2 text-right font-bold">INAIL</th>
@@ -3864,7 +3875,7 @@ function CostiLordoTab({ companyId, userId, outlets, year, month, monthLabel, in
             </table>
           </div>
           <div className="flex items-center justify-between mt-4">
-            <div className="text-xs text-slate-400">Salvataggio idempotente: aggiorna i mesi/outlet esistenti, non duplica.</div>
+            <div className="text-xs text-slate-400">Salvataggio idempotente: aggiorna i mesi/{labels.pointOfSalePluralLower} esistenti, non duplica.</div>
             <div className="flex gap-2">
               <button onClick={() => {
                 if (confermaNonce) { segnalaEsitoPaghe({ nonce: confermaNonce, stato: 'errore', testo: 'Annullato: non è stato salvato niente.' }); setConfermaNonce(null); }

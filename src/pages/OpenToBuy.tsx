@@ -161,7 +161,7 @@ export default function OpenToBuy() {
             <h2 className="text-lg font-semibold text-slate-700 mb-2">Nessun piano OTB disponibile</h2>
             <p className="text-sm text-slate-500 max-w-md mx-auto">
               Il planner Open-to-Buy verrà popolato quando saranno disponibili dati di vendita storici
-              per i {labels.pointOfSalePluralLower}.
+              per {labels.art.i}.
             </p>
           </div>
         </div>
@@ -180,7 +180,7 @@ export default function OpenToBuy() {
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <span className="mt-0.5 font-semibold whitespace-nowrap">Valori di esempio</span>
           <span className="text-amber-700">
-            I parametri partono da valori di esempio sugli {labels.pointOfSalePluralLower} del tenant e
+            I parametri partono da valori di esempio {`su${labels.art.i}`} del tenant e
             si modificano a mano. Le modifiche non vengono salvate: servono a simulare il piano OTB.
           </span>
         </div>

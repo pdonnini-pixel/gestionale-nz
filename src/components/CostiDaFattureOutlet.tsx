@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FileText, AlertCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { formatOutletName } from '../lib/formatters'
 import { aggregaCostiDaFatture, type CostiOutlet, type RigaCostiDaFatture } from '../lib/costiDaFatture'
 
@@ -63,6 +64,7 @@ function Riga({ o, totale }: { o: CostiOutlet; totale?: boolean }) {
 }
 
 export default function CostiDaFattureOutlet({ companyId, year, months, periodLabel, sedeKeys }: Props) {
+  const labels = useCompanyLabels()
   const [righe, setRighe] = useState<RigaCostiDaFatture[]>([])
   const [caricamento, setCaricamento] = useState(true)
   const [errore, setErrore] = useState<string | null>(null)
@@ -97,10 +99,10 @@ export default function CostiDaFattureOutlet({ companyId, year, months, periodLa
     <div className="rounded-2xl p-5 shadow-lg" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f8fafc 100%)', border: '1px solid rgba(99,102,241,0.08)' }}>
       <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
         <FileText size={16} className="text-violet-600" />
-        Costi per outlet: personale e fatture (riparto automatico): {year}, {periodLabel}
+        Costi per {labels.pointOfSaleLower}: personale e fatture (riparto automatico): {year}, {periodLabel}
       </h3>
       <p className="text-xs text-slate-500 mt-1 mb-4">
-        Costo lordo del personale per outlet (Dipendenti, Costo lordo) e fatture dei fornitori divise sugli outlet con le
+        Costo lordo del personale per {labels.pointOfSaleLower} (Dipendenti, Costo lordo) e fatture dei fornitori divise {`su${labels.art.i}`} con le
         regole di riparto (pagina Fornitori). È un riferimento in sola lettura: non cambia il consuntivo di Budget &amp; Controllo
         né le schede qui sotto.
       </p>
@@ -116,7 +118,7 @@ export default function CostiDaFattureOutlet({ companyId, year, months, periodLa
           <table className="w-full text-sm min-w-[960px]">
             <thead>
               <tr className="text-xs text-slate-500">
-                <th className="px-3 py-2 text-left font-medium">Outlet</th>
+                <th className="px-3 py-2 text-left font-medium">{labels.pointOfSale}</th>
                 <th className="px-3 py-2 text-right font-medium">Personale</th>
                 <th className="px-3 py-2 text-right font-medium">Merce</th>
                 <th className="px-3 py-2 text-right font-medium">Affitti</th>
@@ -139,12 +141,12 @@ export default function CostiDaFattureOutlet({ companyId, year, months, periodLa
       <div className="text-xs text-slate-500 mt-4 space-y-1">
         <p>
           <span className="font-medium text-slate-600">Cosa c'è:</span> personale = costo lordo dal Prospetto dello studio
-          paghe (retribuzioni, contributi INPS, EBINTER, EST, INAIL e TFR), sull'outlet della filiale
+          paghe (retribuzioni, contributi INPS, EBINTER, EST, INAIL e TFR), {`su${labels.art.al.slice(1)}`} della filiale
           {mesePers == null
             ? ', nessun mese caricato nel periodo'
             : mesePers < ultimoMesePeriodo ? `, caricato fino a ${MESI[mesePers - 1]}` : ''}. Fatture
           elettroniche dei fornitori per data fattura, importi senza IVA, note di credito in meno. Merce, mezzi e carburante divisi come il preventivo
-          acquisti; costi di struttura divisi in proporzione ai ricavi; affitti, bollette e trasferte sull'outlet a cui si riferiscono.
+          acquisti; costi di struttura divisi in proporzione ai ricavi; affitti, bollette e trasferte {`su${labels.art.al.slice(1)}`} a cui si riferiscono.
           In «Altri costi» anche le spese pagate dalla cassa del negozio (chiusure di cassa) e le commissioni Amex e Nexi
           addebitate in banca, sul negozio letto dal codice nella causale.
         </p>

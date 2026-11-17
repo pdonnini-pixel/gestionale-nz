@@ -7,6 +7,8 @@
 // entrato. Qui la fonte è una sola, la vista v_archivio_documenti (migration
 // 164), che normalizza le sei tabelle dove i documenti vivono davvero.
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useCompanyLabels } from '../../hooks/useCompanyLabels';
+import { adattaTermini } from '../../lib/terminiPdv';
 import { ChevronDown, ChevronRight, ExternalLink, Search, FolderOpen, RefreshCw } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
@@ -46,6 +48,7 @@ export default function ArchivioUnificato({ companyId, showToast, onApriFattura 
   showToast: (msg: string, type?: string) => void;
   onApriFattura: (invoiceId: string) => void;
 }) {
+  const labels = useCompanyLabels();
   const [righe, setRighe] = useState<RigaArchivio[]>([]);
   const [caricando, setCaricando] = useState(false);
   const [aperte, setAperte] = useState<Set<string>>(new Set());
@@ -185,7 +188,7 @@ export default function ArchivioUnificato({ companyId, showToast, onApriFattura 
                   className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50 transition">
                   <span className="flex items-center gap-2 min-w-0">
                     {aperta ? <ChevronDown size={16} className="text-slate-400 shrink-0" /> : <ChevronRight size={16} className="text-slate-400 shrink-0" />}
-                    <span className="font-semibold text-slate-800">{sezione}</span>
+                    <span className="font-semibold text-slate-800">{adattaTermini(sezione, labels)}</span>
                     <span className="text-xs text-slate-500">· {elenco.length} document{elenco.length === 1 ? 'o' : 'i'}</span>
                     {senzaFile > 0 && (
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-50 text-amber-700">
@@ -216,7 +219,7 @@ export default function ArchivioUnificato({ companyId, showToast, onApriFattura 
                                 <div className="text-[11px] text-slate-400 truncate" title={r.file_name}>{r.file_name}</div>
                               )}
                             </td>
-                            <td className="px-4 py-2 text-slate-500 max-w-[240px] truncate" title={r.funzione || ''}>{r.funzione || '—'}</td>
+                            <td className="px-4 py-2 text-slate-500 max-w-[240px] truncate" title={adattaTermini(r.funzione || '', labels)}>{r.funzione ? adattaTermini(r.funzione, labels) : '—'}</td>
                             <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{periodoLeggibile(r)}</td>
                             <td className="px-4 py-2 text-right text-slate-500 whitespace-nowrap">{pesoLeggibile(r.file_size)}</td>
                             <td className="px-4 py-2 text-center">

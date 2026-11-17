@@ -1061,7 +1061,7 @@ export default function Fornitori() {
             />
             <Detail label="Banca pag." value={s.payment_bank_account_id ? (bankLabelById[String(s.payment_bank_account_id)] || '—') : '—'} />
             <Detail label="Categoria" value={s.category as string | null | undefined} />
-            <Detail label="Centro costo" value={s.cost_center === 'all' ? `Tutti gli ${labels.pointOfSalePluralLower}` : (s.cost_center as string | null | undefined)} />
+            <Detail label="Centro costo" value={s.cost_center === 'all' ? `Tutti ${labels.art.i}` : (s.cost_center as string | null | undefined)} />
             <Detail label="Stato" value={s.is_active !== false ? '✓ Attivo' : '✗ Disattivato'} />
             {(s.note || s.notes) ? (
               <>
@@ -1177,7 +1177,7 @@ export default function Fornitori() {
             ) : (
               <p className="text-xs text-slate-500 bg-slate-50 rounded-lg p-3 leading-relaxed">
                 La divisione tra {labels.pointOfSalePluralLower} è disponibile solo con almeno 2 {labels.pointOfSalePluralLower} attivi.
-                {activeOutletCount === 1 ? ` Questo tenant ne ha 1: tutti i costi sono attribuiti all'unica sede.` : ' Nessun outlet attivo configurato.'}
+                {activeOutletCount === 1 ? ` Questo tenant ne ha 1: tutti i costi sono attribuiti all'unica sede.` : ` Nessun ${labels.pointOfSaleLower} attivo configurato.`}
               </p>
             )}
           </div>

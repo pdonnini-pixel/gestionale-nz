@@ -135,11 +135,12 @@ function Select({ value, onChange, children }: { value: string | number | boolea
 
 // ====== STEP 1: ANAGRAFICA ======
 function StepAnagrafica({ form, set }: { form: OutletForm; set: (k: string, v: unknown) => void }) {
+  const labels = useCompanyLabels()
   return (
     <div className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Anagrafica punto vendita</h3>
       <div className="grid grid-cols-2 gap-4">
-        <Field label="Nome outlet" required>
+        <Field label={`Nome ${labels.pointOfSaleLower}`} required>
           <Input value={form.name} onChange={v => set('name', v)} placeholder="es. TORINO" />
         </Field>
         <Field label="Codice" required>
@@ -327,6 +328,7 @@ function StepCanone({ form, set }: { form: OutletForm; set: (k: string, v: unkno
 
 // ====== STEP 5: GARANZIE E TARGET ======
 function StepGaranzie({ form, set }: { form: OutletForm; set: (k: string, v: unknown) => void }) {
+  const labels = useCompanyLabels()
   return (
     <div className="space-y-4">
       <h3 className="text-base font-semibold text-slate-900">Garanzie, depositi e target</h3>
@@ -335,7 +337,7 @@ function StepGaranzie({ form, set }: { form: OutletForm; set: (k: string, v: unk
         <Field label="Fideiussione / garanzia bancaria (€)">
           <Input type="number" value={form.deposit_guarantee} onChange={v => set('deposit_guarantee', v)} placeholder="58650" />
         </Field>
-        <Field label="Scadenza fideiussione" hint="Alimenta gli alert della scheda outlet">
+        <Field label="Scadenza fideiussione" hint={`Alimenta gli alert della scheda ${labels.art.del}`}>
           <Input type="date" value={form.guarantee_expiry} onChange={v => set('guarantee_expiry', v)} />
         </Field>
       </div>
@@ -447,8 +449,9 @@ function StepRiepilogo({ form }: { form: OutletForm }) {
 
 // ====== STEP 7: ALLEGATI (solo se da contratto) ======
 function StepAllegati({ allegati, contractFileName, uploadedFiles, onFileUpload }: { allegati: AllegatoEntry[]; contractFileName?: string; uploadedFiles: Record<string, File>; onFileUpload?: (code: string, file: File) => void }) {
+  const labels = useCompanyLabels()
   const defaultLabels: Record<string, string> = {
-    'A': 'Planimetria Outlet',
+    'A': `Planimetria ${labels.pointOfSale}`,
     'B': 'Condizioni Generali',
     'C': 'Planimetria Porzione Immobiliare',
     'D': 'Elenco Impianti e Cespiti',
@@ -470,7 +473,7 @@ function StepAllegati({ allegati, contractFileName, uploadedFiles, onFileUpload 
         <div>
           <div className="font-medium">Documento analizzato: {contractFileName}</div>
           <div className="text-xs mt-0.5 text-blue-600">
-            Clicca su ogni allegato per caricarlo ora. Puoi anche farlo dopo dalla scheda outlet.
+            Clicca su ogni allegato per caricarlo ora. Puoi anche farlo dopo dalla scheda {labels.art.del}.
           </div>
         </div>
       </div>
@@ -679,7 +682,7 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
     if (costCenterKey) {
       const ccErr = await ensureCostCenter(companyId, costCenterKey, String(form.name ?? ''), String(form.code ?? ''), String(form.outlet_type ?? 'outlet'))
       if (ccErr) {
-        setError(`Outlet salvato, ma il centro di costo «${costCenterKey}» non è stato creato: ${ccErr}. Crealo da Impostazioni → Centri di costo.`)
+        setError(`${labels.pointOfSale} salvato, ma il centro di costo «${costCenterKey}» non è stato creato: ${ccErr}. Crealo da Impostazioni → Centri di costo.`)
         setSaving(false)
         return
       }
@@ -688,7 +691,7 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
     // Crea record allegati se presenti
     if (inserted && allegati && allegati.length > 0) {
       const defaultLabels: Record<string, string> = {
-        'A': 'Planimetria Outlet', 'B': 'Condizioni Generali', 'C': 'Planimetria Porzione Immobiliare',
+        'A': `Planimetria ${labels.pointOfSale}`, 'B': 'Condizioni Generali', 'C': 'Planimetria Porzione Immobiliare',
         'D': 'Elenco Impianti e Cespiti', 'E': 'Progetto layout', 'F': 'Bozza fideiussione bancaria',
         'CG': 'Condizioni Generali', 'REG': 'Regolamento immobiliare',
       }
@@ -845,7 +848,7 @@ export default function OutletWizard({ onClose, onSaved, initialData, allegati, 
               className="flex items-center gap-1 px-5 py-2 text-sm rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition disabled:opacity-50"
             >
               <Save size={16} />
-              {saving ? 'Salvataggio...' : editId ? 'Salva modifiche' : 'Crea outlet'}
+              {saving ? 'Salvataggio...' : editId ? 'Salva modifiche' : `Crea ${labels.pointOfSaleLower}`}
             </button>
           )}
         </div>

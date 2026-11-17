@@ -35,6 +35,8 @@ import { getCurrentTenant } from '../lib/tenants'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/ui/Modal'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { adattaTermini } from '../lib/terminiPdv'
 import { errorMessage } from '../types/business'
 import {
   type Ticket, type TicketAllegato, type TicketCommento, type TicketPriorita, type TicketStato,
@@ -344,6 +346,7 @@ interface CreateTicketModalProps {
 function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps) {
   const { toast } = useToast()
   const { profile, session } = useAuth()
+  const labels = useCompanyLabels()
   const [tipo, setTipo] = useState<TicketTipo>('bug')
   const [modulo, setModulo] = useState<string>('Altro')
   const [titolo, setTitolo] = useState('')
@@ -532,7 +535,7 @@ function CreateTicketModal({ open, onClose, onCreated }: CreateTicketModalProps)
                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-200"
               >
                 {TICKET_MODULI.map(m => (
-                  <option key={m} value={m}>{m}</option>
+                  <option key={m} value={m}>{adattaTermini(m, labels)}</option>
                 ))}
               </select>
             </div>
@@ -670,6 +673,7 @@ export function TicketList({
   tickets, loading, onRefresh, onOpenDetail, onCreate, initialStato,
   adminMode = false, renderAdminBulkBar, renderAdminHeaderExtras,
 }: TicketListProps) {
+  const labels = useCompanyLabels()
   // Default: 'da_lavorare' = aperti + in_corso (no chiusi/risolti).
   // Sia utente sia admin all'apertura vedono solo i ticket attivi.
   // Filtri 'risolto'/'chiuso' restano disponibili manualmente.
@@ -812,7 +816,7 @@ export function TicketList({
           aria-label="Modulo"
         >
           <option value="tutti">Tutti i moduli</option>
-          {TICKET_MODULI.map(m => <option key={m} value={m}>{m}</option>)}
+          {TICKET_MODULI.map(m => <option key={m} value={m}>{adattaTermini(m, labels)}</option>)}
         </select>
         <div className="ml-auto text-xs text-slate-500">
           {filtered.length} su {tickets.length}

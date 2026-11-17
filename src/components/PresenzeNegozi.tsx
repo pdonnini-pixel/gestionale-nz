@@ -20,6 +20,7 @@ import { BellRing, Copy, KeyRound, Plus, RefreshCw, Smartphone } from 'lucide-re
 import { Modal } from './ui/Modal'
 import { supabase } from '../lib/supabase'
 import { useOutlets } from '../hooks/useOutlets'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useToast } from './Toast'
 import {
   ETICHETTA_ESITO, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT, dataRoma, formatMinuti, oraRoma, oraRomaInMs, ordina,
@@ -70,6 +71,7 @@ const ETICHETTA_VERIFICA: Record<string, string> = {
 export default function PresenzeNegozi({ companyId }: { companyId: string }) {
   const { toast } = useToast()
   const { outlets } = useOutlets()
+  const labels = useCompanyLabels()
   const [outletId, setOutletId] = useState('')
   const [giorno, setGiorno] = useState(() => dataRoma(Date.now()))
   const [imp, setImp] = useState<Impostazioni>(IMP_DEFAULT)
@@ -286,7 +288,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
             </label>
             <label className="flex items-center gap-2">
               <input type="checkbox" checked={imp.avvisa_responsabile} onChange={(e) => void salvaImp({ ...imp, avvisa_responsabile: e.target.checked })} />
-              il referente del negozio{responsabile ? ` (${nomi.get(responsabile) ?? 'indicato in Outlet'})` : ' (non indicato: si sceglie in Outlet)'}
+              il referente del negozio{responsabile ? ` (${nomi.get(responsabile) ?? `indicato in ${labels.pointOfSalePlural}`})` : ` (non indicato: si sceglie in ${labels.pointOfSalePlural})`}
             </label>
             {haConfermatori && (
               <label className="flex items-center gap-2">

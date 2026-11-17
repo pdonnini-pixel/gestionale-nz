@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useCompanyLabels, type CompanyLabels } from '../hooks/useCompanyLabels'
 import {
   Store, Percent, DollarSign, Equal, ArrowRight,
   CheckCircle2, AlertCircle, Loader2, Trash2, Save,
@@ -49,12 +49,12 @@ function fmt(n: number | null | undefined, dec = 2): string {
   }).format(n)
 }
 
-interface ModeMeta { label: string; color: ColorKey; icon: typeof ArrowRight; desc: string }
+interface ModeMeta { label: string; color: ColorKey; icon: typeof ArrowRight; desc: (l: CompanyLabels) => string }
 export const MODE_META: Record<AllocationMode, ModeMeta> = {
-  DIRETTO:       { label: 'Diretto',        color: 'blue',    icon: ArrowRight,   desc: 'Tutto a un solo outlet' },
-  SPLIT_PCT:     { label: 'Split %',        color: 'purple',  icon: Percent,      desc: 'Ripartizione percentuale' },
-  SPLIT_VALORE:  { label: 'Split Valore',   color: 'amber',   icon: DollarSign,   desc: 'Importi fissi per outlet' },
-  QUOTE_UGUALI:  { label: 'Quote Uguali',   color: 'emerald', icon: Equal,        desc: 'Diviso in parti uguali' },
+  DIRETTO:       { label: 'Diretto',        color: 'blue',    icon: ArrowRight,   desc: l => `Tutto a un solo ${l.pointOfSaleLower}` },
+  SPLIT_PCT:     { label: 'Split %',        color: 'purple',  icon: Percent,      desc: () => 'Ripartizione percentuale' },
+  SPLIT_VALORE:  { label: 'Split Valore',   color: 'amber',   icon: DollarSign,   desc: l => `Importi fissi per ${l.pointOfSaleLower}` },
+  QUOTE_UGUALI:  { label: 'Quote Uguali',   color: 'emerald', icon: Equal,        desc: () => 'Diviso in parti uguali' },
 }
 
 interface ColorTheme { bg: string; border: string; text: string; ring: string; badge: string }
@@ -191,7 +191,7 @@ export default function SupplierAllocationEditor({ supplierId, onSaved, onCancel
 
     if (editMode === 'DIRETTO') {
       const selected = editDetails.filter(d => d.selected)
-      if (selected.length !== 1) return { valid: false, message: 'Seleziona esattamente un outlet' }
+      if (selected.length !== 1) return { valid: false, message: `Seleziona esattamente ${labels.art.un}` }
       return { valid: true, message: '' }
     }
 
@@ -211,12 +211,12 @@ export default function SupplierAllocationEditor({ supplierId, onSaved, onCancel
 
     if (editMode === 'QUOTE_UGUALI') {
       const selected = editDetails.filter(d => d.selected)
-      if (selected.length === 0) return { valid: false, message: 'Seleziona almeno un outlet' }
+      if (selected.length === 0) return { valid: false, message: `Seleziona almeno ${labels.art.un}` }
       return { valid: true, message: '' }
     }
 
     return { valid: false, message: 'Modalità non riconosciuta' }
-  }, [editMode, editDetails])
+  }, [editMode, editDetails, labels])
 
   /* ── save (identico a /allocazione-fornitori) ── */
 
@@ -366,7 +366,7 @@ export default function SupplierAllocationEditor({ supplierId, onSaved, onCancel
                 key={key}
                 type="button"
                 onClick={() => changeMode(key)}
-                title={meta.desc}
+                title={meta.desc(labels)}
                 className={`text-xs font-medium px-3 py-1.5 rounded-full border transition-all
                   ${active ? `${c.bg} ${c.border} ${c.text}` : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'}
                 `}
@@ -380,16 +380,16 @@ export default function SupplierAllocationEditor({ supplierId, onSaved, onCancel
 
       {/* Mode-specific form */}
       {editMode === 'DIRETTO' && (
-        <DirettoForm outlets={outlets} editDetails={editDetails} setDetailField={setDetailField} labelSingular={labels.pointOfSaleLower} />
+        <DirettoForm outlets={outlets} editDetails={editDetails} setDetailField={setDetailField} labels={labels} />
       )}
       {editMode === 'SPLIT_PCT' && (
-        <SplitPctForm outlets={outlets} editDetails={editDetails} setDetailField={setDetailField} pctTotal={pctTotal} labelSingular={labels.pointOfSaleLower} />
+        <SplitPctForm outlets={outlets} editDetails={editDetails} setDetailField={setDetailField} pctTotal={pctTotal} labels={labels} />
       )}
       {editMode === 'SPLIT_VALORE' && (
-        <SplitValoreForm outlets={outlets} editDetails={editDetails} setDetailField={setDetailField} valTotal={valTotal} labelSingular={labels.pointOfSaleLower} />
+        <SplitValoreForm outlets={outlets} editDetails={editDetails} setDetailField={setDetailField} valTotal={valTotal} labels={labels} />
       )}
       {editMode === 'QUOTE_UGUALI' && (
-        <QuoteUgualiForm outlets={outlets} editDetails={editDetails} setDetailField={setDetailField} selCount={selCount} equalShare={equalShare} labelPlural={labels.pointOfSalePluralLower} />
+        <QuoteUgualiForm outlets={outlets} editDetails={editDetails} setDetailField={setDetailField} selCount={selCount} equalShare={equalShare} labels={labels} />
       )}
 
       {/* Validation message */}
@@ -453,7 +453,7 @@ export default function SupplierAllocationEditor({ supplierId, onSaved, onCancel
    ════════════════════════════════════════════════════════ */
 
 /* DIRETTO */
-function DirettoForm({ outlets, editDetails, setDetailField, labelSingular }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; labelSingular: string }) {
+function DirettoForm({ outlets, editDetails, setDetailField, labels }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; labels: CompanyLabels }) {
   const selectedId = editDetails.find(d => d.selected)?.outlet_id || null
 
   const handleSelect = (outletId: string) => {
@@ -465,7 +465,7 @@ function DirettoForm({ outlets, editDetails, setDetailField, labelSingular }: { 
 
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-600 mb-2">Seleziona il {labelSingular} destinatario</label>
+      <label className="block text-xs font-medium text-slate-600 mb-2">Seleziona {labels.art.il} destinatario</label>
       <div className="space-y-2">
         {outlets.map(o => {
           const active = selectedId === o.id
@@ -492,12 +492,12 @@ function DirettoForm({ outlets, editDetails, setDetailField, labelSingular }: { 
 }
 
 /* SPLIT_PCT */
-function SplitPctForm({ outlets, editDetails, setDetailField, pctTotal, labelSingular }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; pctTotal: number; labelSingular: string }) {
+function SplitPctForm({ outlets, editDetails, setDetailField, pctTotal, labels }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; pctTotal: number; labels: CompanyLabels }) {
   const isValid = Math.abs(pctTotal - 100) <= 0.01
 
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-600 mb-2">Percentuali per {labelSingular}</label>
+      <label className="block text-xs font-medium text-slate-600 mb-2">Percentuali per {labels.pointOfSaleLower}</label>
       <div className="space-y-2">
         {outlets.map(o => {
           const det = editDetails.find(d => d.outlet_id === o.id)
@@ -534,10 +534,10 @@ function SplitPctForm({ outlets, editDetails, setDetailField, pctTotal, labelSin
 }
 
 /* SPLIT_VALORE */
-function SplitValoreForm({ outlets, editDetails, setDetailField, valTotal, labelSingular }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; valTotal: number; labelSingular: string }) {
+function SplitValoreForm({ outlets, editDetails, setDetailField, valTotal, labels }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; valTotal: number; labels: CompanyLabels }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-600 mb-2">Importo fisso per {labelSingular} (EUR)</label>
+      <label className="block text-xs font-medium text-slate-600 mb-2">Importo fisso per {labels.pointOfSaleLower} (EUR)</label>
       <div className="space-y-2">
         {outlets.map(o => {
           const det = editDetails.find(d => d.outlet_id === o.id)
@@ -573,10 +573,10 @@ function SplitValoreForm({ outlets, editDetails, setDetailField, valTotal, label
 }
 
 /* QUOTE_UGUALI */
-function QuoteUgualiForm({ outlets, editDetails, setDetailField, selCount, equalShare, labelPlural }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; selCount: number; equalShare: number; labelPlural: string }) {
+function QuoteUgualiForm({ outlets, editDetails, setDetailField, selCount, equalShare, labels }: { outlets: OutletLite[]; editDetails: EditDetail[]; setDetailField: SetDetailField; selCount: number; equalShare: number; labels: CompanyLabels }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-slate-600 mb-2">Seleziona gli {labelPlural} (divisione uguale)</label>
+      <label className="block text-xs font-medium text-slate-600 mb-2">Seleziona {labels.art.i} (divisione uguale)</label>
       <div className="space-y-2">
         {outlets.map(o => {
           const det = editDetails.find(d => d.outlet_id === o.id)
@@ -610,7 +610,7 @@ function QuoteUgualiForm({ outlets, editDetails, setDetailField, selCount, equal
       {selCount > 0 && (
         <div className="mt-3 flex items-center justify-end gap-2 text-sm font-medium text-emerald-700">
           <Equal className="w-4 h-4" />
-          {selCount} outlet selezionati — {fmt(equalShare, 2)}% ciascuno
+          {selCount === 1 ? `1 ${labels.pointOfSaleLower} selezionato` : `${selCount} ${labels.pointOfSalePluralLower} selezionati`} — {fmt(equalShare, 2)}% ciascuno
         </div>
       )}
     </div>

@@ -486,7 +486,7 @@ export default function MarginiCategoria() {
         <Kpi icon={Receipt} label="Costi totali" value={`${fmtK(totals.costs)} €`} color="red" />
         <Kpi icon={TrendingUp} label="Margine" value={`${fmtK(totals.margin)} €`}
           sub={fmtPct(totals.marginPct)} color={totals.margin >= 0 ? 'green' : 'red'} />
-        <Kpi icon={Store} label="Outlet attivi" value={outlets.length} color="indigo" />
+        <Kpi icon={Store} label={`${labels.pointOfSalePlural} attivi`} value={outlets.length} color="indigo" />
         <Kpi icon={Target} label="Miglior margine"
           value={bestOutlet ? fmtPct(bestOutlet.marginPct) : '—'}
           sub={bestOutlet?.name || ''} color="green" />
@@ -510,7 +510,7 @@ export default function MarginiCategoria() {
       {/* Tabs */}
       <div className="flex gap-1 bg-slate-100 rounded-lg p-1 w-fit">
         {([
-          { key: 'outlet', label: 'Per Outlet', icon: Store },
+          { key: 'outlet', label: `Per ${labels.pointOfSale}`, icon: Store },
           { key: 'costi', label: 'Struttura Costi', icon: PieChartIcon },
           { key: 'trend', label: 'Trend Mensile', icon: BarChart3 },
         ] as const).map(t => (

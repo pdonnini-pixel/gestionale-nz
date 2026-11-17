@@ -4,7 +4,7 @@ import { Search, X, Store, Building2, Receipt, Landmark, Users, FileText, ArrowR
 import Tooltip from './Tooltip'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
-import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { useCompanyLabels, type CompanyLabels } from '../hooks/useCompanyLabels'
 
 interface SearchCategory {
   key: string
@@ -22,8 +22,8 @@ interface SearchResult {
   fullTitle?: string | null
 }
 
-const SEARCH_CATEGORIES: SearchCategory[] = [
-  { key: 'outlets', label: 'Outlet', icon: Store, color: 'blue' },
+const searchCategories = (labels: CompanyLabels): SearchCategory[] => [
+  { key: 'outlets', label: labels.pointOfSalePlural, icon: Store, color: 'blue' },
   { key: 'suppliers', label: 'Fornitori', icon: Building2, color: 'purple' },
   { key: 'invoices', label: 'Fatture', icon: Receipt, color: 'emerald' },
   { key: 'movements', label: 'Movimenti', icon: Landmark, color: 'amber' },
@@ -205,7 +205,7 @@ export default function GlobalSearch({ open: openProp, onClose }: GlobalSearchPr
             <div className="py-8 text-center text-sm text-slate-400">Nessun risultato per "{query}"</div>
           )}
           {Object.entries(results).map(([catKey, items]) => {
-            const cat = SEARCH_CATEGORIES.find(c => c.key === catKey)
+            const cat = searchCategories(labels).find(c => c.key === catKey)
             if (!cat || !items.length) return null
             const CatIcon = cat.icon
             return (

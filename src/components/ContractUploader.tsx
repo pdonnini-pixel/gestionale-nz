@@ -61,10 +61,11 @@ function ConfidenceBadge({ pct }: { pct: number }) {
 }
 
 function DataPreview({ data }: { data: ParsedContract }) {
+  const labels = useCompanyLabels()
   type PreviewItem = [label: string, value: string | number | null | undefined]
   const sections: Array<{ title: string; items: PreviewItem[] }> = [
     { title: 'Anagrafica', items: [
-      ['Nome outlet', data.name],
+      [`Nome ${labels.pointOfSaleLower}`, data.name],
       ['Brand/Insegna', data.brand],
       ['SLP (mq)', data.sqm],
       ['Sup. vendita (mq)', data.sell_sqm],
@@ -122,10 +123,11 @@ function DataPreview({ data }: { data: ParsedContract }) {
 }
 
 function AllegatiChecklist({ allegati, uploadedFiles, onFileUpload }: { allegati?: AllegatoEntry[]; uploadedFiles: Record<string, File>; onFileUpload?: (code: string, file: File) => void }) {
+  const labels = useCompanyLabels()
   if (!allegati || allegati.length === 0) return null
 
   const defaultLabels: Record<string, string> = {
-    'A': 'Planimetria Outlet',
+    'A': `Planimetria ${labels.pointOfSale}`,
     'B': 'Condizioni Generali',
     'C': 'Planimetria Porzione Immobiliare',
     'D': 'Elenco Impianti e Cespiti',
@@ -154,7 +156,7 @@ function AllegatiChecklist({ allegati, uploadedFiles, onFileUpload }: { allegati
         )}
       </div>
       <p className="text-xs text-amber-700 mb-3">
-        Clicca su un allegato per caricarlo ora, oppure potrai farlo dopo dalla scheda outlet.
+        Clicca su un allegato per caricarlo ora, oppure potrai farlo dopo dalla scheda {labels.art.del}.
       </p>
       <div className="space-y-1.5">
         {allegati.map(a => {

@@ -12,6 +12,8 @@ import {
 import { PAGE_GUIDES, type PageGuide } from '../data/pageGuides'
 import { TUTORIAL_BY_ID, tutorialFile, tutorialAsText, type GuideTutorial } from '../data/guideTutorials'
 import { useAuth } from '../hooks/useAuth'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
+import { adattaGuida } from '../lib/terminiPdv'
 import {
   fetchOpenSession, createSession, fetchMessages, appendMessage, closeSession,
   fetchSessions, formatChatDate,
@@ -819,7 +821,12 @@ export default function HelpPanel() {
   const [open, setOpen] = useState(false)
   const [tab, setTab] = useState<Tab>('guida')
 
-  const guide = resolveGuide(location.pathname)
+  const labels = useCompanyLabels()
+  // Le guide sono scritte con «outlet»: su Zago diventano «negozio/negozi».
+  const guide = useMemo(() => {
+    const g = resolveGuide(location.pathname)
+    return g ? adattaGuida(g, labels) : null
+  }, [location.pathname, labels])
   const pageTitle = guide?.title || titleFromPath(location.pathname)
   const pageContext = buildPageContext(guide)
   const canonicalPath = '/' + location.pathname.split('/').filter(Boolean).join('/')

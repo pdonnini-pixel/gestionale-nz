@@ -403,6 +403,7 @@ function ContractAlerts({ outlet }: { outlet: Record<string, unknown> }) {
 // dall'apertura (canone, spese), così l'assenza di ricavi non viene letta
 // come un negozio che va male.
 function PreAperturaCard({ outlet }: { outlet: OutletEntity }) {
+  const labels = useCompanyLabels()
   const o = outlet as Record<string, unknown>
   const lc = o as OutletLifecycleFields
   if (getOutletLifecycle(lc) !== 'programmato') return null
@@ -430,7 +431,7 @@ function PreAperturaCard({ outlet }: { outlet: OutletEntity }) {
         </h3>
       </div>
       <p className="text-xs text-blue-800 mb-3">
-        I ricavi partono dalla data di apertura. I costi già sostenuti e quelli in arrivo (canone, spese, allestimento) sono nello Scadenzario e nel Cashflow; nelle pagine di confronto questo outlet resta fuori da medie e classifiche finché non apre.
+        I ricavi partono dalla data di apertura. I costi già sostenuti e quelli in arrivo (canone, spese, allestimento) sono nello Scadenzario e nel Cashflow; nelle pagine di confronto questo {labels.pointOfSaleLower} resta fuori da medie e classifiche finché non apre.
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
         {rows.map(([k, v]) => (
@@ -859,6 +860,7 @@ function StaffTab({ outletId, outletName, companyId }: { outletId: string; outle
 type OutletEntity = Record<string, unknown> & { id: string; company_id?: string; name?: string | null; code?: string | null; mall_name?: string | null; rent_monthly?: number | null; condo_marketing_monthly?: number | null; is_active?: boolean | null }
 function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, detailTab, setDetailTab, onBack, onEdit, onDelete }: { outlet: OutletEntity; detailTab: string; setDetailTab: (key: string) => void; revenue: Record<string, Record<number, number>>; confronto: Record<string, { prev: Record<number, number>; cons: Record<number, number> }>; revPlaceholder?: Record<string, boolean>; year: number; onBack: () => void; onEdit: (o: OutletEntity) => void; onDelete: (o: OutletEntity) => void }) {
   const { profile: _profile } = useAuth()
+  const labels = useCompanyLabels()
   const yearData: Record<number, number> = revenue[outlet.id] || {}
 
   // Corrispettivi sparkline (last 7 days for overview)
@@ -1026,7 +1028,7 @@ function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, detail
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <h3 className="text-sm font-semibold text-slate-900">Preventivo vs Consuntivo — {year}</h3>
               <div className="flex items-center gap-4 text-xs">
-                <span className="text-slate-500 inline-flex items-center">Preventivo: <span className="font-semibold text-rose-600 ml-1">{fmt(totPreventivo)} €</span><PlaceholderDot show={!!revPlaceholder?.[outlet.id]} tip="Ricavi a budget di questo outlet ancora segnaposto (clone 2025) non granito in Budget & Controllo." /></span>
+                <span className="text-slate-500 inline-flex items-center">Preventivo: <span className="font-semibold text-rose-600 ml-1">{fmt(totPreventivo)} €</span><PlaceholderDot show={!!revPlaceholder?.[outlet.id]} tip={`Ricavi a budget di questo ${labels.pointOfSaleLower} ancora segnaposto (clone 2025) non granito in Budget & Controllo.`} /></span>
                 <span className="text-slate-500">Consuntivo: <span className="font-semibold text-emerald-600">{fmt(totConsuntivo)} €</span></span>
               </div>
             </div>
@@ -1085,7 +1087,7 @@ function OutletDetail({ outlet, revenue, confronto, revPlaceholder, year, detail
         <div className="bg-white rounded-xl border border-slate-200 p-6">
           <h3 className="text-sm font-semibold text-slate-900 mb-3">Budget vs Consuntivo</h3>
           <p className="text-sm text-slate-500">
-            Vai alla pagina <a href="/budget" className="text-blue-500 hover:underline">Budget & Controllo</a> per il dettaglio budget vs actual di questo outlet.
+            Vai alla pagina <a href="/budget" className="text-blue-500 hover:underline">Budget & Controllo</a> per il dettaglio budget vs actual di questo {labels.pointOfSaleLower}.
           </p>
           {/* Revenue chart as proxy */}
           <div className="mt-4">
@@ -1418,7 +1420,7 @@ export default function Outlet() {
     }
 
     if (!delData || delData.length === 0) {
-      toast({ type: 'error', message: 'Non e\' stato possibile eliminare l\'outlet. Potrebbe essere un problema di permessi (RLS).' })
+      toast({ type: 'error', message: `Non e' stato possibile eliminare ${labels.art.il}. Potrebbe essere un problema di permessi (RLS).` })
       setDeleting(false)
       setShowDeleteConfirm(null)
       return
@@ -1619,7 +1621,7 @@ export default function Outlet() {
                 disabled={deleting}
                 className="px-4 py-2 text-sm rounded-lg bg-red-600 text-white hover:bg-red-700 transition disabled:opacity-50"
               >
-                {deleting ? 'Eliminazione...' : 'Elimina outlet'}
+                {deleting ? 'Eliminazione...' : `Elimina ${labels.pointOfSaleLower}`}
               </button>
             </div>
         </Modal>

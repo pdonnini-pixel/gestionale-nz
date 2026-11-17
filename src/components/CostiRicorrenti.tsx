@@ -570,7 +570,7 @@ function CostiRicorrenti() {
             onChange={(e) => setFilterOutlet(e.target.value)}
             className="px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           >
-            <option value="">Tutti gli {labels.pointOfSalePluralLower}</option>
+            <option value="">Tutti {labels.art.i}</option>
             {costCenters.map((center) => (
               <option key={center.id} value={center.code}>
                 {center.label}
@@ -766,7 +766,7 @@ function CostiRicorrenti() {
                 {/* Outlet */}
                 <div>
                   <label className="block text-sm font-medium text-slate-900 mb-1">
-                    Outlet *
+                    {labels.pointOfSale} *
                   </label>
                   <select
                     value={formData.cost_center}

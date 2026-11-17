@@ -30,6 +30,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { useCompany } from '../hooks/useCompany'
+import { useCompanyLabels } from '../hooks/useCompanyLabels'
 import { useOutlets } from '../hooks/useOutlets'
 import { useToast } from '../components/Toast'
 import { Modal } from '../components/ui/Modal'
@@ -89,6 +90,7 @@ function errMsg(e: unknown): string {
 export default function ChiusuraCassa() {
   const { profile, session } = useAuth()
   const { company } = useCompany()
+  const labels = useCompanyLabels()
   // Solo punti vendita: sede e magazzino non hanno cassa.
   const { outlets, loading: outletsLoading } = useOutlets({ sellingOnly: true })
   const { toast } = useToast()
@@ -451,7 +453,7 @@ export default function ChiusuraCassa() {
   /** Crea la riga di chiusura se non esiste ancora (serve prima di foto e spese). */
   const ensureClosing = async (): Promise<ClosingRow> => {
     if (closing) return closing
-    if (!companyId || !outletId) throw new Error('Outlet non selezionato')
+    if (!companyId || !outletId) throw new Error(`${labels.pointOfSale} non selezionato`)
     const { data, error } = await supabase.from('outlet_daily_closings')
       .insert({ company_id: companyId, outlet_id: outletId, closing_date: dateIso, created_by: userId, ...closingPayload() })
       .select('*').single()
@@ -935,7 +937,7 @@ export default function ChiusuraCassa() {
       <div className="p-6 max-w-xl mx-auto">
         <PageHeader title="Chiusura cassa" />
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-amber-800 text-sm">
-          Nessun punto vendita è collegato a questo accesso. Chiedi a chi amministra il gestionale di assegnarti un outlet da
+          Nessun punto vendita è collegato a questo accesso. Chiedi a chi amministra il gestionale di assegnarti {labels.art.un} da
           Impostazioni → Utenti.
         </div>
       </div>
