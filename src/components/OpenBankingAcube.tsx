@@ -166,6 +166,10 @@ export default function OpenBankingAcube({ onSynced }: { onSynced?: () => void }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Errore avvio collegamento'
       toast({ type: 'error', message: msg })
+      // Il registro può essere stato creato anche se la pagina di consenso è
+      // fallita (banca già autorizzata sul sito A-Cube): ricarica, così compare
+      // «Importa conti già collegati» senza ricaricare la pagina.
+      await loadData()
     }
   }
 
