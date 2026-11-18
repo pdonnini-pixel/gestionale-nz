@@ -226,8 +226,11 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
     if (!c.is_closed_day) {
       totals.total += num(c.total_receipts); totals.cash += cash; totals.pos += pos; totals.other += other;
       totals.expenses += num(c.cash_expenses); totals.refunds += num(c.customer_refunds); totals.deposit += num(c.cash_deposit);
-      if (c.status === "bozza") anomalies.push(`${o.name}: chiusura ancora in bozza, non confermata`);
+      // Il contatore parte prima della riga della bozza: una chiusura non
+      // confermata e' qualcosa di aperto su quella giornata, quindi la nota
+      // della cassiera resta fra le cose da controllare e non fra le note.
       const primaDiQuestoNegozio = anomalies.length;
+      if (c.status === "bozza") anomalies.push(`${o.name}: chiusura ancora in bozza, non confermata`);
       if (Math.abs(num(c.receipts_difference)) > tol) anomalies.push(`${o.name}: totale incassato (corrispettivi${num(c.invoices_total) ? " + fatture" : ""}) e somma dei mezzi di pagamento non quadrano (differenza ${eur(num(c.receipts_difference))})`);
       if (c.cash_difference != null && Math.abs(num(c.cash_difference)) > tol) anomalies.push(`${o.name}: contante in cassa (fondo + da versare) ${num(c.cash_difference) > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(num(c.cash_difference)))}`);
       const myAtts = atts.filter((a) => a.closing_id === c.id);
@@ -240,16 +243,23 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
         else if (a.target === "versamento") { declared = num(c.cash_deposit); what = "versamento"; }
         else if (a.target === "canale") { const l = lines.find((x) => x.id === a.line_id); if (l) { declared = num(l.amount); what = chById.get(l.channel_id)?.label ?? "canale"; } }
         else if (a.target === "spesa") { const e = expenses.find((x) => x.id === a.expense_id); if (e) { declared = num(e.amount); what = `spesa ${e.description ?? ""}`.trim(); } }
-        if (declared != null && Math.abs(declared - read) > tol) anomalies.push(`${o.name}: ${what} scritto ${eur(declared)} ma dalla foto risulta ${eur(read)}`);
+        // Arrotondato al centesimo prima di confrontare: 101,2 - 100,2 in
+        // virgola mobile fa 1,0000000000000142, e una differenza di un euro
+        // tondo finirebbe segnalata contro la regola «fino a un euro».
+        if (declared != null && Math.round(Math.abs(declared - read) * 100) / 100 > tol) anomalies.push(`${o.name}: ${what} scritto ${eur(declared)} ma dalla foto risulta ${eur(read)}`);
       }
       // La nota della cassiera e' una cosa da controllare solo se su quella
       // giornata resta aperto qualcos'altro: quasi sempre la nota SPIEGA la
       // differenza, e se la differenza sta sotto la tolleranza la nota diventa
       // una seconda riga per lo stesso nulla. Le altre finiscono nel riquadro
       // «Note dei negozi», che si legge senza dover fare niente.
-      if (c.notes) {
-        if (anomalies.length > primaDiQuestoNegozio) anomalies.push(`${o.name}: nota della cassiera «${c.notes}»`);
-        else storeNotes.push(`${o.name}: «${c.notes}»`);
+      // Tagliata a 220 caratteri come nell'istruttoria: una nota lunghissima
+      // non deve gonfiare la mail che va a tutti.
+      const nota = (c.notes ?? "").trim();
+      const notaCorta = nota.length > 220 ? `${nota.slice(0, 217)}…` : nota;
+      if (notaCorta) {
+        if (anomalies.length > primaDiQuestoNegozio) anomalies.push(`${o.name}: nota della cassiera «${notaCorta}»`);
+        else storeNotes.push(`${o.name}: «${notaCorta}»`);
       }
     }
   }

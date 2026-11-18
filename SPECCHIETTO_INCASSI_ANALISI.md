@@ -453,6 +453,16 @@ Misura sui dati veri del 17 novembre, con la prova a vuoto dell'istruttoria su N
 
 La tolleranza resta un numero per azienda, modificabile dalle impostazioni: non è scritta nel codice. Sopra l'euro non cambia niente, la segnalazione arriva come prima.
 
+Dopo la revisione del codice, tre correzioni nello stesso lavoro:
+
+- **Una segnalazione che l'istruttoria non ritrova più non resta rossa.** Il vincolo unico di `closing_checks` è su (chiusura, tipo, fingerprint): il ramo nuovo scrive `arrotondamento` e la riga vecchia, scritta come `diff`, restava «da fare» accanto al nuovo «niente da fare». Ora a fine istruttoria le righe «da fare» di quella giornata che il giro di oggi non riproduce passano a «niente da fare» con il motivo scritto, e si chiudono: `UPDATE`, mai `DELETE`. Vale anche per la foto caricata dopo e per la bozza confermata. Misurato prima di toccare niente: su NZ **zero** righe storiche nella condizione segnalata, quindi non c'era nessun dato da sistemare, solo il difetto nel codice.
+- **La nota di una chiusura in bozza resta fra le cose da controllare.** Il contatore che decide dove finisce la nota partiva dopo la riga «ancora in bozza», così una bozza con nota finiva nel riquadro delle note (che dice «niente da fare») mentre la stessa giornata era fra le cose da controllare.
+- **Differenza arrotondata al centesimo prima del confronto.** In virgola mobile `101,2 - 100,2` fa `1,0000000000000142`: una differenza di un euro tondo fra foto e campo scritto sarebbe stata segnalata contro la regola. I confronti su `receipts_difference` e `cash_difference` arrivano dal database come numeric e non avevano il problema.
+
+Preso dalla revisione di sicurezza: le note delle cassiere nella mail si tagliano a 220 caratteri, come già faceva l'istruttoria. Resta come debito un tetto su `checks_tolerance`, che oggi nessun vincolo limita: chi amministra potrebbe scrivere 99999 e spegnere tutti i controlli.
+
+Cosa cambia e va saputo: nei corrispettivi il ramo della tolleranza viene prima di quello dell'annullo, quindi un annullo fino a un euro non fa più scattare la correzione automatica del totale. Il totale scritto dal negozio resta com'è.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?
