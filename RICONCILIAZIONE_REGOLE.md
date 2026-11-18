@@ -955,9 +955,14 @@ Nata dal conteggio delle 92 scadenze chiuse in via provvisoria su NZ (87.985,05 
 - **Esito sul vivo (Zago):** 20 estratti BCC caricati con `apply_bank_statement` (10 per conto, 1.339 movimenti),
   i 15 già caricati riapplicati dopo la 434, 40 domande archiviate con il motivo. Backup
   `_bkp_bcc_payables_20261118`, `_bkp_bcc_bank_tx_20261118`.
-- **Limite aperto:** 37 commissioni BCC su bonifico (circa 34 euro) non entrano perché sono identiche (stesso giorno,
-  importo e causale troncata «Commissioni su bonifico tramite in»): l'indice `idx_bank_tx_import_dedup` le tratta
-  come doppioni. Vale anche caricando dalla pagina.
+- **Commissioni identiche (migr. 435):** 37 commissioni BCC su bonifico (circa 34 euro) non entravano perché uguali
+  (stesso giorno, importo e causale): `trg_set_bank_tx_dedup_hash` dava a tutte la stessa impronta e
+  `idx_bank_tx_import_dedup` scartava le altre. Ora le righe con `source = 'estratto_conto'` non hanno impronta (come
+  l'open banking): i doppioni da ricaricamento li riconosce `apply_bank_statement`. Riapplicati i 20 estratti: 37
+  inserite, tutti gli estratti BCC quadrano a zero. Su NZ nessuna riga persa per questo.
+- **Contabilizzato dopo l'estratto (migr. 436):** un movimento con valuta nel periodo ma data contabile dopo
+  (Amex 206,30 + 1,00, valuta 15/07, contabile 06/08) non si chiede all'estratto di luglio se l'estratto di agosto lo
+  certifica. Su NZ 10 domande così in passato, tutte già chiuse.
 - **I PDF BCC su Drive sono scansioni**: per le BCC si carica l'Excel (quello di Pontassieve non ha il difetto di
   date e importi delle altre BCC; il controllo `excelEstrattoDifettoso` lo accetta). Il PDF di marzo, l'unico con
   testo, coincide con l'Excel su tutte le 92 righe.
@@ -965,6 +970,9 @@ Nata dal conteggio delle 92 scadenze chiuse in via provvisoria su NZ (87.985,05 
   della 433 a distinte MPS anonime; i bonifici BCC li citano per numero («affitto sf 4», «SF 13»): spostati sul
   bonifico BCC con `undo_reconcile_movement` + `reconcile_movement`. Quattro bonifici GGZ con l'elenco delle fatture
   e delle NC in causale, somma esatta, agganciati con `reconcile_movement_group` (come su NZ, R-manuale).
-- **GGZ e il motore «a numeri»** (`try_match_group_numbers_bank_transaction`): esclude le note di credito e i numeri
-  sotto le 6 cifre, quindi non prende i pagamenti GGZ («SF 7184-7322 NC 9527»). Su NZ gli stessi pagamenti sono stati
-  agganciati a mano o dalle distinte del gestionale. Da valutare con Patrizio prima di cambiarlo.
+- **Fatture e NC citate in causale (migr. 437):** `try_match_group_numbers_bank_transaction` esclude le note di
+  credito e i numeri sotto le 6 cifre, quindi non prendeva i pagamenti GGZ («SF 7184-7322 NC 9527»). Nuovo passaggio
+  `try_match_group_cited_nc_bank_transaction` dopo i due esistenti (che restano uguali): fornitore nominato in
+  causale, numeri citati (anche corti, 7184 = 7184/01), fatture meno NC = netto entro 0,05, un solo fornitore, almeno
+  due documenti. Misura: su Zago ritrova i 4 bonifici GGZ e niente altro; su NZ, sui 67 pagamenti a più documenti
+  già chiusi, ne ritrova 14 con gli stessi documenti agganciati allora (14 su 14).
