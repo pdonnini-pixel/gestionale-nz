@@ -3,7 +3,7 @@
 -- CREATE OR REPLACE: si ricrea la vista (nessun dato coinvolto, la vista
 -- non ha dipendenti) e si rimettono i permessi.
 BEGIN;
-DROP VIEW public.v_iva_componenti_mensili;
+DROP VIEW IF EXISTS public.v_iva_componenti_mensili;
 CREATE VIEW public.v_iva_componenti_mensili
 WITH (security_invoker = on) AS
  WITH dr AS (
@@ -161,4 +161,5 @@ WITH (security_invoker = on) AS
      LEFT JOIN pasm ON pasm.company_id = k.company_id AND pasm.year = k.year AND pasm.month = k.month;
 
 GRANT SELECT ON public.v_iva_componenti_mensili TO authenticated, service_role;
+COMMENT ON VIEW public.v_iva_componenti_mensili IS 'Componenti mensili della liquidazione IVA (migration 193/221/222/223/308).';
 COMMIT;
