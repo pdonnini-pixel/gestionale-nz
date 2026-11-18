@@ -999,3 +999,21 @@ Nata dal conteggio delle 92 scadenze chiuse in via provvisoria su NZ (87.985,05 
   effetti poteva far scadere il timeout di tutto il giro notturno); fuori le fatture successive all'addebito e
   quelle con note di credito in sospeso; le proposte «to_confirm» sullo stesso movimento passano a «rejected» come
   nella distinta (347).
+
+### R-440 — Addebito SDD prima della scadenza standard (18/11/2026)
+- **Il fatto:** le fatture NEXI del 13/10/2026 da 25,62 (2 su Zago, 7 su NZ, una per negozio) non portano termini di
+  pagamento, quindi il piano standard le fa scadere il 30/11. Nexi le addebita il 28/10 (26,62 con la commissione
+  MPS), 33 giorni prima della scadenza: fuori dalla finestra della 438 (scadenza da −30 a +15 giorni dall'addebito).
+  Restavano fra gli «Addebiti automatici» anche se erano già pagate.
+- **Regola (migr. 440, NZ e Zago):** in `try_match_sdd_commission_bank_transaction` vale la scadenza **oppure** la
+  data della fattura nei 30 giorni prima dell'addebito. Tutto il resto della 438 resta: importo + 1,00, fornitore
+  scritto nella causale SDD, fattura non successiva all'addebito, una sola fattura o fatture identiche.
+- **Misura prima di applicare:** sui movimenti non riconciliati la finestra nuova aggiunge solo questi addebiti NEXI,
+  nessun altro fornitore, su tutti e due i tenant.
+- **Esito sul vivo:** Zago 2 fatture pagate (3607914 su MPS Forte, 3607915 su MPS Firenze), NZ 7 fatture su 7
+  movimenti diversi.
+- **Cosa resta su Zago fra gli addebiti automatici:** NEXI 2416204 da 183,00 (nessun addebito sul conto: Nexi
+  probabilmente la trattiene dal suo estratto POS, serve l'estratto Nexi di febbraio); K7 e Bella Bijoux pagate con la
+  carta BCC (serve l'estratto carta del mese); ENEGAN 28/11, da addebitare. Gli addebiti mensili «NEXI PAYMENTS» e
+  «AMERICAN EXPRESS ... UTILIZZO CARTE DI CREDITO» sui conti MPS sono le commissioni dei POS (stessi mandati delle
+  fatture Nexi trimestrali), non carte di credito aziendali.
