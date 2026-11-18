@@ -976,3 +976,22 @@ Nata dal conteggio delle 92 scadenze chiuse in via provvisoria su NZ (87.985,05 
   causale, numeri citati (anche corti, 7184 = 7184/01), fatture meno NC = netto entro 0,05, un solo fornitore, almeno
   due documenti. Misura: su Zago ritrova i 4 bonifici GGZ e niente altro; su NZ, sui 67 pagamenti a più documenti
   già chiusi, ne ritrova 14 con gli stessi documenti agganciati allora (14 su 14).
+
+### R-438 — Commissioni MPS dentro l'addebito: SDD + 1,00, RiBa + 0,40 per effetto (18/11/2026)
+- **Il fatto (Zago):** gli addebiti automatici NEXI, Amazon e Global Blue restavano aperti perché MPS li addebita con
+  1,00 di commissione (25,62 → 26,62). Le RiBa restavano «pagato provvisorio» perché l'addebito «EFFETTI RITIRATI
+  NUM.EFFETTI: n» non nomina i fornitori e vale la somma degli effetti + 0,40 ciascuno; tre fatture GLS pagate con
+  RiBa restavano «scadute» con metodo bonifico.
+- **Misura delle commissioni:** SDD 1,00 su Zago e sui 5 casi NZ già agganciati; RiBa 0,40 per effetto su NZ in tutti
+  gli addebiti con un effetto per fattura e su Zago.
+- **Regola (migr. 438, NZ e Zago):** `try_match_sdd_commission_bank_transaction` (fornitore in causale, residuo =
+  addebito − 1,00, scadenza da −30 a +15 giorni, candidati multipli solo se intercambiabili) e
+  `try_match_riba_effetti_bank_transaction` (addebito senza «CRED:», un solo insieme di n documenti con scadenza nei
+  5 giorni prima la cui somma + n × 0,40 dà l'addebito). Scrittura come la distinta RiBa (347). Giro notturno:
+  `rerun_commissioni_mps_reconciliation` dopo i cumulativi; `p_dry_run` per provare senza scrivere.
+- **Esito sul vivo (Zago):** 11 addebiti SDD e 8 addebiti RiBa abbinati, 44 documenti, 27 fatture passate a pagato
+  (fra cui le 3 GLS e le RiBa scadute di aprile, maggio e luglio), 0 RiBa provvisorie rimaste. Restano aperti NEXI
+  183,00 (nessun addebito da 184,00) e K7 / Bella Bijoux (carta: serve l'estratto della carta BCC). NZ: 0 oggi.
+  Backup `_bkp_438_payables_20261118`.
+- **Errore trovato in prova, prima di attivare:** la scelta dell'insieme RiBa estraeva male l'elenco (vuoto) e
+  avrebbe segnato l'addebito come abbinato senza fatture; corretto e controllato (0 addebiti senza fattura).
