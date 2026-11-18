@@ -459,7 +459,13 @@ Dopo la revisione del codice, tre correzioni nello stesso lavoro:
 - **La nota di una chiusura in bozza resta fra le cose da controllare.** Il contatore che decide dove finisce la nota partiva dopo la riga «ancora in bozza», così una bozza con nota finiva nel riquadro delle note (che dice «niente da fare») mentre la stessa giornata era fra le cose da controllare.
 - **Differenza arrotondata al centesimo prima del confronto.** In virgola mobile `101,2 - 100,2` fa `1,0000000000000142`: una differenza di un euro tondo fra foto e campo scritto sarebbe stata segnalata contro la regola. I confronti su `receipts_difference` e `cash_difference` arrivano dal database come numeric e non avevano il problema.
 
-Preso dalla revisione di sicurezza: le note delle cassiere nella mail si tagliano a 220 caratteri, come già faceva l'istruttoria. Resta come debito un tetto su `checks_tolerance`, che oggi nessun vincolo limita: chi amministra potrebbe scrivere 99999 e spegnere tutti i controlli.
+Preso dalla revisione di sicurezza: le note delle cassiere nella mail si tagliano a 220 caratteri, come già faceva l'istruttoria.
+
+**Il tetto alla tolleranza** (migration 432, 18/11/2026, applicata su NZ e Zago). Era l'ultimo rilievo del revisore di sicurezza: la colonna è `numeric(14,2) NOT NULL DEFAULT 1.00` e nessun vincolo la limitava, quindi un 99999 scritto lì spegneva ogni controllo in silenzio, con il report che ogni sera avrebbe detto «nessuna anomalia». Ora `CHECK (checks_tolerance >= 0 AND checks_tolerance <= 5)`: lo zero resta ammesso, perché vuol dire «segnala qualunque differenza», i negativi no. Tetto a 5,00 €, cinque volte il valore deciso da Patrizio: spazio per un ritocco, non per spegnere niente.
+
+Verificato sui due tenant: vincolo identico e validato, e la prova in una transazione annullata su NZ ferma 99999 e -1 e lascia passare 0 e 5,00. Nessun dato toccato: NZ resta a 1,00 con i controlli accesi.
+
+Una cosa da sapere, trovata mentre scrivevo il tetto: **la tolleranza non si può cambiare dal gestionale.** Tutto il riquadro dei controlli delle chiusure (destinatari, messaggi ai negozi, tolleranza, copia nascosta) non ha nessun campo in interfaccia, `grep` su `src/` lo conferma: quei valori li ha scritti la migration 342 e si cambiano solo dal database. Le guide dicevano «il valore impostato nei controlli», che faceva pensare a un campo che non esiste: corretto.
 
 Cosa cambia e va saputo: nei corrispettivi il ramo della tolleranza viene prima di quello dell'annullo, quindi un annullo fino a un euro non fa più scattare la correzione automatica del totale. Il totale scritto dal negozio resta com'è.
 
