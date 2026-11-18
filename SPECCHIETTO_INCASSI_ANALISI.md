@@ -440,6 +440,21 @@ Il revisore del database ha dato BLOCCA sulla 345 e aveva ragione su una cosa gr
 
 Il resto: ricerca del candidato in una query sola invece di due (fra conteggio e selezione il riscontro notturno poteva agganciare un movimento, e l'`INSERT` moriva su `payable_id` NOT NULL), `EXCEPTION` per ogni riga nel ciclo del cron così un intoppo non annulla la notte, niente ballo della data quando due righe di cassa combaciano con la stessa fattura, e nella nota anche la data e il conto di prima, non solo il metodo, altrimenti il rollback non basta a rimettere le cose come stavano.
 
+### 4i. la tolleranza di un euro vale per tutto (18 novembre 2026)
+
+Roma Soratte del 17 novembre: due righe «da controllare» per **20 centesimi**. La differenza fra totale e somma dei mezzi di pagamento, e la nota della cassiera che la spiegava («sono stati fatti pagare 0,20 € in più in bancomat»). Patrizio: «dobbiamo evitare di fare arrivare queste segnalazioni, tenendo conto che fino a un euro si può sbagliare».
+
+Il difetto era di impostazione, non di calcolo: la tolleranza (`daily_report_settings.checks_tolerance`, 1,00 €) la usava **solo** il controllo della cassa dell'istruttoria. Tutti gli altri confronti partivano da mezzo centesimo. Adesso la soglia è la stessa per ogni confronto di soldi, nei due posti dove si guarda:
+
+- **report serale** (`daily-cash-report-send`): differenza fra corrispettivi e mezzi di pagamento, differenza di cassa e importi letti dalla foto si segnalano solo oltre la tolleranza;
+- **istruttoria** (`closing-checks-run`): le stesse tre più la foto del versamento, e sotto soglia l'esito è «falso allarme» con la ragione scritta, non «da fare».
+
+**La nota della cassiera non è una seconda segnalazione.** Quasi sempre la nota *spiega* la differenza, quindi finisce fra le cose da controllare solo se su quella giornata resta aperto qualcos'altro. Le altre vanno in un riquadro nuovo del report, «Note dei negozi», da leggere e non da lavorare. Nell'istruttoria è la riga `quadra` che ora guarda la tolleranza: una giornata che sta dentro l'euro quadra, quindi la nota torna a essere informazione.
+
+**Prova sul giorno vero**, con `dry_run` sul 17 novembre dopo il deploy: titolo «Chiusure 17 novembre 2026: niente da fare», 0 da fare, 1 falso allarme («Differenza sotto la tolleranza di 1,00 €»), 1 nota come informazione. Le due righe vere degli altri giorni restano: Roma Soratte del 16 novembre, totale scritto 723,00 € contro 782,00 € della foto (59 €), e del 14 novembre una differenza di 35,00 €.
+
+La segnalazione già scritta del 17 novembre è stata portata a «falso allarme» a mano, perché era stata registrata la notte prima con la vecchia soglia. Funzioni identiche su NZ e Zago (impronta `8c6ee6fd…` per l'istruttoria, `b93ea6c0…` per il report).
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?
