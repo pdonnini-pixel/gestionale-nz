@@ -24,6 +24,12 @@
 -- caricato da un registro dei corrispettivi non si tocca.
 -- Il netto tolto e' l'imponibile delle fatture, in proporzione se la
 -- fattura di cassa e' solo una parte di quelle del giorno.
+-- LIMITE NOTO (revisori, 18/11/2026): il confronto e' per azienda e giorno,
+-- perche' active_invoices non ha il negozio. Se una fattura di cassa non e'
+-- ancora arrivata ma lo stesso giorno c'e' un'altra fattura attiva (sede,
+-- magazzino), la vista la toglie lo stesso: l'IVA del mese stimato resta
+-- bassa per quella cifra finche' la fattura non arriva (di solito 3-5
+-- giorni). Sui dati NZ agosto-novembre 2026 non succede mai.
 --
 -- Il ricavo (daily_revenue, Budget & Controllo, Confronto outlet) non cambia:
 -- la correzione e' solo nella vista della liquidazione. Nessun dato scritto.
