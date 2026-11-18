@@ -438,6 +438,21 @@ Il revisore del database ha dato BLOCCA sulla 345 e aveva ragione su una cosa gr
 
 Il resto: ricerca del candidato in una query sola invece di due (fra conteggio e selezione il riscontro notturno poteva agganciare un movimento, e l'`INSERT` moriva su `payable_id` NOT NULL), `EXCEPTION` per ogni riga nel ciclo del cron così un intoppo non annulla la notte, niente ballo della data quando due righe di cassa combaciano con la stessa fattura, e nella nota anche la data e il conto di prima, non solo il metodo, altrimenti il rollback non basta a rimettere le cose come stavano.
 
+### 4i. la tolleranza di un euro vale per tutti i controlli (18 novembre 2026)
+
+Il report della sera del 17 novembre portava due righe da controllare, entrambe di Roma Soratte e per la stessa cosa: «totale incassato e somma dei mezzi di pagamento non quadrano (differenza -0,20 €)» e, subito sotto, la nota della cassiera che la spiegava, «Sono stati fatti pagare 0,20 € in più in bancomat». Venti centesimi, già capiti da chi era in negozio, girati a chi guida come lavoro da fare. Patrizio: «dobbiamo evitare di fare arrivare queste segnalazioni, tenendo conto che fino a un euro si può sbagliare».
+
+La tolleranza c'era già (`daily_report_settings.checks_tolerance`, 1,00 €, migrazione 342) ma era cablata su un solo controllo, la differenza di cassa. Tutti gli altri confronti partivano da mezzo centesimo: corrispettivi contro mezzi di pagamento, foto contro campo scritto, somma delle ricevute di versamento, importo del singolo canale. Da qui la segnalazione.
+
+Cosa cambia, in entrambe le funzioni:
+
+- **`closing-checks-run`** legge la tolleranza una volta (`tolG`) e la usa in ogni confronto di soldi. Una differenza di corrispettivi sotto la tolleranza diventa un «Niente da fare» con il motivo scritto, non una cosa da fare. E una giornata dentro la tolleranza «quadra», quindi la nota della cassiera torna a essere informazione.
+- **`daily-cash-report-send`** confronta con la tolleranza le tre soglie che aveva a mezzo centesimo (differenza dei corrispettivi, differenza di cassa, foto contro campo scritto) e separa le note: finisce fra le cose da controllare solo la nota di una giornata su cui resta aperto qualcos'altro, perché lì quasi sempre spiega la differenza; le altre vanno in un riquadro «Note dei negozi», che si legge e non si lavora.
+
+Misura sui dati veri del 17 novembre, con la prova a vuoto dell'istruttoria su NZ: 8 negozi, 8 chiusure, **0 cose da fare** (prima 1), 1 falso allarme (i 20 centesimi, con il motivo) e 1 nota. Oggetto della mail: «Chiusure 17 novembre 2026: niente da fare».
+
+La tolleranza resta un numero per azienda, modificabile dalle impostazioni: non è scritta nel codice. Sopra l'euro non cambia niente, la segnalazione arriva come prima.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?

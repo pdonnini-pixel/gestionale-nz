@@ -54,7 +54,7 @@ function jsonOk(payload: unknown) {
   return new Response(JSON.stringify(payload), { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } });
 }
 
-// ─── Formattazione it-IT senza dipendere dai dati ICU del runtime ─────
+// ─── Formattazione it-IT senza dipendere dai dati ICU del runtime ───
 function eur(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
   const sign = n < 0 ? "-" : "";
@@ -103,7 +103,7 @@ interface Budget {
   projection: number;   // proiezione fine mese: media giornaliera sui giorni trascorsi × giorni del mese
 }
 interface ReportData {
-  companyName: string; date: string; outlets: Outlet[]; rows: RowData[]; missing: Outlet[]; anomalies: string[];
+  companyName: string; date: string; outlets: Outlet[]; rows: RowData[]; missing: Outlet[]; anomalies: string[]; storeNotes: string[]; tol: number;
   // done = chiusure confermate (o «negozio chiuso»); pending = nomi di chi manca o è ancora in bozza
   done: number; pending: string[];
   totals: { total: number; cash: number; pos: number; other: number; expenses: number; refunds: number; deposit: number };
@@ -117,7 +117,13 @@ interface RowData {
   outlet: Outlet; closing: Closing | null; cash: number; pos: number; other: number; status: string; budget: Budget | null;
 }
 
-async function buildReport(admin: SupabaseClient, companyId: string, date: string, appUrl: string | null, vatRate: number): Promise<ReportData> {
+// `tol` e' la tolleranza in euro sotto la quale una differenza non si segnala
+// (daily_report_settings.checks_tolerance, 1,00 €). Deciso da Patrizio il
+// 04/11/2026 per l'istruttoria e il 18/11/2026 anche per il report serale:
+// «fino a un euro si puo' sbagliare». Roma Soratte del 17/11 arrivava con due
+// righe da controllare per 20 centesimi, la differenza e la nota che la
+// spiegava: rumore, non lavoro.
+async function buildReport(admin: SupabaseClient, companyId: string, date: string, appUrl: string | null, vatRate: number, tol: number): Promise<ReportData> {
   const [{ data: company }, { data: outletsRaw }, { data: channelsRaw }] = await Promise.all([
     admin.from("companies").select("name").eq("id", companyId).maybeSingle(),
     admin.from("outlets").select("id, name, outlet_type, is_active, cost_center_key").eq("company_id", companyId).order("name"),
@@ -185,6 +191,7 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
   const rows: RowData[] = [];
   const missing: Outlet[] = [];
   const anomalies: string[] = [];
+  const storeNotes: string[] = [];
   const totals = { total: 0, cash: 0, pos: 0, other: 0, expenses: 0, refunds: 0, deposit: 0 };
   const bTot = { withBudget: 0, dayTarget: 0, toDateTarget: 0, monthGross: 0, mtd: 0, projection: 0 };
 
@@ -220,8 +227,9 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
       totals.total += num(c.total_receipts); totals.cash += cash; totals.pos += pos; totals.other += other;
       totals.expenses += num(c.cash_expenses); totals.refunds += num(c.customer_refunds); totals.deposit += num(c.cash_deposit);
       if (c.status === "bozza") anomalies.push(`${o.name}: chiusura ancora in bozza, non confermata`);
-      if (Math.abs(num(c.receipts_difference)) >= 0.005) anomalies.push(`${o.name}: totale incassato (corrispettivi${num(c.invoices_total) ? " + fatture" : ""}) e somma dei mezzi di pagamento non quadrano (differenza ${eur(num(c.receipts_difference))})`);
-      if (c.cash_difference != null && Math.abs(num(c.cash_difference)) >= 0.005) anomalies.push(`${o.name}: contante in cassa (fondo + da versare) ${num(c.cash_difference) > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(num(c.cash_difference)))}`);
+      const primaDiQuestoNegozio = anomalies.length;
+      if (Math.abs(num(c.receipts_difference)) > tol) anomalies.push(`${o.name}: totale incassato (corrispettivi${num(c.invoices_total) ? " + fatture" : ""}) e somma dei mezzi di pagamento non quadrano (differenza ${eur(num(c.receipts_difference))})`);
+      if (c.cash_difference != null && Math.abs(num(c.cash_difference)) > tol) anomalies.push(`${o.name}: contante in cassa (fondo + da versare) ${num(c.cash_difference) > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(num(c.cash_difference)))}`);
       const myAtts = atts.filter((a) => a.closing_id === c.id);
       if (!myAtts.some((a) => a.target === "totale")) anomalies.push(`${o.name}: manca la foto dello scontrino di chiusura`);
       for (const a of myAtts) {
@@ -232,15 +240,23 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
         else if (a.target === "versamento") { declared = num(c.cash_deposit); what = "versamento"; }
         else if (a.target === "canale") { const l = lines.find((x) => x.id === a.line_id); if (l) { declared = num(l.amount); what = chById.get(l.channel_id)?.label ?? "canale"; } }
         else if (a.target === "spesa") { const e = expenses.find((x) => x.id === a.expense_id); if (e) { declared = num(e.amount); what = `spesa ${e.description ?? ""}`.trim(); } }
-        if (declared != null && Math.abs(declared - read) >= 0.005) anomalies.push(`${o.name}: ${what} scritto ${eur(declared)} ma dalla foto risulta ${eur(read)}`);
+        if (declared != null && Math.abs(declared - read) > tol) anomalies.push(`${o.name}: ${what} scritto ${eur(declared)} ma dalla foto risulta ${eur(read)}`);
       }
-      if (c.notes) anomalies.push(`${o.name}: nota della cassiera «${c.notes}»`);
+      // La nota della cassiera e' una cosa da controllare solo se su quella
+      // giornata resta aperto qualcos'altro: quasi sempre la nota SPIEGA la
+      // differenza, e se la differenza sta sotto la tolleranza la nota diventa
+      // una seconda riga per lo stesso nulla. Le altre finiscono nel riquadro
+      // «Note dei negozi», che si legge senza dover fare niente.
+      if (c.notes) {
+        if (anomalies.length > primaDiQuestoNegozio) anomalies.push(`${o.name}: nota della cassiera «${c.notes}»`);
+        else storeNotes.push(`${o.name}: «${c.notes}»`);
+      }
     }
   }
   const done = rows.filter((row) => row.status === "confermata" || row.status === "chiuso").length;
   const pending = rows.filter((row) => row.status === "manca" || row.status === "bozza").map((row) => `${row.outlet.name}${row.status === "bozza" ? " (in bozza)" : ""}`);
   return {
-    companyName: (company?.name as string) ?? "", date, outlets, rows, missing, anomalies, totals, monthToDate, done, pending,
+    companyName: (company?.name as string) ?? "", date, outlets, rows, missing, anomalies, storeNotes, tol, totals, monthToDate, done, pending,
     monthLabel: `${MESI[m - 1]} ${y}`, appUrl,
     budget: { vatRate, dayOfMonth: d, daysInMonth, ...bTot },
   };
@@ -349,7 +365,10 @@ function renderHtml(r: ReportData, followup: Followup | null = null): { subject:
   const totalRow = `<tr style="background:#f1f5f9;font-weight:700">${td("Totale azienda", "left")}${td(count, "left")}${td(eur(t.total))}${td(hasBudget ? eur(b.dayTarget) : "—")}${td(hasBudget ? delta(dayDelta) : "—", "right", hasBudget ? deltaStyle(dayDelta) : "")}${td(eur(t.cash))}${td(eur(t.pos))}${td(eur(t.other))}${td(eur(t.expenses + t.refunds))}${td(eur(t.deposit))}${td("")}${td("")}</tr>`;
   const anomaliesHtml = r.anomalies.length
     ? `<h3 style="margin:20px 0 6px;font-size:14px;color:#b45309">Da controllare (${r.anomalies.length})</h3><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.5">${r.anomalies.map((a) => `<li>${esc(a)}</li>`).join("")}</ul>`
-    : `<p style="margin:20px 0 6px;font-size:13px;color:#047857">Nessuna anomalia: tutte le chiusure confermate quadrano e hanno la foto dello scontrino di chiusura.</p>`;
+    : `<p style="margin:20px 0 6px;font-size:13px;color:#047857">Nessuna anomalia: tutte le chiusure confermate quadrano (le differenze fino a ${esc(eur(r.tol))} non si segnalano) e hanno la foto dello scontrino di chiusura.</p>`;
+  const notesHtml = r.storeNotes.length
+    ? `<h3 style="margin:16px 0 6px;font-size:14px;color:#475569">Note dei negozi (${r.storeNotes.length})</h3><ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.5;color:#475569">${r.storeNotes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul><p style="margin:4px 0 0;font-size:12px;color:#94a3b8">Giornate che quadrano: la nota si legge, non c'e' niente da fare.</p>`
+    : "";
   const missingHtml = r.pending.length
     ? `<p style="margin:12px 0 0;font-size:13px;color:#b91c1c"><strong>Chiusure mancanti (${r.pending.length}):</strong> ${r.pending.map((n) => esc(n)).join(", ")}</p>` : "";
   const pageLink = link(`/incassi-giornalieri?date=${r.date}`);
@@ -377,6 +396,7 @@ ${followupHtml}<p style="margin:0 0 14px;font-size:13px;color:#475569">${esc(r.c
 ${missingHtml}
 ${monthHtml}
 ${anomaliesHtml}
+${notesHtml}
 ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)}" style="color:#1d4ed8">Apri Incassi giornalieri</a> per il dettaglio e le foto.</p>` : ""}
 <p style="margin:16px 0 0;font-size:11px;color:#94a3b8">Mail automatica del gestionale. I numeri sono quelli scritti dalle cassiere alla chiusura; le anomalie sono segnalazioni da verificare, non correzioni.</p>
 </div></body></html>`;
@@ -398,13 +418,14 @@ ${pageLink ? `<p style="margin:20px 0 0;font-size:13px"><a href="${esc(pageLink)
     }),
     "",
     ...(hasBudget ? [`Mese vs obiettivo (giorno ${b.dayOfMonth} di ${b.daysInMonth}):`, ...r.rows.filter((row) => row.budget).map((row) => `- ${row.outlet.name}: incassato ${eur(row.budget!.mtd)} su obiettivo a oggi ${eur(row.budget!.toDateTarget)} (${delta(row.budget!.mtd - row.budget!.toDateTarget)}), budget mese ${eur(row.budget!.monthGross)} raggiunto al ${pct(row.budget!.mtd, row.budget!.monthGross)}`), `- Totale: ${eur(b.mtd)} su ${eur(b.toDateTarget)} (${delta(mtdDelta)}), budget mese ${eur(b.monthGross)}, proiezione ${eur(b.projection)}`, ""] : []),
-    r.anomalies.length ? `Da controllare:\n${r.anomalies.map((a) => `- ${a}`).join("\n")}` : "Nessuna anomalia.",
+    r.anomalies.length ? `Da controllare:\n${r.anomalies.map((a) => `- ${a}`).join("\n")}` : `Nessuna anomalia (differenze fino a ${eur(r.tol)} non segnalate).`,
+    r.storeNotes.length ? `\nNote dei negozi (giornate che quadrano):\n${r.storeNotes.map((n) => `- ${n}`).join("\n")}` : "",
     pageLink ? `\n${pageLink}` : "",
   ].join("\n");
   return { subject, html, text };
 }
 
-// ─── WhatsApp: variabili del modello ────────────────────────────────────
+// ─── WhatsApp: variabili del modello ───
 // Il modello vive sull'account Twilio (approvato da Meta) e si legge a ogni
 // invio dalla Content API: ogni riga con {{n}} ha un'etichetta fissa che dice
 // cosa metterci. Esempio (NZ, «incassi_giornalieri_v8», approvato 2026-09-08;
@@ -524,7 +545,7 @@ Deno.serve(async (req: Request) => {
     if (!token) return jsonError(401, "Missing authorization");
     const body = await req.json().catch(() => ({}));
 
-    // ─── Chi chiama ────────────────────────────────────────────────────
+    // ─── Chi chiama ───
     let trusted = token === supabaseServiceKey;
     const cronHeader = req.headers.get("x-autofix-cron") ?? "";
     if (!trusted && cronHeader) {
@@ -582,7 +603,8 @@ Deno.serve(async (req: Request) => {
       return jsonError(400, channel === "whatsapp" ? "Nessun numero WhatsApp configurato" : "Nessun destinatario configurato", "NO_RECIPIENTS");
     }
 
-    const report = await buildReport(admin, companyId, reportDate, appUrl, vatRate);
+    const tol = Number.isFinite(Number(settings?.checks_tolerance)) ? Math.abs(Number(settings?.checks_tolerance)) : 1;
+    const report = await buildReport(admin, companyId, reportDate, appUrl, vatRate, tol);
     const summary: Record<string, unknown> = { closings: report.done, outlets: report.rows.length, pending: report.pending, total: report.totals.total, anomalies: report.anomalies.length, month_to_date: report.monthToDate, day_target: report.budget.dayTarget, to_date_target: report.budget.toDateTarget, followup_outlet: null, per_outlet: snapshot(report) };
     // Integrazione: quale negozio ha confermato dopo il report e cosa è cambiato rispetto
     // all'ultimo messaggio inviato per quella giornata (report o integrazione precedente).
