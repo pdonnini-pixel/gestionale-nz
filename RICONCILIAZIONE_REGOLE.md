@@ -933,3 +933,14 @@ Nata dal conteggio delle 92 scadenze chiuse in via provvisoria su NZ (87.985,05 
 - **Stato:** ✅ AUTO SEMPRE.
 
 **Nello Scadenzario.** Il pulsante «RiBa provvisorie» conta solo le RiBa: carte, contanti e addebiti diretti restano chiusi in via provvisoria (R15, R24) e si vedono con il filtro «Pagato (provvisorio)». Se una rata di una fattura è chiusa in via provvisoria, sulle rate ancora aperte della stessa fattura compare «1 rata provvisoria» (caso SHINE 1574/1579, 05/11/2026).
+
+### R-433 — Distinte CBI MPS «a favore di DISPOSIZIONE FILIALE DISPONENTE» (Zago, 18/11/2026)
+- **Il fatto:** negli estratti MPS in Excel di Zago la distinta CBI è scritta «(26) VOSTRA DISPOSIZIONE A FAVORE DI
+  DISPOSIZIONE FILIALE DISPONENTE 2430 ID FLUSSO CBI: …». `causale_has_named_beneficiary` prendeva 45 caratteri dopo
+  «a favore di», che si fermano a metà di «FLUSSO»: la parola tronca «fluss» valeva come beneficiario e il motore
+  scartava ogni fattura. 42 distinte aperte, nessuna agganciata.
+- **Regola (migr. 433):** «a favore di disposizione filiale disponente» non nomina nessuno. Su NZ la stessa distinta
+  arriva senza «a favore di»: nessun effetto (19 righe, già riconciliate).
+- **Esito sul vivo (Zago):** 9 fatture chiuse con il movimento (netto esatto, candidato unico), 8 movimenti con più
+  fatture di pari importo (affitti CARLO'S, EPPI) in proposta da confermare, 25 senza fattura di pari importo (pagamenti
+  di fatture 2025 o di più fatture insieme). Backup `_bkp_433_payables_20261118`, `_bkp_433_bank_tx_20261118`.
