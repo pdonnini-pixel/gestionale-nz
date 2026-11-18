@@ -240,7 +240,13 @@ async function istruisci(
     const letteDi = (target: string) => mieFoto.filter((a) => a.target === target && ["letta", "da_rivedere"].includes(a.extraction_status ?? ""));
     const rigaContanti = mieLinee.find((l) => channels.get(l.channel_id)?.kind === "contanti");
     const nota = notaDellaCassiera(c.notes);
-    const quadra = Math.abs(num(c.receipts_difference)) < 0.005 && (c.cash_difference == null || Math.abs(num(c.cash_difference)) < 0.005);
+    // La tolleranza vale per OGNI confronto di soldi, non solo per la cassa
+    // (Patrizio, 18/11/2026: «fino a un euro si puo' sbagliare»). Roma Soratte
+    // del 17/11 mandava due righe da controllare per 20 centesimi: la
+    // differenza e la nota che la spiegava. Una giornata dentro la tolleranza
+    // «quadra», quindi la nota torna a essere informazione e non un problema.
+    const tolG = num(s.checks_tolerance);
+    const quadra = Math.abs(num(c.receipts_difference)) <= tolG && (c.cash_difference == null || Math.abs(num(c.cash_difference)) <= tolG);
     void mieSpese;
     // Se la cassiera ha scritto una nota, quella spiegazione basta: non le si
     // riscrive per chiederle una cosa che ha già detto (regola: niente liste
@@ -277,7 +283,7 @@ async function istruisci(
     if (versFoto.length > 0) {
       const somma = r2(versFoto.reduce((a, b) => a + b, 0));
       const scritto = num(c.cash_deposit);
-      const unaCombacia = versFoto.some((v) => Math.abs(v - scritto) < 0.005);
+      const unaCombacia = versFoto.some((v) => Math.abs(v - scritto) <= tolG);
       if (Math.abs(somma - scritto) < 0.005 && versFoto.length > 1) {
         checks.push({
           ...base, kind: "foto_diversa", amount: scritto, fingerprint: "versamento",
@@ -286,7 +292,7 @@ async function istruisci(
           reason: `Le ricevute sono ${versFoto.length} e sommano a ${eur(somma)}: ${versFoto.map((v) => eur(v)).join(" + ")}. Il campo è giusto.`,
           action: null, undo_kind: null, undo_data: null, lezione: null,
         });
-      } else if (!unaCombacia && Math.abs(somma - scritto) >= 0.005) {
+      } else if (!unaCombacia && Math.abs(somma - scritto) > tolG) {
         checks.push({
           ...base, kind: "foto_diversa", amount: scritto, fingerprint: "versamento",
           detail: `versamento scritto ${eur(scritto)} ma dalle ricevute risulta ${eur(somma)}${versFoto.length > 1 ? ` (${versFoto.map((v) => eur(v)).join(" + ")})` : ""}`,
@@ -299,7 +305,7 @@ async function istruisci(
     const totFoto = letteDi("totale").map((a) => numEstratto(a.extracted, "amount")).filter((v): v is number => v != null);
     if (totFoto.length > 0) {
       const scritto = num(c.total_receipts);
-      if (!totFoto.some((v) => Math.abs(v - scritto) < 0.005)) {
+      if (!totFoto.some((v) => Math.abs(v - scritto) <= tolG)) {
         checks.push({
           ...base, kind: "foto_diversa", amount: scritto, fingerprint: "totale",
           detail: `totale corrispettivi scritto ${eur(scritto)} ma dalla foto risulta ${totFoto.map((v) => eur(v)).join(" oppure ")}`,
@@ -314,7 +320,7 @@ async function istruisci(
       const l = mieLinee.find((x) => x.id === a.line_id);
       if (letto == null || !l) continue;
       const etichetta = channels.get(l.channel_id)?.label ?? "canale";
-      if (Math.abs(num(l.amount) - letto) >= 0.005) {
+      if (Math.abs(num(l.amount) - letto) > tolG) {
         checks.push({
           ...base, kind: "foto_diversa", amount: num(l.amount), fingerprint: `canale:${l.id}`,
           detail: `${etichetta} scritto ${eur(num(l.amount))} ma dalla foto risulta ${eur(letto)}`,
@@ -328,7 +334,17 @@ async function istruisci(
     const diffCorr = num(c.receipts_difference);
     if (Math.abs(diffCorr) >= 0.005) {
       const annulli = letteDi("totale").map((a) => numEstratto(a.extracted, "cancellations_total")).find((v) => v != null && v > 0) ?? null;
-      if (annulli != null && Math.abs(diffCorr - annulli) < 0.005) {
+      if (Math.abs(diffCorr) <= tolG) {
+        // Centesimi: un mezzo di pagamento battuto per 0,20 in piu' o in meno
+        // non e' un problema da girare a nessuno (Roma Soratte, 17 novembre).
+        checks.push({
+          ...base, kind: "differenza_corrispettivi", amount: diffCorr, fingerprint: "arrotondamento",
+          detail: `totale incassato e somma dei mezzi di pagamento non quadrano (differenza ${eur(diffCorr)})`,
+          outcome: "falso_allarme",
+          reason: `Differenza sotto la tolleranza di ${eur(tolG)}.`,
+          action: null, undo_kind: null, undo_data: null, lezione: null,
+        });
+      } else if (annulli != null && Math.abs(diffCorr - annulli) < 0.005) {
         const prima = num(c.total_receipts);
         const dopo = r2(prima - annulli);
         const action = `Totale corrispettivi riportato al netto dell'annullo: da ${eur(prima)} a ${eur(dopo)}.`;
