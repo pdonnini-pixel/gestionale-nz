@@ -30567,6 +30567,8 @@ export type Database = {
           chiusure_netto: number | null
           company_id: string | null
           consuntivo_netto: number | null
+          fatture_cassa_lordo: number | null
+          fatture_cassa_netto: number | null
           giorni_chiusura: number | null
           iva_fatture_attive: number | null
           iva_fatture_passive: number | null

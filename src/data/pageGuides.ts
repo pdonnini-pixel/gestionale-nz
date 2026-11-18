@@ -3022,7 +3022,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Da dove arrivano i corrispettivi",
-        "body": "L'etichetta sotto l'importo dice quale fonte è stata usata. \"Chiusure cassa\": le chiusure di cassa confermate dei negozi (dato netto IVA), con il numero di giorni coperti. \"Chiusure + preventivo\": solo per il mese in corso, chiusure fino a oggi più il preventivo per i giorni che restano. \"Consuntivo B&C\": il consuntivo mensile inserito in Budget & Controllo (già al netto IVA). \"Preventivo B&C\": il preventivo di Budget & Controllo, usato quando non c'è altro (mesi futuri o mesi senza chiusure né consuntivo). \"Confermata\": i numeri inseriti a mano con il pulsante Conferma."
+        "body": "L'etichetta sotto l'importo dice quale fonte è stata usata. \"Chiusure cassa\": le chiusure di cassa confermate dei negozi (dato netto IVA), con il numero di giorni coperti, senza le fatture emesse in negozio: quelle lo studio le mette nel registro IVA vendite, e la loro IVA è già nella colonna delle fatture attive. Una fattura fatta in cassa e non ancora arrivata fra le fatture attive resta nei corrispettivi finché non arriva, così la sua IVA non si perde. \"Chiusure + preventivo\": solo per il mese in corso, chiusure fino a oggi più il preventivo per i giorni che restano. \"Consuntivo B&C\": il consuntivo mensile inserito in Budget & Controllo (già al netto IVA). \"Preventivo B&C\": il preventivo di Budget & Controllo, usato quando non c'è altro (mesi futuri o mesi senza chiusure né consuntivo). \"Confermata\": i numeri inseriti a mano con il pulsante Conferma."
       },
       {
         "heading": "Stati di un mese",
