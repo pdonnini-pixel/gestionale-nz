@@ -107,7 +107,7 @@ function notaDellaCassiera(notes: string | null): string {
   return pulita.length > 220 ? `${pulita.slice(0, 217)}…` : pulita;
 }
 
-// ─── Tipi ────────────────────────────────────────────────────────────────
+// ─── Tipi ───
 interface Settings {
   company_id: string; timezone: string | null; app_url: string | null;
   checks_recipients: string[]; checks_store_messages: boolean; checks_tolerance: number;
@@ -151,7 +151,7 @@ function numEstratto(e: Record<string, unknown> | null, key: string): number | n
   return typeof v === "number" && Number.isFinite(v) ? r2(v) : null;
 }
 
-// ─── Testi per il negozio ───────────────────────────────────────────────
+// ─── Testi per il negozio ───
 // Quattro pezzi sempre: cosa si è visto, cos'era davvero, chi ha sistemato,
 // come evitarlo. Niente parole da gestionale, niente colpe.
 function testoLezione(l: Lezione, c: Check, nome: string | null, azienda: string | null): string | null {
@@ -192,7 +192,7 @@ function oggettoLezione(c: Check): string {
   }
 }
 
-// ─── L'istruttoria ──────────────────────────────────────────────────────
+// ─── L'istruttoria ───
 async function istruisci(
   admin: SupabaseClient, s: Settings, date: string, dryRun: boolean,
 ): Promise<{ checks: Check[]; outlets: number; chiusure: number; nomiVeri: Set<string> }> {
@@ -240,7 +240,13 @@ async function istruisci(
     const letteDi = (target: string) => mieFoto.filter((a) => a.target === target && ["letta", "da_rivedere"].includes(a.extraction_status ?? ""));
     const rigaContanti = mieLinee.find((l) => channels.get(l.channel_id)?.kind === "contanti");
     const nota = notaDellaCassiera(c.notes);
-    const quadra = Math.abs(num(c.receipts_difference)) < 0.005 && (c.cash_difference == null || Math.abs(num(c.cash_difference)) < 0.005);
+    // La tolleranza vale per OGNI confronto di soldi, non solo per la cassa
+    // (Patrizio, 18/11/2026: «fino a un euro si puo' sbagliare»). Roma Soratte
+    // del 17/11 mandava due righe da controllare per 20 centesimi: la
+    // differenza e la nota che la spiegava. Una giornata dentro la tolleranza
+    // «quadra», quindi la nota torna a essere informazione e non un problema.
+    const tolG = num(s.checks_tolerance);
+    const quadra = Math.abs(num(c.receipts_difference)) <= tolG && (c.cash_difference == null || Math.abs(num(c.cash_difference)) <= tolG);
     void mieSpese;
     // Se la cassiera ha scritto una nota, quella spiegazione basta: non le si
     // riscrive per chiederle una cosa che ha già detto (regola: niente liste
@@ -277,7 +283,10 @@ async function istruisci(
     if (versFoto.length > 0) {
       const somma = r2(versFoto.reduce((a, b) => a + b, 0));
       const scritto = num(c.cash_deposit);
-      const unaCombacia = versFoto.some((v) => Math.abs(v - scritto) < 0.005);
+      // Arrotondato al centesimo prima di confrontare: in virgola mobile
+      // 101,2 - 100,2 fa 1,0000000000000142 e una differenza di un euro tondo
+      // finirebbe segnalata contro la regola «fino a un euro».
+      const unaCombacia = versFoto.some((v) => r2(Math.abs(v - scritto)) <= tolG);
       if (Math.abs(somma - scritto) < 0.005 && versFoto.length > 1) {
         checks.push({
           ...base, kind: "foto_diversa", amount: scritto, fingerprint: "versamento",
@@ -286,7 +295,7 @@ async function istruisci(
           reason: `Le ricevute sono ${versFoto.length} e sommano a ${eur(somma)}: ${versFoto.map((v) => eur(v)).join(" + ")}. Il campo è giusto.`,
           action: null, undo_kind: null, undo_data: null, lezione: null,
         });
-      } else if (!unaCombacia && Math.abs(somma - scritto) >= 0.005) {
+      } else if (!unaCombacia && r2(Math.abs(somma - scritto)) > tolG) {
         checks.push({
           ...base, kind: "foto_diversa", amount: scritto, fingerprint: "versamento",
           detail: `versamento scritto ${eur(scritto)} ma dalle ricevute risulta ${eur(somma)}${versFoto.length > 1 ? ` (${versFoto.map((v) => eur(v)).join(" + ")})` : ""}`,
@@ -299,7 +308,7 @@ async function istruisci(
     const totFoto = letteDi("totale").map((a) => numEstratto(a.extracted, "amount")).filter((v): v is number => v != null);
     if (totFoto.length > 0) {
       const scritto = num(c.total_receipts);
-      if (!totFoto.some((v) => Math.abs(v - scritto) < 0.005)) {
+      if (!totFoto.some((v) => r2(Math.abs(v - scritto)) <= tolG)) {
         checks.push({
           ...base, kind: "foto_diversa", amount: scritto, fingerprint: "totale",
           detail: `totale corrispettivi scritto ${eur(scritto)} ma dalla foto risulta ${totFoto.map((v) => eur(v)).join(" oppure ")}`,
@@ -314,7 +323,7 @@ async function istruisci(
       const l = mieLinee.find((x) => x.id === a.line_id);
       if (letto == null || !l) continue;
       const etichetta = channels.get(l.channel_id)?.label ?? "canale";
-      if (Math.abs(num(l.amount) - letto) >= 0.005) {
+      if (r2(Math.abs(num(l.amount) - letto)) > tolG) {
         checks.push({
           ...base, kind: "foto_diversa", amount: num(l.amount), fingerprint: `canale:${l.id}`,
           detail: `${etichetta} scritto ${eur(num(l.amount))} ma dalla foto risulta ${eur(letto)}`,
@@ -328,7 +337,17 @@ async function istruisci(
     const diffCorr = num(c.receipts_difference);
     if (Math.abs(diffCorr) >= 0.005) {
       const annulli = letteDi("totale").map((a) => numEstratto(a.extracted, "cancellations_total")).find((v) => v != null && v > 0) ?? null;
-      if (annulli != null && Math.abs(diffCorr - annulli) < 0.005) {
+      if (Math.abs(diffCorr) <= tolG) {
+        // Centesimi: un mezzo di pagamento battuto per 0,20 in piu' o in meno
+        // non e' un problema da girare a nessuno (Roma Soratte, 17 novembre).
+        checks.push({
+          ...base, kind: "differenza_corrispettivi", amount: diffCorr, fingerprint: "arrotondamento",
+          detail: `totale incassato e somma dei mezzi di pagamento non quadrano (differenza ${eur(diffCorr)})`,
+          outcome: "falso_allarme",
+          reason: `Differenza sotto la tolleranza di ${eur(tolG)}.`,
+          action: null, undo_kind: null, undo_data: null, lezione: null,
+        });
+      } else if (annulli != null && Math.abs(diffCorr - annulli) < 0.005) {
         const prima = num(c.total_receipts);
         const dopo = r2(prima - annulli);
         const action = `Totale corrispettivi riportato al netto dell'annullo: da ${eur(prima)} a ${eur(dopo)}.`;
@@ -551,7 +570,7 @@ async function istruisci(
   return { checks, outlets: outlets.length, chiusure: closings.filter((c) => !c.is_closed_day).length, nomiVeri };
 }
 
-// ─── La mail di esito ───────────────────────────────────────────────────
+// ─── La mail di esito ───
 function renderEsito(date: string, checks: Check[], messaggi: Array<{ outlet: string; to: string; subject: string; text: string; error?: string | null }>, appUrl: string | null) {
   const perEsito = (o: Outcome) => checks.filter((c) => c.outcome === o);
   const daFare = perEsito("da_fare");
@@ -683,6 +702,32 @@ Deno.serve(async (req) => {
       if (error) console.error("[closing-checks-run] closing_checks:", error.message);
     }
 
+    // Una segnalazione che l'istruttoria di oggi non ritrova piu' non resta
+    // rossa. Succede quando i numeri della giornata sono cambiati (la foto
+    // caricata, la bozza confermata) o quando la differenza ora rientra nella
+    // tolleranza e viene scritta con un altro fingerprint: la riga vecchia
+    // restava «da fare» accanto al nuovo «niente da fare». Si chiude, non si
+    // cancella, e solo per le chiusure di questa giornata e di questa azienda.
+    let chiuse = 0;
+    if (!dryRun) {
+      const vive = new Set(checks.map((c) => `${c.closing?.id ?? ""}|${c.kind}|${c.fingerprint}`));
+      const { data: aperte, error: eAperte } = await admin.from("closing_checks")
+        .select("id, closing_id, kind, fingerprint")
+        .eq("company_id", s.company_id).eq("closing_date", date).eq("outcome", "da_fare");
+      if (eAperte) console.error("[closing-checks-run] segnalazioni aperte:", eAperte.message);
+      const spente = ((aperte ?? []) as Array<{ id: string; closing_id: string | null; kind: string; fingerprint: string }>)
+        .filter((r) => !vive.has(`${r.closing_id ?? ""}|${r.kind}|${r.fingerprint}`));
+      if (spente.length > 0) {
+        const { error: eChiudi } = await admin.from("closing_checks").update({
+          outcome: "falso_allarme",
+          reason: "L'istruttoria di oggi non ha più trovato questa differenza: i numeri della giornata sono cambiati, oppure rientra nella tolleranza.",
+          resolved_at: new Date().toISOString(),
+        }).in("id", spente.map((r) => r.id));
+        if (eChiudi) console.error("[closing-checks-run] chiusura segnalazioni:", eChiudi.message);
+        else chiuse = spente.length;
+      }
+    }
+
     // Nome dell'azienda per la firma delle mail ai negozi (ogni azienda la sua).
     const { data: aziendaRow } = await admin.from("companies").select("name").eq("id", s.company_id).maybeSingle();
     const azienda = ((aziendaRow as { name?: string | null } | null)?.name ?? "").trim() || null;
@@ -738,6 +783,7 @@ Deno.serve(async (req) => {
       sistemati: checks.filter((c) => c.outcome === "sistemato").length,
       falsi_allarmi: checks.filter((c) => c.outcome === "falso_allarme").length,
       note: checks.filter((c) => c.outcome === "informazione").length,
+      chiuse,
       messaggi: messaggi.length,
       mail_error: mailError,
     };
@@ -749,7 +795,7 @@ Deno.serve(async (req) => {
       }).eq("id", runId);
     }
 
-    console.log(`[closing-checks-run] company=${companyId} date=${date} dry=${dryRun} checks=${checks.length} da_fare=${summary.da_fare} sistemati=${summary.sistemati} messaggi=${messaggi.length}`);
+    console.log(`[closing-checks-run] company=${companyId} date=${date} dry=${dryRun} checks=${checks.length} da_fare=${summary.da_fare} sistemati=${summary.sistemati} chiuse=${chiuse} messaggi=${messaggi.length}`);
     return jsonOk({ data: { date, dry_run: dryRun, summary, subject, checks: checks.map((c) => ({ outlet: c.outlet.name, kind: c.kind, outcome: c.outcome, detail: c.detail, reason: c.reason, action: c.action })), messaggi } });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
