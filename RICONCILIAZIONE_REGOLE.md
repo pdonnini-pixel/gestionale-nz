@@ -995,3 +995,7 @@ Nata dal conteggio delle 92 scadenze chiuse in via provvisoria su NZ (87.985,05 
   Backup `_bkp_438_payables_20261118`.
 - **Errore trovato in prova, prima di attivare:** la scelta dell'insieme RiBa estraeva male l'elenco (vuoto) e
   avrebbe segnato l'addebito come abbinato senza fatture; corretto e controllato (0 addebiti senza fattura).
+- **Revisione (migr. 439):** tetto di 25 candidati e ricerca fermata alla seconda soluzione (la combinazione su 12
+  effetti poteva far scadere il timeout di tutto il giro notturno); fuori le fatture successive all'addebito e
+  quelle con note di credito in sospeso; le proposte «to_confirm» sullo stesso movimento passano a «rejected» come
+  nella distinta (347).
