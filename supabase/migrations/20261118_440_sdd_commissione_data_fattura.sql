@@ -3,7 +3,7 @@
 -- Caso: Zago, NEXI PAYMENTS fatture 3607914 e 3607915 del 13/10/2026 da 25,62 €, senza
 -- termini di pagamento: il piano standard le fa scadere il 30/11. L'addebito SDD
 -- (25,62 + 1,00 di commissione MPS) e' del 28/10, 33 giorni prima della scadenza, fuori
--- dalla finestra della 438 (scadenza da -15 a +30 giorni dall'addebito). Ora basta anche
+-- dalla finestra della 438 (scadenza da -30 a +15 giorni dall'addebito). Ora basta anche
 -- che la fattura sia emessa nei 30 giorni prima dell'addebito. Restano tutte le altre
 -- condizioni della 438: stesso importo + 1,00, fornitore scritto nella causale SDD,
 -- fattura non successiva all'addebito, una sola fattura (o fatture identiche).
