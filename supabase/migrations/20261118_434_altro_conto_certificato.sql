@@ -27,8 +27,8 @@ DECLARE
   a1 text := E'        AND NOT public.fn_bank_codici_in_conflitto(r.descr, COALESCE(b.statement_description, b.description));';
   b1 text := E'        AND NOT public.fn_bank_codici_in_conflitto(r.descr, COALESCE(b.statement_description, b.description))\n        -- 434: gia'' certificato dall''estratto del suo conto = movimento di quel conto, non questo.\n        AND b.statement_id IS NULL;';
 BEGIN
-  IF position(a1 in d) = 0 THEN RAISE EXCEPTION '434: pezzo non trovato in apply_bank_statement'; END IF;
   IF position(b1 in d) > 0 THEN RAISE NOTICE '434: gia'' applicata'; RETURN; END IF;
+  IF position(a1 in d) = 0 THEN RAISE EXCEPTION '434: pezzo non trovato in apply_bank_statement'; END IF;
   d := replace(d, a1, b1);
   EXECUTE d;
 END $$;
