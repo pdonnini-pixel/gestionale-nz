@@ -2,6 +2,10 @@
 -- colonna generata. Le fatture JSON tornano a vat_non_detraibile = 0.
 BEGIN;
 
+-- la SET EXPRESSION riscrive la tabella con un lock esclusivo: se un sync
+-- delle fatture la tiene occupata, meglio fallire e riprovare che attendere
+SET LOCAL lock_timeout = '5s';
+
 CREATE OR REPLACE FUNCTION public.iva_art74_da_xml(p_xml text)
 RETURNS numeric
 LANGUAGE sql
