@@ -45,7 +45,7 @@ Questo repository è pubblico: qui non vanno numeri dei clienti, prezzi riservat
 
 ## Competitive Landscape
 **Direct:** DA COMPLETARE
-**Secondary:** gestionali finanziari per PMI come Sibill: forti su banca e fatture, senza negozi, budget per centro di costo e personale.
+**Secondary:** gestionali finanziari per PMI come Sibill: forti su banca e fatture, senza negozi, budget per centro di costo e personale (confronto del blueprint del 17/04/2026, da ricontrollare sull'offerta attuale prima di usarlo in testi pubblici).
 **Indirect:** fogli Excel, commercialista, gestionale di cassa del negozio.
 
 ## Differentiation
@@ -100,7 +100,7 @@ Questo repository è pubblico: qui non vanno numeri dei clienti, prezzi riservat
 
 ## Proof Points
 **Metrics:** DA COMPLETARE
-**Customers:** in uso nelle aziende del gruppo New Zago. Altri: DA COMPLETARE (e quali si possono citare).
+**Customers:** DA COMPLETARE (quali aziende lo usano e quali si possono citare in pubblico).
 **Testimonials:** nessuna per ora.
 **Value themes:**
 | Theme | Proof |
