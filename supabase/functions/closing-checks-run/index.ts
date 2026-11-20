@@ -153,6 +153,21 @@ function numEstratto(e: Record<string, unknown> | null, key: string): number | n
   return typeof v === "number" && Number.isFinite(v) ? r2(v) : null;
 }
 
+/**
+ * Il corrispettivo della foto dello scontrino di chiusura: quello stampato
+ * (fiscal_total) se c'è, altrimenti le vendite meno annulli e resi. Stessa
+ * regola di corrispettivoDaFoto in src/lib/cashClosings.ts e del report.
+ */
+function corrispettivoFoto(e: Record<string, unknown> | null): number | null {
+  const fiscale = numEstratto(e, "fiscal_total");
+  if (fiscale != null) return fiscale;
+  const vendite = numEstratto(e, "amount");
+  if (vendite == null) return null;
+  const annulli = Math.max(numEstratto(e, "cancellations_total") ?? 0, 0);
+  const resi = Math.max(numEstratto(e, "returns_total") ?? 0, 0);
+  return r2(vendite - annulli - resi);
+}
+
 // ─── Testi per il negozio ───
 // Patrizio, 20/11/2026: una sola mail per negozio, un saluto e una firma, e per
 // ogni problema cosa non va e cosa fare, con parole da cassiera. Niente parole
@@ -334,19 +349,9 @@ async function istruisci(
       }
     }
 
-    const totFoto = letteDi("totale").map((a) => numEstratto(a.extracted, "amount")).filter((v): v is number => v != null);
-    if (totFoto.length > 0) {
-      const scritto = num(c.total_receipts);
-      if (!totFoto.some((v) => r2(Math.abs(v - scritto)) <= tolG)) {
-        checks.push({
-          ...base, kind: "foto_diversa", amount: scritto, fingerprint: "totale",
-          detail: `totale corrispettivi scritto ${eur(scritto)} ma dalla foto risulta ${totFoto.map((v) => eur(v)).join(" oppure ")}`,
-          campo: "totale dell'incasso", scritto, letto: totFoto.map((v) => eur(v)).join(" oppure "),
-          outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-          lezione: nota ? null : "campo_diverso_dalla_foto",
-        });
-      }
-    }
+    // Il totale si confronta con la foto DOPO i passi 4 e 5, perché un annullo
+    // sistemato lì cambia il totale scritto (vedi totScritto, sotto).
+    let totScritto = num(c.total_receipts);
 
     for (const a of letteDi("canale")) {
       const letto = numEstratto(a.extracted, "amount");
@@ -385,6 +390,7 @@ async function istruisci(
         if (!dryRun) {
           await admin.from("outlet_daily_closings").update({ total_receipts: dopo }).eq("id", c.id);
         }
+        totScritto = dopo;
         checks.push({
           ...base, kind: "differenza_corrispettivi", amount: diffCorr, fingerprint: "annullo",
           detail: `totale incassato e somma dei mezzi di pagamento non quadrano (differenza ${eur(diffCorr)})`,
@@ -441,6 +447,7 @@ async function istruisci(
           await admin.from("outlet_daily_closing_lines").update({ amount: cashDopo }).eq("id", rigaContanti.id);
           await admin.from("outlet_daily_closings").update({ total_receipts: totDopo }).eq("id", c.id);
         }
+        totScritto = totDopo;
         checks.push({
           ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "annullo_contanti",
           detail: `contante in cassa in ammanco di ${eur(Math.abs(diffCassa))}`,
@@ -584,6 +591,23 @@ async function istruisci(
           });
         }
       }
+    }
+
+    // 5b. Il totale scritto e la foto dello scontrino di chiusura.
+    //     Si confronta con il CORRISPETTIVO, non con le vendite: Roma Soratte,
+    //     19/11/2026, vendite 2.034,65, annulli 111,90, corrispettivo 1.922,75.
+    //     La cassiera aveva scritto 1.922,75, il numero giusto, e il controllo
+    //     le diceva di scrivere 2.034,65. Più foto (registratore e POS): basta
+    //     che una combaci.
+    const totFoto = letteDi("totale").map((a) => corrispettivoFoto(a.extracted)).filter((v): v is number => v != null);
+    if (totFoto.length > 0 && !totFoto.some((v) => r2(Math.abs(v - totScritto)) <= tolG)) {
+      checks.push({
+        ...base, kind: "foto_diversa", amount: totScritto, fingerprint: "totale",
+        detail: `totale corrispettivi scritto ${eur(totScritto)} ma dalla foto il corrispettivo è ${totFoto.map((v) => eur(v)).join(" oppure ")}`,
+        campo: "totale dell'incasso", scritto: totScritto, letto: totFoto.map((v) => eur(v)).join(" oppure "),
+        outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
+        lezione: nota ? null : "campo_diverso_dalla_foto",
+      });
     }
 
     // 6. La nota della cassiera su una giornata che quadra: è informazione,

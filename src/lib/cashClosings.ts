@@ -60,6 +60,25 @@ export function extractedNumber(extracted: unknown, key: string): number | null 
   return typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 100) / 100 : null
 }
 
+/**
+ * Corrispettivo letto dalla foto dello scontrino di chiusura: quello stampato
+ * (`fiscal_total`) se c'è, altrimenti le vendite (`amount`) meno annulli e resi.
+ * È il numero da scrivere nel totale corrispettivi: le vendite da sole sono
+ * lorde. Nata da Roma Soratte, 19/11/2026: vendite 2.034,65, annulli 111,90,
+ * corrispettivo 1.922,75; la cassiera aveva scritto 1.922,75 e i controlli le
+ * dicevano di scrivere 2.034,65. Stessa regola nelle edge function
+ * closing-checks-run e daily-cash-report-send.
+ */
+export function corrispettivoDaFoto(extracted: unknown): number | null {
+  const fiscale = extractedNumber(extracted, 'fiscal_total')
+  if (fiscale != null) return fiscale
+  const vendite = extractedAmount(extracted)
+  if (vendite == null) return null
+  const annulli = Math.max(extractedNumber(extracted, 'cancellations_total') ?? 0, 0)
+  const resi = Math.max(extractedNumber(extracted, 'returns_total') ?? 0, 0)
+  return Math.round((vendite - annulli - resi) * 100) / 100
+}
+
 function extractedStr(e: ExtractedData, key: string): string | null {
   const v = e[key]
   return typeof v === 'string' && v.trim() ? v.trim() : null
@@ -83,7 +102,7 @@ export function extractedSummary(target: AttachmentTarget, extracted: unknown): 
   if (e.document_ok === false) out.push('documento diverso da quello atteso')
   switch (target) {
     case 'totale':
-      money('totale', 'total_sales'); money('contanti', 'cash'); money('elettronico', 'electronic'); money('altro', 'other_payments')
+      money('totale', 'total_sales'); money('corrispettivo', 'fiscal_total'); money('contanti', 'cash'); money('elettronico', 'electronic'); money('altro', 'other_payments')
       count('documenti', 'documents_count'); money('resi', 'returns_total'); money('annulli', 'cancellations_total')
       money('gran totale', 'grand_total'); count('azzeramenti', 'closure_number'); text('RT', 'serial')
       if (e.transmission_ok === true) out.push('trasmissione ok')
@@ -387,6 +406,28 @@ export function totalMissingFromPhoto(i: {
   if (i.isClosedDay) return null
   if (i.photoTotal == null || !(i.photoTotal > 0)) return null
   return Math.abs(i.totalReceipts ?? 0) < 0.005 ? r2(i.photoTotal) : null
+}
+
+/** Fino a un euro di differenza fra totale scritto e foto si può sbagliare (Patrizio, 18/11/2026). */
+export const TOTALE_FOTO_TOLLERANZA = 1
+
+/**
+ * Totale scritto diverso dal corrispettivo della foto, e non zero (lo zero lo
+ * copre totalMissingFromPhoto). Fino al 20/11/2026 la pagina avvisava solo
+ * per lo zero; un numero diverso restava una scritta piccola sotto la foto.
+ * Restituisce il corrispettivo da proporre; null se non è il caso.
+ * Non blocca: la lettura automatica può sbagliare, la cassiera può confermare il suo.
+ */
+export function totalDifferentFromPhoto(i: {
+  isClosedDay: boolean
+  totalReceipts: number | null
+  /** Corrispettivo letto dalla foto (corrispettivoDaFoto). */
+  photoTotal: number | null
+}): number | null {
+  if (i.isClosedDay || i.photoTotal == null) return null
+  const scritto = i.totalReceipts ?? 0
+  if (Math.abs(scritto) < 0.005) return null
+  return r2(Math.abs(scritto - i.photoTotal)) > TOTALE_FOTO_TOLLERANZA ? r2(i.photoTotal) : null
 }
 
 export function pendingLooksLikeExpected(i: {

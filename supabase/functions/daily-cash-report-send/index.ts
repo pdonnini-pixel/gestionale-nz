@@ -94,6 +94,26 @@ const num = (v: unknown) => (v == null ? 0 : Number(v));
 const extractedAmount = (e: Record<string, unknown> | null): number | null => {
   const v = e?.amount; return typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
 };
+const extractedKey = (e: Record<string, unknown> | null, k: string): number | null => {
+  const v = e?.[k]; return typeof v === "number" && Number.isFinite(v) ? Math.round(v * 100) / 100 : null;
+};
+/**
+ * Il corrispettivo della foto dello scontrino di chiusura: quello stampato
+ * (fiscal_total) se c'e', altrimenti le vendite meno annulli e resi. Le vendite
+ * da sole sono lorde: Roma Soratte, 19/11/2026, vendite 2.034,65, annulli
+ * 111,90, corrispettivo 1.922,75; la cassiera aveva scritto il numero giusto e
+ * il report la segnalava. Stessa regola di corrispettivoDaFoto in
+ * src/lib/cashClosings.ts e di closing-checks-run.
+ */
+const corrispettivoFoto = (e: Record<string, unknown> | null): number | null => {
+  const fiscale = extractedKey(e, "fiscal_total");
+  if (fiscale != null) return fiscale;
+  const vendite = extractedAmount(e);
+  if (vendite == null) return null;
+  const annulli = Math.max(extractedKey(e, "cancellations_total") ?? 0, 0);
+  const resi = Math.max(extractedKey(e, "returns_total") ?? 0, 0);
+  return Math.round((vendite - annulli - resi) * 100) / 100;
+};
 
 interface Budget {
   // Obiettivo dal budget ricavi mensile dell'Inserimento rapido (netto IVA → lordo con l'aliquota impostata)
@@ -236,7 +256,7 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
       const myAtts = atts.filter((a) => a.closing_id === c.id);
       if (!myAtts.some((a) => a.target === "totale")) anomalies.push(`${o.name}: manca la foto dello scontrino di chiusura`);
       for (const a of myAtts) {
-        const read = extractedAmount(a.extracted);
+        const read = a.target === "totale" ? corrispettivoFoto(a.extracted) : extractedAmount(a.extracted);
         if (read == null || !["letta", "da_rivedere"].includes(a.extraction_status)) continue;
         let declared: number | null = null; let what = "";
         if (a.target === "totale") { declared = num(c.total_receipts); what = "totale corrispettivi"; }
