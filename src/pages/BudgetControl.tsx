@@ -410,7 +410,7 @@ function pctSicura(pct: number | null): number | null {
   return Math.round(pct * 100) / 100
 }
 
-function NumberInputIt({ value, onChange, onCommit, className, placeholder, edited, onClickStop }: {
+function NumberInputIt({ value, onChange, onCommit, className, placeholder, edited, onClickStop, title, commitAlways }: {
   value: number
   onChange: (n: number) => void
   // Chiamato on blur con il valore finale, SOLO se diverso dal valore d'apertura.
@@ -421,10 +421,19 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
   placeholder?: string
   edited?: boolean
   onClickStop?: boolean
+  // Spiegazione mostrata al passaggio del mouse quando non c'è un esito di salvataggio da dire.
+  title?: string
+  // Salva anche se il numero scritto è uguale a quello mostrato all'apertura (Rettifica
+  // annuale: riscrivere la somma dei mesi la rende annuale, e deve arrivare al database).
+  commitAlways?: boolean
 }) {
   const [focused, setFocused] = useState(false)
   const [draft, setDraft] = useState<string>('')
   const [openValue, setOpenValue] = useState<number>(0) // valore al focus, per detect change
+  // Ultimo numero scritto durante il focus. Si salva quello, non il valore che la casella
+  // mostra dopo: nella Rettifica annuale, togliendo l'annuale (0) la casella torna a mostrare
+  // la somma dei mesi, e salvare il valore mostrato la trasformava in una rettifica annuale.
+  const typedRef = React.useRef<number | null>(null)
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const display = focused
     ? draft
@@ -433,10 +442,12 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
       : ''
   const handleBlur = async () => {
     setFocused(false)
-    if (onCommit && value !== openValue) {
+    const finale = typedRef.current
+    typedRef.current = null
+    if (onCommit && finale != null && (commitAlways || finale !== openValue)) {
       try {
         setSaveStatus('saving')
-        await onCommit(value)
+        await onCommit(finale)
         setSaveStatus('saved')
         setTimeout(() => setSaveStatus('idle'), 1800)
       } catch {
@@ -461,6 +472,7 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
       onFocus={() => {
         setDraft(value !== 0 ? String(value).replace('.', ',') : '')
         setOpenValue(value)
+        typedRef.current = null
         setFocused(true)
       }}
       onChange={e => {
@@ -471,6 +483,7 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
         if (v.trim() === '-' || v.trim() === '+') return
         const cleaned = v.replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
         const num = parseFloat(cleaned)
+        typedRef.current = isNaN(num) ? 0 : num
         onChange(isNaN(num) ? 0 : num)
       }}
       onBlur={handleBlur}
@@ -479,7 +492,7 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
       title={
         saveStatus === 'saving' ? 'Salvataggio in corso...' :
         saveStatus === 'saved' ? 'Salvato ✓' :
-        saveStatus === 'error' ? 'Errore: riprova' : undefined
+        saveStatus === 'error' ? 'Errore: riprova' : title
       }
     />
   )
@@ -1022,6 +1035,72 @@ export default function BudgetControl() {
   // Aggrega bpEdits/consEdits/rettEdits sommando per account_code su tutti
   // gli outlet operativi visibili al ruolo corrente. Usato per la vista
   // "Tutti gli outlet" nel selettore Confronto (default per CEO).
+  // ─── PREVENTIVO MENSILE DEI COSTI (20/11/2026) ───
+  // Il preventivo dei costi mese per mese sta in budget_entries (lo scrive il Business Plan,
+  // 12 righe per conto). La vista mensile del Confronto lo leggeva solo da budget_confronto
+  // 'prev_monthly', che su NZ e Zago non ha righe: i costi del mese risultavano tutti a zero
+  // e la «Rett. %» dei costi non si poteva usare. Ora la base è budget_entries; un valore
+  // mensile scritto a mano nel Confronto (prev_monthly, diverso da zero) resta sopra.
+  // Se in pagina il preventivo annuale di un conto è stato riscritto, la somma dei mesi non
+  // torna più con bpEdits: quel conto si rispalma come fa il salvataggio (splitMonthly).
+  const prevMonthlyBE = useMemo(() => {
+    const costCodes = new Set(ceRawCosti.map(r => r.code))
+    const out: MonthlyEditMap = {}
+    for (const e of budgetEntries) {
+      const cc = e.cost_center || 'all'
+      const ac = e.account_code
+      const m = Number(e.month) || 0
+      if (cc === 'rettifica_bilancio' || !ac || !costCodes.has(ac) || m < 1 || m > 12) continue
+      if (!out[cc]) out[cc] = {}
+      if (!out[cc][ac]) out[cc][ac] = Array(12).fill(0) as number[]
+      out[cc][ac][m - 1] += Number(e.budget_amount) || 0
+    }
+    for (const [cc, byCode] of Object.entries(bpEdits)) {
+      for (const [ac, amt] of Object.entries(byCode || {})) {
+        if (!costCodes.has(ac)) continue
+        const arr = out[cc]?.[ac]
+        const somma = arr ? arr.reduce((a, b) => a + b, 0) : 0
+        if (Math.abs(somma - (Number(amt) || 0)) > 0.005) {
+          if (!out[cc]) out[cc] = {}
+          out[cc][ac] = splitMonthly(Number(amt) || 0)
+        }
+      }
+    }
+    return out
+  }, [budgetEntries, bpEdits, ceRawCosti])
+  const prevMonthlyView = useCallback((cc: string): Record<string, number[]> => {
+    const be = prevMonthlyBE[cc] || {}
+    const man = prevMonthly[cc] || {}
+    const out: Record<string, number[]> = {}
+    for (const code of new Set([...Object.keys(be), ...Object.keys(man)])) {
+      out[code] = Array.from({ length: 12 }, (_, i) => {
+        const m = man[code]?.[i]
+        return (typeof m === 'number' && m !== 0) ? m : (be[code]?.[i] || 0)
+      })
+    }
+    return out
+  }, [prevMonthlyBE, prevMonthly])
+
+  // ─── RETTIFICA DELL'ANNO DI UNA VOCE (Patrizio, 20/11/2026) ───
+  // Voce per voce: se c'è la rettifica annuale (scritta nel Confronto annuale, per esempio
+  // la merce, che non si divide per mese né per negozio) vale quella e le mensili non si
+  // sommano; se l'annuale è vuota, la rettifica dell'anno è la somma dei mesi.
+  const rettMonthlyYear = useCallback((cc: string): Record<string, number> => {
+    const out: Record<string, number> = {}
+    for (const [ac, arr] of Object.entries(rettMonthly[cc] || {})) {
+      const somma = (arr || []).reduce<number>((a, v) => a + (typeof v === 'number' ? v : 0), 0)
+      if (somma !== 0) out[ac] = somma
+    }
+    return out
+  }, [rettMonthly])
+  const rettEffettiva = useCallback((cc: string): Record<string, number> => {
+    const out = rettMonthlyYear(cc)
+    for (const [ac, v] of Object.entries(rettEdits[cc] || {})) {
+      if (typeof v === 'number' && v !== 0) out[ac] = v
+    }
+    return out
+  }, [rettMonthlyYear, rettEdits])
+
   const aggregatedConfrontoEdits = useMemo(() => {
     const empty = { prev: {} as Record<string, number>, cons: {} as Record<string, number>, rett: {} as Record<string, number>, outletCount: 0, sedeIncluded: false }
     if (confOutlet !== ALL_OUTLETS_CODE) return empty
@@ -1045,10 +1124,10 @@ export default function BudgetControl() {
     for (const code of centers) {
       sumInto(prev, bpEdits[code])
       sumInto(cons, consEdits[code])
-      sumInto(rett, rettEdits[code])
+      sumInto(rett, rettEffettiva(code))
     }
     return { prev, cons, rett, outletCount: operative.length, sedeIncluded }
-  }, [confOutlet, bpEdits, consEdits, rettEdits, ops, workflow, canApproveBudget, hq, HQ_CODE])
+  }, [confOutlet, bpEdits, consEdits, rettEffettiva, ops, workflow, canApproveBudget, hq, HQ_CODE])
 
   // I3 — deep-link da "Confronto Outlet": /budget?tab=confronto&outlet=<code>.
   // Preseleziona l'outlet richiesto (ha priorità sui default sotto).
@@ -1252,7 +1331,7 @@ export default function BudgetControl() {
       if (cost !== 0) return cost
       return ((revMonthly[outletCode] || {})[accCode] || []).reduce((a, b) => a + (Number(b) || 0), 0)
     }
-    return ((prevMonthly[outletCode] || {})[accCode] || [])[monthIdx] || ((revMonthly[outletCode] || {})[accCode] || [])[monthIdx] || 0
+    return (prevMonthlyView(outletCode)[accCode] || [])[monthIdx] || ((revMonthly[outletCode] || {})[accCode] || [])[monthIdx] || 0
   }
   const saveAnnualRett = (outletCode: string, accCode: string, value: number) =>
     saveRettCell(outletCode, accCode, 0, value, rettBase(outletCode, accCode, null))
@@ -1880,6 +1959,7 @@ export default function BudgetControl() {
                   rettEdits={rettEdits[confOutlet] || {}}
                   onRettEdit={(code: string, val: number | string | undefined) => setRettEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: (typeof val === 'number' ? val : 0)}}))}
                   onRettCommit={canApproveBudget && workflow[confOutlet]?.status !== 'approvato' ? ((code: string, val: number) => saveAnnualRett(confOutlet, code, val)) : undefined}
+                  rettMonthlyYear={rettMonthlyYear(confOutlet)}
                   costiTree={costiTreeForOutlet}
                   ricaviTree={ricaviTreeForOutlet}
                   year={year}
@@ -1907,7 +1987,7 @@ export default function BudgetControl() {
                   costiTree={costiTreeForOutlet}
                   ricaviTree={ricaviTreeForOutlet}
                   readOnly={!canApproveBudget || (workflow[confOutlet]?.status === 'approvato')}
-                  prevMonthly={prevMonthly[confOutlet] || {}}
+                  prevMonthly={prevMonthlyView(confOutlet)}
                   onPrevMonthly={(code: string, month: number, val: number) => setPrevMonthly(prev => {
                     const outlet = { ...(prev[confOutlet] || {}) }
                     const arr = [...(outlet[code] || Array(12).fill(0))]
@@ -1930,6 +2010,7 @@ export default function BudgetControl() {
                   })}
                   rettMonthly={rettMonthly[confOutlet] || {}}
                   rettMonthlyPct={rettMonthlyPct[confOutlet] || {}}
+                  rettAnnual={rettEdits[confOutlet] || {}}
                   onRettMonthly={(code, month, amount, pct) => {
                     setRettMonthly(prev => {
                       const outlet = { ...(prev[confOutlet] || {}) }
@@ -2390,16 +2471,19 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
           <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-purple-700' : 'text-purple-500'}`}>{ra !== 0 ? fmt(ra) : '—'}</span>
         )}
         {/* Rettifica % (bidirezionale: scrivendo % ricalcola €) */}
-        {isLeaf && !readOnly && !isAnnualView ? (
-          <input type="text" inputMode="decimal"
-            value={rp ? rp.toFixed(2) : ''}
-            onClick={e => e.stopPropagation()}
-            onChange={e => {
-              const raw = e.target.value.replace(/\./g, '').replace(',', '.')
-              const pct = parseFloat(raw) || 0
-              const amount = pv !== 0 ? (pv * pct / 100) : 0
+        {isLeaf && !readOnly && !isAnnualView && pv !== 0 ? (
+          // Senza preventivo del mese la % non si applica: la casella non c'è, così non può
+          // azzerare una rettifica in € già scritta.
+          // Fino al 20/11/2026 era una casella senza salvataggio: la percentuale restava a video
+          // e alla riapertura spariva. Ora salva l'importo che ne deriva, come la casella in €.
+          <NumberInputIt
+            value={rp}
+            onChange={pct => {
+              const amount = pv !== 0 ? Math.round(pv * pct) / 100 : 0
               onRett(node.code, amount, pct)
             }}
+            onCommit={onCommitRett ? (pct => onCommitRett(node.code, mese, pv !== 0 ? Math.round(pv * pct) / 100 : 0)) : undefined}
+            onClickStop
             className="text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 border-slate-200"
             placeholder="±0%" />
         ) : (
@@ -2457,6 +2541,8 @@ type ConfrontoMensileProps = {
   revMonthly: MonthlyMap; onRevMonthly: (code: string, month: number, val: number) => void
   consMonthly: MonthlyMap; onConsMonthly: (code: string, month: number, val: number) => void
   rettMonthly: MonthlyMap; rettMonthlyPct: MonthlyMap
+  // Rettifiche annuali per codice: nella vista «Anno» valgono al posto della somma dei mesi.
+  rettAnnual?: Record<string, number>
   onRettMonthly: (code: string, month: number, amount: number, pct: number) => void
   year: number
   // Autosave per-cella (Patrizio 29/05/2026)
@@ -2473,6 +2559,7 @@ function ConfrontoMensile({
   revMonthly, onRevMonthly,
   consMonthly, onConsMonthly,
   rettMonthly, rettMonthlyPct,
+  rettAnnual,
   onRettMonthly,
   year,
   onCommitPrev, onCommitRev, onCommitCons, onCommitRett,
@@ -2535,7 +2622,24 @@ function ConfrontoMensile({
   const revByCode = pickByMonth(revMonthly)
   const consByCode = pickByMonth(consMonthly)
   const rettAmtByCode = pickByMonth(rettMonthly)
-  const rettPctByCode = pickPctByMonth(rettMonthlyPct, rettAmtByCode, prevByCode)
+  // Vista «Anno»: una voce con la rettifica annuale (es. la merce) usa quella, non i mesi
+  // (Patrizio, 20/11/2026). Trimestri e periodi scelti restano sui soli mesi: una
+  // rettifica annuale non si divide per mese.
+  const isAnnoIntero = mese === -1 && !customRange
+  if (isAnnoIntero && rettAnnual) {
+    Object.entries(rettAnnual).forEach(([code, v]) => { if (typeof v === 'number' && v !== 0) rettAmtByCode[code] = v })
+  }
+  const haRettAnnuali = !!rettAnnual && Object.values(rettAnnual).some(v => typeof v === 'number' && v !== 0)
+  // Base della % nei periodi di più mesi: preventivo costi o, per i ricavi, preventivo ricavi
+  // (prima c'era solo quello dei costi e la % dei ricavi risultava sempre 0).
+  const rettPctByCode = pickPctByMonth(rettMonthlyPct, rettAmtByCode, { ...revByCode, ...prevByCode })
+  if (isAnnoIntero && rettAnnual) {
+    Object.keys(rettAnnual).forEach(code => {
+      if (!rettAnnual[code]) return
+      const base = prevByCode[code] ?? revByCode[code] ?? 0
+      rettPctByCode[code] = base !== 0 ? (rettAmtByCode[code] / base) * 100 : 0
+    })
+  }
 
   const editedC = applyEditsZero(costiTree, prevByCode)
   const editedR = applyEditsZero(ricaviTree, revByCode)
@@ -2600,10 +2704,12 @@ function ConfrontoMensile({
       {/* KPI scostamento mensile/annuale */}
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Kpi icon={Lock} label={`Preventivo ${labelMese}`} value={fmtC(ris)} color={ris >= 0 ? 'green' : 'red'} />
-        <Kpi icon={Unlock} label={`Consuntivo ${labelMese}`} value={fmtC(totConsR - totConsC)} color={(totConsR - totConsC) >= 0 ? 'green' : 'red'} />
+        <Kpi icon={Unlock} label={`Consuntivo ${labelMese}`} value={fmtC(risCons)} sub="con le rettifiche" color={risCons >= 0 ? 'green' : 'red'} />
         <Kpi icon={TrendingDown} label="Scostamento costi" value={totC > 0 ? `${(scostC / totC * 100).toFixed(1)}%` : '—'} sub={fmtC(scostC)} color={scostC > 0 ? 'red' : 'green'} />
         <Kpi icon={TrendingUp} label="Scostamento ricavi" value={totR > 0 ? `${(scostR / totR * 100).toFixed(1)}%` : '—'} sub={fmtC(scostR)} color={scostR >= 0 ? 'green' : 'red'} />
-        <Kpi icon={Target} label="Scostamento" value={fmtC(ris - (totConsR - totConsC))} color={(ris - (totConsR - totConsC)) >= 0 ? 'green' : 'red'} alert={Math.abs(scostTot) > Math.abs(ris) * 0.15} />
+        {/* Consuntivo con rettifiche meno preventivo, come gli altri scostamenti (prima era
+            preventivo meno consuntivo: segno e colore al contrario). */}
+        <Kpi icon={Target} label="Scostamento" value={fmtC(scostTot)} color={scostTot >= 0 ? 'green' : 'red'} alert={Math.abs(scostTot) > Math.abs(ris) * 0.15} />
       </div>
 
       {/* ROLLING FORECAST - Anno proiettato (cons fino oggi + prev futuro).
@@ -2744,6 +2850,9 @@ function ConfrontoMensile({
           {isAggregateView && (
             <p className="text-[11px] text-slate-500 mt-2 italic">
               Vista aggregata {labelMese}: somma dei mesi {periodMonths.map(mi => MESI[mi]).join(', ')}. Per modificare i valori passa al singolo mese.
+              {haRettAnnuali && (isAnnoIntero
+                ? ' Nella colonna Rettifica le voci con una rettifica annuale mostrano quella, non la somma dei mesi.'
+                : ' Le rettifiche annuali (per esempio la merce) non si dividono per mese: le vedi solo nella vista Anno e nel Confronto annuale.')}
             </p>
           )}
         </div>
@@ -2884,8 +2993,11 @@ type ConfrontoRowProps = { prevNode: TreeNodeT; consNode: TreeNodeT; rettNode: T
   isRevenue?: boolean
   // Consuntivo annuale come somma dei mesi (Inserimento rapido / vista mensile), per codice.
   // Dove c'è, la foglia lo mostra in sola lettura: il mensile comanda, come nella riga macro.
-  consMonthlyYear?: Record<string, number> }
-function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit, onPrevEdit, onPrevCommit, onRettCommit, isRevenue, consMonthlyYear }: ConfrontoRowProps) {
+  consMonthlyYear?: Record<string, number>
+  // Somma delle rettifiche mensili per codice. Vale solo dove la rettifica annuale è vuota:
+  // se c'è l'annuale vale quella (Patrizio, 20/11/2026).
+  rettMonthlyYear?: Record<string, number> }
+function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit, onPrevEdit, onPrevCommit, onRettCommit, isRevenue, consMonthlyYear, rettMonthlyYear }: ConfrontoRowProps) {
   const [open, setOpen] = useState(false)
   const hasKids = prevNode.children?.length > 0
   const isMacro = prevNode.level === 0
@@ -2897,9 +3009,13 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
   const consVal = consFromMonthly != null ? consFromMonthly : consEdits[prevNode.code] != null ? consEdits[prevNode.code] : 0
   const consIsEdited = consEdits[prevNode.code] != null
   const rettRaw = rettEdits[prevNode.code]
-  const rettVal = rettRaw != null ? rettRaw : 0
-  const rettIsEdited = rettRaw != null && rettRaw !== undefined
-  const rettNum = typeof rettVal === 'number' ? rettVal : 0  // stringa temporanea ('-','+') → 0
+  const rettAnnuale = typeof rettRaw === 'number' ? rettRaw : 0  // stringa temporanea ('-','+') → 0
+  const rettDaiMesi = rettMonthlyYear?.[prevNode.code] ?? 0
+  // Annuale vuota e rettifiche nei mesi: la casella mostra la loro somma. Scrivere qui
+  // mette una rettifica annuale, che da quel momento vale al posto dei mesi.
+  const rettUsaMesi = rettAnnuale === 0 && rettDaiMesi !== 0
+  const rettNum = rettUsaMesi ? rettDaiMesi : rettAnnuale
+  const rettIsEdited = rettRaw != null || rettUsaMesi
 
   // Per foglie: usa valori da input; per macro: usa totali dal tree
   const cv = isLeaf ? consVal : (consNode.amount || 0)
@@ -2954,8 +3070,10 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
             edited={rettIsEdited && rettNum !== 0}
             onChange={n => onRettEdit(prevNode.code, n)}
             onCommit={onRettCommit ? (n => onRettCommit(prevNode.code, n)) : undefined}
+            commitAlways
             onClickStop
-            className={`w-full text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 ${rettIsEdited && rettNum !== 0 ? 'bg-purple-50 border-purple-300' : 'border-slate-200'}`}
+            title={rettUsaMesi ? 'Somma delle rettifiche dei mesi. Scrivendo qui metti una rettifica annuale, che vale al posto dei mesi.' : undefined}
+            className={`w-full text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 ${rettUsaMesi ? 'bg-purple-50/40 border-dashed border-purple-300 italic' : rettIsEdited && rettNum !== 0 ? 'bg-purple-50 border-purple-300' : 'border-slate-200'}`}
             placeholder="±0" />
         ) : (
           <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-purple-700' : 'text-purple-500'}`}>{rv !== 0 ? fmt(rv) : '—'}</span>
@@ -2973,7 +3091,7 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
         <ConfrontoRow key={`${c.code}-${i}`}
           prevNode={c} consNode={consNode.children?.[i] || c} rettNode={rettNode.children?.[i] || { ...c, amount: 0, children: [] }}
           depth={depth + 1} consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-          onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} isRevenue={isRevenue} consMonthlyYear={consMonthlyYear} />
+          onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} isRevenue={isRevenue} consMonthlyYear={consMonthlyYear} rettMonthlyYear={rettMonthlyYear} />
       ))}
     </div>
   )
@@ -3009,8 +3127,11 @@ type ConfrontoPanelProps = {
   onImposteCommit?: (val: number) => Promise<void>
   // Rettifica annuale: salvataggio on blur della cella (solo singolo outlet).
   onRettCommit?: (code: string, val: number) => Promise<void>
+  // Somma delle rettifiche mensili per codice (solo singolo outlet; nella vista aggregata
+  // rettEdits arriva già con la regola annuale/mesi applicata).
+  rettMonthlyYear?: Record<string, number>
 }
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit, onRettCommit }: ConfrontoPanelProps) {
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit, onRettCommit, rettMonthlyYear }: ConfrontoPanelProps) {
   const labels = useCompanyLabels()
   // Somma annuale (per code) dei mensili gia' caricati da budget_confronto.
   // Patrizio (29/05/2026): "il numero si popola solo dalla somma dei mensili
@@ -3064,20 +3185,22 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
   const consC = applyEditsZero(costiTree, consEdits)
   // RICAVI consuntivo: NO bilancio. Popolato da edit annuale Confronto o somma mensile.
   const consR = applyZeroWithMonthly(ricaviTree, consEdits, consYearly)
-  const rettC = applyEditsZero(costiTree, rettEdits)
-  const rettR = applyEditsZero(ricaviTree, rettEdits)
+  // Rettifica dell'anno per voce: l'annuale se c'è, altrimenti la somma dei mesi.
+  const rettEff: Record<string, number> = { ...(rettMonthlyYear || {}) }
+  Object.entries(rettEdits).forEach(([k, v]) => { if (typeof v === 'number' && v !== 0) rettEff[k] = v })
+  const rettC = applyEditsZero(costiTree, rettEff)
+  const rettR = applyEditsZero(ricaviTree, rettEff)
 
   const totPrevC = sumMacros(prevC), totPrevR = sumMacros(prevR)
   const totConsC = sumMacros(consC), totConsR = sumMacros(consR)
   const totRettC = sumMacros(rettC), totRettR = sumMacros(rettR)
   const risPrev = totPrevR - totPrevC
-  const risCons = totConsR - totConsC
-  // Scostamenti per la tabella di dettaglio (TOTALE): includono la rettifica, INVARIATI.
+  // Consuntivo con le rettifiche: è il numero che i totali COSTI e RICAVI già mostrano.
+  // Fino al 20/11/2026 i riquadri usavano il consuntivo senza rettifica e una rettifica
+  // non cambiava né il risultato né gli scostamenti in alto.
+  const risCons = (totConsR + totRettR) - (totConsC + totRettC)
   const scostC = totConsC + totRettC - totPrevC
   const scostR = totConsR + totRettR - totPrevR
-  // KPI/box riepilogo: usano consuntivo PURO (senza rettifica).
-  const scostCostiPuro = totConsC - totPrevC
-  const scostRicaviPuro = totConsR - totPrevR
 
   // ─── Imposte ──────────────────────────────────────────────────────────────
   // imposte = importo POSITIVO (aggregata: totale annuale; singolo/Sede: quota
@@ -3086,14 +3209,15 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
   const isAggregate = outletCode === ALL_OUTLETS_CODE
   const imposte = imposteAmount || 0
   const risDopoImposte = risPrev - imposte
+  const risConsDopoImposte = risCons - imposte
 
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <Kpi icon={Lock} label="Risultato preventivo" value={fmtC(risPrev)} color={risPrev>=0?'green':'red'} />
-        <Kpi icon={Unlock} label="Risultato consuntivo" value={fmtC(risCons)} color={risCons>=0?'green':'red'} />
-        <Kpi icon={TrendingDown} label="Scostamento costi" value={totPrevC>0 ? `${(scostCostiPuro/totPrevC*100).toFixed(1)}%` : '—'} sub={fmtC(scostCostiPuro)} color={scostCostiPuro>0?'red':'green'} />
-        <Kpi icon={TrendingUp} label="Scostamento ricavi" value={totPrevR>0 ? `${(scostRicaviPuro/totPrevR*100).toFixed(1)}%` : '—'} sub={fmtC(scostRicaviPuro)} color={scostRicaviPuro>=0?'green':'red'} />
+        <Kpi icon={Unlock} label="Risultato consuntivo" value={fmtC(risCons)} sub="con le rettifiche" color={risCons>=0?'green':'red'} />
+        <Kpi icon={TrendingDown} label="Scostamento costi" value={totPrevC>0 ? `${(scostC/totPrevC*100).toFixed(1)}%` : '—'} sub={fmtC(scostC)} color={scostC>0?'red':'green'} />
+        <Kpi icon={TrendingUp} label="Scostamento ricavi" value={totPrevR>0 ? `${(scostR/totPrevR*100).toFixed(1)}%` : '—'} sub={fmtC(scostR)} color={scostR>=0?'green':'red'} />
       </div>
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -3125,7 +3249,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             {prevC.map((n, i) => (
               <ConfrontoRow key={`c-${n.code}-${i}`} prevNode={n} consNode={consC[i] || n} rettNode={rettC[i] || { ...n, amount: 0, children: [] }}
                 consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-                onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} />
+                onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} rettMonthlyYear={rettMonthlyYear} />
             ))}
           </div>
           <div className="grid mt-2 pt-2 border-t-2 border-slate-300 font-bold text-[11px]"
@@ -3148,7 +3272,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             {prevR.map((n, i) => (
               <ConfrontoRow key={`r-${n.code}-${i}`} prevNode={n} consNode={consR[i] || n} rettNode={rettR[i] || { ...n, amount: 0, children: [] }}
                 consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-                onRettCommit={onRettCommit} isRevenue consMonthlyYear={consYearly} />
+                onRettCommit={onRettCommit} isRevenue consMonthlyYear={consYearly} rettMonthlyYear={rettMonthlyYear} />
             ))}
           </div>
           <div className="grid mt-2 pt-2 border-t-2 border-slate-300 font-bold text-[11px]"
@@ -3194,7 +3318,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             )}
           </div>
           <div className="flex items-center justify-between gap-3 pt-2 border-t border-rose-200">
-            <span className="text-sm font-bold text-slate-900">Risultato dopo le imposte</span>
+            <span className="text-sm font-bold text-slate-900">Risultato preventivo dopo le imposte</span>
             <span className={`text-base font-bold tabular-nums ${risDopoImposte >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
               {fmtC(risDopoImposte)}
             </span>
@@ -3209,7 +3333,7 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
         {/* Risultati — Risultato prima delle imposte | Imposte | Risultato dopo le imposte */}
         <div className="border-t border-slate-200 px-5 py-3 grid grid-cols-3 gap-4">
           <div className={`p-3 rounded-lg text-center font-bold text-sm ${risPrev>=0?'bg-indigo-50 text-indigo-700':'bg-red-50 text-red-700'}`}>
-            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Risultato prima delle imposte</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Preventivo, prima delle imposte</div>
             {risPrev>=0?'Utile':'Perdita'} {fmtC(Math.abs(risPrev))}
           </div>
           <div className="p-3 rounded-lg text-center font-bold text-sm bg-rose-50 text-red-700">
@@ -3217,8 +3341,23 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             {imposte !== 0 ? `-${fmtC(imposte)}` : '—'}
           </div>
           <div className={`p-3 rounded-lg text-center font-bold text-sm ${risDopoImposte>=0?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'}`}>
-            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Risultato dopo le imposte</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Preventivo, dopo le imposte</div>
             {risDopoImposte>=0?'Utile':'Perdita'} {fmtC(Math.abs(risDopoImposte))}
+          </div>
+        </div>
+        {/* Consuntivo con le rettifiche: stessa riga, numeri del consuntivo (20/11/2026). */}
+        <div className="px-5 pb-3 grid grid-cols-3 gap-4">
+          <div className={`p-3 rounded-lg text-center font-bold text-sm border ${risCons>=0?'border-emerald-200 text-emerald-700':'border-red-200 text-red-700'}`}>
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Consuntivo con rettifiche, prima delle imposte</div>
+            {risCons>=0?'Utile':'Perdita'} {fmtC(Math.abs(risCons))}
+          </div>
+          <div className="p-3 rounded-lg text-center font-bold text-sm border border-rose-200 text-red-700">
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Imposte</div>
+            {imposte !== 0 ? `-${fmtC(imposte)}` : '—'}
+          </div>
+          <div className={`p-3 rounded-lg text-center font-bold text-sm border ${risConsDopoImposte>=0?'border-emerald-200 text-emerald-700':'border-red-200 text-red-700'}`}>
+            <div className="text-[10px] font-semibold uppercase tracking-wider opacity-60 mb-1">Consuntivo con rettifiche, dopo le imposte</div>
+            {risConsDopoImposte>=0?'Utile':'Perdita'} {fmtC(Math.abs(risConsDopoImposte))}
           </div>
         </div>
       </div>
