@@ -379,10 +379,12 @@ export default function ChiusuraCassa() {
   const totalHint = useMemo(() => totalMissingFromPhoto({
     isClosedDay: form.isClosedDay, totalReceipts: parseAmount(form.total), photoTotal,
   }), [form.isClosedDay, form.total, photoTotal])
+  // Cambiato il totale (o la foto), il «Il mio numero è giusto» di prima non vale più.
   /** Totale scritto diverso dal corrispettivo della foto (non zero: quello è totalHint). */
   const totalDiff = useMemo(() => totalDifferentFromPhoto({
     isClosedDay: form.isClosedDay, totalReceipts: parseAmount(form.total), photoTotal,
   }), [form.isClosedDay, form.total, photoTotal])
+  useEffect(() => { setDiffAccepted(false) }, [totalDiff])
   /** Annulli letti dalla foto dello scontrino di chiusura (l'ultima letta). */
   const photoCancellations = useMemo(() => {
     const letti = totalPhotos
@@ -600,13 +602,14 @@ export default function ChiusuraCassa() {
     return out
   }
 
-  const confirm = async (force = false, pendingOk = false, totalOk = false, cancelOk = false, carryOk = false) => {
+  const confirm = async (force = false, pendingOk = false, totalOk = false, cancelOk = false, carryOk = false, diffOk = false) => {
     if (missingData.length > 0) { setBlockers(missingData); return }
     if (!totalOk && !totalAccepted && totalHint != null) { setTotalWarn(totalHint); return }
     if (!pendingOk && !pendingAccepted && pendingHint != null) { setPendingWarn(pendingHint); return }
     if (!cancelOk && !cancelAccepted && cancelHint != null) { setCancelWarn(cancelHint); return }
     // Totale diverso dalla foto: dopo l'annullo in contanti, che sistema totale e contanti insieme.
-    if (!totalOk && !diffAccepted && cancelHint == null && totalDiff != null) { setDiffWarn(totalDiff); return }
+    // Un suo parametro, non totalOk: gli altri avvisi passano totalOk=true per altri motivi e lo salterebbero.
+    if (!diffOk && !diffAccepted && cancelHint == null && totalDiff != null) { setDiffWarn(totalDiff); return }
     if (!carryOk && !carryAccepted && carryHint != null) { setCarryWarn(carryHint); return }
     if (!form.isClosedDay && totalPhotos.length === 0) {
       toast({ type: 'warning', message: 'Serve la foto dello scontrino di chiusura: è l\'unica obbligatoria.' })
@@ -1437,7 +1440,7 @@ export default function ChiusuraCassa() {
           Controlla con lo scontrino in mano. La lettura della foto può sbagliare: se il tuo numero è giusto, confermalo.
         </p>
         <div className="flex flex-wrap justify-end gap-2">
-          <button onClick={() => { setDiffAccepted(true); setDiffWarn(null); void confirm(false, false, true) }}
+          <button onClick={() => { setDiffAccepted(true); setDiffWarn(null); void confirm(false, false, true, false, false, true) }}
             className="px-4 py-3 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium">Il mio numero è giusto</button>
           <button onClick={() => diffWarn != null && fixTotal(diffWarn)}
             className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">

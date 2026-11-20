@@ -255,12 +255,22 @@ async function buildReport(admin: SupabaseClient, companyId: string, date: strin
       if (c.cash_difference != null && Math.abs(num(c.cash_difference)) > tol) anomalies.push(`${o.name}: contante in cassa (fondo + da versare) ${num(c.cash_difference) > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(num(c.cash_difference)))}`);
       const myAtts = atts.filter((a) => a.closing_id === c.id);
       if (!myAtts.some((a) => a.target === "totale")) anomalies.push(`${o.name}: manca la foto dello scontrino di chiusura`);
+      // Il totale con il corrispettivo delle foto dello scontrino di chiusura: più foto
+      // (registratore e POS) sono documenti diversi, basta che una combaci. Stessa regola
+      // di closing-checks-run.
+      const totFoto = myAtts.filter((a) => a.target === "totale" && ["letta", "da_rivedere"].includes(a.extraction_status))
+        .map((a) => corrispettivoFoto(a.extracted)).filter((v): v is number => v != null);
+      const totScritto = num(c.total_receipts);
+      if (totFoto.length > 0 && !totFoto.some((v) => Math.round(Math.abs(totScritto - v) * 100) / 100 <= tol)) {
+        anomalies.push(`${o.name}: totale corrispettivi scritto ${eur(totScritto)} ma dalla foto il corrispettivo è ${totFoto.map((v) => eur(v)).join(" oppure ")}`);
+      }
       for (const a of myAtts) {
-        const read = a.target === "totale" ? corrispettivoFoto(a.extracted) : extractedAmount(a.extracted);
+        // Il totale si è già guardato sopra, su tutte le foto insieme.
+        if (a.target === "totale") continue;
+        const read = extractedAmount(a.extracted);
         if (read == null || !["letta", "da_rivedere"].includes(a.extraction_status)) continue;
         let declared: number | null = null; let what = "";
-        if (a.target === "totale") { declared = num(c.total_receipts); what = "totale corrispettivi"; }
-        else if (a.target === "versamento") { declared = num(c.cash_deposit); what = "versamento"; }
+        if (a.target === "versamento") { declared = num(c.cash_deposit); what = "versamento"; }
         else if (a.target === "canale") { const l = lines.find((x) => x.id === a.line_id); if (l) { declared = num(l.amount); what = chById.get(l.channel_id)?.label ?? "canale"; } }
         else if (a.target === "spesa") { const e = expenses.find((x) => x.id === a.expense_id); if (e) { declared = num(e.amount); what = `spesa ${e.description ?? ""}`.trim(); } }
         // Arrotondato al centesimo prima di confrontare: 101,2 - 100,2 in
