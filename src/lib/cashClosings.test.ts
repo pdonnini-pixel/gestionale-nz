@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { EXPENSE_KINDS_OUT, EXPENSE_KIND_LABELS, parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, closingIncasso, BUDGET_VAT_RATE, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected, depositTotals, depositPhotoBelongs } from './cashClosings'
+import { EXPENSE_KINDS_OUT, EXPENSE_KIND_LABELS, parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, closingIncasso, BUDGET_VAT_RATE, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, totalDifferentFromPhoto, corrispettivoDaFoto, cancelledCashNotCollected, depositTotals, depositPhotoBelongs } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -462,5 +462,39 @@ describe('incasso per il confronto con il budget (17/11/2026)', () => {
     expect(closingIncasso({ total_receipts: 1000, invoices_total: 120.5 })).toBe(1120.5)
     expect(closingIncasso({ total_receipts: '1500.40', invoices_total: null })).toBe(1500.4)
     expect(closingIncasso({ total_receipts: null })).toBe(0)
+  })
+})
+
+describe('corrispettivoDaFoto', () => {
+  it('usa il corrispettivo stampato quando la foto lo porta (Roma Soratte, 19/11/2026)', () => {
+    expect(corrispettivoDaFoto({ amount: 2034.65, total_sales: 2034.65, cancellations_total: 111.9, fiscal_total: 1922.75 })).toBe(1922.75)
+  })
+  it('senza corrispettivo stampato toglie annulli e resi dalle vendite', () => {
+    expect(corrispettivoDaFoto({ amount: 2034.65, cancellations_total: 111.9 })).toBe(1922.75)
+    expect(corrispettivoDaFoto({ amount: 1000, cancellations_total: 50, returns_total: 20 })).toBe(930)
+    expect(corrispettivoDaFoto({ amount: 1000 })).toBe(1000)
+  })
+  it('tiene il corrispettivo negativo (storno di un altro giorno)', () => {
+    expect(corrispettivoDaFoto({ amount: 85.9, cancellations_total: 261.5, fiscal_total: -175.6 })).toBe(-175.6)
+  })
+  it('null se la foto non ha importi', () => {
+    expect(corrispettivoDaFoto(null)).toBeNull()
+    expect(corrispettivoDaFoto({ cancellations_total: 10 })).toBeNull()
+  })
+})
+
+describe('totalDifferentFromPhoto', () => {
+  it('avvisa se il totale scritto è diverso dal corrispettivo oltre un euro', () => {
+    expect(totalDifferentFromPhoto({ isClosedDay: false, totalReceipts: 2034.65, photoTotal: 1922.75 })).toBe(1922.75)
+  })
+  it('tace se il totale è quello giusto o dentro un euro', () => {
+    expect(totalDifferentFromPhoto({ isClosedDay: false, totalReceipts: 1922.75, photoTotal: 1922.75 })).toBeNull()
+    expect(totalDifferentFromPhoto({ isClosedDay: false, totalReceipts: 1923.75, photoTotal: 1922.75 })).toBeNull()
+  })
+  it('lo zero lo lascia a totalMissingFromPhoto, e tace nei giorni chiusi o senza foto', () => {
+    expect(totalDifferentFromPhoto({ isClosedDay: false, totalReceipts: 0, photoTotal: 1922.75 })).toBeNull()
+    expect(totalDifferentFromPhoto({ isClosedDay: false, totalReceipts: null, photoTotal: 1922.75 })).toBeNull()
+    expect(totalDifferentFromPhoto({ isClosedDay: true, totalReceipts: 2034.65, photoTotal: 1922.75 })).toBeNull()
+    expect(totalDifferentFromPhoto({ isClosedDay: false, totalReceipts: 2034.65, photoTotal: null })).toBeNull()
   })
 })
