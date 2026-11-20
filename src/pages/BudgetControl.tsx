@@ -1102,7 +1102,7 @@ export default function BudgetControl() {
   }, [rettMonthlyYear, rettEdits])
 
   const aggregatedConfrontoEdits = useMemo(() => {
-    const empty = { prev: {} as Record<string, number>, cons: {} as Record<string, number>, rett: {} as Record<string, number>, outletCount: 0, sedeIncluded: false }
+    const empty = { prev: {} as Record<string, number>, cons: {} as Record<string, number>, rett: {} as Record<string, number>, rettCentri: {} as Record<string, number>, outletCount: 0, sedeIncluded: false }
     if (confOutlet !== ALL_OUTLETS_CODE) return empty
     const operative = (canApproveBudget
       ? ops
@@ -1126,8 +1126,16 @@ export default function BudgetControl() {
       sumInto(cons, consEdits[code])
       sumInto(rett, rettEffettiva(code))
     }
-    return { prev, cons, rett, outletCount: operative.length, sedeIncluded }
-  }, [confOutlet, bpEdits, consEdits, rettEffettiva, ops, workflow, canApproveBudget, hq, HQ_CODE])
+    // Rettifica d'azienda (Patrizio, 20/11/2026): scritta nella vista «Tutti», salvata con
+    // cost_center = ALL_OUTLETS_CODE, non attribuita a nessun negozio né alla Sede. Entra
+    // solo qui, sopra la somma dei centri. rettCentri resta separata: la casella mostra il
+    // totale della voce e salva la differenza rispetto ai centri.
+    const rettCentri = { ...rett }
+    for (const [ac, v] of Object.entries(rettEdits[ALL_OUTLETS_CODE] || {})) {
+      if (typeof v === 'number' && v !== 0) rett[ac] = (rett[ac] || 0) + v
+    }
+    return { prev, cons, rett, rettCentri, outletCount: operative.length, sedeIncluded }
+  }, [confOutlet, bpEdits, consEdits, rettEdits, rettEffettiva, ops, workflow, canApproveBudget, hq, HQ_CODE])
 
   // I3 — deep-link da "Confronto Outlet": /budget?tab=confronto&outlet=<code>.
   // Preseleziona l'outlet richiesto (ha priorità sui default sotto).
@@ -1930,7 +1938,21 @@ export default function BudgetControl() {
                   consEdits={aggregatedConfrontoEdits.cons}
                   onConsEdit={() => { /* read-only nella vista aggregata */ }}
                   rettEdits={aggregatedConfrontoEdits.rett}
-                  onRettEdit={() => { /* read-only nella vista aggregata */ }}
+                  // Rettifica d'azienda: il numero scritto è il totale della voce; si salva la
+                  // differenza rispetto alle rettifiche dei negozi e della Sede. Fino al 20/11/2026
+                  // la casella si poteva scrivere ma non salvava niente.
+                  onRettEdit={(code: string, val: number | string | undefined) => {
+                    if (typeof val !== 'number') return
+                    const azienda = val - (aggregatedConfrontoEdits.rettCentri[code] || 0)
+                    setRettEdits(prev => ({ ...prev, [ALL_OUTLETS_CODE]: { ...(prev[ALL_OUTLETS_CODE] || {}), [code]: azienda } }))
+                  }}
+                  onRettCommit={canApproveBudget ? ((code: string, val: number) => saveRettCell(
+                    ALL_OUTLETS_CODE, code, 0,
+                    Math.round((val - (aggregatedConfrontoEdits.rettCentri[code] || 0)) * 100) / 100,
+                    aggregatedConfrontoEdits.prev[code] || 0,
+                  )) : undefined}
+                  rettNota="Rettifica d'azienda: scrivi il totale della voce. La parte che non viene dai negozi o dalla Sede si salva come rettifica dell'azienda e vale solo in questa vista."
+                  consReadOnly
                   costiTree={costiTree}
                   ricaviTree={ricaviTree}
                   year={year}
@@ -1960,6 +1982,7 @@ export default function BudgetControl() {
                   onRettEdit={(code: string, val: number | string | undefined) => setRettEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: (typeof val === 'number' ? val : 0)}}))}
                   onRettCommit={canApproveBudget && workflow[confOutlet]?.status !== 'approvato' ? ((code: string, val: number) => saveAnnualRett(confOutlet, code, val)) : undefined}
                   rettMonthlyYear={rettMonthlyYear(confOutlet)}
+                  consReadOnly={!canApproveBudget}
                   costiTree={costiTreeForOutlet}
                   ricaviTree={ricaviTreeForOutlet}
                   year={year}
@@ -2996,8 +3019,10 @@ type ConfrontoRowProps = { prevNode: TreeNodeT; consNode: TreeNodeT; rettNode: T
   consMonthlyYear?: Record<string, number>
   // Somma delle rettifiche mensili per codice. Vale solo dove la rettifica annuale è vuota:
   // se c'è l'annuale vale quella (Patrizio, 20/11/2026).
-  rettMonthlyYear?: Record<string, number> }
-function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit, onPrevEdit, onPrevCommit, onRettCommit, isRevenue, consMonthlyYear, rettMonthlyYear }: ConfrontoRowProps) {
+  rettMonthlyYear?: Record<string, number>
+  consReadOnly?: boolean
+  rettNota?: string }
+function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onConsEdit, rettEdits, onRettEdit, onPrevEdit, onPrevCommit, onRettCommit, isRevenue, consMonthlyYear, rettMonthlyYear, consReadOnly, rettNota }: ConfrontoRowProps) {
   const [open, setOpen] = useState(false)
   const hasKids = prevNode.children?.length > 0
   const isMacro = prevNode.level === 0
@@ -3051,7 +3076,7 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
           <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-indigo-700' : 'text-indigo-500'}`}>{fmt(pv)}</span>
         )}
         {/* Consuntivo — input for leaves (sola lettura se viene dalla somma dei mesi) */}
-        {isLeaf && consFromMonthly == null ? (
+        {isLeaf && consFromMonthly == null && !consReadOnly ? (
           <NumberInputIt
             value={consVal}
             edited={consIsEdited}
@@ -3064,7 +3089,9 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
         )}
         {/* Rettifica — input for leaves, accetta + e −. Prima il «-» digitato diventava subito 0
             (la pagina scriveva 0 al posto della stringa) e una rettifica negativa non si poteva inserire. */}
-        {isLeaf ? (
+        {/* Senza salvataggio collegato la casella non c'è: prima si poteva scrivere e il numero
+            spariva (vista «Tutti», chi non approva). */}
+        {isLeaf && onRettCommit ? (
           <NumberInputIt
             value={rettNum}
             edited={rettIsEdited && rettNum !== 0}
@@ -3072,7 +3099,7 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
             onCommit={onRettCommit ? (n => onRettCommit(prevNode.code, n)) : undefined}
             commitAlways
             onClickStop
-            title={rettUsaMesi ? 'Somma delle rettifiche dei mesi. Scrivendo qui metti una rettifica annuale, che vale al posto dei mesi.' : undefined}
+            title={rettUsaMesi ? 'Somma delle rettifiche dei mesi. Scrivendo qui metti una rettifica annuale, che vale al posto dei mesi.' : rettNota}
             className={`w-full text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 ${rettUsaMesi ? 'bg-purple-50/40 border-dashed border-purple-300 italic' : rettIsEdited && rettNum !== 0 ? 'bg-purple-50 border-purple-300' : 'border-slate-200'}`}
             placeholder="±0" />
         ) : (
@@ -3091,7 +3118,8 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
         <ConfrontoRow key={`${c.code}-${i}`}
           prevNode={c} consNode={consNode.children?.[i] || c} rettNode={rettNode.children?.[i] || { ...c, amount: 0, children: [] }}
           depth={depth + 1} consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-          onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} isRevenue={isRevenue} consMonthlyYear={consMonthlyYear} rettMonthlyYear={rettMonthlyYear} />
+          onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} isRevenue={isRevenue} consMonthlyYear={consMonthlyYear} rettMonthlyYear={rettMonthlyYear}
+          consReadOnly={consReadOnly} rettNota={rettNota} />
       ))}
     </div>
   )
@@ -3130,8 +3158,12 @@ type ConfrontoPanelProps = {
   // Somma delle rettifiche mensili per codice (solo singolo outlet; nella vista aggregata
   // rettEdits arriva già con la regola annuale/mesi applicata).
   rettMonthlyYear?: Record<string, number>
+  // Consuntivo non scrivibile (vista aggregata, o chi non approva: lì non c'è «Salva confronto»).
+  consReadOnly?: boolean
+  // Spiegazione sulle caselle Rettifica (vista aggregata: rettifica d'azienda).
+  rettNota?: string
 }
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit, onRettCommit, rettMonthlyYear }: ConfrontoPanelProps) {
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit, onRettCommit, rettMonthlyYear, consReadOnly, rettNota }: ConfrontoPanelProps) {
   const labels = useCompanyLabels()
   // Somma annuale (per code) dei mensili gia' caricati da budget_confronto.
   // Patrizio (29/05/2026): "il numero si popola solo dalla somma dei mensili
@@ -3249,7 +3281,8 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             {prevC.map((n, i) => (
               <ConfrontoRow key={`c-${n.code}-${i}`} prevNode={n} consNode={consC[i] || n} rettNode={rettC[i] || { ...n, amount: 0, children: [] }}
                 consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-                onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} rettMonthlyYear={rettMonthlyYear} />
+                onPrevEdit={onPrevEdit} onPrevCommit={onPrevCommit} onRettCommit={onRettCommit} rettMonthlyYear={rettMonthlyYear}
+                consReadOnly={consReadOnly} rettNota={rettNota} />
             ))}
           </div>
           <div className="grid mt-2 pt-2 border-t-2 border-slate-300 font-bold text-[11px]"
@@ -3272,7 +3305,8 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
             {prevR.map((n, i) => (
               <ConfrontoRow key={`r-${n.code}-${i}`} prevNode={n} consNode={consR[i] || n} rettNode={rettR[i] || { ...n, amount: 0, children: [] }}
                 consEdits={consEdits} onConsEdit={onConsEdit} rettEdits={rettEdits} onRettEdit={onRettEdit}
-                onRettCommit={onRettCommit} isRevenue consMonthlyYear={consYearly} rettMonthlyYear={rettMonthlyYear} />
+                onRettCommit={onRettCommit} isRevenue consMonthlyYear={consYearly} rettMonthlyYear={rettMonthlyYear}
+                consReadOnly={consReadOnly} rettNota={rettNota} />
             ))}
           </div>
           <div className="grid mt-2 pt-2 border-t-2 border-slate-300 font-bold text-[11px]"
