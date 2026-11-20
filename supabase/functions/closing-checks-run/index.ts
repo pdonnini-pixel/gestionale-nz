@@ -173,6 +173,13 @@ function voceLezione(c: Check): { testo: string; daFare: boolean } | null {
     case "chiusura_in_bozza":
       return { daFare: true, testo: "La chiusura non è stata confermata. Apri la chiusura e premi «Conferma chiusura» in fondo alla pagina: finché non è confermata, la sera dopo la cassa non torna." };
     case "campo_diverso_dalla_foto": {
+      // Totale incassato diverso dalla somma dei pagamenti: non è un problema di foto.
+      if (c.kind === "differenza_corrispettivi") {
+        const totale = num(c.closing.total_receipts) + num(c.closing.invoices_total);
+        const pagamenti = num(c.closing.channels_total);
+        const dove = aperta ? "correggilo prima di confermare la chiusura." : "chiedi all'amministrazione di riaprire la chiusura e correggilo.";
+        return { daFare: true, testo: `Il totale dell'incasso (${eur(totale)}) non è uguale alla somma di contanti, POS e altri pagamenti (${eur(pagamenti)}): la differenza è ${eur(Math.abs(totale - pagamenti))}. Controlla i numeri con gli scontrini: se ne trovi uno sbagliato, ${dove}` };
+      }
       const come = aperta ? "correggi il numero prima di confermare la chiusura." : "chiedi all'amministrazione di riaprire la chiusura e correggi il numero.";
       return { daFare: true, testo: c.campo && c.scritto != null && c.letto
         ? `Hai scritto ${eur(c.scritto)} come ${c.campo}, ma sulla foto c'è ${c.letto}. Controlla con il foglio in mano e, se è giusta la foto, ${come}`
@@ -183,14 +190,20 @@ function voceLezione(c: Check): { testo: string; daFare: boolean } | null {
     case "spesa_in_ritardo":
       return { daFare: false, testo: `In cassa mancavano ${eur(Math.abs(num(c.amount)))}. ${c.reasonBreve ?? ""} L'abbiamo segnata noi, non devi fare niente. La prossima volta: quando paghi qualcosa con i soldi della cassa, segnalo nella chiusura della stessa sera e fai la foto della fattura o dello scontrino.`.replace(/\s+/g, " ") };
     case "annullo_nel_totale":
-      return { daFare: false, testo: `Il totale comprendeva ${eur(Math.abs(num(c.amount)))} di scontrini annullati, che non sono soldi entrati. L'abbiamo corretto noi, non devi fare niente. La prossima volta: se annulli uno scontrino, nel totale e nei contanti scrivi solo i soldi entrati davvero e spiega nella nota cosa è successo.` };
+      return { daFare: false, testo: `C'era una differenza di ${eur(Math.abs(num(c.amount)))}, uguale agli scontrini annullati. ${c.reasonBreve ?? ""} L'abbiamo corretto noi, non devi fare niente. La prossima volta: se annulli uno scontrino, nel totale e nei contanti scrivi solo i soldi entrati davvero e spiega nella nota cosa è successo.`.replace(/\s+/g, " ") };
     default:
       return null;
   }
 }
 /** La mail al negozio: tutte le voci di una chiusura in un solo messaggio. */
 function mailAlNegozio(lista: Check[], nome: string | null, azienda: string | null): { subject: string; text: string } | null {
-  const voci = lista.map(voceLezione).filter((v): v is { testo: string; daFare: boolean } => v != null);
+  // Un annullo può far scattare due controlli (totale e cassa): nella mail basta una voce.
+  const viste = new Set<string>();
+  const voci = lista.filter((c) => {
+    if (c.lezione !== "annullo_nel_totale") return true;
+    if (viste.has("annullo")) return false;
+    viste.add("annullo"); return true;
+  }).map(voceLezione).filter((v): v is { testo: string; daFare: boolean } => v != null);
   const primo = lista[0];
   if (voci.length === 0 || !primo.closing) return null;
   const giorno = giornoBreve(primo.closing.closing_date);
