@@ -1980,7 +1980,9 @@ export default function BudgetControl() {
                   onConsEdit={(code: string, val: number) => setConsEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: val}}))}
                   rettEdits={rettEdits[confOutlet] || {}}
                   onRettEdit={(code: string, val: number | string | undefined) => setRettEdits(prev => ({...prev, [confOutlet]: {...(prev[confOutlet]||{}), [code]: (typeof val === 'number' ? val : 0)}}))}
-                  onRettCommit={canApproveBudget && workflow[confOutlet]?.status !== 'approvato' ? ((code: string, val: number) => saveAnnualRett(confOutlet, code, val)) : undefined}
+                  // Come il Consuntivo, la Rettifica si scrive anche a preventivo approvato:
+                  // il confronto si compila proprio dopo l'approvazione.
+                  onRettCommit={canApproveBudget ? ((code: string, val: number) => saveAnnualRett(confOutlet, code, val)) : undefined}
                   rettMonthlyYear={rettMonthlyYear(confOutlet)}
                   consReadOnly={!canApproveBudget}
                   costiTree={costiTreeForOutlet}
