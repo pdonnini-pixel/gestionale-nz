@@ -354,7 +354,10 @@ function proiezionePerVoce(
       out[code] = (typeof ca === 'number' && ca !== 0) ? ca : (prevAnnual[code] || 0)
       continue
     }
-    const pm = prevMonthly?.[code]
+    const pmRaw = prevMonthly?.[code]
+    // Una riga mensile tutta a zero vale come assente (la tabella in quel caso mostra
+    // il preventivo annuale): si spalma l'annuale.
+    const pm = pmRaw && pmRaw.some(v => typeof v === 'number' && v !== 0) ? pmRaw : undefined
     const spalmato = pm ? null : splitMonthly(prevAnnual[code] || 0)
     let t = 0
     for (let i = 0; i < 12; i++) {
@@ -362,6 +365,23 @@ function proiezionePerVoce(
       t += (typeof c === 'number' && c !== 0) ? c : (pm ? (pm[i] || 0) : spalmato![i])
     }
     out[code] = t
+  }
+  return out
+}
+// Dati di un centro per l'anno proiettato. Nella vista «Tutti» la proiezione si fa centro per
+// centro e poi si somma: sommando prima i mesi, il consuntivo di un negozio nascondeva il
+// preventivo di un altro sulla stessa voce (revisore, 20/11/2026).
+type FonteProiezione = {
+  prevAnnual: Record<string, number>
+  prevMonthly: Record<string, number[]>
+  consMonthly: Record<string, number[]>
+  consAnnual: Record<string, number>
+}
+function proiezioneCentri(codes: string[], fonti: FonteProiezione[]): Record<string, number> {
+  const out: Record<string, number> = {}
+  for (const f of fonti) {
+    const p = proiezionePerVoce(codes, f.prevAnnual, f.prevMonthly, f.consMonthly, f.consAnnual)
+    for (const [k, v] of Object.entries(p)) if (v !== 0) out[k] = (out[k] || 0) + v
   }
   return out
 }
@@ -1139,6 +1159,22 @@ export default function BudgetControl() {
     }
     return out
   }, [rettMonthlyYear, rettEdits])
+
+  // Fonte dell'anno proiettato per un centro: preventivo annuale (per i ricavi la somma
+  // dei mesi se c'è, come nella tabella), preventivo mensile di costi e ricavi, consuntivi.
+  const fonteProiezione = useCallback((cc: string): FonteProiezione => {
+    const prevAnnual: Record<string, number> = { ...(bpEdits[cc] || {}) }
+    Object.entries(revMonthly[cc] || {}).forEach(([code, arr]) => {
+      const t = (arr || []).reduce<number>((a, v) => a + (typeof v === 'number' ? v : 0), 0)
+      if (t !== 0) prevAnnual[code] = t
+    })
+    return {
+      prevAnnual,
+      prevMonthly: { ...prevMonthlyView(cc), ...(revMonthly[cc] || {}) },
+      consMonthly: consMonthly[cc] || {},
+      consAnnual: consEdits[cc] || {},
+    }
+  }, [bpEdits, revMonthly, prevMonthlyView, consMonthly, consEdits])
 
   const aggregatedConfrontoEdits = useMemo(() => {
     const empty = { prev: {} as Record<string, number>, cons: {} as Record<string, number>, rett: {} as Record<string, number>, rettCentri: {} as Record<string, number>, centri: [] as string[], outletCount: 0, sedeIncluded: false }
@@ -1997,17 +2033,9 @@ export default function BudgetControl() {
                   year={year}
                   revMonthlyOutlet={aggMonthly(revMonthly)}
                   consMonthlyOutlet={aggMonthly(consMonthly)}
-                  prevMonthlyOutlet={(() => {
-                    // Preventivo mensile dei costi dei centri sommati (stessi centri del preventivo annuale).
-                    const out: Record<string, number[]> = {}
-                    aggregatedConfrontoEdits.centri.forEach(cc => {
-                      Object.entries(prevMonthlyView(cc)).forEach(([code, arr]) => {
-                        if (!out[code]) out[code] = Array(12).fill(0) as number[]
-                        arr.forEach((v, i) => { out[code][i] += v || 0 })
-                      })
-                    })
-                    return out
-                  })()}
+                  // Anno proiettato centro per centro, sugli stessi centri del preventivo aggregato
+                  // (chi non approva non vede i centri in bozza).
+                  fontiProiezione={aggregatedConfrontoEdits.centri.map(fonteProiezione)}
                   prevHasPlaceholder={Object.keys(phCostByCenter).length > 0}
                   // Imposte: vista aggregata = importo annuale TOTALE, editabile da Lilian.
                   imposteAmount={imposteAmount}
@@ -2040,7 +2068,7 @@ export default function BudgetControl() {
                   year={year}
                   revMonthlyOutlet={revMonthly[confOutlet]}
                   consMonthlyOutlet={consMonthly[confOutlet]}
-                  prevMonthlyOutlet={prevMonthlyView(confOutlet)}
+                  fontiProiezione={[fonteProiezione(confOutlet)]}
                   prevHasPlaceholder={!!phCostByCenter[confOutlet]}
                   // Preventivo costi editabile qui (singolo outlet), come nel tab Business Plan:
                   // live su bpEdits, persistenza on-blur in budget_entries. Bloccato se preventivo
@@ -3225,10 +3253,10 @@ type ConfrontoPanelProps = {
   consReadOnly?: boolean
   // Spiegazione sulle caselle Rettifica (vista aggregata: rettifica d'azienda).
   rettNota?: string
-  // Preventivo mensile dei costi (per l'anno proiettato).
-  prevMonthlyOutlet?: Record<string, number[]>
+  // Dati per l'anno proiettato, uno per centro (vista «Tutti»: i centri sommati).
+  fontiProiezione?: FonteProiezione[]
 }
-function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit, onRettCommit, rettMonthlyYear, consReadOnly, rettNota, prevMonthlyOutlet }: ConfrontoPanelProps) {
+function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsEdit, rettEdits, onRettEdit, costiTree, ricaviTree, year, revMonthlyOutlet, consMonthlyOutlet, prevHasPlaceholder, onPrevEdit, onPrevCommit, imposteAmount, imposteEditable, onImposteEdit, onImposteCommit, onRettCommit, rettMonthlyYear, consReadOnly, rettNota, fontiProiezione }: ConfrontoPanelProps) {
   const labels = useCompanyLabels()
   // Somma annuale (per code) dei mensili gia' caricati da budget_confronto.
   // Patrizio (29/05/2026): "il numero si popola solo dalla somma dei mensili
@@ -3299,9 +3327,15 @@ function ConfrontoPanel({ outletCode, outletLabel, prevEdits, consEdits, onConsE
   // Anno proiettato con le rettifiche (Patrizio, 20/11/2026): è il risultato che conta.
   // Il consuntivo da solo copre solo i mesi chiusi (e oggi niente costi), e sommarci la
   // rettifica dava un utile falso; il preventivo non cambia con le rettifiche.
-  const prevLeafC = flattenLeaves(prevC), prevLeafR = flattenLeaves(prevR)
-  const projLeafC = proiezionePerVoce(leafCodes(costiTree), prevLeafC, prevMonthlyOutlet, consMonthlyOutlet, consEdits)
-  const projLeafR = proiezionePerVoce(leafCodes(ricaviTree), prevLeafR, revMonthlyOutlet, consMonthlyOutlet, consEdits)
+  // Senza fonti per centro (non dovrebbe succedere) si usano i dati del pannello.
+  const fonti: FonteProiezione[] = fontiProiezione ?? [{
+    prevAnnual: { ...flattenLeaves(prevC), ...flattenLeaves(prevR) },
+    prevMonthly: revMonthlyOutlet || {},
+    consMonthly: consMonthlyOutlet || {},
+    consAnnual: consEdits,
+  }]
+  const projLeafC = proiezioneCentri(leafCodes(costiTree), fonti)
+  const projLeafR = proiezioneCentri(leafCodes(ricaviTree), fonti)
   const totProjC = Object.values(projLeafC).reduce((a, b) => a + b, 0) + totRettC
   const totProjR = Object.values(projLeafR).reduce((a, b) => a + b, 0) + totRettR
   const risProj = totProjR - totProjC
