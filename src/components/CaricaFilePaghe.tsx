@@ -30,6 +30,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react'
 import { FileUp, Loader2, Check, AlertTriangle, ArrowRight, Info, CheckCircle2, ChevronDown, ChevronUp } from 'lucide-react'
 import { riconosciFilePaghe, type FilePagheRiconosciuto, type FilePaghe } from '../lib/payrollParse'
 import { archiviaFile, sostituisciPrecedenti } from '../lib/archivioFile'
+import { espandiZip } from '../lib/zipFiles'
 import { leggiModelloF24, codiciF24InBreve, sezioniF24InBreve, type ModelloF24 } from '../lib/modelloF24'
 import { supabase } from '../lib/supabase'
 import { useCompanyLabels } from '../hooks/useCompanyLabels'
@@ -260,9 +261,13 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
     void scriviF24(v.id, v.f24, true, v.f24Arch)
   }
 
-  const leggi = async (files: FileList | File[]) => {
-    const nuove: Voce[] = Array.from(files).map((file) => ({ id: ++seq.current, file, r: null, stato: 'lettura' }))
-    setVoci((vs) => [...nuove, ...vs])
+  const leggi = async (lista: FileList | File[]) => {
+    // Gli zip si aprono qui (Drive scarica una cartella intera come zip): ogni
+    // file dentro l'archivio diventa una riga a se', come se fosse stato trascinato.
+    const { files, problemi } = await espandiZip(Array.from(lista), { estensioni: ['pdf', 'xls', 'xlsx', 'csv'] })
+    const rotti: Voce[] = problemi.map((p) => ({ id: ++seq.current, file: new File([], p.zip), r: null, stato: 'errore', nota: `Archivio zip: ${p.testo}.` }))
+    const nuove: Voce[] = files.map(({ file }) => ({ id: ++seq.current, file, r: null, stato: 'lettura' }))
+    setVoci((vs) => [...nuove, ...rotti, ...vs])
     for (const v of nuove) {
       try {
         const r = riconosciFilePaghe(v.file.name, await testoDelFile(v.file))
@@ -380,7 +385,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
           className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-700">
           Apri <ChevronDown size={14} />
         </button>
-        <input ref={inputRef} type="file" multiple accept=".pdf,.xlsx,.xls,.csv" className="hidden"
+        <input ref={inputRef} type="file" multiple accept=".pdf,.xlsx,.xls,.csv,.zip" className="hidden"
           onChange={(e) => { if (e.target.files?.length) { setAperto(true); void leggi(e.target.files) } e.target.value = '' }} />
       </div>
     )
@@ -399,7 +404,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
         )}
       </div>
       <p className="text-xs text-slate-500 mb-3">
-        Trascina qui tutti i PDF del mese insieme. Il gestionale riconosce cosa sono e di che mese e li salva da solo,
+        Trascina qui tutti i PDF del mese insieme, anche dentro uno zip. Il gestionale riconosce cosa sono e di che mese e li salva da solo,
         uno alla volta. Ti chiede di confermare solo se un file sostituirebbe dati già caricati per quel mese.
         Quando ha finito te lo dice qui sotto.
       </p>
@@ -410,7 +415,7 @@ export default function CaricaFilePaghe({ companyId, userId, onApri, onVai, comp
         className={`cursor-pointer rounded-xl border-2 border-dashed px-4 py-5 text-center text-sm transition-colors ${drag ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300 text-slate-500'}`}
       >
         Trascina i file o <span className="text-blue-600 font-medium">sceglili dal computer</span>
-        <input ref={inputRef} type="file" multiple accept=".pdf,.xlsx,.xls,.csv" className="hidden"
+        <input ref={inputRef} type="file" multiple accept=".pdf,.xlsx,.xls,.csv,.zip" className="hidden"
           onChange={(e) => { if (e.target.files?.length) void leggi(e.target.files); e.target.value = '' }} />
       </div>
 
