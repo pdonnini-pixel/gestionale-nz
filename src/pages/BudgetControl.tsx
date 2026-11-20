@@ -410,7 +410,7 @@ function pctSicura(pct: number | null): number | null {
   return Math.round(pct * 100) / 100
 }
 
-function NumberInputIt({ value, onChange, onCommit, className, placeholder, edited, onClickStop, title }: {
+function NumberInputIt({ value, onChange, onCommit, className, placeholder, edited, onClickStop, title, commitAlways }: {
   value: number
   onChange: (n: number) => void
   // Chiamato on blur con il valore finale, SOLO se diverso dal valore d'apertura.
@@ -423,6 +423,9 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
   onClickStop?: boolean
   // Spiegazione mostrata al passaggio del mouse quando non c'è un esito di salvataggio da dire.
   title?: string
+  // Salva anche se il numero scritto è uguale a quello mostrato all'apertura (Rettifica
+  // annuale: riscrivere la somma dei mesi la rende annuale, e deve arrivare al database).
+  commitAlways?: boolean
 }) {
   const [focused, setFocused] = useState(false)
   const [draft, setDraft] = useState<string>('')
@@ -441,7 +444,7 @@ function NumberInputIt({ value, onChange, onCommit, className, placeholder, edit
     setFocused(false)
     const finale = typedRef.current
     typedRef.current = null
-    if (onCommit && finale != null && finale !== openValue) {
+    if (onCommit && finale != null && (commitAlways || finale !== openValue)) {
       try {
         setSaveStatus('saving')
         await onCommit(finale)
@@ -2468,7 +2471,9 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
           <span className={`tabular-nums text-right text-[10px] ${isMacro ? 'font-bold text-purple-700' : 'text-purple-500'}`}>{ra !== 0 ? fmt(ra) : '—'}</span>
         )}
         {/* Rettifica % (bidirezionale: scrivendo % ricalcola €) */}
-        {isLeaf && !readOnly && !isAnnualView ? (
+        {isLeaf && !readOnly && !isAnnualView && pv !== 0 ? (
+          // Senza preventivo del mese la % non si applica: la casella non c'è, così non può
+          // azzerare una rettifica in € già scritta.
           // Fino al 20/11/2026 era una casella senza salvataggio: la percentuale restava a video
           // e alla riapertura spariva. Ora salva l'importo che ne deriva, come la casella in €.
           <NumberInputIt
@@ -2479,7 +2484,6 @@ function MonthlyTreeNode({ node, depth = 0, prevByCode, consByCode, rettAmtByCod
             }}
             onCommit={onCommitRett ? (pct => onCommitRett(node.code, mese, pv !== 0 ? Math.round(pv * pct) / 100 : 0)) : undefined}
             onClickStop
-            title={pv === 0 ? 'Senza preventivo la percentuale non si può applicare: scrivi la rettifica in €.' : undefined}
             className="text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 border-slate-200"
             placeholder="±0%" />
         ) : (
@@ -3066,6 +3070,7 @@ function ConfrontoRow({ prevNode, consNode, rettNode, depth = 0, consEdits, onCo
             edited={rettIsEdited && rettNum !== 0}
             onChange={n => onRettEdit(prevNode.code, n)}
             onCommit={onRettCommit ? (n => onRettCommit(prevNode.code, n)) : undefined}
+            commitAlways
             onClickStop
             title={rettUsaMesi ? 'Somma delle rettifiche dei mesi. Scrivendo qui metti una rettifica annuale, che vale al posto dei mesi.' : undefined}
             className={`w-full text-right px-1 py-0.5 text-[10px] border rounded tabular-nums focus:outline-none focus:ring-1 focus:ring-purple-400 ${rettUsaMesi ? 'bg-purple-50/40 border-dashed border-purple-300 italic' : rettIsEdited && rettNum !== 0 ? 'bg-purple-50 border-purple-300' : 'border-slate-200'}`}
