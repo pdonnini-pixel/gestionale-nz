@@ -3257,12 +3257,36 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       // RPC transazionale (tutto-o-niente). NON tocca payables.cash_movement_id che e'
       // GENERATED ALWAYS AS (bank_transaction_id): scrive bank_transaction_id sulla
       // fattura, marca il movimento riconciliato e logga in reconciliation_log.
-      const { data, error } = await supabase.rpc('reconcile_movement' as never, {
+      const chiama = () => supabase.rpc('reconcile_movement' as never, {
         p_bt_id: String(movement.id),
         p_payable_id: String(payable.id),
       } as never)
+      let { data, error } = await chiama()
       if (error) throw error
-      const res = data as { ok?: boolean; reason?: string; linked_only?: boolean } | null
+      let res = data as { ok?: boolean; reason?: string; linked_only?: boolean } | null
+
+      // 443: questa coppia è stata esclusa a mano, quindi il motore non la rifà
+      // più da solo. Rifarla resta possibile, ma deve essere un gesto esplicito su
+      // questa coppia: è il motivo per cui la riammissione non avviene dentro
+      // reconcile_movement (un giro di massa lanciato da una persona cancellerebbe
+      // l'esclusione senza che nessuno l'abbia deciso).
+      if (res?.reason === 'coppia_esclusa') {
+        const rifare = window.confirm(
+          'Questo abbinamento era stato escluso a mano, quindi il gestionale non lo rifà da solo.\n\n'
+          + 'Vuoi rifarlo adesso? La tua scelta vale e l’esclusione viene tolta.'
+        )
+        if (!rifare) { setReconciling(false); return }
+        const { error: errRi } = await supabase.rpc('riammetti_coppia' as never, {
+          p_bt_id: String(movement.id),
+          p_payable_id: String(payable.id),
+        } as never)
+        if (errRi) throw errRi
+        const ritenta = await chiama()
+        if (ritenta.error) throw ritenta.error
+        data = ritenta.data
+        res = data as { ok?: boolean; reason?: string; linked_only?: boolean } | null
+      }
+
       if (!res?.ok) {
         // 'stale' = nel frattempo quel movimento o quella fattura sono stati presi da
         // qualcun altro: va detto, non mostrato come errore generico.
@@ -3626,7 +3650,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   }, [transactions, filterAccount, search, payById, appliedLogByBt])
 
   // Conferma una singola riga (o usata nel batch). Ritorna 'ok' | 'stale' | 'error'.
-  const confirmSuggestion = async (s: SugRow): Promise<'ok' | 'stale' | 'error'> => {
+  const confirmSuggestion = async (s: SugRow): Promise<'ok' | 'stale' | 'error' | 'esclusa'> => {
     try {
       const { data, error } = await supabase.rpc('reconcile_movement' as never, {
         p_bt_id: String(s.bt.id),
@@ -3637,6 +3661,10 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       const res = data as { ok?: boolean; reason?: string } | null
       if (res?.ok) return 'ok'
       if (res?.reason === 'stale') return 'stale'
+      // 443: una proposta vecchia su una coppia che qualcuno ha escluso a mano.
+      // Non si riammette da qui, perché questo pulsante conferma anche in blocco:
+      // si fa dall'abbinamento manuale, una coppia alla volta.
+      if (res?.reason === 'coppia_esclusa') return 'esclusa'
       return 'error'
     } catch (err) {
       console.error('confirmSuggestion error:', err)
@@ -3650,6 +3678,7 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
     setProcessingSug(false)
     if (r === 'ok') toast({ type: 'success', message: `Abbinamento confermato: ${getSupplierName(s.payable)} • ${fmt(Math.abs(Number(s.bt.amount) || 0))} €` })
     else if (r === 'stale') toast({ type: 'info', message: 'Suggerimento non più valido: rimosso dalla lista.' })
+    else if (r === 'esclusa') toast({ type: 'warning', message: 'Questa coppia è stata esclusa a mano: per rifarla usa l’abbinamento manuale sul movimento.' })
     else toast({ type: 'error', message: 'Errore nella conferma dell’abbinamento.' })
     setSelectedSug(new Set())
     onRefresh()
@@ -3670,17 +3699,21 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   const runBatchConfirm = async (rows: SugRow[]) => {
     setSummaryModal(null)
     setProcessingSug(true)
-    let okN = 0, staleN = 0, errN = 0
+    let okN = 0, staleN = 0, errN = 0, esclN = 0
     for (const s of rows) {
       const r = await confirmSuggestion(s)
       if (r === 'ok') okN++
       else if (r === 'stale') staleN++
+      else if (r === 'esclusa') esclN++
       else errN++
     }
     setProcessingSug(false)
     setSelectedSug(new Set())
     const parts = [`Confermati ${okN}`]
     if (staleN > 0) parts.push(`saltati ${staleN} perché nel frattempo non più validi`)
+    // 443: una conferma in blocco non riammette una coppia esclusa a mano, lo si
+    // dice e si lascia il lavoro all'abbinamento manuale.
+    if (esclN > 0) parts.push(`saltati ${esclN} perché esclusi a mano (si rifanno dall'abbinamento manuale)`)
     if (errN > 0) parts.push(`${errN} in errore`)
     toast({ type: errN > 0 ? 'error' : 'success', message: parts.join(', ') })
     onRefresh()
