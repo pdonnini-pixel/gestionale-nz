@@ -25,7 +25,7 @@ import { useToast } from './Toast';
 import { Modal } from './ui/Modal';
 import { supabase } from '../lib/supabase';
 import {
-  NOMI_GIORNO, REGOLE_DEFAULT, RIPOSO_LEGALE, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreDaCoprire,
+  NOMI_GIORNO, REGOLE_DEFAULT, RIPOSO_LEGALE, costruisciGiorni, regoleDaRiga, giorniDellaSettimana, lunediDi, oreDaCoprire, minuti,
   type FasciaFabbisogno, type RegoleTurni,
 } from '../lib/turni';
 import { formattaDataBreve, oggiRoma } from '../lib/organico';
@@ -183,7 +183,9 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const erroreOrari = orari.find((o) => !o.chiuso && (!o.apre || !o.chiude || o.chiude <= o.apre));
   // la chiusura di meta' giornata: tutte e due le ore o nessuna, dentro l'orario
   const erroreChiusura = orari.find((o) => !o.chiuso && (o.cDalle || o.cAlle)
-    && (!o.cDalle || !o.cAlle || o.cAlle <= o.cDalle || o.cDalle <= o.apre || o.cAlle >= o.chiude));
+    && (!o.cDalle || !o.cAlle || o.cAlle <= o.cDalle || o.cDalle <= o.apre || o.cAlle >= o.chiude
+      // la chiusura e' la pausa del turno, e una pausa non supera le 3 ore (vincolo di shifts.pausa_minuti)
+      || minuti(o.cAlle) - minuti(o.cDalle) > 180));
   const erroreFasce = fasce.find((f) => !f.dalle || !f.alle || f.alle <= f.dalle || f.persone < 0);
 
   // Cosa e' stato cambiato e non ancora salvato (solo quello che si puo' salvare).
@@ -199,7 +201,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   // Ognuna scrive la sua parte e torna il motivo se non ci riesce (null = salvata).
   const scriviOrari = async (): Promise<string | null> => {
     if (erroreOrari) return `${NOMI_GIORNO[erroreOrari.giorno]}: indica apertura e chiusura, oppure segna chiuso.`;
-    if (erroreChiusura) return `${NOMI_GIORNO[erroreChiusura.giorno]}: la chiusura di metà giornata vuole tutte e due le ore, dentro l’orario di apertura.`;
+    if (erroreChiusura) return `${NOMI_GIORNO[erroreChiusura.giorno]}: la chiusura di metà giornata vuole tutte e due le ore, dentro l’orario di apertura, e al massimo 3 ore.`;
     const { error } = await supabase.from('outlet_opening_hours').upsert(orari.map((o) => ({
       company_id: companyId, outlet_id: outletId, giorno: o.giorno, chiuso: o.chiuso,
       apre: o.chiuso ? null : o.apre, chiude: o.chiuso ? null : o.chiude, origine: 'manuale', updated_at: new Date().toISOString(),

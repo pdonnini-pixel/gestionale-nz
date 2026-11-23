@@ -227,7 +227,8 @@ export function finestraLavoro(g: ConChiusura, inizio: number, lavoro: number, r
     const mattina = lavoro - (g.chiude - c.alle);
     if (mattina > 0) {
       const inizioMattina = Math.max(g.apre ?? 0, c.dalle - mattina);
-      return { inizio: inizioMattina, fine: g.chiude, pausa: g.chiude - inizioMattina - lavoro };
+      // la pausa non e' mai piu' corta della chiusura: se il lavoro non ci sta, si lavora quello che c'e'
+      return { inizio: inizioMattina, fine: g.chiude, pausa: Math.max(c.alle - c.dalle, g.chiude - inizioMattina - lavoro) };
     }
   }
   // tutto prima della chiusura (senza pausa da metterci dentro) o tutto dopo
