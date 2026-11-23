@@ -34,7 +34,7 @@
 // Funzioni pure, nessuna query. Test in ottimizzaTurni.test.ts.
 
 import {
-  SLOT_MINUTI, REGOLE_DEFAULT, RIPOSO_LEGALE, LUNEDI_MAX_PERSONE, giornoIso, giornoPieno, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona,
+  SLOT_MINUTI, REGOLE_DEFAULT, RIPOSO_LEGALE, LUNEDI_MAX_PERSONE, giornoIso, giornoPieno, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona, pausaDelTurno,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno,
 } from './turni';
 
@@ -352,6 +352,30 @@ function lavoroDi(presenza: number, regole: RegoleTurni): number { return presen
 // La presenza e' gia' la durata del turno: resta la funzione per leggibilita'.
 function durata(w: number, _regole: RegoleTurni): number { return w; }
 
+/**
+ * Minuti lavorati del pezzo `x` nel giorno `d`. Senza chiusura di meta' giornata e' la tabella
+ * per presenza (come sempre); con la chiusura (446) la chiusura attraversata e' la pausa.
+ */
+function lavP(q: Quadro, d: number, x: Pezzo): number {
+  const g = q.giorni[d];
+  return g.chiusura ? x.w - pausaDelTurno(g, x.s, x.s + x.w, q.regole) : q.lav[x.w / SLOT_MINUTI];
+}
+
+/**
+ * Con la chiusura di meta' giornata un pezzo non comincia ne' finisce dentro la chiusura e deve
+ * valere il turno minimo in ore lavorate; null se non si puo'. Senza chiusura il pezzo resta com'e'.
+ */
+function fuoriDallaChiusura(q: Quadro, d: number, x: Pezzo): Pezzo | null {
+  const c = q.giorni[d].chiusura;
+  if (!c) return x;
+  let a = x.s; let b = x.s + x.w;
+  if (a >= c.dalle && a < c.alle) a = c.alle;
+  if (b > c.dalle && b <= c.alle) b = c.dalle;
+  if (b - a <= 0) return null;
+  const y = { s: a, w: b - a };
+  return lavP(q, d, y) >= q.regole.turnoMinOre * 60 - 1e-9 ? y : null;
+}
+
 function costo(q: Quadro, st: Stato): number {
   const { giorni, persone, regole } = q;
   const P = persone.length;
@@ -375,7 +399,7 @@ function costo(q: Quadro, st: Stato): number {
       const x = st[p][riga];
       if (!x) continue;
       inTurno[quanti++] = p;
-      const h = q.lav[x.w / SLOT_MINUTI];
+      const h = lavP(q, d, x);
       ore[p] += h;
       // straordinari: nei giorni di evento e, quando serve, il sabato e la domenica (Patrizio, 11/11/2026)
       if (g.straordinari || (q.straordCaldo[d] && q.straordWeekend)) oreEvento[p] += h;
@@ -531,7 +555,7 @@ function dentro(q: Quadro, p: number, d: number, s: number, w: number): Pezzo | 
   const dur = durata(lavoro, q.regole);
   if (dur > l.chiude - l.apre) return null;
   const inizio = Math.max(l.apre, Math.min(l.chiude - dur, Math.round(s / SLOT_MINUTI) * SLOT_MINUTI));
-  return { s: inizio, w: lavoro };
+  return fuoriDallaChiusura(q, d, { s: inizio, w: lavoro });
 }
 
 function copia(st: Stato): Stato { return st.map((r) => r.slice()); }
@@ -650,7 +674,7 @@ function possibili(q: Quadro, p: number, d: number, passoInizio: number, lunghez
     const visti = new Set<number>();
     for (let s = l.apre; s + dur <= l.chiude; s += passoInizio) visti.add(s);
     if (l.chiude - dur >= l.apre) visti.add(l.chiude - dur);
-    for (const s of visti) out.push({ s, w });
+    for (const s of visti) { const y = fuoriDallaChiusura(q, d, { s, w }); if (y) out.push(y); }
   }
   return out;
 }
@@ -907,7 +931,7 @@ function riparaScoperture(q: Quadro, st: Stato, c0: number): number {
  * vince quella dove ci sono meno persone in piu'.
  */
 function riempiOre(q: Quadro, st: Stato): void {
-  const oreDi = (p: number) => q.oreFisse[p] + st[p].reduce((a, x) => a + (x ? q.lav[x.w / SLOT_MINUTI] : 0), 0);
+  const oreDi = (p: number) => q.oreFisse[p] + st[p].reduce((a, x, d) => a + (x ? lavP(q, d, x) : 0), 0);
   const ordine = q.giorni.map((_, d) => d).sort((a, b) => Number(giornoIso(q.giorni[b].data) >= 5) - Number(giornoIso(q.giorni[a].data) >= 5));
   for (let giro = 0; giro < 200; giro++) {
     let mosso = false;
@@ -924,7 +948,7 @@ function riempiOre(q: Quadro, st: Stato): void {
           const termine = x.s + durata(x.w, q.regole);
           const w = x.w + SLOT_MINUTI;
           for (const n of [dentro(q, p, d, x.s, w), dentro(q, p, d, termine - durata(w, q.regole), w)]) {
-            if (!n || n.w !== w || q.lav[n.w / SLOT_MINUTI] - q.lav[x.w / SLOT_MINUTI] > libere + 1e-9) continue;
+            if (!n || n.w !== w || lavP(q, d, n) - lavP(q, d, x) > libere + 1e-9) continue;
             st[p][d] = n;
             const c = costo(q, st);
             st[p][d] = x;
@@ -1136,11 +1160,11 @@ function prepara(
   // contratto si va con le ore dei giorni di evento, del sabato e della domenica; quelle che
   // la partenza aveva gia' in piu' nei feriali (straordinari ammessi, anticipo) restano.
   const speciale = (d: number) => !!giorni[d].straordinari || (q.pieno[d] && q.straordWeekend);
-  q.tetto = persone.map((p, i) => Math.max(p.ore, q.oreFisse[i] + partenza[i].reduce((a, x) => a + (x ? q.lav[x.w / SLOT_MINUTI] : 0), 0)));
+  q.tetto = persone.map((p, i) => Math.max(p.ore, q.oreFisse[i] + partenza[i].reduce((a, x, d) => a + (x ? lavP(q, d, x) : 0), 0)));
   q.oltreLibero = persone.map((p, i) => {
     // solo i turni che il conto muove: le ore dei turni fissi nei giorni speciali il conto non le
     // mette fra quelle «di evento», quindi non si tolgono nemmeno qui (altrimenti la partenza sarebbe fuori regola)
-    const inSpeciale = partenza[i].reduce((a, x, d) => a + (x && speciale(d) ? q.lav[x.w / SLOT_MINUTI] : 0), 0);
+    const inSpeciale = partenza[i].reduce((a, x, d) => a + (x && speciale(d) ? lavP(q, d, x) : 0), 0);
     return Math.max(0, q.tetto[i] - p.ore - inSpeciale);
   });
   return { q, partenza, altri, fuoriStato, tuttiFissi };
@@ -1181,7 +1205,7 @@ export function unisciTurniCorti(
   const out: Turno[] = [];
   for (let p = 0; p < persone.length; p++) for (let d = 0; d < giorni.length; d++) {
     const x = st[p][d];
-    if (x) out.push({ employeeId: persone[p].id, data: giorni[d].data, inizio: hhmm(x.s), fine: hhmm(x.s + x.w), pausaMinuti: pausaMinimaPerPresenza(x.w, regole) });
+    if (x) out.push({ employeeId: persone[p].id, data: giorni[d].data, inizio: hhmm(x.s), fine: hhmm(x.s + x.w), pausaMinuti: pausaDelTurno(giorni[d], x.s, x.s + x.w, regole) });
   }
   return [...out, ...altri];
 }
@@ -1231,7 +1255,7 @@ export function ottimizzaSettimana(
   for (let p = 0; p < persone.length; p++) for (let d = 0; d < giorni.length; d++) {
     const x = meglio.st[p][d];
     if (!x) continue;
-    out.push({ employeeId: persone[p].id, data: giorni[d].data, inizio: hhmm(x.s), fine: hhmm(x.s + x.w), pausaMinuti: pausaMinimaPerPresenza(x.w, regole) });
+    out.push({ employeeId: persone[p].id, data: giorni[d].data, inizio: hhmm(x.s), fine: hhmm(x.s + x.w), pausaMinuti: pausaDelTurno(giorni[d], x.s, x.s + x.w, regole) });
   }
   return [...out, ...altri];
 }

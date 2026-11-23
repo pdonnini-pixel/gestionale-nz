@@ -70,7 +70,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
     if (!negozio) return;
     let vivo = true;
     setOrari(null);
-    supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', negozio)
+    supabase.from('outlet_opening_hours').select('*').eq('outlet_id', negozio)
       .then(({ data }) => { if (vivo) setOrari((data as OrarioGiornoTipo[]) ?? []); });
     return () => { vivo = false; };
   }, [negozio, versione]);
