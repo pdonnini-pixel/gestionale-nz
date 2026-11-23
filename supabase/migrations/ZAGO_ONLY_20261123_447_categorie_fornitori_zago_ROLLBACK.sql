@@ -1,11 +1,15 @@
--- ROLLBACK ZAGO_ONLY 447 — toglie solo ciò che la 447 ha scritto (riconosciuto dalla nota datata).
--- Le fatture: si azzera la categoria solo su quelle che, prima della 447, erano vuote
--- (elenco degli id nel backup di sessione del 23/11/2026; qui per fornitore toccato dalla 447).
+-- ROLLBACK ZAGO_ONLY 447 — toglie solo ciò che la 447 ha scritto.
+-- Fatture: solo quelle nel backup della 449 (migration = 447) e solo se hanno ancora
+-- la categoria scritta dalla 447. Fornitori: riconosciuti dalla nota datata.
+-- Se si annullano tutte e due, prima il rollback della 448, poi questo.
 UPDATE public.payables p
    SET cost_category_id = NULL
-  FROM public.suppliers s
- WHERE p.supplier_id = s.id
-   AND s.note LIKE '%23/11/2026: categoria di costo % dal file di riconciliazione Zago%';
+  FROM public._bkp_20261123_categorie_zago b
+  JOIN public.cost_categories c ON c.code = b.codice_dopo
+ WHERE b.migration = 447
+   AND p.id = b.payable_id
+   AND c.company_id = p.company_id
+   AND p.cost_category_id = c.id;
 
 UPDATE public.suppliers
    SET default_cost_category_id = NULL
