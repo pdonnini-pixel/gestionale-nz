@@ -140,7 +140,7 @@ $n$      AND public.supplier_confirmed_in_text(
       AND (public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''),
                                         public.causale_per_numeri(bt.description), 2)
            OR public.beneficiario_coerente(
-                coalesce(bt.statement_description, bt.description, ''),
+                coalesce(bt.statement_description, '') || ' ' || coalesce(bt.description, ''),
                 v_pay.supplier_name, v_pay.supplier_vat))$n$);
 
   IF v_new !~ 'beneficiario_coerente' THEN

@@ -1295,13 +1295,36 @@ chi ha una prova più forte (il numero di questa fattura citato in causale).
 
 **Secondo: nessuno diceva al motore che una persona aveva deciso.** Serviva un
 posto dove la decisione resta scritta: migration **443**,
-`reconciliation_coppie_escluse`. Chi annulla un abbinamento (`undo_reconcile_movement`)
-mette la coppia in elenco; `reconcile_movement` non la riconcilia più quando non
-c'è un utente dietro (cron, service role) e la riammette se invece è una persona
-a rifarla, perché comanda lei; `rerun_bijective_reconciliation`, l'unico ramo che
-scrive il log da sé, la salta fra i candidati. Gli altri undici passaggi del giro
-notturno passano tutti da `reconcile_movement`, quindi sono coperti in un punto
-solo.
+`reconciliation_coppie_escluse`. Chi annulla un abbinamento
+(`undo_reconcile_movement`) mette la coppia in elenco, con il motivo e la data;
+`reconcile_movement` non la riconcilia più; i due rami che hanno sbagliato la
+saltano fra i candidati.
+
+E non è successo solo il 20 novembre. Contando sul log tutte le coppie
+**annullate a mano** e poi rifatte dal motore, sono **due**:
+
+- **05/09/2026**, GRUPPO SERVIZI ASSOCIATI V070012600909 da 315,00: annullata il
+  5 settembre, rifatta il 6 dal ramo del **flusso CBI anonimo**
+  (`try_match_amount_bank_transaction`). Il criterio di quel ramo però regge:
+  movimento -316,75 = 315,00 di bonifico più 1,75 di commissioni dichiarate in
+  causale, netto esatto e candidato unico. Quindi l'aggancio **resta**, com'è
+  giusto (punto 4 del giro: se il criterio è difendibile non si annulla a mano);
+  da oggi, se qualcuno lo esclude, non torna.
+- **20/11/2026**, UNICOOP, dal ramo «abbinamento per data».
+
+Due casi, due rami, e sono esattamente i due che la 443 chiude.
+
+**Cosa la 443 non copre, scritto perché non se ne perda memoria.** Le funzioni
+del motore che scrivono un aggancio (`INSERT INTO reconciliation_log`) sono
+**dodici**, non una: a parte `reconcile_movement` e i due rami di sopra restano
+fuori `reconcile_movement_group`, `try_match_bank_transaction` (che però ha già
+il suo controllo sulle righe `rejected`), distinte, gruppi, numeri citati,
+effetti ritirati, RiBa, rimborsi e somme SDD. La prima stesura della migration
+diceva che passavano tutti da `reconcile_movement`: **falso**, e l'ha trovato il
+revisore del database. Verificato sul vivo con una query su `pg_get_functiondef`.
+In quei nove rami, oggi, un aggancio annullato a mano non è mai tornato, e quasi
+tutti nascono da un documento, dove l'identità non è indovinata: ci si metterà il
+controllo a parte, misurando un ramo alla volta.
 
 ### Due misure prima di scrivere il codice, e due cose imparate
 
@@ -1330,6 +1353,20 @@ l'espressione regolare la decide il primo quantificatore**. Un `(?:DI[: ]*)?`
 davanti a `(.{3,60}?)` rende greedy anche il secondo, e il beneficiario usciva
 come «GLOBAL BLUE ITALIA SRL CODICE MANDATO ITA145205C». Il taglio si fa in due
 passi, non con una regex sola.
+
+**Quarta, e la più importante: «c'è un utente dietro» non vuol dire «una persona
+ha deciso».** La prima stesura della 443 riammetteva la coppia quando
+`auth.uid()` non era nullo. Sembra ragionevole e invece è un buco: chi carica un
+estratto conto da ImportHub lancia `rerun_reconciliation` **col proprio token**,
+quindi un giro di massa sarebbe passato per una decisione consapevole e avrebbe
+cancellato l'esclusione. Trovato da due revisori su tre, verificato sul codice
+(`ImportHub.tsx`, `runReconciliationAfterBankImport`). Il segnale deve venire dal
+**gesto**, non dall'utente: `reconcile_movement` ferma la coppia esclusa
+chiunque chiami, e per rifarla a mano si passa da `riammetti_coppia`, che è un
+gesto esplicito su quella coppia e su quella sola. In Riconciliazione il pulsante
+dell'abbinamento manuale lo chiede («questo abbinamento era stato escluso a mano:
+vuoi rifarlo adesso?»), mentre la conferma in blocco salta le coppie escluse e lo
+dice nel riepilogo.
 
 ### Parità
 

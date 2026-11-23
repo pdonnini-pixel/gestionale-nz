@@ -20,7 +20,7 @@ $o$
       AND (public.invoice_cited_in_text(coalesce(v_pay.invoice_number, ''),
                                         public.causale_per_numeri(bt.description), 2)
            OR public.beneficiario_coerente(
-                coalesce(bt.statement_description, bt.description, ''),
+                coalesce(bt.statement_description, '') || ' ' || coalesce(bt.description, ''),
                 v_pay.supplier_name, v_pay.supplier_vat))$o$, '');
   IF v_new ~ 'beneficiario_coerente' THEN
     RAISE EXCEPTION 'rerun_bijective_reconciliation: non ho trovato le righe da togliere';
