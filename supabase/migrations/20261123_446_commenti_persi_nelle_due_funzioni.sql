@@ -14,6 +14,11 @@
 -- trovato subito, e questo file rimette i due corpi esattamente come stanno nel
 -- repo, copiati da li' senza passare da una tastiera.
 --
+-- Applicata su NZ e Zago il 23/11/2026 e verificata: i cinque corpi delle
+-- funzioni nuove di oggi combaciano al byte fra repo e database vivo
+-- (`md5(prosrc)`), e la parita' fra i due tenant regge (435 funzioni, impronta
+-- e636b35ba6fef0aa8185f736973e12f6).
+--
 -- NO DATA LOSS: due CREATE OR REPLACE, nessuna riga toccata.
 -- =====================================================================
 
