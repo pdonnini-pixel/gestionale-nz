@@ -1226,3 +1226,113 @@ residui negativi, zero incoerenze di stato.
 NZ e Zago: **396 funzioni, impronta `4953024a5293e2e246dc61690cc1f9ee`**, identica.
 Il 09/11 erano 323: settantatré funzioni in più in una settimana, arrivate su
 entrambi insieme. Made resta fuori dal confronto per la decisione del 03/11.
+
+---
+
+## Il controllo del 23/11/2026: il motore ha rifatto un aggancio che Patrizio aveva annullato
+
+Sette giri riusciti dal 16 al 23 novembre, fra 48 e 161 secondi, nessun errore
+su nessun job del cron. Quindici agganci applicati, tre proposte chiuse come
+`superseded`, e le `to_confirm` ancora aperte restano **due**, le stesse della
+settimana scorsa. Controllo d'insieme sulle quindici fatture toccate: zero
+pagate più del dovuto, zero residui negativi, zero stati incoerenti.
+
+Quattordici agganci su quindici sono a posto, e si spiegano in una riga:
+
+- cinque **a mano** (Ghezzi Marco con il numero fattura in causale; le quattro
+  Valdichiana Propco dei due SDD cumulativi da 36.541,42, dove 27.159,16 +
+  9.382,26 fa la cifra esatta);
+- uno con il **numero di fattura in causale** (IP PLUS 9601539612);
+- **sette NEXI** dal ramo della 438, gli addebiti SDD con 1,00 di commissione
+  MPS. Qui c'è una cosa che vale saperla: le sette fatture 3637624-3637630 sono
+  tutte da 25,62, stesso fornitore, stessa scadenza, e ognuna delle sette
+  causali porta in coda un numero che è uno dei sette numeri di fattura. Le
+  coppie che ne sono uscite sono una permutazione: solo la 3637627 è finita sul
+  movimento che la nomina. **Non è un errore**, è esattamente quello che la 438
+  dichiara di fare: più candidati vanno bene «solo se sono intercambiabili
+  (stesso fornitore, importo e scadenza)», e sette fatture identiche lo sono.
+  Nello Scadenzario non cambia niente: tutte e sette pagate, residuo zero;
+- uno **Torino Fashion Village** con «FATT. EMESSE 9/2084» in causale.
+
+### Il quindicesimo: un aggancio annullato che è tornato da solo
+
+Mercoledì 19/11 Patrizio ha annullato l'aggancio fra la fattura **UNICOOP
+Firenze 044/000009** (250,00, scadenza 02/01/2026) e l'**addebito SDD del
+06/03/2026 da 251,22**, scrivendo il motivo sulla fattura: quell'addebito è un
+rimborso tax free **Global Blue**, e la spesa UNICOOP era stata pagata con la
+carta BCC *3145 il 02/01/2026, come dice l'estratto carta di gennaio.
+
+**Giovedì 20/11 alle 05:45 il giro notturno l'ha rifatto.** Stessa coppia,
+stessa nota, come se niente fosse. È il punto 4 del giro settimanale preso in
+parola («annullare a mano non serve, perché la notte dopo il motore rifà lo
+stesso aggancio»): questa volta è successo davvero, e si vede nel log, dove la
+riga del 25/07 è `rejected` con la nota del 19/11 e quella del 20/11 è
+`applied`.
+
+Due difetti, non uno.
+
+**Primo: il nome del fornitore confermato da una città.** Il ramo
+`rerun_bijective_reconciliation` chiede che il fornitore sia nominato in
+causale, e lo verifica con `supplier_confirmed_in_text`, che accetta qualsiasi
+parola del nome lunga almeno quattro lettere e fuori dalla lista delle parole
+di contorno. Delle nove parole di «UNICOOP FIRENZE SOC.COOP.A MUTUAL.
+PREV.ISCR.ALBO A104272(CAT.CONSUMO)» l'unica che compare nella causale è
+**FIRENZE**, e ci compare perché è la città stampata sul documento tax free
+(«... 50129 FIRENZE Incl. VAT 0.00»). Misurato: `supplier_confirmed_in_text`
+su quella coppia risponde `true`, e il solo token che la fa rispondere così è
+`firenze`.
+
+La correzione **non** è allungare la lista delle parole da ignorare. Ci sono
+fornitori che si chiamano con un luogo: Torino Fashion Village, Valdichiana
+Propco (dove «propco» è già fra le parole di contorno, quindi resterebbe solo
+«valdichiana»). Metterli in lista li renderebbe invisibili al motore.
+
+La correzione è leggere il documento. Quando la causale nomina un beneficiario
+esplicito («A FAVORE …»), quello è chi ha preso i soldi e deve essere il
+fornitore della fattura: migration **444**, con `beneficiario_in_causale` e
+`beneficiario_coerente`, dentro il solo ramo debole e con una via d'uscita per
+chi ha una prova più forte (il numero di questa fattura citato in causale).
+
+**Secondo: nessuno diceva al motore che una persona aveva deciso.** Serviva un
+posto dove la decisione resta scritta: migration **443**,
+`reconciliation_coppie_escluse`. Chi annulla un abbinamento (`undo_reconcile_movement`)
+mette la coppia in elenco; `reconcile_movement` non la riconcilia più quando non
+c'è un utente dietro (cron, service role) e la riammette se invece è una persona
+a rifarla, perché comanda lei; `rerun_bijective_reconciliation`, l'unico ramo che
+scrive il log da sé, la salta fra i candidati. Gli altri undici passaggi del giro
+notturno passano tutti da `reconcile_movement`, quindi sono coperti in un punto
+solo.
+
+### Due misure prima di scrivere il codice, e due cose imparate
+
+**Niente backfill delle righe `rejected`.** Nel log ce ne sono 638, su 466
+coppie, e 39 coppie sono già state «annullate e poi riapplicate» nello storico.
+Sembra la lista pronta da travasare nell'elenco delle escluse, e sarebbe
+sbagliato: la maggioranza di quelle righe sono proposte che il motore ha chiuso
+da sé (prima della 361 le superate si chiudevano come `rejected`, non come
+`superseded`). Leggerle come decisioni di persone bloccherebbe agganci giusti.
+L'elenco parte vuoto e si riempie da oggi; l'unica riga di partenza è UNICOOP,
+che è una decisione documentata (NZ_ONLY 445).
+
+**«Non dichiarato» non è «un altro».** La prima stesura della regola del
+beneficiario rifiutava tre agganci storici del ramo. Guardandoli uno per uno:
+UNICOOP era l'errore; A. & C. GROUP del 23/07 passa perché ha il numero di
+fattura in causale; e **GABRIEL IOSUB del 25/07 aveva «A FAVORE DI N.D.»**,
+cioè la banca non ha scritto il beneficiario. Trattare quel N.D. come «un
+beneficiario diverso» avrebbe rotto tutti gli agganci del flusso CBI anonimo di
+MPS, che è una famiglia intera. Da qui il riconoscimento di `N.D.`,
+`NOTPROVIDED` e `NON DISPONIBILE` dentro `beneficiario_in_causale`: lì il
+beneficiario manca, e chi non sa non si pronuncia. Con questo, la regola
+rifiuta **una sola** riga in tutto lo storico: l'aggancio sbagliato.
+
+Terza cosa, tecnica ma costosa: in PostgreSQL **la preferenza di tutta
+l'espressione regolare la decide il primo quantificatore**. Un `(?:DI[: ]*)?`
+davanti a `(.{3,60}?)` rende greedy anche il secondo, e il beneficiario usciva
+come «GLOBAL BLUE ITALIA SRL CODICE MANDATO ITA145205C». Il taglio si fa in due
+passi, non con una regex sola.
+
+### Parità
+
+NZ e Zago: **430 funzioni, impronta `cccf3503a63c2e384eb394a7a71c3d11`**,
+identica. Il 16/11 erano 396. Made resta fuori dal confronto per la decisione
+del 03/11.

@@ -856,7 +856,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Ho confermato un abbinamento sbagliato, come lo tolgo?",
-        "a": "Nella scheda Riconciliazione passa alla vista \"Riconciliati\" e clicca \"Annulla abbinamento\" sul movimento interessato: la fattura torna aperta e il movimento torna disponibile per un nuovo abbinamento."
+        "a": "Nella scheda Riconciliazione passa alla vista \"Riconciliati\" e clicca \"Annulla abbinamento\" sul movimento interessato: la fattura torna aperta e il movimento torna disponibile per un nuovo abbinamento. Dal 23 novembre 2026 quell'abbinamento non torna da solo: il gestionale si ricorda che quella coppia movimento-fattura l'hai esclusa tu, e il giro notturno non la rifà più. Prima succedeva: un abbinamento annullato il mercoledì poteva ricomparire il giovedì mattina, rifatto in automatico. Se invece cambi idea, basta rifarlo a mano dall'abbinamento manuale: l'esclusione cade e comanda la tua scelta."
       },
       {
         "q": "Cosa vuol dire l'etichetta \"chiusa a mano\" su un abbinamento suggerito?",
@@ -2998,7 +2998,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "q": "Ho agganciato il movimento sbagliato, posso disfare?",
-        "a": "Sì. L'aggancio è reversibile e non cancella niente: chiedi a chi gestisce la contabilità di annullarlo (il sistema stacca il movimento e lo rimette fra quelli da riconciliare, lasciando la scadenza pagata)."
+        "a": "Sì. L'aggancio è reversibile e non cancella niente: chiedi a chi gestisce la contabilità di annullarlo (il sistema stacca il movimento e lo rimette fra quelli da riconciliare, lasciando la scadenza pagata). Una volta annullato non torna: il gestionale si ricorda che quella coppia è stata esclusa a mano e il giro notturno non la rifà."
       },
       {
         "q": "Quando segno una scadenza come pagata o la annullo, come so se è andata a buon fine?",
