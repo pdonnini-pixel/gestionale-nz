@@ -102,6 +102,10 @@ AS $function$
   END;
 $function$;
 
+-- Come nella 443: PostgreSQL concede le funzioni nuove a PUBLIC, quindi anche
+-- alla chiave pubblica del sito. Si revoca e si concede a chi serve.
+REVOKE ALL ON FUNCTION public.beneficiario_in_causale(text) FROM PUBLIC, anon;
+REVOKE ALL ON FUNCTION public.beneficiario_coerente(text, text, text) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.beneficiario_in_causale(text) TO authenticated, service_role;
 GRANT EXECUTE ON FUNCTION public.beneficiario_coerente(text, text, text) TO authenticated, service_role;
 

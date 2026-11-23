@@ -1368,8 +1368,32 @@ dell'abbinamento manuale lo chiede («questo abbinamento era stato escluso a man
 vuoi rifarlo adesso?»), mentre la conferma in blocco salta le coppie escluse e lo
 dice nel riepilogo.
 
+### Applicato e verificato sul vivo
+
+443, 444 su NZ e Zago, NZ_ONLY 445 su NZ. Dopo l'applicazione, sulle righe vere
+della coppia UNICOOP:
+
+- la fattura non ha più il movimento agganciato, e resta **pagata** il
+  02/01/2026 con 250,00 e residuo zero: lo stacco non ha riaperto niente;
+- il movimento del 06/03/2026 è tornato libero, pronto per il rimborso tax free
+  a cui appartiene;
+- le due righe di log sono entrambe `rejected`;
+- la coppia è fra le escluse, con il motivo di Patrizio scritto dentro;
+- e i due blocchi reggono insieme: `coppia_esclusa` dà `true`,
+  `beneficiario_coerente` dà `false` e il numero di fattura non è citato. Il
+  motore non ha più nessuna strada per rifarlo.
+
+Una lezione in più, arrivata dal database: **`payables.cash_movement_id` è una
+colonna generata** (`GENERATED ALWAYS AS bank_transaction_id`). La 445 provava
+ad azzerarla assieme al movimento e Postgres ha risposto «can only be updated to
+DEFAULT», tirando indietro la transazione intera senza lasciare niente a metà.
+Ecco anche perché nelle 927 righe valorizzate era sempre uguale a
+`bank_transaction_id`: non poteva essere altrimenti, e la mia misura di prima
+leggeva una conseguenza, non una coincidenza.
+
 ### Parità
 
-NZ e Zago: **430 funzioni, impronta `cccf3503a63c2e384eb394a7a71c3d11`**,
-identica. Il 16/11 erano 396. Made resta fuori dal confronto per la decisione
-del 03/11.
+NZ e Zago, prima del lavoro di oggi: **430 funzioni, impronta
+`cccf3503a63c2e384eb394a7a71c3d11`**. Dopo le due migration: **435 funzioni,
+impronta `d6b9bb0350cd66985088c125825b5c0b`**, identica sui due tenant. Il 16/11
+erano 396. Made resta fuori dal confronto per la decisione del 03/11.

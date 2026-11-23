@@ -38,11 +38,8 @@
 --     7dc268e3-136a-4d1a-b7d7-494d1db5f00b rejected  (annullato il 19/11)
 --     c2c8d862-cab3-4e82-b726-d26910392b49 applied   (rifatto il 20/11: questo si chiude)
 --
--- `cash_movement_id` si azzera insieme a `bank_transaction_id`: nelle 2.126
--- righe di payables quella colonna è sempre uguale a `bank_transaction_id`
--- (927 su 927 valorizzate) e non esiste nessun caso con la cassa senza il
--- movimento. Lasciarla piena creerebbe l'unico caso al mondo, come è successo
--- fra il 19 e il 20 novembre.
+-- `cash_movement_id` segue da sé: è una colonna generata da
+-- `bank_transaction_id`, non si scrive a mano (vedi la nota al punto 1).
 -- =====================================================================
 
 BEGIN;
@@ -51,10 +48,15 @@ BEGIN;
 --    pagamento NON si toccano.
 UPDATE public.payables
    SET bank_transaction_id = NULL,
-       cash_movement_id = NULL,
        updated_at = now()
  WHERE id = 'f7b49085-a305-4239-bb97-2e1b0cef62e5'
    AND bank_transaction_id = '8d643100-2790-43c1-abd4-a395f314b2d9';
+-- `cash_movement_id` NON si scrive: è una colonna generata
+-- (GENERATED ALWAYS AS bank_transaction_id), quindi si azzera da sé insieme al
+-- movimento. Provato a scriverla e il database ha risposto «can only be updated
+-- to DEFAULT»: la transazione è tornata indietro intera, senza lasciare niente
+-- a metà. Ecco anche perché nelle 927 righe valorizzate era sempre uguale a
+-- `bank_transaction_id`: non poteva essere altrimenti.
 
 -- 2. La riga di log del 20/11 si chiude, con il perché scritto dentro.
 UPDATE public.reconciliation_log
