@@ -1383,6 +1383,19 @@ della coppia UNICOOP:
   `beneficiario_coerente` dà `false` e il numero di fattura non è citato. Il
   motore non ha più nessuna strada per rifarlo.
 
+E una verifica che vale come regola, perché ha trovato una cosa vera: dopo
+l'applicazione ho confrontato **al byte** il corpo delle funzioni nuove
+(`pg_proc.prosrc`) con il testo nel repo. Tre uguali, due no: in
+`escludi_coppia` e `riammetti_coppia` il database aveva 191 e 207 caratteri in
+meno, cioè due blocchi di commento che il file ha e che si sono persi quando ho
+ribattuto la migration nella chiamata di applicazione. Codice identico,
+comportamento identico, ma il file non raccontava più il vivo: lo stesso
+inciampo del 09/11 con la 333. La **migration 446** lo ha rimesso a posto,
+generata copiando i due corpi dal 443 senza passare da una tastiera, e ora i
+cinque corpi combaciano al byte su NZ e Zago. Da qui in avanti, quando una
+migration crea o riscrive una funzione, il confronto `md5(prosrc)` fra repo e
+vivo è parte del lavoro, non un extra.
+
 Una lezione in più, arrivata dal database: **`payables.cash_movement_id` è una
 colonna generata** (`GENERATED ALWAYS AS bank_transaction_id`). La 445 provava
 ad azzerarla assieme al movimento e Postgres ha risposto «can only be updated to
@@ -1394,6 +1407,6 @@ leggeva una conseguenza, non una coincidenza.
 ### Parità
 
 NZ e Zago, prima del lavoro di oggi: **430 funzioni, impronta
-`cccf3503a63c2e384eb394a7a71c3d11`**. Dopo le due migration: **435 funzioni,
-impronta `d6b9bb0350cd66985088c125825b5c0b`**, identica sui due tenant. Il 16/11
+`cccf3503a63c2e384eb394a7a71c3d11`**. Dopo le tre migration: **435 funzioni,
+impronta `e636b35ba6fef0aa8185f736973e12f6`**, identica sui due tenant. Il 16/11
 erano 396. Made resta fuori dal confronto per la decisione del 03/11.
