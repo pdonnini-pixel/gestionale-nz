@@ -39,7 +39,7 @@ import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '.
 import {
   NOMI_GIORNO, NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, giornoPieno, opzioniGiorni, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
-  giornoIso,
+  giornoIso, applicaChiusure,
 } from '../lib/turni';
 import { turniCheValgono, type PianoDelMese } from '../lib/turniFuoriMese';
 
@@ -190,9 +190,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     setCaricamento(true);
     try {
       const [o, f, s, r, fe, sl, ev, pi, disp, tr] = await Promise.all([
-        supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude, origine').eq('outlet_id', outletId),
+        supabase.from('outlet_opening_hours').select('*').eq('outlet_id', outletId),
         supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
-        supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', date[0]).lte('data', ultimo),
+        supabase.from('outlet_special_days').select('*').eq('outlet_id', outletId).gte('data', date[0]).lte('data', ultimo),
         supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
         caricaGiorniFerie(companyId, date[0], ultimo),
         supabase.from('v_leave_disponibilita').select('employee_id, residuo_disponibile').eq('company_id', companyId),
@@ -570,14 +570,15 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const liberi = riposoATurnazione ? liberiValidi : scegliGiorniLiberi(candidati.map((c) => c.id), new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])), guida);
       const coppiePrima = await caricaCoppiePrima(companyId, outletId, date[0]);
       const lunediVisti = regole.lunediDue ? await caricaLunediPrima(companyId, outletId, date[0]) : [];
-      const sistemati = ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidati, regole,
+      // in fondo, la chiusura di meta' giornata (446): nessun turno comincia o finisce li' dentro
+      const sistemati = applicaChiusure(giorni, ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidati, regole,
         {
           // con la tabella dei riposi i giorni preferiti arrivano da li' (anche piu' di uno a testa)
           giornoLibero: riposoATurnazione ? undefined : liberi, guida, coppiePrima, lunediPrima: lunediVisti,
           riempiContratto: !!regole.riempiContratto, giorniGia: giorniFuori, chiavi,
           // giorni caldi, apertura e chiusura fra responsabile e vice, riposi, straordinari pari: vuoto dove il negozio non li ha
           ...sceltePerLaSettimana({ giorni, regole, responsabile: guidaTurni.responsabile, vice: guidaTurni.vice, riposi: riposiMotore, giorniFuori: 7 - date.length }),
-        }, fissiTutti);
+        }, fissiTutti), regole);
       if (haGiorniLiberi && !riposoATurnazione) await salvaGiorniLiberiDiSistema(companyId, liberi, giorniLiberi).catch(() => undefined);
       const esito = { ...proposta, turni: sistemati, scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, [...sistemati, ...fissiTutti])) };
       if (esito.turni.length) {
@@ -1046,6 +1047,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           planId={pianiScelti.get(editor.data.slice(0, 7)) ?? null}
           nome={nomePersona(dati.schede.find((s) => s.id === editor.employeeId) ?? { nome: '', cognome: '' })}
           apre={giorni.find((g) => g.data === editor.data)!.apre} chiude={giorni.find((g) => g.data === editor.data)!.chiude}
+          chiusura={giorni.find((g) => g.data === editor.data)!.chiusura}
           regole={regole} conMotivo={haMotivo} conAMano={ha408} giornoForte={!!regole.giorniPieni && giornoPieno(giorni.find((g) => g.data === editor.data)!)}
           passaggio={editor.turno ? (() => {
             const t = editor.turno!;

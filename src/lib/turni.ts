@@ -181,6 +181,120 @@ export function pausaPer(lavoroMinuti: number, regole: RegoleTurni = REGOLE_DEFA
   return 0;
 }
 
+// ── Chiusura di meta' giornata (Patrizio, 23/11/2026, migration 446) ─────
+// Forte dei Marmi apre 10-13 e 15:30-19. Chi lavora la mattina e il pomeriggio passa la
+// chiusura fuori dal negozio: e' la sua pausa, non pagata, e vale anche come pausa di
+// regola (se la regola ne chiedesse una piu' lunga varrebbe quella). Nessun turno
+// comincia o finisce dentro la chiusura. Dove la chiusura non c'e' niente cambia.
+
+type ConChiusura = { chiusura?: { dalle: number; alle: number }; apre?: number; chiude?: number } | null | undefined;
+
+/** Minuti della chiusura di meta' giornata che cadono fra `inizio` e `fine`. */
+export function sovrapposizioneChiusura(g: ConChiusura, inizio: number, fine: number): number {
+  const c = g?.chiusura;
+  if (!c) return 0;
+  return Math.max(0, Math.min(fine, c.alle) - Math.max(inizio, c.dalle));
+}
+
+/**
+ * Pausa (minuti) di un turno da `inizio` a `fine` nel giorno: senza chiusura quella della
+ * regola per la presenza; se il turno attraversa la chiusura, la chiusura stessa (o la
+ * pausa di regola, se per le ore che restano ne servisse una piu' lunga).
+ */
+export function pausaDelTurno(g: ConChiusura, inizio: number, fine: number, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  const presenza = fine - inizio;
+  if (presenza <= 0) return 0;
+  const sopra = sovrapposizioneChiusura(g, inizio, fine);
+  if (!sopra) return pausaMinimaPerPresenza(presenza, regole);
+  return Math.max(sopra, pausaPer(presenza - sopra, regole));
+}
+
+/**
+ * Il turno che comincia a `inizio` con `lavoro` minuti lavorati: fine e pausa. Senza
+ * chiusura e' «inizio + lavoro + pausa di regola», come sempre. Con la chiusura un inizio
+ * che cade dentro si sposta alla riapertura, e un turno che arriva oltre la chiusura la
+ * scavalca: la sua pausa e' la chiusura.
+ */
+export function finestraLavoro(g: ConChiusura, inizio: number, lavoro: number, regole: RegoleTurni = REGOLE_DEFAULT): { inizio: number; fine: number; pausa: number } {
+  const c = g?.chiusura;
+  const regola = pausaPer(lavoro, regole);
+  if (!c) return { inizio, fine: inizio + lavoro + regola, pausa: regola };
+  const s = inizio >= c.dalle && inizio < c.alle ? c.alle : inizio;
+  const pausa = Math.max(c.alle - c.dalle, regola);
+  // Se dopo la riapertura il turno uscirebbe dall'orario, finisce alla chiusura del negozio e
+  // comincia la mattina, scavalcando la chiusura (un 15:00-19:00 diventa 12:30-19:00 con la pausa).
+  if (g?.chiude != null && s >= c.alle && s + lavoro + regola > g.chiude) {
+    const mattina = lavoro - (g.chiude - c.alle);
+    if (mattina > 0) {
+      const inizioMattina = Math.max(g.apre ?? 0, c.dalle - mattina);
+      return { inizio: inizioMattina, fine: g.chiude, pausa: g.chiude - inizioMattina - lavoro };
+    }
+  }
+  // tutto prima della chiusura (senza pausa da metterci dentro) o tutto dopo
+  if (s >= c.alle || s + lavoro + regola <= c.dalle) return { inizio: s, fine: s + lavoro + regola, pausa: regola };
+  return { inizio: s, fine: s + lavoro + pausa, pausa };
+}
+
+/**
+ * Il giorno con fabbisogno, minimo, esigenza ed esatto a zero nelle mezz'ore della chiusura
+ * di meta' giornata: li' non serve nessuno, qualunque cosa dicano fasce, MODA o la regola
+ * delle due persone. Senza chiusura restituisce il giorno com'e'.
+ */
+export function azzeraChiusura(g: GiornoPiano): GiornoPiano {
+  const c = g.chiusura;
+  if (!c || g.chiuso) return g;
+  const zero = (v: number[] | undefined) => v?.map((x, i) => { const t = g.apre + i * SLOT_MINUTI; return t >= c.dalle && t < c.alle ? 0 : x; });
+  return {
+    ...g,
+    fabbisogno: zero(g.fabbisogno) ?? g.fabbisogno,
+    ...(g.minimo ? { minimo: zero(g.minimo) } : {}),
+    ...(g.esigenza ? { esigenza: zero(g.esigenza) } : {}),
+    ...(g.esatto ? { esatto: zero(g.esatto) } : {}),
+  };
+}
+
+/**
+ * Rete di sicurezza in fondo ai calcoli per i giorni con la chiusura di meta' giornata (446):
+ * ogni turno resta dentro l'orario, non comincia ne' finisce nella chiusura e ha come pausa la
+ * chiusura che attraversa. Nei giorni senza chiusura i turni restano identici.
+ */
+export function applicaChiusure(giorni: GiornoPiano[], turni: Turno[], regole: RegoleTurni = REGOLE_DEFAULT): Turno[] {
+  const conChiusura = new Map(giorni.filter((g) => !g.chiuso && g.chiusura).map((g) => [g.data, g]));
+  if (!conChiusura.size) return turni;
+  return turni.map((t) => {
+    const g = conChiusura.get(t.data);
+    if (!g) return t;
+    const a = Math.max(g.apre, minuti(t.inizio));
+    const b = Math.min(g.chiude, minuti(t.fine));
+    if (b <= a) return t;
+    return turnoConChiusura(g, { ...t, inizio: hhmm(a), fine: hhmm(b) }, regole);
+  });
+}
+
+/** Come `finestraLavoro`, ma tenendo ferma la fine del turno. */
+export function finestraDaFine(g: ConChiusura, fine: number, lavoro: number, regole: RegoleTurni = REGOLE_DEFAULT): { inizio: number; fine: number; pausa: number } {
+  const c = g?.chiusura;
+  const regola = pausaPer(lavoro, regole);
+  if (!c) return { inizio: fine - lavoro - regola, fine, pausa: regola };
+  const e = fine > c.dalle && fine <= c.alle ? c.dalle : fine;
+  if (e <= c.dalle || e - lavoro - regola >= c.alle) return { inizio: e - lavoro - regola, fine: e, pausa: regola };
+  const pausa = Math.max(c.alle - c.dalle, regola);
+  return { inizio: e - lavoro - pausa, fine: e, pausa };
+}
+
+/** Un turno coerente con la chiusura: inizio e fine fuori dalla chiusura, pausa ricalcolata. */
+export function turnoConChiusura(g: ConChiusura, t: Turno, regole: RegoleTurni = REGOLE_DEFAULT): Turno {
+  const c = g?.chiusura;
+  if (!c) return t;
+  let a = minuti(t.inizio);
+  let b = minuti(t.fine);
+  if (a >= c.dalle && a < c.alle) a = c.alle;
+  if (b > c.dalle && b <= c.alle) b = c.dalle;
+  if (b <= a) return t;
+  const pausa = pausaDelTurno(g, a, b, regole);
+  return { ...t, inizio: hhmm(a), fine: hhmm(b), pausaMinuti: pausa };
+}
+
 /**
  * Minuti di pausa pagata di un turno: timbrata ma non tolta dalle ore. Solo nei negozi con la
  * pausa corta pagata, per i turni oltre le 6 ore e fino a 8 che non hanno una pausa da togliere.
@@ -197,7 +311,9 @@ export function pausaPagataDelTurno(t: Pick<Turno, 'inizio' | 'fine' | 'pausaMin
  * massimo 10 ore; in un negozio aperto 10 ore se ne lavorano 9 con un'ora di
  * pausa, in uno aperto 11 ore se ne lavorano 10).
  */
-export function lavoroMassimoGiorno(g: { apre: number; chiude: number }, regole: RegoleTurni = REGOLE_DEFAULT): number {
+export function lavoroMassimoGiorno(g: { apre: number; chiude: number; chiusura?: { dalle: number; alle: number } }, regole: RegoleTurni = REGOLE_DEFAULT): number {
+  // con la chiusura di meta' giornata la chiusura e' la pausa: si lavora il resto dell'orario
+  if (g.chiusura) return Math.max(0, Math.min(regole.turnoMaxOre * 60, g.chiude - g.apre - (g.chiusura.alle - g.chiusura.dalle)));
   const giornata = g.chiude - g.apre;
   let lavoro = Math.min(regole.turnoMaxOre * 60, giornata);
   while (lavoro > 0 && lavoro + pausaPer(lavoro, regole) > giornata) lavoro -= SLOT_MINUTI;
@@ -248,6 +364,9 @@ export interface OrarioGiornoTipo {
   chiuso: boolean;
   apre: string | null;
   chiude: string | null;
+  /** chiusura di meta' giornata (migration 446): dalle-alle il negozio e' chiuso; assenti = orario continuato */
+  chiusura_dalle?: string | null;
+  chiusura_alle?: string | null;
 }
 
 export interface FasciaFabbisogno {
@@ -266,6 +385,9 @@ export interface GiornoSpeciale {
   chiude: string | null;
   persone_extra: number;
   nota?: string | null;
+  /** chiusura di meta' giornata del giorno speciale (migration 446) */
+  chiusura_dalle?: string | null;
+  chiusura_alle?: string | null;
 }
 
 /**
@@ -361,6 +483,12 @@ export interface GiornoPiano {
   chiude: number;
   /** persone che servono in ogni mezz'ora, da «apre» a «chiude» */
   fabbisogno: number[];
+  /**
+   * Chiusura di meta' giornata (minuti dalla mezzanotte, Patrizio 23/11/2026: Forte dei Marmi
+   * apre 10-13 e 15:30-19). Nella chiusura non serve nessuno (fabbisogno e minimo a zero) e chi
+   * la attraversa la conta come pausa non pagata. Assente = orario continuato, come prima.
+   */
+  chiusura?: { dalle: number; alle: number };
   nota: string | null;
   speciale: boolean;
   /** nome dell'evento in corso (Black Friday, saldi...), se c'e' */
@@ -433,9 +561,11 @@ export interface PersonaTurni {
 export interface Fascia { dalle: number; alle: number }
 
 /** Apertura e chiusura del giorno per quella persona: l'orario del negozio dentro la sua fascia. */
-export function limitiPersona(p: { fasce?: Map<string, Fascia> } | undefined, g: { data: string; apre: number; chiude: number }): { apre: number; chiude: number } {
+export function limitiPersona(p: { fasce?: Map<string, Fascia> } | undefined, g: { data: string; apre: number; chiude: number; chiusura?: { dalle: number; alle: number } }): { apre: number; chiude: number; chiusura?: { dalle: number; alle: number } } {
   const f = p?.fasce?.get(g.data);
-  return f ? { apre: Math.max(g.apre, f.dalle), chiude: Math.min(g.chiude, f.alle) } : { apre: g.apre, chiude: g.chiude };
+  const l = f ? { apre: Math.max(g.apre, f.dalle), chiude: Math.min(g.chiude, f.alle) } : { apre: g.apre, chiude: g.chiude };
+  // la chiusura di meta' giornata conta solo se cade tutta dentro i limiti della persona
+  return g.chiusura && g.chiusura.dalle > l.apre && g.chiusura.alle < l.chiude ? { ...l, chiusura: g.chiusura } : l;
 }
 
 /**
@@ -569,7 +699,10 @@ export function riassuntoOrari(orari: OrarioGiornoTipo[]): string {
   };
   const testo = (g: number) => {
     const o = orari.find((x) => x.giorno === g);
-    return !o || o.chiuso || !o.apre || !o.chiude ? 'chiuso' : `${ora(o.apre)}-${ora(o.chiude)}`;
+    if (!o || o.chiuso || !o.apre || !o.chiude) return 'chiuso';
+    // con la chiusura di meta' giornata (446): «10-13 / 15:30-19»
+    if (o.chiusura_dalle && o.chiusura_alle) return `${ora(o.apre)}-${ora(o.chiusura_dalle)} / ${ora(o.chiusura_alle)}-${ora(o.chiude)}`;
+    return `${ora(o.apre)}-${ora(o.chiude)}`;
   };
   const gruppi: { da: number; a: number; t: string }[] = [];
   for (let g = 1; g <= 7; g++) {
@@ -624,6 +757,16 @@ export function costruisciGiorni(
       return { data, giorno: g, chiuso: true, apre: 0, chiude: 0, fabbisogno: [], nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari: false };
     }
     const n = Math.floor((chiude - apre) / SLOT_MINUTI);
+    // Chiusura di meta' giornata (migration 446): quella del giorno speciale se ha un orario suo,
+    // nessuna se l'orario lo decide un periodo speciale, altrimenti quella della settimana tipo.
+    // Vale solo se cade dentro l'orario, sulle mezz'ore.
+    const fonteChiusura = sp && !sp.chiuso && sp.apre ? sp : rp?.apre ? null : tipo;
+    const cDalle = fonteChiusura?.chiusura_dalle ? minuti(fonteChiusura.chiusura_dalle) : null;
+    const cAlle = fonteChiusura?.chiusura_alle ? minuti(fonteChiusura.chiusura_alle) : null;
+    const chiusura = cDalle != null && cAlle != null && apre < cDalle && cDalle < cAlle && cAlle < chiude
+      && (cDalle - apre) % SLOT_MINUTI === 0 && (cAlle - apre) % SLOT_MINUTI === 0
+      ? { dalle: cDalle, alle: cAlle } : undefined;
+    const inChiusura = (t: number) => !!chiusura && t >= chiusura.dalle && t < chiusura.alle;
     // Giorno caldo: sabato, domenica, festivo o giorno di evento dove il negozio li ha accesi; un
     // evento nuovo (giorno singolo o periodo) lo e' comunque, perche' qualcuno l'ha scritto apposta.
     const eventoNuovo = ev.some((e) => !!e.tipo);
@@ -653,15 +796,16 @@ export function costruisciGiorni(
       const base = fasceGiorno
         .filter((f) => minuti(f.dalle) <= t && t < minuti(f.alle))
         .reduce((m, f) => Math.max(m, f.persone), 0);
-      return Math.max(0, base + extra);
+      return inChiusura(t) ? 0 : Math.max(0, base + extra);
     });
     // Le fasce confermate fanno il minimo di persone del giorno; quelle stimate no.
     const confermate = fasceGiorno.filter((f) => f.origine === 'manuale');
     const minimo = confermate.length ? Array.from({ length: n }, (_, i) => {
       const t = apre + i * SLOT_MINUTI;
+      if (inChiusura(t)) return 0;
       return Math.max(1, confermate.filter((f) => minuti(f.dalle) <= t && t < minuti(f.alle)).reduce((m, f) => Math.max(m, f.persone), 0));
     }) : undefined;
-    return { data, giorno: g, chiuso: false, apre, chiude, fabbisogno, nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari: rp?.straordinari ?? straordinari, ...(minimo ? { minimo } : {}), ...marcaCaldo };
+    return { data, giorno: g, chiuso: false, apre, chiude, fabbisogno, ...(chiusura ? { chiusura } : {}), nota: sp?.nota ?? null, speciale: !!sp, evento, straordinari: rp?.straordinari ?? straordinari, ...(minimo ? { minimo } : {}), ...marcaCaldo };
   });
 }
 
@@ -695,6 +839,16 @@ export function coperturaLorda(giorno: GiornoPiano, turni: Turno[]): number[] {
     for (let i = 0; i < cop.length; i++) {
       const s = giorno.apre + i * SLOT_MINUTI;
       if (s >= da && s < a) cop[i] += 1;
+    }
+  }
+  // Nella chiusura di meta' giornata il negozio e' chiuso: chi la attraversa e' in pausa,
+  // fuori dal negozio. Li' la copertura vale 1 fisso: nessuna mezz'ora conta come «negozio
+  // vuoto» e nessun controllo chiede persone (le pagine la mostrano come chiusura).
+  const c = giorno.chiusura;
+  if (c) {
+    for (let i = 0; i < cop.length; i++) {
+      const s = giorno.apre + i * SLOT_MINUTI;
+      if (s >= c.dalle && s < c.alle) cop[i] = 1;
     }
   }
   return cop;
@@ -829,8 +983,9 @@ export function ritoccaScoperture(
   const oreDi = (id: string, t: Turno[]) => [...fissi, ...t].filter((x) => x.employeeId === id).reduce((a, x) => a + oreLavorate(x), 0);
   const giorniDi = (id: string, t: Turno[]) => new Set([...fissi, ...t].filter((x) => x.employeeId === id).map((x) => x.data));
   const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
-    const pausa = pausaPer(lavoro, regole);
-    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+    // con la chiusura di meta' giornata (446) la chiusura attraversata e' la pausa; senza, come sempre
+    const f = finestraLavoro(giorni.find((x) => x.data === t.data), inizio, lavoro, regole);
+    return { ...t, inizio: hhmm(f.inizio), fine: hhmm(f.fine), pausaMinuti: f.pausa };
   };
   const perId = new Map(persone.map((p) => [p.id, p]));
   const valido = (g: GiornoPiano, t: Turno, prova: Turno[]) => {
@@ -932,9 +1087,11 @@ export function sfrondaOreInPiu(
         if (lavoro - SLOT_MINUTI < regole.turnoMinOre * 60 - 1e-9) candidati.push(null);
         else {
           const l2 = lavoro - SLOT_MINUTI;
-          const p2 = pausaPer(l2, regole);
-          candidati.push({ ...t, inizio: hhmm(minuti(t.fine) - l2 - p2), pausaMinuti: p2 });
-          candidati.push({ ...t, fine: hhmm(minuti(t.inizio) + l2 + p2), pausaMinuti: p2 });
+          // con la chiusura di meta' giornata (446) la pausa e' la chiusura attraversata
+          const daFine = finestraDaFine(g, minuti(t.fine), l2, regole);
+          const daInizio = finestraLavoro(g, minuti(t.inizio), l2, regole);
+          candidati.push({ ...t, inizio: hhmm(daFine.inizio), fine: hhmm(daFine.fine), pausaMinuti: daFine.pausa });
+          candidati.push({ ...t, inizio: hhmm(daInizio.inizio), fine: hhmm(daInizio.fine), pausaMinuti: daInizio.pausa });
         }
         for (const c of candidati) {
           const prova = c ? turni.map((x, i) => (i === idx ? c : x)) : turni.filter((_, i) => i !== idx);
@@ -1020,6 +1177,11 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
     ore = arrotondaMezzOra(ore);
     let lavoro = ore * 60;
     const l = limitiPersona(p, g);
+    // con la chiusura di meta' giornata (446) si lavora al massimo l'orario meno la chiusura
+    if (l.chiusura) {
+      lavoro = Math.min(lavoro, lavoroMassimoGiorno(l, regole));
+      return { lavoro, pausa: Math.max(l.chiusura.alle - l.chiusura.dalle, pausaPer(lavoro, regole)) };
+    }
     const giornata = l.chiude - l.apre;
     // Se il turno con la sua pausa non sta nella giornata si accorcia di
     // mezz'ora alla volta (la pausa scende di fascia quando serve).
@@ -1035,7 +1197,9 @@ function proponiConStrategia(args: ArgsProposta, ordine: 'pieni' | 'buco', turni
     inizio = g.apre + Math.round((inizio - g.apre) / SLOT_MINUTI) * SLOT_MINUTI;
     if (inizio + span > l.chiude) inizio -= SLOT_MINUTI;
     if (inizio < l.apre) inizio += SLOT_MINUTI;
-    const t: Turno = { employeeId: p.id, data: g.data, inizio: hhmm(inizio), fine: hhmm(inizio + span), pausaMinuti: pausa };
+    // con la chiusura di meta' giornata (446): fuori dalla chiusura, che e' la pausa
+    const f = g.chiusura ? finestraLavoro({ ...l, chiusura: g.chiusura }, inizio, lavoro, regole) : { inizio, fine: inizio + span, pausa };
+    const t: Turno = { employeeId: p.id, data: g.data, inizio: hhmm(f.inizio), fine: hhmm(f.fine), pausaMinuti: f.pausa };
     proposti.push(t);
     lavora.get(p.id)!.add(g.data);
     restanti.set(p.id, (restanti.get(p.id) ?? 0) - lavoro / 60);

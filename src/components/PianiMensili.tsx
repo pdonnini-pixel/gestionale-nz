@@ -226,7 +226,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   // Dove mettere le ore che avanzano: le finestre migliori del mese (traffico MODA).
   const [dove, setDove] = useState<{ employeeId: string; nome: string; ore: number; finestre: FinestraSuggerita[] | null; residui?: Record<string, number> } | null>(null);
   const [proposta, setProposta] = useState<{ employeeId: string; nome: string; ore: number; giorni: FeriaProposta[] } | null>(null);
-  const [giorniApertura, setGiorniApertura] = useState<Map<string, { apre: number; chiude: number; chiuso: boolean }>>(new Map());
+  const [giorniApertura, setGiorniApertura] = useState<Map<string, { apre: number; chiude: number; chiuso: boolean; chiusura?: { dalle: number; alle: number } }>>(new Map());
 
   const dateMese = useMemo(() => dateDelMese(mese), [mese]);
 
@@ -288,8 +288,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         ];
         const [rr, oo, sp] = await Promise.all([
           supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
-          supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', outletId),
-          supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', dateMese[0]).lte('data', dateMese[dateMese.length - 1]),
+          supabase.from('outlet_opening_hours').select('*').eq('outlet_id', outletId),
+          supabase.from('outlet_special_days').select('*').eq('outlet_id', outletId).gte('data', dateMese[0]).lte('data', dateMese[dateMese.length - 1]),
         ]);
         if (!vivo) return;
         const regoleQui = regoleDaRiga(rr.data as Parameters<typeof regoleDaRiga>[0]);
@@ -312,7 +312,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         setGiorniApertura(new Map(costruisciGiorni(dateMese,
           (oo.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [], [],
           (sp.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [], [], apertura)
-          .map((g) => [g.data, { apre: g.apre, chiude: g.chiude, chiuso: g.chiuso }])));
+          .map((g) => [g.data, { apre: g.apre, chiude: g.chiude, chiuso: g.chiuso, ...(g.chiusura ? { chiusura: g.chiusura } : {}) }])));
         setFerieMese(fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)));
         setGiorniMax(Number((rr.data as { giorni_lavoro_max?: number } | null)?.giorni_lavoro_max ?? 6));
       } catch { setFerieMese([]); setGiorniVoce([]); }
@@ -346,9 +346,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const settimane = [...new Set(dateMese.map(lunediDi))];
     const tutte = settimane.flatMap(giorniDellaSettimana);
     const [o, f, s, r, ev, tr, fe, sl, storico, fuori] = await Promise.all([
-      supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', outletId),
+      supabase.from('outlet_opening_hours').select('*').eq('outlet_id', outletId),
       supabase.from('outlet_staffing_needs').select('giorno, dalle, alle, persone, origine').eq('outlet_id', outletId),
-      supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', tutte[0]).lte('data', tutte[tutte.length - 1]),
+      supabase.from('outlet_special_days').select('*').eq('outlet_id', outletId).gte('data', tutte[0]).lte('data', tutte[tutte.length - 1]),
       supabase.from('outlet_shift_rules').select('*').eq('outlet_id', outletId).maybeSingle(),
       // eventi, con le regole dei periodi speciali dove ci sono (migration 405)
       caricaEventi(companyId, tutte[0], tutte[tutte.length - 1]),
@@ -1146,8 +1146,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     try {
       const [tr, oo, sp, ev] = await Promise.all([
         caricaStoricoNegozio(companyId, outletId),
-        supabase.from('outlet_opening_hours').select('giorno, chiuso, apre, chiude').eq('outlet_id', outletId),
-        supabase.from('outlet_special_days').select('data, chiuso, apre, chiude, persone_extra, nota').eq('outlet_id', outletId).gte('data', dateMese[0]).lte('data', dateMese[dateMese.length - 1]),
+        supabase.from('outlet_opening_hours').select('*').eq('outlet_id', outletId),
+        supabase.from('outlet_special_days').select('*').eq('outlet_id', outletId).gte('data', dateMese[0]).lte('data', dateMese[dateMese.length - 1]),
         supabase.from('outlet_events').select('nome, data_dal, data_al, outlet_ids, persone_extra, blocca_ferie, straordinari').eq('company_id', companyId).lte('data_dal', dateMese[dateMese.length - 1]).gte('data_al', dateMese[0]),
       ]);
       const st = tr.storico;
@@ -2297,7 +2297,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             companyId={companyId} outletId={outletId} employeeId={editorMese.employeeId} data={editorMese.data} turno={editorMese.turno}
             planId={pianoAperto.id}
             nome={nomePersona(dati.schede.find((x) => x.id === editorMese.employeeId) ?? { nome: '', cognome: '' })}
-            apre={g?.apre ?? 600} chiude={g?.chiude ?? 1200} regole={regolePiano} conAMano={ha408}
+            apre={g?.apre ?? 600} chiude={g?.chiude ?? 1200} chiusura={g?.chiusura} regole={regolePiano} conAMano={ha408}
             conto={(() => {
               const lun = lunediDi(editorMese.data);
               const giorniSett = giorniDellaSettimana(lun).filter((d) => d.startsWith(mese));

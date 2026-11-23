@@ -9,7 +9,7 @@ import { Modal } from './ui/Modal';
 import { useToast } from './Toast';
 import { supabase } from '../lib/supabase';
 import { formattaDataBreve } from '../lib/organico';
-import { NOMI_GIORNO_BREVI, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, pausaPagataDelTurno, pausaPer, presenzaGiusta, type RegoleTurni } from '../lib/turni';
+import { NOMI_GIORNO_BREVI, hhmm, minuti, oreLavorate, pausaDelTurno, pausaMinimaPerPresenza, pausaPagataDelTurno, pausaPer, presenzaGiusta, sovrapposizioneChiusura, type RegoleTurni } from '../lib/turni';
 import { MOTIVI_STRAORDINARIO } from '../lib/ottimizzaTurni';
 import { oreGiornata } from '../lib/pianoMensile';
 import { oreTrasferta, type Trasferta } from '../lib/trasferte';
@@ -69,7 +69,7 @@ export type PassaggioTurno = {
 };
 
 export default function EditorTurno({
-  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, regole, conto, ferie, trasferta, passaggio, riposo, conMotivo, conAMano, giornoForte, onClose, onSalvato,
+  companyId, outletId, employeeId, data, turno, planId, nome, apre, chiude, chiusura, regole, conto, ferie, trasferta, passaggio, riposo, conMotivo, conAMano, giornoForte, onClose, onSalvato,
 }: {
   /** la colonna del motivo dello straordinario c'e' (migration 399) */
   conMotivo?: boolean;
@@ -78,7 +78,10 @@ export default function EditorTurno({
   /** il giorno e' a massima intensita' in questo negozio: il motivo proposto e' «giorno forte» */
   giornoForte?: boolean;
   companyId: string; outletId: string; employeeId: string; data: string; turno: TurnoModificabile | null; planId: string | null;
-  nome: string; apre: number; chiude: number; regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario; trasferta?: TrasfertaDalCalendario; passaggio?: PassaggioTurno;
+  nome: string; apre: number; chiude: number;
+  /** chiusura di meta' giornata del negozio quel giorno (446): chi la attraversa la conta come pausa */
+  chiusura?: { dalle: number; alle: number };
+  regole: RegoleTurni; conto?: ContoMese; ferie?: FerieDalCalendario; trasferta?: TrasfertaDalCalendario; passaggio?: PassaggioTurno;
   /** giorno di riposo scelto dalla responsabile HR nel piano del mese (Patrizio, 11/11/2026) */
   riposo?: { attivo: boolean };
   /** chi apre la finestra puo' rileggere i dati prima di chiuderla: finche' non ha finito i pulsanti restano fermi */
@@ -100,6 +103,14 @@ export default function EditorTurno({
     if (allunga && `${i}|${f}` === ultimoOrario.current) return;
     setInizio(i); setFine(f);
     if (!i || !f || f <= i) return;
+    // Il turno attraversa la chiusura di meta' giornata (446): la pausa e' la chiusura, l'orario resta quello scritto.
+    if (chiusura && sovrapposizioneChiusura({ chiusura }, minuti(i), minuti(f)) > 0) {
+      const p0 = pausaDelTurno({ chiusura }, minuti(i), minuti(f), regole);
+      setPausa((p) => (pausaAMano.current ? Math.max(p, p0) : p0));
+      if (allunga) ultimoOrario.current = `${i}|${f}`;
+      setAllungato(null);
+      return;
+    }
     const g = presenzaGiusta(minuti(i), minuti(f), regole, apre, chiude);
     // una pausa scritta a mano piu' lunga di quella giusta resta
     setPausa((p) => (pausaAMano.current ? Math.max(p, g.pausa) : g.pausa));
@@ -126,10 +137,15 @@ export default function EditorTurno({
 
   // La pausa non e' mai lavoro (Patrizio, 21/10/2026): nessuna fino a 6 ore lavorate, 30' oltre 6, un'ora
   // da 8. Si impone la minima per la presenza scritta; la si puo' allungare, non accorciare.
-  const pausaMinima = fine > inizio ? pausaMinimaPerPresenza(minuti(fine) - minuti(inizio), regole) : 0;
+  const pausaMinima = fine > inizio
+    ? (chiusura ? pausaDelTurno({ chiusura }, minuti(inizio), minuti(fine), regole) : pausaMinimaPerPresenza(minuti(fine) - minuti(inizio), regole))
+    : 0;
   const pausaVera = Math.max(pausa, pausaMinima);
   const ore = oreLavorate({ inizio, fine, pausaMinuti: pausaVera });
-  const errore = fine <= inizio ? 'La fine viene prima dell’inizio.' : ore <= 0 ? 'Turno vuoto.' : null;
+  const dentroChiusura = (t: string) => !!chiusura && !!t && minuti(t) > chiusura.dalle && minuti(t) < chiusura.alle;
+  const errore = fine <= inizio ? 'La fine viene prima dell’inizio.' : ore <= 0 ? 'Turno vuoto.'
+    : dentroChiusura(inizio) || dentroChiusura(fine) ? `Il negozio è chiuso dalle ${hhmm(chiusura!.dalle)} alle ${hhmm(chiusura!.alle)}: il turno non può cominciare o finire lì dentro.`
+    : null;
   const giornoSett = new Date(`${data}T00:00:00Z`).getUTCDay() || 7;
 
   // Come cambia il mese della persona con questo turno.
@@ -150,7 +166,7 @@ export default function EditorTurno({
     // Salvando senza uscire dal campo il turno si allunga lo stesso (11/11/2026);
     // un turno aperto e salvato senza cambiare l'orario resta com'era.
     let [i, f, p] = [inizio, fine, pausaVera];
-    if (`${inizio}|${fine}` !== ultimoOrario.current) {
+    if (`${inizio}|${fine}` !== ultimoOrario.current && !(chiusura && sovrapposizioneChiusura({ chiusura }, minuti(inizio), minuti(fine)) > 0)) {
       const g = presenzaGiusta(minuti(inizio), minuti(fine), regole, apre, chiude);
       [i, f, p] = [hhmm(g.inizio), hhmm(g.fine), Math.max(pausaAMano.current ? pausa : 0, g.pausa)];
     }

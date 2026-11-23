@@ -55,11 +55,12 @@ type Props = {
   onVaiEventi?: () => void;
 };
 
-type RigaOrario = { giorno: number; chiuso: boolean; apre: string; chiude: string };
+/** `cDalle`/`cAlle`: chiusura di meta' giornata (migration 446), vuote = orario continuato */
+type RigaOrario = { giorno: number; chiuso: boolean; apre: string; chiude: string; cDalle: string; cAlle: string };
 type RigaFascia = FasciaFabbisogno & { id?: string; chiave: string };
 type RigaSpeciale = { id?: string; data: string; chiuso: boolean; apre: string; chiude: string; persone_extra: number; nota: string };
 
-const settimanaVuota = (): RigaOrario[] => [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '', chiude: '' }));
+const settimanaVuota = (): RigaOrario[] => [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '', chiude: '', cDalle: '', cAlle: '' }));
 const t5 = (t: string | null | undefined) => (t ? t.slice(0, 5) : '');
 const inputCls = 'min-h-[36px] rounded-lg border border-slate-300 px-2 text-sm disabled:bg-slate-50 disabled:text-slate-500';
 let chiaveSeq = 0;
@@ -75,6 +76,9 @@ const improntaFasce = (f: RigaFascia[]) => JSON.stringify(f.map((x) => [x.id ?? 
 export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScrivere, puoFabbisogno, oreContratto, personeInServizio, altriNegozi = [], onSalvato, guardia, persone = [], guida, onVaiEventi }: Props) {
   const { toast } = useToast();
   const [orari, setOrari] = useState<RigaOrario[]>(settimanaVuota());
+  // chiusura di meta' giornata (446): se la tabella la conosce, e in quali giorni e' aperta la riga per scriverla
+  const [haChiusura, setHaChiusura] = useState(false);
+  const [conChiusura, setConChiusura] = useState<Set<number>>(new Set());
   const [fasce, setFasce] = useState<RigaFascia[]>([]);
   const [fasceIniziali, setFasceIniziali] = useState<string[]>([]);
   const [regole, setRegole] = useState<RegoleTurni>(REGOLE_DEFAULT);
@@ -120,10 +124,14 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
       fasce: ((f.data as { origine?: string }[]) ?? []).some((x) => x.origine === 'stima'),
     });
     setProposta(null);
-    for (const x of (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? []) {
-      orariLetti[x.giorno - 1] = { giorno: x.giorno, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude) };
+    for (const x of (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null; chiusura_dalle?: string | null; chiusura_alle?: string | null }[]) ?? []) {
+      orariLetti[x.giorno - 1] = { giorno: x.giorno, chiuso: x.chiuso, apre: t5(x.apre), chiude: t5(x.chiude), cDalle: t5(x.chiusura_dalle), cAlle: t5(x.chiusura_alle) };
     }
     setOrari(orariLetti);
+    // La chiusura di meta' giornata si scrive solo dove la tabella ha le colonne (446; sul tenant Made no).
+    const righeOrari = (o.data as object[] | null) ?? [];
+    setHaChiusura(righeOrari.length ? 'chiusura_dalle' in righeOrari[0] : !(await supabase.from('outlet_opening_hours').select('chiusura_dalle' as 'giorno').limit(1)).error);
+    setConChiusura(new Set(orariLetti.filter((x) => x.cDalle || x.cAlle).map((x) => x.giorno)));
     const ff = ((f.data as { id: string; giorno: number; dalle: string; alle: string; persone: number }[]) ?? [])
       .map((x) => ({ id: x.id, giorno: x.giorno, dalle: t5(x.dalle), alle: t5(x.alle), persone: x.persone, chiave: x.id }));
     setFasce(ff);
@@ -169,10 +177,13 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
 
   const oreServono = useMemo(() => {
     const date = giorniDellaSettimana(lunediDi(oggiRoma()));
-    return oreDaCoprire(costruisciGiorni(date, orari.map((o) => ({ ...o, apre: o.apre || null, chiude: o.chiude || null })), fasce, []));
+    return oreDaCoprire(costruisciGiorni(date, orari.map((o) => ({ ...o, apre: o.apre || null, chiude: o.chiude || null, chiusura_dalle: o.cDalle || null, chiusura_alle: o.cAlle || null })), fasce, []));
   }, [orari, fasce]);
 
   const erroreOrari = orari.find((o) => !o.chiuso && (!o.apre || !o.chiude || o.chiude <= o.apre));
+  // la chiusura di meta' giornata: tutte e due le ore o nessuna, dentro l'orario
+  const erroreChiusura = orari.find((o) => !o.chiuso && (o.cDalle || o.cAlle)
+    && (!o.cDalle || !o.cAlle || o.cAlle <= o.cDalle || o.cDalle <= o.apre || o.cAlle >= o.chiude));
   const erroreFasce = fasce.find((f) => !f.dalle || !f.alle || f.alle <= f.dalle || f.persone < 0);
 
   // Cosa e' stato cambiato e non ancora salvato (solo quello che si puo' salvare).
@@ -188,9 +199,11 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   // Ognuna scrive la sua parte e torna il motivo se non ci riesce (null = salvata).
   const scriviOrari = async (): Promise<string | null> => {
     if (erroreOrari) return `${NOMI_GIORNO[erroreOrari.giorno]}: indica apertura e chiusura, oppure segna chiuso.`;
+    if (erroreChiusura) return `${NOMI_GIORNO[erroreChiusura.giorno]}: la chiusura di metà giornata vuole tutte e due le ore, dentro l’orario di apertura.`;
     const { error } = await supabase.from('outlet_opening_hours').upsert(orari.map((o) => ({
       company_id: companyId, outlet_id: outletId, giorno: o.giorno, chiuso: o.chiuso,
       apre: o.chiuso ? null : o.apre, chiude: o.chiuso ? null : o.chiude, origine: 'manuale', updated_at: new Date().toISOString(),
+      ...(haChiusura ? { chiusura_dalle: o.chiuso || !o.cDalle ? null : o.cDalle, chiusura_alle: o.chiuso || !o.cAlle ? null : o.cAlle } : {}),
     })), { onConflict: 'outlet_id,giorno' });
     if (error) return error.message;
     setBase((b) => ({ ...b, orari: JSON.stringify(orari) }));
@@ -368,7 +381,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     try {
       const chiusure = (await caricaChiusurePerStima(companyId)).filter((c) => c.outlet_id === outletId);
       const stima = stimaOrariEFabbisogno(chiusure, oreContratto, personeInServizio);
-      setOrari(stima.orari.map((o) => ({ giorno: o.giorno, chiuso: o.chiuso, apre: o.apre ?? '', chiude: o.chiude ?? '' })));
+      setOrari(stima.orari.map((o) => ({ giorno: o.giorno, chiuso: o.chiuso, apre: o.apre ?? '', chiude: o.chiude ?? '', cDalle: '', cAlle: '' })));
       if (puoFabbisogno) setFasce(stima.fasce.map((f) => ({ ...f, chiave: nuovaChiave() })));
       setProposta(stima.spiegazione);
     } catch (e) {
@@ -378,7 +391,10 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     }
   };
 
-  const copiaOrariLunedi = () => setOrari((o) => o.map((x) => (x.giorno === 1 ? x : { ...o[0], giorno: x.giorno })));
+  const copiaOrariLunedi = () => {
+    setOrari((o) => o.map((x) => (x.giorno === 1 ? x : { ...o[0], giorno: x.giorno })));
+    setConChiusura((c) => (c.has(1) ? new Set([1, 2, 3, 4, 5, 6, 7]) : c));
+  };
   // ── Persone per fascia: un giorno alla volta, con i feriali insieme finche' sono uguali ──
   const schedeGiorni = ferialiInsieme
     ? [{ g: 0, nome: 'Feriali' }, { g: 6, nome: 'Sabato' }, { g: 7, nome: 'Domenica' }]
@@ -481,6 +497,28 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                     <label className="sr-only" htmlFor={`chiude-${o.giorno}`}>Chiude</label>
                     <input id={`chiude-${o.giorno}`} type="time" step={1800} disabled={!puoScrivere || o.chiuso} className={inputCls} value={o.chiude}
                       onChange={(e) => setOrari((x) => x.map((r, j) => (j === i ? { ...r, chiude: e.target.value } : r)))} />
+                    {haChiusura && !o.chiuso && conChiusura.has(o.giorno) && (
+                      <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-slate-600">
+                        <span>chiuso dalle</span>
+                        <label className="sr-only" htmlFor={`cdalle-${o.giorno}`}>Chiuso dalle</label>
+                        <input id={`cdalle-${o.giorno}`} type="time" step={1800} disabled={!puoScrivere} className={inputCls} value={o.cDalle}
+                          onChange={(e) => setOrari((x) => x.map((r, j) => (j === i ? { ...r, cDalle: e.target.value } : r)))} />
+                        <span>alle</span>
+                        <label className="sr-only" htmlFor={`calle-${o.giorno}`}>Riapre alle</label>
+                        <input id={`calle-${o.giorno}`} type="time" step={1800} disabled={!puoScrivere} className={inputCls} value={o.cAlle}
+                          onChange={(e) => setOrari((x) => x.map((r, j) => (j === i ? { ...r, cAlle: e.target.value } : r)))} />
+                        {puoScrivere && (
+                          <button type="button" className="underline text-slate-500" onClick={() => {
+                            setOrari((x) => x.map((r, j) => (j === i ? { ...r, cDalle: '', cAlle: '' } : r)));
+                            setConChiusura((c) => { const n = new Set(c); n.delete(o.giorno); return n; });
+                          }}>orario continuato</button>
+                        )}
+                      </div>
+                    )}
+                    {haChiusura && puoScrivere && !o.chiuso && !conChiusura.has(o.giorno) && (
+                      <button type="button" className="mt-1 block text-xs text-slate-500 underline"
+                        onClick={() => setConChiusura((c) => new Set(c).add(o.giorno))}>chiude a metà giornata</button>
+                    )}
                   </td>
                 </tr>
               ))}
