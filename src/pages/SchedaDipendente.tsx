@@ -657,26 +657,35 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
     const w = window.open('', '_blank');
     const { data: blob, error } = await supabase.storage.from('employee-documents').download(d.file_path);
     if (error || !blob) { w?.close(); toast({ type: 'error', message: 'Impossibile aprire il documento' }); return; }
-    const tipoMime = /\.(png|jpe?g|webp|gif)$/i.test(d.file_path) ? (blob.type || 'image/*') : 'application/pdf';
+    // Il tipo si decide dall'estensione con una lista chiusa, mai dal Content-Type salvato:
+    // un file caricato come text/html non deve mai aprirsi come pagina (revisore sicurezza).
+    const est = (d.file_path.split('.').pop() || '').toLowerCase();
+    const tipoMime = ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' } as Record<string, string>)[est] || 'application/pdf';
     const url = URL.createObjectURL(new Blob([blob], { type: tipoMime }));
     if (w) w.location.href = url; else window.open(url, '_blank');
   };
 
   const carica = async (scelti: File[]) => {
-    if (!scelti.length || busy) return;
+    if (!scelti.length) return;
+    if (busy) { toast({ type: 'error', message: 'Aspetta che finisca il caricamento in corso, poi trascina di nuovo questi file.' }); return; }
     setBusy(true);
     setChiusura(null);
     try {
-      const { files, problemi } = await espandiZip(scelti, { estensioni: ['pdf', 'png', 'jpg', 'jpeg'] });
+      const AMMESSI = /\.(pdf|png|jpe?g)$/i;
+      const espansi = await espandiZip(scelti, { estensioni: ['pdf', 'png', 'jpg', 'jpeg'] });
+      const files = espansi.files.filter((f) => AMMESSI.test(f.file.name));
+      const problemi = [...espansi.problemi, ...espansi.files.filter((f) => !AMMESSI.test(f.file.name)).map((f) => ({ zip: f.file.name, testo: 'qui si archiviano solo PDF e immagini (png, jpg)' }))];
       const lista: EsitoDoc[] = [
         ...files.map((f) => ({ nome: f.file.name, stato: 'attesa' as const })),
         ...problemi.map((p) => ({ nome: p.zip, stato: 'errore' as const, testo: p.testo })),
       ];
       setEsiti(lista);
       // Il controllo dei doppioni si fa sul database, non sulla pagina.
-      const { data: presenti, error: errPres } = await supabase.from('employee_documents').select('file_name').eq('employee_id', employeeId);
+      const { data: presenti, error: errPres } = await supabase.from('employee_documents').select('file_name, file_size').eq('employee_id', employeeId);
       if (errPres) throw errPres;
-      const gia = new Set(((presenti as { file_name: string | null }[]) ?? []).map((r) => (r.file_name || '').toLowerCase()));
+      // Doppione = stesso nome E stessa dimensione: una seconda «Proroga.pdf» diversa entra nello storico.
+      const chiave = (nome: string | null, size: number | null) => `${(nome || '').toLowerCase()}|${size ?? ''}`;
+      const gia = new Set(((presenti as { file_name: string | null; file_size: number | null }[]) ?? []).map((r) => chiave(r.file_name, r.file_size)));
       const dataGruppo = dataDelGruppo(files.map((f) => f.file.name));
       const aggiorna = (i: number, e: Partial<EsitoDoc>) => setEsiti((prev) => prev.map((x, k) => (k === i ? { ...x, ...e } : x)));
       let archiviati = 0;
@@ -685,12 +694,13 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
       // Uno alla volta, ciascuno fino in fondo.
       for (let i = 0; i < files.length; i++) {
         const file = files[i].file;
-        if (gia.has(file.name.toLowerCase())) { saltati++; aggiorna(i, { stato: 'gia', testo: 'già archiviato, non l\'ho ricaricato' }); continue; }
+        if (gia.has(chiave(file.name, file.size))) { saltati++; aggiorna(i, { stato: 'gia', testo: 'già archiviato, non l\'ho ricaricato' }); continue; }
         try {
           const r = riconosciDocumento(file.name, { tipoScelto: tipo, dataScelta: data, dataGruppo, cognome, descrizioneScelta: files.length === 1 ? descr : '' });
           const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
           const path = `employee-documents/${employeeId}/${r.data}_${r.tipo}_${Date.now()}_${i}.${ext}`;
-          const { error: upErr } = await supabase.storage.from('employee-documents').upload(path, file, { contentType: file.type || (ext === 'pdf' ? 'application/pdf' : undefined) });
+          const MIME: Record<string, string> = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
+          const { error: upErr } = await supabase.storage.from('employee-documents').upload(path, file, { contentType: MIME[ext] || 'application/pdf' });
           if (upErr) throw upErr;
           const [y, m] = r.data.split('-').map(Number);
           const { error } = await supabase.from('employee_documents').insert([{
@@ -702,7 +712,7 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
             await supabase.storage.from('employee-documents').remove([path]);
             throw error;
           }
-          gia.add(file.name.toLowerCase());
+          gia.add(chiave(file.name, file.size));
           archiviati++;
           aggiorna(i, { stato: 'ok', testo: `${docRapportoLabel(r.tipo)} · ${new Date(r.data).toLocaleDateString('it-IT')}${r.dataDa === 'oggi' ? ' (data di oggi: il nome non la diceva)' : ''}` });
         } catch (err) {
@@ -759,7 +769,7 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
         <div className="text-xs text-slate-400">Con il profilo di sola lettura i documenti si guardano ma non si caricano.</div>
       ) : (<>
       <div
-        onDragOver={(e) => { e.preventDefault(); if (!busy) setSopra(true); }}
+        onDragOver={(e) => { e.preventDefault(); if (!busy) setSopra(true); else e.dataTransfer.dropEffect = 'none'; }}
         onDragLeave={() => setSopra(false)}
         onDrop={(e) => { e.preventDefault(); setSopra(false); void carica(Array.from(e.dataTransfer.files || [])); }}
         className={`rounded-lg border-2 border-dashed p-4 text-center transition-colors ${sopra ? 'border-blue-400 bg-blue-50' : 'border-slate-200'}`}
@@ -791,7 +801,7 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
       {chiusura && (
         <div role="status" className={`mt-2 rounded-lg border px-3 py-2 text-sm ${chiusura.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>{chiusura.testo}</div>
       )}
-      <div className="text-xs text-slate-400 mt-1.5">I documenti restano come storico: uno nuovo si aggiunge, non sostituisce i precedenti. Un file con lo stesso nome già archiviato non si ricarica.</div>
+      <div className="text-xs text-slate-400 mt-1.5">I documenti restano come storico: uno nuovo si aggiunge, non sostituisce i precedenti. Un file con lo stesso nome e la stessa dimensione di uno già archiviato non si ricarica.</div>
       </>)}
     </div>
   );

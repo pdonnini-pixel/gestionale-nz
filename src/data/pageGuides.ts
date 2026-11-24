@@ -1081,7 +1081,7 @@ export const PAGE_GUIDES: PageGuide[] = [
           "Apri la scheda della persona cliccando sul nome.",
           "Nel riquadro «Documenti del rapporto» trascina i PDF, anche tutti insieme o dentro lo zip mandato dallo studio paghe, oppure premi «Scegli i file».",
           "Ogni file si salva da solo, uno alla volta: tipo, data e descrizione si leggono dal nome del file (per esempio «2026-11-27_Rossi_lettera-assunzione.pdf» diventa una lettera di assunzione del 27/11/2026). Un file senza data nel nome prende la data degli altri file caricati insieme; se nessuno la dice vale quella indicata in «Se il nome del file non dice tipo o data», altrimenti oggi.",
-          "Accanto a ogni file compare cosa è stato fatto; alla fine un riquadro verde dice «Finito, tutti i documenti sono archiviati», oppure quali file non sono passati. Un file con lo stesso nome già archiviato per quella persona non si ricarica.",
+          "Accanto a ogni file compare cosa è stato fatto; alla fine un riquadro verde dice «Finito, tutti i documenti sono archiviati», oppure quali file non sono passati. Un file con lo stesso nome e la stessa dimensione di uno già archiviato per quella persona non si ricarica; mentre un caricamento è in corso, altri file trascinati non partono e la pagina chiede di aspettare.",
           "Se il documento cambia orario, scadenza o tipo di contratto, vai nella sezione «Contratto», premi «Modifica» e aggiorna i dati."
         ]
       },
