@@ -35,6 +35,8 @@ import { NOMI_GIORNO_BREVI } from '../lib/turni';
 import { ETICHETTE_VOCE } from '../lib/ferieRichiesta';
 import { possoGestireDivise } from '../lib/diviseDb';
 import DiviseAcquistiPersona from '../components/DiviseAcquistiPersona';
+import { DOC_RAPPORTO_OPTS, docRapportoLabel, dataDelGruppo, riconosciDocumento } from '../lib/documentiRapporto';
+import { espandiZip } from '../lib/zipFiles';
 
 type Employee = Row<'employees'>;
 type EmployeeCost = Row<'employee_costs'>;
@@ -57,16 +59,6 @@ const testo = (v: unknown) => (v == null || v === '' ? '—' : String(v));
 const dataIt = (d: unknown) => (d ? new Date(String(d)).toLocaleDateString('it-IT') : '—');
 const nomeCompleto = (e: Employee) => `${e.nome || e.first_name || ''} ${e.cognome || e.last_name || ''}`.trim() || '—';
 
-const DOC_RAPPORTO_OPTS: { v: string; l: string }[] = [
-  { v: 'contratto', l: 'Contratto / lettera di assunzione' },
-  { v: 'impegnativa', l: 'Impegnativa di assunzione' },
-  { v: 'proroga', l: 'Proroga' },
-  { v: 'trasformazione', l: 'Trasformazione' },
-  { v: 'modifica_orario', l: 'Modifica orario' },
-  { v: 'cessazione', l: 'Cessazione / dimissioni' },
-  { v: 'altro', l: 'Altro documento' },
-];
-const docRapportoLabel = (v?: string | null) => DOC_RAPPORTO_OPTS.find((o) => o.v === v)?.l || v || 'Documento';
 const docInfo = (d: EmployeeDocument) => (d.extracted_data && typeof d.extracted_data === 'object' && !Array.isArray(d.extracted_data) ? d.extracted_data as Record<string, unknown> : {});
 const docDate = (d: EmployeeDocument) => String(docInfo(d).data_documento || d.uploaded_at || d.created_at || '').slice(0, 10);
 
@@ -337,7 +329,7 @@ export default function SchedaDipendente() {
 
       {sezione === 'documenti' && (
         <section className="bg-white border border-slate-200 rounded-xl p-4">
-          <DocumentiRapporto employeeId={emp.id} companyId={companyId} docs={docs} puoCaricare={!solaLettura} onChanged={async () => { await caricaPersona(emp.id); }} />
+          <DocumentiRapporto employeeId={emp.id} companyId={companyId} cognome={emp.cognome || emp.last_name || null} docs={docs} puoCaricare={!solaLettura} onChanged={async () => { await caricaPersona(emp.id); }} />
         </section>
       )}
 
@@ -642,12 +634,20 @@ function FeriePersona({ saldi, richieste, onVai }: { saldi: Saldo[] | null; rich
 }
 
 // ── Documenti del rapporto: storico, un documento nuovo si aggiunge ─────────────────
-function DocumentiRapporto({ employeeId, companyId, docs, puoCaricare, onChanged }: { employeeId: string; companyId: string; docs: EmployeeDocument[]; puoCaricare: boolean; onChanged: () => Promise<void> }) {
+// Si trascinano (o si scelgono) uno o più PDF, anche dentro uno zip: tipo, data e
+// descrizione si leggono dal nome del file, ogni file si salva da solo, uno alla
+// volta, e alla fine un riquadro dice che è finito (regola fissa dei caricamenti).
+type EsitoDoc = { nome: string; stato: 'attesa' | 'ok' | 'gia' | 'errore'; testo?: string };
+
+function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, onChanged }: { employeeId: string; companyId: string; cognome: string | null; docs: EmployeeDocument[]; puoCaricare: boolean; onChanged: () => Promise<void> }) {
   const { toast } = useToast();
-  const [tipo, setTipo] = useState('contratto');
+  const [tipo, setTipo] = useState('auto');
   const [data, setData] = useState('');
   const [descr, setDescr] = useState('');
   const [busy, setBusy] = useState(false);
+  const [sopra, setSopra] = useState(false);
+  const [esiti, setEsiti] = useState<EsitoDoc[]>([]);
+  const [chiusura, setChiusura] = useState<{ ok: boolean; testo: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const ordinati = [...docs].sort((a, b) => docDate(b).localeCompare(docDate(a)));
 
@@ -657,30 +657,80 @@ function DocumentiRapporto({ employeeId, companyId, docs, puoCaricare, onChanged
     const w = window.open('', '_blank');
     const { data: blob, error } = await supabase.storage.from('employee-documents').download(d.file_path);
     if (error || !blob) { w?.close(); toast({ type: 'error', message: 'Impossibile aprire il documento' }); return; }
-    const url = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+    // Il tipo si decide dall'estensione con una lista chiusa, mai dal Content-Type salvato:
+    // un file caricato come text/html non deve mai aprirsi come pagina (revisore sicurezza).
+    const est = (d.file_path.split('.').pop() || '').toLowerCase();
+    const tipoMime = ({ png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp', gif: 'image/gif' } as Record<string, string>)[est] || 'application/pdf';
+    const url = URL.createObjectURL(new Blob([blob], { type: tipoMime }));
     if (w) w.location.href = url; else window.open(url, '_blank');
   };
 
-  const carica = async (file: File) => {
-    if (!data) { toast({ type: 'error', message: 'Indica la data del documento' }); return; }
+  const carica = async (scelti: File[]) => {
+    if (!scelti.length) return;
+    if (busy) { toast({ type: 'error', message: 'Aspetta che finisca il caricamento in corso, poi trascina di nuovo questi file.' }); return; }
     setBusy(true);
+    setChiusura(null);
     try {
-      const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
-      const path = `employee-documents/${employeeId}/${data}_${tipo}_${Date.now()}.${ext}`;
-      const { error: upErr } = await supabase.storage.from('employee-documents').upload(path, file);
-      if (upErr) throw upErr;
-      const [y, m] = data.split('-').map(Number);
-      const { error } = await supabase.from('employee_documents').insert([{
-        employee_id: employeeId, company_id: companyId, doc_type: tipo, year: y, month: m,
-        file_name: file.name, file_path: path, file_size: file.size, status: 'archiviato',
-        extracted_data: { data_documento: data, descrizione: descr.trim() || null },
-      }]);
-      if (error) throw error;
-      toast({ type: 'success', message: 'Documento archiviato' });
+      const AMMESSI = /\.(pdf|png|jpe?g)$/i;
+      const espansi = await espandiZip(scelti, { estensioni: ['pdf', 'png', 'jpg', 'jpeg'] });
+      const files = espansi.files.filter((f) => AMMESSI.test(f.file.name));
+      const problemi = [...espansi.problemi, ...espansi.files.filter((f) => !AMMESSI.test(f.file.name)).map((f) => ({ zip: f.file.name, testo: 'qui si archiviano solo PDF e immagini (png, jpg)' }))];
+      const lista: EsitoDoc[] = [
+        ...files.map((f) => ({ nome: f.file.name, stato: 'attesa' as const })),
+        ...problemi.map((p) => ({ nome: p.zip, stato: 'errore' as const, testo: p.testo })),
+      ];
+      setEsiti(lista);
+      // Il controllo dei doppioni si fa sul database, non sulla pagina.
+      const { data: presenti, error: errPres } = await supabase.from('employee_documents').select('file_name, file_size').eq('employee_id', employeeId);
+      if (errPres) throw errPres;
+      // Doppione = stesso nome E stessa dimensione: una seconda «Proroga.pdf» diversa entra nello storico.
+      const chiave = (nome: string | null, size: number | null) => `${(nome || '').toLowerCase()}|${size ?? ''}`;
+      const gia = new Set(((presenti as { file_name: string | null; file_size: number | null }[]) ?? []).map((r) => chiave(r.file_name, r.file_size)));
+      const dataGruppo = dataDelGruppo(files.map((f) => f.file.name));
+      const aggiorna = (i: number, e: Partial<EsitoDoc>) => setEsiti((prev) => prev.map((x, k) => (k === i ? { ...x, ...e } : x)));
+      let archiviati = 0;
+      let saltati = 0;
+      let errori = problemi.length;
+      // Uno alla volta, ciascuno fino in fondo.
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i].file;
+        if (gia.has(chiave(file.name, file.size))) { saltati++; aggiorna(i, { stato: 'gia', testo: 'già archiviato, non l\'ho ricaricato' }); continue; }
+        try {
+          const r = riconosciDocumento(file.name, { tipoScelto: tipo, dataScelta: data, dataGruppo, cognome, descrizioneScelta: files.length === 1 ? descr : '' });
+          const ext = (file.name.split('.').pop() || 'pdf').toLowerCase();
+          const path = `employee-documents/${employeeId}/${r.data}_${r.tipo}_${Date.now()}_${i}.${ext}`;
+          const MIME: Record<string, string> = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
+          const { error: upErr } = await supabase.storage.from('employee-documents').upload(path, file, { contentType: MIME[ext] || 'application/pdf' });
+          if (upErr) throw upErr;
+          const [y, m] = r.data.split('-').map(Number);
+          const { error } = await supabase.from('employee_documents').insert([{
+            employee_id: employeeId, company_id: companyId, doc_type: r.tipo, year: y, month: m,
+            file_name: file.name, file_path: path, file_size: file.size, status: 'archiviato',
+            extracted_data: { data_documento: r.data, descrizione: r.descrizione || null, data_da: r.dataDa },
+          }]);
+          if (error) {
+            await supabase.storage.from('employee-documents').remove([path]);
+            throw error;
+          }
+          gia.add(chiave(file.name, file.size));
+          archiviati++;
+          aggiorna(i, { stato: 'ok', testo: `${docRapportoLabel(r.tipo)} · ${new Date(r.data).toLocaleDateString('it-IT')}${r.dataDa === 'oggi' ? ' (data di oggi: il nome non la diceva)' : ''}` });
+        } catch (err) {
+          errori++;
+          aggiorna(i, { stato: 'errore', testo: (err as Error)?.message || 'errore' });
+        }
+      }
+      if (!files.length && !problemi.length) {
+        setChiusura({ ok: false, testo: 'Nel file scelto non c\'era nessun PDF o immagine da archiviare.' });
+      } else if (errori === 0) {
+        setChiusura({ ok: true, testo: `Finito, tutti i documenti sono archiviati${archiviati ? ` (${archiviati} nuovi` : ' ('}${saltati ? `${archiviati ? ', ' : ''}${saltati} già presenti` : ''}).` });
+      } else {
+        setChiusura({ ok: false, testo: `Finito con ${errori} ${errori === 1 ? 'file non archiviato' : 'file non archiviati'}: vedi le righe in rosso e riprova solo quelli. ${archiviati} archiviati.` });
+      }
       setDescr(''); setData('');
-      await onChanged();
+      if (archiviati) await onChanged();
     } catch (err) {
-      toast({ type: 'error', message: 'Errore caricamento: ' + ((err as Error)?.message || '') });
+      setChiusura({ ok: false, testo: 'Caricamento non riuscito: ' + ((err as Error)?.message || '') });
     } finally {
       setBusy(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -708,7 +758,7 @@ function DocumentiRapporto({ employeeId, companyId, docs, puoCaricare, onChanged
                   <div className="text-[11px] text-slate-400 truncate">{d.file_name}</div>
                 </div>
                 {d.file_path && (
-                  <button type="button" onClick={() => apri(d)} className="shrink-0 p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Apri il PDF" aria-label={`Apri ${d.file_name ?? 'il documento'}`}><Eye size={15} /></button>
+                  <button type="button" onClick={() => apri(d)} className="shrink-0 p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Apri il documento" aria-label={`Apri ${d.file_name ?? 'il documento'}`}><Eye size={15} /></button>
                 )}
               </li>
             );
@@ -718,16 +768,40 @@ function DocumentiRapporto({ employeeId, companyId, docs, puoCaricare, onChanged
       {!puoCaricare ? (
         <div className="text-xs text-slate-400">Con il profilo di sola lettura i documenti si guardano ma non si caricano.</div>
       ) : (<>
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" aria-label="Tipo di documento">
-          {DOC_RAPPORTO_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
-        </select>
-        <input type="date" value={data} onChange={(e) => setData(e.target.value)} className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" title="Data del documento" aria-label="Data del documento" />
-        <input value={descr} onChange={(e) => setDescr(e.target.value)} placeholder="Descrizione (facoltativa)" className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" />
+      <div
+        onDragOver={(e) => { e.preventDefault(); if (!busy) setSopra(true); else e.dataTransfer.dropEffect = 'none'; }}
+        onDragLeave={() => setSopra(false)}
+        onDrop={(e) => { e.preventDefault(); setSopra(false); void carica(Array.from(e.dataTransfer.files || [])); }}
+        className={`rounded-lg border-2 border-dashed p-4 text-center transition-colors ${sopra ? 'border-blue-400 bg-blue-50' : 'border-slate-200'}`}
+      >
+        <p className="text-sm text-slate-600">Trascina qui i PDF, anche più di uno o in uno zip: tipo e data si leggono dal nome del file e si salvano da soli.</p>
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className="mt-2 px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1 disabled:opacity-60"><Upload size={14} /> {busy ? 'Caricamento…' : 'Scegli i file'}</button>
       </div>
-      <input ref={fileRef} type="file" accept="application/pdf,image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void carica(f); }} />
-      <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className="mt-2 px-3 py-1.5 rounded-lg border border-slate-300 text-sm font-medium text-blue-600 hover:bg-blue-50 inline-flex items-center gap-1"><Upload size={14} /> {busy ? 'Caricamento…' : 'Carica documento'}</button>
-      <div className="text-xs text-slate-400 mt-1.5">I documenti restano come storico: uno nuovo si aggiunge, non sostituisce i precedenti.</div>
+      <input ref={fileRef} type="file" multiple accept="application/pdf,image/*,.zip,application/zip,application/x-zip-compressed" className="hidden" onChange={(e) => { void carica(Array.from(e.target.files || [])); }} />
+      <details className="mt-2">
+        <summary className="text-xs text-slate-500 cursor-pointer">Se il nome del file non dice tipo o data</summary>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">
+          <select value={tipo} onChange={(e) => setTipo(e.target.value)} className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" aria-label="Tipo di documento">
+            <option value="auto">Tipo: dal nome del file</option>
+            {DOC_RAPPORTO_OPTS.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
+          </select>
+          <input type="date" value={data} onChange={(e) => setData(e.target.value)} className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" title="Data se il nome del file non la dice (altrimenti oggi)" aria-label="Data del documento se il nome del file non la dice" />
+          <input value={descr} onChange={(e) => setDescr(e.target.value)} placeholder="Descrizione (un file solo)" className="px-2 py-1.5 text-sm rounded-lg border border-slate-200" />
+        </div>
+      </details>
+      {esiti.length > 0 && (
+        <ul className="mt-3 space-y-1 text-xs" aria-live="polite">
+          {esiti.map((e, i) => (
+            <li key={`${e.nome}-${i}`} className={e.stato === 'ok' ? 'text-emerald-700' : e.stato === 'gia' ? 'text-slate-500' : e.stato === 'errore' ? 'text-rose-700' : 'text-slate-400'}>
+              {e.stato === 'ok' ? '✓' : e.stato === 'gia' ? '•' : e.stato === 'errore' ? '✗' : '…'} {e.nome}{e.testo ? ` · ${e.testo}` : e.stato === 'attesa' ? ' · in coda' : ''}
+            </li>
+          ))}
+        </ul>
+      )}
+      {chiusura && (
+        <div role="status" className={`mt-2 rounded-lg border px-3 py-2 text-sm ${chiusura.ok ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>{chiusura.testo}</div>
+      )}
+      <div className="text-xs text-slate-400 mt-1.5">I documenti restano come storico: uno nuovo si aggiunge, non sostituisce i precedenti. Un file con lo stesso nome e la stessa dimensione di uno già archiviato non si ricarica.</div>
       </>)}
     </div>
   );
