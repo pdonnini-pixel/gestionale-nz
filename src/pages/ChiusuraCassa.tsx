@@ -43,6 +43,7 @@ import {
   formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount, extractedNumber, corrispettivoDaFoto,
   eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type DeviationLine,
   closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, totalDifferentFromPhoto, cancelledCashNotCollected, EXPENSE_KINDS_OUT,
+  usualCashFloat, unusualCashFloat,
   type ClosingBlocker, type ClosingBlockField, type CancelledCashFix,
   type DepositDraft, depositTotals, depositPhotoBelongs, BANK_STATUS_LABELS, bankStatusMark, type BankStatus,
 } from '../lib/cashClosings'
@@ -127,6 +128,8 @@ export default function ChiusuraCassa() {
   const [attachments, setAttachments] = useState<AttachmentRow[]>([])
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({})
   const [prevFloat, setPrevFloat] = useState<number | null>(null)
+  // Il fondo cassa che questo negozio scrive di solito (null se non ha un'abitudine).
+  const [usualFloat, setUsualFloat] = useState<number | null>(null)
   // Contanti ancora da versare secondo l'ultima chiusura confermata (0 se non c'era il campo).
   const [prevPending, setPrevPending] = useState<number>(0)
   // Prima chiusura del negozio: se la cassiera non sa il fondo di ieri, conta
@@ -207,9 +210,11 @@ export default function ChiusuraCassa() {
     const [chRes, clRes, prevRes, monthRes, tgtRes] = await Promise.all([
       supabase.from('outlet_payment_channels').select('*').eq('outlet_id', outletId).eq('is_active', true).order('sort_order'),
       supabase.from('outlet_daily_closings').select('*').eq('outlet_id', outletId).eq('closing_date', dateIso).maybeSingle(),
+      // Le ultime 30 chiusure confermate: la prima e' la partenza di stasera, tutte
+      // insieme dicono qual e' il fondo di tutti i giorni (avviso sul punto 4).
       supabase.from('outlet_daily_closings').select('cash_float_declared, cash_pending_declared, closing_date')
         .eq('outlet_id', outletId).lt('closing_date', dateIso).in('status', ['confermata', 'verificata'])
-        .not('cash_float_declared', 'is', null).order('closing_date', { ascending: false }).limit(1),
+        .not('cash_float_declared', 'is', null).order('closing_date', { ascending: false }).limit(30),
       supabase.from('outlet_daily_closings').select('closing_date, status, is_closed_day, total_receipts, invoices_total')
         .eq('outlet_id', outletId).gte('closing_date', monthStart).lte('closing_date', monthEnd),
       supabase.rpc('get_outlet_day_targets', { p_company_id: companyId, p_from: monthStart, p_to: monthEnd }),
@@ -233,6 +238,7 @@ export default function ChiusuraCassa() {
     const prev = prevRes.data?.[0]?.cash_float_declared
     setPrevFloat(prev == null ? null : Number(prev))
     setPrevPending(prev == null ? 0 : Number(prevRes.data?.[0]?.cash_pending_declared ?? 0))
+    setUsualFloat(usualCashFloat((prevRes.data ?? []).map((r) => r.cash_float_declared)))
     const ms: Record<string, string> = {}
     const ma: Record<string, number> = {}
     for (const r of monthRes.data ?? []) {
@@ -398,6 +404,11 @@ export default function ChiusuraCassa() {
     isClosedDay: form.isClosedDay, photoCancellations, cashDifference: quad.cashDifference,
     totalReceipts: parseAmount(form.total), cashLine: quad.cashLine,
   }), [form.isClosedDay, photoCancellations, quad.cashDifference, form.total, quad.cashLine])
+  // Fondo molto diverso da quello di tutti i giorni: quasi sempre sono i punti
+  // 4 e 5 scambiati (Palmanova, 23/11/2026).
+  const floatHint = useMemo(() => unusualCashFloat({
+    isClosedDay: form.isClosedDay, cashFloatDeclared: parseAmount(form.cashFloatDeclared), usual: usualFloat,
+  }), [form.isClosedDay, form.cashFloatDeclared, usualFloat])
   const cashChannelId = useMemo(() => channels.find((ch) => ch.kind === 'contanti')?.id ?? null, [channels])
   /** Riporta totale e contanti al netto dell'annullo, in un gesto solo. */
   const fixCancelled = (h: CancelledCashFix) => {
@@ -1241,6 +1252,17 @@ export default function ChiusuraCassa() {
                   <p className="text-xs text-slate-500 mt-1">Il fondo fisso che resta in cassa per domani, senza gli incassi da versare.</p>
                   {missesFondo && !readOnly && <p className="text-xs text-red-600 mt-1">Conta il fondo e scrivilo: senza questo numero non puoi confermare la chiusura.</p>}
                 </div>
+                {floatHint != null && !readOnly && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+                    <p className="text-sm text-amber-900">
+                      <strong>Controlla il fondo cassa.</strong> Qui il fondo è sempre {formatEuro(floatHint.usual)}, e stasera hai scritto {formatEuro(floatHint.scritto)}.
+                      {floatHint.piuAlto
+                        ? ' Controlla di non aver messo nel punto 4 i contanti da versare, che vanno nel punto 5.'
+                        : ' Controlla di aver contato tutto il fondo che resta in cassa per domani.'}
+                      {' '}Se il fondo è cambiato davvero va bene così: conferma pure.
+                    </p>
+                  </div>
+                )}
               </section>
 
               {/* 5. Contanti da versare */}
