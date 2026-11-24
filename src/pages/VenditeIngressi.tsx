@@ -171,7 +171,7 @@ export default function VenditeIngressi() {
 
   if (tab === 'carica') {
     return (
-      <div className="space-y-4">
+      <div className="p-4 sm:p-6 max-w-[1600px] mx-auto space-y-4">
         {intestazione}
         {companyId && (
           <TrafficoModa companyId={companyId} negozi={negoziCarica} puoScrivere={puoCaricare} />
@@ -185,7 +185,7 @@ export default function VenditeIngressi() {
   }
 
   return (
-    <div className="space-y-4 pb-8">
+    <div className="p-4 sm:p-6 max-w-[1600px] mx-auto space-y-4 pb-8">
       {intestazione}
 
       <div className="flex flex-wrap items-center gap-2">
