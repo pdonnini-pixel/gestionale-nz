@@ -44,6 +44,20 @@ const MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "lug
 const NON_SELLING = ["sede", "magazzino", "warehouse", "hq", "ufficio"];
 /** Quanti giorni indietro si cerca una fattura pagata in contanti e non scritta. */
 const GIORNI_FATTURA = 25;
+/**
+ * Quanti giorni, prima e dopo, si guardano per trovare la differenza opposta che
+ * compensa quella di una giornata. Prima del 24/11/2026 si guardava solo
+ * indietro: Palmanova aveva +34,75 il 18/11 e -34,75 il 21, e il 21 si chiudeva
+ * da solo mentre il 18 restava rosso per una settimana, pur essendo spiegato.
+ */
+const GIORNI_VICINI = 3;
+/**
+ * Quanti giorni indietro il ripasso rilegge le segnalazioni ancora da fare.
+ * Serve perche' ogni giornata viene istruita una volta sola (closing_check_runs
+ * ha un vincolo unico su azienda e data): senza il ripasso, una spiegazione che
+ * arriva dopo non la vedrebbe nessuno.
+ */
+const GIORNI_RIPASSO = 10;
 
 function jsonError(status: number, message: string, code = "CLOSING_CHECKS_ERROR") {
   return new Response(JSON.stringify({ error: message, code, timestamp: new Date().toISOString() }),
@@ -81,6 +95,15 @@ function giorniPrima(iso: string, n: number): string {
   const d = new Date(`${iso}T00:00:00Z`);
   d.setUTCDate(d.getUTCDate() - n);
   return d.toISOString().slice(0, 10);
+}
+function giorniDopo(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+/** Quanti giorni ci sono fra due date (negativo se la prima viene prima). */
+function giorniFra(a: string, b: string): number {
+  return Math.round((Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000);
 }
 /**
  * Nome di battesimo di chi ha chiuso, per il saluto. Nelle chiusure si trova
@@ -236,6 +259,111 @@ function mailAlNegozio(lista: Check[], nome: string | null, azienda: string | nu
 }
 
 // ─── L'istruttoria ───
+/** Una segnalazione vecchia chiusa dal ripasso, per la mail di esito. */
+interface Ripassata { outlet: string; closing_date: string; detail: string; reason: string }
+
+/**
+ * Il ripasso delle segnalazioni vecchie.
+ *
+ * Ogni giornata viene istruita una volta sola: `closing_checks_dispatch` ha un
+ * vincolo unico su azienda e data e non riparte mai per una data gia' vista.
+ * Quindi una segnalazione che il tempo spiega (la differenza opposta che arriva
+ * due giorni dopo, i numeri corretti dall'amministrazione, la cassa attesa
+ * ricalcolata) restava rossa per sempre, anche quando non c'era piu' niente da
+ * fare: Palmanova, 18 novembre 2026, rossa una settimana con la spiegazione
+ * scritta nella giornata del 21.
+ *
+ * Il ripasso rilegge le segnalazioni ancora «da fare» dei GIORNI_RIPASSO giorni
+ * prima e le chiude quando non c'e' piu' niente da fare. Chiude soltanto: non
+ * apre segnalazioni nuove, non manda messaggi ai negozi e non cancella niente
+ * (la riga resta, con scritto perche' e' stata chiusa). Non tocca le righe
+ * decise da una persona (`resolved_by` scritto).
+ */
+async function ripassaVecchie(
+  admin: SupabaseClient, s: Settings, date: string, dryRun: boolean,
+): Promise<Ripassata[]> {
+  const tol = num(s.checks_tolerance);
+  const tolV = Math.max(tol, 0.005);
+  const dal = giorniPrima(date, GIORNI_RIPASSO);
+
+  const { data: aperteRows, error: eAperte } = await admin.from("closing_checks")
+    .select("id, closing_id, closing_date, outlet_id, kind, detail")
+    .eq("company_id", s.company_id).eq("outcome", "da_fare").is("resolved_by", null)
+    .in("kind", ["differenza_cassa", "differenza_corrispettivi"])
+    .gte("closing_date", dal).lt("closing_date", date)
+    .order("closing_date");
+  if (eAperte) { console.error("[closing-checks-run] ripasso, segnalazioni:", eAperte.message); return []; }
+  type Aperta = { id: string; closing_id: string | null; closing_date: string; outlet_id: string | null; kind: string; detail: string };
+  const aperte = ((aperteRows ?? []) as Aperta[]).filter((a) => a.closing_id && a.outlet_id);
+  if (aperte.length === 0) return [];
+
+  const closingIds = [...new Set(aperte.map((a) => a.closing_id as string))];
+  const outletIds = [...new Set(aperte.map((a) => a.outlet_id as string))];
+
+  const { data: chRows } = await admin.from("outlet_daily_closings")
+    .select("id, outlet_id, closing_date, status, cash_difference, receipts_difference, notes")
+    .in("id", closingIds);
+  type Ch = { id: string; outlet_id: string; closing_date: string; status: string; cash_difference: number | null; receipts_difference: number | null; notes: string | null };
+  const perId = new Map(((chRows ?? []) as Ch[]).map((c) => [c.id, c]));
+
+  // I giorni vicini di quei negozi, per la differenza opposta: dal piu' vecchio
+  // meno GIORNI_VICINI fino a oggi piu' GIORNI_VICINI.
+  const { data: viciniRows } = await admin.from("outlet_daily_closings")
+    .select("id, outlet_id, closing_date, status, cash_difference")
+    .in("outlet_id", outletIds)
+    .gte("closing_date", giorniPrima(dal, GIORNI_VICINI)).lte("closing_date", giorniDopo(date, GIORNI_VICINI));
+  type Vicino = { id: string; outlet_id: string; closing_date: string; status: string; cash_difference: number | null };
+  const vicini = (viciniRows ?? []) as Vicino[];
+
+  const { data: oRows } = await admin.from("outlets").select("id, name").in("id", outletIds);
+  const nomeOutlet = new Map(((oRows ?? []) as Array<{ id: string; name: string }>).map((o) => [o.id, o.name]));
+
+  const fatte: Ripassata[] = [];
+  // Una differenza opposta spiega UNA giornata sola: senza questo, +10 il 18 e
+  // +10 il 19 con -10 il 21 si chiuderebbero tutte e due con lo stesso -10.
+  const oppostaUsata = new Set<string>();
+  for (const a of aperte) {
+    const ch = perId.get(a.closing_id as string);
+    if (!ch) continue;                     // chiusura non piu' trovata: la guarda una persona
+    if (ch.status === "bozza") continue;   // giornata riaperta: non e' ancora assestata
+    const diff = a.kind === "differenza_cassa" ? ch.cash_difference : ch.receipts_difference;
+    // Differenza che non si legge piu' (fondo contato cancellato): non e' una
+    // differenza spiegata, e il ripasso non la chiude. La guarda una persona.
+    if (diff == null) continue;
+    let reason: string | null = null;
+
+    if (Math.abs(num(diff)) <= tol) {
+      reason = `La differenza non c'è più: oggi quella giornata è a ${eur(num(diff))}, dentro la tolleranza di ${eur(tol)}. Chiusa dal ripasso del ${dataIt(date)}.`;
+    } else if (a.kind === "differenza_cassa") {
+      const d = num(diff);
+      const nota = notaDellaCassiera(ch.notes);
+      const opposta = vicini
+        .filter((v) => v.outlet_id === ch.outlet_id && v.id !== ch.id && v.status !== "bozza"
+          && !oppostaUsata.has(v.id)
+          && v.cash_difference != null && Math.abs(num(v.cash_difference)) >= 0.005
+          && Math.abs(num(v.cash_difference) + d) <= tolV
+          && Math.abs(giorniFra(v.closing_date, ch.closing_date)) <= GIORNI_VICINI)
+        .sort((x, y) => Math.abs(giorniFra(x.closing_date, ch.closing_date)) - Math.abs(giorniFra(y.closing_date, ch.closing_date)))[0];
+      // Senza la nota della cassiera la compensazione resta un indizio: la riga
+      // resta da fare, come fa l'istruttoria del giorno.
+      if (opposta && nota) {
+        reason = `Il ${dataIt(opposta.closing_date)} c'era la differenza opposta di ${eur(num(opposta.cash_difference))}: si compensano (soldi usciti o entrati un giorno e registrati in un altro). La cassiera ha scritto: «${nota}». Visto dal ripasso del ${dataIt(date)}.`;
+        oppostaUsata.add(opposta.id);
+      }
+    }
+    if (!reason) continue;
+
+    if (!dryRun) {
+      const { error } = await admin.from("closing_checks")
+        .update({ outcome: "falso_allarme", reason, resolved_at: new Date().toISOString() })
+        .eq("id", a.id).eq("outcome", "da_fare").is("resolved_by", null);
+      if (error) { console.error("[closing-checks-run] ripasso, chiusura riga:", error.message); continue; }
+    }
+    fatte.push({ outlet: nomeOutlet.get(a.outlet_id as string) ?? "", closing_date: a.closing_date, detail: a.detail, reason });
+  }
+  return fatte;
+}
+
 async function istruisci(
   admin: SupabaseClient, s: Settings, date: string, dryRun: boolean,
 ): Promise<{ checks: Check[]; outlets: number; chiusure: number; nomiVeri: Set<string> }> {
@@ -419,10 +547,12 @@ async function istruisci(
       if (Math.abs(diffCassa) <= tol) {
         // Arrotondamento. Spesso il giorno vicino ha l'opposto: Franciacorta
         // +0,16 il 15 e -0,16 il 16, -0,20 il 24 e +0,20 il 25 di ottobre.
+        // Si guarda nei tre giorni prima e nei tre dopo: la differenza opposta
+        // puo' arrivare anche dopo (vedi GIORNI_VICINI).
         const { data: vicini } = await admin.from("outlet_daily_closings")
           .select("closing_date, cash_difference")
           .eq("outlet_id", outlet.id)
-          .gte("closing_date", giorniPrima(date, 3)).lte("closing_date", date)
+          .gte("closing_date", giorniPrima(date, GIORNI_VICINI)).lte("closing_date", giorniDopo(date, GIORNI_VICINI))
           .neq("id", c.id);
         const compensa = ((vicini ?? []) as Array<{ closing_date: string; cash_difference: number | null }>)
           .find((v) => v.cash_difference != null && Math.abs(num(v.cash_difference) + diffCassa) < 0.005);
@@ -565,8 +695,18 @@ async function istruisci(
           }
 
           if (!sistemata) {
-            const opposta = prima.find((p) => p.status !== "bozza" && p.cash_difference != null
-              && Math.abs(num(p.cash_difference)) >= 0.005 && Math.abs(num(p.cash_difference) + diffCassa) <= tolV);
+            // La differenza opposta puo' stare anche nei giorni DOPO, non solo
+            // prima: i soldi di un giorno vengono versati o contati in un altro.
+            // Palmanova, +34,75 il 18/11/2026 e -34,75 il 21.
+            const { data: viciniRows } = await admin.from("outlet_daily_closings")
+              .select("id, closing_date, status, cash_difference")
+              .eq("outlet_id", outlet.id)
+              .gte("closing_date", giorniPrima(date, GIORNI_VICINI)).lte("closing_date", giorniDopo(date, GIORNI_VICINI))
+              .neq("id", c.id)
+              .order("closing_date");
+            const opposta = ((viciniRows ?? []) as Array<{ id: string; closing_date: string; status: string; cash_difference: number | null }>)
+              .find((p) => p.status !== "bozza" && p.cash_difference != null
+                && Math.abs(num(p.cash_difference)) >= 0.005 && Math.abs(num(p.cash_difference) + diffCassa) <= tolV);
             if (opposta) {
               checks.push({
                 ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "compensa",
@@ -626,7 +766,7 @@ async function istruisci(
 }
 
 // ─── La mail di esito ───
-function renderEsito(date: string, checks: Check[], messaggi: Array<{ outlet: string; to: string; subject: string; text: string; error?: string | null }>, appUrl: string | null) {
+function renderEsito(date: string, checks: Check[], messaggi: Array<{ outlet: string; to: string; subject: string; text: string; error?: string | null }>, appUrl: string | null, ripassate: Ripassata[] = []) {
   const perEsito = (o: Outcome) => checks.filter((c) => c.outcome === o);
   const daFare = perEsito("da_fare");
   const sistemati = perEsito("sistemato");
@@ -643,6 +783,9 @@ function renderEsito(date: string, checks: Check[], messaggi: Array<{ outlet: st
   const rigaFalso = (c: Check) => `<strong>${esc(c.outlet.name)}</strong>: ${esc(c.reason ?? c.detail)}`;
   const rigaNota = (c: Check) => `<strong>${esc(c.outlet.name)}</strong>: ${esc(c.detail)}`;
 
+  const ripassoHtml = ripassate.length === 0 ? "" :
+    blocco("Segnalazioni vecchie chiuse da sole", "#475569", ripassate.map((r) => `<strong>${esc(r.outlet)}</strong>, ${esc(dataIt(r.closing_date))}: ${esc(r.detail)}<br><span style="color:#475569">${esc(r.reason)}</span>`));
+
   const messaggiHtml = messaggi.length === 0 ? "" :
     `<h3 style="margin:18px 0 6px;font-size:14px;color:#334155">Detto al negozio</h3>${messaggi.map((m) => `<div style="margin:0 0 10px;padding:10px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:13px"><div style="color:#64748b;margin-bottom:4px">${esc(m.outlet)} · ${esc(m.to)}${m.error ? ` · <span style="color:#b91c1c">non inviata: ${esc(m.error)}</span>` : ""}</div><div style="white-space:pre-wrap;color:#0f172a">${esc(m.text)}</div></div>`).join("")}`;
 
@@ -657,6 +800,7 @@ ${blocco("Sistemato dal gestionale", "#047857", sistemati.map(rigaSistemato))}
 ${sistemati.length > 0 ? `<p style="margin:6px 0 0;font-size:12px;color:#64748b">Se una correzione non è giusta, apri la giornata nel gestionale e annullala.</p>` : ""}
 ${blocco("Niente da fare", "#475569", falsi.map(rigaFalso))}
 ${blocco("Note dai negozi", "#475569", note.map(rigaNota))}
+${ripassoHtml}
 ${messaggiHtml}
 ${appUrl ? `<p style="margin:16px 0 0"><a href="${esc(appUrl)}/incassi-giornalieri" style="display:inline-block;background:#0f172a;color:#fff;text-decoration:none;padding:9px 14px;border-radius:8px;font-size:13px">Apri gli incassi giornalieri</a></p>` : ""}
 <p style="margin:16px 0 0;font-size:11px;color:#94a3b8">Mail automatica del gestionale. Ogni esito è scritto accanto alla giornata, con la prova e chi l'ha deciso.</p>
@@ -668,6 +812,7 @@ ${appUrl ? `<p style="margin:16px 0 0"><a href="${esc(appUrl)}/incassi-giornalie
     sistemati.length ? `\nSISTEMATO:\n${sistemati.map((c) => `- ${c.outlet.name}: ${c.detail}. ${c.reason ?? ""} ${c.action ?? ""}`).join("\n")}` : "",
     falsi.length ? `\nNIENTE DA FARE:\n${falsi.map((c) => `- ${c.outlet.name}: ${c.reason ?? c.detail}`).join("\n")}` : "",
     note.length ? `\nNOTE DAI NEGOZI:\n${note.map((c) => `- ${c.outlet.name}: ${c.detail}`).join("\n")}` : "",
+    ripassate.length ? `\nSEGNALAZIONI VECCHIE CHIUSE DA SOLE:\n${ripassate.map((r) => `- ${r.outlet}, ${dataIt(r.closing_date)}: ${r.detail}. ${r.reason}`).join("\n")}` : "",
     messaggi.length ? `\nDETTO AL NEGOZIO:\n${messaggi.map((m) => `- ${m.outlet} (${m.to})${m.error ? ` NON INVIATA: ${m.error}` : ""}\n${m.text}`).join("\n\n")}` : "",
   ].filter(Boolean).join("\n");
 
@@ -766,9 +911,12 @@ Deno.serve(async (req) => {
     let chiuse = 0;
     if (!dryRun) {
       const vive = new Set(checks.map((c) => `${c.closing?.id ?? ""}|${c.kind}|${c.fingerprint}`));
+      // `resolved_by` oggi non lo scrive nessuno, ma il giorno in cui una
+      // persona rimettera' una riga fra le cose da fare, questa non la chiude.
       const { data: aperte, error: eAperte } = await admin.from("closing_checks")
         .select("id, closing_id, kind, fingerprint")
-        .eq("company_id", s.company_id).eq("closing_date", date).eq("outcome", "da_fare");
+        .eq("company_id", s.company_id).eq("closing_date", date).eq("outcome", "da_fare")
+        .is("resolved_by", null);
       if (eAperte) console.error("[closing-checks-run] segnalazioni aperte:", eAperte.message);
       const spente = ((aperte ?? []) as Array<{ id: string; closing_id: string | null; kind: string; fingerprint: string }>)
         .filter((r) => !vive.has(`${r.closing_id ?? ""}|${r.kind}|${r.fingerprint}`));
@@ -782,6 +930,10 @@ Deno.serve(async (req) => {
         else chiuse = spente.length;
       }
     }
+
+    // Il ripasso delle giornate prima: una segnalazione che il tempo ha
+    // spiegato si chiude da sola, perche' nessuna data viene istruita due volte.
+    const ripassate = await ripassaVecchie(admin, s, date, dryRun);
 
     // Nome dell'azienda per la firma delle mail ai negozi (ogni azienda la sua).
     const { data: aziendaRow } = await admin.from("companies").select("name").eq("id", s.company_id).maybeSingle();
@@ -824,8 +976,8 @@ Deno.serve(async (req) => {
     }
 
     // La mail di esito parte solo se c'è qualcosa da dire.
-    const daDire = checks.some((c) => c.outcome !== "informazione") || messaggi.length > 0;
-    const { subject, html, text } = renderEsito(date, checks, messaggi, s.app_url);
+    const daDire = checks.some((c) => c.outcome !== "informazione") || messaggi.length > 0 || ripassate.length > 0;
+    const { subject, html, text } = renderEsito(date, checks, messaggi, s.app_url, ripassate);
     let mailError: string | null = null;
     if (!dryRun && daDire && s.checks_recipients.length > 0) {
       mailError = await inviaMail(s.checks_recipients, subject, html, text);
@@ -838,6 +990,7 @@ Deno.serve(async (req) => {
       falsi_allarmi: checks.filter((c) => c.outcome === "falso_allarme").length,
       note: checks.filter((c) => c.outcome === "informazione").length,
       chiuse,
+      ripassate: ripassate.length,
       messaggi: messaggi.length,
       mail_error: mailError,
     };
