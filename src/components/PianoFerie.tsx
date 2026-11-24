@@ -21,7 +21,7 @@ import {
   organicoAllaData, personaAllaData, nomePersona, formattaDataBreve, oggiRoma, aggiungiGiorni, giorniTra,
   type PersonaOggi,
 } from '../lib/organico';
-import { caricaGiorniFerie, caricaOrganico, caricaStoricoNegozio, nomeNegozio, type DatiOrganico } from '../lib/organicoDati';
+import { caricaGiorniFerie, caricaOrganico, caricaStoricoNegozio, nomeNegozio, MESI_STORICO_PROPRIO, type DatiOrganico } from '../lib/organicoDati';
 import { attesoDelleDate, fabbisognoDaTraffico, type StoricoTraffico } from '../lib/pianoMensile';
 import {
   costruisciGiorni, opzioniGiorni, giorniDellaSettimana, lunediDi, personeInPiu, regoleDaRiga, type RegoleTurni,
@@ -53,7 +53,7 @@ export default function PianoFerie({ companyId }: Props) {
   // Regole dei turni per negozio: la soglia di ingressi per addetto.
   const [regoleNegozi, setRegoleNegozi] = useState<Map<string, RegoleTurni>>(new Map());
   // Traffico MODA del negozio scelto (o forma media degli altri).
-  const [storico, setStorico] = useState<{ outletId: string; storico: StoricoTraffico; propria: boolean } | null>(null);
+  const [storico, setStorico] = useState<{ outletId: string; storico: StoricoTraffico; propria: boolean; fonte?: 'propria' | 'riferimento' | 'media'; riferimentoId?: string | null; storicoCorto?: boolean } | null>(null);
 
   const carica = useCallback(async () => {
     if (!companyId) return;
@@ -122,7 +122,7 @@ export default function PianoFerie({ companyId }: Props) {
       // con la regola delle due persone del negozio, come i turni (Patrizio, 30/10/2026)
       giorni: fabbisognoDaTraffico(base, moda.atteso, regole, new Map(date.map((d) => [d, presenti(d).length])), personeInPiu(date, sp)),
       presenti,
-      moda: { fonti: moda.fonti, propria: storico?.propria ?? false, soglia: regole },
+      moda: { fonti: moda.fonti, propria: storico?.propria ?? false, fonte: storico?.fonte, riferimentoId: storico?.riferimentoId ?? null, storicoCorto: !!storico?.storicoCorto, soglia: regole },
     };
   }, [dati, negozio, orari, fasce, speciali, storico, oggi, fine, regoleNegozi]);
 
@@ -216,7 +216,7 @@ export default function PianoFerie({ companyId }: Props) {
         <h3 className="text-sm font-semibold text-slate-800">Ferie e fabbisogno del negozio</h3>
         {fabbisogno?.moda && (
           <p className="text-xs text-slate-500 mt-0.5">
-            Fabbisogno dal {fabbisogno.moda.propria ? 'traffico MODA del negozio' : 'traffico MODA medio degli altri negozi'}: in ogni ora gli ingressi diviso {fabbisogno.moda.soglia.sogliaFeriali} per addetto nei feriali e {fabbisogno.moda.soglia.sogliaWeekend} nel weekend (soglia provvisoria), al massimo le persone in forza; contano le persone del momento di punta.
+            Fabbisogno dal {fabbisogno.moda.propria ? 'traffico MODA del negozio' : fabbisogno.moda.fonte === 'riferimento' ? `traffico MODA di ${nomeNegozio(dati?.negozi.find((n) => n.id === fabbisogno.moda!.riferimentoId)) || 'un altro negozio'} (negozio di riferimento: questo ${fabbisogno.moda.storicoCorto ? `ha meno di ${MESI_STORICO_PROPRIO} mesi di traffico suo` : 'non ha storico'})` : 'traffico MODA medio degli altri negozi'}: in ogni ora gli ingressi diviso {fabbisogno.moda.soglia.sogliaFeriali} per addetto nei feriali e {fabbisogno.moda.soglia.sogliaWeekend} nel weekend (soglia provvisoria), al massimo le persone in forza; contano le persone del momento di punta.
           </p>
         )}
         {!haFabbisogno ? (
