@@ -134,6 +134,8 @@ export default function CaricaVisura(p: Props) {
       p.onAggiornato()
     } catch (e) {
       setStato({ fase: 'errore', motivo: e instanceof VisuraError ? e.message : (e as Error)?.message || 'Errore imprevisto' })
+      // Una parte può essere già stata scritta: la pagina mostra lo stato vero.
+      p.onAggiornato()
     }
   }
 
@@ -174,6 +176,7 @@ export default function CaricaVisura(p: Props) {
       p.onAggiornato()
     } catch (e) {
       setStato({ fase: 'errore', motivo: (e as Error)?.message || 'Errore imprevisto' })
+      p.onAggiornato()
     }
   }
 
@@ -225,7 +228,7 @@ export default function CaricaVisura(p: Props) {
       {stato.fase === 'errore' && (
         <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <div><strong>La visura non è stata caricata.</strong> {stato.motivo}</div>
+          <div><strong>La visura non è stata caricata fino in fondo.</strong> {stato.motivo} I dati sotto sono quelli salvati adesso.</div>
         </div>
       )}
 

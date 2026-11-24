@@ -32,7 +32,7 @@ BEGIN
     pec = 'zagosrlfirenze@legalmail.it',
     ateco = '47.71 – Commercio al dettaglio di articoli di abbigliamento',
     amministratore = 'GALLO MASSIMO (Amministratore Unico)',
-    amministratore_codice_fiscale = 'GLLMSM72S12D612X',
+    -- amministratore_codice_fiscale: scritto a parte (dato personale, il repository è pubblico)
     soci = '[{"nome":"AMERICAN T-SHIRT S.R.L.","quota":"55%","ruolo":"Socio di maggioranza","codice_fiscale":"02278740283"},{"nome":"PAMA DI GALLO MASSIMO & C. S.A.S.","quota":"45%","ruolo":"Socio","codice_fiscale":"04533840486"}]'::jsonb,
     visura_estratta_il = DATE '2026-04-22',
     campi_da_visura = '{"forma_giuridica":"2026-04-22","rea":"2026-04-22","capitale_sociale":"2026-04-22","data_costituzione":"2026-04-22","pec":"2026-04-22","ateco":"2026-04-22","amministratore":"2026-04-22","amministratore_codice_fiscale":"2026-04-22","soci":"2026-04-22","sede_legale":"2026-04-22","partita_iva":"2026-04-22","codice_fiscale":"2026-04-22"}'::jsonb,

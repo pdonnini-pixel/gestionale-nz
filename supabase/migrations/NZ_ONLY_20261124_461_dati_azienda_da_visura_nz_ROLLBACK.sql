@@ -1,5 +1,9 @@
 -- ROLLBACK NZ_ONLY 461: rimette i valori di prima (backup del 24/11/2026).
 -- Le note aggiunte agli outlet restano: sono storico, non dati di calcolo.
+-- Dal backup: indirizzo, CAP, provincia e REA dei sei negozi erano tutti NULL;
+-- capitale_sociale («€ 10.000,00 i.v.») e forma_giuridica («Società a
+-- responsabilità limitata») avevano già il valore che la 461 riscrive, quindi
+-- qui non si toccano.
 DO $$
 DECLARE v_company uuid;
 BEGIN

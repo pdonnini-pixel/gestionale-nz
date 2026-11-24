@@ -146,9 +146,10 @@ const CAMPI_AZIENDA: [string, string][] = [
   ['amministratore_codice_fiscale', 'CF amministratore'],
 ]
 
-// Chi può scrivere la scheda (policy company_settings_write: super_advisor e
-// contabile); le sedi dei negozi le scrive solo il super_advisor (outlets_update).
-const RUOLI_SCHEDA = ['super_advisor', 'contabile']
+// Chi modifica la scheda e carica la visura: il super_advisor, l'unico che
+// scrive sia company_settings sia le sedi dei negozi (policy outlets_update).
+// Il contabile scrive company_settings ma questa sezione non la vede.
+const RUOLI_SCHEDA = ['super_advisor']
 
 function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
   const { profile } = useAuth()
@@ -203,6 +204,8 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   // La P.IVA si modifica solo se l'azienda non ne ha ancora una registrata.
   const pivaBloccata = !!azienda.partitaIva
+  // Colonne della migration 460: dove mancano (Made) niente provenienza e niente visura.
+  const haProvenienza = !!company && 'campi_da_visura' in company
 
   const handleSave = async () => {
     const piva = String(formData.partita_iva ?? '').replace(/\s/g, '')
@@ -226,9 +229,14 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     }
     if (String(formData.note ?? '') !== String(company?.note ?? '')) patch.note = formData.note || null
     if (!Object.keys(patch).length) { setEditing(false); return }
-    const provenienza = { ...(company?.campi_da_visura || {}) }
-    for (const k of Object.keys(patch)) delete provenienza[k]
-    patch.campi_da_visura = provenienza
+    // La provenienza si scrive solo dove la colonna c'è (migration 460: non su
+    // Made, che riceve lo stesso frontend) e solo se cambia davvero.
+    if (haProvenienza) {
+      const provenienza = { ...(company?.campi_da_visura || {}) }
+      const prima = Object.keys(provenienza).length
+      for (const k of Object.keys(patch)) delete provenienza[k]
+      if (Object.keys(provenienza).length !== prima) patch.campi_da_visura = provenienza
+    }
 
     try {
       setSaving(true)
@@ -273,11 +281,15 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     if (!company?.id) { showToast?.('Salva prima i dati azienda', 'error'); return }
     try {
       setSavingSoci(true)
-      const provenienza = { ...(company.campi_da_visura || {}) }
-      delete provenienza.soci
+      const riga: Record<string, unknown> = { soci: sociForm }
+      if (haProvenienza && company.campi_da_visura?.soci) {
+        const provenienza = { ...company.campi_da_visura }
+        delete provenienza.soci
+        riga.campi_da_visura = provenienza
+      }
       const { data, error } = await supabase
         .from('company_settings')
-        .update({ soci: sociForm, campi_da_visura: provenienza } as never)
+        .update(riga as never)
         .eq('id', company.id)
         .select('id')
         .maybeSingle()
@@ -435,7 +447,7 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         <p className="text-xs text-slate-400 mt-1">Le sedi operative sono i negozi e la sede/magazzino: si modificano dalla pagina Outlet, oppure si aggiornano caricando la visura.</p>
       </div>
 
-      {puoModificare && COMPANY_ID && (
+      {puoModificare && COMPANY_ID && (haProvenienza || !company) && (
         <div>
           <h4 className="text-sm font-semibold text-slate-700 mb-2">Visura camerale</h4>
           <CaricaVisura
