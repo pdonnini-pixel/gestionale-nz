@@ -156,7 +156,7 @@ interface Expense { id: string; closing_id: string; kind: string; amount: number
 type Outcome = "falso_allarme" | "sistemato" | "da_fare" | "informazione";
 type Kind = "differenza_cassa" | "differenza_corrispettivi" | "foto_diversa" | "foto_mancante" | "bozza" | "nota";
 /** Che lezione mandare al negozio: una per tipo di errore, testo fisso. */
-type Lezione = "spesa_in_ritardo" | "annullo_nel_totale" | "campo_diverso_dalla_foto" | "chiusura_in_bozza" | "foto_mancante" | null;
+type Lezione = "spesa_in_ritardo" | "annullo_nel_totale" | "campo_diverso_dalla_foto" | "chiusura_in_bozza" | "foto_mancante" | "serve_il_conteggio" | "conferma_ipotesi" | null;
 
 interface Check {
   outlet: Outlet; closing: Closing | null;
@@ -207,6 +207,15 @@ function nomeNegozio(n: string): string {
 function voceLezione(c: Check): { testo: string; daFare: boolean } | null {
   if (!c.lezione || !c.closing) return null;
   const aperta = c.closing.status === "bozza";
+  // Se la cassiera ha scritto una nota, il messaggio glielo dice: abbiamo
+  // letto, e il conto non torna ancora. Fino al 24/11/2026 la nota spegneva
+  // il messaggio del tutto, cioe' proprio quando la sua spiegazione non
+  // bastava il negozio non lo sapeva (in 30 giorni: 24 segnalazioni, 3
+  // messaggi, e nessuno sulle cinque rimaste aperte).
+  const notaScritta = notaDellaCassiera(c.closing.notes);
+  const premessa = notaScritta
+    ? `Abbiamo letto quello che hai scritto («${notaScritta}»), ma il conto non torna ancora. `
+    : "";
   switch (c.lezione) {
     case "chiusura_in_bozza":
       return { daFare: true, testo: "La chiusura non è stata confermata. Apri la chiusura e premi «Conferma chiusura» in fondo alla pagina: finché non è confermata, la sera dopo la cassa non torna." };
@@ -216,15 +225,30 @@ function voceLezione(c: Check): { testo: string; daFare: boolean } | null {
         const totale = num(c.closing.total_receipts) + num(c.closing.invoices_total);
         const pagamenti = num(c.closing.channels_total);
         const dove = aperta ? "correggilo prima di confermare la chiusura." : "chiedi all'amministrazione di riaprire la chiusura e correggilo.";
-        return { daFare: true, testo: `Il totale dell'incasso (${eur(totale)}) non è uguale alla somma di contanti, POS e altri pagamenti (${eur(pagamenti)}): la differenza è ${eur(Math.abs(totale - pagamenti))}. Controlla i numeri con gli scontrini: se ne trovi uno sbagliato, ${dove}` };
+        return { daFare: true, testo: premessa + `Il totale dell'incasso (${eur(totale)}) non è uguale alla somma di contanti, POS e altri pagamenti (${eur(pagamenti)}): la differenza è ${eur(Math.abs(totale - pagamenti))}. Controlla i numeri con gli scontrini: se ne trovi uno sbagliato, ${dove}` };
       }
       const come = aperta ? "correggi il numero prima di confermare la chiusura." : "chiedi all'amministrazione di riaprire la chiusura e correggi il numero.";
-      return { daFare: true, testo: c.campo && c.scritto != null && c.letto
+      return { daFare: true, testo: premessa + (c.campo && c.scritto != null && c.letto
         ? `Hai scritto ${eur(c.scritto)} come ${c.campo}, ma sulla foto c'è ${c.letto}. Controlla con il foglio in mano e, se è giusta la foto, ${come}`
-        : `Un numero scritto non è uguale a quello della foto. Controlla con il foglio in mano e, se è giusta la foto, ${come}` };
+        : `Un numero scritto non è uguale a quello della foto. Controlla con il foglio in mano e, se è giusta la foto, ${come}`) };
     }
     case "foto_mancante":
       return { daFare: true, testo: "Manca la foto dello scontrino di chiusura della cassa. Se ce l'hai ancora, apri la chiusura e caricala." };
+    case "serve_il_conteggio": {
+      // La differenza di cassa che nessun documento spiega: la risposta la sa
+      // solo chi ha contato i soldi, quindi si chiede a lei, una volta e in
+      // chiaro. Niente colpe: due numeri e, se se la ricorda, la causa.
+      const quanto = eur(Math.abs(num(c.amount)));
+      const verso = num(c.amount) < 0 ? `In cassa mancano ${quanto}` : `In cassa ci sono ${quanto} in più`;
+      return { daFare: true, testo: `${premessa}${verso} rispetto a quello che risulta a noi. Abbiamo guardato le spese e i versamenti della giornata, le fatture pagate in contanti e i giorni vicini, e non abbiamo trovato niente che spieghi la cifra. Ci servono due numeri, contando il cassetto: quanto c'è di fondo cassa e quanto c'è da versare. Se ti torna in mente cos'è stato (una spesa pagata con i contanti, soldi usciti o entrati in un altro giorno), scrivilo nella risposta: la chiusura la sistemiamo noi.` };
+    }
+    case "conferma_ipotesi": {
+      // Qui il gestionale ha un'ipotesi e le manca solo il «sì» di chi era in
+      // negozio. Non si chiede un conteggio: si chiede una conferma.
+      const quanto = eur(Math.abs(num(c.amount)));
+      const verso = num(c.amount) < 0 ? `mancavano ${quanto}` : `c'erano ${quanto} in più`;
+      return { daFare: true, testo: `${premessa}Nella cassa del ${giornoBreve(c.closing.closing_date)} ${verso}. Secondo noi ${c.reasonBreve ?? "i soldi sono stati contati in un altro giorno"}. Ci confermi che è andata così? Se è così rispondi solo «confermo» e sistemiamo noi la chiusura; se non ti torna, scrivici cosa ricordi.` };
+    }
     case "spesa_in_ritardo":
       return { daFare: false, testo: `In cassa mancavano ${eur(Math.abs(num(c.amount)))}. ${c.reasonBreve ?? ""} L'abbiamo segnata noi, non devi fare niente. La prossima volta: quando paghi qualcosa con i soldi della cassa, segnalo nella chiusura della stessa sera e fai la foto della fattura o dello scontrino.`.replace(/\s+/g, " ") };
     case "annullo_nel_totale":
@@ -472,7 +496,7 @@ async function istruisci(
           detail: `versamento scritto ${eur(scritto)} ma dalle ricevute risulta ${eur(somma)}${versFoto.length > 1 ? ` (${versFoto.map((v) => eur(v)).join(" + ")})` : ""}`,
           campo: "versamento in banca", scritto, letto: eur(somma),
           outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-          lezione: nota ? null : "campo_diverso_dalla_foto",
+          lezione: "campo_diverso_dalla_foto",
         });
       }
     }
@@ -492,7 +516,7 @@ async function istruisci(
           detail: `${etichetta} scritto ${eur(num(l.amount))} ma dalla foto risulta ${eur(letto)}`,
           campo: `importo di ${etichetta}`, scritto: num(l.amount), letto: eur(letto),
           outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-          lezione: nota ? null : "campo_diverso_dalla_foto",
+          lezione: "campo_diverso_dalla_foto",
         });
       }
     }
@@ -533,7 +557,7 @@ async function istruisci(
           ...base, kind: "differenza_corrispettivi", amount: diffCorr, fingerprint: "diff",
           detail: `totale incassato e somma dei mezzi di pagamento non quadrano (differenza ${eur(diffCorr)})`,
           outcome: "da_fare", reason: notaReason,
-          action: null, undo_kind: null, undo_data: null, lezione: nota ? null : "campo_diverso_dalla_foto",
+          action: null, undo_kind: null, undo_data: null, lezione: "campo_diverso_dalla_foto",
         });
       }
     }
@@ -688,7 +712,8 @@ async function istruisci(
                 detail: `contante in cassa in eccedenza di ${eur(diffCassa)}`,
                 outcome: nota ? "falso_allarme" : "da_fare",
                 reason: `${nota ? "" : "Probabile: "}il ${dataIt(quando)} è stata registrata l'uscita «${(uscita.description ?? "").trim() || "senza descrizione"}» di ${eur(num(uscita.amount))}, ma i soldi sono rimasti nel cassetto. L'uscita va registrata il giorno in cui i soldi escono davvero.${Math.abs(resto) >= 0.005 ? ` Resta uno scarto di ${eur(resto)}.` : ""}${nota ? ` La cassiera ha scritto: «${nota}».` : " Da confermare con il negozio."}`,
-                action: null, undo_kind: null, undo_data: null, lezione: null,
+                reasonBreve: `il ${dataIt(quando)} è stata segnata un'uscita di ${eur(num(uscita.amount))} («${(uscita.description ?? "").trim() || "senza descrizione"}»), ma quei soldi sono rimasti nel cassetto`,
+                action: null, undo_kind: null, undo_data: null, lezione: nota ? null : "conferma_ipotesi",
               });
               sistemata = true;
             }
@@ -713,7 +738,8 @@ async function istruisci(
                 detail: `contante in cassa ${diffCassa > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(diffCassa))}`,
                 outcome: nota ? "falso_allarme" : "da_fare",
                 reason: `Il ${dataIt(opposta.closing_date)} c'era la differenza opposta di ${eur(num(opposta.cash_difference))}: ${nota ? "si compensano" : "probabilmente si compensano"} (soldi usciti o entrati un giorno e registrati in un altro).${nota ? ` La cassiera ha scritto: «${nota}».` : " Da confermare con il negozio."}`,
-                action: null, undo_kind: null, undo_data: null, lezione: null,
+                reasonBreve: `il ${dataIt(opposta.closing_date)} c'era la differenza opposta di ${eur(num(opposta.cash_difference))}, quindi quei soldi sono stati contati o versati in un altro giorno`,
+                action: null, undo_kind: null, undo_data: null, lezione: nota ? null : "conferma_ipotesi",
               });
               sistemata = true;
             }
@@ -727,7 +753,7 @@ async function istruisci(
             reason: nota
               ? `La cassiera ha scritto: «${nota}». Nei documenti non si trova niente che spieghi la cifra.`
               : "Nessuna nota della cassiera e nessun documento che spieghi la cifra.",
-            action: null, undo_kind: null, undo_data: null, lezione: null,
+            action: null, undo_kind: null, undo_data: null, lezione: "serve_il_conteggio",
           });
         }
       }
@@ -746,7 +772,7 @@ async function istruisci(
         detail: `totale corrispettivi scritto ${eur(totScritto)} ma dalla foto il corrispettivo è ${totFoto.map((v) => eur(v)).join(" oppure ")}`,
         campo: "totale dell'incasso", scritto: totScritto, letto: totFoto.map((v) => eur(v)).join(" oppure "),
         outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-        lezione: nota ? null : "campo_diverso_dalla_foto",
+        lezione: "campo_diverso_dalla_foto",
       });
     }
 
