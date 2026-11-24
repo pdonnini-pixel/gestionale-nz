@@ -25,7 +25,7 @@ import {
   type PersonaOggi,
 } from '../lib/organico';
 import { caricaGiorniConVoce, eProposta } from '../lib/ferieInLineaDb';
-import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, nomeNegozio as nomeDelNegozio, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
+import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, nomeNegozio as nomeDelNegozio, puoLavorareIl, MESI_STORICO_PROPRIO, type DatiOrganico } from '../lib/organicoDati';
 import { ottimizzaSettimana, scegliGiorniLiberi, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana } from '../lib/ottimizzaTurni';
 import { eventoDaRiga } from '../lib/eventiTurni';
 import { guidaConRipiego } from '../lib/guidaNegozio';
@@ -96,7 +96,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // Giorni con orari e fabbisogno di «Regole e orari»; quello vero si ricalcola da MODA sotto.
   const [giorniBase, setGiorniBase] = useState<GiornoPiano[]>([]);
   const [extra, setExtra] = useState<Map<string, number>>(new Map());
-  const [storico, setStorico] = useState<{ storico: StoricoTraffico; propria: boolean; fonte?: 'propria' | 'riferimento' | 'media'; riferimentoId?: string | null } | null>(null);
+  const [storico, setStorico] = useState<{ storico: StoricoTraffico; propria: boolean; fonte?: 'propria' | 'riferimento' | 'media'; riferimentoId?: string | null; storicoCorto?: boolean } | null>(null);
   // Ore gia' nei turni dei giorni dell'altro mese della stessa settimana, per persona.
   const [oreFuori, setOreFuori] = useState<Map<string, number>>(new Map());
   const [giorniFuori, setGiorniFuori] = useState<Map<string, number>>(new Map());
@@ -875,7 +875,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       )}
       {haOrari && usaModa && moda && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
-          <Info size={15} className="shrink-0 mt-0.5" /> Fabbisogno dal {storico?.propria ? 'traffico MODA del negozio' : storico?.fonte === 'riferimento' ? `traffico MODA di ${nomeDelNegozio(dati.negozi.find((n) => n.id === storico.riferimentoId)) || 'un altro negozio'} (negozio di riferimento: questo non ha storico)` : 'traffico MODA medio degli altri negozi (questo non ha storico)'}: {moda.fonti.join(', ')}. In ogni ora servono gli ingressi diviso {regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali e ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria, si cambia nelle regole dei turni); le ore di contratto che il traffico non chiede restano per ferie e permessi.
+          <Info size={15} className="shrink-0 mt-0.5" /> Fabbisogno dal {storico?.propria ? 'traffico MODA del negozio' : storico?.fonte === 'riferimento' ? `traffico MODA di ${nomeDelNegozio(dati.negozi.find((n) => n.id === storico.riferimentoId)) || 'un altro negozio'} (negozio di riferimento: questo ${storico.storicoCorto ? `ha meno di ${MESI_STORICO_PROPRIO} mesi di traffico suo` : 'non ha storico'})` : 'traffico MODA medio degli altri negozi (questo non ha storico)'}: {moda.fonti.join(', ')}. In ogni ora servono gli ingressi diviso {regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali e ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria, si cambia nelle regole dei turni); le ore di contratto che il traffico non chiede restano per ferie e permessi.
         </div>
       )}
       {haOrari && !haFabbisogno && (
