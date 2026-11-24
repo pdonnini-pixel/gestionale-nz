@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   leggiReportVI, somma, derivate, scomponi, scartoCassa, mesePrima, meseAnnoPrima, ultimoGiorno, giorniDel,
-  mappaOre, oreAperte, variazione, spostaGiorni, giorniAnnoPrima, cassaSuiGiorni, type GiornoVI,
+  mappaOre, oreAperte, variazione, spostaGiorni, giorniAnnoPrima, confrontoCassa, scartoDi, type GiornoVI,
 } from './venditeIngressi';
 
 const g = (data: string, ingressi: number, scontrini: number, imp?: [number, number, number, number], outletId = 'a'): GiornoVI => ({
@@ -129,9 +129,13 @@ describe('confronti alla pari (migration 465)', () => {
     const periodo = [g('2026-11-01', 618, 58), g('2026-11-02', 106, 7), g('2026-11-03', 38, 6)];
     expect(giorniAnnoPrima(tutti, periodo).map((x) => x.data)).toEqual(['2025-11-02', '2025-11-03', '2025-11-04']);
   });
-  it('la cassa si confronta solo sui giorni che MODA ha', () => {
-    const cassa = new Map([['a|2026-11-01', 5000], ['a|2026-11-02', 500], ['a|2026-11-03', 578], ['a|2026-11-20', 9000]]);
-    expect(cassaSuiGiorni(cassa, [g('2026-11-01', 1, 1), g('2026-11-02', 1, 1), g('2026-11-03', 1, 1)])).toBe(6078);
-    expect(cassaSuiGiorni(cassa, [g('2026-11-05', 1, 1)])).toBeNull();
+  it('la cassa si confronta solo sui giorni che hanno tutti e due, stesso negozio', () => {
+    const cassa = new Map([['a|2026-11-01', 5000], ['a|2026-11-02', 500], ['a|2026-11-20', 9000]]);
+    const imp = (r: number): [number, number, number, number] => [1, r * 2, r, r / 3];
+    // il 3 non ha la chiusura e il negozio b non ne ha nessuna: restano fuori da tutte e due le somme
+    const c = confrontoCassa(cassa, [g('2026-11-01', 1, 1, imp(4960)), g('2026-11-02', 1, 1, imp(495)), g('2026-11-03', 1, 1, imp(450)), g('2026-11-01', 1, 1, imp(800), 'b')])!;
+    expect(c).toEqual({ cassa: 5500, moda: 5455, giorni: 2, giorniModa: 4 });
+    expect(scartoDi(c)).toBeCloseTo((45 / 5500) * 100);
+    expect(confrontoCassa(cassa, [g('2026-11-05', 1, 1, imp(10))])).toBeNull();
   });
 });

@@ -1888,7 +1888,7 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "I negozi del mese",
-        "body": "Una riga per negozio con persone entrate, conversione, scontrini, scontrino medio, pezzi per scontrino, sconto, vendite, resa, ricarico reale e «Cassa». In verde il migliore della colonna, in rosso il peggiore. «Cassa» confronta le vendite MODA con l'incasso netto delle chiusure di cassa degli stessi giorni (solo quelli che MODA ha): MODA è di solito un po' sotto, perché esclude vendite libere, buoni e acconti; oltre il 2% la cella diventa rossa ed è da guardare."
+        "body": "Una riga per negozio con persone entrate, conversione, scontrini, scontrino medio, pezzi per scontrino, sconto, vendite, resa, ricarico reale e «Cassa». In verde il migliore della colonna, in rosso il peggiore. «Cassa» confronta le vendite MODA con l'incasso netto delle chiusure di cassa sugli stessi giorni (solo quelli che hanno tutti e due; l'asterisco vuol dire che qualche giorno MODA non ha la chiusura): MODA è di solito un po' sotto, perché esclude vendite libere, buoni e acconti; oltre il 2% la cella diventa rossa ed è da guardare."
       },
       {
         "heading": "Più gente o più bravi a vendere?",

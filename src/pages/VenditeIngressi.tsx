@@ -24,8 +24,8 @@ import { useCompany } from '../hooks/useCompany';
 import { puoTenereOrganico, type NegozioRif } from '../lib/organicoDati';
 import { meseLeggibile } from '../lib/trafficoModa';
 import {
-  leggiReportVI, somma, derivate, scomponi, scartoCassa, mesePrima, ultimoGiorno, giorniDel,
-  mappaOre, oreAperte, variazione, giorniAnnoPrima, cassaSuiGiorni, SOGLIA_CASSA,
+  leggiReportVI, somma, derivate, scomponi, mesePrima, ultimoGiorno, giorniDel,
+  mappaOre, oreAperte, variazione, giorniAnnoPrima, confrontoCassa, scartoDi, SOGLIA_CASSA,
   type ReportVI, type Misure, type Derivate, type GiornoVI, type Scomposizione,
 } from '../lib/venditeIngressi';
 
@@ -57,16 +57,16 @@ function perche(s: Scomposizione, prima: Misure, ora: Misure): string {
   const parti: { v: number; t: string }[] = [];
   const dI = ora.ingressi - prima.ingressi;
   const pc = (x: number, y: number) => (y ? ` (${x > y ? '+' : '−'}${it0(Math.abs(((x - y) / y) * 100))}%)` : '');
-  parti.push({ v: s.traffico, t: `${dI >= 0 ? 'sono entrate più persone' : 'sono entrate meno persone'}: ${it0(Math.abs(dI))} ${dI >= 0 ? 'in più' : 'in meno'}${pc(ora.ingressi, prima.ingressi)}` });
+  if (dI !== 0) parti.push({ v: s.traffico, t: `${dI > 0 ? 'sono entrate più persone' : 'sono entrate meno persone'}: ${it0(Math.abs(dI))} ${dI > 0 ? 'in più' : 'in meno'}${pc(ora.ingressi, prima.ingressi)}` });
   const c0 = prima.ingressi ? (prima.scontrini / prima.ingressi) * 100 : 0;
   const c1 = ora.ingressi ? (ora.scontrini / ora.ingressi) * 100 : 0;
-  parti.push({ v: s.conversione, t: `${c1 >= c0 ? 'ha comprato una quota più alta di chi è entrato' : 'ha comprato una quota più bassa di chi è entrato'} (conversione ${it2(c0)}% → ${it2(c1)}%)` });
+  if (Math.abs(c1 - c0) >= 0.005) parti.push({ v: s.conversione, t: `${c1 > c0 ? 'è stata più alta la quota di chi è entrato e ha comprato' : 'è stata più bassa la quota di chi è entrato e ha comprato'} (conversione ${it2(c0)}% → ${it2(c1)}%)` });
   if (s.base === 'vendite' && prima.scontrini && ora.scontrini) {
     const m0 = prima.reale / prima.scontrini; const m1 = ora.reale / ora.scontrini;
-    parti.push({ v: s.scontrino, t: `${m1 >= m0 ? 'ogni scontrino è stato più alto' : 'ogni scontrino è stato più basso'} (${eur2(m0)} → ${eur2(m1)})` });
+    if (Math.abs(m1 - m0) >= 0.005) parti.push({ v: s.scontrino, t: `${m1 > m0 ? 'lo scontrino medio è stato più alto' : 'lo scontrino medio è stato più basso'} (${eur2(m0)} → ${eur2(m1)})` });
   }
   const forti = parti.filter((p) => Math.abs(p.v) >= Math.max(1, Math.abs(s.ora - s.prima)) * 0.1 || parti.length === 1).sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
-  return (forti.length ? forti : parti).map((p) => p.t).join('; ');
+  return parti.length ? (forti.length ? forti : parti).map((p) => p.t).join('; ') : 'persone entrate, conversione e scontrino medio sono rimasti uguali';
 }
 
 const GIORNI_SETT = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
@@ -306,7 +306,8 @@ function Report(props: {
     const m = somma(ora.filter((g) => g.outletId === id));
     const d = derivate(m);
     // La cassa sui soli giorni che MODA ha, stesso negozio (migration 465).
-    return { id, nome: nomeNeg(id), m, d, cassa: scartoCassa(cassaSuiGiorni(report.cassaGiorni, ora.filter((g) => g.outletId === id)), m.reale, m.importiCompleti) };
+    const cc = confrontoCassa(report.cassaGiorni, ora.filter((g) => g.outletId === id));
+    return { id, nome: nomeNeg(id), m, d, cassa: scartoDi(cc), cassaParziale: cc != null && cc.giorni < cc.giorniModa };
   }).sort((a, b) => (b.m.reale - a.m.reale) || (b.m.ingressi - a.m.ingressi));
 
   // Perche' sono cambiate le vendite, negozio per negozio.
@@ -358,11 +359,12 @@ function Report(props: {
     breve.push({ t: 'Per un anno fa non ci sono dati di questi negozi: il confronto con l’anno prima non si può fare.', tono: 'neutro' });
   }
   if (dOra.resa != null) breve.push({ t: `Tolto il costo della merce venduta restano ${eur0(dOra.resa)} di resa, il ${it1(dOra.resaPct ?? 0)}% delle vendite.`, tono: 'neutro' });
-  const cassaTot = cassaSuiGiorni(report.cassaGiorni, ora);
-  const scartoTot = scartoCassa(cassaTot, mOra.reale, mOra.importiCompleti);
+  const ccTot = confrontoCassa(report.cassaGiorni, ora);
+  const scartoTot = scartoDi(ccTot);
+  const suParte = ccTot && ccTot.giorni < ccTot.giorniModa ? ` (confronto sui ${ccTot.giorni} giorni-negozio che hanno anche la chiusura di cassa, su ${ccTot.giorniModa})` : '';
   if (scartoTot != null) breve.push(Math.abs(scartoTot) <= SOGLIA_CASSA
-    ? { t: `Le vendite MODA tornano con le chiusure di cassa degli stessi giorni (${scartoTot > 0 ? '−' : '+'}${it1(Math.abs(scartoTot))}%).`, tono: 'bene' }
-    : { t: `Le vendite MODA e le chiusure di cassa degli stessi giorni differiscono del ${it1(Math.abs(scartoTot))}%: è da guardare.`, tono: 'male' });
+    ? { t: `Le vendite MODA tornano con le chiusure di cassa degli stessi giorni (${scartoTot > 0 ? '−' : '+'}${it1(Math.abs(scartoTot))}%)${suParte}.`, tono: 'bene' }
+    : { t: `Le vendite MODA e le chiusure di cassa degli stessi giorni differiscono del ${it1(Math.abs(scartoTot))}%${suParte}: è da guardare.`, tono: 'male' });
 
   return (
     <>
@@ -433,7 +435,7 @@ function Report(props: {
         </div>
       </Sezione>
 
-      <Sezione titolo="I negozi del mese" comeSiLegge={`In verde il migliore della colonna, in rosso il peggiore. «Cassa» confronta le vendite MODA con l’incasso netto delle chiusure di cassa: MODA è di solito un po’ sotto, perché esclude vendite libere, buoni e acconti; oltre il ${SOGLIA_CASSA}% è da guardare.`}>
+      <Sezione titolo="I negozi del mese" comeSiLegge={`In verde il migliore della colonna, in rosso il peggiore. «Cassa» confronta le vendite MODA con l’incasso netto delle chiusure di cassa: MODA è di solito un po’ sotto, perché esclude vendite libere, buoni e acconti; oltre il ${SOGLIA_CASSA}% è da guardare. Si confrontano solo i giorni che hanno tutti e due; l’asterisco vuol dire che qualche giorno MODA non ha la chiusura di cassa.`}>
         <div className="overflow-x-auto -mx-1">
           <table className="w-full text-sm tabular-nums">
             <thead>
@@ -464,7 +466,7 @@ function Report(props: {
                     <td className="py-2 px-2 text-right whitespace-nowrap">{eur0(r.m.giorniConImporti ? r.m.reale : null)}</td>
                     <td className={`py-2 px-2 text-right whitespace-nowrap ${estremi(col((x) => x.d.resaPct), r.d.resaPct)}`}>{r.d.resa == null ? '—' : `${eur0(r.d.resa)} · ${it1(r.d.resaPct ?? 0)}%`}</td>
                     <td className="py-2 px-2 text-right">{num2(r.d.ricaricoReale)}</td>
-                    <td className={`py-2 px-2 text-right ${r.cassa != null && Math.abs(r.cassa) > SOGLIA_CASSA ? 'text-red-600 font-semibold' : 'text-slate-600'}`}>{r.cassa == null ? '—' : `${r.cassa > 0 ? '−' : '+'}${it1(Math.abs(r.cassa))}%`}</td>
+                    <td className={`py-2 px-2 text-right ${r.cassa != null && Math.abs(r.cassa) > SOGLIA_CASSA ? 'text-red-600 font-semibold' : 'text-slate-600'}`}>{r.cassa == null ? '—' : `${r.cassa > 0 ? '−' : '+'}${it1(Math.abs(r.cassa))}%${r.cassaParziale ? '*' : ''}`}</td>
                   </tr>
                 );
               })}

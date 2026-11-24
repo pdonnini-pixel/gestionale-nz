@@ -108,15 +108,35 @@ export function giorniAnnoPrima(tutti: GiornoVI[], periodo: GiornoVI[]): GiornoV
   return tutti.filter((g) => chiavi.has(`${g.outletId}|${g.data}`));
 }
 
-/** L'incasso di cassa sui soli giorni che MODA ha (stesso negozio, stesso giorno). Null se la cassa non ne ha nessuno. */
-export function cassaSuiGiorni(cassaGiorni: Map<string, number>, periodo: GiornoVI[]): number | null {
-  let tot = 0; let trovati = 0;
+export interface ConfrontoCassa {
+  /** incasso netto delle chiusure di cassa */
+  cassa: number;
+  /** vendite MODA degli stessi giorni e negozi */
+  moda: number;
+  /** giorni (negozio-giorno) con tutti e due */
+  giorni: number;
+  /** giorni MODA del periodo, per dire se il confronto e' su una parte */
+  giorniModa: number;
+}
+
+/**
+ * Cassa e MODA sugli stessi giorni dello stesso negozio: solo quelli che hanno
+ * sia la chiusura di cassa sia gli importi MODA. Un giorno senza chiusura (o un
+ * negozio senza chiusure) resta fuori da tutte e due le somme, cosi' non crea un
+ * falso scarto. Null se non ce n'e' nessuno.
+ */
+export function confrontoCassa(cassaGiorni: Map<string, number>, periodo: GiornoVI[]): ConfrontoCassa | null {
+  const out: ConfrontoCassa = { cassa: 0, moda: 0, giorni: 0, giorniModa: periodo.length };
   for (const g of periodo) {
     const v = cassaGiorni.get(`${g.outletId}|${g.data}`);
-    if (v != null) { tot += v; trovati++; }
+    if (v == null || !g.importi) continue;
+    out.cassa += v; out.moda += g.reale; out.giorni++;
   }
-  return trovati ? tot : null;
+  return out.giorni ? out : null;
 }
+
+/** Scarto % fra cassa e MODA sugli stessi giorni (positivo = MODA sotto la cassa). */
+export const scartoDi = (c: ConfrontoCassa | null): number | null => (c && c.cassa ? ((c.cassa - c.moda) / c.cassa) * 100 : null);
 
 // ── Misure ──────────────────────────────────────────────────────────────────
 
