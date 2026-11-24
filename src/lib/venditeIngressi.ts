@@ -41,6 +41,8 @@ export interface ReportVI {
   ore: OraVI[];
   /** incasso netto delle chiusure di cassa del mese, per negozio */
   cassa: Map<string, number>;
+  /** incasso netto delle chiusure di cassa per negozio e giorno («negozio|data»), migration 465 */
+  cassaGiorni: Map<string, number>;
 }
 
 const n = (v: unknown): number => (v == null || v === '' ? 0 : Number(v));
@@ -63,6 +65,7 @@ export function leggiReportVI(raw: unknown): ReportVI {
       return { outletId: String(a[0]), giornoSett: n(a[1]), ora: n(a[2]), ingressi: n(a[3]), scontrini: n(a[4]), reale: n(a[5]) };
     }),
     cassa: new Map(arr('cassa').map((x) => { const a = x as unknown[]; return [String(a[0]), n(a[1])] as [string, number]; })),
+    cassaGiorni: new Map(arr('cassa_giorni').map((x) => { const a = x as unknown[]; return [`${String(a[0])}|${String(a[1])}`, n(a[2])] as [string, number]; })),
   };
 }
 
@@ -83,6 +86,57 @@ export function ultimoGiorno(giorni: GiornoVI[], mese: string): number {
 export function giorniDel(giorni: GiornoVI[], mese: string, finoAl = 31, negozi?: Set<string>): GiornoVI[] {
   return giorni.filter((g) => g.data.startsWith(mese) && Number(g.data.slice(8, 10)) <= finoAl && (!negozi || negozi.has(g.outletId)));
 }
+
+/** La data spostata di n giorni (negativo = indietro). */
+export function spostaGiorni(data: string, n: number): string {
+  const d = new Date(`${data}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Giorni della settimana a cui confrontare l'anno prima: 52 settimane, cioe' 364 giorni. */
+export const GIORNI_ANNO_PRIMA = 364;
+
+/**
+ * I giorni dell'anno prima che corrispondono, uno per uno, a quelli del
+ * periodo: stesso negozio, stesso giorno della settimana, 52 settimane prima.
+ * Cosi' una domenica si confronta con una domenica (1-3/11/2026, domenica-
+ * martedi', va con 2-4/11/2025, non con 1-3/11/2025 che era sabato-lunedi').
+ */
+export function giorniAnnoPrima(tutti: GiornoVI[], periodo: GiornoVI[]): GiornoVI[] {
+  const chiavi = new Set(periodo.map((g) => `${g.outletId}|${spostaGiorni(g.data, -GIORNI_ANNO_PRIMA)}`));
+  return tutti.filter((g) => chiavi.has(`${g.outletId}|${g.data}`));
+}
+
+export interface ConfrontoCassa {
+  /** incasso netto delle chiusure di cassa */
+  cassa: number;
+  /** vendite MODA degli stessi giorni e negozi */
+  moda: number;
+  /** giorni (negozio-giorno) con tutti e due */
+  giorni: number;
+  /** giorni MODA del periodo, per dire se il confronto e' su una parte */
+  giorniModa: number;
+}
+
+/**
+ * Cassa e MODA sugli stessi giorni dello stesso negozio: solo quelli che hanno
+ * sia la chiusura di cassa sia gli importi MODA. Un giorno senza chiusura (o un
+ * negozio senza chiusure) resta fuori da tutte e due le somme, cosi' non crea un
+ * falso scarto. Null se non ce n'e' nessuno.
+ */
+export function confrontoCassa(cassaGiorni: Map<string, number>, periodo: GiornoVI[]): ConfrontoCassa | null {
+  const out: ConfrontoCassa = { cassa: 0, moda: 0, giorni: 0, giorniModa: periodo.length };
+  for (const g of periodo) {
+    const v = cassaGiorni.get(`${g.outletId}|${g.data}`);
+    if (v == null || !g.importi) continue;
+    out.cassa += v; out.moda += g.reale; out.giorni++;
+  }
+  return out.giorni ? out : null;
+}
+
+/** Scarto % fra cassa e MODA sugli stessi giorni (positivo = MODA sotto la cassa). */
+export const scartoDi = (c: ConfrontoCassa | null): number | null => (c && c.cassa ? ((c.cassa - c.moda) / c.cassa) * 100 : null);
 
 // ── Misure ──────────────────────────────────────────────────────────────────
 
@@ -187,7 +241,7 @@ export function scomponi(prima: Misure, ora: Misure): Scomposizione | null {
 // ── Quadratura con le chiusure di cassa ─────────────────────────────────────
 
 /** Differenza % fra incasso netto delle chiusure e vendite MODA (positivo = MODA sotto la cassa). Null se manca uno dei due. */
-export function scartoCassa(cassaNetta: number | undefined, venditeModa: number, importiCompleti: boolean): number | null {
+export function scartoCassa(cassaNetta: number | undefined | null, venditeModa: number, importiCompleti: boolean): number | null {
   if (!cassaNetta || !importiCompleti) return null;
   return ((cassaNetta - venditeModa) / cassaNetta) * 100;
 }

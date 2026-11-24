@@ -1875,8 +1875,12 @@ export const PAGE_GUIDES: PageGuide[] = [
         "body": "Ogni ora di ogni negozio si scrive una volta sola: ricaricando lo stesso file i giorni uguali restano come sono. Un giorno che aveva solo persone entrate e scontrini (i report caricati prima del 24/11/2026) riceve da solo pezzi, valori e costi. Un giorno già caricato con numeri diversi si sostituisce per intero, ma solo dopo la tua conferma («Sostituisci con il report» o «Lascia com'è»)."
       },
       {
+        "heading": "In breve",
+        "body": "In cima alla pagina, poche frasi dicono in parole semplici cosa è successo: se il mese non è finito e per quali giorni ci sono i dati; quanto si è venduto in più o in meno rispetto agli stessi giorni della settimana di un anno fa e perché (sono entrate più o meno persone, ha comprato una quota più alta o più bassa di chi è entrato, lo scontrino è stato più alto o più basso); quanta resa resta; se le vendite MODA tornano con le chiusure di cassa degli stessi giorni. Il pallino verde vuol dire meglio del confronto, il rosso peggio: sono differenze, non guadagni o perdite."
+      },
+      {
         "heading": "I riquadri in alto",
-        "body": "Otto numeri del mese: persone entrate, conversione, scontrini, scontrino medio, pezzi per scontrino, sconto medio sul listino, vendite e resa. Sotto ognuno, la differenza con il mese prima e con lo stesso mese dell'anno prima, calcolata sugli stessi giorni e sugli stessi negozi; conversione e sconto in punti. Dove manca il mese di confronto o i suoi importi compare «—». Un avviso giallo dice se alcuni giorni del mese hanno solo persone entrate e scontrini."
+        "body": "Otto numeri del mese: persone entrate, conversione, scontrini, scontrino medio, pezzi per scontrino, sconto medio sul listino, vendite e resa. Sotto ognuno, la differenza «vs mese prima» (gli stessi giorni del calendario del mese prima) e «vs anno prima» (gli stessi giorni della settimana di 52 settimane fa, così una domenica si confronta con una domenica), sugli stessi negozi; conversione e sconto in punti. Il periodo esatto di ogni confronto è scritto sotto i riquadri. Dove manca il periodo di confronto o i suoi importi compare «—». Un avviso giallo dice se alcuni giorni del mese hanno solo persone entrate e scontrini."
       },
       {
         "heading": "L'albero delle vendite",
@@ -1884,11 +1888,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "I negozi del mese",
-        "body": "Una riga per negozio con persone entrate, conversione, scontrini, scontrino medio, pezzi per scontrino, sconto, vendite, resa, ricarico reale e «Cassa». In verde il migliore della colonna, in rosso il peggiore. «Cassa» confronta le vendite MODA con l'incasso netto delle chiusure di cassa del mese: MODA è di solito un po' sotto, perché esclude vendite libere, buoni e acconti; oltre il 2% la cella diventa rossa ed è da guardare."
+        "body": "Una riga per negozio con persone entrate, conversione, scontrini, scontrino medio, pezzi per scontrino, sconto, vendite, resa, ricarico reale e «Cassa». In verde il migliore della colonna, in rosso il peggiore. «Cassa» confronta le vendite MODA con l'incasso netto delle chiusure di cassa sugli stessi giorni (solo quelli che hanno tutti e due; l'asterisco vuol dire che qualche giorno MODA non ha la chiusura): MODA è di solito un po' sotto, perché esclude vendite libere, buoni e acconti; oltre il 2% la cella diventa rossa ed è da guardare."
       },
       {
         "heading": "Più gente o più bravi a vendere?",
-        "body": "Per ogni negozio la differenza di vendite rispetto all'anno prima (o al mese prima, con il pulsante in alto a destra) è divisa in tre parti: quanto viene dalle persone entrate in più o in meno, quanto dalla conversione e quanto dallo scontrino medio. Le tre parti sommate danno la differenza. Se un mese non ha gli importi si scompongono gli scontrini, in due parti."
+        "body": "Per ogni negozio la differenza di vendite rispetto agli stessi giorni della settimana di un anno fa (o agli stessi giorni del mese prima, con il pulsante in alto a destra) è scritta a destra, con «di vendite in più» o «di vendite in meno», e sotto le vendite dei due periodi. Le barre dicono da dove viene: dalle persone entrate in più o in meno, dalla conversione e dallo scontrino medio, con il valore in euro di ciascuna parte. Le tre parti sommate danno la differenza. Se un periodo non ha gli importi si scompongono gli scontrini, in due parti."
       },
       {
         "heading": "Calendario e ore",

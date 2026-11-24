@@ -24,8 +24,9 @@ import { useCompany } from '../hooks/useCompany';
 import { puoTenereOrganico, type NegozioRif } from '../lib/organicoDati';
 import { meseLeggibile } from '../lib/trafficoModa';
 import {
-  leggiReportVI, somma, derivate, scomponi, scartoCassa, mesePrima, meseAnnoPrima, ultimoGiorno, giorniDel,
-  mappaOre, oreAperte, variazione, SOGLIA_CASSA, type ReportVI, type Misure, type Derivate,
+  leggiReportVI, somma, derivate, scomponi, mesePrima, ultimoGiorno, giorniDel,
+  mappaOre, oreAperte, variazione, giorniAnnoPrima, confrontoCassa, scartoDi, SOGLIA_CASSA,
+  type ReportVI, type Misure, type Derivate, type GiornoVI, type Scomposizione,
 } from '../lib/venditeIngressi';
 
 type Tab = 'report' | 'carica';
@@ -38,6 +39,36 @@ const eur2 = (v: number | null) => (v == null ? '—' : `${it2(v)} €`);
 const pct = (v: number | null, dec = 2) => (v == null ? '—' : `${dec === 1 ? it1(v) : it2(v)}%`);
 const num2 = (v: number | null) => (v == null ? '—' : it2(v));
 const meseCorrente = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }).slice(0, 7);
+const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+/** «dal 2 al 4 novembre 2025», «il 2 novembre 2025», «dal 30 ottobre al 2 novembre 2025» */
+function periodoDi(giorni: GiornoVI[]): string {
+  if (!giorni.length) return '';
+  const date = giorni.map((g) => g.data).sort();
+  const [a, b] = [date[0], date[date.length - 1]];
+  const gg = (d: string) => Number(d.slice(8, 10));
+  const mm = (d: string) => MESI[Number(d.slice(5, 7)) - 1];
+  if (a === b) return `il ${gg(a)} ${mm(a)} ${a.slice(0, 4)}`;
+  if (a.slice(0, 7) === b.slice(0, 7)) return `dal ${gg(a)} al ${gg(b)} ${mm(b)} ${b.slice(0, 4)}`;
+  return `dal ${gg(a)} ${mm(a)}${a.slice(0, 4) !== b.slice(0, 4) ? ` ${a.slice(0, 4)}` : ''} al ${gg(b)} ${mm(b)} ${b.slice(0, 4)}`;
+}
+
+/** Perche' sono cambiate le vendite, in una frase: le parti in ordine di peso. */
+function perche(s: Scomposizione, prima: Misure, ora: Misure): string {
+  const parti: { v: number; t: string }[] = [];
+  const dI = ora.ingressi - prima.ingressi;
+  const pc = (x: number, y: number) => (y ? ` (${x > y ? '+' : '−'}${it0(Math.abs(((x - y) / y) * 100))}%)` : '');
+  if (dI !== 0) parti.push({ v: s.traffico, t: `${dI > 0 ? 'sono entrate più persone' : 'sono entrate meno persone'}: ${it0(Math.abs(dI))} ${dI > 0 ? 'in più' : 'in meno'}${pc(ora.ingressi, prima.ingressi)}` });
+  const c0 = prima.ingressi ? (prima.scontrini / prima.ingressi) * 100 : 0;
+  const c1 = ora.ingressi ? (ora.scontrini / ora.ingressi) * 100 : 0;
+  if (Math.abs(c1 - c0) >= 0.005) parti.push({ v: s.conversione, t: `${c1 > c0 ? 'è stata più alta la quota di chi è entrato e ha comprato' : 'è stata più bassa la quota di chi è entrato e ha comprato'} (conversione ${it2(c0)}% → ${it2(c1)}%)` });
+  if (s.base === 'vendite' && prima.scontrini && ora.scontrini) {
+    const m0 = prima.reale / prima.scontrini; const m1 = ora.reale / ora.scontrini;
+    if (Math.abs(m1 - m0) >= 0.005) parti.push({ v: s.scontrino, t: `${m1 > m0 ? 'lo scontrino medio è stato più alto' : 'lo scontrino medio è stato più basso'} (${eur2(m0)} → ${eur2(m1)})` });
+  }
+  const forti = parti.filter((p) => Math.abs(p.v) >= Math.max(1, Math.abs(s.ora - s.prima)) * 0.1 || parti.length === 1).sort((a, b) => Math.abs(b.v) - Math.abs(a.v));
+  return parti.length ? (forti.length ? forti : parti).map((p) => p.t).join('; ') : 'persone entrate, conversione e scontrino medio sono rimasti uguali';
+}
+
 const GIORNI_SETT = ['Lunedì', 'Martedì', 'Mercoledì', 'Giovedì', 'Venerdì', 'Sabato', 'Domenica'];
 const INIZIALI = ['L', 'M', 'M', 'G', 'V', 'S', 'D'];
 
@@ -150,9 +181,10 @@ export default function VenditeIngressi() {
     // I confronti usano gli stessi giorni del mese (fino all'ultimo caricato) e i negozi presenti nel mese.
     const presenti = new Set(ora.map((g) => g.outletId));
     const prima = giorniDel(report.giorni, mesePrima(mese), fine, presenti);
-    const anno = giorniDel(report.giorni, meseAnnoPrima(mese), fine, presenti);
+    // L'anno prima: stessi giorni della settimana, 52 settimane prima (migration 465).
+    const anno = giorniAnnoPrima(report.giorni, ora);
     const mOra = somma(ora); const mPrima = somma(prima); const mAnno = somma(anno);
-    return { fine, ora, presenti, mOra, mPrima, mAnno, dOra: derivate(mOra), dPrima: derivate(mPrima), dAnno: derivate(mAnno) };
+    return { fine, ora, prima, anno, presenti, mOra, mPrima, mAnno, dOra: derivate(mOra), dPrima: derivate(mPrima), dAnno: derivate(mAnno) };
   }, [report, mese, scelti]);
 
   const nomeNeg = (id: string) => report?.negozi.find((x) => x.id === id)?.nome ?? '—';
@@ -234,7 +266,7 @@ export default function VenditeIngressi() {
 }
 
 type Calcoli = {
-  fine: number; ora: ReportVI['giorni']; presenti: Set<string>;
+  fine: number; ora: ReportVI['giorni']; prima: GiornoVI[]; anno: GiornoVI[]; presenti: Set<string>;
   mOra: Misure; mPrima: Misure; mAnno: Misure; dOra: Derivate; dPrima: Derivate; dAnno: Derivate;
 };
 
@@ -273,15 +305,20 @@ function Report(props: {
   const righe = [...calcoli.presenti].map((id) => {
     const m = somma(ora.filter((g) => g.outletId === id));
     const d = derivate(m);
-    return { id, nome: nomeNeg(id), m, d, cassa: scartoCassa(report.cassa.get(id), m.reale, m.importiCompleti) };
+    // La cassa sui soli giorni che MODA ha, stesso negozio (migration 465).
+    const cc = confrontoCassa(report.cassaGiorni, ora.filter((g) => g.outletId === id));
+    return { id, nome: nomeNeg(id), m, d, cassa: scartoDi(cc), cassaParziale: cc != null && cc.giorni < cc.giorniModa };
   }).sort((a, b) => (b.m.reale - a.m.reale) || (b.m.ingressi - a.m.ingressi));
 
   // Perche' sono cambiate le vendite, negozio per negozio.
-  const meseConfronto = props.confronto === 'anno' ? meseAnnoPrima(mese) : mesePrima(mese);
+  const giorniConfronto = props.confronto === 'anno' ? calcoli.anno : calcoli.prima;
+  const periodoConfronto = periodoDi(giorniConfronto);
   const scomp = righe.map((r) => {
-    const base = somma(giorniDel(report.giorni, meseConfronto, fine, new Set([r.id])));
+    const base = somma(props.confronto === 'anno'
+      ? giorniAnnoPrima(report.giorni, ora.filter((g) => g.outletId === r.id))
+      : giorniDel(report.giorni, mesePrima(mese), fine, new Set([r.id])));
     return { nome: r.nome, s: scomponi(base, r.m) };
-  }).filter((x): x is { nome: string; s: NonNullable<ReturnType<typeof scomponi>> } => x.s != null);
+  }).filter((x): x is { nome: string; s: Scomposizione } => x.s != null);
   const tutteVendite = scomp.length > 0 && scomp.every((x) => x.s.base === 'vendite');
   const scompMax = Math.max(1, ...scomp.flatMap((x) => [Math.abs(x.s.traffico), Math.abs(x.s.conversione), Math.abs(x.s.scontrino)]));
 
@@ -306,8 +343,46 @@ function Report(props: {
   const tuttiOre = fasce.flatMap((h) => [1, 2, 3, 4, 5, 6, 7].map((d) => valOra(d, h) ?? 0));
   const maxOre = props.metricaOre === 'ingressi' ? Math.max(1, ...tuttiOre) : 20;
 
+  // «In breve»: quello che deve capire chi legge senza conoscere le dinamiche.
+  const periodoOra = periodoDi(ora);
+  const giorniMeseTot = Number(new Date(Date.UTC(Number(mese.slice(0, 4)), Number(mese.slice(5, 7)), 0)).getUTCDate());
+  const breve: { t: string; tono: 'neutro' | 'bene' | 'male' }[] = [];
+  if (fine < giorniMeseTot) breve.push({ t: `Ci sono i dati ${periodoOra}: il mese non è finito, e i confronti valgono solo per questi giorni.`, tono: 'neutro' });
+  const sAnno = scomponi(mAnno, mOra);
+  if (sAnno && sAnno.base === 'vendite') {
+    const d = sAnno.ora - sAnno.prima;
+    breve.push({ t: `Rispetto agli stessi giorni della settimana di un anno fa (${periodoDi(calcoli.anno)}): ${d >= 0 ? `${eur0(d)} di vendite in più` : `${eur0(-d)} di vendite in meno`} (${eur0(sAnno.prima)} → ${eur0(sAnno.ora)}). Perché ${perche(sAnno, mAnno, mOra)}.`, tono: d >= 0 ? 'bene' : 'male' });
+  } else if (sAnno) {
+    const d = sAnno.ora - sAnno.prima;
+    breve.push({ t: `Rispetto agli stessi giorni della settimana di un anno fa (${periodoDi(calcoli.anno)}): ${it0(Math.abs(d))} scontrini ${d >= 0 ? 'in più' : 'in meno'}. Perché ${perche(sAnno, mAnno, mOra)}. Gli importi di quei giorni non sono caricati.`, tono: d >= 0 ? 'bene' : 'male' });
+  } else {
+    breve.push({ t: 'Per un anno fa non ci sono dati di questi negozi: il confronto con l’anno prima non si può fare.', tono: 'neutro' });
+  }
+  if (dOra.resa != null) breve.push({ t: `Tolto il costo della merce venduta restano ${eur0(dOra.resa)} di resa, il ${it1(dOra.resaPct ?? 0)}% delle vendite.`, tono: 'neutro' });
+  const ccTot = confrontoCassa(report.cassaGiorni, ora);
+  const scartoTot = scartoDi(ccTot);
+  const suParte = ccTot && ccTot.giorni < ccTot.giorniModa ? ` (confronto sui ${ccTot.giorni} giorni-negozio che hanno anche la chiusura di cassa, su ${ccTot.giorniModa})` : '';
+  if (scartoTot != null) breve.push(Math.abs(scartoTot) <= SOGLIA_CASSA
+    ? { t: `Le vendite MODA tornano con le chiusure di cassa degli stessi giorni (${scartoTot > 0 ? '−' : '+'}${it1(Math.abs(scartoTot))}%)${suParte}.`, tono: 'bene' }
+    : { t: `Le vendite MODA e le chiusure di cassa degli stessi giorni differiscono del ${it1(Math.abs(scartoTot))}%${suParte}: è da guardare.`, tono: 'male' });
+
   return (
     <>
+      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-5">
+        <h2 className="font-bold text-slate-800 mb-2">In breve</h2>
+        <ul className="space-y-1.5 text-sm text-slate-800">
+          {breve.map((b, i) => (
+            <li key={i} className="flex gap-2">
+              <span className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${b.tono === 'bene' ? 'bg-emerald-600' : b.tono === 'male' ? 'bg-red-600' : 'bg-slate-400'}`} aria-hidden />
+              <span>{b.t}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-slate-500 mt-3">
+          Nei numeri qui sotto il verde vuol dire meglio del periodo di confronto e il rosso peggio: sono differenze, non guadagni o perdite.
+        </p>
+      </section>
+
       {senzaImporti > 0 && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 flex gap-2">
           <AlertTriangle size={18} className="shrink-0 mt-0.5" />
@@ -328,14 +403,14 @@ function Report(props: {
             <div className="text-xl sm:text-2xl font-bold text-slate-900 tabular-nums whitespace-nowrap">{k.v}</div>
             {k.nota && <div className="text-xs text-slate-500">{k.nota}</div>}
             <div className="mt-1 text-xs flex flex-wrap gap-x-3 tabular-nums">
-              <span>mese prima <Delta v={k.mp} punti={k.punti} inverso={k.inverso} /></span>
-              <span>anno prima <Delta v={k.ap} punti={k.punti} inverso={k.inverso} /></span>
+              <span>vs mese prima <Delta v={k.mp} punti={k.punti} inverso={k.inverso} /></span>
+              <span>vs anno prima <Delta v={k.ap} punti={k.punti} inverso={k.inverso} /></span>
             </div>
           </div>
         ))}
       </div>
       <p className="text-xs text-slate-500 -mt-2">
-        I confronti usano gli stessi giorni ({fine < giorniMese ? `dal 1 al ${fine}` : 'mese intero'}) e gli stessi negozi. Dove manca il mese di confronto, o i suoi importi, compare «—».
+        «vs mese prima»: gli stessi giorni del calendario del mese prima{calcoli.prima.length ? ` (${periodoDi(calcoli.prima)})` : ''}. «vs anno prima»: gli stessi giorni della settimana di 52 settimane fa{calcoli.anno.length ? ` (${periodoDi(calcoli.anno)})` : ''}. Stessi negozi. Dove manca il periodo di confronto, o i suoi importi, compare «—».
       </p>
 
       <Sezione titolo="L’albero delle vendite" comeSiLegge="Le vendite sono persone entrate × conversione × scontrino medio. Quando cambiano, uno di questi tre numeri è cambiato: il confronto qui sotto dice quale.">
@@ -360,7 +435,7 @@ function Report(props: {
         </div>
       </Sezione>
 
-      <Sezione titolo="I negozi del mese" comeSiLegge={`In verde il migliore della colonna, in rosso il peggiore. «Cassa» confronta le vendite MODA con l’incasso netto delle chiusure di cassa: MODA è di solito un po’ sotto, perché esclude vendite libere, buoni e acconti; oltre il ${SOGLIA_CASSA}% è da guardare.`}>
+      <Sezione titolo="I negozi del mese" comeSiLegge={`In verde il migliore della colonna, in rosso il peggiore. «Cassa» confronta le vendite MODA con l’incasso netto delle chiusure di cassa: MODA è di solito un po’ sotto, perché esclude vendite libere, buoni e acconti; oltre il ${SOGLIA_CASSA}% è da guardare. Si confrontano solo i giorni che hanno tutti e due; l’asterisco vuol dire che qualche giorno MODA non ha la chiusura di cassa.`}>
         <div className="overflow-x-auto -mx-1">
           <table className="w-full text-sm tabular-nums">
             <thead>
@@ -391,7 +466,7 @@ function Report(props: {
                     <td className="py-2 px-2 text-right whitespace-nowrap">{eur0(r.m.giorniConImporti ? r.m.reale : null)}</td>
                     <td className={`py-2 px-2 text-right whitespace-nowrap ${estremi(col((x) => x.d.resaPct), r.d.resaPct)}`}>{r.d.resa == null ? '—' : `${eur0(r.d.resa)} · ${it1(r.d.resaPct ?? 0)}%`}</td>
                     <td className="py-2 px-2 text-right">{num2(r.d.ricaricoReale)}</td>
-                    <td className={`py-2 px-2 text-right ${r.cassa != null && Math.abs(r.cassa) > SOGLIA_CASSA ? 'text-red-600 font-semibold' : 'text-slate-600'}`}>{r.cassa == null ? '—' : `${r.cassa > 0 ? '−' : '+'}${it1(Math.abs(r.cassa))}%`}</td>
+                    <td className={`py-2 px-2 text-right ${r.cassa != null && Math.abs(r.cassa) > SOGLIA_CASSA ? 'text-red-600 font-semibold' : 'text-slate-600'}`}>{r.cassa == null ? '—' : `${r.cassa > 0 ? '−' : '+'}${it1(Math.abs(r.cassa))}%${r.cassaParziale ? '*' : ''}`}</td>
                   </tr>
                 );
               })}
@@ -419,12 +494,12 @@ function Report(props: {
 
       <Sezione
         titolo={props.confronto === 'anno' ? 'Rispetto a un anno fa: più gente o più bravi a vendere?' : 'Rispetto al mese prima: più gente o più bravi a vendere?'}
-        comeSiLegge={tutteVendite
-          ? 'La differenza di vendite di ogni negozio è divisa in tre: quanto viene dalle persone entrate in più o in meno (grigio), quanto dalla conversione (blu) e quanto dallo scontrino medio (verde). Le tre parti sommate danno la differenza.'
-          : 'Dove un mese non ha gli importi, si scompongono gli scontrini: quanti vengono dalle persone entrate in più o in meno (grigio) e quanti dalla conversione (blu).'}
+        comeSiLegge={`Confronto ${props.confronto === 'anno' ? 'con gli stessi giorni della settimana di un anno fa' : 'con gli stessi giorni del mese prima'}${periodoConfronto ? ` (${periodoConfronto})` : ''}. ${tutteVendite
+          ? 'A destra la differenza di vendite di ogni negozio; le barre dicono da dove viene: dalle persone entrate in più o in meno (grigio), dalla conversione (blu) e dallo scontrino medio (verde). A destra dello zero quello che aggiunge, a sinistra quello che toglie; le tre parti sommate danno la differenza.'
+          : 'Dove un periodo non ha gli importi si scompongono gli scontrini: quanti vengono dalle persone entrate in più o in meno (grigio) e quanti dalla conversione (blu).'}`}
         azioni={<Scelta etichetta="Confronto" valore={props.confronto} onChange={props.setConfronto} opzioni={[['anno', 'Anno prima'], ['mese', 'Mese prima']]} />}>
         {scomp.length === 0
-          ? <p className="text-sm text-slate-500">Per {meseLeggibile(meseConfronto)} non ci sono dati di questi negozi.</p>
+          ? <p className="text-sm text-slate-500">Per il periodo di confronto non ci sono dati di questi negozi.</p>
           : (
             <div className="space-y-1">
               {scomp.map(({ nome, s }) => {
@@ -436,13 +511,18 @@ function Report(props: {
                 };
                 const diff = s.ora - s.prima;
                 const parti: [number, string][] = [[s.traffico, 'bg-slate-400'], [s.conversione, 'bg-blue-600'], ...(s.base === 'vendite' ? [[s.scontrino, 'bg-emerald-600'] as [number, string]] : [])];
+                const voce = (v: number) => `${v >= 0 ? '+' : '−'}${s.base === 'vendite' ? eur0(Math.abs(v)) : it0(Math.abs(v))}`;
                 return (
-                  <div key={nome} className="grid grid-cols-[6.5rem_1fr_1fr_5.5rem] sm:grid-cols-[9rem_1fr_1fr_7rem] items-center gap-2 py-1.5 border-b border-slate-100 text-sm">
+                  <div key={nome} className="grid grid-cols-[6.5rem_1fr_1fr_6.5rem] sm:grid-cols-[9rem_1fr_1fr_9rem] items-center gap-x-2 gap-y-1 py-2 border-b border-slate-100 text-sm">
                     <div className="truncate">{nome}</div>
                     <div className="space-y-0.5">{parti.map(([v, c], i) => <div key={i}>{barra(v, c)[0]}</div>)}</div>
                     <div className="space-y-0.5">{parti.map(([v, c], i) => <div key={i}>{barra(v, c)[1]}</div>)}</div>
-                    <div className={`text-right font-semibold tabular-nums whitespace-nowrap ${diff >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
-                      {diff > 0 ? '+' : diff < 0 ? '−' : ''}{s.base === 'vendite' ? eur0(Math.abs(diff)) : `${it0(Math.abs(diff))} scontr.`}
+                    <div className={`text-right tabular-nums leading-tight ${diff >= 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                      <div className="font-semibold whitespace-nowrap">{diff > 0 ? '+' : diff < 0 ? '−' : ''}{s.base === 'vendite' ? eur0(Math.abs(diff)) : it0(Math.abs(diff))}</div>
+                      <div className="text-[11px]">{s.base === 'vendite' ? (diff >= 0 ? 'di vendite in più' : 'di vendite in meno') : (diff >= 0 ? 'scontrini in più' : 'scontrini in meno')}</div>
+                    </div>
+                    <div className="col-start-2 col-span-3 text-xs text-slate-500 tabular-nums">
+                      {s.base === 'vendite' ? `${eur0(s.prima)} → ${eur0(s.ora)}` : `${it0(s.prima)} → ${it0(s.ora)} scontrini`} · persone entrate {voce(s.traffico)} · conversione {voce(s.conversione)}{s.base === 'vendite' ? ` · scontrino medio ${voce(s.scontrino)}` : ''}
                     </div>
                   </div>
                 );
