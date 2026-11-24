@@ -522,7 +522,18 @@ Restano senza messaggio i casi che toccano all'amministrazione: `bozza_prima` (u
 
 **Misura del volume**, prove a vuoto su NZ: 23/11 una mail (Palmanova), 18/11 una (Palmanova, due cose), 14/11 una (Roma Soratte), 22/11 **zero**. Una per negozio al giorno, e sulle giornate pulite nessuno riceve niente. Sui 30 giorni passati avrebbe scritto cinque volte invece di tre, sempre e solo a Palmanova e Roma Soratte.
 
-Edge function: NZ v20 e Zago v14, `ezbr_sha256` `3b4da45a…`, identico al file del repo.
+**Terza strada: quando la nota dice una causa che il gestionale non sa registrare** (Patrizio, 24 novembre: «si fallo e pubblica ma non mandare mail a lei»). Il caso vero è Roma Soratte del 14 novembre: «Scontrino POS comprende 34,95 € di vendite di un giorno precedente (POS non chiuso quel giorno): tolti dalla riga POS, sono già nei corrispettivi di quel giorno». La spiegazione è completa e corretta, e nel gestionale non esiste un campo dove metterla: la differenza di 35,00 € resta nei conti comunque. Chiederle di ricontrollare gli scontrini sarebbe sbagliato due volte, perché ha già guardato e guardando di nuovo non troverebbe niente. Quindi la lezione `presa_in_carico` non chiede niente: «Abbiamo letto quello che hai scritto, e ci basta… Il gestionale non ha un posto dove registrarlo, quindi nei nostri conti la differenza di 35,00 € resta lì: la prende in carico l'amministrazione. Per questa non devi fare niente.» L'oggetto diventa «ci pensiamo noi». La segnalazione **resta `da_fare`** per l'amministrazione: al negozio diciamo che non deve fare niente, non che è sistemata.
+
+Il perimetro è strettissimo di proposito:
+
+- vale **solo** sulla differenza fra totale incassato e somma dei mezzi di pagamento (`differenza_corrispettivi`, fingerprint `diff`), dove `amount` è la differenza vera. Questo era il rilievo importante del revisore: nei tre controlli «foto diversa» `amount` è l'**importo scritto**, non la differenza, e la prima versione avrebbe scritto a un negozio «la differenza di 3.360,30 €», una cifra falsa. Avevo generalizzato a quattro rami dopo averne verificato uno;
+- la nota deve nominare un altro giorno **e** un incasso (POS, scontrini, vendite, corrispettivi) **e** non negare la cosa («non viene da un altro giorno» non conta);
+- mai su una chiusura ancora in bozza, altrimenti il messaggio direbbe insieme «conferma la chiusura» e «non devi fare niente» (secondo rilievo del revisore);
+- con più voci miste c'è un'apertura sua («qualcuna l'abbiamo già sistemata noi, le altre le prendiamo in carico»): dire «abbiamo già sistemato» su una cosa che non abbiamo sistemato era la bugia che volevamo evitare (terzo rilievo).
+
+Prova a vuoto sul 14 novembre, dopo il deploy: una mail sola, a Roma Soratte, con quel testo e l'oggetto «ci pensiamo noi»; `da_fare` resta 1. Prova sul 23: Palmanova invariata, «una cosa da sistemare». **A Maria non è partito niente**: una giornata vecchia non viene mai istruita una seconda volta (`closing_check_runs` ha il vincolo unico su azienda e data) e la prova a vuoto non scrive e non manda.
+
+Edge function: NZ v21 e Zago v16, `ezbr_sha256` `7cd7d3dd…`, e il contenuto deployato riletto e confrontato col file del repo è identico (73.200 byte, stesso sha256).
 
 **Resta aperto, decide Patrizio**: il riquadro nella pagina della referente, con gli ultimi dieci giorni del suo negozio in parole sue. Serve aprire `closing_checks` al profilo responsabile, in sola lettura e solo per i suoi negozi, cioè toccare il recinto della migration 379.
 
