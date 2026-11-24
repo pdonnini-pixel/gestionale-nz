@@ -933,3 +933,87 @@ Nata dal conteggio delle 92 scadenze chiuse in via provvisoria su NZ (87.985,05 
 - **Stato:** ✅ AUTO SEMPRE.
 
 **Nello Scadenzario.** Il pulsante «RiBa provvisorie» conta solo le RiBa: carte, contanti e addebiti diretti restano chiusi in via provvisoria (R15, R24) e si vedono con il filtro «Pagato (provvisorio)». Se una rata di una fattura è chiusa in via provvisoria, sulle rate ancora aperte della stessa fattura compare «1 rata provvisoria» (caso SHINE 1574/1579, 05/11/2026).
+
+### R-433 — Distinte CBI MPS «a favore di DISPOSIZIONE FILIALE DISPONENTE» (Zago, 18/11/2026)
+- **Il fatto:** negli estratti MPS in Excel di Zago la distinta CBI è scritta «(26) VOSTRA DISPOSIZIONE A FAVORE DI
+  DISPOSIZIONE FILIALE DISPONENTE 2430 ID FLUSSO CBI: …». `causale_has_named_beneficiary` prendeva 45 caratteri dopo
+  «a favore di», che si fermano a metà di «FLUSSO»: la parola tronca «fluss» valeva come beneficiario e il motore
+  scartava ogni fattura. 42 distinte aperte, nessuna agganciata.
+- **Regola (migr. 433):** «a favore di disposizione filiale disponente» non nomina nessuno. Su NZ la stessa distinta
+  arriva senza «a favore di»: nessun effetto (19 righe, già riconciliate).
+- **Esito sul vivo (Zago):** 9 fatture chiuse con il movimento (netto esatto, candidato unico), 8 movimenti con più
+  fatture di pari importo (affitti CARLO'S, EPPI) in proposta da confermare, 25 senza fattura di pari importo (pagamenti
+  di fatture 2025 o di più fatture insieme). Backup `_bkp_433_payables_20261118`, `_bkp_433_bank_tx_20261118`.
+
+### R-434 — Un movimento già certificato dall'estratto del suo conto non è «sul conto sbagliato» (18/11/2026)
+- **Il fatto:** caricando gli Excel BCC Pontassieve di Zago (Firenze …604178 e Forte …604305, gennaio-ottobre
+  2026) sono nate 40 domande «riga_su_altro_conto», tutte false. I due conti BCC hanno commissioni (0,75/0,95),
+  canone (8,00/8,65) e bolli identici negli stessi giorni, e incassi POS di pari importo stanno anche su MPS. La
+  riga di Forte non veniva inserita perché su Firenze c'era il gemello.
+- **Regola (migr. 434, NZ e Zago):** il candidato sull'altro conto vale solo se nessun estratto del suo conto l'ha
+  già confermato (`bank_transactions.statement_id IS NULL`). Su NZ nessuna domanda aperta di quel tipo.
+- **Esito sul vivo (Zago):** 20 estratti BCC caricati con `apply_bank_statement` (10 per conto, 1.339 movimenti),
+  i 15 già caricati riapplicati dopo la 434, 40 domande archiviate con il motivo. Backup
+  `_bkp_bcc_payables_20261118`, `_bkp_bcc_bank_tx_20261118`.
+- **Commissioni identiche (migr. 435):** 37 commissioni BCC su bonifico (circa 34 euro) non entravano perché uguali
+  (stesso giorno, importo e causale): `trg_set_bank_tx_dedup_hash` dava a tutte la stessa impronta e
+  `idx_bank_tx_import_dedup` scartava le altre. Ora le righe con `source = 'estratto_conto'` non hanno impronta (come
+  l'open banking): i doppioni da ricaricamento li riconosce `apply_bank_statement`. Riapplicati i 20 estratti: 37
+  inserite, tutti gli estratti BCC quadrano a zero. Su NZ nessuna riga persa per questo.
+- **Contabilizzato dopo l'estratto (migr. 436):** un movimento con valuta nel periodo ma data contabile dopo
+  (Amex 206,30 + 1,00, valuta 15/07, contabile 06/08) non si chiede all'estratto di luglio se l'estratto di agosto lo
+  certifica. Su NZ 10 domande così in passato, tutte già chiuse.
+- **I PDF BCC su Drive sono scansioni**: per le BCC si carica l'Excel (quello di Pontassieve non ha il difetto di
+  date e importi delle altre BCC; il controllo `excelEstrattoDifettoso` lo accetta). Il PDF di marzo, l'unico con
+  testo, coincide con l'Excel su tutte le 92 righe.
+- **Correzioni dopo il caricamento:** CARLO'S FPR 4/26 e Elettroworks 13 erano stati agganciati la mattina dal giro
+  della 433 a distinte MPS anonime; i bonifici BCC li citano per numero («affitto sf 4», «SF 13»): spostati sul
+  bonifico BCC con `undo_reconcile_movement` + `reconcile_movement`. Quattro bonifici GGZ con l'elenco delle fatture
+  e delle NC in causale, somma esatta, agganciati con `reconcile_movement_group` (come su NZ, R-manuale).
+- **Fatture e NC citate in causale (migr. 437):** `try_match_group_numbers_bank_transaction` esclude le note di
+  credito e i numeri sotto le 6 cifre, quindi non prendeva i pagamenti GGZ («SF 7184-7322 NC 9527»). Nuovo passaggio
+  `try_match_group_cited_nc_bank_transaction` dopo i due esistenti (che restano uguali): fornitore nominato in
+  causale, numeri citati (anche corti, 7184 = 7184/01), fatture meno NC = netto entro 0,05, un solo fornitore, almeno
+  due documenti. Misura: su Zago ritrova i 4 bonifici GGZ e niente altro; su NZ, sui 67 pagamenti a più documenti
+  già chiusi, ne ritrova 14 con gli stessi documenti agganciati allora (14 su 14).
+
+### R-438 — Commissioni MPS dentro l'addebito: SDD + 1,00, RiBa + 0,40 per effetto (18/11/2026)
+- **Il fatto (Zago):** gli addebiti automatici NEXI, Amazon e Global Blue restavano aperti perché MPS li addebita con
+  1,00 di commissione (25,62 → 26,62). Le RiBa restavano «pagato provvisorio» perché l'addebito «EFFETTI RITIRATI
+  NUM.EFFETTI: n» non nomina i fornitori e vale la somma degli effetti + 0,40 ciascuno; tre fatture GLS pagate con
+  RiBa restavano «scadute» con metodo bonifico.
+- **Misura delle commissioni:** SDD 1,00 su Zago e sui 5 casi NZ già agganciati; RiBa 0,40 per effetto su NZ in tutti
+  gli addebiti con un effetto per fattura e su Zago.
+- **Regola (migr. 438, NZ e Zago):** `try_match_sdd_commission_bank_transaction` (fornitore in causale, residuo =
+  addebito − 1,00, scadenza da −30 a +15 giorni, candidati multipli solo se intercambiabili) e
+  `try_match_riba_effetti_bank_transaction` (addebito senza «CRED:», un solo insieme di n documenti con scadenza nei
+  5 giorni prima la cui somma + n × 0,40 dà l'addebito). Scrittura come la distinta RiBa (347). Giro notturno:
+  `rerun_commissioni_mps_reconciliation` dopo i cumulativi; `p_dry_run` per provare senza scrivere.
+- **Esito sul vivo (Zago):** 11 addebiti SDD e 8 addebiti RiBa abbinati, 44 documenti, 27 fatture passate a pagato
+  (fra cui le 3 GLS e le RiBa scadute di aprile, maggio e luglio), 0 RiBa provvisorie rimaste. Restano aperti NEXI
+  183,00 (nessun addebito da 184,00) e K7 / Bella Bijoux (carta: serve l'estratto della carta BCC). NZ: 0 oggi.
+  Backup `_bkp_438_payables_20261118`.
+- **Errore trovato in prova, prima di attivare:** la scelta dell'insieme RiBa estraeva male l'elenco (vuoto) e
+  avrebbe segnato l'addebito come abbinato senza fatture; corretto e controllato (0 addebiti senza fattura).
+- **Revisione (migr. 439):** tetto di 25 candidati e ricerca fermata alla seconda soluzione (la combinazione su 12
+  effetti poteva far scadere il timeout di tutto il giro notturno); fuori le fatture successive all'addebito e
+  quelle con note di credito in sospeso; le proposte «to_confirm» sullo stesso movimento passano a «rejected» come
+  nella distinta (347).
+
+### R-440 — Addebito SDD prima della scadenza standard (18/11/2026)
+- **Il fatto:** le fatture NEXI del 13/10/2026 da 25,62 (2 su Zago, 7 su NZ, una per negozio) non portano termini di
+  pagamento, quindi il piano standard le fa scadere il 30/11. Nexi le addebita il 28/10 (26,62 con la commissione
+  MPS), 33 giorni prima della scadenza: fuori dalla finestra della 438 (scadenza da −30 a +15 giorni dall'addebito).
+  Restavano fra gli «Addebiti automatici» anche se erano già pagate.
+- **Regola (migr. 440, NZ e Zago):** in `try_match_sdd_commission_bank_transaction` vale la scadenza **oppure** la
+  data della fattura nei 30 giorni prima dell'addebito. Tutto il resto della 438 resta: importo + 1,00, fornitore
+  scritto nella causale SDD, fattura non successiva all'addebito, una sola fattura o fatture identiche.
+- **Misura prima di applicare:** sui movimenti non riconciliati la finestra nuova aggiunge solo questi addebiti NEXI,
+  nessun altro fornitore, su tutti e due i tenant.
+- **Esito sul vivo:** Zago 2 fatture pagate (3607914 su MPS Forte, 3607915 su MPS Firenze), NZ 7 fatture su 7
+  movimenti diversi.
+- **Cosa resta su Zago fra gli addebiti automatici:** NEXI 2416204 da 183,00 (nessun addebito sul conto: Nexi
+  probabilmente la trattiene dal suo estratto POS, serve l'estratto Nexi di febbraio); K7 e Bella Bijoux pagate con la
+  carta BCC (serve l'estratto carta del mese); ENEGAN 28/11, da addebitare. Gli addebiti mensili «NEXI PAYMENTS» e
+  «AMERICAN EXPRESS ... UTILIZZO CARTE DI CREDITO» sui conti MPS sono le commissioni dei POS (stessi mandati delle
+  fatture Nexi trimestrali), non carte di credito aziendali.

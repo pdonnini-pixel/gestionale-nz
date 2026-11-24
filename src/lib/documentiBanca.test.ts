@@ -363,6 +363,15 @@ describe('distinta RiBa MPS «Distinta Effetti Pagati»', () => {
 })
 
 describe('numeri dalla causale, casi delle distinte di ottobre 2026', () => {
+  it('serie davanti al numero (Tanesini): «8/211 DEL 12/02/2026» → 211, la data no', () => {
+    expect(numeriDallaCausale('RIF.DOCU.NUM.: 8/211 DEL 12/02/2026')).toEqual({ fatture: ['211'], noteCredito: [] })
+    expect(numeriDallaCausale('RIF.DOCU.NUM.: 8/1057 DEL 12/02/2026').fatture).toEqual(['1057'])
+    expect(numeriDallaCausale('RIF.DOCU.NUM.- 8-211 DEL 12-02-2026*').fatture).toEqual(['211'])
+    expect(numeriDallaCausale('RIF.DOCU.NUM.: 8.1469 del 14.05.2026').fatture).toEqual(['1469'])
+    // una cifra e l'anno dopo la barra restano come prima: niente fattura
+    expect(numeriDallaCausale('FT 8/2026').fatture).toEqual([])
+    expect(numeriDallaCausale('FT 1/26').fatture).toEqual([])
+  })
   it('le date scritte con spazi o senza separatore non sono fatture', () => {
     expect(numeriDallaCausale('201 RB20260010863656 DOC.N.000526199 DEL 30- 09-26').fatture).toEqual(['201', '526199'])
     expect(numeriDallaCausale('fattura n 208-2026 del 27 08 2026').fatture).toEqual(['208'])

@@ -73,6 +73,20 @@ Logo creato per l'app su richiesta di Patrizio, nello stile dei negozi (scritta 
 - Dentro: «Privacy e assistenza» nell'app (pagina `/assistenza/`, da lì l'informativa `/privacy/`); su Android i dati dell'app esclusi da backup e trasferimento (`data_extraction_rules.xml`); PIN cifrato nella coda del telefono del negozio (pagina web, non serve la build).
 - Preparare con `bash tools/app/prepara-app.sh` (modalità app), mai con `npm run build`.
 
+## versione 1.5 (18/11/2026)
+- **Android** `versionCode 9`, `versionName 1.5`; **iPhone** build 8, versione 1.5 (prima: Android 8, iPhone 7, versione 1.4 del 12/11/2026, commit aa8b71c).
+- Dentro, rispetto alla 1.4 (`git diff aa8b71c -- src/components/app src/pages/AppDipendente.tsx`):
+  - scheda **«Divise»** in basso (`AppDivise.tsx`, PR #858, migration 422): i capi della dipendente con data, codice, prezzo outlet, sconto e quanto paga, il totale, i capi annullati barrati. Solo lettura, legge `app_dipendente_divise`; la scheda compare solo se la funzione risponde;
+  - **ferie come eccezione** (`AppFerie.tsx`, PR #834, migration 407): se il negozio non ammette ferie o permessi in quel giorno ma ha scritto chi approva le eccezioni, l'app mostra il motivo e il pulsante «Chiedi come eccezione»; nelle richieste compare l'etichetta «chiesta come eccezione»;
+  - «referente» al posto di «responsabile» nei testi degli avvisi e dell'entrata segnata (`AppEventi.tsx`, `AppDipendente.tsx`, PR #854); il nome nelle istruzioni per riaccendere le notifiche viene dal marchio dell'azienda (PR #851).
+- Verifica del 18/11/2026 su NZ: tutte le funzioni chiamate dalla 1.4 esistono ancora con gli stessi parametri (quelli nuovi hanno un default), quindi chi resta sulla 1.4 continua a lavorare; con la 1.4 manca solo la scheda Divise e la richiesta in un giorno chiuso dà l'errore senza il pulsante dell'eccezione.
+- Preparare con `bash tools/app/prepara-app.sh` (modalità app), mai con `npm run build`.
+
+## stato degli store al 18/11/2026
+- **iPhone**: in App Store Connect l'app si chiama «New Zago Presenze». La 1.4 (7) aveva passato la revisione di Apple ed era «in attesa di rilascio da parte dello sviluppatore» (rilascio manuale), mai pubblicata. Decisione di Patrizio del 18/11: niente 1.4 sull'App Store. Il 18/11 Patrizio ha annullato il suo rilascio, ha trasformato la stessa scheda in versione 1.5 con la build 8 e l'ha inviata in revisione con «Rilascia automaticamente questa versione»: approvata la revisione, esce da sola sull'App Store. La 1.5 (8) è stata caricata il 18/11; al primo invio Xcode ha chiesto di rifare l'accesso dell'account Apple in Xcode (Manage Accounts).
+- **Android**: la 1.5 (`versionCode 9`) è andata prima nel test interno, poi il 18/11 Patrizio l'ha promossa in **produzione** (solo Italia, implementazione completa) ed è in revisione da Google. La pubblicazione gestita è spenta: approvata la revisione, l'app esce da sola. In produzione su Google Play non c'è l'app «non in elenco»: chiunque la trova cercandola, ma senza codice di attivazione non entra.
+- Durante la revisione di Apple non si generano codici normali per il dipendente demo (vedi «codice per i revisori degli store»).
+
 ## informativa privacy (12/11/2026)
 - Pubblicata in `public/privacy/index.html` → https://gestionale-nz.netlify.app/privacy/ (versione 1.2: testo di Lilian, approvato per la pubblicazione, con i dati tecnici verificati). È l'URL privacy per App Store Connect e Play Console.
 

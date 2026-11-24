@@ -3,7 +3,8 @@
  *
  * Ingredienti (vista v_iva_componenti_mensili, migration 193):
  *   - corrispettivi netti del mese, da tre fonti in ordine di preferenza:
- *       chiusure di cassa confermate (daily_revenue) → consuntivo granitico di
+ *       chiusure di cassa confermate (daily_revenue, SENZA le fatture emesse
+ *       in negozio gia' in active_invoices: migration 441) → consuntivo granitico di
  *       Budget & Controllo → preventivo di Budget & Controllo
  *   - IVA delle fatture attive emesse nel mese
  *   - IVA delle fatture passive di COMPETENZA del mese, come nel registro

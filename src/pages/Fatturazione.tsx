@@ -267,7 +267,11 @@ function FatturePassive() {
     const xml = await fetchXmlFor(inv.id)
     setOpeningId(null)
     const clean = (xml ?? '').replace(/^﻿/, '').trimStart()
-    if (clean.startsWith('<') && clean.includes('FatturaElettronica')) setViewingXml(clean)
+    // Il documento può essere XML FatturaPA oppure il JSON strutturato di A-Cube
+    // (tutte le fatture passive sincronizzate da A-Cube): InvoiceViewer li legge entrambi.
+    const isXml = clean.startsWith('<') && clean.includes('FatturaElettronica')
+    const isJson = clean.startsWith('{') && clean.includes('fattura_elettronica_')
+    if (isXml || isJson) setViewingXml(clean)
     else toast({ type: 'warning', message: 'Documento XML non disponibile per questa fattura.' })
   }, [fetchXmlFor, toast])
 

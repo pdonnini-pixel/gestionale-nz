@@ -22,6 +22,7 @@ import { festivitaItaliane } from './ferieRichiesta';
 import {
   SLOT_MINUTI, REGOLE_DEFAULT, LUNEDI_MAX_PERSONE, eFestivo, giornoIso, giornoPieno, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
   ritoccaScoperture, oreLavorate, lavoroMassimoGiorno, limitiPersona, rispettaFasce, oreScoperte, oreSottoModa, scopertureDelGiorno, coperturaLorda, copertura, minuti, hhmm,
+  azzeraChiusura, finestraLavoro, pausaDelTurno, applicaChiusure,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
 import { ottimizzaSettimana, senzaRiposoDiLegge, scegliGiorniLiberi, coppieFeriali, coppiaDelGiorno, sceltePerLaSettimana, ripartisciStraordinari, type RegoleNuove, type ContoChiavi } from './ottimizzaTurni';
@@ -174,7 +175,8 @@ export function fabbisognoDaTraffico(
   maxPersone: Map<string, number>,
   extra: Map<string, number> = new Map(),
 ): GiornoPiano[] {
-  return giorni.map((g) => tettoDelLunedi(fabbisognoDelGiorno(g), regole));
+  // nella chiusura di meta' giornata (migration 446) non serve nessuno, nemmeno per MODA o le due persone
+  return giorni.map((g) => azzeraChiusura(tettoDelLunedi(fabbisognoDelGiorno(g), regole)));
 
   function fabbisognoDelGiorno(g: GiornoPiano): GiornoPiano {
     if (g.chiuso) return g;
@@ -331,8 +333,9 @@ export function copriOrarioMinimo(
   const ore = (id: string, lista = out) => lista.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
   const giorniDi = (id: string, lista = out) => new Set(lista.filter((t) => t.employeeId === id).map((t) => t.data));
   const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
-    const pausa = pausaPer(lavoro, regole);
-    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+    // con la chiusura di meta' giornata (446) la chiusura attraversata e' la pausa; senza, come sempre
+    const f = finestraLavoro(giorni.find((x) => x.data === t.data), inizio, lavoro, regole);
+    return { ...t, inizio: hhmm(f.inizio), fine: hhmm(f.fine), pausaMinuti: f.pausa };
   };
   const nessunBuco = (lista: Turno[], date: string[]) => giorni.filter((g) => date.includes(g.data)).every((g) => cop(g, lista).every((c) => c >= 1));
   // giorni con un buco che non si e' riusciti a chiudere: si passa ai successivi
@@ -543,8 +546,9 @@ export function almenoDuePersone(
   const giorni = base.filter((g) => !g.chiuso);
   const ore = (id: string, lista: Turno[], date: string[]) => lista.filter((t) => t.employeeId === id && date.includes(t.data)).reduce((a, t) => a + oreLavorate(t), 0);
   const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
-    const pausa = pausaPer(lavoro, regole);
-    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+    // con la chiusura di meta' giornata (446) la chiusura attraversata e' la pausa; senza, come sempre
+    const f = finestraLavoro(giorni.find((x) => x.data === t.data), inizio, lavoro, regole);
+    return { ...t, inizio: hhmm(f.inizio), fine: hhmm(f.fine), pausaMinuti: f.pausa };
   };
   const persone = (g: GiornoPiano, lista: Turno[]) => new Set(lista.filter((t) => t.data === g.data).map((t) => t.employeeId));
   const copreTutto = (g: GiornoPiano, lista: Turno[]) => coperturaLorda(g, lista).every((c) => c >= 1);
@@ -664,8 +668,9 @@ export function dueTurniInveceDiTre(
   const ore = (id: string, lista: Turno[]) => lista.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
   const persona = new Map(persone.map((p) => [p.id, p]));
   const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
-    const pausa = pausaPer(lavoro, regole);
-    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+    // con la chiusura di meta' giornata (446) la chiusura attraversata e' la pausa; senza, come sempre
+    const f = finestraLavoro(giorni.find((x) => x.data === t.data), inizio, lavoro, regole);
+    return { ...t, inizio: hhmm(f.inizio), fine: hhmm(f.fine), pausaMinuti: f.pausa };
   };
   // ore in piu' di una persona: si tolgono accorciando i suoi turni degli altri
   // giorni di mezz'ora alla volta, finche' le ore scoperte non crescono
@@ -698,7 +703,7 @@ export function dueTurniInveceDiTre(
           if (a === b || a.employeeId === b.employeeId) continue;
           const da = Math.min(minuti(a.inizio), minuti(b.inizio));
           const al = Math.max(minuti(a.fine), minuti(b.fine));
-          const pausa = pausaMinimaPerPresenza(al - da, regole);
+          const pausa = pausaDelTurno(g, da, al, regole);
           const lavoro = al - da - pausa;
           if (lavoro > regole.turnoMaxOre * 60 || lavoro < regole.turnoMinOre * 60) continue;
           const chi = a.employeeId;
@@ -744,8 +749,9 @@ export function spostaEAllunga(
   const persona = new Map(persone.map((p) => [p.id, p]));
   const ore = (id: string, lista: Turno[]) => lista.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
   const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
-    const pausa = pausaPer(lavoro, regole);
-    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+    // con la chiusura di meta' giornata (446) la chiusura attraversata e' la pausa; senza, come sempre
+    const f = finestraLavoro(giorni.find((x) => x.data === t.data), inizio, lavoro, regole);
+    return { ...t, inizio: hhmm(f.inizio), fine: hhmm(f.fine), pausaMinuti: f.pausa };
   };
   for (const g of giorni.filter((x) => !x.chiuso)) {
     for (let giro = 0; giro < 4; giro++) {
@@ -861,8 +867,8 @@ export function weekendSenzaRiposi(
           if (!inizio || v > inizio.v) inizio = { s: s0, v };
         }
         if (!inizio) continue;
-        const pausa = pausaPer(lavoro, regole);
-        const nuovo: Turno = { employeeId: p.id, data: g.data, inizio: hhmm(inizio.s), fine: hhmm(inizio.s + lavoro + pausa), pausaMinuti: pausa };
+        const fin = finestraLavoro(g, inizio.s, lavoro, regole);
+        const nuovo: Turno = { employeeId: p.id, data: g.data, inizio: hhmm(fin.inizio), fine: hhmm(fin.fine), pausaMinuti: fin.pausa };
         const lista = [...senza, nuovo];
         const ore = oreScoperte(giorni, [...lista, ...fissi]);
         if (!meglio || (meglio.sotto && !sotto) || (meglio.sotto === sotto && ore < meglio.ore - 1e-9)) meglio = { lista, ore, sotto };
@@ -890,8 +896,9 @@ export function usaOreResidue(
     return w;
   };
   const conPausa = (t: Turno, inizio: number, lavoro: number): Turno => {
-    const pausa = pausaPer(lavoro, regole);
-    return { ...t, inizio: hhmm(inizio), fine: hhmm(inizio + lavoro + pausa), pausaMinuti: pausa };
+    // con la chiusura di meta' giornata (446) la chiusura attraversata e' la pausa; senza, come sempre
+    const f = finestraLavoro(giorni.find((x) => x.data === t.data), inizio, lavoro, regole);
+    return { ...t, inizio: hhmm(f.inizio), fine: hhmm(f.fine), pausaMinuti: f.pausa };
   };
   for (const p of persone) {
     let residuo = p.ore - out.filter((t) => t.employeeId === p.id).reduce((a, t) => a + oreLavorate(t), 0);
@@ -1497,7 +1504,8 @@ function pianificaMeseConRegola(args: {
     }
     // Rete di sicurezza: nessun turno fuori dagli accordi della scheda.
     const fissiRef = new Set(fissiSett);
-    const dellaSettimana = rispettaFasce(esito.filter((t) => !fissiRef.has(t)), args.persone, regole);
+    // e nessun turno proposto che cominci o finisca nella chiusura di meta' giornata (446)
+    const dellaSettimana = applicaChiusure(gg, rispettaFasce(esito.filter((t) => !fissiRef.has(t)), args.persone, regole), regole);
     turni.push(...dellaSettimana);
     // pezzo di settimana con l'altro mese ancora da fare: la quota del pezzo e' quello che ci sta dentro
     if (pezzoLibero && date.length < 7 && !altroMesePianificato(lun)) {

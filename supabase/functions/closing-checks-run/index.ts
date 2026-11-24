@@ -141,6 +141,8 @@ interface Check {
   outcome: Outcome; reason: string | null; action: string | null;
   /** Versione corta e senza tecnicismi, per il messaggio al negozio. */
   reasonBreve?: string | null;
+  /** Solo per i numeri diversi dalla foto: quale campo, cosa è scritto, cosa dice la foto. */
+  campo?: string; scritto?: number; letto?: string;
   undo_kind: "expense_row" | "fields" | null; undo_data: Record<string, unknown> | null;
   lezione: Lezione;
 }
@@ -151,45 +153,86 @@ function numEstratto(e: Record<string, unknown> | null, key: string): number | n
   return typeof v === "number" && Number.isFinite(v) ? r2(v) : null;
 }
 
+/**
+ * Il corrispettivo della foto dello scontrino di chiusura: quello stampato
+ * (fiscal_total) se c'è, altrimenti le vendite meno annulli e resi. Stessa
+ * regola di corrispettivoDaFoto in src/lib/cashClosings.ts e del report.
+ */
+function corrispettivoFoto(e: Record<string, unknown> | null): number | null {
+  const fiscale = numEstratto(e, "fiscal_total");
+  if (fiscale != null) return fiscale;
+  const vendite = numEstratto(e, "amount");
+  if (vendite == null) return null;
+  const annulli = Math.max(numEstratto(e, "cancellations_total") ?? 0, 0);
+  const resi = Math.max(numEstratto(e, "returns_total") ?? 0, 0);
+  return r2(vendite - annulli - resi);
+}
+
 // ─── Testi per il negozio ───
-// Quattro pezzi sempre: cosa si è visto, cos'era davvero, chi ha sistemato,
-// come evitarlo. Niente parole da gestionale, niente colpe.
-function testoLezione(l: Lezione, c: Check, nome: string | null, azienda: string | null): string | null {
-  if (!l || !c.closing) return null;
-  const saluto = nome ? `Ciao ${nome},` : "Ciao,";
-  const giorno = dataIt(c.closing.closing_date);
-  const perche = c.reasonBreve ?? c.reason ?? "";
-  const firma = `\n\nSe qualcosa non ti torna rispondi a questa mail: la risposta arriva all'amministrazione.\n\nGrazie,\n${azienda ? `Gestionale ${azienda}` : "Il gestionale"}`;
-  switch (l) {
-    case "spesa_in_ritardo":
-      return `${saluto}\n\nnella chiusura del ${giorno} in cassa mancavano ${eur(Math.abs(num(c.amount)))}. ${perche}\n\n${c.action ?? ""} La cassa adesso torna e tu non devi fare niente.\n\nPer le prossime volte: quando paghi qualcosa con i contanti della cassa, scrivila nella chiusura dello stesso giorno, al punto 2 «Spese pagate con i contanti», e fai la foto della fattura o dello scontrino. Non serve ricordare la cifra, basta la foto. Se la spesa si scrive giorni dopo, la cassa risulta in ammanco anche quando i conti sono giusti.${firma}`;
-    case "annullo_nel_totale":
-      return `${saluto}\n\nnella chiusura del ${giorno} c'era una differenza di ${eur(Math.abs(num(c.amount)))}, uguale agli annulli segnati sullo scontrino di chiusura. ${perche}\n\n${c.action ?? ""} Adesso torna tutto.\n\nPer le prossime volte: quando annulli uno scontrino pagato in contanti, nel punto 1 scrivi il totale e i contanti al netto dell'annullo, cioè solo i soldi che sono entrati davvero, e spiega in nota com'è andata. Lo scontrino del registratore quegli annulli li tiene ancora dentro.${firma}`;
-    case "campo_diverso_dalla_foto":
-      return `${saluto}\n\nnella chiusura del ${giorno} un numero scritto non combacia con la foto: ${c.detail}\n\nControlla con il documento in mano e, se serve, chiedi all'amministrazione di riaprire la giornata.\n\nPer le prossime volte: dopo aver fatto la foto, controlla che il numero scritto sia quello del documento. Il gestionale legge le foto e propone i numeri nei campi vuoti, ma l'ultima parola è la tua.${firma}`;
+// Patrizio, 20/11/2026: una sola mail per negozio, un saluto e una firma, e per
+// ogni problema cosa non va e cosa fare, con parole da cassiera. Niente parole
+// da gestionale («bozza», «corrispettivi», «la giornata non esiste»), niente colpe.
+function giornoBreve(iso: string): string {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d} ${MESI[m - 1]}`;
+}
+/** «ROMA SORATTE» → «Roma Soratte», per l'oggetto della mail. */
+function nomeNegozio(n: string): string {
+  return n.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (_m, sep: string, l: string) => sep + l.toUpperCase());
+}
+/** Una voce della mail: cosa non va e cosa fare. daFare = il negozio deve fare qualcosa. */
+function voceLezione(c: Check): { testo: string; daFare: boolean } | null {
+  if (!c.lezione || !c.closing) return null;
+  const aperta = c.closing.status === "bozza";
+  switch (c.lezione) {
     case "chiusura_in_bozza":
-      return `${saluto}\n\nla chiusura del ${giorno} è rimasta in bozza: i dati ci sono ma non è stata confermata, quindi per il gestionale la giornata non esiste e domani sera non sa da quanto contante ripartire.\n\nApri la chiusura e premi «Conferma chiusura». Se non riesci, scrivi all'amministrazione.${firma}`;
+      return { daFare: true, testo: "La chiusura non è stata confermata. Apri la chiusura e premi «Conferma chiusura» in fondo alla pagina: finché non è confermata, la sera dopo la cassa non torna." };
+    case "campo_diverso_dalla_foto": {
+      // Totale incassato diverso dalla somma dei pagamenti: non è un problema di foto.
+      if (c.kind === "differenza_corrispettivi") {
+        const totale = num(c.closing.total_receipts) + num(c.closing.invoices_total);
+        const pagamenti = num(c.closing.channels_total);
+        const dove = aperta ? "correggilo prima di confermare la chiusura." : "chiedi all'amministrazione di riaprire la chiusura e correggilo.";
+        return { daFare: true, testo: `Il totale dell'incasso (${eur(totale)}) non è uguale alla somma di contanti, POS e altri pagamenti (${eur(pagamenti)}): la differenza è ${eur(Math.abs(totale - pagamenti))}. Controlla i numeri con gli scontrini: se ne trovi uno sbagliato, ${dove}` };
+      }
+      const come = aperta ? "correggi il numero prima di confermare la chiusura." : "chiedi all'amministrazione di riaprire la chiusura e correggi il numero.";
+      return { daFare: true, testo: c.campo && c.scritto != null && c.letto
+        ? `Hai scritto ${eur(c.scritto)} come ${c.campo}, ma sulla foto c'è ${c.letto}. Controlla con il foglio in mano e, se è giusta la foto, ${come}`
+        : `Un numero scritto non è uguale a quello della foto. Controlla con il foglio in mano e, se è giusta la foto, ${come}` };
+    }
     case "foto_mancante":
-      return `${saluto}\n\nnella chiusura del ${giorno} manca la foto dello scontrino di chiusura del registratore. È l'unica foto obbligatoria: senza quella nessuno può controllare i numeri della giornata.\n\nSe lo scontrino ce l'hai ancora, apri la giornata e caricalo.${firma}`;
+      return { daFare: true, testo: "Manca la foto dello scontrino di chiusura della cassa. Se ce l'hai ancora, apri la chiusura e caricala." };
+    case "spesa_in_ritardo":
+      return { daFare: false, testo: `In cassa mancavano ${eur(Math.abs(num(c.amount)))}. ${c.reasonBreve ?? ""} L'abbiamo segnata noi, non devi fare niente. La prossima volta: quando paghi qualcosa con i soldi della cassa, segnalo nella chiusura della stessa sera e fai la foto della fattura o dello scontrino.`.replace(/\s+/g, " ") };
+    case "annullo_nel_totale":
+      return { daFare: false, testo: `C'era una differenza di ${eur(Math.abs(num(c.amount)))}, uguale agli scontrini annullati. ${c.reasonBreve ?? ""} L'abbiamo corretto noi, non devi fare niente. La prossima volta: se annulli uno scontrino, nel totale e nei contanti scrivi solo i soldi entrati davvero e spiega nella nota cosa è successo.`.replace(/\s+/g, " ") };
     default:
       return null;
   }
 }
-function oggettoLezione(c: Check): string {
-  const giorno = c.closing ? dataIt(c.closing.closing_date) : "";
-  switch (c.lezione) {
-    case "spesa_in_ritardo":
-    case "annullo_nel_totale":
-      return `${c.outlet.name}, chiusura del ${giorno}: abbiamo sistemato noi`;
-    case "campo_diverso_dalla_foto":
-      return `${c.outlet.name}, chiusura del ${giorno}: un numero da controllare`;
-    case "chiusura_in_bozza":
-      return `${c.outlet.name}, chiusura del ${giorno}: manca la conferma`;
-    case "foto_mancante":
-      return `${c.outlet.name}, chiusura del ${giorno}: manca la foto dello scontrino`;
-    default:
-      return `${c.outlet.name}, chiusura del ${giorno}`;
-  }
+/** La mail al negozio: tutte le voci di una chiusura in un solo messaggio. */
+function mailAlNegozio(lista: Check[], nome: string | null, azienda: string | null): { subject: string; text: string } | null {
+  // Un annullo può far scattare due controlli (totale e cassa): nella mail basta una voce.
+  const viste = new Set<string>();
+  const voci = lista.filter((c) => {
+    if (c.lezione !== "annullo_nel_totale") return true;
+    if (viste.has("annullo")) return false;
+    viste.add("annullo"); return true;
+  }).map(voceLezione).filter((v): v is { testo: string; daFare: boolean } => v != null);
+  const primo = lista[0];
+  if (voci.length === 0 || !primo.closing) return null;
+  const giorno = giornoBreve(primo.closing.closing_date);
+  const daSistemare = voci.filter((v) => v.daFare).length;
+  const n = voci.length;
+  const apertura = n === 1
+    ? (daSistemare ? `nella chiusura del ${giorno} c'è una cosa da sistemare:` : `nella chiusura del ${giorno} c'era una cosa che abbiamo già sistemato noi. Te la scriviamo così la prossima volta lo sai:`)
+    : daSistemare === n ? `nella chiusura del ${giorno} ci sono ${n} cose da sistemare:`
+    : daSistemare === 0 ? `nella chiusura del ${giorno} c'erano ${n} cose che abbiamo già sistemato noi. Te le scriviamo così la prossima volta lo sai:`
+    : `nella chiusura del ${giorno} ci sono ${n} cose:`;
+  const corpo = n === 1 ? voci[0].testo : voci.map((v, i) => `${i + 1}. ${v.testo}`).join("\n\n");
+  const text = `${nome ? `Ciao ${nome},` : "Ciao,"}\n\n${apertura}\n\n${corpo}\n\nSe qualcosa non ti torna, rispondi a questa mail.\n\nGrazie,\n${azienda ? `Amministrazione ${azienda}` : "L'amministrazione"}`;
+  const esito = daSistemare === 0 ? "abbiamo sistemato noi" : daSistemare === 1 ? "una cosa da sistemare" : `${daSistemare} cose da sistemare`;
+  return { subject: `${nomeNegozio(primo.outlet.name)}, chiusura del ${giorno}: ${esito}`, text };
 }
 
 // ─── L'istruttoria ───
@@ -299,24 +342,16 @@ async function istruisci(
         checks.push({
           ...base, kind: "foto_diversa", amount: scritto, fingerprint: "versamento",
           detail: `versamento scritto ${eur(scritto)} ma dalle ricevute risulta ${eur(somma)}${versFoto.length > 1 ? ` (${versFoto.map((v) => eur(v)).join(" + ")})` : ""}`,
+          campo: "versamento in banca", scritto, letto: eur(somma),
           outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
           lezione: nota ? null : "campo_diverso_dalla_foto",
         });
       }
     }
 
-    const totFoto = letteDi("totale").map((a) => numEstratto(a.extracted, "amount")).filter((v): v is number => v != null);
-    if (totFoto.length > 0) {
-      const scritto = num(c.total_receipts);
-      if (!totFoto.some((v) => r2(Math.abs(v - scritto)) <= tolG)) {
-        checks.push({
-          ...base, kind: "foto_diversa", amount: scritto, fingerprint: "totale",
-          detail: `totale corrispettivi scritto ${eur(scritto)} ma dalla foto risulta ${totFoto.map((v) => eur(v)).join(" oppure ")}`,
-          outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-          lezione: nota ? null : "campo_diverso_dalla_foto",
-        });
-      }
-    }
+    // Il totale si confronta con la foto DOPO i passi 4 e 5, perché un annullo
+    // sistemato lì cambia il totale scritto (vedi totScritto, sotto).
+    let totScritto = num(c.total_receipts);
 
     for (const a of letteDi("canale")) {
       const letto = numEstratto(a.extracted, "amount");
@@ -327,6 +362,7 @@ async function istruisci(
         checks.push({
           ...base, kind: "foto_diversa", amount: num(l.amount), fingerprint: `canale:${l.id}`,
           detail: `${etichetta} scritto ${eur(num(l.amount))} ma dalla foto risulta ${eur(letto)}`,
+          campo: `importo di ${etichetta}`, scritto: num(l.amount), letto: eur(letto),
           outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
           lezione: nota ? null : "campo_diverso_dalla_foto",
         });
@@ -354,6 +390,7 @@ async function istruisci(
         if (!dryRun) {
           await admin.from("outlet_daily_closings").update({ total_receipts: dopo }).eq("id", c.id);
         }
+        totScritto = dopo;
         checks.push({
           ...base, kind: "differenza_corrispettivi", amount: diffCorr, fingerprint: "annullo",
           detail: `totale incassato e somma dei mezzi di pagamento non quadrano (differenza ${eur(diffCorr)})`,
@@ -410,6 +447,7 @@ async function istruisci(
           await admin.from("outlet_daily_closing_lines").update({ amount: cashDopo }).eq("id", rigaContanti.id);
           await admin.from("outlet_daily_closings").update({ total_receipts: totDopo }).eq("id", c.id);
         }
+        totScritto = totDopo;
         checks.push({
           ...base, kind: "differenza_cassa", amount: diffCassa, fingerprint: "annullo_contanti",
           detail: `contante in cassa in ammanco di ${eur(Math.abs(diffCassa))}`,
@@ -553,6 +591,23 @@ async function istruisci(
           });
         }
       }
+    }
+
+    // 5b. Il totale scritto e la foto dello scontrino di chiusura.
+    //     Si confronta con il CORRISPETTIVO, non con le vendite: Roma Soratte,
+    //     19/11/2026, vendite 2.034,65, annulli 111,90, corrispettivo 1.922,75.
+    //     La cassiera aveva scritto 1.922,75, il numero giusto, e il controllo
+    //     le diceva di scrivere 2.034,65. Più foto (registratore e POS): basta
+    //     che una combaci.
+    const totFoto = letteDi("totale").map((a) => corrispettivoFoto(a.extracted)).filter((v): v is number => v != null);
+    if (totFoto.length > 0 && !totFoto.some((v) => r2(Math.abs(v - totScritto)) <= tolG)) {
+      checks.push({
+        ...base, kind: "foto_diversa", amount: totScritto, fingerprint: "totale",
+        detail: `totale corrispettivi scritto ${eur(totScritto)} ma dalla foto il corrispettivo è ${totFoto.map((v) => eur(v)).join(" oppure ")}`,
+        campo: "totale dell'incasso", scritto: totScritto, letto: totFoto.map((v) => eur(v)).join(" oppure "),
+        outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
+        lezione: nota ? null : "campo_diverso_dalla_foto",
+      });
     }
 
     // 6. La nota della cassiera su una giornata che quadra: è informazione,
@@ -749,10 +804,9 @@ Deno.serve(async (req) => {
           continue;
         }
         const nome = nomeDiSaluto(lista[0].closing?.closed_by_name ?? null, nomiVeri);
-        const testi = lista.map((c) => testoLezione(c.lezione, c, nome, azienda)).filter((t): t is string => !!t);
-        if (testi.length === 0) continue;
-        const subject = oggettoLezione(lista[0]);
-        const text = testi.join("\n\n———\n\n");
+        const mail = mailAlNegozio(lista, nome, azienda);
+        if (!mail) continue;
+        const { subject, text } = mail;
         const html = `<!doctype html><html><body style="margin:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif"><div style="max-width:620px;margin:0 auto;padding:20px"><div style="background:#fff;border-radius:12px;padding:20px;font-size:14px;line-height:1.6;color:#0f172a;white-space:pre-wrap">${esc(text)}</div><p style="margin:12px 0 0;font-size:11px;color:#94a3b8;text-align:center">Messaggio automatico, dal controllo delle chiusure della sera.</p></div></body></html>`;
         let err: string | null = null;
         if (!dryRun) {

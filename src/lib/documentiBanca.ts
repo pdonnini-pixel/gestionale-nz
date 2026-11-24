@@ -536,6 +536,7 @@ const itImporto = (s: string): number | null => {
  * «SALDO FATT N.3657 MENO NC 3797» → fatture [3657], note di credito [3797].
  * Quello che viene dopo «NC» / «N.C.» / «NOTA CREDITO» sono note di credito.
  * Si prendono solo numeri di almeno 2 cifre; date e anni («/26», «2026») no.
+ * Con la serie davanti («8/211», «8-211», «8.1469») la fattura e' il numero dopo.
  */
 export function numeriDallaCausale(causale: string): { fatture: string[]; noteCredito: string[] } {
   // Una causale vera sta in poche righe: il tetto evita regex lente su testi costruiti apposta.
@@ -562,8 +563,13 @@ export function numeriDallaCausale(causale: string): { fatture: string[]; noteCr
   const dopo = i >= 0 ? t.slice(i) : ''
   const numeri = (s: string, gia: string[]): string[] => {
     const out: string[] = [...gia]
+    // «8/211» (Tanesini, effetti RiBa MPS): una cifra sola davanti alla barra e' la
+    // serie, il numero della fattura e' quello dopo (almeno 3 cifre, non un anno 20xx).
     // «882/26»: il numero e' la parte prima della barra; l'anno dopo la barra non conta.
-    for (const m of s.replace(/(\d+)\/\d{2,4}\b/g, '$1').matchAll(/\b0*(\d{2,})\b/g)) {
+    const pulito = s
+      .replace(/\b\d\/0*(\d{3,})\b/g, (m, n: string) => (/^20\d{2}$/.test(n) ? m : n))
+      .replace(/(\d+)\/\d{2,4}\b/g, '$1')
+    for (const m of pulito.matchAll(/\b0*(\d{2,})\b/g)) {
       const n = m[1]
       if (/^20\d{2}$/.test(n)) continue
       if (!out.includes(n)) out.push(n)

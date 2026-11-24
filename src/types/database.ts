@@ -21586,6 +21586,8 @@ export type Database = {
         Row: {
           apre: string | null
           chiude: string | null
+          chiusura_alle: string | null
+          chiusura_dalle: string | null
           chiuso: boolean
           company_id: string
           giorno: number
@@ -21598,6 +21600,8 @@ export type Database = {
         Insert: {
           apre?: string | null
           chiude?: string | null
+          chiusura_alle?: string | null
+          chiusura_dalle?: string | null
           chiuso?: boolean
           company_id: string
           giorno: number
@@ -21610,6 +21614,8 @@ export type Database = {
         Update: {
           apre?: string | null
           chiude?: string | null
+          chiusura_alle?: string | null
+          chiusura_dalle?: string | null
           chiuso?: boolean
           company_id?: string
           giorno?: number
@@ -22014,6 +22020,8 @@ export type Database = {
         Row: {
           apre: string | null
           chiude: string | null
+          chiusura_alle: string | null
+          chiusura_dalle: string | null
           chiuso: boolean
           company_id: string
           data: string
@@ -22027,6 +22035,8 @@ export type Database = {
         Insert: {
           apre?: string | null
           chiude?: string | null
+          chiusura_alle?: string | null
+          chiusura_dalle?: string | null
           chiuso?: boolean
           company_id: string
           data: string
@@ -22040,6 +22050,8 @@ export type Database = {
         Update: {
           apre?: string | null
           chiude?: string | null
+          chiusura_alle?: string | null
+          chiusura_dalle?: string | null
           chiuso?: boolean
           company_id?: string
           data?: string
@@ -30567,6 +30579,8 @@ export type Database = {
           chiusure_netto: number | null
           company_id: string | null
           consuntivo_netto: number | null
+          fatture_cassa_lordo: number | null
+          fatture_cassa_netto: number | null
           giorni_chiusura: number | null
           iva_fatture_attive: number | null
           iva_fatture_passive: number | null

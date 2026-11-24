@@ -40,9 +40,9 @@ import { assignPosReceipts, isPayByLink, posReceiptsFrom, openPosTotal, posCarry
 import {
   type PaymentChannel, type AttachmentTarget, type ExpenseKind, type ExtractedData, CLOSING_STATUS_LABELS, EXPENSE_KIND_LABELS, kindForTarget,
   parseAmount, formatAmount, formatEuro, computeQuadrature, todayIso, addDaysIso, monthDays,
-  formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount, extractedNumber,
+  formatDateIt, MESI_IT, attachmentPath, compressImage, extractedAmount, extractedNumber, corrispettivoDaFoto,
   eveningDeviation, DEVIATION_LABELS, type DayTargetRow, type DeviationLine,
-  closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, cancelledCashNotCollected, EXPENSE_KINDS_OUT,
+  closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, totalDifferentFromPhoto, cancelledCashNotCollected, EXPENSE_KINDS_OUT,
   type ClosingBlocker, type ClosingBlockField, type CancelledCashFix,
   type DepositDraft, depositTotals, depositPhotoBelongs, BANK_STATUS_LABELS, bankStatusMark, type BankStatus,
 } from '../lib/cashClosings'
@@ -159,6 +159,8 @@ export default function ChiusuraCassa() {
   // Punto 1 a zero mentre la foto dello scontrino dice un'altra cifra.
   const [totalWarn, setTotalWarn] = useState<number | null>(null)
   const [totalAccepted, setTotalAccepted] = useState(false)
+  const [diffWarn, setDiffWarn] = useState<number | null>(null)
+  const [diffAccepted, setDiffAccepted] = useState(false)
   // Annullo in contanti: ammanco pari agli annulli letti dalla foto.
   const [cancelWarn, setCancelWarn] = useState<CancelledCashFix | null>(null)
   const [cancelAccepted, setCancelAccepted] = useState(false)
@@ -323,7 +325,7 @@ export default function ChiusuraCassa() {
     cashPendingDeclared: parseAmount(form.cashPendingDeclared),
   }), [quad.cashFloatExpected, form.cashFloatDeclared, form.cashPendingDeclared])
   const fixPending = (v: number) => { update({ cashPendingDeclared: formatAmount(v) }); setPendingWarn(null) }
-  const fixTotal = (v: number) => { update({ total: formatAmount(v) }); setTotalWarn(null) }
+  const fixTotal = (v: number) => { update({ total: formatAmount(v) }); setTotalWarn(null); setDiffWarn(null) }
   const goToBlock = (field: ClosingBlockField) => {
     setBlockers(null)
     const el = field === 'fondo' ? fondoRef.current : daVersareRef.current
@@ -346,7 +348,7 @@ export default function ChiusuraCassa() {
     setForm((f) => (f.cashFloatOpening === v ? f : { ...f, cashFloatOpening: v }))
     setDirty(true)
   }, [derivedOpening])
-  useEffect(() => { setAllCashNow(''); setPendingAccepted(false); setPendingWarn(null); setTotalAccepted(false); setTotalWarn(null); setCancelAccepted(false); setCancelWarn(null); setCarryAccepted(false); setCarryWarn(null) }, [outletId, dateIso])
+  useEffect(() => { setAllCashNow(''); setPendingAccepted(false); setPendingWarn(null); setTotalAccepted(false); setTotalWarn(null); setDiffAccepted(false); setDiffWarn(null); setCancelAccepted(false); setCancelWarn(null); setCarryAccepted(false); setCarryWarn(null) }, [outletId, dateIso])
 
   const update = (patch: Partial<FormState>) => { setForm((f) => ({ ...f, ...patch })); setDirty(true) }
   const updateAmount = (channelId: string, v: string) => { setForm((f) => ({ ...f, amounts: { ...f.amounts, [channelId]: v } })); setDirty(true) }
@@ -366,17 +368,23 @@ export default function ChiusuraCassa() {
     a.target === t && (t === 'canale' ? a.line_id === id : t === 'spesa' ? a.expense_id === id
       : t === 'versamento' && id ? depositPhotoBelongs(a.deposit_id, id, deposits[0]?.id) : true))
   const totalPhotos = photosFor('totale')
-  /** Totale letto dalla foto dello scontrino di chiusura (l'ultima letta). */
+  /** Corrispettivo letto dalla foto dello scontrino di chiusura (l'ultima letta), al netto di annulli e resi. */
   const photoTotal = useMemo(() => {
     const letti = totalPhotos
       .filter((a) => ['letta', 'da_rivedere'].includes(a.extraction_status ?? ''))
-      .map((a) => extractedAmount(a.extracted))
+      .map((a) => corrispettivoDaFoto(a.extracted))
       .filter((v): v is number => v != null)
     return letti.length > 0 ? letti[letti.length - 1] : null
   }, [totalPhotos])
   const totalHint = useMemo(() => totalMissingFromPhoto({
     isClosedDay: form.isClosedDay, totalReceipts: parseAmount(form.total), photoTotal,
   }), [form.isClosedDay, form.total, photoTotal])
+  // Cambiato il totale (o la foto), il «Il mio numero è giusto» di prima non vale più.
+  /** Totale scritto diverso dal corrispettivo della foto (non zero: quello è totalHint). */
+  const totalDiff = useMemo(() => totalDifferentFromPhoto({
+    isClosedDay: form.isClosedDay, totalReceipts: parseAmount(form.total), photoTotal,
+  }), [form.isClosedDay, form.total, photoTotal])
+  useEffect(() => { setDiffAccepted(false) }, [totalDiff])
   /** Annulli letti dalla foto dello scontrino di chiusura (l'ultima letta). */
   const photoCancellations = useMemo(() => {
     const letti = totalPhotos
@@ -594,11 +602,14 @@ export default function ChiusuraCassa() {
     return out
   }
 
-  const confirm = async (force = false, pendingOk = false, totalOk = false, cancelOk = false, carryOk = false) => {
+  const confirm = async (force = false, pendingOk = false, totalOk = false, cancelOk = false, carryOk = false, diffOk = false) => {
     if (missingData.length > 0) { setBlockers(missingData); return }
     if (!totalOk && !totalAccepted && totalHint != null) { setTotalWarn(totalHint); return }
     if (!pendingOk && !pendingAccepted && pendingHint != null) { setPendingWarn(pendingHint); return }
     if (!cancelOk && !cancelAccepted && cancelHint != null) { setCancelWarn(cancelHint); return }
+    // Totale diverso dalla foto: dopo l'annullo in contanti, che sistema totale e contanti insieme.
+    // Un suo parametro, non totalOk: gli altri avvisi passano totalOk=true per altri motivi e lo salterebbero.
+    if (!diffOk && !diffAccepted && cancelHint == null && totalDiff != null) { setDiffWarn(totalDiff); return }
     if (!carryOk && !carryAccepted && carryHint != null) { setCarryWarn(carryHint); return }
     if (!form.isClosedDay && totalPhotos.length === 0) {
       toast({ type: 'warning', message: 'Serve la foto dello scontrino di chiusura: è l\'unica obbligatoria.' })
@@ -786,11 +797,12 @@ export default function ChiusuraCassa() {
     const t = target.target === 'versamento' && !target.depositId && depositsRef.current.length > 0
       ? { ...target, depositId: depositsRef.current[0].id } : target
     const amount = extractedAmount(ex)
+    const corrispettivo = corrispettivoDaFoto(ex)
     setForm((f) => {
       const next = { ...f, amounts: { ...f.amounts } }
       let changed = false
       if (t.target === 'totale') {
-        if (amount != null && isBlank(f.total)) { next.total = formatAmount(amount); changed = true }
+        if (corrispettivo != null && isBlank(f.total)) { next.total = formatAmount(corrispettivo); changed = true }
         const cash = typeof ex.cash === 'number' ? ex.cash : null
         const cashCh = channels.find((c) => c.kind === 'contanti')
         if (cash != null && cashCh && isBlank(f.amounts[cashCh.id])) { next.amounts[cashCh.id] = formatAmount(cash); changed = true }
@@ -855,7 +867,8 @@ export default function ChiusuraCassa() {
   const ExtractionChip = ({ a, t }: { a: AttachmentRow; t: PhotoTarget }) => {
     if (a.target === 'altro') return null
     if (readingIds.has(a.id)) return <span className="inline-flex items-center gap-1 text-[11px] text-blue-700"><Loader2 size={11} className="animate-spin" />lettura…</span>
-    const amount = extractedAmount(a.extracted)
+    // Per lo scontrino di chiusura si propone il corrispettivo, non le vendite lorde.
+    const amount = a.target === 'totale' ? corrispettivoDaFoto(a.extracted) : extractedAmount(a.extracted)
     const status = a.extraction_status
     if (status === 'in_attesa') {
       return editable ? <button type="button" onClick={() => void readPhoto(a.id, t)} className="text-[11px] text-blue-700 underline">leggi la foto</button> : null
@@ -1013,7 +1026,7 @@ export default function ChiusuraCassa() {
                 <p className="text-xs text-slate-500 -mt-2">Una sola foto: lo scontrino di chiusura del registratore con accanto le chiusure dei POS, come negli esempi. È obbligatoria. Il gestionale legge totale, contanti e chiusure POS e li propone nei campi vuoti: controllali sempre con lo scontrino in mano.</p>
                 <div>
                   <label className={labelCls}>Totale corrispettivi (dallo scontrino di chiusura)</label>
-                  <input inputMode="decimal" value={form.total} disabled={!editable} onChange={(e) => update({ total: e.target.value })} placeholder="0,00" className={totalHint != null && !readOnly ? `${inputCls} border-red-400 ring-2 ring-red-100` : `${inputCls} border-blue-300 bg-blue-50/40`} />
+                  <input inputMode="decimal" value={form.total} disabled={!editable} onChange={(e) => update({ total: e.target.value })} placeholder="0,00" className={(totalHint != null || totalDiff != null) && !readOnly ? `${inputCls} border-red-400 ring-2 ring-red-100` : `${inputCls} border-blue-300 bg-blue-50/40`} />
                   <PhotoStrip t={{ target: 'totale' }} required />
                   {totalHint != null && !readOnly && (
                     <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 space-y-2">
@@ -1024,6 +1037,19 @@ export default function ChiusuraCassa() {
                         className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold">
                         <Check size={14} />Scrivi {formatEuro(totalHint)}
                       </button>
+                    </div>
+                  )}
+                  {totalDiff != null && !readOnly && (
+                    <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 space-y-2">
+                      <p className="text-sm text-amber-900">
+                        <strong>Il totale non è quello della foto.</strong> Dallo scontrino di chiusura il corrispettivo (vendite meno annulli e resi) è <strong>{formatEuro(totalDiff)}</strong>, qui c'è {formatEuro(parseAmount(form.total))}.
+                      </p>
+                      {editable && (
+                        <button type="button" onClick={() => fixTotal(totalDiff)}
+                          className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-600 text-white text-sm font-semibold">
+                          <Check size={14} />Scrivi {formatEuro(totalDiff)}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1401,6 +1427,24 @@ export default function ChiusuraCassa() {
           <button onClick={() => pendingWarn != null && fixPending(pendingWarn)}
             className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
             <Check size={16} />Correggi in {formatEuro(pendingWarn)}
+          </button>
+        </div>
+      </Modal>
+
+      {/* Totale diverso dal corrispettivo della foto: avviso al centro prima di confermare */}
+      <Modal open={diffWarn != null} onClose={() => setDiffWarn(null)} title="Il totale non è quello della foto">
+        <p className="text-sm text-slate-700 mb-3">
+          Nel punto 1 hai scritto <strong>{formatEuro(parseAmount(form.total))}</strong>, ma dallo scontrino di chiusura il corrispettivo (vendite meno annulli e resi) è <strong>{formatEuro(diffWarn)}</strong>.
+        </p>
+        <p className="text-sm text-slate-600 mb-4">
+          Controlla con lo scontrino in mano. La lettura della foto può sbagliare: se il tuo numero è giusto, confermalo.
+        </p>
+        <div className="flex flex-wrap justify-end gap-2">
+          <button onClick={() => { setDiffAccepted(true); setDiffWarn(null); void confirm(false, false, true, false, false, true) }}
+            className="px-4 py-3 text-sm rounded-xl border border-slate-300 text-slate-700 font-medium">Il mio numero è giusto</button>
+          <button onClick={() => diffWarn != null && fixTotal(diffWarn)}
+            className="px-4 py-3 text-sm rounded-xl bg-emerald-600 text-white font-semibold inline-flex items-center gap-2">
+            <Check size={16} />Scrivi {formatEuro(diffWarn)}
           </button>
         </div>
       </Modal>
