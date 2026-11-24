@@ -529,6 +529,16 @@ describe('unusualCashFloat', () => {
     expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 69.9, usual: 504 })?.piuAlto).toBe(false)
   })
 
+  it('tace quando il fondo e\' cambiato davvero e ieri era gia\' questo', () => {
+    // Il negozio passa da 504 a 600: il solito resta 504 per due settimane,
+    // ma dalla seconda sera il fondo di ieri e' gia' 600 e l'avviso sparisce.
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 600, usual: 504, previous: 600 })).toBeNull()
+    // La prima sera del cambio l'avviso ci sta: ieri era ancora 504.
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 600, usual: 504, previous: 504 })?.scritto).toBe(600)
+    // I due punti scambiati non danno mai il fondo di ieri.
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 3360.3, usual: 504, previous: 504 })?.piuAlto).toBe(true)
+  })
+
   it('tace sul fondo di sempre e quando non c\'e\' niente da dire', () => {
     expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 504, usual: 504 })).toBeNull()
     expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 504.5, usual: 504 })).toBeNull()  // sotto l'euro

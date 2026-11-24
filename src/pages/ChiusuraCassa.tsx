@@ -130,6 +130,9 @@ export default function ChiusuraCassa() {
   const [prevFloat, setPrevFloat] = useState<number | null>(null)
   // Il fondo cassa che questo negozio scrive di solito (null se non ha un'abitudine).
   const [usualFloat, setUsualFloat] = useState<number | null>(null)
+  // Mentre si scrive il fondo l'avviso tace: a «5» e a «50» sarebbe sempre
+  // fuori scala, e un avviso che lampeggia a ogni tasto si impara a ignorare.
+  const [fondoAttivo, setFondoAttivo] = useState(false)
   // Contanti ancora da versare secondo l'ultima chiusura confermata (0 se non c'era il campo).
   const [prevPending, setPrevPending] = useState<number>(0)
   // Prima chiusura del negozio: se la cassiera non sa il fondo di ieri, conta
@@ -407,8 +410,8 @@ export default function ChiusuraCassa() {
   // Fondo molto diverso da quello di tutti i giorni: quasi sempre sono i punti
   // 4 e 5 scambiati (Palmanova, 23/11/2026).
   const floatHint = useMemo(() => unusualCashFloat({
-    isClosedDay: form.isClosedDay, cashFloatDeclared: parseAmount(form.cashFloatDeclared), usual: usualFloat,
-  }), [form.isClosedDay, form.cashFloatDeclared, usualFloat])
+    isClosedDay: form.isClosedDay, cashFloatDeclared: parseAmount(form.cashFloatDeclared), usual: usualFloat, previous: prevFloat,
+  }), [form.isClosedDay, form.cashFloatDeclared, usualFloat, prevFloat])
   const cashChannelId = useMemo(() => channels.find((ch) => ch.kind === 'contanti')?.id ?? null, [channels])
   /** Riporta totale e contanti al netto dell'annullo, in un gesto solo. */
   const fixCancelled = (h: CancelledCashFix) => {
@@ -1248,11 +1251,11 @@ export default function ChiusuraCassa() {
                 )}
                 <div>
                   <label className={labelCls}>Fondo cassa contato stasera</label>
-                  <input inputMode="decimal" value={form.cashFloatDeclared} disabled={!editable} onChange={(e) => update({ cashFloatDeclared: e.target.value })} placeholder="0,00" className={reqCls(missesFondo && !readOnly)} />
+                  <input inputMode="decimal" value={form.cashFloatDeclared} disabled={!editable} onChange={(e) => update({ cashFloatDeclared: e.target.value })} onFocus={() => setFondoAttivo(true)} onBlur={() => setFondoAttivo(false)} placeholder="0,00" className={reqCls(missesFondo && !readOnly)} />
                   <p className="text-xs text-slate-500 mt-1">Il fondo fisso che resta in cassa per domani, senza gli incassi da versare.</p>
                   {missesFondo && !readOnly && <p className="text-xs text-red-600 mt-1">Conta il fondo e scrivilo: senza questo numero non puoi confermare la chiusura.</p>}
                 </div>
-                {floatHint != null && !readOnly && (
+                {floatHint != null && !fondoAttivo && !readOnly && (
                   <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
                     <p className="text-sm text-amber-900">
                       <strong>Controlla il fondo cassa.</strong> Qui il fondo è sempre {formatEuro(floatHint.usual)}, e stasera hai scritto {formatEuro(floatHint.scritto)}.

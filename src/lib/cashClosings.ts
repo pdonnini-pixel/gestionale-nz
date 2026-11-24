@@ -540,6 +540,8 @@ export interface UnusualFloatInput {
   cashFloatDeclared: number | null
   /** Il fondo di solito, da usualCashFloat (null se non c'e' un'abitudine). */
   usual: number | null
+  /** Il fondo dell'ultima chiusura confermata, per il fondo cambiato davvero. */
+  previous?: number | null
 }
 
 export interface UnusualFloat {
@@ -559,6 +561,10 @@ export function unusualCashFloat(i: UnusualFloatInput): UnusualFloat | null {
   const { cashFloatDeclared: scritto, usual } = i
   if (scritto == null || usual == null) return null
   if (!(usual > 0)) return null
+  // Fondo cambiato davvero: ieri era gia' questo. I due punti scambiati non
+  // danno quasi mai il fondo di ieri, quindi qui si tace e il negozio che
+  // passa da 504 a 600 non si vede l'avviso ogni sera per due settimane.
+  if (i.previous != null && Math.abs(scritto - i.previous) < 0.005) return null
   const scarto = Math.abs(scritto - usual)
   if (scarto <= Math.max(FONDO_SCARTO_MIN, usual * 0.1)) return null
   return { usual: r2(usual), scritto: r2(scritto), piuAlto: scritto > usual }
