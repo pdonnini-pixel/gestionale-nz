@@ -13,7 +13,7 @@ import { getCurrentTenant } from '../lib/tenants'
 import {
   Menu, Search, ChevronRight,
   LayoutDashboard, Store, Receipt, User, Wallet,
-  UserCircle, Settings, LogOut, Building2, UserCheck
+  UserCircle, Settings, LogOut, Building2, UserCheck, DoorOpen
 } from 'lucide-react'
 
 // ─── TENANT BADGE ─────────────────────────────────────────────
@@ -102,6 +102,7 @@ function BottomNav() {
   const items = profile?.role === 'responsabile'
     ? [
         { to: '/responsabile', icon: UserCheck, label: 'Presenze e ferie', end: false },
+        { to: '/vendite-ingressi', icon: DoorOpen, label: 'Vendite', end: false },
         { to: '/profilo', icon: User, label: 'Profilo', end: false },
       ]
     : profile?.role === 'operatore_cassa'

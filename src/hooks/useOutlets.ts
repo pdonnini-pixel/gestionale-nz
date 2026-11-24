@@ -6,7 +6,7 @@ import { getOutletLifecycle, type OutletLifecycle } from '../lib/outletLifecycle
 /**
  * Hook che ritorna la lista outlet del tenant attivo. Fonte unica di verità
  * per ogni pagina che mostra una lista di punti vendita (Dipendenti,
- * Produttività, Margini, StockSellthrough, AnalyticsPOS, ecc.).
+ * Produttività, Margini, StockSellthrough, ecc.).
  *
  * Sostituisce le costanti hardcoded sparse nel codice MVP storico di NZ
  * (es. `const OUTLETS = ['Valdichiana', 'Barberino', ...]`) che bloccavano
