@@ -228,7 +228,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
     { k: 'orari' as const, t: 'Regole e orari', d: 'Orario, persone per fascia, giorni caldi, pause, riposi.' },
     { k: 'eventi' as const, t: 'Eventi e giorni speciali', d: 'Giorni singoli e periodi con regole proprie.' },
     { k: 'persone' as const, t: 'Persone e riposi', d: 'Referente, vice referente e giorni di riposo di ognuno.' },
-    { k: 'traffico' as const, t: 'Traffico MODA', d: 'Gli ingressi su cui si calcolano le persone.' },
+    { k: 'traffico' as const, t: 'Traffico MODA', d: 'Gli ingressi su cui si calcolano le persone. Si caricano in «Vendite e ingressi».' },
     { k: 'trasferte' as const, t: 'Trasferte', d: 'Chi va a lavorare in un altro negozio.' },
   ];
 
@@ -319,7 +319,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
           e il suo esito (con le eventuali conferme) e' ancora li' quando si torna. */}
       {trafficoVisto && (
         <div hidden={sotto !== 'traffico'}>
-          <TrafficoModa companyId={companyId} negozi={dati.negozi} puoScrivere={puoScrivere} />
+          <TrafficoModa companyId={companyId} negozi={dati.negozi} puoScrivere={puoScrivere} soloTabella />
         </div>
       )}
       {scelto && sotto === 'mese' && (

@@ -1242,13 +1242,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Turni: traffico MODA",
-        "body": "La scheda «Traffico MODA» della pagina Turni carica i report MODA degli ingressi per ora, da cui il piano del mese e il piano settimanale calcolano quante persone servono (ingressi dell'ora diviso la soglia del negozio in «Regole dei turni»). Il report è la «Statistica Situazione Vendite con Conversion Rate» di MODA, raggruppata per Negozio, Giorno e Ora, senza IVA, escluse vendite libere, buoni e acconti, stampata in PDF: può contenere tutti i negozi e qualunque periodo, anche nove mesi insieme. Si trascina il PDF e il gestionale fa tutto da solo: legge gli ingressi (colonna N.P.) e gli scontrini di ogni ora, riconosce il negozio dal nome, controlla che la somma delle ore torni con il totale del giorno stampato nel report e salva i giorni nuovi. Il giorno in cui il report è stato stampato non si carica, perché a negozio aperto non è finito: arriverà con il report successivo. Chiede una conferma solo in tre casi: un giorno già caricato con numeri diversi (accanto al file c'è l'elenco, giorno per giorno, con gli ingressi di oggi e quelli del report, e si sceglie «Sostituisci con il report» o «Lascia com'è»), un giorno in cui i totali del report non tornano, un negozio del report che il gestionale non riconosce (si sceglie a quale negozio corrisponde, o «non caricare»). Più file insieme si lavorano uno alla volta e alla fine un riquadro verde dice «Finito, tutti i dati sono aggiornati», oppure cosa resta da fare. Sotto c'è la tabella «Giorni di traffico caricati»: per ogni negozio e mese i giorni con il traffico su quelli da caricare (fino a ieri, dall'apertura del negozio), in verde i mesi completi, in giallo quelli a metà, con i giorni mancanti passando sopra la casella; i giorni di chiusura del negozio (settimana tipo e giorni speciali chiusi) non contano come mancanti. I mesi appena caricati sono contornati di blu. Caricare i report spetta a contabilità o superiore; gli altri vedono solo la tabella. Gli importi delle vendite non si salvano. «Sostituisci con il report» riscrive le ore che il report contiene e non cancella niente: un'ora che c'è solo nel gestionale resta com'era. Il riquadro finale è verde solo se non resta niente; se hai lasciato dei giorni com'erano, se manca il giorno di stampa o se un negozio non è stato caricato, lo scrive. Puoi cambiare scheda mentre un report lungo si carica: tornando su «Traffico MODA» trovi l'esito.",
+        "body": "La scheda «Traffico MODA» della pagina Turni mostra, negozio per negozio e mese per mese, quanti giorni di traffico MODA sono caricati (verde: tutti, giallo: una parte, grigio: nessuno; passando sopra una casella si leggono i giorni che mancano). Sono gli ingressi per ora da cui il piano del mese e il piano settimanale calcolano quante persone servono (ingressi dell'ora diviso la soglia del negozio in «Regole dei turni»). I report MODA non si caricano più qui: si caricano nella sezione «Vendite e ingressi» (menu Outlet & Performance), con il pulsante «Vai a Vendite e ingressi» in cima alla scheda. Turni e report leggono gli stessi dati.",
         "steps": [
-          "Da MODA stampa in PDF la «Statistica Situazione Vendite con Conversion Rate» per Negozio, Giorno e Ora, senza IVA, escluse vendite libere, buoni e acconti (va bene anche il file che manda Sabrina).",
-          "Apri Dipendenti → Turni → «Traffico MODA» e trascina il PDF nel riquadro, o premi «sceglili dal computer».",
-          "Aspetta il riquadro finale: se è verde non c'è altro da fare.",
-          "Se accanto al file compare un riquadro giallo, leggi i giorni che cambierebbero e premi «Sostituisci con il report» o «Lascia com'è»; se c'è un negozio da scegliere, sceglilo nel menu.",
-          "Controlla nella tabella che il mese sia completo."
+          "Premi «Vai a Vendite e ingressi» in cima alla scheda «Traffico MODA».",
+          "Trascina il PDF MODA del mese (o lo zip) nel riquadro «Carica i report MODA».",
+          "Torna ai Turni: la tabella dei giorni caricati è già aggiornata."
         ]
       },
       {
@@ -1289,7 +1287,7 @@ export const PAGE_GUIDES: PageGuide[] = [
     "faq": [
       {
         "q": "Ogni quanto si caricano i report MODA?",
-        "a": "Una volta al mese, a mese chiuso, con il report del mese appena finito (lo chiede l'amministrazione). Si può caricare anche un periodo lungo in una volta: i giorni già presenti e uguali vengono saltati, quelli nuovi si aggiungono."
+        "a": "Una volta al mese, a mese chiuso, con il report del mese appena finito, nella sezione «Vendite e ingressi». Si può caricare anche un periodo lungo in una volta: i giorni già presenti e uguali restano come sono, quelli nuovi si aggiungono, e ricaricare lo stesso file non somma mai niente."
       },
       {
         "q": "Ho caricato un report e dice che un giorno cambierebbe: cosa faccio?",
@@ -1851,52 +1849,76 @@ export const PAGE_GUIDES: PageGuide[] = [
     ]
   },
   {
-    "path": "/analytics-pos",
+    "path": "/vendite-ingressi",
     "icon": "BarChart3",
-    "title": "Analytics POS",
-    "description": "Una vista dedicata all'analisi degli scontrini: quanti se ne emettono, quale importo medio, quanti pezzi per scontrino e come si comportano i diversi punti vendita nel corso dell'anno.",
+    "title": "Vendite e ingressi",
+    "description": "Il report MODA di ogni negozio, mese per mese: quante persone entrano, quante comprano (conversione), quanti scontrini e pezzi, lo sconto fatto sul listino, le vendite e la resa (vendite meno costo d'acquisto della merce). I dati arrivano dal report MODA «Statistica Situazione Vendite con Conversion Rate» per giorno e ora, che l'amministrazione carica qui ogni mese. Tutti gli importi sono imponibili, senza IVA.",
     "sections": [
       {
-        "heading": "Importante: dati simulati",
-        "body": "In alto compare l'avviso \"Dati simulati (demo)\": i numeri di scontrini, importi e vendite non arrivano da un sistema cassa reale collegato al gestionale, ma sono generati come esempio sui punti vendita effettivi dell'azienda. Quando la cassa sarà collegata, la pagina mostrerà i dati reali."
+        "heading": "Chi vede e chi carica",
+        "body": "Super Advisor, CEO, CFO, COO e contabilità vedono tutti i negozi. La responsabile di negozio vede tutto, ma solo dei negozi che le sono assegnati (gli stessi di «Chi conferma» delle presenze), e la sezione compare anche nel suo menu. Caricano i file Super Advisor, CEO, CFO, COO e contabilità: per New Zago di solito Sabrina, per Zago Veronica."
       },
       {
-        "heading": "Filtri",
-        "body": "Puoi scegliere un punto vendita specifico (oppure lasciare \"Tutti\" per vedere il totale aziendale) e passare tra visualizzazione \"Annuale\" e \"Mensile\"."
+        "heading": "Caricare il report del mese",
+        "body": "Nella scheda «Carica i file» si trascina il PDF MODA «Statistica Situazione Vendite con Conversion Rate» per giorno e ora: quello con tutti i negozi (raggruppamenti Negozio, Giorno, Ora) oppure uno per negozio (Giorno, Ora), anche più file insieme o uno zip. Deve essere stampato senza IVA, escluse vendite libere, buoni e acconti: un report con impostazioni diverse viene rifiutato e non salva niente. Il report per giorno (Negozio, Mese, Giorno) non ha le ore e non si carica. Il gestionale salva tutto da solo e alla fine dice «Finito»; il giorno in cui il report è stato stampato non si carica, perché a negozio aperto non è finito.",
+        "steps": [
+          "In MODA stampa in PDF la «Statistica Situazione Vendite con Conversion Rate» del mese appena chiuso, per giorno e ora, senza IVA, escluse vendite libere, buoni e acconti.",
+          "Apri Vendite e ingressi e premi «Carica i file».",
+          "Trascina il PDF (o lo zip con un PDF per negozio) nel riquadro.",
+          "Aspetta il riquadro finale: se è verde non c'è altro da fare.",
+          "Se un negozio non si riconosce, sceglilo nel menu: la scelta si ricorda per i file successivi.",
+          "Premi «Torna al report del mese»."
+        ]
       },
       {
-        "heading": "KPI principali",
-        "body": "Quattro caselle mostrano: numero totale di scontrini, scontrino medio, pezzi per scontrino (indicatore UPT, cioè quanti articoli in media contiene ogni scontrino) e ricavo medio per pezzo venduto."
+        "heading": "Ricaricare un file non somma niente",
+        "body": "Ogni ora di ogni negozio si scrive una volta sola: ricaricando lo stesso file i giorni uguali restano come sono. Un giorno che aveva solo persone entrate e scontrini (i report caricati prima del 24/11/2026) riceve da solo pezzi, valori e costi. Un giorno già caricato con numeri diversi si sostituisce per intero, ma solo dopo la tua conferma («Sostituisci con il report» o «Lascia com'è»)."
       },
       {
-        "heading": "Andamento mensile",
-        "body": "Un grafico a linee mostra come cambia lo scontrino medio mese per mese, con una linea per ogni punto vendita. Un grafico a barre mostra invece il numero di scontrini emessi ogni mese, sempre suddiviso per punto vendita."
+        "heading": "I riquadri in alto",
+        "body": "Otto numeri del mese: persone entrate, conversione, scontrini, scontrino medio, pezzi per scontrino, sconto medio sul listino, vendite e resa. Sotto ognuno, la differenza con il mese prima e con lo stesso mese dell'anno prima, calcolata sugli stessi giorni e sugli stessi negozi; conversione e sconto in punti. Dove manca il mese di confronto o i suoi importi compare «—». Un avviso giallo dice se alcuni giorni del mese hanno solo persone entrate e scontrini."
       },
       {
-        "heading": "Distribuzione per fascia di importo",
-        "body": "Un grafico a torta mostra come si distribuiscono gli scontrini in base all'importo: 0-20€, 20-50€, 50-100€, 100-200€ e oltre 200€."
+        "heading": "L'albero delle vendite",
+        "body": "Le vendite sono persone entrate × conversione × scontrino medio, e lo scontrino medio è pezzi per scontrino × prezzo medio di un pezzo. Nell'ultimo riquadro, tolto il costo della merce, resta la resa."
       },
       {
-        "heading": "Confronto tra punti vendita",
-        "body": "Una tabella riepiloga, per ogni punto vendita, il numero di scontrini, lo scontrino medio, i pezzi per scontrino, il ricavo per pezzo e l'indicatore UPT. In fondo alla pagina trovi due riquadri con il punto vendita migliore e quello con le performance più basse, in base al ricavo totale annuale."
+        "heading": "I negozi del mese",
+        "body": "Una riga per negozio con persone entrate, conversione, scontrini, scontrino medio, pezzi per scontrino, sconto, vendite, resa, ricarico reale e «Cassa». In verde il migliore della colonna, in rosso il peggiore. «Cassa» confronta le vendite MODA con l'incasso netto delle chiusure di cassa del mese: MODA è di solito un po' sotto, perché esclude vendite libere, buoni e acconti; oltre il 2% la cella diventa rossa ed è da guardare."
       },
       {
-        "heading": "Punti vendita in apertura",
-        "body": "I punti vendita con data di apertura futura restano nell'elenco ma non ricevono dati simulati: al loro posto compare «In apertura dal …: nessun dato operativo prima dell'apertura» e sono esclusi da medie, classifiche e grafici."
+        "heading": "Più gente o più bravi a vendere?",
+        "body": "Per ogni negozio la differenza di vendite rispetto all'anno prima (o al mese prima, con il pulsante in alto a destra) è divisa in tre parti: quanto viene dalle persone entrate in più o in meno, quanto dalla conversione e quanto dallo scontrino medio. Le tre parti sommate danno la differenza. Se un mese non ha gli importi si scompongono gli scontrini, in due parti."
+      },
+      {
+        "heading": "Calendario e ore",
+        "body": "Il calendario ha una riga per negozio e un quadrato per giorno, più scuro dove il valore è più alto: si sceglie fra persone entrate, conversione e vendite, e passando sopra un quadrato si leggono i numeri. La mappa delle ore ha i giorni della settimana in riga e le fasce orarie in colonna, sommati sul mese: dice dove arriva la gente e dove la si serve. La conversione dell'ultima ora è gonfiata, perché chi entra poco prima paga nell'ora dopo."
+      },
+      {
+        "heading": "Dal prezzo di listino alla resa",
+        "body": "Una cascata: merce venduta a prezzo di listino, meno gli sconti, uguale incassato; meno il costo d'acquisto della merce venduta (a costo medio), uguale resa. È il margine commerciale di MODA, non quello del conto economico: personale, affitti e altri costi non ci sono."
       }
     ],
     "faq": [
       {
-        "q": "Posso usare questi numeri per decisioni reali sulle vendite?",
-        "a": "No, non ancora: sono dati simulati generati come esempio, la pagina non è collegata a un sistema cassa reale. Servono a mostrare come funzionerà l'analisi quando i dati reali saranno disponibili."
+        "q": "N.P. sono i pezzi venduti?",
+        "a": "No: N.P. sono le persone entrate, contate dal contapersone. I pezzi venduti sono la colonna «Qta Vend». Lo si vede nelle ore senza vendite: hanno N.P. ma nessuno scontrino e nessun pezzo."
       },
       {
-        "q": "Cosa significa UPT?",
-        "a": "È l'abbreviazione di \"Units Per Transaction\": il numero medio di pezzi venduti per ogni scontrino."
+        "q": "Gli importi sono con l'IVA?",
+        "a": "No. Valore teorico, valore reale, costo d'acquisto e resa sono tutti imponibili, senza IVA, ed escludono vendite libere, buoni e acconti."
       },
       {
-        "q": "Come cambia la pagina se scelgo un solo punto vendita nel filtro?",
-        "a": "I KPI, la distribuzione per fascia di importo e i grafici si aggiornano per mostrare solo i dati di quel punto vendita, invece del totale di tutti gli outlet."
+        "q": "Se carico due volte lo stesso file i numeri raddoppiano?",
+        "a": "No. Ogni ora si scrive una volta sola: i giorni uguali restano come sono, e un giorno con numeri diversi si sostituisce per intero solo dopo la tua conferma."
+      },
+      {
+        "q": "Perché le vendite MODA sono un po' sotto gli incassi di cassa?",
+        "a": "Perché il report MODA esclude vendite libere, buoni e acconti, che nelle chiusure di cassa ci sono. Una differenza fino al 2% è normale."
+      },
+      {
+        "q": "Il mese in corso si può vedere?",
+        "a": "Sì, se è stato caricato un report che lo contiene. I confronti usano allora gli stessi giorni del mese prima e dell'anno prima, così il paragone è alla pari."
       }
     ]
   },

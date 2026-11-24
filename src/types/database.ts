@@ -22250,6 +22250,36 @@ export type Database = {
           },
         ]
       }
+      outlet_moda_codici: {
+        Row: {
+          codice: string
+          company_id: string
+          created_at: string
+          created_by: string | null
+          descrizione: string | null
+          id: string
+          outlet_id: string
+        }
+        Insert: {
+          codice: string
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          descrizione?: string | null
+          id?: string
+          outlet_id: string
+        }
+        Update: {
+          codice?: string
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          descrizione?: string | null
+          id?: string
+          outlet_id?: string
+        }
+        Relationships: []
+      }
       outlet_traffic_hourly: {
         Row: {
           company_id: string
@@ -22261,8 +22291,11 @@ export type Database = {
           ingressi: number
           ora: number
           outlet_id: string
+          costo_acquisto: number | null
+          pezzi: number | null
           scontrini: number
           updated_at: string
+          valore_teorico: number | null
           vendite: number
         }
         Insert: {
@@ -22275,8 +22308,11 @@ export type Database = {
           ingressi?: number
           ora: number
           outlet_id: string
+          costo_acquisto?: number | null
+          pezzi?: number | null
           scontrini?: number
           updated_at?: string
+          valore_teorico?: number | null
           vendite?: number
         }
         Update: {
@@ -22289,8 +22325,11 @@ export type Database = {
           ingressi?: number
           ora?: number
           outlet_id?: string
+          costo_acquisto?: number | null
+          pezzi?: number | null
           scontrini?: number
           updated_at?: string
+          valore_teorico?: number | null
           vendite?: number
         }
         Relationships: [
@@ -31631,6 +31670,7 @@ export type Database = {
       ferie_richieste_prova: { Args: never; Returns: Json }
       responsabile_ferie_elenco: { Args: { p_solo_in_attesa?: boolean }; Returns: Json }
       responsabile_negozi: { Args: never; Returns: Json }
+      vendite_ingressi_report: { Args: { p_mese: string }; Returns: Json }
       presenze_responsabile_dipendente_imposta: { Args: { p_employee: string; p_user: string }; Returns: undefined }
       presenze_sono_io: { Args: { p_employee: string }; Returns: boolean }
       responsabile_non_qui: { Args: never; Returns: undefined }

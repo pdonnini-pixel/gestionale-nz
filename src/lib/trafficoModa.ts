@@ -1,7 +1,14 @@
 // Il report MODA «Statistica Situazione Vendite con Conversion Rate»
-// (raggruppamenti Negozio, Giorno, Ora), stampato in PDF da Crystal Reports.
-// Da qui arrivano gli ingressi per ora di ogni negozio, la fonte del
-// fabbisogno dei turni (outlet_traffic_hourly, ORGANICO_TURNI_NOTES.md).
+// per giorno e ora, stampato in PDF da Crystal Reports, in due forme:
+//   * tutti i negozi insieme (raggruppamenti Negozio, Giorno, Ora): il
+//     negozio e' una riga «BARB   Barberino» dentro il report;
+//   * un PDF per negozio (raggruppamenti Giorno, Ora): il negozio sta solo
+//     nell'intestazione, «Filtro su Negozio : BARB - Barberino».
+// Il report per giorno (Negozio, Mese, Giorno) non ha le ore: si rifiuta.
+// Da qui arrivano gli ingressi per ora (fabbisogno dei turni,
+// ORGANICO_TURNI_NOTES.md) e, dalla 464, pezzi, valore teorico, valore reale
+// e costo d'acquisto (sezione «Vendite e ingressi»). Gli importi del report
+// sono tutti IMPONIBILI (senza IVA).
 //
 // Funzioni pure, nessuna query. Test in trafficoModa.test.ts.
 //
@@ -13,7 +20,18 @@
 
 import type { PdfItem } from './pdfText';
 
-export interface OraModa { ora: number; ingressi: number; scontrini: number }
+/** Gli importi di un'ora: tutti imponibili. Ci sono solo se il report ha le colonne (sempre, nei report veri). */
+export interface ImportiOra {
+  /** Qta Vend */
+  pezzi: number;
+  /** Valore Vendite Teorico: a prezzo di listino */
+  teorico: number;
+  /** Valore Vendite Reale: incassato */
+  reale: number;
+  /** V.Acq: costo d'acquisto della merce venduta (costo medio) */
+  costo: number;
+}
+export interface OraModa { ora: number; ingressi: number; scontrini: number; importi?: ImportiOra }
 export interface GiornoModa {
   data: string; // YYYY-MM-DD
   ore: OraModa[];
@@ -28,6 +46,10 @@ export interface ReportModa {
   al: string | null;
   /** «Importi Vendite SENZA Iva» e «sono ESCLUSE Vendite libere, Buoni e Acconti»: le impostazioni di sempre */
   impostazioniStandard: boolean;
+  /** il report ha le colonne di pezzi, valori e costo d'acquisto */
+  importi: boolean;
+  /** «Negozio, Giorno, Ora» oppure «Giorno, Ora» (un negozio solo) */
+  raggruppamento: string | null;
   negozi: NegozioModa[];
 }
 
@@ -64,34 +86,53 @@ export function righePagina(items: PdfItem[]): Riga[] {
 
 const destra = (i: PdfItem) => i.x + (i.w ?? 0);
 
-/** Le colonne che servono, come bordo destro dell'intestazione: N.P. (ingressi) e Scontr (scontrini), piu' le vicine per non sbagliare. */
-type Colonne = { np: number; scontr: number; altre: number[] };
+/**
+ * Le colonne che servono, come bordo destro dell'intestazione, piu' le vicine
+ * per non sbagliare. Nel PDF vero (bordi destri): N.P. 348, Scontr 384,
+ * Qta 420, Teorico 468, Reale 522, Scon 552, Prz.Medi 594, UPT 624, V.Acq 678,
+ * Ricarichi 708 e 738, Resa 798. Prz.Medi e UPT hanno l'etichetta solo nella
+ * prima riga d'intestazione: senza, il valore di UPT finirebbe nel costo.
+ */
+type Chiave = 'np' | 'scontr' | 'qta' | 'teorico' | 'reale' | 'costo';
+type Colonne = { pos: Partial<Record<Chiave, number>>; altre: number[] };
 
-function colonneDa(riga: Riga): Colonne | null {
-  // La seconda riga d'intestazione: «Codice Descrizione % N. N. Vend Teorico Reale % ...»
+function colonneDa(riga: Riga, primaRiga: number[]): Colonne | null {
+  // La seconda riga d'intestazione: «Codice Descrizione % N. N. Vend Teorico Reale % Importo Teo Rea Importo»
   const enne = riga.items.filter((i) => i.str.trim() === 'N.');
   if (enne.length < 2) return null;
-  const np = destra(enne[0]);
-  const scontr = destra(enne[1]);
-  const altre = riga.items.filter((i) => i.x > 200 && i.str.trim() !== 'N.').map(destra);
-  return { np, scontr, altre };
+  const pos: Colonne['pos'] = { np: destra(enne[0]), scontr: destra(enne[1]) };
+  const usati = new Set<PdfItem>(enne.slice(0, 2));
+  const prendi = (etichetta: string, k: Chiave) => {
+    const it = riga.items.find((i) => i.str.trim() === etichetta && !usati.has(i));
+    if (it) { pos[k] = destra(it); usati.add(it); }
+  };
+  prendi('Vend', 'qta'); prendi('Teorico', 'teorico'); prendi('Reale', 'reale'); prendi('Importo', 'costo');
+  const altre = [...riga.items.filter((i) => i.x > 200 && !usati.has(i)).map(destra), ...primaRiga];
+  return { pos, altre };
 }
 
-/** Il numero sta nella colonna np, scontr o in un'altra (null). */
-function colonnaDi(item: PdfItem, c: Colonne): 'np' | 'scontr' | null {
+/** Il numero sta in una delle colonne che servono, o in un'altra (null). */
+function colonnaDi(item: PdfItem, c: Colonne): Chiave | null {
   const r = destra(item);
-  const cand: { k: 'np' | 'scontr' | null; d: number }[] = [
-    { k: 'np', d: Math.abs(r - c.np) },
-    { k: 'scontr', d: Math.abs(r - c.scontr) },
+  const cand: { k: Chiave | null; d: number }[] = [
+    ...(Object.entries(c.pos) as [Chiave, number][]).map(([k, x]) => ({ k, d: Math.abs(r - x) })),
     ...c.altre.map((x) => ({ k: null, d: Math.abs(r - x) })),
   ];
   cand.sort((a, b) => a.d - b.d);
-  return cand[0].d <= 8 ? cand[0].k : null;
+  return cand.length && cand[0].d <= 8 ? cand[0].k : null;
 }
+
+const conImporti = (c: Colonne | null) => !!c && ['qta', 'teorico', 'reale', 'costo'].every((k) => c.pos[k as Chiave] != null);
+
+const RE_NEGOZIO_FILTRO = /Filtro\s+su\s+Negozio\s*:\s*([A-Z][A-Z0-9]{1,9})\s*-\s*(.+)$/;
 
 /** Legge le pagine del report. Lancia un errore se il PDF non e' un report «Conversion Rate» per negozio, giorno e ora. */
 export function leggiReportModa(pagine: PdfItem[][]): ReportModa {
-  const out: ReportModa = { stampa: null, dal: null, al: null, impostazioniStandard: false, negozi: [] };
+  const out: ReportModa = { stampa: null, dal: null, al: null, impostazioniStandard: false, importi: false, raggruppamento: null, negozi: [] };
+  /** il negozio dell'intestazione, nei PDF di un negozio solo */
+  let negozioFiltro: { codice: string; descrizione: string } | null = null;
+  /** bordi destri delle etichette della prima riga d'intestazione che non hanno la seconda riga (Prz.Medi, UPT) */
+  let primaRiga: number[] = [];
   let senzaIva = false;
   let escluse = false;
   let intestazione = false;
@@ -110,6 +151,15 @@ export function leggiReportModa(pagine: PdfItem[][]): ReportModa {
         if (d) out.stampa = { data: d, ora: o ? o.replace(/\./g, ':').slice(0, 5).padStart(5, '0') : '' };
         continue;
       }
+      if (/Raggruppament/i.test(testo)) {
+        out.raggruppamento = testo.replace(/^.*Raggruppamenti?\s*:\s*/i, '').replace(/\s*,\s*/g, ', ').trim();
+        if (!/\bOra\b/i.test(out.raggruppamento)) {
+          throw new Error(`È il report per giorno (raggruppamento «${out.raggruppamento}»): serve quello per giorno e ora. In MODA scegli i raggruppamenti Negozio, Giorno, Ora (oppure Giorno, Ora per un negozio solo).`);
+        }
+        continue;
+      }
+      const f = RE_NEGOZIO_FILTRO.exec(testo);
+      if (f) { negozioFiltro = { codice: f[1], descrizione: f[2].trim() }; continue; }
       if (/Filtro\s+su\s+Data/i.test(testo)) {
         const date = [...testo.matchAll(/(\d{2}\/\d{2}\/\d{4})/g)].map((m) => iso(m[1]));
         out.dal = date[0] ?? null; out.al = date[1] ?? date[0] ?? null;
@@ -117,8 +167,11 @@ export function leggiReportModa(pagine: PdfItem[][]): ReportModa {
       }
       if (/Vendite\s+SENZA\s+Iva/i.test(testo)) senzaIva = true;
       if (/ESCLUSE/i.test(testo) && /Vendite\s+libere/i.test(testo)) escluse = true;
-      if (testi.includes('Codice') && testi.includes('N.')) { colonne = colonneDa(riga) ?? colonne; continue; }
-      if (testi.includes('N.P.') || testi.includes('C.R.')) continue;
+      if (testi.includes('Codice') && testi.includes('N.')) { colonne = colonneDa(riga, primaRiga) ?? colonne; continue; }
+      if (testi.includes('N.P.') || testi.includes('C.R.')) {
+        primaRiga = riga.items.filter((i) => ['Prz.Medi', 'UPT'].includes(i.str.trim())).map(destra);
+        continue;
+      }
 
       const primo = riga.items[0];
       const p = primo.str.trim();
@@ -133,6 +186,10 @@ export function leggiReportModa(pagine: PdfItem[][]): ReportModa {
       // Giorno: «01/10/2026   Giovedi»
       const d = iso(p);
       if (d) {
+        if (!negozio && negozioFiltro) {
+          negozio = { ...negozioFiltro, giorni: [] };
+          out.negozi.push(negozio);
+        }
         if (!negozio) continue;
         giorno = { data: d, ore: [], totale: null };
         negozio.giorni.push(giorno);
@@ -140,20 +197,24 @@ export function leggiReportModa(pagine: PdfItem[][]): ReportModa {
       }
       if (!colonne || !negozio) continue;
       const valori = (rs: PdfItem[]) => {
-        let ingressi = 0; let scontrini = 0; let trovato = false;
+        const v: Record<Chiave, number> = { np: 0, scontr: 0, qta: 0, teorico: 0, reale: 0, costo: 0 };
+        let trovato = false;
         for (const it of rs) {
           if (!RE_NUMERO.test(it.str.trim())) continue;
           const k = colonnaDi(it, colonne!);
-          if (k === 'np') { ingressi = numeroIt(it.str); trovato = true; }
-          if (k === 'scontr') { scontrini = numeroIt(it.str); trovato = true; }
+          if (k) { v[k] = numeroIt(it.str); if (k === 'np' || k === 'scontr') trovato = true; }
         }
-        return { ingressi, scontrini, trovato };
+        // Un'ora con ingressi e senza vendite ha solo N.P.: gli importi sono zero.
+        const importi: ImportiOra | undefined = conImporti(colonne)
+          ? { pezzi: v.qta, teorico: v.teorico, reale: v.reale, costo: v.costo }
+          : undefined;
+        return { ingressi: v.np, scontrini: v.scontr, importi, trovato };
       };
       // Ora: «1000» seguito dai numeri
       if (RE_ORA.test(p) && primo.x < 150) {
         if (!giorno) continue;
         const v = valori(riga.items.slice(1));
-        giorno.ore.push({ ora: Number(p.slice(0, 2)), ingressi: v.ingressi, scontrini: v.scontrini });
+        giorno.ore.push({ ora: Number(p.slice(0, 2)), ingressi: v.ingressi, scontrini: v.scontrini, ...(v.importi ? { importi: v.importi } : {}) });
         continue;
       }
       // Totale del giorno: solo numeri, dopo le ore. Il secondo totale di fila e' quello del negozio.
@@ -167,6 +228,7 @@ export function leggiReportModa(pagine: PdfItem[][]): ReportModa {
     throw new Error('Non sembra un report MODA «Conversion Rate» per negozio, giorno e ora: non ci sono righe orarie da leggere.');
   }
   out.impostazioniStandard = senzaIva && escluse;
+  out.importi = conImporti(colonne);
   return out;
 }
 
@@ -216,16 +278,36 @@ export function abbinaNegozio(codice: string, descrizione: string, negozi: Negoz
 
 // ── Confronto con quello che c'e' gia' ──────────────────────────────────────
 
-export interface RigaTrafficoDb { outlet_id: string; data: string; ora: number; ingressi: number; scontrini: number }
+export interface RigaTrafficoDb {
+  outlet_id: string; data: string; ora: number; ingressi: number; scontrini: number;
+  /** importi imponibili: null nel database = non ancora caricati; assenti nel file = il report non li ha */
+  pezzi?: number | null; valore_teorico?: number | null; vendite?: number | null; costo_acquisto?: number | null;
+}
 
 export interface EsitoGiorno {
   outletId: string;
   data: string;
-  /** nuovo = niente nel database; uguale = gia' identico; diverso = caricarlo cambia dei numeri */
-  stato: 'nuovo' | 'uguale' | 'diverso';
+  /**
+   * nuovo = niente nel database; uguale = gia' identico;
+   * completa = ingressi e scontrini uguali, il database non aveva gli importi e il file li aggiunge (si salva da solo);
+   * diverso = caricarlo cambia numeri gia' presenti (si chiede conferma)
+   */
+  stato: 'nuovo' | 'uguale' | 'completa' | 'diverso';
   ingressiFile: number;
   ingressiDb: number;
   righe: RigaTrafficoDb[];
+  /** ore del database che nel file non ci sono: salvando il giorno si tolgono, cosi' il giorno e' esattamente quello del file */
+  oreDaTogliere: number[];
+}
+
+const centesimi = (n: number | null | undefined) => Math.round(Number(n ?? 0) * 100);
+
+/** Le righe da scrivere per un giorno del report. */
+export function righeDelGiorno(outletId: string, giorno: GiornoModa): RigaTrafficoDb[] {
+  return giorno.ore.map((o) => ({
+    outlet_id: outletId, data: giorno.data, ora: o.ora, ingressi: o.ingressi, scontrini: o.scontrini,
+    ...(o.importi ? { pezzi: o.importi.pezzi, valore_teorico: o.importi.teorico, vendite: o.importi.reale, costo_acquisto: o.importi.costo } : {}),
+  }));
 }
 
 /** Giorno per giorno, cosa cambierebbe nel database caricando il report. */
@@ -241,19 +323,27 @@ export function confrontaGiorni(
   }
   return giorni.map(({ outletId, giorno }) => {
     const db = perGiorno.get(`${outletId}|${giorno.data}`) ?? [];
-    const righe = giorno.ore.map((o) => ({ outlet_id: outletId, data: giorno.data, ora: o.ora, ingressi: o.ingressi, scontrini: o.scontrini }));
+    const righe = righeDelGiorno(outletId, giorno);
     const ingressiFile = righe.reduce((a, r) => a + r.ingressi, 0);
     const ingressiDb = db.reduce((a, r) => a + r.ingressi, 0);
+    const oreFile = new Set(righe.map((r) => r.ora));
+    const oreDaTogliere = db.filter((r) => !oreFile.has(r.ora)).map((r) => r.ora).sort((a, b) => a - b);
     let stato: EsitoGiorno['stato'] = 'nuovo';
     if (db.length) {
       const perOra = new Map(db.map((r) => [r.ora, r]));
-      const cambia = righe.some((r) => {
+      let cambia = oreDaTogliere.length > 0;
+      let aggiunge = false;
+      for (const r of righe) {
         const x = perOra.get(r.ora);
-        return !x || x.ingressi !== r.ingressi || x.scontrini !== r.scontrini;
-      });
-      stato = cambia ? 'diverso' : 'uguale';
+        if (!x || x.ingressi !== r.ingressi || x.scontrini !== r.scontrini) { cambia = true; break; }
+        if (r.valore_teorico == null) continue; // il file non ha gli importi: quelli nel database restano
+        if (x.valore_teorico == null) { aggiunge = true; continue; }
+        if (Number(x.pezzi ?? 0) !== Number(r.pezzi ?? 0) || centesimi(x.valore_teorico) !== centesimi(r.valore_teorico)
+          || centesimi(x.vendite) !== centesimi(r.vendite) || centesimi(x.costo_acquisto) !== centesimi(r.costo_acquisto)) { cambia = true; break; }
+      }
+      stato = cambia ? 'diverso' : aggiunge ? 'completa' : 'uguale';
     }
-    return { outletId, data: giorno.data, stato, ingressiFile, ingressiDb, righe };
+    return { outletId, data: giorno.data, stato, ingressiFile, ingressiDb, righe, oreDaTogliere };
   });
 }
 

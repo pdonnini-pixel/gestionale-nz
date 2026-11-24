@@ -241,8 +241,8 @@ const StoreManager = () => {
       ) : (
       <>
       {/* Badge "Dati simulati": questa pagina mostra numeri e personale di ESEMPIO,
-          non collegati alla cassa o alle presenze reali. Coerente con AnalyticsPOS /
-          StockSellthrough / OpenToBuy. Evita che i valori credibili siano scambiati
+          non collegati alla cassa o alle presenze reali. Coerente con StockSellthrough /
+          OpenToBuy. Evita che i valori credibili siano scambiati
           per dati veri. */}
       <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 text-sm text-amber-800">
         <AlertTriangle size={16} className="shrink-0" />

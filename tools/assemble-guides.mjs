@@ -38,7 +38,7 @@ const ROUTE_META = [
   ['conto-economico', '/conto-economico', 'BarChart3'],
   ['budget', '/budget', 'Calculator'],
   ['stock', '/stock', 'Package'],
-  ['analytics-pos', '/analytics-pos', 'BarChart3'],
+  ['vendite-ingressi', '/vendite-ingressi', 'BarChart3'],
   ['cash-flow', '/cash-flow', 'Wallet'],
   ['open-to-buy', '/open-to-buy', 'Wallet'],
   ['produttivita', '/produttivita', 'Users'],

@@ -12,7 +12,7 @@ import {
   CalendarClock, UserCheck, PieChart, Sparkles, Activity, Sliders,
   Upload, FolderArchive, TrendingUp, ChevronsUpDown, Building,
   Menu, X, ChevronsLeft, ChevronsRight,
-  MessageSquare, Shield, RefreshCw, ClipboardList, Wallet, Receipt, Percent, Scale,
+  MessageSquare, Shield, RefreshCw, ClipboardList, Wallet, Receipt, Percent, Scale, DoorOpen,
   LucideIcon
 } from 'lucide-react'
 import { useState, useRef, useEffect, useMemo, createContext, useContext } from 'react'
@@ -87,6 +87,8 @@ function buildSections(labels: CompanyLabels): NavSection[] {
         // chi amministra vede il riepilogo mensile e configura i canali.
         { to: '/chiusura-cassa', icon: Wallet, label: 'Chiusura cassa', roles: ['super_advisor', 'contabile', 'operatore_cassa'] },
         { to: '/incassi-giornalieri', icon: Receipt, label: 'Incassi giornalieri', roles: ['super_advisor', 'ceo', 'cfo', 'contabile'] },
+        // Report MODA (Patrizio, 24/11/2026): carica chi tiene l'organico, la responsabile vede solo il suo negozio.
+        { to: '/vendite-ingressi', icon: DoorOpen, label: 'Vendite e ingressi', roles: ['super_advisor', 'ceo', 'cfo', 'coo', 'contabile', 'responsabile'] },
       ],
     },
     {
