@@ -224,7 +224,13 @@ function giornoBreve(iso: string): string {
  */
 function causaNellaNota(nota: string): string | null {
   const t = nota.toLowerCase();
-  if (/giorno precedente|giorni precedenti|giorno prima|altro giorno|altra giornata|pos non chiuso|non chiuso quel giorno/.test(t)) {
+  const altroGiorno = /giorno precedente|giorni precedenti|giornata precedente|giorno prima|altro giorno|altra giornata|pos non chiuso|non chiuso quel giorno/.test(t);
+  // Deve parlare di un incasso, non di qualunque cosa sia capitata un altro
+  // giorno: «l'altro giorno ho chiamato l'assistenza» non c'entra niente.
+  const diUnIncasso = /pos|scontrin|vendit|incass|corrispettiv/.test(t);
+  // E non deve negarla: «non viene da un altro giorno» dice il contrario.
+  const negata = /non (viene|dipende|c'entra|si tratta|sono|è|e')/.test(t);
+  if (altroGiorno && diUnIncasso && !negata) {
     return "un incasso di un altro giorno è finito sulla chiusura di questa giornata";
   }
   return null;
@@ -293,7 +299,7 @@ function voceLezione(c: Check): VoceMail | null {
       // prendiamo in carico noi. Non si promette che e' sistemata: la
       // segnalazione resta aperta per l'amministrazione.
       const quanto = eur(Math.abs(num(c.amount)));
-      return { daFare: false, inCarico: true, testo: `Abbiamo letto quello che hai scritto, e ci basta: ci hai spiegato che ${c.reasonBreve ?? "la differenza viene da un'altra giornata"}. Il gestionale non ha un posto dove registrarlo, quindi nei nostri conti la differenza di ${quanto} resta lì: la prende in carico l'amministrazione. Tu non devi fare niente.` };
+      return { daFare: false, inCarico: true, testo: `Abbiamo letto quello che hai scritto, e ci basta: ci hai spiegato che ${c.reasonBreve ?? "la differenza viene da un'altra giornata"}. Il gestionale non ha un posto dove registrarlo, quindi nei nostri conti la differenza di ${quanto} resta lì: la prende in carico l'amministrazione. Per questa non devi fare niente.` };
     }
     case "spesa_in_ritardo":
       return { daFare: false, testo: `In cassa mancavano ${eur(Math.abs(num(c.amount)))}. ${c.reasonBreve ?? ""} L'abbiamo segnata noi, non devi fare niente. La prossima volta: quando paghi qualcosa con i soldi della cassa, segnalo nella chiusura della stessa sera e fai la foto della fattura o dello scontrino.`.replace(/\s+/g, " ") };
@@ -326,6 +332,7 @@ function mailAlNegozio(lista: Check[], nome: string | null, azienda: string | nu
       : `nella chiusura del ${giorno} c'era una cosa che abbiamo già sistemato noi. Te la scriviamo così la prossima volta lo sai:`)
     : daSistemare === n ? `nella chiusura del ${giorno} ci sono ${n} cose da sistemare:`
     : daSistemare === 0 && inCarico === n ? `nella chiusura del ${giorno} ci sono ${n} cose che prendiamo in carico noi:`
+    : daSistemare === 0 && inCarico > 0 ? `nella chiusura del ${giorno} ci sono ${n} cose: qualcuna l'abbiamo già sistemata noi, le altre le prendiamo in carico. Te le scriviamo così le sai:`
     : daSistemare === 0 ? `nella chiusura del ${giorno} c'erano ${n} cose che abbiamo già sistemato noi. Te le scriviamo così la prossima volta lo sai:`
     : `nella chiusura del ${giorno} ci sono ${n} cose:`;
   const corpo = n === 1 ? voci[0].testo : voci.map((v, i) => `${i + 1}. ${v.testo}`).join("\n\n");
@@ -565,8 +572,7 @@ async function istruisci(
           detail: `versamento scritto ${eur(scritto)} ma dalle ricevute risulta ${eur(somma)}${versFoto.length > 1 ? ` (${versFoto.map((v) => eur(v)).join(" + ")})` : ""}`,
           campo: "versamento in banca", scritto, letto: eur(somma),
           outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-          reasonBreve: causaNota,
-          lezione: causaNota ? "presa_in_carico" : "campo_diverso_dalla_foto",
+          lezione: "campo_diverso_dalla_foto",
         });
       }
     }
@@ -586,8 +592,7 @@ async function istruisci(
           detail: `${etichetta} scritto ${eur(num(l.amount))} ma dalla foto risulta ${eur(letto)}`,
           campo: `importo di ${etichetta}`, scritto: num(l.amount), letto: eur(letto),
           outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-          reasonBreve: causaNota,
-          lezione: causaNota ? "presa_in_carico" : "campo_diverso_dalla_foto",
+          lezione: "campo_diverso_dalla_foto",
         });
       }
     }
@@ -629,7 +634,11 @@ async function istruisci(
           detail: `totale incassato e somma dei mezzi di pagamento non quadrano (differenza ${eur(diffCorr)})`,
           outcome: "da_fare", reason: notaReason, reasonBreve: causaNota,
           action: null, undo_kind: null, undo_data: null,
-          lezione: causaNota ? "presa_in_carico" : "campo_diverso_dalla_foto",
+          // Solo qui: `amount` e' la differenza vera (diffCorr), e questo e' il
+          // caso visto (Roma Soratte, 14/11/2026). Nei controlli «foto diversa»
+          // `amount` e' l'importo scritto, non la differenza: scriverlo in una
+          // mail come «la differenza» sarebbe una cifra falsa.
+          lezione: causaNota && c.status !== "bozza" ? "presa_in_carico" : "campo_diverso_dalla_foto",
         });
       }
     }
@@ -844,8 +853,7 @@ async function istruisci(
         detail: `totale corrispettivi scritto ${eur(totScritto)} ma dalla foto il corrispettivo è ${totFoto.map((v) => eur(v)).join(" oppure ")}`,
         campo: "totale dell'incasso", scritto: totScritto, letto: totFoto.map((v) => eur(v)).join(" oppure "),
         outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-        reasonBreve: causaNota,
-        lezione: causaNota ? "presa_in_carico" : "campo_diverso_dalla_foto",
+        lezione: "campo_diverso_dalla_foto",
       });
     }
 
