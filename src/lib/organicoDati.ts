@@ -146,25 +146,53 @@ export async function caricaChiusurePerStima(companyId: string, settimane = 8): 
 }
 
 /**
+ * Mesi di traffico proprio che servono prima di lasciare il negozio di
+ * riferimento (Patrizio, 24/11/2026: Roma Soratte tiene Valmontone per 6 mesi,
+ * perche' un mese o due di storia non dicono niente di Natale, saldi e
+ * stagione). Vale solo dove il negozio ha un riferimento in «Regole dei turni».
+ */
+export const MESI_STORICO_PROPRIO = 6;
+
+/** Il traffico proprio copre almeno `mesi` mesi, dal primo all'ultimo giorno caricato. */
+export function storicoProprioBasta(righe: { data: string }[], mesi = MESI_STORICO_PROPRIO): boolean {
+  if (!righe.length) return false;
+  let primo = righe[0].data; let ultimo = righe[0].data;
+  for (const r of righe) { if (r.data < primo) primo = r.data; if (r.data > ultimo) ultimo = r.data; }
+  const soglia = new Date(`${primo}T00:00:00Z`);
+  soglia.setUTCMonth(soglia.getUTCMonth() + mesi);
+  return ultimo >= soglia.toISOString().slice(0, 10);
+}
+
+/** Il negozio di riferimento per il traffico, scelto in «Regole dei turni» (null se nessuno o colonna assente). */
+async function riferimentoDelNegozio(outletId: string): Promise<string | null> {
+  // Dove la colonna non c'e' (tenant senza la migration 391) non c'e' riferimento.
+  const r = await supabase.from('outlet_shift_rules').select('traffico_da_outlet_id').eq('outlet_id', outletId).maybeSingle();
+  const rif = r.error ? null : ((r.data as { traffico_da_outlet_id?: string | null } | null)?.traffico_da_outlet_id ?? null);
+  return rif && rif !== outletId ? rif : null;
+}
+
+/**
  * Lo storico MODA per il fabbisogno di un negozio. Stessa fonte per piano del
  * mese, piano settimanale e piano ferie:
- * 1. il traffico del negozio, se ne ha;
+ * 1. il traffico del negozio, se ne ha almeno MESI_STORICO_PROPRIO mesi, o se
+ *    non ha un negozio di riferimento;
  * 2. altrimenti quello del negozio di riferimento scelto in «Regole dei turni»
- *    (Patrizio, 11/11/2026: Roma Soratte usa il MODA di Valmontone);
+ *    (Patrizio, 11/11/2026: Roma Soratte usa il MODA di Valmontone; 24/11:
+ *    finche' non ha 6 mesi di traffico suo);
  * 3. altrimenti la media degli altri negozi, ora per ora. Fino all'11/11/2026
  *    il codice sommava gli ingressi di tutti i negozi invece di farne la media
  *    (alle 11 di un feriale 88,8 ingressi invece di 10-25).
  */
-export async function caricaStoricoNegozio(companyId: string, outletId: string): Promise<{ storico: StoricoTraffico; propria: boolean; fonte: 'propria' | 'riferimento' | 'media'; riferimentoId: string | null }> {
+export async function caricaStoricoNegozio(companyId: string, outletId: string): Promise<{ storico: StoricoTraffico; propria: boolean; fonte: 'propria' | 'riferimento' | 'media'; riferimentoId: string | null; storicoCorto?: boolean }> {
   const righe = await caricaTraffico(companyId, outletId);
-  if (righe.length > 0) return { storico: storicoTraffico(righe), propria: true, fonte: 'propria', riferimentoId: null };
-  // Dove la colonna non c'e' (tenant senza la migration 391) si torna alla media.
-  const r = await supabase.from('outlet_shift_rules').select('traffico_da_outlet_id').eq('outlet_id', outletId).maybeSingle();
-  const rif = r.error ? null : ((r.data as { traffico_da_outlet_id?: string | null } | null)?.traffico_da_outlet_id ?? null);
-  if (rif && rif !== outletId) {
+  if (righe.length > 0 && storicoProprioBasta(righe)) return { storico: storicoTraffico(righe), propria: true, fonte: 'propria', riferimentoId: null };
+  const rif = await riferimentoDelNegozio(outletId);
+  if (rif) {
     const delRif = await caricaTraffico(companyId, rif);
-    if (delRif.length > 0) return { storico: storicoTraffico(delRif), propria: false, fonte: 'riferimento', riferimentoId: rif };
+    if (delRif.length > 0) return { storico: storicoTraffico(delRif), propria: false, fonte: 'riferimento', riferimentoId: rif, storicoCorto: righe.length > 0 };
   }
+  // Senza riferimento il traffico proprio vale anche se e' poco, come prima.
+  if (righe.length > 0) return { storico: storicoTraffico(righe), propria: true, fonte: 'propria', riferimentoId: null };
   return { storico: storicoTraffico(mediaFraNegozi(await caricaTraffico(companyId, null))), propria: false, fonte: 'media', riferimentoId: null };
 }
 

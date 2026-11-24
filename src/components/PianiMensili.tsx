@@ -25,7 +25,7 @@ import { useToast } from './Toast';
 import EditorTurno from './EditorTurno';
 import { Modal } from './ui/Modal';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
-import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, puoLavorareIl, type DatiOrganico } from '../lib/organicoDati';
+import { caricaDisponibilita, caricaGiorniFerie, caricaStoricoNegozio, puoLavorareIl, MESI_STORICO_PROPRIO, type DatiOrganico } from '../lib/organicoDati';
 import { fasceDelle, fasciaIl, testoAccordo, type Accordo } from '../lib/accordiOrario';
 import { avvisiMossa as avvisiDellaMossa, esitoMossa, giornoEsteso, mossePossibili, type ContestoSpostamenti, type MossaTurno } from '../lib/spostaTurni';
 import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
@@ -437,7 +437,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
       giorniLiberi: gl.mappa, haGiorniLiberi: gl.disponibile, coppiePrima, lunediPrima, riposi, abilitazioni,
       ferie: fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)),
       fonte: atteso.size
-        ? `${tr.fonte === 'propria' ? 'traffico MODA del negozio' : tr.fonte === 'riferimento' ? `traffico MODA di ${nomeRif} (negozio di riferimento: questo non ha storico)` : 'media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}; ${regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali, ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria)`
+        ? `${tr.fonte === 'propria' ? 'traffico MODA del negozio' : tr.fonte === 'riferimento' ? `traffico MODA di ${nomeRif} (negozio di riferimento: questo ${tr.storicoCorto ? `ha meno di ${MESI_STORICO_PROPRIO} mesi di traffico suo` : 'non ha storico'})` : 'media degli altri negozi (questo non ha storico)'}: ${[...fonti].join(', ')}; ${regole.sogliaFeriali === regole.sogliaWeekend ? `${regole.sogliaFeriali} ingressi per addetto` : `${regole.sogliaFeriali} ingressi per addetto nei feriali, ${regole.sogliaWeekend} nel weekend`} (soglia provvisoria)`
         : 'nessun traffico: fabbisogno di «Regole e orari»',
     };
   };

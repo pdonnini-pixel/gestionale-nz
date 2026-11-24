@@ -885,6 +885,11 @@ test con numeri inventati in `trafficoModa.test.ts`). Prima i report li caricava
 - **Traffico di riferimento**: `outlet_shift_rules.traffico_da_outlet_id` (migration 391, NZ e Zago), scelto in
   «Regole dei turni». Roma Soratte = Valmontone (Patrizio). Senza riferimento: media vera (`mediaFraNegozi`).
   Un solo punto per tutte le pagine: `caricaStoricoNegozio` in `organicoDati.ts`.
+  **Il riferimento resta finché il negozio non ha 6 mesi di traffico suo** (Patrizio, 24/11/2026: Roma Soratte
+  arriva nel report MODA di dicembre con un mese solo, che non dice niente di Natale e saldi). `MESI_STORICO_PROPRIO`
+  e `storicoProprioBasta` in `organicoDati.ts`: dal primo all'ultimo giorno di traffico proprio almeno 6 mesi; vale
+  anche per il controllo dei periodi speciali (`caricaIngressiGiornalieri`). Senza riferimento il traffico proprio
+  vale da subito, come prima.
 - **Weekend senza riposi**: la variante «nessun sabato né domenica liberi» non sceglie più la migliore fra le
   rotazioni (regola del 02/11): `weekendSenzaRiposi` porta nel weekend un turno feriale della stessa settimana
   di chi resta senza turno il sabato o la domenica, se il feriale resta coperto e con due persone.
