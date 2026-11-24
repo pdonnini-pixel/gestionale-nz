@@ -89,6 +89,8 @@ CREATE POLICY responsabile_block ON public.outlet_moda_codici AS RESTRICTIVE FOR
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.outlet_moda_codici TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.outlet_moda_codici TO service_role;
+-- I permessi predefiniti del progetto danno la tabella anche ad anon: si tolgono (la RLS gli darebbe zero righe, ma la regola e' niente anon).
+REVOKE ALL ON public.outlet_moda_codici FROM anon;
 
 -- 3. Il report del mese
 CREATE OR REPLACE FUNCTION public.vendite_ingressi_report(p_mese date)
