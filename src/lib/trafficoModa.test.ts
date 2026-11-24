@@ -168,3 +168,103 @@ describe('testi', () => {
     expect(meseLeggibile('2026-10')).toBe('ottobre 2026');
   });
 });
+
+// ── Importi e PDF di un negozio solo (migration 464) ────────────────────────
+// Bordi destri veri del PDF MODA: C.R. 312, N.P. 348, Scontr 384, Qta 420,
+// Teorico 468, Reale 522, Scon 552, Prz.Medi 594, UPT 624, V.Acq 678,
+// Ricarichi 708 e 738, Resa 798. Prz.Medi e UPT hanno l'etichetta solo nella
+// prima riga d'intestazione.
+const lab = (s: string, destra: number, y: number): PdfItem => ({ str: s, x: destra - s.length * 4.5, y, w: s.length * 4.5 });
+function intestazioneCompleta(y: number, filtro: PdfItem[], raggr = 'Giorno , Ora'): PdfItem[] {
+  return [
+    txt('Data Stampa', 54, y), txt('05/11/2026', 144, y), txt('09.12.30', 216, y),
+    txt('Statistica Situazione Vendite con Conversion Rate', 54, y - 18),
+    txt('Raggruppamenti :', 54, y - 30), txt(raggr, 140, y - 30),
+    txt('Filtro', 54, y - 40), txt('su Data :', 87, y - 40), txt('da 01/11/2026', 135, y - 40), txt('fino a 02/11/2026', 202, y - 40),
+    ...filtro,
+    txt('Importi', 54, y - 88), txt('Vendite SENZA Iva.', 92, y - 88),
+    txt('(sono ESCLUSE', 54, y - 114), txt('Vendite libere,', 121, y - 114), txt('Buoni e Acconti)', 198, y - 114),
+    // prima riga d'intestazione
+    lab('C.R.', 303, y - 150), lab('N.P.', 342, y - 150), lab('Scontr', 383, y - 150), lab('Qta', 413, y - 150),
+    lab('Valore Vendite', 505, y - 150), lab('Scon', 550, y - 150), lab('Prz.Medi', 595, y - 150), lab('UPT', 624, y - 150),
+    lab('V.Acq', 667, y - 150), lab('Ricarichi', 730, y - 150), lab('Resa', 785, y - 150),
+    // seconda riga
+    txt('Codice', 48, y - 168), txt('Descrizione', 138, y - 168), lab('%', 312, y - 167),
+    lab('N.', 348, y - 168), lab('N.', 384, y - 168), lab('Vend', 420, y - 168), lab('Teorico', 468, y - 168), lab('Reale', 522, y - 168),
+    lab('%', 552, y - 167), lab('Importo', 678, y - 168), lab('Teo', 708, y - 168), lab('Rea', 738, y - 168), lab('Importo', 798, y - 168),
+  ];
+}
+/** Un'ora con tutte le colonne: C.R., N.P., Scontr, Qta, Teorico, Reale, Scon, Prz.Medi, UPT, V.Acq, Ric Teo, Ric Rea, Resa */
+const oraPiena = (h: string, y: number, v: string[]): PdfItem[] => [
+  txt(h, 72, y), ...[312, 348, 384, 420, 468, 522, 552, 594, 624, 678, 708, 738, 798].map((d, i) => lab(v[i], d, y)),
+];
+const filtroBarb = (y: number) => [txt('Filtro', 54, y - 50), txt('su Negozio', 87, y - 50), txt(':', 140, y - 50), txt('ALFA - Alfa Village', 150, y - 50)];
+
+describe('report MODA con gli importi', () => {
+  const pdf = (): PdfItem[][] => [[
+    ...intestazioneCompleta(546, filtroBarb(546)),
+    txt('01/11/2026', 60, 357), txt('Domenica', 138, 357),
+    ...oraPiena('1300', 341, ['11,11', '9', '1', '1', '97,13', '68,03', '29,96', '68,03', '1,00', '22,88', '4,25', '2,97', '45,15']),
+    // UPT 3,56 non deve finire nel costo d'acquisto (366,30)
+    ...oraPiena('1500', 331, ['23,08', '39', '9', '32', '1.367,09', '391,92', '71,33', '12,25', '3,56', '366,30', '3,73', '1,07', '25,62']),
+    txt('1600', 72, 321), lab('13', 348, 321), lab('0,00', 624, 321),
+    ...[312, 348, 384, 420, 468, 522].map((d, i) => lab(['20,41', '49', '10', '33', '1.464,22', '459,95'][i], d, 305)),
+  ]];
+
+  it('legge il negozio dall\'intestazione nei PDF di un negozio solo', () => {
+    const r = leggiReportModa(pdf());
+    expect(r.raggruppamento).toBe('Giorno, Ora');
+    expect(r.negozi.map((n) => [n.codice, n.descrizione])).toEqual([['ALFA', 'Alfa Village']]);
+    expect(r.importi).toBe(true);
+  });
+
+  it('legge pezzi, teorico, reale e costo per posizione, senza confondere UPT con il costo', () => {
+    const [g] = leggiReportModa(pdf()).negozi[0].giorni;
+    expect(g.ore[0]).toEqual({ ora: 13, ingressi: 9, scontrini: 1, importi: { pezzi: 1, teorico: 97.13, reale: 68.03, costo: 22.88 } });
+    expect(g.ore[1].importi).toEqual({ pezzi: 32, teorico: 1367.09, reale: 391.92, costo: 366.3 });
+    // ora con sole persone entrate: importi a zero, non mancanti
+    expect(g.ore[2]).toEqual({ ora: 16, ingressi: 13, scontrini: 0, importi: { pezzi: 0, teorico: 0, reale: 0, costo: 0 } });
+  });
+
+  it('rifiuta il report per giorno, che non ha le ore', () => {
+    expect(() => leggiReportModa([intestazioneCompleta(546, [], 'Negozio , Mese , Giorno')])).toThrow(/report per giorno/);
+  });
+});
+
+describe('confronto con gli importi', () => {
+  const imp = { pezzi: 3, teorico: 100, reale: 60, costo: 20 };
+  const giorno = { data: '2026-11-01', ore: [{ ora: 10, ingressi: 5, scontrini: 1, importi: imp }], totale: null };
+  const base = { outlet_id: 'a', data: '2026-11-01', ora: 10, ingressi: 5, scontrini: 1 };
+
+  it('il database ha solo ingressi e scontrini: il file li completa senza chiedere', () => {
+    const [e] = confrontaGiorni([{ outletId: 'a', giorno }], [{ ...base, pezzi: null, valore_teorico: null, vendite: 0, costo_acquisto: null }]);
+    expect(e.stato).toBe('completa');
+    expect(e.righe[0]).toMatchObject({ pezzi: 3, valore_teorico: 100, vendite: 60, costo_acquisto: 20 });
+  });
+
+  it('ricaricare lo stesso file e\' uguale: niente si somma', () => {
+    const [e] = confrontaGiorni([{ outletId: 'a', giorno }], [{ ...base, pezzi: 3, valore_teorico: 100, vendite: 60, costo_acquisto: 20 }]);
+    expect(e.stato).toBe('uguale');
+  });
+
+  it('importi diversi da quelli gia\' caricati: si chiede conferma', () => {
+    const [e] = confrontaGiorni([{ outletId: 'a', giorno }], [{ ...base, pezzi: 3, valore_teorico: 100, vendite: 59.5, costo_acquisto: 20 }]);
+    expect(e.stato).toBe('diverso');
+  });
+
+  it('un\'ora nel database che il file non ha si toglie, dopo la conferma', () => {
+    const [e] = confrontaGiorni([{ outletId: 'a', giorno }], [
+      { ...base, pezzi: 3, valore_teorico: 100, vendite: 60, costo_acquisto: 20 },
+      { ...base, ora: 19, ingressi: 2, scontrini: 0 },
+    ]);
+    expect(e.stato).toBe('diverso');
+    expect(e.oreDaTogliere).toEqual([19]);
+  });
+
+  it('un file senza importi non tocca quelli gia\' caricati', () => {
+    const senza = { data: '2026-11-01', ore: [{ ora: 10, ingressi: 5, scontrini: 1 }], totale: null };
+    const [e] = confrontaGiorni([{ outletId: 'a', giorno: senza }], [{ ...base, pezzi: 3, valore_teorico: 100, vendite: 60, costo_acquisto: 20 }]);
+    expect(e.stato).toBe('uguale');
+    expect(e.righe[0].valore_teorico).toBeUndefined();
+  });
+});

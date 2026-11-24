@@ -102,14 +102,28 @@ async function caricaCopertura(companyId: string): Promise<Map<string, Set<strin
   return out;
 }
 
+/**
+ * Il database ha le colonne degli importi (migration 464)? Il frontend esce
+ * anche dove la migration non c'e' (Made): li' si torna a salvare solo
+ * ingressi e scontrini, come prima.
+ */
+let colonneImporti: boolean | null = null;
+const COLONNE_BASE = 'outlet_id, data, ora, ingressi, scontrini';
+const COLONNE_TUTTE = `${COLONNE_BASE}, pezzi, valore_teorico, vendite, costo_acquisto`;
+
 /** Quello che c'e' gia' nel database per questi negozi e queste date. */
 async function caricaEsistenti(companyId: string, outletIds: string[], dal: string, al: string): Promise<RigaTrafficoDb[]> {
   const out: RigaTrafficoDb[] = [];
   if (!outletIds.length) return out;
   for (let da = 0; ; da += 1000) {
-    const { data, error } = await supabase.from('outlet_traffic_hourly').select('outlet_id, data, ora, ingressi, scontrini, pezzi, valore_teorico, vendite, costo_acquisto')
+    const leggi = (colonne: string) => supabase.from('outlet_traffic_hourly').select(colonne as typeof COLONNE_TUTTE)
       .eq('company_id', companyId).in('outlet_id', outletIds).gte('data', dal).lte('data', al)
       .order('outlet_id').order('data').order('ora').range(da, da + 999);
+    let { data, error } = await leggi(colonneImporti === false ? COLONNE_BASE : COLONNE_TUTTE);
+    if (error && colonneImporti !== false && (error.code === '42703' || /column .* does not exist/i.test(error.message))) {
+      colonneImporti = false;
+      ({ data, error } = await leggi(COLONNE_BASE));
+    } else if (!error && colonneImporti == null) colonneImporti = true;
     if (error) throw error;
     const righe = (data as RigaTrafficoDb[]) ?? [];
     out.push(...righe);
@@ -176,17 +190,23 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere, soloTabel
         .eq('company_id', companyId).eq('outlet_id', e.outletId).eq('data', e.data).in('ora', e.oreDaTogliere);
       if (error) throw new Error(`Salvataggio interrotto: ${error.message}. Nessun giorno salvato.`);
     }
+    const tolte = esiti.some((e) => e.oreDaTogliere.length);
     for (let i = 0; i < esiti.length;) {
       const blocco: EsitoGiorno[] = [];
       let righe = 0;
       while (i < esiti.length && (blocco.length === 0 || righe + esiti[i].righe.length <= 500)) { righe += esiti[i].righe.length; blocco.push(esiti[i++]); }
       const { error } = await supabase.from('outlet_traffic_hourly').upsert(
-        blocco.flatMap((e) => e.righe).map(({ vendite, ...r }) => ({ ...r, ...(vendite != null ? { vendite } : {}), company_id: companyId, fonte: 'moda', file_name: nomeFile.slice(0, 200), updated_at: adesso })),
+        blocco.flatMap((e) => e.righe).map(({ vendite, pezzi, valore_teorico, costo_acquisto, ...r }) => ({
+          ...r,
+          // senza le colonne della 464 si salvano solo ingressi e scontrini, come prima
+          ...(colonneImporti !== false && valore_teorico != null ? { vendite: vendite ?? 0, pezzi, valore_teorico, costo_acquisto } : {}),
+          company_id: companyId, fonte: 'moda', file_name: nomeFile.slice(0, 200), updated_at: adesso,
+        })),
         { onConflict: 'outlet_id,data,ora' },
       );
       if (error) {
         segnaCopertura(esiti.slice(0, fatti));
-        throw new Error(`Salvataggio interrotto: ${error.message}. ${fatti ? `${giorni(fatti)} erano già salvati per intero; ricarica lo stesso file per completare.` : 'Nessun giorno salvato.'}`);
+        throw new Error(`Salvataggio interrotto: ${error.message}. ${fatti ? `${giorni(fatti)} erano già salvati per intero; ricarica lo stesso file per completare.` : tolte ? 'Alcune ore da sostituire erano già state tolte: ricarica lo stesso file e conferma di nuovo, il giorno tornerà esattamente come nel report.' : 'Nessun giorno salvato.'}`);
       }
       fatti += blocco.length;
     }
@@ -318,13 +338,14 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere, soloTabel
       await salvaGiorni(diversi, v.file.name);
       segnaMesi(diversi);
       const scelti = nonAbbinati.filter((n) => scelte[n.codice]);
+      let codiceNonRicordato: string | null = null;
       // La scelta si ricorda: dal prossimo file questo codice MODA si riconosce da solo.
       if (scelti.length) {
         const { error } = await supabase.from('outlet_moda_codici').upsert(
           scelti.map((n) => ({ company_id: companyId, codice: n.codice.toUpperCase(), descrizione: n.descrizione.slice(0, 200), outlet_id: scelte[n.codice] })),
           { onConflict: 'company_id,codice' },
         );
-        if (error) console.warn('[TrafficoModa] codice MODA non ricordato:', error.message);
+        if (error) codiceNonRicordato = `${scelti.map((n) => n.codice).join(', ')}: il negozio scelto non è stato ricordato (${error.message}), la prossima volta te lo richiederà`;
       }
       const altri = await elabora(
         scelti.flatMap((n) => n.giorni.map((g) => ({ outletId: scelte[n.codice], giorno: g }))),
@@ -334,7 +355,7 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere, soloTabel
       segnaMesi(altri.salvati);
       const saltati = nonAbbinati.filter((n) => !scelte[n.codice]);
       const giorniSalvati = (v.giorniSalvati ?? 0) + diversi.length + altri.salvati.length;
-      const resta = [...(v.resta ?? []), ...(saltati.length ? [`${saltati.map((n) => `${n.codice} «${n.descrizione}»`).join(', ')} non ${saltati.length === 1 ? 'è stato caricato' : 'sono stati caricati'}: nessun negozio scelto`] : [])];
+      const resta = [...(v.resta ?? []), ...(codiceNonRicordato ? [codiceNonRicordato] : []), ...(saltati.length ? [`${saltati.map((n) => `${n.codice} «${n.descrizione}»`).join(', ')} non ${saltati.length === 1 ? 'è stato caricato' : 'sono stati caricati'}: nessun negozio scelto`] : [])];
       const parti = [
         diversi.length ? `sostituiti ${giorni(diversi.length)}` : '',
         frase(altri.salvati, altri.uguali),

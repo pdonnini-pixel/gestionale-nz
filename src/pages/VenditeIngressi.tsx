@@ -119,7 +119,13 @@ export default function VenditeIngressi() {
       let r = await chiedi(meseUrl ?? meseCorrente());
       if (!meseUrl && !r.giorni.some((g) => g.data.startsWith(r.mese)) && r.mesi.length) r = await chiedi(r.mesi[0]);
       if (vivo) { setReport(r); setErrore(null); }
-    })().catch((e: unknown) => { if (vivo) setErrore(e instanceof Error ? e.message : 'Report non caricato.'); })
+    })().catch((e: unknown) => {
+      if (!vivo) return;
+      const msg = e && typeof e === 'object' && 'message' in e ? String((e as { message: unknown }).message) : 'Report non caricato.';
+      const code = e && typeof e === 'object' && 'code' in e ? String((e as { code: unknown }).code) : '';
+      // Dove la migration 464 non c'e' la funzione manca: si dice in chiaro.
+      setErrore(code === 'PGRST202' || /Could not find the function/i.test(msg) ? 'questa sezione non è ancora attiva su questo gestionale.' : msg);
+    })
       .finally(() => { if (vivo) setCaricamento(false); });
     return () => { vivo = false; };
   }, [companyId, tab, meseUrl, versione]);
