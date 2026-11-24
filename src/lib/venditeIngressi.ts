@@ -41,6 +41,8 @@ export interface ReportVI {
   ore: OraVI[];
   /** incasso netto delle chiusure di cassa del mese, per negozio */
   cassa: Map<string, number>;
+  /** incasso netto delle chiusure di cassa per negozio e giorno («negozio|data»), migration 465 */
+  cassaGiorni: Map<string, number>;
 }
 
 const n = (v: unknown): number => (v == null || v === '' ? 0 : Number(v));
@@ -63,6 +65,7 @@ export function leggiReportVI(raw: unknown): ReportVI {
       return { outletId: String(a[0]), giornoSett: n(a[1]), ora: n(a[2]), ingressi: n(a[3]), scontrini: n(a[4]), reale: n(a[5]) };
     }),
     cassa: new Map(arr('cassa').map((x) => { const a = x as unknown[]; return [String(a[0]), n(a[1])] as [string, number]; })),
+    cassaGiorni: new Map(arr('cassa_giorni').map((x) => { const a = x as unknown[]; return [`${String(a[0])}|${String(a[1])}`, n(a[2])] as [string, number]; })),
   };
 }
 
@@ -82,6 +85,37 @@ export function ultimoGiorno(giorni: GiornoVI[], mese: string): number {
 /** I giorni di un mese, fino al giorno indicato (per confrontare periodi della stessa lunghezza) e per i negozi scelti. */
 export function giorniDel(giorni: GiornoVI[], mese: string, finoAl = 31, negozi?: Set<string>): GiornoVI[] {
   return giorni.filter((g) => g.data.startsWith(mese) && Number(g.data.slice(8, 10)) <= finoAl && (!negozi || negozi.has(g.outletId)));
+}
+
+/** La data spostata di n giorni (negativo = indietro). */
+export function spostaGiorni(data: string, n: number): string {
+  const d = new Date(`${data}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Giorni della settimana a cui confrontare l'anno prima: 52 settimane, cioe' 364 giorni. */
+export const GIORNI_ANNO_PRIMA = 364;
+
+/**
+ * I giorni dell'anno prima che corrispondono, uno per uno, a quelli del
+ * periodo: stesso negozio, stesso giorno della settimana, 52 settimane prima.
+ * Cosi' una domenica si confronta con una domenica (1-3/11/2026, domenica-
+ * martedi', va con 2-4/11/2025, non con 1-3/11/2025 che era sabato-lunedi').
+ */
+export function giorniAnnoPrima(tutti: GiornoVI[], periodo: GiornoVI[]): GiornoVI[] {
+  const chiavi = new Set(periodo.map((g) => `${g.outletId}|${spostaGiorni(g.data, -GIORNI_ANNO_PRIMA)}`));
+  return tutti.filter((g) => chiavi.has(`${g.outletId}|${g.data}`));
+}
+
+/** L'incasso di cassa sui soli giorni che MODA ha (stesso negozio, stesso giorno). Null se la cassa non ne ha nessuno. */
+export function cassaSuiGiorni(cassaGiorni: Map<string, number>, periodo: GiornoVI[]): number | null {
+  let tot = 0; let trovati = 0;
+  for (const g of periodo) {
+    const v = cassaGiorni.get(`${g.outletId}|${g.data}`);
+    if (v != null) { tot += v; trovati++; }
+  }
+  return trovati ? tot : null;
 }
 
 // ── Misure ──────────────────────────────────────────────────────────────────
@@ -187,7 +221,7 @@ export function scomponi(prima: Misure, ora: Misure): Scomposizione | null {
 // ── Quadratura con le chiusure di cassa ─────────────────────────────────────
 
 /** Differenza % fra incasso netto delle chiusure e vendite MODA (positivo = MODA sotto la cassa). Null se manca uno dei due. */
-export function scartoCassa(cassaNetta: number | undefined, venditeModa: number, importiCompleti: boolean): number | null {
+export function scartoCassa(cassaNetta: number | undefined | null, venditeModa: number, importiCompleti: boolean): number | null {
   if (!cassaNetta || !importiCompleti) return null;
   return ((cassaNetta - venditeModa) / cassaNetta) * 100;
 }

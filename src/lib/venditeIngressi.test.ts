@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   leggiReportVI, somma, derivate, scomponi, scartoCassa, mesePrima, meseAnnoPrima, ultimoGiorno, giorniDel,
-  mappaOre, oreAperte, variazione, type GiornoVI,
+  mappaOre, oreAperte, variazione, spostaGiorni, giorniAnnoPrima, cassaSuiGiorni, type GiornoVI,
 } from './venditeIngressi';
 
 const g = (data: string, ingressi: number, scontrini: number, imp?: [number, number, number, number], outletId = 'a'): GiornoVI => ({
@@ -117,5 +117,21 @@ describe('periodi e quadratura', () => {
     expect(mappaOre(ore, new Set(['b'])).get('6|15')).toEqual({ ingressi: 30, scontrini: 2 });
     // le 9 hanno uno scontrino ma nessun ingresso: non allargano la mappa
     expect(oreAperte(ore)).toEqual([15, 16, 17, 18, 19]);
+  });
+});
+
+describe('confronti alla pari (migration 465)', () => {
+  it('l\'anno prima e\' lo stesso giorno della settimana, 52 settimane prima', () => {
+    // 1-3/11/2026 domenica-martedi' contro 2-4/11/2025 domenica-martedi'
+    expect(spostaGiorni('2026-11-01', -364)).toBe('2025-11-02');
+    expect(new Date('2025-11-02T00:00:00Z').getUTCDay()).toBe(new Date('2026-11-01T00:00:00Z').getUTCDay());
+    const tutti = [g('2025-11-01', 1142, 82), g('2025-11-02', 752, 49), g('2025-11-03', 86, 5), g('2025-11-04', 77, 7), g('2025-11-02', 9, 1, undefined, 'b')];
+    const periodo = [g('2026-11-01', 618, 58), g('2026-11-02', 106, 7), g('2026-11-03', 38, 6)];
+    expect(giorniAnnoPrima(tutti, periodo).map((x) => x.data)).toEqual(['2025-11-02', '2025-11-03', '2025-11-04']);
+  });
+  it('la cassa si confronta solo sui giorni che MODA ha', () => {
+    const cassa = new Map([['a|2026-11-01', 5000], ['a|2026-11-02', 500], ['a|2026-11-03', 578], ['a|2026-11-20', 9000]]);
+    expect(cassaSuiGiorni(cassa, [g('2026-11-01', 1, 1), g('2026-11-02', 1, 1), g('2026-11-03', 1, 1)])).toBe(6078);
+    expect(cassaSuiGiorni(cassa, [g('2026-11-05', 1, 1)])).toBeNull();
   });
 });
