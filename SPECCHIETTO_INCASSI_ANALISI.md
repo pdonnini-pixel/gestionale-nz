@@ -504,6 +504,39 @@ Nota sul testo: il ripasso non scrive ai negozi, ma la mail di esito interna par
 
 Edge function finale: NZ v18 e Zago v13, `ezbr_sha256` `a4227d4a...`, identico al file del repo.
 
+### 4k. alla referente si scrive anche quando la sua nota non basta (24 novembre 2026)
+
+Patrizio: «alla referente che gli diciamo? dove sapere se ha fatto un errore?». Misurato: **da nessuna parte**.
+
+- Il riquadro degli esiti sta solo in Incassi giornalieri (`IncassiGiornalieri.tsx`), e su `closing_checks` c'è la policy `responsabile_block`: chi ha il profilo responsabile non legge nemmeno una riga. Anche aprendo la pagina vedrebbe vuoto.
+- La mail al negozio partiva solo per le segnalazioni con una «lezione», e la lezione era spenta quando la cassiera aveva scritto una nota (`lezione: nota ? null : ...`), cioè **proprio quando noi concludiamo che la nota non spiega la cifra**. Conto sul vivo, 30 giorni: 24 righe in `closing_checks`, **3 messaggi** in tutto (Palmanova il 4/11, Roma Soratte due, l'ultimo il 20/11), **zero** sulle cinque rimaste aperte. Le ragazze scrivono, noi decidiamo, loro non lo sanno.
+
+**Cosa cambia.** La nota non spegne più il messaggio: la mail la cita una volta in apertura («abbiamo letto quello che hai scritto («…»), ma il conto non torna ancora») e chiede una cosa sola, quella che può sapere solo chi era in negozio. Due lezioni nuove:
+
+- `serve_il_conteggio`, per la differenza di cassa che nessun documento spiega (fingerprint `da_capire`). **Non chiede i due numeri contati**, che il gestionale ha già: li rilegge («hai scritto 3.360,30 € di fondo cassa e 69,90 € da versare, in tutto 3.430,20 €; a noi risulta che dovrebbero essere 3.864,30 €») e chiede l'unica cosa che manca, se ricontando le tornano. Questo era il rilievo importante del revisore del codice: la prima versione chiedeva un dato che il documento ha, contro la regola «niente liste da compilare a mano».
+- `conferma_ipotesi`, dove il gestionale ha già un'ipotesi (un'uscita segnata in ritardo, la cifra opposta di un giorno vicino): chiede solo una conferma, con l'ipotesi in parole da cassiera (`reasonBreve`).
+
+Restano senza messaggio i casi che toccano all'amministrazione: `bozza_prima` (una giornata da riconfermare) e `fatture_possibili` (più fatture in contanti fra cui scegliere). Su una chiusura ancora in bozza le due lezioni nuove tacciono: l'unica cosa da dire è di confermarla. Il ripasso delle giornate vecchie non scrive mai ai negozi.
+
+**Dai revisori** (sicurezza APPROVA, codice ATTENZIONE con un rilievo importante, tutti sistemati): la nota si cita una volta sola e non in ogni voce (con due o tre problemi usciva due o tre volte); il testo non dice più cose non vere (le fatture in contanti si cercano solo sugli ammanchi, e la sera i giorni dopo non esistono); la descrizione dell'uscita, testo libero, è tagliata a 120 caratteri prima di finire in una mail; e **lo stesso messaggio non si rimanda** (la funzione non era idempotente: un richiamo a mano con il segreto del cron rimandava tutto a tutti).
+
+**Misura del volume**, prove a vuoto su NZ: 23/11 una mail (Palmanova), 18/11 una (Palmanova, due cose), 14/11 una (Roma Soratte), 22/11 **zero**. Una per negozio al giorno, e sulle giornate pulite nessuno riceve niente. Sui 30 giorni passati avrebbe scritto cinque volte invece di tre, sempre e solo a Palmanova e Roma Soratte.
+
+**Terza strada: quando la nota dice una causa che il gestionale non sa registrare** (Patrizio, 24 novembre: «si fallo e pubblica ma non mandare mail a lei»). Il caso vero è Roma Soratte del 14 novembre: «Scontrino POS comprende 34,95 € di vendite di un giorno precedente (POS non chiuso quel giorno): tolti dalla riga POS, sono già nei corrispettivi di quel giorno». La spiegazione è completa e corretta, e nel gestionale non esiste un campo dove metterla: la differenza di 35,00 € resta nei conti comunque. Chiederle di ricontrollare gli scontrini sarebbe sbagliato due volte, perché ha già guardato e guardando di nuovo non troverebbe niente. Quindi la lezione `presa_in_carico` non chiede niente: «Abbiamo letto quello che hai scritto, e ci basta… Il gestionale non ha un posto dove registrarlo, quindi nei nostri conti la differenza di 35,00 € resta lì: la prende in carico l'amministrazione. Per questa non devi fare niente.» L'oggetto diventa «ci pensiamo noi». La segnalazione **resta `da_fare`** per l'amministrazione: al negozio diciamo che non deve fare niente, non che è sistemata.
+
+Il perimetro è strettissimo di proposito:
+
+- vale **solo** sulla differenza fra totale incassato e somma dei mezzi di pagamento (`differenza_corrispettivi`, fingerprint `diff`), dove `amount` è la differenza vera. Questo era il rilievo importante del revisore: nei tre controlli «foto diversa» `amount` è l'**importo scritto**, non la differenza, e la prima versione avrebbe scritto a un negozio «la differenza di 3.360,30 €», una cifra falsa. Avevo generalizzato a quattro rami dopo averne verificato uno;
+- la nota deve nominare un altro giorno **e** un incasso (POS, scontrini, vendite, corrispettivi) **e** non negare la cosa («non viene da un altro giorno» non conta);
+- mai su una chiusura ancora in bozza, altrimenti il messaggio direbbe insieme «conferma la chiusura» e «non devi fare niente» (secondo rilievo del revisore);
+- con più voci miste c'è un'apertura sua («qualcuna l'abbiamo già sistemata noi, le altre le prendiamo in carico»): dire «abbiamo già sistemato» su una cosa che non abbiamo sistemato era la bugia che volevamo evitare (terzo rilievo).
+
+Prova a vuoto sul 14 novembre, dopo il deploy: una mail sola, a Roma Soratte, con quel testo e l'oggetto «ci pensiamo noi»; `da_fare` resta 1. Prova sul 23: Palmanova invariata, «una cosa da sistemare». **A Maria non è partito niente**: una giornata vecchia non viene mai istruita una seconda volta (`closing_check_runs` ha il vincolo unico su azienda e data) e la prova a vuoto non scrive e non manda.
+
+Edge function: NZ v21 e Zago v16, `ezbr_sha256` `7cd7d3dd…`, e il contenuto deployato riletto e confrontato col file del repo è identico (73.200 byte, stesso sha256).
+
+**Resta aperto, decide Patrizio**: il riquadro nella pagina della referente, con gli ultimi dieci giorni del suo negozio in parole sue. Serve aprire `closing_checks` al profilo responsabile, in sola lettura e solo per i suoi negozi, cioè toccare il recinto della migration 379.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?

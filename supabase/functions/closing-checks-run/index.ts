@@ -120,6 +120,12 @@ function nomeDiSaluto(closedBy: string | null, nomiVeri: Set<string>): string | 
   return null;
 }
 
+/** Un testo scritto a mano dal negozio, tagliato prima di finire in una mail. */
+function corto(s: string | null, max = 120): string {
+  const t = (s ?? "").trim();
+  return t.length > max ? `${t.slice(0, max - 1)}…` : t;
+}
+
 /**
  * La nota come l'ha scritta la cassiera, senza le righe che il gestionale
  * aggiunge dopo (cominciano con «[gg/mm/aaaa»): citarle nel messaggio al
@@ -156,7 +162,7 @@ interface Expense { id: string; closing_id: string; kind: string; amount: number
 type Outcome = "falso_allarme" | "sistemato" | "da_fare" | "informazione";
 type Kind = "differenza_cassa" | "differenza_corrispettivi" | "foto_diversa" | "foto_mancante" | "bozza" | "nota";
 /** Che lezione mandare al negozio: una per tipo di errore, testo fisso. */
-type Lezione = "spesa_in_ritardo" | "annullo_nel_totale" | "campo_diverso_dalla_foto" | "chiusura_in_bozza" | "foto_mancante" | null;
+type Lezione = "spesa_in_ritardo" | "annullo_nel_totale" | "campo_diverso_dalla_foto" | "chiusura_in_bozza" | "foto_mancante" | "serve_il_conteggio" | "conferma_ipotesi" | "presa_in_carico" | null;
 
 interface Check {
   outlet: Outlet; closing: Closing | null;
@@ -199,12 +205,48 @@ function giornoBreve(iso: string): string {
   const [, m, d] = iso.split("-").map(Number);
   return `${d} ${MESI[m - 1]}`;
 }
+/**
+ * Alcune cause che la cassiera scrive in nota il gestionale non sa registrare:
+ * non c'e' nessun campo dove metterle, quindi la differenza resta nei conti
+ * anche quando la spiegazione e' giusta e completa. In quei casi chiederle di
+ * ricontrollare gli scontrini e' sbagliato due volte: ha gia' guardato, e
+ * guardando di nuovo non troverebbe niente. La giornata la prende in carico
+ * l'amministrazione.
+ *
+ * L'elenco e' corto di proposito: ogni voce e' un caso visto davvero, e un
+ * riconoscimento sbagliato cambia solo il tono del messaggio, mai l'esito
+ * della segnalazione, che resta «da fare» per l'amministrazione.
+ *
+ * Roma Soratte, 14/11/2026: «Scontrino POS comprende 34,95 € di vendite di un
+ * giorno precedente (POS non chiuso quel giorno): tolti dalla riga POS, sono
+ * già nei corrispettivi di quel giorno». Spiegazione completa e corretta, e il
+ * gestionale non ha un posto dove metterla: la differenza di 35,00 € resta.
+ */
+function causaNellaNota(nota: string): string | null {
+  const t = nota.toLowerCase();
+  const altroGiorno = /giorno precedente|giorni precedenti|giornata precedente|giorno prima|altro giorno|altra giornata|pos non chiuso|non chiuso quel giorno/.test(t);
+  // Deve parlare di un incasso, non di qualunque cosa sia capitata un altro
+  // giorno: «l'altro giorno ho chiamato l'assistenza» non c'entra niente.
+  const diUnIncasso = /pos|scontrin|vendit|incass|corrispettiv/.test(t);
+  // E non deve negarla: «non viene da un altro giorno» dice il contrario.
+  const negata = /non (viene|dipende|c'entra|si tratta|sono|è|e')/.test(t);
+  if (altroGiorno && diUnIncasso && !negata) {
+    return "un incasso di un altro giorno è finito sulla chiusura di questa giornata";
+  }
+  return null;
+}
+
 /** «ROMA SORATTE» → «Roma Soratte», per l'oggetto della mail. */
 function nomeNegozio(n: string): string {
   return n.toLowerCase().replace(/(^|[\s'-])(\p{L})/gu, (_m, sep: string, l: string) => sep + l.toUpperCase());
 }
-/** Una voce della mail: cosa non va e cosa fare. daFare = il negozio deve fare qualcosa. */
-function voceLezione(c: Check): { testo: string; daFare: boolean } | null {
+/**
+ * Una voce della mail: cosa non va e cosa fare. Tre strade: `daFare` (tocca al
+ * negozio), `inCarico` (la prende l'amministrazione, il negozio non fa niente)
+ * e nessuna delle due (l'abbiamo gia' sistemata noi).
+ */
+type VoceMail = { testo: string; daFare: boolean; inCarico?: boolean };
+function voceLezione(c: Check): VoceMail | null {
   if (!c.lezione || !c.closing) return null;
   const aperta = c.closing.status === "bozza";
   switch (c.lezione) {
@@ -219,12 +261,46 @@ function voceLezione(c: Check): { testo: string; daFare: boolean } | null {
         return { daFare: true, testo: `Il totale dell'incasso (${eur(totale)}) non è uguale alla somma di contanti, POS e altri pagamenti (${eur(pagamenti)}): la differenza è ${eur(Math.abs(totale - pagamenti))}. Controlla i numeri con gli scontrini: se ne trovi uno sbagliato, ${dove}` };
       }
       const come = aperta ? "correggi il numero prima di confermare la chiusura." : "chiedi all'amministrazione di riaprire la chiusura e correggi il numero.";
-      return { daFare: true, testo: c.campo && c.scritto != null && c.letto
+      return { daFare: true, testo: (c.campo && c.scritto != null && c.letto
         ? `Hai scritto ${eur(c.scritto)} come ${c.campo}, ma sulla foto c'è ${c.letto}. Controlla con il foglio in mano e, se è giusta la foto, ${come}`
-        : `Un numero scritto non è uguale a quello della foto. Controlla con il foglio in mano e, se è giusta la foto, ${come}` };
+        : `Un numero scritto non è uguale a quello della foto. Controlla con il foglio in mano e, se è giusta la foto, ${come}`) };
     }
     case "foto_mancante":
       return { daFare: true, testo: "Manca la foto dello scontrino di chiusura della cassa. Se ce l'hai ancora, apri la chiusura e caricala." };
+    case "serve_il_conteggio": {
+      // La differenza di cassa che nessun documento spiega. I due numeri
+      // contati li abbiamo gia' (li ha scritti lei nella chiusura), quindi non
+      // si richiedono: si rileggono, perche' l'unica cosa che puo' dire solo
+      // lei e' se ricontando le tornano. Regola: niente liste da compilare a
+      // mano, un dato che il documento ha non si chiede.
+      if (aperta) return null;  // in bozza basta la voce «conferma la chiusura»
+      const contato = num(c.closing.cash_float_declared) + num(c.closing.cash_pending_declared);
+      const ammanco = num(c.amount) < 0;
+      const quanto = eur(Math.abs(num(c.amount)));
+      // Si nomina solo quello che il codice guarda davvero: le fatture pagate
+      // in contanti si cercano solo quando manca qualcosa, e la sera i giorni
+      // dopo non ci sono ancora.
+      const guardato = ammanco
+        ? "Abbiamo già guardato le spese e i versamenti di quella giornata, le fatture pagate in contanti e i tre giorni prima"
+        : "Abbiamo già guardato le spese e i versamenti di quella giornata e i tre giorni prima";
+      return { daFare: true, testo: `Nella cassa del ${giornoBreve(c.closing.closing_date)} ${ammanco ? `mancano ${quanto}` : `ci sono ${quanto} in più`}. Hai scritto ${eur(num(c.closing.cash_float_declared))} di fondo cassa e ${eur(num(c.closing.cash_pending_declared))} da versare, in tutto ${eur(contato)}; con gli incassi, le spese e il versamento di quel giorno a noi risulta che nel cassetto dovrebbero essere ${eur(num(c.closing.cash_float_expected))}. ${guardato}, e non abbiamo trovato niente che spieghi la cifra. Ci dici se, ricontando, ti torna ${eur(contato)} o un numero diverso? Se ti viene in mente cos'è stato (una spesa pagata con i contanti, soldi usciti o entrati in un altro giorno), scrivilo nella risposta: la chiusura la sistemiamo noi. Se invece nei prossimi giorni la cifra si spiega da sé, per esempio perché si compensa con un'altra giornata, ce ne accorgiamo noi e lasciamo perdere.` };
+    }
+    case "conferma_ipotesi": {
+      // Qui il gestionale ha un'ipotesi e le manca solo il «sì» di chi era in
+      // negozio. Non si chiede un conteggio: si chiede una conferma.
+      if (aperta) return null;  // in bozza basta la voce «conferma la chiusura»
+      const quanto = eur(Math.abs(num(c.amount)));
+      const verso = num(c.amount) < 0 ? `mancavano ${quanto}` : `c'erano ${quanto} in più`;
+      return { daFare: true, testo: `Nella cassa del ${giornoBreve(c.closing.closing_date)} ${verso}. Secondo noi ${c.reasonBreve ?? "i soldi sono stati contati in un altro giorno"}. Ci confermi che è andata così? Se è così rispondi solo «confermo» e sistemiamo noi la chiusura; se non ti torna, scrivici cosa ricordi.` };
+    }
+    case "presa_in_carico": {
+      // La nota spiega la causa, e il gestionale non ha un campo dove
+      // registrarla: non si chiede niente al negozio, si dice che la
+      // prendiamo in carico noi. Non si promette che e' sistemata: la
+      // segnalazione resta aperta per l'amministrazione.
+      const quanto = eur(Math.abs(num(c.amount)));
+      return { daFare: false, inCarico: true, testo: `Abbiamo letto quello che hai scritto, e ci basta: ci hai spiegato che ${c.reasonBreve ?? "la differenza viene da un'altra giornata"}. Il gestionale non ha un posto dove registrarlo, quindi nei nostri conti la differenza di ${quanto} resta lì: la prende in carico l'amministrazione. Per questa non devi fare niente.` };
+    }
     case "spesa_in_ritardo":
       return { daFare: false, testo: `In cassa mancavano ${eur(Math.abs(num(c.amount)))}. ${c.reasonBreve ?? ""} L'abbiamo segnata noi, non devi fare niente. La prossima volta: quando paghi qualcosa con i soldi della cassa, segnalo nella chiusura della stessa sera e fai la foto della fattura o dello scontrino.`.replace(/\s+/g, " ") };
     case "annullo_nel_totale":
@@ -241,20 +317,37 @@ function mailAlNegozio(lista: Check[], nome: string | null, azienda: string | nu
     if (c.lezione !== "annullo_nel_totale") return true;
     if (viste.has("annullo")) return false;
     viste.add("annullo"); return true;
-  }).map(voceLezione).filter((v): v is { testo: string; daFare: boolean } => v != null);
+  }).map(voceLezione).filter((v): v is VoceMail => v != null);
   const primo = lista[0];
   if (voci.length === 0 || !primo.closing) return null;
   const giorno = giornoBreve(primo.closing.closing_date);
   const daSistemare = voci.filter((v) => v.daFare).length;
+  const inCarico = voci.filter((v) => v.inCarico).length;
   const n = voci.length;
+  // Tre aperture diverse, perche' «abbiamo già sistemato noi» su una cosa che
+  // prendiamo in carico e non abbiamo sistemato sarebbe una bugia.
   const apertura = n === 1
-    ? (daSistemare ? `nella chiusura del ${giorno} c'è una cosa da sistemare:` : `nella chiusura del ${giorno} c'era una cosa che abbiamo già sistemato noi. Te la scriviamo così la prossima volta lo sai:`)
+    ? (daSistemare ? `nella chiusura del ${giorno} c'è una cosa da sistemare:`
+      : inCarico ? `nella chiusura del ${giorno} c'è una cosa che prendiamo in carico noi:`
+      : `nella chiusura del ${giorno} c'era una cosa che abbiamo già sistemato noi. Te la scriviamo così la prossima volta lo sai:`)
     : daSistemare === n ? `nella chiusura del ${giorno} ci sono ${n} cose da sistemare:`
+    : daSistemare === 0 && inCarico === n ? `nella chiusura del ${giorno} ci sono ${n} cose che prendiamo in carico noi:`
+    : daSistemare === 0 && inCarico > 0 ? `nella chiusura del ${giorno} ci sono ${n} cose: qualcuna l'abbiamo già sistemata noi, le altre le prendiamo in carico. Te le scriviamo così le sai:`
     : daSistemare === 0 ? `nella chiusura del ${giorno} c'erano ${n} cose che abbiamo già sistemato noi. Te le scriviamo così la prossima volta lo sai:`
     : `nella chiusura del ${giorno} ci sono ${n} cose:`;
   const corpo = n === 1 ? voci[0].testo : voci.map((v, i) => `${i + 1}. ${v.testo}`).join("\n\n");
-  const text = `${nome ? `Ciao ${nome},` : "Ciao,"}\n\n${apertura}\n\n${corpo}\n\nSe qualcosa non ti torna, rispondi a questa mail.\n\nGrazie,\n${azienda ? `Amministrazione ${azienda}` : "L'amministrazione"}`;
-  const esito = daSistemare === 0 ? "abbiamo sistemato noi" : daSistemare === 1 ? "una cosa da sistemare" : `${daSistemare} cose da sistemare`;
+  // La nota della cassiera si cita una volta sola, in apertura, e solo se le
+  // resta qualcosa da fare: ripeterla in ogni voce (come faceva la prima
+  // versione del 24/11/2026) la fa uscire due o tre volte nella stessa mail,
+  // anche accanto a voci che con la nota non c'entrano.
+  const notaScritta = notaDellaCassiera(primo.closing.notes);
+  const apre = notaScritta && daSistemare > 0
+    ? `abbiamo letto quello che hai scritto («${notaScritta}»), ma il conto non torna ancora. ${apertura.charAt(0).toUpperCase()}${apertura.slice(1)}`
+    : apertura;
+  const text = `${nome ? `Ciao ${nome},` : "Ciao,"}\n\n${apre}\n\n${corpo}\n\nSe qualcosa non ti torna, rispondi a questa mail.\n\nGrazie,\n${azienda ? `Amministrazione ${azienda}` : "L'amministrazione"}`;
+  const esito = daSistemare === 0 && inCarico > 0 ? "ci pensiamo noi"
+    : daSistemare === 0 ? "abbiamo sistemato noi"
+    : daSistemare === 1 ? "una cosa da sistemare" : `${daSistemare} cose da sistemare`;
   return { subject: `${nomeNegozio(primo.outlet.name)}, chiusura del ${giorno}: ${esito}`, text };
 }
 
@@ -411,6 +504,10 @@ async function istruisci(
     const letteDi = (target: string) => mieFoto.filter((a) => a.target === target && ["letta", "da_rivedere"].includes(a.extraction_status ?? ""));
     const rigaContanti = mieLinee.find((l) => channels.get(l.channel_id)?.kind === "contanti");
     const nota = notaDellaCassiera(c.notes);
+    // Se la nota nomina una causa che il gestionale non sa registrare, al
+    // negozio non si chiede di ricontrollare: la giornata la prende in carico
+    // l'amministrazione (Patrizio, 24/11/2026, dal caso di Roma Soratte del 14).
+    const causaNota = nota ? causaNellaNota(nota) : null;
     // La tolleranza vale per OGNI confronto di soldi, non solo per la cassa
     // (Patrizio, 18/11/2026: «fino a un euro si puo' sbagliare»). Roma Soratte
     // del 17/11 mandava due righe da controllare per 20 centesimi: la
@@ -419,9 +516,12 @@ async function istruisci(
     const tolG = num(s.checks_tolerance);
     const quadra = Math.abs(num(c.receipts_difference)) <= tolG && (c.cash_difference == null || Math.abs(num(c.cash_difference)) <= tolG);
     void mieSpese;
-    // Se la cassiera ha scritto una nota, quella spiegazione basta: non le si
-    // riscrive per chiederle una cosa che ha già detto (regola: niente liste
-    // da compilare a mano). La nota finisce nella mail di esito.
+    // La nota della cassiera entra nel motivo della segnalazione, e dal
+    // 24/11/2026 anche nel messaggio al negozio: prima la nota spegneva il
+    // messaggio del tutto, cioe' proprio quando la sua spiegazione non bastava
+    // il negozio non lo sapeva. Ora la mail la cita una volta («abbiamo letto,
+    // ma il conto non torna ancora») e chiede solo quello che puo' sapere solo
+    // chi era in negozio.
     const notaReason = nota ? `La cassiera ha scritto: «${nota}»` : null;
 
     const base = { outlet, closing: c } as const;
@@ -472,7 +572,7 @@ async function istruisci(
           detail: `versamento scritto ${eur(scritto)} ma dalle ricevute risulta ${eur(somma)}${versFoto.length > 1 ? ` (${versFoto.map((v) => eur(v)).join(" + ")})` : ""}`,
           campo: "versamento in banca", scritto, letto: eur(somma),
           outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-          lezione: nota ? null : "campo_diverso_dalla_foto",
+          lezione: "campo_diverso_dalla_foto",
         });
       }
     }
@@ -492,7 +592,7 @@ async function istruisci(
           detail: `${etichetta} scritto ${eur(num(l.amount))} ma dalla foto risulta ${eur(letto)}`,
           campo: `importo di ${etichetta}`, scritto: num(l.amount), letto: eur(letto),
           outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-          lezione: nota ? null : "campo_diverso_dalla_foto",
+          lezione: "campo_diverso_dalla_foto",
         });
       }
     }
@@ -532,8 +632,13 @@ async function istruisci(
         checks.push({
           ...base, kind: "differenza_corrispettivi", amount: diffCorr, fingerprint: "diff",
           detail: `totale incassato e somma dei mezzi di pagamento non quadrano (differenza ${eur(diffCorr)})`,
-          outcome: "da_fare", reason: notaReason,
-          action: null, undo_kind: null, undo_data: null, lezione: nota ? null : "campo_diverso_dalla_foto",
+          outcome: "da_fare", reason: notaReason, reasonBreve: causaNota,
+          action: null, undo_kind: null, undo_data: null,
+          // Solo qui: `amount` e' la differenza vera (diffCorr), e questo e' il
+          // caso visto (Roma Soratte, 14/11/2026). Nei controlli «foto diversa»
+          // `amount` e' l'importo scritto, non la differenza: scriverlo in una
+          // mail come «la differenza» sarebbe una cifra falsa.
+          lezione: causaNota && c.status !== "bozza" ? "presa_in_carico" : "campo_diverso_dalla_foto",
         });
       }
     }
@@ -688,7 +793,8 @@ async function istruisci(
                 detail: `contante in cassa in eccedenza di ${eur(diffCassa)}`,
                 outcome: nota ? "falso_allarme" : "da_fare",
                 reason: `${nota ? "" : "Probabile: "}il ${dataIt(quando)} è stata registrata l'uscita «${(uscita.description ?? "").trim() || "senza descrizione"}» di ${eur(num(uscita.amount))}, ma i soldi sono rimasti nel cassetto. L'uscita va registrata il giorno in cui i soldi escono davvero.${Math.abs(resto) >= 0.005 ? ` Resta uno scarto di ${eur(resto)}.` : ""}${nota ? ` La cassiera ha scritto: «${nota}».` : " Da confermare con il negozio."}`,
-                action: null, undo_kind: null, undo_data: null, lezione: null,
+                reasonBreve: `il ${dataIt(quando)} è stata segnata un'uscita di ${eur(num(uscita.amount))} («${corto(uscita.description) || "senza descrizione"}»), ma quei soldi sono rimasti nel cassetto`,
+                action: null, undo_kind: null, undo_data: null, lezione: nota ? null : "conferma_ipotesi",
               });
               sistemata = true;
             }
@@ -713,7 +819,8 @@ async function istruisci(
                 detail: `contante in cassa ${diffCassa > 0 ? "in eccedenza" : "in ammanco"} di ${eur(Math.abs(diffCassa))}`,
                 outcome: nota ? "falso_allarme" : "da_fare",
                 reason: `Il ${dataIt(opposta.closing_date)} c'era la differenza opposta di ${eur(num(opposta.cash_difference))}: ${nota ? "si compensano" : "probabilmente si compensano"} (soldi usciti o entrati un giorno e registrati in un altro).${nota ? ` La cassiera ha scritto: «${nota}».` : " Da confermare con il negozio."}`,
-                action: null, undo_kind: null, undo_data: null, lezione: null,
+                reasonBreve: `il ${dataIt(opposta.closing_date)} c'era la differenza opposta di ${eur(num(opposta.cash_difference))}, quindi quei soldi sono stati contati o versati in un altro giorno`,
+                action: null, undo_kind: null, undo_data: null, lezione: nota ? null : "conferma_ipotesi",
               });
               sistemata = true;
             }
@@ -727,7 +834,7 @@ async function istruisci(
             reason: nota
               ? `La cassiera ha scritto: «${nota}». Nei documenti non si trova niente che spieghi la cifra.`
               : "Nessuna nota della cassiera e nessun documento che spieghi la cifra.",
-            action: null, undo_kind: null, undo_data: null, lezione: null,
+            action: null, undo_kind: null, undo_data: null, lezione: "serve_il_conteggio",
           });
         }
       }
@@ -746,7 +853,7 @@ async function istruisci(
         detail: `totale corrispettivi scritto ${eur(totScritto)} ma dalla foto il corrispettivo è ${totFoto.map((v) => eur(v)).join(" oppure ")}`,
         campo: "totale dell'incasso", scritto: totScritto, letto: totFoto.map((v) => eur(v)).join(" oppure "),
         outcome: "da_fare", reason: notaReason, action: null, undo_kind: null, undo_data: null,
-        lezione: nota ? null : "campo_diverso_dalla_foto",
+        lezione: "campo_diverso_dalla_foto",
       });
     }
 
@@ -949,8 +1056,30 @@ Deno.serve(async (req) => {
         l.push(c);
         perOutlet.set(c.outlet.id, l);
       }
+      // Lo stesso messaggio non si rimanda. L'istruttoria gira una volta per
+      // data (closing_check_runs ha un vincolo unico), ma chi la richiamasse a
+      // mano con il segreto del cron rimanderebbe tutto a tutti: si guarda se
+      // per quella chiusura un messaggio e' gia' partito.
+      const closingIds = [...new Set(Array.from(perOutlet.values()).map((l) => l[0].closing?.id).filter((id): id is string => !!id))];
+      const giaScritto = new Set<string>();
+      if (closingIds.length > 0) {
+        const { data: giaRows, error: eGia } = await admin.from("closing_checks")
+          .select("closing_id")
+          .eq("company_id", s.company_id).in("closing_id", closingIds)
+          .not("message_sent_at", "is", null);
+        if (eGia) console.error("[closing-checks-run] messaggi gia' partiti:", eGia.message);
+        for (const r of (giaRows ?? []) as Array<{ closing_id: string | null }>) {
+          if (r.closing_id) giaScritto.add(r.closing_id);
+        }
+      }
+
       for (const [outletId, lista] of perOutlet) {
         const outlet = lista[0].outlet;
+        const idChiusura = lista[0].closing?.id ?? "";
+        if (giaScritto.has(idChiusura)) {
+          console.log(`[closing-checks-run] ${outlet.name}: messaggio gia' partito per questa chiusura, non lo rimando`);
+          continue;
+        }
         if (!outlet.email) {
           messaggi.push({ outlet: outlet.name, to: "(indirizzo mancante in anagrafica)", subject: "", text: "", error: "il negozio non ha un indirizzo mail in anagrafica" });
           continue;
