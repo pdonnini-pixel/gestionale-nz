@@ -3189,12 +3189,15 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Dati azienda",
-        "body": "Qui trovi i dati anagrafici della società (ragione sociale, forma giuridica, sede legale, P.IVA, codice fiscale, REA, capitale sociale, PEC, codice SDI, ATECO, amministratore) e l'elenco dei soci con ruolo e quota di partecipazione.",
+        "body": "Qui trovi la scheda della società: ragione sociale, forma giuridica, P.IVA, codice fiscale, REA, sede legale, PEC, codice SDI, capitale sociale, data di costituzione, ATECO, amministratore con il suo codice fiscale, i soci con codice fiscale e quota, e le sedi (la sede legale e le sedi operative, cioè i negozi e la sede/magazzino, con indirizzo, REA dell'unità locale e data di apertura). In alto è scritto da quale visura vengono i dati; accanto ai campi scritti dal sistema leggendo la visura c'è l'etichetta verde «visura». La P.IVA non si cambia da qui: è quella con cui l'azienda è registrata, così nessuno può scrivere per sbaglio la P.IVA di un'altra società. La scheda la modifica il Super Advisor (che aggiorna anche le sedi dalla visura); CEO, CFO e COO la vedono in sola lettura.",
         "steps": [
-          "Per modificare un singolo dato (es. la PEC), clicca sul valore: diventa un campo modificabile",
-          "Compila il nuovo valore e clicca \"Salva\" in fondo, oppure \"Annulla\" per lasciare tutto com'era",
-          "Per gestire i soci, clicca \"Modifica soci\": puoi aggiungere un nuovo socio, cambiarne nome/ruolo/quota o rimuoverlo",
-          "Le quote dei soci non possono superare il 100% in totale: se succede, il sistema ti avvisa e non salva"
+          "Per correggere un dato clicca \"Modifica dati\", cambia i campi e clicca \"Salva\" (o \"Annulla\"). Un campo cambiato a mano perde l'etichetta «visura» e il sistema non lo sovrascrive più senza chiederlo",
+          "Per gestire i soci clicca \"Modifica soci\": puoi aggiungere un socio, cambiarne nome, codice fiscale, ruolo e quota o toglierlo. Le quote non possono superare il 100%",
+          "Per aggiornare tutto dalla Camera di Commercio trascina la visura camerale in PDF nel riquadro \"Carica la visura camerale\" (va bene anche una scansione). Il file si salva in Archivio documenti e si legge da solo",
+          "Se la visura è di un'altra società (P.IVA diversa da quella di questo gestionale) il caricamento si ferma con un riquadro rosso e non scrive niente",
+          "I dati che mancano, quelli con un segnaposto e quelli scritti da una visura precedente si aggiornano da soli. Se un dato scritto a mano è diverso dalla visura compare l'elenco con le spunte: \"Sostituisci quelli spuntati\" o \"Lascia tutto com'è\"",
+          "Le differenze di sola forma non contano: maiuscole, accenti o un refuso di una lettera nell'indirizzo lasciano il dato com'è",
+          "Alla fine compare il riquadro verde \"Finito, tutti i dati sono aggiornati\" con cosa è stato scritto; sotto, se servono, le unità locali in visura che non hanno un negozio nel gestionale (se non esistono più vanno chiuse in Camera di Commercio) e i negozi attivi che la visura non riporta"
         ]
       },
       {

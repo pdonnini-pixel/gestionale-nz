@@ -14,6 +14,8 @@ import { slugCostCenter } from '../lib/costCenterKey'
 import { usePeriod } from '../hooks/usePeriod'
 import { buildProiezione, rollupByAccount, totalFor, SEDE_CENTER, type AmountsByCenter, type BudgetEntryLite, type BudgetConfrontoLite } from '../lib/costByCenter'
 import PageHeader from '../components/PageHeader'
+import CaricaVisura, { type OutletConNote } from '../components/CaricaVisura'
+import type { SchedaAzienda } from '../lib/visura'
 import type { Database } from '../types/database'
 
 // Role-based permissions
@@ -118,76 +120,131 @@ interface SectionProps {
   companyId: string | undefined
 }
 
-interface SocioForm { nome: string; ruolo: string; quota: string }
-interface CompanyForm {
-  partita_iva?: string
-  codice_fiscale?: string
-  pec?: string
-  soci?: SocioForm[]
+interface SocioForm { nome: string; ruolo: string; quota: string; codice_fiscale?: string | null }
+interface CompanyForm extends Omit<SchedaAzienda, 'soci'> {
+  id?: string
+  note?: string | null
+  soci?: SocioForm[] | null
   [key: string]: unknown
 }
 
+// Campi della scheda, nell'ordine in cui si vedono. La P.IVA è a parte: non si
+// modifica da qui quando l'azienda ha già la sua (è quella registrata in A-Cube).
+const CAMPI_AZIENDA: [string, string][] = [
+  ['ragione_sociale', 'Ragione sociale'],
+  ['forma_giuridica', 'Forma giuridica'],
+  ['partita_iva', 'P.IVA'],
+  ['codice_fiscale', 'Codice fiscale'],
+  ['rea', 'REA'],
+  ['sede_legale', 'Sede legale'],
+  ['pec', 'PEC'],
+  ['codice_sdi', 'Codice SDI'],
+  ['capitale_sociale', 'Capitale sociale'],
+  ['data_costituzione', 'Data di costituzione'],
+  ['ateco', 'ATECO'],
+  ['amministratore', 'Amministratore'],
+  ['amministratore_codice_fiscale', 'CF amministratore'],
+]
+
+// Chi può scrivere la scheda (policy company_settings_write: super_advisor e
+// contabile); le sedi dei negozi le scrive solo il super_advisor (outlets_update).
+const RUOLI_SCHEDA = ['super_advisor', 'contabile']
+
 function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  const { profile } = useAuth()
+  const puoModificare = RUOLI_SCHEDA.includes(profile?.role || '')
   const [company, setCompany] = useState<CompanyForm | null>(null)
+  const [azienda, setAzienda] = useState<{ partitaIva: string | null; nome: string | null }>({ partitaIva: null, nome: null })
+  const [sedi, setSedi] = useState<OutletConNote[]>([])
   const [loading, setLoading] = useState(true)
-  const [editing, setEditing] = useState<string | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [formData, setFormData] = useState<CompanyForm>({})
   const [editingSoci, setEditingSoci] = useState(false)
   const [sociForm, setSociForm] = useState<SocioForm[]>([])
   const [savingSoci, setSavingSoci] = useState(false)
+  // showToast cambia a ogni render del genitore: tenuto in un ref, così il
+  // caricamento non riparte ogni volta che compare un messaggio.
+  const toastRef = useRef(showToast)
+  toastRef.current = showToast
 
-  useEffect(() => {
-    loadCompany()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  const loadCompany = async () => {
+  const loadCompany = useCallback(async () => {
     if (!COMPANY_ID) { setLoading(false); return }
     try {
-      setLoading(true)
-      const { data, error } = await supabase
-        .from('company_settings')
-        .select('*')
-        .eq('id', COMPANY_ID)
-        .single()
-
-      if (error) throw error
-      setCompany(data as unknown as CompanyForm)
-      setFormData((data as unknown as CompanyForm) || {})
+      // company_settings ha un suo id: la riga dell'azienda si trova per company_id.
+      // (Fino al 24/11/2026 si cercava per id e la scheda non si apriva mai.)
+      const [cs, co, ou] = await Promise.all([
+        supabase.from('company_settings').select('*').eq('company_id', COMPANY_ID).maybeSingle(),
+        supabase.from('companies').select('name, vat_number').eq('id', COMPANY_ID).maybeSingle(),
+        supabase.from('outlets').select('*').eq('company_id', COMPANY_ID).order('name'),
+      ])
+      if (cs.error) throw cs.error
+      const riga = (cs.data as unknown as CompanyForm | null) || null
+      setCompany(riga)
+      setFormData(riga || {})
+      const c = co.data as { name?: string | null; vat_number?: string | null } | null
+      setAzienda({ partitaIva: c?.vat_number ?? null, nome: c?.name ?? null })
+      // `rea` arriva con la migration 460: dove non c'è resta vuoto, senza errori.
+      setSedi(((ou.data || []) as unknown as Record<string, unknown>[]).map((o) => ({
+        id: String(o.id), code: (o.code as string) ?? null, name: (o.name as string) ?? null,
+        city: (o.city as string) ?? null, address: (o.address as string) ?? null, cap: (o.cap as string) ?? null,
+        province: (o.province as string) ?? null, rea: (o.rea as string) ?? null,
+        opening_date: (o.opening_date as string) ?? null, is_active: (o.is_active as boolean) ?? true,
+        notes: (o.notes as string) ?? null,
+      })))
     } catch {
-      showToast?.('Errore caricamento dati azienda', 'error')
+      toastRef.current?.('Errore caricamento dati azienda', 'error')
     } finally {
       setLoading(false)
     }
-  }
+  }, [COMPANY_ID])
+
+  useEffect(() => { void loadCompany() }, [loadCompany])
+
+  // La P.IVA si modifica solo se l'azienda non ne ha ancora una registrata.
+  const pivaBloccata = !!azienda.partitaIva
 
   const handleSave = async () => {
-    // Validazioni
-    const piva = typeof formData.partita_iva === 'string' ? formData.partita_iva : ''
-    const cf = typeof formData.codice_fiscale === 'string' ? formData.codice_fiscale : ''
-    const pec = typeof formData.pec === 'string' ? formData.pec : ''
-    if (piva && !/^\d{11}$/.test(piva.replace(/\s/g, ''))) {
-      showToast?.('P.IVA deve avere 11 cifre', 'error'); return
+    const piva = String(formData.partita_iva ?? '').replace(/\s/g, '')
+    const cf = String(formData.codice_fiscale ?? '').trim()
+    const pec = String(formData.pec ?? '').trim()
+    if (piva && !/^\d{11}$/.test(piva)) { showToast?.('La P.IVA deve avere 11 cifre', 'error'); return }
+    if (piva && azienda.partitaIva && piva !== azienda.partitaIva.replace(/\D/g, '')) {
+      showToast?.(`La P.IVA di questa azienda è ${azienda.partitaIva}: ${piva} è di un'altra società`, 'error'); return
     }
-    if (cf && cf.length > 0 && cf.length < 11) {
-      showToast?.('Codice fiscale non valido', 'error'); return
-    }
-    if (pec && pec.length > 0 && !pec.includes('@')) {
-      showToast?.('PEC non valida', 'error'); return
-    }
-    try {
-      if (!COMPANY_ID) { showToast?.('ID azienda mancante', 'error'); return }
-      const { error } = await supabase
-        .from('company_settings')
-        .update(formData as never)
-        .eq('id', COMPANY_ID)
+    if (cf && cf.length < 11) { showToast?.('Codice fiscale non valido', 'error'); return }
+    if (pec && !pec.includes('@')) { showToast?.('PEC non valida', 'error'); return }
+    if (!COMPANY_ID) { showToast?.('ID azienda mancante', 'error'); return }
 
+    // Si salvano solo i campi cambiati; un campo cambiato a mano non è più «dalla visura».
+    const patch: Record<string, unknown> = {}
+    for (const [campo] of CAMPI_AZIENDA) {
+      if (campo === 'partita_iva' && pivaBloccata) continue
+      const nuovo = String(formData[campo] ?? '').trim()
+      const prima = String(company?.[campo] ?? '').trim()
+      if (nuovo !== prima) patch[campo] = nuovo || null
+    }
+    if (String(formData.note ?? '') !== String(company?.note ?? '')) patch.note = formData.note || null
+    if (!Object.keys(patch).length) { setEditing(false); return }
+    const provenienza = { ...(company?.campi_da_visura || {}) }
+    for (const k of Object.keys(patch)) delete provenienza[k]
+    patch.campi_da_visura = provenienza
+
+    try {
+      setSaving(true)
+      const q = company?.id
+        ? supabase.from('company_settings').update(patch as never).eq('id', company.id).select('id').maybeSingle()
+        : supabase.from('company_settings').insert({ ...patch, company_id: COMPANY_ID } as never).select('id').single()
+      const { data, error } = await q
       if (error) throw error
-      setCompany(formData)
-      setEditing(null)
+      if (!data) throw new Error('Il tuo ruolo non può modificare i dati azienda')
+      setEditing(false)
       showToast?.('Dati azienda aggiornati')
-    } catch {
-      showToast?.('Errore salvataggio dati azienda', 'error')
+      await loadCompany()
+    } catch (e) {
+      showToast?.((e as Error)?.message || 'Errore salvataggio dati azienda', 'error')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -197,7 +254,7 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     setEditingSoci(true)
   }
   const addSocio = () => {
-    setSociForm(prev => [...prev, { nome: '', ruolo: '', quota: '' }])
+    setSociForm(prev => [...prev, { nome: '', ruolo: '', quota: '', codice_fiscale: '' }])
   }
   const removeSocio = (idx: number) => {
     setSociForm(prev => prev.filter((_, i) => i !== idx))
@@ -206,28 +263,31 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
     setSociForm(prev => prev.map((s, i) => i === idx ? { ...s, [field]: value } : s))
   }
   const saveSoci = async () => {
-    // Validazione quote
-    const totalQuota = sociForm.reduce((s, soc) => s + (parseFloat(soc.quota) || 0), 0)
+    const totalQuota = sociForm.reduce((s, soc) => s + (parseFloat(String(soc.quota).replace(',', '.')) || 0), 0)
     if (totalQuota > 100) {
       showToast?.(`Le quote superano il 100% (${totalQuota}%)`, 'error'); return
     }
     if (sociForm.some(s => !s.nome || !s.nome.trim())) {
       showToast?.('Tutti i soci devono avere un nome', 'error'); return
     }
+    if (!company?.id) { showToast?.('Salva prima i dati azienda', 'error'); return }
     try {
       setSavingSoci(true)
-      if (!COMPANY_ID) { showToast?.('ID azienda mancante', 'error'); return }
-      // soci è jsonb in DB → cast strutturale richiesto
-      const { error } = await supabase
+      const provenienza = { ...(company.campi_da_visura || {}) }
+      delete provenienza.soci
+      const { data, error } = await supabase
         .from('company_settings')
-        .update({ soci: sociForm } as never)
-        .eq('id', COMPANY_ID)
+        .update({ soci: sociForm, campi_da_visura: provenienza } as never)
+        .eq('id', company.id)
+        .select('id')
+        .maybeSingle()
       if (error) throw error
-      setCompany(prev => ({ ...(prev || {}), soci: sociForm }))
+      if (!data) throw new Error('Il tuo ruolo non può modificare i soci')
       setEditingSoci(false)
       showToast?.('Compagine societaria aggiornata')
-    } catch {
-      showToast?.('Errore salvataggio soci', 'error')
+      await loadCompany()
+    } catch (e) {
+      showToast?.((e as Error)?.message || 'Errore salvataggio soci', 'error')
     } finally {
       setSavingSoci(false)
     }
@@ -235,46 +295,73 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   if (loading) return <div className="px-5 py-4 text-center text-slate-500">Caricamento...</div>
 
-  const d = company || formData
+  const d = company || {}
+  const daVisura = (company?.campi_da_visura || {}) as Record<string, string>
+  const dataIt = (iso: string | null | undefined) => (iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '')
+  const sediAttive = sedi.filter((s) => s.is_active !== false)
 
   return (
     <div className="px-5 py-4 space-y-5">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-2">
-        {([
-          ['ragione_sociale', 'Ragione sociale'],
-          ['forma_giuridica', 'Forma giuridica'],
-          ['sede_legale', 'Sede legale'],
-          ['partita_iva', 'P.IVA'],
-          ['codice_fiscale', 'Codice Fiscale'],
-          ['rea', 'REA'],
-          ['capitale_sociale', 'Capitale sociale'],
-          ['data_costituzione', 'Anno costituzione'],
-          ['pec', 'PEC'],
-          ['codice_sdi', 'Codice SDI'],
-          ['ateco', 'ATECO'],
-          ['amministratore', 'Amministratore'],
-        ] as const).map(([field, label]) => (
-          <div key={field} className="flex justify-between py-2 border-b border-slate-50">
-            <span className="text-sm text-slate-500">{label}</span>
-            {editing === field ? (
-              <input
-                type="text"
-                value={String(formData[field] ?? '')}
-                onChange={(e) => setFormData(p => ({ ...p, [field]: e.target.value }))}
-                className="text-sm font-medium text-slate-900 border border-blue-200 rounded px-2 py-1"
-              />
-            ) : (
-              <span className="text-sm font-medium text-slate-900 text-right">{(d[field] as string | undefined) || '—'}</span>
-            )}
-          </div>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs text-slate-500">
+          {company?.visura_estratta_il
+            ? <>Dati dalla visura camerale estratta il <strong>{dataIt(company.visura_estratta_il)}</strong>. I campi segnati «visura» li ha scritti il sistema.</>
+            : 'Nessuna visura caricata: i dati sono quelli scritti a mano.'}
+        </div>
+        {puoModificare && !editing && (
+          <button onClick={() => { setFormData(company || {}); setEditing(true) }}
+            className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
+            <Pencil size={12} /> Modifica dati
+          </button>
+        )}
       </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-10 gap-y-2">
+        {CAMPI_AZIENDA.map(([field, label]) => {
+          const bloccato = field === 'partita_iva' && pivaBloccata
+          return (
+            <div key={field} className="flex justify-between items-center gap-3 py-2 border-b border-slate-50">
+              <span className="text-sm text-slate-500 shrink-0">{label}</span>
+              {editing && !bloccato ? (
+                <input
+                  type="text"
+                  value={String(formData[field] ?? '')}
+                  onChange={(e) => setFormData(p => ({ ...p, [field]: e.target.value }))}
+                  className="text-sm font-medium text-slate-900 border border-blue-200 rounded px-2 py-1 w-full max-w-xs text-right"
+                />
+              ) : (
+                <span className="text-sm font-medium text-slate-900 text-right flex items-center gap-1.5">
+                  {String(d[field] ?? '') || '—'}
+                  {bloccato && editing && <span title="È la P.IVA con cui l'azienda è registrata: non si cambia da qui"><Lock size={12} className="text-slate-400" /></span>}
+                  {!editing && daVisura[field] && <span className="text-[10px] font-normal text-emerald-700 bg-emerald-50 rounded px-1">visura</span>}
+                </span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {editing && (
+        <div className="flex gap-2 pt-1">
+          <button onClick={handleSave} disabled={saving}
+            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40">
+            {saving ? <Loader size={14} className="animate-spin" /> : <Save size={14} />} Salva
+          </button>
+          <button onClick={() => { setEditing(false); setFormData(company || {}) }}
+            className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50">
+            Annulla
+          </button>
+        </div>
+      )}
 
       {/* Soci CRUD */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-sm font-semibold text-slate-700">Compagine societaria</h4>
-          {!editingSoci && (
+          <h4 className="text-sm font-semibold text-slate-700">
+            Compagine societaria
+            {daVisura.soci && <span className="ml-2 text-[10px] font-normal text-emerald-700 bg-emerald-50 rounded px-1">visura</span>}
+          </h4>
+          {puoModificare && !editingSoci && (
             <button onClick={startEditSoci} className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium">
               <Pencil size={12} /> Modifica soci
             </button>
@@ -283,9 +370,11 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         {editingSoci ? (
           <div className="space-y-3 bg-blue-50/50 border border-blue-200 rounded-xl p-4">
             {sociForm.map((s, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex flex-wrap items-center gap-2">
                 <input value={s.nome} onChange={(e) => updateSocio(i, 'nome', e.target.value)} placeholder="Nome"
-                  className="flex-1 px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                  className="flex-1 min-w-[10rem] px-3 py-2 text-sm border border-slate-200 rounded-lg" />
+                <input value={s.codice_fiscale || ''} onChange={(e) => updateSocio(i, 'codice_fiscale', e.target.value)} placeholder="Codice fiscale"
+                  className="w-36 px-3 py-2 text-sm border border-slate-200 rounded-lg" />
                 <input value={s.ruolo} onChange={(e) => updateSocio(i, 'ruolo', e.target.value)} placeholder="Ruolo"
                   className="w-32 px-3 py-2 text-sm border border-slate-200 rounded-lg" />
                 <input value={s.quota} onChange={(e) => updateSocio(i, 'quota', e.target.value)} placeholder="Quota %"
@@ -308,11 +397,11 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {d.soci && Array.isArray(d.soci) && d.soci.map((s, i) => (
+            {(d.soci || []).map((s, i) => (
               <div key={i} className="flex items-center justify-between bg-slate-50 rounded-lg px-4 py-3">
                 <div>
                   <div className="text-sm font-medium text-slate-900">{s.nome}</div>
-                  <div className="text-xs text-slate-400">{s.ruolo}</div>
+                  <div className="text-xs text-slate-400">{s.ruolo}{s.codice_fiscale ? ` · CF ${s.codice_fiscale}` : ''}</div>
                 </div>
                 <span className="text-lg font-bold text-slate-700">{s.quota}</span>
               </div>
@@ -324,28 +413,47 @@ function CompanySection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         )}
       </div>
 
+      {/* Sedi: legale dalla scheda, operative dai negozi */}
+      <div>
+        <h4 className="text-sm font-semibold text-slate-700 mb-2">Sedi</h4>
+        <div className="rounded-lg border border-slate-100 divide-y divide-slate-100 text-sm">
+          <div className="px-3 py-2 flex flex-wrap justify-between gap-2">
+            <span className="font-medium text-slate-800">Sede legale</span>
+            <span className="text-slate-600 text-right">{String(d.sede_legale ?? '') || '—'}{d.rea ? ` · REA ${d.rea}` : ''}</span>
+          </div>
+          {sediAttive.map((s) => (
+            <div key={s.id} className="px-3 py-2 flex flex-wrap justify-between gap-2">
+              <span className="font-medium text-slate-800">{s.name || s.code}</span>
+              <span className="text-slate-600 text-right">
+                {[s.address, [s.cap, s.city].filter(Boolean).join(' ') + (s.province ? ` (${s.province})` : '')].filter((x) => x && x.trim()).join(', ') || '—'}
+                {s.rea ? ` · REA ${s.rea}` : ''}
+                {s.opening_date ? ` · aperta il ${dataIt(s.opening_date)}` : ''}
+              </span>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs text-slate-400 mt-1">Le sedi operative sono i negozi e la sede/magazzino: si modificano dalla pagina Outlet, oppure si aggiornano caricando la visura.</p>
+      </div>
+
+      {puoModificare && COMPANY_ID && (
+        <div>
+          <h4 className="text-sm font-semibold text-slate-700 mb-2">Visura camerale</h4>
+          <CaricaVisura
+            companyId={COMPANY_ID}
+            userId={profile?.id ?? null}
+            settingsId={company?.id ?? null}
+            scheda={company as SchedaAzienda | null}
+            azienda={azienda}
+            outlets={sedi}
+            onAggiornato={() => { void loadCompany() }}
+          />
+        </div>
+      )}
+
       {d.note != null && d.note !== '' && (
         <div className="text-sm text-slate-500 bg-slate-50 rounded-lg p-3 flex items-start gap-2">
           <AlertCircle size={16} className="text-slate-400 mt-0.5 shrink-0" />
           {String(d.note)}
-        </div>
-      )}
-
-      {editing && (
-        <div className="flex gap-2 pt-2 border-t border-slate-100">
-          <button
-            onClick={handleSave}
-            className="flex items-center gap-1.5 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700"
-          >
-            <Save size={14} />
-            Salva
-          </button>
-          <button
-            onClick={() => { setEditing(null); setFormData(company || {}) }}
-            className="px-4 py-2 text-sm text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-50"
-          >
-            Annulla
-          </button>
         </div>
       )}
     </div>
