@@ -504,6 +504,28 @@ Nota sul testo: il ripasso non scrive ai negozi, ma la mail di esito interna par
 
 Edge function finale: NZ v18 e Zago v13, `ezbr_sha256` `a4227d4a...`, identico al file del repo.
 
+### 4k. alla referente si scrive anche quando la sua nota non basta (24 novembre 2026)
+
+Patrizio: «alla referente che gli diciamo? dove sapere se ha fatto un errore?». Misurato: **da nessuna parte**.
+
+- Il riquadro degli esiti sta solo in Incassi giornalieri (`IncassiGiornalieri.tsx`), e su `closing_checks` c'è la policy `responsabile_block`: chi ha il profilo responsabile non legge nemmeno una riga. Anche aprendo la pagina vedrebbe vuoto.
+- La mail al negozio partiva solo per le segnalazioni con una «lezione», e la lezione era spenta quando la cassiera aveva scritto una nota (`lezione: nota ? null : ...`), cioè **proprio quando noi concludiamo che la nota non spiega la cifra**. Conto sul vivo, 30 giorni: 24 righe in `closing_checks`, **3 messaggi** in tutto (Palmanova il 4/11, Roma Soratte due, l'ultimo il 20/11), **zero** sulle cinque rimaste aperte. Le ragazze scrivono, noi decidiamo, loro non lo sanno.
+
+**Cosa cambia.** La nota non spegne più il messaggio: la mail la cita una volta in apertura («abbiamo letto quello che hai scritto («…»), ma il conto non torna ancora») e chiede una cosa sola, quella che può sapere solo chi era in negozio. Due lezioni nuove:
+
+- `serve_il_conteggio`, per la differenza di cassa che nessun documento spiega (fingerprint `da_capire`). **Non chiede i due numeri contati**, che il gestionale ha già: li rilegge («hai scritto 3.360,30 € di fondo cassa e 69,90 € da versare, in tutto 3.430,20 €; a noi risulta che dovrebbero essere 3.864,30 €») e chiede l'unica cosa che manca, se ricontando le tornano. Questo era il rilievo importante del revisore del codice: la prima versione chiedeva un dato che il documento ha, contro la regola «niente liste da compilare a mano».
+- `conferma_ipotesi`, dove il gestionale ha già un'ipotesi (un'uscita segnata in ritardo, la cifra opposta di un giorno vicino): chiede solo una conferma, con l'ipotesi in parole da cassiera (`reasonBreve`).
+
+Restano senza messaggio i casi che toccano all'amministrazione: `bozza_prima` (una giornata da riconfermare) e `fatture_possibili` (più fatture in contanti fra cui scegliere). Su una chiusura ancora in bozza le due lezioni nuove tacciono: l'unica cosa da dire è di confermarla. Il ripasso delle giornate vecchie non scrive mai ai negozi.
+
+**Dai revisori** (sicurezza APPROVA, codice ATTENZIONE con un rilievo importante, tutti sistemati): la nota si cita una volta sola e non in ogni voce (con due o tre problemi usciva due o tre volte); il testo non dice più cose non vere (le fatture in contanti si cercano solo sugli ammanchi, e la sera i giorni dopo non esistono); la descrizione dell'uscita, testo libero, è tagliata a 120 caratteri prima di finire in una mail; e **lo stesso messaggio non si rimanda** (la funzione non era idempotente: un richiamo a mano con il segreto del cron rimandava tutto a tutti).
+
+**Misura del volume**, prove a vuoto su NZ: 23/11 una mail (Palmanova), 18/11 una (Palmanova, due cose), 14/11 una (Roma Soratte), 22/11 **zero**. Una per negozio al giorno, e sulle giornate pulite nessuno riceve niente. Sui 30 giorni passati avrebbe scritto cinque volte invece di tre, sempre e solo a Palmanova e Roma Soratte.
+
+Edge function: NZ v20 e Zago v14, `ezbr_sha256` `3b4da45a…`, identico al file del repo.
+
+**Resta aperto, decide Patrizio**: il riquadro nella pagina della referente, con gli ultimi dieci giorni del suo negozio in parole sue. Serve aprire `closing_checks` al profilo responsabile, in sola lettura e solo per i suoi negozi, cioè toccare il recinto della migration 379.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?
