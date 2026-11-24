@@ -319,6 +319,9 @@ async function ripassaVecchie(
   const nomeOutlet = new Map(((oRows ?? []) as Array<{ id: string; name: string }>).map((o) => [o.id, o.name]));
 
   const fatte: Ripassata[] = [];
+  // Una differenza opposta spiega UNA giornata sola: senza questo, +10 il 18 e
+  // +10 il 19 con -10 il 21 si chiuderebbero tutte e due con lo stesso -10.
+  const oppostaUsata = new Set<string>();
   for (const a of aperte) {
     const ch = perId.get(a.closing_id as string);
     if (!ch) continue;                     // chiusura non piu' trovata: la guarda una persona
@@ -336,6 +339,7 @@ async function ripassaVecchie(
       const nota = notaDellaCassiera(ch.notes);
       const opposta = vicini
         .filter((v) => v.outlet_id === ch.outlet_id && v.id !== ch.id && v.status !== "bozza"
+          && !oppostaUsata.has(v.id)
           && v.cash_difference != null && Math.abs(num(v.cash_difference)) >= 0.005
           && Math.abs(num(v.cash_difference) + d) <= tolV
           && Math.abs(giorniFra(v.closing_date, ch.closing_date)) <= GIORNI_VICINI)
@@ -344,6 +348,7 @@ async function ripassaVecchie(
       // resta da fare, come fa l'istruttoria del giorno.
       if (opposta && nota) {
         reason = `Il ${dataIt(opposta.closing_date)} c'era la differenza opposta di ${eur(num(opposta.cash_difference))}: si compensano (soldi usciti o entrati un giorno e registrati in un altro). La cassiera ha scritto: «${nota}». Visto dal ripasso del ${dataIt(date)}.`;
+        oppostaUsata.add(opposta.id);
       }
     }
     if (!reason) continue;
@@ -906,9 +911,12 @@ Deno.serve(async (req) => {
     let chiuse = 0;
     if (!dryRun) {
       const vive = new Set(checks.map((c) => `${c.closing?.id ?? ""}|${c.kind}|${c.fingerprint}`));
+      // `resolved_by` oggi non lo scrive nessuno, ma il giorno in cui una
+      // persona rimettera' una riga fra le cose da fare, questa non la chiude.
       const { data: aperte, error: eAperte } = await admin.from("closing_checks")
         .select("id, closing_id, kind, fingerprint")
-        .eq("company_id", s.company_id).eq("closing_date", date).eq("outcome", "da_fare");
+        .eq("company_id", s.company_id).eq("closing_date", date).eq("outcome", "da_fare")
+        .is("resolved_by", null);
       if (eAperte) console.error("[closing-checks-run] segnalazioni aperte:", eAperte.message);
       const spente = ((aperte ?? []) as Array<{ id: string; closing_id: string | null; kind: string; fingerprint: string }>)
         .filter((r) => !vive.has(`${r.closing_id ?? ""}|${r.kind}|${r.fingerprint}`));

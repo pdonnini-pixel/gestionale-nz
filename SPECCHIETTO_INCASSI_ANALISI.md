@@ -492,6 +492,18 @@ La mail di esito ha un riquadro in più, «Segnalazioni vecchie chiuse da sole»
 
 Edge function `closing-checks-run` deployata su NZ (v17) e Zago (v12), stesso `ezbr_sha256` `c1b958fb…`, identico al file del repo.
 
+**Dopo i tre revisori** (tutti APPROVA, zero bloccanti e zero importanti). Tre correzioni:
+
+- **Il recinto sulla funzione del trigger** (migration 452, NZ e Zago): `trg_cassa_ricalcola_successive()` e' SECURITY DEFINER e la 451 non le aveva tolto l'EXECUTE a PUBLIC, che PostgreSQL concede per default. Non e' sfruttabile (una funzione che restituisce `trigger` non si chiama ne' via PostgREST ne' da SQL), ma misurato su NZ `authenticated` ce l'aveva, mentre su `fn_cash_closing_reproject()` no: la 289 glielo aveva tolto. Ora tutti e tre a `false` su entrambi i tenant, e il trigger lavora ancora (riprovato su Brugnato in transazione annullata).
+- **Una differenza opposta spiega una giornata sola.** Nel ripasso, +10 il 18 e +10 il 19 con -10 il 21 si chiudevano tutte e due con lo stesso -10. Ora l'opposta usata non si riusa (`oppostaUsata`).
+- **Anche la chiusura delle righe del giorno non scavalca una persona**: aggiunto `resolved_by IS NULL` dove mancava. Oggi `resolved_by` non lo scrive nessuno (`grep` su `src/` e `supabase/`), quindi non cambia niente adesso; serve il giorno in cui una persona rimette una riga fra le cose da fare.
+
+Una cosa che i revisori hanno segnalato e che **non** ho cambiato, perche' e' una scelta di Patrizio: il ripasso **chiude e non apre mai**. Se una correzione a monte fa comparire una differenza vera su una giornata vecchia, la pagina la mostra ma nessun controllo la raccoglie, perche' quella data e' stata istruita una volta sola. Sui dati di oggi non succede (il ricalcolo di 90 giorni non muove un numero). Se vogliamo che una differenza nuova su un giorno vecchio apra una segnalazione, serve un passo in piu'.
+
+Nota sul testo: il ripasso non scrive ai negozi, ma la mail di esito interna parte anche quando ha solo chiuso segnalazioni vecchie, con il riquadro che dice quali e perche'.
+
+Edge function finale: NZ v18 e Zago v13, `ezbr_sha256` `a4227d4a...`, identico al file del repo.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?
