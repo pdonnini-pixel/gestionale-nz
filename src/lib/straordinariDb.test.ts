@@ -87,6 +87,11 @@ describe('1. uno straordinario scritto a mano non si sovrascrive', () => {
     const turni = [...feriali(), t('sa', '2026-11-21', '10:00', '16:00', 0, { aMano: false }), t('do', '2026-11-22', '10:00', '16:00', 2)];
     expect(ricalcoloStraordinari(turni, new Map([['anna', 40]]), FORTI).cambi).toEqual([{ id: 'sa', ore: 2 }]);
   });
+  it('«nessuno straordinario» scelto a mano (a mano acceso, zero ore) resta zero: il resto va sugli altri giorni forti', () => {
+    // 44 ore su 40, sabato tolto a mano (Patrizio, 25/11/2026: «le tolgo e basta»): le 4 ore vanno solo sulla domenica
+    const turni = [...feriali(), t('sa', '2026-11-21', '10:00', '16:00', 0, { aMano: true }), t('do', '2026-11-22', '10:00', '16:00', 2)];
+    expect(ricalcoloStraordinari(turni, new Map([['anna', 40]]), FORTI).cambi).toEqual([{ id: 'do', ore: 4 }]);
+  });
   it('sul database: il turno a mano non riceve nessuna scrittura, quello del sistema viene segnato «non a mano»', async () => {
     finto.righe = settimanaDi('anna', 3, 2).map((r) => (r.id === 'anna-sa' ? { ...r, straordinario_a_mano: true } : r));
     const esito = await chiama(['anna']);

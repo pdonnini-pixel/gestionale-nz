@@ -1064,9 +1064,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             };
           })() : undefined}
           onClose={() => setEditor(null)}
-          onSalvato={async (msg) => {
-            // prima i turni aggiornati (e lo straordinario dei giorni forti ricalcolato), poi si chiude: la tabella non mostra mai il dato vecchio
-            await dopoModifica([editor.employeeId]);
+          onSalvato={async (msg, cosa) => {
+            // prima i turni aggiornati (e lo straordinario dei giorni forti ricalcolato), poi si chiude: la tabella non mostra mai il dato vecchio.
+            // Straordinario tolto a mano: «le tolgo e basta», niente ricalcolo questa volta (25/11/2026).
+            await dopoModifica(cosa?.senzaRicalcoloStraordinari ? [] : [editor.employeeId]);
             setEditor(null);
             if (msg) toast({ type: 'success', message: msg });
           }}

@@ -141,7 +141,7 @@ type BaseMese = {
   regoleFerie: RegoleFerie | null;
 };
 const ID_NUOVA = 'nuova-';
-type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string; straordinario?: boolean; ore_straordinario?: number; straordinario_a_mano?: boolean | null };
+type TurnoDb = { id: string; employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; stato: string; origine: string; straordinario?: boolean; ore_straordinario?: number; straordinario_a_mano?: boolean | null; straordinario_motivo?: string | null };
 
 // Nel weekend lavorano tutti, in tutti i negozi (Patrizio, 11/11/2026): il piano del
 // mese ha una sola variante. Le rotazioni di sabati e domeniche liberi restano nel
@@ -259,7 +259,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     let vivo = true;
     void (async () => {
       const [t, l] = await Promise.all([
-        supabase.from('shifts').select(`id, employee_id, data, inizio, fine, pausa_minuti, stato, origine, straordinario, ore_straordinario${ha408 ? ', straordinario_a_mano' : ''}` as never).eq('plan_id', aperto).neq('stato', 'annullato'),
+        supabase.from('shifts').select(`id, employee_id, data, inizio, fine, pausa_minuti, stato, origine, straordinario, ore_straordinario${ha408 ? ', straordinario_a_mano, straordinario_motivo' : ''}` as never).eq('plan_id', aperto).neq('stato', 'annullato'),
         supabase.from('shift_plan_weekend_off').select('employee_id, data').eq('plan_id', aperto),
       ]);
       if (!vivo) return;
@@ -2297,7 +2297,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
             companyId={companyId} outletId={outletId} employeeId={editorMese.employeeId} data={editorMese.data} turno={editorMese.turno}
             planId={pianoAperto.id}
             nome={nomePersona(dati.schede.find((x) => x.id === editorMese.employeeId) ?? { nome: '', cognome: '' })}
-            apre={g?.apre ?? 600} chiude={g?.chiude ?? 1200} chiusura={g?.chiusura} regole={regolePiano} conAMano={ha408}
+            apre={g?.apre ?? 600} chiude={g?.chiude ?? 1200} chiusura={g?.chiusura} regole={regolePiano} conAMano={ha408} conMotivo={ha408} giornoForte={giorniForti.has(editorMese.data)}
             conto={(() => {
               const lun = lunediDi(editorMese.data);
               const giorniSett = giorniDellaSettimana(lun).filter((d) => d.startsWith(mese));
@@ -2357,7 +2357,9 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
               if (cosa?.ferie && ha411 && !pianoAperto.simulazione && !chiuso) {
                 try { await ricalcola([lunediDi(editorMese.data)]); } catch (e) { toast({ type: 'error', message: `Ferie salvate, ma i turni della settimana non si sono ricalcolati (${e instanceof Error ? e.message : 'errore'}): premi «Ricalcola il mese».` }); }
               }
-              await riallineaStraordinari([{ employeeId: editorMese.employeeId, data: editorMese.data }]); setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: msg ?? 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
+              // straordinario tolto a mano: «le tolgo e basta», gli altri turni si ricalcolano alla prossima modifica (25/11/2026)
+              if (!cosa?.senzaRicalcoloStraordinari) await riallineaStraordinari([{ employeeId: editorMese.employeeId, data: editorMese.data }]);
+              setEditorMese(null); setVersione((v) => v + 1); toast({ type: 'success', message: msg ?? 'Turno salvato: il riepilogo delle ore è aggiornato.' }); }}
           />
         );
       })()}
