@@ -357,10 +357,10 @@ export function presenzeDelMese(dati: DatiStudio): EsitoStudio {
     persone.push({ persona: p, righe, avvisi: avvisiPersona })
   }
 
-  if (senzaOre.length) avvisi.push(`Ore settimanali mancanti in anagrafica (servono per le ore teoriche): ${senzaOre.join(', ')}.`)
+  if (senzaOre.length) avvisi.push(`Ore settimanali mancanti in anagrafica (servono per le ore teoriche): ${[...new Set(senzaOre)].join(', ')}.`)
   if (aspettative.size) avvisi.push(`Assenze lunghe senza una riga nel modello dello studio, lasciate vuote: ${[...aspettative].join(', ')}.`)
   const senzaTurni = persone.filter((x) => x.avvisi.length).map((x) => `${x.persona.cognome} ${x.persona.nome}`)
-  if (senzaTurni.length) avvisi.push(`Senza turni ufficiali nel mese, quindi senza ore ordinarie: ${senzaTurni.join(', ')}.`)
+  if (senzaTurni.length) avvisi.push(`Senza turni ufficiali nel mese, quindi senza ore ordinarie: ${[...new Set(senzaTurni)].join(', ')}.`)
   return { giorni, persone, avvisi }
 }
 

@@ -141,6 +141,22 @@ describe('regole dello studio', () => {
     expect(riga(d, 'AH')[g(2)]).toBe(1)
   })
 
+  it('stessa persona con due matricole: a chiamata il 1/11, assunta dal 3/11, due blocchi separati', () => {
+    const d = dati({
+      persone: [
+        persona({ matricola: '0000110', assunzione: '2026-11-03', oreSettimanali: 25 }),
+        persona({ matricola: '0000120', assunzione: '2026-11-01', cessazione: '2026-11-01', contratto: 'a_chiamata' }),
+      ],
+      turni: [turno('2026-11-04', '10:00', '15:00')],
+    })
+    const [assunta, chiamata] = presenzeDelMese(d).persone
+    expect(chiamata.righe.get('LC')![g(1)]).toBe(1)
+    expect(chiamata.righe.get('AH')![g(2)]).toBe(1)
+    expect(chiamata.righe.get('ORD')![g(4)]).toBeNull()
+    expect(assunta.righe.get('AH')![g(2)]).toBe(5)
+    expect(assunta.righe.get('ORD')![g(4)]).toBe(5)
+  })
+
   it('full time: lo straordinario è sempre ST', () => {
     const d = dati({ turni: [turno('2026-11-04', '10:00', '19:00', { ore_straordinario: 1 })] })
     expect(riga(d, 'ORD')[g(4)]).toBe(8)
