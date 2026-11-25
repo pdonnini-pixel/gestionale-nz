@@ -212,6 +212,15 @@ describe('il piano del mese', () => {
     expect(p0.every((t) => t.inizio >= '14:00' && t.fine <= '20:00' && oreLavorate(t) >= 4)).toBe(true);
     expect(e.turni.some((t) => t.employeeId === 'p1' && new Date(`${t.data}T00:00:00Z`).getUTCDay() === 2)).toBe(false);
   });
+  it('MODA arrotondato (25/11/2026): il Black Friday da 2,4 persone ha due persone, nessuna scopertura intera', () => {
+    const e = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    // le scoperture sul fabbisogno intero restano zero; le ore sotto MODA senza arrotondare
+    // contano lo 0,4 di persona del Black Friday (dalle 10 alle 20)
+    expect(e.scoperture).toEqual([]);
+    const bf = e.turni.filter((t) => t.data === '2026-11-27');
+    expect(new Set(bf.map((t) => t.employeeId)).size).toBeGreaterThanOrEqual(2);
+    expect(e.oreScoperte).toBeLessThanOrEqual(4 + 1e-6);
+  }, 30_000);
   it('trasferte: tolgono ore come lavoro fuori dal negozio e, se coprono il negozio, contano come presenza', () => {
     const conTrasferta = persone.map((p, i) => (i === 0
       ? { ...p, oreTrasferta: new Map([['2026-11-04', 8]]), nonDisponibile: new Set(['2026-11-04']) } : p));

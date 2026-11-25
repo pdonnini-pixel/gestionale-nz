@@ -1516,3 +1516,10 @@ due dalle 12 alle 18, ma il motore metteva la seconda dalle 11:30 il lunedì, il
   negozi di NZ e Zago) si appoggiava a quella spinta per arrivare al contratto pieno. Ora la ricerca
   pesa le ore di contratto non in turno solo dove la scelta è accesa (`PESI.oreNonUsate`, 1.000 l'ora).
 - Test: `ottimizzaTurni.test.ts`, «la proposta usa il MODA arrotondato sopra le fasce».
+- Effetto da sapere (revisore, 25/11/2026): dove MODA chiede x,2-x,4 persone sopra le fasce, la
+  proposta ne mette una in meno di prima. Nello scenario di prova il Black Friday da 2,4 persone passa
+  da 3 a 2 persone dalle 10 alle 20: nessuna scopertura sul fabbisogno intero (`scoperture` vuoto), ma
+  4 ore in più «sotto MODA» nel riepilogo (`oreScoperte` del piano somma `oreSottoModa`, non arrotondato).
+  Dove serve una persona in più in un giorno forte si scrive nelle fasce o nell'evento (persone in più).
+- Misura sui negozi veri non fatta in sessione: il motore si carica dalla pagina, non c'è uno strumento
+  che lo faccia girare sui dati vivi fuori dal browser.
