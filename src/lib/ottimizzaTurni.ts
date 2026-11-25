@@ -1432,11 +1432,12 @@ export interface TurnoSalvato extends Turno {
 
 /**
  * Lo straordinario che il sistema non tocca: quello scritto da una persona (qualunque
- * motivo), quello per ricarico o allestimento, quello fuori dai giorni forti e quello dei
+ * motivo, anche zero: «nessuno straordinario su questo turno», Patrizio 25/11/2026: «le tolgo
+ * e basta»), quello per ricarico o allestimento, quello fuori dai giorni forti e quello dei
  * turni di un mese chiuso. Conta come gia' assegnato.
  */
 const straordinarioFermo = (t: TurnoSalvato, giorniForti: Set<string>) =>
-  !!t.bloccato || (t.oreStraordinario > 0 && (!!t.aMano || t.motivo === 'ricarico' || t.motivo === 'allestimento' || !giorniForti.has(t.data)));
+  !!t.bloccato || !!t.aMano || (t.oreStraordinario > 0 && (t.motivo === 'ricarico' || t.motivo === 'allestimento' || !giorniForti.has(t.data)));
 
 /**
  * Lo straordinario «giorno forte» da riscrivere dopo una modifica a mano (Patrizio,
