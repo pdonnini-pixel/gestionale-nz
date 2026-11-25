@@ -85,7 +85,7 @@ export default function EditorTurno({
   /** giorno di riposo scelto dalla responsabile HR nel piano del mese (Patrizio, 11/11/2026) */
   riposo?: { attivo: boolean };
   /** chi apre la finestra puo' rileggere i dati prima di chiuderla: finche' non ha finito i pulsanti restano fermi */
-  onClose: () => void; onSalvato: (messaggio?: string, cosa?: { ferie?: boolean }) => void | Promise<void>;
+  onClose: () => void; onSalvato: (messaggio?: string, cosa?: { ferie?: boolean; senzaRicalcoloStraordinari?: boolean }) => void | Promise<void>;
 }) {
   const { toast } = useToast();
   const hh = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
@@ -125,14 +125,28 @@ export default function EditorTurno({
   // ordinarie che il turno aveva; si puo' correggere a mano.
   const oreStraordPrima = Number(turno?.ore_straordinario ?? 0);
   const ordinariePrima = turno ? oreLavorate({ inizio: turno.inizio, fine: turno.fine, pausaMinuti: turno.pausa_minuti }) - oreStraordPrima : 0;
-  const [straordinario, setStraordinario] = useState(oreStraordPrima > 0);
+  // Tre scelte (Patrizio, 25/11/2026): lo calcola il sistema, nessuno, lo decido io. «Nessuno»
+  // e' una decisione a mano come le altre: il turno resta senza straordinario anche quando poi
+  // il sistema ricalcola gli altri turni della settimana («le tolgo e basta»). Il calcolo del
+  // sistema esiste solo nei giorni forti dei negozi con i giorni caldi.
+  const sistemaQui = !!conAMano && !!regole.giorniPieni && !!giornoForte;
+  const aManoPrima = turno?.straordinario_a_mano === true;
+  type SceltaStraord = 'sistema' | 'nessuno' | 'mano';
+  // ricarico e allestimento li decide la direzione: non sono mai «del sistema», anche senza la colonna 408
+  const motivoDiretto = oreStraordPrima > 0 && (turno?.straordinario_motivo === 'ricarico' || turno?.straordinario_motivo === 'allestimento');
+  const sceltaIniziale: SceltaStraord = aManoPrima || motivoDiretto ? (oreStraordPrima > 0 ? 'mano' : 'nessuno')
+    : sistemaQui ? 'sistema' : oreStraordPrima > 0 ? 'mano' : 'nessuno';
+  const [scelta, setScelta] = useState<SceltaStraord>(sceltaIniziale);
   const [oreStraordScritte, setOreStraordScritte] = useState<string | null>(oreStraordPrima > 0 ? String(oreStraordPrima) : null);
   // Perche' lo straordinario (Patrizio, 11/11/2026): giorno forte, oppure la persona in piu' chiesta dalla direzione.
   const [motivoStraord, setMotivoStraord] = useState<string>(turno?.straordinario_motivo ?? (giornoForte ? 'giorno_forte' : 'ricarico'));
-  // Un valore messo a mano non si sovrascrive (revisori, 12/11/2026): se chi apre la finestra tocca la
-  // spunta, le ore o il motivo, lo straordinario diventa «scritto a mano» e il ricalcolo non lo cambia piu'.
-  // Togliere la spunta lo rimette al calcolo del sistema.
+  // Un valore messo a mano non si sovrascrive (revisori, 12/11/2026): si scrive «a mano» solo se
+  // chi apre la finestra cambia la scelta, le ore o il motivo.
   const [straordToccato, setStraordToccato] = useState(false);
+  const scegli = (x: SceltaStraord) => { setScelta(x); setStraordToccato(true); };
+  const [mostraPausa, setMostraPausa] = useState(false);
+  type Pannello = 'riposo' | 'ferie' | 'collega' | 'trasferta';
+  const [pannello, setPannello] = useState<Pannello | null>(null);
   const [salvo, setSalvo] = useState(false);
 
   // La pausa non e' mai lavoro (Patrizio, 21/10/2026): nessuna fino a 6 ore lavorate, 30' oltre 6, un'ora
@@ -152,7 +166,9 @@ export default function EditorTurno({
   const oreTurno = errore ? 0 : ore;
   const proposte = Math.max(0, oreTurno - (turno ? ordinariePrima : 0)) || oreTurno;
   const lette = oreStraordScritte != null ? Number(oreStraordScritte.replace(',', '.')) : NaN;
-  const oreStraord = !straordinario ? 0 : Math.min(oreTurno, Math.max(0, Number.isFinite(lette) ? lette : proposte));
+  const oreStraord = scelta === 'nessuno' ? 0
+    : scelta === 'sistema' ? Math.min(oreTurno, oreStraordPrima)
+      : Math.min(oreTurno, Math.max(0, Number.isFinite(lette) ? lette : proposte));
   // Ore da contratto contro ore programmate, per la settimana e per il mese.
   const contoDi = (c: { daLavorare: number | null; ordinarieAltri: number; straordinarioAltri: number } | undefined) => c && c.daLavorare != null ? {
     contratto: c.daLavorare,
@@ -170,13 +186,21 @@ export default function EditorTurno({
       const g = presenzaGiusta(minuti(inizio), minuti(fine), regole, apre, chiude);
       [i, f, p] = [hhmm(g.inizio), hhmm(g.fine), Math.max(pausaAMano.current ? pausa : 0, g.pausa)];
     }
-    const riga = { inizio: i, fine: f, pausa_minuti: p, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord, ...(conMotivo ? { straordinario_motivo: oreStraord > 0 ? motivoStraord : null } : {}),
-      ...(conAMano && (straordToccato || !turno) ? { straordinario_a_mano: oreStraord > 0 } : {}) };
+    const motivoScritto = scelta === 'sistema' ? 'giorno_forte' : motivoStraord;
+    // «nessuno» diventa una decisione a mano solo se l'ha scelto chi apre la finestra
+    const aManoNuovo = scelta === 'mano' ? oreStraord > 0 : scelta === 'nessuno' ? straordToccato : false;
+    const riga = { inizio: i, fine: f, pausa_minuti: p, origine: 'manuale' as const, straordinario: oreStraord > 0, ore_straordinario: oreStraord, ...(conMotivo ? { straordinario_motivo: oreStraord > 0 ? motivoScritto : null } : {}),
+      ...(conAMano && (straordToccato || !turno) ? { straordinario_a_mano: aManoNuovo } : {}) };
     const { error } = turno
       ? await supabase.from('shifts').update(riga).eq('id', turno.id)
       : await supabase.from('shifts').insert([{ ...riga, company_id: companyId, outlet_id: outletId, employee_id: employeeId, data, stato: 'bozza', plan_id: planId }]);
     if (error) { setSalvo(false); toast({ type: 'error', message: error.message }); return; }
-    await onSalvato();
+    // Straordinario tolto a mano: si toglie e basta, gli altri turni della settimana restano come sono
+    // finche' non se ne cambia uno (Patrizio, 25/11/2026).
+    // solo se prima c'era uno straordinario o non era gia' «nessuno» a mano: altrimenti il ricalcolo parte come sempre
+    const tolto = scelta === 'nessuno' && straordToccato && (oreStraordPrima > 0 || !aManoPrima);
+    await onSalvato(tolto && oreStraordPrima > 0 ? 'Turno salvato senza straordinario: gli altri turni della settimana non cambiano.' : undefined,
+      tolto ? { senzaRicalcoloStraordinari: true } : undefined);
     setSalvo(false);
   };
 
@@ -341,220 +365,240 @@ export default function EditorTurno({
     }
   };
 
+  // Il conto della settimana (o del mese, dove la settimana non c'e'), in una riga.
+  const cSett = contoDi(conto?.settimana);
+  const cConto = cSett ?? contoDi(conto);
+  const titoloConto = cSett && conto?.settimana ? `Settimana ${conto.settimana.etichetta}` : 'Mese';
+  const scarto = cConto ? cConto.programmate - cConto.contratto : 0;
+  const straordAltri = cConto ? cConto.straord - oreStraord : 0;
+
+  // Le altre cose che si possono fare su questo giorno: chiuse, si aprono una alla volta (25/11/2026).
+  const riposoNelPiano = !!riposo && !!planId && !ferie?.giaInFerie;
+  const azioni: { id: Pannello; nome: string }[] = [
+    ...((riposoNelPiano && !riposo!.attivo) || turno ? [{ id: 'riposo' as const, nome: riposoNelPiano && !riposo!.attivo ? 'Riposo' : 'Togli il turno' }] : []),
+    ...(ferie && !ferie.giaInFerie ? [{ id: 'ferie' as const, nome: 'Ferie o permesso' }] : []),
+    ...(turno && passaggio ? [{ id: 'collega' as const, nome: 'Dai a una collega' }] : []),
+    ...(trasferta && !trasferta.esistente ? [{ id: 'trasferta' as const, nome: 'Trasferta' }] : []),
+  ];
+  const nomeBreve = nome.split(' ')[0];
+  const pausaPagata = errore ? 0 : pausaPagataDelTurno({ inizio, fine, pausaMinuti: pausaVera }, regole);
+  const SCELTE: { id: SceltaStraord; nome: string; spiega: string }[] = [
+    ...(sistemaQui ? [{ id: 'sistema' as const, nome: 'Lo calcola il sistema', spiega: 'Le ore oltre il contratto della settimana diventano straordinario nei giorni forti, e si aggiornano quando cambi i turni.' }] : []),
+    { id: 'nessuno', nome: 'Nessuno straordinario', spiega: sistemaQui ? 'Questo turno resta senza straordinario, anche quando il sistema ricalcola gli altri turni.' : 'Tutte le ore del turno sono di contratto.' },
+    { id: 'mano', nome: 'Lo decido io', spiega: 'Scrivi tu quante ore del turno sono straordinario: il sistema non le cambia.' },
+  ];
+
   return (
     <Modal open onClose={onClose} title={`${nome} · ${NOMI_GIORNO_BREVI[giornoSett]} ${formattaDataBreve(data)}`}>
       <div className="space-y-4">
-        <div className="grid grid-cols-3 gap-3">
-          <label className="text-xs font-semibold text-slate-600">Inizio<input type="time" step={1800} value={inizio} onChange={(e) => scriviOrario(e.target.value, fine, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
-          <label className="text-xs font-semibold text-slate-600">Fine<input type="time" step={1800} value={fine} onChange={(e) => scriviOrario(inizio, e.target.value, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
-          <label className="text-xs font-semibold text-slate-600">Pausa (min)<input type="number" min={0} max={180} step={5} value={pausa} onChange={(e) => { pausaAMano.current = true; setPausa(Number(e.target.value) || 0); }} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
-        </div>
-        <p className="text-sm text-slate-600">
-          {errore ?? <>Presenza {fmt((minuti(fine) - minuti(inizio)) / 60)} ore: <b>{fmt(ore)} ore di lavoro</b> e {pausaVera} minuti di pausa, che non si pagano.</>}
-          {' '}Il turno diventa «messo a mano»: il ricalcolo non lo cambia.
-          {!turno && !ferie?.giaInFerie && !trasferta?.esistente && ' Oggi la persona è a riposo: scrivi l’orario e salva per darle un turno.'}
-        </p>
-        {allungato && !errore && (
-          <p className="text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">{allungato}</p>
-        )}
-        {pausa < pausaMinima && !errore && (
-          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-            La regola vuole almeno {pausaMinima} minuti di pausa (nessuna fino a 6 ore di lavoro, 30 oltre 6, un'ora da 8): li conto io, la pausa scritta non basta.
-          </p>
-        )}
-
-        <label className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 cursor-pointer ${straordinario ? 'border-amber-300 bg-amber-50' : 'border-slate-200'}`}>
-          <input type="checkbox" checked={straordinario} onChange={(e) => { setStraordinario(e.target.checked); setOreStraordScritte(null); setStraordToccato(true); }} className="mt-0.5" />
-          <span className="text-sm flex-1">
-            <span className="font-semibold text-slate-800">Straordinario</span>
-            <span className="block text-xs text-slate-500">Ore concordate con la dipendente in più del contratto: si contano a parte e non coprono le ore di contratto non usate. Allungando un turno, straordinario sono solo le ore aggiunte.</span>
-          </span>
-        </label>
-        {straordinario && (
-          <label className="flex items-center gap-2 text-sm text-slate-700 -mt-2 pl-3">
-            Di queste, ore di straordinario:
-            <input type="text" inputMode="decimal" aria-label="Ore di straordinario del turno"
-              value={oreStraordScritte ?? String(oreStraord).replace('.', ',')}
-              onChange={(e) => { setOreStraordScritte(e.target.value); setStraordToccato(true); }}
-              className="w-20 min-h-[36px] rounded-lg border border-amber-300 px-2 text-right tabular-nums" />
-            <span className="text-xs text-slate-500">su {fmt(oreTurno)} h del turno; il resto è ordinario</span>
-          </label>
-        )}
-        {straordinario && conMotivo && (
-          <label className="flex items-center gap-2 text-sm text-slate-700 -mt-2 pl-3">
-            Motivo:
-            <select aria-label="Motivo dello straordinario" value={motivoStraord} onChange={(e) => { setMotivoStraord(e.target.value); setStraordToccato(true); }}
-              className="min-h-[36px] rounded-lg border border-amber-300 px-2 bg-white">
-              {MOTIVI_STRAORDINARIO.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
-            </select>
-          </label>
-        )}
-        {conAMano && regole.giorniPieni && (straordinario || straordToccato || turno?.straordinario_a_mano) && (
-          <p className="text-xs text-slate-600 -mt-2 pl-3">
-            {!straordinario
-              ? 'Senza la spunta lo straordinario di questo turno torna al calcolo del sistema: nei giorni forti lo riscrive da solo, se le ore della settimana superano il contratto.'
-              : straordToccato || turno?.straordinario_a_mano
-                ? 'Scritto a mano: il sistema non lo cambia più, anche se poi sposti altri turni. Per rimetterlo al calcolo del sistema togli la spunta e salva.'
-                : 'Calcolato dal sistema: si aggiorna da solo quando cambiano i turni della settimana. Se lo cambi tu, resta come lo scrivi.'}
-          </p>
-        )}
-        {!errore && pausaPagataDelTurno({ inizio, fine, pausaMinuti: pausaVera }, regole) > 0 && (
-          <p className="text-xs text-slate-500">Pausa di {pausaPagataDelTurno({ inizio, fine, pausaMinuti: pausaVera }, regole)} minuti: si timbra ma non si toglie dalle ore.</p>
-        )}
-
-        {conto && (contoDi(conto.settimana) || contoDi(conto)) && (
-          <div className="rounded-lg bg-slate-50 border border-slate-200 px-3 py-2.5 text-sm space-y-2">
-            {([[conto.settimana ? `La settimana ${conto.settimana.etichetta}` : null, contoDi(conto.settimana)], ['Il mese', contoDi(conto)]] as [string | null, ReturnType<typeof contoDi>][])
-              .filter(([titolo, c]) => titolo && c).map(([titolo, c]) => {
-                const scarto = c!.programmate - c!.contratto;
-                return (
-                  <div key={titolo}>
-                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500 mb-1">{titolo} di {nome.split(' ')[0]} con questo turno</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <div><span className="block text-xs text-slate-500">Ore da contratto</span><span className="font-semibold tabular-nums">{fmt(c!.contratto)} h</span></div>
-                      <div><span className="block text-xs text-slate-500">Ore programmate</span><span className="font-semibold tabular-nums">{fmt(c!.programmate)} h</span></div>
-                    </div>
-                    <p className={`mt-1 text-sm font-medium ${Math.abs(scarto) <= 0.25 ? 'text-emerald-700' : scarto < 0 ? 'text-slate-700' : 'text-amber-800'}`}>
-                      {Math.abs(scarto) <= 0.25 ? 'In linea con il contratto.'
-                        : scarto < 0 ? `${fmt(-scarto)} h ancora da assegnare: in un turno dove servono, oppure come ferie o permesso.`
-                          : `${fmt(scarto)} h in più del contratto: decidi se sono straordinario (segna il turno come straordinario) oppure se le togli.`}
-                    </p>
-                    {c!.straord > 0.25 && <p className="text-xs text-amber-800">Straordinario concordato: {fmt(c!.straord)} h, a parte.</p>}
-                  </div>
-                );
-              })}
+        {/* Quello che c'e' gia' in questo giorno */}
+        {(riposoNelPiano && riposo!.attivo) || ferie?.esistente || trasferta?.esistente ? (
+          <div className="space-y-2">
+            {riposoNelPiano && riposo!.attivo && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                <span>Giorno di riposo di {nomeBreve}.</span>
+                <button type="button" onClick={togliRiposo} disabled={salvo} className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-emerald-400 bg-white text-sm font-semibold hover:bg-emerald-100 disabled:opacity-50"><Trash2 size={14} /> Togli il riposo</button>
+              </div>
+            )}
+            {ferie?.esistente && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                <span>{ferie.esistente.testo}{ferie.esistente.statoRichiesta === 'inviata' ? ', da approvare' : ', approvate'}.</span>
+                <button type="button" onClick={togliFerie} disabled={salvo} className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-sm font-semibold hover:bg-amber-100 disabled:opacity-50"><Trash2 size={14} /> Togli le ferie</button>
+              </div>
+            )}
+            {trasferta?.esistente && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-900">
+                <span>Trasferta {trasferta.esistente.inizio}-{trasferta.esistente.fine}, {fmt(oreTrasferta(trasferta.esistente))} ore,
+                  {' '}a {trasferta.esistente.destinazioneOutletId ? (trasferta.negozi.find((n) => n.id === trasferta.esistente!.destinazioneOutletId)?.nome ?? 'altro negozio') : trasferta.esistente.luogo}
+                  {trasferta.esistente.copreDestinazione ? ', copre quel negozio' : ''}{trasferta.esistente.motivo ? ` · ${trasferta.esistente.motivo}` : ''}.</span>
+                <button type="button" onClick={togliTrasferta} disabled={salvo} className="inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-indigo-300 bg-white text-sm font-semibold hover:bg-indigo-100 disabled:opacity-50"><Trash2 size={14} /> Togli la trasferta</button>
+              </div>
+            )}
           </div>
-        )}
+        ) : null}
 
-        {turno && passaggio && (
-          <div className="rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2.5 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-900 mb-1">Dai questo turno a un'altra persona, o mettilo anche a lei</p>
-            <p className="text-xs text-blue-900 mb-2">Con l'orario scritto in alto (lo puoi cambiare prima). Nel calendario puoi anche trascinare la casella.</p>
-            <select value={collega} onChange={(e) => setCollega(e.target.value)} aria-label="Collega"
-              className="w-full min-h-[38px] rounded-lg border border-blue-300 bg-white px-2 text-sm">
-              <option value="">Scegli la persona…</option>
-              {passaggio.colleghi.filter((c) => c.id !== employeeId).map((c) => <option key={c.id} value={c.id}>{c.nome}{passaggio.haTurno(c.id) ? ' (ha già un turno quel giorno)' : ''}</option>)}
-            </select>
-            {collega && (
-              <div className="mt-2 space-y-2">
-                {mosseCollega.map((m) => {
-                  const avvisi = errore ? [] : passaggio.avvisi(m, collega, { inizio, fine });
-                  return (
-                    <div key={m}>
-                      <button type="button" onClick={() => passa(m)} disabled={salvo || !!errore}
-                        className="min-h-[36px] px-3 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">{ETICHETTE[m]}</button>
-                      {avvisi.length > 0 && <ul className="mt-1 space-y-0.5 text-xs text-amber-800">{avvisi.map((a) => <li key={a}>• {a}</li>)}</ul>}
-                    </div>
-                  );
-                })}
+        {/* 1. Orario */}
+        <div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="text-xs font-semibold text-slate-600">Inizio<input type="time" step={1800} value={inizio} onChange={(e) => scriviOrario(e.target.value, fine, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
+            <label className="text-xs font-semibold text-slate-600">Fine<input type="time" step={1800} value={fine} onChange={(e) => scriviOrario(inizio, e.target.value, false)} onBlur={() => scriviOrario(inizio, fine, true)} className="mt-1 w-full min-h-[40px] rounded-lg border border-slate-300 px-2 text-sm" /></label>
+          </div>
+          <p className={`mt-2 text-sm ${errore ? 'text-rose-700' : 'text-slate-700'}`}>
+            {errore ?? <><b>{fmt(ore)} ore di lavoro</b>{pausaVera > 0 ? `, pausa ${pausaVera} minuti non pagata` : ', nessuna pausa'}
+              {pausaPagata > 0 ? ` (più ${pausaPagata} minuti timbrati ma pagati)` : ''}.{' '}
+              {!mostraPausa && <button type="button" onClick={() => setMostraPausa(true)} className="text-blue-700 underline underline-offset-2 text-xs">cambia la pausa</button>}</>}
+          </p>
+          {!turno && !ferie?.giaInFerie && !trasferta?.esistente && !(riposoNelPiano && riposo!.attivo) && (
+            <p className="text-xs text-slate-500 mt-1">Oggi {nomeBreve} non ha un turno: scrivi l’orario e salva per darglielo.</p>
+          )}
+          {mostraPausa && (
+            <label className="mt-2 flex items-center gap-2 text-sm text-slate-700">Pausa in minuti
+              <input type="number" min={0} max={180} step={5} value={pausa} aria-label="Pausa in minuti" onChange={(e) => { pausaAMano.current = true; setPausa(Number(e.target.value) || 0); }} className="w-24 min-h-[36px] rounded-lg border border-slate-300 px-2 text-sm" />
+              <span className="text-xs text-slate-500">si può allungare, non accorciare</span>
+            </label>
+          )}
+          {mostraPausa && pausa < pausaMinima && !errore && (
+            <p className="mt-1 text-xs text-amber-800">La regola vuole almeno {pausaMinima} minuti per questo orario: conto quelli.</p>
+          )}
+          {allungato && !errore && <p className="mt-2 text-sm text-blue-800 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">{allungato}</p>}
+        </div>
+
+        {/* 2. Straordinario, con il conto della settimana */}
+        <fieldset className="rounded-lg border border-slate-200 px-3 py-2.5">
+          <legend className="px-1 text-sm font-semibold text-slate-800">Straordinario su questo turno</legend>
+          <div className="space-y-1.5">
+            {SCELTE.map((x) => (
+              <label key={x.id} className={`flex items-start gap-2 rounded-md px-2 py-1.5 cursor-pointer ${scelta === x.id ? 'bg-slate-50' : ''}`}>
+                <input type="radio" name="scelta-straordinario" checked={scelta === x.id} onChange={() => scegli(x.id)} className="mt-1" />
+                <span className="text-sm">
+                  <span className="font-medium text-slate-800">{x.nome}{x.id === 'sistema' && scelta === 'sistema' ? `: oggi ${fmt(oreStraord)} h` : ''}</span>
+                  {scelta === x.id && <span className="block text-xs text-slate-500">{x.spiega}</span>}
+                </span>
+              </label>
+            ))}
+          </div>
+          {scelta === 'mano' && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 pl-8 text-sm text-slate-700">
+              <input type="text" inputMode="decimal" aria-label="Ore di straordinario del turno"
+                value={oreStraordScritte ?? String(oreStraord).replace('.', ',')}
+                onChange={(e) => { setOreStraordScritte(e.target.value); setStraordToccato(true); }}
+                className="w-20 min-h-[36px] rounded-lg border border-amber-300 px-2 text-right tabular-nums" />
+              <span>ore su {fmt(oreTurno)}</span>
+              {conMotivo && (
+                <select aria-label="Motivo dello straordinario" value={motivoStraord} onChange={(e) => { setMotivoStraord(e.target.value); setStraordToccato(true); }}
+                  className="min-h-[36px] rounded-lg border border-amber-300 px-2 bg-white">
+                  {MOTIVI_STRAORDINARIO.map((m) => <option key={m.id} value={m.id}>{m.nome}</option>)}
+                </select>
+              )}
+            </div>
+          )}
+          {cConto && (
+            <div className="mt-3 border-t border-slate-200 pt-2 text-sm">
+              <p className="text-slate-700">
+                <span className="font-semibold">{titoloConto}</span> di {nomeBreve}: <span className="tabular-nums">{fmt(cConto.programmate)} h</span> ordinarie su <span className="tabular-nums">{fmt(cConto.contratto)}</span> di contratto
+                {cConto.straord > 0.01 ? <>, più <span className="tabular-nums">{fmt(cConto.straord)} h</span> di straordinario{straordAltri > 0.01 && oreStraord > 0.01 ? ` (${fmt(oreStraord)} qui, ${fmt(straordAltri)} su altri turni)` : straordAltri > 0.01 ? ' su altri turni' : ''}</> : ''}.
+              </p>
+              <p className={`text-xs mt-0.5 ${Math.abs(scarto) <= 0.25 ? 'text-emerald-700' : scarto < 0 ? 'text-slate-600' : 'text-amber-800'}`}>
+                {Math.abs(scarto) <= 0.25 ? 'In linea con il contratto.'
+                  : scarto < 0 ? `${fmt(-scarto)} h ancora da assegnare (un turno, ferie o permesso).`
+                    : `${fmt(scarto)} h oltre il contratto non segnate come straordinario.`}
+                {scelta === 'sistema' && ' Il sistema le ricalcola quando salvi.'}
+              </p>
+            </div>
+          )}
+        </fieldset>
+
+        {/* 3. Le altre cose su questo giorno, chiuse */}
+        {azioni.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-1.5">Altro su questo giorno</p>
+            <div className="flex flex-wrap gap-2">
+              {azioni.map((a) => (
+                <button key={a.id} type="button" onClick={() => setPannello(pannello === a.id ? null : a.id)} aria-expanded={pannello === a.id}
+                  className={`min-h-[36px] px-3 rounded-lg border text-sm font-medium ${pannello === a.id ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-slate-300 text-slate-700 hover:bg-slate-50'}`}>{a.nome}</button>
+              ))}
+            </div>
+
+            {pannello === 'riposo' && (
+              <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 text-sm text-emerald-900">
+                {riposoNelPiano && !riposo!.attivo ? (
+                  <>
+                    <p className="text-xs">{turno ? 'Il turno di questo giorno si toglie e le sue ore tornano da assegnare; nel piano resta segnato il riposo.' : 'In questo giorno non si mettono turni.'}</p>
+                    <button type="button" onClick={segnaRiposo} disabled={salvo} className="mt-2 min-h-[36px] px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">Segna come giorno di riposo</button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs">Il turno di questo giorno si toglie{turno?.stato === 'pubblicato' ? ' (è pubblicato: resta annullato nello storico)' : ''}.</p>
+                    <button type="button" onClick={togli} disabled={salvo} className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"><Trash2 size={14} /> Togli il turno</button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {pannello === 'ferie' && ferie && (
+              <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-sm">
+                <div className="flex flex-wrap gap-3 mb-2 text-xs text-amber-900" role="radiogroup" aria-label="Stato della richiesta">
+                  <label className="inline-flex items-center gap-1.5"><input type="radio" checked={giaApprovata} onChange={() => setGiaApprovata(true)} /> Già approvata (scala subito il saldo)</label>
+                  <label className="inline-flex items-center gap-1.5"><input type="radio" checked={!giaApprovata} onChange={() => setGiaApprovata(false)} /> Da approvare</label>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button type="button" onClick={() => inserisciFerie('giornata')} disabled={salvo}
+                    className="min-h-[36px] px-3 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50">Giornata ({fmt(giornata)} h)</button>
+                  <button type="button" onClick={() => inserisciFerie('mezza_giornata')} disabled={salvo}
+                    className="min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50">Mezza giornata ({fmt(giornata / 2)} h)</button>
+                  <span className="text-xs text-amber-900">oppure permesso di</span>
+                  <input type="text" inputMode="decimal" aria-label="Ore di permesso" value={orePermesso} onChange={(e) => setOrePermesso(e.target.value)}
+                    className="w-14 min-h-[36px] rounded-lg border border-amber-300 px-2 text-right tabular-nums bg-white" />
+                  <span className="text-xs text-amber-900">h</span>
+                  <button type="button" onClick={() => inserisciFerie('ore')} disabled={salvo}
+                    className="min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50">Inserisci permesso</button>
+                </div>
+                <p className="text-xs text-amber-900 mt-2">Con la giornata il turno si toglie; con mezza giornata o permesso il turno resta, da accorciare.</p>
+              </div>
+            )}
+
+            {pannello === 'collega' && passaggio && turno && (
+              <div className="mt-2 rounded-lg border border-blue-200 bg-blue-50/50 px-3 py-2.5 text-sm">
+                <p className="text-xs text-blue-900 mb-2">Con l'orario scritto sopra. Nel calendario puoi anche trascinare la casella.</p>
+                <select value={collega} onChange={(e) => setCollega(e.target.value)} aria-label="Collega"
+                  className="w-full min-h-[38px] rounded-lg border border-blue-300 bg-white px-2 text-sm">
+                  <option value="">Scegli la persona…</option>
+                  {passaggio.colleghi.filter((c) => c.id !== employeeId).map((c) => <option key={c.id} value={c.id}>{c.nome}{passaggio.haTurno(c.id) ? ' (ha già un turno quel giorno)' : ''}</option>)}
+                </select>
+                {collega && (
+                  <div className="mt-2 space-y-2">
+                    {mosseCollega.map((m) => {
+                      const avvisi = errore ? [] : passaggio.avvisi(m, collega, { inizio, fine });
+                      return (
+                        <div key={m}>
+                          <button type="button" onClick={() => passa(m)} disabled={salvo || !!errore}
+                            className="min-h-[36px] px-3 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">{ETICHETTE[m]}</button>
+                          {avvisi.length > 0 && <ul className="mt-1 space-y-0.5 text-xs text-amber-800">{avvisi.map((a) => <li key={a}>• {a}</li>)}</ul>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {pannello === 'trasferta' && trasferta && (
+              <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-sm">
+                <p className="text-xs text-indigo-900 mb-2">Lavoro fuori da questo negozio con l'orario scritto sopra ({errore ? '—' : `${fmt(ore)} ore`}): conta nelle ore della settimana, non come presenza qui. Il turno del giorno si toglie.</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="text-xs font-semibold text-indigo-900">Dove
+                    <select value={destinazione} onChange={(e) => { setDestinazione(e.target.value); if (e.target.value === 'altro') setCopre(false); }}
+                      className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm">
+                      <option value="">Scegli…</option>
+                      {trasferta.negozi.filter((n) => n.id !== outletId).map((n) => <option key={n.id} value={n.id}>{n.nome}</option>)}
+                      <option value="altro">Altro luogo…</option>
+                    </select>
+                  </label>
+                  {destinazione === 'altro' && (
+                    <label className="text-xs font-semibold text-indigo-900">Luogo
+                      <input type="text" value={luogo} onChange={(e) => setLuogo(e.target.value)} placeholder="es. fiera di Milano" className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm" />
+                    </label>
+                  )}
+                  <label className={`text-xs font-semibold text-indigo-900 ${destinazione === 'altro' ? 'sm:col-span-2' : ''}`}>Motivo
+                    <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="es. allestimento vetrine" className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm" />
+                  </label>
+                </div>
+                {destinazione && destinazione !== 'altro' && (
+                  <label className="mt-2 flex items-start gap-2 text-xs text-indigo-900">
+                    <input type="checkbox" checked={copre} onChange={(e) => setCopre(e.target.checked)} className="mt-0.5" />
+                    Le ore coprono anche quel negozio: nel suo piano conta come una persona presente.
+                  </label>
+                )}
+                <button type="button" onClick={segnaTrasferta} disabled={salvo || !!errore}
+                  className="mt-2 min-h-[36px] px-3 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">Segna come trasferta</button>
               </div>
             )}
           </div>
         )}
 
-        {riposo && planId && !ferie?.giaInFerie && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 text-sm text-emerald-900">
-            <p className="text-xs font-semibold uppercase tracking-wide mb-1">Giorno di riposo</p>
-            {riposo.attivo ? (
-              <>
-                <p>In questo giorno {nome.split(' ')[0]} è a riposo.</p>
-                <button type="button" onClick={togliRiposo} disabled={salvo}
-                  className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-emerald-400 bg-white text-sm font-semibold hover:bg-emerald-100 disabled:opacity-50"><Trash2 size={14} /> Togli il riposo</button>
-              </>
-            ) : (
-              <>
-                <p className="text-xs">Scegli tu il giorno di riposo: {turno ? 'il turno di questo giorno si toglie e le sue ore tornano da assegnare.' : 'in questo giorno non si mettono turni.'}</p>
-                <button type="button" onClick={segnaRiposo} disabled={salvo}
-                  className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-emerald-400 bg-white text-sm font-semibold hover:bg-emerald-100 disabled:opacity-50">Segna come giorno di riposo</button>
-              </>
-            )}
-          </div>
-        )}
-
-        {ferie?.esistente && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-sm text-amber-900">
-            <p className="text-xs font-semibold uppercase tracking-wide mb-1">In questo giorno</p>
-            <p>{ferie.esistente.testo}{ferie.esistente.statoRichiesta === 'inviata' ? ', da approvare' : ', approvate'}.</p>
-            <button type="button" onClick={togliFerie} disabled={salvo}
-              className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-sm font-semibold hover:bg-amber-100 disabled:opacity-50"><Trash2 size={14} /> Togli le ferie</button>
-          </div>
-        )}
-
-        {ferie && !ferie.giaInFerie && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2.5 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-900 mb-1">Ferie o permesso in questo giorno</p>
-            <div className="flex flex-wrap gap-3 mb-2 text-xs text-amber-900" role="radiogroup" aria-label="Stato della richiesta">
-              <label className="inline-flex items-center gap-1.5"><input type="radio" checked={giaApprovata} onChange={() => setGiaApprovata(true)} /> Già approvata: consuma subito il saldo</label>
-              <label className="inline-flex items-center gap-1.5"><input type="radio" checked={!giaApprovata} onChange={() => setGiaApprovata(false)} /> Da approvare</label>
-            </div>
-            <p className="text-xs text-amber-900 mb-2">La mezza giornata vale metà delle ore di una giornata. Con la giornata intera il turno del giorno si toglie; con mezza giornata o permesso il turno resta, da accorciare.</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => inserisciFerie('giornata')} disabled={salvo}
-                className="min-h-[36px] px-3 rounded-lg bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700 disabled:opacity-50">Giornata di ferie ({fmt(giornata)} h)</button>
-              <button type="button" onClick={() => inserisciFerie('mezza_giornata')} disabled={salvo}
-                className="min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50">Mezza giornata ({fmt(giornata / 2)} h)</button>
-              <span className="text-xs text-amber-900">oppure permesso di</span>
-              <input type="text" inputMode="decimal" aria-label="Ore di permesso" value={orePermesso} onChange={(e) => setOrePermesso(e.target.value)}
-                className="w-16 min-h-[36px] rounded-lg border border-amber-300 px-2 text-right tabular-nums bg-white" />
-              <span className="text-xs text-amber-900">h</span>
-              <button type="button" onClick={() => inserisciFerie('ore')} disabled={salvo}
-                className="min-h-[36px] px-3 rounded-lg border border-amber-400 bg-white text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50">Inserisci permesso</button>
-            </div>
-          </div>
-        )}
-
-        {trasferta?.esistente && (
-          <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-sm text-indigo-900">
-            <p className="text-xs font-semibold uppercase tracking-wide mb-1">Trasferta in questo giorno</p>
-            <p>{trasferta.esistente.inizio}-{trasferta.esistente.fine}, {fmt(oreTrasferta(trasferta.esistente))} ore di lavoro
-              {' '}a {trasferta.esistente.destinazioneOutletId ? (trasferta.negozi.find((n) => n.id === trasferta.esistente!.destinazioneOutletId)?.nome ?? 'altro negozio') : trasferta.esistente.luogo}
-              {trasferta.esistente.copreDestinazione ? ', copre quel negozio' : ''}{trasferta.esistente.motivo ? ` · ${trasferta.esistente.motivo}` : ''}.</p>
-            <button type="button" onClick={togliTrasferta} disabled={salvo} className="mt-2 inline-flex items-center gap-1.5 min-h-[36px] px-3 rounded-lg border border-indigo-300 bg-white text-sm font-semibold hover:bg-indigo-100 disabled:opacity-50"><Trash2 size={14} /> Togli la trasferta</button>
-          </div>
-        )}
-        {trasferta && !trasferta.esistente && (
-          <div className="rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2.5 text-sm">
-            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-900 mb-1">Oppure: trasferta in questo giorno</p>
-            <p className="text-xs text-indigo-900 mb-2">Lavoro fuori da questo negozio con l'orario scritto sopra ({errore ? '—' : `${fmt(ore)} ore`}): vale come lavoro nelle ore della settimana, non come presenza qui. Il turno del giorno si toglie.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <label className="text-xs font-semibold text-indigo-900">Dove
-                <select value={destinazione} onChange={(e) => { setDestinazione(e.target.value); if (e.target.value === 'altro') setCopre(false); }}
-                  className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm">
-                  <option value="">Scegli…</option>
-                  {trasferta.negozi.filter((n) => n.id !== outletId).map((n) => <option key={n.id} value={n.id}>{n.nome}</option>)}
-                  <option value="altro">Altro luogo…</option>
-                </select>
-              </label>
-              {destinazione === 'altro' ? (
-                <label className="text-xs font-semibold text-indigo-900">Luogo
-                  <input type="text" value={luogo} onChange={(e) => setLuogo(e.target.value)} placeholder="es. fiera di Milano" className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm" />
-                </label>
-              ) : (
-                <label className="text-xs font-semibold text-indigo-900">Motivo
-                  <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="es. allestimento vetrine" className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm" />
-                </label>
-              )}
-              {destinazione === 'altro' && (
-                <label className="text-xs font-semibold text-indigo-900 sm:col-span-2">Motivo
-                  <input type="text" value={motivo} onChange={(e) => setMotivo(e.target.value)} className="mt-1 w-full min-h-[38px] rounded-lg border border-indigo-300 bg-white px-2 text-sm" />
-                </label>
-              )}
-            </div>
-            {destinazione && destinazione !== 'altro' && (
-              <label className="mt-2 flex items-start gap-2 text-xs text-indigo-900">
-                <input type="checkbox" checked={copre} onChange={(e) => setCopre(e.target.checked)} className="mt-0.5" />
-                Le ore coprono anche quel negozio: nel suo piano contano come una persona presente.
-              </label>
-            )}
-            <button type="button" onClick={segnaTrasferta} disabled={salvo || !!errore}
-              className="mt-2 min-h-[36px] px-3 rounded-lg bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50">Segna come trasferta</button>
-          </div>
-        )}
-
-        <div className="flex flex-wrap justify-between gap-2 pt-2 border-t border-slate-200">
-          {turno ? (
-            <button type="button" onClick={togli} disabled={salvo} className="inline-flex items-center gap-1.5 min-h-[40px] px-3 rounded-lg text-sm text-rose-700 hover:bg-rose-50 disabled:opacity-50"><Trash2 size={15} /> Metti riposo (togli il turno)</button>
-          ) : <span />}
+        {/* Salva e Annulla sempre visibili, anche quando la finestra scorre */}
+        <div className="sticky bottom-0 -mx-5 -mb-4 px-5 py-3 bg-white border-t border-slate-200 flex items-center justify-between gap-2">
+          <span className="text-xs text-slate-500">L'orario salvato non lo cambia il ricalcolo dei turni.</span>
           <div className="flex gap-2">
             <button type="button" onClick={onClose} className="min-h-[40px] px-4 rounded-lg border border-slate-300 text-sm">Annulla</button>
             <button type="button" onClick={salva} disabled={!!errore || salvo} className="min-h-[40px] px-4 rounded-lg bg-blue-600 text-white text-sm font-semibold disabled:opacity-50">Salva</button>
