@@ -110,11 +110,13 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
     return [{ employee_id: r.employee_id, data: a.data, voce: a.voce, tipo: a.tipo, ore: Number(a.ore) }]
   })
 
-  const assenzeLunghe: AssenzaLungaStudio[] = ((lun.error ? [] : lun.data ?? []) as unknown as { employee_id: string; motivo: string | null; data_dal: string; data_al: string | null }[])
+  const assenzeLunghe: AssenzaLungaStudio[] = ((lun.data ?? []) as unknown as { employee_id: string; motivo: string | null; data_dal: string; data_al: string | null }[])
     .filter((l) => !l.data_al || l.data_al >= dalTurni)
     .map((l) => ({ employee_id: l.employee_id, motivo: l.motivo, dal: l.data_dal, al: l.data_al }))
 
-  const eventi: EventoStudio[] = ((eve.error ? [] : eve.data ?? []) as unknown as { employee_id: string; data: string; tipo: string; esito: string | null; minuti_confermati: number | null; minuti_proposti: number | null }[])
+  if (eve.error) throw new Error(`Non riesco a leggere i casi confermati delle presenze (${eve.error.message}): il file uscirebbe senza straordinari e uscite.`)
+  if (lun.error) throw new Error(`Non riesco a leggere le assenze lunghe (${lun.error.message}): il file uscirebbe senza maternità e malattie.`)
+  const eventi: EventoStudio[] = ((eve.data ?? []) as unknown as { employee_id: string; data: string; tipo: string; esito: string | null; minuti_confermati: number | null; minuti_proposti: number | null }[])
     .map((e) => ({ employee_id: e.employee_id, data: e.data, tipo: e.tipo, esito: e.esito, minuti: Number(e.minuti_confermati ?? e.minuti_proposti ?? 0) }))
 
   const patroni = new Map(negozi.filter((n) => n.festa_patrono).map((n) => [n.id, n.festa_patrono!]))
@@ -154,8 +156,9 @@ export default function PresenzeStudio({ companyId }: { companyId?: string }) {
     const mmdd = v === '' ? null : /^\d{1,2}\/\d{1,2}$/.test(v) ? v.split('/').reverse().map((x) => x.padStart(2, '0')).join('-') : v
     if (mmdd && !/^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(mmdd)) { toast({ type: 'error', message: 'Scrivi il giorno come 11/11 (giorno/mese).' }); return }
     if (mmdd === n.festa_patrono) return
-    const { error } = await supabase.from('outlets').update({ festa_patrono: mmdd } as never).eq('id', n.id)
+    const { data, error } = await supabase.from('outlets').update({ festa_patrono: mmdd } as never).eq('id', n.id).select('id')
     if (error) { toast({ type: 'error', message: error.message }); return }
+    if (!data?.length) { toast({ type: 'error', message: 'Non salvato: il patrono lo cambia solo il Super Advisor.' }); return }
     toast({ type: 'success', message: `Patrono di ${n.name ?? n.code} salvato.` })
     void ricarica()
   }

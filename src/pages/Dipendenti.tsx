@@ -1208,7 +1208,7 @@ export default function Dipendenti() {
                   { k: 'giornata' as const, label: 'Giornata' },
                   { k: 'conferme' as const, label: 'Da confermare' },
                   { k: 'riepilogo' as const, label: 'Riepilogo del mese' },
-                  { k: 'studio' as const, label: 'Per lo studio' },
+                  ...(puoOrganico ? [{ k: 'studio' as const, label: 'Per lo studio' }] : []),
                   { k: 'regole' as const, label: 'Chi conferma e regole' },
                 ]).map((t) => (
                   <button
@@ -1223,7 +1223,7 @@ export default function Dipendenti() {
               </div>
               <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
                 {presenzeTab === 'giornata' ? <PresenzeNegozi companyId={COMPANY_ID} />
-                  : presenzeTab === 'studio' ? <PresenzeStudio companyId={COMPANY_ID} />
+                  : presenzeTab === 'studio' ? (puoOrganico ? <PresenzeStudio companyId={COMPANY_ID} /> : <p className="text-slate-500 py-12 text-center">Il file per lo studio lo prepara chi gestisce l'organico.</p>)
                   : <PresenzeConferme sezione={presenzeTab} />}
               </Suspense>
             </>
