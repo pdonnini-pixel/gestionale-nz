@@ -1469,3 +1469,21 @@ Forte dei Marmi (Zago) apre 10:00-13:00 e 15:30-19:00 (sabato fino alle 19:30). 
 - **Nessun turno comincia o finisce nella chiusura**: proposta settimanale, piano del mese e ottimizzatore lo rispettano (`fuoriDallaChiusura` e `lavP` in `ottimizzaTurni.ts`), e in fondo c'è la rete di sicurezza `applicaChiusure` (piano del mese e piano settimanale). L'editor del turno a mano impone come pausa la chiusura attraversata e blocca un inizio o una fine dentro la chiusura.
 - **Negozi senza chiusura: niente cambia.** Ogni funzione nuova restituisce il comportamento di prima quando il giorno non ha `chiusura`; i test di sempre (`turni`, `pianoMensile`, `ottimizzaTurni`, `lunediDue`) passano invariati. Test nuovi in `chiusuraMetaGiornata.test.ts`.
 - **Misura del 23/11/2026** (prova su dicembre 2026, Forte con quattro persone da 35, 35, 30 e 20 ore e un fabbisogno di una persona): da 50 turni sotto le 4 ore (10-13 e 15:30-19, la proposta spezzava il giorno sulla chiusura) a 0; tutti i turni a cavallo della chiusura hanno pausa 2 ore e mezza; nessuna mezz'ora aperta scoperta.
+
+## Pausa di 30 minuti sopra le 6 ore, in tutti i negozi (25/11/2026)
+
+Decisione di Massimo e Denise, riferita da Lilian allo studio Signorini il 25/11/2026 e confermata da
+Patrizio lo stesso giorno: **nei negozi a orario continuato fino a 6 ore niente pausa, sopra le 6 ore
+30 minuti, anche oltre le 8**. Vale per New Zago e Zago.
+
+- Dati, non codice: `outlet_shift_rules.pausa_minuti = 30` e `pausa_lunga_minuti = 30` nei sette
+  negozi di New Zago che avevano 30 e 60 (Barberino, Brugnato, Franciacorta, Palmanova, Torino,
+  Valdichiana, Valmontone), a Roma Soratte (era 10 e 30) e nei due negozi di Zago (Firenze, Forte dei
+  Marmi), che prima non avevano regole salvate e prendevano i valori di base 10 e 30.
+- **Roma Soratte**: la prova della pausa corta pagata è chiusa (`pausa_corta_pagata = false`). Nessun
+  turno futuro aveva minuti di pausa pagata. Il codice della pausa pagata resta, spento.
+- **Forte dei Marmi**: dove c'è la chiusura di metà giornata (13:00-15:30) chi la attraversa ha come
+  pausa la chiusura (sezione «Chiusura di metà giornata»); i 30 minuti valgono solo per chi lavora
+  oltre 6 ore di seguito.
+- Effetto: un 10-19 vale 8,5 ore lavorate + 30' invece di 8 + 1 ora. I turni già salvati non cambiano:
+  la pausa nuova entra nei turni proposti o rifatti da qui in avanti.
