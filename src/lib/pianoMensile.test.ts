@@ -218,7 +218,10 @@ describe('il piano del mese', () => {
     const senza = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso });
     const con = pianificaMese({ mese, giorni, persone: conTrasferta, regola: 'nessuno', storicoWeekend: new Map(), atteso });
     expect(con.persone.p0.trasferte).toBe(8);
-    expect(con.persone.p0.contratto).toBeCloseTo(senza.persone.p0.contratto - 8, 5);
+    // il pezzo di settimana di lunedi' 30/11 vale quello che finisce in turno (pezzoLibero, 12/11/2026)
+    // e dipende dal piano, non dalla trasferta: si confronta il contratto senza quel pezzo
+    const senzaPezzo = (e: typeof senza) => e.persone.p0.contratto - (e.persone.p0.settimane?.['2026-11-30'] ?? 0);
+    expect(senzaPezzo(con)).toBeCloseTo(senzaPezzo(senza) - 8, 5);
     expect(con.turni.some((t) => t.employeeId === 'p0' && t.data === '2026-11-04')).toBe(false);
     // una referente di un altro negozio copre qui il 4/11 dalle 10 alle 19
     const fissi = [{ employeeId: 'ext', data: '2026-11-04', inizio: '10:00', fine: '19:00', pausaMinuti: 60 }];

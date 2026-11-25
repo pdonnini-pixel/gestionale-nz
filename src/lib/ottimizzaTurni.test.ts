@@ -578,3 +578,32 @@ describe('negozio con i giorni caldi spenti: un evento nuovo non toglie «nel we
     expect(scelte.giorniPieni?.has('2026-12-13')).toBe(true);
   });
 });
+
+describe('la proposta usa il MODA arrotondato sopra le fasce (25/11/2026)', () => {
+  // Roma Soratte, feriali di dicembre: alle 11 MODA chiede 1,40 persone (35 ingressi / 25), le fasce
+  // salvate una persona fino alle 12. Il motore metteva la seconda dalle 11:30: 0,4 di persona sotto
+  // MODA pesava piu' di una persona in piu'. Arrotondato 1,40 fa una persona: la seconda entra alle 12.
+  const ingrFeriale = [14, 35, 41, 30, 35, 38, 33, 31, 26, 13];
+  const date = giorniDellaSettimana('2026-12-14');
+  const base = costruisciGiorni(date, orari, fasce, [], []);
+  const atteso = new Map(date.map((d) => {
+    const g = giornoIso(d);
+    const ore = g <= 5 ? ingrFeriale : ingressi[g];
+    return [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 20 ? ore[h - 10] : 0))];
+  }));
+  const giorni = fabbisognoDaTraffico(base, atteso, regole, new Map(date.map((d) => [d, 4])), new Map());
+  const dopo = ottimizzaSettimana(giorni, proposta(giorni), persone(), regole, { giornoLibero, guida: ['anna', 'carla'], responsabile: 'anna' });
+
+  it('fra le 11 e le 12 dei feriali c\'è una persona sola, come dicono le fasce', () => {
+    const feriali = giorni.filter((g) => giornoIso(g.data) <= 5);
+    for (const g of feriali) {
+      expect(g.esatto![2]).toBeCloseTo(1.4, 2);
+      const prima12 = dopo.filter((t) => t.data === g.data && minuti(t.inizio) < 12 * 60 && minuti(t.inizio) > 10 * 60);
+      expect(prima12, g.data).toEqual([]);
+    }
+  });
+
+  it('dalle 12 alle 18 le due persone delle fasce restano', () => {
+    expect(oreScoperte(giorni, dopo)).toBe(0);
+  });
+});

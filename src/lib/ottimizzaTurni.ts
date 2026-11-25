@@ -246,6 +246,7 @@ export const PESI = {
   straordinario: 3_000,     // ora oltre il contratto
   straordinarioQuadro: 300,
   inPiu: 200,               // mezz'ora di persona oltre il traffico
+  oreNonUsate: 1_000,       // ora di contratto non in turno, solo con «ore fino al contratto» acceso
   turno: 150,               // ogni turno: meglio pochi lunghi
   coppiaPrima: 40,          // coppia dei feriali gia' vista nelle settimane prima, per volta
   coppiaRipetuta: 60,       // coppia che si ripete nella stessa settimana
@@ -414,6 +415,11 @@ function costo(q: Quadro, st: Stato): number {
     const minimo = g.minimo; const esatto = g.esatto; const fabb = g.fabbisogno;
     for (let k = 0; k < n; k++) {
       const serve = fabb[k]; const ci = cop[k];
+      // La proposta usa il fabbisogno intero (Patrizio, 25/11/2026): il MODA senza arrotondare
+      // conta solo fino alle persone che il traffico chiede arrotondato. Prima 1,40 persone alle
+      // 11 di un feriale valevano 400 di penale contro 200 per una persona in piu', e il motore
+      // metteva la seconda persona dalle 11:30 anche dove le fasce salvate dicevano dalle 12.
+      const ex = esatto ? (esatto[k] < serve ? esatto[k] : serve) : 0;
       if (ci < 1 && serve >= 1) c += PESI.vuota;
       if (minimo) {
         const m = minimo[k];
@@ -421,10 +427,10 @@ function costo(q: Quadro, st: Stato): number {
         if (ci < base) c += (base - ci) * (PESI.sottoMinimo + PESI.scoperta);
         else if (serve > m + 1e-9 && ci < serve) c += (serve - ci) * PESI.scoperta;
         if (ci < base) { if (esatto) c += (base - ci) * PESI.scopertaEsatta; }
-        else if (esatto && esatto[k] > m + 1e-9 && ci < esatto[k]) c += (esatto[k] - ci) * PESI.scopertaEsatta;
+        else if (esatto && ex > m + 1e-9 && ci < ex) c += (ex - ci) * PESI.scopertaEsatta;
       } else {
         if (ci < serve) c += (serve - ci) * PESI.scoperta;
-        if (esatto && ci < esatto[k]) c += (esatto[k] - ci) * PESI.scopertaEsatta;
+        if (esatto && ci < ex) c += (ex - ci) * PESI.scopertaEsatta;
       }
       if (ci > serve) c += (ci - serve) * PESI.inPiu;
     }
@@ -486,6 +492,9 @@ function costo(q: Quadro, st: Stato): number {
   const mediaOltre = q.pari && P > 0 ? sommaOltre / P : 0;
   for (let p = 0; p < P; p++) {
     const oltre = ore[p] - persone[p].ore;
+    // «Ore fino al contratto» (riempi_contratto): la ricerca stessa tiene conto delle ore lasciate
+    // fuori, non solo il riempimento finale, che non sa spostare un turno gia' al massimo
+    if (q.nuove.riempiContratto && oltre < -1e-9) c += -oltre * PESI.oreNonUsate;
     if (q.pari) { const o = oltre > 0 ? oltre : 0; c += (o - mediaOltre) * (o - mediaOltre) * PESI.straordinarioPari; }
     if (q.riposiMin > 0 && q.giorniSettimana >= 7) {
       const riposi = q.giorniSettimana - giorniLavoro[p];

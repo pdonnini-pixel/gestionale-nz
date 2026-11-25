@@ -1497,3 +1497,22 @@ Patrizio: «sì aggiungile tutte e due… così che la dipendente possa riceverl
 - **Telefono**: cron `turni-avvisi-tick` ogni 2 minuti → Edge Function `turni-notifiche` (NZ e Zago) quando una persona ha avvisi fermi da almeno 2 minuti. Un messaggio solo per persona (`riassuntoAvvisi` in `supabase/functions/turni-notifiche/riassunto.ts`, provato in `src/lib/avvisiTurni.test.ts`): una settimana pubblicata = «Il tuo orario è pronto»; un turno pubblicato e tolto prima dell'invio non dice niente. Toccando la notifica l'app apre la scheda Turni (`data.scheda = 'turni'`, già gestito dall'app 1.5). Esito in `turni_avvisi.esito`: `mandato`, `nessun_telefono`, `non_riuscito`, `niente_da_dire`.
 - **Ritira e ripubblica** (revisori, 25/11/2026): un avviso «tolto» aspetta 15 minuti prima di partire (`turni_avvisi_da_mandare`), così una settimana ritirata e ripubblicata uguale non manda niente; nell'app `novitaDaMostrare` nasconde le coppie tolto/nuovo identiche e «Ho visto» segna letti solo gli avvisi mostrati (`app_dipendente_avvisi_turni_letti(p_ids)`). Avvisi del dipendente di prova nascosti (`demo_nascosto`).
 - **App, anche dal computer**: `app_dipendente_avvisi_turni()` e `app_dipendente_avvisi_turni_letti()`. Scheda Turni: riquadro «Novità sul tuo orario» con «Ho visto»; pallino sulla scheda Turni e avviso nella scheda Oggi. Nel browser (`/app`) esce con Netlify; nell'app degli store il riquadro arriva con la prossima build (la notifica funziona già con la 1.5).
+
+## La proposta segue il MODA arrotondato, anche nel motore (25/11/2026)
+
+Patrizio, Roma Soratte, settimana 7-13/12/2026: le fasce dei feriali dicono una persona fino alle 12 e
+due dalle 12 alle 18, ma il motore metteva la seconda dalle 11:30 il lunedì, il mercoledì e il giovedì.
+- Causa: Roma Soratte usa il traffico di Valmontone (meno di 6 mesi di storia sua). Nei feriali di
+  dicembre lun-gio alle 11 sono 34,9 ingressi, con soglia 25 fanno 1,40 persone: arrotondato una. Il
+  venerdì 28,3 ingressi, 1,13 persone, e infatti il venerdì la seconda entrava alle 12.
+- In `costo` (`ottimizzaTurni.ts`) il termine `scopertaEsatta` (1.000 a persona-mezz'ora) contava 0,4 di
+  persona sotto MODA = 400, contro `inPiu` (200) per una persona intera in più: conveniva sempre
+  aggiungere la seconda persona appena MODA superava di 0,2 il minimo delle fasce. Andava contro la
+  regola «la proposta dei turni usa il fabbisogno intero».
+- Ora l'esatto conta solo fino al fabbisogno arrotondato (`ex = min(esatto, fabbisogno)`): resta come
+  spareggio fra soluzioni con la stessa copertura intera, non aggiunge più persone. Le ore sotto MODA
+  della pagina (`oreSottoModa`) non cambiano: misurano ancora senza arrotondare.
+- Effetto collaterale trovato dai test: «Ore fino al contratto» (`riempi_contratto`, spenta in tutti i
+  negozi di NZ e Zago) si appoggiava a quella spinta per arrivare al contratto pieno. Ora la ricerca
+  pesa le ore di contratto non in turno solo dove la scelta è accesa (`PESI.oreNonUsate`, 1.000 l'ora).
+- Test: `ottimizzaTurni.test.ts`, «la proposta usa il MODA arrotondato sopra le fasce».
