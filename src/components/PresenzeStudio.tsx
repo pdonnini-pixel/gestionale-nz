@@ -50,7 +50,7 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
       .eq('company_id', companyId).not('azienda_codice', 'is', null)
       .order('periodo_anno', { ascending: false }).order('periodo_mese', { ascending: false }).limit(1),
     fetchAllPaged((da, a) => supabase.from('employees')
-      .select('id, matricola, cognome, nome, first_name, last_name, data_assunzione, hire_date, data_cessazione, termination_date, ore_settimanali, weekly_hours, contratto_tipo, outlet_id, is_demo')
+      .select('id, matricola, cognome, nome, first_name, last_name, data_assunzione, hire_date, data_cessazione, termination_date, ore_settimanali, weekly_hours, contratto_tipo, outlet_id, is_demo, is_active')
       .eq('company_id', companyId).order('id').range(da, a), 'dipendenti'),
     supabase.from('outlets').select('id, name, code, festa_patrono' as 'id').eq('company_id', companyId).order('name'),
     fetchAllPaged((da, a) => supabase.from('shifts').select('id, employee_id, outlet_id, data, inizio, fine, pausa_minuti, ore_straordinario, stato, origine, plan_id')
@@ -81,15 +81,18 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
   type Emp = {
     id: string; matricola: string | null; cognome: string | null; nome: string | null; first_name: string | null; last_name: string | null
     data_assunzione: string | null; hire_date: string | null; data_cessazione: string | null; termination_date: string | null
-    ore_settimanali: number | string | null; weekly_hours: number | string | null; contratto_tipo: string | null; outlet_id: string | null; is_demo: boolean | null
+    ore_settimanali: number | string | null; weekly_hours: number | string | null; contratto_tipo: string | null; outlet_id: string | null; is_demo: boolean | null; is_active: boolean | null
   }
   const persone: PersonaStudio[] = []
   const senzaMatricola: string[] = []
   const avvisiMatricole: string[] = []
   // tutte le schede (anche fuori dal mese): servono come base dei rapporti chiusi
   const tutte = new Map<string, PersonaStudio>()
+  const nonAttive = new Set<string>()
   for (const e of emp as unknown as Emp[]) {
     if (e.is_demo || e.contratto_tipo === 'amministratore') continue
+    // non attiva in anagrafica e senza data di cessazione: non è più in forza (fuori dal file, base dei rapporti chiusi sì)
+    if (e.is_active === false && !(e.data_cessazione ?? e.termination_date)) nonAttive.add(e.id)
     const ore = e.ore_settimanali ?? e.weekly_hours
     tutte.set(e.id, {
       id: e.id, matricola: e.matricola ?? '', cognome: (e.cognome ?? e.last_name ?? '').trim(), nome: (e.nome ?? e.first_name ?? '').trim(),
@@ -98,6 +101,7 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
     })
   }
   for (const p of tutte.values()) {
+    if (nonAttive.has(p.id)) continue
     if ((p.assunzione && p.assunzione > al) || (p.cessazione && p.cessazione < dal)) continue
     if (!p.matricola) { senzaMatricola.push(`${p.cognome} ${p.nome}`.trim()); continue }
     persone.push({ ...p })
