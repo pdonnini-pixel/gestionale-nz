@@ -45,7 +45,7 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
   const al = fineMese(mese)
   const dalTurni = inizioCaricamento(mese)
 
-  const [imp, emp, neg, tur, pia, ass, lun, eve] = await Promise.all([
+  const [imp, emp, neg, tur, pia, ass, lun, eve, mat] = await Promise.all([
     supabase.from('leave_accrual_imports').select('azienda_codice, azienda_nome, periodo_anno, periodo_mese')
       .eq('company_id', companyId).not('azienda_codice', 'is', null)
       .order('periodo_anno', { ascending: false }).order('periodo_mese', { ascending: false }).limit(1),
@@ -63,6 +63,9 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
       .eq('company_id', companyId).eq('tipo', 'assenza_lunga').neq('stato', 'annullato').lte('data_dal', al),
     fetchAllPaged((da, a) => supabase.from('attendance_eventi').select('id, employee_id, data, tipo, esito, stato, minuti_confermati, minuti_proposti')
       .eq('company_id', companyId).gte('data', dalTurni).lte('data', al).eq('stato', 'confermato').order('id').range(da, a), 'casi confermati delle presenze'),
+    // rapporti chiusi con un'altra matricola (es. a chiamata di un giorno): nel file hanno un blocco loro
+    supabase.from('employee_matricole').select('employee_id, matricola, valid_from, valid_to, note, is_current')
+      .eq('company_id', companyId).eq('is_current', false).not('valid_from', 'is', null).lte('valid_from', al),
   ])
 
   // negozi: se la colonna del patrono (466) non c'è ancora, si legge senza
@@ -94,6 +97,18 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
     persone.push({
       id: e.id, matricola: e.matricola, cognome, nome, assunzione, cessazione,
       oreSettimanali: ore == null ? null : Number(ore), contratto: e.contratto_tipo, outletId: e.outlet_id,
+    })
+  }
+
+  if (mat.error) throw new Error(`Non riesco a leggere lo storico delle matricole (${mat.error.message}).`)
+  const perId = new Map(persone.map((p) => [p.id, p]))
+  for (const m of (mat.data ?? []) as { employee_id: string; matricola: string; valid_from: string; valid_to: string | null; note: string | null }[]) {
+    if (m.valid_to && m.valid_to < dal) continue
+    const base = perId.get(m.employee_id)
+    if (!base || persone.some((p) => p.matricola === m.matricola)) continue
+    persone.push({
+      ...base, matricola: m.matricola, assunzione: m.valid_from, cessazione: m.valid_to,
+      contratto: /chiamata/i.test(m.note ?? '') ? 'a_chiamata' : base.contratto,
     })
   }
 
@@ -267,7 +282,7 @@ export default function PresenzeStudio({ companyId }: { companyId?: string }) {
                 {dati.esito.persone.map((p) => ORDINE_RIGHE
                   .filter((c) => c === 'ORD' || p.righe.get(c)!.some((v) => v !== null))
                   .map((c, k) => (
-                    <tr key={`${p.persona.id}-${c}`} className={k === 0 ? 'border-t border-slate-200' : ''}>
+                    <tr key={`${p.persona.matricola}-${c}`} className={k === 0 ? 'border-t border-slate-200' : ''}>
                       <td className="px-2 py-1 sticky left-0 bg-white whitespace-nowrap">
                         {k === 0 ? <><b>{p.persona.matricola}</b> {p.persona.cognome} {p.persona.nome} · </> : <span className="text-slate-300">· </span>}
                         <span className="text-slate-500">{ETICHETTA_RIGA[c]}</span>
