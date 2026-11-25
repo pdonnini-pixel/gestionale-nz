@@ -19,6 +19,7 @@ import TurniPubblicatiTolti from './TurniPubblicatiTolti';
 import { giornoDiPubblicazione, riallineaStraordinariForti } from '../lib/straordinariDb';
 import SpostaTurnoModal from './SpostaTurnoModal';
 import { useToast } from './Toast';
+import type { jsPDF } from 'jspdf';
 import { supabase } from '../lib/supabase';
 import {
   personaAllaData, nomePersona, formattaDataBreve, oggiRoma, aggiungiGiorni, presenzaNeiTurni,
@@ -464,9 +465,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   };
   // Tutto il mese in un solo PDF, una pagina per settimana (Patrizio, 12/11/2026). Le persone e gli
   // orari di apertura sono quelli della settimana a schermo; i turni sono quelli salvati nel mese.
-  const stampaMese = async () => {
-    setLavoro(true);
-    try {
+  // Il PDF del mese, per stamparlo o inviarlo (Patrizio, 25/11/2026: «invio del mese intero o per singola
+  // settimana per mail e whatsapp»). null = nessun turno salvato nel mese (lo dice gia' un avviso).
+  const pdfDelMese = async () => {
       const { creaPdfOrari, nomeFileOrarioMese } = await import('../lib/stampaOrario');
       const base = foglioSettimana();
       const mese = date[0].slice(0, 7);
@@ -479,7 +480,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const piano = pianiScelti.get(mese) ?? null;
       const delMese = ((data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; stato: string; ore_straordinario: number | null; updated_at: string | null; pubblicato_il?: string | null }[]) ?? [])
         .filter((x) => (x.plan_id ?? null) === piano);
-      if (!delMese.length) { toast({ type: 'info', message: `Nessun turno salvato per ${NOMI_MESE_LUNGHI[Number(mese.slice(5, 7))]}: prepara prima il mese.` }); return; }
+      if (!delMese.length) { toast({ type: 'info', message: `Nessun turno salvato per ${NOMI_MESE_LUNGHI[Number(mese.slice(5, 7))]}: prepara prima il mese.` }); return null; }
       const orarioDi = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
       const tipo = new Map(giorni.map((g) => [g.giorno, g]));
       const visibili = persone.filter((p) => delMese.some((t) => t.employee_id === p.scheda.id) || p.perGiorno.some((pg) => pg.outletId === outletId && pg.stato === 'in_servizio'));
@@ -505,7 +506,14 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           pubblicatoIl: tuttiPubblicati ? giornoDiPubblicazione(suoi) ?? oggiRoma() : null,
         });
       }
-      creaPdfOrari(fogli, `Orario ${nomeNegozio} ${NOMI_MESE_LUNGHI[Number(mese.slice(5, 7))]} ${mese.slice(0, 4)}`).save(nomeFileOrarioMese(base, mese));
+      const titolo = `Orario ${nomeNegozio} ${NOMI_MESE_LUNGHI[Number(mese.slice(5, 7))]} ${mese.slice(0, 4)}`;
+      return { doc: creaPdfOrari(fogli, titolo), nome: nomeFileOrarioMese(base, mese), titolo };
+  };
+  const stampaMese = async () => {
+    setLavoro(true);
+    try {
+      const pdf = await pdfDelMese();
+      if (pdf) pdf.doc.save(pdf.nome);
     } catch (e) {
       toast({ type: 'error', message: `PDF non creato: ${e instanceof Error ? e.message : 'errore'}` });
     } finally {
@@ -516,15 +524,23 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // dal telefono o dal computer di chi preme. Dove il dispositivo sa condividere un file si apre
   // la sua finestra di condivisione con il PDF; altrimenti il PDF si scarica e si apre la mail o
   // WhatsApp con il testo pronto, e il file si allega a mano.
-  const condividi = async (canale: 'mail' | 'whatsapp') => {
+  const condividi = async (canale: 'mail' | 'whatsapp', cosa: 'settimana' | 'mese' = 'settimana') => {
     setLavoro(true);
     try {
-      const { creaPdfOrario, nomeFileOrario } = await import('../lib/stampaOrario');
-      const dati0 = foglioSettimana();
-      const nome = nomeFileOrario(dati0);
-      const titolo = `Orario ${nomeNegozio}, ${date.length > 1 ? `settimana ${formattaDataBreve(date[0])} - ${formattaDataBreve(ultimo)}` : formattaDataBreve(date[0])}`;
-      const testo = `${titolo}. In allegato il foglio con gli orari.`;
-      const doc = creaPdfOrario(dati0);
+      let doc: jsPDF;
+      let nome: string; let titolo: string;
+      if (cosa === 'mese') {
+        const pdf = await pdfDelMese();
+        if (!pdf) return;
+        ({ doc, nome, titolo } = pdf);
+      } else {
+        const { creaPdfOrario, nomeFileOrario } = await import('../lib/stampaOrario');
+        const dati0 = foglioSettimana();
+        nome = nomeFileOrario(dati0);
+        titolo = `Orario ${nomeNegozio}, ${date.length > 1 ? `settimana ${formattaDataBreve(date[0])} - ${formattaDataBreve(ultimo)}` : formattaDataBreve(date[0])}`;
+        doc = creaPdfOrario(dati0);
+      }
+      const testo = `${titolo}. In allegato il foglio con gli orari${cosa === 'mese' ? ' del mese, una pagina per settimana' : ''}.`;
       const file = new File([doc.output('blob')], nome, { type: 'application/pdf' });
       const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
       if (canale === 'whatsapp' && nav.share && nav.canShare?.({ files: [file] })) {
@@ -855,8 +871,12 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             )}
             <button type="button" onClick={stampa} disabled={lavoro || !attivi.length} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><Printer size={16} /> Stampa la settimana</button>
             <button type="button" onClick={stampaMese} disabled={lavoro} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><Printer size={16} /> Stampa il mese</button>
-            <button type="button" onClick={() => condividi('mail')} disabled={lavoro || !attivi.length} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><Mail size={16} /> Invia per mail</button>
-            <button type="button" onClick={() => condividi('whatsapp')} disabled={lavoro || !attivi.length} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><MessageCircle size={16} /> Invia su WhatsApp</button>
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button type="button" onClick={() => condividi('mail')} disabled={lavoro || !attivi.length} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><Mail size={16} /> Settimana per mail</button>
+            <button type="button" onClick={() => condividi('whatsapp')} disabled={lavoro || !attivi.length} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><MessageCircle size={16} /> Settimana su WhatsApp</button>
+            <button type="button" onClick={() => condividi('mail', 'mese')} disabled={lavoro} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><Mail size={16} /> Mese intero per mail</button>
+            <button type="button" onClick={() => condividi('whatsapp', 'mese')} disabled={lavoro} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><MessageCircle size={16} /> Mese intero su WhatsApp</button>
           </div>
           <p className="mt-2 text-xs text-blue-900/80">Mail e WhatsApp non partono da soli: si apre il programma con il testo pronto e il foglio in PDF, e lo mandi tu.</p>
         </section>
