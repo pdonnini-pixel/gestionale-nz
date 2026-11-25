@@ -64,8 +64,8 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
     fetchAllPaged((da, a) => supabase.from('attendance_eventi').select('id, employee_id, data, tipo, esito, stato, minuti_confermati, minuti_proposti')
       .eq('company_id', companyId).gte('data', dalTurni).lte('data', al).eq('stato', 'confermato').order('id').range(da, a), 'casi confermati delle presenze'),
     // rapporti chiusi con un'altra matricola (es. a chiamata di un giorno): nel file hanno un blocco loro
-    supabase.from('employee_matricole').select('employee_id, matricola, valid_from, valid_to, note, is_current')
-      .eq('company_id', companyId).eq('is_current', false).not('valid_from', 'is', null).lte('valid_from', al),
+    fetchAllPaged((da, a) => supabase.from('employee_matricole').select('id, employee_id, matricola, valid_from, valid_to, note, is_current')
+      .eq('company_id', companyId).eq('is_current', false).not('valid_from', 'is', null).lte('valid_from', al).order('id').range(da, a), 'storico delle matricole'),
   ])
 
   // negozi: se la colonna del patrono (466) non c'è ancora, si legge senza
@@ -85,31 +85,47 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
   }
   const persone: PersonaStudio[] = []
   const senzaMatricola: string[] = []
+  const avvisiMatricole: string[] = []
+  // tutte le schede (anche fuori dal mese): servono come base dei rapporti chiusi
+  const tutte = new Map<string, PersonaStudio>()
   for (const e of emp as unknown as Emp[]) {
     if (e.is_demo || e.contratto_tipo === 'amministratore') continue
-    const assunzione = e.data_assunzione ?? e.hire_date
-    const cessazione = e.data_cessazione ?? e.termination_date
-    if ((assunzione && assunzione > al) || (cessazione && cessazione < dal)) continue
-    const cognome = (e.cognome ?? e.last_name ?? '').trim()
-    const nome = (e.nome ?? e.first_name ?? '').trim()
-    if (!e.matricola) { senzaMatricola.push(`${cognome} ${nome}`.trim()); continue }
     const ore = e.ore_settimanali ?? e.weekly_hours
-    persone.push({
-      id: e.id, matricola: e.matricola, cognome, nome, assunzione, cessazione,
+    tutte.set(e.id, {
+      id: e.id, matricola: e.matricola ?? '', cognome: (e.cognome ?? e.last_name ?? '').trim(), nome: (e.nome ?? e.first_name ?? '').trim(),
+      assunzione: e.data_assunzione ?? e.hire_date, cessazione: e.data_cessazione ?? e.termination_date,
       oreSettimanali: ore == null ? null : Number(ore), contratto: e.contratto_tipo, outletId: e.outlet_id,
     })
   }
+  for (const p of tutte.values()) {
+    if ((p.assunzione && p.assunzione > al) || (p.cessazione && p.cessazione < dal)) continue
+    if (!p.matricola) { senzaMatricola.push(`${p.cognome} ${p.nome}`.trim()); continue }
+    persone.push({ ...p })
+  }
 
-  if (mat.error) throw new Error(`Non riesco a leggere lo storico delle matricole (${mat.error.message}).`)
-  const perId = new Map(persone.map((p) => [p.id, p]))
-  for (const m of (mat.data ?? []) as { employee_id: string; matricola: string; valid_from: string; valid_to: string | null; note: string | null }[]) {
-    if (m.valid_to && m.valid_to < dal) continue
-    const base = perId.get(m.employee_id)
-    if (!base || persone.some((p) => p.matricola === m.matricola)) continue
+  // rapporti chiusi con un'altra matricola che toccano il mese: un blocco ciascuno
+  const fineChiusi = new Map<string, string>()
+  for (const m of mat as unknown as { employee_id: string; matricola: string; valid_from: string; valid_to: string | null; note: string | null }[]) {
+    const base = tutte.get(m.employee_id)
+    if (!base) continue
+    const chi = `${base.cognome} ${base.nome}`.trim()
+    if (!m.valid_to) { avvisiMatricole.push(`Matricola ${m.matricola} di ${chi} chiusa senza data di fine nello storico: non è nel file.`); continue }
+    if (m.valid_to < dal || persone.some((p) => p.matricola === m.matricola)) continue
     persone.push({
       ...base, matricola: m.matricola, assunzione: m.valid_from, cessazione: m.valid_to,
       contratto: /chiamata/i.test(m.note ?? '') ? 'a_chiamata' : base.contratto,
     })
+    if ((fineChiusi.get(m.employee_id) ?? '') < m.valid_to) fineChiusi.set(m.employee_id, m.valid_to)
+  }
+  // la matricola in corso parte dopo l'ultimo rapporto chiuso: mai due blocchi negli stessi giorni
+  for (const p of persone) {
+    const fine = fineChiusi.get(p.id)
+    if (!fine || p.matricola !== tutte.get(p.id)?.matricola) continue
+    if (!p.assunzione || p.assunzione <= fine) {
+      const dopo = new Date(Date.parse(`${fine}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10)
+      avvisiMatricole.push(`${p.cognome} ${p.nome}: la matricola ${p.matricola} risultava assunta ${p.assunzione ? `il ${p.assunzione.split('-').reverse().join('/')}` : 'senza data'}, prima della fine del rapporto chiuso; nel file parte dal ${dopo.split('-').reverse().join('/')}. Da verificare in anagrafica.`)
+      p.assunzione = dopo
+    }
   }
 
   type Tur = TurnoStudio & { outlet_id: string; stato: string; origine: string | null; plan_id: string | null }
@@ -135,6 +151,7 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
 
   const patroni = new Map(negozi.filter((n) => n.festa_patrono).map((n) => [n.id, n.festa_patrono!]))
   const esito = presenzeDelMese({ mese, persone, turni, assenze, assenzeLunghe, eventi, patroni })
+  esito.avvisi.unshift(...avvisiMatricole)
   const testata = (imp.data?.[0] ?? null) as { azienda_codice: string | null; azienda_nome: string | null } | null
   return { esito, codice: testata?.azienda_codice ?? '', ragione: testata?.azienda_nome ?? '', negozi, senzaMatricola, patronoDisponibile }
 }
