@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Download, RefreshCw } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from './Toast'
 import {
@@ -48,22 +49,21 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
     supabase.from('leave_accrual_imports').select('azienda_codice, azienda_nome, periodo_anno, periodo_mese')
       .eq('company_id', companyId).not('azienda_codice', 'is', null)
       .order('periodo_anno', { ascending: false }).order('periodo_mese', { ascending: false }).limit(1),
-    supabase.from('employees')
+    fetchAllPaged((da, a) => supabase.from('employees')
       .select('id, matricola, cognome, nome, first_name, last_name, data_assunzione, hire_date, data_cessazione, termination_date, ore_settimanali, weekly_hours, contratto_tipo, outlet_id, is_demo')
-      .eq('company_id', companyId),
+      .eq('company_id', companyId).order('id').range(da, a), 'dipendenti'),
     supabase.from('outlets').select('id, name, code, festa_patrono' as 'id').eq('company_id', companyId).order('name'),
-    supabase.from('shifts').select('employee_id, outlet_id, data, inizio, fine, pausa_minuti, ore_straordinario, stato, origine, plan_id')
-      .eq('company_id', companyId).gte('data', dalTurni).lte('data', al).neq('stato', 'annullato'),
+    fetchAllPaged((da, a) => supabase.from('shifts').select('id, employee_id, outlet_id, data, inizio, fine, pausa_minuti, ore_straordinario, stato, origine, plan_id')
+      .eq('company_id', companyId).gte('data', dalTurni).lte('data', al).neq('stato', 'annullato').order('id').range(da, a), 'turni'),
     supabase.from('shift_plans').select('id, outlet_id, mese, stato, simulazione' as 'id')
       .eq('company_id', companyId).eq('stato', 'scelto').in('mese', [`${dalTurni.slice(0, 7)}-01`, dal]),
-    supabase.from('leave_request_days').select('data, voce, tipo, ore, stato, leave_requests!inner(employee_id, stato)')
-      .eq('company_id', companyId).gte('data', dalTurni).lte('data', al).eq('stato', 'approvato'),
+    fetchAllPaged((da, a) => supabase.from('leave_request_days').select('id, data, voce, tipo, ore, stato, leave_requests!inner(employee_id, stato)')
+      .eq('company_id', companyId).gte('data', dalTurni).lte('data', al).eq('stato', 'approvato').order('id').range(da, a), 'ferie e permessi'),
     supabase.from('employee_events').select('employee_id, motivo, data_dal, data_al, stato')
       .eq('company_id', companyId).eq('tipo', 'assenza_lunga').neq('stato', 'annullato').lte('data_dal', al),
-    supabase.from('attendance_eventi').select('employee_id, data, tipo, esito, stato, minuti_confermati, minuti_proposti')
-      .eq('company_id', companyId).gte('data', dalTurni).lte('data', al).eq('stato', 'confermato'),
+    fetchAllPaged((da, a) => supabase.from('attendance_eventi').select('id, employee_id, data, tipo, esito, stato, minuti_confermati, minuti_proposti')
+      .eq('company_id', companyId).gte('data', dalTurni).lte('data', al).eq('stato', 'confermato').order('id').range(da, a), 'casi confermati delle presenze'),
   ])
-  for (const r of [emp, tur, ass]) if (r.error) throw r.error
 
   // negozi: se la colonna del patrono (466) non c'è ancora, si legge senza
   let negozi: Negozio[] = []
@@ -82,7 +82,7 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
   }
   const persone: PersonaStudio[] = []
   const senzaMatricola: string[] = []
-  for (const e of (emp.data ?? []) as unknown as Emp[]) {
+  for (const e of emp as unknown as Emp[]) {
     if (e.is_demo || e.contratto_tipo === 'amministratore') continue
     const assunzione = e.data_assunzione ?? e.hire_date
     const cessazione = e.data_cessazione ?? e.termination_date
@@ -100,11 +100,11 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
   type Tur = TurnoStudio & { outlet_id: string; stato: string; origine: string | null; plan_id: string | null }
   const piani = ((pia.error ? [] : pia.data ?? []) as unknown as { id: string; outlet_id: string; mese: string; simulazione: boolean | null }[])
     .filter((p) => !p.simulazione)
-  const turni = turniUfficiali((tur.data ?? []) as unknown as Tur[], piani)
+  const turni = turniUfficiali(tur as unknown as Tur[], piani)
     .map((t) => ({ ...t, inizio: String(t.inizio).slice(0, 5), fine: String(t.fine).slice(0, 5) }))
 
   type Ass = { data: string; voce: string; tipo: string; ore: number | string; leave_requests: { employee_id: string; stato: string } | { employee_id: string; stato: string }[] }
-  const assenze: GiornoAssenzaStudio[] = ((ass.data ?? []) as unknown as Ass[]).flatMap((a) => {
+  const assenze: GiornoAssenzaStudio[] = (ass as unknown as Ass[]).flatMap((a) => {
     const r = Array.isArray(a.leave_requests) ? a.leave_requests[0] : a.leave_requests
     if (!r || !STATI_APPROVATE.includes(r.stato)) return []
     return [{ employee_id: r.employee_id, data: a.data, voce: a.voce, tipo: a.tipo, ore: Number(a.ore) }]
@@ -114,9 +114,8 @@ async function carica(companyId: string, mese: string): Promise<Caricati> {
     .filter((l) => !l.data_al || l.data_al >= dalTurni)
     .map((l) => ({ employee_id: l.employee_id, motivo: l.motivo, dal: l.data_dal, al: l.data_al }))
 
-  if (eve.error) throw new Error(`Non riesco a leggere i casi confermati delle presenze (${eve.error.message}): il file uscirebbe senza straordinari e uscite.`)
   if (lun.error) throw new Error(`Non riesco a leggere le assenze lunghe (${lun.error.message}): il file uscirebbe senza maternità e malattie.`)
-  const eventi: EventoStudio[] = ((eve.data ?? []) as unknown as { employee_id: string; data: string; tipo: string; esito: string | null; minuti_confermati: number | null; minuti_proposti: number | null }[])
+  const eventi: EventoStudio[] = (eve as unknown as { employee_id: string; data: string; tipo: string; esito: string | null; minuti_confermati: number | null; minuti_proposti: number | null }[])
     .map((e) => ({ employee_id: e.employee_id, data: e.data, tipo: e.tipo, esito: e.esito, minuti: Number(e.minuti_confermati ?? e.minuti_proposti ?? 0) }))
 
   const patroni = new Map(negozi.filter((n) => n.festa_patrono).map((n) => [n.id, n.festa_patrono!]))

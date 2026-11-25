@@ -233,7 +233,7 @@ export function presenzeDelMese(dati: DatiStudio): EsitoStudio {
   const senzaOre: string[] = []
   const persone: PresenzePersona[] = []
 
-  for (const p of [...dati.persone].sort((a, b) => a.matricola.localeCompare(b.matricola))) {
+  for (const p of [...dati.persone].sort((a, b) => a.matricola.localeCompare(b.matricola, 'it', { numeric: true }))) {
     const chiamata = p.contratto === 'a_chiamata'
     const oreSett = p.oreSettimanali ?? 0
     if (!p.oreSettimanali && !chiamata) senzaOre.push(`${p.cognome} ${p.nome}`)
@@ -289,8 +289,8 @@ export function presenzeDelMese(dati: DatiStudio): EsitoStudio {
       const lunga = lungaDel(d)
       if (lunga) {
         const r = rigaAssenzaLunga(lunga.motivo)
-        if (!r) { aspettative.add(`${p.cognome} ${p.nome} (${lunga.motivo ?? 'senza motivo'})`); continue }
         if (!nelMese) continue
+        if (!r) { aspettative.add(`${p.cognome} ${p.nome} (${lunga.motivo ?? 'senza motivo'})`); continue }
         if (fest) { metti('ORD', i, 'F'); metti(r, i, 0) }
         else metti(r, i, arrotonda(teoricoCalendario(d)))
         continue
@@ -300,7 +300,8 @@ export function presenzeDelMese(dati: DatiStudio): EsitoStudio {
       const extraTot = (extraTurno.get(d) ?? 0) + (extraMin.get(d) ?? 0) / 60
       const lista = assenzeGiorno.get(d) ?? []
       const aGiornata = lista.find((a) => a.tipo === 'giornata')
-      if (aGiornata && turno === 0) {
+      // a giornata vale l'assenza anche se è rimasto un turno: ordinarie vuote, come vuole lo studio
+      if (aGiornata) {
         if (nelMese) {
           const r = RIGA_VOCE[aGiornata.voce] ?? 'FE'
           if (fest) metti('ORD', i, 'F')
@@ -316,7 +317,7 @@ export function presenzeDelMese(dati: DatiStudio): EsitoStudio {
       lavorateSettimana += ordinarie
       let ls = 0
       let st = extraTot
-      if (oreSett < 40 && !chiamata) { ls = Math.min(extraTot, Math.max(0, 40 - lavorateSettimana)); st = extraTot - ls }
+      if (p.oreSettimanali != null && oreSett < 40 && !chiamata) { ls = Math.min(extraTot, Math.max(0, 40 - lavorateSettimana)); st = extraTot - ls }
       lavorateSettimana += extraTot
       if (!nelMese) continue
 
@@ -326,12 +327,12 @@ export function presenzeDelMese(dati: DatiStudio): EsitoStudio {
       if (st > 0) somma('ST', i, st)
 
       if (fest) {
-        if (chiamata) { if (turno > 0) metti('ORD', i, arrotonda(ordinarie)); else metti('LC', i, 1); continue }
+        if (chiamata) { if (ordinarie > 0) metti('ORD', i, arrotonda(ordinarie)); else metti('LC', i, 1); continue }
         metti('ORD', i, 'F')
-        if (turno > 0) somma('LFS', i, ordinarie)
+        if (ordinarie > 0) somma('LFS', i, ordinarie)
         continue
       }
-      if (turno > 0) {
+      if (ordinarie > 0) {
         metti('ORD', i, arrotonda(ordinarie))
         if (giornoSettimana(d) === 0) metti('LDM', i, arrotonda(ordinarie))
       } else if (chiamata) {

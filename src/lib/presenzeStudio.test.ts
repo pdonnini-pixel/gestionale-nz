@@ -80,6 +80,19 @@ describe('regole dello studio', () => {
     expect(riga(d, 'ORD')[g(13)]).toBeNull()
   })
 
+  it('ferie a giornata con un turno rimasto: vale l\'assenza, ordinarie vuote (non 0)', () => {
+    const assenze = [{ employee_id: 'p1', data: '2026-11-08', voce: 'F01', tipo: 'giornata', ore: 7 }]
+    const d = dati({ assenze, turni: [turno('2026-11-08', '10:00', '17:00')] })
+    expect(riga(d, 'FE')[g(8)]).toBe(7)
+    expect(riga(d, 'ORD')[g(8)]).toBeNull()
+    expect(riga(d, 'LDM')[g(8)]).toBeNull()
+  })
+
+  it('matricole in ordine di numero, non di testo', () => {
+    const d = dati({ persone: [persona({ id: 'a', matricola: '10' }), persona({ id: 'b', matricola: '9' })] })
+    expect(presenzeDelMese(d).persone.map((x) => x.persona.matricola)).toEqual(['9', '10'])
+  })
+
   it('permesso a ore: in PF o RL, tolto dalle ordinarie', () => {
     const assenze = [{ employee_id: 'p1', data: '2026-11-04', voce: 'F03', tipo: 'ore', ore: 0.25 }]
     const d = dati({ assenze, turni: [turno('2026-11-04', '10:00', '18:00')] })
