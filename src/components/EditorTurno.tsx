@@ -132,7 +132,9 @@ export default function EditorTurno({
   const sistemaQui = !!conAMano && !!regole.giorniPieni && !!giornoForte;
   const aManoPrima = turno?.straordinario_a_mano === true;
   type SceltaStraord = 'sistema' | 'nessuno' | 'mano';
-  const sceltaIniziale: SceltaStraord = aManoPrima ? (oreStraordPrima > 0 ? 'mano' : 'nessuno')
+  // ricarico e allestimento li decide la direzione: non sono mai «del sistema», anche senza la colonna 408
+  const motivoDiretto = oreStraordPrima > 0 && (turno?.straordinario_motivo === 'ricarico' || turno?.straordinario_motivo === 'allestimento');
+  const sceltaIniziale: SceltaStraord = aManoPrima || motivoDiretto ? (oreStraordPrima > 0 ? 'mano' : 'nessuno')
     : sistemaQui ? 'sistema' : oreStraordPrima > 0 ? 'mano' : 'nessuno';
   const [scelta, setScelta] = useState<SceltaStraord>(sceltaIniziale);
   const [oreStraordScritte, setOreStraordScritte] = useState<string | null>(oreStraordPrima > 0 ? String(oreStraordPrima) : null);
@@ -195,7 +197,8 @@ export default function EditorTurno({
     if (error) { setSalvo(false); toast({ type: 'error', message: error.message }); return; }
     // Straordinario tolto a mano: si toglie e basta, gli altri turni della settimana restano come sono
     // finche' non se ne cambia uno (Patrizio, 25/11/2026).
-    const tolto = scelta === 'nessuno' && straordToccato;
+    // solo se prima c'era uno straordinario o non era gia' «nessuno» a mano: altrimenti il ricalcolo parte come sempre
+    const tolto = scelta === 'nessuno' && straordToccato && (oreStraordPrima > 0 || !aManoPrima);
     await onSalvato(tolto && oreStraordPrima > 0 ? 'Turno salvato senza straordinario: gli altri turni della settimana non cambiano.' : undefined,
       tolto ? { senzaRicalcoloStraordinari: true } : undefined);
     setSalvo(false);
@@ -372,7 +375,7 @@ export default function EditorTurno({
   // Le altre cose che si possono fare su questo giorno: chiuse, si aprono una alla volta (25/11/2026).
   const riposoNelPiano = !!riposo && !!planId && !ferie?.giaInFerie;
   const azioni: { id: Pannello; nome: string }[] = [
-    ...((riposoNelPiano && !riposo!.attivo) || (!riposoNelPiano && turno) ? [{ id: 'riposo' as const, nome: 'Riposo' }] : []),
+    ...((riposoNelPiano && !riposo!.attivo) || turno ? [{ id: 'riposo' as const, nome: riposoNelPiano && !riposo!.attivo ? 'Riposo' : 'Togli il turno' }] : []),
     ...(ferie && !ferie.giaInFerie ? [{ id: 'ferie' as const, nome: 'Ferie o permesso' }] : []),
     ...(turno && passaggio ? [{ id: 'collega' as const, nome: 'Dai a una collega' }] : []),
     ...(trasferta && !trasferta.esistente ? [{ id: 'trasferta' as const, nome: 'Trasferta' }] : []),
@@ -498,7 +501,7 @@ export default function EditorTurno({
 
             {pannello === 'riposo' && (
               <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5 text-sm text-emerald-900">
-                {riposoNelPiano ? (
+                {riposoNelPiano && !riposo!.attivo ? (
                   <>
                     <p className="text-xs">{turno ? 'Il turno di questo giorno si toglie e le sue ore tornano da assegnare; nel piano resta segnato il riposo.' : 'In questo giorno non si mettono turni.'}</p>
                     <button type="button" onClick={segnaRiposo} disabled={salvo} className="mt-2 min-h-[36px] px-3 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">Segna come giorno di riposo</button>
