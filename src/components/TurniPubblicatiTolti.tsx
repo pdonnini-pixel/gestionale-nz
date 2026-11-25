@@ -1,6 +1,7 @@
 // Turni pubblicati tolti nella settimana (Patrizio, 17/11/2026: «solo per i turni che sono stati
 // pubblicati, non le prove»). Il registro lo scrive il database (migration 424) ogni volta che un turno
 // pubblicato viene annullato, torna in bozza o viene cancellato: qui si legge e basta.
+// Dalla migration 466 anche i cambi d'orario, giorno o persona di un turno pubblicato.
 // Dove la tabella manca (migration non applicata) il riquadro non si vede.
 
 import { useEffect, useState } from 'react';
@@ -17,7 +18,9 @@ interface RigaTolta {
   data: string;
   inizio: string | null;
   fine: string | null;
-  azione: 'annullato' | 'ritirato' | 'cancellato';
+  azione: 'annullato' | 'ritirato' | 'cancellato' | 'cambiato';
+  /** solo per «cambiato» (migration 466): il turno dopo la modifica */
+  dopo?: { data?: string; inizio?: string; fine?: string; employee_id?: string } | null;
   motivo: string | null;
   utente_nome: string | null;
   creato_il: string;
@@ -27,6 +30,7 @@ const AZIONE: Record<RigaTolta['azione'], string> = {
   annullato: 'annullato',
   ritirato: 'tolto dalla pubblicazione (tornato in bozza)',
   cancellato: 'cancellato',
+  cambiato: 'orario cambiato',
 };
 
 const giorno = (d: string) => new Date(`${d}T12:00:00`).toLocaleDateString('it-IT', { weekday: 'short', day: '2-digit', month: '2-digit' });
@@ -42,11 +46,15 @@ export default function TurniPubblicatiTolti({ companyId, outletId, dal, al, nom
 
   useEffect(() => {
     let vivo = true;
-    db.from('turni_pubblicati_tolti')
-      .select('id, employee_id, data, inizio, fine, azione, motivo, utente_nome, creato_il')
+    const leggi = (conDopo: boolean) => db.from('turni_pubblicati_tolti')
+      .select(`id, employee_id, data, inizio, fine, azione, motivo, utente_nome, creato_il${conDopo ? ', dopo' : ''}`)
       .eq('company_id', companyId).eq('outlet_id', outletId).gte('data', dal).lte('data', al)
-      .order('creato_il', { ascending: false }).limit(200)
-      .then(({ data, error }) => { if (vivo) setRighe(error ? null : ((data as RigaTolta[]) ?? [])); });
+      .order('creato_il', { ascending: false }).limit(200);
+    // senza la colonna «dopo» (prima della 466) si legge come prima
+    void leggi(true).then(async ({ data, error }) => {
+      const r = error ? await leggi(false) : { data, error };
+      if (vivo) setRighe(r.error ? null : ((r.data as unknown as RigaTolta[]) ?? []));
+    });
     return () => { vivo = false; };
   }, [companyId, outletId, dal, al, aggiorna]);
 
@@ -55,15 +63,16 @@ export default function TurniPubblicatiTolti({ companyId, outletId, dal, al, nom
   return (
     <details className="rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">
       <summary className="cursor-pointer font-semibold text-slate-800 inline-flex items-center gap-2">
-        <History size={15} /> Turni pubblicati tolti in questa settimana ({righe.length})
+        <History size={15} /> Turni pubblicati cambiati o tolti in questa settimana ({righe.length})
       </summary>
-      <p className="mt-1 text-xs text-slate-500">Turni che le persone avevano già ricevuto e che poi sono stati annullati, tolti dalla pubblicazione o cancellati: chi e quando. Il registro non si modifica. Le bozze non compaiono.</p>
+      <p className="mt-1 text-xs text-slate-500">Turni che le persone avevano già ricevuto e che poi sono stati cambiati, annullati, tolti dalla pubblicazione o cancellati: chi e quando. Ogni cambio arriva anche alla persona, nell'app e con la notifica sul telefono. Il registro non si modifica. Le bozze non compaiono.</p>
       <ul className="mt-2 divide-y divide-slate-100">
         {righe.map((r) => (
           <li key={r.id} className="py-1.5">
             <span className="font-medium text-slate-900">{r.employee_id ? nomeDi(r.employee_id) : 'Persona non indicata'}</span>
             {' · '}{giorno(r.data)}{r.inizio && r.fine ? ` ${r.inizio.slice(0, 5)}-${r.fine.slice(0, 5)}` : ''}
             {' · '}{AZIONE[r.azione]}
+            {r.azione === 'cambiato' && r.dopo ? ` in ${r.dopo.data && r.dopo.data !== r.data ? `${giorno(r.dopo.data)} ` : ''}${r.dopo.inizio?.slice(0, 5) ?? ''}-${r.dopo.fine?.slice(0, 5) ?? ''}${r.dopo.employee_id && r.dopo.employee_id !== r.employee_id ? `, dato a ${nomeDi(r.dopo.employee_id)}` : ''}` : ''}
             {r.motivo ? ` («${r.motivo}»)` : ''}
             <span className="block text-xs text-slate-500">{quando(r.creato_il)} · {r.utente_nome || 'sistema'}</span>
           </li>

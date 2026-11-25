@@ -35,6 +35,7 @@ const AppFerie = lazy(() => import('../components/app/AppFerie'))
 const AppOre = lazy(() => import('../components/app/AppOre'))
 const AppDivise = lazy(() => import('../components/app/AppDivise'))
 import { mieiCapi } from '../lib/diviseDb'
+import { mieiAvvisiTurni, novitaDaMostrare } from '../lib/avvisiTurni'
 import AppEventi, { type EventoApp } from '../components/app/AppEventi'
 
 type Scheda = 'oggi' | 'turni' | 'ferie' | 'ore' | 'divise'
@@ -177,6 +178,17 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const [conDivise, setConDivise] = useState(false)
   useEffect(() => { mieiCapi().then((c) => setConDivise(c !== null)).catch(() => setConDivise(false)) }, [])
   const [notifiche, setNotifiche] = useState<EsitoNotifiche | null>(null)
+  // Novità sul mio orario non ancora viste (migration 466): pallino sulla scheda Turni e riquadro in Oggi.
+  const [avvisiNuovi, setAvvisiNuovi] = useState(0)
+  // senza rete il conto resta; dove la funzione non c'e' (sito Made, prima della 466) si smette di chiedere
+  const avvisiAssenti = useRef(false)
+  const contaAvvisi = useCallback(() => {
+    if (avvisiAssenti.current) return
+    void mieiAvvisiTurni().then((a) => {
+      if (a === null) { avvisiAssenti.current = true; return }
+      setAvvisiNuovi(novitaDaMostrare(a).filter((n) => n.avviso).length)
+    }).catch(() => {})
+  }, [])
   const [miaImpronta, setMiaImpronta] = useState<string | null>(null)
   useEffect(() => { void impronta(attivazione.segreto).then(setMiaImpronta).catch(() => setMiaImpronta(null)) }, [attivazione])
 
@@ -236,6 +248,15 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
       document.removeEventListener('visibilitychange', visibile)
     }
   }, [aggiorna, scheda])
+
+  // Le novità sull'orario si ricontano all'apertura, quando l'app torna davanti e una volta al minuto
+  useEffect(() => {
+    contaAvvisi()
+    const t = setInterval(() => { if (document.visibilityState === 'visible') contaAvvisi() }, 60_000)
+    const visibile = () => { if (document.visibilityState === 'visible') contaAvvisi() }
+    document.addEventListener('visibilitychange', visibile)
+    return () => { clearInterval(t); document.removeEventListener('visibilitychange', visibile) }
+  }, [contaAvvisi])
 
   const oggi = dataRoma(adesso)
   // Giorno prima calcolato sulla data (non 24 ore prima: nei giorni del cambio d'ora sbaglierebbe)
@@ -316,12 +337,19 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
         {!online && <span className="flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-1 rounded-full"><WifiOff size={12} />Senza rete</span>}
       </div>
 
-      {scheda === 'turni' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppTurni /></Suspense>}
+      {scheda === 'turni' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppTurni onLetti={() => setAvvisiNuovi(0)} versione={avvisiNuovi} /></Suspense>}
       {scheda === 'ferie' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppFerie /></Suspense>}
       {scheda === 'ore' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppOre /></Suspense>}
       {scheda === 'divise' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppDivise /></Suspense>}
 
       {scheda === 'oggi' && (<>
+        {avvisiNuovi > 0 && (
+          <button type="button" onClick={() => setScheda('turni')}
+            className="w-full max-w-sm rounded-2xl border-2 border-[#ff0066] bg-white px-4 py-3 text-left text-sm text-slate-800 shadow">
+            <span className="block font-semibold text-[#ff0066]">Il tuo orario è cambiato</span>
+            {avvisiNuovi === 1 ? 'Una novità' : `${avvisiNuovi} novità`} nei tuoi turni: tocca per vederle.
+          </button>
+        )}
       {notifiche === 'negate' && (
         <p className="w-full max-w-sm text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-3">
           Le notifiche sono spente: non ti arrivano gli avvisi di entrata e uscita. Accendile nelle impostazioni del telefono, alla voce {marchioApp()}.
@@ -397,7 +425,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
         {SCHEDE.filter((x) => x.k !== 'divise' || conDivise).map(({ k, label, Icona }) => (
           <button key={k} onClick={() => setScheda(k)}
             className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 text-xs ${scheda === k ? 'text-[#ff0066] font-semibold' : 'text-slate-500'}`}>
-            <Icona size={22} />{label}
+            <span className="relative"><Icona size={22} />{k === 'turni' && avvisiNuovi > 0 && <span className="absolute -top-0.5 -right-1 w-2.5 h-2.5 rounded-full bg-[#ff0066]" aria-label="novità" />}</span>{label}
           </button>
         ))}
       </nav>
