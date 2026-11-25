@@ -7,7 +7,7 @@ DROP FUNCTION IF EXISTS public.shifts_avvisi_e_cambi();
 DROP FUNCTION IF EXISTS public.turni_avvisi_tick();
 DROP FUNCTION IF EXISTS public.turni_avvisi_da_mandare();
 DROP FUNCTION IF EXISTS public.app_dipendente_avvisi_turni();
-DROP FUNCTION IF EXISTS public.app_dipendente_avvisi_turni_letti();
+DROP FUNCTION IF EXISTS public.app_dipendente_avvisi_turni_letti(bigint[]);
 ALTER TABLE public.turni_pubblicati_tolti DROP CONSTRAINT IF EXISTS turni_pubblicati_tolti_azione_check;
 ALTER TABLE public.turni_pubblicati_tolti ADD CONSTRAINT turni_pubblicati_tolti_azione_check
   CHECK (azione IN ('annullato', 'ritirato', 'cancellato')) NOT VALID;

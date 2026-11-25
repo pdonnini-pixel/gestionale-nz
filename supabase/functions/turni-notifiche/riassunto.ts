@@ -7,8 +7,8 @@ export interface AvvisoTurno {
   shift_id: string;
   data: string;
   tipo: "pubblicato" | "cambiato" | "tolto";
-  prima: { inizio: string; fine: string; data: string } | null;
-  dopo: { inizio: string; fine: string; data: string } | null;
+  prima: { inizio: string; fine: string; data: string; outlet_id?: string | null } | null;
+  dopo: { inizio: string; fine: string; data: string; outlet_id?: string | null } | null;
   negozio?: string | null;
 }
 
@@ -31,11 +31,15 @@ export function riassuntoAvvisi(avvisi: AvvisoTurno[]): { titolo: string; corpo:
     const inizio = lista[0].tipo === "pubblicato" ? null : lista[0].prima;
     const fine = lista[lista.length - 1].tipo === "tolto" ? null : lista[lista.length - 1].dopo;
     if (!inizio && !fine) continue;
-    if (inizio && fine && inizio.data === fine.data && ore(inizio) === ore(fine)) continue;
+    const stessoNegozio = !inizio || !fine || (inizio.outlet_id ?? null) === (fine.outlet_id ?? null);
+    if (inizio && fine && inizio.data === fine.data && ore(inizio) === ore(fine) && stessoNegozio) continue;
     if (!inizio && fine) { nuovi.push({ data: fine.data, dopo: fine }); continue; }
     if (inizio && !fine) { righe.push({ data: inizio.data, testo: `${giorno(inizio.data)} tolto (era ${ore(inizio)})` }); continue; }
     if (inizio && fine) {
-      righe.push({ data: fine.data, testo: inizio.data === fine.data
+      const negozio = lista[lista.length - 1].negozio;
+      righe.push({ data: fine.data, testo: inizio.data === fine.data && ore(inizio) === ore(fine)
+        ? `${giorno(fine.data)} ${ore(fine)} in un altro negozio${negozio ? ` (${negozio})` : ""}`
+        : inizio.data === fine.data
         ? `${giorno(fine.data)} ora ${ore(fine)} (era ${ore(inizio)})`
         : `${giorno(inizio.data)} ${ore(inizio)} spostato a ${giorno(fine.data)} ${ore(fine)}` });
     }

@@ -39,3 +39,32 @@ describe('righe nella scheda Turni', () => {
     expect(testoAvviso({ tipo: 'cambiato', data: '2026-12-27', prima: t('2026-12-26', '10:00', '19:00'), dopo: t('2026-12-27', '10:00', '19:00') })).toBe('sab 26/12 10:00-19:00 spostato a dom 27/12 10:00-19:00');
   });
 });
+
+describe('novità da mostrare nell\'app', () => {
+  const a = (id: number, shift_id: string, tipo: 'pubblicato' | 'cambiato' | 'tolto', prima: ReturnType<typeof t> | null, dopo: ReturnType<typeof t> | null, letto = false) =>
+    ({ id, shift_id, tipo, prima, dopo, data: (dopo ?? prima)!.data, negozio: null, creato_il: '2026-11-25T10:00:00Z', letto });
+  it('settimana ritirata e ripubblicata uguale: nessuna riga, ma «Ho visto» le segna lette', async () => {
+    const { novitaDaMostrare } = await import('./avvisiTurni');
+    const n = novitaDaMostrare([a(1, 's1', 'tolto', t('2026-12-26', '10:00', '19:00'), null), a(2, 's1', 'pubblicato', null, t('2026-12-26', '10:00', '19:00'))]);
+    expect(n).toEqual([{ avviso: null, ids: [1, 2] }]);
+  });
+  it('cambiato due volte: solo l\'orario finale; i letti non contano', async () => {
+    const { novitaDaMostrare, testoAvviso } = await import('./avvisiTurni');
+    const n = novitaDaMostrare([
+      a(1, 's1', 'cambiato', t('2026-12-26', '10:00', '19:00'), t('2026-12-26', '12:00', '20:00')),
+      a(2, 's1', 'cambiato', t('2026-12-26', '12:00', '20:00'), t('2026-12-26', '13:00', '20:00')),
+      a(3, 's2', 'pubblicato', null, t('2026-12-27', '11:00', '20:00'), true),
+    ]);
+    expect(n.map((x) => x.avviso && testoAvviso(x.avviso))).toEqual(['sab 26/12: ora 13:00-20:00 (era 10:00-19:00)']);
+  });
+});
+
+describe('notifica: ritiro e ripubblicazione uguali non dicono niente, cambio di negozio sì', () => {
+  it('tolto e ripubblicato uguale', () => {
+    expect(riassuntoAvvisi([av(1, 's1', 'tolto', t('2026-12-26', '10:00', '19:00'), null), av(2, 's1', 'pubblicato', null, t('2026-12-26', '10:00', '19:00'))])).toBeNull();
+  });
+  it('stesso orario in un altro negozio', () => {
+    const r = riassuntoAvvisi([{ ...av(1, 's1', 'cambiato', { ...t('2026-12-26', '10:00', '19:00'), outlet_id: 'a' }, { ...t('2026-12-26', '10:00', '19:00'), outlet_id: 'b' }), negozio: 'Valmontone' }]);
+    expect(r?.corpo).toBe('sab 26/12 10:00-19:00 in un altro negozio (Valmontone). Guarda l\'app.');
+  });
+});

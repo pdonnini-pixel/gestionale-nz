@@ -35,7 +35,7 @@ const AppFerie = lazy(() => import('../components/app/AppFerie'))
 const AppOre = lazy(() => import('../components/app/AppOre'))
 const AppDivise = lazy(() => import('../components/app/AppDivise'))
 import { mieiCapi } from '../lib/diviseDb'
-import { mieiAvvisiTurni } from '../lib/avvisiTurni'
+import { mieiAvvisiTurni, novitaDaMostrare } from '../lib/avvisiTurni'
 import AppEventi, { type EventoApp } from '../components/app/AppEventi'
 
 type Scheda = 'oggi' | 'turni' | 'ferie' | 'ore' | 'divise'
@@ -180,7 +180,15 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
   const [notifiche, setNotifiche] = useState<EsitoNotifiche | null>(null)
   // Novità sul mio orario non ancora viste (migration 466): pallino sulla scheda Turni e riquadro in Oggi.
   const [avvisiNuovi, setAvvisiNuovi] = useState(0)
-  const contaAvvisi = useCallback(() => { void mieiAvvisiTurni().then((a) => setAvvisiNuovi((a ?? []).filter((x) => !x.letto).length)).catch(() => {}) }, [])
+  // senza rete il conto resta; dove la funzione non c'e' (sito Made, prima della 466) si smette di chiedere
+  const avvisiAssenti = useRef(false)
+  const contaAvvisi = useCallback(() => {
+    if (avvisiAssenti.current) return
+    void mieiAvvisiTurni().then((a) => {
+      if (a === null) { avvisiAssenti.current = true; return }
+      setAvvisiNuovi(novitaDaMostrare(a).filter((n) => n.avviso).length)
+    }).catch(() => {})
+  }, [])
   const [miaImpronta, setMiaImpronta] = useState<string | null>(null)
   useEffect(() => { void impronta(attivazione.segreto).then(setMiaImpronta).catch(() => setMiaImpronta(null)) }, [attivazione])
 
@@ -329,7 +337,7 @@ function Principale({ attivazione }: { attivazione: Attivazione }) {
         {!online && <span className="flex items-center gap-1 text-xs text-amber-700 bg-amber-100 px-2 py-1 rounded-full"><WifiOff size={12} />Senza rete</span>}
       </div>
 
-      {scheda === 'turni' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppTurni onLetti={() => setAvvisiNuovi(0)} /></Suspense>}
+      {scheda === 'turni' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppTurni onLetti={() => setAvvisiNuovi(0)} versione={avvisiNuovi} /></Suspense>}
       {scheda === 'ferie' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppFerie /></Suspense>}
       {scheda === 'ore' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppOre /></Suspense>}
       {scheda === 'divise' && <Suspense fallback={<RefreshCw className="animate-spin text-slate-400" />}><AppDivise /></Suspense>}

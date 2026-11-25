@@ -1,7 +1,7 @@
 // App del dipendente, scheda Turni: questa settimana e la prossima, dal piano
 // scelto del mese (stessa regola della timbratrice). Si vede anche senza rete.
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { mieiAvvisiTurni, segnaAvvisiLetti, testoAvviso, type AvvisoApp } from '../../lib/avvisiTurni'
+import { mieiAvvisiTurni, novitaDaMostrare, segnaAvvisiLetti, testoAvviso, type AvvisoApp } from '../../lib/avvisiTurni'
 import { oreInParole } from '../../lib/ferieRichiesta'
 import { supabase } from '../../lib/supabase'
 import { dataRoma, oraRoma } from '../../lib/timbrature'
@@ -12,7 +12,7 @@ import { useDatiApp } from './useDatiApp'
 
 interface Periodo { turni: TurnoApp[]; ferie: GiornoFerieApp[] }
 
-export default function AppTurni({ onLetti }: { onLetti?: () => void } = {}) {
+export default function AppTurni({ onLetti, versione = 0 }: { onLetti?: () => void; versione?: number } = {}) {
   const oggi = dataRoma(Date.now())
   const dal = lunediDi(oggi)
   const al = aggiungiGiorni(dal, 13)
@@ -26,12 +26,15 @@ export default function AppTurni({ onLetti }: { onLetti?: () => void } = {}) {
   // Novità sul mio orario (migration 466): ogni turno pubblicato arrivato, cambiato o tolto.
   // Dove la funzione non c'e' il riquadro non si vede.
   const [avvisi, setAvvisi] = useState<AvvisoApp[] | null>(null)
-  const leggiAvvisi = useCallback(() => { void mieiAvvisiTurni().then(setAvvisi).catch(() => setAvvisi(null)) }, [])
-  useEffect(() => { leggiAvvisi() }, [leggiAvvisi])
-  const nonLetti = (avvisi ?? []).filter((a) => !a.letto)
+  // senza rete resta l'ultima lettura (null = funzione assente o errore: non si cancella niente)
+  const leggiAvvisi = useCallback(() => { void mieiAvvisiTurni().then((a) => { if (a) setAvvisi(a) }).catch(() => {}) }, [])
+  // si rilegge quando l'app trova novita' (versione = quante ne conta l'app)
+  useEffect(() => { leggiAvvisi() }, [leggiAvvisi, versione])
+  const novita = useMemo(() => novitaDaMostrare(avvisi ?? []), [avvisi])
+  const daMostrare = novita.flatMap((n) => (n.avviso ? [n.avviso] : []))
   const recenti = (avvisi ?? []).filter((a) => a.letto).slice(0, 5)
   const hoVisto = async () => {
-    try { await segnaAvvisiLetti(); leggiAvvisi(); onLetti?.() } catch { /* senza rete: resta da leggere */ }
+    try { await segnaAvvisiLetti(novita.flatMap((n) => n.ids)); leggiAvvisi(); onLetti?.() } catch { /* senza rete: resta da leggere */ }
   }
 
   const settimane = useMemo(() => {
@@ -41,11 +44,12 @@ export default function AppTurni({ onLetti }: { onLetti?: () => void } = {}) {
 
   return (
     <div className="w-full max-w-sm flex flex-col gap-4">
-      {nonLetti.length > 0 && (
+      {novita.length > 0 && (
         <div className="bg-white rounded-2xl shadow p-4 border-2 border-[#ff0066]">
           <p className="text-xs uppercase tracking-wide text-[#ff0066] font-semibold mb-2">Novità sul tuo orario</p>
           <ul className="space-y-1.5 text-sm text-slate-800">
-            {nonLetti.map((a) => <li key={a.id}>{testoAvviso(a)}{a.negozio ? <span className="text-slate-400"> · {a.negozio}</span> : null}</li>)}
+            {daMostrare.map((a) => <li key={a.id}>{testoAvviso(a)}{a.negozio ? <span className="text-slate-400"> · {a.negozio}</span> : null}</li>)}
+            {daMostrare.length === 0 && <li className="text-slate-500">Il tuo orario è tornato com'era: nessun cambio.</li>}
           </ul>
           <button type="button" onClick={hoVisto} className="mt-3 w-full min-h-[44px] rounded-xl bg-[#ff0066] text-white font-semibold">Ho visto</button>
         </div>

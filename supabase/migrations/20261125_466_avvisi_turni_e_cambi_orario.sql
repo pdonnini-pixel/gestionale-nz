@@ -11,7 +11,8 @@
 --    e la manda sul telefono la Edge Function `turni-notifiche`, che raccoglie in un solo
 --    messaggio tutto quello che e' cambiato per una persona (pubblicare una settimana = un avviso).
 -- 3. Cron `turni-avvisi-tick` ogni 2 minuti: chiama la funzione solo se una persona ha avvisi
---    fermi da almeno 2 minuti (cosi' una serie di modifiche di seguito parte in un messaggio solo).
+--    fermi da almeno 2 minuti (cosi' una serie di modifiche di seguito parte in un messaggio solo);
+--    un turno tolto aspetta 15 minuti, nel caso venga ripubblicato uguale.
 --
 -- Additiva: nessun dato esistente cambia. Solo NZ e Zago (Made fuori dal 03/11/2026).
 
@@ -68,7 +69,12 @@ CREATE POLICY solo_con_profilo ON public.turni_avvisi AS RESTRICTIVE FOR ALL TO 
 DROP POLICY IF EXISTS turni_avvisi_select ON public.turni_avvisi;
 CREATE POLICY turni_avvisi_select ON public.turni_avvisi FOR SELECT TO authenticated
   USING (company_id = (SELECT public.get_my_company_id()));
+DROP POLICY IF EXISTS demo_nascosto ON public.turni_avvisi;
+CREATE POLICY demo_nascosto ON public.turni_avvisi AS RESTRICTIVE FOR ALL TO authenticated
+  USING (employee_id <> ALL ((SELECT public.dipendenti_demo_ids())::uuid[]))
+  WITH CHECK (employee_id <> ALL ((SELECT public.dipendenti_demo_ids())::uuid[]));
 -- Scrive solo il database (trigger) e la Edge Function con la chiave di servizio.
+REVOKE ALL ON public.turni_avvisi FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.turni_avvisi TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.turni_avvisi TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.turni_avvisi_id_seq TO service_role;
@@ -84,6 +90,10 @@ DECLARE
   v_era_pub  boolean := TG_OP IN ('UPDATE', 'DELETE') AND OLD.stato = 'pubblicato';
   v_ora_pub  boolean := TG_OP IN ('INSERT', 'UPDATE') AND NEW.stato = 'pubblicato';
 BEGIN
+  -- Le bozze (quasi tutte le scritture: piano, ricalcolo, proposte) escono subito
+  IF NOT (v_era_pub OR v_ora_pub) THEN
+    RETURN NULL;
+  END IF;
   IF v_era_pub THEN
     v_prima := jsonb_build_object('inizio', OLD.inizio, 'fine', OLD.fine, 'data', OLD.data, 'outlet_id', OLD.outlet_id);
   END IF;
@@ -151,6 +161,11 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
      AND NOT EXISTS (SELECT 1 FROM public.turni_avvisi b
                       WHERE b.employee_id = a.employee_id AND b.inviato_il IS NULL
                         AND b.creato_il > now() - interval '2 minutes')
+     -- Un turno tolto aspetta 15 minuti: se si ritira una settimana per correggerla e la si
+     -- ripubblica uguale, «tolto» e «pubblicato» partono insieme e si annullano (revisori, 25/11/2026)
+     AND NOT EXISTS (SELECT 1 FROM public.turni_avvisi c
+                      WHERE c.employee_id = a.employee_id AND c.inviato_il IS NULL AND c.tipo = 'tolto'
+                        AND c.creato_il > now() - interval '15 minutes')
    ORDER BY a.employee_id, a.creato_il, a.id
    LIMIT 2000;
 $$;
@@ -200,7 +215,7 @@ BEGIN
     RAISE EXCEPTION 'Accesso non collegato a un dipendente' USING ERRCODE = '42501';
   END IF;
   RETURN COALESCE((
-    SELECT jsonb_agg(jsonb_build_object('id', a.id, 'tipo', a.tipo, 'data', a.data, 'prima', a.prima, 'dopo', a.dopo,
+    SELECT jsonb_agg(jsonb_build_object('id', a.id, 'shift_id', a.shift_id, 'tipo', a.tipo, 'data', a.data, 'prima', a.prima, 'dopo', a.dopo,
                      'negozio', (SELECT o.name FROM public.outlets o WHERE o.id = a.outlet_id),
                      'creato_il', a.creato_il, 'letto', a.letto_il IS NOT NULL) ORDER BY a.creato_il DESC, a.id DESC)
       FROM (SELECT * FROM public.turni_avvisi x
@@ -210,7 +225,8 @@ END $$;
 REVOKE ALL ON FUNCTION public.app_dipendente_avvisi_turni() FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.app_dipendente_avvisi_turni() TO authenticated, service_role;
 
-CREATE OR REPLACE FUNCTION public.app_dipendente_avvisi_turni_letti()
+-- p_ids: gli avvisi che la dipendente ha visto a schermo; NULL = tutti i suoi
+CREATE OR REPLACE FUNCTION public.app_dipendente_avvisi_turni_letti(p_ids bigint[] DEFAULT NULL)
 RETURNS integer
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 DECLARE
@@ -220,12 +236,13 @@ BEGIN
   IF v_emp IS NULL THEN
     RAISE EXCEPTION 'Accesso non collegato a un dipendente' USING ERRCODE = '42501';
   END IF;
-  UPDATE public.turni_avvisi SET letto_il = now() WHERE employee_id = v_emp AND letto_il IS NULL;
+  UPDATE public.turni_avvisi SET letto_il = now()
+   WHERE employee_id = v_emp AND letto_il IS NULL AND (p_ids IS NULL OR id = ANY (p_ids));
   GET DIAGNOSTICS v_n = ROW_COUNT;
   RETURN v_n;
 END $$;
-REVOKE ALL ON FUNCTION public.app_dipendente_avvisi_turni_letti() FROM PUBLIC, anon;
-GRANT EXECUTE ON FUNCTION public.app_dipendente_avvisi_turni_letti() TO authenticated, service_role;
+REVOKE ALL ON FUNCTION public.app_dipendente_avvisi_turni_letti(bigint[]) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION public.app_dipendente_avvisi_turni_letti(bigint[]) TO authenticated, service_role;
 
 COMMIT;
 
