@@ -497,6 +497,79 @@ export function cancelledCashNotCollected(i: CancelledCashInput): CancelledCashF
   return { annulli: r2(annulli), total: r2(i.totalReceipts - annulli), cash: r2(i.cashLine - annulli) }
 }
 
+/**
+ * Il fondo cassa che questo negozio scrive di solito.
+ *
+ * Il fondo e' un numero fisso: a Palmanova e' 504,00 € tutti i giorni da
+ * settembre. Serve per accorgersi di un fondo fuori scala mentre lo si
+ * scrive, non la sera dopo per mail.
+ *
+ * Si prende il valore piu' frequente delle ultime chiusure confermate, e solo
+ * se e' davvero un'abitudine: almeno `minGiorni` giornate e almeno meta' di
+ * quelle che abbiamo. Un negozio che cambia fondo ogni giorno non ha un
+ * solito, e allora non si dice niente.
+ */
+export function usualCashFloat(storico: Array<number | null | undefined>, minGiorni = 5): number | null {
+  const valori = storico.map((v) => (v == null ? null : r2(Number(v)))).filter((v): v is number => v != null && Number.isFinite(v))
+  if (valori.length < minGiorni) return null
+  const conta = new Map<number, number>()
+  for (const v of valori) conta.set(v, (conta.get(v) ?? 0) + 1)
+  let solito: number | null = null
+  let quante = 0
+  for (const [v, n] of conta) if (n > quante) { solito = v; quante = n }
+  if (solito == null || quante < minGiorni) return null
+  return quante * 2 >= valori.length ? solito : null
+}
+
+/**
+ * Fondo cassa molto diverso dal solito: quasi sempre sono i punti 4 e 5
+ * scambiati.
+ *
+ * Palmanova, 23/11/2026: fondo 3.360,30 € e da versare 69,90 €, quando il
+ * fondo e' 504,00 € tutti i giorni. La pagina l'ha accettato senza dire
+ * niente, la sera dopo il contante atteso partiva da quel numero e il
+ * negozio si e' visto la stessa cifra sbagliata al contrario, 434,10 €, due
+ * sere di fila.
+ *
+ * Qui si avvisa e basta: il fondo l'ha contato lei e il gestionale non lo
+ * riscrive mai da solo. Se il fondo e' davvero cambiato, conferma com'e'.
+ */
+export interface UnusualFloatInput {
+  isClosedDay: boolean
+  /** Fondo scritto stasera (null se il campo e' vuoto). */
+  cashFloatDeclared: number | null
+  /** Il fondo di solito, da usualCashFloat (null se non c'e' un'abitudine). */
+  usual: number | null
+  /** Il fondo dell'ultima chiusura confermata, per il fondo cambiato davvero. */
+  previous?: number | null
+}
+
+export interface UnusualFloat {
+  /** Il fondo di tutti i giorni. */
+  usual: number
+  /** Quello scritto stasera. */
+  scritto: number
+  /** Scritto piu' alto del solito: la firma dei due punti scambiati. */
+  piuAlto: boolean
+}
+
+/** Sotto questo scarto il fondo e' quello di sempre (un euro o il 10%). */
+export const FONDO_SCARTO_MIN = 1
+
+export function unusualCashFloat(i: UnusualFloatInput): UnusualFloat | null {
+  if (i.isClosedDay) return null
+  const { cashFloatDeclared: scritto, usual } = i
+  if (scritto == null || usual == null) return null
+  if (!(usual > 0)) return null
+  // Fondo cambiato davvero: ieri era gia' questo. I due punti scambiati non
+  // danno quasi mai il fondo di ieri, quindi qui si tace e il negozio che
+  // passa da 504 a 600 non si vede l'avviso ogni sera per due settimane.
+  if (i.previous != null && Math.abs(scritto - i.previous) < 0.005) return null
+  const scarto = Math.abs(scritto - usual)
+  if (scarto <= Math.max(FONDO_SCARTO_MIN, usual * 0.1)) return null
+  return { usual: r2(usual), scritto: r2(scritto), piuAlto: scritto > usual }
+}
+
 export type ClosingBlockField = 'fondo' | 'da_versare'
 
 export interface ClosingBlocker {

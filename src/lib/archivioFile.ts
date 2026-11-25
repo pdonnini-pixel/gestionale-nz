@@ -16,7 +16,7 @@ import { supabase } from './supabase';
 
 export type ModuloArchivio =
   | 'Personale' | 'Banche' | 'Fatturazione' | 'Scadenzario'
-  | 'Outlet' | 'Bilancio' | 'Ticket' | 'Strumenti';
+  | 'Outlet' | 'Bilancio' | 'Ticket' | 'Strumenti' | 'Azienda';
 
 export type ArchiviaParams = {
   file: File;

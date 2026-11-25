@@ -469,6 +469,74 @@ Una cosa da sapere, trovata mentre scrivevo il tetto: **la tolleranza non si pu�
 
 Cosa cambia e va saputo: nei corrispettivi il ramo della tolleranza viene prima di quello dell'annullo, quindi un annullo fino a un euro non fa più scattare la correzione automatica del totale. Il totale scritto dal negozio resta com'è.
 
+### 4j. la catena della cassa e il ripasso delle segnalazioni vecchie (24 novembre 2026)
+
+Due difetti trovati guardando perché Brugnato portava un'eccedenza di 359,10 € che non esisteva, e perché il 34,75 € di Palmanova del 18 novembre era rimasto rosso una settimana pur essendo già spiegato.
+
+**1. Nessuno rifaceva il conto dei giorni dopo** (migration 451, applicata su NZ e Zago). La cassa attesa di una giornata parte dal fondo contato e dai contanti da versare dell'ultima chiusura precedente confermata o verificata (`fn_cash_closing_compute`), ma quel calcolo girava solo toccando la riga di quella giornata: `confirm_cash_closing` rinfrescava le sole chiusure successive ancora in bozza, e l'istruttoria guarda oggi e ieri, mai le altre. Risultato: una chiusura vecchia riaperta, riconfermata o corretta nel fondo lasciava il giorno dopo fermo al numero vecchio, senza nemmeno una segnalazione accanto. Brugnato: uscita di cassa di 20,00 € registrata il 20/11 con importo 0,00; sistemata il 24/11, il 20 e il 21 tornavano a zero e il 22 continuava a mostrare +359,10 € dal lunedì mattina.
+
+Ora un trigger (`trg_cassa_ricalcola_successive`, AFTER INSERT OR UPDATE OF status, cash_float_declared, cash_pending_declared, con `pg_trigger_depth() <= 1`) chiama `ricalcola_cassa_successive(outlet, dal)`, che ritocca le chiusure successive con un UPDATE a vuoto e lascia ricalcolare il trigger BEFORE. Si ferma alla prima giornata confermata con il fondo contato scritto: quella diventa il nuovo punto di partenza, quindi i giorni dopo di lei non cambiano. Misurato su Brugnato in una transazione annullata: spostando di 100 i contanti da versare del 21, la cassa attesa del 22 si muove (1.758,05 → 1.858,05) e quella del 23 no; **una riga ritoccata**, non tutte quelle dopo.
+
+Non manda niente: l'UPDATE non cambia `status`, quindi né `trg_cash_closing_report_dispatch` né `allinea_chiusura_confermata` partono, e non cambia `total_receipts`, quindi niente riproiezione in `daily_revenue`. Verificato: `daily_report_log` e la coda http non si muovono. Non tocca nessun numero contato a mano. Il DELETE non è coperto di proposito: cancellare una chiusura è un'operazione eccezionale (regola NO DATA LOSS) e un trigger sul DELETE girerebbe anche durante le cancellazioni a cascata; in quel caso si chiama la funzione a mano.
+
+Misura sullo stato attuale, in una transazione annullata: ricalcolando tutte le chiusure degli ultimi 90 giorni su NZ, **nessun valore cambia**. Brugnato era l'unico caso e l'avevamo già sistemato a mano. Su Zago non ci sono ancora chiusure.
+
+**2. La compensazione si guardava solo indietro, e una data non si rilegge mai.** `closing_check_runs` ha un vincolo unico su azienda e data e il dispatch fa `ON CONFLICT DO NOTHING`: ogni giornata viene istruita **una volta sola**. Palmanova aveva +34,75 € il 18/11 e −34,75 € il 21: il 21, guardando i tre giorni prima, si chiudeva da solo; il 18 non aveva niente da guardare avanti e restava rosso per sempre. Due cose, perché una senza l'altra non serve:
+
+- la differenza opposta si cerca ora nei tre giorni prima **e nei tre dopo** (`GIORNI_VICINI`), sia nel ramo dell'arrotondamento sia in quello della compensazione;
+- a ogni istruttoria parte il **ripasso** (`ripassaVecchie`): rilegge le segnalazioni ancora «da fare» dei dieci giorni prima (`GIORNI_RIPASSO`) e chiude quelle che nel frattempo si sono spiegate. Chiude soltanto: non apre segnalazioni nuove, non manda messaggi ai negozi, non cancella niente (la riga resta con scritto perché è stata chiusa) e non tocca le righe decise da una persona (`resolved_by` scritto). Non chiude una giornata tornata in bozza (non è assestata) né una in cui la differenza non si legge più (fondo contato cancellato): quelle le guarda una persona. Per la compensazione vale la stessa prudenza dell'istruttoria del giorno: senza la nota della cassiera resta un indizio e la riga resta da fare.
+
+Prova a vuoto su NZ, istruttoria del 18 novembre: il 34,75 € di Palmanova esce «niente da fare» con il motivo «Il 21 novembre 2026 c'era la differenza opposta di −34,75 €: si compensano», e i 45,65 € dei corrispettivi restano da fare, che è giusto (serve lo scontrino n. 0595-0005). Il ripasso del 23 novembre non chiude niente, ed è giusto: le segnalazioni aperte dentro la finestra sono due differenze di corrispettivi vere.
+
+La mail di esito ha un riquadro in più, «Segnalazioni vecchie chiuse da sole», e il riepilogo del run una voce `ripassate`.
+
+Edge function `closing-checks-run` deployata su NZ (v17) e Zago (v12), stesso `ezbr_sha256` `c1b958fb…`, identico al file del repo.
+
+**Dopo i tre revisori** (tutti APPROVA, zero bloccanti e zero importanti). Tre correzioni:
+
+- **Il recinto sulla funzione del trigger** (migration 452, NZ e Zago): `trg_cassa_ricalcola_successive()` e' SECURITY DEFINER e la 451 non le aveva tolto l'EXECUTE a PUBLIC, che PostgreSQL concede per default. Non e' sfruttabile (una funzione che restituisce `trigger` non si chiama ne' via PostgREST ne' da SQL), ma misurato su NZ `authenticated` ce l'aveva, mentre su `fn_cash_closing_reproject()` no: la 289 glielo aveva tolto. Ora tutti e tre a `false` su entrambi i tenant, e il trigger lavora ancora (riprovato su Brugnato in transazione annullata).
+- **Una differenza opposta spiega una giornata sola.** Nel ripasso, +10 il 18 e +10 il 19 con -10 il 21 si chiudevano tutte e due con lo stesso -10. Ora l'opposta usata non si riusa (`oppostaUsata`).
+- **Anche la chiusura delle righe del giorno non scavalca una persona**: aggiunto `resolved_by IS NULL` dove mancava. Oggi `resolved_by` non lo scrive nessuno (`grep` su `src/` e `supabase/`), quindi non cambia niente adesso; serve il giorno in cui una persona rimette una riga fra le cose da fare.
+
+Una cosa che i revisori hanno segnalato e che **non** ho cambiato, perche' e' una scelta di Patrizio: il ripasso **chiude e non apre mai**. Se una correzione a monte fa comparire una differenza vera su una giornata vecchia, la pagina la mostra ma nessun controllo la raccoglie, perche' quella data e' stata istruita una volta sola. Sui dati di oggi non succede (il ricalcolo di 90 giorni non muove un numero). Se vogliamo che una differenza nuova su un giorno vecchio apra una segnalazione, serve un passo in piu'.
+
+Nota sul testo: il ripasso non scrive ai negozi, ma la mail di esito interna parte anche quando ha solo chiuso segnalazioni vecchie, con il riquadro che dice quali e perche'.
+
+Edge function finale: NZ v18 e Zago v13, `ezbr_sha256` `a4227d4a...`, identico al file del repo.
+
+### 4k. alla referente si scrive anche quando la sua nota non basta (24 novembre 2026)
+
+Patrizio: «alla referente che gli diciamo? dove sapere se ha fatto un errore?». Misurato: **da nessuna parte**.
+
+- Il riquadro degli esiti sta solo in Incassi giornalieri (`IncassiGiornalieri.tsx`), e su `closing_checks` c'è la policy `responsabile_block`: chi ha il profilo responsabile non legge nemmeno una riga. Anche aprendo la pagina vedrebbe vuoto.
+- La mail al negozio partiva solo per le segnalazioni con una «lezione», e la lezione era spenta quando la cassiera aveva scritto una nota (`lezione: nota ? null : ...`), cioè **proprio quando noi concludiamo che la nota non spiega la cifra**. Conto sul vivo, 30 giorni: 24 righe in `closing_checks`, **3 messaggi** in tutto (Palmanova il 4/11, Roma Soratte due, l'ultimo il 20/11), **zero** sulle cinque rimaste aperte. Le ragazze scrivono, noi decidiamo, loro non lo sanno.
+
+**Cosa cambia.** La nota non spegne più il messaggio: la mail la cita una volta in apertura («abbiamo letto quello che hai scritto («…»), ma il conto non torna ancora») e chiede una cosa sola, quella che può sapere solo chi era in negozio. Due lezioni nuove:
+
+- `serve_il_conteggio`, per la differenza di cassa che nessun documento spiega (fingerprint `da_capire`). **Non chiede i due numeri contati**, che il gestionale ha già: li rilegge («hai scritto 3.360,30 € di fondo cassa e 69,90 € da versare, in tutto 3.430,20 €; a noi risulta che dovrebbero essere 3.864,30 €») e chiede l'unica cosa che manca, se ricontando le tornano. Questo era il rilievo importante del revisore del codice: la prima versione chiedeva un dato che il documento ha, contro la regola «niente liste da compilare a mano».
+- `conferma_ipotesi`, dove il gestionale ha già un'ipotesi (un'uscita segnata in ritardo, la cifra opposta di un giorno vicino): chiede solo una conferma, con l'ipotesi in parole da cassiera (`reasonBreve`).
+
+Restano senza messaggio i casi che toccano all'amministrazione: `bozza_prima` (una giornata da riconfermare) e `fatture_possibili` (più fatture in contanti fra cui scegliere). Su una chiusura ancora in bozza le due lezioni nuove tacciono: l'unica cosa da dire è di confermarla. Il ripasso delle giornate vecchie non scrive mai ai negozi.
+
+**Dai revisori** (sicurezza APPROVA, codice ATTENZIONE con un rilievo importante, tutti sistemati): la nota si cita una volta sola e non in ogni voce (con due o tre problemi usciva due o tre volte); il testo non dice più cose non vere (le fatture in contanti si cercano solo sugli ammanchi, e la sera i giorni dopo non esistono); la descrizione dell'uscita, testo libero, è tagliata a 120 caratteri prima di finire in una mail; e **lo stesso messaggio non si rimanda** (la funzione non era idempotente: un richiamo a mano con il segreto del cron rimandava tutto a tutti).
+
+**Misura del volume**, prove a vuoto su NZ: 23/11 una mail (Palmanova), 18/11 una (Palmanova, due cose), 14/11 una (Roma Soratte), 22/11 **zero**. Una per negozio al giorno, e sulle giornate pulite nessuno riceve niente. Sui 30 giorni passati avrebbe scritto cinque volte invece di tre, sempre e solo a Palmanova e Roma Soratte.
+
+**Terza strada: quando la nota dice una causa che il gestionale non sa registrare** (Patrizio, 24 novembre: «si fallo e pubblica ma non mandare mail a lei»). Il caso vero è Roma Soratte del 14 novembre: «Scontrino POS comprende 34,95 € di vendite di un giorno precedente (POS non chiuso quel giorno): tolti dalla riga POS, sono già nei corrispettivi di quel giorno». La spiegazione è completa e corretta, e nel gestionale non esiste un campo dove metterla: la differenza di 35,00 € resta nei conti comunque. Chiederle di ricontrollare gli scontrini sarebbe sbagliato due volte, perché ha già guardato e guardando di nuovo non troverebbe niente. Quindi la lezione `presa_in_carico` non chiede niente: «Abbiamo letto quello che hai scritto, e ci basta… Il gestionale non ha un posto dove registrarlo, quindi nei nostri conti la differenza di 35,00 € resta lì: la prende in carico l'amministrazione. Per questa non devi fare niente.» L'oggetto diventa «ci pensiamo noi». La segnalazione **resta `da_fare`** per l'amministrazione: al negozio diciamo che non deve fare niente, non che è sistemata.
+
+Il perimetro è strettissimo di proposito:
+
+- vale **solo** sulla differenza fra totale incassato e somma dei mezzi di pagamento (`differenza_corrispettivi`, fingerprint `diff`), dove `amount` è la differenza vera. Questo era il rilievo importante del revisore: nei tre controlli «foto diversa» `amount` è l'**importo scritto**, non la differenza, e la prima versione avrebbe scritto a un negozio «la differenza di 3.360,30 €», una cifra falsa. Avevo generalizzato a quattro rami dopo averne verificato uno;
+- la nota deve nominare un altro giorno **e** un incasso (POS, scontrini, vendite, corrispettivi) **e** non negare la cosa («non viene da un altro giorno» non conta);
+- mai su una chiusura ancora in bozza, altrimenti il messaggio direbbe insieme «conferma la chiusura» e «non devi fare niente» (secondo rilievo del revisore);
+- con più voci miste c'è un'apertura sua («qualcuna l'abbiamo già sistemata noi, le altre le prendiamo in carico»): dire «abbiamo già sistemato» su una cosa che non abbiamo sistemato era la bugia che volevamo evitare (terzo rilievo).
+
+Prova a vuoto sul 14 novembre, dopo il deploy: una mail sola, a Roma Soratte, con quel testo e l'oggetto «ci pensiamo noi»; `da_fare` resta 1. Prova sul 23: Palmanova invariata, «una cosa da sistemare». **A Maria non è partito niente**: una giornata vecchia non viene mai istruita una seconda volta (`closing_check_runs` ha il vincolo unico su azienda e data) e la prova a vuoto non scrive e non manda.
+
+Edge function: NZ v21 e Zago v16, `ezbr_sha256` `7cd7d3dd…`, e il contenuto deployato riletto e confrontato col file del repo è identico (73.200 byte, stesso sha256).
+
+**Resta aperto, decide Patrizio**: il riquadro nella pagina della referente, con gli ultimi dieci giorni del suo negozio in parole sue. Serve aprire `closing_checks` al profilo responsabile, in sola lettura e solo per i suoi negozi, cioè toccare il recinto della migration 379.
+
 ## 5. decisioni che servono da Patrizio
 
 1. Account cassa: uno per outlet condiviso (consigliato) oppure uno per persona?

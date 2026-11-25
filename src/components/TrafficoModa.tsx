@@ -1,7 +1,13 @@
-// «Traffico MODA» (Dipendenti → Turni): si caricano i report MODA «Statistica
-// Situazione Vendite con Conversion Rate» (negozio, giorno, ora) e gli ingressi
-// per ora finiscono in outlet_traffic_hourly, la fonte del fabbisogno dei turni.
-// Prima di questa scheda i report li caricava Claude a mano (20 e 29/10/2026).
+// Caricamento dei report MODA «Statistica Situazione Vendite con Conversion
+// Rate» per giorno e ora. Sta nella sezione «Vendite e ingressi» (Patrizio,
+// 24/11/2026: ci caricano ogni mese Sabrina per New Zago e Veronica per Zago);
+// in Dipendenti → Turni → «Traffico MODA» resta solo la tabella dei giorni
+// caricati, con il collegamento qui (soloTabella).
+// Del report si salva tutto, per negozio, giorno e ora, in outlet_traffic_hourly:
+// ingressi e scontrini (il fabbisogno dei turni), pezzi, valore teorico, valore
+// reale e costo d'acquisto (il report della sezione). Importi imponibili.
+// Ricaricare un file non somma niente: ogni ora si sostituisce, e un giorno
+// salvato e' esattamente quello del file.
 //
 // Regola fissa dei caricamenti (Patrizio, 08/10/2026): il file si salva da solo;
 // si chiede conferma solo se SOSTITUIREBBE giorni gia' presenti con numeri
@@ -12,9 +18,11 @@
 // Lettura del PDF e confronti: src/lib/trafficoModa.ts.
 
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
-import { FileUp, Loader2, Check, AlertTriangle, CheckCircle2, Info, Clock } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { FileUp, Loader2, Check, AlertTriangle, CheckCircle2, Info, Clock, ArrowRight } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { extractPdfItems } from '../lib/pdfText';
+import { espandiZip, isZip } from '../lib/zipFiles';
 import {
   leggiReportModa, totaliCheNonTornano, giornoIncompleto, abbinaNegozio, confrontaGiorni,
   giorniMancanti, periodoLeggibile, meseLeggibile,
@@ -23,7 +31,13 @@ import {
 import { nomeNegozio, type NegozioRif } from '../lib/organicoDati';
 import { oggiRoma, aggiungiGiorni } from '../lib/organico';
 
-type Props = { companyId: string; negozi: NegozioRif[]; puoScrivere: boolean };
+type Props = {
+  companyId: string;
+  negozi: NegozioRif[];
+  puoScrivere: boolean;
+  /** solo la tabella dei giorni caricati, con il collegamento a «Vendite e ingressi» (scheda dei Turni) */
+  soloTabella?: boolean;
+};
 
 type NonAbbinato = { codice: string; descrizione: string; giorni: GiornoModa[]; nonTornano: string[] };
 type Attesa = {
@@ -42,6 +56,8 @@ type Voce = {
   resta?: string[];
   /** giorni scritti nel database da questo file (anche prima della conferma) */
   giorniSalvati?: number;
+  /** lo zip da cui e' uscito il file */
+  daZip?: string | null;
 };
 
 const fmt = (n: number) => n.toLocaleString('it-IT');
@@ -86,14 +102,28 @@ async function caricaCopertura(companyId: string): Promise<Map<string, Set<strin
   return out;
 }
 
+/**
+ * Il database ha le colonne degli importi (migration 464)? Il frontend esce
+ * anche dove la migration non c'e' (Made): li' si torna a salvare solo
+ * ingressi e scontrini, come prima.
+ */
+let colonneImporti: boolean | null = null;
+const COLONNE_BASE = 'outlet_id, data, ora, ingressi, scontrini';
+const COLONNE_TUTTE = `${COLONNE_BASE}, pezzi, valore_teorico, vendite, costo_acquisto`;
+
 /** Quello che c'e' gia' nel database per questi negozi e queste date. */
 async function caricaEsistenti(companyId: string, outletIds: string[], dal: string, al: string): Promise<RigaTrafficoDb[]> {
   const out: RigaTrafficoDb[] = [];
   if (!outletIds.length) return out;
   for (let da = 0; ; da += 1000) {
-    const { data, error } = await supabase.from('outlet_traffic_hourly').select('outlet_id, data, ora, ingressi, scontrini')
+    const leggi = (colonne: string) => supabase.from('outlet_traffic_hourly').select(colonne as typeof COLONNE_TUTTE)
       .eq('company_id', companyId).in('outlet_id', outletIds).gte('data', dal).lte('data', al)
       .order('outlet_id').order('data').order('ora').range(da, da + 999);
+    let { data, error } = await leggi(colonneImporti === false ? COLONNE_BASE : COLONNE_TUTTE);
+    if (error && colonneImporti !== false && (error.code === '42703' || /column .* does not exist/i.test(error.message))) {
+      colonneImporti = false;
+      ({ data, error } = await leggi(COLONNE_BASE));
+    } else if (!error && colonneImporti == null) colonneImporti = true;
     if (error) throw error;
     const righe = (data as RigaTrafficoDb[]) ?? [];
     out.push(...righe);
@@ -102,7 +132,14 @@ async function caricaEsistenti(companyId: string, outletIds: string[], dal: stri
   return out;
 }
 
-export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) {
+/** I codici negozio di MODA gia' scelti a mano una volta (outlet_moda_codici, migration 464). */
+async function caricaCodiciModa(companyId: string): Promise<Map<string, string>> {
+  const { data, error } = await supabase.from('outlet_moda_codici').select('codice, outlet_id').eq('company_id', companyId);
+  if (error) return new Map(); // senza la tabella si torna ad abbinare per nome, come prima
+  return new Map(((data as { codice: string; outlet_id: string }[]) ?? []).map((r) => [r.codice.toUpperCase(), r.outlet_id]));
+}
+
+export default function TrafficoModa({ companyId, negozi, puoScrivere, soloTabella = false }: Props) {
   const [voci, setVoci] = useState<Voce[]>([]);
   const [drag, setDrag] = useState(false);
   const [copertura, setCopertura] = useState<Map<string, Set<string>> | null>(null);
@@ -144,17 +181,32 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
   const salvaGiorni = async (esiti: EsitoGiorno[], nomeFile: string) => {
     const adesso = new Date().toISOString();
     let fatti = 0;
+    // Le ore del database che il file non ha si tolgono prima, cosi' il giorno
+    // salvato e' esattamente quello del file e niente si somma. Succede solo nei
+    // giorni «diversi», dopo la conferma di chi carica.
+    for (const e of esiti) {
+      if (!e.oreDaTogliere.length) continue;
+      const { error } = await supabase.from('outlet_traffic_hourly').delete()
+        .eq('company_id', companyId).eq('outlet_id', e.outletId).eq('data', e.data).in('ora', e.oreDaTogliere);
+      if (error) throw new Error(`Salvataggio interrotto: ${error.message}. Nessun giorno salvato.`);
+    }
+    const tolte = esiti.some((e) => e.oreDaTogliere.length);
     for (let i = 0; i < esiti.length;) {
       const blocco: EsitoGiorno[] = [];
       let righe = 0;
       while (i < esiti.length && (blocco.length === 0 || righe + esiti[i].righe.length <= 500)) { righe += esiti[i].righe.length; blocco.push(esiti[i++]); }
       const { error } = await supabase.from('outlet_traffic_hourly').upsert(
-        blocco.flatMap((e) => e.righe).map((r) => ({ ...r, company_id: companyId, fonte: 'moda', file_name: nomeFile.slice(0, 200), updated_at: adesso })),
+        blocco.flatMap((e) => e.righe).map(({ vendite, pezzi, valore_teorico, costo_acquisto, ...r }) => ({
+          ...r,
+          // senza le colonne della 464 si salvano solo ingressi e scontrini, come prima
+          ...(colonneImporti !== false && valore_teorico != null ? { vendite: vendite ?? 0, pezzi, valore_teorico, costo_acquisto } : {}),
+          company_id: companyId, fonte: 'moda', file_name: nomeFile.slice(0, 200), updated_at: adesso,
+        })),
         { onConflict: 'outlet_id,data,ora' },
       );
       if (error) {
         segnaCopertura(esiti.slice(0, fatti));
-        throw new Error(`Salvataggio interrotto: ${error.message}. ${fatti ? `${giorni(fatti)} erano già salvati per intero; ricarica lo stesso file per completare.` : 'Nessun giorno salvato.'}`);
+        throw new Error(`Salvataggio interrotto: ${error.message}. ${fatti ? `${giorni(fatti)} erano già salvati per intero; ricarica lo stesso file per completare.` : tolte ? 'Alcune ore da sostituire erano già state tolte: ricarica lo stesso file e conferma di nuovo, il giorno tornerà esattamente come nel report.' : 'Nessun giorno salvato.'}`);
       }
       fatti += blocco.length;
     }
@@ -172,9 +224,10 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
     const esistenti = await caricaEsistenti(companyId, [...new Set(coppie.map((c) => c.outletId))], date[0], date[date.length - 1]);
     const esiti = confrontaGiorni(coppie, esistenti);
     const chiave = (e: EsitoGiorno) => `${e.outletId}|${e.data}`;
-    const salvati = esiti.filter((e) => e.stato === 'nuovo' && !nonTornano.has(chiave(e)));
+    // Nuovi e «completa» (stessi ingressi e scontrini, il file aggiunge gli importi) si salvano da soli.
+    const salvati = esiti.filter((e) => (e.stato === 'nuovo' || e.stato === 'completa') && !nonTornano.has(chiave(e)));
     const diversi = esiti
-      .filter((e) => e.stato === 'diverso' || (e.stato === 'nuovo' && nonTornano.has(chiave(e))))
+      .filter((e) => e.stato === 'diverso' || ((e.stato === 'nuovo' || e.stato === 'completa') && nonTornano.has(chiave(e))))
       .map((e) => ({ ...e, totaleNonTorna: nonTornano.has(chiave(e)) }));
     await salvaGiorni(salvati, nomeFile);
     return { salvati, uguali: esiti.filter((e) => e.stato === 'uguale').length, diversi };
@@ -182,11 +235,17 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
 
   const frase = (salvati: EsitoGiorno[], uguali: number) => {
     const parti: string[] = [];
-    if (salvati.length) {
-      const neg = new Set(salvati.map((e) => e.outletId)).size;
-      const ore = salvati.reduce((a, e) => a + e.righe.length, 0);
-      const mesi = [...new Set(salvati.map((e) => e.data.slice(0, 7)))].sort();
-      parti.push(`${salvati.length === 1 ? 'salvato' : 'salvati'} ${giorni(salvati.length)} (${fmt(ore)} ore) di ${neg === 1 ? '1 negozio' : `${neg} negozi`}, ${mesi.map(meseLeggibile).join(', ')}`);
+    const nuovi = salvati.filter((e) => e.stato !== 'completa');
+    const completati = salvati.filter((e) => e.stato === 'completa');
+    if (nuovi.length) {
+      const neg = new Set(nuovi.map((e) => e.outletId)).size;
+      const ore = nuovi.reduce((a, e) => a + e.righe.length, 0);
+      const mesi = [...new Set(nuovi.map((e) => e.data.slice(0, 7)))].sort();
+      parti.push(`${nuovi.length === 1 ? 'salvato' : 'salvati'} ${giorni(nuovi.length)} (${fmt(ore)} ore) di ${neg === 1 ? '1 negozio' : `${neg} negozi`}, ${mesi.map(meseLeggibile).join(', ')}`);
+    }
+    if (completati.length) {
+      const mesi = [...new Set(completati.map((e) => e.data.slice(0, 7)))].sort();
+      parti.push(`${completati.length === 1 ? 'a 1 giorno già caricato' : `a ${giorni(completati.length)} già caricati`} si sono aggiunti pezzi, valori e costi (${mesi.map(meseLeggibile).join(', ')}); ingressi e scontrini erano uguali`);
     }
     if (uguali) parti.push(uguali === 1 ? "1 giorno c'era già, uguale" : `${giorni(uguali)} c'erano già, uguali`);
     return parti.join('; ');
@@ -202,7 +261,13 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
     aggiorna(v.id, { stato: 'lettura', nota: undefined });
     try {
       const r = leggiReportModa(await extractPdfItems(v.file));
+      // Il 29/10/2026 un report con impostazioni diverse ha dovuto essere rifatto:
+      // non si salva niente finche' non e' quello di sempre.
+      if (!r.impostazioniStandard) {
+        throw new Error('Il report non è stampato con le impostazioni di sempre: deve dire «Importi Vendite SENZA Iva» e «sono ESCLUSE Vendite libere, Buoni e Acconti». Non è stato salvato niente: va ristampato da MODA con quelle impostazioni.');
+      }
       aggiorna(v.id, { stato: 'salvataggio' });
+      const codiciModa = await caricaCodiciModa(companyId);
       const incompleto = giornoIncompleto(r);
       const nonTornano = new Set<string>();
       const coppie: { outletId: string; giorno: GiornoModa }[] = [];
@@ -210,7 +275,9 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
       const abbinati = new Map<string, string>();
       const sbagliati = totaliCheNonTornano(r);
       for (const n of r.negozi) {
-        const o = abbinaNegozio(n.codice, n.descrizione, negozi.map((x) => ({ id: x.id, name: x.name ?? '', code: x.code ?? null })));
+        const ricordato = codiciModa.get(n.codice.toUpperCase());
+        const o = (ricordato && negozi.some((x) => x.id === ricordato) ? { id: ricordato } : null)
+          ?? abbinaNegozio(n.codice, n.descrizione, negozi.map((x) => ({ id: x.id, name: x.name ?? '', code: x.code ?? null })));
         const gg = n.giorni.filter((g) => g.ore.length && g.data !== incompleto);
         if (!o) {
           if (gg.length) nonAbbinati.push({ codice: n.codice, descrizione: n.descrizione, giorni: gg, nonTornano: sbagliati.filter((t) => t.codice === n.codice).map((t) => t.data) });
@@ -231,10 +298,10 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
       const fatto = frase(salvati, uguali);
       note.push(`${periodo}: ${fatto || 'nessun giorno nuovo'}`);
       if (incompleto) note.push(`il ${dataIt(incompleto)} non è caricato: il report è stato stampato quel giorno${r.stampa?.ora ? ` alle ${r.stampa.ora}` : ''}, a negozio aperto. Arriverà con il report successivo`);
-      if (!r.impostazioniStandard) note.push('attenzione: il report non è «senza IVA, escluse vendite libere, buoni e acconti» come al solito; gli ingressi valgono lo stesso, gli scontrini possono essere diversi');
+      if (!r.importi) note.push('il report non ha le colonne di pezzi, valori e costi: si sono salvati solo ingressi e scontrini');
+      if (v.daZip) note.push(`dallo zip «${v.daZip}»`);
       const resta: string[] = [];
       if (incompleto) resta.push(`manca il ${dataIt(incompleto)} (giorno di stampa del report): arriverà con il report successivo`);
-      if (!r.impostazioniStandard) resta.push('un report è stato stampato con impostazioni diverse dal solito: gli scontrini possono non essere confrontabili');
       if (diversi.length || nonAbbinati.length) {
         aggiorna(v.id, { stato: 'da_confermare', nota: note.join('. ') + '.', attesa: { diversi, nonAbbinati, scelte: {} }, resta, giorniSalvati: salvati.length });
       } else {
@@ -245,12 +312,16 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
     }
   };
 
-  const leggi = (files: FileList | File[]) => {
-    const nuove: Voce[] = [...files].map((file) => ({ id: prossimo.current++, file, stato: 'in_coda' as const }));
-    setVoci((vs) => [...vs, ...nuove]);
+  const leggi = async (lista: FileList | File[]) => {
+    const tutti = [...lista];
+    // Gli zip si aprono nel browser: dentro si tengono i PDF.
+    const { files, problemi } = tutti.some(isZip) ? await espandiZip(tutti, { estensioni: ['pdf'] }) : { files: tutti.map((file) => ({ file, daZip: null })), problemi: [] };
+    const nuove: Voce[] = files.map(({ file, daZip }) => ({ id: prossimo.current++, file, daZip, stato: 'in_coda' as const }));
+    const rotti: Voce[] = problemi.map((p) => ({ id: prossimo.current++, file: new File([], p.zip), stato: 'errore' as const, nota: `Zip non aperto: ${p.testo}.` }));
+    setVoci((vs) => [...vs, ...nuove, ...rotti]);
     for (const v of nuove) {
       if (!/\.pdf$/i.test(v.file.name)) {
-        aggiorna(v.id, { stato: 'errore', nota: 'Serve il PDF del report MODA «Conversion Rate».' });
+        aggiorna(v.id, { stato: 'errore', nota: 'Serve il PDF del report MODA «Conversion Rate» (anche dentro uno zip).' });
         continue;
       }
       // Uno alla volta, ciascuno fino in fondo.
@@ -267,6 +338,15 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
       await salvaGiorni(diversi, v.file.name);
       segnaMesi(diversi);
       const scelti = nonAbbinati.filter((n) => scelte[n.codice]);
+      let codiceNonRicordato: string | null = null;
+      // La scelta si ricorda: dal prossimo file questo codice MODA si riconosce da solo.
+      if (scelti.length) {
+        const { error } = await supabase.from('outlet_moda_codici').upsert(
+          scelti.map((n) => ({ company_id: companyId, codice: n.codice.toUpperCase(), descrizione: n.descrizione.slice(0, 200), outlet_id: scelte[n.codice] })),
+          { onConflict: 'company_id,codice' },
+        );
+        if (error) codiceNonRicordato = `${scelti.map((n) => n.codice).join(', ')}: il negozio scelto non è stato ricordato (${error.message}), la prossima volta te lo richiederà`;
+      }
       const altri = await elabora(
         scelti.flatMap((n) => n.giorni.map((g) => ({ outletId: scelte[n.codice], giorno: g }))),
         v.file.name,
@@ -275,7 +355,7 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
       segnaMesi(altri.salvati);
       const saltati = nonAbbinati.filter((n) => !scelte[n.codice]);
       const giorniSalvati = (v.giorniSalvati ?? 0) + diversi.length + altri.salvati.length;
-      const resta = [...(v.resta ?? []), ...(saltati.length ? [`${saltati.map((n) => `${n.codice} «${n.descrizione}»`).join(', ')} non ${saltati.length === 1 ? 'è stato caricato' : 'sono stati caricati'}: nessun negozio scelto`] : [])];
+      const resta = [...(v.resta ?? []), ...(codiceNonRicordato ? [codiceNonRicordato] : []), ...(saltati.length ? [`${saltati.map((n) => `${n.codice} «${n.descrizione}»`).join(', ')} non ${saltati.length === 1 ? 'è stato caricato' : 'sono stati caricati'}: nessun negozio scelto`] : [])];
       const parti = [
         diversi.length ? `sostituiti ${giorni(diversi.length)}` : '',
         frase(altri.salvati, altri.uguali),
@@ -306,7 +386,7 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
   const errori = voci.filter((v) => v.stato === 'errore').length;
   const salvati = voci.filter((v) => v.stato === 'salvato').length;
   const resta = [...new Set(voci.filter((v) => v.stato === 'salvato').flatMap((v) => v.resta ?? []))];
-  const caricati = `${salvati === 1 ? '1 report lavorato' : `${salvati} report lavorati`}. I piani dei turni usano già il traffico nuovo; i mesi arrivati sono evidenziati nella tabella qui sotto.`;
+  const caricati = `${salvati === 1 ? '1 report lavorato' : `${salvati} report lavorati`}. Il report del mese e i piani dei turni usano già i dati nuovi; i mesi arrivati sono evidenziati nella tabella qui sotto.`;
   const maiuscola = (t: string) => (t ? t[0].toUpperCase() + t.slice(1) : t);
   const chiusura = voci.length === 0 || inCorso ? null
     : daConfermare === 0 && errori === 0
@@ -369,30 +449,48 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
   const trascina = {
     onDragOver: (e: DragEvent) => { e.preventDefault(); setDrag(true); },
     onDragLeave: () => setDrag(false),
-    onDrop: (e: DragEvent) => { e.preventDefault(); setDrag(false); if (puoScrivere && e.dataTransfer.files?.length) leggi(e.dataTransfer.files); },
+    onDrop: (e: DragEvent) => { e.preventDefault(); setDrag(false); if (puoScrivere && e.dataTransfer.files?.length) void leggi(e.dataTransfer.files); },
   };
 
   return (
     <div className="space-y-4">
-      {puoScrivere && (
+      {soloTabella && (
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 mb-1">
+              <FileUp size={18} className="text-blue-600" />
+              <h3 className="font-bold text-slate-800">I report MODA si caricano in «Vendite e ingressi»</h3>
+            </div>
+            <p className="text-xs text-slate-500">
+              Lì si trascina ogni mese il report per giorno e ora: i turni leggono gli stessi dati, e qui sotto vedi quali giorni sono arrivati.
+            </p>
+          </div>
+          <Link to="/vendite-ingressi?tab=carica" className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-blue-600 text-white text-sm font-medium px-4 min-h-[44px] hover:bg-blue-700">
+            Vai a Vendite e ingressi <ArrowRight size={16} />
+          </Link>
+        </div>
+      )}
+      {puoScrivere && !soloTabella && (
         <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
           <div className="flex items-center gap-2 mb-1">
             <FileUp size={18} className="text-blue-600" />
             <h3 className="font-bold text-slate-800">Carica i report MODA</h3>
           </div>
           <p className="text-xs text-slate-500 mb-3">
-            Trascina qui il PDF «Statistica Situazione Vendite con Conversion Rate» per negozio, giorno e ora, anche più di uno.
-            Il gestionale legge gli ingressi di ogni ora e li salva da solo. Ti chiede di confermare solo se un giorno era già
-            caricato con numeri diversi, o se i totali del report non tornano. Quando ha finito te lo dice qui sotto.
+            Trascina qui il PDF «Statistica Situazione Vendite con Conversion Rate» per giorno e ora: quello con tutti i negozi
+            oppure uno per negozio, anche più file insieme o uno zip. Il gestionale salva tutto da solo: ingressi, scontrini,
+            pezzi, valori e costi (importi senza IVA). Se ricarichi un file già caricato non si somma niente: i giorni uguali
+            restano come sono. Ti chiede di confermare solo se un giorno era già caricato con numeri diversi, se i totali del
+            report non tornano o se un negozio non si riconosce. Quando ha finito te lo dice qui sotto.
           </p>
           <div
             {...trascina}
             onClick={() => inputRef.current?.click()}
             className={`cursor-pointer rounded-xl border-2 border-dashed px-4 py-5 text-center text-sm transition-colors ${drag ? 'border-blue-400 bg-blue-50' : 'border-slate-200 hover:border-slate-300 text-slate-500'}`}
           >
-            Trascina i PDF o <span className="text-blue-600 font-medium">sceglili dal computer</span>
-            <input ref={inputRef} type="file" multiple accept=".pdf" className="hidden" aria-label="Report MODA in PDF"
-              onChange={(e) => { if (e.target.files?.length) leggi(e.target.files); e.target.value = ''; }} />
+            Trascina i PDF o lo zip, oppure <span className="text-blue-600 font-medium">sceglili dal computer</span>
+            <input ref={inputRef} type="file" multiple accept=".pdf,.zip,application/pdf,application/zip" className="hidden" aria-label="Report MODA in PDF o zip"
+              onChange={(e) => { if (e.target.files?.length) void leggi(e.target.files); e.target.value = ''; }} />
           </div>
 
           {voci.length > 0 && (
@@ -481,11 +579,12 @@ export default function TrafficoModa({ companyId, negozi, puoScrivere }: Props) 
           <details className="mt-3 text-xs text-slate-600">
             <summary className="cursor-pointer flex items-center gap-1 text-slate-500"><Info size={13} /> Quale report e cosa succede dopo</summary>
             <ul className="mt-2 ml-4 list-disc space-y-1">
-              <li><strong>Il report</strong>: in MODA «Statistica Situazione Vendite con Conversion Rate», raggruppato per Negozio, Giorno e Ora, senza IVA, escluse vendite libere, buoni e acconti, stampato in PDF. Può contenere tutti i negozi e qualunque periodo, anche nove mesi insieme.</li>
-              <li><strong>Cosa si salva</strong>: per ogni negozio, giorno e ora gli ingressi (colonna N.P.) e gli scontrini. Gli importi non si salvano.</li>
-              <li><strong>Controlli</strong>: la somma delle ore deve tornare con il totale del giorno stampato nel report. Il giorno in cui il report è stato stampato non si carica, perché a negozio aperto non è finito.</li>
-              <li><strong>Conferma</strong>: solo se un giorno era già caricato con numeri diversi, se i totali non tornano o se un negozio del report non si riconosce. I giorni nuovi si salvano subito.</li>
-              <li><strong>Dopo</strong>: il piano del mese e il piano settimanale calcolano il fabbisogno da questo traffico (ingressi diviso la soglia del negozio, in «Regole dei turni»).</li>
+              <li><strong>Il report</strong>: in MODA «Statistica Situazione Vendite con Conversion Rate», raggruppato per Negozio, Giorno e Ora (tutti i negozi) oppure per Giorno e Ora (un negozio), senza IVA, escluse vendite libere, buoni e acconti, stampato in PDF. Qualunque periodo, anche nove mesi insieme. Il report per giorno (Negozio, Mese, Giorno) non ha le ore e non si carica.</li>
+              <li><strong>Cosa si salva</strong>: per ogni negozio, giorno e ora le persone entrate (colonna N.P.), gli scontrini, i pezzi, il valore teorico e reale e il costo d'acquisto. Tutti gli importi sono imponibili. Sconto, prezzo medio, ricarichi e resa si calcolano nel report.</li>
+              <li><strong>Ricaricare</strong>: non si somma mai niente. Un giorno uguale resta com'è; un giorno che aveva solo ingressi e scontrini riceve pezzi e importi da solo; un giorno con numeri diversi si sostituisce per intero, dopo la tua conferma.</li>
+              <li><strong>Controlli</strong>: la somma delle ore deve tornare con il totale del giorno stampato nel report. Il giorno in cui il report è stato stampato non si carica, perché a negozio aperto non è finito. Un report con impostazioni diverse (per esempio con l'IVA) si rifiuta.</li>
+              <li><strong>Negozi</strong>: si riconoscono dal codice MODA (BARB, FIR2...). Se un codice è nuovo lo scegli una volta e il gestionale lo ricorda.</li>
+              <li><strong>Dopo</strong>: il report del mese di «Vendite e ingressi» e i piani dei turni usano subito i dati nuovi.</li>
             </ul>
           </details>
         </div>

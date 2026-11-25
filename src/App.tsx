@@ -24,7 +24,7 @@ const ContoEconomico = lazy(() => import('./pages/ContoEconomico'))
 const ConfrontoOutlet = lazy(() => import('./pages/ConfrontoOutlet'))
 const BudgetControl = lazy(() => import('./pages/BudgetControl'))
 const StockSellthrough = lazy(() => import('./pages/StockSellthrough'))
-const AnalyticsPOS = lazy(() => import('./pages/AnalyticsPOS'))
+const VenditeIngressi = lazy(() => import('./pages/VenditeIngressi'))
 const CashFlow = lazy(() => import('./pages/CashflowProspettico'))
 const OpenToBuy = lazy(() => import('./pages/OpenToBuy'))
 const Produttivita = lazy(() => import('./pages/Produttivita'))
@@ -65,7 +65,7 @@ const AppDipendente = lazy(() => import('./pages/AppDipendente'))
 const CASH_OPERATOR_PATHS = ['/chiusura-cassa', '/profilo']
 // Responsabile di negozio o area manager (migration 378): la sua pagina e il
 // profilo. Anche qui la difesa vera e' il database (responsabile_block).
-const RESPONSABILE_PATHS = ['/responsabile', '/profilo']
+const RESPONSABILE_PATHS = ['/responsabile', '/vendite-ingressi', '/profilo']
 
 // Spinner per lazy loading
 function PageLoader() {
@@ -209,7 +209,9 @@ function AppRoutes() {
           <Route path="confronto-outlet" element={<ConfrontoOutlet />} />
           <Route path="budget" element={<BudgetControl />} />
           <Route path="stock" element={<StockSellthrough />} />
-          <Route path="analytics-pos" element={<AnalyticsPOS />} />
+          <Route path="vendite-ingressi" element={<VenditeIngressi />} />
+          {/* La vecchia pagina con gli scontrini simulati e' sostituita da «Vendite e ingressi» (24/11/2026). */}
+          <Route path="analytics-pos" element={<Navigate to="/vendite-ingressi" replace />} />
           <Route path="cash-flow" element={<CashFlow />} />
           <Route path="fabbisogno" element={<SimulazioneFabbisogno />} />
           <Route path="open-to-buy" element={<OpenToBuy />} />

@@ -8,7 +8,7 @@ import { supabase } from './supabase';
 import { aggiungiGiorni } from './organico';
 import { coppieFeriali, coppieDeiLunedi } from './ottimizzaTurni';
 import type { Turno } from './turni';
-import { caricaTraffico } from './organicoDati';
+import { caricaTraffico, storicoProprioBasta } from './organicoDati';
 import { ingressiPerGiorno } from './eventiTurni';
 
 export interface GiornoLibero { giorno: number; origine: 'sistema' | 'manuale' }
@@ -141,13 +141,15 @@ export async function salvaRiposi(companyId: string, employeeId: string, preferi
  */
 export async function caricaIngressiGiornalieri(companyId: string, outletId: string): Promise<{ ingressi: Map<string, number>; fonte: 'propria' | 'riferimento' | 'nessuna'; riferimentoId: string | null }> {
   const sue = await caricaTraffico(companyId, outletId);
-  if (sue.length) return { ingressi: ingressiPerGiorno(sue), fonte: 'propria', riferimentoId: null };
+  // Stessa regola dei turni: il riferimento resta finche' il negozio non ha MESI_STORICO_PROPRIO mesi di traffico suo.
+  if (sue.length && storicoProprioBasta(sue)) return { ingressi: ingressiPerGiorno(sue), fonte: 'propria', riferimentoId: null };
   const r = await supabase.from('outlet_shift_rules').select('traffico_da_outlet_id').eq('outlet_id', outletId).maybeSingle();
   const rif = r.error ? null : ((r.data as { traffico_da_outlet_id?: string | null } | null)?.traffico_da_outlet_id ?? null);
   if (rif && rif !== outletId) {
     const delRif = await caricaTraffico(companyId, rif);
     if (delRif.length) return { ingressi: ingressiPerGiorno(delRif), fonte: 'riferimento', riferimentoId: rif };
   }
+  if (sue.length) return { ingressi: ingressiPerGiorno(sue), fonte: 'propria', riferimentoId: null };
   return { ingressi: new Map(), fonte: 'nessuna', riferimentoId: null };
 }
 

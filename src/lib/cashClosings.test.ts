@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { EXPENSE_KINDS_OUT, EXPENSE_KIND_LABELS, parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, closingIncasso, BUDGET_VAT_RATE, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, totalDifferentFromPhoto, corrispettivoDaFoto, cancelledCashNotCollected, depositTotals, depositPhotoBelongs } from './cashClosings'
+import { EXPENSE_KINDS_OUT, EXPENSE_KIND_LABELS, parseAmount, formatAmount, computeQuadrature, monthDays, addDaysIso, attachmentPath, kindForTarget, extractedAmount, extractedSummary, bankStatusMark, budgetTargets, proposeConsuntivo, closingIncasso, BUDGET_VAT_RATE, eveningDeviation, deviationBand, weekStartIso, closingBlockers, pendingLooksLikeExpected, totalMissingFromPhoto, totalDifferentFromPhoto, corrispettivoDaFoto, cancelledCashNotCollected, depositTotals, depositPhotoBelongs, usualCashFloat, unusualCashFloat } from './cashClosings'
 
 describe('kindForTarget', () => {
   it('associa a ogni riga il documento atteso', () => {
@@ -496,5 +496,55 @@ describe('totalDifferentFromPhoto', () => {
     expect(totalDifferentFromPhoto({ isClosedDay: false, totalReceipts: null, photoTotal: 1922.75 })).toBeNull()
     expect(totalDifferentFromPhoto({ isClosedDay: true, totalReceipts: 2034.65, photoTotal: 1922.75 })).toBeNull()
     expect(totalDifferentFromPhoto({ isClosedDay: false, totalReceipts: 2034.65, photoTotal: null })).toBeNull()
+  })
+})
+
+describe('usualCashFloat', () => {
+  const palmanova = (giorni: number) => Array.from({ length: giorni }, () => 504)
+
+  it('riconosce il fondo di tutti i giorni', () => {
+    expect(usualCashFloat(palmanova(20))).toBe(504)
+    // Qualche giornata diversa non cancella l'abitudine.
+    expect(usualCashFloat([504, 504, 504, 504, 504, 480, 3360.3])).toBe(504)
+  })
+
+  it('tace quando un solito non c\'e\'', () => {
+    expect(usualCashFloat([])).toBeNull()
+    expect(usualCashFloat([504, 504])).toBeNull()                       // troppe poche giornate
+    expect(usualCashFloat([100, 200, 300, 400, 500, 600, 700])).toBeNull() // fondo sempre diverso
+    // Nessun valore arriva a meta' delle giornate.
+    expect(usualCashFloat([504, 504, 504, 504, 504, 1, 2, 3, 4, 5, 6])).toBeNull()
+    expect(usualCashFloat([null, undefined, null, null, null, null])).toBeNull()
+  })
+})
+
+describe('unusualCashFloat', () => {
+  it('vede i punti 4 e 5 scambiati', () => {
+    // Palmanova, 23/11/2026: fondo 3.360,30 scritto al posto dei contanti da versare.
+    const h = unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 3360.3, usual: 504 })
+    expect(h).toEqual({ usual: 504, scritto: 3360.3, piuAlto: true })
+  })
+
+  it('vede anche un fondo troppo basso', () => {
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 69.9, usual: 504 })?.piuAlto).toBe(false)
+  })
+
+  it('tace quando il fondo e\' cambiato davvero e ieri era gia\' questo', () => {
+    // Il negozio passa da 504 a 600: il solito resta 504 per due settimane,
+    // ma dalla seconda sera il fondo di ieri e' gia' 600 e l'avviso sparisce.
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 600, usual: 504, previous: 600 })).toBeNull()
+    // La prima sera del cambio l'avviso ci sta: ieri era ancora 504.
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 600, usual: 504, previous: 504 })?.scritto).toBe(600)
+    // I due punti scambiati non danno mai il fondo di ieri.
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 3360.3, usual: 504, previous: 504 })?.piuAlto).toBe(true)
+  })
+
+  it('tace sul fondo di sempre e quando non c\'e\' niente da dire', () => {
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 504, usual: 504 })).toBeNull()
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 504.5, usual: 504 })).toBeNull()  // sotto l'euro
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 540, usual: 504 })).toBeNull()    // dentro il 10%
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: 3360.3, usual: null })).toBeNull()
+    expect(unusualCashFloat({ isClosedDay: false, cashFloatDeclared: null, usual: 504 })).toBeNull()
+    expect(unusualCashFloat({ isClosedDay: true, cashFloatDeclared: 3360.3, usual: 504 })).toBeNull()
   })
 })
