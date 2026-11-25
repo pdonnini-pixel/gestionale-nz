@@ -84,6 +84,7 @@ const OrganicoOggi = lazy(() => import('../components/OrganicoOggi'));
 const TurniNegozi = lazy(() => import('../components/TurniNegozi'));
 const PresenzeNegozi = lazy(() => import('../components/PresenzeNegozi'));
 const PresenzeConferme = lazy(() => import('../components/PresenzeConferme'));
+const PresenzeStudio = lazy(() => import('../components/PresenzeStudio'));
 
 // ============================================================================
 // TYPES
@@ -484,9 +485,9 @@ export default function Dipendenti() {
   // Dentro "Presenze": la giornata, i casi da confermare, il riepilogo del
   // mese, chi conferma e le eccezioni (migration 373). Anche questa nell'URL.
   const presenzeParam = searchParams.get('presenze');
-  const presenzeTab: 'giornata' | 'conferme' | 'riepilogo' | 'regole' =
-    presenzeParam === 'conferme' || presenzeParam === 'riepilogo' || presenzeParam === 'regole' ? presenzeParam : 'giornata';
-  const setPresenzeTab = (next: 'giornata' | 'conferme' | 'riepilogo' | 'regole') => {
+  const presenzeTab: 'giornata' | 'conferme' | 'riepilogo' | 'studio' | 'regole' =
+    presenzeParam === 'conferme' || presenzeParam === 'riepilogo' || presenzeParam === 'studio' || presenzeParam === 'regole' ? presenzeParam : 'giornata';
+  const setPresenzeTab = (next: 'giornata' | 'conferme' | 'riepilogo' | 'studio' | 'regole') => {
     const p = new URLSearchParams(searchParams);
     p.set('presenze', next);
     setSearchParams(p);
@@ -1207,6 +1208,7 @@ export default function Dipendenti() {
                   { k: 'giornata' as const, label: 'Giornata' },
                   { k: 'conferme' as const, label: 'Da confermare' },
                   { k: 'riepilogo' as const, label: 'Riepilogo del mese' },
+                  { k: 'studio' as const, label: 'Per lo studio' },
                   { k: 'regole' as const, label: 'Chi conferma e regole' },
                 ]).map((t) => (
                   <button
@@ -1220,7 +1222,9 @@ export default function Dipendenti() {
                 ))}
               </div>
               <Suspense fallback={<div className="text-slate-400 py-12 text-center">Caricamento…</div>}>
-                {presenzeTab === 'giornata' ? <PresenzeNegozi companyId={COMPANY_ID} /> : <PresenzeConferme sezione={presenzeTab} />}
+                {presenzeTab === 'giornata' ? <PresenzeNegozi companyId={COMPANY_ID} />
+                  : presenzeTab === 'studio' ? <PresenzeStudio companyId={COMPANY_ID} />
+                  : <PresenzeConferme sezione={presenzeTab} />}
               </Suspense>
             </>
           )}

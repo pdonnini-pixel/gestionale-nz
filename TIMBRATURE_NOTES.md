@@ -42,7 +42,7 @@ Decisioni di Patrizio del 09/11/2026.
 - **Telefono del negozio** (`/timbra`): pulsanti per stato (fuori: Entra; dentro: Vado in pausa / Esco; in pausa: Rientro dalla pausa / Esco). All'uscita anticipata o oltre il margine chiede la causale prima di salvare (`valutaUscita` in `timbrature.ts`, stessa regola del server); la causale viaggia nella coda offline (`RigaCoda.causale`). All'entrata mostra il ritardo (`valutaEntrata`). Il motivo scritto **non** si chiede sul telefono condiviso.
 - **App** (scheda Oggi, `src/components/app/AppEventi.tsx`): eventi di oggi e ieri da `app_dipendente_oggi().eventi`, motivo scritto e causale cambiabile con `app_dipendente_motivo_evento()` finché `stato = 'da_confermare'`.
 - **Contano solo dopo la conferma**: permessi e straordinari restano `da_confermare` finché qualcuno decide (migration 373, sotto).
-- **Tracciato per lo studio paghe**: formato da chiedere al consulente.
+- **Tracciato per lo studio paghe**: fatto il 25/11/2026, vedi la sezione «File del mese per lo studio paghe» in fondo.
 
 ## conferma dei casi (migration 373, 09/11/2026, parte 4 PR A)
 Decisioni di Patrizio del 09/11/2026: uscita «d'accordo» decisa caso per caso; il responsabile decide anche le ferie (PR B).
@@ -148,5 +148,20 @@ Correzioni di priorità media del documento 06 del pacchetto privacy.
 ## aperto
 - **Manuale per i negozi**: `docs/MANUALE_NEGOZI_PRESENZE.md` (versione del 09/11/2026, PDF con schermate inventate generato a parte). Da sistemare prima della consegna: informativa privacy (entrata dimenticata con la migration 382, PIN con la 384).
 - Ferie e permessi dall'app del dipendente (le tabelle `leave_*` esistono già).
-- Tracciato mensile per lo studio paghe (formato da chiedere allo studio).
+- Tracciato mensile per lo studio paghe: fatto il 25/11/2026 (sezione in fondo).
 - Sede: ha un cellulare aziendale ma nessun account di cassa; serve un account per la timbratrice della sede.
+
+## File del mese per lo studio paghe (25/11/2026)
+
+Lo Studio Signorini (mail del 18/11/2026, «File excel esportazione presenze») ha mandato il modello: `RILXLS_071041_11-2026.xls`, un foglio, testata con codice azienda, ragione sociale e mese, poi un blocco per dipendente con una riga per causale e una colonna per giorno. Dipendenti → Presenze → «Per lo studio» lo produce uguale (`src/components/PresenzeStudio.tsx`, conti in `src/lib/presenzeStudio.ts` con test).
+
+- **Struttura**: righe nell'ordine del modello: ore ordinarie, AH (solo se c'è), LC (solo se c'è), LDM (solo per chi lavora la domenica), FE, LFS, LNM, LS, M2, M9, MA, MF, MT, PF, RL, ST; riga vuota fra le persone, niente dopo l'ultima. Matricola a 7 cifre, date gg/mm/aaaa, ore come numeri con due decimali in formato **ore,minuti** (7 ore e mezza = 7,30), «F» come testo nei festivi. File `.xls` (BIFF8), come quello dello studio.
+- **Testata**: codice e ragione sociale dall'ultimo `leave_accrual_imports` (NZ 071041 NEW ZAGO SRL, Zago 070769 ZAGO SRL); si possono correggere a mano prima di scaricare.
+- **Chi c'è**: in forza in almeno un giorno del mese, con matricola, non demo, non `amministratore`. Senza matricola resta fuori e lo dice il riquadro.
+- **Ore lavorate**: turni ufficiali (stessa regola di `timbrature_turni_ufficiali` della 395, copiata in `turniUfficiali`), meno la pausa non pagata, meno lo straordinario segnato sul turno, meno i permessi a ore approvati, meno uscite e pause confermate come `ore_non_lavorate` o `malattia` (la malattia va anche in MA). Straordinario = `shifts.ore_straordinario` + casi `straordinario` confermati.
+- **ST e LS**: full time (40 ore) tutto ST; part time LS finché le ore della settimana (lunedì-domenica, anche i giorni del mese prima) restano entro 40, oltre ST.
+- **Festivi**: nazionali (`festivitaItaliane`) più il patrono del negozio, `outlets.festa_patrono` 'MM-DD' (migration 466; Valdichiana 11-11 dal modello dello studio, `NZ_ONLY 467`). Il patrono si scrive nella stessa scheda, solo il Super Advisor (policy `outlets_update`).
+- **Assenze**: F01 -> FE, F02 -> PF, F03 -> RL (solo giorni approvati di richieste approvate). Assenze lunghe dell'organico: «maternità» -> MT, «malattia» -> MA; le altre (aspettativa) non hanno riga nel modello e il riquadro le segnala.
+- **Ore teoriche senza turno** (MT, AH): ore settimanali / 5 dal lunedì al venerdì, 0 sabato e domenica, come nel modello. In attesa di conferma dello studio (bozza di risposta del 25/11/2026).
+- **A chiamata** (`contratto_tipo = 'a_chiamata'`): 1 in LC nei giorni del rapporto non lavorati, ore nelle ordinarie nei giorni lavorati, mai «F»; fuori dal rapporto AH = 1.
+- **Da sapere**: congedi parentali (M2, M9, MF) e lavoro notturno non hanno ancora una fonte nel gestionale, restano vuoti. Il file vale quanto i turni pubblicati e le conferme delle presenze: al 25/11/2026 a novembre i turni ufficiali c'erano solo a Roma Soratte, e l'anagrafica non coincideva con quella dello studio (8 assunzioni di fine ottobre e novembre mancanti, 14 persone senza data di cessazione che lo studio non ha più).
