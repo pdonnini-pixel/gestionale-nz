@@ -212,13 +212,25 @@ describe('il piano del mese', () => {
     expect(p0.every((t) => t.inizio >= '14:00' && t.fine <= '20:00' && oreLavorate(t) >= 4)).toBe(true);
     expect(e.turni.some((t) => t.employeeId === 'p1' && new Date(`${t.data}T00:00:00Z`).getUTCDay() === 2)).toBe(false);
   });
+  it('MODA arrotondato (25/11/2026): il Black Friday da 2,4 persone ha due persone, nessuna scopertura intera', () => {
+    const e = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso });
+    // le scoperture sul fabbisogno intero restano zero; le ore sotto MODA senza arrotondare
+    // contano lo 0,4 di persona del Black Friday (dalle 10 alle 20)
+    expect(e.scoperture).toEqual([]);
+    const bf = e.turni.filter((t) => t.data === '2026-11-27');
+    expect(new Set(bf.map((t) => t.employeeId)).size).toBeGreaterThanOrEqual(2);
+    expect(e.oreScoperte).toBeLessThanOrEqual(4 + 1e-6);
+  }, 30_000);
   it('trasferte: tolgono ore come lavoro fuori dal negozio e, se coprono il negozio, contano come presenza', () => {
     const conTrasferta = persone.map((p, i) => (i === 0
       ? { ...p, oreTrasferta: new Map([['2026-11-04', 8]]), nonDisponibile: new Set(['2026-11-04']) } : p));
     const senza = pianificaMese({ mese, giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso });
     const con = pianificaMese({ mese, giorni, persone: conTrasferta, regola: 'nessuno', storicoWeekend: new Map(), atteso });
     expect(con.persone.p0.trasferte).toBe(8);
-    expect(con.persone.p0.contratto).toBeCloseTo(senza.persone.p0.contratto - 8, 5);
+    // il pezzo di settimana di lunedi' 30/11 vale quello che finisce in turno (pezzoLibero, 12/11/2026)
+    // e dipende dal piano, non dalla trasferta: si confronta il contratto senza quel pezzo
+    const senzaPezzo = (e: typeof senza) => e.persone.p0.contratto - (e.persone.p0.settimane?.['2026-11-30'] ?? 0);
+    expect(senzaPezzo(con)).toBeCloseTo(senzaPezzo(senza) - 8, 5);
     expect(con.turni.some((t) => t.employeeId === 'p0' && t.data === '2026-11-04')).toBe(false);
     // una referente di un altro negozio copre qui il 4/11 dalle 10 alle 19
     const fissi = [{ employeeId: 'ext', data: '2026-11-04', inizio: '10:00', fine: '19:00', pausaMinuti: 60 }];
