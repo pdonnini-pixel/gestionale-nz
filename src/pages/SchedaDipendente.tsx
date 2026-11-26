@@ -37,6 +37,7 @@ import { possoGestireDivise } from '../lib/diviseDb';
 import DiviseAcquistiPersona from '../components/DiviseAcquistiPersona';
 import { DOC_RAPPORTO_OPTS, docRapportoLabel, dataDelGruppo, riconosciDocumento } from '../lib/documentiRapporto';
 import { espandiZip } from '../lib/zipFiles';
+import { useConferma } from '../components/ui/Conferma'
 
 type Employee = Row<'employees'>;
 type EmployeeCost = Row<'employee_costs'>;
@@ -809,6 +810,8 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
 
 // ── Netti dell'anno: come nella finestra di prima, con il cambio d'anno ─────────────
 function NettiAnno({ employeeId, companyId, costi, puoSalvare, onSalvato }: { employeeId: string; companyId: string; costi: EmployeeCost[]; puoSalvare: boolean; onSalvato: () => Promise<void> }) {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { toast } = useToast();
   const annoOggi = new Date().getFullYear();
   const anni = useMemo(() => {
@@ -831,9 +834,9 @@ function NettiAnno({ employeeId, companyId, costi, puoSalvare, onSalvato }: { em
   const totale = Object.values(vals).reduce<number>((s, v) => s + (parseItNum(v) || 0), 0);
   const mesiCompilati = Object.values(vals).filter((v) => parseItNum(v) != null).length;
 
-  const cambiaAnno = (a: number) => {
+  const cambiaAnno = async (a: number) => {
     const sporco = Object.keys(iniziali).some((m) => (vals[Number(m)] ?? '') !== iniziali[Number(m)]);
-    if (sporco && !window.confirm(`Hai netti del ${anno} non salvati: cambiando anno si perdono. Cambio lo stesso?`)) return;
+    if (sporco && !(await conferma({ titolo: 'Cambiare anno?', testo: `Hai netti del ${anno} non salvati: cambiando anno si perdono.`, ok: 'Cambia lo stesso', annulla: 'Resta qui', pericolo: true }))) return;
     setAnno(a);
   };
 

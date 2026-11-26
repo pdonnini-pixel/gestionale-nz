@@ -17,6 +17,7 @@ import PageHeader from '../components/PageHeader'
 import CaricaVisura, { type OutletConNote } from '../components/CaricaVisura'
 import type { SchedaAzienda } from '../lib/visura'
 import type { Database } from '../types/database'
+import { useConferma } from '../components/ui/Conferma'
 
 // Role-based permissions
 const ROLE_PERMISSIONS: Record<string, string[]> = {
@@ -488,6 +489,8 @@ const iniziali = (nome: string): string =>
   nome.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase() || '?'
 
 function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const labels = useCompanyLabels()
   const { outlets: tenantOutlets } = useOutlets()
   // TODO: tighten type — Supabase rows
@@ -611,7 +614,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         const nuovaEmail = form.email.trim().toLowerCase()
         const emailPrima = ((users.find(x => x.id === editingId)?.email as string) || '').toLowerCase()
         if (nuovaEmail !== emailPrima && !/^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$/i.test(nuovaEmail)) { showToast?.('L\'email non è valida', 'error'); return }
-        if (nuovaEmail !== emailPrima && !window.confirm(`L'utente entrerà con ${nuovaEmail} (al posto di ${emailPrima}). Controlla che l'indirizzo sia giusto: le email di accesso e di recupero andranno lì. Confermi?`)) return
+        if (nuovaEmail !== emailPrima && !(await conferma({ titolo: 'Cambiare l’email di accesso?', testo: `L'utente entrerà con ${nuovaEmail} (al posto di ${emailPrima}). Controlla che l'indirizzo sia giusto: le email di accesso e di recupero andranno lì.`, ok: 'Cambia l’email' }))) return
         if (nuovaEmail !== emailPrima) await callAdmin('set_email', { user_id: editingId, email: nuovaEmail })
         await callAdmin('set_role', { user_id: editingId, role: form.ruolo, ...outletPayload })
         const prima = (users.find(x => x.id === editingId)?.email_cc as string) || ''

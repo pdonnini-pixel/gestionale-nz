@@ -34,7 +34,7 @@ const ESEMPI = ['Black Friday', 'Feste natalizie', 'Saldi invernali', 'Saldi est
 export default function EventiNegozi({ companyId, negozi, puoScrivere, puoFabbisogno, onSalvato }: Props) {
   const { toast } = useToast();
   // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
-  const { conferma, dialogo } = useConferma();
+  const { conferma } = useConferma();
   const [eventi, setEventi] = useState<Riga[]>([]);
   const [caricamento, setCaricamento] = useState(true);
   const [modulo, setModulo] = useState<Riga | null>(null);
@@ -207,7 +207,6 @@ export default function EventiNegozi({ companyId, negozi, puoScrivere, puoFabbis
           {!visibili.length && <li className="px-4 py-3 text-slate-400">Nessun evento {passati ? '' : 'in arrivo'}.</li>}
         </ul>
       </section>
-      {dialogo}
     </div>
   );
 }

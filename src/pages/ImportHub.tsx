@@ -45,6 +45,7 @@ import { Modal } from '../components/ui/Modal';
 import { useAuth } from '../hooks/useAuth';
 import { periodoDalNomeFile, type ModuloArchivio } from '../lib/archivioFile';
 import { processImport, previewImport } from '../lib/parsers/importEngine';
+import { useConferma } from '../components/ui/Conferma'
 
 // Storage bucket mapping for each import source
 type ImportSourceConfig = { name: string; description: string; formats: string; bucket: string; table: string; acceptedExt: string[]; requiresSelect?: string; category?: string; icon: string }
@@ -151,6 +152,8 @@ const areeDocumentiGenerali = (labels: CompanyLabels): { value: ModuloArchivio |
 ];
 
 export default function ImportHub() {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { profile } = useAuth();
   const labels = useCompanyLabels();
   const COMPANY_ID = profile?.company_id;
@@ -598,7 +601,7 @@ export default function ImportHub() {
   }
 
   async function handleRemoveFile(fileId: string, sourceId: ImportSourceId) {
-    if (!window.confirm('Eliminare questo file? L\'azione non può essere annullata.')) return;
+    if (!(await conferma({ titolo: 'Eliminare questo file?', testo: 'L’azione non può essere annullata.', ok: 'Elimina', pericolo: true }))) return;
 
     try {
       const config = IMPORT_SOURCE_CONFIG[sourceId];
@@ -624,7 +627,7 @@ export default function ImportHub() {
   async function handleBatchDelete() {
     if (batchSelected.size === 0) return;
     if (!selectedSource) return;
-    if (!window.confirm(`Eliminare ${batchSelected.size} file selezionati?`)) return;
+    if (!(await conferma({ titolo: `Eliminare ${batchSelected.size} file selezionati?`, testo: 'L’azione non può essere annullata.', ok: 'Elimina', pericolo: true }))) return;
 
     try {
       const config = IMPORT_SOURCE_CONFIG[selectedSource];
@@ -1437,12 +1440,12 @@ export default function ImportHub() {
                             {/* Riprocessa: per file già elaborati (parsed/approved/completed) */}
                             {canProcess(selectedSource) && (statusLabel === 'parsed' || statusLabel === 'approved' || statusLabel === 'completed' || statusLabel === 'verified') && (
                               <button
-                                onClick={() => {
-                                  if (window.confirm(
-                                    'Vuoi riprocessare questo file?\n\n' +
-                                    'I dati esistenti per lo stesso anno verranno sostituiti con quelli del file.\n' +
-                                    'Questa operazione non può essere annullata.'
-                                  )) {
+                                onClick={async () => {
+                                  if (await conferma({
+                                    titolo: 'Riprocessare questo file?',
+                                    testo: 'I dati esistenti per lo stesso anno verranno sostituiti con quelli del file. Questa operazione non può essere annullata.',
+                                    ok: 'Riprocessa', pericolo: true,
+                                  })) {
                                     handleProcessFile(f)
                                   }
                                 }}

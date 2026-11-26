@@ -17,6 +17,7 @@ import {
   ArrowLeft, Upload, FileCode, Download, CheckCircle, AlertTriangle,
   Loader2, FileSpreadsheet, ClipboardPaste, Archive, RefreshCw, Search, Trash2,
 } from 'lucide-react'
+import { useConferma } from '../components/ui/Conferma'
 
 const MESI_IT = ['Gennaio', 'Febbraio', 'Marzo', 'Aprile', 'Maggio', 'Giugno', 'Luglio', 'Agosto', 'Settembre', 'Ottobre', 'Novembre', 'Dicembre']
 const monthLabel = (key: string): string => { const [y, m] = key.split('-'); return `${MESI_IT[Number(m) - 1] ?? m} ${y}` }
@@ -275,6 +276,8 @@ function downloadXmlString(name: string, xml: string): void {
 
 // ═════════════════════════════════════════════════════════════════════════
 export default function ConvertitoreFattureXML() {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { profile } = useAuth()
   const [mode, setMode] = useState<'file' | 'paste'>('file')
   const [fileRows, setFileRows] = useState<unknown[][] | null>(null)
@@ -417,7 +420,7 @@ export default function ConvertitoreFattureXML() {
   }, [archive, archiveSearch, archivePeriod])
 
   const deleteBatch = useCallback(async (batchId: string, n: number) => {
-    if (!window.confirm(`Eliminare questa generazione di ${n} file dall'archivio? L'operazione non è reversibile.`)) return
+    if (!(await conferma({ titolo: 'Eliminare questa generazione?', testo: `${n} file escono dall'archivio. L'operazione non è reversibile.`, ok: 'Elimina', pericolo: true }))) return
     setDeleting(batchId)
     try {
       const { error } = await supabase.from('fattura_xml_export' as never).delete().eq('batch_id' as never, batchId as never)

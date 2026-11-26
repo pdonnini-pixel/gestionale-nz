@@ -186,7 +186,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const nomeNegozioDi = (id: string) => { const n = dati.negozi.find((x) => x.id === id); return n ? (n.name ?? n.code ?? 'negozio') : 'altro negozio'; };
   const { toast } = useToast();
   // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
-  const { conferma, dialogo } = useConferma();
+  const { conferma } = useConferma();
   const [mese, setMese] = useState(() => ultimoMeseScelto ?? meseSuccessivo(oggiRoma().slice(0, 7), 1));
   useEffect(() => { ultimoMeseScelto = mese; }, [mese]);
   const [piani, setPiani] = useState<Piano[]>([]);
@@ -2376,7 +2376,6 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           />
         );
       })()}
-      {dialogo}
     </div>
   );
 }

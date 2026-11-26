@@ -28,7 +28,7 @@ const spostaMese = (mese: string, n: number) => {
 export default function TrasferteNegozi({ companyId, dati, puoScrivere }: { companyId: string; dati: DatiOrganico; puoScrivere: boolean }) {
   const { toast } = useToast();
   // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
-  const { conferma, dialogo } = useConferma();
+  const { conferma } = useConferma();
   const [mese, setMese] = useState(() => oggiRoma().slice(0, 7));
   const [lista, setLista] = useState<Trasferta[]>([]);
   const [caricamento, setCaricamento] = useState(true);
@@ -199,7 +199,6 @@ export default function TrasferteNegozi({ companyId, dati, puoScrivere }: { comp
           </div>
         </div>
       )}
-      {dialogo}
     </section>
   );
 }

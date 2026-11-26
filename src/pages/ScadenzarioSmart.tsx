@@ -47,6 +47,7 @@ import { BulkPaymentBar } from './scadenzario/BulkPaymentBar';
 import { SupplierDetailModal } from './scadenzario/SupplierDetailModal';
 import { CategoryManagerModal, type SupLite } from './scadenzario/CategoryManagerModal';
 import { useCompanyLabels } from '../hooks/useCompanyLabels';
+import { useConferma } from '../components/ui/Conferma'
 
 // Categorie di nominativo che identificano una scadenza FISCALE/INTERNA creata da
 // "Aggiungi scadenza" (il "tipo" scelto nel modale: Fiscale / Interno). Un payable
@@ -57,6 +58,8 @@ const FISCAL_INTERNAL_CATEGORIES = new Set(['fiscale', 'interno']);
 
 // Main component
 const ScadenzarioSmart = () => {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { toast } = useToast();
   const pdvLabels = useCompanyLabels();
   const { profile } = useAuth();
@@ -1857,7 +1860,7 @@ const ScadenzarioSmart = () => {
   // Chiude in blocco lo STORICO RiBa gia' scaduto (due_date < 06/08/2026) in via
   // provvisoria. L'automatico copre solo il futuro: questo e' il recupero manuale.
   const handleCloseRibaBacklog = useCallback(async () => {
-    if (!confirm('Chiudo in via PROVVISORIA tutte le RiBa storiche gia\' scadute e ancora aperte?\n\nRestano riaperte automaticamente appena arriva una distinta o un movimento bancario. L\'operazione e\' reversibile.')) return;
+    if (!(await conferma({ titolo: 'Chiudere in via provvisoria le RiBa storiche?', testo: 'Tutte le RiBa storiche già scadute e ancora aperte. Si riaprono da sole appena arriva una distinta o un movimento bancario. L’operazione è reversibile.', ok: 'Chiudi in via provvisoria' }))) return;
     const { data, error } = await supabase.rpc('rpc_riba_provisional_close_backlog' as never);
     if (error) { toast({ type: 'error', message: 'Errore: ' + error.message }); return; }
     const n = (data as { riba_provisional_closed?: number } | null)?.riba_provisional_closed ?? 0;

@@ -12,6 +12,7 @@ import { daysUntilLocal, todayYMD } from '../lib/dateLocal'
 import { useAuth } from '../hooks/useAuth'
 import { useToast } from '../components/Toast'
 import PageHeader from '../components/PageHeader'
+import { useConferma } from '../components/ui/Conferma'
 
 /* ───── helpers ───── */
 function fmt(n: number | null | undefined) {
@@ -284,6 +285,8 @@ function ModalDeadline({ isOpen, isEdit, deadline, onClose, onSave, saving }: { 
    PAGINA PRINCIPALE SCADENZE FISCALI
    ═══════════════════════════════════════ */
 export default function ScadenzeFiscali() {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { profile } = useAuth()
   const { toast } = useToast()
   const COMPANY_ID = profile?.company_id
@@ -509,7 +512,7 @@ export default function ScadenzeFiscali() {
   // 'cancelled' — coerente con ScadenzarioSmart. La scadenza sparisce da "Da
   // pagare" ma resta consultabile nello storico ("Tutti") come "Annullato".
   const handleDelete = async (id: string) => {
-    if (!confirm('Annullare questa scadenza? Non verrà cancellata definitivamente: resterà nello storico con stato "Annullato".')) return
+    if (!(await conferma({ titolo: 'Annullare questa scadenza?', testo: 'Non verrà cancellata definitivamente: resterà nello storico con stato «Annullato».', ok: 'Annulla la scadenza', annulla: 'Lascia com’è', pericolo: true }))) return
     try {
       const { error } = await supabase.from('fiscal_deadlines')
         .update({ status: 'cancelled' })
