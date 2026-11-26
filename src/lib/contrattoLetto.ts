@@ -46,6 +46,10 @@ export interface ContrattoLetto {
 
 /** I campi della scheda che un documento del rapporto governa. */
 export interface SchedaContratto {
+  nome?: string | null;
+  cognome?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
   codice_fiscale?: string | null;
   fiscal_code?: string | null;
   contratto_tipo?: string | null;
@@ -169,6 +173,20 @@ export function normalizzaLettura(raw: unknown): ContrattoLetto {
 
 // ── Confronto ────────────────────────────────────────────────────────────────
 
+const parole = (v: string | null | undefined) => String(v ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toUpperCase().replace(/[^A-Z]+/g, ' ').trim().split(' ').filter((p) => p.length >= 2);
+
+/** Il nominativo letto è di questa persona? true / false; null se manca il nominativo o il cognome della scheda. */
+export function nominativoTorna(nominativo: string | null, cognome: string | null | undefined, nome: string | null | undefined): boolean | null {
+  const n = new Set(parole(nominativo));
+  const c = parole(cognome);
+  if (!n.size || !c.length) return null;
+  if (!c.every((p) => n.has(p))) return false;
+  const pn = parole(nome);
+  // Il nome, se c'è, deve esserci almeno in parte (secondo nome assente nel documento).
+  return !pn.length || pn.some((p) => n.has(p));
+}
+
 const fmtData = (d: string | null | undefined) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '—');
 const fmtOre = (n: number | null) => (n == null ? '—' : `${String(Math.round(n * 100) / 100).replace('.', ',')} ore`);
 const numDb = (v: number | string | null | undefined) => (v == null || v === '' ? null : Number(v));
@@ -207,6 +225,15 @@ export function confrontaContratto(s: SchedaContratto, l: ContrattoLetto, oggi: 
   if (l.codiceFiscale && cfScheda && l.codiceFiscale !== cfScheda) {
     return { stato: 'altra_persona', testo: `Il codice fiscale del documento (${l.codiceFiscale}) non è quello della scheda: non ho cambiato niente. Controlla che il documento sia di questa persona.` };
   }
+  // Il documento è di questa persona? Codice fiscale uguale, oppure cognome nel nominativo.
+  // Un nominativo che non contiene il cognome ferma tutto; senza nessuno dei due
+  // (né codice fiscale né nominativo) non si scrive niente da solo: tutto va confermato.
+  const cfUguale = !!l.codiceFiscale && !!cfScheda && l.codiceFiscale === cfScheda;
+  const nomeTorna = nominativoTorna(l.nominativo, s.cognome || s.last_name, s.nome || s.first_name);
+  if (!cfUguale && nomeTorna === false) {
+    return { stato: 'altra_persona', testo: `Il documento è intestato a ${l.nominativo}, non a questa persona: non ho cambiato niente. Controlla di averlo caricato nella scheda giusta.` };
+  }
+  const identitaCerta = cfUguale || nomeTorna === true;
   const mia = dataEffettiva(l);
   const piuNuova = altreDate.filter((d): d is string => !!d).sort().pop() ?? null;
   if (mia && piuNuova && piuNuova > mia) {
@@ -218,8 +245,11 @@ export function confrontaContratto(s: SchedaContratto, l: ContrattoLetto, oggi: 
   const t = l.tipoDocumento;
   const futuro = !!l.decorrenza && l.decorrenza > oggi && (t === 'trasformazione' || t === 'modifica_orario');
 
+  // Codice fiscale e cessazione chiedono sempre la conferma: un errore lì blocca le letture
+  // dopo o toglie la persona da organico e turni (revisore sicurezza, 26/11/2026).
+  const SEMPRE_CONFERMA = new Set(['codice_fiscale', 'data_cessazione']);
   const aggiungi = (c: Omit<CampoContratto, 'riempimento'>, vuoto: boolean, rinvia = false) => {
-    const campo = { ...c, riempimento: vuoto };
+    const campo = { ...c, riempimento: vuoto && identitaCerta && !SEMPRE_CONFERMA.has(c.campo) };
     (rinvia && !vuoto ? rinviati : campi).push(campo);
   };
 
@@ -232,9 +262,11 @@ export function confrontaContratto(s: SchedaContratto, l: ContrattoLetto, oggi: 
   if (l.contrattoTipo && (t === 'assunzione' || t === 'trasformazione' || t === 'proroga')) {
     const prima = s.contratto_tipo || null;
     if (prima !== l.contrattoTipo && prima !== 'amministratore') {
-      const valori: Record<string, string | null> = { contratto_tipo: l.contrattoTipo };
-      if (l.contrattoTipo === 'indeterminato') valori.scadenza_td = null;
-      aggiungi({ campo: 'contratto_tipo', label: 'Contratto', prima: fmtTipo(prima), dopo: fmtTipo(l.contrattoTipo), valori }, !prima, futuro);
+      aggiungi({ campo: 'contratto_tipo', label: 'Contratto', prima: fmtTipo(prima), dopo: fmtTipo(l.contrattoTipo), valori: { contratto_tipo: l.contrattoTipo } }, !prima, futuro);
+    }
+    // Passata a indeterminato: la scadenza si toglie, ma si mostra e si conferma a parte.
+    if (l.contrattoTipo === 'indeterminato' && s.scadenza_td && prima !== 'amministratore') {
+      aggiungi({ campo: 'scadenza_td', label: 'Scadenza', prima: fmtData(s.scadenza_td), dopo: 'nessuna (indeterminato)', valori: { scadenza_td: null } }, false, futuro);
     }
   }
 

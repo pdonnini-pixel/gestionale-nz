@@ -31,7 +31,7 @@ export interface LetturaSalvata {
 
 type Riga = { id: string; employee_id: string; doc_type: string | null; file_name: string | null; extracted_data: unknown };
 
-const COLONNE_SCHEDA = 'id, note, codice_fiscale, fiscal_code, contratto_tipo, data_assunzione, hire_date, scadenza_td, ore_settimanali, part_time_pct, livello, level, qualifica, role_description, data_cessazione, termination_date';
+const COLONNE_SCHEDA = 'id, note, nome, cognome, first_name, last_name, codice_fiscale, fiscal_code, contratto_tipo, data_assunzione, hire_date, scadenza_td, ore_settimanali, part_time_pct, livello, level, qualifica, role_description, data_cessazione, termination_date';
 
 const info = (x: unknown): Record<string, unknown> => (x && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : {});
 
@@ -133,7 +133,16 @@ export async function confermaLettura(documentId: string, oggi: string): Promise
   const { data: sch, error: sErr } = await supabase.from('employees').select(COLONNE_SCHEDA).eq('id', riga.employee_id).single();
   if (sErr || !sch) throw new LetturaContrattoError('Non riesco a leggere la scheda del dipendente.');
   const scheda = sch as SchedaContratto & { id: string; note: string | null };
-  const adesso = confrontaContratto(scheda, l.dati, oggi);
+  // Anche gli altri documenti di adesso: se nel frattempo ne è arrivato uno più
+  // recente, questo non deve più sovrascrivere la scheda (revisore codice, 26/11/2026).
+  const { data: altri } = await supabase.from('employee_documents')
+    .select('id, employee_id, doc_type, file_name, extracted_data').eq('employee_id', riga.employee_id).neq('id', documentId);
+  const altreDate = ((altri as Riga[]) ?? []).filter((r) => TIPI_DA_LEGGERE.has(r.doc_type || '')).map(dataDelDocumento);
+  const adesso = confrontaContratto(scheda, l.dati, oggi, altreDate);
+  if (adesso.stato === 'storico' || adesso.stato === 'altra_persona') {
+    await salvaLettura(riga, { ...l, stato: adesso.stato, testo: adesso.testo, da_confermare: [] });
+    throw new LetturaContrattoError(adesso.testo);
+  }
   const ancora = adesso.stato === 'da_scrivere' ? [...adesso.riempimenti, ...adesso.sostituzioni] : [];
   const chiavi = new Set(l.da_confermare.map((c) => `${c.campo}|${c.dopo}`));
   const daScrivere = ancora.filter((c) => chiavi.has(`${c.campo}|${c.dopo}`));

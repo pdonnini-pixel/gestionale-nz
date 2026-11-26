@@ -647,7 +647,7 @@ const oggiRoma = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome
 function rigaLettura(l: LetturaSalvata): string {
   if (l.stato === 'scritta' || l.stato === 'confermata') return `letto: ${l.scritti.map((c) => `${c.label.toLowerCase()} ${c.dopo}`).join(', ')} scritti sulla scheda`;
   if (l.stato === 'da_confermare') return `letto: ${l.da_confermare.length === 1 ? 'una differenza' : `${l.da_confermare.length} differenze`} con la scheda da confermare`;
-  return `letto: ${l.testo.charAt(0).toLowerCase()}${l.testo.slice(1)}`;
+  return l.testo.charAt(0).toLowerCase() + l.testo.slice(1);
 }
 
 // Riquadro della lettura sotto il documento: cosa dice e, se serve, la conferma.
@@ -663,6 +663,9 @@ function LetturaDocumento({ l, busy, onConferma, onRileggi }: { l: LetturaSalvat
       )}
       {l.scritti.length > 0 && l.stato !== 'da_confermare' && (
         <div className="mt-0.5 text-slate-500">Scritti sulla scheda: {l.scritti.map((c) => `${c.label.toLowerCase()} ${c.dopo}`).join(', ')}.</div>
+      )}
+      {l.rinviati.length > 0 && l.stato !== 'allineata' && (
+        <div className="mt-0.5 text-slate-500">Dal {l.decorrenza ? l.decorrenza.split('-').reverse().join('/') : '—'} cambia anche: {l.rinviati.map((c) => `${c.label.toLowerCase()} ${c.dopo}`).join(', ')} (non ancora scritto sulla scheda).</div>
       )}
       <div className="mt-1 flex flex-wrap gap-2">
         {l.stato === 'da_confermare' && (
@@ -744,6 +747,8 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
       let saltati = 0;
       let errori = problemi.length;
       let daConfermare = 0;
+      let daControllare = 0;
+      let rinviati = 0;
       let lettureFallite = 0;
       let schedaToccata = false;
       // Uno alla volta, ciascuno fino in fondo.
@@ -778,6 +783,8 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
             try {
               const l = await leggiDocumentoRapporto(nuovo.id, oggiRoma());
               if (l.stato === 'da_confermare') daConfermare++;
+              if (l.stato === 'altra_persona' || l.stato === 'non_rapporto') daControllare++;
+              if (l.rinviati.length) rinviati++;
               if (l.scritti.length) schedaToccata = true;
               aggiorna(i, { testo: `${archiviato} · ${rigaLettura(l)}` });
             } catch (err) {
@@ -792,12 +799,13 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
       }
       if (!files.length && !problemi.length) {
         setChiusura({ ok: false, testo: 'Nel file scelto non c\'era nessun PDF o immagine da archiviare.' });
-      } else if (errori === 0 && daConfermare === 0 && lettureFallite === 0) {
-        setChiusura({ ok: true, testo: `Finito, tutti i documenti sono archiviati${archiviati ? ` (${archiviati} nuovi` : ' ('}${saltati ? `${archiviati ? ', ' : ''}${saltati} già presenti` : ''})${schedaToccata ? ' e la scheda è aggiornata' : ''}.` });
+      } else if (errori === 0 && daConfermare === 0 && lettureFallite === 0 && daControllare === 0) {
+        setChiusura({ ok: true, testo: `Finito, tutti i documenti sono archiviati${archiviati ? ` (${archiviati} nuovi` : ' ('}${saltati ? `${archiviati ? ', ' : ''}${saltati} già presenti` : ''})${schedaToccata ? ' e la scheda è aggiornata' : ''}.${rinviati ? ' Alcuni cambi valgono da una data futura: la scheda li riceverà allora, vedi sotto il documento.' : ''}` });
       } else if (errori === 0) {
         const resta = [
           daConfermare ? `${daConfermare === 1 ? 'un documento cambia' : `${daConfermare} documenti cambiano`} dati già scritti sulla scheda: guarda le differenze sotto il documento e premi «Allinea la scheda»` : '',
           lettureFallite ? `${lettureFallite === 1 ? 'un documento non si è letto' : `${lettureFallite} documenti non si sono letti`}: riprova con «Leggi»` : '',
+          daControllare ? `${daControllare === 1 ? 'un documento non sembra' : `${daControllare} documenti non sembrano`} di questa persona o del suo rapporto: controlla cosa dice sotto il documento` : '',
         ].filter(Boolean).join('; ');
         setChiusura({ ok: false, testo: `Archiviati ${archiviati}. Resta da fare: ${resta}.` });
       } else {

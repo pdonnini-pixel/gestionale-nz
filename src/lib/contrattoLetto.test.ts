@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizzaLettura, confrontaContratto, livelloScheda, qualificaScheda, valoriDaScrivere, notaContratto, valoriOre, dataEffettiva, type SchedaContratto } from './contrattoLetto';
+import { normalizzaLettura, confrontaContratto, nominativoTorna, livelloScheda, qualificaScheda, valoriDaScrivere, notaContratto, valoriOre, dataEffettiva, type SchedaContratto } from './contrattoLetto';
 
 const OGGI = '2026-11-26';
 
@@ -12,6 +12,7 @@ const LETTERA = {
 };
 
 const SCHEDA: SchedaContratto = {
+  nome: 'MARIA', cognome: 'ROSSI',
   codice_fiscale: 'RSSMRA98L63F656N', contratto_tipo: 'determinato', data_assunzione: '2026-11-27', hire_date: '2026-11-27',
   scadenza_td: '2027-02-26', ore_settimanali: 30, part_time_pct: 75, livello: '4 Livello', qualifica: 'Impiegato', role_description: 'Commessa di negozio',
 };
@@ -59,9 +60,9 @@ describe('confrontaContratto', () => {
     const e = confrontaContratto({ ...SCHEDA, codice_fiscale: null, role_description: null, scadenza_td: '2027-01-31', ore_settimanali: 24, part_time_pct: 60 }, normalizzaLettura(LETTERA), OGGI);
     expect(e.stato).toBe('da_scrivere');
     if (e.stato !== 'da_scrivere') return;
-    expect(e.riempimenti.map((c) => c.campo).sort()).toEqual(['codice_fiscale', 'role_description']);
-    expect(e.sostituzioni.map((c) => c.campo).sort()).toEqual(['ore_settimanali', 'scadenza_td']);
-    expect(valoriDaScrivere(e.sostituzioni)).toEqual({ scadenza_td: '2027-02-26', ore_settimanali: 30, part_time_pct: 75 });
+    expect(e.riempimenti.map((c) => c.campo)).toEqual(['role_description']);
+    expect(e.sostituzioni.map((c) => c.campo).sort()).toEqual(['codice_fiscale', 'ore_settimanali', 'scadenza_td']);
+    expect(valoriDaScrivere(e.sostituzioni.filter((c) => c.campo !== 'codice_fiscale'))).toEqual({ scadenza_td: '2027-02-26', ore_settimanali: 30, part_time_pct: 75 });
     expect(e.riempimenti.find((c) => c.campo === 'role_description')?.dopo).toBe('Commessa di negozio');
   });
 
@@ -90,6 +91,7 @@ describe('confrontaContratto', () => {
   it('trasformazione in indeterminato toglie la scadenza', () => {
     const e = confrontaContratto(SCHEDA, normalizzaLettura({ eRapporto: true, tipoDocumento: 'trasformazione', dataDocumento: '2026-11-20', decorrenza: '2026-11-25', contrattoTipo: 'indeterminato' }), OGGI);
     if (e.stato !== 'da_scrivere') throw new Error(e.stato);
+    expect(e.sostituzioni.map((c) => c.campo)).toEqual(['contratto_tipo', 'scadenza_td']);
     expect(valoriDaScrivere(e.sostituzioni)).toEqual({ contratto_tipo: 'indeterminato', scadenza_td: null });
   });
 
@@ -106,14 +108,46 @@ describe('confrontaContratto', () => {
     expect(e.stato).toBe('allineata');
   });
 
-  it('cessazione: scrive la data di fine, non le ore', () => {
+  it('cessazione: propone la data di fine, non le ore', () => {
     const e = confrontaContratto(SCHEDA, normalizzaLettura({ eRapporto: true, tipoDocumento: 'cessazione', dataDocumento: '2026-11-20', dataCessazione: '2026-12-15', oreSettimanali: 30 }), OGGI);
     if (e.stato !== 'da_scrivere') throw new Error(e.stato);
-    expect(valoriDaScrivere(e.riempimenti)).toEqual({ data_cessazione: '2026-12-15', termination_date: '2026-12-15' });
+    expect(valoriDaScrivere(e.sostituzioni)).toEqual({ data_cessazione: '2026-12-15', termination_date: '2026-12-15' });
   });
 
   it('documento che non è del rapporto', () => {
     expect(confrontaContratto(SCHEDA, normalizzaLettura({ eRapporto: false }), OGGI).stato).toBe('non_rapporto');
+  });
+});
+
+describe('identità della persona (revisore sicurezza)', () => {
+  it('scheda senza codice fiscale e documento di un\'altra persona: non tocca niente', () => {
+    const e = confrontaContratto({ ...SCHEDA, codice_fiscale: null, role_description: null }, normalizzaLettura({ ...LETTERA, nominativo: 'BIANCHI LAURA', codiceFiscale: 'BNCLRA90A41H501X' }), OGGI);
+    expect(e.stato).toBe('altra_persona');
+  });
+  it('codice fiscale vuoto in scheda: si propone ma va confermato', () => {
+    const e = confrontaContratto({ ...SCHEDA, codice_fiscale: null }, normalizzaLettura(LETTERA), OGGI);
+    if (e.stato !== 'da_scrivere') throw new Error(e.stato);
+    expect(e.riempimenti).toEqual([]);
+    expect(e.sostituzioni.map((c) => c.campo)).toEqual(['codice_fiscale']);
+  });
+  it('cessazione su scheda senza data: va confermata', () => {
+    const e = confrontaContratto(SCHEDA, normalizzaLettura({ eRapporto: true, tipoDocumento: 'cessazione', nominativo: 'Rossi Maria', dataCessazione: '2026-12-15' }), OGGI);
+    if (e.stato !== 'da_scrivere') throw new Error(e.stato);
+    expect(e.riempimenti).toEqual([]);
+    expect(e.sostituzioni.map((c) => c.campo)).toEqual(['data_cessazione']);
+  });
+  it('senza codice fiscale né nominativo: niente si scrive da solo', () => {
+    const e = confrontaContratto({ ...SCHEDA, role_description: null }, normalizzaLettura({ ...LETTERA, codiceFiscale: null, nominativo: null }), OGGI);
+    if (e.stato !== 'da_scrivere') throw new Error(e.stato);
+    expect(e.riempimenti).toEqual([]);
+    expect(e.sostituzioni.map((c) => c.campo)).toEqual(['role_description']);
+  });
+  it('nominativo: cognome obbligatorio, nome almeno in parte, accenti e ordine non contano', () => {
+    expect(nominativoTorna('Maria Rossi', 'ROSSI', 'MARIA')).toBe(true);
+    expect(nominativoTorna('ROSSI MARIA', 'Rossi', 'Maria Chiara')).toBe(true);
+    expect(nominativoTorna('DE LUCA ANNA', 'De Luca', 'Anna')).toBe(true);
+    expect(nominativoTorna('ROSSI GIULIA', 'ROSSI', 'MARIA')).toBe(false);
+    expect(nominativoTorna(null, 'ROSSI', 'MARIA')).toBeNull();
   });
 });
 
