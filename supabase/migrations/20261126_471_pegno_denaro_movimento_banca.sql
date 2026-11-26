@@ -1,4 +1,4 @@
--- 468 · Il pegno in denaro e' un movimento della banca, non un pagamento a fornitore
+-- 471 · Il pegno in denaro e' un movimento della banca, non un pagamento a fornitore
 --
 -- Il 28/10/2026 MPS ha addebitato 44.100,00 con la causale «DISPOSIZIONE PEGNO
 -- DENARO»: e' la somma vincolata a garanzia della fideiussione n. 7017101 a favore
@@ -7,6 +7,8 @@
 -- movimento a una fattura. Si aggiunge «PEGNO DENARO», come in BANK_OWN_MOVEMENT_RE
 -- (src/lib/reconcileMatch.ts). Solo la regex cambia, nessun dato toccato.
 -- Tenant: NZ e Zago (Made escluso dal 03/11/2026). Rollback in _ROLLBACK.sql
+-- Nota: sui due database e' registrata con il nome 20261126_468_pegno_denaro_movimento_banca
+-- (applicata prima di vedere che 468, 469 e 470 erano gia' presi su main).
 
 CREATE OR REPLACE FUNCTION public.fn_bank_own_movement(p_descr text)
  RETURNS boolean LANGUAGE sql IMMUTABLE

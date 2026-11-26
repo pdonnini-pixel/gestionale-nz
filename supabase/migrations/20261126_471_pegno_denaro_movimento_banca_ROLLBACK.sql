@@ -1,4 +1,4 @@
--- Rollback 468: torna la regex senza «PEGNO DENARO» (come la 213).
+-- Rollback 471: torna la regex senza «PEGNO DENARO» (come la 213).
 CREATE OR REPLACE FUNCTION public.fn_bank_own_movement(p_descr text)
  RETURNS boolean LANGUAGE sql IMMUTABLE
  SET search_path TO 'public', 'pg_temp'
