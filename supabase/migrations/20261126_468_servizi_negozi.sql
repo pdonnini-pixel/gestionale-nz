@@ -80,6 +80,8 @@ BEGIN
     EXECUTE format('CREATE POLICY solo_con_profilo ON public.%I AS RESTRICTIVE FOR ALL TO authenticated USING ((SELECT public.get_my_role()) IS NOT NULL) WITH CHECK ((SELECT public.get_my_role()) IS NOT NULL)', t);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO authenticated', t);
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON public.%I TO service_role', t);
+    -- i permessi di default del progetto danno qualcosa anche ad anon: si toglie (come la 464b)
+    EXECUTE format('REVOKE ALL ON public.%I FROM anon', t);
   END LOOP;
 END $$;
 
