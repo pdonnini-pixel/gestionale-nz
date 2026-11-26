@@ -37,6 +37,8 @@ import { possoGestireDivise } from '../lib/diviseDb';
 import DiviseAcquistiPersona from '../components/DiviseAcquistiPersona';
 import { DOC_RAPPORTO_OPTS, docRapportoLabel, dataDelGruppo, riconosciDocumento } from '../lib/documentiRapporto';
 import { espandiZip } from '../lib/zipFiles';
+import { TIPI_DA_LEGGERE } from '../lib/contrattoLetto';
+import { leggiDocumentoRapporto, confermaLettura, letturaDi, type LetturaSalvata } from '../lib/contrattoLettoDb';
 
 type Employee = Row<'employees'>;
 type EmployeeCost = Row<'employee_costs'>;
@@ -329,7 +331,7 @@ export default function SchedaDipendente() {
 
       {sezione === 'documenti' && (
         <section className="bg-white border border-slate-200 rounded-xl p-4">
-          <DocumentiRapporto employeeId={emp.id} companyId={companyId} cognome={emp.cognome || emp.last_name || null} docs={docs} puoCaricare={!solaLettura} onChanged={async () => { await caricaPersona(emp.id); }} />
+          <DocumentiRapporto employeeId={emp.id} companyId={companyId} cognome={emp.cognome || emp.last_name || null} docs={docs} puoCaricare={!solaLettura} puoLeggere={puoAnagrafica} onChanged={async () => { await caricaPersona(emp.id); }} onSchedaCambiata={caricaTutto} />
         </section>
       )}
 
@@ -639,7 +641,40 @@ function FeriePersona({ saldi, richieste, onVai }: { saldi: Saldo[] | null; rich
 // volta, e alla fine un riquadro dice che è finito (regola fissa dei caricamenti).
 type EsitoDoc = { nome: string; stato: 'attesa' | 'ok' | 'gia' | 'errore'; testo?: string };
 
-function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, onChanged }: { employeeId: string; companyId: string; cognome: string | null; docs: EmployeeDocument[]; puoCaricare: boolean; onChanged: () => Promise<void> }) {
+const oggiRoma = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome' }).format(new Date());
+
+/** Esito della lettura di un documento, in una riga (accanto al file appena caricato). */
+function rigaLettura(l: LetturaSalvata): string {
+  if (l.stato === 'scritta' || l.stato === 'confermata') return `letto: ${l.scritti.map((c) => `${c.label.toLowerCase()} ${c.dopo}`).join(', ')} scritti sulla scheda`;
+  if (l.stato === 'da_confermare') return `letto: ${l.da_confermare.length === 1 ? 'una differenza' : `${l.da_confermare.length} differenze`} con la scheda da confermare`;
+  return `letto: ${l.testo.charAt(0).toLowerCase()}${l.testo.slice(1)}`;
+}
+
+// Riquadro della lettura sotto il documento: cosa dice e, se serve, la conferma.
+function LetturaDocumento({ l, busy, onConferma, onRileggi }: { l: LetturaSalvata; busy: boolean; onConferma: () => void; onRileggi: () => void }) {
+  const tono = l.stato === 'da_confermare' || l.stato === 'altra_persona' ? 'border-amber-200 bg-amber-50 text-amber-900' : 'border-slate-200 bg-slate-50 text-slate-600';
+  return (
+    <div className={`mt-1 rounded-lg border px-2 py-1.5 text-xs ${tono}`}>
+      <div>{l.testo}</div>
+      {l.stato === 'da_confermare' && (
+        <ul className="mt-1 space-y-0.5">
+          {l.da_confermare.map((c) => <li key={c.campo}><b>{c.label}</b>: {c.prima} → <b>{c.dopo}</b></li>)}
+        </ul>
+      )}
+      {l.scritti.length > 0 && l.stato !== 'da_confermare' && (
+        <div className="mt-0.5 text-slate-500">Scritti sulla scheda: {l.scritti.map((c) => `${c.label.toLowerCase()} ${c.dopo}`).join(', ')}.</div>
+      )}
+      <div className="mt-1 flex flex-wrap gap-2">
+        {l.stato === 'da_confermare' && (
+          <button type="button" disabled={busy} onClick={onConferma} className="px-2 py-1 rounded bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-60">Allinea la scheda</button>
+        )}
+        <button type="button" disabled={busy} onClick={onRileggi} className="px-2 py-1 rounded border border-slate-300 text-slate-600 hover:bg-white disabled:opacity-60">Rileggi</button>
+      </div>
+    </div>
+  );
+}
+
+function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, puoLeggere, onChanged, onSchedaCambiata }: { employeeId: string; companyId: string; cognome: string | null; docs: EmployeeDocument[]; puoCaricare: boolean; puoLeggere: boolean; onChanged: () => Promise<void>; onSchedaCambiata: () => Promise<void> }) {
   const { toast } = useToast();
   const [tipo, setTipo] = useState('auto');
   const [data, setData] = useState('');
@@ -649,6 +684,7 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
   const [esiti, setEsiti] = useState<EsitoDoc[]>([]);
   const [chiusura, setChiusura] = useState<{ ok: boolean; testo: string } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [leggendo, setLeggendo] = useState<string | null>(null);
   const ordinati = [...docs].sort((a, b) => docDate(b).localeCompare(docDate(a)));
 
   const apri = async (d: EmployeeDocument) => {
@@ -665,9 +701,25 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
     if (w) w.location.href = url; else window.open(url, '_blank');
   };
 
+  // Lettura o conferma su un documento già archiviato (pulsanti sotto il documento).
+  const suDocumento = async (id: string, azione: 'leggi' | 'conferma') => {
+    if (busy || leggendo) return;
+    setLeggendo(id);
+    try {
+      const l = azione === 'leggi' ? await leggiDocumentoRapporto(id, oggiRoma()) : await confermaLettura(id, oggiRoma());
+      toast({ type: l.stato === 'da_confermare' || l.stato === 'altra_persona' ? 'info' : 'success', message: l.testo });
+      if (l.scritti.length) await onSchedaCambiata();
+    } catch (err) {
+      toast({ type: 'error', message: (err as Error)?.message || 'Lettura non riuscita' });
+    } finally {
+      setLeggendo(null);
+      await onChanged();
+    }
+  };
+
   const carica = async (scelti: File[]) => {
     if (!scelti.length) return;
-    if (busy) { toast({ type: 'error', message: 'Aspetta che finisca il caricamento in corso, poi trascina di nuovo questi file.' }); return; }
+    if (busy || leggendo) { toast({ type: 'error', message: 'Aspetta che finisca il caricamento in corso, poi trascina di nuovo questi file.' }); return; }
     setBusy(true);
     setChiusura(null);
     try {
@@ -691,6 +743,9 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
       let archiviati = 0;
       let saltati = 0;
       let errori = problemi.length;
+      let daConfermare = 0;
+      let lettureFallite = 0;
+      let schedaToccata = false;
       // Uno alla volta, ciascuno fino in fondo.
       for (let i = 0; i < files.length; i++) {
         const file = files[i].file;
@@ -703,18 +758,33 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
           const { error: upErr } = await supabase.storage.from('employee-documents').upload(path, file, { contentType: MIME[ext] || 'application/pdf' });
           if (upErr) throw upErr;
           const [y, m] = r.data.split('-').map(Number);
-          const { error } = await supabase.from('employee_documents').insert([{
+          const { data: nuovo, error } = await supabase.from('employee_documents').insert([{
             employee_id: employeeId, company_id: companyId, doc_type: r.tipo, year: y, month: m,
             file_name: file.name, file_path: path, file_size: file.size, status: 'archiviato',
             extracted_data: { data_documento: r.data, descrizione: r.descrizione || null, data_da: r.dataDa },
-          }]);
+          }]).select('id').single();
           if (error) {
             await supabase.storage.from('employee-documents').remove([path]);
             throw error;
           }
           gia.add(chiave(file.name, file.size));
           archiviati++;
-          aggiorna(i, { stato: 'ok', testo: `${docRapportoLabel(r.tipo)} · ${new Date(r.data).toLocaleDateString('it-IT')}${r.dataDa === 'oggi' ? ' (data di oggi: il nome non la diceva)' : ''}` });
+          const archiviato = `${docRapportoLabel(r.tipo)} · ${new Date(r.data).toLocaleDateString('it-IT')}${r.dataDa === 'oggi' ? ' (data di oggi: il nome non la diceva)' : ''}`;
+          aggiorna(i, { stato: 'ok', testo: archiviato });
+          // I documenti del rapporto si leggono subito e si confrontano con la scheda
+          // (regola «documenti dello studio paghe = dato vero»).
+          if (puoLeggere && nuovo?.id && TIPI_DA_LEGGERE.has(r.tipo)) {
+            aggiorna(i, { testo: `${archiviato} · lo sto leggendo…` });
+            try {
+              const l = await leggiDocumentoRapporto(nuovo.id, oggiRoma());
+              if (l.stato === 'da_confermare') daConfermare++;
+              if (l.scritti.length) schedaToccata = true;
+              aggiorna(i, { testo: `${archiviato} · ${rigaLettura(l)}` });
+            } catch (err) {
+              lettureFallite++;
+              aggiorna(i, { testo: `${archiviato} · archiviato, ma non sono riuscito a leggerlo (${(err as Error)?.message || 'errore'}): riprova con «Leggi» sotto il documento` });
+            }
+          }
         } catch (err) {
           errori++;
           aggiorna(i, { stato: 'errore', testo: (err as Error)?.message || 'errore' });
@@ -722,13 +792,20 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
       }
       if (!files.length && !problemi.length) {
         setChiusura({ ok: false, testo: 'Nel file scelto non c\'era nessun PDF o immagine da archiviare.' });
+      } else if (errori === 0 && daConfermare === 0 && lettureFallite === 0) {
+        setChiusura({ ok: true, testo: `Finito, tutti i documenti sono archiviati${archiviati ? ` (${archiviati} nuovi` : ' ('}${saltati ? `${archiviati ? ', ' : ''}${saltati} già presenti` : ''})${schedaToccata ? ' e la scheda è aggiornata' : ''}.` });
       } else if (errori === 0) {
-        setChiusura({ ok: true, testo: `Finito, tutti i documenti sono archiviati${archiviati ? ` (${archiviati} nuovi` : ' ('}${saltati ? `${archiviati ? ', ' : ''}${saltati} già presenti` : ''}).` });
+        const resta = [
+          daConfermare ? `${daConfermare === 1 ? 'un documento cambia' : `${daConfermare} documenti cambiano`} dati già scritti sulla scheda: guarda le differenze sotto il documento e premi «Allinea la scheda»` : '',
+          lettureFallite ? `${lettureFallite === 1 ? 'un documento non si è letto' : `${lettureFallite} documenti non si sono letti`}: riprova con «Leggi»` : '',
+        ].filter(Boolean).join('; ');
+        setChiusura({ ok: false, testo: `Archiviati ${archiviati}. Resta da fare: ${resta}.` });
       } else {
         setChiusura({ ok: false, testo: `Finito con ${errori} ${errori === 1 ? 'file non archiviato' : 'file non archiviati'}: vedi le righe in rosso e riprova solo quelli. ${archiviati} archiviati.` });
       }
       setDescr(''); setData('');
       if (archiviati) await onChanged();
+      if (schedaToccata) await onSchedaCambiata();
     } catch (err) {
       setChiusura({ ok: false, testo: 'Caricamento non riuscito: ' + ((err as Error)?.message || '') });
     } finally {
@@ -756,6 +833,12 @@ function DocumentiRapporto({ employeeId, companyId, cognome, docs, puoCaricare, 
                   <div className="font-medium text-slate-700">{docRapportoLabel(d.doc_type)} <span className="text-slate-400 font-normal tabular-nums">· {dd ? new Date(dd).toLocaleDateString('it-IT') : '—'}</span></div>
                   {info.descrizione ? <div className="text-xs text-slate-500">{String(info.descrizione)}</div> : null}
                   <div className="text-[11px] text-slate-400 truncate">{d.file_name}</div>
+                  {puoLeggere && TIPI_DA_LEGGERE.has(d.doc_type || '') && d.file_path && (() => {
+                    const l = letturaDi(d.extracted_data);
+                    if (leggendo === d.id) return <div className="mt-1 text-xs text-slate-500">Lo sto leggendo…</div>;
+                    if (!l) return <button type="button" disabled={busy || !!leggendo} onClick={() => void suDocumento(d.id, 'leggi')} className="mt-1 text-xs font-medium text-blue-600 hover:underline disabled:opacity-60">Leggi e confronta con la scheda</button>;
+                    return <LetturaDocumento l={l} busy={busy || !!leggendo} onConferma={() => void suDocumento(d.id, 'conferma')} onRileggi={() => void suDocumento(d.id, 'leggi')} />;
+                  })()}
                 </div>
                 {d.file_path && (
                   <button type="button" onClick={() => apri(d)} className="shrink-0 p-1.5 rounded text-slate-400 hover:text-blue-600 hover:bg-blue-50" title="Apri il documento" aria-label={`Apri ${d.file_name ?? 'il documento'}`}><Eye size={15} /></button>

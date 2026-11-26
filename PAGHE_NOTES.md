@@ -127,6 +127,18 @@ arriva una sola delega che fa la cifra al centesimo, `fn_payroll_sync` chiude la
 Vale dai Prospetti caricati dopo il 05/10/2026: i Prospetti già in archivio non hanno le voci
 salvate (non si rielaborano i dati vecchi). Ricaricando un Prospetto vecchio le voci arrivano.
 
+## D. Documenti del rapporto letti dal gestionale (26/11/2026)
+
+Nata da Patrizio il 26/11/2026: caricato il contratto firmato di una dipendente di Zago, il riquadro «Documenti del rapporto» della scheda lo archiviava senza leggerlo, e l'allineamento della scheda restava a mano.
+
+- **Quali documenti**: i tipi `contratto`, `impegnativa`, `proroga`, `trasformazione`, `modifica_orario`, `cessazione` (`TIPI_DA_LEGGERE`). Moduli fiscali e informative no.
+- **Chi legge**: l'edge function `contratto-leggi` (NZ e Zago), solo per `super_advisor` e `contabile` (gli stessi di `employees_write`). Riceve solo l'id del documento, controlla che sia dell'azienda di chi chiama, scarica il file dallo storage e lo manda intero al modello (i pacchetti dello studio sono spesso scansioni senza testo, fino a 15 MB). Non scrive niente.
+- **Confronto** (`src/lib/contrattoLetto.ts`, testato): tipo di contratto, assunzione, scadenza, ore (part time = ore/40, null = full time come l'elenco dello studio), livello («4 Livello»), qualifica («Impiegato»), mansione (solo se la scheda è vuota), codice fiscale (solo se vuoto), data di cessazione.
+- **Cosa si scrive da solo e cosa si conferma**: un campo vuoto si scrive da sé; un valore diverso aspetta «Allinea la scheda» (regola dei caricamenti: si chiede solo quando si sostituisce un dato). Ogni scrittura lascia una nota datata in `employees.note` con il nome del file.
+- **Quando non si tocca niente**: codice fiscale diverso da quello della scheda; documento più vecchio di un altro già archiviato (data effettiva = la più recente fra data del documento e decorrenza); trasformazione o modifica d'orario che vale da una data futura (si dice, non si scrive: cambierebbe turni e organico prima del tempo); documento che non è del rapporto.
+- **Traccia**: l'esito resta in `employee_documents.extracted_data.lettura` (letta il, dati letti, campi scritti, differenze da confermare, cambi rinviati). Nessuna colonna nuova, nessuna migration.
+- La conferma rilegge la scheda: se è cambiata dopo la lettura non scrive e chiede «Rileggi».
+
 ## Domande in chat (R28)
 
 Nel riquadro «Da chiarire» di Banche → Documenti banca, solo se servono a un pagamento vero e
