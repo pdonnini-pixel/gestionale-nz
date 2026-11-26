@@ -621,7 +621,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                   </select>
                 </Riga>
                 <Riga etichetta="Referente e vice referente: una apre, l’altra chiude, a turno"><Interruttore acceso={regole.caldiGuidaApreChiude ?? false} disabled={!puoScrivere} etichetta="Referente e vice referente: apertura e chiusura a turno" onCambia={(v) => setRegole((r) => ({ ...r, caldiGuidaApreChiude: v }))} /></Riga>
-                <Riga etichetta={ha474 && regole.caldiOreAperturaAttiva === false ? 'Chi apre resta un numero fisso di ore (spenta: entra all’apertura, la durata la decide il piano)' : 'Chi apre resta (ore)'}>
+                <Riga etichetta={ha474 && regole.caldiOreAperturaAttiva === false ? 'Chi apre resta un numero fisso di ore' : 'Chi apre resta (ore)'}>
                   <div className="flex items-center gap-3">
                     {ha474 && <Interruttore acceso={regole.caldiOreAperturaAttiva !== false} disabled={!puoScrivere} etichetta="Chi apre resta un numero fisso di ore" onCambia={(v) => setRegole((r) => ({ ...r, caldiOreAperturaAttiva: v }))} />}
                     {(!ha474 || regole.caldiOreAperturaAttiva !== false) && (
