@@ -611,8 +611,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         const nuovaEmail = form.email.trim().toLowerCase()
         const emailPrima = ((users.find(x => x.id === editingId)?.email as string) || '').toLowerCase()
         if (nuovaEmail !== emailPrima && !/^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$/i.test(nuovaEmail)) { showToast?.('L\'email non è valida', 'error'); return }
-        await callAdmin('set_role', { user_id: editingId, role: form.ruolo, ...outletPayload })
+        if (nuovaEmail !== emailPrima && !window.confirm(`L'utente entrerà con ${nuovaEmail} (al posto di ${emailPrima}). Controlla che l'indirizzo sia giusto: le email di accesso e di recupero andranno lì. Confermi?`)) return
         if (nuovaEmail !== emailPrima) await callAdmin('set_email', { user_id: editingId, email: nuovaEmail })
+        await callAdmin('set_role', { user_id: editingId, role: form.ruolo, ...outletPayload })
         const prima = (users.find(x => x.id === editingId)?.email_cc as string) || ''
         if (cc !== prima) await callAdmin('set_cc', { user_id: editingId, email_cc: cc })
         showToast?.(nuovaEmail !== emailPrima ? `Utente aggiornato: ora entra con ${nuovaEmail}` : cc !== prima ? 'Ruolo e copia aggiornati' : 'Ruolo aggiornato')

@@ -27,6 +27,8 @@
 //   - "resend_access" → rimanda all'utente l'email per scegliere la password
 //                    (link di recupero: vale anche per chi non e' mai entrato e
 //                    ha l'invito scaduto). Al massimo una al minuto.
+//   - "set_email"  → corregge l'email di accesso (senza conferma via mail) e
+//                    la scrive anche in user_profiles.email.
 //   - "set_cc"     → indirizzo in copia a tutte le email di questo account
 //                    (user_profiles.email_cc, migration 338; vuoto = nessuno).
 //   - "set_password" → genera una nuova password (12 caratteri, senza simboli
@@ -351,6 +353,7 @@ Deno.serve(async (req: Request) => {
     // (email_confirm: true): serve per correggere un indirizzo scritto male
     // (es. .it al posto di .com). Allinea anche user_profiles.email.
     if (action === "set_email") {
+      if (callerId && targetId === callerId) return jsonError(400, "La tua email di accesso non si cambia da qui.");
       const email = String(body.email ?? "").trim().toLowerCase();
       if (!validEmail(email)) return jsonError(400, "L'indirizzo email non è valido.");
       const { data: gia } = await admin.from("user_profiles").select("id").ilike("email", escapeLike(email)).neq("id", targetId).limit(1).maybeSingle();
@@ -358,7 +361,7 @@ Deno.serve(async (req: Request) => {
       const { error: emErr } = await admin.auth.admin.updateUserById(targetId, { email, email_confirm: true });
       if (emErr) return jsonError(400, `Email non cambiata: ${emErr.message}`);
       const { error: pErr } = await admin.from("user_profiles").update({ email }).eq("id", targetId);
-      if (pErr) console.error("[admin-manage-user] set_email profilo:", pErr.message);
+      if (pErr) return jsonError(500, `Login aggiornato ma profilo no: ${pErr.message}`);
       return jsonOk({ ok: true, email });
     }
 
