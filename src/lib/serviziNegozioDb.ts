@@ -3,6 +3,7 @@
 // nessun errore a video.
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { supabase } from './supabase';
+import { REGOLE_DEFAULT } from './turni';
 import type { ConsegnaCalendario, ServiziNegozio, ServizioRicorrente, TipoServizio } from './serviziNegozio';
 
 // Le tabelle sono nuove e non stanno ancora nei tipi generati del database.
@@ -70,7 +71,14 @@ export async function salvaTetto(companyId: string, outletId: string, tetto: { p
   const { data, error } = await db.from('outlet_shift_rules').update(valori).eq('outlet_id', outletId).select('outlet_id');
   if (error) throw error;
   if (!(data as unknown[] | null)?.length && tetto) {
-    const ins = await db.from('outlet_shift_rules').insert([{ company_id: companyId, outlet_id: outletId, ...valori }]);
+    // la riga nuova nasce con le regole che il negozio usava gia' (REGOLE_DEFAULT), non con i default
+    // vecchi della tabella (pausa 30' e 60'): accendere il tetto non deve cambiare nient'altro (revisore, 26/11/2026)
+    const r = REGOLE_DEFAULT;
+    const ins = await db.from('outlet_shift_rules').insert([{
+      company_id: companyId, outlet_id: outletId, ...valori,
+      turno_min_ore: r.turnoMinOre, turno_max_ore: r.turnoMaxOre, pausa_oltre_ore: r.pausaOltreOre, pausa_minuti: r.pausaMinuti,
+      pausa_lunga_oltre_ore: r.pausaLungaOltreOre, pausa_lunga_minuti: r.pausaLungaMinuti, giorni_lavoro_max: r.giorniLavoroMax,
+    }]);
     if (ins.error) throw ins.error;
   }
 }
