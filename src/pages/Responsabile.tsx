@@ -4,13 +4,17 @@
 // conferma». Il resto del gestionale gli e' chiuso dal database
 // (responsabile_block): qui tutto passa da funzioni che controllano i negozi.
 import { useCallback, useEffect, useState } from 'react'
-import { AlertCircle, CalendarClock, CheckCircle2, Fingerprint, RefreshCw, XCircle } from 'lucide-react'
+import { AlertCircle, CalendarClock, CheckCircle2, Fingerprint, RefreshCw, Truck, XCircle } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../components/Toast'
 import PageHeader from '../components/PageHeader'
 import { DaConfermare } from '../components/PresenzeConferme'
 import { ETICHETTE_VOCE_BREVI, formattaData, formattaOre } from '../lib/ferieRichiesta'
 import type { VoceFerie } from '../lib/ferieRichiesta'
+import { CalendarioConsegne, GIORNI_CALENDARIO, dataBreve } from '../components/ServiziNegozi'
+import { caricaServiziResponsabile, salvaConsegnaResponsabile, togliConsegnaResponsabile, type ServiziNegozioResp } from '../lib/serviziNegozioDb'
+import { aggiungiGiorni, oggiRoma } from '../lib/organico'
+import { NOMI_GIORNO } from '../lib/turni'
 
 interface RichiestaResp {
   id: string; stato: string; negozio: string | null; persona: string; prova: boolean; titolo: string | null
@@ -32,7 +36,7 @@ const STATO: Record<string, { testo: string; stile: string }> = {
 const voce = (v: string) => ETICHETTE_VOCE_BREVI[v as VoceFerie] ?? v
 
 export default function Responsabile() {
-  const [scheda, setScheda] = useState<'presenze' | 'ferie'>('presenze')
+  const [scheda, setScheda] = useState<'presenze' | 'ferie' | 'consegne'>('presenze')
   const [negozi, setNegozi] = useState<{ id: string; nome: string }[] | null>(null)
   const [erroreNegozi, setErroreNegozi] = useState(false)
 
@@ -68,6 +72,7 @@ export default function Responsabile() {
           {([
             { k: 'presenze' as const, label: 'Da confermare', Icon: Fingerprint },
             { k: 'ferie' as const, label: 'Ferie e permessi', Icon: CalendarClock },
+            { k: 'consegne' as const, label: 'Consegne merce', Icon: Truck },
           ]).map(({ k, label, Icon }) => (
             <button key={k} type="button" onClick={() => setScheda(k)}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-md text-sm font-medium transition-all ${scheda === k ? 'bg-white shadow text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>
@@ -75,8 +80,57 @@ export default function Responsabile() {
             </button>
           ))}
         </div>
-        {scheda === 'presenze' ? <DaConfermare /> : <FerieDaDecidere />}
+        {scheda === 'presenze' ? <DaConfermare /> : scheda === 'ferie' ? <FerieDaDecidere /> : <ConsegneMerce />}
       </div>
+    </div>
+  )
+}
+
+// Il calendario delle consegne dei negozi della responsabile (Patrizio, 26/11/2026, migration 468):
+// sposta, cambia d'ora o annulla la singola consegna. La consegna abituale la decide la sede in
+// Turni → «Servizi negozi»; qui si vede e basta.
+function ConsegneMerce() {
+  const { toast } = useToast()
+  const dal = oggiRoma()
+  const al = aggiungiGiorni(dal, GIORNI_CALENDARIO)
+  const [negozi, setNegozi] = useState<ServiziNegozioResp[] | null>(null)
+  const [errore, setErrore] = useState<string | null>(null)
+  const [occupato, setOccupato] = useState(false)
+
+  const carica = useCallback(async () => {
+    try { setNegozi(await caricaServiziResponsabile(aggiungiGiorni(dal, -7), al)); setErrore(null) }
+    catch (e) { setErrore(e instanceof Error ? e.message : 'errore') }
+  }, [dal, al])
+  useEffect(() => { void carica() }, [carica])
+
+  const fai = async (azione: () => Promise<void>, ok: string) => {
+    setOccupato(true)
+    try { await azione(); toast({ type: 'success', message: ok }); await carica() }
+    catch (e) { toast({ type: 'error', message: `Calendario non aggiornato: ${e instanceof Error ? e.message : 'errore'}` }) }
+    finally { setOccupato(false) }
+  }
+
+  if (errore) return <div className="text-sm text-rose-800 bg-rose-50 border border-rose-200 rounded-xl p-3.5">Non riesco a leggere le consegne: {errore}. <button type="button" onClick={() => void carica()} className="font-medium underline">Riprova</button></div>
+  if (!negozi) return <div className="text-sm text-slate-400">Carico…</div>
+  if (!negozi.length) return <div className="bg-white border border-slate-200 rounded-xl px-4 py-10 text-center text-sm text-slate-400">Nessun negozio assegnato.</div>
+  return (
+    <div className="grid gap-4 xl:grid-cols-2 items-start">
+      {negozi.map((n) => {
+        const abituali = n.ricorrenti.filter((r) => r.tipo === 'scarico')
+        return (
+          <section key={n.outlet_id} className="bg-white border border-slate-200 rounded-xl p-4 min-w-0">
+            <h2 className="text-base font-semibold text-slate-900">Scarico merce · {n.nome}</h2>
+            <p className="text-xs text-slate-500">
+              {abituali.length
+                ? `Consegna abituale: ${abituali.map((r) => `${NOMI_GIORNO[r.giorno]} ${r.dalle}-${r.alle}, ${r.persone} ${r.persone === 1 ? 'persona' : 'persone'}`).join(' · ')}. La cambia la sede.`
+                : 'Nessuna consegna abituale: la sede la scrive in Turni → «Servizi negozi». Qui puoi aggiungere le singole consegne.'}
+            </p>
+            <CalendarioConsegne servizi={n} dal={dal} al={al} puoScrivere occupato={occupato}
+              onSalva={(c) => fai(() => salvaConsegnaResponsabile(n.outlet_id, c), `Consegna del ${dataBreve(c.data)} salvata.`)}
+              onTogli={(d) => fai(() => togliConsegnaResponsabile(n.outlet_id, d), `Riga del ${dataBreve(d)} tolta: vale la consegna abituale.`)} />
+          </section>
+        )
+      })}
     </div>
   )
 }
