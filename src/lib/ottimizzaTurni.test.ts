@@ -4,7 +4,7 @@ import {
   type GiornoPiano, type PersonaTurni, type Turno,
 } from './turni';
 import { fabbisognoDaTraffico, almenoDuePersone } from './pianoMensile';
-import { ottimizzaSettimana, unisciTurniCorti, scegliGiorniLiberi, coppieFeriali, coppia, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana, contoSettimana } from './ottimizzaTurni';
+import { ottimizzaSettimana, unisciTurniCorti, scegliGiorniLiberi, coppieFeriali, coppia, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana, contoSettimana, oreDiChiApre } from './ottimizzaTurni';
 
 // Un negozio inventato sul modello di quello da cui sono nate le regole
 // (Patrizio, 11/11/2026): aperto 10-20, fasce 1-2-1, quattro persone.
@@ -500,6 +500,32 @@ describe('regole del 12/11/2026: giorni caldi, apertura e chiusura, riposi equil
     // nessuna deroga su apertura e chiusura
     const der = derogheSettimana({ giorni, turni, persone: persone().map((p) => ({ ...p, nome: p.id })), regole: pilota, guida: { responsabile: 'anna', vice: 'bea' } });
     expect(der.filter((d) => d.regola === 'domenica_apertura' || d.regola === 'caldo_chiusura')).toEqual([]);
+  }, 30_000);
+
+  it('regola «chi apre resta N ore» spenta: si legge dalla riga e chi apre entra all\'apertura senza durata fissa', () => {
+    expect(oreDiChiApre(pilota)).toBe(9);
+    expect(oreDiChiApre(regoleDaRiga({ ...riga, caldi_ore_apertura: 8 }))).toBe(8);
+    const spenta = regoleDaRiga({ ...riga, riposi_min_settimana: 2, straordinari_pari: true, caldi_fasce_festivi: 'sabato', caldi_guida_apre_chiude: true, caldi_ore_apertura: 9, caldi_ore_apertura_attiva: false });
+    expect(spenta.caldiOreAperturaAttiva).toBe(false);
+    expect(oreDiChiApre(spenta)).toBeNull();
+    expect(sceltePerLaSettimana({ giorni: settimana('2026-11-16'), regole: spenta, responsabile: 'anna', vice: 'bea' }).guidaCaldi?.ore).toBeNull();
+    // un turno 10-17 della referente basta: nessuna deroga sull'apertura
+    const giorni = settimana('2026-11-16');
+    const sab = giorni[5].data;
+    const turni = [{ employeeId: 'anna', data: sab, inizio: '10:00', fine: '17:00', pausaMinuti: 30 }, { employeeId: 'bea', data: sab, inizio: '12:00', fine: '20:00', pausaMinuti: 30 }];
+    const der = (r: typeof spenta) => derogheSettimana({ giorni: [giorni[5]], turni, persone: persone().map((p) => ({ ...p, nome: p.id })), regole: r, guida: { responsabile: 'anna', vice: 'bea' } })
+      .filter((d) => d.regola === 'domenica_apertura');
+    expect(der(spenta)).toEqual([]);
+    expect(der(pilota).length).toBe(1);
+  });
+
+  it('regola delle ore spenta: nel piano una fra referente e vice entra comunque all\'apertura dei giorni caldi', () => {
+    const spenta = { ...pilota, caldiOreAperturaAttiva: false };
+    const giorni = settimana('2026-11-16');
+    const { turni } = sistema(giorni, {}, spenta);
+    for (const d of giorni.slice(5).map((g) => g.data)) {
+      expect(turni.some((t) => (t.employeeId === 'anna' || t.employeeId === 'bea') && t.data === d && t.inizio === '10:00')).toBe(true);
+    }
   }, 30_000);
 
   it('solo la responsabile, o regola «una apre, l\'altra chiude» spenta: apre sempre lei', () => {

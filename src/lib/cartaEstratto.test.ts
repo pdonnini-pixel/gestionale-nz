@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseItAmount, parseDotAmount, toIsoDate, detectIssuer, parseNumiaLines, parseMpsLines, parseTascaAoa, parseTascaLines,
-  parseGenericLines, parseCardStatementLines, periodOf, sourceLabelOf, matchStatementDebit, matchRicariche, matchPayables,
+  parseGenericLines, parseCardStatementLines, periodOf, sourceLabelOf, matchStatementDebit, matchRicariche, matchPayables, agganciDaSalvare,
   buildCartaRow, totaliCarta, type CardLine,
   parseDebitPos, debitCardsFromMovements, bankShortName, debitCardLabel, RE_POS_DEBITO,
   prepaidBalances, nettoCarta, conSaldoProgressivo,
@@ -412,5 +412,49 @@ describe('CartaBCC / Numia: PDF di agosto 2026 (numero di carta sulla riga dopo,
     const s = parseNumiaLines(['04/08/2026 05/08/2026 PASTICCERIA PRATO ITA 46,60', 'TOTALE OPERAZIONI 46,60'])
     expect(s.total_declared).toBe(-46.6)
     expect(s.warnings).toContain('numero di carta non trovato nel documento')
+  })
+})
+
+// Carte BCC di settembre 2026 (Monica, 26/11/2026): fatture nel cassetto ma
+// spese senza dettaglio nel file allo studio.
+describe('matchPayables: casi della carta BCC di settembre 2026', () => {
+  const L = (d: string, desc: string, amt: number): CardLine => ({ card_last4: '3145', purchase_date: d, posting_date: null, description: desc, amount: amt, fee: 0, currency: 'EUR', original_amount: null })
+  it('una spesa pagata su due righe dello Scadenzario dello stesso fornitore', () => {
+    const pool = [
+      { id: 'm1', payment_date: '2026-10-20', invoice_date: '2026-09-10', gross_amount: 225, supplier_name: 'MCA SRL', invoice_number: '00759/2026/FPR', supplier_id: 's1' },
+      { id: 'm2', payment_date: '2026-10-20', invoice_date: '2026-09-10', gross_amount: 4.5, supplier_name: 'MCA SRL', invoice_number: '00759/2026/FPR', supplier_id: 's1' },
+      { id: 'o1', payment_date: null, invoice_date: '2026-09-16', gross_amount: 170, supplier_name: 'OMNITEKSTORE S.R.L.', invoice_number: '5999/2026', supplier_id: 's2', soloConNome: true },
+      { id: 'o2', payment_date: null, invoice_date: '2026-09-16', gross_amount: 10, supplier_name: 'OMNITEKSTORE S.R.L.', invoice_number: '6002/2026', supplier_id: 's2', soloConNome: true },
+    ]
+    const m = matchPayables([L('2026-09-10', 'HOTEL LA FONTE ROMANO DI LOM ITA', -229.5), L('2026-09-16', 'OMNITEKSTORE SRL BAGNO A RIPOL ITA', -180)], pool)
+    expect(m.get(0)?.invoice_number).toBe('00759/2026/FPR')
+    expect(m.get(0)?.gross_amount).toBe(229.5)
+    expect(m.get(1)?.invoice_number).toBe('5999/2026 + 6002/2026')
+  })
+  it('autofattura reverse charge e scadenze aperte: solo con il nome nella descrizione', () => {
+    const pool = [
+      { id: 'ei:1', payment_date: null, invoice_date: '2026-08-31', gross_amount: 372.91, supplier_name: 'INDEED IRELAND OPERATIONS LTD', invoice_number: '9 (autofattura TD17)', soloConNome: true },
+      { id: 'x', payment_date: null, invoice_date: '2026-09-03', gross_amount: 83.69, supplier_name: 'ALTRO FORNITORE SRL', invoice_number: '77', soloConNome: true },
+    ]
+    const m = matchPayables([L('2026-09-02', 'Indeed IEI26-02762634 Dublin IRL', -372.91), L('2026-09-03', 'BIZAY Lisbon PRT', -83.69)], pool)
+    expect(m.get(0)?.id).toBe('ei:1')
+    expect(m.has(1)).toBe(false)
+  })
+  it('una fattura con pagamento a carta ancora aperta si aggancia anche se arriva 11 giorni dopo', () => {
+    const pool = [{ id: 'sg', payment_date: null, invoice_date: '2026-11-02', gross_amount: 110.09, supplier_name: 'Servizi e Gestioni Italia srl', invoice_number: 'FT4522202607019' }]
+    expect(matchPayables([L('2026-10-22', 'PV4522 PRATO ITA', -110.09)], pool).get(0)?.id).toBe('sg')
+    // ma non una fattura di 11 giorni PRIMA della spesa, senza nome
+    expect(matchPayables([L('2026-11-13', 'PV4522 PRATO ITA', -110.09)], pool).has(0)).toBe(false)
+  })
+})
+
+describe('agganciDaSalvare: all\'import si salva solo un aggancio certo', () => {
+  const base = { payment_date: '2026-10-20', invoice_date: '2026-09-10', gross_amount: 10, supplier_name: 'X', invoice_number: '1' }
+  it('scadenza vera a carta: si salva; autofattura, gruppo e scadenza aperta per nome: no', () => {
+    expect(agganciDaSalvare({ ...base, id: 'p1' })).toBe('p1')
+    expect(agganciDaSalvare({ ...base, id: 'ei:abc', soloConNome: true })).toBeNull()
+    expect(agganciDaSalvare({ ...base, id: 'p2', gruppo: ['p2', 'p3'] })).toBeNull()
+    expect(agganciDaSalvare({ ...base, id: 'p4', soloConNome: true })).toBeNull()
+    expect(agganciDaSalvare(undefined)).toBeNull()
   })
 })

@@ -90,6 +90,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const [haProva, setHaProva] = useState(false);
   // colonne della migration 405 (riposi, straordinari pari, scelte dei giorni caldi): come sopra
   const [ha403, setHa403] = useState(false);
+  // colonna della 474 («chi apre resta N ore» accesa o spenta): dove manca il campo resta solo il numero
+  const [ha474, setHa474] = useState(false);
   // la scelta «lunedì a due persone» c'è solo dove è arrivata la migration 408
   const [haLunediDue, setHaLunediDue] = useState(false);
   // Persone per fascia: quale giorno si sta guardando (0 = i feriali insieme), e se i feriali si scrivono insieme.
@@ -161,6 +163,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     else setHaProva(!(await supabase.from('outlet_shift_rules').select('giorni_pieni').limit(1)).error);
     if (r.data != null) setHa403('riposi_min_settimana' in (r.data as object));
     else setHa403(!(await supabase.from('outlet_shift_rules').select('riposi_min_settimana' as 'giorni_pieni').limit(1)).error);
+    if (r.data != null) setHa474('caldi_ore_apertura_attiva' in (r.data as object));
+    else setHa474(!(await supabase.from('outlet_shift_rules').select('caldi_ore_apertura_attiva' as 'giorni_pieni').limit(1)).error);
     if (r.data != null) setHaLunediDue('lunedi_due_persone' in (r.data as object));
     else setHaLunediDue(!(await supabase.from('outlet_shift_rules').select('lunedi_due_persone' as 'giorni_pieni').limit(1)).error);
     setCaricamento(false);
@@ -278,6 +282,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
         caldi_fasce_festivi: regole.caldiFasceFestivi == null ? null : regole.caldiFasceFestivi === 7 ? 'domenica' : 'sabato',
         caldi_guida_apre_chiude: regole.caldiGuidaApreChiude ?? null, caldi_ore_apertura: regole.caldiOreApertura ?? null,
       } : {}),
+      ...(ha474 ? { caldi_ore_apertura_attiva: regole.caldiOreAperturaAttiva === false ? false : null } : {}),
       ...(haLunediDue ? { lunedi_due_persone: regole.lunediDue ? true : null } : {}),
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
@@ -625,8 +630,13 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                   </select>
                 </Riga>
                 <Riga etichetta="Referente e vice referente: una apre, l’altra chiude, a turno"><Interruttore acceso={regole.caldiGuidaApreChiude ?? false} disabled={!puoScrivere} etichetta="Referente e vice referente: apertura e chiusura a turno" onCambia={(v) => setRegole((r) => ({ ...r, caldiGuidaApreChiude: v }))} /></Riga>
-                <Riga etichetta="Chi apre resta (ore)">
-                  <input aria-label="Ore di chi fa l'apertura nei giorni caldi" type="number" min={4} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-20 text-center`} value={regole.caldiOreApertura ?? 9} onChange={(e) => setRegole((r) => ({ ...r, caldiOreApertura: Number(e.target.value) || 9 }))} />
+                <Riga etichetta={ha474 && regole.caldiOreAperturaAttiva === false ? 'Chi apre resta un numero fisso di ore' : 'Chi apre resta (ore)'}>
+                  <div className="flex items-center gap-3">
+                    {ha474 && <Interruttore acceso={regole.caldiOreAperturaAttiva !== false} disabled={!puoScrivere} etichetta="Chi apre resta un numero fisso di ore" onCambia={(v) => setRegole((r) => ({ ...r, caldiOreAperturaAttiva: v }))} />}
+                    {(!ha474 || regole.caldiOreAperturaAttiva !== false) && (
+                      <input aria-label="Ore di chi fa l'apertura nei giorni caldi" type="number" min={4} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-20 text-center`} value={regole.caldiOreApertura ?? 9} onChange={(e) => setRegole((r) => ({ ...r, caldiOreApertura: Number(e.target.value) || 9 }))} />
+                    )}
+                  </div>
                 </Riga>
               </div>
             )}

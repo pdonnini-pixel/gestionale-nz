@@ -68,6 +68,8 @@ export type MovementKind =
   | 'finanziamento'
   | 'spese_banca'
   | 'giroconto'
+  | 'pegno'
+  | 'contributo'
   | 'incasso_cliente'
   | 'rimborso'
   | 'da_chiarire'
@@ -85,6 +87,8 @@ export const KIND_LABELS: Record<MovementKind, string> = {
   finanziamento: 'Finanziamento',
   spese_banca: 'Spese e commissioni bancarie',
   giroconto: 'Giroconto / prelievo',
+  pegno: 'Pegno in denaro (somma vincolata)',
+  contributo: 'Contributo pubblico',
   incasso_cliente: 'Incasso cliente (bonifico)',
   rimborso: 'Rimborso / restituzione',
   da_chiarire: 'Da chiarire',
@@ -110,7 +114,19 @@ export const RE_RICARICA_PREPAGATA = /RICARICA\s+(?:CARTA\s+)?PREPAGATA|PREPAGAT
 const RE_CARTA = /CARTA DEL CREDITO COOPERATIVO|RICARICA CARTA|ADD\.?\s*DIRETTO CARTA|ADDEBITO DIRETTO CARTA|POSIZIONE CARTA|ESTRATTO CONTO CARTA|CARTA DI CREDITO/i
 const RE_FINANZIAMENTO = /RATA DI MUTUO|RIMBORSO FINANZ|RATA FINANZ|MUTUO/i
 const RE_SPESE_BANCA = /COMMISSION|COMM\.|COMM\/SPESE|CANONE RAPPORTO|CANONE SET DI BASE|CANONE HOME BANKING|CANONE MENSILE|FIDEJUSSION|FIDEIUSSION|FONDO DI GARANZIA|A FAVORE NEXI PAYMENTS|A FAVORE GLOBAL BLUE|SPESE TENUTA|BOLL[OI]\b|IMPOSTA DI BOLLO|COMPETENZE/i
-const RE_GIROCONTO = /GIROCONTO|PASSAGGIO CONTANTI|PREL\.?\s*CONT|PRELEVAMENTO|COSTITUZIONE PEGNO|PEGNO DENARO/i
+const RE_GIROCONTO = /GIROCONTO|PASSAGGIO CONTANTI|PREL\.?\s*CONT|PRELEVAMENTO/i
+// Pegno in denaro (Patrizio, 26/11/2026): la banca vincola una somma a garanzia
+// di una fideiussione. Non e' un prelievo ne' un costo: i soldi restano
+// dell'azienda, vincolati finche' la garanzia vale (deposito cauzionale). Il
+// 28/10/2026 MPS ha addebitato 44.100,00 «DISPOSIZIONE PEGNO DENARO» per la
+// fideiussione a favore del locatore di Roma Soratte, e il file allo studio
+// lo chiamava «Giroconto / prelievo» (Monica: «prelievo per pegno?»).
+// Contributo pubblico in entrata (Nuova Sabatini, Invitalia, credito d'imposta):
+// non e' un incasso di un negozio ne' un rimborso. Il 24/11/2026 su NZ «MIMIT -
+// DGIAI PAGAMENTO QUOTA 1 EROGAZIONE ... (NUOVA SABATINI)», 3.162,12, sarebbe
+// uscito «Da chiarire».
+export const RE_CONTRIBUTO = /\bMIMIT\b|NUOVA SABATINI|INVITALIA|CONTRIBUTO A FONDO PERDUTO|\bMISE\b.*\bAGEVOLAZION|EROGAZIONE CONTRIBUTO/i
+export const RE_PEGNO = /COSTITUZIONE PEGNO|PEGNO DENARO|PEGNO IN DENARO/i
 // SDD di servizi bancari (commissioni POS, rimborsi tax free): spese, non fornitori.
 const RE_SDD_SERVIZI = /A FAVORE NEXI PAYMENTS|A FAVORE GLOBAL BLUE/i
 // Addebito delle commissioni di incasso (Amex, Nexi): un SDD per punto vendita.
@@ -157,7 +173,92 @@ const CATEGORY_KIND: Record<string, MovementKind> = {
   rimborsi: 'rimborso',
 }
 
+/**
+ * Addebito in banca dell'estratto di una carta di credito (BCC «Carta del
+ * Credito Cooperativo», SDD della carta). Le fatture pagate con la carta possono
+ * essere agganciate anche a questo movimento, ma non lo spiegano: la spiegazione
+ * e' l'estratto della carta, riga per riga. Il 26/10/2026 l'addebito di 3.983,62
+ * usciva come «3 fornitori (3 fatture)» e «totale fatture 3.983,62», mentre le
+ * tre fatture facevano 1.055,28 (Monica: «manca dettaglio» per 2.925,05).
+ */
+export function isCardSettlement(m: Pick<PnMovement, 'amount' | 'description'>): boolean {
+  const d = String(m.description || '')
+  return m.amount < 0 && RE_CARTA.test(d) && !RE_RICARICA_PREPAGATA.test(d) && !RE_SDD_ACQUIRER.test(d) && !RE_PEGNO.test(d)
+}
+
+/**
+ * Fideiussione che il pegno garantisce, letta dall'addebito delle commissioni
+ * nello stesso periodo: MPS scrive «FIDEIUSSIONE DEL 28.10.2026 N. 7017101 -
+ * EUR 44.100,00 A FAVORE: WESTI SRL CAUSALE: …». Si prende quella con lo
+ * stesso importo del pegno; se non c'e', o ce n'e' piu' d'una, null.
+ */
+export function fideiussioneDelPegno(
+  pegno: Pick<PnMovement, 'amount' | 'description'>,
+  movimenti: Array<Pick<PnMovement, 'description'>>,
+): { data: string; numero: string; importo: number; beneficiario: string } | null {
+  if (!RE_PEGNO.test(String(pegno.description || ''))) return null
+  const target = Math.round(Math.abs(pegno.amount) * 100) / 100
+  const re = /FIDE[IJ]USSIONE DEL (\d{2})[./](\d{2})[./](\d{4}) N\.?\s*(\S+)\s*-?\s*EUR\s*([\d.]+,\d{2})\s*A FAVORE:?\s*(.+?)(?:\s+CAUSALE\b|$)/i
+  const trovate = new Map<string, { data: string; numero: string; importo: number; beneficiario: string }>()
+  for (const m of movimenti) {
+    const x = re.exec(String(m.description || ''))
+    if (!x) continue
+    const importo = Number(x[5].replace(/\./g, '').replace(',', '.'))
+    if (Math.abs(importo - target) >= 0.005) continue
+    trovate.set(x[4], { data: `${x[1]}/${x[2]}/${x[3]}`, numero: x[4], importo, beneficiario: x[6].trim() })
+  }
+  return trovate.size === 1 ? Array.from(trovate.values())[0] : null
+}
+
+/** Fattura emessa dall'azienda (active_invoices), per riconoscere chi la paga con un bonifico. */
+export type PnFatturaEmessa = { id: string; invoice_number: string | null; invoice_date: string | null; client_name: string | null; total_amount: number; outlet_id: string | null }
+
+const paroleNome = (s: string | null | undefined): string[] =>
+  String(s ?? '').toUpperCase().replace(/[^A-Z0-9À-Ü]+/g, ' ').split(' ').filter(t => t.length >= 3 && !/^(SRL|SPA|SNC|SAS|SRLS|DEL|DELLA|DEI)$/.test(t))
+
+/**
+ * Fattura emessa che un bonifico in entrata incassa (Monica, 26/11/2026: due
+ * bonifici di clienti, 14,85 e 81,00, «di quale negozio?», mentre le fatture
+ * 3/2026/MAGA e 2/2026/MAGA erano nel gestionale). Stesso importo, fattura
+ * emessa fino a 120 giorni prima del bonifico (o 5 dopo), e una prova in piu':
+ * il nome del cliente nell'ordinante, oppure il numero della fattura nella
+ * causale («Pagamento fattura n.2»: chi paga puo' essere un'altra persona).
+ * Se le fatture possibili restano piu' d'una, non si sceglie: null.
+ */
+export function fatturaEmessaDelBonifico(
+  m: { amount: number; description: string | null; transaction_date: string },
+  fatture: PnFatturaEmessa[],
+): PnFatturaEmessa | null {
+  if (m.amount <= 0) return null
+  const d = String(m.description ?? '').toUpperCase()
+  if (!/\bBON\.|BONIFICO/.test(d)) return null
+  const giorno = new Date(`${m.transaction_date}T00:00:00`).getTime()
+  const numCausale = /FATT(?:URA)?\.?\s*(?:N\.?|NR\.?|NUM\.?|NUMERO)?\s*(\d+)/i.exec(d)?.[1]?.replace(/^0+/, '')
+  const cands = fatture
+    .filter(f => Math.abs(Number(f.total_amount) - m.amount) < 0.005 && f.invoice_date)
+    .filter(f => {
+      const diff = (giorno - new Date(`${f.invoice_date}T00:00:00`).getTime()) / 86400000
+      return diff <= 120 && diff >= -5
+    })
+    .map(f => {
+      const parole = paroleNome(f.client_name)
+      const trovate = parole.filter(t => d.includes(t)).length
+      const nomeOk = parole.length > 0 && trovate >= Math.min(2, parole.length)
+      const numOk = !!numCausale && /^0*(\d+)/.exec(String(f.invoice_number ?? ''))?.[1] === numCausale
+      return { f, score: (nomeOk ? 1 : 0) + (numOk ? 1 : 0) }
+    })
+    .filter(c => c.score > 0)
+    .sort((a, b) => b.score - a.score)
+  if (cands.length === 0) return null
+  if (cands.length > 1 && cands[1].score === cands[0].score) return null
+  return cands[0].f
+}
+
+/** Fatture che il movimento salda davvero: nessuna per l'addebito di un estratto carta (le fatture stanno nel foglio della carta). */
+export const fattureDelMovimento = (m: PnMovement): PnPayable[] => (isCardSettlement(m) ? [] : m.payables)
+
 export function classifyMovement(m: PnMovement): MovementKind {
+  if (isCardSettlement(m)) return 'carta'
   if (m.payables.length > 0) return 'fornitore'
   if (m.fiscal_deadlines.length > 0) return 'f24'
   const d = String(m.description || '')
@@ -165,6 +266,8 @@ export function classifyMovement(m: PnMovement): MovementKind {
   if (RE_STIPENDI.test(d)) return 'stipendi'
   if (m.amount < 0 && RE_PREVIDENZA.test(d)) return 'previdenza'
   if (RE_FINANZIAMENTO.test(d)) return 'finanziamento'
+  if (RE_PEGNO.test(d)) return 'pegno'
+  if (m.amount > 0 && RE_CONTRIBUTO.test(d)) return 'contributo'
   if (RE_GIROCONTO.test(d)) return 'giroconto'
   if (RE_RICARICA_PREPAGATA.test(d)) return 'ricarica_prepagata'
   if (m.amount < 0 && RE_SDD_ACQUIRER.test(d)) return 'spese_banca'
@@ -216,6 +319,7 @@ export function prepaidCardNameOf(description: string | null | undefined): strin
 }
 
 export function counterpartOf(m: PnMovement): string {
+  if (isCardSettlement(m)) return 'Estratto carta di credito'
   const sups = distinctSuppliers(m.payables)
   if (sups.length === 0 && RE_RICARICA_PREPAGATA.test(String(m.description || ''))) return prepaidCardNameOf(m.description)
   if (sups.length === 1) return sups[0].name
@@ -274,6 +378,7 @@ export function acquirerDebitOutlet(
 }
 
 export function pivaOf(m: PnMovement): string {
+  if (isCardSettlement(m)) return ''
   const sups = distinctSuppliers(m.payables)
   if (sups.length === 1) return sups[0].vat
   if (sups.length > 1) return ''
@@ -283,7 +388,7 @@ export function pivaOf(m: PnMovement): string {
 // Fattura pagata a ricevuta bancaria (riba, riba_30/60/90/120): lo studio la
 // registra diversamente da un bonifico, quindi va fatta capire ovunque.
 export const isRiba = (p: PnPayable): boolean => /^riba/i.test(String(p.payment_method ?? ''))
-export const ribaCountOf = (m: PnMovement): number => m.payables.filter(isRiba).length
+export const ribaCountOf = (m: PnMovement): number => fattureDelMovimento(m).filter(isRiba).length
 
 // Tipo movimento con la RiBa in chiaro: «Pagamento fornitore (RiBa)» quando
 // tutte le fatture saldate sono a ricevuta bancaria, «(RiBa e altro)» se
@@ -302,7 +407,7 @@ export function tipoMovimentoOf(m: PnMovement): string {
 // altrimenti riferimento o causale bancaria. Le RiBa si vedono: «RiBa · Fatt. …»
 // quando lo sono tutte, altrimenti «· RiBa» accanto alla singola fattura.
 export function causaleOf(m: PnMovement): string {
-  if (m.payables.length > 0) {
+  if (m.payables.length > 0 && !isCardSettlement(m)) {
     const multi = distinctSuppliers(m.payables).length > 1
     const nRiba = ribaCountOf(m)
     const allRiba = nRiba === m.payables.length
@@ -323,12 +428,12 @@ export function causaleOf(m: PnMovement): string {
   return ''
 }
 
-export const invoiceCountOf = (m: PnMovement): number => m.payables.length
+export const invoiceCountOf = (m: PnMovement): number => fattureDelMovimento(m).length
 
 // Somma delle fatture saldate, per un controllo a colpo d'occhio con l'importo
 // del movimento (nei flussi CBI la differenza è la commissione).
 export const invoicesTotalOf = (m: PnMovement): number | null =>
-  m.payables.length > 0 ? Math.round(m.payables.reduce((s, p) => s + (Number(p.gross_amount) || 0), 0) * 100) / 100 : null
+  fattureDelMovimento(m).length > 0 ? Math.round(fattureDelMovimento(m).reduce((s, p) => s + (Number(p.gross_amount) || 0), 0) * 100) / 100 : null
 
 export type PnRow = {
   'Data operazione': string

@@ -92,6 +92,12 @@ export interface RegoleTurni {
   /** quante ore resta chi fa l'apertura nei giorni caldi (9: 10-19 in un negozio che apre alle 10) */
   caldiOreApertura?: number;
   /**
+   * La regola «chi apre resta N ore» si accende e si spegne (Patrizio, 26/11/2026,
+   * `outlet_shift_rules.caldi_ore_apertura_attiva`, migration 474). Assente o true = accesa;
+   * false = chi apre entra all'apertura e quanto resta lo decide il motore.
+   */
+  caldiOreAperturaAttiva?: boolean;
+  /**
    * Il lunedi' a due persone (Patrizio, 12/11/2026): il lunedi' viene dopo il weekend pesante, quindi
    * lavorano al massimo due persone, e da un lunedi' all'altro non le stesse. Il tetto vince sulle
    * fasce e su MODA; un lunedi' festivo o dentro un evento segue le regole dei giorni caldi.
@@ -337,7 +343,7 @@ export function regoleDaRiga(r: {
   giorni_pieni?: boolean | null;
   riposi_min_settimana?: number | string | null; straordinari_pari?: boolean | null;
   caldi_tutti_al_lavoro?: boolean | null; caldi_straordinari?: boolean | null; caldi_fasce_festivi?: string | null;
-  caldi_guida_apre_chiude?: boolean | null; caldi_ore_apertura?: number | string | null;
+  caldi_guida_apre_chiude?: boolean | null; caldi_ore_apertura?: number | string | null; caldi_ore_apertura_attiva?: boolean | null;
   lunedi_due_persone?: boolean | null;
 } | null | undefined): RegoleTurni {
   if (!r) return REGOLE_DEFAULT;
@@ -360,6 +366,7 @@ export function regoleDaRiga(r: {
     ...(r.caldi_fasce_festivi != null ? { caldiFasceFestivi: (r.caldi_fasce_festivi === 'domenica' ? 7 : 6) as 6 | 7 } : {}),
     ...(r.caldi_guida_apre_chiude != null ? { caldiGuidaApreChiude: !!r.caldi_guida_apre_chiude } : {}),
     ...(r.caldi_ore_apertura != null ? { caldiOreApertura: Number(r.caldi_ore_apertura) } : {}),
+    ...(r.caldi_ore_apertura_attiva != null ? { caldiOreAperturaAttiva: !!r.caldi_ore_apertura_attiva } : {}),
     ...(r.lunedi_due_persone != null ? { lunediDue: !!r.lunedi_due_persone } : {}),
   };
 }
@@ -537,10 +544,12 @@ export interface GiornoPiano {
   /** le fasce salvate di questo lunedi' chiedevano piu' del tetto: comanda il tetto, la pagina lo segnala */
   lunediFasceOltre?: boolean;
   // ── Servizi del negozio (Patrizio, 26/11/2026, migration 468). Li scrive applicaServizi. ──
-  /** scarico merce di questo giorno: in quelle mezz'ore servono almeno `persone` */
-  scarico?: { dalle: number; alle: number; persone: number };
+  /** scarico merce di questo giorno: in quelle mezz'ore servono almeno `persone`; `dedicate` le preferite (475) */
+  scarico?: { dalle: number; alle: number; persone: number; dedicate?: string[] };
   /** pulizie prima dell'apertura: il giorno comincia a `dalle`, la vendita a `apreVendita` */
-  pulizie?: { dalle: number; alle: number; persone: number };
+  pulizie?: { dalle: number; alle: number; persone: number; dedicate?: string[] };
+  /** al massimo queste persone diverse nella giornata (scelta del negozio, migration 475) */
+  tettoPersone?: number;
   /** apertura alla vendita quando il giorno comincia prima per le pulizie */
   apreVendita?: number;
 }

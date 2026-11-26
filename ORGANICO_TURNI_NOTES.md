@@ -1084,6 +1084,15 @@ nascono spente e i piani non cambiano (misura sotto).
   domenica, festivi ed eventi sono giorni caldi: lavorano tutte, straordinari ammessi.
 - **«La responsabile fa 10-19»** diventa: una fra responsabile e vice fa l'apertura e resta 9 ore,
   l'altra fa la chiusura, e si alternano.
+  **Dal 26/11/2026 le ore di chi apre sono una regola che si accende e si spegne** (Patrizio: «la
+  regola deve poter essere accesa o spenta, quindi non fissa come costante»):
+  `outlet_shift_rules.caldi_ore_apertura_attiva` (migration 474; NULL o true = accesa, vale
+  `caldi_ore_apertura`, 9 se vuota; false = spenta). Spenta, chi apre entra comunque all'apertura
+  ma quanto resta lo decidono fasce, MODA e contratto, e la deroga `domenica_apertura` controlla solo
+  l'ingresso (`oreDiChiApre` in `ottimizzaTurni.ts`). Interruttore accanto a «Chi apre resta (ore)».
+  **Lo stesso giorno Patrizio l'ha spenta in tutti i negozi** (migration 475, NZ e Zago; Roma Soratte
+  conserva le sue 9 ore in `caldi_ore_apertura`, che tornano se la regola si riaccende). Un negozio
+  nuovo nasce con la colonna vuota, cioè accesa: va spento dalla pagina.
 - **Il giorno libero fisso scelto dal sistema** non c'è più dove il negozio ha scritto i riposi
   minimi: resta fisso solo quello deciso a mano; senza una scelta lo decide la turnazione.
 - I due limiti «da sola al massimo mezz'ora all'apertura, un'ora alla chiusura» e «al massimo due
@@ -1537,3 +1546,11 @@ Nata dal confronto di dicembre 2026 a Valmontone fra i turni scritti dalle ragaz
 - **Interfaccia**: riquadro «Servizi negozi» in fondo alla pagina Turni (`ServiziNegozi.tsx`); scheda «Consegne merce» nella pagina della responsabile (`Responsabile.tsx`, stesso `CalendarioConsegne`). Nel piano settimanale l'intestazione del giorno mostra «Pulizie …» e «Scarico … · N persone»; nell'editor del piano del mese i giorni delle pulizie accettano turni dall'ora delle pulizie (`aperturaConPulizie`).
 - **Non ancora**: il controllo delle ferie in `PianoFerie` non legge i servizi; la stampa mostra l'orario di vendita.
 - **Misura**: test `serviziNegozio.test.ts` con `pianificaMese` vero (cinque persone, dicembre 2026): tutti i martedì con consegna hanno due persone dalle 10 alle 12, lunedì e venerdì un turno dalle 9, l'8/12 annullato nessun obbligo.
+
+### Persone dedicate e tetto della giornata (26/11/2026, migration 475)
+
+Nato dal piano di dicembre di Roma Soratte: il martedì 1/12 e 22/12 tre persone diverse (Tania tutto il giorno perché «non riposa mai» il martedì, la seconda persona spezzata in due turni da 4 ore), mai più di due insieme. Bisogno del martedì: 2 persone dalle 10 alle 18 (scarico 10-12 più le fasce 12-18).
+
+- **Persone dedicate** (`outlet_servizi.dedicate`): per ogni servizio, in `ottimizzaSettimana` mancano `min(persone del servizio, dedicate che possono esserci)` meno le dedicate in turno nella finestra; ogni mancante pesa `PESI.dedicataAssente` (8.000: sopra coppie, turni e giorno libero, sotto riposi e persone che servono). Le dedicate che mancano e «non riposano mai» quel giorno pagano già `riposoVietato` e non si contano di nuovo.
+- **Tetto** (`outlet_shift_rules.tetto_persone_giorno`, `tetto_giorni`): `applicaServizi` mette `GiornoPiano.tettoPersone` nei giorni scelti, tranne giorni caldi, festivi, eventi e lunedì a due. Ogni persona oltre pesa `PESI.personaOltreTetto` (40.000: sotto il minimo delle fasce, sopra i riposi). Patrizio: «vince la soluzione che mi rende meno ore di straordinario»; nei feriali lo straordinario è un vincolo duro, quindi il tetto cede quando le ore non bastano.
+- **Misura** (test `serviziNegozio.test.ts`, caso tipo Roma Soratte con quattro persone): con tetto e dedicata tutti i martedì feriali a due persone, la dedicata fa lo scarico in tutti; l'8/12 festivo resta a tre (il tetto lì non vale). Ore scoperte del mese 48,2 contro 47,9 senza dedicata.

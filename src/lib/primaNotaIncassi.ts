@@ -137,7 +137,8 @@ export function normCode(code: string | null | undefined): string | null {
  * non vanno attribuite a un outlet. Restano nel foglio del conto come
  * «Rimborso / restituzione».
  */
-export const isIncassoKind = (kind: MovementKind): boolean => kind !== 'giroconto' && kind !== 'rimborso'
+// Il contributo pubblico non e' l'incasso di un negozio: resta solo fra i movimenti banca.
+export const isIncassoKind = (kind: MovementKind): boolean => kind !== 'giroconto' && kind !== 'rimborso' && kind !== 'contributo'
 
 /** Natura dell'entrata, letta dalla causale. Giroconti e rimborsi non sono incassi: li esclude chi chiama (isIncassoKind). */
 export function incassoKindOf(m: PnIncassoMovement): IncassoKind {
