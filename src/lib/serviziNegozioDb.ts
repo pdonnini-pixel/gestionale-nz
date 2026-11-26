@@ -15,10 +15,16 @@ const t5 = (x: string | null | undefined) => (x ? x.slice(0, 5) : null);
  * calcolato senza scarico e pulizie per un errore di rete sarebbe sbagliato senza dirlo.
  */
 export async function caricaServizi(outletId: string, dal: string, al: string): Promise<ServiziNegozio | null> {
-  const [r, c] = await Promise.all([
-    db.from('outlet_servizi').select('id, tipo, giorno, dalle, alle, persone').eq('outlet_id', outletId),
+  const [r0, c, t] = await Promise.all([
+    db.from('outlet_servizi').select('id, tipo, giorno, dalle, alle, persone, dedicate').eq('outlet_id', outletId),
     db.from('outlet_consegne').select('id, data, dalle, alle, persone, annullata, nota').eq('outlet_id', outletId).gte('data', dal).lte('data', al),
+    // tetto di persone nella giornata (471): dove la colonna manca, nessun tetto
+    db.from('outlet_shift_rules').select('tetto_persone_giorno, tetto_giorni').eq('outlet_id', outletId).maybeSingle(),
   ]);
+  // senza la 471 la colonna «dedicate» non c'e': si rilegge senza
+  const r = r0.error && String((r0.error as { code?: string }).code) === '42703'
+    ? await db.from('outlet_servizi').select('id, tipo, giorno, dalle, alle, persone').eq('outlet_id', outletId)
+    : r0;
   // tabella assente (Made, senza la 468): niente servizi; un errore vero (rete, timeout) si dice
   const err = r.error ?? c.error;
   if (err) {
@@ -26,8 +32,12 @@ export async function caricaServizi(outletId: string, dal: string, al: string): 
     throw new Error(`servizi del negozio non letti (${err.message})`);
   }
   return {
-    ricorrenti: ((r.data as { id: string; tipo: TipoServizio; giorno: number; dalle: string; alle: string; persone: number }[]) ?? [])
-      .map((x) => ({ id: x.id, tipo: x.tipo, giorno: Number(x.giorno), dalle: t5(x.dalle)!, alle: t5(x.alle)!, persone: Number(x.persone) })),
+    ricorrenti: ((r.data as { id: string; tipo: TipoServizio; giorno: number; dalle: string; alle: string; persone: number; dedicate?: string[] | null }[]) ?? [])
+      .map((x) => ({ id: x.id, tipo: x.tipo, giorno: Number(x.giorno), dalle: t5(x.dalle)!, alle: t5(x.alle)!, persone: Number(x.persone), dedicate: x.dedicate ?? [] })),
+    tetto: (() => {
+      const row = t.error ? null : (t.data as { tetto_persone_giorno: number | null; tetto_giorni: number[] | null } | null);
+      return row?.tetto_persone_giorno && row.tetto_giorni?.length ? { persone: Number(row.tetto_persone_giorno), giorni: row.tetto_giorni.map(Number) } : null;
+    })(),
     consegne: ((c.data as { id: string; data: string; dalle: string | null; alle: string | null; persone: number | null; annullata: boolean; nota: string | null }[]) ?? [])
       .map((x) => ({ id: x.id, data: x.data, dalle: t5(x.dalle), alle: t5(x.alle), persone: x.persone == null ? null : Number(x.persone), annullata: !!x.annullata, nota: x.nota })),
   };
@@ -41,7 +51,7 @@ export async function salvaRicorrenti(companyId: string, outletId: string, tipo:
   const giorni = righe.map((x) => x.giorno);
   if (righe.length) {
     const { error } = await db.from('outlet_servizi').upsert(
-      righe.map((x) => ({ company_id: companyId, outlet_id: outletId, tipo, giorno: x.giorno, dalle: x.dalle, alle: x.alle, persone: x.persone, updated_at: new Date().toISOString() })),
+      righe.map((x) => ({ company_id: companyId, outlet_id: outletId, tipo, giorno: x.giorno, dalle: x.dalle, alle: x.alle, persone: x.persone, ...(x.dedicate ? { dedicate: x.dedicate } : {}), updated_at: new Date().toISOString() })),
       { onConflict: 'outlet_id,tipo,giorno' });
     if (error) throw error;
   }
@@ -49,6 +59,20 @@ export async function salvaRicorrenti(companyId: string, outletId: string, tipo:
   if (giorni.length) q = q.not('giorno', 'in', `(${giorni.join(',')})`);
   const { error } = await q;
   if (error) throw error;
+}
+
+/**
+ * Salva il tetto di persone diverse nella giornata nelle regole del negozio (471). `null` lo spegne.
+ * Tocca solo le due colonne del tetto; se il negozio non ha ancora la riga delle regole la crea.
+ */
+export async function salvaTetto(companyId: string, outletId: string, tetto: { persone: number; giorni: number[] } | null): Promise<void> {
+  const valori = { tetto_persone_giorno: tetto?.persone ?? null, tetto_giorni: tetto?.giorni.length ? tetto.giorni : null, updated_at: new Date().toISOString() };
+  const { data, error } = await db.from('outlet_shift_rules').update(valori).eq('outlet_id', outletId).select('outlet_id');
+  if (error) throw error;
+  if (!(data as unknown[] | null)?.length && tetto) {
+    const ins = await db.from('outlet_shift_rules').insert([{ company_id: companyId, outlet_id: outletId, ...valori }]);
+    if (ins.error) throw ins.error;
+  }
 }
 
 /** Aggiunge o cambia la consegna di una data (una riga per negozio e data). */

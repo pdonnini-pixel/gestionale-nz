@@ -12,7 +12,7 @@
 //   (esatto a zero) e non spostano la regola delle due persone, che resta misurata sull'apertura.
 //
 // Tabelle: `outlet_servizi` (regole ricorrenti) e `outlet_consegne` (calendario), migration 468.
-import { SLOT_MINUTI, giornoIso, hhmm, minuti, type GiornoPiano } from './turni';
+import { SLOT_MINUTI, eFestivo, giornoIso, hhmm, minuti, type GiornoPiano } from './turni';
 
 export type TipoServizio = 'scarico' | 'pulizie';
 
@@ -25,7 +25,12 @@ export interface ServizioRicorrente {
   dalle: string;
   alle: string;
   persone: number;
+  /** persone dedicate (employees.id): il piano le preferisce quando ha la scelta (migration 471) */
+  dedicate?: string[];
 }
+
+/** Al massimo `persone` persone diverse nella giornata, nei `giorni` (1 = lunedì) (migration 471). */
+export interface TettoPersone { persone: number; giorni: number[] }
 
 /** Una riga del calendario delle consegne: vale al posto della consegna abituale di quel giorno. */
 export interface ConsegnaCalendario {
@@ -42,9 +47,11 @@ export interface ConsegnaCalendario {
 export interface ServiziNegozio {
   ricorrenti: ServizioRicorrente[];
   consegne: ConsegnaCalendario[];
+  /** tetto di persone diverse nella giornata: scelta del negozio, assente = spento */
+  tetto?: TettoPersone | null;
 }
 
-export interface FinestraServizio { dalle: number; alle: number; persone: number }
+export interface FinestraServizio { dalle: number; alle: number; persone: number; dedicate?: string[] }
 
 /** Persone dello scarico se la regola non le dice: due (Patrizio, 26/11/2026). */
 export const PERSONE_SCARICO = 2;
@@ -67,12 +74,12 @@ export function scaricoDelGiorno(data: string, servizi: ServiziNegozio | null | 
     const dalle = minuti(c.dalle ?? abituale?.dalle ?? null);
     const alle = minuti(c.alle ?? abituale?.alle ?? null);
     if (!valida(dalle, alle)) return null;
-    return { dalle, alle, persone: Math.max(1, c.persone ?? abituale?.persone ?? PERSONE_SCARICO) };
+    return { dalle, alle, persone: Math.max(1, c.persone ?? abituale?.persone ?? PERSONE_SCARICO), dedicate: abituale?.dedicate ?? [] };
   }
   if (!abituale) return null;
   const dalle = minuti(abituale.dalle);
   const alle = minuti(abituale.alle);
-  return valida(dalle, alle) ? { dalle, alle, persone: Math.max(1, abituale.persone || PERSONE_SCARICO) } : null;
+  return valida(dalle, alle) ? { dalle, alle, persone: Math.max(1, abituale.persone || PERSONE_SCARICO), dedicate: abituale.dedicate ?? [] } : null;
 }
 
 /** Le pulizie di una data (regola ricorrente di quel giorno della settimana), o null. */
@@ -81,7 +88,7 @@ export function pulizieDelGiorno(data: string, servizi: ServiziNegozio | null | 
   if (!r) return null;
   const dalle = minuti(r.dalle);
   const alle = minuti(r.alle);
-  return valida(dalle, alle) ? { dalle, alle, persone: Math.max(1, r.persone || PERSONE_PULIZIE) } : null;
+  return valida(dalle, alle) ? { dalle, alle, persone: Math.max(1, r.persone || PERSONE_PULIZIE), dedicate: r.dedicate ?? [] } : null;
 }
 
 /** Arrotonda alla mezz'ora precedente (i turni stanno sulle mezz'ore). */
@@ -97,7 +104,7 @@ const giu = (t: number) => Math.floor(t / SLOT_MINUTI) * SLOT_MINUTI;
  *   pulizie non sono traffico.
  */
 export function applicaServizi(g: GiornoPiano, servizi: ServiziNegozio | null | undefined): GiornoPiano {
-  if (!servizi || g.chiuso || g.apreVendita != null || g.scarico) return g;
+  if (!servizi || g.chiuso || g.apreVendita != null || g.scarico || g.tettoPersone != null) return g;
   let out = g;
   const sc = scaricoDelGiorno(g.data, servizi);
   if (sc) {
@@ -111,13 +118,19 @@ export function applicaServizi(g: GiornoPiano, servizi: ServiziNegozio | null | 
     if (Array.from({ length: n }, (_, i) => i).some(dentro)) {
       out = {
         ...out,
-        scarico: { dalle: Math.max(sc.dalle, out.apre), alle: Math.min(sc.alle, out.chiude), persone: sc.persone },
+        scarico: { dalle: Math.max(sc.dalle, out.apre), alle: Math.min(sc.alle, out.chiude), persone: sc.persone, ...(sc.dedicate?.length ? { dedicate: sc.dedicate } : {}) },
         fabbisogno: alza(out.fabbisogno)!,
         ...(out.minimo ? { minimo: alza(out.minimo) } : {}),
         ...(out.esigenza ? { esigenza: alza(out.esigenza) } : {}),
         ...(out.esatto ? { esatto: alza(out.esatto) } : {}),
       };
     }
+  }
+  // Tetto di persone diverse nella giornata (migration 471): non nei giorni caldi, festivi, eventi
+  // e nel lunedì a due, che ha il suo tetto
+  const tt = servizi.tetto;
+  if (tt && tt.persone >= 2 && tt.giorni.includes(giornoIso(g.data)) && !g.caldo && !g.tutti && !g.evento && !g.lunediDue && !eFestivo(g.data)) {
+    out = { ...out, tettoPersone: tt.persone };
   }
   const pu = pulizieDelGiorno(g.data, servizi);
   if (pu) {
@@ -132,7 +145,7 @@ export function applicaServizi(g: GiornoPiano, servizi: ServiziNegozio | null | 
         ...out,
         apreVendita: out.apre,
         apre: inizio,
-        pulizie: { dalle: inizio, alle: out.apre, persone: pu.persone },
+        pulizie: { dalle: inizio, alle: out.apre, persone: pu.persone, ...(pu.dedicate?.length ? { dedicate: pu.dedicate } : {}) },
         fabbisogno: [...prima, ...out.fabbisogno],
         ...(out.minimo ? { minimo: [...prima, ...out.minimo] } : {}),
         ...(out.esigenza ? { esigenza: [...prima, ...out.esigenza] } : {}),

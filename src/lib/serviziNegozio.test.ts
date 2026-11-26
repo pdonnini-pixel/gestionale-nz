@@ -46,7 +46,7 @@ describe('scarico merce', () => {
   });
 
   it('consegna spostata a un altro giorno e ora: persone dalla consegna abituale', () => {
-    expect(scaricoDelGiorno('2026-12-16', VALMONTONE)).toEqual({ dalle: 840, alle: 930, persone: 2 });
+    expect(scaricoDelGiorno('2026-12-16', VALMONTONE)).toMatchObject({ dalle: 840, alle: 930, persone: 2 });
     const g = applicaServizi({ ...feriale('2026-12-16'), giorno: 3 }, VALMONTONE);
     // 14:00-15:30 = mezz'ore 8, 9, 10: erano già 2, restano 2
     expect(g.scarico).toEqual({ dalle: 840, alle: 930, persone: 2 });
@@ -131,4 +131,44 @@ describe('il piano del mese con i servizi', () => {
     // l'8/12 la consegna è annullata: nessun obbligo, e nessun turno prima delle 10 il martedì
     expect(e.turni.some((x) => x.inizio < '10:00' && new Date(`${x.data}T00:00:00Z`).getUTCDay() === 2)).toBe(false);
   }, 60_000);
+});
+
+// Persone dedicate e tetto di persone nella giornata (Patrizio, 26/11/2026, migration 471).
+// Caso di Roma Soratte: martedì 2 persone dalle 10 alle 18 (scarico 10-12 + fasce), Tania (p0)
+// non riposa mai il martedì, Maria (p2) è dedicata allo scarico, al massimo 2 persone nella giornata.
+describe('persone dedicate e tetto della giornata', () => {
+  const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: g >= 6 ? '21:00' : '20:00' }));
+  const fasce = [2].flatMap((g) => [
+    { giorno: g, dalle: '10:00', alle: '12:00', persone: 1, origine: 'manuale' },
+    { giorno: g, dalle: '12:00', alle: '18:00', persone: 2, origine: 'manuale' },
+    { giorno: g, dalle: '18:00', alle: '20:00', persone: 1, origine: 'manuale' },
+  ]);
+  const tutte = Array.from({ length: 35 }, (_, i) => { const d = new Date('2026-11-30T00:00:00Z'); d.setUTCDate(d.getUTCDate() + i); return d.toISOString().slice(0, 10); });
+  const giorni = costruisciGiorni(tutte, orari, fasce, []);
+  const atteso = new Map(tutte.map((d) => [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 21 ? 30 : 0))]));
+  const persone = [40, 30, 30, 30].map((ore, i) => ({ id: `p${i}`, oreSettimana: ore, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }));
+  const servizi: ServiziNegozio = {
+    ricorrenti: [{ tipo: 'scarico', giorno: 2, dalle: '10:00', alle: '12:00', persone: 2, dedicate: ['p2'] }],
+    consegne: [],
+    tetto: { persone: 2, giorni: [2] },
+  };
+  const regole = { ...REGOLE_DEFAULT, pausaMinuti: 30, pausaLungaMinuti: 30, duePersone: false, servizi };
+  const nuove = { riposi: { mai: new Map([['p0', [2]]]) } };
+  const martedi = ['2026-12-01', '2026-12-15', '2026-12-22', '2026-12-29'];
+
+  it('Tania c\'è, la dedicata fa lo scarico, al massimo due persone e una sola volta il peso di Tania', () => {
+    const e = pianificaMese({ mese: '2026-12', giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso, regole, nuove });
+    let conDedicata = 0;
+    for (const mar of martedi) {
+      const t = e.turni.filter((x) => x.data === mar);
+      const chi = new Set(t.map((x) => x.employeeId));
+      expect(chi.has('p0'), `${mar} Tania`).toBe(true);
+      expect(chi.size, `${mar} persone diverse: ${t.map((x) => `${x.employeeId} ${x.inizio}-${x.fine}`).join(', ')}`).toBeLessThanOrEqual(2);
+      if (t.some((x) => x.employeeId === 'p2' && x.inizio <= '10:00')) conDedicata += 1;
+      // due persone dalle 10 alle 12 per lo scarico
+      for (const s of [600, 630, 660, 690]) expect(t.filter((x) => x.inizio <= hhmm(s) && x.fine >= hhmm(s + 30)).length).toBeGreaterThanOrEqual(2);
+    }
+    // la dedicata c'è almeno nella maggior parte dei martedì (le ore della settimana possono non bastare)
+    expect(conDedicata).toBeGreaterThanOrEqual(3);
+  }, 90_000);
 });

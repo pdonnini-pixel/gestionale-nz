@@ -315,7 +315,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
         </div>
       )}
       {scelto && sotto === 'servizi' && (
-        <ServiziNegozi key={scelto.id} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)} puoScrivere={puoScrivere} />
+        <ServiziNegozi key={scelto.id} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)} puoScrivere={puoScrivere} persone={personeDelNegozio} />
       )}
       {sotto === 'trasferte' && companyId && dati && (
         <TrasferteNegozi companyId={companyId} dati={dati} puoScrivere={puoScrivere} />
