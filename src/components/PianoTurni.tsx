@@ -436,7 +436,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         negozio: nomeNegozio,
         giorni: settimana.map((d) => {
           const g = giorni.find((x) => x.data === d);
-          return { data: d, nelMese: date.includes(d), chiuso: g ? g.chiuso : false, apre: g && !g.chiuso ? orarioDi(g.apreVendita ?? g.apre) : null, chiude: g && !g.chiuso ? orarioDi(g.chiude) : null, evento: g?.evento ?? null };
+          return { data: d, nelMese: date.includes(d), chiuso: g ? g.chiuso : false, apre: g && !g.chiuso ? orarioDi(g.apreVendita ?? g.apre) : null, primoIngresso: g && !g.chiuso && g.pulizie ? orarioDi(g.apre) : null, chiude: g && !g.chiuso ? orarioDi(g.chiude) : null, evento: g?.evento ?? null };
         }),
         persone: visibili.map((p) => ({
           nome: nomePersona(p.scheda),
@@ -497,7 +497,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           ...base,
           giorni: sett.map((d, i) => {
             const g = giorni.find((x) => x.data === d) ?? tipo.get(i + 1);
-            return { data: d, nelMese: dentro.includes(d), chiuso: g ? g.chiuso : false, apre: g && !g.chiuso ? orarioDi(g.apreVendita ?? g.apre) : null, chiude: g && !g.chiuso ? orarioDi(g.chiude) : null, evento: giorni.find((x) => x.data === d)?.evento ?? null };
+            return { data: d, nelMese: dentro.includes(d), chiuso: g ? g.chiuso : false, apre: g && !g.chiuso ? orarioDi(g.apreVendita ?? g.apre) : null, primoIngresso: g && !g.chiuso && g.pulizie ? orarioDi(g.apre) : null, chiude: g && !g.chiuso ? orarioDi(g.chiude) : null, evento: giorni.find((x) => x.data === d)?.evento ?? null };
           }),
           persone: visibili.map((p) => ({
             nome: nomePersona(p.scheda),

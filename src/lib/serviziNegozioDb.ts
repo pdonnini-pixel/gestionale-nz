@@ -11,14 +11,20 @@ const t5 = (x: string | null | undefined) => (x ? x.slice(0, 5) : null);
 
 /**
  * I servizi di un negozio, con le consegne del calendario fra `dal` e `al`. Null se le tabelle
- * mancano o la lettura non riesce: chi calcola i turni procede come prima.
+ * mancano (chi calcola i turni procede come prima); un altro errore si lancia, perché un piano
+ * calcolato senza scarico e pulizie per un errore di rete sarebbe sbagliato senza dirlo.
  */
 export async function caricaServizi(outletId: string, dal: string, al: string): Promise<ServiziNegozio | null> {
   const [r, c] = await Promise.all([
     db.from('outlet_servizi').select('id, tipo, giorno, dalle, alle, persone').eq('outlet_id', outletId),
     db.from('outlet_consegne').select('id, data, dalle, alle, persone, annullata, nota').eq('outlet_id', outletId).gte('data', dal).lte('data', al),
   ]);
-  if (r.error || c.error) return null;
+  // tabella assente (Made, senza la 468): niente servizi; un errore vero (rete, timeout) si dice
+  const err = r.error ?? c.error;
+  if (err) {
+    if (['42P01', 'PGRST205', 'PGRST200'].includes(String((err as { code?: string }).code ?? ''))) return null;
+    throw new Error(`servizi del negozio non letti (${err.message})`);
+  }
   return {
     ricorrenti: ((r.data as { id: string; tipo: TipoServizio; giorno: number; dalle: string; alle: string; persone: number }[]) ?? [])
       .map((x) => ({ id: x.id, tipo: x.tipo, giorno: Number(x.giorno), dalle: t5(x.dalle)!, alle: t5(x.alle)!, persone: Number(x.persone) })),

@@ -152,13 +152,15 @@ export default function ServiziNegozi({ companyId, outletId, nomeNegozio, puoScr
   const [salvando, setSalvando] = useState(false);
 
   const carica = useCallback(async () => {
-    const s = await caricaServizi(outletId, aggiungiGiorni(dal, -7), al);
+    let s: ServiziNegozio | null;
+    try { s = await caricaServizi(outletId, aggiungiGiorni(dal, -7), al); }
+    catch (e) { toast({ type: 'error', message: `Servizi non caricati: ${e instanceof Error ? e.message : 'errore'}` }); return; }
     if (!s) { setMancano(true); return; }
     setMancano(false);
     setServizi(s);
     setScarico(righeDi(s, 'scarico')); setRiceve(righeDi(s, 'scarico').length > 0);
     setPulizie(righeDi(s, 'pulizie')); setFa(righeDi(s, 'pulizie').length > 0);
-  }, [outletId, dal, al]);
+  }, [outletId, dal, al, toast]);
   useEffect(() => { void carica(); }, [carica]);
 
   const errori = (r: RigaServizio[]) => r.filter((x) => minuti(x.alle) <= minuti(x.dalle)).map((x) => NOMI_GIORNO[x.giorno]);
