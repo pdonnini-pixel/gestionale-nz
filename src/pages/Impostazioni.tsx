@@ -597,7 +597,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
 
   // Nuovo utente: crea il login con una password generata (mostrata una volta)
   // oppure invia l'email di invito per impostarla.
-  // In modifica, cambia solo il ruolo (nome/email di un login esistente non si toccano qui).
+  // In modifica cambiano ruolo, copia ed email di accesso (nome e cognome no).
   // Per l'operatore di cassa l'outlet e' obbligatorio: la funzione admin lo
   // scrive in user_outlet_access (can_write), da cui dipende la RLS della chiusura.
   const handleSave = async () => {
@@ -608,10 +608,15 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       const cc = form.email_cc.trim().toLowerCase()
       if (cc && !/^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$/i.test(cc)) { showToast?.('L\'indirizzo in copia non è valido', 'error'); return }
       if (editingId) {
+        const nuovaEmail = form.email.trim().toLowerCase()
+        const emailPrima = ((users.find(x => x.id === editingId)?.email as string) || '').toLowerCase()
+        if (nuovaEmail !== emailPrima && !/^[^@\s,;]+@[^@\s,;]+\.[a-z]{2,}$/i.test(nuovaEmail)) { showToast?.('L\'email non è valida', 'error'); return }
+        if (nuovaEmail !== emailPrima && !window.confirm(`L'utente entrerà con ${nuovaEmail} (al posto di ${emailPrima}). Controlla che l'indirizzo sia giusto: le email di accesso e di recupero andranno lì. Confermi?`)) return
+        if (nuovaEmail !== emailPrima) await callAdmin('set_email', { user_id: editingId, email: nuovaEmail })
         await callAdmin('set_role', { user_id: editingId, role: form.ruolo, ...outletPayload })
         const prima = (users.find(x => x.id === editingId)?.email_cc as string) || ''
         if (cc !== prima) await callAdmin('set_cc', { user_id: editingId, email_cc: cc })
-        showToast?.(cc !== prima ? 'Ruolo e copia aggiornati' : 'Ruolo aggiornato')
+        showToast?.(nuovaEmail !== emailPrima ? `Utente aggiornato: ora entra con ${nuovaEmail}` : cc !== prima ? 'Ruolo e copia aggiornati' : 'Ruolo aggiornato')
       } else {
         if (!form.email.trim()) { showToast?.('Email obbligatoria', 'error'); return }
         const email = form.email.trim()
@@ -754,7 +759,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
         <span>
           Qui gestisci gli <strong>accessi reali</strong> all'applicazione. <strong>Nuovo utente</strong> crea il login con una
           password generata da comunicare tu, oppure manda un'email di invito; <strong>Nuova password</strong> (icona chiave) ne genera una e te la mostra
-          una sola volta, da comunicare tu all'utente (es. account di negozio); <strong>Rimanda l'email</strong> (icona busta) manda di nuovo il link per scegliere la password, anche a chi ha l'invito scaduto, con la copia all'indirizzo «In copia» dell'account (si imposta dalla matita); <strong>Blocca</strong> impedisce l'accesso
+          una sola volta, da comunicare tu all'utente (es. account di negozio); <strong>Rimanda l'email</strong> (icona busta) manda di nuovo il link per scegliere la password, anche a chi ha l'invito scaduto, con la copia all'indirizzo «In copia» dell'account (si imposta dalla matita); dalla matita si corregge anche l'<strong>email di accesso</strong>; <strong>Blocca</strong> impedisce l'accesso
           senza eliminare nulla; <strong>Elimina</strong> revoca definitivamente il login. Le azioni valgono solo per la tua azienda.
         </span>
       </div>
@@ -783,7 +788,7 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
       {showForm && (
         <div ref={formRef} className="bg-blue-50/50 border border-blue-200 rounded-xl p-5 space-y-4">
           <h4 className="text-sm font-semibold text-slate-800">
-            {editingId ? 'Modifica ruolo e copia email' : 'Nuovo utente'}
+            {editingId ? 'Modifica email, ruolo e copia' : 'Nuovo utente'}
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             <div>
@@ -798,8 +803,9 @@ function UserSection({ showToast, companyId: COMPANY_ID }: SectionProps) {
             </div>
             <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Email {editingId ? '' : '*'}</label>
-              <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} disabled={!!editingId}
-                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 disabled:bg-slate-100 disabled:text-slate-400" />
+              <input type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))}
+                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500" />
+              {editingId && <p className="text-[11px] text-slate-400 mt-1">Cambiandola, l'utente entra subito con il nuovo indirizzo (stessa password).</p>}
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

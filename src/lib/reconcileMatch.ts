@@ -32,7 +32,8 @@ export const BANK_OWN_MOVEMENT_RE = new RegExp([
   'COMM/SPESE SU FIDEJUSSION', 'FONDO DI GARANZIA',
   // movimenti fra conti propri e cassa
   'PREL\\.CONT', 'PRELEVAMENTO', 'PASSAGGIO CONTANTI', 'GIROCONTO',
-  'COSTITUZIONE PEGNO',
+  // pegno in denaro: somma vincolata a garanzia di una fideiussione (resta dell'azienda)
+  'COSTITUZIONE PEGNO', 'PEGNO DENARO',
   // commissioni POS, rimborsi tax free, addebito mensile dell'estratto carta:
   // sono servizi addebitati in SDD, non fatture da chiudere una per una
   'A FAVORE NEXI PAYMENTS', 'A FAVORE GLOBAL BLUE',

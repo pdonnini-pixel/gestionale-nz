@@ -6,6 +6,7 @@ import {
   quoteFattura, quoteMovimento, testoNegozio, type NegozioLookup,
   isRiba, ribaCountOf, tipoMovimentoOf, KIND_LABELS,
   invoicesTotalOf, nomeFileExport, acquirerDebitOutlet, type PnMovement, type PnPayable, type PnAcquirerContract,
+  isCardSettlement, fattureDelMovimento, fideiussioneDelPegno, fatturaEmessaDelBonifico, invoiceCountOf, type PnFatturaEmessa,
 } from './primaNotaExport'
 
 const mv = (over: Partial<PnMovement> & { amount: number; description: string }): PnMovement => ({
@@ -321,8 +322,16 @@ describe('previdenza complementare, pegno e incasso di una fattura (ottobre 2026
   it('una fattura agganciata vince sempre', () => {
     expect(classifyMovement(mv({ amount: -100, description: 'Bonifico a favore di: MEDIOLANUM VITA S.P.A.', payables: [pay('1', 'A', '01234567890')] }))).toBe('fornitore')
   })
-  it('«pegno denaro» è un giroconto, non un pagamento da chiarire', () => {
-    expect(classifyMovement(mv({ amount: -44100, description: 'Causale: DISPOSIZIONE - Descrizione: PEGNO DENARO' }))).toBe('giroconto')
+  it('«pegno denaro» è un pegno (somma vincolata), non un prelievo né un pagamento da chiarire', () => {
+    expect(classifyMovement(mv({ amount: -44100, description: 'Causale: DISPOSIZIONE - Descrizione: PEGNO DENARO' }))).toBe('pegno')
+    expect(classifyMovement(mv({ amount: -44100, description: '(26) VOSTRA DISPOSIZIONE A FAVORE DI DISPOSIZIONE PEGNO DENARO Rif Banca: 0260243000100006' }))).toBe('pegno')
+    expect(KIND_LABELS.pegno).toBe('Pegno in denaro (somma vincolata)')
+    expect(classifyMovement(mv({ amount: -503, description: 'Causale: PREL.CONT. DA SPORTELLO - Descrizione:' }))).toBe('giroconto')
+  })
+  it('il contributo della Nuova Sabatini è un contributo pubblico, non un incasso da chiarire', () => {
+    expect(classifyMovement(mv({ amount: 3162.12, description: 'Bonifico a vs favore *MIMIT - DGIAI PAGAMENTO QUOTA 1 EROGAZIONE DM 27.11.2013 (NUOVA SABATINI) ID DOMANDA 414676' }))).toBe('contributo')
+    expect(KIND_LABELS.contributo).toBe('Contributo pubblico')
+    expect(classifyMovement(mv({ amount: 918.66, description: 'BON. IST. DEL 12.11.26 ORD: ROSSINI SERENA BIC: MEDBITMMXXX RI: BONIFICO ERRATO' }))).toBe('da_chiarire')
   })
   it('un bonifico in entrata che salda una fattura è un incasso cliente', () => {
     expect(classifyMovement(mv({ amount: 81, description: 'Causale: BONIFICO PER ORDINE/CONTO - Descrizione: FILIALE DISPONENTE 00560 BON. SEPA 0881100010187150480546305463IT DEL 30.10.26 ORD: BECATTINI ALESSIA BIC: ICRAITRRMJ0 INF:RI: Pagamento fattura n.2' }))).toBe('incasso_cliente')
@@ -333,5 +342,52 @@ describe('previdenza complementare, pegno e incasso di una fattura (ottobre 2026
   it('i bonifici a fornitore senza fattura restano da chiarire', () => {
     expect(classifyMovement(mv({ amount: -123, description: 'Bonifico tramite Internet Banking *INSTANT DEL 21/10/2026 ORE 15:25 BEN REGINA HOTEL S.R.L.' }))).toBe('da_chiarire')
     expect(classifyMovement(mv({ amount: -640.5, description: 'Causale: DISPOSIZIONE - Descrizione: FILIALE DISPONENTE 2430 ID FLUSSO CBI: 138650283 NUM. TOT. PAGAMENTI: 1 IMPORTO BONIFICI: 640,00 IMPORTO COMMISSIONI: 0,50 ORD.ORIG:' }))).toBe('da_chiarire')
+  })
+})
+
+// Casi veri della scheda di Monica (Studio Poli, 26/11/2026), ottobre 2026 su NZ.
+describe('scheda anticipi di ottobre 2026: carte, pegno, fatture emesse', () => {
+  const addebitoCarte = mv({
+    amount: -3983.62, category: 'carte', description: 'Carta del Credito Cooperativo ******************283 CCP DIRECT ISSUING',
+    payables: [pay('5559/H', 'Hotel and Meeting Center Gross di Regina Hotel srl', '01111111111', 182), pay('611', 'BELLA BIJOUX DI ZHANG XUELING', '02222222222', 835.46), pay('879/1', 'PRATESI EDILIZIA & GIARDINO SRL', '03333333333', 37.82)],
+  })
+  it('l\'addebito dell\'estratto carte resta «carta di credito» anche con fatture agganciate', () => {
+    expect(isCardSettlement(addebitoCarte)).toBe(true)
+    expect(classifyMovement(addebitoCarte)).toBe('carta')
+    expect(counterpartOf(addebitoCarte)).toBe('Estratto carta di credito')
+    expect(pivaOf(addebitoCarte)).toBe('')
+    expect(fattureDelMovimento(addebitoCarte)).toEqual([])
+    expect(invoiceCountOf(addebitoCarte)).toBe(0)
+    expect(invoicesTotalOf(addebitoCarte)).toBeNull()
+    expect(causaleOf(addebitoCarte)).toContain('CCP DIRECT ISSUING')
+  })
+  it('ricariche della prepagata, commissioni Amex e pagamenti POS non sono addebiti di estratto', () => {
+    expect(isCardSettlement(mv({ amount: -100, description: 'Ricarica carta prepagata TASCA da CARTA : 5226*********580 Ricariche da Home Banking' }))).toBe(false)
+    expect(isCardSettlement(mv({ amount: -5.5, description: 'Causale: ADD.DIRETTO CARTA CREDITO - Descrizione: ADDEBITO SDD N. 665103087 A FAVORE AMERICAN EXPRESS PAYMENTS EUSL' }))).toBe(false)
+    expect(isCardSettlement(mv({ amount: -256, description: 'Operazione POS Eurozona Del 21.10.26 22:48 Carta *453 RISTORANTE ANTICA CANT VALMONTONE IT' }))).toBe(false)
+    expect(isCardSettlement(mv({ amount: 3983.62, description: 'Carta del Credito Cooperativo storno' }))).toBe(false)
+  })
+  it('il pegno trova la fideiussione che garantisce, dalla commissione con lo stesso importo', () => {
+    const pegno = mv({ amount: -44100, description: '(26) VOSTRA DISPOSIZIONE A FAVORE DI DISPOSIZIONE PEGNO DENARO Rif Banca: 0260243000100006' })
+    const comm = mv({ amount: -793.8, description: 'Causale: COMM/SPESE SU FIDEJUSSION - Descrizione: ORD: NEW ZAGO S.R.L. FIDEIUSSIONE DEL 28.10.2026 N. 7017101 - EUR 44.100,00 A FAVORE: WESTI SRL CAUSALE: ASSUNZ. IMPEGNO' })
+    expect(fideiussioneDelPegno(pegno, [pegno, comm])).toEqual({ data: '28/10/2026', numero: '7017101', importo: 44100, beneficiario: 'WESTI SRL' })
+    expect(fideiussioneDelPegno(mv({ amount: -1000, description: 'PEGNO DENARO' }), [comm])).toBeNull()
+    expect(fideiussioneDelPegno(comm, [comm])).toBeNull()
+  })
+  const fatture: PnFatturaEmessa[] = [
+    { id: 'a3', invoice_number: '3/2026/MAGA', invoice_date: '2026-10-29', client_name: 'SESTINI MATTIA', total_amount: 14.85, outlet_id: null },
+    { id: 'a2', invoice_number: '2/2026/MAGA', invoice_date: '2026-10-28', client_name: "FOCARDI NICCOLO'", total_amount: 81, outlet_id: null },
+    { id: 'x', invoice_number: '9/2026/A/TOR', invoice_date: '2026-10-10', client_name: 'ROSSI MARIO', total_amount: 81, outlet_id: null },
+  ]
+  it('il bonifico di un cliente trova la fattura emessa: per nome, o per numero se paga un altro', () => {
+    const sestini = { amount: 14.85, transaction_date: '2026-10-29', description: '(48) BONIFICO A VOSTRO FAVORE (PER ORDINE E CONTO) ORD: Mattia SestiniVia della Liberta 49 FILIALE DISPONENTE 00560 BON. IST. REVITR26102905398052755 DEL 29.10.26 BIC: REVOITM2XXX INF:RI: Acquisto foulard' }
+    expect(fatturaEmessaDelBonifico(sestini, fatture)?.id).toBe('a3')
+    const becattini = { amount: 81, transaction_date: '2026-10-30', description: '(48) BONIFICO A VOSTRO FAVORE (PER ORDINE E CONTO) ORD: BECATTINI ALESSIA FILIALE DISPONENTE 00560 BON. SEPA 0881100010187150480546305463IT DEL 30.10.26 BIC: ICRAITRRMJ0 INF:RI: Pagamento fattura n.2 Rif Banca: 048000103' }
+    expect(fatturaEmessaDelBonifico(becattini, fatture)?.id).toBe('a2')
+  })
+  it('senza nome né numero, o con l\'importo diverso, nessuna fattura', () => {
+    expect(fatturaEmessaDelBonifico({ amount: 81, transaction_date: '2026-10-30', description: 'BON. SEPA ORD: BIANCHI LUCA INF:RI: Acquisto' }, fatture)).toBeNull()
+    expect(fatturaEmessaDelBonifico({ amount: 82, transaction_date: '2026-10-30', description: 'BON. SEPA ORD: BECATTINI ALESSIA INF:RI: Pagamento fattura n.2' }, fatture)).toBeNull()
+    expect(fatturaEmessaDelBonifico({ amount: -81, transaction_date: '2026-10-30', description: 'BONIFICO fattura n.2' }, fatture)).toBeNull()
   })
 })

@@ -1084,6 +1084,12 @@ nascono spente e i piani non cambiano (misura sotto).
   domenica, festivi ed eventi sono giorni caldi: lavorano tutte, straordinari ammessi.
 - **«La responsabile fa 10-19»** diventa: una fra responsabile e vice fa l'apertura e resta 9 ore,
   l'altra fa la chiusura, e si alternano.
+  **Dal 26/11/2026 le ore di chi apre sono una regola che si accende e si spegne** (Patrizio: «la
+  regola deve poter essere accesa o spenta, quindi non fissa come costante»):
+  `outlet_shift_rules.caldi_ore_apertura_attiva` (migration 474; NULL o true = accesa, vale
+  `caldi_ore_apertura`, 9 se vuota; false = spenta). Spenta, chi apre entra comunque all'apertura
+  ma quanto resta lo decidono fasce, MODA e contratto, e la deroga `domenica_apertura` controlla solo
+  l'ingresso (`oreDiChiApre` in `ottimizzaTurni.ts`). Interruttore accanto a «Chi apre resta (ore)».
 - **Il giorno libero fisso scelto dal sistema** non c'è più dove il negozio ha scritto i riposi
   minimi: resta fisso solo quello deciso a mano; senza una scelta lo decide la turnazione.
 - I due limiti «da sola al massimo mezz'ora all'apertura, un'ora alla chiusura» e «al massimo due
