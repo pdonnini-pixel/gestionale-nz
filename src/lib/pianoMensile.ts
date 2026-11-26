@@ -26,6 +26,7 @@ import {
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, type Scopertura, type Fascia,
 } from './turni';
 import { ottimizzaSettimana, senzaRiposoDiLegge, scegliGiorniLiberi, coppieFeriali, coppiaDelGiorno, sceltePerLaSettimana, ripartisciStraordinari, type RegoleNuove, type ContoChiavi } from './ottimizzaTurni';
+import { applicaServizi } from './serviziNegozio';
 
 export { giornoPieno };
 
@@ -176,7 +177,8 @@ export function fabbisognoDaTraffico(
   extra: Map<string, number> = new Map(),
 ): GiornoPiano[] {
   // nella chiusura di meta' giornata (migration 446) non serve nessuno, nemmeno per MODA o le due persone
-  return giorni.map((g) => azzeraChiusura(tettoDelLunedi(fabbisognoDelGiorno(g), regole)));
+  // scarico merce e pulizie prima dell'apertura (26/11/2026) per ultimi: lo scarico alza le persone sopra tutto il resto
+  return giorni.map((g) => applicaServizi(azzeraChiusura(tettoDelLunedi(fabbisognoDelGiorno(g), regole)), regole.servizi));
 
   function fabbisognoDelGiorno(g: GiornoPiano): GiornoPiano {
     if (g.chiuso) return g;
@@ -1352,7 +1354,7 @@ function pianificaMeseConRegola(args: {
     const date = giorniDellaSettimana(lun).filter(nelMese);
     const gg = args.giorni.filter((g) => date.includes(g.data));
     // fabbisogno fisso (negozio senza nessun traffico): niente MODA, ma il lunedi' a due vale lo stesso
-    if (args.fabbisognoFisso) { const fissi = gg.map((g) => tettoDelLunedi(g, regole)); giorniMese.push(...fissi); giorniNecessari.push(...fissi); continue; }
+    if (args.fabbisognoFisso) { const fissi = gg.map((g) => applicaServizi(tettoDelLunedi(g, regole), regole.servizi)); giorniMese.push(...fissi); giorniNecessari.push(...fissi); continue; }
     const maxP = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) && !libero(p.id, g.data)).length]));
     giorniMese.push(...fabbisognoDaTraffico(gg, args.atteso, regole, maxP, args.extra));
     const maxPieno = new Map(gg.map((g) => [g.data, contrattuali.filter((p) => !p.nonDisponibile.has(g.data) || p.oreFerie.has(g.data)).length]));

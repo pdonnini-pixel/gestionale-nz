@@ -18,6 +18,8 @@ import EditorTurno from './EditorTurno';
 import TurniPubblicatiTolti from './TurniPubblicatiTolti';
 import { giornoDiPubblicazione, riallineaStraordinariForti } from '../lib/straordinariDb';
 import SpostaTurnoModal from './SpostaTurnoModal';
+import { applicaServizi, testoServizi } from '../lib/serviziNegozio';
+import { caricaServizi } from '../lib/serviziNegozioDb';
 import { useToast } from './Toast';
 import type { jsPDF } from 'jspdf';
 import { supabase } from '../lib/supabase';
@@ -38,7 +40,7 @@ import { avvisiMossa as avvisiDellaMossa, esitoMossa, mossePossibili, type Conte
 import { eseguiMossaSuShifts } from '../lib/spostaTurniDb';
 import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '../lib/trasferte';
 import {
-  NOMI_GIORNO, NOMI_GIORNO_BREVI, REGOLE_DEFAULT, costruisciGiorni, giornoPieno, opzioniGiorni, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
+  NOMI_GIORNO, NOMI_GIORNO_BREVI, hhmm, REGOLE_DEFAULT, costruisciGiorni, giornoPieno, opzioniGiorni, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
   giornoIso, applicaChiusure,
 } from '../lib/turni';
@@ -248,7 +250,8 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const fasce = (f.data as { giorno: number; dalle: string; alle: string; persone: number }[]) ?? [];
       const speciali = (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [];
       const eventi = eventiDelNegozio(ev.righe.map(eventoDaRiga) as EventoNegozio[], outletId);
-      const regoleLette = regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]);
+      // scarico merce e pulizie prima dell'apertura (migration 468): dove le tabelle mancano, niente
+      const regoleLette = { ...regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]), servizi: await caricaServizi(outletId, date[0], ultimo) };
       setHaOrari(orari.length > 0);
       setOrariStimati(orari.some((x) => (x as { origine?: string }).origine === 'stima'));
       setFasceStimate(fasce.some((x) => (x as { origine?: string }).origine === 'stima'));
@@ -346,7 +349,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   const usaModa = !!moda && moda.atteso.size > 0;
   const giorni = useMemo(() => {
     // senza traffico MODA comandano le fasce di «Orari e fabbisogno»: il lunedi' a due vale lo stesso
-    if (!moda || !moda.atteso.size) return giorniBase.map((g) => tettoDelLunedi(g, regole));
+    if (!moda || !moda.atteso.size) return giorniBase.map((g) => applicaServizi(tettoDelLunedi(g, regole), regole.servizi));
     const maxP = new Map(date.map((d) => [d, candidati.filter((p) => !p.nonDisponibile.has(d)).length]));
     return fabbisognoDaTraffico(giorniBase, moda.atteso, regole, maxP, extra);
   }, [giorniBase, moda, candidati, date, extra, regole]);
@@ -433,7 +436,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         negozio: nomeNegozio,
         giorni: settimana.map((d) => {
           const g = giorni.find((x) => x.data === d);
-          return { data: d, nelMese: date.includes(d), chiuso: g ? g.chiuso : false, apre: g && !g.chiuso ? orarioDi(g.apre) : null, chiude: g && !g.chiuso ? orarioDi(g.chiude) : null, evento: g?.evento ?? null };
+          return { data: d, nelMese: date.includes(d), chiuso: g ? g.chiuso : false, apre: g && !g.chiuso ? orarioDi(g.apreVendita ?? g.apre) : null, primoIngresso: g && !g.chiuso && g.pulizie ? orarioDi(g.apre) : null, chiude: g && !g.chiuso ? orarioDi(g.chiude) : null, evento: g?.evento ?? null };
         }),
         persone: visibili.map((p) => ({
           nome: nomePersona(p.scheda),
@@ -494,7 +497,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           ...base,
           giorni: sett.map((d, i) => {
             const g = giorni.find((x) => x.data === d) ?? tipo.get(i + 1);
-            return { data: d, nelMese: dentro.includes(d), chiuso: g ? g.chiuso : false, apre: g && !g.chiuso ? orarioDi(g.apre) : null, chiude: g && !g.chiuso ? orarioDi(g.chiude) : null, evento: giorni.find((x) => x.data === d)?.evento ?? null };
+            return { data: d, nelMese: dentro.includes(d), chiuso: g ? g.chiuso : false, apre: g && !g.chiuso ? orarioDi(g.apreVendita ?? g.apre) : null, primoIngresso: g && !g.chiuso && g.pulizie ? orarioDi(g.apre) : null, chiude: g && !g.chiuso ? orarioDi(g.chiude) : null, evento: giorni.find((x) => x.data === d)?.evento ?? null };
           }),
           persone: visibili.map((p) => ({
             nome: nomePersona(p.scheda),
@@ -924,7 +927,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                 <th key={g.data} className={`px-1.5 py-2 font-semibold ${g.caldo && !g.chiuso ? 'bg-pink-50 text-pink-900' : ''}`}>
                   {NOMI_GIORNO_BREVI[g.giorno]} {g.data.slice(8, 10)}{g.caldo && !g.chiuso && <span className="ml-1 normal-case font-semibold text-[10px] rounded-full bg-pink-200 text-pink-900 px-1.5 py-0.5" title="Giorno caldo: lavorano tutte, straordinari ammessi">caldo</span>}
                   {g.chiuso && <span className="block normal-case font-normal text-slate-400">chiuso</span>}
-                  {!g.chiuso && <span className="block normal-case font-normal text-slate-400">{`${String(Math.floor(g.apre / 60)).padStart(2, '0')}:${String(g.apre % 60).padStart(2, '0')}-${String(Math.floor(g.chiude / 60)).padStart(2, '0')}:${String(g.chiude % 60).padStart(2, '0')}`}</span>}
+                  {!g.chiuso && <span className="block normal-case font-normal text-slate-400">{`${hhmm(g.apreVendita ?? g.apre)}-${hhmm(g.chiude)}`}</span>}
+                  {/* servizi del negozio (migration 468): pulizie prima dell'apertura e scarico merce */}
+                  {!g.chiuso && g.pulizie && <span className="block w-fit normal-case font-semibold text-[10px] rounded bg-violet-50 text-violet-700 border border-violet-200 px-1 mt-0.5" title="Il negozio apre per le pulizie: ore di lavoro, non vendita">{testoServizi({ pulizie: g.pulizie })[0]}</span>}
+                  {!g.chiuso && g.scarico && <span className="block w-fit normal-case font-semibold text-[10px] rounded bg-orange-50 text-amber-700 border border-orange-200 px-1 mt-0.5" title="Scarico merce: in queste ore servono almeno queste persone">{testoServizi({ scarico: g.scarico })[0]}</span>}
                   {g.nota && <span className="block normal-case font-normal text-blue-700">{g.nota}</span>}
                   {g.evento && <span className="block normal-case font-semibold text-red-700" title="Evento: più personale, niente ferie né permessi, straordinari se mancano persone">{g.evento}</span>}
                 </th>

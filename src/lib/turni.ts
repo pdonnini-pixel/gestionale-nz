@@ -98,6 +98,11 @@ export interface RegoleTurni {
    * Scelta del negozio (`outlet_shift_rules.lunedi_due_persone`, migration 408), spenta di default.
    */
   lunediDue?: boolean;
+  /**
+   * Servizi del negozio (Patrizio, 26/11/2026, migration 468): scarico merce e pulizie prima
+   * dell'apertura. Li carica chi calcola i turni; senza, tutto come prima.
+   */
+  servizi?: import('./serviziNegozio').ServiziNegozio | null;
 }
 
 /** Quante persone al massimo il lunedi', dove la scelta del negozio e' accesa. */
@@ -531,6 +536,13 @@ export interface GiornoPiano {
   lunediDue?: boolean;
   /** le fasce salvate di questo lunedi' chiedevano piu' del tetto: comanda il tetto, la pagina lo segnala */
   lunediFasceOltre?: boolean;
+  // ── Servizi del negozio (Patrizio, 26/11/2026, migration 468). Li scrive applicaServizi. ──
+  /** scarico merce di questo giorno: in quelle mezz'ore servono almeno `persone` */
+  scarico?: { dalle: number; alle: number; persone: number };
+  /** pulizie prima dell'apertura: il giorno comincia a `dalle`, la vendita a `apreVendita` */
+  pulizie?: { dalle: number; alle: number; persone: number };
+  /** apertura alla vendita quando il giorno comincia prima per le pulizie */
+  apreVendita?: number;
 }
 
 /**

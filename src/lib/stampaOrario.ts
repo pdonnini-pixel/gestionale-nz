@@ -35,6 +35,8 @@ export interface GiornoStampa {
   chiuso: boolean;
   apre: string | null;
   chiude: string | null;
+  /** Nei giorni delle pulizie prima dell'apertura (migration 468): l'ora delle pulizie, da cui conta chi apre. */
+  primoIngresso?: string | null;
   /** Nome dell'evento del giorno (es. «Black Friday»). */
   evento?: string | null;
 }
@@ -223,9 +225,9 @@ function chiHaTurno(
     .filter((c): c is string => c !== null);
 }
 
-/** Chi ha il turno che comincia all'apertura di quel giorno. */
+/** Chi ha il turno che comincia all'apertura di quel giorno (all'ora delle pulizie, se il negozio apre prima per pulire). */
 export function chiApre(giorno: GiornoStampa, persone: PersonaStampa[]): string[] {
-  return chiHaTurno(giorno, persone, giorno.apre, 'inizio');
+  return chiHaTurno(giorno, persone, giorno.primoIngresso ?? giorno.apre, 'inizio');
 }
 
 /** Chi ha il turno che finisce alla chiusura di quel giorno. */
