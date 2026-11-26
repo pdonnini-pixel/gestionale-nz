@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { CalendarRange, Lock, Pencil, Plus, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
+import { useConferma } from './ui/Conferma';
 import { formattaDataBreve, oggiRoma } from '../lib/organico';
 import { nomeNegozio, type NegozioRif } from '../lib/organicoDati';
 import type { EventoNegozio } from '../lib/turni';
@@ -32,6 +33,8 @@ const ESEMPI = ['Black Friday', 'Feste natalizie', 'Saldi invernali', 'Saldi est
 
 export default function EventiNegozi({ companyId, negozi, puoScrivere, puoFabbisogno, onSalvato }: Props) {
   const { toast } = useToast();
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma, dialogo } = useConferma();
   const [eventi, setEventi] = useState<Riga[]>([]);
   const [caricamento, setCaricamento] = useState(true);
   const [modulo, setModulo] = useState<Riga | null>(null);
@@ -79,7 +82,7 @@ export default function EventiNegozi({ companyId, negozi, puoScrivere, puoFabbis
   };
 
   const togli = async (e: Riga) => {
-    if (!e.id || !window.confirm(`Togliere «${e.nome}» (${formattaDataBreve(e.data_dal)}-${formattaDataBreve(e.data_al)})?`)) return;
+    if (!e.id || !(await conferma({ titolo: 'Togliere l’evento?', testo: <>«{e.nome}» ({formattaDataBreve(e.data_dal)}-{formattaDataBreve(e.data_al)})</>, ok: 'Togli', pericolo: true }))) return;
     const { error } = await supabase.from('outlet_events').delete().eq('id', e.id);
     if (error) { toast({ type: 'error', message: error.message }); return; }
     await carica();
@@ -204,6 +207,7 @@ export default function EventiNegozi({ companyId, negozi, puoScrivere, puoFabbis
           {!visibili.length && <li className="px-4 py-3 text-slate-400">Nessun evento {passati ? '' : 'in arrivo'}.</li>}
         </ul>
       </section>
+      {dialogo}
     </div>
   );
 }

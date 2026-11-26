@@ -22,6 +22,7 @@ import { riallineaStraordinariForti } from '../lib/straordinariDb';
 import { guidaConRipiego } from '../lib/guidaNegozio';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
+import { useConferma } from './ui/Conferma';
 import EditorTurno from './EditorTurno';
 import { Modal } from './ui/Modal';
 import { personaAllaData, nomePersona, oggiRoma } from '../lib/organico';
@@ -184,6 +185,8 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
   const apertura = dati.negozi.find((n) => n.id === outletId)?.opening_date ?? null;
   const nomeNegozioDi = (id: string) => { const n = dati.negozi.find((x) => x.id === id); return n ? (n.name ?? n.code ?? 'negozio') : 'altro negozio'; };
   const { toast } = useToast();
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma, dialogo } = useConferma();
   const [mese, setMese] = useState(() => ultimoMeseScelto ?? meseSuccessivo(oggiRoma().slice(0, 7), 1));
   useEffect(() => { ultimoMeseScelto = mese; }, [mese]);
   const [piani, setPiani] = useState<Piano[]>([]);
@@ -813,7 +816,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         return;
       }
       const cosa = p.simulazione ? 'la simulazione' : p.stato === 'scelto' ? 'il piano che vale per il mese' : 'la bozza';
-      if (!window.confirm(`Togliere ${cosa} «${p.nome}»? Spariscono tutti i suoi turni, anche quelli messi a mano. Il piano si può rifare.`)) return;
+      if (!(await conferma({ titolo: `Togliere ${cosa}?`, testo: <>«{p.nome}»: spariscono tutti i suoi turni, anche quelli messi a mano. Il piano si può rifare.</>, ok: 'Togli il piano', pericolo: true }))) return;
       // le proposte di ferie del piano ancora da decidere spariscono con lui; quelle approvate sono ferie vere e restano.
       // Per prime: se non si tolgono ci si ferma qui, con il piano e i suoi turni ancora interi, e nessuna
       // proposta resta senza piano (la 411 non la lascerebbe approvare).
@@ -2373,6 +2376,7 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
           />
         );
       })()}
+      {dialogo}
     </div>
   );
 }

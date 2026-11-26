@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { CalendarRange, Lock, Plus, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
+import { useConferma } from './ui/Conferma';
 import { Modal } from './ui/Modal';
 import FasceEditor, { type FasciaSemplice } from './FasceEditor';
 import { formattaDataBreve, oggiRoma } from '../lib/organico';
@@ -61,6 +62,8 @@ const COLORE = { verde: 'bg-emerald-100 text-emerald-800', grigio: 'bg-slate-200
 
 export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, negozi, puoScrivere, puoFabbisogno, onSalvato, onVaiEventi }: Props) {
   const { toast } = useToast();
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma, dialogo } = useConferma();
   const [tutti, setTutti] = useState<(EventoNegozio & { controllo?: ControlloModa | null })[]>([]);
   const [conRegole, setConRegole] = useState(false);
   // ferie e permessi separati per evento valgono solo dove il database ha la 407
@@ -196,7 +199,7 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
   };
 
   const togli = async (e: EventoNegozio) => {
-    if (!e.id || !window.confirm(`Togliere «${e.nome}» (${date(e)})?`)) return;
+    if (!e.id || !(await conferma({ titolo: 'Togliere l’evento?', testo: <>«{e.nome}» ({date(e)})</>, ok: 'Togli', pericolo: true }))) return;
     const { error } = await supabase.from('outlet_events').delete().eq('id', e.id);
     if (error) { toast({ type: 'error', message: error.message }); return; }
     await carica();
@@ -420,6 +423,7 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
           </div>
         )}
       </Modal>
+      {dialogo}
     </div>
   );
 }
