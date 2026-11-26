@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, Plane, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
+import { useConferma } from './ui/Conferma';
 import { nomePersona, oggiRoma, formattaDataBreve } from '../lib/organico';
 import { nomeNegozio, type DatiOrganico } from '../lib/organicoDati';
 import { minuti, pausaMinimaPerPresenza, REGOLE_DEFAULT } from '../lib/turni';
@@ -26,6 +27,8 @@ const spostaMese = (mese: string, n: number) => {
 
 export default function TrasferteNegozi({ companyId, dati, puoScrivere }: { companyId: string; dati: DatiOrganico; puoScrivere: boolean }) {
   const { toast } = useToast();
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma, dialogo } = useConferma();
   const [mese, setMese] = useState(() => oggiRoma().slice(0, 7));
   const [lista, setLista] = useState<Trasferta[]>([]);
   const [caricamento, setCaricamento] = useState(true);
@@ -70,7 +73,7 @@ export default function TrasferteNegozi({ companyId, dati, puoScrivere }: { comp
   };
 
   const togli = async (t: Trasferta) => {
-    if (!window.confirm(`Togliere la trasferta di ${nomeDi(t.employeeId)} del ${formattaDataBreve(t.data)}?`)) return;
+    if (!(await conferma({ titolo: 'Togliere la trasferta?', testo: <>La trasferta di {nomeDi(t.employeeId)} del {formattaDataBreve(t.data)}.</>, ok: 'Togli', pericolo: true }))) return;
     const { error } = await supabase.from('employee_trasferte').delete().eq('id', t.id);
     if (error) { toast({ type: 'error', message: error.message }); return; }
     toast({ type: 'success', message: 'Trasferta tolta.' });
@@ -196,6 +199,7 @@ export default function TrasferteNegozi({ companyId, dati, puoScrivere }: { comp
           </div>
         </div>
       )}
+      {dialogo}
     </section>
   );
 }
