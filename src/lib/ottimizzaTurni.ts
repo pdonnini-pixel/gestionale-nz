@@ -281,6 +281,15 @@ export const PESI = {
   lunediStessaGuida: 30_000, // la stessa fra referente e vice referente del lunedi' prima: si alternano quando possibile
   // pesa meno di un riposo: con un evento prima i riposi a testa, poi gli straordinari pari (Patrizio, 12/11/2026)
   straordinarioPari: 200,   // distanza al quadrato dalla media degli straordinari
+  // ── Servizi negozi (Patrizio, 26/11/2026, migration 475) ──
+  // Tetto di persone diverse nella giornata, scelta del negozio: sotto il minimo delle fasce e le
+  // persone dello scarico (che non si perdono), sopra i riposi. Nei feriali gli straordinari sono
+  // vietati, quindi il tetto non costa mai straordinario: se le ore non bastano, cede.
+  personaOltreTetto: 40_000,
+  // Persona dedicata al servizio (scarico, pulizie) che manca quando poteva esserci: si sceglie lei
+  // se c'e' la scelta. Mai sopra le persone che servono (le dedicate stanno dentro, non sopra), sotto
+  // i riposi; chi «non riposa mai» quel giorno ha gia' il suo peso e non si conta due volte.
+  dedicataAssente: 8_000,
 } as const;
 
 // Inizio e presenza in minuti, tutti e due sulla griglia delle mezz'ore. Le ore lavorate
@@ -346,6 +355,9 @@ interface Quadro {
   /** lunedi' con il tetto di due persone, e quanto pesa ogni coppia perche' gia' vista nei lunedi' prima */
   lunDue: boolean[];
   lunPrima: number[];
+  /** tetto di persone diverse del giorno (0 = nessuno) e servizi con le persone dedicate (indici), migration 475 */
+  tettoP: number[];
+  dedicate: { dalle: number; alle: number; persone: number; idx: number[] }[][];
   /** chi fra responsabile e vice ha lavorato il lunedi' prima (indice della persona, -1 se nessuna o tutte e due) */
   guidaLunPrima: number;
   /** chi puo' aprire e chiudere: regola accesa, abilitate, presenza fissa di un'abilitata e possibilita' per giorno, conti del mese */
@@ -467,6 +479,26 @@ function costo(q: Quadro, st: Stato): number {
         if (guide + (q.guidaFissa[d] ? 1 : 0) >= 2) c += PESI.lunediDueGuide;
         else if (guide === 1 && !q.guidaFissa[d] && chi === q.guidaLunPrima) c += PESI.lunediStessaGuida;
       }
+    }
+    // tetto di persone diverse nella giornata (475): i fissi contano, nessuno due volte
+    if (q.tettoP[d]) {
+      const tot = quanti + q.fissePersone[d].size;
+      if (tot > q.tettoP[d]) c += (tot - q.tettoP[d]) * PESI.personaOltreTetto;
+    }
+    // persone dedicate al servizio (475): servono tante quante ne chiede il servizio, fra quelle che
+    // potevano esserci; chi manca e «non riposa mai» quel giorno ha gia' il suo peso (non si somma)
+    for (const sv of q.dedicate[d]) {
+      let possibili = 0; let presenti = 0; let giaPesate = 0;
+      for (const p of sv.idx) {
+        const fissa = q.fissePersone[d].has(persone[p].id);
+        if (!q.puo[p][d] && !fissa) continue;
+        possibili += 1;
+        const x = st[p][riga];
+        if (fissa || (x && x.s < sv.alle && x.s + x.w > sv.dalle)) presenti += 1;
+        else if (!x && iso <= 5 && (q.mai[p] >> iso) & 1) giaPesate += 1;
+      }
+      const mancano = Math.min(sv.persone, possibili) - presenti - giaPesate;
+      if (mancano > 0) c += mancano * PESI.dedicataAssente;
     }
     if (iso === 1 && q.guidaAttiva && !guidaPresente && q.guidaPossibile[d]) c += PESI.lunediSenzaGuida;
     // giorni caldi: chi apre fa il suo orario dall'apertura, chi chiude arriva alla chiusura
@@ -1086,6 +1118,11 @@ function prepara(
   q.pieno = giorni.map((g) => (nuove.giorniPieni ? nuove.giorniPieni.has(g.data) : giornoIso(g.data) >= 6));
   q.straordCaldo = giorni.map((g, d) => (nuove.giorniStraordinari ? nuove.giorniStraordinari.has(g.data) : q.pieno[d]));
   q.lunDue = giorni.map((g) => !!g.lunediDue && !g.chiuso);
+  q.tettoP = giorni.map((g) => (!g.chiuso && g.tettoPersone ? g.tettoPersone : 0));
+  q.dedicate = giorni.map((g) => (g.chiuso ? [] : [g.scarico, g.pulizie]
+    .filter((x): x is NonNullable<typeof x> => !!x && !!x.dedicate?.length)
+    .map((x) => ({ dalle: x.dalle, alle: x.alle, persone: x.persone, idx: x.dedicate!.map((id) => indice.get(id) ?? -1).filter((i) => i >= 0) }))
+    .filter((x) => x.idx.length > 0)));
   q.lunPrima = new Array(persone.length * persone.length).fill(0);
   (nuove.lunediPrima ?? []).forEach((k, quando) => {
     const [a, b] = k.split('|').map((id) => indice.get(id) ?? -1);

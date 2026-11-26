@@ -930,6 +930,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                   {!g.chiuso && <span className="block normal-case font-normal text-slate-400">{`${hhmm(g.apreVendita ?? g.apre)}-${hhmm(g.chiude)}`}</span>}
                   {/* servizi del negozio (migration 468): pulizie prima dell'apertura e scarico merce */}
                   {!g.chiuso && g.pulizie && <span className="block w-fit normal-case font-semibold text-[10px] rounded bg-violet-50 text-violet-700 border border-violet-200 px-1 mt-0.5" title="Il negozio apre per le pulizie: ore di lavoro, non vendita">{testoServizi({ pulizie: g.pulizie })[0]}</span>}
+                  {!g.chiuso && g.tettoPersone && <span className="block w-fit normal-case font-semibold text-[10px] rounded bg-slate-100 text-slate-700 border border-slate-200 px-1 mt-0.5" title="Tetto del negozio: al massimo tante persone diverse nella giornata">max {g.tettoPersone} persone</span>}
                   {!g.chiuso && g.scarico && <span className="block w-fit normal-case font-semibold text-[10px] rounded bg-orange-50 text-amber-700 border border-orange-200 px-1 mt-0.5" title="Scarico merce: in queste ore servono almeno queste persone">{testoServizi({ scarico: g.scarico })[0]}</span>}
                   {g.nota && <span className="block normal-case font-normal text-blue-700">{g.nota}</span>}
                   {g.evento && <span className="block normal-case font-semibold text-red-700" title="Evento: più personale, niente ferie né permessi, straordinari se mancano persone">{g.evento}</span>}

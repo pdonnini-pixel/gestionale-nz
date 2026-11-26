@@ -9,7 +9,7 @@ import { useToast } from './Toast';
 import { NOMI_GIORNO, hhmm, minuti } from '../lib/turni';
 import { aggiungiGiorni, oggiRoma } from '../lib/organico';
 import { consegneDelPeriodo, PERSONE_PULIZIE, PERSONE_SCARICO, type ConsegnaCalendario, type ServiziNegozio, type TipoServizio } from '../lib/serviziNegozio';
-import { caricaServizi, salvaConsegna, salvaRicorrenti, togliConsegna } from '../lib/serviziNegozioDb';
+import { caricaServizi, salvaConsegna, salvaRicorrenti, salvaTetto, togliConsegna } from '../lib/serviziNegozioDb';
 
 const inputCls = 'min-h-[36px] rounded-lg border border-slate-300 px-2 text-sm bg-white disabled:bg-slate-50 disabled:text-slate-500';
 const btnPiccolo = 'inline-flex items-center gap-1 text-xs font-semibold px-3 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50';
@@ -17,7 +17,8 @@ const GG = ['', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab', 'dom'];
 /** Quanti giorni avanti mostra il calendario delle consegne. */
 export const GIORNI_CALENDARIO = 90;
 
-interface RigaServizio { giorno: number; dalle: string; alle: string; persone: number }
+interface RigaServizio { giorno: number; dalle: string; alle: string; persone: number; dedicate: string[] }
+export interface PersonaNegozio { id: string; nome: string }
 
 export function dataBreve(d: string): string {
   const g = new Date(`${d}T00:00:00Z`).getUTCDay();
@@ -39,7 +40,7 @@ function Interruttore({ acceso, onCambia, etichetta, disabled }: { acceso: boole
 }
 
 /** Le righe ricorrenti di un tipo (giorno, fascia, persone), con aggiunta e rimozione. */
-function RigheServizio({ righe, onCambia, puoScrivere, tipo }: { righe: RigaServizio[]; onCambia: (r: RigaServizio[]) => void; puoScrivere: boolean; tipo: TipoServizio }) {
+function RigheServizio({ righe, onCambia, puoScrivere, tipo, persone }: { righe: RigaServizio[]; onCambia: (r: RigaServizio[]) => void; puoScrivere: boolean; tipo: TipoServizio; persone: PersonaNegozio[] }) {
   const liberi = [1, 2, 3, 4, 5, 6, 7].filter((g) => !righe.some((r) => r.giorno === g));
   const cambia = (i: number, x: Partial<RigaServizio>) => onCambia(righe.map((r, j) => (j === i ? { ...r, ...x } : r)));
   return (
@@ -61,6 +62,20 @@ function RigheServizio({ righe, onCambia, puoScrivere, tipo }: { righe: RigaServ
             <input type="number" min={1} max={10} disabled={!puoScrivere} className={`${inputCls} w-16`} value={r.persone} onChange={(e) => cambia(i, { persone: Math.max(1, Math.min(10, Number(e.target.value) || 1)) })} />
           </label>
           <span className="text-xs text-slate-500 pb-2">{durata(r.dalle, r.alle)}</span>
+          {persone.length > 0 && (
+            <div className="basis-full text-xs text-slate-600">
+              <span className="mr-1.5">Persone dedicate (il piano le preferisce, se possono esserci):</span>
+              {persone.map((pp) => {
+                const on = r.dedicate.includes(pp.id);
+                return (
+                  <button key={pp.id} type="button" disabled={!puoScrivere} aria-pressed={on}
+                    onClick={() => cambia(i, { dedicate: on ? r.dedicate.filter((x) => x !== pp.id) : [...r.dedicate, pp.id].sort() })}
+                    className={`mr-1 mb-1 px-2 py-0.5 rounded-full border text-xs disabled:opacity-60 ${on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-300 text-slate-700'}`}>{pp.nome}</button>
+                );
+              })}
+              {r.dedicate.some((id) => !persone.some((pp) => pp.id === id)) && <span className="text-amber-700"> · una persona dedicata non è più in servizio qui</span>}
+            </div>
+          )}
           {puoScrivere && (
             <button type="button" aria-label={`Togli ${NOMI_GIORNO[r.giorno]}`} onClick={() => onCambia(righe.filter((_, j) => j !== i))} className="p-1.5 rounded hover:bg-slate-100 mb-1"><Trash2 size={14} /></button>
           )}
@@ -68,8 +83,8 @@ function RigheServizio({ righe, onCambia, puoScrivere, tipo }: { righe: RigaServ
       ))}
       {puoScrivere && liberi.length > 0 && (
         <button type="button" className={btnPiccolo} onClick={() => onCambia([...righe, tipo === 'scarico'
-          ? { giorno: liberi[0], dalle: '10:00', alle: '12:00', persone: PERSONE_SCARICO }
-          : { giorno: liberi[0], dalle: '09:00', alle: '10:00', persone: PERSONE_PULIZIE }])}>
+          ? { giorno: liberi[0], dalle: '10:00', alle: '12:00', persone: PERSONE_SCARICO, dedicate: [] }
+          : { giorno: liberi[0], dalle: '09:00', alle: '10:00', persone: PERSONE_PULIZIE, dedicate: [] }])}>
           <Plus size={13} /> Aggiungi un giorno
         </button>
       )}
@@ -137,9 +152,9 @@ export function CalendarioConsegne({ servizi, dal, al, puoScrivere, onSalva, onT
 }
 
 const righeDi = (s: ServiziNegozio | null, tipo: TipoServizio): RigaServizio[] =>
-  (s?.ricorrenti ?? []).filter((r) => r.tipo === tipo).map(({ giorno, dalle, alle, persone }) => ({ giorno, dalle, alle, persone })).sort((a, b) => a.giorno - b.giorno);
+  (s?.ricorrenti ?? []).filter((r) => r.tipo === tipo).map(({ giorno, dalle, alle, persone, dedicate }) => ({ giorno, dalle, alle, persone, dedicate: [...(dedicate ?? [])].sort() })).sort((a, b) => a.giorno - b.giorno);
 
-export default function ServiziNegozi({ companyId, outletId, nomeNegozio, puoScrivere }: { companyId?: string; outletId: string; nomeNegozio: string; puoScrivere: boolean }) {
+export default function ServiziNegozi({ companyId, outletId, nomeNegozio, puoScrivere, persone = [] }: { companyId?: string; outletId: string; nomeNegozio: string; puoScrivere: boolean; persone?: PersonaNegozio[] }) {
   const { toast } = useToast();
   const dal = oggiRoma();
   const al = aggiungiGiorni(dal, GIORNI_CALENDARIO);
@@ -149,6 +164,7 @@ export default function ServiziNegozi({ companyId, outletId, nomeNegozio, puoScr
   const [pulizie, setPulizie] = useState<RigaServizio[]>([]);
   const [riceve, setRiceve] = useState(false);
   const [fa, setFa] = useState(false);
+  const [tetto, setTetto] = useState<{ persone: number; giorni: number[] } | null>(null);
   const [salvando, setSalvando] = useState(false);
 
   const carica = useCallback(async () => {
@@ -160,12 +176,14 @@ export default function ServiziNegozi({ companyId, outletId, nomeNegozio, puoScr
     setServizi(s);
     setScarico(righeDi(s, 'scarico')); setRiceve(righeDi(s, 'scarico').length > 0);
     setPulizie(righeDi(s, 'pulizie')); setFa(righeDi(s, 'pulizie').length > 0);
+    setTetto(s.tetto ? { persone: s.tetto.persone, giorni: [...s.tetto.giorni].sort() } : null);
   }, [outletId, dal, al, toast]);
   useEffect(() => { void carica(); }, [carica]);
 
   const errori = (r: RigaServizio[]) => r.filter((x) => minuti(x.alle) <= minuti(x.dalle)).map((x) => NOMI_GIORNO[x.giorno]);
   const cambiato = !!servizi && (JSON.stringify(riceve ? scarico : []) !== JSON.stringify(righeDi(servizi, 'scarico'))
-    || JSON.stringify(fa ? pulizie : []) !== JSON.stringify(righeDi(servizi, 'pulizie')));
+    || JSON.stringify(fa ? pulizie : []) !== JSON.stringify(righeDi(servizi, 'pulizie'))
+    || JSON.stringify(tetto?.giorni.length ? tetto : null) !== JSON.stringify(servizi.tetto ? { persone: servizi.tetto.persone, giorni: [...servizi.tetto.giorni].sort() } : null));
 
   const salva = async () => {
     if (!companyId) return;
@@ -175,6 +193,7 @@ export default function ServiziNegozi({ companyId, outletId, nomeNegozio, puoScr
     try {
       await salvaRicorrenti(companyId, outletId, 'scarico', riceve ? scarico : []);
       await salvaRicorrenti(companyId, outletId, 'pulizie', fa ? pulizie : []);
+      await salvaTetto(companyId, outletId, tetto?.giorni.length ? tetto : null);
       toast({ type: 'success', message: `Servizi di ${nomeNegozio} salvati. Valgono dai prossimi turni proposti dal sistema.` });
       await carica();
     } catch (e) {
@@ -205,13 +224,13 @@ export default function ServiziNegozi({ companyId, outletId, nomeNegozio, puoScr
             <span className="text-slate-700">Il negozio riceve la merce</span>
             <Interruttore acceso={riceve} disabled={!puoScrivere} etichetta="Il negozio riceve la merce" onCambia={(v) => {
               setRiceve(v);
-              if (v && !scarico.length) setScarico([{ giorno: 2, dalle: '10:00', alle: '12:00', persone: PERSONE_SCARICO }]);
+              if (v && !scarico.length) setScarico([{ giorno: 2, dalle: '10:00', alle: '12:00', persone: PERSONE_SCARICO, dedicate: [] }]);
             }} />
           </div>
           {riceve && (
             <>
               <h4 className="text-sm font-semibold text-slate-800 mt-2">Consegna abituale</h4>
-              <RigheServizio righe={scarico} onCambia={setScarico} puoScrivere={puoScrivere} tipo="scarico" />
+              <RigheServizio righe={scarico} onCambia={setScarico} puoScrivere={puoScrivere} tipo="scarico" persone={persone} />
               <CalendarioConsegne servizi={servizi} dal={dal} al={al} puoScrivere={puoScrivere} occupato={salvando}
                 onSalva={(c) => companyId ? conCalendario(() => salvaConsegna(companyId, outletId, c), `Consegna del ${dataBreve(c.data)} salvata.`) : undefined}
                 onTogli={(d) => conCalendario(() => togliConsegna(outletId, d), `Riga del ${dataBreve(d)} tolta: vale la consegna abituale.`)} />
@@ -226,14 +245,49 @@ export default function ServiziNegozi({ companyId, outletId, nomeNegozio, puoScr
             <span className="text-slate-700">Il negozio fa le pulizie prima di aprire</span>
             <Interruttore acceso={fa} disabled={!puoScrivere} etichetta="Il negozio fa le pulizie prima di aprire" onCambia={(v) => {
               setFa(v);
-              if (v && !pulizie.length) setPulizie([{ giorno: 1, dalle: '09:00', alle: '10:00', persone: PERSONE_PULIZIE }]);
+              if (v && !pulizie.length) setPulizie([{ giorno: 1, dalle: '09:00', alle: '10:00', persone: PERSONE_PULIZIE, dedicate: [] }]);
             }} />
           </div>
-          {fa && <RigheServizio righe={pulizie} onCambia={setPulizie} puoScrivere={puoScrivere} tipo="pulizie" />}
+          {fa && <RigheServizio righe={pulizie} onCambia={setPulizie} puoScrivere={puoScrivere} tipo="pulizie" persone={persone} />}
           {fa && pulizie.length > 0 && (
             <div className="rounded-xl border border-blue-200 bg-blue-50 text-blue-900 p-3 text-xs mt-3">
               {pulizie.map((p) => `${NOMI_GIORNO[p.giorno]} dalle ${p.dalle}`).join(', ')}: chi apre fa {pulizie.length === 1 ? 'quel giorno' : 'quei giorni'} le ore delle pulizie in più, che entrano nelle ore della settimana.
             </div>
+          )}
+        </section>
+        <section className="bg-white border border-slate-200 rounded-xl p-4 min-w-0" aria-label="Persone nella giornata">
+          <h2 className="text-base font-semibold text-slate-900">Persone nella giornata</h2>
+          <p className="text-xs text-slate-500 mb-3">Al massimo tante persone diverse nella giornata: il piano preferisce un turno lungo a due turni corti. Non vale nei giorni caldi, nei festivi, negli eventi e nel lunedì a due persone. Se con queste persone le ore di contratto non bastano, il tetto cede: nei feriali niente straordinari.</p>
+          <div className="flex items-center justify-between gap-3 py-2 border-t border-slate-100 text-sm">
+            <span className="text-slate-700">Tetto di persone nella giornata</span>
+            <Interruttore acceso={!!tetto} disabled={!puoScrivere} etichetta="Tetto di persone nella giornata"
+              onCambia={(v) => setTetto(v ? { persone: 2, giorni: [2, 3, 4, 5] } : null)} />
+          </div>
+          {tetto && (
+            <>
+              <div className="flex items-center justify-between gap-3 py-2 border-t border-slate-100 text-sm">
+                <span className="text-slate-700">Al massimo</span>
+                <span className="flex items-center gap-1.5">
+                  <input type="number" min={2} max={10} disabled={!puoScrivere} aria-label="Persone al massimo" className={`${inputCls} w-16`} value={tetto.persone}
+                    onChange={(e) => setTetto((t) => (t ? { ...t, persone: Math.max(2, Math.min(10, Number(e.target.value) || 2)) } : t))} />
+                  <span className="text-slate-600">persone diverse</span>
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 py-2 border-t border-slate-100 text-sm">
+                <span className="text-slate-700">Nei giorni</span>
+                <span className="flex flex-wrap gap-1">
+                  {[1, 2, 3, 4, 5, 6, 7].map((g) => {
+                    const on = tetto.giorni.includes(g);
+                    return (
+                      <button key={g} type="button" disabled={!puoScrivere} aria-pressed={on}
+                        onClick={() => setTetto((t) => (t ? { ...t, giorni: (on ? t.giorni.filter((x) => x !== g) : [...t.giorni, g]).sort() } : t))}
+                        className={`px-2.5 py-1 rounded-lg border text-xs disabled:opacity-60 ${on ? 'bg-slate-900 text-white border-slate-900' : 'bg-white border-slate-300 text-slate-700'}`}>{GG[g]}</button>
+                    );
+                  })}
+                </span>
+              </div>
+              {!tetto.giorni.length && <p className="text-xs text-amber-700">Scegli almeno un giorno, altrimenti il tetto non vale.</p>}
+            </>
           )}
         </section>
       </div>

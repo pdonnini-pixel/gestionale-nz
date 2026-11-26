@@ -1,0 +1,1 @@
+ALTER TABLE public.outlet_shift_rules DROP CONSTRAINT IF EXISTS outlet_shift_rules_tetto_giorni_validi;
