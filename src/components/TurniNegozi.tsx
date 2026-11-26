@@ -1,6 +1,6 @@
 // «Turni» (riorganizzata il 12/11/2026): si parte dal NEGOZIO, poi i tre passi (prepara il
 // mese, sistema la settimana, pubblica e invia) e, in basso, il resto del negozio (regole e
-// orari, eventi, persone e riposi, traffico MODA, trasferte).
+// orari, eventi, persone e riposi, traffico MODA, trasferte, servizi negozi dal 26/11/2026).
 // Prima: il piano settimanale di ogni negozio e, sotto, gli orari e il
 // fabbisogno da cui si parte. Il negozio si sceglie qui; l'organico (chi
 // c'e' e con che orario) arriva dall'organico di oggi. Qui si sceglie anche
@@ -26,6 +26,7 @@ import TrasferteNegozi from './TrasferteNegozi';
 import TrafficoModa from './TrafficoModa';
 import EventiDelNegozio from './EventiDelNegozio';
 import RiposiNegozio from './RiposiNegozio';
+import ServiziNegozi from './ServiziNegozi';
 import { guidaConRipiego } from '../lib/guidaNegozio';
 
 type Props = {
@@ -42,7 +43,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
 
   const [dati, setDati] = useState<DatiOrganico | null>(null);
   const [negozio, setNegozio] = useState('');
-  const [sotto, setSotto] = useState<'mese' | 'piano' | 'pubblica' | 'orari' | 'eventi' | 'persone' | 'trasferte' | 'traffico'>('mese');
+  const [sotto, setSotto] = useState<'mese' | 'piano' | 'pubblica' | 'orari' | 'eventi' | 'persone' | 'trasferte' | 'traffico' | 'servizi'>('mese');
   const [versione, setVersione] = useState(0);
   // «Regole e orari» con modifiche non salvate: prima di cambiare negozio
   // o scheda si chiede (salva, lascia perdere, resta).
@@ -230,6 +231,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
     { k: 'persone' as const, t: 'Persone e riposi', d: 'Referente, vice referente e giorni di riposo di ognuno.' },
     { k: 'traffico' as const, t: 'Traffico MODA', d: 'Gli ingressi su cui si calcolano le persone. Si caricano in «Vendite e ingressi».' },
     { k: 'trasferte' as const, t: 'Trasferte', d: 'Chi va a lavorare in un altro negozio.' },
+    { k: 'servizi' as const, t: 'Servizi negozi', d: 'Scarico merce e pulizie prima dell’apertura.' },
   ];
 
   return (
@@ -312,6 +314,9 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
           </section>
         </div>
       )}
+      {scelto && sotto === 'servizi' && (
+        <ServiziNegozi key={scelto.id} companyId={companyId} outletId={scelto.id} nomeNegozio={nomeNegozio(scelto)} puoScrivere={puoScrivere} />
+      )}
       {sotto === 'trasferte' && companyId && dati && (
         <TrasferteNegozi companyId={companyId} dati={dati} puoScrivere={puoScrivere} />
       )}
@@ -340,7 +345,7 @@ export default function TurniNegozi({ companyId, soloNegozi }: Props) {
 
       <div>
         <h2 className="text-[11px] font-bold uppercase tracking-wider text-slate-500 mb-2">Il resto del negozio</h2>
-        <nav className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-2.5" aria-label="Il resto del negozio">
+        <nav className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-2.5" aria-label="Il resto del negozio">
           {RESTO.map((r) => (
             <button key={r.k} type="button" onClick={() => { if (r.k !== sotto) seSiPuo(() => setSotto(r.k)); }} aria-current={sotto === r.k ? 'page' : undefined}
               className={`text-left rounded-xl border p-3 bg-white ${sotto === r.k ? 'border-slate-900 ring-1 ring-slate-900' : 'border-slate-200 hover:border-slate-400'}`}>

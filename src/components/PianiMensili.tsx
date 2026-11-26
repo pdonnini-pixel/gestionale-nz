@@ -43,6 +43,8 @@ import {
   caricaRatei, caricaGiorniConVoce, eProposta, salvaProposte, togliProposteDelPiano, togliProposta, spostaProposta, approvaProposta, puoDecidereFerie, riscriviTurniProposti, type GiornoFerieDb,
 } from '../lib/ferieInLineaDb';
 import { caricaRegoleFerie } from '../lib/regoleNuoveDb';
+import { aperturaConPulizie } from '../lib/serviziNegozio';
+import { caricaServizi } from '../lib/serviziNegozioDb';
 import { esitoRichiesta, regoleFerieDaRiga, type EventoFerie, type RegoleFerie } from '../lib/ferieRegole';
 import { festivitaItaliane } from '../lib/ferieRichiesta';
 import FerieInLinea, { type RigaFerieInLinea } from './FerieInLinea';
@@ -309,10 +311,14 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
         }
         if (!vivo) return;
         setGiorniForti(forti);
+        // nei giorni delle pulizie prima dell'apertura (migration 468) il turno puo' cominciare prima
+        // se la lettura non riesce l'editor resta sull'orario di apertura (i turni delle 9 si rifiutano, non si perdono)
+        const serviziQui = await caricaServizi(outletId, dateMese[0], dateMese[dateMese.length - 1]).catch(() => null);
+        if (!vivo) return;
         setGiorniApertura(new Map(costruisciGiorni(dateMese,
           (oo.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [], [],
           (sp.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [], [], apertura)
-          .map((g) => [g.data, { apre: g.apre, chiude: g.chiude, chiuso: g.chiuso, ...(g.chiusura ? { chiusura: g.chiusura } : {}) }])));
+          .map((g) => [g.data, { apre: g.chiuso ? g.apre : aperturaConPulizie(g.data, g.apre, serviziQui), chiude: g.chiude, chiuso: g.chiuso, ...(g.chiusura ? { chiusura: g.chiusura } : {}) }])));
         setFerieMese(fe.filter((x) => STATI_FERIE_APPROVATE.includes(x.stato_richiesta) && GIORNI_FERIE_VALIDI.includes(x.stato_giorno)));
         setGiorniMax(Number((rr.data as { giorni_lavoro_max?: number } | null)?.giorni_lavoro_max ?? 6));
       } catch { setFerieMese([]); setGiorniVoce([]); }
@@ -367,7 +373,11 @@ export default function PianiMensili({ companyId, outletId, nomeNegozio, dati, p
     const orari = (o.data as { giorno: number; chiuso: boolean; apre: string | null; chiude: string | null }[]) ?? [];
     if (!orari.length) { toast({ type: 'error', message: `Mancano gli orari di ${nomeNegozio}: inseriscili in «Regole e orari».` }); return null; }
     const eventi = eventiDelNegozio(ev.righe.map(eventoDaRiga) as EventoNegozio[], outletId);
-    const regole = regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]);
+    // scarico merce e pulizie prima dell'apertura (migration 468): dove le tabelle mancano, niente
+    let servizi: Awaited<ReturnType<typeof caricaServizi>> = null;
+    try { servizi = await caricaServizi(outletId, tutte[0], tutte[tutte.length - 1]); }
+    catch (e) { toast({ type: 'error', message: `Piano non calcolato: ${e instanceof Error ? e.message : 'errore'}. Riprova fra poco.` }); return null; }
+    const regole = { ...regoleDaRiga(r.data as Parameters<typeof regoleDaRiga>[0]), servizi };
     // le scelte del negozio sui giorni caldi (12/11/2026): dove sono spente i giorni restano quelli di prima
     const giorni = costruisciGiorni(tutte, orari, (f.data as { giorno: number; dalle: string; alle: string; persone: number; origine: string }[]) ?? [],
       (s.data as { data: string; chiuso: boolean; apre: string | null; chiude: string | null; persone_extra: number; nota: string | null }[]) ?? [], eventi, apertura, opzioniGiorni(regole));

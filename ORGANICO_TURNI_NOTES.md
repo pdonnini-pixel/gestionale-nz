@@ -1523,3 +1523,17 @@ due dalle 12 alle 18, ma il motore metteva la seconda dalle 11:30 il lunedì, il
   Dove serve una persona in più in un giorno forte si scrive nelle fasce o nell'evento (persone in più).
 - Misura sui negozi veri non fatta in sessione: il motore si carica dalla pagina, non c'è uno strumento
   che lo faccia girare sui dati vivi fuori dal browser.
+
+
+## Servizi negozi: scarico merce e pulizie (26/11/2026, migration 468)
+
+Nata dal confronto di dicembre 2026 a Valmontone fra i turni scritti dalle ragazze e il piano del gestionale: il negozio riceve la merce il martedì all'apertura e lo scarico chiede due persone; il lunedì e il venerdì apre alle 9 per le pulizie. Il piano non lo sapeva: 0 martedì su 4 con due persone dalle 10 alle 12.
+
+- **Tabelle** (NZ e Zago): `outlet_servizi` (regole ricorrenti: `tipo` scarico o pulizie, `giorno` 1-7, `dalle`, `alle`, `persone`; una riga per negozio, tipo e giorno) e `outlet_consegne` (calendario: una riga per negozio e data, `annullata`, `nota`; vale al posto della consegna abituale di quel giorno, i campi vuoti si prendono dall'abituale). RLS come le altre tabelle dell'organico; la responsabile passa solo dalle funzioni `responsabile_servizi`, `responsabile_consegna_salva`, `responsabile_consegna_togli` (negozi di `attendance_confermatori`, consegne passate da più di 7 giorni ferme).
+- **Motore**: `applicaServizi` (`src/lib/serviziNegozio.ts`) è l'ultimo passo di `fabbisognoDaTraffico` (e del fabbisogno fisso / senza MODA in `pianificaMese` e `PianoTurni`). I servizi arrivano dentro `RegoleTurni.servizi`, caricati da `caricaServizi` (`serviziNegozioDb.ts`); dove le tabelle mancano (Made) è null e niente cambia.
+  - Scarico: nelle mezz'ore dello scarico dentro l'orario (mai nella chiusura di metà giornata) fabbisogno, minimo, esigenza ed esatto almeno le persone dello scarico. Se ci sono già, invariati. Il giorno porta `scarico` per l'intestazione del piano.
+  - Pulizie: se cominciano prima dell'apertura (al massimo 4 ore prima) il giorno comincia a quell'ora (`apre`), `apreVendita` resta l'apertura vera, `pulizie` per l'intestazione. Fabbisogno e minimo con le persone delle pulizie, esatto a zero (nessuna ora sotto MODA). Le due persone salvo prima e ultima ora sono già calcolate sull'apertura vera.
+  - Idempotente: un giorno già passato di lì non cambia.
+- **Interfaccia**: riquadro «Servizi negozi» in fondo alla pagina Turni (`ServiziNegozi.tsx`); scheda «Consegne merce» nella pagina della responsabile (`Responsabile.tsx`, stesso `CalendarioConsegne`). Nel piano settimanale l'intestazione del giorno mostra «Pulizie …» e «Scarico … · N persone»; nell'editor del piano del mese i giorni delle pulizie accettano turni dall'ora delle pulizie (`aperturaConPulizie`).
+- **Non ancora**: il controllo delle ferie in `PianoFerie` non legge i servizi; la stampa mostra l'orario di vendita.
+- **Misura**: test `serviziNegozio.test.ts` con `pianificaMese` vero (cinque persone, dicembre 2026): tutti i martedì con consegna hanno due persone dalle 10 alle 12, lunedì e venerdì un turno dalle 9, l'8/12 annullato nessun obbligo.
