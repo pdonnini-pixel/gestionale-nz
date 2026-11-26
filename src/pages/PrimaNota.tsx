@@ -636,7 +636,8 @@ export default function PrimaNota() {
   const leggiRigheCarta = useCallback(async (ids: string[]) => {
     const base = 'id, statement_id, row_no, card_last4, purchase_date, posting_date, description, amount, fee, currency, original_amount, payable_id'
     const conAltre = await supabase.from('card_transactions').select(`${base}, extra_payable_ids`).in('statement_id', ids).order('purchase_date').order('row_no').limit(10000)
-    if (!conAltre.error) return conAltre
+    // Si rilegge senza la colonna solo se manca davvero (42703); ogni altro errore resta quello vero.
+    if (!conAltre.error || (conAltre.error.code !== '42703' && !/extra_payable_ids/.test(conAltre.error.message ?? ''))) return conAltre
     return supabase.from('card_transactions').select(base).in('statement_id', ids).order('purchase_date').order('row_no').limit(10000)
   }, [])
 
