@@ -81,7 +81,8 @@ export interface RegoleNuove {
    * In ogni giorno di `giorni` una apre e resta `ore` ore; con `alterna` l'altra fa la chiusura e
    * il giorno caldo dopo si scambiano. Sostituisce `responsabile`.
    */
-  guidaCaldi?: { ids: string[]; ore: number; alterna: boolean; giorni: Set<string> };
+  /** `ore` null: la regola «chi apre resta N ore» e' spenta, chi apre entra all'apertura e basta (26/11/2026) */
+  guidaCaldi?: { ids: string[]; ore: number | null; alterna: boolean; giorni: Set<string> };
   /** i giorni caldi in cui sono ammessi gli straordinari; senza, valgono i `giorniPieni` */
   giorniStraordinari?: Set<string>;
   /**
@@ -209,7 +210,7 @@ export function sceltePerLaSettimana(args: {
     const ids = [args.responsabile, regole.caldiGuidaApreChiude ? args.vice : null].filter((x): x is string => !!x);
     const giorniGuida = new Set(aperti.filter((g) => g.guida).map((g) => g.data));
     if (ids.length && giorniGuida.size) {
-      out.guidaCaldi = { ids: [...new Set(ids)], ore: regole.caldiOreApertura ?? PRESENZA_RESPONSABILE_WEEKEND / 60, alterna: !!regole.caldiGuidaApreChiude, giorni: giorniGuida };
+      out.guidaCaldi = { ids: [...new Set(ids)], ore: oreDiChiApre(regole), alterna: !!regole.caldiGuidaApreChiude, giorni: giorniGuida };
     }
   }
   const dePeriodi = aperti.map((g) => g.riposiMin).filter((n): n is number => typeof n === 'number');
@@ -226,6 +227,15 @@ export function sceltePerLaSettimana(args: {
 
 /** Sabato e domenica la responsabile resta nove ore dall'apertura: 10-19 (Patrizio, 11/11/2026). */
 export const PRESENZA_RESPONSABILE_WEEKEND = 9 * 60;
+
+/**
+ * Quante ore resta chi fa l'apertura nei giorni caldi: quelle del negozio (default 9), oppure
+ * null se il negozio ha spento la regola (Patrizio, 26/11/2026: «deve poter essere accesa o spenta»).
+ */
+export function oreDiChiApre(regole: RegoleTurni): number | null {
+  if (regole.caldiOreAperturaAttiva === false) return null;
+  return regole.caldiOreApertura ?? PRESENZA_RESPONSABILE_WEEKEND / 60;
+}
 
 /** Quanto pesa ogni regola: ogni riga vale piu' di tutto quello che sta sotto. */
 export const PESI = {
@@ -463,7 +473,7 @@ function costo(q: Quadro, st: Stato): number {
     const ap = q.apreP[d];
     if (ap >= 0) {
       const x = st[ap][riga];
-      if (!x || x.s !== q.limiti[ap][d].apre || x.w !== q.aprePresenza[d]) c += PESI.domenicaApertura;
+      if (!x || x.s !== q.limiti[ap][d].apre || (q.aprePresenza[d] > 0 && x.w !== q.aprePresenza[d])) c += PESI.domenicaApertura;
     }
     const ch = q.chiudeP[d];
     if (ch >= 0) {
@@ -1088,7 +1098,7 @@ function prepara(
   // responsabile in tutti i giorni pieni. Con la vice e `alterna`, una apre e l'altra chiude, e
   // da un giorno caldo al successivo si scambiano (anche da una settimana all'altra).
   {
-    const gc = nuove.guidaCaldi ?? (nuove.responsabile ? { ids: [nuove.responsabile], ore: PRESENZA_RESPONSABILE_WEEKEND / 60, alterna: false, giorni: new Set(giorni.filter((_, d) => q.pieno[d]).map((g) => g.data)) } : null);
+    const gc = nuove.guidaCaldi ?? (nuove.responsabile ? { ids: [nuove.responsabile], ore: oreDiChiApre(regole), alterna: false, giorni: new Set(giorni.filter((_, d) => q.pieno[d]).map((g) => g.data)) } : null);
     const idx = (gc?.ids ?? []).map((id) => indice.get(id) ?? -1).filter((i) => i >= 0);
     const puoAprire = (i: number, d: number) => !q.giornoFisso[i][d] && q.puo[i][d];
     let giro = giorni.length ? Math.floor(Date.parse(`${giorni[0].data}T00:00:00Z`) / 86_400_000 / 7) : 0;
@@ -1100,7 +1110,8 @@ function prepara(
       giro += 1;
       // chi doveva aprire quel giorno non puo': apre l'altra, se puo'
       if (!puoAprire(apre, d) && chiude >= 0 && puoAprire(chiude, d)) { const t = apre; apre = chiude; chiude = t; }
-      if (puoAprire(apre, d)) { q.apreP[d] = apre; q.aprePresenza[d] = Math.min(Math.round(gc.ore * 60 / SLOT_MINUTI) * SLOT_MINUTI, q.limiti[apre][d].max); }
+      // regola delle ore spenta: aprePresenza 0 = conta solo che entri all'apertura
+      if (puoAprire(apre, d)) { q.apreP[d] = apre; q.aprePresenza[d] = gc.ore == null ? 0 : Math.min(Math.round(gc.ore * 60 / SLOT_MINUTI) * SLOT_MINUTI, q.limiti[apre][d].max); }
       if (chiude >= 0 && puoAprire(chiude, d)) q.chiudeP[d] = chiude;
     });
   }
@@ -1354,10 +1365,13 @@ export function derogheSettimana(args: {
       .map((id) => (id ? args.persone.find((p) => p.id === id) : undefined))
       .filter((p): p is PersonaTurni & { nome: string } => !!p && p.ore >= regole.turnoMinOre && !p.nonDisponibile.has(g.data));
     if (conGuida && guide.length) {
-      const fineApre = Math.min(g.chiude, g.apre + Math.round((regole.caldiOreApertura ?? PRESENZA_RESPONSABILE_WEEKEND / 60) * 60));
-      const apre = guide.find((p) => del.some((t) => t.employeeId === p.id && minuti(t.inizio) === g.apre && minuti(t.fine) === fineApre));
+      // con la regola delle ore spenta basta che una delle due entri all'apertura (26/11/2026)
+      const ore = oreDiChiApre(regole);
+      const fineApre = ore == null ? null : Math.min(g.chiude, g.apre + Math.round(ore * 60));
+      const apre = guide.find((p) => del.some((t) => t.employeeId === p.id && minuti(t.inizio) === g.apre && (fineApre == null || minuti(t.fine) === fineApre)));
       if (!apre) {
-        out.push({ regola: 'domenica_apertura', data: g.data, employeeId: guide[0].id, testo: `${giornoTesto(g.data)}: ${guide.length > 1 ? 'né la referente né la vice referente fanno' : `${guide[0].nome}, la referente, non fa`} ${hhmm(g.apre)}-${hhmm(fineApre)}` });
+        const cosa = fineApre == null ? `l'apertura delle ${hhmm(g.apre)}` : `${hhmm(g.apre)}-${hhmm(fineApre)}`;
+        out.push({ regola: 'domenica_apertura', data: g.data, employeeId: guide[0].id, testo: `${giornoTesto(g.data)}: ${guide.length > 1 ? 'né la referente né la vice referente fanno' : `${guide[0].nome}, la referente, non fa`} ${cosa}` });
       } else if (guide.length > 1 && !guide.some((p) => p.id !== apre.id && del.some((t) => t.employeeId === p.id && minuti(t.fine) === g.chiude))) {
         out.push({ regola: 'caldo_chiusura', data: g.data, employeeId: guide.find((p) => p.id !== apre.id)!.id, testo: `${giornoTesto(g.data)}: apre ${apre.nome}, ma l'altra fra referente e vice referente non fa la chiusura` });
       }
