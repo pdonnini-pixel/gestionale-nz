@@ -136,7 +136,7 @@ const sheetName = (name: string, used: Set<string>): string => {
 type Pagamento = PnPagamento & { is_placeholder: boolean | null; is_forecast: boolean | null }
 type View = 'banca' | 'pagamenti' | 'incassi' | 'dipendenti' | 'carte'
 type CardStmt = { id: string; filename: string; file_type: string; source_label: string | null; card_last4: string | null; statement_total: number | null; closing_balance: number | null; settled_bank_transaction_id: string | null; period_year: number | null; period_month: number | null; transaction_count: number | null; file_path: string | null }
-type CardTx = CardLine & { id: string; statement_id: string; row_no: number; payable_id: string | null }
+type CardTx = CardLine & { id: string; statement_id: string; row_no: number; payable_id: string | null; extra_payable_ids?: string[] | null }
 type CardImportItem = { file: File | null; fileName: string; parsed: CardStatementParsed; existing: CardStmt | null; existingLines: number; label: string }
 /** Righe da salvare: documento con operazioni e nessuna riga gia' presente per quell'estratto. */
 const importable = (it: CardImportItem): boolean => it.parsed.lines.length > 0 && it.existingLines === 0
@@ -631,6 +631,15 @@ export default function PrimaNota() {
     return ((data ?? []) as BankMovLite[]).filter(m => RE_BANCA_CARTA.test(m.description ?? '')).map(m => ({ ...m, amount: Number(m.amount) }))
   }, [companyId])
 
+  // Righe degli estratti carta. extra_payable_ids (migration 472: una spesa che
+  // paga piu' scadenze) puo' mancare dove la migration non c'e': si rilegge senza.
+  const leggiRigheCarta = useCallback(async (ids: string[]) => {
+    const base = 'id, statement_id, row_no, card_last4, purchase_date, posting_date, description, amount, fee, currency, original_amount, payable_id'
+    const conAltre = await supabase.from('card_transactions').select(`${base}, extra_payable_ids`).in('statement_id', ids).order('purchase_date').order('row_no').limit(10000)
+    if (!conAltre.error) return conAltre
+    return supabase.from('card_transactions').select(base).in('statement_id', ids).order('purchase_date').order('row_no').limit(10000)
+  }, [])
+
   // Carte: gli estratti del periodo con le righe importate, il file archiviato
   // (per leggerlo da qui), le fatture pagate con carta intorno al periodo e i
   // movimenti banca che possono saldare gli estratti (fino a 75 giorni dopo).
@@ -660,7 +669,7 @@ export default function PrimaNota() {
       const ids = stmts.map(x => x.id)
       const names = stmts.map(x => x.filename)
       const [txRes, impRes, pays, movs] = await Promise.all([
-        ids.length > 0 ? supabase.from('card_transactions').select('id, statement_id, row_no, card_last4, purchase_date, posting_date, description, amount, fee, currency, original_amount, payable_id').in('statement_id', ids).order('purchase_date').order('row_no').limit(10000) : Promise.resolve({ data: [], error: null }),
+        ids.length > 0 ? leggiRigheCarta(ids) : Promise.resolve({ data: [], error: null }),
         names.length > 0 ? supabase.from('bank_imports').select('file_name, file_path').eq('company_id', companyId).in('file_name', names).limit(500) : Promise.resolve({ data: [], error: null }),
         loadCardPayables(dateStart, dateEnd),
         loadCardBankMovs(dateStart, dateEnd),
@@ -672,7 +681,7 @@ export default function PrimaNota() {
       const tx = ((txRes.data ?? []) as unknown as CardTx[]).map(t => ({ ...t, amount: Number(t.amount), fee: Number(t.fee), original_amount: t.original_amount == null ? null : Number(t.original_amount) }))
       setCardTx(tx)
       // Fatture agganciate all'import ma fuori dalla finestra: si caricano per id
-      const missing = [...new Set(tx.map(t => t.payable_id).filter((x): x is string => !!x && !pays.some(p => p.id === x)))]
+      const missing = [...new Set(tx.flatMap(t => [t.payable_id, ...(t.extra_payable_ids ?? [])]).filter((x): x is string => !!x && !pays.some(p => p.id === x)))]
       let extra: PayableLite[] = []
       if (missing.length > 0) {
         const res = await Promise.all(chunk(missing).map(idsChunk => supabase.from('payables').select(PAY_SELECT).in('id', idsChunk)))
@@ -699,7 +708,7 @@ export default function PrimaNota() {
       setCardStmts([]); setCardTx([])
       setError(msgErrore('carte', e))
     }
-  }, [companyId, year, month, dateStart, dateEnd, loadCardPayables, loadCardBankMovs])
+  }, [companyId, year, month, dateStart, dateEnd, loadCardPayables, loadCardBankMovs, leggiRigheCarta])
 
   useEffect(() => { loadBankAccounts() }, [loadBankAccounts])
   useEffect(() => { loadQuadraturaData() }, [loadQuadraturaData])
@@ -920,10 +929,16 @@ export default function PrimaNota() {
   }, [cardStmts, cardTx, cardBankMovs, prepaidChain, year, month, dateStart, dateEnd])
   const cartePay = useMemo(() => {
     const byId = new Map(cardPayables.map(p => [p.id, p]))
-    const stored = new Set(cardTx.map(t => t.payable_id).filter(Boolean) as string[])
+    const stored = new Set(cardTx.flatMap(t => [t.payable_id, ...(t.extra_payable_ids ?? [])]).filter(Boolean) as string[])
     return carte.map(c => {
       const m = matchPayables(c.lines, cardPayables.filter(p => !stored.has(p.id)))
-      c.lines.forEach((l, i) => { if (l.payable_id && byId.has(l.payable_id)) m.set(i, byId.get(l.payable_id)!) })
+      c.lines.forEach((l, i) => {
+        if (!l.payable_id || !byId.has(l.payable_id)) return
+        const primo = byId.get(l.payable_id)!
+        // Spesa salvata su piu' scadenze (472): tutti i numeri, importo della spesa.
+        const altre = (l.extra_payable_ids ?? []).map(id => byId.get(id)).filter((x): x is PayableLite => !!x)
+        m.set(i, altre.length === 0 ? primo : { ...primo, gross_amount: -l.amount, invoice_number: Array.from(new Set([primo, ...altre].map(p => p.invoice_number ?? '?'))).join(' + '), gruppo: [primo.id, ...altre.map(p => p.id)] })
+      })
       return m
     })
   }, [carte, cardPayables, cardTx])
