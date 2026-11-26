@@ -17,7 +17,7 @@ import { personaAllaData, presenzaNeiTurni, type SchedaPersona, type EventoOrgan
 const riga = {
   turno_min_ore: 4, turno_max_ore: 10, pausa_oltre_ore: 6, pausa_minuti: 10, pausa_lunga_oltre_ore: 8, pausa_lunga_minuti: 30,
   giorni_lavoro_max: 6, soglia_ingressi_feriali: 25, soglia_ingressi_weekend: 35, due_persone: false, pausa_corta_pagata: true, giorni_pieni: true,
-  riposi_min_settimana: 2, straordinari_pari: true, caldi_fasce_festivi: 'sabato', caldi_guida_apre_chiude: true, caldi_ore_apertura: 9,
+  riposi_min_settimana: 2, straordinari_pari: true, caldi_fasce_festivi: 'sabato', caldi_guida_apre_chiude: true, caldi_ore_apertura: 9, caldi_ore_apertura_attiva: true,
 };
 const regole = regoleDaRiga({ ...riga, lunedi_due_persone: true });
 const regoleSpente = regoleDaRiga(riga);

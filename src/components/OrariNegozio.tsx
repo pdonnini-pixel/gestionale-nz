@@ -282,7 +282,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
         caldi_fasce_festivi: regole.caldiFasceFestivi == null ? null : regole.caldiFasceFestivi === 7 ? 'domenica' : 'sabato',
         caldi_guida_apre_chiude: regole.caldiGuidaApreChiude ?? null, caldi_ore_apertura: regole.caldiOreApertura ?? null,
       } : {}),
-      ...(ha474 ? { caldi_ore_apertura_attiva: regole.caldiOreAperturaAttiva === false ? false : null } : {}),
+      ...(ha474 ? { caldi_ore_apertura_attiva: regole.caldiOreAperturaAttiva === true } : {}),
       ...(haLunediDue ? { lunedi_due_persone: regole.lunediDue ? true : null } : {}),
       updated_at: new Date().toISOString(),
     }], { onConflict: 'outlet_id' });
@@ -630,10 +630,10 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
                   </select>
                 </Riga>
                 <Riga etichetta="Referente e vice referente: una apre, l’altra chiude, a turno"><Interruttore acceso={regole.caldiGuidaApreChiude ?? false} disabled={!puoScrivere} etichetta="Referente e vice referente: apertura e chiusura a turno" onCambia={(v) => setRegole((r) => ({ ...r, caldiGuidaApreChiude: v }))} /></Riga>
-                <Riga etichetta={ha474 && regole.caldiOreAperturaAttiva === false ? 'Chi apre resta un numero fisso di ore' : 'Chi apre resta (ore)'}>
+                <Riga etichetta={regole.caldiOreAperturaAttiva === true ? 'Chi apre resta (ore)' : 'Chi apre resta un numero fisso di ore'}>
                   <div className="flex items-center gap-3">
-                    {ha474 && <Interruttore acceso={regole.caldiOreAperturaAttiva !== false} disabled={!puoScrivere} etichetta="Chi apre resta un numero fisso di ore" onCambia={(v) => setRegole((r) => ({ ...r, caldiOreAperturaAttiva: v }))} />}
-                    {(!ha474 || regole.caldiOreAperturaAttiva !== false) && (
+                    {ha474 && <Interruttore acceso={regole.caldiOreAperturaAttiva === true} disabled={!puoScrivere} etichetta="Chi apre resta un numero fisso di ore" onCambia={(v) => setRegole((r) => ({ ...r, caldiOreAperturaAttiva: v }))} />}
+                    {ha474 && regole.caldiOreAperturaAttiva === true && (
                       <input aria-label="Ore di chi fa l'apertura nei giorni caldi" type="number" min={4} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-20 text-center`} value={regole.caldiOreApertura ?? 9} onChange={(e) => setRegole((r) => ({ ...r, caldiOreApertura: Number(e.target.value) || 9 }))} />
                     )}
                   </div>

@@ -93,8 +93,9 @@ export interface RegoleTurni {
   caldiOreApertura?: number;
   /**
    * La regola «chi apre resta N ore» si accende e si spegne (Patrizio, 26/11/2026,
-   * `outlet_shift_rules.caldi_ore_apertura_attiva`, migration 474). Assente o true = accesa;
-   * false = chi apre entra all'apertura e quanto resta lo decide il motore.
+   * `outlet_shift_rules.caldi_ore_apertura_attiva`, migration 474). Solo true = accesa; assente,
+   * NULL o false = spenta (nasce spenta, migration 476): chi apre entra all'apertura e quanto
+   * resta lo decide il motore.
    */
   caldiOreAperturaAttiva?: boolean;
   /**

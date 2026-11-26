@@ -229,11 +229,12 @@ export function sceltePerLaSettimana(args: {
 export const PRESENZA_RESPONSABILE_WEEKEND = 9 * 60;
 
 /**
- * Quante ore resta chi fa l'apertura nei giorni caldi: quelle del negozio (default 9), oppure
- * null se il negozio ha spento la regola (Patrizio, 26/11/2026: «deve poter essere accesa o spenta»).
+ * Quante ore resta chi fa l'apertura nei giorni caldi: quelle del negozio (default 9) solo dove la
+ * regola e' accesa; altrimenti null (Patrizio, 26/11/2026: «deve poter essere accesa o spenta»,
+ * poi «falla nascere spenta anche nei negozi nuovi»: senza una scelta salvata e' spenta).
  */
 export function oreDiChiApre(regole: RegoleTurni): number | null {
-  if (regole.caldiOreAperturaAttiva === false) return null;
+  if (regole.caldiOreAperturaAttiva !== true) return null;
   return regole.caldiOreApertura ?? PRESENZA_RESPONSABILE_WEEKEND / 60;
 }
 
