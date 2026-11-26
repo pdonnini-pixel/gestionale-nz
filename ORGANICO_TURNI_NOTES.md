@@ -1086,13 +1086,15 @@ nascono spente e i piani non cambiano (misura sotto).
   l'altra fa la chiusura, e si alternano.
   **Dal 26/11/2026 le ore di chi apre sono una regola che si accende e si spegne** (Patrizio: «la
   regola deve poter essere accesa o spenta, quindi non fissa come costante»):
-  `outlet_shift_rules.caldi_ore_apertura_attiva` (migration 474; NULL o true = accesa, vale
+  `outlet_shift_rules.caldi_ore_apertura_attiva` (migration 474; dalla 476 solo true = accesa, vale
   `caldi_ore_apertura`, 9 se vuota; false = spenta). Spenta, chi apre entra comunque all'apertura
   ma quanto resta lo decidono fasce, MODA e contratto, e la deroga `domenica_apertura` controlla solo
   l'ingresso (`oreDiChiApre` in `ottimizzaTurni.ts`). Interruttore accanto a «Chi apre resta (ore)».
   **Lo stesso giorno Patrizio l'ha spenta in tutti i negozi** (migration 475, NZ e Zago; Roma Soratte
   conserva le sue 9 ore in `caldi_ore_apertura`, che tornano se la regola si riaccende). Un negozio
-  nuovo nasce con la colonna vuota, cioè accesa: va spento dalla pagina.
+  nuovo nasce con la colonna vuota, che **dalla 476 vale spenta** (Patrizio, 26/11/2026: «falla nascere
+  spenta anche nei negozi nuovi»): vale solo `true`, `oreDiChiApre` restituisce null per NULL e false,
+  e anche un negozio senza riga di regole la ha spenta. La pagina salva `true` o `false`.
 - **Il giorno libero fisso scelto dal sistema** non c'è più dove il negozio ha scritto i riposi
   minimi: resta fisso solo quello deciso a mano; senza una scelta lo decide la turnazione.
 - I due limiti «da sola al massimo mezz'ora all'apertura, un'ora alla chiusura» e «al massimo due
