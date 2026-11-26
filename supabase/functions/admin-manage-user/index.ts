@@ -346,6 +346,22 @@ Deno.serve(async (req: Request) => {
       return jsonOk({ ok: true, email_cc: cc || null });
     }
 
+    // ───────── SET_EMAIL (corregge l'indirizzo di accesso) ─────────
+    // Il Super Advisor cambia l'email di login senza conferma via mail
+    // (email_confirm: true): serve per correggere un indirizzo scritto male
+    // (es. .it al posto di .com). Allinea anche user_profiles.email.
+    if (action === "set_email") {
+      const email = String(body.email ?? "").trim().toLowerCase();
+      if (!validEmail(email)) return jsonError(400, "L'indirizzo email non è valido.");
+      const { data: gia } = await admin.from("user_profiles").select("id").ilike("email", escapeLike(email)).neq("id", targetId).limit(1).maybeSingle();
+      if (gia) return jsonError(409, "Questo indirizzo è già usato da un altro utente.");
+      const { error: emErr } = await admin.auth.admin.updateUserById(targetId, { email, email_confirm: true });
+      if (emErr) return jsonError(400, `Email non cambiata: ${emErr.message}`);
+      const { error: pErr } = await admin.from("user_profiles").update({ email }).eq("id", targetId);
+      if (pErr) console.error("[admin-manage-user] set_email profilo:", pErr.message);
+      return jsonOk({ ok: true, email });
+    }
+
     // ───────── SET_PASSWORD (nuova password comunicata a voce/mail dall'amministrazione) ─────────
     if (action === "set_password") {
       const password = generatePassword();
