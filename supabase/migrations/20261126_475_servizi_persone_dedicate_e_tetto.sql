@@ -1,4 +1,4 @@
--- 471 · Servizi negozi: persone dedicate e tetto di persone nella giornata (Patrizio, 26/11/2026)
+-- 475 · Servizi negozi: persone dedicate e tetto di persone nella giornata (Patrizio, 26/11/2026)
 --
 -- - outlet_servizi.dedicate: le persone dedicate a quel servizio in quel giorno (scarico del
 --   martedi', pulizie del lunedi'...). Devono esserci «possibilmente»: il motore le preferisce
@@ -8,6 +8,9 @@
 --   giornata nei giorni scelti (scelta del negozio, spenta = NULL). Non vale nei giorni caldi, nei
 --   festivi, negli eventi e nel lunedi' a due (che ha il suo tetto). Nei feriali gli straordinari
 --   sono gia' vietati: se con N persone le ore di contratto non bastano, il tetto cede.
+-- NUMERO: scritta e applicata su NZ e Zago come «20261126_471_servizi_persone_dedicate_e_tetto» mentre
+-- un altro lavoro usava gia' il 471 su main; nel repository e' la 475. Sui database il nome registrato
+-- resta quello (e i commenti delle colonne dicono «migration 471»): stessa migration.
 -- NO DATA LOSS: solo ADD COLUMN. ROLLBACK: _ROLLBACK.
 
 BEGIN;

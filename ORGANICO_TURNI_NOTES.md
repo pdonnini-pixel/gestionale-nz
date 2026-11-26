@@ -1544,7 +1544,7 @@ Nata dal confronto di dicembre 2026 a Valmontone fra i turni scritti dalle ragaz
 - **Non ancora**: il controllo delle ferie in `PianoFerie` non legge i servizi; la stampa mostra l'orario di vendita.
 - **Misura**: test `serviziNegozio.test.ts` con `pianificaMese` vero (cinque persone, dicembre 2026): tutti i martedì con consegna hanno due persone dalle 10 alle 12, lunedì e venerdì un turno dalle 9, l'8/12 annullato nessun obbligo.
 
-### Persone dedicate e tetto della giornata (26/11/2026, migration 471)
+### Persone dedicate e tetto della giornata (26/11/2026, migration 475)
 
 Nato dal piano di dicembre di Roma Soratte: il martedì 1/12 e 22/12 tre persone diverse (Tania tutto il giorno perché «non riposa mai» il martedì, la seconda persona spezzata in due turni da 4 ore), mai più di due insieme. Bisogno del martedì: 2 persone dalle 10 alle 18 (scarico 10-12 più le fasce 12-18).
 

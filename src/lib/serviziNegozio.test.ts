@@ -133,7 +133,7 @@ describe('il piano del mese con i servizi', () => {
   }, 60_000);
 });
 
-// Persone dedicate e tetto di persone nella giornata (Patrizio, 26/11/2026, migration 471).
+// Persone dedicate e tetto di persone nella giornata (Patrizio, 26/11/2026, migration 475).
 // Caso di Roma Soratte: martedì 2 persone dalle 10 alle 18 (scarico 10-12 + fasce), Tania (p0)
 // non riposa mai il martedì, Maria (p2) è dedicata allo scarico, al massimo 2 persone nella giornata.
 describe('persone dedicate e tetto della giornata', () => {
@@ -171,4 +171,21 @@ describe('persone dedicate e tetto della giornata', () => {
     // la dedicata c'è almeno nella maggior parte dei martedì (le ore della settimana possono non bastare)
     expect(conDedicata).toBeGreaterThanOrEqual(3);
   }, 90_000);
+});
+
+describe('dove vale il tetto della giornata', () => {
+  const conTetto: ServiziNegozio = { ricorrenti: [], consegne: [], tetto: { persone: 2, giorni: [1, 2, 3, 4, 5, 6, 7] } };
+  it('vale in un feriale normale', () => {
+    expect(applicaServizi(feriale('2026-12-01'), conTetto).tettoPersone).toBe(2);
+  });
+  it('non vale nei giorni caldi, con tutte al lavoro, negli eventi, nel lunedì a due e nei festivi', () => {
+    expect(applicaServizi({ ...feriale('2026-12-01'), caldo: true }, conTetto).tettoPersone).toBeUndefined();
+    expect(applicaServizi({ ...feriale('2026-12-01'), tutti: true }, conTetto).tettoPersone).toBeUndefined();
+    expect(applicaServizi({ ...feriale('2026-12-01'), evento: 'Black Friday' }, conTetto).tettoPersone).toBeUndefined();
+    expect(applicaServizi({ ...feriale('2026-11-30'), giorno: 1, lunediDue: true }, conTetto).tettoPersone).toBeUndefined();
+    expect(applicaServizi(feriale('2026-12-08'), conTetto).tettoPersone).toBeUndefined();
+  });
+  it('non vale nei giorni non scelti', () => {
+    expect(applicaServizi(feriale('2026-12-01'), { ...conTetto, tetto: { persone: 2, giorni: [3] } }).tettoPersone).toBeUndefined();
+  });
 });

@@ -281,7 +281,7 @@ export const PESI = {
   lunediStessaGuida: 30_000, // la stessa fra referente e vice referente del lunedi' prima: si alternano quando possibile
   // pesa meno di un riposo: con un evento prima i riposi a testa, poi gli straordinari pari (Patrizio, 12/11/2026)
   straordinarioPari: 200,   // distanza al quadrato dalla media degli straordinari
-  // ── Servizi negozi (Patrizio, 26/11/2026, migration 471) ──
+  // ── Servizi negozi (Patrizio, 26/11/2026, migration 475) ──
   // Tetto di persone diverse nella giornata, scelta del negozio: sotto il minimo delle fasce e le
   // persone dello scarico (che non si perdono), sopra i riposi. Nei feriali gli straordinari sono
   // vietati, quindi il tetto non costa mai straordinario: se le ore non bastano, cede.
@@ -355,7 +355,7 @@ interface Quadro {
   /** lunedi' con il tetto di due persone, e quanto pesa ogni coppia perche' gia' vista nei lunedi' prima */
   lunDue: boolean[];
   lunPrima: number[];
-  /** tetto di persone diverse del giorno (0 = nessuno) e servizi con le persone dedicate (indici), migration 471 */
+  /** tetto di persone diverse del giorno (0 = nessuno) e servizi con le persone dedicate (indici), migration 475 */
   tettoP: number[];
   dedicate: { dalle: number; alle: number; persone: number; idx: number[] }[][];
   /** chi fra responsabile e vice ha lavorato il lunedi' prima (indice della persona, -1 se nessuna o tutte e due) */
@@ -480,12 +480,12 @@ function costo(q: Quadro, st: Stato): number {
         else if (guide === 1 && !q.guidaFissa[d] && chi === q.guidaLunPrima) c += PESI.lunediStessaGuida;
       }
     }
-    // tetto di persone diverse nella giornata (471): i fissi contano, nessuno due volte
+    // tetto di persone diverse nella giornata (475): i fissi contano, nessuno due volte
     if (q.tettoP[d]) {
       const tot = quanti + q.fissePersone[d].size;
       if (tot > q.tettoP[d]) c += (tot - q.tettoP[d]) * PESI.personaOltreTetto;
     }
-    // persone dedicate al servizio (471): servono tante quante ne chiede il servizio, fra quelle che
+    // persone dedicate al servizio (475): servono tante quante ne chiede il servizio, fra quelle che
     // potevano esserci; chi manca e «non riposa mai» quel giorno ha gia' il suo peso (non si somma)
     for (const sv of q.dedicate[d]) {
       let possibili = 0; let presenti = 0; let giaPesate = 0;

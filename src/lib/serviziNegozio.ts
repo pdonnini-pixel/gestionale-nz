@@ -25,11 +25,11 @@ export interface ServizioRicorrente {
   dalle: string;
   alle: string;
   persone: number;
-  /** persone dedicate (employees.id): il piano le preferisce quando ha la scelta (migration 471) */
+  /** persone dedicate (employees.id): il piano le preferisce quando ha la scelta (migration 475) */
   dedicate?: string[];
 }
 
-/** Al massimo `persone` persone diverse nella giornata, nei `giorni` (1 = lunedì) (migration 471). */
+/** Al massimo `persone` persone diverse nella giornata, nei `giorni` (1 = lunedì) (migration 475). */
 export interface TettoPersone { persone: number; giorni: number[] }
 
 /** Una riga del calendario delle consegne: vale al posto della consegna abituale di quel giorno. */
@@ -126,7 +126,7 @@ export function applicaServizi(g: GiornoPiano, servizi: ServiziNegozio | null | 
       };
     }
   }
-  // Tetto di persone diverse nella giornata (migration 471): non nei giorni caldi, festivi, eventi
+  // Tetto di persone diverse nella giornata (migration 475): non nei giorni caldi, festivi, eventi
   // e nel lunedì a due, che ha il suo tetto
   const tt = servizi.tetto;
   if (tt && tt.persone >= 2 && tt.giorni.includes(giornoIso(g.data)) && !g.caldo && !g.tutti && !g.evento && !g.lunediDue && !eFestivo(g.data)) {

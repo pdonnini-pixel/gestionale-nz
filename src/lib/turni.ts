@@ -544,11 +544,11 @@ export interface GiornoPiano {
   /** le fasce salvate di questo lunedi' chiedevano piu' del tetto: comanda il tetto, la pagina lo segnala */
   lunediFasceOltre?: boolean;
   // ── Servizi del negozio (Patrizio, 26/11/2026, migration 468). Li scrive applicaServizi. ──
-  /** scarico merce di questo giorno: in quelle mezz'ore servono almeno `persone`; `dedicate` le preferite (471) */
+  /** scarico merce di questo giorno: in quelle mezz'ore servono almeno `persone`; `dedicate` le preferite (475) */
   scarico?: { dalle: number; alle: number; persone: number; dedicate?: string[] };
   /** pulizie prima dell'apertura: il giorno comincia a `dalle`, la vendita a `apreVendita` */
   pulizie?: { dalle: number; alle: number; persone: number; dedicate?: string[] };
-  /** al massimo queste persone diverse nella giornata (scelta del negozio, migration 471) */
+  /** al massimo queste persone diverse nella giornata (scelta del negozio, migration 475) */
   tettoPersone?: number;
   /** apertura alla vendita quando il giorno comincia prima per le pulizie */
   apreVendita?: number;

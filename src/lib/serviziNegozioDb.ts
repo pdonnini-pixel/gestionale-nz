@@ -19,10 +19,10 @@ export async function caricaServizi(outletId: string, dal: string, al: string): 
   const [r0, c, t] = await Promise.all([
     db.from('outlet_servizi').select('id, tipo, giorno, dalle, alle, persone, dedicate').eq('outlet_id', outletId),
     db.from('outlet_consegne').select('id, data, dalle, alle, persone, annullata, nota').eq('outlet_id', outletId).gte('data', dal).lte('data', al),
-    // tetto di persone nella giornata (471): dove la colonna manca, nessun tetto
+    // tetto di persone nella giornata (475): dove la colonna manca, nessun tetto
     db.from('outlet_shift_rules').select('tetto_persone_giorno, tetto_giorni').eq('outlet_id', outletId).maybeSingle(),
   ]);
-  // senza la 471 la colonna «dedicate» non c'e': si rilegge senza
+  // senza la 475 la colonna «dedicate» non c'e': si rilegge senza
   const r = r0.error && String((r0.error as { code?: string }).code) === '42703'
     ? await db.from('outlet_servizi').select('id, tipo, giorno, dalle, alle, persone').eq('outlet_id', outletId)
     : r0;
@@ -63,7 +63,7 @@ export async function salvaRicorrenti(companyId: string, outletId: string, tipo:
 }
 
 /**
- * Salva il tetto di persone diverse nella giornata nelle regole del negozio (471). `null` lo spegne.
+ * Salva il tetto di persone diverse nella giornata nelle regole del negozio (475). `null` lo spegne.
  * Tocca solo le due colonne del tetto; se il negozio non ha ancora la riga delle regole la crea.
  */
 export async function salvaTetto(companyId: string, outletId: string, tetto: { persone: number; giorni: number[] } | null): Promise<void> {
