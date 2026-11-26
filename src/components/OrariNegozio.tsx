@@ -354,6 +354,12 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
   const aggiungiSpeciale = async () => {
     const s = nuovoSpeciale;
     if (!s.data) { toast({ type: 'error', message: 'Indica la data.' }); return; }
+    // La lista mostra solo i giorni da oggi in avanti: una data passata (mese
+    // sbagliato nel selettore) o un anno scritto a meta' («0006») si salvava e
+    // spariva subito, senza nessun avviso (Valmontone, 26/11/2026).
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s.data)) { toast({ type: 'error', message: 'La data non è completa: controlla giorno, mese e anno.' }); return; }
+    if (s.data < oggiRoma()) { toast({ type: 'error', message: `Il ${formattaDataBreve(s.data)} è già passato: controlla giorno, mese e anno.` }); return; }
+    if (Number(s.data.slice(0, 4)) > Number(oggiRoma().slice(0, 4)) + 2) { toast({ type: 'error', message: `L’anno ${s.data.slice(0, 4)} è troppo lontano: controlla la data.` }); return; }
     if (!s.chiuso && (!s.apre || !s.chiude)) { toast({ type: 'error', message: 'Indica l’orario del giorno, oppure segna chiuso.' }); return; }
     if (!s.chiuso && s.chiude <= s.apre) { toast({ type: 'error', message: 'La chiusura viene prima dell’apertura.' }); return; }
     setSalvo('speciali');
@@ -366,7 +372,10 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
     })), { onConflict: 'outlet_id,data' });
     setSalvo(null);
     if (error) { toast({ type: 'error', message: error.message }); return; }
-    if (suTutti) toast({ type: 'success', message: `${formattaDataBreve(s.data)} segnato su ${negozi.length} negozi.` });
+    const comeE = s.chiuso ? 'chiuso' : `${s.apre}-${s.chiude}`;
+    toast({ type: 'success', message: suTutti
+      ? `${formattaDataBreve(s.data)} (${comeE}) segnato su ${negozi.length} negozi.`
+      : `${formattaDataBreve(s.data)} (${comeE}) segnato su ${nomeNegozio}.` });
     setNuovoSpeciale({ data: '', chiuso: true, apre: '', chiude: '', persone_extra: 0, nota: '' });
     setSuTutti(false);
     await ricaricaSpeciali();
@@ -549,7 +558,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
           </ul>
           {puoScrivere && (
             <div className="pt-2 flex flex-wrap items-end gap-2">
-              <label className="text-xs text-slate-600">Data<br /><input type="date" className={inputCls} value={nuovoSpeciale.data} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, data: e.target.value }))} /></label>
+              <label className="text-xs text-slate-600">Data<br /><input type="date" min={oggiRoma()} className={inputCls} value={nuovoSpeciale.data} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, data: e.target.value }))} /></label>
               <label className="text-xs text-slate-600 flex items-center gap-1 pb-2"><input type="checkbox" checked={nuovoSpeciale.chiuso} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, chiuso: e.target.checked }))} /> chiuso</label>
               <label className="text-xs text-slate-600">Apre<br /><input type="time" step={1800} disabled={nuovoSpeciale.chiuso} className={inputCls} value={nuovoSpeciale.apre} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, apre: e.target.value }))} /></label>
               <label className="text-xs text-slate-600">Chiude<br /><input type="time" step={1800} disabled={nuovoSpeciale.chiuso} className={inputCls} value={nuovoSpeciale.chiude} onChange={(e) => setNuovoSpeciale((s) => ({ ...s, chiude: e.target.value }))} /></label>
