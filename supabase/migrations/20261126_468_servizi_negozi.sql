@@ -135,8 +135,9 @@ BEGIN
   IF NOT public.responsabile_mio_negozio(p_outlet_id) THEN
     RAISE EXCEPTION 'Non è un tuo negozio' USING ERRCODE = '42501';
   END IF;
-  IF p_data IS NULL OR p_data < (now() AT TIME ZONE 'Europe/Rome')::date - 7 THEN
-    RAISE EXCEPTION 'Data non valida: le consegne passate non si cambiano' USING ERRCODE = '22023';
+  IF p_data IS NULL OR p_data < (now() AT TIME ZONE 'Europe/Rome')::date - 7
+     OR p_data > (now() AT TIME ZONE 'Europe/Rome')::date + 365 THEN
+    RAISE EXCEPTION 'Data non valida: le consegne passate non si cambiano, e non oltre un anno' USING ERRCODE = '22023';
   END IF;
   IF NOT COALESCE(p_annullata, false) AND (p_dalle IS NULL OR p_alle IS NULL OR p_alle <= p_dalle) THEN
     RAISE EXCEPTION 'Scrivi l''ora di arrivo e quella di fine scarico' USING ERRCODE = '22023';
@@ -166,8 +167,9 @@ BEGIN
   IF NOT public.responsabile_mio_negozio(p_outlet_id) THEN
     RAISE EXCEPTION 'Non è un tuo negozio' USING ERRCODE = '42501';
   END IF;
-  IF p_data IS NULL OR p_data < (now() AT TIME ZONE 'Europe/Rome')::date - 7 THEN
-    RAISE EXCEPTION 'Data non valida: le consegne passate non si cambiano' USING ERRCODE = '22023';
+  IF p_data IS NULL OR p_data < (now() AT TIME ZONE 'Europe/Rome')::date - 7
+     OR p_data > (now() AT TIME ZONE 'Europe/Rome')::date + 365 THEN
+    RAISE EXCEPTION 'Data non valida: le consegne passate non si cambiano, e non oltre un anno' USING ERRCODE = '22023';
   END IF;
   DELETE FROM public.outlet_consegne WHERE outlet_id = p_outlet_id AND data = p_data;
 END $$;
