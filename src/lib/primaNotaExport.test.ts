@@ -328,6 +328,11 @@ describe('previdenza complementare, pegno e incasso di una fattura (ottobre 2026
     expect(KIND_LABELS.pegno).toBe('Pegno in denaro (somma vincolata)')
     expect(classifyMovement(mv({ amount: -503, description: 'Causale: PREL.CONT. DA SPORTELLO - Descrizione:' }))).toBe('giroconto')
   })
+  it('il contributo della Nuova Sabatini è un contributo pubblico, non un incasso da chiarire', () => {
+    expect(classifyMovement(mv({ amount: 3162.12, description: 'Bonifico a vs favore *MIMIT - DGIAI PAGAMENTO QUOTA 1 EROGAZIONE DM 27.11.2013 (NUOVA SABATINI) ID DOMANDA 414676' }))).toBe('contributo')
+    expect(KIND_LABELS.contributo).toBe('Contributo pubblico')
+    expect(classifyMovement(mv({ amount: 918.66, description: 'BON. IST. DEL 12.11.26 ORD: ROSSINI SERENA BIC: MEDBITMMXXX RI: BONIFICO ERRATO' }))).toBe('da_chiarire')
+  })
   it('un bonifico in entrata che salda una fattura è un incasso cliente', () => {
     expect(classifyMovement(mv({ amount: 81, description: 'Causale: BONIFICO PER ORDINE/CONTO - Descrizione: FILIALE DISPONENTE 00560 BON. SEPA 0881100010187150480546305463IT DEL 30.10.26 ORD: BECATTINI ALESSIA BIC: ICRAITRRMJ0 INF:RI: Pagamento fattura n.2' }))).toBe('incasso_cliente')
   })

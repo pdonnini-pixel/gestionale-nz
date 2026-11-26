@@ -172,6 +172,7 @@ const KIND_BADGE: Record<MovementKind, string> = {
   spese_banca: 'bg-slate-100 text-slate-600',
   giroconto: 'bg-slate-100 text-slate-600',
   pegno: 'bg-slate-200 text-slate-700',
+  contributo: 'bg-teal-50 text-teal-700',
   incasso_cliente: 'bg-emerald-100 text-emerald-700',
   rimborso: 'bg-teal-100 text-teal-700',
   da_chiarire: 'bg-orange-100 text-orange-800',

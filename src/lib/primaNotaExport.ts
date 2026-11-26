@@ -69,6 +69,7 @@ export type MovementKind =
   | 'spese_banca'
   | 'giroconto'
   | 'pegno'
+  | 'contributo'
   | 'incasso_cliente'
   | 'rimborso'
   | 'da_chiarire'
@@ -87,6 +88,7 @@ export const KIND_LABELS: Record<MovementKind, string> = {
   spese_banca: 'Spese e commissioni bancarie',
   giroconto: 'Giroconto / prelievo',
   pegno: 'Pegno in denaro (somma vincolata)',
+  contributo: 'Contributo pubblico',
   incasso_cliente: 'Incasso cliente (bonifico)',
   rimborso: 'Rimborso / restituzione',
   da_chiarire: 'Da chiarire',
@@ -119,6 +121,11 @@ const RE_GIROCONTO = /GIROCONTO|PASSAGGIO CONTANTI|PREL\.?\s*CONT|PRELEVAMENTO/i
 // 28/10/2026 MPS ha addebitato 44.100,00 «DISPOSIZIONE PEGNO DENARO» per la
 // fideiussione a favore del locatore di Roma Soratte, e il file allo studio
 // lo chiamava «Giroconto / prelievo» (Monica: «prelievo per pegno?»).
+// Contributo pubblico in entrata (Nuova Sabatini, Invitalia, credito d'imposta):
+// non e' un incasso di un negozio ne' un rimborso. Il 24/11/2026 su NZ «MIMIT -
+// DGIAI PAGAMENTO QUOTA 1 EROGAZIONE ... (NUOVA SABATINI)», 3.162,12, sarebbe
+// uscito «Da chiarire».
+export const RE_CONTRIBUTO = /\bMIMIT\b|NUOVA SABATINI|INVITALIA|CONTRIBUTO A FONDO PERDUTO|\bMISE\b.*\bAGEVOLAZION|EROGAZIONE CONTRIBUTO/i
 export const RE_PEGNO = /COSTITUZIONE PEGNO|PEGNO DENARO|PEGNO IN DENARO/i
 // SDD di servizi bancari (commissioni POS, rimborsi tax free): spese, non fornitori.
 const RE_SDD_SERVIZI = /A FAVORE NEXI PAYMENTS|A FAVORE GLOBAL BLUE/i
@@ -260,6 +267,7 @@ export function classifyMovement(m: PnMovement): MovementKind {
   if (m.amount < 0 && RE_PREVIDENZA.test(d)) return 'previdenza'
   if (RE_FINANZIAMENTO.test(d)) return 'finanziamento'
   if (RE_PEGNO.test(d)) return 'pegno'
+  if (m.amount > 0 && RE_CONTRIBUTO.test(d)) return 'contributo'
   if (RE_GIROCONTO.test(d)) return 'giroconto'
   if (RE_RICARICA_PREPAGATA.test(d)) return 'ricarica_prepagata'
   if (m.amount < 0 && RE_SDD_ACQUIRER.test(d)) return 'spese_banca'
