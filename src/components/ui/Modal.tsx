@@ -47,6 +47,10 @@ interface ModalProps {
   containerClassName?: string
 }
 
+// Le modali aperte, dalla prima all'ultima: Esc e focus trap valgono solo per quella in alto.
+// Senza, una conferma aperta sopra un'altra modale chiudeva con Esc anche quella sotto (26/11/2026).
+const aperte: object[] = []
+
 const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
 export function Modal({
@@ -75,7 +79,9 @@ export function Modal({
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
   // Escape + focus trap
+  const io = useRef({})
   const onKeyDown = useCallback((e: KeyboardEvent) => {
+    if (aperte[aperte.length - 1] !== io.current) return
     if (e.key === 'Escape') {
       e.stopPropagation()
       onCloseRef.current()
@@ -99,6 +105,7 @@ export function Modal({
   useEffect(() => {
     if (!open) return
     previouslyFocused.current = document.activeElement as HTMLElement | null
+    aperte.push(io.current)
     document.addEventListener('keydown', onKeyDown, true)
     // Sposta il focus dentro la modale (primo elemento focusabile o il pannello)
     const t = setTimeout(() => {
@@ -107,6 +114,8 @@ export function Modal({
     }, 0)
     return () => {
       document.removeEventListener('keydown', onKeyDown, true)
+      const i = aperte.lastIndexOf(io.current)
+      if (i >= 0) aperte.splice(i, 1)
       clearTimeout(t)
       // Restituisce il focus all'elemento che aveva aperto la modale
       previouslyFocused.current?.focus?.()
