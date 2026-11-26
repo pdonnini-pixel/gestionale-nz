@@ -417,7 +417,27 @@ export function matchRicariche(lines: CardLine[], movements: BankMovLite[]): Map
 
 // ── Aggancio alle fatture pagate con carta ─────────────────────────────
 
-export type PayableLite = { id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number; supplier_name: string | null; invoice_number: string | null; payment_method?: string | null; supplier_id?: string | null; electronic_invoice_id?: string | null }
+export type PayableLite = {
+  id: string; payment_date: string | null; invoice_date: string | null; gross_amount: number; supplier_name: string | null; invoice_number: string | null; payment_method?: string | null; supplier_id?: string | null; electronic_invoice_id?: string | null
+  /**
+   * Fattura che lo Scadenzario non da' pagata con carta (bonifico ancora aperto)
+   * o autofattura reverse charge: si aggancia a una spesa solo se la descrizione
+   * della carta porta il nome del fornitore o il numero, mai per il solo importo.
+   */
+  soloConNome?: boolean
+  /** Aggancio a piu' scadenze (una spesa per due o tre righe): solo da mostrare. */
+  gruppo?: string[]
+}
+
+/**
+ * Aggancio che si puo' salvare in card_transactions.payable_id all'import.
+ * Da li' la riconciliazione segna la scadenza pagata con l'addebito della carta
+ * (migration 266, R27), quindi si salva solo un aggancio certo a una sola
+ * scadenza vera: mai un'autofattura (id «ei:», nessuna scadenza), mai un
+ * gruppo, mai una scadenza aperta con un altro metodo trovata per nome.
+ */
+export const agganciDaSalvare = (p: PayableLite | undefined): string | null =>
+  p && !p.soloConNome && !p.gruppo && !p.id.startsWith('ei:') ? p.id : null
 
 const tokens = (s: string | null): string[] => (s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').split(' ').filter(t => t.length >= 3 && !/^(SRL|SPA|SNC|SAS|SRLS|DI|DEL|DELLA|THE|AND|ITA|IRL)$/.test(t))
 
@@ -438,21 +458,68 @@ const tokens = (s: string | null): string[] => (s ?? '').toUpperCase().replace(/
 export function matchPayables(lines: CardLine[], payables: PayableLite[]): Map<number, PayableLite> {
   const used = new Set<string>()
   const out = new Map<number, PayableLite>()
+  const valuta = (p: PayableLite, l: CardLine, desc: string) => {
+    const dist = Math.min(...[p.payment_date, p.invoice_date].filter((d): d is string => !!d).map(d => daysBetween(d, l.purchase_date)), 999)
+    const numHit = p.invoice_number ? desc.includes(p.invoice_number.toUpperCase().replace(/\s+/g, ' ').trim()) || tokens(p.invoice_number).some(t => /\d/.test(t) && desc.includes(t)) : false
+    const nameHit = tokens(p.supplier_name).some(t => desc.includes(t))
+    const score = (numHit ? 2 : 0) + (nameHit ? 1 : 0)
+    // La fattura arriva spesso qualche giorno dopo la spesa (carburante: spesa
+    // del 22/10, fattura del 02/11): senza nome ne' numero si accettano fino a
+    // 15 giorni se la fattura e' successiva e ancora senza pagamento (aspetta
+    // proprio l'addebito della carta). Una fattura gia' pagata resta a 10 giorni:
+    // con 15 la ferramenta da 18,40 si prendeva lo scontrino di un ristorante.
+    const dopo = !p.payment_date && !!p.invoice_date && p.invoice_date >= l.purchase_date && daysBetween(p.invoice_date, l.purchase_date) <= 15
+    const ok = (dist <= (score >= 2 ? 120 : score > 0 ? 45 : 10) || (score === 0 && dopo)) && !(p.soloConNome && score === 0)
+    return { p, dist, score, ok }
+  }
   lines.forEach((l, i) => {
     if (l.amount >= 0) return
     const spesa = -l.amount
     const desc = l.description.toUpperCase()
     const cands = payables
       .filter(p => !used.has(p.id) && Math.abs(Number(p.gross_amount) - spesa) < 0.005)
-      .map(p => {
-        const dist = Math.min(...[p.payment_date, p.invoice_date].filter((d): d is string => !!d).map(d => daysBetween(d, l.purchase_date)), 999)
-        const numHit = p.invoice_number ? desc.includes(p.invoice_number.toUpperCase().replace(/\s+/g, ' ').trim()) || tokens(p.invoice_number).some(t => /\d/.test(t) && desc.includes(t)) : false
-        const nameHit = tokens(p.supplier_name).some(t => desc.includes(t))
-        return { p, dist, score: (numHit ? 2 : 0) + (nameHit ? 1 : 0) }
-      })
-      .filter(c => c.dist <= (c.score >= 2 ? 120 : c.score > 0 ? 45 : 10))
+      .map(p => valuta(p, l, desc))
+      .filter(c => c.ok)
       .sort((a, b) => b.score - a.score || a.dist - b.dist)
     if (cands.length > 0) { used.add(cands[0].p.id); out.set(i, cands[0].p) }
+  })
+  // Una spesa, piu' righe dello Scadenzario dello stesso fornitore: una fattura
+  // divisa in due scadenze (MCA, 225,00 + 4,50 per 229,50) o due fatture pagate
+  // insieme (Omnitekstore 170,00 + 10,00 per 180,00). Si cercano due o tre righe
+  // dello stesso fornitore che sommano esattamente la spesa, ognuna valida per
+  // date e nome come sopra; la riga mostra tutti i numeri di fattura.
+  lines.forEach((l, i) => {
+    if (l.amount >= 0 || out.has(i)) return
+    const spesa = -l.amount
+    const desc = l.description.toUpperCase()
+    const pool = payables.filter(p => !used.has(p.id) && Number(p.gross_amount) > 0 && Number(p.gross_amount) < spesa).map(p => valuta(p, l, desc)).filter(c => c.ok)
+    const chiave = (p: PayableLite) => p.supplier_id ?? `N:${tokens(p.supplier_name).join(' ')}`
+    const perFornitore = new Map<string, typeof pool>()
+    for (const c of pool) perFornitore.set(chiave(c.p), [...(perFornitore.get(chiave(c.p)) ?? []), c])
+    let best: { gruppo: typeof pool; score: number; dist: number } | null = null
+    for (const g of perFornitore.values()) {
+      const n = Math.min(g.length, 12)
+      const gruppi: Array<typeof pool> = []
+      for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) {
+        gruppi.push([g[a], g[b]])
+        for (let c = b + 1; c < n; c++) gruppi.push([g[a], g[b], g[c]])
+      }
+      for (const gr of gruppi) {
+        if (Math.abs(gr.reduce((x, c) => x + Number(c.p.gross_amount), 0) - spesa) >= 0.005) continue
+        const score = Math.max(...gr.map(c => c.score)); const dist = Math.max(...gr.map(c => c.dist))
+        // Senza il nome del fornitore nella descrizione vale solo una fattura
+        // divisa in scadenze (stesso numero): tre fatture diverse che per caso
+        // fanno 78,20 non sono la spesa di un albergo.
+        const unaFattura = new Set(gr.map(c => c.p.invoice_number ?? c.p.id)).size === 1
+        if (score === 0 && !unaFattura) continue
+        if (!best || score > best.score || (score === best.score && dist < best.dist)) best = { gruppo: gr, score, dist }
+      }
+    }
+    if (!best) return
+    for (const c of best.gruppo) used.add(c.p.id)
+    const primo = best.gruppo[0].p
+    const numeri = Array.from(new Set(best.gruppo.map(c => c.p.invoice_number ?? '?')))
+    out.set(i, { ...primo, gross_amount: spesa, invoice_number: numeri.join(' + '), gruppo: best.gruppo.map(c => c.p.id) })
   })
   return out
 }
