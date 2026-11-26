@@ -425,7 +425,19 @@ export type PayableLite = {
    * della carta porta il nome del fornitore o il numero, mai per il solo importo.
    */
   soloConNome?: boolean
+  /** Aggancio a piu' scadenze (una spesa per due o tre righe): solo da mostrare. */
+  gruppo?: string[]
 }
+
+/**
+ * Aggancio che si puo' salvare in card_transactions.payable_id all'import.
+ * Da li' la riconciliazione segna la scadenza pagata con l'addebito della carta
+ * (migration 266, R27), quindi si salva solo un aggancio certo a una sola
+ * scadenza vera: mai un'autofattura (id «ei:», nessuna scadenza), mai un
+ * gruppo, mai una scadenza aperta con un altro metodo trovata per nome.
+ */
+export const agganciDaSalvare = (p: PayableLite | undefined): string | null =>
+  p && !p.soloConNome && !p.gruppo && !p.id.startsWith('ei:') ? p.id : null
 
 const tokens = (s: string | null): string[] => (s ?? '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').split(' ').filter(t => t.length >= 3 && !/^(SRL|SPA|SNC|SAS|SRLS|DI|DEL|DELLA|THE|AND|ITA|IRL)$/.test(t))
 
@@ -507,7 +519,7 @@ export function matchPayables(lines: CardLine[], payables: PayableLite[]): Map<n
     for (const c of best.gruppo) used.add(c.p.id)
     const primo = best.gruppo[0].p
     const numeri = Array.from(new Set(best.gruppo.map(c => c.p.invoice_number ?? '?')))
-    out.set(i, { ...primo, gross_amount: spesa, invoice_number: numeri.join(' + ') })
+    out.set(i, { ...primo, gross_amount: spesa, invoice_number: numeri.join(' + '), gruppo: best.gruppo.map(c => c.p.id) })
   })
   return out
 }

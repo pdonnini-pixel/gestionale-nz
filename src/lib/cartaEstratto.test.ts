@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   parseItAmount, parseDotAmount, toIsoDate, detectIssuer, parseNumiaLines, parseMpsLines, parseTascaAoa, parseTascaLines,
-  parseGenericLines, parseCardStatementLines, periodOf, sourceLabelOf, matchStatementDebit, matchRicariche, matchPayables,
+  parseGenericLines, parseCardStatementLines, periodOf, sourceLabelOf, matchStatementDebit, matchRicariche, matchPayables, agganciDaSalvare,
   buildCartaRow, totaliCarta, type CardLine,
   parseDebitPos, debitCardsFromMovements, bankShortName, debitCardLabel, RE_POS_DEBITO,
   prepaidBalances, nettoCarta, conSaldoProgressivo,
@@ -445,5 +445,16 @@ describe('matchPayables: casi della carta BCC di settembre 2026', () => {
     expect(matchPayables([L('2026-10-22', 'PV4522 PRATO ITA', -110.09)], pool).get(0)?.id).toBe('sg')
     // ma non una fattura di 11 giorni PRIMA della spesa, senza nome
     expect(matchPayables([L('2026-11-13', 'PV4522 PRATO ITA', -110.09)], pool).has(0)).toBe(false)
+  })
+})
+
+describe('agganciDaSalvare: all\'import si salva solo un aggancio certo', () => {
+  const base = { payment_date: '2026-10-20', invoice_date: '2026-09-10', gross_amount: 10, supplier_name: 'X', invoice_number: '1' }
+  it('scadenza vera a carta: si salva; autofattura, gruppo e scadenza aperta per nome: no', () => {
+    expect(agganciDaSalvare({ ...base, id: 'p1' })).toBe('p1')
+    expect(agganciDaSalvare({ ...base, id: 'ei:abc', soloConNome: true })).toBeNull()
+    expect(agganciDaSalvare({ ...base, id: 'p2', gruppo: ['p2', 'p3'] })).toBeNull()
+    expect(agganciDaSalvare({ ...base, id: 'p4', soloConNome: true })).toBeNull()
+    expect(agganciDaSalvare(undefined)).toBeNull()
   })
 })

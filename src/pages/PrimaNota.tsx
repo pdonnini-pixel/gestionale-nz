@@ -81,7 +81,7 @@ import {
   type PnSlip, type PnFlusso,
 } from '../lib/primaNotaStipendi'
 import { prepaidBalances, nettoCarta, conSaldoProgressivo, type PrepaidBalance, debitCardsFromMovements, debitCardLabel, bankShortName,
-  parseCardStatementLines, parseTascaAoa, matchStatementDebit, matchRicariche, matchPayables, buildCartaRow, totaliCarta, sourceLabelOf,
+  parseCardStatementLines, parseTascaAoa, matchStatementDebit, matchRicariche, matchPayables, agganciDaSalvare, buildCartaRow, totaliCarta, sourceLabelOf,
   ISSUER_LABELS, CARTE_COLUMN_WIDTHS, type CardStatementParsed, type CardLine, type PayableLite, type BankMovLite, type AoaCell,
 } from '../lib/cartaEstratto'
 import { archiviaFile, urlFileArchiviato } from '../lib/archivioFile'
@@ -958,9 +958,9 @@ export default function PrimaNota() {
   ], [carte, cartePay, riscontroOf, carteDebito, carteDebitoPay, riscontroDebito, negozioFattura])
   const carteTot = useMemo(() => ({
     n: carte.length, spese: r2(carte.reduce((a, c) => a + c.tot.spese, 0)), accrediti: r2(carte.reduce((a, c) => a + c.tot.accrediti, 0)),
-    righe: cardTx.length, senzaRighe: carte.filter(c => c.lines.length === 0).length,
+    righe: carte.reduce((a, c) => a + c.lines.length, 0), senzaRighe: carte.filter(c => c.lines.length === 0).length,
     addebitiTrovati: carte.filter(c => !c.isPrepagata && c.lines.length > 0 && c.debit.movement).length, addebitiAttesi: carte.filter(c => !c.isPrepagata && c.lines.length > 0).length,
-    fattureAgganciate: cartePay.reduce((a, m) => a + m.size, 0), speseN: cardTx.filter(t => t.amount < 0).length,
+    fattureAgganciate: cartePay.reduce((a, m) => a + m.size, 0), speseN: carte.reduce((a, c) => a + c.lines.filter(l => l.amount < 0).length, 0),
     saldoPrepagata: (() => { const pre = carte.filter(c => c.isPrepagata && c.saldo).sort((a, b) => ((a.period?.year ?? 0) - (b.period?.year ?? 0)) || ((a.period?.month ?? 0) - (b.period?.month ?? 0))); return pre.length > 0 ? pre[pre.length - 1].saldo!.saldo_finale : null })(),
     debitoCarte: carteDebito.length, debitoN: carteDebito.reduce((a, g) => a + g.lines.length, 0), debitoSpese: r2(carteDebito.reduce((a, g) => a + g.tot.spese, 0)), debitoFatture: carteDebitoPay.reduce((a, m) => a + m.size, 0),
   }), [carte, cartePay, cardTx, carteDebito, carteDebitoPay])
@@ -1090,7 +1090,7 @@ export default function PrimaNota() {
         const pm = matchPayables(it.parsed.lines, await loadCardPayables(pStart, pEnd))
         const rows = it.parsed.lines.map((l, i) => ({
           company_id: companyId, statement_id: stmtId!, row_no: i + 1, card_last4: l.card_last4 ?? last4, purchase_date: l.purchase_date, posting_date: l.posting_date,
-          description: l.description, amount: l.amount, fee: l.fee, currency: l.currency, original_amount: l.original_amount, payable_id: pm.get(i)?.id ?? null,
+          description: l.description, amount: l.amount, fee: l.fee, currency: l.currency, original_amount: l.original_amount, payable_id: agganciDaSalvare(pm.get(i)),
         }))
         for (const part of chunk(rows, 500)) { const { error: tErr } = await supabase.from('card_transactions').insert(part); if (tErr) throw tErr }
         // L'addebito in banca si cerca a video sulla somma degli estratti dello stesso emittente e mese (vedi carte)
