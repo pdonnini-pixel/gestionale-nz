@@ -1090,6 +1090,9 @@ nascono spente e i piani non cambiano (misura sotto).
   `caldi_ore_apertura`, 9 se vuota; false = spenta). Spenta, chi apre entra comunque all'apertura
   ma quanto resta lo decidono fasce, MODA e contratto, e la deroga `domenica_apertura` controlla solo
   l'ingresso (`oreDiChiApre` in `ottimizzaTurni.ts`). Interruttore accanto a «Chi apre resta (ore)».
+  **Lo stesso giorno Patrizio l'ha spenta in tutti i negozi** (migration 475, NZ e Zago; Roma Soratte
+  conserva le sue 9 ore in `caldi_ore_apertura`, che tornano se la regola si riaccende). Un negozio
+  nuovo nasce con la colonna vuota, cioè accesa: va spento dalla pagina.
 - **Il giorno libero fisso scelto dal sistema** non c'è più dove il negozio ha scritto i riposi
   minimi: resta fisso solo quello deciso a mano; senza una scelta lo decide la turnazione.
 - I due limiti «da sola al massimo mezz'ora all'apertura, un'ora alla chiusura» e «al massimo due
