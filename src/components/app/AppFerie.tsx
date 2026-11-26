@@ -13,6 +13,7 @@ import {
 } from '../../lib/appDipendente'
 import { Check, Clock3 } from 'lucide-react'
 import { useDatiApp } from './useDatiApp'
+import { useConferma } from '../ui/Conferma'
 
 interface Richiesta {
   id: string; stato: string; note: string | null; motivazione: string | null
@@ -32,6 +33,8 @@ interface DatiFerie {
 type Tipo = 'giornata' | 'mezza_giornata'
 
 export default function AppFerie() {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const oggi = dataRoma(Date.now())
   const scarica = useCallback(async () => {
     const { data, error } = await supabase.rpc('app_dipendente_ferie')
@@ -117,7 +120,7 @@ export default function AppFerie() {
   }
 
   const ritira = async (id: string) => {
-    if (!window.confirm('Ritirare questa richiesta?')) return
+    if (!(await conferma({ titolo: 'Ritirare questa richiesta?', testo: 'La richiesta non arriva più a chi la deve decidere.', ok: 'Ritira', pericolo: true }))) return
     const { error } = await supabase.rpc('app_dipendente_ritira_ferie', { p_request_id: id })
     setEsito(error ? { ok: false, testo: error.message } : { ok: true, testo: 'Richiesta ritirata.' })
     void aggiorna()

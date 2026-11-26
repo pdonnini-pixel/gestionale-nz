@@ -5,6 +5,7 @@ import { PeriodProvider } from './hooks/usePeriod'
 import { useOnboardingStatus } from './hooks/useOnboardingStatus'
 import { lazy, Suspense, type ReactNode } from 'react'
 import { ToastProvider } from './components/Toast'
+import { ConfermaProvider } from './components/ui/Conferma'
 import ConfinePagina from './components/ConfinePagina'
 import AvvisoNuovaVersione from './components/AvvisoNuovaVersione'
 import Layout from './components/Layout'
@@ -252,6 +253,7 @@ function AppRoutes() {
 export default function App() {
   return (
     <ToastProvider>
+      <ConfermaProvider>
       <AuthProvider>
         <CompanyProvider>
           <BrowserRouter>
@@ -262,6 +264,7 @@ export default function App() {
           </BrowserRouter>
         </CompanyProvider>
       </AuthProvider>
+      </ConfermaProvider>
     </ToastProvider>
   )
 }

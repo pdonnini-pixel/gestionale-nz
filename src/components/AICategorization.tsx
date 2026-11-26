@@ -9,6 +9,7 @@ import { fetchAllPaged } from '../lib/fetchAllPaged'
 import { getCurrentTenant } from '../lib/tenants'
 import { useToast } from './Toast'
 import Tooltip from './Tooltip'
+import { useConferma } from './ui/Conferma'
 
 interface CashMovement {
   id: string
@@ -198,6 +199,8 @@ interface AICategorizationProps {
 }
 
 export default function AICategorization({ companyId }: AICategorizationProps) {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { toast } = useToast()
   // Data
   const [movements, setMovements] = useState<CashMovement[]>([])
@@ -400,7 +403,7 @@ export default function AICategorization({ companyId }: AICategorizationProps) {
     )
     if (highConf.length === 0) return
 
-    if (!confirm(`Confermare ${highConf.length} categorizzazioni con confidenza ≥85%?`)) return
+    if (!(await conferma({ titolo: 'Confermare le categorie proposte?', testo: `${highConf.length} categorizzazioni con confidenza da 85% in su.`, ok: 'Conferma' }))) return
 
     setBatchRunning(true)
     try {

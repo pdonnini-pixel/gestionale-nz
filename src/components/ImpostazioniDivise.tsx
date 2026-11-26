@@ -9,11 +9,14 @@ import { supabase } from '../lib/supabase'
 import { useToast } from './Toast'
 import { caricaGestori, impostaGestore, salvaScontiStandard } from '../lib/diviseDb'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { useConferma } from './ui/Conferma'
 
 const db = supabase as unknown as SupabaseClient
 interface Utente { id: string; nome: string; ruolo: string }
 
 export default function ImpostazioniDivise({ companyId, superAdvisor }: { companyId: string; superAdvisor: boolean }) {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { toast } = useToast()
   const [utenti, setUtenti] = useState<Utente[]>([])
   const [gestori, setGestori] = useState<string[] | null>(null)
@@ -84,7 +87,7 @@ export default function ImpostazioniDivise({ companyId, superAdvisor }: { compan
               {gestori.map((g) => (
                 <li key={g} className="px-3 py-2 text-sm flex items-center justify-between">
                   <span>{nome(g)}</span>
-                  <button type="button" disabled={busy} onClick={() => { if (window.confirm(`Togli ${nome(g)} da chi gestisce divise e acquisti?`)) void fai(() => impostaGestore(g, false), 'Tolto dall’elenco') }}
+                  <button type="button" disabled={busy} onClick={async () => { if (await conferma({ titolo: 'Togliere dall’elenco?', testo: `${nome(g)} non gestirà più divise e acquisti.`, ok: 'Togli', pericolo: true })) void fai(() => impostaGestore(g, false), 'Tolto dall’elenco') }}
                     aria-label={`Togli ${nome(g)}`} className="p-1 rounded text-slate-400 hover:text-rose-600 hover:bg-rose-50"><Trash2 size={15} /></button>
                 </li>
               ))}

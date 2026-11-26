@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { GitMerge, Loader2, ChevronDown, ChevronUp, AlertTriangle, Link2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useCompany } from '../hooks/useCompany'
+import { useConferma } from './ui/Conferma'
 
 // Pannello "Notule da verificare".
 // Elenca le possibili coppie NOTULA MANUALE ↔ FATTURA A-Cube (SDI) rilevate dalla
@@ -32,6 +33,8 @@ const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('it-IT') : '—'
 
 export default function NotuleDuplicatePanel() {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { avvisa } = useConferma()
   const { company } = useCompany()
   const [rows, setRows] = useState<NotulaPair[]>([])
   const [loading, setLoading] = useState(true)
@@ -69,7 +72,7 @@ export default function NotuleDuplicatePanel() {
       const res = data as unknown as { ok?: boolean; error?: string } | null
       if (error || !res?.ok) {
         console.warn('[notule-merge]', error || res?.error)
-        window.alert(`Impossibile unire: ${res?.error || error?.message || 'errore'}`)
+        await avvisa({ titolo: 'Impossibile unire', testo: String(res?.error || error?.message || 'errore') })
         return
       }
       setRows(prev => prev.filter(r => r.manual_id !== pair.manual_id))

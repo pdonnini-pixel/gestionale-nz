@@ -63,7 +63,7 @@ const COLORE = { verde: 'bg-emerald-100 text-emerald-800', grigio: 'bg-slate-200
 export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, negozi, puoScrivere, puoFabbisogno, onSalvato, onVaiEventi }: Props) {
   const { toast } = useToast();
   // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
-  const { conferma, dialogo } = useConferma();
+  const { conferma } = useConferma();
   const [tutti, setTutti] = useState<(EventoNegozio & { controllo?: ControlloModa | null })[]>([]);
   const [conRegole, setConRegole] = useState(false);
   // ferie e permessi separati per evento valgono solo dove il database ha la 407
@@ -423,7 +423,6 @@ export default function EventiDelNegozio({ companyId, outletId, nomeNegozio, neg
           </div>
         )}
       </Modal>
-      {dialogo}
     </div>
   );
 }

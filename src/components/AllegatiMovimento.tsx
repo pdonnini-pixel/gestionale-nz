@@ -26,6 +26,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../hooks/useAuth'
 import { Modal } from './ui/Modal'
 import { archiviaFile, urlFileArchiviato } from '../lib/archivioFile'
+import { useConferma } from './ui/Conferma'
 
 export const TABELLA_MOVIMENTI = 'bank_transactions'
 /** Righe degli estratti carta (Prima Nota → Carte): spese della prepagata e delle carte di credito. */
@@ -94,6 +95,8 @@ export default function AllegatiMovimento({ movimento, companyId, onClose, onCam
   /** Avvisa la tabella del nuovo numero di allegati del movimento. */
   onCambiato?: (movimentoId: string, quanti: number) => void
 }) {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { session } = useAuth()
   const userId = session?.user?.id ?? null
   const inputRef = useRef<HTMLInputElement>(null)
@@ -254,7 +257,7 @@ export default function AllegatiMovimento({ movimento, companyId, onClose, onCam
   }, [allegati, collega, companyId, movimento, ricarica, tabella, userId])
 
   const togli = useCallback(async (a: Allegato) => {
-    if (!window.confirm(`Togliere «${a.file_name}» da questo movimento? Il file resta comunque in Archivio documenti.`)) return
+    if (!(await conferma({ titolo: 'Togliere l’allegato?', testo: `«${a.file_name}» si stacca da questo movimento. Il file resta comunque in Archivio documenti.`, ok: 'Togli', pericolo: true }))) return
     await supabase.from('import_documents').update({ superseded_at: new Date().toISOString() }).eq('id', a.id)
     await ricarica()
   }, [ricarica])

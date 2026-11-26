@@ -14,6 +14,7 @@ import {
 } from '../lib/divise'
 import { annullaCapo, caricaDivisePersona, correggiPrezzo, impostaScontiPersona, segnaCapi, type DatiPersonaDivise } from '../lib/diviseDb'
 import ImpostazioniDivise from './ImpostazioniDivise'
+import { useConferma } from './ui/Conferma'
 
 const data = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' }) : '')
 const dataBreve = (s: string | null | undefined) => (s ? new Date(s).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome', day: '2-digit', month: '2-digit' }) : '')
@@ -52,6 +53,8 @@ async function eLaMiaScheda(employeeId: string): Promise<boolean> {
 export default function DiviseAcquistiPersona({ companyId, employeeId, nome, superAdvisor, negozi }: {
   companyId: string; employeeId: string; nome: string; superAdvisor: boolean; negozi: { id: string; name: string }[]
 }) {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma, chiedi } = useConferma()
   const { toast } = useToast()
   const [dati, setDati] = useState<DatiPersonaDivise | null>(null)
   const [errore, setErrore] = useState<string | null>(null)
@@ -116,11 +119,11 @@ export default function DiviseAcquistiPersona({ companyId, employeeId, nome, sup
     setSconti(null)
     void azione(() => impostaScontiPersona(employeeId, d, a), 'Sconti salvati: valgono per i capi presi da adesso')
   }
-  const annulla = (c: Capo) => {
+  const annulla = async (c: Capo) => {
     // un capo gia' addebitato o scaricato: l'annullamento non storna niente, va sistemato a parte (revisore sicurezza)
     const gia = [c.addebitato_il ? 'è già stato addebitato: l\'addebito fatto va restituito a parte' : '', c.scaricato_il ? 'è già stato scaricato in MODA: va ricaricato a parte' : ''].filter(Boolean)
     const avviso = gia.length ? `\n\nAttenzione: questo capo ${gia.join(' e ')}.` : ''
-    const motivo = window.prompt(`Annulla il capo ${c.codice}: scrivi il motivo (per esempio «letto due volte per sbaglio»). Il capo resta nello storico, barrato, e non conta più. Non si può togliere l'annullamento.${avviso}`)
+    const motivo = await chiedi({ titolo: `Annullare il capo ${c.codice}?`, testo: `Il capo resta nello storico, barrato, e non conta più. Non si può togliere l'annullamento.${avviso}`, etichetta: 'Motivo', placeholder: 'per esempio «letto due volte per sbaglio»', obbligatorio: true, ok: 'Annulla il capo', annulla: 'Lascia com’è', pericolo: true })
     if (motivo == null) return
     if (motivo.trim().length < 3) { toast({ type: 'error', message: 'Scrivi il motivo (almeno 3 caratteri).' }); return }
     void azione(() => annullaCapo(c.id, motivo.trim()), 'Capo annullato')
@@ -241,7 +244,7 @@ export default function DiviseAcquistiPersona({ companyId, employeeId, nome, sup
                 {gruppi.map((g, i) => (
                   <GruppoCapi key={i} titolo={g.titolo} capi={g.capi} scelti={scelti} setScelti={setScelti} primoNome={primoNome} chi={chi}
                     correggi={correggi} setCorreggi={setCorreggi} salvaPrezzo={salvaPrezzo} busy={busy} propria={propria} annulla={annulla}
-                    togli={(c, cosa) => { if (window.confirm(cosa === 'scaricato' ? 'Togli il segno «scaricato in MODA» da questo capo?' : 'Togli il segno «addebitato» da questo capo?')) segna(cosa, false, [c.id]) }} />
+                    togli={async (c, cosa) => { if (await conferma({ titolo: 'Togliere il segno?', testo: cosa === 'scaricato' ? 'Togli il segno «scaricato in MODA» da questo capo.' : 'Togli il segno «addebitato» da questo capo.', ok: 'Togli', pericolo: true })) segna(cosa, false, [c.id]) }} />
                 ))}
               </tbody>
             </table>

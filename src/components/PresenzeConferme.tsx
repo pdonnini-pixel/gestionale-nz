@@ -15,6 +15,7 @@ import { CAUSALI_STRAORDINARIO, CAUSALI_USCITA, dataRoma, formatMinuti, oraRoma 
 import {
   ETICHETTA_CAUSALE, ETICHETTA_ESITO_EVENTO, confermaDiretta, esitoEntrataDichiarata, etichettaTipo, riepilogoMese, type EventoPresenze,
 } from '../lib/presenzeConferme'
+import { useConferma } from './ui/Conferma'
 
 export type SezioneConferme = 'conferme' | 'riepilogo' | 'regole'
 
@@ -63,6 +64,8 @@ export default function PresenzeConferme({ sezione }: { sezione: SezioneConferme
 // ─── Da confermare ───────────────────────────────────────────────────────
 
 export function DaConfermare() {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { toast } = useToast()
   const oggi = dataRoma(Date.now())
   const [giorni, setGiorni] = useState(30)
@@ -103,7 +106,7 @@ export function DaConfermare() {
   }
   const confermaRitardi = async () => {
     if (occupato) return
-    if (!window.confirm(`Confermare ${ritardiAperti.length} ritardi? Per ognuno nasce un permesso approvato che si scala dal saldo.`)) return
+    if (!(await conferma({ titolo: `Confermare ${ritardiAperti.length} ritardi?`, testo: 'Per ognuno nasce un permesso approvato che si scala dal saldo.', ok: 'Conferma i ritardi' }))) return
     setOccupato(true)
     let ok = 0
     try {

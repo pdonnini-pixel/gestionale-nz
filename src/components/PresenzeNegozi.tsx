@@ -26,6 +26,7 @@ import {
   ETICHETTA_ESITO, ETICHETTA_TIPO, MARGINE_USCITA_DEFAULT, TOLLERANZA_ENTRATA_DEFAULT, dataRoma, formatMinuti, oraRoma, oraRomaInMs, ordina,
   riepilogoGiorno, type EsitoGiorno, type TipoTimbratura,
 } from '../lib/timbrature'
+import { useConferma } from './ui/Conferma'
 
 interface Impostazioni {
   attive: boolean; margine_uscita_minuti: number; tolleranza_entrata_minuti: number
@@ -69,6 +70,8 @@ const ETICHETTA_VERIFICA: Record<string, string> = {
 }
 
 export default function PresenzeNegozi({ companyId }: { companyId: string }) {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma: chiediConferma, chiedi } = useConferma()
   const { toast } = useToast()
   const { outlets } = useOutlets()
   const labels = useCompanyLabels()
@@ -185,7 +188,7 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
     if (error) toast({ type: 'error', message: error.message }); else { toast({ type: 'success', message: 'Timbratura confermata.' }); void carica() }
   }
   const annulla = async (id: string) => {
-    const motivo = window.prompt('Perché annulli questa timbratura? (resta nello storico)')
+    const motivo = await chiedi({ titolo: 'Annullare la timbratura?', testo: 'La timbratura resta nello storico, annullata.', etichetta: 'Perché la annulli', obbligatorio: true, ok: 'Annulla la timbratura', annulla: 'Lascia com’è', pericolo: true })
     if (!motivo?.trim()) return
     const { error } = await supabase.rpc('timbrature_annulla', { p_id: id, p_motivo: motivo.trim() })
     if (error) toast({ type: 'error', message: error.message }); else { toast({ type: 'success', message: 'Timbratura annullata.' }); void carica() }
@@ -196,14 +199,14 @@ export default function PresenzeNegozi({ companyId }: { companyId: string }) {
   }
   // PIN per chi non ha lo smartphone (migration 384): si vede una volta sola
   const creaPin = async (a: Accesso) => {
-    if (a.pin_attivo && !window.confirm(`Creare un PIN nuovo per ${a.nome}? Quello di prima smette di funzionare.`)) return
+    if (a.pin_attivo && !(await chiediConferma({ titolo: `Creare un PIN nuovo per ${a.nome}?`, testo: 'Quello di prima smette di funzionare.', ok: 'Crea il PIN' }))) return
     const { data, error } = await supabase.rpc('timbrature_pin_nuovo', { p_employee: a.employee_id })
     if (error) { toast({ type: 'error', message: error.message }); return }
     setPinNuovo({ nome: a.nome, pin: String(data) })
     void carica()
   }
   const togliPin = async (a: Accesso) => {
-    if (!window.confirm(`Togliere il PIN di ${a.nome}? Potrà timbrare solo con il QR dell'app.`)) return
+    if (!(await chiediConferma({ titolo: `Togliere il PIN di ${a.nome}?`, testo: 'Potrà timbrare solo con il QR dell’app.', ok: 'Togli il PIN', pericolo: true }))) return
     const { error } = await supabase.rpc('timbrature_pin_togli', { p_employee: a.employee_id })
     if (error) toast({ type: 'error', message: error.message }); else { toast({ type: 'success', message: 'PIN tolto.' }); void carica() }
   }

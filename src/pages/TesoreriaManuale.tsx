@@ -42,6 +42,7 @@ import SyncStatusBadge from '../components/SyncStatusBadge'
 import { Modal as UIModal } from '../components/ui/Modal'
 import { archiviaFile, avvisoArchiviazioneFallita } from '../lib/archivioFile'
 import { ultimaData, ultimoAnnoConDati, dataIt } from '../lib/periodoVuoto'
+import { useConferma } from '../components/ui/Conferma'
 
 // ═══════════════════════════════════════════════════════════════════
 // ═══ HELPERS ═══
@@ -3018,6 +3019,8 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
   companyId: string
   onRefresh: () => void
 }) {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const { toast } = useToast()
   const [filterAccount, setFilterAccount] = useState('all')
   const [search, setSearch] = useState('')
@@ -3271,10 +3274,11 @@ function TabRiconciliazione({ transactions, payables, accounts, companyId, onRef
       // reconcile_movement (un giro di massa lanciato da una persona cancellerebbe
       // l'esclusione senza che nessuno l'abbia deciso).
       if (res?.reason === 'coppia_esclusa') {
-        const rifare = window.confirm(
-          'Questo abbinamento era stato escluso a mano, quindi il gestionale non lo rifà da solo.\n\n'
-          + 'Vuoi rifarlo adesso? La tua scelta vale e l’esclusione viene tolta.'
-        )
+        const rifare = await conferma({
+          titolo: 'Rifare l’abbinamento?',
+          testo: 'Questo abbinamento era stato escluso a mano, quindi il gestionale non lo rifà da solo. Se lo rifai adesso la tua scelta vale e l’esclusione viene tolta.',
+          ok: 'Rifai l’abbinamento',
+        })
         if (!rifare) { setReconciling(false); return }
         const { error: errRi } = await supabase.rpc('riammetti_coppia' as never, {
           p_bt_id: String(movement.id),

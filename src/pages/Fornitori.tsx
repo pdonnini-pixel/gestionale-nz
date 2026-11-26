@@ -49,6 +49,7 @@ import {
   SCHEDULE_MODE_GROUPS, SCHEDULE_GROUP_TEXT, scheduleLabel, scheduleModeText,
   findScheduleMode, planStatus, derivePlan, computeInstallments,
 } from '../lib/paymentSchedule';
+import { useConferma } from '../components/ui/Conferma'
 
 const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
@@ -144,6 +145,8 @@ function yearOf(d: unknown): number | null {
 }
 
 export default function Fornitori() {
+  // conferme dentro il gestionale, non del browser (Patrizio, 26/11/2026)
+  const { conferma } = useConferma()
   const navigate = useNavigate();
   const { profile } = useAuth();
   const labels = useCompanyLabels();
@@ -813,7 +816,7 @@ export default function Fornitori() {
   }
 
   async function handleDelete(id: string) {
-    if (!window.confirm('Disattivare questo fornitore?')) return;
+    if (!(await conferma({ titolo: 'Disattivare questo fornitore?', testo: 'Il fornitore non compare più negli elenchi. Le sue fatture restano.', ok: 'Disattiva', pericolo: true }))) return;
     try {
       await supabase.from('suppliers').update({ is_deleted: true, is_active: false }).eq('id', id);
       showToast('Fornitore disattivato');
