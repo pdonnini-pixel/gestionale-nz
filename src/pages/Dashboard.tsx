@@ -1,1047 +1,361 @@
-import { useState, useEffect } from 'react'
-import { useAuth } from '../hooks/useAuth'
-import { useCompanyLabels } from '../hooks/useCompanyLabels'
-import PageHeader from '../components/PageHeader'
-import { usePeriod } from '../hooks/usePeriod'
-import { supabase } from '../lib/supabase'
+// Dashboard = cruscotto direzione (Patrizio, 27/11/2026: sostituisce la Dashboard di prima).
+// Un amministratore delegato vede in un colpo d'occhio: quanto si incassa e contro l'anno prima a parità
+// di negozi, la chiusura stimata, la cassa (liquidità contro scaduto e uscite), il personale sui ricavi,
+// il margine sulla merce, ogni negozio mese per mese, il conto a scalare di ogni negozio e gli avvisi.
+// Dati: public.cruscotto_direzione(p_anno) (migration 481), calcoli in src/lib/cruscotto.ts.
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
+import PageHeader from '../components/PageHeader'
+import { supabase } from '../lib/supabase'
+import { usePeriod } from '../hooks/usePeriod'
 import {
-  TrendingUp, TrendingDown, DollarSign, Store, Wallet,
-  ArrowUpRight, ArrowRight, Receipt, Percent,
-  AlertTriangle, CheckCircle2, Target, Loader, Info,
-  Clock, CreditCard, BarChart3, ChevronRight
-} from 'lucide-react'
-import {
-  AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid
-} from 'recharts'
-import FinancialTooltip from '../components/FinancialTooltip'
-import DataFreshness from '../components/DataFreshness'
-import { formatOutletName } from '../lib/formatters'
-import { getOutletLifecycle, outletLifecycleCaption, OUTLET_LIFECYCLE_STYLE } from '../lib/outletLifecycle'
+  costruisciCruscotto, avvisi as calcolaAvvisi, parita, paritaInsieme, margineParita, confrontoMese, stimaChiusura, contoNegozio, mesePieno, somma, fino,
+  type Cruscotto, type DatiCruscottoRaw, type Negozio, type Avviso,
+} from '../lib/cruscotto'
+import { ColonneMensili, MiniLinee, BarrePersonale, BarreCassa, Scheda, Legenda, COLORI, MESI, euro } from '../components/cruscotto/Grafici'
 
-/* ═══════════════════════════════════════
-   HELPERS
-   ═══════════════════════════════════════ */
-const OUTLET_COLORS = ['#6366f1', '#f43f5e', '#06b6d4', '#10b981', '#8b5cf6', '#f97316', '#0ea5e9']
+const nf0 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }) // de-DE: punto delle migliaia anche su 4 cifre (it-IT scrive 2670)
+const nf1 = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+const pct = (v: number) => (v > 0 ? '+' : '') + nf1.format(v) + '%'
+const MESI_LUNGHI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
 
-function fmt(n: number | null | undefined, dec = 0): string {
-  if (n == null) return '—'
-  return new Intl.NumberFormat('de-DE', { minimumFractionDigits: dec, maximumFractionDigits: dec }).format(n)
+function Variazione({ v, punti = false }: { v: number | null; punti?: boolean }) {
+  if (v == null) return <span className="text-slate-400">—</span>
+  const su = v >= 0
+  return <span className={`font-semibold ${su ? 'text-emerald-700' : 'text-red-600'}`}>{su ? '▲' : '▼'} {punti ? (v > 0 ? '+' : '') + nf1.format(v) + ' punti' : pct(v)}</span>
 }
 
-function fmtCompact(n: number | null | undefined): string {
-  if (n == null) return '—'
-  const abs = Math.abs(n)
-  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
-  if (abs >= 1_000) return `${(n / 1_000).toFixed(0)}K`
-  return fmt(n)
+const STILE_AVVISO: Record<Avviso['livello'], { bg: string; icona: string; simbolo: string }> = {
+  critico: { bg: 'bg-red-600', icona: 'text-white', simbolo: '!' },
+  serio: { bg: 'bg-orange-400', icona: 'text-white', simbolo: '▼' },
+  attenzione: { bg: 'bg-amber-400', icona: 'text-slate-900', simbolo: '!' },
+  buono: { bg: 'bg-emerald-600', icona: 'text-white', simbolo: '▲' },
+  info: { bg: 'bg-slate-400', icona: 'text-white', simbolo: 'i' },
 }
 
-/* ═══════════════════════════════════════
-   KPI CARD — cliccabile con drill-down
-   ═══════════════════════════════════════ */
-interface KpiCardProps {
-  title: string
-  value: string | number
-  subtitle?: string | React.ReactNode
-  icon: React.ComponentType<{ size?: number }>
-  color?: string
-  trend?: number | null
-  link?: string
-  alert?: boolean
-  helpTerm?: string
-}
-
-function KpiCard({ title, value, subtitle, icon: Icon, color = 'blue', trend, link, alert, helpTerm }: KpiCardProps) {
-  const colorMap: Record<string, { bg: string; text: string; ring: string }> = {
-    blue:   { bg: 'bg-blue-50',    text: 'text-blue-600',    ring: 'ring-blue-100' },
-    green:  { bg: 'bg-emerald-50', text: 'text-emerald-600', ring: 'ring-emerald-100' },
-    amber:  { bg: 'bg-amber-50',   text: 'text-amber-600',   ring: 'ring-amber-100' },
-    red:    { bg: 'bg-red-50',     text: 'text-red-600',     ring: 'ring-red-100' },
-    cyan:   { bg: 'bg-cyan-50',    text: 'text-cyan-600',    ring: 'ring-cyan-100' },
-  }
-  const c = colorMap[color] || colorMap.blue
-
-  const card = (
-    <div className={`bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-sm hover:shadow-md hover:border-blue-200 transition cursor-pointer group relative ${alert ? 'ring-2 ' + c.ring : ''}`}>
-      <div className="flex items-start justify-between mb-2">
-        <div className={`p-2 rounded-lg ${c.bg} ${c.text}`}><Icon size={18} /></div>
-        {trend != null && trend !== 0 && (
-          <span className={`flex items-center gap-0.5 text-xs font-semibold px-2 py-0.5 rounded-full ${
-            trend > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-red-50 text-red-600'
-          }`}>
-            {trend > 0 ? <ArrowUpRight size={11} /> : <TrendingDown size={11} />}
-            {trend > 0 ? '+' : ''}{trend.toFixed(1)}%
-          </span>
-        )}
-      </div>
-      <div className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">{value}</div>
-      <div className="text-xs sm:text-sm text-slate-500 mt-0.5">
-        {helpTerm ? <FinancialTooltip term={helpTerm}>{title}</FinancialTooltip> : title}
-      </div>
-      {subtitle && <div className="text-[11px] text-slate-400 mt-1">{subtitle}</div>}
-      <div className="flex items-center gap-1 text-[11px] text-blue-500 mt-2 font-medium opacity-100 md:opacity-0 md:group-hover:opacity-100 transition">
-        Dettaglio <ChevronRight size={11} />
-      </div>
-    </div>
-  )
-  return link ? <Link to={link}>{card}</Link> : card
-}
-
-/* ═══════════════════════════════════════
-   ALERT ITEM — azionabile con link
-   ═══════════════════════════════════════ */
-interface AlertItemProps {
-  icon: React.ComponentType<{ size?: number; className?: string }>
-  color: string
-  title: string
-  description?: string
-  link?: string
-  linkLabel?: string
-}
-
-function AlertItem({ icon: Icon, color, title, description, link, linkLabel }: AlertItemProps) {
-  return (
-    <div className={`flex items-start gap-3 p-3 rounded-lg border ${color}`}>
-      <Icon size={16} className="mt-0.5 shrink-0" />
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium">{title}</div>
-        {description && <div className="text-xs opacity-75 mt-0.5">{description}</div>}
-      </div>
-      {link && (
-        <Link to={link} className="text-xs font-medium shrink-0 flex items-center gap-1 hover:underline">
-          {linkLabel || 'Gestisci'} <ArrowRight size={11} />
-        </Link>
-      )}
-    </div>
-  )
-}
-
-/* ═══════════════════════════════════════
-   COMPACT SPARKLINE TOOLTIP
-   ═══════════════════════════════════════ */
-function SparklineTooltip({ active, payload }: { active?: boolean; payload?: Array<{ payload: { label?: string; entrate?: number; uscite?: number } }> }) {
-  if (!active || !payload?.[0]) return null
-  const d = payload[0].payload
-  return (
-    <div className="bg-white/95 backdrop-blur-sm border border-slate-200 rounded-lg shadow-lg px-3 py-2 text-xs">
-      <div className="text-slate-500 mb-1">{d.label}</div>
-      <div className="flex items-center gap-3">
-        <span className="text-emerald-600 font-semibold">+{fmt(d.entrate)} €</span>
-        <span className="text-red-500 font-semibold">-{fmt(d.uscite)} €</span>
-      </div>
-    </div>
-  )
-}
-
-/* ═══════════════════════════════════════
-   DASHBOARD PRINCIPALE
-   ═══════════════════════════════════════ */
 export default function Dashboard() {
-  const { profile } = useAuth()
-  const labels = useCompanyLabels()
-  const { year, quarter, getDateRange } = usePeriod()
-  const COMPANY_ID = profile?.company_id
-  const periodRange = getDateRange()
-
-  // State
-  const [loading, setLoading] = useState(true)
-  // Segnala che almeno una query del cruscotto è fallita: prima gli errori erano
-  // ingoiati (catch vuoto) e le card mostravano "0" come fosse un dato reale, su
-  // un cruscotto direzionale. Ora un banner avvisa che i numeri sono incompleti.
-  const [dataError, setDataError] = useState(false)
-  const [reloadKey, setReloadKey] = useState(0)
-  const [ricavi, setRicavi] = useState(0)
-  const [ricaviPrevYear, setRicaviPrevYear] = useState(0)
-  const [utile, setUtile] = useState(0)
-  const [totalCosti, setTotalCosti] = useState(0)
-  const [liquidita, setLiquidita] = useState(0)
-  const [debtiFin, setDebtiFin] = useState(0)
-  const [staffCosts, setStaffCosts] = useState(0)
-  // TODO: tighten type — Supabase data
-  const [outletsData, setOutletsData] = useState<any[]>([])
-  const [cashFlowDaily, setCashFlowDaily] = useState<any[]>([])
-  const [cashFlowTotals, setCashFlowTotals] = useState({ entrate: 0, uscite: 0 })
-  const [scaduteCount, setScaduteCount] = useState(0)
-  const [prossimeCount, setProssimeCount] = useState(0)
-  const [uncategorizedMov, setUncategorizedMov] = useState(0)
-  const [dataSource, setDataSource] = useState<string | null>('')
-  // TODO: tighten type — Supabase data
-  const [dailyRevenue, setDailyRevenue] = useState<any[]>([])
-  const [lastUpdate, setLastUpdate] = useState<Date | null>(null)
-  // Anno di gestione (budget_confronto): previsto fine anno + presenza costi + mesi chiusi
-  const [ricaviPrevisto, setRicaviPrevisto] = useState(0)
-  const [costiPresent, setCostiPresent] = useState(false)
-  const [mesiConsuntivo, setMesiConsuntivo] = useState(0)
-  // Timestamp saldo liquidità (v_cash_position.last_updated_at)
-  const [liquiditaUpdatedAt, setLiquiditaUpdatedAt] = useState<string | null>(null)
+  const { year } = usePeriod()
+  const [dati, setDati] = useState<Cruscotto | null>(null)
+  const [errore, setErrore] = useState<string | null>(null)
+  const [caricamento, setCaricamento] = useState(true)
+  const [scelto, setScelto] = useState<string>('TUTTI')
+  const [meseScelto, setMeseScelto] = useState<number>(0) // 0 = mese in corso
 
   useEffect(() => {
-    if (!COMPANY_ID) return
-    const YEAR = year
-    const range = getDateRange()
-
-    const fetchData = async () => {
-      try {
-        setLoading(true)
-        setDataError(false)
-        // Reset esplicito al cambio anno: senza questo, se la query del
-        // nuovo anno non trova dati, gli state mantengono il valore
-        // dell'anno precedente e si vede lo stesso ricavo su piu' anni.
-        setRicavi(0)
-        setRicaviPrevYear(0)
-        setUtile(0)
-        setTotalCosti(0)
-        setStaffCosts(0)
-        setDataSource(null)
-        setRicaviPrevisto(0)
-        setCostiPresent(false)
-        setMesiConsuntivo(0)
-
-        // 1. Financial data — try views first, then bilancio, then fatture
-        let hasViewData = false
-        try {
-          const { data: dashData } = await supabase
-            .from('v_executive_dashboard')
-            .select('*')
-            .eq('company_id', COMPANY_ID)
-            .eq('year', YEAR)
-            .maybeSingle()
-
-          if (dashData?.total_revenue) {
-            setRicavi(dashData.total_revenue)
-            setUtile(dashData.total_net_result || 0)
-            setTotalCosti(dashData.total_cogs || 0)
-            hasViewData = true
-            setDataSource('views')
-          }
-        } catch (e: unknown) { console.warn('v_executive_dashboard:', (e as Error).message) }
-
-        if (!hasViewData) {
-          const { data: bsData } = await supabase
-            .from('balance_sheet_data')
-            .select('account_code, amount')
-            .eq('company_id', COMPANY_ID)
-            .eq('year', YEAR)
-            .eq('period_type', 'annuale')
-            .eq('section', 'conto_economico')
-
-          if (bsData && bsData.length > 0) {
-            const bs: Record<string, number> = {}
-            bsData.forEach(r => { if (r.account_code) bs[r.account_code] = r.amount ?? 0 })
-            setRicavi(bs.ricavi_vendite || 0)
-            setUtile(bs.utile_netto || 0)
-            setTotalCosti(bs.totale_costi_produzione || 0)
-            setStaffCosts(bs.totale_personale || 0)
-            hasViewData = true
-            setDataSource('bilancio')
-          }
-        }
-
-        // 1b. Anno di gestione SENZA bilancio depositato (es. 2026): consuntivo + previsionale
-        // dalle STESSE fonti di "Budget e Controllo" (budget_confronto), per non divergere.
-        // Ricavi = conti che iniziano con '5' (stesso criterio di ContoEconomico/BudgetControl).
-        //  - cons_monthly = CONSUNTIVO granitico (mesi chiusi)
-        //  - rev_monthly  = PREVISIONALE/revisione full-year
-        //  - prev_monthly = preventivo COSTI (può non esistere ancora: in tal caso margine = "—")
-        if (!hasViewData) {
-          const { data: cf } = await supabase
-            .from('budget_confronto')
-            .select('account_code, entry_type, amount, cost_center, month')
-            .eq('company_id', COMPANY_ID)
-            .eq('year', YEAR)
-            .in('entry_type', ['cons_monthly', 'rev_monthly', 'prev_monthly'])
-            .range(0, 9999)
-
-          if (cf && cf.length > 0) {
-            const isExcludedCc = (cc: string | null | undefined) => {
-              const x = (cc || '').toLowerCase()
-              return x === 'rettifica_bilancio' || x === 'spese_non_divise'
-            }
-            const isRevenue = (ac: string | null | undefined) => (ac || '').startsWith('5')
-            let consRev = 0, prevRev = 0, consCost = 0, prevCost = 0
-            let hasCost = false
-            const consMonths = new Set<number>()
-            cf.forEach(r => {
-              if (isExcludedCc(r.cost_center)) return
-              const amt = Number(r.amount) || 0
-              const rev = isRevenue(r.account_code)
-              if (!rev) hasCost = true
-              if (r.entry_type === 'cons_monthly') {
-                if (rev) { consRev += amt; if (r.month) consMonths.add(Number(r.month)) }
-                else consCost += amt
-              } else if (r.entry_type === 'rev_monthly') {
-                if (rev) prevRev += amt; else prevCost += amt
-              } else if (r.entry_type === 'prev_monthly') {
-                if (!rev) prevCost += amt
-              }
-            })
-            // prevCost/consCost usati solo quando i costi esistono davvero (hasCost)
-            void prevCost
-            if (consRev > 0 || prevRev > 0) {
-              setRicavi(consRev)
-              setRicaviPrevisto(prevRev)
-              setMesiConsuntivo(consMonths.size)
-              setCostiPresent(hasCost)
-              if (hasCost) {
-                setTotalCosti(consCost)
-                setUtile(consRev - consCost)
-              }
-              hasViewData = true
-              setDataSource('gestione')
-            }
-          }
-        }
-
-        if (!hasViewData) {
-          try {
-            const { data: invData } = await supabase
-              .from('electronic_invoices')
-              .select('gross_amount')
-              .eq('company_id', COMPANY_ID)
-              .gte('invoice_date', range.from)
-              .lte('invoice_date', range.to)
-
-            if (invData && invData.length > 0) {
-              setTotalCosti(invData.reduce((s, r) => s + Number(r.gross_amount || 0), 0))
-              setDataSource('fatture')
-            }
-          } catch (e) { setDataError(true) }
-        }
-
-        // I blocchi 2-9 sono indipendenti tra loro: partono tutti insieme e si
-        // attende il completamento in fondo con Promise.all. Prima erano await in
-        // serie: 8-10 round trip di rete in cascata = 1,5-3s di spinner in piu'
-        // su mobile a ogni apertura. I dati mostrati non cambiano.
-        const pPrevYear = (async () => {
-          // 2. Previous year for trend
-          let prevRicavi = 0
-          try {
-            const { data: dashPrev } = await supabase
-              .from('v_executive_dashboard')
-              .select('total_revenue')
-              .eq('company_id', COMPANY_ID)
-              .eq('year', YEAR - 1)
-              .maybeSingle()
-            prevRicavi = dashPrev?.total_revenue || 0
-          } catch (e) { setDataError(true) }
-          if (!prevRicavi) {
-            const { data: bsPrev } = await supabase
-              .from('balance_sheet_data')
-              .select('amount')
-              .eq('company_id', COMPANY_ID)
-              .eq('year', YEAR - 1)
-              .eq('period_type', 'annuale')
-              .eq('section', 'conto_economico')
-              .eq('account_code', 'ricavi_vendite')
-              .maybeSingle()
-            prevRicavi = bsPrev?.amount || 0
-          }
-          setRicaviPrevYear(prevRicavi)
-        })()
-
-        const pRanking = (async () => {
-          // 3. Ranking outlet — metriche da budget_confronto (consuntivo "granitico"
-          //    di Lilian) classificate via chart_of_accounts.is_revenue, per
-          //    cost_center role='outlet'. Niente hardcoded: codici ricavo, outlet e
-          //    cost center arrivano tutti dal DB. Per ogni outlet:
-          //      ricavi (cons_ytd) = Σ amount cons_monthly su conti is_revenue
-          //      ult_mese          = max(mese) con cons_monthly != 0 (derivato dai dati)
-          //      budget_ytd        = Σ amount rev_monthly sui mesi <= ult_mese
-          //      budget_anno       = Σ amount rev_monthly su tutti i mesi
-          //      vs_budget_pct     = cons_ytd / budget_ytd * 100 (null se budget_ytd 0)
-          //      pct_gruppo        = cons_ytd / Σ cons_ytd di tutti gli outlet
-          try {
-            const [{ data: outletsList }, { data: ccRows }, { data: coaRows }] = await Promise.all([
-              supabase.from('outlets').select('id, name, code, is_active, opening_date, closing_date').eq('company_id', COMPANY_ID),
-              supabase.from('cost_centers').select('code, role, is_active').eq('company_id', COMPANY_ID),
-              supabase.from('chart_of_accounts').select('code').eq('company_id', COMPANY_ID).eq('is_active', true).eq('is_revenue', true),
-            ])
-
-            const activeOutlets = (outletsList || []).filter(o => o.is_active !== false)
-            const revenueCodes = new Set((coaRows || []).map(c => c.code))
-            const outletCcSet = new Set(
-              ((ccRows || []) as Array<{ code?: string | null; role?: string | null; is_active?: boolean | null }>)
-                .filter(c => c.role === 'outlet' && c.is_active !== false)
-                .map(c => String(c.code || '').toLowerCase())
-                .filter(Boolean)
-            )
-
-            // budget_confronto: consuntivo (cons_monthly) + preventivo (rev_monthly)
-            // mensile, solo conti is_revenue. Mai sommare i due entry_type insieme.
-            const { data: bcRows } = await supabase
-              .from('budget_confronto')
-              .select('cost_center, account_code, month, amount, entry_type')
-              .eq('company_id', COMPANY_ID)
-              .eq('year', YEAR)
-              .in('entry_type', ['cons_monthly', 'rev_monthly'])
-              .range(0, 9999)
-
-            type MonthMap = { cons: Record<number, number>; rev: Record<number, number> }
-            const byCc: Record<string, MonthMap> = {}
-            ;((bcRows || []) as Array<{ cost_center?: string | null; account_code?: string | null; month?: number | null; amount?: number | null; entry_type?: string | null }>).forEach(r => {
-              const cc = String(r.cost_center || '').toLowerCase()
-              if (!cc) return
-              if (outletCcSet.size > 0 && !outletCcSet.has(cc)) return
-              if (!r.account_code || !revenueCodes.has(r.account_code)) return
-              const m = r.month ?? 0
-              if (m < 1) return
-              const amt = Number(r.amount) || 0
-              if (!byCc[cc]) byCc[cc] = { cons: {}, rev: {} }
-              if (r.entry_type === 'cons_monthly') byCc[cc].cons[m] = (byCc[cc].cons[m] || 0) + amt
-              else if (r.entry_type === 'rev_monthly') byCc[cc].rev[m] = (byCc[cc].rev[m] || 0) + amt
-            })
-
-            // Fallback (anni/tenant senza budget_confronto, es. annate chiuse):
-            // ricavo da budget_entries sui conti is_revenue. In questa modalità non
-            // c'è split consuntivo/preventivo → vs Budget resta "—".
-            const hasConfronto = Object.keys(byCc).length > 0
-            const entriesByCc: Record<string, number> = {}
-            if (!hasConfronto) {
-              const { data: beRows } = await supabase
-                .from('budget_entries')
-                .select('cost_center, account_code, budget_amount')
-                .eq('company_id', COMPANY_ID)
-                .eq('year', YEAR)
-                .range(0, 9999)
-              ;((beRows || []) as Array<{ cost_center?: string | null; account_code?: string | null; budget_amount?: number | null }>).forEach(r => {
-                const cc = String(r.cost_center || '').toLowerCase()
-                if (!cc) return
-                if (outletCcSet.size > 0 && !outletCcSet.has(cc)) return
-                if (!r.account_code || !revenueCodes.has(r.account_code)) return
-                entriesByCc[cc] = (entriesByCc[cc] || 0) + (Number(r.budget_amount) || 0)
-              })
-            }
-
-            // Una riga per ogni outlet anagrafico (anche a 0): mai outlet "fantasma",
-            // mai crash, mai divisione per 0.
-            const rows = activeOutlets.map(o => {
-              const nameKey = String(o.name || '').toLowerCase()
-              const codeKey = String(o.code || '').toLowerCase()
-              const mm = byCc[nameKey] || byCc[codeKey] || { cons: {}, rev: {} }
-              const consYtd = Object.values(mm.cons).reduce((s, v) => s + v, 0)
-              const consMonths = Object.entries(mm.cons).filter(([, v]) => v !== 0).map(([k]) => Number(k))
-              const ultMese = consMonths.length ? Math.max(...consMonths) : 0
-              const budgetYtd = ultMese > 0
-                ? Object.entries(mm.rev).reduce((s, [k, v]) => (Number(k) <= ultMese ? s + v : s), 0)
-                : 0
-              const budgetAnno = Object.values(mm.rev).reduce((s, v) => s + v, 0)
-              const fallbackRev = hasConfronto ? 0 : (entriesByCc[nameKey] ?? entriesByCc[codeKey] ?? 0)
-              // Ciclo di vita: un outlet «in apertura» (opening_date futura) ha già
-              // costi ma nessun ricavo — non è un outlet che vende male. Resta in
-              // classifica, in fondo, con il badge «In apertura dal …».
-              const lifecycle = getOutletLifecycle(o)
-              return {
-                id: o.id,
-                name: o.name || o.code || '?',
-                ricavi: consYtd || fallbackRev,
-                ult_mese: ultMese,
-                budget_ytd: budgetYtd,
-                budget_anno: budgetAnno || fallbackRev,
-                vs_budget_pct: budgetYtd > 0 ? (consYtd / budgetYtd * 100) : null,
-                lifecycle,
-                opening_date: o.opening_date ?? null,
-                closing_date: o.closing_date ?? null,
-              }
-            })
-
-            const totaleCons = rows.reduce((s, r) => s + r.ricavi, 0)
-            // Ordine: outlet in apertura sempre in fondo, poi per ricavi decrescenti.
-            rows.sort((a, b) =>
-              (Number(a.lifecycle === 'programmato') - Number(b.lifecycle === 'programmato')) ||
-              (b.ricavi - a.ricavi) || a.name.localeCompare(b.name))
-
-            if (rows.some(r => r.ricavi !== 0 || r.budget_anno !== 0)) {
-              setOutletsData(rows.map((o, i) => ({
-                ...o,
-                pct_gruppo: totaleCons > 0 ? (o.ricavi / totaleCons * 100) : null,
-                colore: OUTLET_COLORS[i % OUTLET_COLORS.length],
-              })))
-            }
-          } catch (e) { console.warn('Outlet ranking error:', e) }
-        })()
-
-        const pCash = (async () => {
-          // 4. Cash position
-          try {
-            const { data: cashData, error: cashErr } = await supabase
-              .from('v_cash_position')
-              .select('current_balance, last_updated_at')
-              .eq('company_id', COMPANY_ID)
-            // Se la query fallisce (rete/RLS/vista mancante) NON mostrare 0 come
-            // fosse liquidità reale: segnala l'errore e non azzerare la card.
-            if (cashErr) throw cashErr
-            // last_updated_at non è ancora nei tipi generati della vista -> cast esplicito
-            const cashRows = (cashData || []) as unknown as Array<{ current_balance?: number | null; last_updated_at?: string | null }>
-            setLiquidita(cashRows.reduce((s, c) => s + (c.current_balance || 0), 0))
-            const maxTs = cashRows.reduce<string | null>((m, c) => {
-              const ts = c.last_updated_at
-              return ts && (!m || ts > m) ? ts : m
-            }, null)
-            setLiquiditaUpdatedAt(maxTs)
-          } catch (e) { console.warn('v_cash_position:', (e as Error).message); setDataError(true) }
-        })()
-
-        const pLoans = (async () => {
-          // 5. Loans
-          try {
-            const { data: loansData, error: loansErr } = await supabase
-              .from('v_loans_overview')
-              .select('total_amount')
-              .eq('company_id', COMPANY_ID)
-            if (loansErr) throw loansErr
-            setDebtiFin((loansData || []).reduce((s, l) => s + (l.total_amount || 0), 0))
-          } catch (e) { console.warn('v_loans_overview:', (e as Error).message); setDataError(true) }
-        })()
-
-        const pCashFlow = (async () => {
-          // 6. Cash flow daily (last 30 days) — sparkline
-          try {
-            const thirtyDaysAgo = new Date()
-            thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30)
-            const fromDate = thirtyDaysAgo.toISOString().split('T')[0]
-
-            const { data: cmData } = await supabase
-              .from('cash_movements')
-              .select('date, type, amount')
-              .eq('company_id', COMPANY_ID)
-              .gte('date', fromDate)
-              .order('date', { ascending: true })
-
-            if (cmData && cmData.length > 0) {
-              interface DayRow { date: string; entrate: number; uscite: number; netto: number; label?: string }
-              const dayMap: Record<string, DayRow> = {}
-              let totE = 0, totU = 0
-              cmData.forEach(row => {
-                const dk = row.date
-                // cash_movements e' una vista: nei tipi generati ogni colonna e'
-                // nullable, data compresa. Un movimento senza data non ha una
-                // casella nel grafico giornaliero, quindi si salta.
-                if (!dk) return
-                if (!dayMap[dk]) dayMap[dk] = { date: dk, entrate: 0, uscite: 0, netto: 0 }
-                const abs = Math.abs(Number(row.amount) || 0)
-                if (row.type === 'entrata') {
-                  dayMap[dk].entrate += abs
-                  totE += abs
-                } else {
-                  dayMap[dk].uscite += abs
-                  totU += abs
-                }
-              })
-              // Compute running netto
-              const daily = Object.values(dayMap).sort((a, b) => a.date.localeCompare(b.date))
-              let running = 0
-              daily.forEach(d => {
-                running += d.entrate - d.uscite
-                d.netto = running
-                d.label = new Date(d.date).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' })
-              })
-              setCashFlowDaily(daily)
-              setCashFlowTotals({ entrate: totE, uscite: totU })
-            }
-          } catch (e) { setDataError(true) }
-        })()
-
-        const pScadenze = (async () => {
-          // 7. Scadenze count
-          try {
-            const today = new Date().toISOString().split('T')[0]
-            const in7days = new Date()
-            in7days.setDate(in7days.getDate() + 7)
-            const in7str = in7days.toISOString().split('T')[0]
-
-            const [scadRes, prossRes] = await Promise.all([
-              supabase.from('payables').select('id', { count: 'exact' })
-                .eq('company_id', COMPANY_ID).eq('status', 'scaduto'),
-              supabase.from('payables').select('id', { count: 'exact' })
-                .eq('company_id', COMPANY_ID).eq('status', 'in_scadenza'),
-            ])
-            setScaduteCount(scadRes.count || 0)
-            setProssimeCount(prossRes.count || 0)
-          } catch (e) { setDataError(true) }
-        })()
-
-        const pUncat = (async () => {
-          // 8. Movimenti bancari senza categoria contabile (campo reale 'category').
-          // NB: nella vista cash_movements le colonne cost_category_id/ai_category_id sono
-          // SEMPRE NULL (non sono dati reali) -> la vecchia query contava TUTTI i movimenti.
-          // Si conta il campo reale 'category' IS NULL.
-          try {
-            const { count } = await supabase
-              .from('cash_movements')
-              .select('id', { count: 'exact' })
-              .eq('company_id', COMPANY_ID)
-              .is('category', null)
-            setUncategorizedMov(count || 0)
-          } catch (e) { setDataError(true) }
-        })()
-
-        const pDailyRev = (async () => {
-          // 9. Daily revenue (most recent record per outlet) for ranking
-          try {
-            const { data: drData } = await supabase
-              .from('daily_revenue')
-              .select('outlet_id, gross_revenue, date, outlets(name)')
-              .eq('company_id', COMPANY_ID)
-              .order('date', { ascending: false })
-
-            // Keep only the most recent record per outlet
-            type DailyRow = { outlet_id: string | null; gross_revenue: number | null; date: string | null; outlets: { name: string } | null }
-            const latestByOutlet: Record<string, DailyRow> = {}
-            ;((drData || []) as unknown as DailyRow[]).forEach(r => {
-              if (!r.outlet_id) return
-              if (!latestByOutlet[r.outlet_id]) {
-                latestByOutlet[r.outlet_id] = r
-              }
-            })
-
-            setDailyRevenue(Object.values(latestByOutlet).map(r => ({
-              outlet: r.outlets?.name || '?',
-              revenue: Number(r.gross_revenue) || 0,
-              date: r.date ?? '',
-            })))
-          } catch (e) { setDataError(true) }
-        })()
-
-        await Promise.all([pPrevYear, pRanking, pCash, pLoans, pCashFlow, pScadenze, pUncat, pDailyRev])
-
-        setLastUpdate(new Date())
-        setLoading(false)
-      } catch (err: unknown) {
-        console.error('Dashboard fetch error:', err)
-        setDataError(true)
-        setLoading(false)
-      }
-    }
-
-    fetchData()
-  }, [COMPANY_ID, year, quarter, reloadKey])
-
-  // Derived
-  const deltaRicaviPct = ricaviPrevYear > 0 ? ((ricavi - ricaviPrevYear) / ricaviPrevYear * 100) : 0
-  const pfn = liquidita - debtiFin
-  const marginePct = ricavi > 0 ? (utile / ricavi * 100) : 0
-  const cashFlowNetto = cashFlowTotals.entrate - cashFlowTotals.uscite
-  // Modalità "anno di gestione" (consuntivo/previsionale da budget_confronto, no bilancio)
-  const isGestione = dataSource === 'gestione'
-  // URL diretta al dettaglio del singolo outlet (/outlet/:outletId). Si preferisce
-  // l'id quando disponibile; in mancanza si usa il nome (la pagina Outlet risolve
-  // sia per id sia per nome). Le righe del ranking aprono così la scheda del
-  // punto vendita specifico, non la pagina generale.
-  const outletHref = (o: { id?: string; name?: string }) =>
-    o.id ? `/outlet/${o.id}` : `/outlet/${encodeURIComponent((o.name || '').toLowerCase())}`
-  // Colore "vs Budget" (convenzione progetto): >=100% a target/sopra → nero;
-  // sotto target → rosso; nessun dato → grigio. NIENTE verde.
-  const vsBudgetColor = (pct: number | null | undefined) =>
-    pct == null ? 'text-slate-400' : pct >= 100 ? 'text-slate-900' : 'text-red-600'
-  // Totali gruppo per la riga in fondo al ranking (somma ricavi YTD, budget anno,
-  // e vs Budget aggregato Σcons/Σbudget_ytd).
-  const rankTotRicavi = outletsData.reduce((s, o) => s + (Number(o.ricavi) || 0), 0)
-  const rankTotBudgetAnno = outletsData.reduce((s, o) => s + (Number(o.budget_anno) || 0), 0)
-  const rankTotBudgetYtd = outletsData.reduce((s, o) => s + (Number(o.budget_ytd) || 0), 0)
-  const rankTotVsBudget = rankTotBudgetYtd > 0 ? (rankTotRicavi / rankTotBudgetYtd * 100) : null
-  // Il margine è calcolabile solo se i costi esistono (bilancio depositato, oppure
-  // costi presenti in budget_confronto). Per l'anno di gestione senza costi -> "—".
-  const margineAvailable = dataSource === 'fatture' ? false : (isGestione ? costiPresent : ricavi > 0)
-  // Data/ora del saldo liquidità da v_cash_position.last_updated_at
-  const liquiditaTs = liquiditaUpdatedAt ? new Date(liquiditaUpdatedAt) : null
-  const liquiditaTsLabel = liquiditaTs
-    ? liquiditaTs.toLocaleString('it-IT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-    : null
-
-  // Loading
-  if (loading) {
-    return (
-      <div className="p-6 flex items-center justify-center min-h-[60vh]">
-        <div className="text-center space-y-3">
-          <Loader className="animate-spin mx-auto text-slate-400" size={32} />
-          <p className="text-sm text-slate-500">Caricamento cruscotto...</p>
-        </div>
-      </div>
-    )
-  }
-
-  // Build alerts
-  const alerts: AlertItemProps[] = []
-  if (scaduteCount > 0) {
-    alerts.push({
-      icon: AlertTriangle,
-      color: 'bg-red-50 border-red-200 text-red-700',
-      title: `${scaduteCount} fatture scadute`,
-      description: 'Pagamenti non effettuati oltre la data di scadenza',
-      link: '/scadenzario',
-      linkLabel: 'Gestisci',
+    let vivo = true
+    setCaricamento(true); setErrore(null)
+    supabase.rpc('cruscotto_direzione', { p_anno: year }).then(({ data, error }) => {
+      if (!vivo) return
+      if (error) { setErrore(error.message); setDati(null) }
+      else if (data) setDati(costruisciCruscotto(data as unknown as DatiCruscottoRaw))
+      setCaricamento(false)
     })
-  }
-  if (pfn < 0) {
-    alerts.push({
-      icon: AlertTriangle,
-      color: 'bg-red-50 border-red-200 text-red-700',
-      title: `PFN negativa: ${fmtCompact(pfn)} €`,
-      description: 'Posizione Finanziaria Netta: debiti > liquidità',
-      link: '/banche',
-      linkLabel: 'Banche',
-    })
-  }
-  if (utile < 0) {
-    alerts.push({
-      icon: TrendingDown,
-      color: 'bg-amber-50 border-amber-200 text-amber-700',
-      title: `Esercizio in perdita: ${fmtCompact(utile)} €`,
-      description: `Margine: ${marginePct.toFixed(1)}% — analizza i costi`,
-      link: '/conto-economico',
-      linkLabel: 'Analizza',
-    })
-  }
-  if (prossimeCount > 0) {
-    alerts.push({
-      icon: Clock,
-      color: 'bg-amber-50 border-amber-200 text-amber-700',
-      title: `${prossimeCount} scadenze prossime 7 giorni`,
-      link: '/scadenzario',
-      linkLabel: 'Vedi',
-    })
-  }
-  if (uncategorizedMov > 0) {
-    alerts.push({
-      icon: CreditCard,
-      color: 'bg-blue-50 border-blue-200 text-blue-700',
-      title: `${uncategorizedMov} movimenti bancari senza categoria contabile`,
-      description: 'Assegna la categoria dalla lista movimenti bancari',
-      link: '/banche?tab=movimenti&filter=senza-categoria',
-      linkLabel: 'Vai ai movimenti',
-    })
-  }
-  if (utile > 0) {
-    alerts.push({
-      icon: CheckCircle2,
-      color: 'bg-emerald-50 border-emerald-200 text-emerald-700',
-      title: `Esercizio in utile: +${fmtCompact(utile)} €`,
-      description: `Margine: ${marginePct.toFixed(1)}%`,
-    })
-  }
+    return () => { vivo = false }
+  }, [year])
+
+  const vista = useMemo(() => {
+    if (!dati) return null
+    const aperti = dati.negozi.filter(n => !n.chiuso)
+    const lista = scelto === 'TUTTI' ? aperti : aperti.filter(n => n.id === scelto)
+    return { aperti, lista }
+  }, [dati, scelto])
+
+  if (caricamento && !dati) return (
+    <div className="flex items-center gap-2 p-8 text-sm text-slate-500"><Loader2 className="animate-spin" size={16} /> Carico il cruscotto…</div>
+  )
+  if (errore) return (
+    <div className="p-6"><PageHeader title="Dashboard" subtitle="Come sta andando l'azienda" />
+      <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">Non riesco a leggere i dati del cruscotto: {errore}</div></div>
+  )
+  if (!dati || !vista) return null
+  const { aperti, lista } = vista
+  const c = dati
+  const mp = mesePieno(c)
+  const uno = lista.length === 1 ? lista[0] : null
+
+  // ===== Ricavi e stima =====
+  const ricaviAnno = somma(lista.map(n => somma(n.y1)))
+  const anno0 = somma(lista.map(n => somma(n.y0)))
+  const lfl = paritaInsieme(lista, mp)
+  const stima = somma(lista.map(n => stimaChiusura(n, c)))
+  const conBudget = lista.some(n => n.budget)
+  const finoAl = c.meseUltimo ? `${c.giornoUltimo} ${MESI_LUNGHI[c.meseUltimo - 1]}` : '—'
+
+  // ===== Cassa =====
+  const s = c.scaduto, liq = c.liquidita?.saldo ?? 0
+  const scaduto = s ? s.oltre30 + s.ultimi30 : 0
+  const copertura = s && scaduto + s.entro30 > 0 ? liq / (scaduto + s.entro30) * 100 : null
+
+  // ===== Personale e MODA (periodo del conto) =====
+  const M = c.meseConto
+  const persNegozi = somma(lista.map(n => fino(n.personale, M) + n.ammQuota))
+  const persSede = scelto === 'TUTTI' && c.sede ? fino(c.sede.personale, M) : 0
+  const ricConto = somma(lista.map(n => fino(n.y1, M)))
+  const conModa = lista.filter(n => n.moda1)
+  const vend = somma(conModa.map(n => n.moda1!.vendite)), costoMerce = somma(conModa.map(n => n.moda1!.costo))
+  const dResa = margineParita(lista)?.punti ?? null
+
+  // ===== Grafico mensile =====
+  const ora = Array(12).fill(0), prima = Array(12).fill(0), bud: (number | null)[] = Array(12).fill(null)
+  lista.forEach(n => { n.y1.forEach((v, i) => (ora[i] += v)); n.y0.forEach((v, i) => (prima[i] += v)); n.budget?.forEach((v, i) => { if (v) bud[i] = (bud[i] || 0) + v }) })
+  const parziale = c.meseParziale ? c.meseUltimo - 1 : null
+  const maxMini = Math.max(1, ...aperti.flatMap(n => [...n.y1, ...n.y0]))
+  const avvisi = calcolaAvvisi(c)
+  const mese = meseScelto >= 1 && meseScelto <= c.meseUltimo ? meseScelto : c.meseUltimo || 1
+  const meseParz = c.meseParziale && mese === c.meseUltimo
+  const lflTutti = paritaInsieme(aperti, mp)
+  const selettoreMese = (
+    <label className="flex items-center gap-2 text-xs text-slate-500">Mese
+      <select value={mese} onChange={e => setMeseScelto(Number(e.target.value))} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900" onClick={e => e.stopPropagation()}>
+        {Array.from({ length: c.meseUltimo }, (_, i) => c.meseUltimo - i).map(m => (
+          <option key={m} value={m}>{MESI_LUNGHI[m - 1]} {c.anno}{c.meseParziale && m === c.meseUltimo ? ` (in corso, fino al ${c.giornoUltimo})` : ''}</option>
+        ))}
+      </select>
+    </label>
+  )
+
+  // ===== Personale per negozio =====
+  const righePers = aperti.filter(n => fino(n.personale, M) + n.ammQuota > 0).map(n => ({ nome: n.nome, dip: fino(n.personale, M), amm: n.ammQuota, ricavi: fino(n.y1, M), evidenzia: n.id === scelto }))
+    .sort((a, b) => (b.dip + b.amm) - (a.dip + a.amm))
+  if (c.sede && fino(c.sede.personale, M) > 0) righePers.push({ nome: 'Sede / magazzino', dip: fino(c.sede.personale, M), amm: 0, ricavi: 0, evidenzia: false })
+
+  const ricaviConfronto = (n: Negozio) => { const b = n.budget ? fino(n.budget, mp) : 0; return b ? (fino(n.y1, mp) / b - 1) * 100 : null }
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="p-4 sm:p-6 space-y-6 max-w-[1600px] mx-auto">
-      <PageHeader
-        title={profile?.first_name ? `Buongiorno, ${profile.first_name}` : 'Buongiorno'}
-        subtitle={`Cruscotto direzionale — ${periodRange.label}${dataSource === 'bilancio' ? ' · Dati da bilancio importato' : ''}`}
-        actions={lastUpdate ? <DataFreshness lastUpdate={lastUpdate} source="Dati" /> : undefined}
-      />
+    <div className="mx-auto max-w-[1440px] space-y-4 p-4 sm:p-6">
+      <PageHeader title="Dashboard" subtitle="Come sta andando l'azienda"
+        actions={
+          <label className="flex items-center gap-2 text-sm text-slate-500">Negozio
+            <select value={scelto} onChange={e => setScelto(e.target.value)} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-900">
+              <option value="TUTTI">Tutti i negozi</option>
+              {aperti.map(n => <option key={n.id} value={n.id}>{n.nome}</option>)}
+            </select>
+          </label>
+        } />
 
-      {/* Avviso dati incompleti: una o più query del cruscotto sono fallite. Meglio
-          dirlo che mostrare "0" come se fosse un dato reale (decisioni sbagliate). */}
-      {dataError && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm flex items-center justify-between gap-3">
-          <span className="text-amber-800">
-            Attenzione: alcuni dati potrebbero non essere stati caricati (connessione instabile o servizio momentaneamente non disponibile). I numeri mostrati potrebbero essere incompleti.
-          </span>
-          <button
-            onClick={() => setReloadKey(k => k + 1)}
-            className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-600 text-white text-xs font-medium hover:bg-amber-700"
-          >
-            Ricarica
-          </button>
-        </div>
-      )}
-
-      {/* ─── 4 KPI PRINCIPALI ─── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-        <KpiCard
-          icon={DollarSign} title="Ricavi" color={dataSource === 'fatture' ? 'amber' : 'blue'}
-          value={ricavi > 0 ? `${fmt(ricavi, 0)} €` : '—'}
-          trend={!isGestione && ricavi > 0 ? deltaRicaviPct : null}
-          subtitle={
-            isGestione ? (
-              <span className="block space-y-1">
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 bg-emerald-50 px-1.5 py-0.5 rounded-full">
-                  Consuntivo {mesiConsuntivo > 0 ? `${mesiConsuntivo} mesi chiusi` : 'ad oggi'} · granitico
-                </span>
-                <span className="block text-slate-500">
-                  Previsto fine anno: <strong className="text-slate-700">{fmt(ricaviPrevisto, 0)} €</strong>
-                  <span className="ml-1 text-[10px] font-medium text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded-full">previsionale</span>
-                </span>
-              </span>
-            ) : ricavi > 0 ? (
-              ricaviPrevYear > 0 ? `vs ${fmt(ricaviPrevYear, 0)} € anno prec.` : periodRange.label
-            ) : (
-              `Nessun dato per il ${year} — inseriscili in Budget e Controllo`
-            )
-          }
-          link="/outlet"
-        />
-        <KpiCard
-          icon={Percent} title={dataSource === 'fatture' ? 'Costi' : 'Margine netto'} helpTerm="margine"
-          color={dataSource === 'fatture' ? 'blue' : !margineAvailable ? 'amber' : utile >= 0 ? 'green' : 'red'}
-          value={
-            dataSource === 'fatture' ? `${fmt(totalCosti, 0)} €`
-            : margineAvailable ? `${marginePct.toFixed(1)}%`
-            : '—'
-          }
-          subtitle={
-            dataSource === 'fatture' ? `Totale fatture passive ${year}`
-            : margineAvailable ? `Utile: ${fmt(utile, 0)} €`
-            : 'Margine disponibile dopo l\'inserimento dei costi'
-          }
-          link={dataSource === 'fatture' ? `/fatturazione?year=${year}` : isGestione ? '/budget' : '/conto-economico'}
-          alert={margineAvailable && dataSource !== 'fatture' && utile < 0}
-        />
-        <KpiCard
-          icon={Wallet} title="Liquidità" color={liquidita >= 0 ? 'cyan' : 'red'}
-          value={`${fmt(liquidita, 2)} €`}
-          subtitle={liquiditaTsLabel ? `Saldo conti correnti al ${liquiditaTsLabel}` : 'Saldo conti correnti'}
-          link="/banche"
-          alert={liquidita < 0}
-        />
-        <KpiCard
-          icon={Receipt} title="Scadenze aperte" color={scaduteCount > 0 ? 'red' : 'amber'}
-          value={scaduteCount + prossimeCount}
-          subtitle={scaduteCount > 0 ? `${scaduteCount} scadute · ${prossimeCount} prossime` : `${prossimeCount} nei prossimi 7gg`}
-          link="/scadenzario"
-          alert={scaduteCount > 0}
-        />
-      </div>
-
-      {/* ─── ALERT & AZIONI + CASHFLOW ─── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Alert & Azioni */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <AlertTriangle size={15} className="text-amber-500" /> Alert & Azioni
-            </h2>
-            {alerts.length > 0 && (
-              <span className="text-[10px] font-semibold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">
-                {alerts.length}
-              </span>
-            )}
-          </div>
-          <div className="p-3 space-y-2 max-h-[280px] overflow-y-auto">
-            {alerts.length === 0 ? (
-              <div className="flex items-center gap-3 py-6 px-2 text-center">
-                <CheckCircle2 size={20} className="text-emerald-400 mx-auto" />
-                <p className="text-sm text-slate-500">Nessuna segnalazione — tutto sotto controllo</p>
-              </div>
-            ) : (
-              alerts.map((a, i) => <AlertItem key={i} {...a} />)
-            )}
+      {/* Ricavi e chiusura stimata */}
+      <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:grid-cols-[1.25fr_1fr]">
+        <div>
+          <div className="text-sm text-slate-500">Ricavi netti {c.anno}{uno ? `, ${uno.nome}` : ''}, dal 1 gennaio al {finoAl} (imponibile, senza IVA)</div>
+          <div className="my-2 text-5xl font-semibold tracking-tight text-slate-900">{euro(ricaviAnno)}</div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
+              {lfl != null ? <><Variazione v={lfl} /> a parità di negozi e mesi pieni (gennaio-{MESI_LUNGHI[mp - 1]})</> : 'Negozio nuovo: nessun anno prima da confrontare'}
+            </span>
+            {!uno && <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">{aperti.length} negozi aperti</span>}
           </div>
         </div>
-
-        {/* Cashflow Compatto — Sparkline */}
-        <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <Wallet size={15} className="text-emerald-500" /> Cashflow ultimi 30 giorni
-            </h2>
-            <Link to="/banche" className="text-xs text-blue-500 font-medium hover:text-blue-700 flex items-center gap-1">
-              Banche <ChevronRight size={12} />
-            </Link>
+        <div className="flex flex-col justify-center gap-2 rounded-xl bg-slate-50 p-4">
+          <div className="flex justify-between text-xs text-slate-500"><span>Chiusura {c.anno} stimata</span><strong className="text-slate-900">{euro(stima)}</strong></div>
+          {(() => { const max = Math.max(stima, anno0, 1) * 1.08; return (
+            <div className="relative h-2.5 rounded-full bg-blue-100">
+              <i className="absolute inset-y-0 left-0 rounded-full bg-blue-600 opacity-35" style={{ width: `${stima / max * 100}%` }} />
+              <i className="absolute inset-y-0 left-0 rounded-full bg-blue-600" style={{ width: `${ricaviAnno / max * 100}%` }} />
+              {anno0 > 0 && <b className="absolute -inset-y-1 w-0.5 rounded bg-slate-900" style={{ left: `${anno0 / max * 100}%` }} title="Anno prima" />}
+            </div>) })()}
+          <div className="flex justify-between text-xs text-slate-500"><span>Incassato <strong className="text-slate-900">{euro(ricaviAnno)}</strong></span><span>Tacca: anno prima <strong className="text-slate-900">{anno0 ? euro(anno0) : 'non aperto'}</strong></span></div>
+          <div className="flex justify-between gap-2 text-xs text-slate-500">
+            <span>Stima: incassato{c.meseParziale ? ' + mese in corso in proiezione' : ''} + mesi che mancano {conBudget ? 'a budget' : 'come l\'anno prima, con la crescita a parità'}</span>
+            {anno0 > 0 && <Variazione v={(stima / anno0 - 1) * 100} />}
           </div>
-
-          {cashFlowDaily.length === 0 ? (
-            <div className="p-4">
-              <div className="flex items-center gap-3 py-4 px-3 bg-slate-50 rounded-lg">
-                <Info size={16} className="text-slate-400 shrink-0" />
-                <p className="text-xs text-slate-500">
-                  Importa estratti conto da <Link to="/import-hub" className="text-blue-500 hover:underline">ImportHub</Link> per visualizzare il cashflow
-                </p>
-              </div>
-            </div>
-          ) : (
-            <div className="p-4">
-              {/* Summary inline */}
-              <div className="flex items-center gap-4 mb-3">
-                <div>
-                  <span className="text-xs text-slate-400">Entrate</span>
-                  <div className="text-sm font-bold text-emerald-600">+{fmt(cashFlowTotals.entrate, 2)} €</div>
-                </div>
-                <div>
-                  <span className="text-xs text-slate-400">Uscite</span>
-                  <div className="text-sm font-bold text-red-500">-{fmt(cashFlowTotals.uscite, 2)} €</div>
-                </div>
-                <div className="ml-auto">
-                  <span className="text-xs text-slate-400">Netto</span>
-                  <div className={`text-sm font-bold ${cashFlowNetto >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {cashFlowNetto >= 0 ? '+' : ''}{fmt(cashFlowNetto, 2)} €
-                  </div>
-                </div>
-              </div>
-              {/* Sparkline area chart */}
-              <ResponsiveContainer width="100%" height={120}>
-                <AreaChart data={cashFlowDaily} margin={{ top: 5, right: 5, left: 5, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="cashGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={cashFlowNetto >= 0 ? '#10b981' : '#ef4444'} stopOpacity={0.3} />
-                      <stop offset="100%" stopColor={cashFlowNetto >= 0 ? '#10b981' : '#ef4444'} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <Area
-                    type="monotone"
-                    dataKey="netto"
-                    stroke={cashFlowNetto >= 0 ? '#10b981' : '#ef4444'}
-                    strokeWidth={2}
-                    fill="url(#cashGrad)"
-                    dot={false}
-                    activeDot={{ r: 3, strokeWidth: 0 }}
-                  />
-                  <XAxis dataKey="label" hide />
-                  <YAxis hide domain={['auto', 'auto']} />
-                  <Tooltip content={<SparklineTooltip />} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          )}
         </div>
-      </div>
+      </section>
 
-      {/* ─── OUTLET RANKING ─── */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-            <Store size={15} className="text-indigo-500" /> Performance {labels.pointOfSalePlural}
-          </h2>
-          <Link to="/confronto-outlet" className="text-xs text-blue-500 font-medium hover:text-blue-700 flex items-center gap-1">
-            Confronto completo <ChevronRight size={12} />
+      {/* Quattro numeri */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Scheda titolo="Liquidità sui conti" sotto="Saldo dei conti">
+          <div className="text-2xl font-semibold text-slate-900">{euro(liq)}</div>
+          <div className="text-xs text-slate-500">{c.liquidita?.conti ?? 0} conti{c.liquidita?.aggiornato ? ` · saldo del ${new Date(c.liquidita.aggiornato).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })}` : ''}</div>
+          {copertura != null && <>
+            <div className="mt-3 text-xs text-slate-500">Copre il <strong className="text-slate-900">{nf1.format(copertura)}%</strong> di scaduto + 30 giorni</div>
+            <div className="mt-1.5 h-2 rounded-full bg-blue-100"><div className="h-2 rounded-full" style={{ width: `${Math.min(100, copertura)}%`, background: copertura < 100 ? COLORI.serio : COLORI.anno }} /></div>
+          </>}
+        </Scheda>
+        <Scheda titolo="Fornitori scaduti" sotto="IVA compresa, come lo Scadenzario">
+          <Link to="/scadenzario" className="block">
+            <div className="text-2xl font-semibold text-slate-900">{euro(scaduto)}</div>
+            <div className="text-xs text-slate-500">{s?.fatture_scadute ?? 0} fatture · di cui <b>{euro(s?.oltre30 ?? 0)}</b> da oltre 30 giorni</div>
           </Link>
-        </div>
+        </Scheda>
+        <Scheda titolo={`Personale sui ricavi (gennaio-${MESI_LUNGHI[M - 1] || '—'})`}>
+          <div className="text-2xl font-semibold text-slate-900">{ricConto ? nf1.format((persNegozi + persSede) / ricConto * 100) + '%' : 'n.d.'}</div>
+          <div className="text-xs text-slate-500">{euro(persNegozi + persSede)} di costo aziendale del personale (stipendi, contributi, TFR, amministratori){persSede ? ', sede compresa' : ''}, su {euro(ricConto)} di ricavi senza IVA</div>
+        </Scheda>
+        <Scheda titolo={`Margine sulla merce (MODA, gennaio-${MESI_LUNGHI[c.meseModa - 1] || '—'})`}>
+          <div className="text-2xl font-semibold text-slate-900">{vend ? nf1.format((1 - costoMerce / vend) * 100) + '%' : 'n.d.'}</div>
+          <div className="text-xs text-slate-500">{dResa != null ? <><Variazione v={dResa} punti /> sull'anno prima a parità di negozi</> : vend ? 'Senza storico MODA da confrontare' : 'Nessun report MODA'}</div>
+          {vend > 0 && <div className="mt-2 text-xs text-slate-500">Conversione {nf1.format(somma(conModa.map(n => n.moda1!.scontrini)) / Math.max(1, somma(conModa.map(n => n.moda1!.ingressi))) * 100)}% · scontrino medio {euro(vend / Math.max(1, somma(conModa.map(n => n.moda1!.scontrini))))}</div>}
+        </Scheda>
+      </div>
 
-        {dataSource === 'fatture' || outletsData.length === 0 || (outletsData.length === 1 && !outletsData[0]?.name) ? (
-          <div className="p-4">
-            <div className="flex items-center gap-3 py-4 px-3 bg-amber-50 rounded-lg">
-              <Info size={16} className="text-amber-500 shrink-0" />
-              <p className="text-xs text-slate-600">
-                {dataSource === 'fatture'
-                  ? <>Dati per {labels.pointOfSalePluralLower} non disponibili per il {year}. Importa il bilancio {year} o <Link to="/fornitori" className="text-blue-500 hover:underline">assegna i fornitori {labels.art.ai}</Link>.</>
-                  : <>Nessun dato {labels.pointOfSaleLower}. <Link to="/import-hub" className="text-blue-500 hover:underline">Importa dati</Link> per vedere il ranking.</>
-                }
-              </p>
-            </div>
+      {/* Mese per mese + avvisi */}
+      <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
+        <Scheda titolo={`${uno ? uno.nome : 'Azienda'}: ricavi mese per mese, ${c.anno} contro ${c.anno - 1}`}
+          sotto={`Ricavi senza IVA. ${c.meseParziale ? `${MESI_LUNGHI[c.meseUltimo - 1]} fino al ${c.giornoUltimo} (colonna chiara). ` : ''}Trattino arancio: budget del mese.`}
+          destra={<Legenda voci={[{ nome: String(c.anno), colore: COLORI.anno }, { nome: String(c.anno - 1), colore: COLORI.prima }, ...(bud.some(Boolean) ? [{ nome: 'Budget', colore: COLORI.budget, forma: 'linea' as const }] : [])]} />}>
+          <ColonneMensili ora={ora} prima={prima} budget={bud} meseParziale={parziale} ultimoMese={c.meseUltimo} etichettaParziale={`fino al ${c.giornoUltimo}`} />
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-right text-xs tabular-nums">
+              <thead><tr className="text-slate-500"><th className="p-1.5 text-left font-medium" />{MESI.map(m => <th key={m} className="p-1.5 font-medium">{m}</th>)}</tr></thead>
+              <tbody className="[&_td]:border-t [&_td]:border-slate-100 [&_td]:p-1.5">
+                <tr><td className="text-left">{c.anno}</td>{ora.map((v, i) => <td key={i}>{v ? nf0.format(Math.round(v)) : ''}</td>)}</tr>
+                <tr><td className="text-left">{c.anno - 1}</td>{prima.map((v, i) => <td key={i}>{v ? nf0.format(Math.round(v)) : ''}</td>)}</tr>
+                {bud.some(Boolean) && <tr><td className="text-left">Budget</td>{bud.map((v, i) => <td key={i}>{v ? nf0.format(Math.round(v)) : ''}</td>)}</tr>}
+                {bud.some(Boolean) && <tr><td className="text-left">Contro budget</td>{bud.map((v, i) => {
+                  if (!v || !ora[i] || i >= c.meseUltimo) return <td key={i} />
+                  const base = i === parziale ? v * c.giornoUltimo / c.giorniMese : v, p = (ora[i] / base - 1) * 100
+                  return <td key={i} className={p >= 0 ? 'text-emerald-700' : 'text-red-600'}>{pct(p)}</td>
+                })}</tr>}
+                <tr><td className="text-left">Stessi negozi</td>{MESI.map((_, i) => {
+                  if (i >= c.meseUltimo) return <td key={i} />
+                  let a = 0, b = 0
+                  lista.forEach(n => { if (n.aperturaMese && i + 1 >= n.aperturaMese && n.y0[i] && n.y1[i]) { a += n.y0[i]; b += n.y1[i] } })
+                  if (!a || !b) return <td key={i} />
+                  if (i === parziale) a = a * c.giornoUltimo / c.giorniMese
+                  const p = (b / a - 1) * 100
+                  return <td key={i} className={p >= 0 ? 'text-emerald-700' : 'text-red-600'}>{pct(p)}</td>
+                })}</tr>
+              </tbody>
+            </table>
           </div>
-        ) : (
-          <>
-            {/* Desktop table */}
-            <div className="hidden sm:block">
-              <table className="w-full">
-                <thead className="bg-slate-50">
-                  <tr className="text-[11px] text-slate-500 uppercase tracking-wider">
-                    <th className="py-2 px-4 text-left font-medium w-10">#</th>
-                    <th className="py-2 px-4 text-left font-medium">{labels.pointOfSale}</th>
-                    <th className="py-2 px-4 text-right font-medium">Ricavi YTD</th>
-                    <th className="py-2 px-4 text-right font-medium">% sul gruppo</th>
-                    <th className="py-2 px-4 text-right font-medium">vs Budget (YTD)</th>
-                    <th className="py-2 px-4 text-right font-medium">Budget anno</th>
-                    <th className="py-2 px-4 w-10"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {outletsData.map((o, i) => {
-                    const maxRicavi = outletsData[0]?.ricavi || 1
-                    const barWidth = Math.max(0, Math.round((o.ricavi / maxRicavi) * 100))
-                    return (
-                      <tr key={o.name} className="border-t border-slate-50 hover:bg-slate-50/50 transition text-sm group">
-                        <td className="py-2.5 px-4">
-                          <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                            i === 0 ? 'bg-amber-100 text-amber-700' : i === 1 ? 'bg-slate-100 text-slate-600' : i === 2 ? 'bg-orange-50 text-orange-600' : 'text-slate-400'
-                          }`}>
-                            {i + 1}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-4">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
-                            <span className="font-medium text-slate-900">{formatOutletName(o.name)}</span>
-                            {o.lifecycle === 'programmato' && (
-                              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
-                                {outletLifecycleCaption(o)}
-                              </span>
-                            )}
-                          </div>
-                          {/* Mini bar */}
-                          <div className="mt-1 h-1 bg-slate-100 rounded-full overflow-hidden w-32">
-                            <div className="h-full rounded-full" style={{ width: `${barWidth}%`, backgroundColor: o.colore }} />
-                          </div>
-                        </td>
-                        <td className="py-2.5 px-4 text-right font-semibold text-slate-900">{fmt(o.ricavi)} €</td>
-                        <td className="py-2.5 px-4 text-right text-slate-500 text-xs">{o.pct_gruppo != null ? `${fmt(o.pct_gruppo, 1)}%` : '—'}</td>
-                        <td className={`py-2.5 px-4 text-right font-semibold ${vsBudgetColor(o.vs_budget_pct)}`}>
-                          {o.vs_budget_pct != null ? `${fmt(o.vs_budget_pct, 1)}%` : '—'}
-                        </td>
-                        <td className="py-2.5 px-4 text-right text-slate-600">{o.budget_anno ? `${fmt(o.budget_anno)} €` : '—'}</td>
-                        <td className="py-2.5 px-4">
-                          <Link to={outletHref(o)} className="opacity-100 md:opacity-0 md:group-hover:opacity-100 transition" title="Vedi dettaglio">
-                            <ChevronRight size={14} className="text-slate-400" />
-                          </Link>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-slate-200 bg-slate-50/60 text-sm font-semibold text-slate-900">
-                    <td className="py-2.5 px-4"></td>
-                    <td className="py-2.5 px-4">Totale gruppo</td>
-                    <td className="py-2.5 px-4 text-right">{fmt(rankTotRicavi)} €</td>
-                    <td className="py-2.5 px-4 text-right text-slate-500 text-xs">100%</td>
-                    <td className={`py-2.5 px-4 text-right ${vsBudgetColor(rankTotVsBudget)}`}>
-                      {rankTotVsBudget != null ? `${fmt(rankTotVsBudget, 1)}%` : '—'}
-                    </td>
-                    <td className="py-2.5 px-4 text-right text-slate-600">{rankTotBudgetAnno ? `${fmt(rankTotBudgetAnno)} €` : '—'}</td>
-                    <td className="py-2.5 px-4"></td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
+        </Scheda>
+        <Scheda titolo="Da guardare" sotto="Scritto dal sistema sui numeri di oggi">
+          <div className="space-y-2.5">
+            {avvisi.map((a, i) => { const st = STILE_AVVISO[a.livello]; return (
+              <div key={i} className="flex gap-2.5 rounded-xl bg-slate-50 p-3">
+                <span className={`mt-0.5 flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full text-[11px] font-bold ${st.bg} ${st.icona}`}>{st.simbolo}</span>
+                <p className="text-sm text-slate-900">{a.titolo}<span className="mt-0.5 block text-xs text-slate-500">{a.dettaglio}</span></p>
+              </div>) })}
+          </div>
+        </Scheda>
+      </div>
 
-            {/* Mobile cards */}
-            <div className="sm:hidden divide-y divide-slate-50">
-              {outletsData.map((o, i) => (
-                <Link key={o.name} to={outletHref(o)} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition">
-                  <span className={`text-xs font-bold w-6 text-center ${
-                    i === 0 ? 'text-amber-600' : 'text-slate-400'
-                  }`}>
-                    #{i + 1}
-                  </span>
-                  <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: o.colore }} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium text-slate-900 truncate" title={formatOutletName(o.name)}>{formatOutletName(o.name)}</div>
-                    {o.lifecycle === 'programmato' ? (
-                      <span className={`inline-block mt-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${OUTLET_LIFECYCLE_STYLE.programmato}`}>
-                        {outletLifecycleCaption(o)}
-                      </span>
-                    ) : (
-                      <div className="text-xs text-slate-400">Ricavi YTD {fmt(o.ricavi)} €</div>
-                    )}
-                  </div>
-                  <div className="text-right shrink-0">
-                    <div className="text-xs text-slate-400">vs Budget</div>
-                    <div className={`text-sm font-semibold ${vsBudgetColor(o.vs_budget_pct)}`}>
-                      {o.vs_budget_pct != null ? `${fmt(o.vs_budget_pct, 1)}%` : '—'}
-                    </div>
-                  </div>
-                  <ChevronRight size={14} className="text-slate-300 shrink-0" />
-                </Link>
-              ))}
-              <div className="flex items-center gap-3 px-4 py-3 bg-slate-50/60 font-semibold text-slate-900">
-                <span className="w-6" />
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm">Totale gruppo</div>
-                  <div className="text-xs text-slate-500">Ricavi YTD {fmt(rankTotRicavi)} €</div>
-                </div>
-                <div className="text-right shrink-0">
-                  <div className="text-xs text-slate-400">vs Budget</div>
-                  <div className={`text-sm font-semibold ${vsBudgetColor(rankTotVsBudget)}`}>
-                    {rankTotVsBudget != null ? `${fmt(rankTotVsBudget, 1)}%` : '—'}
-                  </div>
-                </div>
-                <span className="w-3.5 shrink-0" />
+      {/* Ogni negozio: il mese scelto contro lo stesso mese dell'anno prima */}
+      <Scheda titolo={`Ogni negozio: ${MESI_LUNGHI[mese - 1]} ${c.anno} contro ${MESI_LUNGHI[mese - 1]} ${c.anno - 1}`}
+        sotto={meseParz ? `Mese in corso: dal 1 al ${c.giornoUltimo} contro gli stessi giorni dell'anno prima. Sotto, l'andamento dell'anno (blu quest'anno, grigio l'anno prima). Clicca un negozio per vederlo da solo.` : 'Mese intero contro lo stesso mese dell\'anno prima. Sotto, l\'andamento dell\'anno (blu quest\'anno, grigio l\'anno prima). Clicca un negozio per vederlo da solo.'}
+        destra={selettoreMese}>
+        <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
+          {aperti.map(n => { const k = confrontoMese(n, c, mese); return (
+            <button key={n.id} type="button" onClick={() => setScelto(scelto === n.id ? 'TUTTI' : n.id)} aria-pressed={scelto === n.id}
+              className={`rounded-xl border p-3 text-left hover:bg-slate-50 ${scelto === n.id ? 'border-blue-500 ring-1 ring-blue-500' : 'border-slate-200'}`}>
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-900">{n.nome}</span>
+                {k.pct != null ? <Variazione v={k.pct} /> : <span className="text-xs text-slate-500">{k.ora ? 'nuovo' : '—'}</span>}
               </div>
-            </div>
-          </>
-        )}
+              <div className="mt-1 text-xl font-semibold text-slate-900">{k.ora ? euro(k.ora) : '—'}</div>
+              <div className="text-xs text-slate-500">
+                {k.prima ? <>anno prima {euro(k.prima)}{k.parziale ? ` (1-${c.giornoUltimo})` : ''}</> : 'l\'anno prima non era aperto'}
+                {k.parziale && k.ora > 0 && <> · stima del mese <b className="text-slate-700">{euro(k.stima)}</b></>}
+              </div>
+              <MiniLinee ora={n.y1} prima={n.y0} max={maxMini} ultimoMese={c.meseUltimo} titolo={n.nome} meseEvidenziato={mese - 1} />
+            </button>) })}
+        </div>
+      </Scheda>
+
+      {/* Vendite: mese scelto contro l'anno prima, poi l'anno */}
+      <Scheda titolo="Vendite di ogni negozio" destra={selettoreMese}
+        sotto={`Ricavi senza IVA. ${MESI_LUNGHI[mese - 1]} ${c.anno} contro lo stesso mese dell'anno prima${meseParz ? ` (stessi giorni, dal 1 al ${c.giornoUltimo})` : ''}; poi l'anno da gennaio a ${MESI_LUNGHI[mp - 1] || '—'}. Margine sulla merce, conversione e scontrino dal report MODA (gennaio-${MESI_LUNGHI[c.meseModa - 1] || '—'}).`}>
+        <div className="overflow-x-auto">
+          <table className="w-full whitespace-nowrap text-right text-sm tabular-nums">
+            <thead>
+              <tr className="text-[11px] uppercase tracking-wide text-slate-400 [&_th]:px-2 [&_th]:pt-1 [&_th]:font-medium">
+                <th /><th colSpan={5} className="border-b border-slate-200 text-center">{MESI_LUNGHI[mese - 1]}</th><th colSpan={4} className="border-b border-slate-200 text-center">anno da gennaio</th><th colSpan={3} className="border-b border-slate-200 text-center">MODA</th>
+              </tr>
+              <tr className="text-xs text-slate-500 [&_th]:px-2 [&_th]:py-2 [&_th]:font-medium">
+                <th className="text-left">Negozio</th><th>{c.anno}</th><th>{c.anno - 1}</th><th>Differenza</th><th>%</th><th>Stima del mese</th>
+                <th>Ricavi</th><th>vs anno prima*</th><th>vs budget</th><th>Stima {c.anno}</th><th>Margine merce</th><th>Conversione</th><th>Scontrino</th>
+              </tr>
+            </thead>
+            <tbody className="[&_td]:border-t [&_td]:border-slate-100 [&_td]:px-2 [&_td]:py-2">
+              {aperti.map(n => { const k = confrontoMese(n, c, mese), p = parita(n, mp), b = ricaviConfronto(n), m = n.moda1; return (
+                <tr key={n.id} onClick={() => setScelto(scelto === n.id ? 'TUTTI' : n.id)} className={`cursor-pointer hover:bg-slate-50 ${scelto === n.id ? 'bg-blue-50' : ''}`}>
+                  <td className="text-left">{n.nome}</td>
+                  <td>{k.ora ? euro(k.ora) : '—'}</td><td>{k.prima ? euro(k.prima) : '—'}</td>
+                  <td className={k.pct == null ? '' : k.ora >= k.prima ? 'text-emerald-700' : 'text-red-600'}>{k.pct != null ? (k.ora >= k.prima ? '+' : '−') + euro(Math.abs(k.ora - k.prima)) : '—'}</td>
+                  <td>{k.pct != null ? <Variazione v={k.pct} /> : (k.ora ? 'nuovo' : '—')}</td>
+                  <td>{k.parziale && k.ora ? euro(k.stima) : k.ora ? euro(k.ora) : '—'}</td>
+                  <td>{fino(n.y1, mp) ? euro(fino(n.y1, mp)) : '—'}</td>
+                  <td>{p ? <Variazione v={p.pct} /> : 'nuovo'}</td><td>{b != null ? <Variazione v={b} /> : 'n.d.'}</td><td>{euro(stimaChiusura(n, c))}</td>
+                  <td>{m && m.vendite > 0 ? nf1.format((1 - m.costo / m.vendite) * 100) + '%' : 'n.d.'}</td>
+                  <td>{m && m.ingressi ? nf1.format(m.scontrini / m.ingressi * 100) + '%' : 'n.d.'}</td>
+                  <td>{m && m.scontrini && m.vendite > 0 ? euro(m.vendite / m.scontrini) : 'n.d.'}</td>
+                </tr>) })}
+              {scelto === 'TUTTI' && (() => {
+                const ks = aperti.map(n => confrontoMese(n, c, mese)), conf = ks.filter(k => k.pct != null)
+                const ora = somma(ks.map(k => k.ora)), a = somma(conf.map(k => k.prima)), bb = somma(conf.map(k => k.ora))
+                const pc = a ? (bb / a - 1) * 100 : null
+                return (
+                  <tr className="font-semibold [&_td]:border-t-2 [&_td]:border-slate-300">
+                    <td className="text-left">Tutti</td><td>{euro(ora)}</td><td>{euro(somma(ks.map(k => k.prima)))}</td>
+                    <td /><td>{pc != null ? <Variazione v={pc} /> : '—'}</td><td>{euro(somma(ks.map(k => k.stima)))}</td>
+                    <td>{euro(somma(aperti.map(n => fino(n.y1, mp))))}</td><td>{lflTutti != null ? <Variazione v={lflTutti} /> : '—'}</td><td /><td>{euro(somma(aperti.map(n => stimaChiusura(n, c))))}</td><td /><td /><td />
+                  </tr>)
+              })()}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs text-slate-400">La percentuale del mese e quella della riga «Tutti» contano solo i negozi aperti per tutto quel mese anche l'anno prima. * Anno: solo i mesi pieni aperti in tutti e due gli anni.</p>
+      </Scheda>
+
+      {/* Costi: conto a scalare */}
+      <div className="pt-2"><h2 className="text-lg font-semibold text-slate-900">Costi</h2><p className="text-sm text-slate-500">Dai ricavi a quanto resta, negozio per negozio.</p></div>
+      <ContoScalare c={c} lista={lista} scelto={scelto} setScelto={setScelto} />
+
+      <div className="grid gap-4 xl:grid-cols-[7fr_5fr]">
+        <Scheda titolo="Costo del personale per negozio e sede" sotto={`Gennaio-${MESI_LUNGHI[M - 1] || '—'}, dal Prospetto paghe. A destra il totale e quanto pesa sui ricavi del negozio.`}
+          destra={<Legenda voci={[{ nome: 'Dipendenti', colore: COLORI.anno }, { nome: 'Quota amministratore', colore: COLORI.budget }]} />}>
+          {righePers.length ? <BarrePersonale righe={righePers} /> : <p className="text-sm text-slate-500">Nessun Prospetto paghe per quest'anno.</p>}
+          <p className="mt-2 text-xs text-slate-400">Il compenso degli amministratori ({euro(c.ammTotale)}) è diviso fra i negozi in proporzione ai ricavi. In Sede restano i dipendenti di sede e magazzino.</p>
+        </Scheda>
+        <Scheda titolo="Cassa: cosa c'è e cosa esce" sotto="Fatture fornitori da pagare per scadenza, IVA compresa (quello che esce dal conto), contro la liquidità di oggi"
+          destra={<Legenda voci={[{ nome: 'Liquidità', colore: COLORI.testo, forma: 'linea' }]} />}>
+          {s ? <BarreCassa liquidita={liq} fasce={[
+            { nome: 'Scaduto da oltre 30 gg', valore: s.oltre30, colore: COLORI.critico },
+            { nome: 'Scaduto ultimi 30 gg', valore: s.ultimi30, colore: COLORI.serio },
+            { nome: 'Entro 30 giorni', valore: s.entro30, colore: COLORI.anno },
+            { nome: 'Da 31 a 60 giorni', valore: s.da31a60, colore: COLORI.anno },
+            { nome: 'Oltre 60 giorni', valore: s.oltre60, colore: COLORI.anno },
+          ]} /> : <p className="text-sm text-slate-500">Scadenzario non disponibile per questo profilo.</p>}
+          <p className="mt-2 text-xs text-slate-400">Somma progressiva: ogni barra aggiunge la sua fascia alle precedenti. Dove la barra supera la linea, la liquidità di oggi non basta.</p>
+        </Scheda>
       </div>
-      </div>
+      {caricamento && <div className="fixed bottom-4 right-4 rounded-full bg-white px-3 py-1.5 text-xs text-slate-500 shadow"><Loader2 className="mr-1 inline animate-spin" size={12} />Aggiorno…</div>}
     </div>
+  )
+}
+
+function ContoScalare({ c, lista, scelto, setScelto }: { c: Cruscotto; lista: Negozio[]; scelto: string; setScelto: (v: string) => void }) {
+  const M = c.meseConto
+  const neg = (v: number | null) => (v == null ? 'n.d.' : Math.abs(v) < 0.5 ? '—' : '−' + euro(v))
+  const T = { ricavi: 0, merce: 0, personale: 0, affitto: 0, spese: 0, allestimenti: 0 }
+  const righe = lista.map(n => ({ n, k: contoNegozio(n, c) })).filter(r => r.k.ricavi || r.k.affitto || r.k.allestimenti)
+  righe.forEach(({ k }) => { if (k.merce != null) { T.ricavi += k.ricavi; T.merce += k.merce } T.personale += k.personale; T.affitto += k.affitto; T.spese += k.spese; T.allestimenti += k.allestimenti })
+  const sede = scelto === 'TUTTI' && c.sede ? { personale: fino(c.sede.personale, M), affitto: fino(c.sede.affitto, M), spese: fino(c.sede.spese, M), allestimenti: fino(c.sede.allestimenti, M) } : null
+  if (sede) { T.personale += sede.personale; T.affitto += sede.affitto; T.spese += sede.spese; T.allestimenti += sede.allestimenti }
+  const risultato = T.ricavi - T.merce - T.personale - T.affitto - T.spese
+  return (
+    <Scheda titolo="Conto di ogni negozio, a scalare" sotto={`Dai ricavi a quanto ogni negozio lascia all'azienda, gennaio-${MESI_LUNGHI[M - 1] || '—'} ${c.anno}, importi senza IVA. Clicca un negozio per vederlo da solo.`}>
+      <div className="overflow-x-auto">
+        <table className="w-full whitespace-nowrap text-right text-sm tabular-nums">
+          <thead><tr className="text-xs text-slate-500 [&_th]:px-2 [&_th]:py-2 [&_th]:font-medium"><th /><th>Ricavi</th><th>Merce venduta</th><th>Primo margine</th><th>Personale*</th><th>Affitto**</th><th>Spese del negozio</th><th>Lascia all'azienda</th><th>su 100 € di ricavi</th><th>Allestimenti***</th></tr></thead>
+          <tbody className="[&_td]:border-t [&_td]:border-slate-100 [&_td]:px-2 [&_td]:py-2">
+            {righe.map(({ n, k }) => (
+              <tr key={n.id} onClick={() => setScelto(scelto === n.id ? 'TUTTI' : n.id)} className={`cursor-pointer hover:bg-slate-50 ${scelto === n.id ? 'bg-blue-50' : ''}`}>
+                <td className="text-left">{n.nome}</td><td>{k.ricavi ? euro(k.ricavi) : 'non ancora aperto'}</td><td>{neg(k.merce)}</td>
+                <td>{k.merce != null ? euro(k.ricavi - k.merce) : '—'}</td><td>{neg(k.personale)}</td><td>{neg(k.affitto)}</td><td>{neg(k.spese)}</td>
+                <td className={`font-semibold ${k.lascia != null && k.lascia < 0 ? 'text-red-600' : ''}`}>{k.lascia != null ? euro(k.lascia) : '—'}</td>
+                <td className={k.lascia != null && k.lascia < 0 ? 'text-red-600' : ''}>{k.lascia != null && k.ricavi ? nf1.format(k.lascia / k.ricavi * 100) + ' €' : '—'}</td>
+                <td>{k.allestimenti > 1000 ? euro(k.allestimenti) : ''}</td>
+              </tr>))}
+            {sede && <tr><td className="text-left">Sede / magazzino</td><td /><td /><td /><td>{neg(sede.personale)}</td><td>{neg(sede.affitto)}</td><td>{neg(sede.spese)}</td>
+              <td className="font-semibold text-red-600">{neg(sede.personale + sede.affitto + sede.spese)}</td><td /><td>{sede.allestimenti > 1000 ? euro(sede.allestimenti) : ''}</td></tr>}
+            {scelto === 'TUTTI' && T.ricavi > 0 && <tr className="font-semibold [&_td]:border-t-2 [&_td]:border-slate-300"><td className="text-left">Azienda</td><td>{euro(T.ricavi)}</td><td>{neg(T.merce)}</td><td>{euro(T.ricavi - T.merce)}</td><td>{neg(T.personale)}</td><td>{neg(T.affitto)}</td><td>{neg(T.spese)}</td>
+              <td className={risultato < 0 ? 'text-red-600' : ''}>{euro(risultato)}</td><td className={risultato < 0 ? 'text-red-600' : ''}>{nf1.format(risultato / T.ricavi * 100)} €</td><td>{euro(T.allestimenti)}</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs leading-relaxed text-slate-400">Merce venduta: ricavi × costo della merce sul venduto di MODA. * Dipendenti dal Prospetto paghe più la quota dell'amministratore divisa sui ricavi. ** Di competenza: chi paga a trimestre anticipato ha l'affitto spalmato sui tre mesi (la fattura di ottobre copre ottobre-dicembre). Spese del negozio: utenze, servizi, commissioni, oneri e interessi dalle fatture fornitori, senza IVA; le piccole spese pagate in contanti dalla cassa sono con l'IVA dentro, perché lo scontrino non la separa. *** Allestimenti e lavori una tantum, fuori dal margine. Prima di ammortamenti e tasse. Il costo della merce di MODA è più alto di quello del bilancio: il risultato è prudente.</p>
+    </Scheda>
   )
 }

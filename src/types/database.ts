@@ -31674,6 +31674,7 @@ export type Database = {
       responsabile_ferie_elenco: { Args: { p_solo_in_attesa?: boolean }; Returns: Json }
       responsabile_negozi: { Args: never; Returns: Json }
       vendite_ingressi_report: { Args: { p_mese: string }; Returns: Json }
+      cruscotto_direzione: { Args: { p_anno: number }; Returns: Json }
       presenze_responsabile_dipendente_imposta: { Args: { p_employee: string; p_user: string }; Returns: undefined }
       presenze_sono_io: { Args: { p_employee: string }; Returns: boolean }
       responsabile_non_qui: { Args: never; Returns: undefined }
