@@ -1,4 +1,4 @@
--- NZ_ONLY 477 — Corrispettivi New Zago gennaio-luglio 2025 dal registro corrispettivi
+-- NZ_ONLY 479 — Corrispettivi New Zago gennaio-luglio 2025 dal registro corrispettivi
 -- Solo New Zago (xfvfxsvqpnpvibgeqpqp). Patrizio, 26/11/2026: zip «Corrispettivi New Zago e Zago 2025»,
 -- un registro per negozio. Agosto-dicembre 2025 erano già nel gestionale (import storico del 09/09/2026)
 -- e tornano al centesimo; mancavano i giorni dal primo giorno di apertura a fine luglio 2025:
@@ -9,7 +9,7 @@
 -- lordo = «Totale di giornata», netto = somma degli imponibili del giorno, source 'manuale'.
 -- 587 giorni, lordo 1114378.26, netto 913424.83.
 -- Non tocca righe esistenti (ON CONFLICT DO NOTHING).
--- Rollback: NZ_ONLY_20261126_477_corrispettivi_gen_lug_2025_ROLLBACK.sql
+-- Rollback: NZ_ONLY_20261126_479_corrispettivi_gen_lug_2025_ROLLBACK.sql
 INSERT INTO public.daily_revenue (company_id, outlet_id, date, gross_revenue, net_revenue, source, notes)
 SELECT o.company_id, o.id, v.d::date, v.g, v.n, 'manuale', 'Registro corrispettivi (import storico 2026-11-26)'
 FROM (VALUES

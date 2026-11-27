@@ -1,4 +1,4 @@
--- NZ_ONLY 478 — Consuntivo ricavi 2025 di New Zago diviso per i mesi veri del registro corrispettivi
+-- NZ_ONLY 480 — Consuntivo ricavi 2025 di New Zago diviso per i mesi veri del registro corrispettivi
 -- Solo New Zago (xfvfxsvqpnpvibgeqpqp). Patrizio, 26/11/2026 («procedi con tutti e due»).
 -- Prima: budget_entries 2025, conti Corrispettivi dei 6 negozi, actual_amount = totale annuo / 12
 -- in ogni mese (anche nei mesi prima dell'apertura: Valmontone apre a ottobre 2025).
@@ -16,7 +16,7 @@
 -- Le righe 'all' (altri ricavi) non si toccano.
 -- Copia dei valori prima della modifica: tutte le 72 righe avevano actual_amount = budget_amount
 -- = valore mensile qui sotto, note NULL; il rollback le rimette così.
--- Rollback: NZ_ONLY_20261126_478_consuntivo_2025_mesi_veri_ROLLBACK.sql
+-- Rollback: NZ_ONLY_20261126_480_consuntivo_2025_mesi_veri_ROLLBACK.sql
 BEGIN;
 UPDATE public.budget_entries be
 SET actual_amount = v.a,

@@ -38,80 +38,53 @@ export const PAGE_GUIDES: PageGuide[] = [
     "path": "/",
     "icon": "LayoutDashboard",
     "title": "Dashboard",
-    "description": "La Dashboard è la pagina che vedi appena entri nel gestionale: un cruscotto riassuntivo con i numeri chiave dell'azienda, gli avvisi da gestire e il confronto tra i punti vendita. Da qui puoi capire in pochi secondi come sta andando l'attività e cliccare per approfondire.",
+    "description": "La Dashboard è il cruscotto della direzione: in una pagina dice quanto si sta incassando e come va rispetto all'anno prima a parità di negozi, come chiuderà l'anno, se la liquidità basta per pagare i fornitori, quanto pesa il personale, ogni negozio mese per mese e quanto ogni negozio lascia all'azienda dopo i costi. In alto a destra si sceglie un negozio: tutta la pagina si mette su quel negozio. L'anno è quello del selettore generale.",
     "sections": [
       {
-        "heading": "Il saluto e il periodo di riferimento",
-        "body": "In alto trovi il saluto con il tuo nome e, subito sotto, il periodo a cui si riferiscono i dati mostrati (ad esempio l'anno o il trimestre selezionato). Se i dati arrivano da un bilancio già importato, vedrai anche la scritta 'Dati da bilancio importato'. In alto a destra c'è anche l'indicazione di quando i dati sono stati aggiornati l'ultima volta."
+        "heading": "Ricavi e chiusura stimata",
+        "body": "Il numero grande sono i ricavi netti (imponibile, senza IVA) dal 1 gennaio all'ultimo giorno caricato, presi dagli incassi giornalieri (chiusure di cassa o registro corrispettivi). Sotto c'è il confronto con l'anno prima a parità di negozi: contano solo i mesi pieni in cui il negozio era aperto in tutti e due gli anni, così un negozio nuovo non gonfia la crescita. A destra la chiusura stimata dell'anno: incassato, più il mese in corso in proiezione sui giorni già passati, più i mesi che mancano a budget; senza budget, gli stessi mesi dell'anno prima con la crescita a parità. La tacca nera è il totale dell'anno prima."
       },
       {
-        "heading": "I 4 indicatori principali",
-        "body": "Subito sotto il saluto trovi quattro riquadri con i numeri più importanti: Ricavi, Margine netto (o Costi, se i dati arrivano dalle fatture), Liquidità e Scadenze aperte. Ogni riquadro è cliccabile e ti porta alla pagina di dettaglio corrispondente.",
-        "steps": [
-          "Ricavi: mostra il totale incassato nel periodo. Se sotto compare l'etichetta 'Consuntivo' significa che il dato è già consolidato per i mesi chiusi, mentre 'previsionale' indica una stima di chiusura anno. Se vedi '—' vuol dire che non ci sono ancora dati per l'anno selezionato: in questo caso vai su Budget e Controllo per inserirli.",
-          "Margine netto: indica quanto rimane dei ricavi dopo i costi, in percentuale. Se non è ancora disponibile (perché i costi non sono stati inseriti) vedrai '—' con la nota 'Margine disponibile dopo l'inserimento dei costi'.",
-          "Liquidità: è il saldo totale dei conti correnti collegati, con la data e l'ora dell'ultimo aggiornamento. Se il saldo è negativo il riquadro si evidenzia in rosso.",
-          "Scadenze aperte: somma le fatture scadute e quelle in scadenza nei prossimi 7 giorni. Clicca per andare allo Scadenzario e gestirle."
-        ]
+        "heading": "I quattro numeri",
+        "body": "Liquidità: il saldo di oggi dei conti attivi e quanta parte copre di scaduto e uscite dei prossimi 30 giorni. Fornitori scaduti: le fatture fornitori aperte con la scadenza passata, contate con la stessa regola dello Scadenzario (fuori le pagate, le parziali, le note di credito, le sospese, le rimandate e gli addebiti automatici); se un solo fornitore pesa molto viene indicato. Personale sui ricavi: costo lordo dei dipendenti dal Prospetto paghe, sede compresa, più il compenso degli amministratori, diviso i ricavi degli stessi mesi. Margine sulla merce: vendite meno costo della merce secondo il report MODA, con conversione e scontrino medio."
       },
       {
-        "heading": "Alert & Azioni",
-        "body": "Questo riquadro raccoglie tutte le segnalazioni che richiedono la tua attenzione, con un pulsante per andare direttamente a risolverle. Se non ci sono segnalazioni, vedrai il messaggio 'Nessuna segnalazione — tutto sotto controllo'.",
-        "steps": [
-          "Fatture scadute: pagamenti non ancora effettuati oltre la data di scadenza. Clicca 'Gestisci' per andare allo Scadenzario.",
-          "PFN negativa: significa che i debiti superano la liquidità disponibile. Clicca 'Banche' per approfondire.",
-          "Esercizio in perdita o in utile: ti mostra se l'anno si sta chiudendo in negativo o positivo, con il margine percentuale.",
-          "Scadenze nei prossimi 7 giorni: ti avvisa delle prossime scadenze in arrivo.",
-          "Movimenti bancari senza categoria contabile: ti segnala quanti movimenti importati dalle banche non hanno ancora una categoria assegnata. Clicca 'Vai ai movimenti' per assegnarla dalla lista movimenti bancari."
-        ]
+        "heading": "Ricavi mese per mese",
+        "body": "Colonne blu per l'anno scelto, grigie per l'anno prima, trattino arancio per il budget del mese (quello di Budget & Controllo, «Preventivo vs Consuntivo»). Il mese in corso è più chiaro. Sotto, la tabella con i valori, lo scarto contro budget (nel mese in corso in proporzione ai giorni) e la riga «Stessi negozi», che confronta solo i negozi aperti in tutti e due gli anni. Passando sopra una colonna si leggono le cifre."
       },
       {
-        "heading": "Cashflow ultimi 30 giorni",
-        "body": "A fianco degli Alert trovi un grafico con l'andamento di entrate e uscite bancarie degli ultimi 30 giorni, con il totale di entrate, uscite e il saldo netto. Toccando il grafico (o passandoci sopra il mouse) puoi vedere il dettaglio giorno per giorno. Se non ci sono ancora estratti conto importati, il riquadro ti suggerisce di importarli da ImportHub."
+        "heading": "Da guardare",
+        "body": "Avvisi scritti dal sistema sui numeri del giorno, dal più grave: un fornitore che vale più di metà dello scaduto, la liquidità che non copre le uscite, i ricavi a parità in calo, un negozio sotto di almeno il 10% sullo stesso mese dell'anno prima, un negozio nuovo sopra budget, lo scarto contro budget, un negozio senza fatture d'affitto, allestimenti importanti, dati fermi da più di dieci giorni. Resta sempre l'avviso che il costo della merce viene da MODA e non dal bilancio."
       },
       {
-        "heading": "Performance dei punti vendita",
-        "body": "In basso trovi la classifica dei punti vendita, ordinati dal ricavo più alto al più basso. Per ogni punto vendita vedi i ricavi da inizio anno, la percentuale sul totale del gruppo, il confronto con il budget (vs Budget) e il budget dell'intero anno. In fondo alla tabella c'è sempre una riga con il totale del gruppo.",
-        "steps": [
-          "Il colore del numero 'vs Budget' ti aiuta a capire a colpo d'occhio la situazione: nero se il punto vendita è in linea o sopra il budget, rosso se è sotto.",
-          "Clicca su un punto vendita (o sulla freccia a destra della riga) per aprire la scheda di dettaglio di quel punto vendita.",
-          "Clicca su 'Confronto completo' in alto a destra della sezione per vedere l'analisi comparativa completa tra tutti i punti vendita.",
-          "Se non ci sono ancora dati sufficienti, il riquadro ti suggerisce di importare il bilancio oppure di assegnare i fornitori ai punti vendita."
-        ]
+        "heading": "Ogni negozio e vendite",
+        "body": "Un mini grafico per negozio, tutti sulla stessa scala, con la crescita a parità o «nuovo» se non c'è un anno prima da confrontare: cliccandolo la pagina si mette su quel negozio. La tabella «Vendite di ogni negozio» dà ricavi, confronto con l'anno prima e con il budget, stima di chiusura, margine sulla merce, ingressi, conversione, scontrino medio e sconto medio sul listino (MODA)."
       },
       {
-        "heading": "Da dove arrivano i numeri",
-        "body": "I dati della Dashboard vengono presi automaticamente, in ordine di priorità, dalle fonti disponibili: prima i riepiloghi ufficiali, poi il bilancio importato, poi (se l'anno è ancora in corso e il bilancio non è ancora disponibile) i dati di consuntivo e previsione inseriti in Budget e Controllo, e infine le fatture elettroniche. Non devi fare nulla per scegliere la fonte: il sistema mostra sempre il dato più affidabile disponibile per il periodo selezionato."
+        "heading": "Costi: il conto di ogni negozio",
+        "body": "Per ogni negozio, sui mesi coperti dalle paghe: ricavi, meno merce venduta (ricavi per il costo della merce di MODA), uguale primo margine; meno personale (dipendenti più la quota dell'amministratore), affitto e spese del negozio (utenze, servizi, commissioni, oneri e interessi dalle fatture fornitori), uguale quanto lascia all'azienda, anche su 100 euro di ricavi. L'affitto è di competenza: chi paga a trimestre anticipato ha la fattura spalmata sui tre mesi. Gli allestimenti e i lavori una tantum stanno in una colonna a parte, fuori dal margine. Sotto i negozi c'è la Sede, poi il totale dell'azienda, prima di ammortamenti e tasse."
       },
       {
-        "heading": "Punti vendita in apertura",
-        "body": "Un punto vendita con data di apertura futura è «in apertura»: i suoi costi (canone, spese, allestimento) sono reali e si vedono, ma non ha ancora ricavi. Nella classifica degli outlet resta in fondo con il badge «In apertura dal gg/mm/aaaa»: i valori a zero non indicano un negozio che vende male."
+        "heading": "Personale e cassa",
+        "body": "Il grafico del personale mostra per ogni negozio i dipendenti e la quota dell'amministratore, con il peso sui ricavi; il compenso degli amministratori è diviso fra i negozi in proporzione ai ricavi e in Sede restano i dipendenti di sede e magazzino. Il grafico della cassa mette in fila le fatture fornitori da pagare per fascia di scadenza (scadute da oltre 30 giorni, scadute negli ultimi 30, entro 30 giorni, da 31 a 60, oltre 60), sommandole, contro la linea della liquidità di oggi."
       }
     ],
     "faq": [
       {
-        "q": "Perché in alcuni riquadri vedo il simbolo '—' invece di un numero?",
-        "a": "Il simbolo '—' indica che per il periodo selezionato non ci sono ancora dati sufficienti (ad esempio i costi non sono stati inseriti, oppure non è stato importato nulla per quell'anno). Segui il suggerimento indicato nel riquadro stesso per capire dove inserire i dati mancanti."
+        "q": "Perché la crescita sull'anno prima è più bassa di quella che vedo confrontando i totali?",
+        "a": "Perché è a parità di negozi: conta solo i mesi pieni in cui il negozio era aperto in tutti e due gli anni. Un negozio aperto quest'anno porta ricavi in più ma non dice niente su come vanno i negozi che c'erano già."
       },
       {
-        "q": "Cosa significa l'etichetta 'Consuntivo ... mesi chiusi · granitico' vicino ai Ricavi?",
-        "a": "Indica che il valore mostrato è un dato consolidato e definitivo per i mesi già chiusi dell'anno in corso, mentre il valore 'previsionale' accanto è una stima di come potrebbe chiudere l'intero anno."
+        "q": "Perché lo scaduto è diverso da quello che vedevo prima?",
+        "a": "È calcolato come nello Scadenzario: non conta le fatture già pagate, le parziali, le note di credito, le sospese, le rimandate e gli addebiti automatici, che escono dal conto da soli."
       },
       {
-        "q": "Cosa vuol dire il colore rosso nella colonna 'vs Budget' della classifica punti vendita?",
-        "a": "Il rosso indica che il punto vendita è sotto l'obiettivo di budget previsto per quel periodo. Il colore nero (non verde) indica invece che è in linea o sopra il budget."
+        "q": "Il risultato «Lascia all'azienda» è il risultato di bilancio?",
+        "a": "No. È un conto di gestione, prima di ammortamenti e tasse, con la merce valorizzata al costo di MODA, che oggi è più alto di quello del bilancio: per questo il risultato è prudente."
       },
       {
-        "q": "Non vedo il grafico del Cashflow: perché?",
-        "a": "Il grafico compare solo se sono stati importati movimenti bancari degli ultimi 30 giorni. Se è vuoto, il riquadro ti suggerisce di importare gli estratti conto da ImportHub."
-      },
-      {
-        "q": "Come faccio ad aprire la scheda di un singolo punto vendita dalla Dashboard?",
-        "a": "Clicca sulla riga del punto vendita nella tabella 'Performance' (o sulla freccia a destra): si apre direttamente la pagina di dettaglio di quel punto vendita."
-      },
-      {
-        "q": "Cosa devo fare se vedo l'avviso 'movimenti bancari senza categoria contabile'?",
-        "a": "Clicca su 'Vai ai movimenti' nell'avviso: ti porta direttamente all'elenco dei movimenti bancari senza categoria, dove puoi assegnarla."
+        "q": "Come si sceglie un solo negozio?",
+        "a": "Dal menu «Negozio» in alto a destra, oppure cliccando il negozio nei mini grafici o nelle tabelle. Si torna a tutti i negozi con lo stesso menu o cliccando di nuovo."
       },
       {
         "q": "In basso è comparsa una striscia arancione che dice di ricaricare: cosa devo fare?",

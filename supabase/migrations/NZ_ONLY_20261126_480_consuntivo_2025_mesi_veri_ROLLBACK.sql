@@ -1,4 +1,4 @@
--- ROLLBACK NZ_ONLY 478 — rimette il consuntivo 2025 dei 6 negozi a totale annuo / 12 come prima.
+-- ROLLBACK NZ_ONLY 480 — rimette il consuntivo 2025 dei 6 negozi a totale annuo / 12 come prima.
 -- Solo New Zago.
 BEGIN;
 UPDATE public.budget_entries be
