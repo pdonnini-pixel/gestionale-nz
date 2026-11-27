@@ -694,7 +694,7 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
             </span>
           </Riga>
           {/* turno massimo dei feriali (Patrizio, 27/11/2026): oltre, fino a 10 ore, solo nei giorni speciali */}
-          <p className="text-xs text-slate-500 -mt-1">Il turno più lungo vale nei giorni feriali (8 ore lavorate più la pausa). Nei giorni speciali (sabato, domenica, festivi, eventi) un turno messo a mano può arrivare a {TURNO_MAX_SPECIALI_ORE} ore; le ore in più sono straordinario solo se la settimana supera il contratto. Il lunedì lavorano due persone, una dall'apertura alle 18 e una dalle 12 alla chiusura.</p>
+          <p className="text-xs text-slate-500 -mt-1">Il turno più lungo vale nei giorni feriali (8 ore lavorate e pagate più 30 minuti di pausa: 10-18:30); nei feriali la proposta non fa il turno da 7 ore e mezza più la pausa (10-18). Nei giorni speciali (sabato, domenica, festivi, eventi) un turno messo a mano può arrivare a {TURNO_MAX_SPECIALI_ORE} ore; le ore in più sono straordinario solo se la settimana supera il contratto. Il lunedì lavorano due persone con il turno pieno, una dall'apertura e una fino alla chiusura (10-18:30 e 11:30-20).</p>
           {ha403 && (
             <>
               <Riga etichetta="Giorni di lavoro a settimana, al massimo">

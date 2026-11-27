@@ -17,12 +17,25 @@ function coppia(a: string, b: string): string {
 export function eLunediFisso(g: Pick<GiornoPiano, 'data' | 'chiuso' | 'caldo' | 'evento' | 'speciale' | 'chiusura'>, regole?: Pick<RegoleTurni, 'lunediFisso'>): boolean {
   // acceso sempre (Patrizio: «sempre il lunedì 2 persone»); `lunediFisso: false` serve solo alle prove delle altre regole
   if (regole?.lunediFisso === false) return false;
-  // con la chiusura di metà giornata (Forte dei Marmi) i due turni 10-18 e 12-20 non ci stanno: il lunedì resta come prima
+  // con la chiusura di metà giornata (Forte dei Marmi) i due turni del lunedì non ci stanno: il lunedì resta come prima
   return giornoIso(g.data) === 1 && !g.chiuso && !g.chiusura && !g.caldo && !g.evento && !g.speciale && !eFestivo(g.data);
 }
 
 /** Nei giorni speciali (sabato, domenica, festivi, eventi) un turno può arrivare fino a 10 ore lavorate. */
 export const TURNO_MAX_SPECIALI_ORE = 10;
+
+/**
+ * Nei giorni feriali il turno pieno è 8 ore pagate + 30' di pausa (8 ore e mezza di presenza):
+ * il turno di 8 ore di presenza, cioè 7 ore e mezza pagate + 30', non si propone mai
+ * (Patrizio, 27/11/2026: «quando ti dico 8 ore sono 8 ore di lavoro pagate»).
+ * Restano: fino a 6 ore senza pausa, 6 e mezza o 7 pagate + 30', 8 pagate + 30'.
+ */
+export const LAVORO_VIETATO_FERIALE_MINUTI = 450;
+
+/** Giorno feriale: da lunedì a venerdì, non festivo, non evento, non giorno caldo o speciale del calendario. */
+export function eFeriale(g: Pick<GiornoPiano, 'data' | 'caldo' | 'evento' | 'speciale'>): boolean {
+  return giornoIso(g.data) <= 5 && !g.caldo && !g.evento && !g.speciale && !eFestivo(g.data);
+}
 
 /** La presenza più lunga che sta nel turno massimo della giornata (8 ore lavorate + 30' = 8 ore e mezza). */
 function presenzaMassima(regole: RegoleTurni): number {
@@ -31,15 +44,15 @@ function presenzaMassima(regole: RegoleTurni): number {
 }
 
 /**
- * Gli orari dei due turni del lunedì, in minuti: chi apre dall'apertura (o dalle pulizie) fino a due ore
- * prima della chiusura, senza superare il turno massimo; chi chiude da due ore dopo l'apertura di
- * vendita fino alla chiusura, senza superare il turno massimo. Negozio 10-20: 10-18 e 12-20.
+ * Gli orari dei due turni del lunedì, in minuti: tutte e due fanno il turno pieno, 8 ore pagate + 30'
+ * di pausa (Patrizio, 27/11/2026). Chi apre dall'apertura (o dalle pulizie), chi chiude fino alla
+ * chiusura. Negozio 10-20: 10-18:30 e 11:30-20; Valmontone con le pulizie dalle 9: 9-17:30.
  */
 export function orariDelLunedi(g: Pick<GiornoPiano, 'apre' | 'chiude' | 'apreVendita'>, regole: RegoleTurni): { apre: [number, number]; chiude: [number, number] } {
   const max = presenzaMassima(regole);
   const vendita = g.apreVendita ?? g.apre;
-  const fineApre = Math.min(g.apre + max, g.chiude - 120);
-  const inizioChiude = Math.max(vendita + 120, g.chiude - max);
+  const fineApre = Math.min(g.apre + max, g.chiude);
+  const inizioChiude = Math.max(vendita, g.chiude - max);
   return { apre: [g.apre, fineApre], chiude: [inizioChiude, g.chiude] };
 }
 
@@ -121,7 +134,7 @@ export function scegliLunedi(a: SceltaLunedi): Turno[] | null {
 
 /**
  * Il fabbisogno del lunedì fisso: le persone che i due turni mettono in negozio, mezz'ora per mezz'ora
- * (una, poi due dalle 12 alle 18, poi una). MODA e fasce non aggiungono nessuno.
+ * (una, poi due dalle 11:30 alle 18:30, poi una). MODA e fasce non aggiungono nessuno.
  */
 export function coperturaDelLunedi(g: Pick<GiornoPiano, 'apre' | 'chiude' | 'apreVendita' | 'fabbisogno'>, regole: RegoleTurni): number[] {
   const o = orariDelLunedi(g, regole);

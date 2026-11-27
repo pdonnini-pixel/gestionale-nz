@@ -222,7 +222,7 @@ export function fabbisognoDaTraffico(
  */
 export function tettoDelLunedi(g: GiornoPiano, regole: RegoleTurni): GiornoPiano {
   // Il lunedì fisso (Patrizio, 27/11/2026), in tutti i negozi: servono esattamente le due persone dei
-  // due turni (una, due dalle 12 alle 18, una); MODA e fasce non aggiungono nessuno.
+  // due turni (una, due dalle 11:30 alle 18:30, una); MODA e fasce non aggiungono nessuno.
   if (eLunediFisso(g, regole)) {
     const fisso = coperturaDelLunedi(g, regole);
     return { ...g, lunediDue: true, fabbisogno: fisso, minimo: fisso, ...(g.esigenza ? { esigenza: fisso } : {}), ...(g.esatto ? { esatto: fisso } : {}) };

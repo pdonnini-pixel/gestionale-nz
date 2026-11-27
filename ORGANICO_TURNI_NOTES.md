@@ -1615,3 +1615,19 @@ Decisioni prese con lui prima di scrivere codice:
   lunedì fisso. `turni_proposti_riscrivi` controlla i turni fino a 10 ore (478), non al tetto salvato.
 - Le prove nate prima di questa data girano con `turnoMaxOre: 10` e `lunediFisso: false` (interruttore
   interno, acceso sempre in produzione); le prove nuove sono in `src/lib/lunediFisso.test.ts`.
+
+### 8 ore sono 8 ore pagate (Patrizio, 27/11/2026 sera)
+
+- Il turno pieno dei feriali è **8 ore pagate + 30' di pausa = 8 ore e mezza di presenza** (10-18:30).
+- Nei feriali (lunedì-venerdì, non festivi, non eventi, non giorni caldi o speciali del calendario) la
+  proposta **non fa mai il turno da 7 ore e mezza pagate + 30'** (10-18): vincolo duro nel conto di
+  `ottimizzaSettimana` (`q.vieta`, `LAVORO_VIETATO_FERIALE_MINUTI`, `eFeriale` in `lunediFisso.ts`). Un turno
+  così che arriva dai passi di prima si porta a 8 + 30' se c'è posto nell'orario e nel contratto della
+  settimana, altrimenti a 7 + 30'. A mano si può sempre mettere.
+- Lunedì fisso: **10-18:30 e 11:30-20** (Valmontone 9-17:30 e 11:30-20), non più 10-18 e 12-20.
+- Misura su dicembre 2026, 7 negozi NZ: nessun turno da 7 ore e mezza nei feriali normali (restano solo
+  in Vigilia, ultimo dell'anno ed eventi di Natale a Brugnato, che sono giorni speciali); lunedì tutti
+  10-18:30 + 11:30-20 tranne il 21/12 di Brugnato (evento); 0 giorni con una persona sola, 0 senza riposo,
+  nessuna apertura dopo una chiusura della domenica; ore scoperte 2,1 / 1,8 / 0 / 0 / 3,7 / 17,5 / 14,0
+  (prima 2,1 / 1,8 / 0 / 0 / 3,7 / 17,7 / 12,3). Valmontone perde 1,7 ore: con 8 ore pagate a turno le ore
+  di contratto finiscono prima e la settimana ha più turni corti.
