@@ -56,6 +56,18 @@ test.describe('Pixel check', () => {
       await expect(page.locator('input[type="password"]')).toHaveCount(0)
     }
 
+    // 2b) Dashboard = cruscotto direzione (migration 481): la funzione
+    //     cruscotto_direzione deve rispondere, quindi compare il riquadro dei
+    //     ricavi e non il messaggio d'errore della lettura dati.
+    //     Solo se l'utente di test resta sulla Dashboard (alcuni profili vengono
+    //     portati altrove dal router).
+    await page.goto('/', { waitUntil: 'domcontentloaded' })
+    await page.waitForTimeout(1500)
+    if (new URL(page.url()).pathname === '/') {
+      await expect(page.getByText('Ricavi netti', { exact: false }).first()).toBeVisible({ timeout: 20_000 })
+      await expect(page.getByText('Non riesco a leggere i dati del cruscotto', { exact: false })).toHaveCount(0)
+    }
+
     // 3) Report Sincronizzazioni: la card del feed "Fatture attive" deve
     //    comparire su tutti e 3 i tenant (feed di prima classe, sempre reso
     //    anche senza dati: card grigia "Nessuna sincronizzazione").
