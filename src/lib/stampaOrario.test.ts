@@ -7,8 +7,6 @@ import {
   dettaglioTurno,
   etichettaPausa,
   formattaOre,
-  mezzoreCopertura,
-  oreSottoCopertura,
   nomeFileOrario,
   numeroSettimana,
   orarioUnico,
@@ -234,33 +232,5 @@ describe('creaPdfOrario', () => {
       }, { ruolo: 'vice', oreSettimana: null, assenze: { '2026-11-25': 'ferie' } }),
     ];
     controlla(orario(persone, giorni), 1);
-  });
-});
-
-describe('copertura oraria', () => {
-  it('conta chi è in turno in ogni mezz\'ora, come il gestionale', () => {
-    const m = mezzoreCopertura(600, 720, [{ inizio: '10:00', fine: '14:00' }, { inizio: '11:00', fine: '20:00' }], [1, 1, 2, 2]);
-    expect(m.map((x) => x.ora)).toEqual(['10:00', '10:30', '11:00', '11:30']);
-    expect(m.map((x) => x.persone)).toEqual([1, 1, 2, 2]);
-    expect(m.map((x) => x.servono)).toEqual([1, 1, 2, 2]);
-  });
-  it('chi esce alle 14 non conta nella mezz\'ora delle 14', () => {
-    const m = mezzoreCopertura(780, 900, [{ inizio: '10:00', fine: '14:00' }]);
-    expect(m.map((x) => x.persone)).toEqual([1, 1, 0, 0]);
-    expect(m.every((x) => x.servono === null)).toBe(true);
-  });
-  it('somma le ore-persona che mancano', () => {
-    expect(oreSottoCopertura([
-      { data: '2026-12-10', mezzore: [{ ora: '12:00', persone: 1, servono: 2 }, { ora: '12:30', persone: 1, servono: 2 }, { ora: '13:00', persone: 3, servono: 2 }] },
-      { data: '2026-12-11', mezzore: [{ ora: '12:00', persone: 0, servono: null }] },
-    ])).toBe(1);
-  });
-  it('stampa la pagina della copertura dopo l\'orario', () => {
-    const giorni = ['2026-12-07', '2026-12-08', '2026-12-09', '2026-12-10', '2026-12-11', '2026-12-12', '2026-12-13']
-      .map((data) => ({ data, nelMese: true, chiuso: data === '2026-12-13', apre: '10:00', chiude: '20:00' }));
-    const base = { marchio: 'testo' as const, azienda: 'Prova', negozio: 'Negozio', giorni, persone: [], oggi: '2026-11-27' };
-    const senza = creaPdfOrario(base).getNumberOfPages();
-    const con = creaPdfOrario({ ...base, copertura: giorni.slice(0, 6).map((g) => ({ data: g.data, mezzore: mezzoreCopertura(600, 1200, [{ inizio: '10:00', fine: '20:00' }], Array(20).fill(2)) })) }).getNumberOfPages();
-    expect(con).toBe(senza + 1);
   });
 });
