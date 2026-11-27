@@ -28,7 +28,7 @@ function dati(): DatiCruscottoRaw {
       { cc: 'alfa', o: 'A', m: 1, g: 'costo_venduto', v: 999 }, { cc: null, o: null, m: 1, g: 'locazione', v: 50 },
     ],
     liquidita: { saldo: 100, conti: 1, aggiornato: null },
-    scaduto: { oltre30: 300, ultimi30: 100, entro30: 100, da31a60: 0, oltre60: 0, fatture_scadute: 5, primo_fornitore: { nome: 'Fornitore X', importo: 350, fatture: 4, dal: '2026-06-30' } },
+    scaduto: { oltre30: 300, ultimi30: 100, entro30: 100, da31a60: 0, oltre60: 0, fatture_scadute: 5 },
   }
 }
 

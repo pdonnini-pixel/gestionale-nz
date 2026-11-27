@@ -5,7 +5,7 @@
 // Dati: public.cruscotto_direzione(p_anno) (migration 481), calcoli in src/lib/cruscotto.ts.
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import PageHeader from '../components/PageHeader'
 import { supabase } from '../lib/supabase'
 import { usePeriod } from '../hooks/usePeriod'
@@ -164,7 +164,7 @@ export default function Dashboard() {
 
       {/* Quattro numeri */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Scheda titolo="Liquidità sui conti">
+        <Scheda titolo="Liquidità sui conti" sotto="Saldo dei conti">
           <div className="text-2xl font-semibold text-slate-900">{euroCompatto(liq)}</div>
           <div className="text-xs text-slate-500">{c.liquidita?.conti ?? 0} conti{c.liquidita?.aggiornato ? ` · saldo del ${new Date(c.liquidita.aggiornato).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })}` : ''}</div>
           {copertura != null && <>
@@ -172,17 +172,15 @@ export default function Dashboard() {
             <div className="mt-1.5 h-2 rounded-full bg-blue-100"><div className="h-2 rounded-full" style={{ width: `${Math.min(100, copertura)}%`, background: copertura < 100 ? COLORI.serio : COLORI.anno }} /></div>
           </>}
         </Scheda>
-        <Scheda titolo="Fornitori scaduti" sotto="Stessa regola dello Scadenzario">
+        <Scheda titolo="Fornitori scaduti" sotto="IVA compresa, come lo Scadenzario">
           <Link to="/scadenzario" className="block">
             <div className="text-2xl font-semibold text-slate-900">{euroCompatto(scaduto)}</div>
             <div className="text-xs text-slate-500">{s?.fatture_scadute ?? 0} fatture · di cui <b>{euroCompatto(s?.oltre30 ?? 0)}</b> da oltre 30 giorni</div>
-            {s?.primo_fornitore && scaduto > 0 && <div className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-2 py-0.5 text-[11px] font-semibold">
-              <AlertTriangle size={12} className="text-amber-500" />{s.primo_fornitore.nome}: {euroCompatto(s.primo_fornitore.importo)} ({nf0.format(s.primo_fornitore.importo / scaduto * 100)}%)</div>}
           </Link>
         </Scheda>
         <Scheda titolo={`Personale sui ricavi (gennaio-${MESI_LUNGHI[M - 1] || '—'})`}>
           <div className="text-2xl font-semibold text-slate-900">{ricConto ? nf1.format((persNegozi + persSede) / ricConto * 100) + '%' : 'n.d.'}</div>
-          <div className="text-xs text-slate-500">{euroCompatto(persNegozi + persSede)} di personale su {euroCompatto(ricConto)} di ricavi{persSede ? ', sede compresa' : ''}</div>
+          <div className="text-xs text-slate-500">{euroCompatto(persNegozi + persSede)} di costo aziendale del personale (stipendi, contributi, TFR, amministratori){persSede ? ', sede compresa' : ''}, su {euroCompatto(ricConto)} di ricavi senza IVA</div>
         </Scheda>
         <Scheda titolo={`Margine sulla merce (MODA, gennaio-${MESI_LUNGHI[c.meseModa - 1] || '—'})`}>
           <div className="text-2xl font-semibold text-slate-900">{vend ? nf0.format((1 - costoMerce / vend) * 100) + '%' : 'n.d.'}</div>
@@ -194,7 +192,7 @@ export default function Dashboard() {
       {/* Mese per mese + avvisi */}
       <div className="grid gap-4 xl:grid-cols-[2fr_1fr]">
         <Scheda titolo={`${uno ? uno.nome : 'Azienda'}: ricavi mese per mese, ${c.anno} contro ${c.anno - 1}`}
-          sotto={c.meseParziale ? `${MESI_LUNGHI[c.meseUltimo - 1]} fino al ${c.giornoUltimo} (colonna chiara). Trattino arancio: budget del mese.` : 'Trattino arancio: budget del mese.'}
+          sotto={`Ricavi senza IVA. ${c.meseParziale ? `${MESI_LUNGHI[c.meseUltimo - 1]} fino al ${c.giornoUltimo} (colonna chiara). ` : ''}Trattino arancio: budget del mese.`}
           destra={<Legenda voci={[{ nome: String(c.anno), colore: COLORI.anno }, { nome: String(c.anno - 1), colore: COLORI.prima }, ...(bud.some(Boolean) ? [{ nome: 'Budget', colore: COLORI.budget, forma: 'linea' as const }] : [])]} />}>
           <ColonneMensili ora={ora} prima={prima} budget={bud} meseParziale={parziale} ultimoMese={c.meseUltimo} etichettaParziale={`fino al ${c.giornoUltimo}`} />
           <div className="mt-2 overflow-x-auto">
@@ -257,7 +255,7 @@ export default function Dashboard() {
 
       {/* Vendite: mese scelto contro l'anno prima, poi l'anno */}
       <Scheda titolo="Vendite di ogni negozio" destra={selettoreMese}
-        sotto={`${MESI_LUNGHI[mese - 1]} ${c.anno} contro lo stesso mese dell'anno prima${meseParz ? ` (stessi giorni, dal 1 al ${c.giornoUltimo})` : ''}; poi l'anno da gennaio a ${MESI_LUNGHI[mp - 1] || '—'}. Margine sulla merce, conversione e scontrino dal report MODA (gennaio-${MESI_LUNGHI[c.meseModa - 1] || '—'}).`}>
+        sotto={`Ricavi senza IVA. ${MESI_LUNGHI[mese - 1]} ${c.anno} contro lo stesso mese dell'anno prima${meseParz ? ` (stessi giorni, dal 1 al ${c.giornoUltimo})` : ''}; poi l'anno da gennaio a ${MESI_LUNGHI[mp - 1] || '—'}. Margine sulla merce, conversione e scontrino dal report MODA (gennaio-${MESI_LUNGHI[c.meseModa - 1] || '—'}).`}>
         <div className="overflow-x-auto">
           <table className="w-full whitespace-nowrap text-right text-sm tabular-nums">
             <thead>
@@ -310,7 +308,7 @@ export default function Dashboard() {
           {righePers.length ? <BarrePersonale righe={righePers} /> : <p className="text-sm text-slate-500">Nessun Prospetto paghe per quest'anno.</p>}
           <p className="mt-2 text-xs text-slate-400">Il compenso degli amministratori ({euro(c.ammTotale)}) è diviso fra i negozi in proporzione ai ricavi. In Sede restano i dipendenti di sede e magazzino.</p>
         </Scheda>
-        <Scheda titolo="Cassa: cosa c'è e cosa esce" sotto="Fatture fornitori da pagare per scadenza, contro la liquidità di oggi"
+        <Scheda titolo="Cassa: cosa c'è e cosa esce" sotto="Fatture fornitori da pagare per scadenza, IVA compresa (quello che esce dal conto), contro la liquidità di oggi"
           destra={<Legenda voci={[{ nome: 'Liquidità', colore: COLORI.testo, forma: 'linea' }]} />}>
           {s ? <BarreCassa liquidita={liq} fasce={[
             { nome: 'Scaduto da oltre 30 gg', valore: s.oltre30, colore: COLORI.critico },
@@ -337,7 +335,7 @@ function ContoScalare({ c, lista, scelto, setScelto }: { c: Cruscotto; lista: Ne
   if (sede) { T.personale += sede.personale; T.affitto += sede.affitto; T.spese += sede.spese; T.allestimenti += sede.allestimenti }
   const risultato = T.ricavi - T.merce - T.personale - T.affitto - T.spese
   return (
-    <Scheda titolo="Conto di ogni negozio, a scalare" sotto={`Dai ricavi a quanto ogni negozio lascia all'azienda, gennaio-${MESI_LUNGHI[M - 1] || '—'} ${c.anno}. Clicca un negozio per vederlo da solo.`}>
+    <Scheda titolo="Conto di ogni negozio, a scalare" sotto={`Dai ricavi a quanto ogni negozio lascia all'azienda, gennaio-${MESI_LUNGHI[M - 1] || '—'} ${c.anno}, importi senza IVA. Clicca un negozio per vederlo da solo.`}>
       <div className="overflow-x-auto">
         <table className="w-full whitespace-nowrap text-right text-sm tabular-nums">
           <thead><tr className="text-xs text-slate-500 [&_th]:px-2 [&_th]:py-2 [&_th]:font-medium"><th /><th>Ricavi</th><th>Merce venduta</th><th>Primo margine</th><th>Personale*</th><th>Affitto**</th><th>Spese del negozio</th><th>Lascia all'azienda</th><th>su 100 € di ricavi</th><th>Allestimenti***</th></tr></thead>
@@ -357,7 +355,7 @@ function ContoScalare({ c, lista, scelto, setScelto }: { c: Cruscotto; lista: Ne
           </tbody>
         </table>
       </div>
-      <p className="mt-2 text-xs leading-relaxed text-slate-400">Merce venduta: ricavi × costo della merce sul venduto di MODA. * Dipendenti dal Prospetto paghe più la quota dell'amministratore divisa sui ricavi. ** Di competenza: chi paga a trimestre anticipato ha l'affitto spalmato sui tre mesi (la fattura di ottobre copre ottobre-dicembre). Spese del negozio: utenze, servizi, commissioni, oneri e interessi dalle fatture fornitori. *** Allestimenti e lavori una tantum, fuori dal margine. Prima di ammortamenti e tasse. Il costo della merce di MODA è più alto di quello del bilancio: il risultato è prudente.</p>
+      <p className="mt-2 text-xs leading-relaxed text-slate-400">Merce venduta: ricavi × costo della merce sul venduto di MODA. * Dipendenti dal Prospetto paghe più la quota dell'amministratore divisa sui ricavi. ** Di competenza: chi paga a trimestre anticipato ha l'affitto spalmato sui tre mesi (la fattura di ottobre copre ottobre-dicembre). Spese del negozio: utenze, servizi, commissioni, oneri e interessi dalle fatture fornitori, senza IVA; le piccole spese pagate in contanti dalla cassa sono con l'IVA dentro, perché lo scontrino non la separa. *** Allestimenti e lavori una tantum, fuori dal margine. Prima di ammortamenti e tasse. Il costo della merce di MODA è più alto di quello del bilancio: il risultato è prudente.</p>
     </Scheda>
   )
 }

@@ -19,7 +19,6 @@ export interface PersonaleRaw { o: string | null; f: string | null; m: number; c
 export interface CostoRaw { cc: string | null; o: string | null; m: number; g: string; v: number }
 export interface ScadutoRaw {
   oltre30: number; ultimi30: number; entro30: number; da31a60: number; oltre60: number; fatture_scadute: number
-  primo_fornitore: { nome: string; importo: number; fatture: number; dal: string } | null
 }
 export interface DatiCruscottoRaw {
   anno: number; oggi: string
