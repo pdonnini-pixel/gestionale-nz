@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { affittoCompetenza, primoMesePieno, costruisciCruscotto, parita, stimaChiusura, contoNegozio, avvisi, type DatiCruscottoRaw } from './cruscotto'
+import { affittoCompetenza, primoMesePieno, costruisciCruscotto, parita, stimaChiusura, contoNegozio, avvisi, margineParita, type DatiCruscottoRaw } from './cruscotto'
 
 const mesi = (vals: Record<number, number>) => { const a = Array(12).fill(0); for (const k in vals) a[Number(k) - 1] = vals[k]; return a }
 
@@ -82,5 +82,25 @@ describe('costruisciCruscotto', () => {
     expect(av[0].livello).toBe('critico')
     expect(av[0].titolo).toContain('Fornitore X')
     expect(av.some(x => x.titolo.includes('MODA'))).toBe(true)
+  })
+  it('margine a parità solo sugli stessi mesi con importi nei due anni', () => {
+    const d = dati()
+    d.moda = [
+      { o: 'A', y: 2025, m: 1, ingressi: 10, scontrini: 1, vendite: 100, costo: 60, listino: 0 },
+      { o: 'A', y: 2026, m: 1, ingressi: 10, scontrini: 1, vendite: 100, costo: 50, listino: 0 },
+      { o: 'A', y: 2026, m: 2, ingressi: 10, scontrini: 1, vendite: 100, costo: 10, listino: 0 }, // febbraio senza anno prima: fuori
+      { o: 'A', y: 2025, m: 3, ingressi: 10, scontrini: 1, vendite: 0, costo: 0, listino: 0 }, // senza importi: fuori
+      { o: 'A', y: 2026, m: 3, ingressi: 10, scontrini: 1, vendite: 100, costo: 90, listino: 0 },
+    ]
+    const k = margineParita(costruisciCruscotto(d).negozi)
+    expect(k?.prima).toBeCloseTo(40); expect(k?.ora).toBeCloseTo(50); expect(k?.punti).toBeCloseTo(10)
+  })
+  it('negozio chiuso solo se chiuso prima dell\'anno scelto', () => {
+    const d = dati()
+    d.negozi.push({ id: 'C', code: 'C', name: 'Chiuso', cc: 'c', tipo: 'outlet', attivo: false, apertura: '2020-01-01', chiusura: '2026-03-10' })
+    d.ricavi.push({ o: 'C', y: 2026, m: 1, netto: 50, lordo: 61, ultimo: '2026-01-31' })
+    expect(costruisciCruscotto(d).negozi.find(n => n.code === 'C')?.chiuso).toBe(false)
+    d.anno = 2027
+    expect(costruisciCruscotto(d).negozi.find(n => n.code === 'C')?.chiuso).toBe(true)
   })
 })

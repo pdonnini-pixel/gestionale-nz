@@ -10,7 +10,7 @@ import PageHeader from '../components/PageHeader'
 import { supabase } from '../lib/supabase'
 import { usePeriod } from '../hooks/usePeriod'
 import {
-  costruisciCruscotto, avvisi as calcolaAvvisi, parita, paritaInsieme, stimaChiusura, contoNegozio, mesePieno, somma, fino,
+  costruisciCruscotto, avvisi as calcolaAvvisi, parita, paritaInsieme, margineParita, stimaChiusura, contoNegozio, mesePieno, somma, fino,
   type Cruscotto, type DatiCruscottoRaw, type Negozio, type Avviso,
 } from '../lib/cruscotto'
 import { ColonneMensili, MiniLinee, BarrePersonale, BarreCassa, Scheda, Legenda, COLORI, MESI, euro, euroCompatto } from '../components/cruscotto/Grafici'
@@ -93,9 +93,7 @@ export default function Dashboard() {
   const ricConto = somma(lista.map(n => fino(n.y1, M)))
   const conModa = lista.filter(n => n.moda1)
   const vend = somma(conModa.map(n => n.moda1!.vendite)), costoMerce = somma(conModa.map(n => n.moda1!.costo))
-  const stessi = conModa.filter(n => n.moda0 && n.aperturaMese && n.aperturaMese <= 6)
-  const resa = (k: 'moda1' | 'moda0') => { const v = somma(stessi.map(n => n[k]!.vendite)), co = somma(stessi.map(n => n[k]!.costo)); return v ? (1 - co / v) * 100 : null }
-  const dResa = stessi.length ? (resa('moda1') ?? 0) - (resa('moda0') ?? 0) : null
+  const dResa = margineParita(lista)?.punti ?? null
 
   // ===== Grafico mensile =====
   const ora = Array(12).fill(0), prima = Array(12).fill(0), bud: (number | null)[] = Array(12).fill(null)
@@ -246,9 +244,9 @@ export default function Dashboard() {
                 <tr key={n.id} onClick={() => setScelto(scelto === n.id ? 'TUTTI' : n.id)} className={`cursor-pointer hover:bg-slate-50 ${scelto === n.id ? 'bg-blue-50' : ''}`}>
                   <td className="text-left">{n.nome}</td><td>{fino(n.y1, mp) ? euroCompatto(fino(n.y1, mp)) : '—'}</td>
                   <td>{p ? <Variazione v={p.pct} /> : 'nuovo'}</td><td>{b != null ? <Variazione v={b} /> : 'n.d.'}</td><td>{euroCompatto(stimaChiusura(n, c))}</td>
-                  <td>{m ? nf0.format((1 - m.costo / m.vendite) * 100) + '%' : 'n.d.'}</td><td>{m ? nf0.format(m.ingressi) : 'n.d.'}</td>
-                  <td>{m && m.ingressi ? nf1.format(m.scontrini / m.ingressi * 100) + '%' : 'n.d.'}</td><td>{m && m.scontrini ? euro(m.vendite / m.scontrini) : 'n.d.'}</td>
-                  <td>{m && m.listino ? nf0.format((1 - m.vendite / m.listino) * 100) + '%' : '—'}</td>
+                  <td>{m && m.vendite > 0 ? nf0.format((1 - m.costo / m.vendite) * 100) + '%' : 'n.d.'}</td><td>{m ? nf0.format(m.ingressi) : 'n.d.'}</td>
+                  <td>{m && m.ingressi ? nf1.format(m.scontrini / m.ingressi * 100) + '%' : 'n.d.'}</td><td>{m && m.scontrini && m.vendite > 0 ? euro(m.vendite / m.scontrini) : 'n.d.'}</td>
+                  <td>{m && m.listino > 0 ? nf0.format((1 - m.vendite / m.listino) * 100) + '%' : '—'}</td>
                 </tr>) })}
             </tbody>
           </table>

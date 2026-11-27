@@ -36,7 +36,8 @@ export interface Negozio {
   chiuso: boolean
   y1: Mesi; y0: Mesi // ricavi netti anno scelto e anno prima
   budget: Mesi | null
-  moda1: Moda | null; moda0: Moda | null // stessi mesi nei due anni
+  moda1: Moda | null; moda0: Moda | null // gennaio-meseModa, i due anni
+  modaMesi1: (Moda | null)[]; modaMesi0: (Moda | null)[] // mese per mese, per confrontare gli stessi mesi
   personale: Mesi; ammQuota: number // dipendenti mese per mese, quota amministratore del periodo del conto
   affitto: Mesi; spese: Mesi; allestimenti: Mesi
 }
@@ -82,6 +83,8 @@ export function affittoCompetenza(fatture: Mesi): Mesi {
   }
   return out
 }
+
+const modaMesi = (righe: ModaRaw[]): (Moda | null)[] => Array.from({ length: 12 }, (_, i) => sommaModa(righe.filter(r => r.m === i + 1)))
 
 function sommaModa(righe: ModaRaw[]): Moda | null {
   if (!righe.length) return null
@@ -133,10 +136,12 @@ export function costruisciCruscotto(raw: DatiCruscottoRaw): Cruscotto {
     let budget: Mesi | null = null
     if (bud.length) { budget = Z(); for (const b of bud) budget[b.m - 1] += Number(b.v) || 0 }
     const mm = (raw.moda || []).filter(r => r.o === n.id && r.m <= meseModa)
-    const chiuso = !n.attivo || (!!n.chiusura && n.chiusura < `${anno}-01-01`)
+    // chiuso per l'anno scelto: chiusura prima dell'anno, oppure inattivo senza ricavi nell'anno
+    const chiuso = (!!n.chiusura && n.chiusura < `${anno}-01-01`) || (n.attivo === false && somma(y1) === 0)
     return {
       id: n.id, code: n.code, nome: nomeLeggibile(n.name), cc: n.cc, aperturaMese: primoMesePieno(n.apertura, anno0), chiuso,
       y1, y0, budget, moda1: sommaModa(mm.filter(r => r.y === anno)), moda0: sommaModa(mm.filter(r => r.y === anno0)),
+      modaMesi1: modaMesi(mm.filter(r => r.y === anno)), modaMesi0: modaMesi(mm.filter(r => r.y === anno0)),
       personale: personaleDi(p => p.o === n.id), ammQuota: 0, ...costiDi(c => c.o === n.id),
     }
   })
@@ -144,10 +149,27 @@ export function costruisciCruscotto(raw: DatiCruscottoRaw): Cruscotto {
   const ricConto = somma(negozi.map(n => fino(n.y1, meseConto)))
   if (ricConto > 0) negozi.forEach(n => { n.ammQuota = ammTotale * fino(n.y1, meseConto) / ricConto })
 
-  const haSede = sedeIds.size > 0 || (raw.costi || []).some(c => !c.o)
-  const sede = haSede ? { personale: personaleDi(p => !!p.o && sedeIds.has(p.o)), ...costiDi(c => !c.o || sedeIds.has(c.o)) } : null
+  // il personale senza negozio (non attribuito nel Prospetto) va in Sede, così il totale torna con le paghe
+  const idVendita = new Set(vendita.map(n => n.id))
+  const haSede = sedeIds.size > 0 || (raw.costi || []).some(c => !c.o) || (raw.personale || []).some(p => !p.o || !idVendita.has(p.o))
+  const sede = haSede ? { personale: personaleDi(p => !p.o || !idVendita.has(p.o)), ...costiDi(c => !c.o || sedeIds.has(c.o)) } : null
 
   return { anno, oggi: raw.oggi, meseUltimo, giornoUltimo, giorniMese, meseParziale, meseModa, meseConto, negozi, sede, ammTotale, liquidita: raw.liquidita, scaduto: raw.scaduto }
+}
+
+/** Margine sulla merce (vendite meno costo, sul venduto) a parità: stessi negozi e stessi mesi con importi MODA nei due anni. */
+export function margineParita(ns: Negozio[]): { ora: number; prima: number; punti: number } | null {
+  let v1 = 0, c1 = 0, v0 = 0, c0 = 0
+  for (const n of ns) {
+    if (!n.aperturaMese) continue
+    for (let i = n.aperturaMese - 1; i < 12; i++) {
+      const a = n.modaMesi1[i], b = n.modaMesi0[i]
+      if (a && b && a.vendite > 0 && b.vendite > 0) { v1 += a.vendite; c1 += a.costo; v0 += b.vendite; c0 += b.costo }
+    }
+  }
+  if (!v1 || !v0) return null
+  const ora = (1 - c1 / v1) * 100, prima = (1 - c0 / v0) * 100
+  return { ora, prima, punti: ora - prima }
 }
 
 /** Ultimo mese pieno con i ricavi. */
