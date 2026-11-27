@@ -511,15 +511,18 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       let bisogno: Record<string, { apre: number; chiude: number; esigenza?: number[] }> | null = null;
       if (conCopertura && piano) {
         const rp = await supabase.from('shift_plans').select('riepilogo').eq('id', piano).maybeSingle();
+        if (rp.error) toast({ type: 'warning', duration: 10000, message: `Fabbisogno del piano del mese non letto (${rp.error.message}): nella copertura si vedono solo le persone in turno.` });
         bisogno = ((rp.data as { riepilogo?: { bisogno?: Record<string, { apre: number; chiude: number; esigenza?: number[] }> } } | null)?.riepilogo?.bisogno) ?? null;
       }
       const coperturaDi = (d: string, turniDelGiorno: { inizio: string; fine: string }[]): CoperturaGiorno | null => {
         if (date.includes(d)) return coperturaDelGiorno(d);
-        const b = bisogno?.[d];
-        if (b) return { data: d, mezzore: mezzoreCopertura(b.apre, b.chiude, turniDelGiorno, b.esigenza ?? null) };
-        if (bisogno) return null; // il piano non ha il giorno: era chiuso
+        // la chiusura di metà giornata non si stampa, come nella settimana a video (la si legge dallo stesso giorno della settimana)
         const g = tipo.get(giornoIso(d));
-        return g && !g.chiuso ? { data: d, mezzore: mezzoreCopertura(g.apre, g.chiude, turniDelGiorno, null) } : null;
+        const fuoriChiusura = (x: { ora: string }) => !g?.chiusura || minuti(x.ora) < g.chiusura.dalle || minuti(x.ora) >= g.chiusura.alle;
+        const b = bisogno?.[d];
+        if (b) return { data: d, mezzore: mezzoreCopertura(b.apre, b.chiude, turniDelGiorno, b.esigenza ?? null).filter(fuoriChiusura) };
+        if (bisogno) return null; // il piano non ha il giorno: era chiuso
+        return g && !g.chiuso ? { data: d, mezzore: mezzoreCopertura(g.apre, g.chiude, turniDelGiorno, null).filter(fuoriChiusura) } : null;
       };
       const fogli = [];
       for (let lun = lunediDi(primo); lun <= ultimoDelMese; lun = aggiungiGiorni(lun, 7)) {
