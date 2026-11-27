@@ -13,9 +13,9 @@ import {
   costruisciCruscotto, avvisi as calcolaAvvisi, parita, paritaInsieme, margineParita, confrontoMese, stimaChiusura, contoNegozio, mesePieno, somma, fino,
   type Cruscotto, type DatiCruscottoRaw, type Negozio, type Avviso,
 } from '../lib/cruscotto'
-import { ColonneMensili, MiniLinee, BarrePersonale, BarreCassa, Scheda, Legenda, COLORI, MESI, euro, euroCompatto } from '../components/cruscotto/Grafici'
+import { ColonneMensili, MiniLinee, BarrePersonale, BarreCassa, Scheda, Legenda, COLORI, MESI, euro } from '../components/cruscotto/Grafici'
 
-const nf0 = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 })
+const nf0 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }) // de-DE: punto delle migliaia anche su 4 cifre (it-IT scrive 2670)
 const nf1 = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 const pct = (v: number) => (v > 0 ? '+' : '') + nf1.format(v) + '%'
 const MESI_LUNGHI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
@@ -138,7 +138,7 @@ export default function Dashboard() {
       <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm lg:grid-cols-[1.25fr_1fr]">
         <div>
           <div className="text-sm text-slate-500">Ricavi netti {c.anno}{uno ? `, ${uno.nome}` : ''}, dal 1 gennaio al {finoAl} (imponibile, senza IVA)</div>
-          <div className="my-2 text-5xl font-semibold tracking-tight text-slate-900">{euroCompatto(ricaviAnno)}</div>
+          <div className="my-2 text-5xl font-semibold tracking-tight text-slate-900">{euro(ricaviAnno)}</div>
           <div className="flex flex-wrap gap-2 text-xs">
             <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1">
               {lfl != null ? <><Variazione v={lfl} /> a parità di negozi e mesi pieni (gennaio-{MESI_LUNGHI[mp - 1]})</> : 'Negozio nuovo: nessun anno prima da confrontare'}
@@ -147,14 +147,14 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="flex flex-col justify-center gap-2 rounded-xl bg-slate-50 p-4">
-          <div className="flex justify-between text-xs text-slate-500"><span>Chiusura {c.anno} stimata</span><strong className="text-slate-900">{euroCompatto(stima)}</strong></div>
+          <div className="flex justify-between text-xs text-slate-500"><span>Chiusura {c.anno} stimata</span><strong className="text-slate-900">{euro(stima)}</strong></div>
           {(() => { const max = Math.max(stima, anno0, 1) * 1.08; return (
             <div className="relative h-2.5 rounded-full bg-blue-100">
               <i className="absolute inset-y-0 left-0 rounded-full bg-blue-600 opacity-35" style={{ width: `${stima / max * 100}%` }} />
               <i className="absolute inset-y-0 left-0 rounded-full bg-blue-600" style={{ width: `${ricaviAnno / max * 100}%` }} />
               {anno0 > 0 && <b className="absolute -inset-y-1 w-0.5 rounded bg-slate-900" style={{ left: `${anno0 / max * 100}%` }} title="Anno prima" />}
             </div>) })()}
-          <div className="flex justify-between text-xs text-slate-500"><span>Incassato <strong className="text-slate-900">{euroCompatto(ricaviAnno)}</strong></span><span>Tacca: anno prima <strong className="text-slate-900">{anno0 ? euroCompatto(anno0) : 'non aperto'}</strong></span></div>
+          <div className="flex justify-between text-xs text-slate-500"><span>Incassato <strong className="text-slate-900">{euro(ricaviAnno)}</strong></span><span>Tacca: anno prima <strong className="text-slate-900">{anno0 ? euro(anno0) : 'non aperto'}</strong></span></div>
           <div className="flex justify-between gap-2 text-xs text-slate-500">
             <span>Stima: incassato{c.meseParziale ? ' + mese in corso in proiezione' : ''} + mesi che mancano {conBudget ? 'a budget' : 'come l\'anno prima, con la crescita a parità'}</span>
             {anno0 > 0 && <Variazione v={(stima / anno0 - 1) * 100} />}
@@ -165,25 +165,25 @@ export default function Dashboard() {
       {/* Quattro numeri */}
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Scheda titolo="Liquidità sui conti" sotto="Saldo dei conti">
-          <div className="text-2xl font-semibold text-slate-900">{euroCompatto(liq)}</div>
+          <div className="text-2xl font-semibold text-slate-900">{euro(liq)}</div>
           <div className="text-xs text-slate-500">{c.liquidita?.conti ?? 0} conti{c.liquidita?.aggiornato ? ` · saldo del ${new Date(c.liquidita.aggiornato).toLocaleDateString('it-IT', { timeZone: 'Europe/Rome' })}` : ''}</div>
           {copertura != null && <>
-            <div className="mt-3 text-xs text-slate-500">Copre il <strong className="text-slate-900">{nf0.format(copertura)}%</strong> di scaduto + 30 giorni</div>
+            <div className="mt-3 text-xs text-slate-500">Copre il <strong className="text-slate-900">{nf1.format(copertura)}%</strong> di scaduto + 30 giorni</div>
             <div className="mt-1.5 h-2 rounded-full bg-blue-100"><div className="h-2 rounded-full" style={{ width: `${Math.min(100, copertura)}%`, background: copertura < 100 ? COLORI.serio : COLORI.anno }} /></div>
           </>}
         </Scheda>
         <Scheda titolo="Fornitori scaduti" sotto="IVA compresa, come lo Scadenzario">
           <Link to="/scadenzario" className="block">
-            <div className="text-2xl font-semibold text-slate-900">{euroCompatto(scaduto)}</div>
-            <div className="text-xs text-slate-500">{s?.fatture_scadute ?? 0} fatture · di cui <b>{euroCompatto(s?.oltre30 ?? 0)}</b> da oltre 30 giorni</div>
+            <div className="text-2xl font-semibold text-slate-900">{euro(scaduto)}</div>
+            <div className="text-xs text-slate-500">{s?.fatture_scadute ?? 0} fatture · di cui <b>{euro(s?.oltre30 ?? 0)}</b> da oltre 30 giorni</div>
           </Link>
         </Scheda>
         <Scheda titolo={`Personale sui ricavi (gennaio-${MESI_LUNGHI[M - 1] || '—'})`}>
           <div className="text-2xl font-semibold text-slate-900">{ricConto ? nf1.format((persNegozi + persSede) / ricConto * 100) + '%' : 'n.d.'}</div>
-          <div className="text-xs text-slate-500">{euroCompatto(persNegozi + persSede)} di costo aziendale del personale (stipendi, contributi, TFR, amministratori){persSede ? ', sede compresa' : ''}, su {euroCompatto(ricConto)} di ricavi senza IVA</div>
+          <div className="text-xs text-slate-500">{euro(persNegozi + persSede)} di costo aziendale del personale (stipendi, contributi, TFR, amministratori){persSede ? ', sede compresa' : ''}, su {euro(ricConto)} di ricavi senza IVA</div>
         </Scheda>
         <Scheda titolo={`Margine sulla merce (MODA, gennaio-${MESI_LUNGHI[c.meseModa - 1] || '—'})`}>
-          <div className="text-2xl font-semibold text-slate-900">{vend ? nf0.format((1 - costoMerce / vend) * 100) + '%' : 'n.d.'}</div>
+          <div className="text-2xl font-semibold text-slate-900">{vend ? nf1.format((1 - costoMerce / vend) * 100) + '%' : 'n.d.'}</div>
           <div className="text-xs text-slate-500">{dResa != null ? <><Variazione v={dResa} punti /> sull'anno prima a parità di negozi</> : vend ? 'Senza storico MODA da confrontare' : 'Nessun report MODA'}</div>
           {vend > 0 && <div className="mt-2 text-xs text-slate-500">Conversione {nf1.format(somma(conModa.map(n => n.moda1!.scontrini)) / Math.max(1, somma(conModa.map(n => n.moda1!.ingressi))) * 100)}% · scontrino medio {euro(vend / Math.max(1, somma(conModa.map(n => n.moda1!.scontrini))))}</div>}
         </Scheda>
@@ -199,9 +199,9 @@ export default function Dashboard() {
             <table className="w-full text-right text-xs tabular-nums">
               <thead><tr className="text-slate-500"><th className="p-1.5 text-left font-medium" />{MESI.map(m => <th key={m} className="p-1.5 font-medium">{m}</th>)}</tr></thead>
               <tbody className="[&_td]:border-t [&_td]:border-slate-100 [&_td]:p-1.5">
-                <tr><td className="text-left">{c.anno}</td>{ora.map((v, i) => <td key={i}>{v ? nf0.format(Math.round(v / 1000)) + 'K' : ''}</td>)}</tr>
-                <tr><td className="text-left">{c.anno - 1}</td>{prima.map((v, i) => <td key={i}>{v ? nf0.format(Math.round(v / 1000)) + 'K' : ''}</td>)}</tr>
-                {bud.some(Boolean) && <tr><td className="text-left">Budget</td>{bud.map((v, i) => <td key={i}>{v ? nf0.format(Math.round(v / 1000)) + 'K' : ''}</td>)}</tr>}
+                <tr><td className="text-left">{c.anno}</td>{ora.map((v, i) => <td key={i}>{v ? nf0.format(Math.round(v)) : ''}</td>)}</tr>
+                <tr><td className="text-left">{c.anno - 1}</td>{prima.map((v, i) => <td key={i}>{v ? nf0.format(Math.round(v)) : ''}</td>)}</tr>
+                {bud.some(Boolean) && <tr><td className="text-left">Budget</td>{bud.map((v, i) => <td key={i}>{v ? nf0.format(Math.round(v)) : ''}</td>)}</tr>}
                 {bud.some(Boolean) && <tr><td className="text-left">Contro budget</td>{bud.map((v, i) => {
                   if (!v || !ora[i] || i >= c.meseUltimo) return <td key={i} />
                   const base = i === parziale ? v * c.giornoUltimo / c.giorniMese : v, p = (ora[i] / base - 1) * 100
@@ -214,7 +214,7 @@ export default function Dashboard() {
                   if (!a || !b) return <td key={i} />
                   if (i === parziale) a = a * c.giornoUltimo / c.giorniMese
                   const p = (b / a - 1) * 100
-                  return <td key={i} className={p >= 0 ? 'text-emerald-700' : 'text-red-600'}>{(p > 0 ? '+' : '') + nf0.format(p)}%</td>
+                  return <td key={i} className={p >= 0 ? 'text-emerald-700' : 'text-red-600'}>{pct(p)}</td>
                 })}</tr>
               </tbody>
             </table>
@@ -243,10 +243,10 @@ export default function Dashboard() {
                 <span className="text-sm font-semibold text-slate-900">{n.nome}</span>
                 {k.pct != null ? <Variazione v={k.pct} /> : <span className="text-xs text-slate-500">{k.ora ? 'nuovo' : '—'}</span>}
               </div>
-              <div className="mt-1 text-xl font-semibold text-slate-900">{k.ora ? euroCompatto(k.ora) : '—'}</div>
+              <div className="mt-1 text-xl font-semibold text-slate-900">{k.ora ? euro(k.ora) : '—'}</div>
               <div className="text-xs text-slate-500">
-                {k.prima ? <>anno prima {euroCompatto(k.prima)}{k.parziale ? ` (1-${c.giornoUltimo})` : ''}</> : 'l\'anno prima non era aperto'}
-                {k.parziale && k.ora > 0 && <> · stima del mese <b className="text-slate-700">{euroCompatto(k.stima)}</b></>}
+                {k.prima ? <>anno prima {euro(k.prima)}{k.parziale ? ` (1-${c.giornoUltimo})` : ''}</> : 'l\'anno prima non era aperto'}
+                {k.parziale && k.ora > 0 && <> · stima del mese <b className="text-slate-700">{euro(k.stima)}</b></>}
               </div>
               <MiniLinee ora={n.y1} prima={n.y0} max={maxMini} ultimoMese={c.meseUltimo} titolo={n.nome} meseEvidenziato={mese - 1} />
             </button>) })}
@@ -271,13 +271,13 @@ export default function Dashboard() {
               {aperti.map(n => { const k = confrontoMese(n, c, mese), p = parita(n, mp), b = ricaviConfronto(n), m = n.moda1; return (
                 <tr key={n.id} onClick={() => setScelto(scelto === n.id ? 'TUTTI' : n.id)} className={`cursor-pointer hover:bg-slate-50 ${scelto === n.id ? 'bg-blue-50' : ''}`}>
                   <td className="text-left">{n.nome}</td>
-                  <td>{k.ora ? euroCompatto(k.ora) : '—'}</td><td>{k.prima ? euroCompatto(k.prima) : '—'}</td>
-                  <td className={k.pct == null ? '' : k.ora >= k.prima ? 'text-emerald-700' : 'text-red-600'}>{k.pct != null ? (k.ora >= k.prima ? '+' : '−') + euroCompatto(Math.abs(k.ora - k.prima)).slice(2) : '—'}</td>
+                  <td>{k.ora ? euro(k.ora) : '—'}</td><td>{k.prima ? euro(k.prima) : '—'}</td>
+                  <td className={k.pct == null ? '' : k.ora >= k.prima ? 'text-emerald-700' : 'text-red-600'}>{k.pct != null ? (k.ora >= k.prima ? '+' : '−') + euro(Math.abs(k.ora - k.prima)) : '—'}</td>
                   <td>{k.pct != null ? <Variazione v={k.pct} /> : (k.ora ? 'nuovo' : '—')}</td>
-                  <td>{k.parziale && k.ora ? euroCompatto(k.stima) : k.ora ? euroCompatto(k.ora) : '—'}</td>
-                  <td>{fino(n.y1, mp) ? euroCompatto(fino(n.y1, mp)) : '—'}</td>
-                  <td>{p ? <Variazione v={p.pct} /> : 'nuovo'}</td><td>{b != null ? <Variazione v={b} /> : 'n.d.'}</td><td>{euroCompatto(stimaChiusura(n, c))}</td>
-                  <td>{m && m.vendite > 0 ? nf0.format((1 - m.costo / m.vendite) * 100) + '%' : 'n.d.'}</td>
+                  <td>{k.parziale && k.ora ? euro(k.stima) : k.ora ? euro(k.ora) : '—'}</td>
+                  <td>{fino(n.y1, mp) ? euro(fino(n.y1, mp)) : '—'}</td>
+                  <td>{p ? <Variazione v={p.pct} /> : 'nuovo'}</td><td>{b != null ? <Variazione v={b} /> : 'n.d.'}</td><td>{euro(stimaChiusura(n, c))}</td>
+                  <td>{m && m.vendite > 0 ? nf1.format((1 - m.costo / m.vendite) * 100) + '%' : 'n.d.'}</td>
                   <td>{m && m.ingressi ? nf1.format(m.scontrini / m.ingressi * 100) + '%' : 'n.d.'}</td>
                   <td>{m && m.scontrini && m.vendite > 0 ? euro(m.vendite / m.scontrini) : 'n.d.'}</td>
                 </tr>) })}
@@ -287,9 +287,9 @@ export default function Dashboard() {
                 const pc = a ? (bb / a - 1) * 100 : null
                 return (
                   <tr className="font-semibold [&_td]:border-t-2 [&_td]:border-slate-300">
-                    <td className="text-left">Tutti</td><td>{euroCompatto(ora)}</td><td>{euroCompatto(somma(ks.map(k => k.prima)))}</td>
-                    <td /><td>{pc != null ? <Variazione v={pc} /> : '—'}</td><td>{euroCompatto(somma(ks.map(k => k.stima)))}</td>
-                    <td>{euroCompatto(somma(aperti.map(n => fino(n.y1, mp))))}</td><td>{lflTutti != null ? <Variazione v={lflTutti} /> : '—'}</td><td /><td>{euroCompatto(somma(aperti.map(n => stimaChiusura(n, c))))}</td><td /><td /><td />
+                    <td className="text-left">Tutti</td><td>{euro(ora)}</td><td>{euro(somma(ks.map(k => k.prima)))}</td>
+                    <td /><td>{pc != null ? <Variazione v={pc} /> : '—'}</td><td>{euro(somma(ks.map(k => k.stima)))}</td>
+                    <td>{euro(somma(aperti.map(n => fino(n.y1, mp))))}</td><td>{lflTutti != null ? <Variazione v={lflTutti} /> : '—'}</td><td /><td>{euro(somma(aperti.map(n => stimaChiusura(n, c))))}</td><td /><td /><td />
                   </tr>)
               })()}
             </tbody>
@@ -327,7 +327,7 @@ export default function Dashboard() {
 
 function ContoScalare({ c, lista, scelto, setScelto }: { c: Cruscotto; lista: Negozio[]; scelto: string; setScelto: (v: string) => void }) {
   const M = c.meseConto
-  const neg = (v: number | null) => (v == null ? 'n.d.' : Math.abs(v) < 500 ? '—' : '−' + euroCompatto(v).slice(2))
+  const neg = (v: number | null) => (v == null ? 'n.d.' : Math.abs(v) < 0.5 ? '—' : '−' + euro(v))
   const T = { ricavi: 0, merce: 0, personale: 0, affitto: 0, spese: 0, allestimenti: 0 }
   const righe = lista.map(n => ({ n, k: contoNegozio(n, c) })).filter(r => r.k.ricavi || r.k.affitto || r.k.allestimenti)
   righe.forEach(({ k }) => { if (k.merce != null) { T.ricavi += k.ricavi; T.merce += k.merce } T.personale += k.personale; T.affitto += k.affitto; T.spese += k.spese; T.allestimenti += k.allestimenti })
@@ -342,16 +342,16 @@ function ContoScalare({ c, lista, scelto, setScelto }: { c: Cruscotto; lista: Ne
           <tbody className="[&_td]:border-t [&_td]:border-slate-100 [&_td]:px-2 [&_td]:py-2">
             {righe.map(({ n, k }) => (
               <tr key={n.id} onClick={() => setScelto(scelto === n.id ? 'TUTTI' : n.id)} className={`cursor-pointer hover:bg-slate-50 ${scelto === n.id ? 'bg-blue-50' : ''}`}>
-                <td className="text-left">{n.nome}</td><td>{k.ricavi ? euroCompatto(k.ricavi) : 'non ancora aperto'}</td><td>{neg(k.merce)}</td>
-                <td>{k.merce != null ? euroCompatto(k.ricavi - k.merce) : '—'}</td><td>{neg(k.personale)}</td><td>{neg(k.affitto)}</td><td>{neg(k.spese)}</td>
-                <td className={`font-semibold ${k.lascia != null && k.lascia < 0 ? 'text-red-600' : ''}`}>{k.lascia != null ? euroCompatto(k.lascia) : '—'}</td>
-                <td className={k.lascia != null && k.lascia < 0 ? 'text-red-600' : ''}>{k.lascia != null && k.ricavi ? nf0.format(k.lascia / k.ricavi * 100) + ' €' : '—'}</td>
-                <td>{k.allestimenti > 1000 ? euroCompatto(k.allestimenti) : ''}</td>
+                <td className="text-left">{n.nome}</td><td>{k.ricavi ? euro(k.ricavi) : 'non ancora aperto'}</td><td>{neg(k.merce)}</td>
+                <td>{k.merce != null ? euro(k.ricavi - k.merce) : '—'}</td><td>{neg(k.personale)}</td><td>{neg(k.affitto)}</td><td>{neg(k.spese)}</td>
+                <td className={`font-semibold ${k.lascia != null && k.lascia < 0 ? 'text-red-600' : ''}`}>{k.lascia != null ? euro(k.lascia) : '—'}</td>
+                <td className={k.lascia != null && k.lascia < 0 ? 'text-red-600' : ''}>{k.lascia != null && k.ricavi ? nf1.format(k.lascia / k.ricavi * 100) + ' €' : '—'}</td>
+                <td>{k.allestimenti > 1000 ? euro(k.allestimenti) : ''}</td>
               </tr>))}
             {sede && <tr><td className="text-left">Sede / magazzino</td><td /><td /><td /><td>{neg(sede.personale)}</td><td>{neg(sede.affitto)}</td><td>{neg(sede.spese)}</td>
-              <td className="font-semibold text-red-600">{neg(sede.personale + sede.affitto + sede.spese)}</td><td /><td>{sede.allestimenti > 1000 ? euroCompatto(sede.allestimenti) : ''}</td></tr>}
-            {scelto === 'TUTTI' && T.ricavi > 0 && <tr className="font-semibold [&_td]:border-t-2 [&_td]:border-slate-300"><td className="text-left">Azienda</td><td>{euroCompatto(T.ricavi)}</td><td>{neg(T.merce)}</td><td>{euroCompatto(T.ricavi - T.merce)}</td><td>{neg(T.personale)}</td><td>{neg(T.affitto)}</td><td>{neg(T.spese)}</td>
-              <td className={risultato < 0 ? 'text-red-600' : ''}>{euroCompatto(risultato)}</td><td className={risultato < 0 ? 'text-red-600' : ''}>{nf0.format(risultato / T.ricavi * 100)} €</td><td>{euroCompatto(T.allestimenti)}</td></tr>}
+              <td className="font-semibold text-red-600">{neg(sede.personale + sede.affitto + sede.spese)}</td><td /><td>{sede.allestimenti > 1000 ? euro(sede.allestimenti) : ''}</td></tr>}
+            {scelto === 'TUTTI' && T.ricavi > 0 && <tr className="font-semibold [&_td]:border-t-2 [&_td]:border-slate-300"><td className="text-left">Azienda</td><td>{euro(T.ricavi)}</td><td>{neg(T.merce)}</td><td>{euro(T.ricavi - T.merce)}</td><td>{neg(T.personale)}</td><td>{neg(T.affitto)}</td><td>{neg(T.spese)}</td>
+              <td className={risultato < 0 ? 'text-red-600' : ''}>{euro(risultato)}</td><td className={risultato < 0 ? 'text-red-600' : ''}>{nf1.format(risultato / T.ricavi * 100)} €</td><td>{euro(T.allestimenti)}</td></tr>}
           </tbody>
         </table>
       </div>

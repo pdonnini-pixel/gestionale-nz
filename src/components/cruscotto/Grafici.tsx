@@ -8,7 +8,8 @@ export const COLORI = {
   critico: '#dc3c3d', serio: '#f18a59', griglia: '#e7e7e7', asse: '#c2c2c2', testo: '#191919', testo2: '#666666',
 }
 export const MESI = ['gen', 'feb', 'mar', 'apr', 'mag', 'giu', 'lug', 'ago', 'set', 'ott', 'nov', 'dic']
-const nf0 = new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 })
+const nf0 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }) // de-DE: punto delle migliaia anche su 4 cifre (it-IT scrive 2670)
+const nf1 = new Intl.NumberFormat('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 export const euro = (v: number) => '€ ' + nf0.format(Math.round(v))
 export const asseK = (v: number) => (v >= 1000 ? nf0.format(v / 1000) + 'K' : nf0.format(v))
 
@@ -129,7 +130,7 @@ export function MiniLinee({ ora, prima, max, ultimoMese, titolo, meseEvidenziato
 export function BarrePersonale({ righe }: { righe: { nome: string; dip: number; amm: number; ricavi: number; evidenzia?: boolean }[] }) {
   const [ref, W] = useLarghezza<HTMLDivElement>()
   const [tip, setTip] = useState<Tip | null>(null)
-  const H = Math.max(160, righe.length * 30 + 28), m = { l: 140, r: 110, t: 6, b: 22 }
+  const H = Math.max(160, righe.length * 30 + 28), m = { l: 140, r: 140, t: 6, b: 22 }
   const max = Math.max(1, ...righe.map(r => r.dip + r.amm)) * 1.05
   const x = (v: number) => m.l + (W - m.l - m.r) * v / max
   const rh = (H - m.t - m.b) / Math.max(1, righe.length), bh = Math.min(18, rh * 0.6)
@@ -147,9 +148,9 @@ export function BarrePersonale({ righe }: { righe: { nome: string; dip: number; 
               <text x={m.l - 8} y={yy + bh / 2 + 4} textAnchor="end" fontSize={11} fill={COLORI.testo2} fontWeight={r.evidenzia ? 700 : 400}>{r.nome}</text>
               <rect x={x(0)} y={yy} width={Math.max(0, w1 - (r.amm ? 2 : 0))} height={bh} rx={r.amm ? 0 : 4} fill={COLORI.anno} />
               {r.amm > 0 && <rect x={x(r.dip)} y={yy} width={Math.max(2, w2)} height={bh} rx={3} fill={COLORI.budget} />}
-              <text x={x(tot) + 6} y={yy + bh / 2 + 4} fontSize={11} fill={COLORI.testo}>{euroCompatto(tot)}{r.ricavi ? ` · ${nf0.format(tot / r.ricavi * 100)}%` : ''}</text>
+              <text x={x(tot) + 6} y={yy + bh / 2 + 4} fontSize={11} fill={COLORI.testo}>{euro(tot)}{r.ricavi ? ` · ${nf1.format(tot / r.ricavi * 100)}%` : ''}</text>
               <rect x={0} y={m.t + rh * i} width={W} height={rh} fill="transparent"
-                onPointerMove={e => setTip({ x: e.clientX, y: e.clientY, titolo: r.nome, righe: [{ etichetta: 'Dipendenti', valore: euro(r.dip), colore: COLORI.anno }, { etichetta: 'Quota amministratore', valore: euro(r.amm), colore: COLORI.budget }, { etichetta: 'Su ricavi', valore: r.ricavi ? nf0.format(tot / r.ricavi * 100) + '%' : 'nessun ricavo', colore: 'transparent' }] })}
+                onPointerMove={e => setTip({ x: e.clientX, y: e.clientY, titolo: r.nome, righe: [{ etichetta: 'Dipendenti', valore: euro(r.dip), colore: COLORI.anno }, { etichetta: 'Quota amministratore', valore: euro(r.amm), colore: COLORI.budget }, { etichetta: 'Su ricavi', valore: r.ricavi ? nf1.format(tot / r.ricavi * 100) + '%' : 'nessun ricavo', colore: 'transparent' }] })}
                 onPointerLeave={() => setTip(null)} />
             </g>
           )
@@ -164,7 +165,7 @@ export function BarrePersonale({ righe }: { righe: { nome: string; dip: number; 
 export function BarreCassa({ fasce, liquidita }: { fasce: { nome: string; valore: number; colore: string }[]; liquidita: number }) {
   const [ref, W] = useLarghezza<HTMLDivElement>()
   const [tip, setTip] = useState<Tip | null>(null)
-  const H = 250, m = { l: 150, r: 60, t: 26, b: 22 }
+  const H = 250, m = { l: 150, r: 100, t: 26, b: 22 }
   let cum = 0
   const righe = fasce.map(f => { cum += f.valore; return { ...f, cum } })
   const top = Math.max(1, cum, liquidita) * 1.12
@@ -183,7 +184,7 @@ export function BarreCassa({ fasce, liquidita }: { fasce: { nome: string; valore
               <text x={m.l - 8} y={yy + bh / 2 + 4} textAnchor="end" fontSize={11} fill={COLORI.testo2}>{r.nome}</text>
               {x0 - x(0) > 3 && <rect x={x(0)} y={yy} width={x0 - x(0) - 2} height={bh} rx={4} fill={COLORI.prima} opacity={0.55} />}
               <rect x={x0} y={yy} width={Math.max(2, x(r.cum) - x0)} height={bh} rx={4} fill={r.colore} />
-              <text x={x(r.cum) + 6} y={yy + bh / 2 + 4} fontSize={11} fill={COLORI.testo}>{asseK(Math.round(r.cum))}</text>
+              <text x={x(r.cum) + 6} y={yy + bh / 2 + 4} fontSize={11} fill={COLORI.testo}>{euro(r.cum)}</text>
               <rect x={m.l} y={m.t + rh * i} width={W - m.l} height={rh} fill="transparent"
                 onPointerMove={e => setTip({ x: e.clientX, y: e.clientY, titolo: r.nome, righe: [{ etichetta: 'Questa fascia', valore: euro(r.valore), colore: r.colore }, { etichetta: 'Totale fino a qui', valore: euro(r.cum), colore: COLORI.prima }, { etichetta: 'Liquidità oggi', valore: euro(liquidita), colore: COLORI.testo }] })}
                 onPointerLeave={() => setTip(null)} />
@@ -191,7 +192,7 @@ export function BarreCassa({ fasce, liquidita }: { fasce: { nome: string; valore
           )
         })}
         <line x1={x(liquidita)} x2={x(liquidita)} y1={m.t - 4} y2={H - m.b} stroke={COLORI.testo} strokeWidth={2} />
-        <text x={x(liquidita)} y={m.t - 10} textAnchor="middle" fontSize={11} fontWeight={600} fill={COLORI.testo}>liquidità oggi {asseK(Math.round(liquidita))}</text>
+        <text x={x(liquidita)} y={m.t - 10} textAnchor="middle" fontSize={11} fontWeight={600} fill={COLORI.testo}>liquidità oggi {euro(liquidita)}</text>
       </svg>
       <Tooltip tip={tip} />
     </div>

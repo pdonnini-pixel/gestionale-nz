@@ -226,13 +226,10 @@ export function contoNegozio(n: Negozio, c: Cruscotto): ContoNegozio {
 }
 
 export interface Avviso { livello: 'critico' | 'serio' | 'attenzione' | 'info' | 'buono'; titolo: string; dettaglio: string }
-const eur = (v: number) => '€ ' + new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(Math.round(v))
-export const eurCompatto = (v: number): string => {
-  const a = Math.abs(v)
-  if (a >= 1e6) return '€ ' + new Intl.NumberFormat('it-IT', { maximumFractionDigits: 2 }).format(v / 1e6) + ' mln'
-  if (a >= 1000) return '€ ' + new Intl.NumberFormat('it-IT', { maximumFractionDigits: 0 }).format(Math.round(v / 1000)) + ' mila'
-  return eur(v)
-}
+// de-DE: punto delle migliaia anche su 4 cifre (it-IT scrive 2670)
+const eur = (v: number) => '€ ' + new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 }).format(Math.round(v))
+/** Importi negli avvisi: precisi all'euro (Patrizio, 27/11/2026: niente numeri tondi). */
+export const eurCompatto = (v: number): string => eur(v)
 const pct1 = (v: number) => (v > 0 ? '+' : '') + new Intl.NumberFormat('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(v) + '%'
 const MESI_LUNGHI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre']
 
@@ -246,7 +243,7 @@ export function avvisi(c: Cruscotto): Avviso[] {
   if (lfl != null && lfl < 0) out.push({ livello: 'critico', titolo: `Ricavi a parità di negozi ${pct1(lfl)} sull'anno prima.`, dettaglio: `Gennaio-${MESI_LUNGHI[mp - 1] || ''}, solo i mesi pieni aperti in tutti e due gli anni.` })
   if (c.liquidita && s) {
     const usc = totScad + s.entro30
-    if (usc > 0 && c.liquidita.saldo < usc) out.push({ livello: 'serio', titolo: `La liquidità copre il ${Math.round(c.liquidita.saldo / usc * 100)}% di scaduto e uscite dei prossimi 30 giorni.`, dettaglio: `${eurCompatto(c.liquidita.saldo)} sui conti, ${eurCompatto(usc)} da pagare.` })
+    if (usc > 0 && c.liquidita.saldo < usc) out.push({ livello: 'serio', titolo: `La liquidità copre il ${new Intl.NumberFormat('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(c.liquidita.saldo / usc * 100)}% di scaduto e uscite dei prossimi 30 giorni.`, dettaglio: `${eurCompatto(c.liquidita.saldo)} sui conti, ${eurCompatto(usc)} da pagare.` })
   }
   // mese in corso contro lo stesso mese dell'anno prima, in proporzione ai giorni
   if (c.meseParziale && c.giornoUltimo > 0) {
@@ -258,7 +255,7 @@ export function avvisi(c: Cruscotto): Avviso[] {
     for (const n of aperti) {
       if (!n.budget || !n.budget[i] || !n.y1[i] || n.aperturaMese) continue
       const proj = n.y1[i] / c.giornoUltimo * c.giorniMese
-      if (proj >= n.budget[i] * 1.1) out.push({ livello: 'buono', titolo: `${n.nome}: ${eurCompatto(n.y1[i])} nei primi ${c.giornoUltimo} giorni, in proiezione al ${Math.round(proj / n.budget[i] * 100)}% del budget del mese.`, dettaglio: 'Negozio nuovo: nessun anno prima da confrontare.' })
+      if (proj >= n.budget[i] * 1.1) out.push({ livello: 'buono', titolo: `${n.nome}: ${eurCompatto(n.y1[i])} nei primi ${c.giornoUltimo} giorni, in proiezione al ${new Intl.NumberFormat('it-IT', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(proj / n.budget[i] * 100)}% del budget del mese.`, dettaglio: 'Negozio nuovo: nessun anno prima da confrontare.' })
     }
   }
   // budget
