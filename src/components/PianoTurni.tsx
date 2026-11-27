@@ -510,7 +510,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       let altroMese: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; outlet_id: string }[] = [];
       if (giorniAltroMese.length) {
         const [tf, pf] = await Promise.all([
-          supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, outlet_id, origine, stato').eq('company_id', companyId).in('data', giorniAltroMese).neq('stato', 'annullato'),
+          supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, outlet_id, origine, stato').eq('company_id', companyId).in('data', giorniAltroMese).in('employee_id', visibili.map((p) => p.scheda.id)).neq('stato', 'annullato'),
           supabase.from('shift_plans').select('id, outlet_id, mese, stato, simulazione, created_at').eq('company_id', companyId).in('mese', [...new Set(giorniAltroMese.map((d) => `${d.slice(0, 7)}-01`))]),
         ]);
         if (tf.error || pf.error) throw new Error(`turni dei giorni dell'altro mese non letti (${(tf.error ?? pf.error)?.message ?? 'errore'})`);
