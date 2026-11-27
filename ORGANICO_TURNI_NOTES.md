@@ -1556,3 +1556,18 @@ Nato dal piano di dicembre di Roma Soratte: il martedì 1/12 e 22/12 tre persone
 - **Persone dedicate** (`outlet_servizi.dedicate`): per ogni servizio, in `ottimizzaSettimana` mancano `min(persone del servizio, dedicate che possono esserci)` meno le dedicate in turno nella finestra; ogni mancante pesa `PESI.dedicataAssente` (8.000: sopra coppie, turni e giorno libero, sotto riposi e persone che servono). Le dedicate che mancano e «non riposano mai» quel giorno pagano già `riposoVietato` e non si contano di nuovo.
 - **Tetto** (`outlet_shift_rules.tetto_persone_giorno`, `tetto_giorni`): `applicaServizi` mette `GiornoPiano.tettoPersone` nei giorni scelti, tranne giorni caldi, festivi, eventi e lunedì a due. Ogni persona oltre pesa `PESI.personaOltreTetto` (40.000: sotto il minimo delle fasce, sopra i riposi). Patrizio: «vince la soluzione che mi rende meno ore di straordinario»; nei feriali lo straordinario è un vincolo duro, quindi il tetto cede quando le ore non bastano.
 - **Misura** (test `serviziNegozio.test.ts`, caso tipo Roma Soratte con quattro persone): con tetto e dedicata tutti i martedì feriali a due persone, la dedicata fa lo scarico in tutti; l'8/12 festivo resta a tre (il tetto lì non vale). Ore scoperte del mese 48,2 contro 47,9 senza dedicata.
+
+## La settimana a cavallo si vede intera (27/11/2026)
+
+Patrizio: «serve poter vedere nella settimana su cui si calcolano le ore settimanali sia il lunedì che la
+domenica anche se sono del mese prima o dopo, e lui deve tenerne in considerazione per il conto».
+
+- Nel piano settimanale i giorni dell'altro mese della settimana compaiono in grigio, prima o dopo i giorni
+  del mese scelto (`ThAltroMese`, `TdAltroMese` in `src/components/PianoTurni.tsx`), con i turni che
+  valgono per quei giorni: `turniCheValgono` (piano scelto del mese, oppure turni settimanali, oppure il
+  piano più recente), in qualunque negozio (se in un altro, la casella lo dice).
+- Sola lettura: si cambiano dalla settimana di quel mese. Nessun trascinamento verso quei giorni.
+- Sono gli stessi turni che già entravano nel conto: ore della settimana (`oreFuori`, «di cui … h in
+  novembre») e riposo di legge (`giorniFuori`). Il conto non cambia, cambia che si vedono.
+- La stampa della settimana resta com'era (giorni dell'altro mese in grigio, vuoti).
+- La pagina della copertura oraria nelle stampe (#933) è stata tolta lo stesso giorno: non serviva.
