@@ -27,6 +27,7 @@ export interface DatiCruscottoRaw {
   moda: ModaRaw[]; personale: PersonaleRaw[]; costi: CostoRaw[]
   liquidita: { saldo: number; conti: number; aggiornato: string | null } | null
   scaduto: ScadutoRaw | null
+  stessi_giorni?: { mese: number; giorno: number; negozi: { o: string; prima: number }[] } | null
 }
 
 export interface Moda { ingressi: number; scontrini: number; vendite: number; costo: number; listino: number }
@@ -39,6 +40,7 @@ export interface Negozio {
   moda1: Moda | null; moda0: Moda | null // gennaio-meseModa, i due anni
   modaMesi1: (Moda | null)[]; modaMesi0: (Moda | null)[] // mese per mese, per confrontare gli stessi mesi
   personale: Mesi; ammQuota: number // dipendenti mese per mese, quota amministratore del periodo del conto
+  primaStessiGiorni: number | null // anno prima, stesso mese in corso, stessi giorni (null se il dato non c'è)
   affitto: Mesi; spese: Mesi; allestimenti: Mesi
 }
 export interface Cruscotto {
@@ -112,6 +114,7 @@ export function costruisciCruscotto(raw: DatiCruscottoRaw): Cruscotto {
 
   const sedeIds = new Set((raw.negozi || []).filter(n => n.tipo === 'sede').map(n => n.id))
   const vendita = (raw.negozi || []).filter(n => n.tipo !== 'sede')
+  const stessi = raw.stessi_giorni || null
 
   // costi dalle fatture per negozio (o sede se senza negozio)
   const costiDi = (pred: (c: CostoRaw) => boolean) => {
@@ -143,6 +146,7 @@ export function costruisciCruscotto(raw: DatiCruscottoRaw): Cruscotto {
       y1, y0, budget, moda1: sommaModa(mm.filter(r => r.y === anno)), moda0: sommaModa(mm.filter(r => r.y === anno0)),
       modaMesi1: modaMesi(mm.filter(r => r.y === anno)), modaMesi0: modaMesi(mm.filter(r => r.y === anno0)),
       personale: personaleDi(p => p.o === n.id), ammQuota: 0, ...costiDi(c => c.o === n.id),
+      primaStessiGiorni: stessi && stessi.mese === meseUltimo ? (stessi.negozi.find(x => x.o === n.id)?.prima ?? 0) : null,
     }
   })
   // quota amministratore sui ricavi del periodo del conto
@@ -170,6 +174,18 @@ export function margineParita(ns: Negozio[]): { ora: number; prima: number; punt
   if (!v1 || !v0) return null
   const ora = (1 - c1 / v1) * 100, prima = (1 - c0 / v0) * 100
   return { ora, prima, punti: ora - prima }
+}
+
+export interface ConfrontoMese { ora: number; prima: number; primaMeseIntero: number; pct: number | null; parziale: boolean; stima: number }
+/** Un mese contro lo stesso mese dell'anno prima. Per il mese in corso (a metà) l'anno prima conta gli
+ *  stessi giorni; senza quel dato, in proporzione ai giorni. Nessuna percentuale se il negozio nell'anno
+ *  prima non era aperto tutto il mese. La stima del mese in corso è la proiezione sui giorni passati. */
+export function confrontoMese(n: Negozio, c: Cruscotto, mese: number): ConfrontoMese {
+  const i = mese - 1, ora = n.y1[i] || 0, primaMeseIntero = n.y0[i] || 0
+  const parziale = c.meseParziale && mese === c.meseUltimo && c.giornoUltimo > 0
+  const prima = parziale ? (n.primaStessiGiorni ?? primaMeseIntero * c.giornoUltimo / c.giorniMese) : primaMeseIntero
+  const confrontabile = !!n.aperturaMese && mese >= n.aperturaMese && prima > 0 && ora > 0
+  return { ora, prima, primaMeseIntero, pct: confrontabile ? (ora / prima - 1) * 100 : null, parziale, stima: parziale ? ora / c.giornoUltimo * c.giorniMese : ora }
 }
 
 /** Ultimo mese pieno con i ricavi. */
@@ -227,12 +243,6 @@ export function avvisi(c: Cruscotto): Avviso[] {
   const aperti = c.negozi.filter(n => !n.chiuso)
   const s = c.scaduto
   const totScad = s ? s.oltre30 + s.ultimi30 : 0
-  if (s && s.primo_fornitore && totScad > 0 && s.primo_fornitore.importo / totScad >= 0.5) {
-    const f = s.primo_fornitore
-    out.push({ livello: 'critico', titolo: `${f.nome} vale ${eurCompatto(f.importo)} dei ${eurCompatto(totScad)} scaduti (${f.fatture} fatture).`, dettaglio: `La fattura più vecchia scadeva il ${f.dal.split('-').reverse().join('/')}. Senza ${f.nome} lo scaduto è ${eurCompatto(totScad - f.importo)}.` })
-  } else if (totScad > 0 && s) {
-    out.push({ livello: 'serio', titolo: `Fornitori scaduti: ${eurCompatto(totScad)} su ${s.fatture_scadute} fatture.`, dettaglio: `Di cui ${eurCompatto(s.oltre30)} scaduti da oltre 30 giorni.` })
-  }
   const mp = mesePieno(c), lfl = paritaInsieme(aperti, mp)
   if (lfl != null && lfl < 0) out.push({ livello: 'critico', titolo: `Ricavi a parità di negozi ${pct1(lfl)} sull'anno prima.`, dettaglio: `Gennaio-${MESI_LUNGHI[mp - 1] || ''}, solo i mesi pieni aperti in tutti e due gli anni.` })
   if (c.liquidita && s) {
@@ -243,9 +253,8 @@ export function avvisi(c: Cruscotto): Avviso[] {
   if (c.meseParziale && c.giornoUltimo > 0) {
     const i = c.meseUltimo - 1
     for (const n of aperti) {
-      if (!n.aperturaMese || n.aperturaMese > c.meseUltimo || !n.y0[i] || !n.y1[i]) continue
-      const p = (n.y1[i] / (n.y0[i] * c.giornoUltimo / c.giorniMese) - 1) * 100
-      if (p <= -10) out.push({ livello: 'serio', titolo: `${n.nome} a ${MESI_LUNGHI[i]} è ${pct1(p)} sullo stesso mese dell'anno prima.`, dettaglio: `Primi ${c.giornoUltimo} giorni contro la stessa parte del mese dell'anno prima.` })
+      const k = confrontoMese(n, c, c.meseUltimo)
+      if (k.pct != null && k.pct <= -10) out.push({ livello: 'serio', titolo: `${n.nome} a ${MESI_LUNGHI[i]} è ${pct1(k.pct)} sull'anno prima.`, dettaglio: `Dal 1 al ${c.giornoUltimo} ${MESI_LUNGHI[i]}: ${eurCompatto(k.ora)} contro ${eurCompatto(k.prima)} negli stessi giorni dell'anno prima.` })
     }
     for (const n of aperti) {
       if (!n.budget || !n.budget[i] || !n.y1[i] || n.aperturaMese) continue

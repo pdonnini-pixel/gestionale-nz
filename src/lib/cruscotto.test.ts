@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { affittoCompetenza, primoMesePieno, costruisciCruscotto, parita, stimaChiusura, contoNegozio, avvisi, margineParita, type DatiCruscottoRaw } from './cruscotto'
+import { affittoCompetenza, primoMesePieno, costruisciCruscotto, parita, stimaChiusura, contoNegozio, avvisi, margineParita, confrontoMese, type DatiCruscottoRaw } from './cruscotto'
 
 const mesi = (vals: Record<number, number>) => { const a = Array(12).fill(0); for (const k in vals) a[Number(k) - 1] = vals[k]; return a }
 
@@ -77,11 +77,21 @@ describe('costruisciCruscotto', () => {
     expect(k.ricavi).toBe(110); expect(k.merce).toBeCloseTo(44); expect(k.spese).toBe(5)
     expect(k.lascia).toBeCloseTo(110 - 44 - (30 + 21) - k.affitto - 5)
   })
-  it('avvisi: fornitore che pesa più di metà dello scaduto per primo', () => {
+  it('avvisi: niente riga del fornitore scaduto, resta quella su MODA', () => {
     const av = avvisi(c)
-    expect(av[0].livello).toBe('critico')
-    expect(av[0].titolo).toContain('Fornitore X')
+    expect(av.some(x => x.titolo.includes('Fornitore X'))).toBe(false)
     expect(av.some(x => x.titolo.includes('MODA'))).toBe(true)
+  })
+  it('mese in corso contro gli stessi giorni dell\'anno prima', () => {
+    const d = dati()
+    d.stessi_giorni = { mese: 11, giorno: 15, negozi: [{ o: 'A', prima: 40 }] }
+    const cc = costruisciCruscotto(d)
+    const a = cc.negozi.find(n => n.code === 'A')!
+    const k = confrontoMese(a, cc, 11)
+    expect(k.parziale).toBe(true); expect(k.prima).toBe(40); expect(k.pct).toBeCloseTo(25); expect(k.stima).toBeCloseTo(100)
+    const ott = confrontoMese(a, cc, 10)
+    expect(ott.parziale).toBe(false); expect(ott.prima).toBe(100); expect(ott.pct).toBeCloseTo(10)
+    expect(confrontoMese(cc.negozi.find(n => n.code === 'B')!, cc, 10).pct).toBeNull()
   })
   it('margine a parità solo sugli stessi mesi con importi nei due anni', () => {
     const d = dati()

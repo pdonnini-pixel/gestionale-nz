@@ -10,7 +10,7 @@ import PageHeader from '../components/PageHeader'
 import { supabase } from '../lib/supabase'
 import { usePeriod } from '../hooks/usePeriod'
 import {
-  costruisciCruscotto, avvisi as calcolaAvvisi, parita, paritaInsieme, margineParita, stimaChiusura, contoNegozio, mesePieno, somma, fino,
+  costruisciCruscotto, avvisi as calcolaAvvisi, parita, paritaInsieme, margineParita, confrontoMese, stimaChiusura, contoNegozio, mesePieno, somma, fino,
   type Cruscotto, type DatiCruscottoRaw, type Negozio, type Avviso,
 } from '../lib/cruscotto'
 import { ColonneMensili, MiniLinee, BarrePersonale, BarreCassa, Scheda, Legenda, COLORI, MESI, euro, euroCompatto } from '../components/cruscotto/Grafici'
@@ -40,6 +40,7 @@ export default function Dashboard() {
   const [errore, setErrore] = useState<string | null>(null)
   const [caricamento, setCaricamento] = useState(true)
   const [scelto, setScelto] = useState<string>('TUTTI')
+  const [meseScelto, setMeseScelto] = useState<number>(0) // 0 = mese in corso
 
   useEffect(() => {
     let vivo = true
@@ -101,6 +102,18 @@ export default function Dashboard() {
   const parziale = c.meseParziale ? c.meseUltimo - 1 : null
   const maxMini = Math.max(1, ...aperti.flatMap(n => [...n.y1, ...n.y0]))
   const avvisi = calcolaAvvisi(c)
+  const mese = meseScelto >= 1 && meseScelto <= c.meseUltimo ? meseScelto : c.meseUltimo || 1
+  const meseParz = c.meseParziale && mese === c.meseUltimo
+  const lflTutti = paritaInsieme(aperti, mp)
+  const selettoreMese = (
+    <label className="flex items-center gap-2 text-xs text-slate-500">Mese
+      <select value={mese} onChange={e => setMeseScelto(Number(e.target.value))} className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm text-slate-900" onClick={e => e.stopPropagation()}>
+        {Array.from({ length: c.meseUltimo }, (_, i) => c.meseUltimo - i).map(m => (
+          <option key={m} value={m}>{MESI_LUNGHI[m - 1]} {c.anno}{c.meseParziale && m === c.meseUltimo ? ` (in corso, fino al ${c.giornoUltimo})` : ''}</option>
+        ))}
+      </select>
+    </label>
+  )
 
   // ===== Personale per negozio =====
   const righePers = aperti.filter(n => fino(n.personale, M) + n.ammQuota > 0).map(n => ({ nome: n.nome, dip: fino(n.personale, M), amm: n.ammQuota, ricavi: fino(n.y1, M), evidenzia: n.id === scelto }))
@@ -220,38 +233,71 @@ export default function Dashboard() {
         </Scheda>
       </div>
 
-      {/* Ogni negozio */}
-      <Scheda titolo="Ogni negozio, mese per mese" sotto="Blu quest'anno, grigio l'anno prima, stessa scala per tutti. La percentuale confronta solo i mesi pieni aperti in tutti e due gli anni. Clicca un negozio per vederlo da solo."
-        destra={<Legenda voci={[{ nome: String(c.anno), colore: COLORI.anno, forma: 'linea' }, { nome: String(c.anno - 1), colore: COLORI.prima, forma: 'linea' }]} />}>
+      {/* Ogni negozio: il mese scelto contro lo stesso mese dell'anno prima */}
+      <Scheda titolo={`Ogni negozio: ${MESI_LUNGHI[mese - 1]} ${c.anno} contro ${MESI_LUNGHI[mese - 1]} ${c.anno - 1}`}
+        sotto={meseParz ? `Mese in corso: dal 1 al ${c.giornoUltimo} contro gli stessi giorni dell'anno prima. Sotto, l'andamento dell'anno (blu quest'anno, grigio l'anno prima). Clicca un negozio per vederlo da solo.` : 'Mese intero contro lo stesso mese dell\'anno prima. Sotto, l\'andamento dell\'anno (blu quest\'anno, grigio l\'anno prima). Clicca un negozio per vederlo da solo.'}
+        destra={selettoreMese}>
         <div className="grid gap-2.5 sm:grid-cols-2 xl:grid-cols-4">
-          {aperti.map(n => { const p = parita(n, mp); return (
+          {aperti.map(n => { const k = confrontoMese(n, c, mese); return (
             <button key={n.id} type="button" onClick={() => setScelto(scelto === n.id ? 'TUTTI' : n.id)} aria-pressed={scelto === n.id}
               className={`rounded-xl border p-3 text-left hover:bg-slate-50 ${scelto === n.id ? 'border-blue-500 ring-1 ring-blue-500' : 'border-slate-200'}`}>
-              <div className="flex items-baseline justify-between gap-2"><span className="text-sm font-semibold text-slate-900">{n.nome}</span>
-                <span className="text-xs text-slate-500">{euroCompatto(somma(n.y1))} · {p ? <span className={p.pct >= 0 ? 'font-semibold text-emerald-700' : 'font-semibold text-red-600'}>{pct(p.pct)}</span> : 'nuovo'}</span></div>
-              <MiniLinee ora={n.y1} prima={n.y0} max={maxMini} ultimoMese={c.meseUltimo} titolo={n.nome} />
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-900">{n.nome}</span>
+                {k.pct != null ? <Variazione v={k.pct} /> : <span className="text-xs text-slate-500">{k.ora ? 'nuovo' : '—'}</span>}
+              </div>
+              <div className="mt-1 text-xl font-semibold text-slate-900">{k.ora ? euroCompatto(k.ora) : '—'}</div>
+              <div className="text-xs text-slate-500">
+                {k.prima ? <>anno prima {euroCompatto(k.prima)}{k.parziale ? ` (1-${c.giornoUltimo})` : ''}</> : 'l\'anno prima non era aperto'}
+                {k.parziale && k.ora > 0 && <> · stima del mese <b className="text-slate-700">{euroCompatto(k.stima)}</b></>}
+              </div>
+              <MiniLinee ora={n.y1} prima={n.y0} max={maxMini} ultimoMese={c.meseUltimo} titolo={n.nome} meseEvidenziato={mese - 1} />
             </button>) })}
         </div>
       </Scheda>
 
-      {/* Vendite */}
-      <Scheda titolo="Vendite di ogni negozio" sotto={`Ricavi da gennaio a ${MESI_LUNGHI[mp - 1] || '—'}; margine sulla merce, ingressi, conversione e scontrino dal report MODA (gennaio-${MESI_LUNGHI[c.meseModa - 1] || '—'}).`}>
+      {/* Vendite: mese scelto contro l'anno prima, poi l'anno */}
+      <Scheda titolo="Vendite di ogni negozio" destra={selettoreMese}
+        sotto={`${MESI_LUNGHI[mese - 1]} ${c.anno} contro lo stesso mese dell'anno prima${meseParz ? ` (stessi giorni, dal 1 al ${c.giornoUltimo})` : ''}; poi l'anno da gennaio a ${MESI_LUNGHI[mp - 1] || '—'}. Margine sulla merce, conversione e scontrino dal report MODA (gennaio-${MESI_LUNGHI[c.meseModa - 1] || '—'}).`}>
         <div className="overflow-x-auto">
           <table className="w-full whitespace-nowrap text-right text-sm tabular-nums">
-            <thead><tr className="text-xs text-slate-500 [&_th]:px-2 [&_th]:py-2 [&_th]:font-medium"><th className="text-left">Negozio</th><th>Ricavi</th><th>vs anno prima*</th><th>vs budget</th><th>Stima {c.anno}</th><th>Margine merce</th><th>Ingressi</th><th>Conversione</th><th>Scontrino</th><th>Sconto medio</th></tr></thead>
+            <thead>
+              <tr className="text-[11px] uppercase tracking-wide text-slate-400 [&_th]:px-2 [&_th]:pt-1 [&_th]:font-medium">
+                <th /><th colSpan={5} className="border-b border-slate-200 text-center">{MESI_LUNGHI[mese - 1]}</th><th colSpan={4} className="border-b border-slate-200 text-center">anno da gennaio</th><th colSpan={3} className="border-b border-slate-200 text-center">MODA</th>
+              </tr>
+              <tr className="text-xs text-slate-500 [&_th]:px-2 [&_th]:py-2 [&_th]:font-medium">
+                <th className="text-left">Negozio</th><th>{c.anno}</th><th>{c.anno - 1}</th><th>Differenza</th><th>%</th><th>Stima del mese</th>
+                <th>Ricavi</th><th>vs anno prima*</th><th>vs budget</th><th>Stima {c.anno}</th><th>Margine merce</th><th>Conversione</th><th>Scontrino</th>
+              </tr>
+            </thead>
             <tbody className="[&_td]:border-t [&_td]:border-slate-100 [&_td]:px-2 [&_td]:py-2">
-              {aperti.map(n => { const p = parita(n, mp), b = ricaviConfronto(n), m = n.moda1; return (
+              {aperti.map(n => { const k = confrontoMese(n, c, mese), p = parita(n, mp), b = ricaviConfronto(n), m = n.moda1; return (
                 <tr key={n.id} onClick={() => setScelto(scelto === n.id ? 'TUTTI' : n.id)} className={`cursor-pointer hover:bg-slate-50 ${scelto === n.id ? 'bg-blue-50' : ''}`}>
-                  <td className="text-left">{n.nome}</td><td>{fino(n.y1, mp) ? euroCompatto(fino(n.y1, mp)) : '—'}</td>
+                  <td className="text-left">{n.nome}</td>
+                  <td>{k.ora ? euroCompatto(k.ora) : '—'}</td><td>{k.prima ? euroCompatto(k.prima) : '—'}</td>
+                  <td className={k.pct == null ? '' : k.ora >= k.prima ? 'text-emerald-700' : 'text-red-600'}>{k.pct != null ? (k.ora >= k.prima ? '+' : '−') + euroCompatto(Math.abs(k.ora - k.prima)).slice(2) : '—'}</td>
+                  <td>{k.pct != null ? <Variazione v={k.pct} /> : (k.ora ? 'nuovo' : '—')}</td>
+                  <td>{k.parziale && k.ora ? euroCompatto(k.stima) : k.ora ? euroCompatto(k.ora) : '—'}</td>
+                  <td>{fino(n.y1, mp) ? euroCompatto(fino(n.y1, mp)) : '—'}</td>
                   <td>{p ? <Variazione v={p.pct} /> : 'nuovo'}</td><td>{b != null ? <Variazione v={b} /> : 'n.d.'}</td><td>{euroCompatto(stimaChiusura(n, c))}</td>
-                  <td>{m && m.vendite > 0 ? nf0.format((1 - m.costo / m.vendite) * 100) + '%' : 'n.d.'}</td><td>{m ? nf0.format(m.ingressi) : 'n.d.'}</td>
-                  <td>{m && m.ingressi ? nf1.format(m.scontrini / m.ingressi * 100) + '%' : 'n.d.'}</td><td>{m && m.scontrini && m.vendite > 0 ? euro(m.vendite / m.scontrini) : 'n.d.'}</td>
-                  <td>{m && m.listino > 0 ? nf0.format((1 - m.vendite / m.listino) * 100) + '%' : '—'}</td>
+                  <td>{m && m.vendite > 0 ? nf0.format((1 - m.costo / m.vendite) * 100) + '%' : 'n.d.'}</td>
+                  <td>{m && m.ingressi ? nf1.format(m.scontrini / m.ingressi * 100) + '%' : 'n.d.'}</td>
+                  <td>{m && m.scontrini && m.vendite > 0 ? euro(m.vendite / m.scontrini) : 'n.d.'}</td>
                 </tr>) })}
+              {scelto === 'TUTTI' && (() => {
+                const ks = aperti.map(n => confrontoMese(n, c, mese)), conf = ks.filter(k => k.pct != null)
+                const ora = somma(ks.map(k => k.ora)), a = somma(conf.map(k => k.prima)), bb = somma(conf.map(k => k.ora))
+                const pc = a ? (bb / a - 1) * 100 : null
+                return (
+                  <tr className="font-semibold [&_td]:border-t-2 [&_td]:border-slate-300">
+                    <td className="text-left">Tutti</td><td>{euroCompatto(ora)}</td><td>{euroCompatto(somma(ks.map(k => k.prima)))}</td>
+                    <td /><td>{pc != null ? <Variazione v={pc} /> : '—'}</td><td>{euroCompatto(somma(ks.map(k => k.stima)))}</td>
+                    <td>{euroCompatto(somma(aperti.map(n => fino(n.y1, mp))))}</td><td>{lflTutti != null ? <Variazione v={lflTutti} /> : '—'}</td><td /><td>{euroCompatto(somma(aperti.map(n => stimaChiusura(n, c))))}</td><td /><td /><td />
+                  </tr>)
+              })()}
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-xs text-slate-400">* Solo i mesi pieni aperti in tutti e due gli anni.</p>
+        <p className="mt-2 text-xs text-slate-400">La percentuale del mese e quella della riga «Tutti» contano solo i negozi aperti per tutto quel mese anche l'anno prima. * Anno: solo i mesi pieni aperti in tutti e due gli anni.</p>
       </Scheda>
 
       {/* Costi: conto a scalare */}

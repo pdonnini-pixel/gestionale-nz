@@ -54,11 +54,11 @@ export const PAGE_GUIDES: PageGuide[] = [
       },
       {
         "heading": "Da guardare",
-        "body": "Avvisi scritti dal sistema sui numeri del giorno, dal più grave: un fornitore che vale più di metà dello scaduto, la liquidità che non copre le uscite, i ricavi a parità in calo, un negozio sotto di almeno il 10% sullo stesso mese dell'anno prima, un negozio nuovo sopra budget, lo scarto contro budget, un negozio senza fatture d'affitto, allestimenti importanti, dati fermi da più di dieci giorni. Resta sempre l'avviso che il costo della merce viene da MODA e non dal bilancio."
+        "body": "Avvisi scritti dal sistema sui numeri del giorno, dal più grave: la liquidità che non copre le uscite, i ricavi a parità in calo, un negozio sotto di almeno il 10% nel mese in corso rispetto agli stessi giorni dell'anno prima, un negozio nuovo sopra budget, lo scarto contro budget, un negozio senza fatture d'affitto, allestimenti importanti, dati fermi da più di dieci giorni. Resta sempre l'avviso che il costo della merce viene da MODA e non dal bilancio."
       },
       {
-        "heading": "Ogni negozio e vendite",
-        "body": "Un mini grafico per negozio, tutti sulla stessa scala, con la crescita a parità o «nuovo» se non c'è un anno prima da confrontare: cliccandolo la pagina si mette su quel negozio. La tabella «Vendite di ogni negozio» dà ricavi, confronto con l'anno prima e con il budget, stima di chiusura, margine sulla merce, ingressi, conversione, scontrino medio e sconto medio sul listino (MODA)."
+        "heading": "Ogni negozio e vendite: un mese contro lo stesso mese dell'anno prima",
+        "body": "Il menu «Mese» (in alto a destra in queste due sezioni) sceglie il mese da confrontare: all'apertura è il mese in corso, e si possono scegliere i mesi passati, per esempio ottobre di quest'anno contro ottobre dell'anno prima. Per il mese in corso il confronto è con gli stessi giorni dell'anno prima (dal 1 all'ultimo giorno caricato), e accanto c'è la stima del mese, la proiezione sui giorni già passati. Ogni negozio ha un riquadro con il mese di quest'anno, quello dell'anno prima, la differenza in percentuale e il mini grafico dell'anno con il mese scelto evidenziato; «nuovo» vuol dire che l'anno prima il negozio non era aperto per tutto quel mese. Cliccando un riquadro la pagina si mette su quel negozio. La tabella «Vendite di ogni negozio» ha, per il mese scelto, quest'anno, l'anno prima, la differenza in euro e in percentuale e la stima del mese; poi l'anno da gennaio con il confronto a parità, il budget e la stima di chiusura; infine margine sulla merce, conversione e scontrino medio (MODA). La riga «Tutti» somma i negozi."
       },
       {
         "heading": "Costi: il conto di ogni negozio",

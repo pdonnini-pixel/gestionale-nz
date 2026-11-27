@@ -98,7 +98,7 @@ export function ColonneMensili({ ora, prima, budget, meseParziale, ultimoMese, e
 }
 
 /** Mini grafico a linee 12 mesi: anno in corso e anno prima, scala comune passata da fuori. */
-export function MiniLinee({ ora, prima, max, ultimoMese, titolo }: { ora: number[]; prima: number[]; max: number; ultimoMese: number; titolo: string }) {
+export function MiniLinee({ ora, prima, max, ultimoMese, titolo, meseEvidenziato }: { ora: number[]; prima: number[]; max: number; ultimoMese: number; titolo: string; meseEvidenziato?: number }) {
   const [tip, setTip] = useState<Tip | null>(null)
   const X = (i: number) => 4 + i * (232 / 11), Y = (v: number) => 58 - (v / Math.max(1, max)) * 52
   const percorso = (arr: number[], fino: number) => {
@@ -113,9 +113,12 @@ export function MiniLinee({ ora, prima, max, ultimoMese, titolo }: { ora: number
         onPointerMove={e => { const r = e.currentTarget.getBoundingClientRect(); const i = Math.max(0, Math.min(11, Math.round((e.clientX - r.x) / r.width * 11))); setTip({ x: e.clientX, y: e.clientY, titolo: `${titolo} · ${MESI[i]}`, righe: [{ etichetta: 'Quest\'anno', valore: ora[i] ? euro(ora[i]) : '—', colore: COLORI.anno }, { etichetta: 'Anno prima', valore: prima[i] ? euro(prima[i]) : 'non aperto', colore: COLORI.prima }] }) }}
         onPointerLeave={() => setTip(null)}>
         <line x1={0} x2={240} y1={58} y2={58} stroke={COLORI.griglia} />
+        {meseEvidenziato != null && meseEvidenziato >= 0 && <line x1={X(meseEvidenziato)} x2={X(meseEvidenziato)} y1={2} y2={58} stroke={COLORI.asse} strokeWidth={1} />}
         <path d={percorso(prima, 11)} fill="none" stroke={COLORI.prima} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
         <path d={percorso(ora, ultimoMese - 1)} fill="none" stroke={COLORI.anno} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
         {punti.map(i => <circle key={i} cx={X(i)} cy={Y(ora[i])} r={4} fill={COLORI.anno} stroke="#fff" strokeWidth={2} />)}
+        {meseEvidenziato != null && prima[meseEvidenziato] > 0 && <circle cx={X(meseEvidenziato)} cy={Y(prima[meseEvidenziato])} r={3.5} fill={COLORI.prima} stroke="#fff" strokeWidth={1.5} />}
+        {meseEvidenziato != null && ora[meseEvidenziato] > 0 && <circle cx={X(meseEvidenziato)} cy={Y(ora[meseEvidenziato])} r={4} fill={COLORI.anno} stroke="#fff" strokeWidth={2} />}
       </svg>
       <Tooltip tip={tip} />
     </div>
