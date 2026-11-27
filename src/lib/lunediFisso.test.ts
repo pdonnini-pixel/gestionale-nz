@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { eLunediFisso, orariDelLunedi, scegliLunedi, chiHaChiuso, coperturaDelLunedi } from './lunediFisso';
-import { REGOLE_DEFAULT, hhmm, type GiornoPiano, type PersonaTurni, type Turno } from './turni';
+import { REGOLE_DEFAULT, hhmm, costruisciGiorni, oreLavorate, type GiornoPiano, type PersonaTurni, type Turno } from './turni';
+import { pianificaMese } from './pianoMensile';
 import { derogheSettimana } from './ottimizzaTurni';
 
 // Le regole del 27/11/2026 (Patrizio): turno massimo 8 ore lavorate + 30' nei feriali; il lunedì due
@@ -80,5 +81,32 @@ describe('il lunedì fisso', () => {
     expect(lungo.filter((d) => d.regola === 'turno_lungo').map((d) => d.employeeId).sort()).toEqual(['anna', 'bea']);
     const domenica = derogheSettimana({ giorni: [dom], persone, regole: R, turni: [t('anna', dom.data, '10:00', '19:30'), t('bea', dom.data, '11:00', '20:00')] });
     expect(domenica.map((d) => d.regola)).not.toContain('turno_lungo');
+  });
+});
+
+describe('il lunedì fisso nel piano del mese', () => {
+  // Novembre 2026, negozio 10-20 tutti i giorni, cinque persone, traffico basso nei feriali e alto nel weekend.
+  const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
+  const tutte = Array.from({ length: 42 }, (_, i) => { const d = new Date(Date.UTC(2026, 9, 26 + i)); return d.toISOString().slice(0, 10); });
+  const giorni = costruisciGiorni(tutte, orari, [], []);
+  const atteso = new Map(tutte.map((d) => { const we = [0, 6].includes(new Date(`${d}T12:00:00Z`).getUTCDay()); return [d, Array.from({ length: 24 }, (_, h) => (h >= 10 && h < 20 ? (we ? 40 : 10) : 0))]; }));
+  const persone = [40, 36, 30, 30, 25].map((ore, i) => ({ id: `p${i}`, oreSettimana: ore, nonDisponibile: new Set<string>(), oreFerie: new Map<string, number>() }));
+  const piano = (regole: typeof R) => pianificaMese({ mese: '2026-11', giorni, persone, regola: 'nessuno', storicoWeekend: new Map(), atteso, regole, rapido: true });
+
+  it('ogni lunedì del mese: due persone, 10-18 e 12-20; nessun turno oltre le 8 ore nei feriali', () => {
+    const e = piano(R);
+    for (const lun of ['2026-11-02', '2026-11-09', '2026-11-16', '2026-11-23', '2026-11-30']) {
+      expect(e.turni.filter((t) => t.data === lun).map((t) => `${t.inizio}-${t.fine}`).sort()).toEqual(['10:00-18:00', '12:00-20:00']);
+    }
+    expect(e.turni.every((t) => oreLavorate(t) <= 8 + 1e-9)).toBe(true);
+  });
+
+  it('chi fa il lunedì non perde ore di contratto negli altri giorni (le ore del lunedì contano una volta)', () => {
+    const con = piano(R);
+    const senza = piano({ ...R, lunediFisso: false });
+    const tot = (e: ReturnType<typeof piano>) => Object.values(e.persone).reduce((a, p) => a + p.pianificate, 0);
+    for (const p of persone) expect(con.persone[p.id].pianificate).toBeLessThanOrEqual(con.persone[p.id].contratto + 1e-6);
+    // con le ore del lunedì tolte due volte il mese perdeva circa 8 ore a lunedì (40 in novembre)
+    expect(tot(con)).toBeGreaterThan(tot(senza) - 10);
   });
 });

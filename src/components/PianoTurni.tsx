@@ -636,11 +636,12 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         lunFissi = scegliLunedi({
           g: lunG, persone: candidati, regole, guida: { responsabile: guidaTurni.responsabile, vice: guidaTurni.vice }, chiavi,
           chiusoDomenica, lunediPrima: lunediVisti, riposi: riposiMotore, giornoLibero: riposoATurnazione ? undefined : liberi,
+          giorniLavorati: new Map(candidati.map((c) => [c.id, new Set(fissiEsterni.filter((t) => t.employeeId === c.id).map((t) => t.data)).size + (giorniFuori.get(c.id) ?? 0)])),
         }) ?? [];
       }
-      const oreLun = (id: string) => lunFissi.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
+      // le ore restano intere: i passi contano da soli i turni fissi di ognuna; il lunedì non è disponibile per nessuna
       const candidatiOtt = lunFissi.length && lunG ? candidati.map((c) => ({ ...c, nonDisponibile: new Set([...c.nonDisponibile, lunG.data]) })) : candidati;
-      const candidatiPre = lunFissi.length ? candidatiOtt.map((c) => ({ ...c, ore: Math.max(0, c.ore - oreLun(c.id)) })) : candidati;
+      const candidatiPre = candidatiOtt;
       const fissiTutti = [...fissiEsterni, ...lunFissi];
       const proposta = proponiSettimana({ giorni, persone: candidatiPre, regole, fissi: fissiTutti });
       // Mai un giorno con una persona sola (Patrizio, 28/10/2026); i turni a mano non si toccano.

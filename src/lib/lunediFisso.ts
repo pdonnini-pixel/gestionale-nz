@@ -68,6 +68,8 @@ export interface SceltaLunedi {
   riposi?: { preferiti?: Map<string, number[]>; mai?: Map<string, number[]> };
   /** giorno libero fisso di ognuno (1 = lunedì) */
   giornoLibero?: Map<string, number>;
+  /** giorni già lavorati nella settimana fuori da questo lunedì (turni fissi, altro mese): niente oltre il massimo */
+  giorniLavorati?: Map<string, number>;
 }
 
 /**
@@ -87,6 +89,7 @@ export function scegliLunedi(a: SceltaLunedi): Turno[] | null {
   const ore = ([da, al]: [number, number]) => (al - da - pausaMinimaPerPresenza(al - da, regole)) / 60;
   const puo = (p: PersonaTurni, [da, al]: [number, number]) => {
     if (p.nonDisponibile.has(g.data) || p.ore < ore([da, al]) - 1e-9) return false;
+    if ((a.giorniLavorati?.get(p.id) ?? 0) >= regole.giorniLavoroMax) return false;
     const l = limitiPersona(p, g);
     return l.apre <= da && l.chiude >= al && lavoroMassimoGiorno(l, regole) >= ore([da, al]) * 60 - 1e-9;
   };

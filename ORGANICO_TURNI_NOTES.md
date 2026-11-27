@@ -1603,10 +1603,15 @@ Decisioni prese con lui prima di scrivere codice:
   fissi della persona (`oreFisse`, `giornoFisso`). Escono nel piano come proposte in bozza.
 - Il fabbisogno del lunedì fisso è quello dei due turni (1, 2 dalle 12 alle 18, 1): il traffico non
   aggiunge persone (`tettoDelLunedi` → `coperturaDelLunedi`).
-- Misura su dicembre 2026, 7 negozi NZ, organico pieno: tutti i lunedì 10-18 + 12-20 (Valmontone 9-17:30),
-  nessun turno oltre le 8 ore, nessuna apertura dopo una chiusura della domenica, 0 giorni con una persona
-  sola, 0 senza riposo; ore scoperte 2,1 / 1,8 / 0,5 / 0 / 3,7 / 18,1 / 12,3 (Barberino, Brugnato,
-  Franciacorta, Palmanova, Torino, Valdichiana, Valmontone; prima 2,1 / 1,8 / 0 / 0 / 3,7 / 20,4 / 11,6).
-  Brugnato 21/12 resta a tre persone perché è nel calendario dei giorni speciali del negozio.
+- Misura su dicembre 2026, 7 negozi NZ, organico pieno, dopo la correzione del doppio conteggio: tutti i
+  lunedì 10-18 + 12-20 (Valmontone 9-17:30, 28 lunedì su 28), nessun turno oltre le 8 ore, nessuna
+  apertura dopo una chiusura della domenica, 0 giorni con una persona sola, 0 senza riposo; ore scoperte
+  2,1 / 1,8 / 0 / 0 / 3,7 / 17,7 / 12,3 (Barberino, Brugnato, Franciacorta, Palmanova, Torino, Valdichiana,
+  Valmontone; prima 2,1 / 1,8 / 0 / 0 / 3,7 / 20,4 / 11,6).
+- Revisione (27/11/2026): la prima versione toglieva le ore del lunedì due volte dal contratto di chi lo
+  fa (i passi contano già da soli i turni fissi della persona): corretto, con la prova «chi fa il lunedì
+  non perde ore» in `lunediFisso.test.ts`. Anche i turni fissi della domenica (a mano, pubblicati) dicono
+  chi ha chiuso; nessun settimo giorno per chi lavora il lunedì; la riserva a chiamata non lavora il
+  lunedì fisso. `turni_proposti_riscrivi` controlla i turni fino a 10 ore (478), non al tetto salvato.
 - Le prove nate prima di questa data girano con `turnoMaxOre: 10` e `lunediFisso: false` (interruttore
   interno, acceso sempre in produzione); le prove nuove sono in `src/lib/lunediFisso.test.ts`.
