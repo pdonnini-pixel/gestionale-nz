@@ -22,6 +22,7 @@ import { applicaServizi, testoServizi } from '../lib/serviziNegozio';
 import { caricaServizi } from '../lib/serviziNegozioDb';
 import { useToast } from './Toast';
 import type { jsPDF } from 'jspdf';
+import type { CoperturaGiorno } from '../lib/stampaOrario';
 import { supabase } from '../lib/supabase';
 import {
   personaAllaData, nomePersona, formattaDataBreve, oggiRoma, aggiungiGiorni, presenzaNeiTurni,
@@ -42,7 +43,7 @@ import { caricaTrasferte, copertureVerso, oreTrasferta, type Trasferta } from '.
 import {
   NOMI_GIORNO, NOMI_GIORNO_BREVI, hhmm, REGOLE_DEFAULT, costruisciGiorni, giornoPieno, opzioniGiorni, oreInChiaro, regoleDaRiga, pausaPer, giorniDellaSettimana, lunediDi, oreLavorate,
   proponiSettimana, scopertureDelGiorno, minuti, eventiDelNegozio, personeInPiu, type EventoNegozio, type GiornoPiano, type RegoleTurni, type Turno,
-  giornoIso, applicaChiusure,
+  giornoIso, applicaChiusure, copertura,
 } from '../lib/turni';
 import { turniCheValgono, type PianoDelMese } from '../lib/turniFuoriMese';
 
@@ -123,6 +124,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // l'ultima lettura della settimana e' fallita: niente proposta finche' non si rilegge bene
   const [caricoFallito, setCaricoFallito] = useState(false);
   const [lavoro, setLavoro] = useState(false);
+  // Nei PDF dei turni, dopo l'orario, la pagina della copertura oraria (Patrizio, 27/11/2026): persone in turno
+  // mezz'ora per mezz'ora contro quelle che servono. Facoltativa: il foglio da appendere resta quello di sempre.
+  const [conCopertura, setConCopertura] = useState(false);
   // Piano del mese scelto per ogni mese della settimana ('YYYY-MM' -> id).
   const [pianiScelti, setPianiScelti] = useState<Map<string, string>>(new Map());
   const [disponibilita, setDisponibilita] = useState<Map<string, Accordo>>(new Map());
@@ -423,6 +427,20 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     }
   };
 
+  // La copertura di un giorno della settimana a schermo: chi è in turno (come la riga «In negozio») e
+  // quante persone servono (traffico MODA e regole, o le fasce dove MODA manca). Le mezz'ore della
+  // chiusura di metà giornata non si stampano.
+  const coperturaDelGiorno = (d: string): CoperturaGiorno | null => {
+    const g = giorni.find((x) => x.data === d);
+    if (!g || g.chiuso) return null;
+    const cop = copertura(g, turniPerCalcolo);
+    const mezzore = g.fabbisogno.flatMap((f, i) => {
+      const m = g.apre + i * 30;
+      if (g.chiusura && m >= g.chiusura.dalle && m < g.chiusura.alle) return [];
+      return [{ ora: hhmm(m), persone: cop[i] ?? 0, servono: haFabbisogno ? f : null }];
+    });
+    return { data: d, mezzore };
+  };
   // Il PDF dell'orario della settimana, con la grafica dell'azienda (Patrizio, 11/11/2026).
   const foglioSettimana = () => {
       const tenant = getCurrentTenant();
@@ -451,6 +469,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         })),
         pubblicatoIl: tuttiPubblicati ? giornoDiPubblicazione(pubblicati) ?? oggiRoma() : null,
         oggi: oggiRoma(),
+        ...(conCopertura ? { copertura: date.map(coperturaDelGiorno).filter((x): x is CoperturaGiorno => !!x) } : {}),
       };
       return dati0;
   };
@@ -471,7 +490,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // Il PDF del mese, per stamparlo o inviarlo (Patrizio, 25/11/2026: «invio del mese intero o per singola
   // settimana per mail e whatsapp»). null = nessun turno salvato nel mese (lo dice gia' un avviso).
   const pdfDelMese = async () => {
-      const { creaPdfOrari, nomeFileOrarioMese } = await import('../lib/stampaOrario');
+      const { creaPdfOrari, nomeFileOrarioMese, mezzoreCopertura } = await import('../lib/stampaOrario');
       const base = foglioSettimana();
       const mese = date[0].slice(0, 7);
       const primo = `${mese}-01`;
@@ -487,6 +506,21 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const orarioDi = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
       const tipo = new Map(giorni.map((g) => [g.giorno, g]));
       const visibili = persone.filter((p) => delMese.some((t) => t.employee_id === p.scheda.id) || p.perGiorno.some((pg) => pg.outletId === outletId && pg.stato === 'in_servizio'));
+      // Copertura del mese: per i giorni fuori dalla settimana a schermo il fabbisogno è quello che il piano
+      // del mese ha salvato quando è nato (riepilogo.bisogno); senza piano si stampano solo le persone.
+      let bisogno: Record<string, { apre: number; chiude: number; esigenza?: number[] }> | null = null;
+      if (conCopertura && piano) {
+        const rp = await supabase.from('shift_plans').select('riepilogo').eq('id', piano).maybeSingle();
+        bisogno = ((rp.data as { riepilogo?: { bisogno?: Record<string, { apre: number; chiude: number; esigenza?: number[] }> } } | null)?.riepilogo?.bisogno) ?? null;
+      }
+      const coperturaDi = (d: string, turniDelGiorno: { inizio: string; fine: string }[]): CoperturaGiorno | null => {
+        if (date.includes(d)) return coperturaDelGiorno(d);
+        const b = bisogno?.[d];
+        if (b) return { data: d, mezzore: mezzoreCopertura(b.apre, b.chiude, turniDelGiorno, b.esigenza ?? null) };
+        if (bisogno) return null; // il piano non ha il giorno: era chiuso
+        const g = tipo.get(giornoIso(d));
+        return g && !g.chiuso ? { data: d, mezzore: mezzoreCopertura(g.apre, g.chiude, turniDelGiorno, null) } : null;
+      };
       const fogli = [];
       for (let lun = lunediDi(primo); lun <= ultimoDelMese; lun = aggiungiGiorni(lun, 7)) {
         const sett = giorniDellaSettimana(lun);
@@ -507,6 +541,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
               .map((t) => ({ inizio: t.inizio.slice(0, 5), fine: t.fine.slice(0, 5), pausaMinuti: t.pausa_minuti ?? 0, oreStraordinario: Number(t.ore_straordinario ?? 0) || undefined }))])),
           })),
           pubblicatoIl: tuttiPubblicati ? giornoDiPubblicazione(suoi) ?? oggiRoma() : null,
+          ...(conCopertura ? {
+            copertura: dentro.map((d) => coperturaDi(d, suoi.filter((t) => t.data === d).map((t) => ({ inizio: t.inizio.slice(0, 5), fine: t.fine.slice(0, 5) }))))
+              .filter((x): x is CoperturaGiorno => !!x),
+          } : {}),
         });
       }
       const titolo = `Orario ${nomeNegozio} ${NOMI_MESE_LUNGHI[Number(mese.slice(5, 7))]} ${mese.slice(0, 4)}`;
@@ -810,6 +848,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                 className="inline-flex items-center gap-1.5 min-h-[40px] px-3.5 rounded-lg border border-slate-300 bg-white text-sm font-medium hover:bg-slate-50 disabled:opacity-50">
                 <Printer size={15} /> Stampa il mese
               </button>
+              <label className="inline-flex items-center gap-1.5 min-h-[40px] text-sm text-slate-700" title="Nei PDF, dopo l'orario, una pagina con le persone in turno mezz'ora per mezz'ora e quelle che servono">
+                <input type="checkbox" checked={conCopertura} onChange={(e) => setConCopertura(e.target.checked)} className="h-4 w-4" /> con la copertura oraria
+              </label>
             </>
           )}
         {puoScrivere && (
@@ -881,6 +922,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             <button type="button" onClick={() => condividi('mail', 'mese')} disabled={lavoro} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><Mail size={16} /> Mese intero per mail</button>
             <button type="button" onClick={() => condividi('whatsapp', 'mese')} disabled={lavoro} className="inline-flex items-center gap-1.5 min-h-[44px] px-4 rounded-lg border border-slate-300 bg-white font-medium hover:bg-slate-50 disabled:opacity-50"><MessageCircle size={16} /> Mese intero su WhatsApp</button>
           </div>
+          <label className="mt-2 inline-flex items-center gap-1.5 min-h-[44px] text-sm">
+            <input type="checkbox" checked={conCopertura} onChange={(e) => setConCopertura(e.target.checked)} className="h-4 w-4" /> Aggiungi ai PDF la copertura oraria (persone in turno e persone che servono, mezz'ora per mezz'ora)
+          </label>
           <p className="mt-2 text-xs text-blue-900/80">Mail e WhatsApp non partono da soli: si apre il programma con il testo pronto e il foglio in PDF, e lo mandi tu.</p>
         </section>
       )}
