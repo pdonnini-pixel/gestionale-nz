@@ -1569,5 +1569,9 @@ domenica anche se sono del mese prima o dopo, e lui deve tenerne in considerazio
 - Sola lettura: si cambiano dalla settimana di quel mese. Nessun trascinamento verso quei giorni.
 - Sono gli stessi turni che già entravano nel conto: ore della settimana (`oreFuori`, «di cui … h in
   novembre») e riposo di legge (`giorniFuori`). Il conto non cambia, cambia che si vedono.
-- La stampa della settimana resta com'era (giorni dell'altro mese in grigio, vuoti).
+- **Stampe** (stesso giorno, seconda richiesta di Patrizio: «anche nelle stampe ci devono essere i primi e gli ultimi
+  giorni, se no come devo vedere anche il 30 del mese»): settimana e mese mostrano i giorni dell'altro mese in
+  grigio con data, turni e negozio se è un altro (`TurnoStampa.altroNegozio`); la colonna ORE somma la settimana
+  intera e scrive sotto la parte dell'altro mese (`totaliPersona` → `altroMese`). Apre e chiude restano solo per i
+  giorni del mese. Nel PDF del mese i turni della prima e dell'ultima settimana si leggono con `turniCheValgono`.
 - La pagina della copertura oraria nelle stampe (#933) è stata tolta lo stesso giorno: non serviva.

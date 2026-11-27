@@ -109,7 +109,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // I turni che contano nei giorni dell'altro mese della settimana (Patrizio, 27/11/2026: «serve poter vedere nella
   // settimana su cui si calcolano le ore sia il lunedì che la domenica anche se sono del mese prima o dopo»):
   // si vedono in grigio, in sola lettura, e sono gli stessi che entrano nelle ore della settimana.
-  const [turniAltroMese, setTurniAltroMese] = useState<{ employee_id: string; data: string; inizio: string; fine: string; outlet_id: string }[]>([]);
+  const [turniAltroMese, setTurniAltroMese] = useState<{ employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; outlet_id: string }[]>([]);
   // Giorno libero fisso di ognuno (migration 395); dove la tabella manca la riga non compare.
   const [giorniLiberi, setGiorniLiberi] = useState<Map<string, GiornoLibero>>(new Map());
   const [haGiorniLiberi, setHaGiorniLiberi] = useState(false);
@@ -243,7 +243,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const giorniPortati = new Map<string, Set<string>>();
       const righeFuori = (fu.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; outlet_id: string; origine: string | null; stato: string | null }[]) ?? [];
       const valgonoFuori = turniCheValgono(righeFuori, (pianiFuori.data as PianoDelMese[] | null) ?? []);
-      setTurniAltroMese(valgonoFuori.map((x) => ({ employee_id: x.employee_id, data: x.data, inizio: t5(x.inizio), fine: t5(x.fine), outlet_id: x.outlet_id })));
+      setTurniAltroMese(valgonoFuori.map((x) => ({ employee_id: x.employee_id, data: x.data, inizio: t5(x.inizio), fine: t5(x.fine), pausa_minuti: x.pausa_minuti ?? 0, outlet_id: x.outlet_id })));
       for (const x of valgonoFuori) {
         portate.set(x.employee_id, (portate.get(x.employee_id) ?? 0) + oreLavorate({ inizio: t5(x.inizio), fine: t5(x.fine), pausaMinuti: x.pausa_minuti ?? 0 }));
         giorniPortati.set(x.employee_id, (giorniPortati.get(x.employee_id) ?? new Set<string>()).add(x.data));
@@ -432,6 +432,11 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
     }
   };
 
+  // I turni dei giorni dell'altro mese per la stampa (Patrizio, 27/11/2026: «anche nelle stampe ci devono
+  // essere i primi e gli ultimi giorni»): in grigio, con il negozio se è un altro, contati nelle ore della settimana.
+  const turniStampaAltroMese = (righe: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; outlet_id: string }[], id: string, giorniFuoriMese: string[]) =>
+    Object.fromEntries(giorniFuoriMese.map((d) => [d, righe.filter((t) => t.employee_id === id && t.data === d)
+      .map((t) => ({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti ?? 0, ...(t.outlet_id !== outletId ? { altroNegozio: nomeNegozioDi(t.outlet_id) } : {}) }))]));
   // Il PDF dell'orario della settimana, con la grafica dell'azienda (Patrizio, 11/11/2026).
   const foglioSettimana = () => {
       const tenant = getCurrentTenant();
@@ -451,8 +456,11 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           nome: nomePersona(p.scheda),
           ruolo: ruoloGuida(p.scheda.id, negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null),
           oreSettimana: p.ore,
-          turni: Object.fromEntries(date.map((d) => [d, attivi.filter((t) => t.employee_id === p.scheda.id && t.data === d)
-            .map((t) => ({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti ?? 0, oreStraordinario: Number(t.ore_straordinario ?? 0) || undefined }))])),
+          turni: {
+            ...turniStampaAltroMese(turniAltroMese, p.scheda.id, fuori),
+            ...Object.fromEntries(date.map((d) => [d, attivi.filter((t) => t.employee_id === p.scheda.id && t.data === d)
+              .map((t) => ({ inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti ?? 0, oreStraordinario: Number(t.ore_straordinario ?? 0) || undefined }))])),
+          },
           assenze: Object.fromEntries(date.flatMap((d, i) => {
             const nd = motivoNonDisponibile(p.perGiorno[i], p.scheda.id, d);
             return nd && !attivi.some((t) => t.employee_id === p.scheda.id && t.data === d) ? [[d, nd]] : [];
@@ -496,6 +504,19 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const orarioDi = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
       const tipo = new Map(giorni.map((g) => [g.giorno, g]));
       const visibili = persone.filter((p) => delMese.some((t) => t.employee_id === p.scheda.id) || p.perGiorno.some((pg) => pg.outletId === outletId && pg.stato === 'in_servizio'));
+      // I giorni dell'altro mese della prima e dell'ultima settimana: i turni che valgono (turniCheValgono),
+      // in qualunque negozio, come nel piano settimanale e nel conto delle ore.
+      const giorniAltroMese = [...giorniDellaSettimana(lunediDi(primo)), ...giorniDellaSettimana(lunediDi(ultimoDelMese))].filter((d) => !d.startsWith(mese));
+      let altroMese: { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number; outlet_id: string }[] = [];
+      if (giorniAltroMese.length) {
+        const [tf, pf] = await Promise.all([
+          supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, outlet_id, origine, stato').eq('company_id', companyId).in('data', giorniAltroMese).neq('stato', 'annullato'),
+          supabase.from('shift_plans').select('id, outlet_id, mese, stato, simulazione, created_at').eq('company_id', companyId).in('mese', [...new Set(giorniAltroMese.map((d) => `${d.slice(0, 7)}-01`))]),
+        ]);
+        if (tf.error || pf.error) throw new Error(`turni dei giorni dell'altro mese non letti (${(tf.error ?? pf.error)?.message ?? 'errore'})`);
+        altroMese = turniCheValgono((tf.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; outlet_id: string; origine: string | null; stato: string | null }[]) ?? [], (pf.data as PianoDelMese[] | null) ?? [])
+          .map((x) => ({ employee_id: x.employee_id, data: x.data, inizio: t5(x.inizio), fine: t5(x.fine), pausa_minuti: x.pausa_minuti ?? 0, outlet_id: x.outlet_id }));
+      }
       const fogli = [];
       for (let lun = lunediDi(primo); lun <= ultimoDelMese; lun = aggiungiGiorni(lun, 7)) {
         const sett = giorniDellaSettimana(lun);
@@ -512,8 +533,11 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
             nome: nomePersona(p.scheda),
             ruolo: ruoloGuida(p.scheda.id, negozio?.referente_employee_id ?? null, negozio?.vice_referente_employee_id ?? null),
             oreSettimana: p.ore,
-            turni: Object.fromEntries(dentro.map((d) => [d, suoi.filter((t) => t.employee_id === p.scheda.id && t.data === d)
-              .map((t) => ({ inizio: t.inizio.slice(0, 5), fine: t.fine.slice(0, 5), pausaMinuti: t.pausa_minuti ?? 0, oreStraordinario: Number(t.ore_straordinario ?? 0) || undefined }))])),
+            turni: {
+              ...turniStampaAltroMese(altroMese, p.scheda.id, sett.filter((d) => !dentro.includes(d))),
+              ...Object.fromEntries(dentro.map((d) => [d, suoi.filter((t) => t.employee_id === p.scheda.id && t.data === d)
+                .map((t) => ({ inizio: t.inizio.slice(0, 5), fine: t.fine.slice(0, 5), pausaMinuti: t.pausa_minuti ?? 0, oreStraordinario: Number(t.ore_straordinario ?? 0) || undefined }))])),
+            },
           })),
           pubblicatoIl: tuttiPubblicati ? giornoDiPubblicazione(suoi) ?? oggiRoma() : null,
         });

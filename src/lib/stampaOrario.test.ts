@@ -134,11 +134,16 @@ describe('totaliPersona', () => {
     '2026-11-28': [turno('10:00', '13:00', 0), turno('16:00', '20:00', 0, 1)],
   });
   it('somma ore lavorate e straordinari', () => {
-    expect(totaliPersona(p, giorni)).toEqual({ ore: 23.5, straordinario: 3.5 });
+    expect(totaliPersona(p, giorni)).toEqual({ ore: 23.5, straordinario: 3.5, altroMese: 0 });
   });
-  it('lascia fuori i giorni dell\'altro mese e quelli chiusi', () => {
+  it('conta anche i giorni dell\'altro mese (il contratto è della settimana) e lascia fuori quelli chiusi', () => {
     const ridotti = giorni.map((g, i) => ({ ...g, nelMese: i !== 0, chiuso: i === 4 }));
-    expect(totaliPersona(p, ridotti)).toEqual({ ore: 7, straordinario: 1 });
+    expect(totaliPersona(p, ridotti)).toEqual({ ore: 14.5, straordinario: 1, altroMese: 7.5 });
+  });
+  it('stampa i giorni dell\'altro mese senza cambiare il numero di pagine', () => {
+    const ridotti = giorni.map((g, i) => ({ ...g, nelMese: i !== 0 }));
+    const dati = { marchio: 'testo' as const, azienda: 'Prova', negozio: 'Negozio', giorni: ridotti, persone: [p], oggi: '2026-11-27' };
+    expect(creaPdfOrario(dati).getNumberOfPages()).toBe(1);
   });
 });
 
