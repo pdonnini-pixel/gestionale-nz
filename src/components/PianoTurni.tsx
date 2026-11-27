@@ -86,6 +86,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   }, [settimana, mese]);
   const ultimo = date[date.length - 1];
   const fuori = useMemo(() => settimana.filter((x) => !date.includes(x)), [settimana, date]);
+  const fuoriPrima = fuori.filter((d) => d < date[0]);
+  const fuoriDopo = fuori.filter((d) => d > date[date.length - 1]);
+  const nomeNegozioDi = (id: string) => nomeDelNegozio(dati.negozi.find((n) => n.id === id));
   const vaiAvanti = () => {
     if (ultimo === settimana[6]) { const l = aggiungiGiorni(lunedi, 7); setLunedi(l); setMese(l.slice(0, 7)); }
     else setMese(settimana[6].slice(0, 7));
@@ -103,6 +106,10 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
   // Ore gia' nei turni dei giorni dell'altro mese della stessa settimana, per persona.
   const [oreFuori, setOreFuori] = useState<Map<string, number>>(new Map());
   const [giorniFuori, setGiorniFuori] = useState<Map<string, number>>(new Map());
+  // I turni che contano nei giorni dell'altro mese della settimana (Patrizio, 27/11/2026: «serve poter vedere nella
+  // settimana su cui si calcolano le ore sia il lunedì che la domenica anche se sono del mese prima o dopo»):
+  // si vedono in grigio, in sola lettura, e sono gli stessi che entrano nelle ore della settimana.
+  const [turniAltroMese, setTurniAltroMese] = useState<{ employee_id: string; data: string; inizio: string; fine: string; outlet_id: string }[]>([]);
   // Giorno libero fisso di ognuno (migration 395); dove la tabella manca la riga non compare.
   const [giorniLiberi, setGiorniLiberi] = useState<Map<string, GiornoLibero>>(new Map());
   const [haGiorniLiberi, setHaGiorniLiberi] = useState(false);
@@ -235,7 +242,9 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
       const portate = new Map<string, number>();
       const giorniPortati = new Map<string, Set<string>>();
       const righeFuori = (fu.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; outlet_id: string; origine: string | null; stato: string | null }[]) ?? [];
-      for (const x of turniCheValgono(righeFuori, (pianiFuori.data as PianoDelMese[] | null) ?? [])) {
+      const valgonoFuori = turniCheValgono(righeFuori, (pianiFuori.data as PianoDelMese[] | null) ?? []);
+      setTurniAltroMese(valgonoFuori.map((x) => ({ employee_id: x.employee_id, data: x.data, inizio: t5(x.inizio), fine: t5(x.fine), outlet_id: x.outlet_id })));
+      for (const x of valgonoFuori) {
         portate.set(x.employee_id, (portate.get(x.employee_id) ?? 0) + oreLavorate({ inizio: t5(x.inizio), fine: t5(x.fine), pausaMinuti: x.pausa_minuti ?? 0 }));
         giorniPortati.set(x.employee_id, (giorniPortati.get(x.employee_id) ?? new Set<string>()).add(x.data));
       }
@@ -835,7 +844,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
 
       {fuori.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 flex gap-2">
-          <Info size={15} className="shrink-0 mt-0.5" /> Questa settimana è a cavallo di due mesi: qui vedi i giorni di {NOMI_MESE_LUNGHI[Number(date[0].slice(5, 7))]}. Le ore già nei turni dei giorni di {meseFuori} contano nella colonna Ore, così il contratto della settimana resta uno solo.
+          <Info size={15} className="shrink-0 mt-0.5" /> Questa settimana è a cavallo di due mesi: qui lavori sui giorni di {NOMI_MESE_LUNGHI[Number(date[0].slice(5, 7))]}. I giorni di {meseFuori} si vedono in grigio con i loro turni, in sola lettura (si cambiano dalla settimana di {meseFuori}): le loro ore contano nella colonna Ore e nel riposo della settimana, così il contratto della settimana resta uno solo.
         </div>
       )}
       {attivi.length > 0 && (
@@ -923,6 +932,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           <thead>
             <tr className="text-left text-xs uppercase tracking-wide text-slate-500 border-b border-slate-200">
               <th className="px-3 py-2 font-semibold w-48">Persona</th>
+              {fuoriPrima.map((d) => <ThAltroMese key={d} data={d} />)}
               {giorni.map((g) => (
                 <th key={g.data} className={`px-1.5 py-2 font-semibold ${g.caldo && !g.chiuso ? 'bg-pink-50 text-pink-900' : ''}`}>
                   {NOMI_GIORNO_BREVI[g.giorno]} {g.data.slice(8, 10)}{g.caldo && !g.chiuso && <span className="ml-1 normal-case font-semibold text-[10px] rounded-full bg-pink-200 text-pink-900 px-1.5 py-0.5" title="Giorno caldo: lavorano tutte, straordinari ammessi">caldo</span>}
@@ -936,6 +946,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                   {g.evento && <span className="block normal-case font-semibold text-red-700" title="Evento: più personale, niente ferie né permessi, straordinari se mancano persone">{g.evento}</span>}
                 </th>
               ))}
+              {fuoriDopo.map((d) => <ThAltroMese key={d} data={d} />)}
               <th className="px-3 py-2 font-semibold text-right">Ore</th>
             </tr>
           </thead>
@@ -981,6 +992,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                       </label>
                     )}
                   </td>
+                  {fuoriPrima.map((d) => <TdAltroMese key={d} turni={turniAltroMese.filter((t) => t.employee_id === p.scheda.id && t.data === d)} outletId={outletId} nomeDi={nomeNegozioDi} />)}
                   {giorni.map((g, i) => {
                     const pg = p.perGiorno[i];
                     const nd = motivoNonDisponibile(pg, p.scheda.id, g.data);
@@ -1014,6 +1026,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                       </td>
                     );
                   })}
+                  {fuoriDopo.map((d) => <TdAltroMese key={d} turni={turniAltroMese.filter((t) => t.employee_id === p.scheda.id && t.data === d)} outletId={outletId} nomeDi={nomeNegozioDi} />)}
                   <td className={`px-3 py-2 text-right tabular-nums ${p.ore != null && pianificate > p.ore + 0.01 ? 'text-amber-800 font-semibold' : 'text-emerald-800'}`}>
                     {oreInChiaro(pianificate)}{p.ore != null ? ` / ${p.ore}` : ''}
                     {portate > 0.01 && fuori.length > 0 && (
@@ -1033,10 +1046,11 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
               );
             })}
             {!persone.length && (
-              <tr><td colSpan={date.length + 2} className="px-3 py-10 text-center text-slate-400">Nessuna persona in organico in questo negozio nella settimana.</td></tr>
+              <tr><td colSpan={settimana.length + 2} className="px-3 py-10 text-center text-slate-400">Nessuna persona in organico in questo negozio nella settimana.</td></tr>
             )}
             <tr className="bg-slate-50">
               <td className="px-3 py-2 text-xs font-bold text-slate-600 uppercase">Copertura</td>
+              {fuoriPrima.map((d) => <td key={d} className="bg-slate-50" />)}
               {giorni.map((g) => {
                 const sc = scoperture.filter((s) => s.data === g.data);
                 return (
@@ -1047,6 +1061,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
                   </td>
                 );
               })}
+              {fuoriDopo.map((d) => <td key={d} className="bg-slate-50" />)}
               <td className="px-3 py-2 text-right text-xs tabular-nums font-semibold">{oreInChiaro(totaleOre)} / {totaleContratto.toLocaleString('it-IT')}</td>
             </tr>
           </tbody>
@@ -1101,5 +1116,31 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         />
       )}
     </div>
+  );
+}
+
+/** Testata di un giorno dell'altro mese nella settimana a cavallo: grigia, solo da leggere. */
+function ThAltroMese({ data }: { data: string }) {
+  return (
+    <th className="px-1.5 py-2 font-semibold bg-slate-50 text-slate-400" title="Giorno dell'altro mese: si vede per le ore della settimana, si cambia dalla settimana di quel mese">
+      {NOMI_GIORNO_BREVI[giornoIso(data)]} {data.slice(8, 10)}
+      <span className="block normal-case font-normal">{NOMI_MESE_LUNGHI[Number(data.slice(5, 7))]}</span>
+    </th>
+  );
+}
+
+/** Casella di un giorno dell'altro mese: i turni che contano nelle ore della settimana, in grigio. */
+function TdAltroMese({ turni, outletId, nomeDi }: { turni: { inizio: string; fine: string; outlet_id: string }[]; outletId: string; nomeDi: (id: string) => string }) {
+  return (
+    <td className="px-1.5 py-1.5 align-top bg-slate-50">
+      <div className="w-full min-h-[40px] rounded-md px-1.5 py-1 text-xs text-center text-slate-500">
+        {turni.length ? turni.map((t) => (
+          <span key={`${t.inizio}-${t.fine}`} className="block font-mono">
+            {t.inizio}-{t.fine}
+            {t.outlet_id !== outletId && <span className="block font-sans text-[10px]">a {nomeDi(t.outlet_id)}</span>}
+          </span>
+        )) : <span title="Nessun turno che vale in questo giorno: riposo, oppure mese non ancora pianificato">—</span>}
+      </div>
+    </td>
   );
 }
