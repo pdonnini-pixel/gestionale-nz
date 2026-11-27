@@ -18,6 +18,7 @@
 //
 // Funzioni pure, nessuna query. Test in pianoMensile.test.ts.
 
+import { eLunediFisso, coperturaDelLunedi, scegliLunedi, chiHaChiuso } from './lunediFisso';
 import { festivitaItaliane } from './ferieRichiesta';
 import {
   SLOT_MINUTI, REGOLE_DEFAULT, LUNEDI_MAX_PERSONE, eFestivo, giornoIso, giornoPieno, lunediDi, giorniDellaSettimana, pausaPer, pausaMinimaPerPresenza, proponiSettimana,
@@ -220,6 +221,12 @@ export function fabbisognoDaTraffico(
  * giorno lo porta scritto (`lunediFasceOltre`), cosi' la pagina lo segnala.
  */
 export function tettoDelLunedi(g: GiornoPiano, regole: RegoleTurni): GiornoPiano {
+  // Il lunedì fisso (Patrizio, 27/11/2026), in tutti i negozi: servono esattamente le due persone dei
+  // due turni (una, due dalle 12 alle 18, una); MODA e fasce non aggiungono nessuno.
+  if (eLunediFisso(g, regole)) {
+    const fisso = coperturaDelLunedi(g, regole);
+    return { ...g, lunediDue: true, fabbisogno: fisso, minimo: fisso, ...(g.esigenza ? { esigenza: fisso } : {}), ...(g.esatto ? { esatto: fisso } : {}) };
+  }
   if (!regole.lunediDue || g.chiuso || giornoIso(g.data) !== 1 || g.caldo || g.evento || eFestivo(g.data)) return g;
   const taglia = (v?: number[]) => v?.map((x) => Math.min(LUNEDI_MAX_PERSONE, x));
   const oltre = (g.minimo ?? []).some((x) => x > LUNEDI_MAX_PERSONE);
@@ -1234,6 +1241,8 @@ function pianificaMeseConRegola(args: {
    * insieme `ottimizzaSettimana`, come ultimo passo di ogni settimana.
    */
   nuove?: Pick<RegoleNuove, 'giornoLibero' | 'guida' | 'coppiePrima' | 'responsabile' | 'vice' | 'riposi' | 'lunediPrima' | 'chiavi'>;
+  /** chi ha fatto la chiusura nelle domeniche dell'altro mese (data → persone): non apre il lunedì fisso dopo */
+  chiusiDomenicaPrima?: Map<string, Set<string>>;
   /** salta l'ultimo passo (confronti veloci fra due calcoli, es. con e senza una ferie) */
   rapido?: boolean;
 }): EsitoPianoMese {
@@ -1380,7 +1389,7 @@ function pianificaMeseConRegola(args: {
   for (const lun of settimane) {
     const date = giorniDellaSettimana(lun).filter(nelMese);
     const gg = giorniMese.filter((g) => date.includes(g.data));
-    const candidati: PersonaTurni[] = contrattuali.map((p) => ({
+    const candidatiBase: PersonaTurni[] = contrattuali.map((p) => ({
       id: p.id,
       ore: orePersona(p, lun),
       nonDisponibile: new Set([...p.nonDisponibile, ...date.filter((d) => libero(p.id, d))]),
@@ -1390,13 +1399,41 @@ function pianificaMeseConRegola(args: {
     // Le trasferte verso questo negozio contano come presenza: si aggiungono alla
     // lista come turni fissi (nessun passo li modifica, non sono di chi pianifichiamo)
     // e si tolgono alla fine della settimana.
-    const fissiSett = (args.fissi ?? []).filter((t) => date.includes(t.data));
+    const fissiEsterni = (args.fissi ?? []).filter((t) => date.includes(t.data));
+    // Il lunedì fisso (Patrizio, 27/11/2026): due persone, una apre e fa fino alle 18, l'altra entra alle
+    // 12 e chiude; chi apre non ha chiuso la domenica prima. I due turni si scelgono qui e da qui in poi
+    // sono turni fissi: nessun altro lavora quel lunedì. Se il lunedì ha già turni fissi (a mano,
+    // pubblicati, trasferte) o non ci sono due persone che li possano fare, si pianifica come prima.
+    const lunG = gg.find((g) => giornoIso(g.data) === 1);
+    let lunFissi: Turno[] = [];
+    if (lunG && eLunediFisso(lunG, regole) && !fissiEsterni.some((t) => t.data === lunG.data)) {
+      const dom = new Date(Date.parse(`${lunG.data}T12:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+      // anche i turni fissi della domenica (a mano, pubblicati, trasferte) dicono chi ha chiuso
+      const chiusoDomenica = nelMese(dom) ? chiHaChiuso([...turni, ...(args.fissi ?? [])], dom) : (args.chiusiDomenicaPrima?.get(dom) ?? new Set<string>());
+      // giorni gia' fissati nella settimana (turni fissi e giorni lavorati nell'altro mese): niente settimo giorno
+      const giorniLavorati = new Map(candidatiBase.map((c) => [c.id,
+        new Set(fissiEsterni.filter((t) => t.employeeId === c.id).map((t) => t.data)).size
+        + giorniDellaSettimana(lun).filter((d) => !nelMese(d) && (args.oreFuoriMese?.get(c.id)?.get(d) ?? 0) > 0).length]));
+      lunFissi = scegliLunedi({
+        g: lunG, persone: candidatiBase, regole,
+        guida: { responsabile: args.nuove?.responsabile ?? null, vice: args.nuove?.vice ?? null },
+        chiavi: args.nuove?.chiavi, chiusoDomenica, lunediPrima: lunediVisti, riposi: args.nuove?.riposi, giornoLibero: giorniLiberi, giorniLavorati,
+      }) ?? [];
+    }
+    // Le ore restano quelle della settimana: tutti i passi contano da soli i turni fissi di una persona
+    // contro il suo contratto (revisore, 27/11/2026: togliendole anche qui si contavano due volte).
+    // Il lunedì fisso non è disponibile per nessuno: i due turni ci sono già.
+    const lunFisso = lunFissi.length && lunG ? lunG.data : null;
+    const candidatiOtt: PersonaTurni[] = lunFisso ? candidatiBase.map((c) => ({ ...c, nonDisponibile: new Set([...c.nonDisponibile, lunFisso]) })) : candidatiBase;
+    const candidati: PersonaTurni[] = candidatiOtt;
+    const fissiSett = [...fissiEsterni, ...lunFissi];
     let esito = [...proponiSettimana({ giorni: gg, persone: candidati, regole, fissi: fissiSett }).turni, ...fissiSett];
     // Le ore di contratto che il traffico non chiede restano da assegnare: ferie,
     // permessi o turni li decide l'HR (Patrizio, 29/10/2026), niente turni in piu' automatici.
     const base = gg.map((g) => ({ ...g, fabbisogno: g.fabbisogno.map(() => 1) }));
     // La riserva a chiamata copre i buchi che restano, fino a 8 ore al giorno.
-    const disponibiliRiserva = riserva.filter((p) => date.some((d) => !p.nonDisponibile.has(d)));
+    const disponibiliRiserva = riserva.filter((p) => date.some((d) => !p.nonDisponibile.has(d)))
+      .map((p) => (lunFisso ? { ...p, nonDisponibile: new Set([...p.nonDisponibile, lunFisso]) } : p));
     if (disponibiliRiserva.length && oreScoperte(gg, esito) > 0) {
       const perRitocco: PersonaTurni[] = disponibiliRiserva.map((p) => ({ id: p.id, ore: regole.turnoMaxOre * regole.giorniLavoroMax, nonDisponibile: p.nonDisponibile, fasce: p.fasce }));
       esito = ritoccaScoperture(gg, esito, [], perRitocco, regole, undefined, new Set(disponibiliRiserva.map((p) => p.id)));
@@ -1419,7 +1456,7 @@ function pianificaMeseConRegola(args: {
     if (liberiSett.length && oreScoperte(base, esito) > 0) {
       const senzaLiberi = perCopertura.map((c) => {
         const p = contrattuali.find((x) => x.id === c.id);
-        return { ...c, nonDisponibile: new Set([...(p?.nonDisponibile ?? [])]) };
+        return { ...c, nonDisponibile: new Set([...(p?.nonDisponibile ?? []), ...(lunFisso ? [lunFisso] : [])]) };
       });
       esito = copriOrarioMinimo(base, esito, senzaLiberi, riservaCopertura, regole);
       for (const d of liberiSett) {
@@ -1484,7 +1521,7 @@ function pianificaMeseConRegola(args: {
     // contratto» le ore libere vanno in turno. Mai peggio di quello che c'era.
     if (!args.rapido) {
       const fissiRefSett = new Set(fissiSett);
-      esito = [...ottimizzaSettimana(gg, esito.filter((t) => !fissiRefSett.has(t)), candidati, regole,
+      esito = [...ottimizzaSettimana(gg, esito.filter((t) => !fissiRefSett.has(t)), candidatiOtt, regole,
         {
           giornoLibero: giorniLiberi, guida, coppiePrima: coppieViste, riempiContratto: !!regole.riempiContratto,
           lunediPrima: lunediVisti,
@@ -1508,7 +1545,7 @@ function pianificaMeseConRegola(args: {
     const fissiRef = new Set(fissiSett);
     // e nessun turno proposto che cominci o finisca nella chiusura di meta' giornata (446)
     const dellaSettimana = applicaChiusure(gg, rispettaFasce(esito.filter((t) => !fissiRef.has(t)), args.persone, regole), regole);
-    turni.push(...dellaSettimana);
+    turni.push(...dellaSettimana, ...lunFissi);
     // pezzo di settimana con l'altro mese ancora da fare: la quota del pezzo e' quello che ci sta dentro
     if (pezzoLibero && date.length < 7 && !altroMesePianificato(lun)) {
       quotaPezzi.set(lun, new Map(contrattuali.map((p) => [p.id,
@@ -1519,7 +1556,7 @@ function pianificaMeseConRegola(args: {
     // nei negozi con i giorni caldi, non in simulazione (li' gli straordinari li decide chi simula).
     const forti = new Set(gg.filter((g) => !g.chiuso && (g.straordinariCaldo || (g.caldo && g.straordinari))).map((g) => g.data));
     if (forti.size && !args.fabbisognoFisso && !args.straordinariPersona && args.straordinariSettimana == null) {
-      const contratto = new Map(candidati.map((c) => [c.id, c.ore - fissiSett.filter((f) => f.employeeId === c.id).reduce((a, f) => a + oreLavorate(f), 0)]));
+      const contratto = new Map(candidatiOtt.map((c) => [c.id, c.ore - fissiSett.filter((f) => f.employeeId === c.id).reduce((a, f) => a + oreLavorate(f), 0)]));
       for (const [t, ore] of ripartisciStraordinari(dellaSettimana, contratto, forti)) straordinariTurni.set(t, ore);
     }
   }

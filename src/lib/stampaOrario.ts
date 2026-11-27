@@ -25,12 +25,18 @@ export interface TurnoStampa {
   pausaPagataMinuti?: number;
   /** Ore di straordinario dentro questo turno, se ce ne sono. */
   oreStraordinario?: number;
+  /** Turno in un altro negozio (giorni dell'altro mese): il nome, scritto sotto l'orario. */
+  altroNegozio?: string;
 }
 
 export interface GiornoStampa {
   /** Data del giorno, YYYY-MM-DD. */
   data: string;
-  /** false = giorno della settimana che cade nel mese prima o dopo: colonna grigia vuota. */
+  /**
+   * false = giorno della settimana che cade nel mese prima o dopo: colonna grigia con data e turni
+   * in grigio, da leggere (Patrizio, 27/11/2026: «anche nelle stampe ci devono essere i primi e gli
+   * ultimi giorni»). Le sue ore contano nel totale della settimana; apre e chiude restano vuoti.
+   */
   nelMese: boolean;
   chiuso: boolean;
   apre: string | null;
@@ -183,21 +189,28 @@ function giornoContato(g: GiornoStampa): boolean {
   return g.nelMese && !g.chiuso;
 }
 
-/** Ore lavorate e di straordinario della persona nei giorni mostrati sul foglio. */
+/**
+ * Ore lavorate e di straordinario della persona nella settimana del foglio: i giorni del mese e anche
+ * quelli dell'altro mese (come la colonna Ore del piano settimanale: il contratto è della settimana).
+ * `altroMese` = la parte delle ore che cade nei giorni dell'altro mese.
+ */
 export function totaliPersona(
   persona: PersonaStampa,
   giorni: GiornoStampa[],
-): { ore: number; straordinario: number } {
+): { ore: number; straordinario: number; altroMese: number } {
   let ore = 0;
   let straordinario = 0;
+  let altroMese = 0;
   for (const g of giorni) {
-    if (!giornoContato(g)) continue;
+    if (g.chiuso && g.nelMese) continue;
     for (const t of persona.turni[g.data] ?? []) {
       ore += oreTurno(t);
       straordinario += t.oreStraordinario ?? 0;
+      if (!g.nelMese) altroMese += oreTurno(t);
     }
   }
-  return { ore: Math.round(ore * 100) / 100, straordinario: Math.round(straordinario * 100) / 100 };
+  const tondo = (x: number) => Math.round(x * 100) / 100;
+  return { ore: tondo(ore), straordinario: tondo(straordinario), altroMese: tondo(altroMese) };
 }
 
 /**
@@ -471,6 +484,7 @@ function maiuscolo(testo: string): string {
 }
 
 function turniDelGiorno(persona: PersonaStampa, giorno: GiornoStampa): TurnoStampa[] {
+  if (!giorno.nelMese) return persona.turni[giorno.data] ?? [];
   return giornoContato(giorno) ? persona.turni[giorno.data] ?? [] : [];
 }
 
@@ -577,9 +591,10 @@ function disegnaTestata(doc: jsPDF, dati: OrarioStampa, piano: PianoPagine): voi
     const nome = maiuscolo(GIORNI[indiceGiorno(g.data)]);
     const { mese, giorno } = spezzaData(g.data);
     if (!g.nelMese) {
-      // Giorno del mese prima o dopo: niente numero, solo il nome del mese in piccolo.
-      scrivi(doc, nome, x, fondo - 9.2, { size: 8, colore: GRIGIO_FUORI, spazio: 0.15, maxL });
-      scrivi(doc, maiuscolo(MESI[mese - 1]), x, fondo - 4.1, { size: 8, colore: GRIGIO_FUORI, spazio: 0.15, maxL });
+      // Giorno del mese prima o dopo: nome, numero e mese in grigio (si legge, non si conta in apre/chiude).
+      scrivi(doc, nome, x, fondo - 12.1, { size: 8, colore: GRIGIO_FUORI, spazio: 0.15, maxL });
+      const l = scrivi(doc, String(giorno), x, fondo - 4.8, { size: 19, colore: GRIGIO_FUORI });
+      scrivi(doc, maiuscolo(MESI[mese - 1]), x + l + 1.5, fondo - 4.8, { size: 7, colore: GRIGIO_FUORI, spazio: 0.1, maxL: maxL - l - 1.5 });
       return;
     }
     const su = g.evento ? 5.3 : 0;
@@ -646,10 +661,23 @@ function disegnaRigaPersona(
 
   // Una cella per giorno.
   dati.giorni.forEach((g, i) => {
-    if (!g.nelMese) return;
     const x = xGiorni + piano.colL * i + 2.2;
     const maxL = piano.colL - 3.6;
     const turni = turniDelGiorno(persona, g);
+    if (!g.nelMese) {
+      // Giorno dell'altro mese: i turni che contano nella settimana, in grigio; senza turni una lineetta.
+      if (turni.length === 0) {
+        scrivi(doc, TRATTINO, x, y + 6.2 * s, { size: 9 * s, colore: GRIGIO_FUORI });
+        return;
+      }
+      let yAltro = y;
+      for (const t of turni) {
+        scrivi(doc, `${oraPulita(t.inizio)} ${TRATTINO} ${oraPulita(t.fine)}`, x, yAltro + 6.5 * s, { size: 10.5 * s, bold: true, colore: GRIGIO_RIPOSO, maxL });
+        scrivi(doc, t.altroNegozio ? `a ${t.altroNegozio}` : dettaglioTurno(t), x, yAltro + 11.1 * s, { size: 7.5 * s, colore: GRIGIO_FUORI, maxL });
+        yAltro += (BLOCCO_TURNO_H + STACCO_TURNI) * s;
+      }
+      return;
+    }
     if (turni.length === 0) {
       // Giorno chiuso, assenza con il suo motivo (es. FERIE) oppure riposo.
       const motivo = g.chiuso ? 'chiuso' : persona.assenze?.[g.data]?.trim() || 'riposo';
@@ -675,9 +703,18 @@ function disegnaRigaPersona(
   // Colonna Ore: totale dei giorni mostrati e, sotto, lo straordinario.
   const totali = totaliPersona(persona, dati.giorni);
   scrivi(doc, formattaOre(totali.ore), MARGINE_DX - 2.2, y + 8.2 * s, { size: 15 * s, destra: true });
+  let yNota = y + 12.5 * s;
   if (totali.straordinario > 0) {
-    scrivi(doc, `${formattaOre(totali.straordinario)} straord.`, MARGINE_DX - 2.2, y + 12.5 * s, {
+    scrivi(doc, `${formattaOre(totali.straordinario)} straord.`, MARGINE_DX - 2.2, yNota, {
       size: 7 * s, bold: true, colore: ROSA_SCURO, destra: true,
+    });
+    yNota += 3.4 * s;
+  }
+  if (totali.altroMese > 0) {
+    const altro = dati.giorni.find((g) => !g.nelMese);
+    const meseAltro = altro ? MESI[spezzaData(altro.data).mese - 1].slice(0, 3) : '';
+    scrivi(doc, `di cui ${formattaOre(totali.altroMese)} ${meseAltro}.`, MARGINE_DX - 2.2, yNota, {
+      size: 6.5 * s, colore: GRIGIO, destra: true,
     });
   }
   linea(doc, y + h, 0.2, GRIGIO_RIGA);

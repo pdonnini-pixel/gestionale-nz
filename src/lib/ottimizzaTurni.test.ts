@@ -5,13 +5,18 @@ import {
 } from './turni';
 import { fabbisognoDaTraffico, almenoDuePersone } from './pianoMensile';
 import { ottimizzaSettimana, unisciTurniCorti, scegliGiorniLiberi, coppieFeriali, coppia, derogheSettimana, ripartisciStraordinari, sceltePerLaSettimana, contoSettimana, oreDiChiApre } from './ottimizzaTurni';
+import { REGOLE_DEFAULT } from './turni';
+
+// Queste prove sono nate prima del 27/11/2026: tetto di 10 ore lavorate e lunedì pianificato come gli altri
+// giorni. Le regole nuove (turno massimo 8 ore, lunedì fisso) hanno le loro prove in lunediFisso.test.ts.
+Object.assign(REGOLE_DEFAULT, { turnoMaxOre: 10, lunediFisso: false });
 
 // Un negozio inventato sul modello di quello da cui sono nate le regole
 // (Patrizio, 11/11/2026): aperto 10-20, fasce 1-2-1, quattro persone.
-const regole = regoleDaRiga({
+const regole = { ...regoleDaRiga({
   turno_min_ore: 4, turno_max_ore: 10, pausa_oltre_ore: 6, pausa_minuti: 10, pausa_lunga_oltre_ore: 8, pausa_lunga_minuti: 30,
   giorni_lavoro_max: 6, soglia_ingressi_feriali: 25, soglia_ingressi_weekend: 35, due_persone: false,
-});
+}), lunediFisso: false };
 const orari = [1, 2, 3, 4, 5, 6, 7].map((giorno) => ({ giorno, chiuso: false, apre: '10:00', chiude: '20:00' }));
 const fasce = [
   ...[1, 2, 3, 4, 5].flatMap((giorno) => [

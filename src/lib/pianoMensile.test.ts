@@ -5,6 +5,10 @@ import {
 } from './pianoMensile';
 import { type Turno, oreScoperte, REGOLE_DEFAULT, costruisciGiorni, giorniDellaSettimana, lunediDi, personeInPiu, lavoroMassimoGiorno, oreLavorate, coperturaLorda, copertura } from './turni';
 
+// Queste prove sono nate prima del 27/11/2026: tetto di 10 ore lavorate e lunedì pianificato come gli altri
+// giorni. Le regole nuove (turno massimo 8 ore, lunedì fisso) hanno le loro prove in lunediFisso.test.ts.
+Object.assign(REGOLE_DEFAULT, { turnoMaxOre: 10, lunediFisso: false });
+
 const orari = [1, 2, 3, 4, 5, 6, 7].map((g) => ({ giorno: g, chiuso: false, apre: '10:00', chiude: '20:00' }));
 const date = (dal: string, n: number) => Array.from({ length: n }, (_, i) => {
   const d = new Date(`${dal}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + i); return d.toISOString().slice(0, 10);

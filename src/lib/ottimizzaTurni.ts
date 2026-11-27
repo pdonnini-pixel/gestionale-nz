@@ -35,8 +35,9 @@
 
 import {
   SLOT_MINUTI, REGOLE_DEFAULT, RIPOSO_LEGALE, LUNEDI_MAX_PERSONE, giornoIso, giornoPieno, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona, pausaDelTurno,
-  type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno,
+  type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, eFestivo,
 } from './turni';
+import { eLunediFisso, orariDelLunedi, TURNO_MAX_SPECIALI_ORE } from './lunediFisso';
 
 export interface RegoleNuove {
   /** giorno libero fisso di ognuno (1 = lunedi' ... 7 = domenica) */
@@ -477,8 +478,8 @@ function costo(q: Quadro, st: Stato): number {
       if (q.guidaAttiva) {
         let guide = 0; let chi = -1;
         for (let k = 0; k < quanti; k++) if (q.eGuida[inTurno[k]]) { guide += 1; chi = inTurno[k]; }
-        if (guide + (q.guidaFissa[d] ? 1 : 0) >= 2) c += PESI.lunediDueGuide;
-        else if (guide === 1 && !q.guidaFissa[d] && chi === q.guidaLunPrima) c += PESI.lunediStessaGuida;
+        // responsabile e vice possono lavorare insieme il lunedì (Patrizio, 27/11/2026): niente costo per le due
+        if (guide === 1 && !q.guidaFissa[d] && chi === q.guidaLunPrima) c += PESI.lunediStessaGuida;
       }
     }
     // tetto di persone diverse nella giornata (475): i fissi contano, nessuno due volte
@@ -1321,7 +1322,7 @@ export function ottimizzaSettimana(
 // ── Le deroghe ───────────────────────────────────────────────────────────
 
 export interface Deroga {
-  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'caldo_chiusura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto' | 'riposi' | 'riposo_vietato' | 'lunedi_troppi' | 'lunedi_due_guide' | 'lunedi_fasce' | 'lunedi_coppia' | 'senza_chiavi';
+  regola: 'weekend' | 'giorno_libero' | 'lunedi_guida' | 'domenica_apertura' | 'caldo_chiusura' | 'una_sola' | 'vuoto' | 'turno_corto' | 'troppi_giorni' | 'oltre_contratto' | 'riposi' | 'riposo_vietato' | 'lunedi_troppi' | 'lunedi_due_guide' | 'lunedi_fasce' | 'lunedi_coppia' | 'senza_chiavi' | 'lunedi_fisso' | 'turno_lungo';
   data: string | null;
   employeeId: string | null;
   testo: string;
@@ -1389,11 +1390,24 @@ export function derogheSettimana(args: {
       const chi = [...new Set(del.map((t) => t.employeeId))];
       if (chi.length > LUNEDI_MAX_PERSONE) out.push({ regola: 'lunedi_troppi', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: ${chi.length} persone in turno, il lunedì dopo il weekend al massimo ${LUNEDI_MAX_PERSONE}` });
       else if (chi.length === 2 && args.lunediPrima?.[0] === coppia(chi[0], chi[1])) out.push({ regola: 'lunedi_coppia', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: lavorano le stesse due persone del lunedì prima` });
-      // una sola fra responsabile e vice, piu' una delle altre (Patrizio, 12/11/2026)
-      if (args.guida?.responsabile && args.guida.vice && chi.includes(args.guida.responsabile) && chi.includes(args.guida.vice)) {
-        out.push({ regola: 'lunedi_due_guide', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: lavorano insieme la referente e la vice referente, il lunedì ne basta una` });
-      }
+      // responsabile e vice possono lavorare insieme il lunedì (Patrizio, 27/11/2026: tolta la regola del 12/11)
       if (g.lunediFasceOltre) out.push({ regola: 'lunedi_fasce', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: le fasce salvate chiedono più di ${LUNEDI_MAX_PERSONE} persone, ma il lunedì comanda il tetto di ${LUNEDI_MAX_PERSONE}` });
+    }
+    // il lunedì fisso (Patrizio, 27/11/2026): due persone, una apre e fa fino alle 18, l'altra entra alle 12 e chiude
+    if (eLunediFisso(g, regole)) {
+      const o = orariDelLunedi(g, regole);
+      const forma = del.map((t) => `${minuti(t.inizio)}-${minuti(t.fine)}`).sort().join(',');
+      const attesa = [`${o.apre[0]}-${o.apre[1]}`, `${o.chiude[0]}-${o.chiude[1]}`].sort().join(',');
+      if (forma !== attesa) out.push({ regola: 'lunedi_fisso', data: g.data, employeeId: null, testo: `${giornoTesto(g.data)}: il lunedì lavorano due persone, ${hhmm(o.apre[0])}-${hhmm(o.apre[1])} e ${hhmm(o.chiude[0])}-${hhmm(o.chiude[1])}` });
+    }
+    // turno massimo (Patrizio, 27/11/2026): nei giorni feriali normali non si superano le ore del turno massimo
+    // (8 lavorate + 30'); oltre, e fino a 10, solo nei giorni speciali (sabato, domenica, festivi, eventi, calendario)
+    {
+      const speciale = iso >= 6 || !!g.caldo || !!g.evento || g.speciale || eFestivo(g.data);
+      const tetto = speciale ? Math.max(regole.turnoMaxOre, TURNO_MAX_SPECIALI_ORE) : regole.turnoMaxOre;
+      for (const t of del) {
+        if (oreLavorate(t) > tetto + 1e-9) out.push({ regola: 'turno_lungo', data: g.data, employeeId: t.employeeId, testo: `${nomi.get(t.employeeId) ?? 'Un turno'} ${giornoTesto(g.data)}: ${oreLavorate(t).toLocaleString('it-IT')} ore lavorate, ${speciale ? `oltre le ${tetto} ore` : `in un giorno feriale il massimo è ${tetto} ore (oltre solo nei giorni speciali)`}` });
+      }
     }
     // giorni caldi: una fra responsabile e vice fa l'apertura e resta le sue ore; con la regola
     // «una apre, l'altra chiude» l'altra arriva alla chiusura (Patrizio, 11 e 12/11/2026)

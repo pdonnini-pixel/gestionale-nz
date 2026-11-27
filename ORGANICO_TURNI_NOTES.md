@@ -1569,5 +1569,49 @@ domenica anche se sono del mese prima o dopo, e lui deve tenerne in considerazio
 - Sola lettura: si cambiano dalla settimana di quel mese. Nessun trascinamento verso quei giorni.
 - Sono gli stessi turni che già entravano nel conto: ore della settimana (`oreFuori`, «di cui … h in
   novembre») e riposo di legge (`giorniFuori`). Il conto non cambia, cambia che si vedono.
-- La stampa della settimana resta com'era (giorni dell'altro mese in grigio, vuoti).
+- **Stampe** (stesso giorno, seconda richiesta di Patrizio: «anche nelle stampe ci devono essere i primi e gli ultimi
+  giorni, se no come devo vedere anche il 30 del mese»): settimana e mese mostrano i giorni dell'altro mese in
+  grigio con data, turni e negozio se è un altro (`TurnoStampa.altroNegozio`); la colonna ORE somma la settimana
+  intera e scrive sotto la parte dell'altro mese (`totaliPersona` → `altroMese`). Apre e chiude restano solo per i
+  giorni del mese. Nel PDF del mese i turni della prima e dell'ultima settimana si leggono con `turniCheValgono`.
 - La pagina della copertura oraria nelle stampe (#933) è stata tolta lo stesso giorno: non serviva.
+
+## Turno massimo 8 ore e lunedì fisso (27/11/2026)
+
+Patrizio: «turno massimo 8 ore + 30 di pausa; sempre il lunedì 2 persone, 1 apre alle 10 e fa le 18, una
+entra alle 12 e fa chiusura (eccezione solo se è un giorno speciale); quella che entra alle 10 non deve
+aver fatto chiusura la domenica precedente».
+
+Decisioni prese con lui prima di scrivere codice:
+- **Turno massimo**: 8 ore lavorate + 30' nei giorni feriali. Oltre le 8, fino a 10, solo nei giorni
+  speciali (sabato, domenica, festivi, eventi, calendario); le ore oltre le 8 sono straordinario **solo
+  se la settimana supera il contratto**. `REGOLE_DEFAULT.turnoMaxOre = 8`, migration 478 (NZ e Zago, da
+  10 a 8 nelle regole salvate e come default). La proposta resta entro le 8; la deroga `turno_lungo`
+  segnala i turni a mano più lunghi (feriale > 8, speciale > 10).
+- **Lunedì fisso**: tutti i negozi, lunedì non festivo, non evento, non caldo, non giorno speciale del
+  calendario, senza chiusura di metà giornata. Due turni: apertura (o pulizie) → 18, 12 → chiusura, mai
+  oltre il turno massimo (`orariDelLunedi`). Valmontone (pulizie dalle 9): 9-17:30 e 12-20.
+- Chi apre non ha chiuso la domenica prima (`chiHaChiuso`; domenica del mese prima da `chiusiDomenicaPrima`
+  in `PianiMensili`, dalla lettura dei turni di quella domenica nella proposta settimanale).
+- Responsabile e vice: almeno una, anche tutte e due (tolta la regola «mai tutte e due» di Roma Soratte:
+  niente costo `lunediDueGuide` nel motore, niente deroga `lunedi_due_guide`).
+- Chiavi: chi apre abilitata ad aprire, chi chiude a chiudere (dove la regola delle chiavi è attiva).
+- Preferenze nella scelta: niente coppia dei lunedì prima, rispetto di riposi preferiti/vietati e giorno
+  libero fisso, più ore libere nella settimana.
+- Nel motore i due turni sono **turni fissi** della settimana: per i passi della proposta il lunedì è non
+  disponibile per tutte e le ore del lunedì si tolgono a chi lo fa; per `ottimizzaSettimana` contano come
+  fissi della persona (`oreFisse`, `giornoFisso`). Escono nel piano come proposte in bozza.
+- Il fabbisogno del lunedì fisso è quello dei due turni (1, 2 dalle 12 alle 18, 1): il traffico non
+  aggiunge persone (`tettoDelLunedi` → `coperturaDelLunedi`).
+- Misura su dicembre 2026, 7 negozi NZ, organico pieno, dopo la correzione del doppio conteggio: tutti i
+  lunedì 10-18 + 12-20 (Valmontone 9-17:30, 28 lunedì su 28), nessun turno oltre le 8 ore, nessuna
+  apertura dopo una chiusura della domenica, 0 giorni con una persona sola, 0 senza riposo; ore scoperte
+  2,1 / 1,8 / 0 / 0 / 3,7 / 17,7 / 12,3 (Barberino, Brugnato, Franciacorta, Palmanova, Torino, Valdichiana,
+  Valmontone; prima 2,1 / 1,8 / 0 / 0 / 3,7 / 20,4 / 11,6).
+- Revisione (27/11/2026): la prima versione toglieva le ore del lunedì due volte dal contratto di chi lo
+  fa (i passi contano già da soli i turni fissi della persona): corretto, con la prova «chi fa il lunedì
+  non perde ore» in `lunediFisso.test.ts`. Anche i turni fissi della domenica (a mano, pubblicati) dicono
+  chi ha chiuso; nessun settimo giorno per chi lavora il lunedì; la riserva a chiamata non lavora il
+  lunedì fisso. `turni_proposti_riscrivi` controlla i turni fino a 10 ore (478), non al tetto salvato.
+- Le prove nate prima di questa data girano con `turnoMaxOre: 10` e `lunediFisso: false` (interruttore
+  interno, acceso sempre in produzione); le prove nuove sono in `src/lib/lunediFisso.test.ts`.

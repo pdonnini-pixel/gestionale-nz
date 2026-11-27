@@ -31,6 +31,7 @@ import {
 import { formattaDataBreve, oggiRoma } from '../lib/organico';
 import { caricaChiusurePerStima } from '../lib/organicoDati';
 import { stimaOrariEFabbisogno } from '../lib/stimaNegozio';
+import { TURNO_MAX_SPECIALI_ORE } from '../lib/lunediFisso';
 
 type Props = {
   companyId: string;
@@ -692,6 +693,8 @@ export default function OrariNegozio({ companyId, outletId, nomeNegozio, puoScri
               <input aria-label="Turno massimo, ore" type="number" min={1} max={12} step={0.5} disabled={!puoScrivere} className={`${inputCls} w-16 text-center`} value={regole.turnoMaxOre} onChange={(e) => setRegole((r) => ({ ...r, turnoMaxOre: Number(e.target.value) || 0 }))} />
             </span>
           </Riga>
+          {/* turno massimo dei feriali (Patrizio, 27/11/2026): oltre, fino a 10 ore, solo nei giorni speciali */}
+          <p className="text-xs text-slate-500 -mt-1">Il turno più lungo vale nei giorni feriali (8 ore lavorate più la pausa). Nei giorni speciali (sabato, domenica, festivi, eventi) un turno messo a mano può arrivare a {TURNO_MAX_SPECIALI_ORE} ore; le ore in più sono straordinario solo se la settimana supera il contratto. Il lunedì lavorano due persone, una dall'apertura alle 18 e una dalle 12 alla chiusura.</p>
           {ha403 && (
             <>
               <Riga etichetta="Giorni di lavoro a settimana, al massimo">

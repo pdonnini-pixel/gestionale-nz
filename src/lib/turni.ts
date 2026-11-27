@@ -105,6 +105,8 @@ export interface RegoleTurni {
    * Scelta del negozio (`outlet_shift_rules.lunedi_due_persone`, migration 408), spenta di default.
    */
   lunediDue?: boolean;
+  /** il lunedì fisso (27/11/2026): acceso sempre; false solo nelle prove delle altre regole */
+  lunediFisso?: boolean;
   /**
    * Servizi del negozio (Patrizio, 26/11/2026, migration 468): scarico merce e pulizie prima
    * dell'apertura. Li carica chi calcola i turni; senza, tutto come prima.
@@ -120,7 +122,8 @@ export const RIPOSO_LEGALE = 1;
 
 export const REGOLE_DEFAULT: RegoleTurni = {
   turnoMinOre: 4,
-  turnoMaxOre: 10,
+  // 8 ore lavorate + 30' nei giorni feriali (Patrizio, 27/11/2026; fino ad allora 10): oltre, solo nei giorni speciali
+  turnoMaxOre: 8,
   pausaOltreOre: 6,
   pausaMinuti: 10,
   pausaLungaOltreOre: 8,
