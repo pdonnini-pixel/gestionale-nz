@@ -6,7 +6,7 @@
 -- sulle righe con valore_teorico e costo_acquisto presenti; ingressi e scontrini restano su tutte.
 -- Al 27/11/2026 nessuna riga è senza importi né su NZ né su Zago: i numeri di oggi non cambiano.
 -- Il file 481 resta come applicato. Applicata su NZ → Zago. Niente di distruttivo.
--- Rollback: rieseguire la 481 originale (git show 4b5eb4b:supabase/migrations/20261127_481_cruscotto_direzione.sql).
+-- Rollback: 20261127_482_cruscotto_importi_moda_ROLLBACK.sql (rimette la funzione della 481).
 
 CREATE OR REPLACE FUNCTION public.cruscotto_direzione(p_anno integer)
 RETURNS jsonb
