@@ -65,6 +65,25 @@ export interface OrarioStampa {
   pubblicatoIl?: string | null;
   /** Data di oggi (YYYY-MM-DD), usata per la dicitura «Bozza del». */
   oggi: string;
+  /**
+   * Copertura oraria (Patrizio, 27/11/2026): se c'è, dopo l'orario si stampa una pagina con le
+   * persone in negozio mezz'ora per mezz'ora e quelle che servono. Giorni assenti o chiusi = colonna vuota.
+   */
+  copertura?: CoperturaGiorno[];
+}
+
+/** Una mezz'ora della copertura: chi c'è e quante persone servono (null = fabbisogno non noto). */
+export interface MezzoraCopertura {
+  /** Inizio della mezz'ora, HH:MM. */
+  ora: string;
+  persone: number;
+  servono: number | null;
+}
+
+export interface CoperturaGiorno {
+  /** YYYY-MM-DD */
+  data: string;
+  mezzore: MezzoraCopertura[];
 }
 
 // ─── Date e numeri ───────────────────────────────────────────────────────────
@@ -280,6 +299,38 @@ export function testoPiede(dati: Pick<OrarioStampa, 'pubblicatoIl' | 'oggi'>): s
   const elisione = giorno === 1 || giorno === 8 || giorno === 11;
   if (pubblicato) return elisione ? `Pubblicato l'${data}` : `Pubblicato il ${data}`;
   return elisione ? `Bozza dell'${data}` : `Bozza del ${data}`;
+}
+
+// ─── Copertura oraria ────────────────────────────────────────────────────────
+
+function hhmm(m: number): string {
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Le mezz'ore di un giorno da `apre` a `chiude` (minuti dalla mezzanotte) con quante persone
+ * hanno un turno in quella mezz'ora. Conta chi è in turno, come la copertura del gestionale:
+ * la pausa non toglie nessuno. `servono[i]` è il fabbisogno della mezz'ora i (dall'apertura).
+ */
+export function mezzoreCopertura(
+  apre: number,
+  chiude: number,
+  turni: { inizio: string; fine: string }[],
+  servono?: (number | null | undefined)[] | null,
+): MezzoraCopertura[] {
+  const out: MezzoraCopertura[] = [];
+  for (let m = apre, i = 0; m < chiude; m += 30, i++) {
+    // stessa regola della copertura del gestionale (coperturaLorda): conta chi è in turno all'inizio della mezz'ora
+    const persone = turni.filter((t) => m >= minuti(t.inizio) && m < minuti(t.fine)).length;
+    const s = servono?.[i];
+    out.push({ ora: hhmm(m), persone, servono: s == null ? null : Math.round(s) });
+  }
+  return out;
+}
+
+/** Riepilogo della copertura: mezz'ore con meno persone di quelle che servono, convertite in ore-persona. */
+export function oreSottoCopertura(giorni: CoperturaGiorno[]): number {
+  return giorni.reduce((a, g) => a + g.mezzore.reduce((b, x) => b + (x.servono != null ? Math.max(0, x.servono - x.persone) : 0), 0) / 2, 0);
 }
 
 // ─── Impaginazione ───────────────────────────────────────────────────────────
@@ -550,7 +601,7 @@ function pianoPagine(doc: jsPDF, dati: OrarioStampa): PianoPagine {
   return { colL, testataH, apre, chiude, apreH, chiudeH, altezze, gruppi, riduzione: Math.max(0.45, riduzione) };
 }
 
-function disegnaIntestazione(doc: jsPDF, dati: OrarioStampa): void {
+function disegnaIntestazione(doc: jsPDF, dati: OrarioStampa, etichetta = 'ORARIO DELLA SETTIMANA'): void {
   if (dati.marchio === 'newzago') {
     disegnaLogo(doc, MARGINE_SX, LOGO_Y, LOGO_H);
   } else {
@@ -560,7 +611,7 @@ function disegnaIntestazione(doc: jsPDF, dati: OrarioStampa): void {
 
   const primo = giorniMostrati(dati.giorni)[0];
   const settimana = primo ? ` ${numeroSettimana(primo.data)}` : '';
-  scrivi(doc, `ORARIO DELLA SETTIMANA${settimana}`, MARGINE_DX, 15.3, {
+  scrivi(doc, `${etichetta}${settimana}`, MARGINE_DX, 15.3, {
     size: 9, bold: true, colore: ROSA, spazio: 0.2, destra: true,
   });
   scrivi(doc, titoloPeriodo(dati.giorni), MARGINE_DX, 25.6, { size: 25, destra: true, maxL: 140 });
@@ -740,6 +791,82 @@ export function nomeFileOrarioMese(dati: Pick<OrarioStampa, 'negozio'>, mese: st
   return nomeFileOrario({ negozio: dati.negozio, giorni: [{ data: `${mese}-01`, nelMese: true, chiuso: false, apre: null, chiude: null }] } as OrarioStampa).replace(/-\d{2}\.pdf$/, '.pdf');
 }
 
+const ROSSO_COP: Rgb = [248, 196, 196];
+const VERDE_COP: Rgb = [206, 236, 212];
+const AZZURRO_COP: Rgb = [204, 224, 244];
+
+/**
+ * La pagina della copertura oraria: righe = mezz'ore, colonne = giorni. In ogni casella le persone
+ * in negozio e, se diverse, quelle che servono; il colore dice se ne mancano (rosso), se sono
+ * giuste (verde) o se ce n'è qualcuna in più (azzurro).
+ */
+function disegnaCopertura(doc: jsPDF, dati: OrarioStampa): void {
+  const copertura = dati.copertura ?? [];
+  doc.addPage('a4', 'landscape');
+  disegnaIntestazione(doc, dati, 'COPERTURA ORARIA · SETTIMANA');
+  const perData = new Map(copertura.map((g) => [g.data, g]));
+  const ore = [...new Set(copertura.flatMap((g) => g.mezzore.map((x) => x.ora)))].sort();
+  const colOra = 18;
+  const colL = (LARGH - colOra) / Math.max(1, dati.giorni.length);
+  const yTesta = TABELLA_Y;
+  const testaH = 11;
+  const fondo = FONDO_TABELLA - 6;
+  const rigaH = ore.length ? Math.min(7, (fondo - yTesta - testaH) / ore.length) : 7;
+  const size = Math.max(6, Math.min(9.5, rigaH * 1.45));
+
+  // Testata: giorno e data.
+  dati.giorni.forEach((g, i) => {
+    const x = MARGINE_SX + colOra + colL * i + 2;
+    const { giorno } = spezzaData(g.data);
+    const colore = g.nelMese ? NERO : GRIGIO_FUORI;
+    scrivi(doc, `${maiuscolo(GIORNI_BREVI[indiceGiorno(g.data)])} ${giorno}`, x, yTesta + 7, { size: 10, bold: indiceGiorno(g.data) >= 5, colore, maxL: colL - 3 });
+  });
+  scrivi(doc, 'ORA', MARGINE_SX, yTesta + 7, { size: 8, colore: GRIGIO, spazio: 0.1 });
+  linea(doc, yTesta + testaH, 0.3, NERO);
+
+  ore.forEach((ora, r) => {
+    const y = yTesta + testaH + rigaH * r;
+    scrivi(doc, ora, MARGINE_SX, y + rigaH * 0.68, { size: size * 0.9, colore: GRIGIO });
+    dati.giorni.forEach((g, i) => {
+      const x = MARGINE_SX + colOra + colL * i;
+      const giorno = perData.get(g.data);
+      const m = giorno?.mezzore.find((z) => z.ora === ora);
+      if (!g.nelMese || g.chiuso || !m) {
+        riempi(doc, x + 0.4, y + 0.3, colL - 0.8, rigaH - 0.6, GRIGIO_FONDO);
+        return;
+      }
+      const colore = m.servono == null ? BIANCO : m.persone < m.servono ? ROSSO_COP : m.persone > m.servono ? AZZURRO_COP : VERDE_COP;
+      riempi(doc, x + 0.4, y + 0.3, colL - 0.8, rigaH - 0.6, colore);
+      const testo = m.servono != null && m.servono !== m.persone ? `${m.persone} su ${m.servono}` : String(m.persone);
+      scrivi(doc, testo, x + colL / 2 - larghezza(doc, testo, size, true, 0) / 2, y + rigaH * 0.68, { size, bold: true });
+    });
+  });
+
+  // Chiusi: la scritta al centro della colonna.
+  dati.giorni.forEach((g, i) => {
+    if (!g.nelMese || !g.chiuso) return;
+    const x = MARGINE_SX + colOra + colL * i;
+    const t = 'CHIUSO';
+    scrivi(doc, t, x + colL / 2 - larghezza(doc, t, 9, false, 0.1) / 2, yTesta + testaH + 10, { size: 9, colore: GRIGIO_RIPOSO, spazio: 0.1 });
+  });
+
+  const legendaY = Math.min(fondo, yTesta + testaH + rigaH * ore.length) + 6;
+  const conFabbisogno = copertura.some((g) => g.mezzore.some((x) => x.servono != null));
+  if (conFabbisogno) {
+    let x = MARGINE_SX;
+    for (const [c, t] of [[ROSSO_COP, 'ne mancano'], [VERDE_COP, 'giuste'], [AZZURRO_COP, 'qualcuna in più']] as [Rgb, string][]) {
+      riempi(doc, x, legendaY - 3, 5, 4, c);
+      x += 6.5 + scrivi(doc, t, x + 6.5, legendaY, { size: 8, colore: GRIGIO }) + 6;
+    }
+    const sotto = oreSottoCopertura(copertura);
+    scrivi(doc, `In ogni casella: persone in turno e, se diverse, quelle che servono (traffico MODA e regole del negozio). Ore-persona che mancano: ${formattaOre(sotto)}.`,
+      x, legendaY, { size: 8, colore: GRIGIO, maxL: MARGINE_DX - x });
+  } else {
+    scrivi(doc, 'In ogni casella: persone in turno. Il fabbisogno di questi giorni non è disponibile.', MARGINE_SX, legendaY, { size: 8, colore: GRIGIO });
+  }
+  scrivi(doc, testoPiede(dati), MARGINE_DX, PIEDE_Y, { size: 8, colore: GRIGIO, destra: true });
+}
+
 function disegnaOrario(doc: jsPDF, dati: OrarioStampa, prima: boolean): void {
   const piano = pianoPagine(doc, dati);
   const unico = orarioUnico(dati.giorni);
@@ -763,4 +890,5 @@ function disegnaOrario(doc: jsPDF, dati: OrarioStampa, prima: boolean): void {
     // Nel piè di pagina c'è solo la data: nessuna nota, per scelta del cliente.
     scrivi(doc, piede, MARGINE_DX, PIEDE_Y, { size: 8, colore: GRIGIO, destra: true });
   });
+  if (dati.copertura && dati.copertura.length) disegnaCopertura(doc, dati);
 }
