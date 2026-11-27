@@ -11,6 +11,11 @@ import {
   ottimizzaSettimana, sceltePerLaSettimana, derogheSettimana, senzaRiposoDiLegge, coppia, coppiaDelGiorno, coppieDeiLunedi, straordinariDaRiscrivere, type TurnoSalvato,
 } from './ottimizzaTurni';
 import { personaAllaData, presenzaNeiTurni, type SchedaPersona, type EventoOrganico } from './organico';
+import { REGOLE_DEFAULT } from './turni';
+
+// Queste prove sono nate prima del 27/11/2026: tetto di 10 ore lavorate e lunedì pianificato come gli altri
+// giorni. Le regole nuove (turno massimo 8 ore, lunedì fisso) hanno le loro prove in lunediFisso.test.ts.
+Object.assign(REGOLE_DEFAULT, { turnoMaxOre: 10, lunediFisso: false });
 
 // Un negozio inventato sul modello di quello di prova: aperto 10-20, quattro persone,
 // giorni caldi accesi, due riposi a testa.
@@ -19,8 +24,8 @@ const riga = {
   giorni_lavoro_max: 6, soglia_ingressi_feriali: 25, soglia_ingressi_weekend: 35, due_persone: false, pausa_corta_pagata: true, giorni_pieni: true,
   riposi_min_settimana: 2, straordinari_pari: true, caldi_fasce_festivi: 'sabato', caldi_guida_apre_chiude: true, caldi_ore_apertura: 9, caldi_ore_apertura_attiva: true,
 };
-const regole = regoleDaRiga({ ...riga, lunedi_due_persone: true });
-const regoleSpente = regoleDaRiga(riga);
+const regole = { ...regoleDaRiga({ ...riga, lunedi_due_persone: true }), lunediFisso: false };
+const regoleSpente = { ...regoleDaRiga(riga), lunediFisso: false };
 const orari = [1, 2, 3, 4, 5, 6, 7].map((giorno) => ({ giorno, chiuso: false, apre: '10:00', chiude: '20:00' }));
 const fasceFeriali = (lunedi: number) => [1, 2, 3, 4, 5].flatMap((giorno) => [
   { giorno, dalle: '10:00', alle: '12:00', persone: 1, origine: 'manuale' },
@@ -100,7 +105,8 @@ describe('il lunedì a due persone', () => {
     expect(new Set(viste).size).toBeGreaterThanOrEqual(3);
   }, 60_000);
 
-  it('una sola fra responsabile e vice il lunedì, e le due si alternano da un lunedì all\'altro', () => {
+  // Dal 27/11/2026 (Patrizio) responsabile e vice possono lavorare insieme il lunedì: almeno una delle due c'è.
+  it('almeno una fra responsabile e vice il lunedì, sempre due persone', () => {
     const viste: string[] = [];
     const guide: string[] = [];
     for (const lunedi of ['2026-11-09', '2026-11-16', '2026-11-23', '2026-11-30']) {
@@ -108,11 +114,10 @@ describe('il lunedì a due persone', () => {
       const lun = chiIl(turni, lunedi);
       expect(lun).toHaveLength(2);
       const g = lun.filter((id) => id === 'anna' || id === 'bea');
-      expect(g).toHaveLength(1);
+      expect(g.length).toBeGreaterThanOrEqual(1);
       guide.push(g[0]);
       viste.unshift(coppiaDelGiorno(turni, lunedi)!);
     }
-    for (let i = 1; i < guide.length; i++) expect(guide[i]).not.toBe(guide[i - 1]);
   }, 60_000);
 
   it('una settimana di partenza che il conto rifiuta si rifà: riposo di legge anche contando i giorni dell\'altro mese', () => {
@@ -171,12 +176,12 @@ describe('il lunedì a due persone', () => {
     expect(senzaRiposoDiLegge(3, 0, 4)).toBe(false); // chi nel pezzo non lavora non si segnala
   });
 
-  it('la deroga: responsabile e vice insieme il lunedì', () => {
+  it('responsabile e vice insieme il lunedì non sono più una deroga (27/11/2026)', () => {
     const giorni = settimana('2026-11-16');
     const t = (employeeId: string, data: string, inizio: string, fine: string): Turno => ({ employeeId, data, inizio, fine, pausaMinuti: 0 });
     const args = { giorni, persone: persone().map((p) => ({ ...p, nome: p.id })), regole, guida: { responsabile: 'anna', vice: 'bea' } };
     const insieme = derogheSettimana({ ...args, turni: [t('anna', '2026-11-16', '10:00', '18:00'), t('bea', '2026-11-16', '12:00', '20:00')] });
-    expect(insieme.map((d) => d.regola)).toContain('lunedi_due_guide');
+    expect(insieme.map((d) => d.regola)).not.toContain('lunedi_due_guide');
     const una = derogheSettimana({ ...args, turni: [t('anna', '2026-11-16', '10:00', '18:00'), t('carla', '2026-11-16', '12:00', '20:00')] });
     expect(una.map((d) => d.regola)).not.toContain('lunedi_due_guide');
   });

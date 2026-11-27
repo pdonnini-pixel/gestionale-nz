@@ -45,6 +45,7 @@ import {
   giornoIso, applicaChiusure,
 } from '../lib/turni';
 import { turniCheValgono, type PianoDelMese } from '../lib/turniFuoriMese';
+import { eLunediFisso, scegliLunedi, chiHaChiuso } from '../lib/lunediFisso';
 
 type Props = {
   companyId: string;
@@ -613,17 +614,41 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         .filter((t) => t.stato !== 'annullato' && !(t.origine === 'proposta' && t.stato === 'bozza'))
         .map((t) => ({ employeeId: t.employee_id, data: t.data, inizio: t.inizio, fine: t.fine, pausaMinuti: t.pausa_minuti }));
       // chi viene qui in trasferta e copre il negozio conta come presenza
-      const fissiTutti = [...fissi, ...copertureVerso(trasferte, outletId)];
-      const proposta = proponiSettimana({ giorni, persone: candidati, regole, fissi: fissiTutti });
-      // Mai un giorno con una persona sola (Patrizio, 28/10/2026); i turni a mano non si toccano.
-      const conDue = almenoDuePersone(giorni, proposta.turni, candidati, [], regole, fissiTutti);
-      // Ultimo passo (Patrizio, 11/11/2026): weekend tutti, giorno libero fisso, coppie
-      // dei feriali a rotazione, lunedi' con responsabile o vice, ore fino al contratto.
+      const fissiEsterni = [...fissi, ...copertureVerso(trasferte, outletId)];
       const liberi = riposoATurnazione ? liberiValidi : scegliGiorniLiberi(candidati.map((c) => c.id), new Map([...giorniLiberi].map(([id, g]) => [id, g.giorno])), guida);
       const coppiePrima = await caricaCoppiePrima(companyId, outletId, date[0]);
-      const lunediVisti = regole.lunediDue ? await caricaLunediPrima(companyId, outletId, date[0]) : [];
+      // le coppie dei lunedì prima servono a non ripetere la stessa coppia del lunedì fisso (27/11/2026)
+      const lunediVisti = await caricaLunediPrima(companyId, outletId, date[0]);
+      // Il lunedì fisso (Patrizio, 27/11/2026): una persona apre e fa fino alle 18, l'altra entra alle 12 e
+      // chiude; chi apre non ha chiuso la domenica prima. Si sceglie qui e diventa un turno fisso della
+      // proposta. Se il lunedì ha già turni a mano o pubblicati, si pianifica come prima.
+      const lunG = giorni.find((g) => giornoIso(g.data) === 1);
+      let lunFissi: Turno[] = [];
+      if (lunG && eLunediFisso(lunG, regole) && !fissiEsterni.some((t) => t.data === lunG.data)) {
+        const dom = aggiungiGiorni(lunG.data, -1);
+        const [td, pd] = await Promise.all([
+          supabase.from('shifts').select('employee_id, data, inizio, fine, pausa_minuti, plan_id, outlet_id, origine, stato').eq('company_id', companyId).eq('outlet_id', outletId).eq('data', dom).neq('stato', 'annullato'),
+          supabase.from('shift_plans').select('id, outlet_id, mese, stato, simulazione, created_at').eq('company_id', companyId).eq('mese', `${dom.slice(0, 7)}-01`),
+        ]);
+        if (td.error || pd.error) throw new Error(`turni di domenica ${formattaDataBreve(dom)} non letti: ${(td.error ?? pd.error)?.message ?? 'errore'}`);
+        const valgono = turniCheValgono((td.data as unknown as { employee_id: string; data: string; inizio: string; fine: string; pausa_minuti: number | null; plan_id: string | null; outlet_id: string; origine: string | null; stato: string | null }[]) ?? [], (pd.data as PianoDelMese[] | null) ?? []);
+        const chiusoDomenica = chiHaChiuso(valgono.map((x) => ({ employeeId: x.employee_id, data: x.data, fine: t5(x.fine) })), dom);
+        lunFissi = scegliLunedi({
+          g: lunG, persone: candidati, regole, guida: { responsabile: guidaTurni.responsabile, vice: guidaTurni.vice }, chiavi,
+          chiusoDomenica, lunediPrima: lunediVisti, riposi: riposiMotore, giornoLibero: riposoATurnazione ? undefined : liberi,
+        }) ?? [];
+      }
+      const oreLun = (id: string) => lunFissi.filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
+      const candidatiOtt = lunFissi.length && lunG ? candidati.map((c) => ({ ...c, nonDisponibile: new Set([...c.nonDisponibile, lunG.data]) })) : candidati;
+      const candidatiPre = lunFissi.length ? candidatiOtt.map((c) => ({ ...c, ore: Math.max(0, c.ore - oreLun(c.id)) })) : candidati;
+      const fissiTutti = [...fissiEsterni, ...lunFissi];
+      const proposta = proponiSettimana({ giorni, persone: candidatiPre, regole, fissi: fissiTutti });
+      // Mai un giorno con una persona sola (Patrizio, 28/10/2026); i turni a mano non si toccano.
+      const conDue = almenoDuePersone(giorni, proposta.turni, candidatiPre, [], regole, fissiTutti);
+      // Ultimo passo (Patrizio, 11/11/2026): weekend tutti, giorno libero fisso, coppie
+      // dei feriali a rotazione, lunedi' con responsabile o vice, ore fino al contratto.
       // in fondo, la chiusura di meta' giornata (446): nessun turno comincia o finisce li' dentro
-      const sistemati = applicaChiusure(giorni, ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidati, regole,
+      const ottimizzati = applicaChiusure(giorni, ottimizzaSettimana(giorni, conDue.filter((t) => !fissiTutti.includes(t)), candidatiOtt, regole,
         {
           // con la tabella dei riposi i giorni preferiti arrivano da li' (anche piu' di uno a testa)
           giornoLibero: riposoATurnazione ? undefined : liberi, guida, coppiePrima, lunediPrima: lunediVisti,
@@ -631,13 +656,15 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
           // giorni caldi, apertura e chiusura fra responsabile e vice, riposi, straordinari pari: vuoto dove il negozio non li ha
           ...sceltePerLaSettimana({ giorni, regole, responsabile: guidaTurni.responsabile, vice: guidaTurni.vice, riposi: riposiMotore, giorniFuori: 7 - date.length }),
         }, fissiTutti), regole);
+      // i due turni del lunedì fisso sono turni della proposta come gli altri
+      const sistemati = [...ottimizzati, ...lunFissi];
       if (haGiorniLiberi && !riposoATurnazione) await salvaGiorniLiberiDiSistema(companyId, liberi, giorniLiberi).catch(() => undefined);
-      const esito = { ...proposta, turni: sistemati, scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, [...sistemati, ...fissiTutti])) };
+      const esito = { ...proposta, turni: sistemati, scoperture: giorni.flatMap((g) => scopertureDelGiorno(g, [...sistemati, ...fissiEsterni])) };
       if (esito.turni.length) {
         // nei negozi con i giorni a massima intensita' lo straordinario della settimana si scrive sui turni dei giorni forti
         const straordDi = regole.giorniPieni
           // il contratto che resta dopo i turni gia' fissati (a mano, pubblicati, trasferte): la proposta non li contiene
-          ? ripartisciStraordinari(esito.turni, new Map(candidati.map((c) => [c.id, c.ore - fissiTutti.filter((f) => f.employeeId === c.id).reduce((x, f) => x + oreLavorate(f), 0)])), new Set(giorni.filter((g) => !g.chiuso && (g.straordinariCaldo || g.straordinari)).map((g) => g.data)))
+          ? ripartisciStraordinari(esito.turni, new Map(candidati.map((c) => [c.id, c.ore - fissiEsterni.filter((f) => f.employeeId === c.id).reduce((x, f) => x + oreLavorate(f), 0)])), new Set(giorni.filter((g) => !g.chiuso && (g.straordinariCaldo || g.straordinari)).map((g) => g.data)))
           : new Map<Turno, number>();
         const { error } = await supabase.from('shifts').insert(esito.turni.map((t) => ({
           company_id: companyId, outlet_id: outletId, employee_id: t.employeeId, data: t.data,
@@ -649,7 +676,7 @@ export default function PianoTurni({ companyId, outletId, nomeNegozio, dati, puo
         })));
         if (error) throw error;
       }
-      const fatte = (id: string) => [...sistemati, ...fissiTutti].filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
+      const fatte = (id: string) => [...sistemati, ...fissiEsterni].filter((t) => t.employeeId === id).reduce((a, t) => a + oreLavorate(t), 0);
       const libere = candidati.reduce((a, c) => a + Math.max(0, c.ore - fatte(c.id)), 0);
       const straord = candidati.reduce((a, c) => a + Math.max(0, fatte(c.id) - c.ore), 0);
       const perFerie = (libere > 0.25 ? ` Non servono ${oreInChiaro(libere)}${Math.round(libere * 60) % 30 === 0 ? ' ore' : ''} di contratto: restano per ferie e permessi, le vedi nella colonna Ore.` : '')

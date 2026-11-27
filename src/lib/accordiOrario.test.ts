@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { fasciaIl, orePossibiliSettimana, puoLavorareIl, testoAccordo, type Accordo } from './accordiOrario';
+import { REGOLE_DEFAULT } from './turni';
+
+// Queste prove sono nate prima del 27/11/2026: tetto di 10 ore lavorate e lunedì pianificato come gli altri
+// giorni. Le regole nuove (turno massimo 8 ore, lunedì fisso) hanno le loro prove in lunediFisso.test.ts.
+Object.assign(REGOLE_DEFAULT, { turnoMaxOre: 10, lunediFisso: false });
 
 const accordo = (x: Partial<Accordo>): Accordo => ({ giorni: [1, 2, 3, 4, 5, 6, 7], fasce: {}, validoDal: null, validoAl: null, nota: null, ...x });
 const aperto10 = Object.fromEntries([1, 2, 3, 4, 5, 6, 7].map((g) => [g, { apre: 600, chiude: 1200 }]));
