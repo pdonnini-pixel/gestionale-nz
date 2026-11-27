@@ -37,7 +37,7 @@ import {
   SLOT_MINUTI, REGOLE_DEFAULT, RIPOSO_LEGALE, LUNEDI_MAX_PERSONE, giornoIso, giornoPieno, hhmm, minuti, oreLavorate, pausaMinimaPerPresenza, limitiPersona, pausaDelTurno,
   type GiornoPiano, type PersonaTurni, type RegoleTurni, type Turno, eFestivo,
 } from './turni';
-import { eLunediFisso, orariDelLunedi, TURNO_MAX_SPECIALI_ORE } from './lunediFisso';
+import { eFeriale, eLunediFisso, LAVORO_VIETATO_FERIALE_MINUTI, orariDelLunedi, TURNO_MAX_SPECIALI_ORE } from './lunediFisso';
 
 export interface RegoleNuove {
   /** giorno libero fisso di ognuno (1 = lunedi' ... 7 = domenica) */
@@ -317,6 +317,8 @@ interface Quadro {
   minLavoro: number;
   /** ore lavorate per ogni presenza (indice = presenza / mezz'ora) */
   lav: number[];
+  /** presenza vietata nel giorno (8 ore = 7 e mezza pagate + 30' nei feriali), -1 se nessuna */
+  vieta: number[];
   /** chi apre e chi chiude in ogni giorno caldo (indice fra le persone, o -1), e la presenza di chi apre */
   apreP: number[];
   chiudeP: number[];
@@ -423,6 +425,7 @@ function costo(q: Quadro, st: Stato): number {
     for (let p = 0; p < P; p++) {
       const x = st[p][riga];
       if (!x) continue;
+      if (x.w === q.vieta[d]) return Infinity;
       inTurno[quanti++] = p;
       const h = lavP(q, d, x);
       ore[p] += h;
@@ -1116,6 +1119,11 @@ function prepara(
   } as Quadro;
   const guidaIds = (nuove.guida ?? []).length >= 2 ? nuove.guida! : [];
   q.iso = giorni.map((g) => giornoIso(g.data));
+  // Nei feriali niente turno da 7 ore e mezza pagate + 30' (Patrizio, 27/11/2026): il turno pieno e' 8 + 30'.
+  {
+    const i = q.lav.findIndex((h) => Math.abs(h * 60 - LAVORO_VIETATO_FERIALE_MINUTI) < 1e-9);
+    q.vieta = giorni.map((g) => (i >= 0 && !g.chiuso && !g.chiusura && eFeriale(g) ? i * SLOT_MINUTI : -1));
+  }
   // sabato, domenica, festivi e giorni di evento: lavorano tutti, la responsabile fa il suo orario
   q.pieno = giorni.map((g) => (nuove.giorniPieni ? nuove.giorniPieni.has(g.data) : giornoIso(g.data) >= 6));
   q.straordCaldo = giorni.map((g, d) => (nuove.giorniStraordinari ? nuove.giorniStraordinari.has(g.data) : q.pieno[d]));
@@ -1215,6 +1223,25 @@ function prepara(
     if (w < minLavoro || w > l.max || minuti(t.inizio) < l.apre || minuti(t.fine) > l.chiude) { fuoriStato.push(t); continue; }
     partenza[p][d] = { s, w };
   }
+  // 7 ore e mezza pagate in un feriale (Patrizio, 27/11/2026): si porta a 8 + 30' se c'e' posto
+  // nell'orario e nel contratto della settimana, altrimenti a 7 + 30'.
+  persone.forEach((pers, p) => {
+    let ore = q.oreFisse[p] + partenza[p].reduce((a, x, d) => a + (x ? lavP(q, d, x) : 0), 0);
+    partenza[p].forEach((x, d) => {
+      if (!x || x.w !== q.vieta[d]) return;
+      const l = q.limiti[p][d];
+      const piu = x.w + SLOT_MINUTI;
+      const delta = q.lav[piu / SLOT_MINUTI] - q.lav[x.w / SLOT_MINUTI];
+      const nelContratto = piu <= l.max && ore + delta <= pers.ore + 1e-9;
+      if (nelContratto && x.s + piu <= l.chiude) { partenza[p][d] = { s: x.s, w: piu }; ore += delta; }
+      else if (nelContratto && x.s - SLOT_MINUTI >= l.apre) { partenza[p][d] = { s: x.s - SLOT_MINUTI, w: piu }; ore += delta; }
+      else {
+        const meno = x.w - SLOT_MINUTI;
+        ore -= q.lav[x.w / SLOT_MINUTI] - q.lav[meno / SLOT_MINUTI];
+        partenza[p][d] = { s: x.s, w: meno };
+      }
+    });
+  });
   // Il tetto delle ore: il contratto, o le ore della partenza se erano di piu'. Oltre il
   // contratto si va con le ore dei giorni di evento, del sabato e della domenica; quelle che
   // la partenza aveva gia' in piu' nei feriali (straordinari ammessi, anticipo) restano.
