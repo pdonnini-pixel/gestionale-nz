@@ -1134,8 +1134,8 @@ function TdAltroMese({ turni, outletId, nomeDi }: { turni: { inizio: string; fin
   return (
     <td className="px-1.5 py-1.5 align-top bg-slate-50">
       <div className="w-full min-h-[40px] rounded-md px-1.5 py-1 text-xs text-center text-slate-500">
-        {turni.length ? turni.map((t) => (
-          <span key={`${t.inizio}-${t.fine}`} className="block font-mono">
+        {turni.length ? turni.map((t, i) => (
+          <span key={`${t.outlet_id}-${t.inizio}-${t.fine}-${i}`} className="block font-mono">
             {t.inizio}-{t.fine}
             {t.outlet_id !== outletId && <span className="block font-sans text-[10px]">a {nomeDi(t.outlet_id)}</span>}
           </span>
